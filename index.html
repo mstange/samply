@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<meta charset="utf-8">
+<title>profiler get symbols wasm test page</title>
+
+<body>
+
+<script src="profiler_get_symbols.js"></script>
+
+<input type="file" onchange="doStuff()">
+
+<script>
+
+const { CompactSymbolTable } = wasm_bindgen;
+
+const request = new Request('./profiler_get_symbols_bg.wasm', {
+  integrity: 'sha384-Ub4T/SvOP/q3I2I7Qidqv5NeVBQgI47XyHq1/b1Yoog56aVpBujSe7UCwAHNfms5'
+});
+
+WebAssembly.compileStreaming(fetch(request)).then(module => {
+  return wasm_bindgen(module);
+}).catch(error => {
+  console.error(error);
+});
+
+function doStuff() {
+  const fileReader = new FileReader();
+  fileReader.readAsArrayBuffer(document.querySelector("input[type=file]").files[0]);
+  fileReader.onload = function () {
+    const wasm = wasm_bindgen.wasm;
+    const data = new Uint8Array(fileReader.result);
+
+    const dataBufLen = data.byteLength;
+    const dataBufPtr = wasm.__wbindgen_malloc(dataBufLen);
+    const dataBuf = new Uint8Array(wasm.memory.buffer, dataBufPtr, dataBufLen);
+    dataBuf.set(data);
+
+    const buf = (new TextEncoder('utf-8')).encode("9A17C927793A367980DCB52BDA8ED3220");
+    const breakpadIdLen = buf.length;
+    const breakpadIdPtr = wasm.__wbindgen_malloc(breakpadIdLen);
+    (new Uint8Array(wasm.memory.buffer)).set(buf, breakpadIdPtr);
+
+    const output = new CompactSymbolTable();
+
+    const succeeded =
+        wasm.get_compact_symbol_table(dataBufPtr, dataBufLen, breakpadIdPtr, breakpadIdLen, output.ptr) !== 0;
+    wasm.__wbindgen_free(breakpadIdPtr, breakpadIdLen);
+    wasm.__wbindgen_free(dataBufPtr, dataBufLen);
+
+    console.log(succeeded);
+    const [addr, index, buffer] = [output.take_addr(), output.take_index(), output.take_buffer()];
+    output.free();
+
+    console.log(addr.length, index.length, buffer.length);
+  }
+}
+
+
+</script>
