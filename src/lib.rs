@@ -1,10 +1,12 @@
 extern crate goblin;
 extern crate object;
+extern crate pdb as pdb_crate;
 extern crate wasm_bindgen;
 
 mod compact_symbol_table;
 mod elf;
 mod macho;
+mod pdb;
 
 use wasm_bindgen::prelude::*;
 
@@ -64,7 +66,9 @@ fn get_compact_symbol_table_impl(
                     }
                 }
             }
-            _ => (),
+            _ => {
+                return pdb::get_compact_symbol_table(binary_data, breakpad_id);
+            }
         }
     }
     None

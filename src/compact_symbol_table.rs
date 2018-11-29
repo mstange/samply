@@ -1,5 +1,6 @@
-use std::collections::HashMap;
 use object::{Object, SymbolKind};
+use std::collections::HashMap;
+use std::ops::Deref;
 
 #[repr(C)]
 pub struct CompactSymbolTable {
@@ -17,14 +18,14 @@ impl CompactSymbolTable {
         }
     }
 
-    pub fn from_map(map: HashMap<u32, &str>) -> Self {
+    pub fn from_map<T: Deref<Target = str>>(map: HashMap<u32, T>) -> Self {
         let mut table = Self::new();
         let mut entries: Vec<_> = map.into_iter().collect();
         entries.sort_by_key(|&(addr, _)| addr);
         for (addr, name) in entries {
             table.addr.push(addr);
             table.index.push(table.buffer.len() as u32);
-            table.add_name(name);
+            table.add_name(&name);
         }
         table.index.push(table.buffer.len() as u32);
         table

@@ -14,7 +14,7 @@
 const { CompactSymbolTable } = wasm_bindgen;
 
 const request = new Request('./profiler_get_symbols_bg.wasm', {
-  integrity: 'sha384-Ub4T/SvOP/q3I2I7Qidqv5NeVBQgI47XyHq1/b1Yoog56aVpBujSe7UCwAHNfms5'
+  integrity: 'sha384-tYb18wjMaQ0byeEvZs2GNge+cRn9I0/A5/9W7OKnkLEcyb7ZXjYI1NaD26nrALvB'
 });
 
 WebAssembly.compileStreaming(fetch(request)).then(module => {
@@ -35,7 +35,7 @@ function doStuff() {
     const dataBuf = new Uint8Array(wasm.memory.buffer, dataBufPtr, dataBufLen);
     dataBuf.set(data);
 
-    const buf = (new TextEncoder('utf-8')).encode("9A17C927793A367980DCB52BDA8ED3220");
+    const buf = (new TextEncoder('utf-8')).encode("480CA8C436FC4D32A1EC677B538E4FF71");
     const breakpadIdLen = buf.length;
     const breakpadIdPtr = wasm.__wbindgen_malloc(breakpadIdLen);
     (new Uint8Array(wasm.memory.buffer)).set(buf, breakpadIdPtr);
