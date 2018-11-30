@@ -10,7 +10,7 @@ pub fn get_compact_symbol_table(buffer: &[u8], breakpad_id: &str) -> Option<Comp
     let id = format!(
         "{}{:x}",
         format!("{}", info.guid.simple()).to_uppercase(),
-        info.age - 1
+        info.age
     );
 
     if id != breakpad_id {
