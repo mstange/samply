@@ -7,14 +7,18 @@
 
 <script src="profiler_get_symbols.js"></script>
 
-<input type="file" onchange="doStuff()">
+<p>Binary: <input type="file" id="binary"></p>
+<p>Debug: <input type="file" id="debug"></p>
+<p>Breakpad ID: <input type="text" id="breakpadId" size="40"></p>
+
+<p><input type="button" value="Gather the symbols and print the result to the web console" onclick="doStuff()"></p>
 
 <script>
 
 const { CompactSymbolTable } = wasm_bindgen;
 
 const request = new Request('./profiler_get_symbols_bg.wasm', {
-  integrity: 'sha384-Xm0eEceAu2ktc9hEzRZWb9mzblShGsP1/PYtWZeimHX3E+Dkj8/psnFvisNmHkXY'
+  integrity: 'sha384-SvdVO0hIA4xaHjOhXsEHCUvQVy4W/io2cjW8tQpjCxSKxP4dFlhZ16m7TKTiVywO'
 });
 
 WebAssembly.compileStreaming(fetch(request)).then(module => {
@@ -23,37 +27,63 @@ WebAssembly.compileStreaming(fetch(request)).then(module => {
   console.error(error);
 });
 
-function doStuff() {
-  const fileReader = new FileReader();
-  fileReader.readAsArrayBuffer(document.querySelector("input[type=file]").files[0]);
-  fileReader.onload = function () {
-    const wasm = wasm_bindgen.wasm;
-    const data = new Uint8Array(fileReader.result);
-
-    const dataBufLen = data.byteLength;
-    const dataBufPtr = wasm.__wbindgen_malloc(dataBufLen);
-    const dataBuf = new Uint8Array(wasm.memory.buffer, dataBufPtr, dataBufLen);
-    dataBuf.set(data);
-
-    const buf = (new TextEncoder('utf-8')).encode("480CA8C436FC4D32A1EC677B538E4FF72");
-    const breakpadIdLen = buf.length;
-    const breakpadIdPtr = wasm.__wbindgen_malloc(breakpadIdLen);
-    (new Uint8Array(wasm.memory.buffer)).set(buf, breakpadIdPtr);
-
-    const output = new CompactSymbolTable();
-
-    const succeeded =
-        wasm.get_compact_symbol_table(dataBufPtr, dataBufLen, breakpadIdPtr, breakpadIdLen, output.ptr) !== 0;
-    wasm.__wbindgen_free(breakpadIdPtr, breakpadIdLen);
-    wasm.__wbindgen_free(dataBufPtr, dataBufLen);
-
-    console.log(succeeded);
-    const [addr, index, buffer] = [output.take_addr(), output.take_index(), output.take_buffer()];
-    output.free();
-
-    console.log(addr.length, index.length, buffer.length);
-  }
+function getFileResultOrUndefined(fileInput) {
+  return new Promise((resolve, reject) => {
+    if (!fileInput.files[0]) {
+      resolve();
+      return;
+    }
+    const fileReader = new FileReader();
+    fileReader.readAsArrayBuffer(fileInput.files[0]);
+    fileReader.onload = function () {
+      resolve(fileReader.result);
+    };
+    fileReader.onerror = function () {
+      resolve();
+    };
+  }).catch(() => {});
 }
 
+async function doStuff() {
+  const binaryFileResult = await getFileResultOrUndefined(document.querySelector("#binary"));
+  const debugFileResult = await getFileResultOrUndefined(document.querySelector("#debug"));
+
+  const wasm = wasm_bindgen.wasm;
+
+  const binaryData = new Uint8Array(binaryFileResult);
+  const binaryDataBufLen = binaryData.byteLength;
+  const binaryDataBufPtr = wasm.__wbindgen_malloc(binaryDataBufLen);
+  (new Uint8Array(wasm.memory.buffer)).set(binaryData, binaryDataBufPtr);
+
+  let debugDataBufLen = binaryDataBufLen;
+  let debugDataBufPtr = binaryDataBufPtr;
+  if (debugFileResult) {
+    const debugData = new Uint8Array(debugFileResult);
+    debugDataBufLen = debugData.byteLength;
+    debugDataBufPtr = wasm.__wbindgen_malloc(debugDataBufLen);
+    (new Uint8Array(wasm.memory.buffer)).set(debugData, debugDataBufPtr);
+  }
+
+  const buf = (new TextEncoder('utf-8')).encode(document.querySelector("#breakpadId").value);
+  const breakpadIdLen = buf.length;
+  const breakpadIdPtr = wasm.__wbindgen_malloc(breakpadIdLen);
+  (new Uint8Array(wasm.memory.buffer)).set(buf, breakpadIdPtr);
+
+  const output = new CompactSymbolTable();
+
+  const succeeded =
+      wasm.get_compact_symbol_table(binaryDataBufPtr, binaryDataBufLen, debugDataBufPtr, debugDataBufLen, breakpadIdPtr, breakpadIdLen, output.ptr) !== 0;
+  wasm.__wbindgen_free(breakpadIdPtr, breakpadIdLen);
+  wasm.__wbindgen_free(binaryDataBufPtr, binaryDataBufLen);
+  if (debugDataBufPtr != binaryDataBufPtr) {
+    wasm.__wbindgen_free(debugDataBufPtr, debugDataBufLen);
+  }
+
+  console.log(succeeded);
+  const [addr, index, buffer] = [output.take_addr(), output.take_index(), output.take_buffer()];
+  output.free();
+
+  console.log(addr.length, index.length, buffer.length);
+}
 
 </script>

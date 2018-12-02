@@ -52,19 +52,22 @@
     }
     /**
     * @param {Uint8Array} arg0
-    * @param {string} arg1
-    * @param {CompactSymbolTable} arg2
+    * @param {Uint8Array} arg1
+    * @param {string} arg2
+    * @param {CompactSymbolTable} arg3
     * @returns {boolean}
     */
-    __exports.get_compact_symbol_table = function(arg0, arg1, arg2) {
+    __exports.get_compact_symbol_table = function(arg0, arg1, arg2, arg3) {
         const [ptr0, len0] = passArray8ToWasm(arg0);
-        const [ptr1, len1] = passStringToWasm(arg1);
+        const [ptr1, len1] = passArray8ToWasm(arg1);
+        const [ptr2, len2] = passStringToWasm(arg2);
         try {
-            return (wasm.get_compact_symbol_table(ptr0, len0, ptr1, len1, arg2.ptr)) !== 0;
+            return (wasm.get_compact_symbol_table(ptr0, len0, ptr1, len1, ptr2, len2, arg3.ptr)) !== 0;
 
         } finally {
             wasm.__wbindgen_free(ptr0, len0 * 1);
             wasm.__wbindgen_free(ptr1, len1 * 1);
+            wasm.__wbindgen_free(ptr2, len2 * 1);
 
         }
 

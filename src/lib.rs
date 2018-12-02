@@ -1,6 +1,8 @@
 extern crate goblin;
 extern crate object;
 extern crate pdb as pdb_crate;
+extern crate scroll;
+extern crate uuid;
 extern crate wasm_bindgen;
 
 mod compact_symbol_table;
@@ -46,6 +48,7 @@ impl CompactSymbolTable {
 
 fn get_compact_symbol_table_impl(
     binary_data: &[u8],
+    debug_data: &[u8],
     breakpad_id: &str,
 ) -> Option<compact_symbol_table::CompactSymbolTable> {
     let mut reader = Cursor::new(binary_data);
@@ -66,9 +69,10 @@ fn get_compact_symbol_table_impl(
                     }
                 }
             }
-            _ => {
-                return pdb::get_compact_symbol_table(binary_data, breakpad_id);
+            Hint::PE => {
+                return pdb::get_compact_symbol_table(binary_data, debug_data, breakpad_id);
             }
+            _ => {}
         }
     }
     None
@@ -77,10 +81,11 @@ fn get_compact_symbol_table_impl(
 #[wasm_bindgen]
 pub fn get_compact_symbol_table(
     binary_data: &[u8],
+    debug_data: &[u8],
     breakpad_id: &str,
     dest: &mut CompactSymbolTable,
 ) -> bool {
-    match get_compact_symbol_table_impl(binary_data, breakpad_id) {
+    match get_compact_symbol_table_impl(binary_data, debug_data, breakpad_id) {
         Some(table) => {
             dest.addr = table.addr;
             dest.index = table.index;
