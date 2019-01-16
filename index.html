@@ -53,7 +53,7 @@ async function doStuff() {
   const binaryData = new Uint8Array(binaryFileResult);
   const binaryDataBufLen = binaryData.byteLength;
   const binaryDataBufPtr = wasm.__wbindgen_malloc(binaryDataBufLen);
-  (new Uint8Array(wasm.memory.buffer)).set(binaryData, binaryDataBufPtr);
+  new Uint8Array(wasm.memory.buffer).set(binaryData, binaryDataBufPtr);
 
   let debugDataBufLen = binaryDataBufLen;
   let debugDataBufPtr = binaryDataBufPtr;
@@ -61,10 +61,10 @@ async function doStuff() {
     const debugData = new Uint8Array(debugFileResult);
     debugDataBufLen = debugData.byteLength;
     debugDataBufPtr = wasm.__wbindgen_malloc(debugDataBufLen);
-    (new Uint8Array(wasm.memory.buffer)).set(debugData, debugDataBufPtr);
+    new Uint8Array(wasm.memory.buffer).set(debugData, debugDataBufPtr);
   }
 
-  const buf = (new TextEncoder('utf-8')).encode(document.querySelector("#breakpadId").value);
+  const buf = new TextEncoder('utf-8').encode(document.querySelector("#breakpadId").value);
   const breakpadIdLen = buf.length;
   const breakpadIdPtr = wasm.__wbindgen_malloc(breakpadIdLen);
   (new Uint8Array(wasm.memory.buffer)).set(buf, breakpadIdPtr);
