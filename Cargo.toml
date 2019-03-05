@@ -5,9 +5,9 @@ authors = ["Markus Stange <mstange@themasta.com>"]
 license = "MIT/Apache-2.0"
 
 [dependencies]
-pdb = { git = "https://github.com/mcnulty/pdb/", branch="procedure-symbol" }
+pdb = "0.3.0"
 scroll = "0.9.2"
-uuid = "0.5.1"
+uuid = "0.7.2"
 wasm-bindgen = "0.2.32"
 
 [dependencies.object]

@@ -70,7 +70,7 @@ fn get_compact_symbol_table_impl(
                 }
             }
             Hint::PE => {
-                return pdb::get_compact_symbol_table(binary_data, debug_data, breakpad_id);
+                return pdb::get_compact_symbol_table(debug_data, breakpad_id);
             }
             _ => {}
         }
