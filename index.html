@@ -18,12 +18,16 @@
 const { CompactSymbolTable } = wasm_bindgen;
 
 const request = new Request('./profiler_get_symbols_bg.wasm', {
-  integrity: 'sha384-SvdVO0hIA4xaHjOhXsEHCUvQVy4W/io2cjW8tQpjCxSKxP4dFlhZ16m7TKTiVywO'
+  integrity: 'sha384-li3YiyXQ6ckoYyU6/y/pYMJJe4Zam0zHU/gGnbKhHY4W/sz2ZRtrXL+A6KHo1nkY'
 });
+
+let wasm;
 
 WebAssembly.compileStreaming(fetch(request)).then(module => {
   return wasm_bindgen(module);
-}).catch(error => {
+}).then(wasm_ => {
+  wasm = wasm_;
+}, error => {
   console.error(error);
 });
 
@@ -47,8 +51,6 @@ function getFileResultOrUndefined(fileInput) {
 async function doStuff() {
   const binaryFileResult = await getFileResultOrUndefined(document.querySelector("#binary"));
   const debugFileResult = await getFileResultOrUndefined(document.querySelector("#debug"));
-
-  const wasm = wasm_bindgen.wasm;
 
   const binaryData = new Uint8Array(binaryFileResult);
   const binaryDataBufLen = binaryData.byteLength;
