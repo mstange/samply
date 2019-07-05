@@ -15,19 +15,15 @@
 
 <script>
 
-const { CompactSymbolTable } = wasm_bindgen;
+const { CompactSymbolTable, WasmMemBuffer, get_compact_symbol_table } = wasm_bindgen;
 
 const request = new Request('./profiler_get_symbols_bg.wasm', {
-  integrity: 'sha384-li3YiyXQ6ckoYyU6/y/pYMJJe4Zam0zHU/gGnbKhHY4W/sz2ZRtrXL+A6KHo1nkY'
+  integrity: 'sha384-M2W3W2BtD9YMqY7qazBXrFvc1L4vJNGtHGRS3fLMYi3erihmUmHX4PE5E+1eFJYL'
 });
-
-let wasm;
 
 WebAssembly.compileStreaming(fetch(request)).then(module => {
   return wasm_bindgen(module);
-}).then(wasm_ => {
-  wasm = wasm_;
-}, error => {
+}).catch(error => {
   console.error(error);
 });
 
@@ -52,33 +48,32 @@ async function doStuff() {
   const binaryFileResult = await getFileResultOrUndefined(document.querySelector("#binary"));
   const debugFileResult = await getFileResultOrUndefined(document.querySelector("#debug"));
 
-  const binaryData = new Uint8Array(binaryFileResult);
-  const binaryDataBufLen = binaryData.byteLength;
-  const binaryDataBufPtr = wasm.__wbindgen_malloc(binaryDataBufLen);
-  new Uint8Array(wasm.memory.buffer).set(binaryData, binaryDataBufPtr);
-
-  let debugDataBufLen = binaryDataBufLen;
-  let debugDataBufPtr = binaryDataBufPtr;
-  if (debugFileResult) {
-    const debugData = new Uint8Array(debugFileResult);
-    debugDataBufLen = debugData.byteLength;
-    debugDataBufPtr = wasm.__wbindgen_malloc(debugDataBufLen);
-    new Uint8Array(wasm.memory.buffer).set(debugData, debugDataBufPtr);
+  if (!binaryFileResult) {
+    return;
   }
 
-  const buf = new TextEncoder('utf-8').encode(document.querySelector("#breakpadId").value);
-  const breakpadIdLen = buf.length;
-  const breakpadIdPtr = wasm.__wbindgen_malloc(breakpadIdLen);
-  (new Uint8Array(wasm.memory.buffer)).set(buf, breakpadIdPtr);
+  const binaryData = new WasmMemBuffer(binaryFileResult.byteLength, array => {
+    array.set(new Uint8Array(binaryFileResult));
+  });
+  let debugData = binaryData;
+  if (debugFileResult) {
+    debugData = new WasmMemBuffer(debugFileResult.byteLength, array => {
+      array.set(new Uint8Array(debugFileResult));
+    });
+  }
+
+  console.log(binaryData, debugData);
+
+  const breakpadId = document.querySelector("#breakpadId").value;
 
   const output = new CompactSymbolTable();
 
   const succeeded =
-      wasm.get_compact_symbol_table(binaryDataBufPtr, binaryDataBufLen, debugDataBufPtr, debugDataBufLen, breakpadIdPtr, breakpadIdLen, output.ptr) !== 0;
-  wasm.__wbindgen_free(breakpadIdPtr, breakpadIdLen);
-  wasm.__wbindgen_free(binaryDataBufPtr, binaryDataBufLen);
-  if (debugDataBufPtr != binaryDataBufPtr) {
-    wasm.__wbindgen_free(debugDataBufPtr, debugDataBufLen);
+      get_compact_symbol_table(binaryData, debugData, breakpadId, output);
+
+  binaryData.free();
+  if (debugData != binaryData) {
+    debugData.free();
   }
 
   console.log(succeeded);

@@ -1,4 +1,5 @@
 extern crate goblin;
+extern crate js_sys;
 extern crate object;
 extern crate pdb as pdb_crate;
 extern crate scroll;
@@ -46,6 +47,47 @@ impl CompactSymbolTable {
     }
 }
 
+/// WasmMemBuffer lets you allocate a chunk of memory on the wasm heap and
+/// directly initialize it from JS without a copy. The constructor takes the
+/// allocation size and a callback function which does the initialization.
+/// This is useful if you need to get very large amounts of data from JS into
+/// wasm (for example, the contents of a 1.7GB libxul.so).
+#[wasm_bindgen]
+pub struct WasmMemBuffer {
+    buffer: Vec<u8>,
+}
+
+#[wasm_bindgen]
+impl WasmMemBuffer {
+    /// Create the buffer and initialize it synchronously in the callback function.
+    /// f is called with one argument: the Uint8Array that wraps our buffer.
+    /// f should not return anything; its return value is ignored.
+    /// f must not call any exported wasm functions! Anything that causes the
+    /// wasm heap to resize will invalidate the typed array's internal buffer!
+    /// Do not hold on to the array that is passed to f after f completes.
+    #[wasm_bindgen(constructor)]
+    pub fn new(byte_length: u32, f: &js_sys::Function) -> Self {
+        // See https://github.com/rustwasm/wasm-bindgen/issues/1643 for how
+        // to improve this method.
+        let mut buffer = vec![0; byte_length as usize];
+        unsafe {
+            // Let JavaScript fill the buffer without making a copy.
+            // We give the callback function access to the wasm memory via a
+            // JS Uint8Array which wraps the underlying wasm memory buffer at
+            // the appropriate offset and length.
+            // The callback function is supposed to mutate the contents of
+            // buffer. However, the "&mut" here is a bit of a lie:
+            // Uint8Array::view takes an immutable reference to a slice, not a
+            // mutable one. This is rather sketchy but seems to work for now.
+            // https://github.com/rustwasm/wasm-bindgen/issues/1079#issuecomment-508577627
+            let array = js_sys::Uint8Array::view(&mut buffer);
+            f.call1(&JsValue::NULL, &JsValue::from(array))
+                .expect("The callback function should not throw");
+        }
+        Self { buffer }
+    }
+}
+
 fn get_compact_symbol_table_impl(
     binary_data: &[u8],
     debug_data: &[u8],
@@ -80,12 +122,12 @@ fn get_compact_symbol_table_impl(
 
 #[wasm_bindgen]
 pub fn get_compact_symbol_table(
-    binary_data: &[u8],
-    debug_data: &[u8],
+    binary_data: &WasmMemBuffer,
+    debug_data: &WasmMemBuffer,
     breakpad_id: &str,
     dest: &mut CompactSymbolTable,
 ) -> bool {
-    match get_compact_symbol_table_impl(binary_data, debug_data, breakpad_id) {
+    match get_compact_symbol_table_impl(&binary_data.buffer, &debug_data.buffer, breakpad_id) {
         Some(table) => {
             dest.addr = table.addr;
             dest.index = table.index;
