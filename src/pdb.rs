@@ -4,19 +4,12 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::Cursor;
 
-pub fn get_compact_symbol_table(
-    pdb_data: &[u8],
-    breakpad_id: &str,
-) -> Option<CompactSymbolTable> {
+pub fn get_compact_symbol_table(pdb_data: &[u8], breakpad_id: &str) -> Option<CompactSymbolTable> {
     // Now, parse the PDB and check it against the expected breakpad_id.
     let pdb_reader = Cursor::new(pdb_data);
     let mut pdb = PDB::open(pdb_reader).ok()?;
     let info = pdb.pdb_information().ok()?;
-    let pdb_id = format!(
-        "{}{:x}",
-        format!("{:X}", info.guid.to_simple()),
-        info.age
-    );
+    let pdb_id = format!("{}{:x}", format!("{:X}", info.guid.to_simple()), info.age);
 
     if pdb_id != breakpad_id {
         return None;
@@ -34,10 +27,7 @@ pub fn get_compact_symbol_table(
                 function: true,
                 offset,
                 ..
-            })) => Some((
-                offset.to_rva(&addr_map)?.0,
-                symbol.name().ok()?.to_string(),
-            )),
+            })) => Some((offset.to_rva(&addr_map)?.0, symbol.name().ok()?.to_string())),
             _ => None,
         })
         .collect()
@@ -54,10 +44,7 @@ pub fn get_compact_symbol_table(
             let info = pdb.module_info(&module).ok()?;
             let mut symbols = info.symbols().ok()?;
             while let Some(symbol) = symbols.next().ok()? {
-                if let Ok(SymbolData::Procedure(ProcedureSymbol {
-                    offset, ..
-                })) = symbol.parse()
-                {
+                if let Ok(SymbolData::Procedure(ProcedureSymbol { offset, .. })) = symbol.parse() {
                     let name = symbol.name().ok()?;
                     hashmap
                         .entry(offset.to_rva(&addr_map)?.0)
