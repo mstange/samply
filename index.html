@@ -18,7 +18,7 @@
 const { CompactSymbolTable, WasmMemBuffer, get_compact_symbol_table } = wasm_bindgen;
 
 const request = new Request('./profiler_get_symbols_bg.wasm', {
-  integrity: 'sha384-M2W3W2BtD9YMqY7qazBXrFvc1L4vJNGtHGRS3fLMYi3erihmUmHX4PE5E+1eFJYL'
+  integrity: 'sha384-jfLN2yLb/rX6rtIKFF4zrCyDXzhUOmmOmO9IydNWixvxOqHd4cVMmjFKHBSfZVFN'
 });
 
 WebAssembly.compileStreaming(fetch(request)).then(module => {
@@ -66,17 +66,15 @@ async function doStuff() {
 
   const breakpadId = document.querySelector("#breakpadId").value;
 
-  const output = new CompactSymbolTable();
-
-  const succeeded =
-      get_compact_symbol_table(binaryData, debugData, breakpadId, output);
+  const output =
+      get_compact_symbol_table(binaryData, debugData, breakpadId);
 
   binaryData.free();
   if (debugData != binaryData) {
     debugData.free();
   }
 
-  console.log(succeeded);
+  console.log(output);
   const [addr, index, buffer] = [output.take_addr(), output.take_index(), output.take_buffer()];
   output.free();
 

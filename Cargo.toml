@@ -8,8 +8,11 @@ license = "MIT/Apache-2.0"
 pdb = "0.3.0"
 scroll = "0.9.2"
 uuid = "0.7.2"
-wasm-bindgen = "0.2.47"
 js-sys = "0.3.24"
+wasm-bindgen = {version = "0.2.48", features = ["serde-serialize"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_derive = "^1.0.59"
+
 
 [dependencies.object]
 version = "0.10.0"

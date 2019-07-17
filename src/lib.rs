@@ -3,20 +3,23 @@ extern crate js_sys;
 extern crate object;
 extern crate pdb as pdb_crate;
 extern crate scroll;
+extern crate serde;
+extern crate serde_derive;
 extern crate uuid;
 extern crate wasm_bindgen;
 
 mod compact_symbol_table;
 mod elf;
+mod error;
 mod macho;
 mod pdb;
 
 use wasm_bindgen::prelude::*;
 
+use crate::error::{GetSymbolsError, GetSymbolsErrorJson, Result};
+use goblin::{mach, Hint};
 use std::io::Cursor;
 use std::mem;
-
-use goblin::{mach, Hint};
 
 #[wasm_bindgen]
 pub struct CompactSymbolTable {
@@ -92,32 +95,30 @@ fn get_compact_symbol_table_impl(
     binary_data: &[u8],
     debug_data: &[u8],
     breakpad_id: &str,
-) -> Option<compact_symbol_table::CompactSymbolTable> {
+) -> Result<compact_symbol_table::CompactSymbolTable> {
     let mut reader = Cursor::new(binary_data);
-    if let Ok(hint) = goblin::peek(&mut reader) {
-        match hint {
-            Hint::Elf(_) => {
-                return elf::get_compact_symbol_table(binary_data, breakpad_id);
-            }
-            Hint::Mach(_) => {
-                return macho::get_compact_symbol_table(binary_data, breakpad_id);
-            }
-            Hint::MachFat(_) => {
-                let multi_arch = mach::MultiArch::new(binary_data).ok()?;
-                for fat_arch in multi_arch.iter_arches().filter_map(Result::ok) {
-                    let arch_slice = fat_arch.slice(binary_data);
-                    if let Some(table) = macho::get_compact_symbol_table(arch_slice, breakpad_id) {
-                        return Some(table);
-                    }
+    match goblin::peek(&mut reader)? {
+        Hint::Elf(_) => elf::get_compact_symbol_table(binary_data, breakpad_id),
+        Hint::Mach(_) => macho::get_compact_symbol_table(binary_data, breakpad_id),
+        Hint::MachFat(_) => {
+            let mut first_error = None;
+            let multi_arch = mach::MultiArch::new(binary_data)?;
+            for fat_arch in multi_arch.iter_arches().filter_map(std::result::Result::ok) {
+                let arch_slice = fat_arch.slice(binary_data);
+                match macho::get_compact_symbol_table(arch_slice, breakpad_id) {
+                    Ok(table) => return Ok(table),
+                    Err(err) => first_error = Some(err),
                 }
             }
-            Hint::PE => {
-                return pdb::get_compact_symbol_table(debug_data, breakpad_id);
-            }
-            _ => {}
+            Err(first_error.unwrap_or_else(|| {
+                GetSymbolsError::InvalidInputError("Incompatible system architecture")
+            }))
         }
+        Hint::PE => pdb::get_compact_symbol_table(debug_data, breakpad_id),
+        _ => Err(GetSymbolsError::InvalidInputError(
+            "goblin::peek fails to read",
+        )),
     }
-    None
 }
 
 #[wasm_bindgen]
@@ -125,15 +126,16 @@ pub fn get_compact_symbol_table(
     binary_data: &WasmMemBuffer,
     debug_data: &WasmMemBuffer,
     breakpad_id: &str,
-    dest: &mut CompactSymbolTable,
-) -> bool {
+) -> std::result::Result<CompactSymbolTable, JsValue> {
     match get_compact_symbol_table_impl(&binary_data.buffer, &debug_data.buffer, breakpad_id) {
-        Some(table) => {
-            dest.addr = table.addr;
-            dest.index = table.index;
-            dest.buffer = table.buffer;
-            true
+        Result::Ok(table) => Ok(CompactSymbolTable {
+            addr: table.addr,
+            index: table.index,
+            buffer: table.buffer,
+        }),
+        Result::Err(err) => {
+            let result = GetSymbolsErrorJson::from_error(err);
+            Err(JsValue::from_serde(&result).unwrap())
         }
-        None => false,
     }
 }

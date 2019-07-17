@@ -1,18 +1,24 @@
+use crate::error::{GetSymbolsError, Result};
 use compact_symbol_table::CompactSymbolTable;
 use goblin::elf;
 use object::{ElfFile, Object, Uuid};
 use std::cmp;
-
 const UUID_SIZE: usize = 16;
 const PAGE_SIZE: usize = 4096;
 
-pub fn get_compact_symbol_table(buffer: &[u8], breakpad_id: &str) -> Option<CompactSymbolTable> {
-    let elf_file = ElfFile::parse(buffer).ok()?;
-    let elf_id = get_elf_id(&elf_file, buffer)?;
-    if format!("{:X}0", elf_id.simple()) != breakpad_id {
-        return None;
+pub fn get_compact_symbol_table(buffer: &[u8], breakpad_id: &str) -> Result<CompactSymbolTable> {
+    let elf_file = ElfFile::parse(buffer)
+        .map_err(|_| GetSymbolsError::InvalidInputError("Could not parse ELF header"))?;
+    let elf_id = get_elf_id(&elf_file, buffer)
+        .ok_or_else(|| GetSymbolsError::InvalidInputError("id cannot be read"))?;
+    let elf_id_string = format!("{:X}0", elf_id.simple());
+    if elf_id_string != breakpad_id {
+        return Err(GetSymbolsError::UnmatchedBreakpadId(
+            elf_id_string,
+            breakpad_id.to_string(),
+        ));
     }
-    return Some(CompactSymbolTable::from_object(&elf_file));
+    Ok(CompactSymbolTable::from_object(&elf_file))
 }
 
 fn create_elf_id(identifier: &[u8], little_endian: bool) -> Option<Uuid> {
