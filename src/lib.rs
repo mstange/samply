@@ -101,18 +101,16 @@ fn get_compact_symbol_table_impl(
         Hint::Elf(_) => elf::get_compact_symbol_table(binary_data, breakpad_id),
         Hint::Mach(_) => macho::get_compact_symbol_table(binary_data, breakpad_id),
         Hint::MachFat(_) => {
-            let mut first_error = None;
+            let mut errors = vec![];
             let multi_arch = mach::MultiArch::new(binary_data)?;
             for fat_arch in multi_arch.iter_arches().filter_map(std::result::Result::ok) {
                 let arch_slice = fat_arch.slice(binary_data);
                 match macho::get_compact_symbol_table(arch_slice, breakpad_id) {
                     Ok(table) => return Ok(table),
-                    Err(err) => first_error = Some(err),
+                    Err(err) => errors.push(err),
                 }
             }
-            Err(first_error.unwrap_or_else(|| {
-                GetSymbolsError::InvalidInputError("Incompatible system architecture")
-            }))
+            Err(GetSymbolsError::NoMatchMultiArch(errors))
         }
         Hint::PE => pdb::get_compact_symbol_table(debug_data, breakpad_id),
         _ => Err(GetSymbolsError::InvalidInputError(

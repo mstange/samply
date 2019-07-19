@@ -8,6 +8,7 @@ pub type Result<T> = std::result::Result<T, GetSymbolsError>;
 #[derive(Debug)]
 pub enum GetSymbolsError {
     UnmatchedBreakpadId(String, String),
+    NoMatchMultiArch(Vec<GetSymbolsError>),
     PDBError(PDBError),
     InvalidInputError(&'static str),
     GoblinError(GoblinError),
@@ -34,6 +35,14 @@ impl fmt::Display for GetSymbolsError {
                 "Unmatched breakpad_id: Expected {}, but received {}",
                 expected, actual
             ),
+            GetSymbolsError::NoMatchMultiArch(ref errors) => {
+                let error_strings: Vec<String> = errors.iter().map(|e| format!("{}", e)).collect();
+                write!(
+                    f,
+                    "No match in multi-arch binary, errors: {}",
+                    error_strings.join(", ")
+                )
+            }
             GetSymbolsError::PDBError(ref pdb_error) => {
                 write!(f, "pdb_crate error: {}", pdb_error.to_string())
             }
@@ -54,6 +63,7 @@ impl GetSymbolsError {
     fn enum_as_string(&self) -> &'static str {
         match *self {
             GetSymbolsError::UnmatchedBreakpadId(_, _) => "UnmatchedBreakpadId",
+            GetSymbolsError::NoMatchMultiArch(_) => "NoMatchMultiArch",
             GetSymbolsError::PDBError(_) => "PDBError",
             GetSymbolsError::InvalidInputError(_) => "InvalidInputError",
             GetSymbolsError::GoblinError(_) => "GoblinError",
