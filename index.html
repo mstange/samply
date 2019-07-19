@@ -62,23 +62,34 @@ async function doStuff() {
     });
   }
 
-  console.log(binaryData, debugData);
-
   const breakpadId = document.querySelector("#breakpadId").value;
 
-  const output =
-      get_compact_symbol_table(binaryData, debugData, breakpadId);
+  try {
+    const output =
+        get_compact_symbol_table(binaryData, debugData, breakpadId);
+
+    const [addr, index, buffer] = [output.take_addr(), output.take_index(), output.take_buffer()];
+    output.free();
+    console.log([addr, index, buffer]);
+    console.log(`Received symbol table with ${addr.length} symbols:`);
+    console.log(symbolTableToSymbolMapObj([addr, index, buffer]));
+  } catch (e) {
+    console.error("Caught exception:", e);
+  }
 
   binaryData.free();
   if (debugData != binaryData) {
     debugData.free();
   }
+}
 
-  console.log(output);
-  const [addr, index, buffer] = [output.take_addr(), output.take_index(), output.take_buffer()];
-  output.free();
-
-  console.log(addr.length, index.length, buffer.length);
+function symbolTableToSymbolMapObj([addr, index, buffer]) {
+  const textDecoder = new TextDecoder();
+  const mapObj = {};
+  for (let i = 0; i < addr.length; i++) {
+    mapObj[`0x${addr[i].toString(16)}`] = textDecoder.decode(buffer.subarray(index[i], index[i + 1]));
+  }
+  return mapObj;
 }
 
 </script>
