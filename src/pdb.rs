@@ -48,9 +48,10 @@ pub fn get_compact_symbol_table(pdb_data: &[u8], breakpad_id: &str) -> Result<Co
     if let Ok(dbi) = pdb.debug_information() {
         let mut modules = dbi.modules().map_err(annotate("dbi.modules()"))?;
         while let Some(module) = modules.next().map_err(annotate("modules.next()"))? {
-            let info = pdb
-                .module_info(&module)
-                .map_err(annotate("module_info(&module)"))?;
+            let info = match pdb.module_info(&module) {
+                Ok(info) => info,
+                _ => continue,
+            };
             let mut symbols = info.symbols().map_err(annotate("info.symbols()"))?;
             while let Ok(Some(symbol)) = symbols.next() {
                 let offset = match symbol.parse() {
