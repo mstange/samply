@@ -18,7 +18,7 @@
 const { CompactSymbolTable, WasmMemBuffer, get_compact_symbol_table } = wasm_bindgen;
 
 const request = new Request('./profiler_get_symbols_bg.wasm', {
-  integrity: 'sha384-VRFfKl0kmBkz26beICb5cnae04MM1VstaiakQGc+sTdM1C5scyoEI6p0invqfttp'
+  integrity: 'sha384-j3yi9w4c0htaLb6WVFZydSiHv71OezuUN+n8fD2go77a5FhP9zTwyfCMZC5rZv+r'
 });
 
 WebAssembly.compileStreaming(fetch(request)).then(module => {

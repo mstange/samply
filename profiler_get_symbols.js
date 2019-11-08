@@ -350,18 +350,18 @@ function init(module) {
         const ret = wasm.memory;
         return addHeapObject(ret);
     };
-    imports.wbg.__wbg_buffer_e04d67bf3bf41917 = function(arg0) {
+    imports.wbg.__wbg_buffer_aa8ebea80955a01a = function(arg0) {
         const ret = getObject(arg0).buffer;
         return addHeapObject(ret);
     };
-    imports.wbg.__wbg_newwithbyteoffsetandlength_9cfc37146f8a28ba = function(arg0, arg1, arg2) {
+    imports.wbg.__wbg_newwithbyteoffsetandlength_3e607c21646a8aef = function(arg0, arg1, arg2) {
         const ret = new Uint8Array(getObject(arg0), arg1 >>> 0, arg2 >>> 0);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_object_drop_ref = function(arg0) {
         takeObject(arg0);
     };
-    imports.wbg.__wbg_call_3d24f4e03e010931 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbg_call_9c879b23724d007e = function(arg0, arg1, arg2) {
         try {
             const ret = getObject(arg0).call(getObject(arg1), getObject(arg2));
             return addHeapObject(ret);
