@@ -52,19 +52,14 @@ pub fn get_compact_symbol_table(pdb_data: &[u8], breakpad_id: &str) -> Result<Co
                 .module_info(&module)
                 .map_err(annotate("module_info(&module)"))?;
             let mut symbols = info.symbols().map_err(annotate("info.symbols()"))?;
-            while let Some(symbol) = symbols.next().map_err(annotate("symbols.next()"))? {
-                if let Ok(SymbolData::Procedure(ProcedureSymbol { offset, .. })) = symbol.parse() {
-                    let name = symbol.name().map_err(annotate("symbol.name()"))?;
-                    let query = offset
-                        .to_rva(&addr_map)
-                        .ok_or_else(|| {
-                            GetSymbolsError::InvalidInputError(
-                                "Failed to map offset to rva using PDB file",
-                            )
-                        })?
-                        .0;
+            while let Ok(Some(symbol)) = symbols.next() {
+                let offset = match symbol.parse() {
+                    Ok(SymbolData::Procedure(ProcedureSymbol { offset, .. })) => offset,
+                    _ => continue,
+                };
+                if let (Ok(name), Some(query)) = (symbol.name(), offset.to_rva(&addr_map)) {
                     hashmap
-                        .entry(query)
+                        .entry(query.0)
                         .or_insert_with(|| Cow::from(name.to_string().into_owned()));
                 }
             }
