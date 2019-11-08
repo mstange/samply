@@ -9,7 +9,7 @@ pub type Result<T> = std::result::Result<T, GetSymbolsError>;
 pub enum GetSymbolsError {
     UnmatchedBreakpadId(String, String),
     NoMatchMultiArch(Vec<GetSymbolsError>),
-    PDBError(PDBError),
+    PDBError(&'static str, PDBError),
     InvalidInputError(&'static str),
     GoblinError(GoblinError),
     MachOHeaderParseError(&'static str),
@@ -17,7 +17,7 @@ pub enum GetSymbolsError {
 
 impl From<PDBError> for GetSymbolsError {
     fn from(err: PDBError) -> GetSymbolsError {
-        GetSymbolsError::PDBError(err)
+        GetSymbolsError::PDBError("Unknown", err)
     }
 }
 
@@ -43,9 +43,12 @@ impl fmt::Display for GetSymbolsError {
                     error_strings.join(", ")
                 )
             }
-            GetSymbolsError::PDBError(ref pdb_error) => {
-                write!(f, "pdb_crate error: {}", pdb_error.to_string())
-            }
+            GetSymbolsError::PDBError(invocation_description, ref pdb_error) => write!(
+                f,
+                "pdb_crate error: {} ({})",
+                pdb_error.to_string(),
+                invocation_description
+            ),
             GetSymbolsError::InvalidInputError(ref invalid_input) => {
                 write!(f, "Invalid input: {}", invalid_input)
             }
@@ -64,7 +67,7 @@ impl GetSymbolsError {
         match *self {
             GetSymbolsError::UnmatchedBreakpadId(_, _) => "UnmatchedBreakpadId",
             GetSymbolsError::NoMatchMultiArch(_) => "NoMatchMultiArch",
-            GetSymbolsError::PDBError(_) => "PDBError",
+            GetSymbolsError::PDBError(_, _) => "PDBError",
             GetSymbolsError::InvalidInputError(_) => "InvalidInputError",
             GetSymbolsError::GoblinError(_) => "GoblinError",
             GetSymbolsError::MachOHeaderParseError(_) => "MachOHeaderParseError",

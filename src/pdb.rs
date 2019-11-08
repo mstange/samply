@@ -5,11 +5,15 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::Cursor;
 
+fn annotate(invocation_description: &'static str) -> impl Fn(pdb::Error) -> GetSymbolsError {
+    move |err| GetSymbolsError::PDBError(invocation_description, err)
+}
+
 pub fn get_compact_symbol_table(pdb_data: &[u8], breakpad_id: &str) -> Result<CompactSymbolTable> {
     // Now, parse the PDB and check it against the expected breakpad_id.
     let pdb_reader = Cursor::new(pdb_data);
     let mut pdb = PDB::open(pdb_reader)?;
-    let info = pdb.pdb_information()?;
+    let info = pdb.pdb_information().map_err(annotate("pdb_information"))?;
     let pdb_id = format!("{}{:x}", format!("{:X}", info.guid.to_simple()), info.age);
 
     if pdb_id != breakpad_id {
@@ -20,10 +24,10 @@ pub fn get_compact_symbol_table(pdb_data: &[u8], breakpad_id: &str) -> Result<Co
     }
 
     // Now, gather the symbols into a hashmap.
-    let addr_map = pdb.address_map()?;
+    let addr_map = pdb.address_map().map_err(annotate("address_map"))?;
 
     // Start with the public function symbols.
-    let global_symbols = pdb.global_symbols()?;
+    let global_symbols = pdb.global_symbols().map_err(annotate("global_symbols"))?;
     let mut hashmap: HashMap<_, _> = global_symbols
         .iter()
         .filter_map(|symbol| match symbol.parse() {
@@ -42,13 +46,15 @@ pub fn get_compact_symbol_table(pdb_data: &[u8], breakpad_id: &str) -> Result<Co
     // function signature whereas the procedure symbol only has the function
     // name itself.
     if let Ok(dbi) = pdb.debug_information() {
-        let mut modules = dbi.modules()?;
-        while let Some(module) = modules.next()? {
-            let info = pdb.module_info(&module)?;
-            let mut symbols = info.symbols()?;
-            while let Some(symbol) = symbols.next()? {
+        let mut modules = dbi.modules().map_err(annotate("dbi.modules()"))?;
+        while let Some(module) = modules.next().map_err(annotate("modules.next()"))? {
+            let info = pdb
+                .module_info(&module)
+                .map_err(annotate("module_info(&module)"))?;
+            let mut symbols = info.symbols().map_err(annotate("info.symbols()"))?;
+            while let Some(symbol) = symbols.next().map_err(annotate("symbols.next()"))? {
                 if let Ok(SymbolData::Procedure(ProcedureSymbol { offset, .. })) = symbol.parse() {
-                    let name = symbol.name()?;
+                    let name = symbol.name().map_err(annotate("symbol.name()"))?;
                     let query = offset
                         .to_rva(&addr_map)
                         .ok_or_else(|| {
