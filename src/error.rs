@@ -1,5 +1,5 @@
 use goblin::error::Error as GoblinError;
-use pdb_crate::Error as PDBError;
+use crate::pdb_crate::Error as PDBError;
 use serde::Serialize;
 use std::fmt::{self};
 
@@ -28,7 +28,7 @@ impl From<GoblinError> for GetSymbolsError {
 }
 
 impl fmt::Display for GetSymbolsError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             GetSymbolsError::UnmatchedBreakpadId(ref expected, ref actual) => write!(
                 f,

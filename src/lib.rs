@@ -1,12 +1,8 @@
-extern crate goblin;
-extern crate js_sys;
-extern crate object;
 extern crate pdb as pdb_crate;
-extern crate scroll;
-extern crate serde;
-extern crate serde_derive;
-extern crate uuid;
-extern crate wasm_bindgen;
+
+use goblin;
+use js_sys;
+use wasm_bindgen;
 
 mod compact_symbol_table;
 mod elf;

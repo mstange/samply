@@ -3,6 +3,7 @@ name = "profiler-get-symbols"
 version = "0.1.0"
 authors = ["Markus Stange <mstange@themasta.com>"]
 license = "MIT/Apache-2.0"
+edition = "2018"
 
 [dependencies]
 pdb = "0.3.0"

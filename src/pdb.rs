@@ -1,6 +1,6 @@
 use crate::error::{GetSymbolsError, Result};
-use compact_symbol_table::CompactSymbolTable;
-use pdb_crate::{FallibleIterator, ProcedureSymbol, PublicSymbol, SymbolData, PDB};
+use crate::compact_symbol_table::CompactSymbolTable;
+use crate::pdb_crate::{FallibleIterator, ProcedureSymbol, PublicSymbol, SymbolData, PDB};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::Cursor;

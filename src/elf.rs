@@ -1,5 +1,5 @@
 use crate::error::{GetSymbolsError, Result};
-use compact_symbol_table::CompactSymbolTable;
+use crate::compact_symbol_table::CompactSymbolTable;
 use goblin::elf;
 use object::{ElfFile, Object, Uuid};
 use std::cmp;
@@ -51,7 +51,7 @@ fn create_elf_id(identifier: &[u8], little_endian: bool) -> Option<Uuid> {
 /// processor does.
 ///
 /// If all of the above fails, this function will return `None`.
-pub fn get_elf_id(elf_file: &ElfFile, data: &[u8]) -> Option<Uuid> {
+pub fn get_elf_id(elf_file: &ElfFile<'_>, data: &[u8]) -> Option<Uuid> {
     if let Some(identifier) = elf_file.build_id() {
         return create_elf_id(identifier, elf_file.elf().little_endian);
     }
@@ -72,7 +72,7 @@ pub fn get_elf_id(elf_file: &ElfFile, data: &[u8]) -> Option<Uuid> {
 }
 
 /// Returns a reference to the data of the the .text section in an ELF binary.
-fn find_text_section<'elf, 'data>(elf: &'elf elf::Elf, data: &'data [u8]) -> Option<&'data [u8]> {
+fn find_text_section<'elf, 'data>(elf: &'elf elf::Elf<'_>, data: &'data [u8]) -> Option<&'data [u8]> {
     elf.section_headers.iter().find_map(|header| {
         match (header.sh_type, elf.shdr_strtab.get(header.sh_name)) {
             (elf::section_header::SHT_PROGBITS, Some(Ok(".text"))) => {
