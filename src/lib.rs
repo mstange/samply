@@ -18,6 +18,7 @@ use std::io::Cursor;
 use std::mem;
 
 #[wasm_bindgen]
+#[derive(Default)]
 pub struct CompactSymbolTable {
     addr: Vec<u32>,
     index: Vec<u32>,
@@ -28,11 +29,7 @@ pub struct CompactSymbolTable {
 impl CompactSymbolTable {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
-        Self {
-            addr: vec![],
-            index: vec![],
-            buffer: vec![],
-        }
+        CompactSymbolTable::default()
     }
 
     pub fn take_addr(&mut self) -> Vec<u32> {

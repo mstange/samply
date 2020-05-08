@@ -55,7 +55,7 @@ impl fmt::Display for GetSymbolsError {
             GetSymbolsError::GoblinError(ref goblin_error) => {
                 write!(f, "goblin error: {}", goblin_error.to_string())
             }
-            GetSymbolsError::MachOHeaderParseError(ref err_msg) => {
+            GetSymbolsError::MachOHeaderParseError(err_msg) => {
                 write!(f, "MachOHeader parsing error: {}", err_msg.to_string())
             }
         }
