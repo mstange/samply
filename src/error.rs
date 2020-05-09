@@ -1,5 +1,6 @@
-use goblin::error::Error as GoblinError;
 use crate::pdb_crate::Error as PDBError;
+use goblin::error::Error as GoblinError;
+use object;
 use serde::Serialize;
 use std::fmt::{self};
 
@@ -12,7 +13,7 @@ pub enum GetSymbolsError {
     PDBError(&'static str, PDBError),
     InvalidInputError(&'static str),
     GoblinError(GoblinError),
-    MachOHeaderParseError(&'static str),
+    MachOHeaderParseError(object::read::Error),
 }
 
 impl From<PDBError> for GetSymbolsError {
@@ -55,8 +56,8 @@ impl fmt::Display for GetSymbolsError {
             GetSymbolsError::GoblinError(ref goblin_error) => {
                 write!(f, "goblin error: {}", goblin_error.to_string())
             }
-            GetSymbolsError::MachOHeaderParseError(err_msg) => {
-                write!(f, "MachOHeader parsing error: {}", err_msg.to_string())
+            GetSymbolsError::MachOHeaderParseError(object_error) => {
+                write!(f, "MachOHeader parsing error: {}", object_error.to_string())
             }
         }
     }

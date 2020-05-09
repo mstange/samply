@@ -1,17 +1,20 @@
-use crate::error::{GetSymbolsError, Result};
 use crate::compact_symbol_table::CompactSymbolTable;
-use goblin::elf;
-use object::{ElfFile, Object, Uuid};
+use crate::error::{GetSymbolsError, Result};
+use object::read::File;
+use object::read::Object;
+use object::SectionKind;
 use std::cmp;
+use uuid::Uuid;
+
 const UUID_SIZE: usize = 16;
 const PAGE_SIZE: usize = 4096;
 
 pub fn get_compact_symbol_table(buffer: &[u8], breakpad_id: &str) -> Result<CompactSymbolTable> {
-    let elf_file = ElfFile::parse(buffer)
+    let elf_file = File::parse(buffer)
         .map_err(|_| GetSymbolsError::InvalidInputError("Could not parse ELF header"))?;
-    let elf_id = get_elf_id(&elf_file, buffer)
+    let elf_id = get_elf_id(&elf_file)
         .ok_or_else(|| GetSymbolsError::InvalidInputError("id cannot be read"))?;
-    let elf_id_string = format!("{:X}0", elf_id.simple());
+    let elf_id_string = format!("{:X}0", elf_id.to_simple());
     if elf_id_string != breakpad_id {
         return Err(GetSymbolsError::UnmatchedBreakpadId(
             elf_id_string,
@@ -21,7 +24,7 @@ pub fn get_compact_symbol_table(buffer: &[u8], breakpad_id: &str) -> Result<Comp
     Ok(CompactSymbolTable::from_object(&elf_file))
 }
 
-fn create_elf_id(identifier: &[u8], little_endian: bool) -> Option<Uuid> {
+fn create_elf_id(identifier: &[u8], little_endian: bool) -> Uuid {
     // Make sure that we have exactly UUID_SIZE bytes available
     let mut data = [0 as u8; UUID_SIZE];
     let len = cmp::min(identifier.len(), UUID_SIZE);
@@ -36,7 +39,7 @@ fn create_elf_id(identifier: &[u8], little_endian: bool) -> Option<Uuid> {
         data[6..8].reverse(); // uuid field 3
     }
 
-    Uuid::from_bytes(&data).ok()
+    Uuid::from_bytes(data)
 }
 
 /// Tries to obtain the object identifier of an ELF object.
@@ -51,34 +54,30 @@ fn create_elf_id(identifier: &[u8], little_endian: bool) -> Option<Uuid> {
 /// processor does.
 ///
 /// If all of the above fails, this function will return `None`.
-pub fn get_elf_id(elf_file: &ElfFile<'_>, data: &[u8]) -> Option<Uuid> {
-    if let Some(identifier) = elf_file.build_id() {
-        return create_elf_id(identifier, elf_file.elf().little_endian);
+pub fn get_elf_id<'a>(elf_file: &File<'a>) -> Option<Uuid> {
+    if let Some(identifier) = elf_file.build_id().ok()? {
+        return Some(create_elf_id(identifier, elf_file.is_little_endian()));
     }
 
     // We were not able to locate the build ID, so fall back to hashing the
     // first page of the ".text" (program code) section. This algorithm XORs
     // 16-byte chunks directly into a UUID buffer.
-    if let Some(section_data) = find_text_section(elf_file.elf(), data) {
+    if let Some(section_data) = find_text_section(elf_file) {
         let mut hash = [0; UUID_SIZE];
         for i in 0..cmp::min(section_data.len(), PAGE_SIZE) {
             hash[i % UUID_SIZE] ^= section_data[i];
         }
 
-        return create_elf_id(&hash, elf_file.elf().little_endian);
+        return Some(create_elf_id(&hash, elf_file.is_little_endian()));
     }
 
     None
 }
 
 /// Returns a reference to the data of the the .text section in an ELF binary.
-fn find_text_section<'elf, 'data>(elf: &'elf elf::Elf<'_>, data: &'data [u8]) -> Option<&'data [u8]> {
-    elf.section_headers.iter().find_map(|header| {
-        match (header.sh_type, elf.shdr_strtab.get(header.sh_name)) {
-            (elf::section_header::SHT_PROGBITS, Some(Ok(".text"))) => {
-                Some(&data[header.sh_offset as usize..][..header.sh_size as usize])
-            }
-            _ => None,
-        }
-    })
+fn find_text_section<'a>(file: &File<'a>) -> Option<&'a [u8]> {
+    use object::read::ObjectSection;
+    file.sections()
+        .find(|header| header.kind() == SectionKind::Text)
+        .and_then(|header| header.data().ok())
 }

@@ -320,7 +320,7 @@ class WasmMemBuffer {
     * wasm heap to resize will invalidate the typed array's internal buffer!
     * Do not hold on to the array that is passed to f after f completes.
     * @param {number} byte_length
-    * @param {any} f
+    * @param {Function} f
     */
     constructor(byte_length, f) {
         try {
@@ -382,18 +382,18 @@ async function init(input) {
         var ret = wasm.memory;
         return addHeapObject(ret);
     };
-    imports.wbg.__wbg_buffer_aa8ebea80955a01a = function(arg0) {
+    imports.wbg.__wbg_buffer_eb5185aa4a8e9c62 = function(arg0) {
         var ret = getObject(arg0).buffer;
         return addHeapObject(ret);
     };
-    imports.wbg.__wbg_newwithbyteoffsetandlength_3e607c21646a8aef = function(arg0, arg1, arg2) {
+    imports.wbg.__wbg_newwithbyteoffsetandlength_772fe1865bed3e65 = function(arg0, arg1, arg2) {
         var ret = new Uint8Array(getObject(arg0), arg1 >>> 0, arg2 >>> 0);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_object_drop_ref = function(arg0) {
         takeObject(arg0);
     };
-    imports.wbg.__wbg_call_9c879b23724d007e = handleError(function(arg0, arg1, arg2) {
+    imports.wbg.__wbg_call_0246f1c8ff252fb6 = handleError(function(arg0, arg1, arg2) {
         var ret = getObject(arg0).call(getObject(arg1), getObject(arg2));
         return addHeapObject(ret);
     });

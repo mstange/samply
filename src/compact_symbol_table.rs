@@ -39,8 +39,8 @@ impl CompactSymbolTable {
             object_file
                 .dynamic_symbols()
                 .chain(object_file.symbols())
-                .filter(|symbol| symbol.kind() == SymbolKind::Text)
-                .filter_map(|symbol| symbol.name().map(|name| (symbol.address() as u32, name)))
+                .filter(|(_, symbol)| symbol.kind() == SymbolKind::Text)
+                .filter_map(|(_, symbol)| symbol.name().map(|name| (symbol.address() as u32, name)))
                 .collect(),
         )
     }

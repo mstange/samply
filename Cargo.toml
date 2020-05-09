@@ -11,18 +11,13 @@ js-sys = "0.3.39"
 wasm-bindgen = {version = "0.2.62", features = ["serde-serialize"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_derive = "^1.0.59"
+uuid = "0.8.1"
 
 [dependencies.object]
-version = "0.10.0"
-default-features = false
-features = ["std"]
+version = "0.18.0"
 
 [dependencies.goblin]
-# The version and features of goblin need to match what's in object's Cargo.toml,
-# because we really want object's goblin and not another instance of goblin.
 version = "0.0.17"
-features = ["endian_fd", "elf32", "elf64", "mach32", "mach64", "pe32", "pe64", "archive"]
-default-features = false
 
 [lib]
 crate-type = ["cdylib"]
