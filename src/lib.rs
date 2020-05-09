@@ -63,22 +63,18 @@ impl WasmMemBuffer {
     /// Do not hold on to the array that is passed to f after f completes.
     #[wasm_bindgen(constructor)]
     pub fn new(byte_length: u32, f: &js_sys::Function) -> Self {
-        // See https://github.com/rustwasm/wasm-bindgen/issues/1643 for how
-        // to improve this method.
-        let mut buffer = vec![0; byte_length as usize];
+        let mut buffer: Vec<u8> = Vec::new();
+        buffer.reserve(byte_length as usize);
         unsafe {
             // Let JavaScript fill the buffer without making a copy.
             // We give the callback function access to the wasm memory via a
             // JS Uint8Array which wraps the underlying wasm memory buffer at
             // the appropriate offset and length.
-            // The callback function is supposed to mutate the contents of
-            // buffer. However, the "&mut" here is a bit of a lie:
-            // Uint8Array::view takes an immutable reference to a slice, not a
-            // mutable one. This is rather sketchy but seems to work for now.
-            // https://github.com/rustwasm/wasm-bindgen/issues/1079#issuecomment-508577627
-            let array = js_sys::Uint8Array::view(&mut buffer);
+            // The callback function has to fill the buffer with valid contents.
+            let array = js_sys::Uint8Array::view_mut_raw(buffer.as_mut_ptr(), byte_length as usize);
             f.call1(&JsValue::NULL, &JsValue::from(array))
                 .expect("The callback function should not throw");
+            buffer.set_len(byte_length as usize);
         }
         Self { buffer }
     }
