@@ -1,4 +1,3 @@
-use profiler_get_symbols;
 use std::mem;
 use wasm_bindgen::prelude::*;
 
