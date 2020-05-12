@@ -11,8 +11,8 @@ mod pdb;
 use goblin::{mach, Hint};
 use std::io::Cursor;
 
-pub use crate::error::{GetSymbolsError, Result};
 pub use crate::compact_symbol_table::CompactSymbolTable;
+pub use crate::error::{GetSymbolsError, Result};
 
 pub fn get_compact_symbol_table(
     binary_data: &[u8],
