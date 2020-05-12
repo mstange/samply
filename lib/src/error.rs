@@ -26,6 +26,16 @@ pub enum GetSymbolsError {
     MachOHeaderParseError(#[source] object::read::Error),
 }
 
+pub trait Context<T> {
+    fn context(self, context_description: &'static str) -> Result<T>;
+}
+
+impl<T> Context<T> for std::result::Result<T, PDBError> {
+    fn context(self, context_description: &'static str) -> Result<T> {
+        self.map_err(|e| GetSymbolsError::PDBError(context_description, e))
+    }
+}
+
 impl From<PDBError> for GetSymbolsError {
     fn from(err: PDBError) -> GetSymbolsError {
         GetSymbolsError::PDBError("Unknown", err)
