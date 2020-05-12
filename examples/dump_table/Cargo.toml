@@ -1,17 +1,12 @@
 [package]
-name = "profiler-get-symbols"
+name = "dump-table"
 version = "0.1.0"
 authors = ["Markus Stange <mstange@themasta.com>"]
 license = "MIT/Apache-2.0"
 edition = "2018"
 
 [dependencies]
-pdb = "0.3.0"
-uuid = "0.8.1"
-object = "0.18.0"
-goblin = "0.0.17"
-thiserror = "1.0"
-
-[dev-dependencies]
+profiler-get-symbols = { path = "../../lib" }
 structopt = "0.3.14"
 memmap = "0.7.0"
+anyhow = "1.0.28"

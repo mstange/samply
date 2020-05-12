@@ -1,5 +1,5 @@
 [workspace]
-members = ["lib", "wasm"]
+members = ["lib", "wasm", "examples/dump_table"]
 
 [profile.release]
 lto = true
