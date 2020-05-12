@@ -5,7 +5,7 @@
 
 <body>
 
-<script src="profiler_get_symbols.js"></script>
+<script src="profiler_get_symbols_wasm.js"></script>
 
 <p>Binary: <input type="file" id="binary"></p>
 <p>Debug: <input type="file" id="debug"></p>
@@ -17,8 +17,8 @@
 
 const { CompactSymbolTable, WasmMemBuffer, get_compact_symbol_table } = wasm_bindgen;
 
-const request = new Request('./profiler_get_symbols_bg.wasm', {
-  integrity: 'sha384-wfI/QnhiLK71Xakp82Ci6/rx39g8u8Z1CrpnugYXqWa+DW6eQtngF4s0QwN6TfH4'
+const request = new Request('./profiler_get_symbols_wasm_bg.wasm', {
+  integrity: 'sha384-dCwiTGagCmN68OiIiQJN+np8QP8ZF+Alv9GVR8XMjDsZf66Vm8Svhdwa9fV3ltl1'
 });
 
 WebAssembly.compileStreaming(fetch(request)).then(module => {

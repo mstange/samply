@@ -1,0 +1,15 @@
+[package]
+name = "profiler-get-symbols-wasm"
+version = "0.1.0"
+authors = ["Markus Stange <mstange@themasta.com>"]
+edition = "2018"
+
+[dependencies]
+profiler-get-symbols = { path = "../lib/" }
+js-sys = "0.3.39"
+wasm-bindgen = {version = "0.2.62", features = ["serde-serialize"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_derive = "^1.0.59"
+
+[lib]
+crate-type = ["cdylib"]

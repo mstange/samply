@@ -24,8 +24,8 @@ On changes:
 
 ```bash
 cargo build --target wasm32-unknown-unknown --release
-wasm-bindgen target/wasm32-unknown-unknown/release/profiler_get_symbols.wasm --out-dir . --no-modules --no-typescript
-shasum -b -a 384 profiler_get_symbols_bg.wasm | awk '{ print $1 }' | xxd -r -p | base64 # This is your SRI hash, update it in index.html
+wasm-bindgen target/wasm32-unknown-unknown/release/profiler_get_symbols_wasm.wasm --out-dir . --no-modules --no-typescript
+shasum -b -a 384 profiler_get_symbols_wasm_bg.wasm | awk '{ print $1 }' | xxd -r -p | base64 # This is your SRI hash, update it in index.html
 ```
 
 ## Running / Testing
@@ -75,5 +75,5 @@ The filename of each of those wasm file is the same as its SRI hash value, but e
 instead of base64. Here's a command which creates a file with such a name from your `profiler_get_symbols_bg.wasm`:
 
 ```bash
-cp profiler_get_symbols_bg.wasm `shasum -b -a 384 profiler_get_symbols_bg.wasm | awk '{ print $1 }'`.wasm
+cp profiler_get_symbols_wasm_bg.wasm `shasum -b -a 384 profiler_get_symbols_wasm_bg.wasm | awk '{ print $1 }'`.wasm
 ```

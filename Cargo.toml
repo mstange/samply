@@ -1,26 +1,5 @@
-[package]
-name = "profiler-get-symbols"
-version = "0.1.0"
-authors = ["Markus Stange <mstange@themasta.com>"]
-license = "MIT/Apache-2.0"
-edition = "2018"
-
-[dependencies]
-pdb = "0.3.0"
-js-sys = "0.3.39"
-wasm-bindgen = {version = "0.2.62", features = ["serde-serialize"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_derive = "^1.0.59"
-uuid = "0.8.1"
-
-[dependencies.object]
-version = "0.18.0"
-
-[dependencies.goblin]
-version = "0.0.17"
-
-[lib]
-crate-type = ["cdylib"]
+[workspace]
+members = ["lib", "wasm"]
 
 [profile.release]
 lto = true
