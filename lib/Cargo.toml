@@ -11,7 +11,3 @@ uuid = "0.8.1"
 object = "0.18.0"
 goblin = "0.0.17"
 thiserror = "1.0"
-
-[dev-dependencies]
-structopt = "0.3.14"
-memmap = "0.7.0"
