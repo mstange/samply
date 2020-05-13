@@ -48,6 +48,34 @@ extern "C" {
     fn getBuffer(this: &BufferWrapper) -> WasmMemBuffer;
 }
 
+/// Usage:
+///
+/// ```js
+/// async function getSymbolTable(debugName, breakpadId, libKeyToPathMap) {
+///   const helper = {
+///     getCandidatePathsForBinaryOrPdb: async (debugName, breakpadId) => {
+///       const path = libKeyToPathMap.get(`${debugName}/${breakpadId}`);
+///       if (path !== undefined) {
+///         return [path];
+///       }
+///       return [];
+///     },
+///     readFile: async (filename) => {
+///       const byteLength = await getFileSizeInBytes(filename);
+///       const buffer = new WasmMemBuffer(byteLength, array => {
+///         syncReadFileIntoBuffer(filename, array);
+///       });
+///       return {
+///         getBuffer: () => buffer
+///       };
+///     }
+///   };
+///
+///   const output = await getCompactSymbolTable(debugName, breakpadId, helper);
+///   const [addr, index, buffer] = [output.take_addr(), output.take_index(), output.take_buffer()];
+///   return [addr, index, buffer];
+/// }
+/// ```
 #[wasm_bindgen(js_name = getCompactSymbolTable)]
 pub fn get_compact_symbol_table(
     debug_name: String,
