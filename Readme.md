@@ -52,19 +52,7 @@ Available on:
 Hit CTRL-C to stop the server
 ```
 
-Now:
-
- 1. Open [http://0.0.0.0:8080](http://0.0.0.0:8080) in your browser.
- 2. Use the file inputs to select your binary:
-    - For Windows binaries, put the exe file in the first field and the pdb file in the second field.
-    - For Mach-O and ELF binaries, load that same binary into both fields.
- 3. Enter the breakpad ID for the binary into the text field. (I promise to add a better explanation for this step in the future.)
- 4. Hit the button.
- 5. Open the web console in your browser's devtools. There should be some numbers there.
-
-Unfortunately the symbols are not printed in a very human-readable format currently.
-Instead, the symbol table is output in the [`SymbolTableAsTuple` format](https://github.com/firefox-devtools/profiler/blob/40a56a1f305bd8726fa366b72a43287261a254a8/src/profile-logic/symbol-store-db.js#L17-L40),
-which is the format that the Firefox profiler front-end expects.
+Now you can open [http://0.0.0.0:8080](http://0.0.0.0:8080) in your browser and play with the API.
 
 ## Publishing
 
