@@ -47,3 +47,9 @@ impl WasmMemBuffer {
         &mut self.buffer
     }
 }
+
+impl profiler_get_symbols::OwnedFileData for WasmMemBuffer {
+    fn get_data(&self) -> &[u8] {
+        self.get()
+    }
+}

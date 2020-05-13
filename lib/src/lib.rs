@@ -9,7 +9,10 @@ mod macho;
 mod pdb;
 
 use goblin::{mach, Hint};
+use std::future::Future;
 use std::io::Cursor;
+use std::path::{Path, PathBuf};
+use std::pin::Pin;
 
 pub use crate::compact_symbol_table::CompactSymbolTable;
 pub use crate::error::{GetSymbolsError, Result};
@@ -39,5 +42,198 @@ pub fn get_compact_symbol_table(
         _ => Err(GetSymbolsError::InvalidInputError(
             "goblin::peek fails to read",
         )),
+    }
+}
+
+pub trait OwnedFileData {
+    fn get_data(&self) -> &[u8];
+}
+
+pub type FileAndPathHelperError = Box<dyn std::error::Error + Send + Sync + 'static>;
+pub type FileAndPathHelperResult<T> = std::result::Result<T, FileAndPathHelperError>;
+
+pub trait FileAndPathHelper {
+    type FileContents: OwnedFileData;
+
+    fn get_candidate_paths_for_binary_or_pdb(
+        &self,
+        debug_name: &str,
+        breakpad_id: &str,
+    ) -> Pin<Box<dyn Future<Output = FileAndPathHelperResult<Vec<PathBuf>>>>>;
+
+    fn get_candidate_paths_for_pdb(
+        &self,
+        _debug_name: &str,
+        _breakpad_id: &str,
+        pdb_path_as_stored_in_binary: &std::ffi::CStr,
+        _binary_path: &Path,
+    ) -> Pin<Box<dyn Future<Output = FileAndPathHelperResult<Vec<PathBuf>>>>> {
+        async fn single_value_path_vec(
+            path: std::ffi::CString,
+        ) -> FileAndPathHelperResult<Vec<PathBuf>> {
+            Ok(vec![path.into_string()?.into()])
+        }
+        Box::pin(single_value_path_vec(
+            pdb_path_as_stored_in_binary.to_owned(),
+        ))
+    }
+
+    fn read_file(
+        &self,
+        path: &Path,
+    ) -> Pin<Box<dyn Future<Output = FileAndPathHelperResult<Self::FileContents>>>>;
+}
+
+pub async fn get_compact_symbol_table_async(
+    debug_name: &str,
+    breakpad_id: &str,
+    helper: &impl FileAndPathHelper,
+) -> Result<CompactSymbolTable> {
+    let candidate_paths_for_binary = helper
+        .get_candidate_paths_for_binary_or_pdb(debug_name, breakpad_id)
+        .await?;
+
+    let mut last_err = GetSymbolsError::NoCandidatePathForBinary;
+    for path in candidate_paths_for_binary {
+        match try_get_compact_symbol_table_from_path(debug_name, breakpad_id, &path, helper).await {
+            Ok(table) => return Ok(table),
+            Err(err) => last_err = err,
+        };
+    }
+    Err(last_err)
+}
+
+async fn try_get_compact_symbol_table_from_path(
+    debug_name: &str,
+    breakpad_id: &str,
+    path: &Path,
+    helper: &impl FileAndPathHelper,
+) -> Result<CompactSymbolTable> {
+    let owned_data = helper.read_file(&path).await?;
+    let binary_data = owned_data.get_data();
+
+    let mut reader = Cursor::new(binary_data);
+    match goblin::peek(&mut reader)? {
+        Hint::Elf(_) => elf::get_compact_symbol_table(binary_data, breakpad_id),
+        Hint::Mach(_) => macho::get_compact_symbol_table(binary_data, breakpad_id),
+        Hint::MachFat(_) => {
+            let mut errors = vec![];
+            let multi_arch = mach::MultiArch::new(binary_data)?;
+            for fat_arch in multi_arch.iter_arches().filter_map(std::result::Result::ok) {
+                let arch_slice = fat_arch.slice(binary_data);
+                match macho::get_compact_symbol_table(arch_slice, breakpad_id) {
+                    Ok(table) => return Ok(table),
+                    Err(err) => errors.push(err),
+                }
+            }
+            Err(GetSymbolsError::NoMatchMultiArch(errors))
+        }
+        Hint::PE => {
+            let pe = goblin::pe::PE::parse(binary_data)?;
+            let debug_info = pe.debug_data.and_then(|d| d.codeview_pdb70_debug_info);
+            let info = match debug_info {
+                None => return Err(GetSymbolsError::NoDebugInfoInPeBinary),
+                Some(info) => info,
+            };
+
+            // We could check the binary's signature here against breakpad_id, but we don't really
+            // care whether we have the right binary. As long as we find a PDB file with the right
+            // signature, that's all we need, and we'll happily accept correct PDB files even when
+            // we found them via incorrect binaries.
+
+            let pdb_path = std::ffi::CStr::from_bytes_with_nul(info.filename)
+                .map_err(|_| GetSymbolsError::PdbPathDidntEndWithNul)?;
+
+            let candidate_paths_for_pdb = helper
+                .get_candidate_paths_for_pdb(debug_name, breakpad_id, pdb_path, path)
+                .await?;
+
+            for pdb_path in candidate_paths_for_pdb {
+                if pdb_path == path {
+                    continue;
+                }
+                if let Ok(table) =
+                    try_get_compact_symbol_table_from_pdb_path(breakpad_id, &pdb_path, helper).await
+                {
+                    return Ok(table);
+                }
+            }
+
+            // Fallback: If no PDB file is present, make a symbol table with just the exports.
+            // Now it's time to check the breakpad ID!
+
+            let signature = pe_signature_to_uuid(&info.signature);
+            // TODO: Is the + 1 the right thing to do here? The example PDBs I've looked at have
+            // a 2 at the end, but info.age in the corresponding exe/dll files is always 1.
+            // Should we maybe check just the signature and not the age?
+            let expected_breakpad_id = format!("{:X}{:x}", signature.to_simple(), info.age + 1);
+
+            if breakpad_id != expected_breakpad_id {
+                return Err(GetSymbolsError::UnmatchedBreakpadId(
+                    expected_breakpad_id,
+                    breakpad_id.to_string(),
+                ));
+            }
+
+            get_compact_symbol_table_from_pe_binary(pe)
+        }
+        _ => pdb::get_compact_symbol_table(binary_data, breakpad_id).map_err(|_| {
+            // TODO: Only throw this error if PDB::open failed. If we got further,
+            // throw the original error.
+            GetSymbolsError::InvalidInputError(
+                "Neither goblin::peek nor PDB::open were able to read the file",
+            )
+        }),
+    }
+}
+
+async fn try_get_compact_symbol_table_from_pdb_path(
+    breakpad_id: &str,
+    path: &Path,
+    helper: &impl FileAndPathHelper,
+) -> Result<CompactSymbolTable> {
+    let owned_data = helper.read_file(&path).await?;
+    let pdb_data = owned_data.get_data();
+    pdb::get_compact_symbol_table(pdb_data, breakpad_id)
+}
+
+fn get_compact_symbol_table_from_pe_binary(pe: goblin::pe::PE) -> Result<CompactSymbolTable> {
+    Ok(CompactSymbolTable::from_map(
+        pe.exports
+            .iter()
+            .map(|export| {
+                (
+                    export.rva as u32,
+                    export.name.unwrap_or("<unknown>").to_owned(),
+                )
+            })
+            .collect(),
+    ))
+}
+
+fn pe_signature_to_uuid(identifier: &[u8; 16]) -> uuid::Uuid {
+    let mut data = identifier.clone();
+    // The PE file targets a little endian architecture. Convert to
+    // network byte order (big endian) to match the Breakpad processor's
+    // expectations. For big endian object files, this is not needed.
+    data[0..4].reverse(); // uuid field 1
+    data[4..6].reverse(); // uuid field 2
+    data[6..8].reverse(); // uuid field 3
+
+    uuid::Uuid::from_bytes(data)
+}
+
+#[cfg(test)]
+mod test {
+
+    #[test]
+    fn it_works() {
+        let mut file = std::fs::File::open(
+            "/Users/mstange/code/profiler-get-symbols/fixtures/win64-ci/softokn3.dll",
+        )
+        .unwrap();
+        let mut buffer = Vec::new();
+        use std::io::Read;
+        file.read_to_end(&mut buffer).unwrap();
     }
 }

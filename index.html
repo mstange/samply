@@ -5,91 +5,232 @@
 
 <body>
 
-<script src="profiler_get_symbols_wasm.js"></script>
-
-<p>Binary: <input type="file" id="binary"></p>
-<p>Debug: <input type="file" id="debug"></p>
-<p>Breakpad ID: <input type="text" id="breakpadId" size="40"></p>
-
-<p><input type="button" value="Gather the symbols and print the result to the web console" onclick="doStuff()"></p>
-
-<script>
-
-const { CompactSymbolTable, WasmMemBuffer, get_compact_symbol_table } = wasm_bindgen;
-
-const request = new Request('./profiler_get_symbols_wasm_bg.wasm', {
-  integrity: 'sha384-dCwiTGagCmN68OiIiQJN+np8QP8ZF+Alv9GVR8XMjDsZf66Vm8Svhdwa9fV3ltl1'
-});
-
-WebAssembly.compileStreaming(fetch(request)).then(module => {
-  return wasm_bindgen(module);
-}).catch(error => {
-  console.error(error);
-});
-
-function getFileResultOrUndefined(fileInput) {
-  return new Promise((resolve, reject) => {
-    if (!fileInput.files[0]) {
-      resolve();
-      return;
+  <style>
+    body {
+      margin: 50px 200px;
     }
-    const fileReader = new FileReader();
-    fileReader.readAsArrayBuffer(fileInput.files[0]);
-    fileReader.onload = function () {
-      resolve(fileReader.result);
-    };
-    fileReader.onerror = function () {
-      resolve();
-    };
-  }).catch(() => {});
-}
 
-async function doStuff() {
-  const binaryFileResult = await getFileResultOrUndefined(document.querySelector("#binary"));
-  const debugFileResult = await getFileResultOrUndefined(document.querySelector("#debug"));
+    .mainSection>section {
+      margin: 40px 0;
+      border-radius: 5px;
+      box-shadow: 0 5px 8px rgb(0, 0, 0, 0.3);
+      border: 1px solid rgb(180, 180, 180);
+      padding: 10px 20px;
+    }
 
-  if (!binaryFileResult) {
-    return;
-  }
+    .mainSection>section>section {
+      margin: 20px 0;
+      border-radius: 5px;
+      box-shadow: 0 5px 8px rgb(0, 0, 0, 0.3);
+      padding: 0 10px;
+      border: 1px solid rgb(180, 180, 180);
+    }
 
-  const binaryData = new WasmMemBuffer(binaryFileResult.byteLength, array => {
-    array.set(new Uint8Array(binaryFileResult));
-  });
-  let debugData = binaryData;
-  if (debugFileResult) {
-    debugData = new WasmMemBuffer(debugFileResult.byteLength, array => {
-      array.set(new Uint8Array(debugFileResult));
+    textarea {
+      white-space: pre;
+    }
+  </style>
+
+  <script src="profiler_get_symbols_wasm.js"></script>
+
+  <section class="mainSection">
+
+  </section>
+
+  <section class="initiaterButtons">
+    <p><input type="button" value="Start Symbol Table Query" onclick="startSymbolTableQuery()"></p>
+  </section>
+
+  <script>
+
+    const mainSection = document.querySelector(".mainSection");
+
+    const { CompactSymbolTable, WasmMemBuffer, getCompactSymbolTable } = wasm_bindgen;
+
+    const request = new Request('./profiler_get_symbols_wasm_bg.wasm', {
+      integrity: 'sha384-9Oiewu+GpVNOWYsmczafuxh6IgyYV+HnIlE21kbx1NgxIBfgViqzJOSdK8Ur7SOv'
     });
-  }
 
-  const breakpadId = document.querySelector("#breakpadId").value;
+    WebAssembly.compileStreaming(fetch(request)).then(module => {
+      return wasm_bindgen(module);
+    }).catch(error => {
+      console.error(error);
+    });
 
-  try {
-    const output =
-        get_compact_symbol_table(binaryData, debugData, breakpadId);
+    function getFileResultOrUndefined(fileInput) {
+      return new Promise((resolve, reject) => {
+        if (!fileInput.files[0]) {
+          resolve();
+          return;
+        }
+        const fileReader = new FileReader();
+        fileReader.readAsArrayBuffer(fileInput.files[0]);
+        fileReader.onload = function () {
+          resolve(fileReader.result);
+        };
+        fileReader.onerror = function () {
+          resolve();
+        };
+      }).catch(() => { });
+    }
 
-    const [addr, index, buffer] = [output.take_addr(), output.take_index(), output.take_buffer()];
-    output.free();
-    console.log([addr, index, buffer]);
-    console.log(`Received symbol table with ${addr.length} symbols:`);
-    console.log(symbolTableToSymbolMapObj([addr, index, buffer]));
-  } catch (e) {
-    console.error("Caught exception:", e);
-  }
+    async function queryInput(parentElement) {
+      const section = document.createElement("section");
+      section.innerHTML = `
+        <h3>Query Input</h3>
+        <p>debugName: <input type="text" class="debugName" size="40" value="firefox.pdb"></p>
+        <p>breakpadID: <input type="text" class="breakpadId" size="40" value="AA152DEB2D9B76084C4C44205044422E2"></p>
+        <p><input type="button" class="begin" value="Begin"> <input type="button" class="cancel" value="Cancel"></p>`;
+      parentElement.appendChild(section);
+      document.scrollingElement.scrollTo(0, 100000);
+      const debugNameInput = section.querySelector(".debugName");
+      const breakpadIdInput = section.querySelector(".breakpadId");
+      const beginButton = section.querySelector(".begin");
+      const cancelButton = section.querySelector(".cancel");
 
-  binaryData.free();
-  if (debugData != binaryData) {
-    debugData.free();
-  }
-}
+      try {
+        return await new Promise((resolve, reject) => {
+          beginButton.onclick = () => {
+            const debugName = debugNameInput.value;
+            const breakpadId = breakpadIdInput.value;
+            resolve({ debugName, breakpadId });
+          };
+          cancelButton.onclick = () => {
+            reject(new Error("Cancel button clicked"));
+          };
+        });
+      } finally {
+        debugNameInput.disabled = true;
+        breakpadIdInput.disabled = true;
+        beginButton.disabled = true;
+        cancelButton.disabled = true;
+      }
+    }
 
-function symbolTableToSymbolMapObj([addr, index, buffer]) {
-  const textDecoder = new TextDecoder();
-  const mapObj = {};
-  for (let i = 0; i < addr.length; i++) {
-    mapObj[`0x${addr[i].toString(16)}`] = textDecoder.decode(buffer.subarray(index[i], index[i + 1]));
-  }
-  return mapObj;
-}
+    function printError(error, parentElement) {
+      const section = document.createElement("section");
+      section.innerHTML = `
+        <h3>Exception Fired</h3>
+        <p><textarea class="exceptionText" readonly cols="100" rows="4"></textarea></p>`;
+      parentElement.appendChild(section);
+      document.scrollingElement.scrollTo(0, 100000);
+      const exceptionTextTextarea = section.querySelector(".exceptionText");
+      const { name, message } = error;
+      exceptionTextTextarea.value = JSON.stringify({ name, message, ...error });
+    }
 
-</script>
+    function addGetCandidatePathsForBinaryOrPdbSection(parentElement, debugName, breakpadId, res) {
+      const section = document.createElement("section");
+      section.innerHTML = `
+        <h3><code>getCandidatePathsForBinaryOrPdb</code> called</h3>
+        <p><textarea class="values" readonly cols="100" rows="2"></textarea></p>`;
+      parentElement.appendChild(section);
+      document.scrollingElement.scrollTo(0, 100000);
+      const valuesTextarea = section.querySelector(".values");
+      valuesTextarea.value = `debugName: ${debugName}, breakpadId: ${breakpadId}
+returning ${JSON.stringify(res)}`;
+    }
+
+    async function getFileFromUser(filename, parentElement) {
+      const section = document.createElement("section");
+      section.innerHTML = `
+        <h3><code>readFile</code> called</h3>
+        <p>Please pick the following file: <code class="filename"></code></p>
+        <p><input type="file" class="fileInput"> <input type="button" class="ok" value="OK"> <input type="button" class="cancel" value="Cancel"></p>`;
+      parentElement.appendChild(section);
+      document.scrollingElement.scrollTo(0, 100000);
+      const filenameCode = section.querySelector(".filename");
+      const fileInput = section.querySelector(".fileInput");
+      const okButton = section.querySelector(".ok");
+      const cancelButton = section.querySelector(".cancel");
+
+      filenameCode.textContent = filename;
+
+      try {
+        await new Promise((resolve, reject) => {
+          okButton.onclick = () => resolve();
+          cancelButton.onclick = () => {
+            reject(new Error("Cancel button clicked"));
+          };
+        });
+      } finally {
+        fileInput.disabled = true;
+        okButton.disabled = true;
+        cancelButton.disabled = true;
+      }
+      const arrayBufferOrUndefined = getFileResultOrUndefined(fileInput);
+      if (arrayBufferOrUndefined === undefined) {
+        throw new Error("Didn't get file result");
+      }
+      return arrayBufferOrUndefined;
+    }
+
+    function printOutput(output, parentElement) {
+      const section = document.createElement("section");
+      section.innerHTML = `
+        <h3>Success!</h3>
+        <p>Result from symbol table query:</p>
+        <p><textarea class="output" readonly cols="100" rows="25"></textarea></p>`;
+      parentElement.appendChild(section);
+      document.scrollingElement.scrollTo(0, 100000);
+      const outputTextarea = section.querySelector(".output");
+
+      const [addr, index, buffer] = [output.take_addr(), output.take_index(), output.take_buffer()];
+      let text = `Received symbol table with ${addr.length} symbols:\n\n`;
+      text += symbolTableToTextList([addr, index, buffer]);
+      outputTextarea.value = text;
+    }
+
+    async function startSymbolTableQuery() {
+      const symbolTableQuerySection = document.createElement("section");
+      symbolTableQuerySection.innerHTML = `
+        <h2>Symbol Table Query</h2>`;
+      mainSection.appendChild(symbolTableQuerySection);
+      document.scrollingElement.scrollTo(0, 100000);
+      try {
+        const { debugName, breakpadId } = await queryInput(symbolTableQuerySection);
+
+        const helper = {
+          getCandidatePathsForBinaryOrPdb: async (debugName, breakpadId) => {
+            const res = [debugName];
+            addGetCandidatePathsForBinaryOrPdbSection(symbolTableQuerySection, debugName, breakpadId, res);
+            return res;
+          },
+          readFile: async (filename) => {
+            const arrayBuffer = await getFileFromUser(filename, symbolTableQuerySection);
+            console.log(arrayBuffer.byteLength);
+            const buffer = new WasmMemBuffer(arrayBuffer.byteLength, array => {
+              array.set(new Uint8Array(arrayBuffer));
+            });
+            return {
+              getBuffer: () => buffer
+            };
+          }
+        };
+
+        const output = await getCompactSymbolTable(debugName, breakpadId, helper);
+        printOutput(output, symbolTableQuerySection);
+      } catch (e) {
+        printError(e, symbolTableQuerySection);
+      }
+    }
+
+    function symbolTableToSymbolMapObj([addr, index, buffer]) {
+      const textDecoder = new TextDecoder();
+      const mapObj = {};
+      for (let i = 0; i < addr.length; i++) {
+        mapObj[`0x${addr[i].toString(16)}`] = textDecoder.decode(buffer.subarray(index[i], index[i + 1]));
+      }
+      return mapObj;
+    }
+
+    function symbolTableToTextList([addr, index, buffer]) {
+      const textDecoder = new TextDecoder();
+      let text = "";
+      for (let i = 0; i < addr.length; i++) {
+        text += addr[i].toString(16) + ' ' + textDecoder.decode(buffer.subarray(index[i], index[i + 1])) + '\n';
+      }
+      return text;
+    }
+
+  </script>

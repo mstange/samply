@@ -24,6 +24,24 @@ pub enum GetSymbolsError {
 
     #[error("MachOHeader parsing error: {0}")]
     MachOHeaderParseError(#[source] object::read::Error),
+
+    #[error("Helper callback returned error: {0}")]
+    HelperError(#[from] Box<dyn std::error::Error + Send + Sync>),
+
+    #[error("No candidate path for binary")]
+    NoCandidatePathForBinary,
+
+    #[error("No candidate path for PDB")]
+    NoCandidatePathForPdb,
+
+    #[error("The PE (Windows) binary did not contain information about an associated PDB file")]
+    NoDebugInfoInPeBinary,
+
+    #[error("XXX")]
+    PdbPathDidntEndWithNul,
+
+    #[error("XXX")]
+    PdbPathWasntValidUtf8,
 }
 
 pub trait Context<T> {
@@ -51,6 +69,12 @@ impl GetSymbolsError {
             GetSymbolsError::InvalidInputError(_) => "InvalidInputError",
             GetSymbolsError::GoblinError(_) => "GoblinError",
             GetSymbolsError::MachOHeaderParseError(_) => "MachOHeaderParseError",
+            GetSymbolsError::HelperError(_) => "HelperError",
+            GetSymbolsError::NoCandidatePathForBinary => "NoCandidatePathForBinary",
+            GetSymbolsError::NoCandidatePathForPdb => "NoCandidatePathForPdb",
+            GetSymbolsError::NoDebugInfoInPeBinary => "NoDebugInfoInPeBinary",
+            GetSymbolsError::PdbPathDidntEndWithNul => "PdbPathDidntEndWithNul",
+            GetSymbolsError::PdbPathWasntValidUtf8 => "PdbPathWasntValidUtf8",
         }
     }
 }
