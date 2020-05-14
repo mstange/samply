@@ -139,7 +139,10 @@ pub async fn get_api_response(
     Ok(String::from(""))
 }
 
-struct AddressResult {}
+struct AddressResult {
+    pub symbol_name: String,
+    pub symbol_address: u32,
+}
 
 struct SymbolTable {
     symbols: Vec<(u32, String)>,
@@ -157,6 +160,36 @@ impl SymbolTableResult for SymbolTable {
     }
 }
 
+impl SymbolTable {
+    pub fn look_up_addresses(&self, mut addresses: Vec<u32>) -> HashMap<u32, AddressResult> {
+        addresses.sort();
+        addresses.dedup();
+        let mut results = HashMap::new();
+        for address in addresses.into_iter() {
+            let index = match self
+                .symbols
+                .binary_search_by_key(&address, |&(addr, _)| addr)
+            {
+                Ok(i) => i as i32,
+                Err(i) => i as i32 - 1,
+            };
+            let (symbol_address, symbol_name) = if index < 0 {
+                (address, String::from("<before first symbol>"))
+            } else {
+                self.symbols[index as usize].clone()
+            };
+            results.insert(
+                address,
+                AddressResult {
+                    symbol_address,
+                    symbol_name,
+                },
+            );
+        }
+        results
+    }
+}
+
 async fn get_address_results(
     lib: &Lib,
     addresses: Vec<u32>,
@@ -164,7 +197,7 @@ async fn get_address_results(
 ) -> Result<HashMap<u32, AddressResult>> {
     let symbol_table: SymbolTable =
         crate::get_symbol_table_result(&lib.debug_name, &lib.breakpad_id, helper).await?;
-    unimplemented!()
+    Ok(symbol_table.look_up_addresses(addresses))
 }
 
 #[cfg(test)]
