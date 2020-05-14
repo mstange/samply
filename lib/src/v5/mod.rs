@@ -93,57 +93,54 @@ fn create_response(
             }
         }
 
+        let stacks = job.stacks.iter().map(|stack| {
+            response_stack_for_request_stack(stack, &job.memory_map, &symbols_by_module_index)
+        });
+
         Result {
-            stacks: job
-                .stacks
-                .iter()
-                .map(|stack| stack_for_stack(stack, &job.memory_map, &symbols_by_module_index))
-                .collect(),
+            stacks: stacks.collect(),
             found_modules,
         }
     }
 
-    fn stack_for_stack(
+    fn response_stack_for_request_stack(
         stack: &request_json::Stack,
         memory_map: &Vec<Lib>,
         symbols_by_module_index: &HashMap<u32, &HashMap<u32, AddressResult>>,
     ) -> Stack {
-        Stack(
-            stack
-                .0
-                .iter()
-                .enumerate()
-                .map(|(frame_index, frame)| {
-                    frame_for_frame(
-                        frame,
-                        frame_index as u32,
-                        memory_map,
-                        symbols_by_module_index,
-                    )
-                })
-                .collect(),
-        )
+        let frames = stack.0.iter().enumerate().map(|(frame_index, frame)| {
+            response_frame_for_request_frame(
+                frame,
+                frame_index as u32,
+                memory_map,
+                symbols_by_module_index,
+            )
+        });
+        Stack(frames.collect())
     }
 
-    fn frame_for_frame(
+    fn response_frame_for_request_frame(
         frame: &request_json::StackFrame,
         frame_index: u32,
         memory_map: &Vec<Lib>,
         symbols_by_module_index: &HashMap<u32, &HashMap<u32, AddressResult>>,
     ) -> StackFrame {
+        let symbol = symbols_by_module_index
+            .get(&frame.module_index)
+            .map(|symbol_map| {
+                // If we have a symbol table for this library, then we know that
+                // this address is present in it.
+                let address_result = symbol_map.get(&frame.address).unwrap();
+                Symbol {
+                    function: address_result.symbol_name.clone(),
+                    function_offset: frame.address - address_result.symbol_address,
+                }
+            });
         StackFrame {
             frame: frame_index,
             module_offset: frame.address,
             module: memory_map[frame.module_index as usize].debug_name.clone(),
-            symbol: symbols_by_module_index
-                .get(&frame.module_index)
-                .map(|symbol_map| {
-                    let address_result = symbol_map.get(&frame.address).unwrap();
-                    Symbol {
-                        function: address_result.symbol_name.clone(),
-                        function_offset: frame.address - address_result.symbol_address,
-                    }
-                }),
+            symbol,
         }
     }
 
