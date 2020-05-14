@@ -40,9 +40,30 @@ shasum -b -a 384 profiler_get_symbols_wasm_bg.wasm | awk '{ print $1 }' | xxd -r
 
 ## Running / Testing
 
-This repo contains a minimal `index.html` which lets you test the resulting wasm
-module manually in the browser. You can use the files in the `fixtures` directory
-as examples.
+### `dump-table` command line tool
+
+Examples of running the `dump-table` tool:
+
+```
+cargo run -p dump-table -- firefox.pdb fixtures/win64-ci
+cargo run -p dump-table -- firefox.exe fixtures/win64-ci
+cargo run -p dump-table -- libmozglue.dylib fixtures/macos-local
+cargo run -p dump-table -- libmozglue.dylib fixtures/macos-local INCORRECTID
+cargo run -p dump-table -- libmozglue.dylib fixtures/macos-local F38030E4A3783F90B2282FCB0B33261A0
+cargo run -p dump-table -- libsystem_kernel.dylib /usr/lib/system
+cargo run -p dump-table -- libsystem_kernel.dylib /usr/lib/system B6602BF001213894AED620A8CF2A30B80 --full
+```
+
+Running tests:
+
+```
+cargo test --workspace
+```
+
+### WebAssembly
+
+There's a UI for the WebAssembly / JavaScript version in `index.html`.
+You can use the files in the `fixtures` directory as examples.
 
 To test, as a one-time setup, install http-server using cargo:
 
