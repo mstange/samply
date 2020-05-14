@@ -56,7 +56,7 @@ pub trait FileAndPathHelper {
     ) -> Pin<Box<dyn Future<Output = FileAndPathHelperResult<Self::FileContents>>>>;
 }
 
-pub async fn get_compact_symbol_table_async(
+pub async fn get_compact_symbol_table(
     debug_name: &str,
     breakpad_id: &str,
     helper: &impl FileAndPathHelper,
