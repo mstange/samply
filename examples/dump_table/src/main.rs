@@ -34,6 +34,52 @@ struct Opt {
     full: bool,
 }
 
+fn main() -> anyhow::Result<()> {
+    let opt = Opt::from_args();
+    futures::executor::block_on(dump_table(
+        &opt.debug_name,
+        opt.breakpad_id,
+        opt.symbol_directory,
+        opt.full,
+    ))
+}
+
+async fn dump_table(
+    debug_name: &str,
+    breakpad_id: Option<String>,
+    symbol_directory: PathBuf,
+    full: bool,
+) -> anyhow::Result<()> {
+    let table = get_table(debug_name, breakpad_id, symbol_directory).await?;
+    println!("Found {} symbols.", table.addr.len());
+    for (i, address) in table.addr.iter().enumerate() {
+        if i >= 15 && !full {
+            println!(
+                "and {} more symbols. Pass --full to print the full list.",
+                table.addr.len() - i
+            );
+            break;
+        }
+
+        let start_pos = table.index[i];
+        let end_pos = table.index[i + 1];
+        let symbol_bytes = &table.buffer[start_pos as usize..end_pos as usize];
+        let symbol_string = std::str::from_utf8(symbol_bytes)?;
+        println!("{:x} {}", address, symbol_string);
+    }
+    Ok(())
+}
+
+async fn get_table(
+    debug_name: &str,
+    breakpad_id: Option<String>,
+    symbol_directory: PathBuf,
+) -> anyhow::Result<CompactSymbolTable> {
+    let helper = Helper { symbol_directory };
+    let table = get_symbols_retry_id(debug_name, breakpad_id, &helper).await?;
+    Ok(table)
+}
+
 async fn get_symbols_retry_id(
     debug_name: &str,
     breakpad_id: Option<String>,
@@ -86,10 +132,6 @@ async fn get_symbols_retry_id(
     )
 }
 
-fn main() -> anyhow::Result<()> {
-    futures::executor::block_on(main_impl())
-}
-
 struct MmapFileContents(memmap::Mmap);
 
 impl OwnedFileData for MmapFileContents {
@@ -110,54 +152,72 @@ impl FileAndPathHelper for Helper {
         debug_name: &str,
         _breakpad_id: &str,
     ) -> Pin<Box<dyn Future<Output = FileAndPathHelperResult<Vec<PathBuf>>>>> {
-        Box::pin(get_candidate_paths_for_binary_or_pdb_impl(
-            debug_name.to_owned(),
-            self.symbol_directory.clone(),
-        ))
+        async fn to_future(
+            res: FileAndPathHelperResult<Vec<PathBuf>>,
+        ) -> FileAndPathHelperResult<Vec<PathBuf>> {
+            res
+        }
+        Box::pin(to_future(Ok(vec![self.symbol_directory.join(debug_name)])))
     }
 
     fn read_file(
         &self,
         path: &Path,
     ) -> Pin<Box<dyn Future<Output = FileAndPathHelperResult<Self::FileContents>>>> {
+        async fn read_file_impl(path: PathBuf) -> FileAndPathHelperResult<MmapFileContents> {
+            println!("Reading file {:?}", &path);
+            let file = File::open(&path)?;
+            Ok(MmapFileContents(unsafe { MmapOptions::new().map(&file)? }))
+        }
+
         Box::pin(read_file_impl(path.to_owned()))
     }
 }
 
-async fn get_candidate_paths_for_binary_or_pdb_impl(
-    debug_name: String,
-    symbol_directory: PathBuf,
-) -> FileAndPathHelperResult<Vec<PathBuf>> {
-    Ok(vec![symbol_directory.join(&debug_name)])
-}
+#[cfg(test)]
+mod test {
 
-async fn read_file_impl(path: PathBuf) -> FileAndPathHelperResult<MmapFileContents> {
-    println!("Reading file {:?}", &path);
-    let file = File::open(&path)?;
-    Ok(MmapFileContents(unsafe { MmapOptions::new().map(&file)? }))
-}
+    use std::path::PathBuf;
 
-async fn main_impl() -> anyhow::Result<()> {
-    let opt = Opt::from_args();
-    let helper = Helper {
-        symbol_directory: opt.symbol_directory,
-    };
-    let table = get_symbols_retry_id(&opt.debug_name, opt.breakpad_id, &helper).await?;
-    println!("Found {} symbols.", table.addr.len());
-    for (i, address) in table.addr.iter().enumerate() {
-        if i >= 15 && !opt.full {
-            println!(
-                "and {} more symbols. Pass --full to print the full list.",
-                table.addr.len() - i
-            );
-            break;
-        }
-
-        let start_pos = table.index[i];
-        let end_pos = table.index[i + 1];
-        let symbol_bytes = &table.buffer[start_pos as usize..end_pos as usize];
-        let symbol_string = std::str::from_utf8(symbol_bytes)?;
-        println!("{:x} {}", address, symbol_string);
+    fn fixtures_dir() -> PathBuf {
+        let this_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        this_dir.join("..").join("..").join("fixtures")
     }
-    Ok(())
+
+    #[test]
+    fn successful_pdb() {
+        let result = futures::executor::block_on(crate::get_table(
+            "firefox.pdb",
+            Some(String::from("AA152DEB2D9B76084C4C44205044422E2")),
+            fixtures_dir().join("win64-ci"),
+        ));
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert_eq!(result.addr.len(), 1286);
+        assert_eq!(result.addr[776], 0x31fc0);
+        assert_eq!(
+            std::str::from_utf8(
+                &result.buffer[result.index[776] as usize..result.index[777] as usize]
+            ),
+            Ok("sandbox::ProcessMitigationsWin32KDispatcher::EnumDisplayMonitors")
+        );
+    }
+    #[test]
+    fn successful_pdb_unspecified_id() {
+        let result = futures::executor::block_on(crate::get_table(
+            "firefox.pdb",
+            None,
+            fixtures_dir().join("win64-ci"),
+        ));
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert_eq!(result.addr.len(), 1286);
+        assert_eq!(result.addr[776], 0x31fc0);
+        assert_eq!(
+            std::str::from_utf8(
+                &result.buffer[result.index[776] as usize..result.index[777] as usize]
+            ),
+            Ok("sandbox::ProcessMitigationsWin32KDispatcher::EnumDisplayMonitors")
+        );
+    }
 }
