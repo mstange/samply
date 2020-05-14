@@ -1,13 +1,14 @@
-use crate::compact_symbol_table::CompactSymbolTable;
 use crate::error::{Context, GetSymbolsError, Result};
 use crate::pdb_crate::{FallibleIterator, ProcedureSymbol, PublicSymbol, SymbolData, PDB};
+use crate::SymbolTableResult;
 use std::borrow::Cow;
 use std::collections::HashMap;
 
-pub fn get_compact_symbol_table<'s, S: pdb_crate::Source<'s> + 's>(
-    mut pdb: PDB<'s, S>,
-    breakpad_id: &str,
-) -> Result<CompactSymbolTable> {
+pub fn get_symbol_table_result<'s, S, R>(mut pdb: PDB<'s, S>, breakpad_id: &str) -> Result<R>
+where
+    R: SymbolTableResult,
+    S: pdb_crate::Source<'s> + 's,
+{
     // Check against the expected breakpad_id.
     let info = pdb.pdb_information().context("pdb_information")?;
     let pdb_id = format!("{}{:x}", format!("{:X}", info.guid.to_simple()), info.age);
@@ -63,5 +64,5 @@ pub fn get_compact_symbol_table<'s, S: pdb_crate::Source<'s> + 's>(
         }
     }
 
-    Ok(CompactSymbolTable::from_map(hashmap))
+    Ok(R::from_map(hashmap))
 }

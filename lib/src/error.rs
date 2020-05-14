@@ -42,6 +42,12 @@ pub enum GetSymbolsError {
 
     #[error("XXX")]
     PdbPathWasntValidUtf8,
+
+    #[error("Couldn't parse request: {0}")]
+    ParseRequestErrorSerde(#[from] serde_json::error::Error),
+
+    #[error("Malformed request JSON: {0}")]
+    ParseRequestErrorContents(&'static str),
 }
 
 pub trait Context<T> {
@@ -75,6 +81,8 @@ impl GetSymbolsError {
             GetSymbolsError::NoDebugInfoInPeBinary => "NoDebugInfoInPeBinary",
             GetSymbolsError::PdbPathDidntEndWithNul => "PdbPathDidntEndWithNul",
             GetSymbolsError::PdbPathWasntValidUtf8 => "PdbPathWasntValidUtf8",
+            GetSymbolsError::ParseRequestErrorSerde(_) => "ParseRequestErrorSerde",
+            GetSymbolsError::ParseRequestErrorContents(_) => "ParseRequestErrorContents",
         }
     }
 }

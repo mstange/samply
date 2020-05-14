@@ -7,6 +7,7 @@ mod elf;
 mod error;
 mod macho;
 mod pdb;
+mod v5;
 
 use goblin::{mach, Hint};
 use pdb_crate::PDB;
@@ -15,7 +16,7 @@ use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 
-pub use crate::compact_symbol_table::CompactSymbolTable;
+pub use crate::compact_symbol_table::{CompactSymbolTable, SymbolTableResult};
 pub use crate::error::{GetSymbolsError, Result};
 
 pub trait OwnedFileData {
@@ -62,39 +63,62 @@ pub async fn get_compact_symbol_table(
     breakpad_id: &str,
     helper: &impl FileAndPathHelper,
 ) -> Result<CompactSymbolTable> {
+    get_symbol_table_result(debug_name, breakpad_id, helper).await
+}
+
+pub async fn get_symbol_table_result<R>(
+    debug_name: &str,
+    breakpad_id: &str,
+    helper: &impl FileAndPathHelper,
+) -> Result<R>
+where
+    R: SymbolTableResult,
+{
     let candidate_paths_for_binary = helper
         .get_candidate_paths_for_binary_or_pdb(debug_name, breakpad_id)
         .await?;
 
     let mut last_err = GetSymbolsError::NoCandidatePathForBinary;
     for path in candidate_paths_for_binary {
-        match try_get_compact_symbol_table_from_path(debug_name, breakpad_id, &path, helper).await {
-            Ok(table) => return Ok(table),
+        match try_get_symbol_table_result_from_path(debug_name, breakpad_id, &path, helper).await {
+            Ok(result) => return Ok(result),
             Err(err) => last_err = err,
         };
     }
     Err(last_err)
 }
 
-async fn try_get_compact_symbol_table_from_path(
+pub async fn get_api_response(
+    request_url: &str,
+    request_json_data: &str,
+    helper: &impl FileAndPathHelper,
+) -> Result<String> {
+    assert_eq!(request_url, "/symbolicate/v5");
+    v5::get_api_response(request_json_data, helper).await
+}
+
+async fn try_get_symbol_table_result_from_path<R>(
     debug_name: &str,
     breakpad_id: &str,
     path: &Path,
     helper: &impl FileAndPathHelper,
-) -> Result<CompactSymbolTable> {
+) -> Result<R>
+where
+    R: SymbolTableResult,
+{
     let owned_data = helper.read_file(&path).await?;
     let binary_data = owned_data.get_data();
 
     let mut reader = Cursor::new(binary_data);
     match goblin::peek(&mut reader)? {
-        Hint::Elf(_) => elf::get_compact_symbol_table(binary_data, breakpad_id),
-        Hint::Mach(_) => macho::get_compact_symbol_table(binary_data, breakpad_id),
+        Hint::Elf(_) => elf::get_symbol_table_result(binary_data, breakpad_id),
+        Hint::Mach(_) => macho::get_symbol_table_result(binary_data, breakpad_id),
         Hint::MachFat(_) => {
             let mut errors = vec![];
             let multi_arch = mach::MultiArch::new(binary_data)?;
             for fat_arch in multi_arch.iter_arches().filter_map(std::result::Result::ok) {
                 let arch_slice = fat_arch.slice(binary_data);
-                match macho::get_compact_symbol_table(arch_slice, breakpad_id) {
+                match macho::get_symbol_table_result(arch_slice, breakpad_id) {
                     Ok(table) => return Ok(table),
                     Err(err) => errors.push(err),
                 }
@@ -126,7 +150,7 @@ async fn try_get_compact_symbol_table_from_path(
                     continue;
                 }
                 if let Ok(table) =
-                    try_get_compact_symbol_table_from_pdb_path(breakpad_id, &pdb_path, helper).await
+                    try_get_symbol_table_result_from_pdb_path(breakpad_id, &pdb_path, helper).await
                 {
                     return Ok(table);
                 }
@@ -148,7 +172,7 @@ async fn try_get_compact_symbol_table_from_path(
                 ));
             }
 
-            get_compact_symbol_table_from_pe_binary(pe)
+            get_symbol_table_result_from_pe_binary(pe)
         }
         _ => {
             // Might this be a PDB, then?
@@ -156,7 +180,7 @@ async fn try_get_compact_symbol_table_from_path(
             match PDB::open(pdb_reader) {
                 Ok(pdb) => {
                     // This is a PDB file.
-                    pdb::get_compact_symbol_table(pdb, breakpad_id)
+                    pdb::get_symbol_table_result(pdb, breakpad_id)
                 }
                 Err(_) => Err(GetSymbolsError::InvalidInputError(
                     "Neither goblin::peek nor PDB::open were able to read the file",
@@ -166,20 +190,26 @@ async fn try_get_compact_symbol_table_from_path(
     }
 }
 
-async fn try_get_compact_symbol_table_from_pdb_path(
+async fn try_get_symbol_table_result_from_pdb_path<R>(
     breakpad_id: &str,
     path: &Path,
     helper: &impl FileAndPathHelper,
-) -> Result<CompactSymbolTable> {
+) -> Result<R>
+where
+    R: SymbolTableResult,
+{
     let owned_data = helper.read_file(&path).await?;
     let pdb_data = owned_data.get_data();
     let pdb_reader = Cursor::new(pdb_data);
     let pdb = PDB::open(pdb_reader)?;
-    pdb::get_compact_symbol_table(pdb, breakpad_id)
+    pdb::get_symbol_table_result(pdb, breakpad_id)
 }
 
-fn get_compact_symbol_table_from_pe_binary(pe: goblin::pe::PE) -> Result<CompactSymbolTable> {
-    Ok(CompactSymbolTable::from_map(
+fn get_symbol_table_result_from_pe_binary<R>(pe: goblin::pe::PE) -> Result<R>
+where
+    R: SymbolTableResult,
+{
+    Ok(R::from_map(
         pe.exports
             .iter()
             .map(|export| {

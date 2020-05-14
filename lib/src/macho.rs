@@ -1,9 +1,13 @@
-use crate::compact_symbol_table::CompactSymbolTable;
+use crate::compact_symbol_table::object_to_map;
 use crate::error::{GetSymbolsError, Result};
+use crate::SymbolTableResult;
 use object::read::{File, Object};
 use uuid::Uuid;
 
-pub fn get_compact_symbol_table(buffer: &[u8], breakpad_id: &str) -> Result<CompactSymbolTable> {
+pub fn get_symbol_table_result<R>(buffer: &[u8], breakpad_id: &str) -> Result<R>
+where
+    R: SymbolTableResult,
+{
     let macho_file =
         File::parse(buffer).or_else(|x| Err(GetSymbolsError::MachOHeaderParseError(x)))?;
 
@@ -21,5 +25,6 @@ pub fn get_compact_symbol_table(buffer: &[u8], breakpad_id: &str) -> Result<Comp
             breakpad_id.to_string(),
         ));
     }
-    Ok(CompactSymbolTable::from_object(&macho_file))
+    let map = object_to_map(&macho_file);
+    Ok(R::from_map(map))
 }
