@@ -20,24 +20,6 @@ it is used to get symbols for native system libraries, and on all platforms it
 is used if you're profiling a local build of Firefox for which there are no
 symbols on the [Mozilla symbol server](https://symbols.mozilla.org/).
 
-
-## Building
-
-One-time setup:
-
-```bash
-rustup target add wasm32-unknown-unknown
-cargo install wasm-bindgen-cli # --force to update
-```
-
-On changes:
-
-```bash
-cargo build --target wasm32-unknown-unknown --release
-wasm-bindgen target/wasm32-unknown-unknown/release/profiler_get_symbols_wasm.wasm --out-dir . --no-modules --no-typescript
-shasum -b -a 384 profiler_get_symbols_wasm_bg.wasm | awk '{ print $1 }' | xxd -r -p | base64 # This is your SRI hash, update it in index.html
-```
-
 ## Running / Testing
 
 ### `dump-table` command line tool
@@ -85,13 +67,29 @@ Hit CTRL-C to stop the server
 
 Now you can open [http://0.0.0.0:8080](http://0.0.0.0:8080) in your browser and play with the API.
 
+#### Updating the WebAssembly build
+
+One-time setup:
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli # --force to update
+```
+
+After a change:
+
+```bash
+cargo build --target wasm32-unknown-unknown --release
+wasm-bindgen target/wasm32-unknown-unknown/release/profiler_get_symbols_wasm.wasm --out-dir . --no-modules --no-typescript
+```
+
 ## Publishing
 
 At the moment, the resulting wasm files are hosted in a separate repo called
 [`profiler-assets`](https://github.com/mstange/profiler-assets/), in the
 [`assets/wasm` directory](https://github.com/mstange/profiler-assets/tree/master/assets/wasm).
 The filename of each of those wasm file is the same as its SRI hash value, but expressed in hexadecimal
-instead of base64. Here's a command which creates a file with such a name from your `profiler_get_symbols_bg.wasm`:
+instead of base64. Here's a command which creates a file with such a name from your `profiler_get_symbols_wasm_bg.wasm`:
 
 ```bash
 cp profiler_get_symbols_wasm_bg.wasm `shasum -b -a 384 profiler_get_symbols_wasm_bg.wasm | awk '{ print $1 }'`.wasm

@@ -48,7 +48,12 @@
     const { CompactSymbolTable, WasmMemBuffer, getCompactSymbolTable } = wasm_bindgen;
 
     const request = new Request('./profiler_get_symbols_wasm_bg.wasm', {
-      integrity: 'sha384-kBfW5Q4HuGMT4w2y8rqRsvnVKznmT2TpnYviFwBGNR+0B5JdGtiG6LIQ3uUtmoyD'
+      // Optional: Add integrity check here.
+      // Obtain the sha384 of profiler_get_symbols_wasm_bg.wasm as follows:
+      // $ shasum -b -a 384 profiler_get_symbols_wasm_bg.wasm | awk '{ print $1 }' | xxd -r -p | base64
+      // Then uncomment the following line, with the hash substituted:
+      //
+      // integrity: 'sha384-yourhashhere'
     });
 
     WebAssembly.compileStreaming(fetch(request)).then(module => {
