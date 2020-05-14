@@ -17,7 +17,7 @@ use structopt::StructOpt;
     about = "Get the symbol table for a debugName + breakpadId identifier."
 )]
 struct Opt {
-    /// debugName identifier
+    /// filename (just the filename, no path)
     #[structopt()]
     debug_name: String,
 

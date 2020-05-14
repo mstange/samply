@@ -1,11 +1,21 @@
 # profiler-get-symbols
 
-This repo contains a WebAssembly wrapper which allows dumping symbol tables from
-ELF and Mach-O binaries as well as from pdb files. It is a relatively thin
-wrapper around the crates `object`, `goblin` and `pdb`.
+The crates in this repo allow you to obtain symbol tables from ELF, Mach-O and PE
+binaries as well as from pdb files. The implementation makes use of the crates
+`object`, `goblin` and `pdb`.
 
-The resulting .wasm file is used by the Gecko profiler; more specifically, it is
-used by the [ProfilerGetSymbols.jsm](https://searchfox.org/mozilla-central/source/browser/components/extensions/ProfilerGetSymbols.jsm) module in Firefox. The code is run every time you use the Gecko profiler: On macOS and Linux
+The `lib` directory contains a generic Rust implementation. The `wasm` directory
+contains a wrapper that targets WebAssembly and JavaScript.
+The `examples` directory contains a command line tool that can be used to test
+the functionality, for example as follows (executed from the workspace root):
+
+```
+cargo run -p dump-table -- firefox.pdb fixtures/win64-ci
+```
+
+The .wasm file and the JavaScript bindings are used by the Gecko profiler.
+More specifically, they are used by the
+[ProfilerGetSymbols.jsm](https://searchfox.org/mozilla-central/source/browser/components/extensions/ProfilerGetSymbols.jsm) module in Firefox. The code is run every time you use the Gecko profiler: On macOS and Linux
 it is used to get symbols for native system libraries, and on all platforms it
 is used if you're profiling a local build of Firefox for which there are no
 symbols on the [Mozilla symbol server](https://symbols.mozilla.org/).
@@ -31,8 +41,8 @@ shasum -b -a 384 profiler_get_symbols_wasm_bg.wasm | awk '{ print $1 }' | xxd -r
 ## Running / Testing
 
 This repo contains a minimal `index.html` which lets you test the resulting wasm
-module manually in the browser. However, you need a file to test it on; this
-repo does not contain a test binary.
+module manually in the browser. You can use the files in the `fixtures` directory
+as examples.
 
 To test, as a one-time setup, install http-server using cargo:
 
