@@ -1,34 +1,43 @@
 use anyhow;
+use futures;
 use memmap::MmapOptions;
-use profiler_get_symbols::{self, CompactSymbolTable, GetSymbolsError};
+use profiler_get_symbols::{
+    self, CompactSymbolTable, FileAndPathHelper, FileAndPathHelperResult, GetSymbolsError,
+    OwnedFileData,
+};
 use std::fs::File;
-use std::path::PathBuf;
+use std::future::Future;
+use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
-#[structopt(name = "dump-table", about = "Dump the symbol table of a binary.")]
+#[structopt(
+    name = "dump-table",
+    about = "Get the symbol table for a debugName + breakpadId identifier."
+)]
 struct Opt {
-    /// Path to the binary
+    /// debugName identifier
     #[structopt()]
-    binary_path: PathBuf,
+    debug_name: String,
+
+    /// Path to a directory that contains binaries and debug archives
+    #[structopt()]
+    symbol_directory: PathBuf,
 
     /// Breakpad ID of the binary
     #[structopt()]
     breakpad_id: Option<String>,
-
-    /// Path to the corresponding PDB file, if present
-    #[structopt()]
-    debug_path: Option<PathBuf>,
 
     /// When specified, print the entire symbol table.
     #[structopt(short, long)]
     full: bool,
 }
 
-fn get_symbols_retry_id(
-    binary_data: &[u8],
-    debug_data: &[u8],
+async fn get_symbols_retry_id(
+    debug_name: &str,
     breakpad_id: Option<String>,
+    helper: &Helper,
 ) -> anyhow::Result<CompactSymbolTable> {
     let breakpad_id = match breakpad_id {
         Some(breakpad_id) => breakpad_id,
@@ -36,11 +45,12 @@ fn get_symbols_retry_id(
             // No breakpad ID was specified. get_compact_symbol_table always wants one, so we call it twice:
             // First, with a bogus breakpad ID ("<unspecified>"), and then again with the breakpad ID that
             // it expected.
-            let result = profiler_get_symbols::get_compact_symbol_table(
-                binary_data,
-                debug_data,
+            let result = profiler_get_symbols::get_compact_symbol_table_async(
+                debug_name,
                 "<unspecified>",
-            );
+                helper,
+            )
+            .await;
             match result {
                 Ok(table) => return Ok(table),
                 Err(err) => match err {
@@ -70,26 +80,69 @@ fn get_symbols_retry_id(
             }
         }
     };
-    Ok(profiler_get_symbols::get_compact_symbol_table(
-        binary_data,
-        debug_data,
-        &breakpad_id,
-    )?)
+    Ok(
+        profiler_get_symbols::get_compact_symbol_table_async(debug_name, &breakpad_id, helper)
+            .await?,
+    )
 }
 
 fn main() -> anyhow::Result<()> {
+    futures::executor::block_on(main_impl())
+}
+
+struct MmapFileContents(memmap::Mmap);
+
+impl OwnedFileData for MmapFileContents {
+    fn get_data(&self) -> &[u8] {
+        &*self.0
+    }
+}
+
+struct Helper {
+    symbol_directory: PathBuf,
+}
+
+impl FileAndPathHelper for Helper {
+    type FileContents = MmapFileContents;
+
+    fn get_candidate_paths_for_binary_or_pdb(
+        &self,
+        debug_name: &str,
+        _breakpad_id: &str,
+    ) -> Pin<Box<dyn Future<Output = FileAndPathHelperResult<Vec<PathBuf>>>>> {
+        Box::pin(get_candidate_paths_for_binary_or_pdb_impl(
+            debug_name.to_owned(),
+            self.symbol_directory.clone(),
+        ))
+    }
+
+    fn read_file(
+        &self,
+        path: &Path,
+    ) -> Pin<Box<dyn Future<Output = FileAndPathHelperResult<Self::FileContents>>>> {
+        Box::pin(read_file_impl(path.to_owned()))
+    }
+}
+
+async fn get_candidate_paths_for_binary_or_pdb_impl(
+    debug_name: String,
+    symbol_directory: PathBuf,
+) -> FileAndPathHelperResult<Vec<PathBuf>> {
+    Ok(vec![symbol_directory.join(&debug_name)])
+}
+
+async fn read_file_impl(path: PathBuf) -> FileAndPathHelperResult<MmapFileContents> {
+    println!("Reading file {:?}", &path);
+    let file = File::open(&path)?;
+    Ok(MmapFileContents(unsafe { MmapOptions::new().map(&file)? }))
+}
+
+async fn main_impl() -> anyhow::Result<()> {
     let opt = Opt::from_args();
-    let binary_file = File::open(opt.binary_path)?;
-    let binary_mmap = unsafe { MmapOptions::new().map(&binary_file)? };
-    let binary_data = &*binary_mmap;
-    let table = if let Some(debug_path) = opt.debug_path {
-        let debug_file = File::open(debug_path)?;
-        let debug_mmap = unsafe { MmapOptions::new().map(&debug_file)? };
-        let debug_data = &*debug_mmap;
-        get_symbols_retry_id(binary_data, debug_data, opt.breakpad_id)?
-    } else {
-        get_symbols_retry_id(binary_data, binary_data, opt.breakpad_id)?
+    let helper = Helper {
+        symbol_directory: opt.symbol_directory,
     };
+    let table = get_symbols_retry_id(&opt.debug_name, opt.breakpad_id, &helper).await?;
     println!("Found {} symbols.", table.addr.len());
     for (i, address) in table.addr.iter().enumerate() {
         if i >= 15 && !opt.full {

@@ -175,7 +175,7 @@ returning ${JSON.stringify(res)}`;
       document.scrollingElement.scrollTo(0, 100000);
       const outputTextarea = section.querySelector(".output");
 
-      const [addr, index, buffer] = [output.take_addr(), output.take_index(), output.take_buffer()];
+      const [addr, index, buffer] = output;
       let text = `Received symbol table with ${addr.length} symbols:\n\n`;
       text += symbolTableToTextList([addr, index, buffer]);
       outputTextarea.value = text;

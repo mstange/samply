@@ -1,7 +1,6 @@
 use profiler_get_symbols;
 use wasm_bindgen;
 
-mod compact_symbol_table;
 mod error;
 mod wasm_mem_buffer;
 
@@ -12,7 +11,6 @@ use std::pin::Pin;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
-pub use compact_symbol_table::CompactSymbolTable;
 pub use error::{GenericError, GetSymbolsError, JsValueError};
 pub use wasm_mem_buffer::WasmMemBuffer;
 
@@ -71,8 +69,7 @@ extern "C" {
 ///     }
 ///   };
 ///
-///   const output = await getCompactSymbolTable(debugName, breakpadId, helper);
-///   const [addr, index, buffer] = [output.take_addr(), output.take_index(), output.take_buffer()];
+///   const [addr, index, buffer] = await getCompactSymbolTable(debugName, breakpadId, helper);
 ///   return [addr, index, buffer];
 /// }
 /// ```
@@ -98,7 +95,12 @@ async fn get_compact_symbol_table_impl(
         profiler_get_symbols::get_compact_symbol_table_async(&debug_name, &breakpad_id, &helper)
             .await;
     match result {
-        Result::Ok(table) => Ok(CompactSymbolTable::from(table).into()),
+        Result::Ok(table) => Ok(js_sys::Array::of3(
+            &js_sys::Uint32Array::from(&table.addr[..]),
+            &js_sys::Uint32Array::from(&table.index[..]),
+            &js_sys::Uint8Array::from(&table.buffer[..]),
+        )
+        .into()),
         Result::Err(err) => Err(GetSymbolsError::from(err).into()),
     }
 }

@@ -2,7 +2,11 @@
 members = [
   "lib",
   "wasm",
-  # "examples/dump_table"
+  "examples/dump_table"
+]
+default-members = [
+  "lib",
+  "wasm"
 ]
 
 [profile.release]

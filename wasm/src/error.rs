@@ -4,15 +4,15 @@ use wasm_bindgen::prelude::*;
 
 #[derive(Serialize)]
 pub struct GetSymbolsError {
-    error_type: String,
-    error_msg: String,
+    name: String,
+    message: String,
 }
 
 impl From<profiler_get_symbols::GetSymbolsError> for GetSymbolsError {
     fn from(err: profiler_get_symbols::GetSymbolsError) -> Self {
         Self {
-            error_type: err.enum_as_string().to_string(),
-            error_msg: err.to_string(),
+            name: err.enum_as_string().to_string(),
+            message: err.to_string(),
         }
     }
 }
