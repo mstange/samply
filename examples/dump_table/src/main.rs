@@ -91,12 +91,9 @@ async fn get_symbols_retry_id(
             // No breakpad ID was specified. get_compact_symbol_table always wants one, so we call it twice:
             // First, with a bogus breakpad ID ("<unspecified>"), and then again with the breakpad ID that
             // it expected.
-            let result = profiler_get_symbols::get_compact_symbol_table(
-                debug_name,
-                "<unspecified>",
-                helper,
-            )
-            .await;
+            let result =
+                profiler_get_symbols::get_compact_symbol_table(debug_name, "<unspecified>", helper)
+                    .await;
             match result {
                 Ok(table) => return Ok(table),
                 Err(err) => match err {
@@ -126,10 +123,7 @@ async fn get_symbols_retry_id(
             }
         }
     };
-    Ok(
-        profiler_get_symbols::get_compact_symbol_table(debug_name, &breakpad_id, helper)
-            .await?,
-    )
+    Ok(profiler_get_symbols::get_compact_symbol_table(debug_name, &breakpad_id, helper).await?)
 }
 
 struct MmapFileContents(memmap::Mmap);
@@ -177,6 +171,7 @@ impl FileAndPathHelper for Helper {
 #[cfg(test)]
 mod test {
 
+    use profiler_get_symbols::GetSymbolsError;
     use std::path::PathBuf;
 
     fn fixtures_dir() -> PathBuf {
@@ -202,6 +197,7 @@ mod test {
             Ok("sandbox::ProcessMitigationsWin32KDispatcher::EnumDisplayMonitors")
         );
     }
+
     #[test]
     fn successful_pdb_unspecified_id() {
         let result = futures::executor::block_on(crate::get_table(
@@ -219,5 +215,30 @@ mod test {
             ),
             Ok("sandbox::ProcessMitigationsWin32KDispatcher::EnumDisplayMonitors")
         );
+    }
+
+    #[test]
+    fn unsuccessful_pdb_wrong_id() {
+        let result = futures::executor::block_on(crate::get_table(
+            "firefox.pdb",
+            Some(String::from("AA152DEBFFFFFFFFFFFFFFFFF044422E2")),
+            fixtures_dir().join("win64-ci"),
+        ));
+        assert!(result.is_err());
+        let err = match result {
+            Ok(_) => panic!("Shouldn't have succeeded with wrong breakpad ID"),
+            Err(err) => err,
+        };
+        let err = match err.downcast::<GetSymbolsError>() {
+            Ok(err) => err,
+            Err(_) => panic!("wrong error type"),
+        };
+        match err {
+            GetSymbolsError::UnmatchedBreakpadId(expected, actual) => {
+                assert_eq!(expected, "AA152DEB2D9B76084C4C44205044422E2");
+                assert_eq!(actual, "AA152DEBFFFFFFFFFFFFFFFFF044422E2");
+            }
+            _ => panic!("wrong GetSymbolsError subtype"),
+        }
     }
 }

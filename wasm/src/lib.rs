@@ -92,8 +92,7 @@ async fn get_compact_symbol_table_impl(
     helper: FileAndPathHelper,
 ) -> Result<JsValue, JsValue> {
     let result =
-        profiler_get_symbols::get_compact_symbol_table(&debug_name, &breakpad_id, &helper)
-            .await;
+        profiler_get_symbols::get_compact_symbol_table(&debug_name, &breakpad_id, &helper).await;
     match result {
         Result::Ok(table) => Ok(js_sys::Array::of3(
             &js_sys::Uint32Array::from(&table.addr[..]),

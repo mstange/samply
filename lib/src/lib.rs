@@ -9,6 +9,7 @@ mod macho;
 mod pdb;
 
 use goblin::{mach, Hint};
+use pdb_crate::PDB;
 use std::future::Future;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
@@ -149,13 +150,19 @@ async fn try_get_compact_symbol_table_from_path(
 
             get_compact_symbol_table_from_pe_binary(pe)
         }
-        _ => pdb::get_compact_symbol_table(binary_data, breakpad_id).map_err(|_| {
-            // TODO: Only throw this error if PDB::open failed. If we got further,
-            // throw the original error.
-            GetSymbolsError::InvalidInputError(
-                "Neither goblin::peek nor PDB::open were able to read the file",
-            )
-        }),
+        _ => {
+            // Might this be a PDB, then?
+            let pdb_reader = Cursor::new(binary_data);
+            match PDB::open(pdb_reader) {
+                Ok(pdb) => {
+                    // This is a PDB file.
+                    pdb::get_compact_symbol_table(pdb, breakpad_id)
+                }
+                Err(_) => Err(GetSymbolsError::InvalidInputError(
+                    "Neither goblin::peek nor PDB::open were able to read the file",
+                )),
+            }
+        }
     }
 }
 
@@ -166,7 +173,9 @@ async fn try_get_compact_symbol_table_from_pdb_path(
 ) -> Result<CompactSymbolTable> {
     let owned_data = helper.read_file(&path).await?;
     let pdb_data = owned_data.get_data();
-    pdb::get_compact_symbol_table(pdb_data, breakpad_id)
+    let pdb_reader = Cursor::new(pdb_data);
+    let pdb = PDB::open(pdb_reader)?;
+    pdb::get_compact_symbol_table(pdb, breakpad_id)
 }
 
 fn get_compact_symbol_table_from_pe_binary(pe: goblin::pe::PE) -> Result<CompactSymbolTable> {

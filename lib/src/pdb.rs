@@ -3,12 +3,12 @@ use crate::error::{Context, GetSymbolsError, Result};
 use crate::pdb_crate::{FallibleIterator, ProcedureSymbol, PublicSymbol, SymbolData, PDB};
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::io::Cursor;
 
-pub fn get_compact_symbol_table(pdb_data: &[u8], breakpad_id: &str) -> Result<CompactSymbolTable> {
-    // Now, parse the PDB and check it against the expected breakpad_id.
-    let pdb_reader = Cursor::new(pdb_data);
-    let mut pdb = PDB::open(pdb_reader)?;
+pub fn get_compact_symbol_table<'s, S: pdb_crate::Source<'s> + 's>(
+    mut pdb: PDB<'s, S>,
+    breakpad_id: &str,
+) -> Result<CompactSymbolTable> {
+    // Check against the expected breakpad_id.
     let info = pdb.pdb_information().context("pdb_information")?;
     let pdb_id = format!("{}{:x}", format!("{:X}", info.guid.to_simple()), info.age);
 
