@@ -1,12 +1,7 @@
-use object::{Object, SymbolKind};
 use std::collections::HashMap;
 use std::ops::Deref;
+use super::shared::SymbolicationResult;
 
-pub trait SymbolicationResult {
-    fn from_map<S>(map: HashMap<u32, S>, addresses: &[u32]) -> Self
-    where
-        S: Deref<Target = str>;
-}
 #[repr(C)]
 pub struct CompactSymbolTable {
     pub addr: Vec<u32>,
@@ -41,16 +36,4 @@ impl SymbolicationResult for CompactSymbolTable {
         table.index.push(table.buffer.len() as u32);
         table
     }
-}
-
-pub fn object_to_map<'a, 'b, T>(object_file: &'b T) -> HashMap<u32, &'a str>
-where
-    T: Object<'a, 'b>,
-{
-    object_file
-        .dynamic_symbols()
-        .chain(object_file.symbols())
-        .filter(|(_, symbol)| symbol.kind() == SymbolKind::Text)
-        .filter_map(|(_, symbol)| symbol.name().map(|name| (symbol.address() as u32, name)))
-        .collect()
 }

@@ -1,6 +1,5 @@
-use crate::compact_symbol_table::object_to_map;
+use crate::shared::{object_to_map, SymbolicationQuery, SymbolicationResult};
 use crate::error::{GetSymbolsError, Result};
-use crate::{SymbolicationQuery, SymbolicationResult};
 use object::read::File;
 use object::read::Object;
 use object::SectionKind;

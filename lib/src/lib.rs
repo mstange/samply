@@ -8,64 +8,17 @@ mod error;
 mod macho;
 mod pdb;
 mod symbolicate;
+mod shared;
 
 use goblin::Hint;
 use pdb_crate::PDB;
 use serde_json::json;
-use std::future::Future;
 use std::io::Cursor;
-use std::path::{Path, PathBuf};
-use std::pin::Pin;
 
-pub use crate::compact_symbol_table::{CompactSymbolTable, SymbolicationResult};
+pub use crate::compact_symbol_table::{CompactSymbolTable};
 pub use crate::error::{GetSymbolsError, Result};
-
-#[derive(Clone)]
-pub struct SymbolicationQuery<'a> {
-    pub debug_name: &'a str,
-    pub breakpad_id: &'a str,
-    pub path: &'a Path,
-    pub addresses: &'a [u32],
-}
-
-pub trait OwnedFileData {
-    fn get_data(&self) -> &[u8];
-}
-
-pub type FileAndPathHelperError = Box<dyn std::error::Error + Send + Sync + 'static>;
-pub type FileAndPathHelperResult<T> = std::result::Result<T, FileAndPathHelperError>;
-
-pub trait FileAndPathHelper {
-    type FileContents: OwnedFileData;
-
-    fn get_candidate_paths_for_binary_or_pdb(
-        &self,
-        debug_name: &str,
-        breakpad_id: &str,
-    ) -> Pin<Box<dyn Future<Output = FileAndPathHelperResult<Vec<PathBuf>>>>>;
-
-    fn get_candidate_paths_for_pdb(
-        &self,
-        _debug_name: &str,
-        _breakpad_id: &str,
-        pdb_path_as_stored_in_binary: &std::ffi::CStr,
-        _binary_path: &Path,
-    ) -> Pin<Box<dyn Future<Output = FileAndPathHelperResult<Vec<PathBuf>>>>> {
-        async fn single_value_path_vec(
-            path: std::ffi::CString,
-        ) -> FileAndPathHelperResult<Vec<PathBuf>> {
-            Ok(vec![path.into_string()?.into()])
-        }
-        Box::pin(single_value_path_vec(
-            pdb_path_as_stored_in_binary.to_owned(),
-        ))
-    }
-
-    fn read_file(
-        &self,
-        path: &Path,
-    ) -> Pin<Box<dyn Future<Output = FileAndPathHelperResult<Self::FileContents>>>>;
-}
+pub use crate::shared::{OwnedFileData, FileAndPathHelperError, FileAndPathHelperResult, FileAndPathHelper};
+use crate::shared::{SymbolicationResult, SymbolicationQuery};
 
 pub async fn get_compact_symbol_table(
     debug_name: &str,

@@ -1,6 +1,6 @@
 use crate::error::{Context, GetSymbolsError, Result};
 use crate::pdb_crate::{FallibleIterator, ProcedureSymbol, PublicSymbol, SymbolData, PDB};
-use crate::{FileAndPathHelper, OwnedFileData, SymbolicationQuery, SymbolicationResult};
+use crate::shared::{FileAndPathHelper, OwnedFileData, SymbolicationQuery, SymbolicationResult};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::Cursor;
