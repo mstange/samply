@@ -1,15 +1,11 @@
 use crate::compact_symbol_table::object_to_map;
 use crate::error::{GetSymbolsError, Result};
-use crate::SymbolicationResult;
+use crate::{SymbolicationQuery, SymbolicationResult};
 use goblin::mach;
 use object::read::{File, Object};
 use uuid::Uuid;
 
-pub fn get_symbolication_result_multiarch<R>(
-    buffer: &[u8],
-    breakpad_id: &str,
-    addresses: &[u32],
-) -> Result<R>
+pub fn get_symbolication_result_multiarch<R>(buffer: &[u8], query: SymbolicationQuery) -> Result<R>
 where
     R: SymbolicationResult,
 {
@@ -17,7 +13,7 @@ where
     let multi_arch = mach::MultiArch::new(buffer)?;
     for fat_arch in multi_arch.iter_arches().filter_map(std::result::Result::ok) {
         let arch_slice = fat_arch.slice(buffer);
-        match get_symbolication_result(arch_slice, breakpad_id, addresses) {
+        match get_symbolication_result(arch_slice, query.clone()) {
             Ok(table) => return Ok(table),
             Err(err) => errors.push(err),
         }
@@ -25,7 +21,7 @@ where
     Err(GetSymbolsError::NoMatchMultiArch(errors))
 }
 
-pub fn get_symbolication_result<R>(buffer: &[u8], breakpad_id: &str, addresses: &[u32]) -> Result<R>
+pub fn get_symbolication_result<R>(buffer: &[u8], query: SymbolicationQuery) -> Result<R>
 where
     R: SymbolicationResult,
 {
@@ -40,6 +36,11 @@ where
             ))
         }
     };
+    let SymbolicationQuery {
+        breakpad_id,
+        addresses,
+        ..
+    } = query;
     if macho_id != breakpad_id {
         return Err(GetSymbolsError::UnmatchedBreakpadId(
             macho_id,

@@ -89,15 +89,13 @@ where
 
     let mut last_err = None;
     for path in candidate_paths_for_binary {
-        match try_get_symbolication_result_from_path(
+        let query = SymbolicationQuery {
             debug_name,
             breakpad_id,
-            &path,
+            path: &path,
             addresses,
-            helper,
-        )
-        .await
-        {
+        };
+        match try_get_symbolication_result_from_path(query, helper).await {
             Ok(result) => return Ok(result),
             Err(err) => last_err = Some(err),
         };
@@ -121,46 +119,39 @@ pub async fn query_api(
     }
 }
 
-async fn try_get_symbolication_result_from_path<R>(
-    debug_name: &str,
-    breakpad_id: &str,
-    path: &Path,
-    addresses: &[u32],
+#[derive(Clone)]
+pub struct SymbolicationQuery<'a> {
+    pub debug_name: &'a str,
+    pub breakpad_id: &'a str,
+    pub path: &'a Path,
+    pub addresses: &'a [u32],
+}
+
+async fn try_get_symbolication_result_from_path<'a, R>(
+    query: SymbolicationQuery<'a>,
     helper: &impl FileAndPathHelper,
 ) -> Result<R>
 where
     R: SymbolicationResult,
 {
-    let owned_data = helper.read_file(&path).await.map_err(|e| {
-        GetSymbolsError::HelperErrorDuringReadFile(path.to_string_lossy().to_string(), e)
+    let owned_data = helper.read_file(query.path).await.map_err(|e| {
+        GetSymbolsError::HelperErrorDuringReadFile(query.path.to_string_lossy().to_string(), e)
     })?;
     let binary_data = owned_data.get_data();
 
     let mut reader = Cursor::new(binary_data);
     match goblin::peek(&mut reader)? {
-        Hint::Elf(_) => elf::get_symbolication_result(binary_data, breakpad_id, addresses),
-        Hint::Mach(_) => macho::get_symbolication_result(binary_data, breakpad_id, addresses),
-        Hint::MachFat(_) => {
-            macho::get_symbolication_result_multiarch(binary_data, breakpad_id, addresses)
-        }
-        Hint::PE => {
-            pdb::get_symbolication_result_via_binary(
-                binary_data,
-                debug_name,
-                breakpad_id,
-                path,
-                addresses,
-                helper,
-            )
-            .await
-        }
+        Hint::Elf(_) => elf::get_symbolication_result(binary_data, query),
+        Hint::Mach(_) => macho::get_symbolication_result(binary_data, query),
+        Hint::MachFat(_) => macho::get_symbolication_result_multiarch(binary_data, query),
+        Hint::PE => pdb::get_symbolication_result_via_binary(binary_data, query, helper).await,
         _ => {
             // Might this be a PDB, then?
             let pdb_reader = Cursor::new(binary_data);
             match PDB::open(pdb_reader) {
                 Ok(pdb) => {
                     // This is a PDB file.
-                    pdb::get_symbolication_result(pdb, breakpad_id, addresses)
+                    pdb::get_symbolication_result(pdb, query)
                 }
                 Err(_) => Err(GetSymbolsError::InvalidInputError(
                     "Neither goblin::peek nor PDB::open were able to read the file",

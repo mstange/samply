@@ -1,22 +1,25 @@
 use crate::error::{Context, GetSymbolsError, Result};
 use crate::pdb_crate::{FallibleIterator, ProcedureSymbol, PublicSymbol, SymbolData, PDB};
-use crate::{FileAndPathHelper, OwnedFileData, SymbolicationResult};
+use crate::{FileAndPathHelper, OwnedFileData, SymbolicationQuery, SymbolicationResult};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::Cursor;
-use std::path::Path;
 
-pub async fn get_symbolication_result_via_binary<R>(
+pub async fn get_symbolication_result_via_binary<'a, R>(
     buffer: &[u8],
-    debug_name: &str,
-    breakpad_id: &str,
-    path: &Path,
-    addresses: &[u32],
+    query: SymbolicationQuery<'a>,
     helper: &impl FileAndPathHelper,
 ) -> Result<R>
 where
     R: SymbolicationResult,
 {
+    let SymbolicationQuery {
+        debug_name,
+        breakpad_id,
+        path,
+        addresses,
+        ..
+    } = query.clone();
     let pe = goblin::pe::PE::parse(buffer)?;
     let debug_info = pe.debug_data.and_then(|d| d.codeview_pdb70_debug_info);
     let info = match debug_info {
@@ -51,10 +54,7 @@ where
         if pdb_path == path {
             continue;
         }
-        if let Ok(table) =
-            try_get_symbolication_result_from_pdb_path(breakpad_id, &pdb_path, addresses, helper)
-                .await
-        {
+        if let Ok(table) = try_get_symbolication_result_from_pdb_path(query.clone(), helper).await {
             return Ok(table);
         }
     }
@@ -78,28 +78,25 @@ where
     get_symbolication_result_from_pe_binary(pe, addresses)
 }
 
-async fn try_get_symbolication_result_from_pdb_path<R>(
-    breakpad_id: &str,
-    path: &Path,
-    addresses: &[u32],
+async fn try_get_symbolication_result_from_pdb_path<'a, R>(
+    query: SymbolicationQuery<'a>,
     helper: &impl FileAndPathHelper,
 ) -> Result<R>
 where
     R: SymbolicationResult,
 {
-    let owned_data = helper.read_file(&path).await.map_err(|e| {
-        GetSymbolsError::HelperErrorDuringReadFile(path.to_string_lossy().to_string(), e)
+    let owned_data = helper.read_file(query.path).await.map_err(|e| {
+        GetSymbolsError::HelperErrorDuringReadFile(query.path.to_string_lossy().to_string(), e)
     })?;
     let pdb_data = owned_data.get_data();
     let pdb_reader = Cursor::new(pdb_data);
     let pdb = PDB::open(pdb_reader)?;
-    get_symbolication_result(pdb, breakpad_id, addresses)
+    get_symbolication_result(pdb, query)
 }
 
-pub fn get_symbolication_result<'s, S, R>(
+pub fn get_symbolication_result<'a, 's, S, R>(
     mut pdb: PDB<'s, S>,
-    breakpad_id: &str,
-    addresses: &[u32],
+    query: SymbolicationQuery<'a>,
 ) -> Result<R>
 where
     R: SymbolicationResult,
@@ -109,6 +106,11 @@ where
     let info = pdb.pdb_information().context("pdb_information")?;
     let pdb_id = format!("{}{:x}", format!("{:X}", info.guid.to_simple()), info.age);
 
+    let SymbolicationQuery {
+        breakpad_id,
+        addresses,
+        ..
+    } = query;
     if pdb_id != breakpad_id {
         return Err(GetSymbolsError::UnmatchedBreakpadId(
             pdb_id,
