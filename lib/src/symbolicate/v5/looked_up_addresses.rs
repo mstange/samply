@@ -1,3 +1,4 @@
+use super::super::demangle;
 use crate::SymbolicationResult;
 use std::collections::HashMap;
 use std::ops::Deref;
@@ -27,7 +28,7 @@ impl SymbolicationResult for LookedUpAddresses {
                     (address, String::from("<before first symbol>"))
                 } else {
                     let (addr, name) = &symbols[index as usize];
-                    (*addr, String::from(&**name))
+                    (*addr, demangle::demangle_any(&*name))
                 };
                 (
                     address,
