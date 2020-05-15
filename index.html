@@ -38,14 +38,17 @@
   </section>
 
   <section class="initiaterButtons">
-    <p><input type="button" value="Start Symbol Table Query" onclick="startSymbolTableQuery()"></p>
+    <p>
+      <input type="button" value="Start Symbol Table Query" onclick="startSymbolTableQuery()">
+      <input type="button" value="Start API Query" onclick="startAPIQuery()">
+    </p>
   </section>
 
   <script>
 
     const mainSection = document.querySelector(".mainSection");
 
-    const { CompactSymbolTable, WasmMemBuffer, getCompactSymbolTable } = wasm_bindgen;
+    const { CompactSymbolTable, WasmMemBuffer, getCompactSymbolTable, queryAPI } = wasm_bindgen;
 
     const request = new Request('./profiler_get_symbols_wasm_bg.wasm', {
       // Optional: Add integrity check here.
@@ -79,7 +82,7 @@
       }).catch(() => { });
     }
 
-    async function queryInput(parentElement) {
+    async function queryInputForSymbolTable(parentElement) {
       const section = document.createElement("section");
       section.innerHTML = `
         <h3>Query Input</h3>
@@ -107,6 +110,58 @@
       } finally {
         debugNameInput.disabled = true;
         breakpadIdInput.disabled = true;
+        beginButton.disabled = true;
+        cancelButton.disabled = true;
+      }
+    }
+
+    async function queryInputForAPI(parentElement) {
+      const section = document.createElement("section");
+      section.innerHTML = `
+        <h3>Query Input</h3>
+        <p>URL: <input type="text" class="url" size="40" value="/symbolicate/v5"></p>
+        <p>requestJSON: <textarea class="requestJSON" rows="20" cols="80"></textarea></p>
+        <p><input type="button" class="begin" value="Begin"> <input type="button" class="cancel" value="Cancel"></p>`;
+      parentElement.appendChild(section);
+      document.scrollingElement.scrollTo(0, 100000);
+      const urlInput = section.querySelector(".url");
+      const requestJSONInput = section.querySelector(".requestJSON");
+      const beginButton = section.querySelector(".begin");
+      const cancelButton = section.querySelector(".cancel");
+      requestJSONInput.value = `{
+  "memoryMap": [
+    [
+      "firefox.pdb",
+      "AA152DEB2D9B76084C4C44205044422E2"
+    ],
+    [
+      "mozglue.pdb",
+      "63C609072D3499F64C4C44205044422E2"
+    ]
+  ],
+  "stacks": [
+    [
+      [0,204776],
+      [0,129423],
+      [1, 237799]
+    ]
+  ]
+}`
+
+      try {
+        return await new Promise((resolve, reject) => {
+          beginButton.onclick = () => {
+            const url = urlInput.value;
+            const requestJSON = requestJSONInput.value;
+            resolve({ url, requestJSON });
+          };
+          cancelButton.onclick = () => {
+            reject(new Error("Cancel button clicked"));
+          };
+        });
+      } finally {
+        urlInput.disabled = true;
+        requestJSONInput.disabled = true;
         beginButton.disabled = true;
         cancelButton.disabled = true;
       }
@@ -170,7 +225,7 @@ returning ${JSON.stringify(res)}`;
       return arrayBufferOrUndefined;
     }
 
-    function printOutput(output, parentElement) {
+    function printSymbolTableOutput(output, parentElement) {
       const section = document.createElement("section");
       section.innerHTML = `
         <h3>Success!</h3>
@@ -186,37 +241,69 @@ returning ${JSON.stringify(res)}`;
       outputTextarea.value = text;
     }
 
+    function printAPIOutput(output, parentElement) {
+      const section = document.createElement("section");
+      section.innerHTML = `
+        <h3>Success!</h3>
+        <p>Result from symbol table query:</p>
+        <p><textarea class="output" readonly cols="100" rows="25"></textarea></p>`;
+      parentElement.appendChild(section);
+      document.scrollingElement.scrollTo(0, 100000);
+      const outputTextarea = section.querySelector(".output");
+      outputTextarea.value = output;
+    }
+
+    class Helper {
+      constructor(parentElement) {
+        this._element = parentElement;
+      }
+
+      async getCandidatePathsForBinaryOrPdb(debugName, breakpadId) {
+        const res = [debugName];
+        addGetCandidatePathsForBinaryOrPdbSection(this._element, debugName, breakpadId, res);
+        return res;
+      }
+
+      async readFile(filename) {
+        const arrayBuffer = await getFileFromUser(filename, this._element);
+        const buffer = new WasmMemBuffer(arrayBuffer.byteLength, array => {
+          array.set(new Uint8Array(arrayBuffer));
+        });
+        return {
+          getBuffer: () => buffer
+        };
+      }
+    }
+
     async function startSymbolTableQuery() {
       const symbolTableQuerySection = document.createElement("section");
       symbolTableQuerySection.innerHTML = `
         <h2>Symbol Table Query</h2>`;
       mainSection.appendChild(symbolTableQuerySection);
       document.scrollingElement.scrollTo(0, 100000);
+      const helper = new Helper(symbolTableQuerySection);
       try {
-        const { debugName, breakpadId } = await queryInput(symbolTableQuerySection);
-
-        const helper = {
-          getCandidatePathsForBinaryOrPdb: async (debugName, breakpadId) => {
-            const res = [debugName];
-            addGetCandidatePathsForBinaryOrPdbSection(symbolTableQuerySection, debugName, breakpadId, res);
-            return res;
-          },
-          readFile: async (filename) => {
-            const arrayBuffer = await getFileFromUser(filename, symbolTableQuerySection);
-            console.log(arrayBuffer.byteLength);
-            const buffer = new WasmMemBuffer(arrayBuffer.byteLength, array => {
-              array.set(new Uint8Array(arrayBuffer));
-            });
-            return {
-              getBuffer: () => buffer
-            };
-          }
-        };
-
+        const { debugName, breakpadId } = await queryInputForSymbolTable(symbolTableQuerySection);
         const output = await getCompactSymbolTable(debugName, breakpadId, helper);
-        printOutput(output, symbolTableQuerySection);
+        printSymbolTableOutput(output, symbolTableQuerySection);
       } catch (e) {
         printError(e, symbolTableQuerySection);
+      }
+    }
+
+    async function startAPIQuery() {
+      const apiQuerySection = document.createElement("section");
+      apiQuerySection.innerHTML = `
+        <h2>Symbol API Query</h2>`;
+      mainSection.appendChild(apiQuerySection);
+      document.scrollingElement.scrollTo(0, 100000);
+      const helper = new Helper(apiQuerySection);
+      try {
+        const { url, requestJSON } = await queryInputForAPI(apiQuerySection);
+        const output = await queryAPI(url, requestJSON, helper);
+        printAPIOutput(output, apiQuerySection);
+      } catch (e) {
+        printError(e, apiQuerySection);
       }
     }
 
