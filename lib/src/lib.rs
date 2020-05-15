@@ -16,7 +16,7 @@ use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 
-pub use crate::compact_symbol_table::{CompactSymbolTable, SymbolTableResult};
+pub use crate::compact_symbol_table::{CompactSymbolTable, SymbolicationResult};
 pub use crate::error::{GetSymbolsError, Result};
 
 pub trait OwnedFileData {
@@ -63,16 +63,17 @@ pub async fn get_compact_symbol_table(
     breakpad_id: &str,
     helper: &impl FileAndPathHelper,
 ) -> Result<CompactSymbolTable> {
-    get_symbol_table_result(debug_name, breakpad_id, helper).await
+    get_symbolication_result(debug_name, breakpad_id, &[], helper).await
 }
 
-pub async fn get_symbol_table_result<R>(
+pub async fn get_symbolication_result<R>(
     debug_name: &str,
     breakpad_id: &str,
+    addresses: &[u32],
     helper: &impl FileAndPathHelper,
 ) -> Result<R>
 where
-    R: SymbolTableResult,
+    R: SymbolicationResult,
 {
     let candidate_paths_for_binary = helper
         .get_candidate_paths_for_binary_or_pdb(debug_name, breakpad_id)
@@ -80,7 +81,15 @@ where
 
     let mut last_err = GetSymbolsError::NoCandidatePathForBinary;
     for path in candidate_paths_for_binary {
-        match try_get_symbol_table_result_from_path(debug_name, breakpad_id, &path, helper).await {
+        match try_get_symbolication_result_from_path(
+            debug_name,
+            breakpad_id,
+            &path,
+            addresses,
+            helper,
+        )
+        .await
+        {
             Ok(result) => return Ok(result),
             Err(err) => last_err = err,
         };
@@ -97,28 +106,29 @@ pub async fn query_api(
     v5::query_api_json(request_json_data, helper).await
 }
 
-async fn try_get_symbol_table_result_from_path<R>(
+async fn try_get_symbolication_result_from_path<R>(
     debug_name: &str,
     breakpad_id: &str,
     path: &Path,
+    addresses: &[u32],
     helper: &impl FileAndPathHelper,
 ) -> Result<R>
 where
-    R: SymbolTableResult,
+    R: SymbolicationResult,
 {
     let owned_data = helper.read_file(&path).await?;
     let binary_data = owned_data.get_data();
 
     let mut reader = Cursor::new(binary_data);
     match goblin::peek(&mut reader)? {
-        Hint::Elf(_) => elf::get_symbol_table_result(binary_data, breakpad_id),
-        Hint::Mach(_) => macho::get_symbol_table_result(binary_data, breakpad_id),
+        Hint::Elf(_) => elf::get_symbolication_result(binary_data, breakpad_id, addresses),
+        Hint::Mach(_) => macho::get_symbolication_result(binary_data, breakpad_id, addresses),
         Hint::MachFat(_) => {
             let mut errors = vec![];
             let multi_arch = mach::MultiArch::new(binary_data)?;
             for fat_arch in multi_arch.iter_arches().filter_map(std::result::Result::ok) {
                 let arch_slice = fat_arch.slice(binary_data);
-                match macho::get_symbol_table_result(arch_slice, breakpad_id) {
+                match macho::get_symbolication_result(arch_slice, breakpad_id, addresses) {
                     Ok(table) => return Ok(table),
                     Err(err) => errors.push(err),
                 }
@@ -149,8 +159,13 @@ where
                 if pdb_path == path {
                     continue;
                 }
-                if let Ok(table) =
-                    try_get_symbol_table_result_from_pdb_path(breakpad_id, &pdb_path, helper).await
+                if let Ok(table) = try_get_symbolication_result_from_pdb_path(
+                    breakpad_id,
+                    &pdb_path,
+                    addresses,
+                    helper,
+                )
+                .await
                 {
                     return Ok(table);
                 }
@@ -172,7 +187,7 @@ where
                 ));
             }
 
-            get_symbol_table_result_from_pe_binary(pe)
+            get_symbolication_result_from_pe_binary(pe, addresses)
         }
         _ => {
             // Might this be a PDB, then?
@@ -180,7 +195,7 @@ where
             match PDB::open(pdb_reader) {
                 Ok(pdb) => {
                     // This is a PDB file.
-                    pdb::get_symbol_table_result(pdb, breakpad_id)
+                    pdb::get_symbolication_result(pdb, breakpad_id, addresses)
                 }
                 Err(_) => Err(GetSymbolsError::InvalidInputError(
                     "Neither goblin::peek nor PDB::open were able to read the file",
@@ -190,24 +205,25 @@ where
     }
 }
 
-async fn try_get_symbol_table_result_from_pdb_path<R>(
+async fn try_get_symbolication_result_from_pdb_path<R>(
     breakpad_id: &str,
     path: &Path,
+    addresses: &[u32],
     helper: &impl FileAndPathHelper,
 ) -> Result<R>
 where
-    R: SymbolTableResult,
+    R: SymbolicationResult,
 {
     let owned_data = helper.read_file(&path).await?;
     let pdb_data = owned_data.get_data();
     let pdb_reader = Cursor::new(pdb_data);
     let pdb = PDB::open(pdb_reader)?;
-    pdb::get_symbol_table_result(pdb, breakpad_id)
+    pdb::get_symbolication_result(pdb, breakpad_id, addresses)
 }
 
-fn get_symbol_table_result_from_pe_binary<R>(pe: goblin::pe::PE) -> Result<R>
+fn get_symbolication_result_from_pe_binary<R>(pe: goblin::pe::PE, addresses: &[u32]) -> Result<R>
 where
-    R: SymbolTableResult,
+    R: SymbolicationResult,
 {
     Ok(R::from_map(
         pe.exports
@@ -219,6 +235,7 @@ where
                 )
             })
             .collect(),
+        addresses,
     ))
 }
 

@@ -1,13 +1,13 @@
 use crate::{FileAndPathHelper, GetSymbolsError, Result};
 use std::collections::HashMap;
 
+pub mod looked_up_addresses;
 pub mod request_json;
 pub mod response_json;
-pub mod symbol_table;
 
+use looked_up_addresses::{AddressResult, LookedUpAddresses};
 use request_json::Lib;
 use serde_json::json;
-use symbol_table::{AddressResult, SymbolTable};
 
 pub async fn query_api_json(request_json: &str, helper: &impl FileAndPathHelper) -> String {
     match query_api_fallible_json(request_json, helper).await {
@@ -76,12 +76,15 @@ async fn symbolicate_requested_addresses(
 
 async fn get_address_results(
     lib: &Lib,
-    addresses: Vec<u32>,
+    mut addresses: Vec<u32>,
     helper: &impl FileAndPathHelper,
 ) -> Result<HashMap<u32, AddressResult>> {
-    let symbol_table: SymbolTable =
-        crate::get_symbol_table_result(&lib.debug_name, &lib.breakpad_id, helper).await?;
-    Ok(symbol_table.look_up_addresses(addresses))
+    addresses.sort();
+    addresses.dedup();
+    let symbol_table: LookedUpAddresses =
+        crate::get_symbolication_result(&lib.debug_name, &lib.breakpad_id, &addresses, helper)
+            .await?;
+    Ok(symbol_table.address_results)
 }
 
 fn create_response(

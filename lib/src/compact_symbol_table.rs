@@ -2,8 +2,8 @@ use object::{Object, SymbolKind};
 use std::collections::HashMap;
 use std::ops::Deref;
 
-pub trait SymbolTableResult {
-    fn from_map<S>(map: HashMap<u32, S>) -> Self
+pub trait SymbolicationResult {
+    fn from_map<S>(map: HashMap<u32, S>, addresses: &[u32]) -> Self
     where
         S: Deref<Target = str>;
 }
@@ -28,8 +28,8 @@ impl CompactSymbolTable {
     }
 }
 
-impl SymbolTableResult for CompactSymbolTable {
-    fn from_map<T: Deref<Target = str>>(map: HashMap<u32, T>) -> Self {
+impl SymbolicationResult for CompactSymbolTable {
+    fn from_map<T: Deref<Target = str>>(map: HashMap<u32, T>, _addresses: &[u32]) -> Self {
         let mut table = Self::new();
         let mut entries: Vec<_> = map.into_iter().collect();
         entries.sort_by_key(|&(addr, _)| addr);

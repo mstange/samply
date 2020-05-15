@@ -1,6 +1,6 @@
 use crate::compact_symbol_table::object_to_map;
 use crate::error::{GetSymbolsError, Result};
-use crate::SymbolTableResult;
+use crate::SymbolicationResult;
 use object::read::File;
 use object::read::Object;
 use object::SectionKind;
@@ -10,9 +10,9 @@ use uuid::Uuid;
 const UUID_SIZE: usize = 16;
 const PAGE_SIZE: usize = 4096;
 
-pub fn get_symbol_table_result<R>(buffer: &[u8], breakpad_id: &str) -> Result<R>
+pub fn get_symbolication_result<R>(buffer: &[u8], breakpad_id: &str, addresses: &[u32]) -> Result<R>
 where
-    R: SymbolTableResult,
+    R: SymbolicationResult,
 {
     let elf_file = File::parse(buffer)
         .map_err(|_| GetSymbolsError::InvalidInputError("Could not parse ELF header"))?;
@@ -26,7 +26,7 @@ where
         ));
     }
     let map = object_to_map(&elf_file);
-    Ok(R::from_map(map))
+    Ok(R::from_map(map, addresses))
 }
 
 fn create_elf_id(identifier: &[u8], little_endian: bool) -> Uuid {

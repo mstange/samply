@@ -1,12 +1,16 @@
 use crate::error::{Context, GetSymbolsError, Result};
 use crate::pdb_crate::{FallibleIterator, ProcedureSymbol, PublicSymbol, SymbolData, PDB};
-use crate::SymbolTableResult;
+use crate::SymbolicationResult;
 use std::borrow::Cow;
 use std::collections::HashMap;
 
-pub fn get_symbol_table_result<'s, S, R>(mut pdb: PDB<'s, S>, breakpad_id: &str) -> Result<R>
+pub fn get_symbolication_result<'s, S, R>(
+    mut pdb: PDB<'s, S>,
+    breakpad_id: &str,
+    addresses: &[u32],
+) -> Result<R>
 where
-    R: SymbolTableResult,
+    R: SymbolicationResult,
     S: pdb_crate::Source<'s> + 's,
 {
     // Check against the expected breakpad_id.
@@ -64,5 +68,5 @@ where
         }
     }
 
-    Ok(R::from_map(hashmap))
+    Ok(R::from_map(hashmap, addresses))
 }
