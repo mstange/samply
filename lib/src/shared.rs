@@ -1,3 +1,4 @@
+use addr2line::object;
 use object::{Object, SymbolKind};
 use std::collections::HashMap;
 use std::future::Future;
@@ -49,7 +50,7 @@ pub struct AddressDebugInfo {
 }
 
 pub struct InlineStackFrame {
-    pub function: String,
+    pub function: Option<String>,
     pub file_path: Option<String>, // maybe PathBuf?
     pub line_number: Option<u32>,
 }

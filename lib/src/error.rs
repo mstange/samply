@@ -1,6 +1,6 @@
 use crate::pdb_crate::Error as PDBError;
+use addr2line::object;
 use goblin::error::Error as GoblinError;
-use object;
 use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, GetSymbolsError>;

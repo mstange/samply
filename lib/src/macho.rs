@@ -1,5 +1,6 @@
 use crate::error::{GetSymbolsError, Result};
 use crate::shared::{object_to_map, SymbolicationQuery, SymbolicationResult};
+use addr2line::object;
 use goblin::mach;
 use object::read::{File, Object};
 use uuid::Uuid;

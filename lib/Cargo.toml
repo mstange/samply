@@ -8,7 +8,6 @@ edition = "2018"
 [dependencies]
 pdb = "0.3.0"
 uuid = "0.8.1"
-object = "0.18.0"
 goblin = "0.0.17"
 thiserror = "1.0"
 serde = { version = "1.0", features = ["derive"] }
@@ -16,3 +15,4 @@ serde_json = "1.0.53"
 cpp_demangle = "0.2.16"
 msvc-demangler = "0.8.0"
 rustc-demangle = "0.1.16"
+addr2line = "0.12.0"

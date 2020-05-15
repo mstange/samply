@@ -1,5 +1,9 @@
 use crate::error::{GetSymbolsError, Result};
-use crate::shared::{object_to_map, SymbolicationQuery, SymbolicationResult};
+use crate::shared::{
+    object_to_map, AddressDebugInfo, InlineStackFrame, SymbolicationQuery, SymbolicationResult,
+};
+use addr2line::{fallible_iterator, gimli, object};
+use fallible_iterator::FallibleIterator;
 use object::read::File;
 use object::read::Object;
 use object::SectionKind;
@@ -30,9 +34,41 @@ where
         ));
     }
     let map = object_to_map(&elf_file);
-    Ok(R::from_map(map, addresses))
+    let mut symbolication_result = R::from_map(map, addresses);
+
+    if R::wants_address_debug_info() {
+        if let Ok(context) = addr2line::Context::new(&elf_file) {
+            for address in addresses {
+                if let Ok(frame_iter) = context.find_frames(*address as u64) {
+                    let frames: std::result::Result<Vec<_>, _> =
+                        frame_iter.map(convert_stack_frame).collect();
+                    if let Ok(frames) = frames {
+                        symbolication_result
+                            .add_address_debug_info(*address, AddressDebugInfo { frames });
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(symbolication_result)
 }
 
+fn convert_stack_frame<R: gimli::Reader>(
+    frame: addr2line::Frame<R>,
+) -> std::result::Result<InlineStackFrame, gimli::read::Error> {
+    Ok(InlineStackFrame {
+        function: frame
+            .function
+            .and_then(|f| f.demangle().ok().map(|n| n.into_owned())),
+        file_path: frame
+            .location
+            .as_ref()
+            .and_then(|l| l.file)
+            .map(|f| f.to_owned()),
+        line_number: frame.location.and_then(|l| l.line).map(|l| l as u32),
+    })
+}
 fn create_elf_id(identifier: &[u8], little_endian: bool) -> Uuid {
     // Make sure that we have exactly UUID_SIZE bytes available
     let mut data = [0 as u8; UUID_SIZE];
