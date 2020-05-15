@@ -119,7 +119,7 @@
       const section = document.createElement("section");
       section.innerHTML = `
         <h3>Query Input</h3>
-        <p>URL: <input type="text" class="url" size="40" value="/symbolicate/v5"></p>
+        <p>URL: <input type="text" class="url" size="40" value="/symbolicate/v6a1"></p>
         <p>requestJSON: <textarea class="requestJSON" rows="20" cols="80"></textarea></p>
         <p><input type="button" class="begin" value="Begin"> <input type="button" class="cancel" value="Cancel"></p>`;
       parentElement.appendChild(section);
@@ -147,7 +147,7 @@
     ]
   ]
 }`
-
+      requestJSONInput.value = '{"jobs": [{"stacks":[[[0,247618],[0,685896],[0,686768]]],"memoryMap":[["libmozglue.so","0CE47B7C29F27CED55C41233B93EBA450"]]}]}';
       try {
         return await new Promise((resolve, reject) => {
           beginButton.onclick = () => {

@@ -90,7 +90,9 @@ fn create_response(
     request: &request_json::Request,
     symbolicated_addresses: HashMap<Lib, Result<LookedUpAddresses>>,
 ) -> response_json::Response {
-    use response_json::{ModuleStatus, Response, Result, Stack, StackFrame, Symbol};
+    use response_json::{
+        DebugInfo, InlineStackFrame, ModuleStatus, Response, Result, Stack, StackFrame, Symbol,
+    };
 
     fn result_for_job(
         job: &request_json::Job,
@@ -163,7 +165,19 @@ fn create_response(
                 Symbol {
                     function: address_result.symbol_name.clone(),
                     function_offset: frame.address - address_result.symbol_address,
-                    debug_info: None
+                    debug_info: address_result
+                        .inline_frames
+                        .as_ref()
+                        .map(|frames| DebugInfo {
+                            inline_stack: frames
+                                .iter()
+                                .map(|inline_frame| InlineStackFrame {
+                                    function_name: inline_frame.function.clone(),
+                                    file_path: inline_frame.file_path.clone(),
+                                    line_number: inline_frame.line_number,
+                                })
+                                .collect(),
+                        }),
                 }
             });
         StackFrame {

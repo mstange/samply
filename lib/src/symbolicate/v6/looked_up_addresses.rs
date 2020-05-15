@@ -43,7 +43,10 @@ impl SymbolicationResult for LookedUpAddresses {
                 )
             })
             .collect();
-        LookedUpAddresses { address_results, symbol_count }
+        LookedUpAddresses {
+            address_results,
+            symbol_count,
+        }
     }
 
     fn wants_address_debug_info() -> bool {
