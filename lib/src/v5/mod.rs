@@ -22,7 +22,7 @@ pub async fn query_api_fallible_json(
 ) -> Result<String> {
     let request: request_json::Request = serde_json::from_str(request_json)?;
     let response = query_api(&request, helper).await?;
-    Ok(serde_json::to_string_pretty(&response)?)
+    Ok(serde_json::to_string(&response)?)
 }
 
 pub async fn query_api(

@@ -250,7 +250,12 @@ returning ${JSON.stringify(res)}`;
       parentElement.appendChild(section);
       document.scrollingElement.scrollTo(0, 100000);
       const outputTextarea = section.querySelector(".output");
-      outputTextarea.value = output;
+      try {
+        // Pretty-print JSON.
+        outputTextarea.value = JSON.stringify(JSON.parse(output), null, 4);
+      } catch (e) {
+        outputTextarea.value = output;
+      }
     }
 
     class Helper {
