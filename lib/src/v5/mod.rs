@@ -6,14 +6,32 @@ pub mod response_json;
 pub mod symbol_table;
 
 use request_json::Lib;
+use serde_json::json;
 use symbol_table::{AddressResult, SymbolTable};
 
-pub async fn query_api(request_json_data: &str, helper: &impl FileAndPathHelper) -> Result<String> {
-    let request: request_json::Request = serde_json::from_str(request_json_data)?;
-    let requested_addresses = gather_requested_addresses(&request)?;
-    let symbolicated_addresses = symbolicate_requested_addresses(requested_addresses, helper).await;
-    let response = create_response(&request, symbolicated_addresses);
+pub async fn query_api_json(request_json: &str, helper: &impl FileAndPathHelper) -> String {
+    match query_api_fallible_json(request_json, helper).await {
+        Ok(response_json) => response_json,
+        Err(err) => json!({ "error": err.to_string() }).to_string(),
+    }
+}
+
+pub async fn query_api_fallible_json(
+    request_json: &str,
+    helper: &impl FileAndPathHelper,
+) -> Result<String> {
+    let request: request_json::Request = serde_json::from_str(request_json)?;
+    let response = query_api(&request, helper).await?;
     Ok(serde_json::to_string_pretty(&response)?)
+}
+
+pub async fn query_api(
+    request: &request_json::Request,
+    helper: &impl FileAndPathHelper,
+) -> Result<response_json::Response> {
+    let requested_addresses = gather_requested_addresses(request)?;
+    let symbolicated_addresses = symbolicate_requested_addresses(requested_addresses, helper).await;
+    Ok(create_response(request, symbolicated_addresses))
 }
 
 fn gather_requested_addresses(request: &request_json::Request) -> Result<HashMap<Lib, Vec<u32>>> {

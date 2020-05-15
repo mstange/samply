@@ -123,11 +123,8 @@ async fn query_api_impl(
     request_json: String,
     helper: FileAndPathHelper,
 ) -> Result<JsValue, JsValue> {
-    let result = profiler_get_symbols::query_api(&url, &request_json, &helper).await;
-    match result {
-        Result::Ok(response_json) => Ok(response_json.into()),
-        Result::Err(err) => Err(GetSymbolsError::from(err).into()),
-    }
+    let response_json = profiler_get_symbols::query_api(&url, &request_json, &helper).await;
+    Ok(response_json.into())
 }
 
 async fn get_compact_symbol_table_impl(

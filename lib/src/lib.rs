@@ -92,9 +92,9 @@ pub async fn query_api(
     request_url: &str,
     request_json_data: &str,
     helper: &impl FileAndPathHelper,
-) -> Result<String> {
+) -> String {
     assert_eq!(request_url, "/symbolicate/v5");
-    v5::query_api(request_json_data, helper).await
+    v5::query_api_json(request_json_data, helper).await
 }
 
 async fn try_get_symbol_table_result_from_path<R>(

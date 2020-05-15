@@ -30,19 +30,14 @@ struct Opt {
 fn main() -> anyhow::Result<()> {
     let opt = Opt::from_args();
     let response_json =
-        futures::executor::block_on(query_api(&opt.url, &opt.request_json, opt.symbol_directory))?;
+        futures::executor::block_on(query_api(&opt.url, &opt.request_json, opt.symbol_directory));
     println!("{}", response_json);
     Ok(())
 }
 
-async fn query_api(
-    request_url: &str,
-    request_json: &str,
-    symbol_directory: PathBuf,
-) -> anyhow::Result<String> {
+async fn query_api(request_url: &str, request_json: &str, symbol_directory: PathBuf) -> String {
     let helper = Helper { symbol_directory };
-    let response_json = profiler_get_symbols::query_api(request_url, request_json, &helper).await?;
-    Ok(response_json)
+    profiler_get_symbols::query_api(request_url, request_json, &helper).await
 }
 
 struct MmapFileContents(memmap::Mmap);
