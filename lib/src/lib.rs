@@ -11,6 +11,7 @@ mod symbolicate;
 
 use goblin::{mach, Hint};
 use pdb_crate::PDB;
+use serde_json::json;
 use std::future::Future;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
@@ -77,9 +78,16 @@ where
 {
     let candidate_paths_for_binary = helper
         .get_candidate_paths_for_binary_or_pdb(debug_name, breakpad_id)
-        .await?;
+        .await
+        .map_err(|e| {
+            GetSymbolsError::HelperErrorDuringGetCandidatePathsForBinaryOrPdb(
+                debug_name.to_string(),
+                breakpad_id.to_string(),
+                e,
+            )
+        })?;
 
-    let mut last_err = GetSymbolsError::NoCandidatePathForBinary;
+    let mut last_err = None;
     for path in candidate_paths_for_binary {
         match try_get_symbolication_result_from_path(
             debug_name,
@@ -91,10 +99,12 @@ where
         .await
         {
             Ok(result) => return Ok(result),
-            Err(err) => last_err = err,
+            Err(err) => last_err = Some(err),
         };
     }
-    Err(last_err)
+    Err(last_err.unwrap_or_else(|| {
+        GetSymbolsError::NoCandidatePathForBinary(debug_name.to_string(), breakpad_id.to_string())
+    }))
 }
 
 pub async fn query_api(
@@ -102,8 +112,13 @@ pub async fn query_api(
     request_json_data: &str,
     helper: &impl FileAndPathHelper,
 ) -> String {
-    assert_eq!(request_url, "/symbolicate/v5");
-    symbolicate::v5::query_api_json(request_json_data, helper).await
+    if request_url == "/symbolicate/v5" {
+        symbolicate::v5::query_api_json(request_json_data, helper).await
+    } else if request_url == "/symbolicate/v6a1" {
+        symbolicate::v6::query_api_json(request_json_data, helper).await
+    } else {
+        json!({ "error": format!("Unrecognized URL {}", request_url) }).to_string()
+    }
 }
 
 async fn try_get_symbolication_result_from_path<R>(
@@ -116,7 +131,9 @@ async fn try_get_symbolication_result_from_path<R>(
 where
     R: SymbolicationResult,
 {
-    let owned_data = helper.read_file(&path).await?;
+    let owned_data = helper.read_file(&path).await.map_err(|e| {
+        GetSymbolsError::HelperErrorDuringReadFile(path.to_string_lossy().to_string(), e)
+    })?;
     let binary_data = owned_data.get_data();
 
     let mut reader = Cursor::new(binary_data);
@@ -139,7 +156,11 @@ where
             let pe = goblin::pe::PE::parse(binary_data)?;
             let debug_info = pe.debug_data.and_then(|d| d.codeview_pdb70_debug_info);
             let info = match debug_info {
-                None => return Err(GetSymbolsError::NoDebugInfoInPeBinary),
+                None => {
+                    return Err(GetSymbolsError::NoDebugInfoInPeBinary(
+                        path.to_string_lossy().to_string(),
+                    ))
+                }
                 Some(info) => info,
             };
 
@@ -148,12 +169,20 @@ where
             // signature, that's all we need, and we'll happily accept correct PDB files even when
             // we found them via incorrect binaries.
 
-            let pdb_path = std::ffi::CStr::from_bytes_with_nul(info.filename)
-                .map_err(|_| GetSymbolsError::PdbPathDidntEndWithNul)?;
+            let pdb_path = std::ffi::CStr::from_bytes_with_nul(info.filename).map_err(|_| {
+                GetSymbolsError::PdbPathDidntEndWithNul(path.to_string_lossy().to_string())
+            })?;
 
             let candidate_paths_for_pdb = helper
                 .get_candidate_paths_for_pdb(debug_name, breakpad_id, pdb_path, path)
-                .await?;
+                .await
+                .map_err(|e| {
+                    GetSymbolsError::HelperErrorDuringGetCandidatePathsForPdb(
+                        debug_name.to_string(),
+                        breakpad_id.to_string(),
+                        e,
+                    )
+                })?;
 
             for pdb_path in candidate_paths_for_pdb {
                 if pdb_path == path {
@@ -214,7 +243,9 @@ async fn try_get_symbolication_result_from_pdb_path<R>(
 where
     R: SymbolicationResult,
 {
-    let owned_data = helper.read_file(&path).await?;
+    let owned_data = helper.read_file(&path).await.map_err(|e| {
+        GetSymbolsError::HelperErrorDuringReadFile(path.to_string_lossy().to_string(), e)
+    })?;
     let pdb_data = owned_data.get_data();
     let pdb_reader = Cursor::new(pdb_data);
     let pdb = PDB::open(pdb_reader)?;

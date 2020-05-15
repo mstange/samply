@@ -25,23 +25,33 @@ pub enum GetSymbolsError {
     #[error("MachOHeader parsing error: {0}")]
     MachOHeaderParseError(#[source] object::read::Error),
 
-    #[error("Helper callback returned error: {0}")]
-    HelperError(#[from] Box<dyn std::error::Error + Send + Sync>),
+    #[error(
+        "get_candidate_paths_for_binary_or_pdb helper callback for {0} {1} returned error: {2}"
+    )]
+    HelperErrorDuringGetCandidatePathsForBinaryOrPdb(
+        String,
+        String,
+        #[source] Box<dyn std::error::Error + Send + Sync>,
+    ),
 
-    #[error("No candidate path for binary")]
-    NoCandidatePathForBinary,
+    #[error("get_candidate_paths_for_pdb helper callback for {0} {1} returned error: {2}")]
+    HelperErrorDuringGetCandidatePathsForPdb(
+        String,
+        String,
+        #[source] Box<dyn std::error::Error + Send + Sync>,
+    ),
 
-    #[error("No candidate path for PDB")]
-    NoCandidatePathForPdb,
+    #[error("read_file helper callback for file {0} returned error: {1}")]
+    HelperErrorDuringReadFile(String, #[source] Box<dyn std::error::Error + Send + Sync>),
 
-    #[error("The PE (Windows) binary did not contain information about an associated PDB file")]
-    NoDebugInfoInPeBinary,
+    #[error("No candidate path for binary, for {0} {1}")]
+    NoCandidatePathForBinary(String, String),
 
-    #[error("XXX")]
-    PdbPathDidntEndWithNul,
+    #[error("The PE (Windows) binary at path {0} did not contain information about an associated PDB file")]
+    NoDebugInfoInPeBinary(String),
 
-    #[error("XXX")]
-    PdbPathWasntValidUtf8,
+    #[error("In the PE (Windows) binary at path {0}, the embedded path to the PDB file did not end with a nul byte.")]
+    PdbPathDidntEndWithNul(String),
 
     #[error("Couldn't parse request: {0}")]
     ParseRequestErrorSerde(#[from] serde_json::error::Error),
@@ -75,12 +85,16 @@ impl GetSymbolsError {
             GetSymbolsError::InvalidInputError(_) => "InvalidInputError",
             GetSymbolsError::GoblinError(_) => "GoblinError",
             GetSymbolsError::MachOHeaderParseError(_) => "MachOHeaderParseError",
-            GetSymbolsError::HelperError(_) => "HelperError",
-            GetSymbolsError::NoCandidatePathForBinary => "NoCandidatePathForBinary",
-            GetSymbolsError::NoCandidatePathForPdb => "NoCandidatePathForPdb",
-            GetSymbolsError::NoDebugInfoInPeBinary => "NoDebugInfoInPeBinary",
-            GetSymbolsError::PdbPathDidntEndWithNul => "PdbPathDidntEndWithNul",
-            GetSymbolsError::PdbPathWasntValidUtf8 => "PdbPathWasntValidUtf8",
+            GetSymbolsError::HelperErrorDuringGetCandidatePathsForBinaryOrPdb(_, _, _) => {
+                "HelperErrorDuringGetCandidatePathsForBinaryOrPdb"
+            }
+            GetSymbolsError::HelperErrorDuringGetCandidatePathsForPdb(_, _, _) => {
+                "HelperErrorDuringGetCandidatePathsForPdb"
+            }
+            GetSymbolsError::HelperErrorDuringReadFile(_, _) => "HelperErrorDuringReadFile",
+            GetSymbolsError::NoCandidatePathForBinary(_, _) => "NoCandidatePathForBinary",
+            GetSymbolsError::NoDebugInfoInPeBinary(_) => "NoDebugInfoInPeBinary",
+            GetSymbolsError::PdbPathDidntEndWithNul(_) => "PdbPathDidntEndWithNul",
             GetSymbolsError::ParseRequestErrorSerde(_) => "ParseRequestErrorSerde",
             GetSymbolsError::ParseRequestErrorContents(_) => "ParseRequestErrorContents",
         }
