@@ -20,6 +20,14 @@ use std::pin::Pin;
 pub use crate::compact_symbol_table::{CompactSymbolTable, SymbolicationResult};
 pub use crate::error::{GetSymbolsError, Result};
 
+#[derive(Clone)]
+pub struct SymbolicationQuery<'a> {
+    pub debug_name: &'a str,
+    pub breakpad_id: &'a str,
+    pub path: &'a Path,
+    pub addresses: &'a [u32],
+}
+
 pub trait OwnedFileData {
     fn get_data(&self) -> &[u8];
 }
@@ -119,14 +127,6 @@ pub async fn query_api(
     }
 }
 
-#[derive(Clone)]
-pub struct SymbolicationQuery<'a> {
-    pub debug_name: &'a str,
-    pub breakpad_id: &'a str,
-    pub path: &'a Path,
-    pub addresses: &'a [u32],
-}
-
 async fn try_get_symbolication_result_from_path<'a, R>(
     query: SymbolicationQuery<'a>,
     helper: &impl FileAndPathHelper,
@@ -137,17 +137,17 @@ where
     let owned_data = helper.read_file(query.path).await.map_err(|e| {
         GetSymbolsError::HelperErrorDuringReadFile(query.path.to_string_lossy().to_string(), e)
     })?;
-    let binary_data = owned_data.get_data();
+    let buffer = owned_data.get_data();
 
-    let mut reader = Cursor::new(binary_data);
+    let mut reader = Cursor::new(buffer);
     match goblin::peek(&mut reader)? {
-        Hint::Elf(_) => elf::get_symbolication_result(binary_data, query),
-        Hint::Mach(_) => macho::get_symbolication_result(binary_data, query),
-        Hint::MachFat(_) => macho::get_symbolication_result_multiarch(binary_data, query),
-        Hint::PE => pdb::get_symbolication_result_via_binary(binary_data, query, helper).await,
+        Hint::Elf(_) => elf::get_symbolication_result(buffer, query),
+        Hint::Mach(_) => macho::get_symbolication_result(buffer, query),
+        Hint::MachFat(_) => macho::get_symbolication_result_multiarch(buffer, query),
+        Hint::PE => pdb::get_symbolication_result_via_binary(buffer, query, helper).await,
         _ => {
             // Might this be a PDB, then?
-            let pdb_reader = Cursor::new(binary_data);
+            let pdb_reader = Cursor::new(buffer);
             match PDB::open(pdb_reader) {
                 Ok(pdb) => {
                     // This is a PDB file.
