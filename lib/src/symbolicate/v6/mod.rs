@@ -1,5 +1,5 @@
-use crate::shared::FileAndPathHelper;
 use crate::error::{GetSymbolsError, Result};
+use crate::shared::FileAndPathHelper;
 use std::collections::HashMap;
 
 pub mod looked_up_addresses;

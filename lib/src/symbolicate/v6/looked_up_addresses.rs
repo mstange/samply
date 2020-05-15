@@ -1,5 +1,5 @@
 use super::super::demangle;
-use crate::SymbolicationResult;
+use crate::shared::{AddressDebugInfo, SymbolicationResult};
 use std::collections::HashMap;
 use std::ops::Deref;
 
@@ -45,5 +45,13 @@ impl SymbolicationResult for LookedUpAddresses {
             address_results,
             symbol_count,
         }
+    }
+
+    fn wants_address_debug_info() -> bool {
+        false
+    }
+
+    fn add_address_debug_info(&mut self, _address: u32, _info: AddressDebugInfo) {
+        panic!("Should not be called")
     }
 }

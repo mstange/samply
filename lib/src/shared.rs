@@ -1,7 +1,7 @@
 use object::{Object, SymbolKind};
 use std::collections::HashMap;
-use std::ops::Deref;
 use std::future::Future;
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 
@@ -44,10 +44,24 @@ pub trait FileAndPathHelper {
     ) -> Pin<Box<dyn Future<Output = FileAndPathHelperResult<Self::FileContents>>>>;
 }
 
+pub struct AddressDebugInfo {
+    pub frames: Vec<InlineStackFrame>,
+}
+
+pub struct InlineStackFrame {
+    pub function: String,
+    pub file_path: Option<String>, // maybe PathBuf?
+    pub line_number: Option<u32>,
+}
+
 pub trait SymbolicationResult {
     fn from_map<S>(map: HashMap<u32, S>, addresses: &[u32]) -> Self
     where
         S: Deref<Target = str>;
+
+    fn wants_address_debug_info() -> bool;
+
+    fn add_address_debug_info(&mut self, address: u32, info: AddressDebugInfo);
 }
 
 #[derive(Clone)]

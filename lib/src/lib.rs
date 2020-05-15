@@ -7,18 +7,20 @@ mod elf;
 mod error;
 mod macho;
 mod pdb;
-mod symbolicate;
 mod shared;
+mod symbolicate;
 
 use goblin::Hint;
 use pdb_crate::PDB;
 use serde_json::json;
 use std::io::Cursor;
 
-pub use crate::compact_symbol_table::{CompactSymbolTable};
+pub use crate::compact_symbol_table::CompactSymbolTable;
 pub use crate::error::{GetSymbolsError, Result};
-pub use crate::shared::{OwnedFileData, FileAndPathHelperError, FileAndPathHelperResult, FileAndPathHelper};
-use crate::shared::{SymbolicationResult, SymbolicationQuery};
+pub use crate::shared::{
+    FileAndPathHelper, FileAndPathHelperError, FileAndPathHelperResult, OwnedFileData,
+};
+use crate::shared::{SymbolicationQuery, SymbolicationResult};
 
 pub async fn get_compact_symbol_table(
     debug_name: &str,

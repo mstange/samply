@@ -1,6 +1,6 @@
+use super::shared::{AddressDebugInfo, SymbolicationResult};
 use std::collections::HashMap;
 use std::ops::Deref;
-use super::shared::SymbolicationResult;
 
 #[repr(C)]
 pub struct CompactSymbolTable {
@@ -35,5 +35,13 @@ impl SymbolicationResult for CompactSymbolTable {
         }
         table.index.push(table.buffer.len() as u32);
         table
+    }
+
+    fn wants_address_debug_info() -> bool {
+        false
+    }
+
+    fn add_address_debug_info(&mut self, _address: u32, _info: AddressDebugInfo) {
+        panic!("Should not be called")
     }
 }
