@@ -2,11 +2,10 @@ use crate::{FileAndPathHelper, GetSymbolsError, Result};
 use std::collections::HashMap;
 
 pub mod looked_up_addresses;
-pub mod request_json;
 pub mod response_json;
 
+use super::request_json::{self, Lib};
 use looked_up_addresses::{AddressResult, LookedUpAddresses};
-use request_json::Lib;
 use serde_json::json;
 
 pub async fn query_api_json(request_json: &str, helper: &impl FileAndPathHelper) -> String {

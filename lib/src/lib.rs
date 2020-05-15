@@ -7,7 +7,7 @@ mod elf;
 mod error;
 mod macho;
 mod pdb;
-mod v5;
+mod symbolicate;
 
 use goblin::{mach, Hint};
 use pdb_crate::PDB;
@@ -103,7 +103,7 @@ pub async fn query_api(
     helper: &impl FileAndPathHelper,
 ) -> String {
     assert_eq!(request_url, "/symbolicate/v5");
-    v5::query_api_json(request_json_data, helper).await
+    symbolicate::v5::query_api_json(request_json_data, helper).await
 }
 
 async fn try_get_symbolication_result_from_path<R>(
