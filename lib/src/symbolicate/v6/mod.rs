@@ -163,6 +163,7 @@ fn create_response(
                 Symbol {
                     function: address_result.symbol_name.clone(),
                     function_offset: frame.address - address_result.symbol_address,
+                    debug_info: None
                 }
             });
         StackFrame {

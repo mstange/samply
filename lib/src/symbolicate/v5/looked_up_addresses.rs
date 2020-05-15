@@ -1,12 +1,11 @@
 use super::super::demangle;
-use crate::shared::{AddressDebugInfo, InlineStackFrame, SymbolicationResult};
+use crate::shared::{AddressDebugInfo, SymbolicationResult};
 use std::collections::HashMap;
 use std::ops::Deref;
 
 pub struct AddressResult {
-    pub symbol_address: u32,
     pub symbol_name: String,
-    pub inline_frames: Option<Vec<InlineStackFrame>>,
+    pub symbol_address: u32,
 }
 
 pub struct LookedUpAddresses {
@@ -36,7 +35,6 @@ impl SymbolicationResult for LookedUpAddresses {
                     AddressResult {
                         symbol_address,
                         symbol_name,
-                        inline_frames: None,
                     },
                 )
             })
@@ -45,13 +43,10 @@ impl SymbolicationResult for LookedUpAddresses {
     }
 
     fn wants_address_debug_info() -> bool {
-        true
+        false
     }
 
-    fn add_address_debug_info(&mut self, address: u32, info: AddressDebugInfo) {
-        self.address_results
-            .get_mut(&address)
-            .unwrap()
-            .inline_frames = Some(info.frames);
+    fn add_address_debug_info(&mut self, _address: u32, _info: AddressDebugInfo) {
+        panic!("Should not be called")
     }
 }

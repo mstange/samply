@@ -31,8 +31,29 @@ pub struct StackFrame {
 #[derive(Serialize, Debug)]
 pub struct Symbol {
     pub function: String,
+
     #[serde(serialize_with = "as_hex_string")]
     pub function_offset: u32,
+
+    #[serde(flatten)]
+    pub debug_info: Option<DebugInfo>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct DebugInfo {
+    pub inline_stack: Vec<InlineStackFrame>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct InlineStackFrame {
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub function_name: Option<String>,
+
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub file_path: Option<String>,
+
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub line_number: Option<u32>,
 }
 
 #[derive(Serialize, Debug)]
@@ -46,7 +67,11 @@ pub struct ModuleStatus {
 pub struct Error {
     pub name: String,
     pub message: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub filename: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub line: Option<String>,
 }
 
@@ -86,6 +111,7 @@ mod test {
                         symbol: Some(response_json::Symbol {
                             function: String::from("sctp_send_initiate"),
                             function_offset: 0x4ca,
+                            debug_info: None,
                         }),
                     },
                     response_json::StackFrame {
