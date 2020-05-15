@@ -6,11 +6,12 @@ binaries as well as from pdb files. The implementation makes use of the crates
 
 The `lib` directory contains a generic Rust implementation. The `wasm` directory
 contains a wrapper that targets WebAssembly and JavaScript.
-The `examples` directory contains a command line tool that can be used to test
+The `examples` directory contains two command line tools that can be used to test
 the functionality, for example as follows (executed from the workspace root):
 
 ```
 cargo run -p dump-table -- firefox.pdb fixtures/win64-ci
+cargo run -p query-api -- fixtures/win64-ci /symbolicate/v5 '{"jobs": [{"stacks":[[[0,204776],[0,129423],[1, 237799]]],"memoryMap":[["firefox.pdb","AA152DEB2D9B76084C4C44205044422E2"],["mozglue.pdb","63C609072D3499F64C4C44205044422E2"],["wntdll.pdb","D74F79EB1F8D4A45ABCD2F476CCABACC2"]]}]}'
 ```
 
 The .wasm file and the JavaScript bindings are used by the Gecko profiler.
@@ -22,7 +23,7 @@ symbols on the [Mozilla symbol server](https://symbols.mozilla.org/).
 
 ## Running / Testing
 
-### `dump-table` command line tool
+### command line tools
 
 Examples of running the `dump-table` tool:
 
@@ -34,6 +35,12 @@ cargo run -p dump-table -- libmozglue.dylib fixtures/macos-local INCORRECTID
 cargo run -p dump-table -- libmozglue.dylib fixtures/macos-local F38030E4A3783F90B2282FCB0B33261A0
 cargo run -p dump-table -- libsystem_kernel.dylib /usr/lib/system
 cargo run -p dump-table -- libsystem_kernel.dylib /usr/lib/system B6602BF001213894AED620A8CF2A30B80 --full
+```
+
+Examples of running the `query-api` tool:
+
+```
+cargo run -p query-api -- fixtures/win64-ci /symbolicate/v5 '{"jobs": [{"stacks":[[[0,204776],[0,129423],[1, 237799]]],"memoryMap":[["firefox.pdb","AA152DEB2D9B76084C4C44205044422E2"],["mozglue.pdb","63C609072D3499F64C4C44205044422E2"],["wntdll.pdb","D74F79EB1F8D4A45ABCD2F476CCABACC2"]]}]}'
 ```
 
 Running tests:

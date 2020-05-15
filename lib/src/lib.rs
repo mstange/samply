@@ -88,13 +88,13 @@ where
     Err(last_err)
 }
 
-pub async fn get_api_response(
+pub async fn query_api(
     request_url: &str,
     request_json_data: &str,
     helper: &impl FileAndPathHelper,
 ) -> Result<String> {
     assert_eq!(request_url, "/symbolicate/v5");
-    v5::get_api_response(request_json_data, helper).await
+    v5::query_api(request_json_data, helper).await
 }
 
 async fn try_get_symbol_table_result_from_path<R>(

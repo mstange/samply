@@ -86,6 +86,50 @@ pub fn get_compact_symbol_table(
     ))
 }
 
+/// Usage:
+///
+/// ```js
+/// async function getSymbolTable(url, requestJSONString, libKeyToPathMap) {
+///   const helper = {
+///     getCandidatePathsForBinaryOrPdb: async (debugName, breakpadId) => {
+///       const path = libKeyToPathMap.get(`${debugName}/${breakpadId}`);
+///       if (path !== undefined) {
+///         return [path];
+///       }
+///       return [];
+///     },
+///     readFile: async (filename) => {
+///       const byteLength = await getFileSizeInBytes(filename);
+///       const buffer = new WasmMemBuffer(byteLength, array => {
+///         syncReadFileIntoBuffer(filename, array);
+///       });
+///       return {
+///         getBuffer: () => buffer
+///       };
+///     }
+///   };
+///
+///   const responseJSONString = await queryAPI(deburlugName, requestJSONString, helper);
+///   return responseJSONString;
+/// }
+/// ```
+#[wasm_bindgen(js_name = queryAPI)]
+pub fn query_api(url: String, request_json: String, helper: FileAndPathHelper) -> Promise {
+    future_to_promise(query_api_impl(url, request_json, helper))
+}
+
+async fn query_api_impl(
+    url: String,
+    request_json: String,
+    helper: FileAndPathHelper,
+) -> Result<JsValue, JsValue> {
+    let result = profiler_get_symbols::query_api(&url, &request_json, &helper).await;
+    match result {
+        Result::Ok(response_json) => Ok(response_json.into()),
+        Result::Err(err) => Err(GetSymbolsError::from(err).into()),
+    }
+}
+
 async fn get_compact_symbol_table_impl(
     debug_name: String,
     breakpad_id: String,

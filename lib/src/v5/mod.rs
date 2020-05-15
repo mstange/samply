@@ -8,10 +8,7 @@ pub mod symbol_table;
 use request_json::Lib;
 use symbol_table::{AddressResult, SymbolTable};
 
-pub async fn get_api_response(
-    request_json_data: &str,
-    helper: &impl FileAndPathHelper,
-) -> Result<String> {
+pub async fn query_api(request_json_data: &str, helper: &impl FileAndPathHelper) -> Result<String> {
     let request: request_json::Request = serde_json::from_str(request_json_data)?;
     let requested_addresses = gather_requested_addresses(&request)?;
     let symbolicated_addresses = symbolicate_requested_addresses(requested_addresses, helper).await;

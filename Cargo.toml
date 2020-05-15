@@ -2,7 +2,8 @@
 members = [
   "lib",
   "wasm",
-  "examples/dump_table"
+  "examples/dump_table",
+  "examples/query_api"
 ]
 default-members = [
   "lib",
