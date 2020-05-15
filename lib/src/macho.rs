@@ -1,8 +1,29 @@
 use crate::compact_symbol_table::object_to_map;
 use crate::error::{GetSymbolsError, Result};
 use crate::SymbolicationResult;
+use goblin::mach;
 use object::read::{File, Object};
 use uuid::Uuid;
+
+pub fn get_symbolication_result_multiarch<R>(
+    buffer: &[u8],
+    breakpad_id: &str,
+    addresses: &[u32],
+) -> Result<R>
+where
+    R: SymbolicationResult,
+{
+    let mut errors = vec![];
+    let multi_arch = mach::MultiArch::new(buffer)?;
+    for fat_arch in multi_arch.iter_arches().filter_map(std::result::Result::ok) {
+        let arch_slice = fat_arch.slice(buffer);
+        match get_symbolication_result(arch_slice, breakpad_id, addresses) {
+            Ok(table) => return Ok(table),
+            Err(err) => errors.push(err),
+        }
+    }
+    Err(GetSymbolsError::NoMatchMultiArch(errors))
+}
 
 pub fn get_symbolication_result<R>(buffer: &[u8], breakpad_id: &str, addresses: &[u32]) -> Result<R>
 where
