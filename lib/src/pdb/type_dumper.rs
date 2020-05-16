@@ -244,8 +244,8 @@ impl<'a> TypeDumper<'a> {
                         w.write_all(b"static ")?;
                     }
                     let no_return = self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN);
-                    let ret = self.get_return_type(Some(t.return_type), t.attributes, no_return);
-                    Self::dump_return(&mut w, ret)?;
+                    self.dump_return_type(&mut w, Some(t.return_type), t.attributes, no_return)?;
+
                     let (const_meth, args) = self.dump_method_parts(t, ztatic)?;
                     if let Some(i) = parent_index {
                         self.dump_parent_scope(&mut w, i)?;
@@ -258,8 +258,8 @@ impl<'a> TypeDumper<'a> {
                 }
                 TypeData::Procedure(t) => {
                     let no_return = self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN);
-                    let ret = self.get_return_type(t.return_type, t.attributes, no_return);
-                    Self::dump_return(&mut w, ret)?;
+                    self.dump_return_type(&mut w, t.return_type, t.attributes, no_return)?;
+
                     if let Some(i) = parent_index {
                         self.dump_parent_scope(&mut w, i)?;
                     }
@@ -274,28 +274,19 @@ impl<'a> TypeDumper<'a> {
         }
     }
 
-    #[inline(always)]
-    fn dump_return(w: &mut impl Write, name: String) -> Result<()> {
-        if !name.is_empty() {
-            write!(w, "{} ", name)?;
-        }
-        Ok(())
-    }
-
-    fn get_return_type(
+    fn dump_return_type(
         &self,
+        w: &mut impl Write,
         typ: Option<TypeIndex>,
         attrs: FunctionAttributes,
         no_return: bool,
-    ) -> String {
+    ) -> Result<()> {
         if !no_return && !attrs.is_constructor() {
             if let Some(index) = typ {
-                if let Ok(ret) = self.dump_index(index) {
-                    return ret;
-                }
+                write!(w, "{} ", self.dump_index(index)?)?
             }
         }
-        "".to_string()
+        Ok(())
     }
 
     fn check_this_type(&self, this: TypeIndex, class: TypeIndex) -> Result<ThisKind> {
@@ -393,8 +384,8 @@ impl<'a> TypeDumper<'a> {
     ) -> Result<String> {
         let ztatic = fun.this_pointer_type.is_none();
         let mut w: Vec<u8> = Vec::new();
-        let ret = self.get_return_type(Some(fun.return_type), fun.attributes, false);
-        Self::dump_return(&mut w, ret)?;
+        self.dump_return_type(&mut w, Some(fun.return_type), fun.attributes, false)?;
+
         let (_, args) = self.dump_method_parts(fun, ztatic)?;
         let class = self.dump_index(fun.class_type)?;
         write!(w, "({}", class)?;
@@ -407,8 +398,8 @@ impl<'a> TypeDumper<'a> {
     fn dump_proc_ptr(&self, fun: ProcedureType, attributes: Vec<PtrAttributes>) -> Result<String> {
         let mut w: Vec<u8> = Vec::new();
         let no_return = false;
-        let ret = self.get_return_type(fun.return_type, fun.attributes, no_return);
-        Self::dump_return(&mut w, ret)?;
+        self.dump_return_type(&mut w, fun.return_type, fun.attributes, no_return)?;
+
         let attrs = self.dump_attributes(attributes);
         write!(w, "({})", attrs)?;
         let args = self.dump_index(fun.argument_list)?;
@@ -695,15 +686,15 @@ impl<'a> TypeDumper<'a> {
             TypeData::MemberFunction(t) => {
                 let ztatic = t.this_pointer_type.is_none();
                 let no_return = self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN);
-                let ret = self.get_return_type(Some(t.return_type), t.attributes, no_return);
-                Self::dump_return(&mut w, ret)?;
+                self.dump_return_type(&mut w, Some(t.return_type), t.attributes, no_return)?;
+
                 let (_, args) = self.dump_method_parts(t, ztatic)?;
                 write!(w, "()({})", args)?
             }
             TypeData::Procedure(t) => {
                 let no_return = self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN);
-                let ret = self.get_return_type(t.return_type, t.attributes, no_return);
-                Self::dump_return(&mut w, ret)?;
+                self.dump_return_type(&mut w, t.return_type, t.attributes, no_return)?;
+
                 let args = self.dump_index(t.argument_list)?;
                 write!(w, "()({})", args)?;
             }
