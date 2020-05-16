@@ -39,8 +39,8 @@
 
   <section class="initiaterButtons">
     <p>
-      <input type="button" value="Start Symbol Table Query" onclick="startSymbolTableQuery()">
-      <input type="button" value="Start API Query" onclick="startAPIQuery()">
+      <input type="button" value="Initiate Symbol Table Query" onclick="startSymbolTableQuery()">
+      <input type="button" value="Initiate API Query" onclick="startAPIQuery()">
     </p>
   </section>
 
@@ -65,49 +65,76 @@
       console.error(error);
     });
 
-    function getFileResultOrUndefined(fileInput) {
+    function getArrayBufferFromFile(file) {
       return new Promise((resolve, reject) => {
-        if (!fileInput.files[0]) {
-          resolve();
+        if (!file) {
+          reject(new Error("No file was provided"));
           return;
         }
         const fileReader = new FileReader();
-        fileReader.readAsArrayBuffer(fileInput.files[0]);
+        fileReader.readAsArrayBuffer(file);
         fileReader.onload = function () {
           resolve(fileReader.result);
         };
         fileReader.onerror = function () {
-          resolve();
+          resolve(fileReader.error);
         };
-      }).catch(() => { });
+      });
     }
+
+    let radioUniqueNameCounter = 0;
 
     async function queryInputForSymbolTable(parentElement) {
       const section = document.createElement("section");
+      const c = radioUniqueNameCounter++;
       section.innerHTML = `
         <h3>Query Input</h3>
-        <p>debugName: <input type="text" class="debugName" size="40" value="firefox.pdb"></p>
-        <p>breakpadID: <input type="text" class="breakpadId" size="40" value="AA152DEB2D9B76084C4C44205044422E2"></p>
-        <p><input type="button" class="begin" value="Begin"> <input type="button" class="cancel" value="Cancel"></p>`;
+        <dl>
+          <dt>Symbol Files:</dt>
+          <dd>
+            <ul>
+              <li><label><input type="radio" name="files${c}" value="download" checked> Automatically download files from <code>fixtures/</code></label></li>
+              <li><label><input type="radio" name="files${c}" value="pickdir"> Use files from directory:</label>
+              <input type="file" webkitdirectory multiple class="files"></li>
+              <li><label><input type="radio" name="files${c}" value="pickfiles"> Pick files individually, as they are requested</label></li>
+            </ul>
+          </dd>
+          <dt>debugName:</dt><dd><input type="text" class="debugName" size="40" value="firefox.pdb"></dd>
+          <dt>breakpadID:</dt><dd><input type="text" class="breakpadId" size="40" value="AA152DEB2D9B76084C4C44205044422E2"></dd>
+        </dl>
+        <p><input type="button" class="begin" value="Query Symbol Table"> <input type="button" class="cancel" value="Cancel"></p>`;
       parentElement.appendChild(section);
-      document.scrollingElement.scrollTo(0, 100000);
+      section.scrollIntoView({ behavior: "smooth" });
+      const downloadRadio = section.querySelector("input[type=radio][value=download]");
+      const pickdirRadio = section.querySelector("input[type=radio][value=pickdir]");
+      const pickfilesRadio = section.querySelector("input[type=radio][value=pickfiles]");
+      const filesInput = section.querySelector(".files");
       const debugNameInput = section.querySelector(".debugName");
       const breakpadIdInput = section.querySelector(".breakpadId");
       const beginButton = section.querySelector(".begin");
       const cancelButton = section.querySelector(".cancel");
+      filesInput.addEventListener("change", () => { pickdirRadio.checked = true });
 
       try {
         return await new Promise((resolve, reject) => {
           beginButton.onclick = () => {
             const debugName = debugNameInput.value;
             const breakpadId = breakpadIdInput.value;
-            resolve({ debugName, breakpadId });
+            const fileObtainmentMode = {
+              mode: section.querySelector('input[type=radio]:checked').value,
+              filesInput
+            };
+            resolve({ debugName, breakpadId, fileObtainmentMode });
           };
           cancelButton.onclick = () => {
             reject(new Error("Cancel button clicked"));
           };
         });
       } finally {
+        downloadRadio.disabled = true;
+        pickdirRadio.disabled = true;
+        pickfilesRadio.disabled = true;
+        filesInput.disabled = true;
         debugNameInput.disabled = true;
         breakpadIdInput.disabled = true;
         beginButton.disabled = true;
@@ -117,53 +144,86 @@
 
     async function queryInputForAPI(parentElement) {
       const section = document.createElement("section");
+      const c = radioUniqueNameCounter++;
       section.innerHTML = `
         <h3>Query Input</h3>
-        <p>URL: <input type="text" class="url" size="40" value="/symbolicate/v6a1"></p>
-        <p>requestJSON: <textarea class="requestJSON" rows="20" cols="80"></textarea></p>
-        <p><input type="button" class="begin" value="Begin"> <input type="button" class="cancel" value="Cancel"></p>`;
+        <dl>
+          <dt>Symbol Files:</dt>
+          <dd>
+            <ul>
+              <li><label><input type="radio" name="files${c}" value="download" checked> Automatically download files from <code>fixtures/</code></label></li>
+              <li><label><input type="radio" name="files${c}" value="pickdir"> Use files from directory:</label>
+              <input type="file" webkitdirectory multiple class="files"></li>
+              <li><label><input type="radio" name="files${c}" value="pickfiles"> Pick files individually, as they are requested</label></li>
+            </ul>
+          </dd>
+          <dt>URL:</dt><dd><input type="text" class="url" size="40" value="/symbolicate/v6a1"></dd>
+          <dt>requestJSON:</dt><dd><textarea class="requestJSON" rows="20" cols="80"></textarea></dd>
+        </dl>
+        <p><input type="button" class="begin" value="Query API"> <input type="button" class="cancel" value="Cancel"></p>`;
       parentElement.appendChild(section);
-      document.scrollingElement.scrollTo(0, 100000);
+      section.scrollIntoView({ behavior: "smooth" });
+      const downloadRadio = section.querySelector("input[type=radio][value=download]");
+      const pickdirRadio = section.querySelector("input[type=radio][value=pickdir]");
+      const pickfilesRadio = section.querySelector("input[type=radio][value=pickfiles]");
+      const filesInput = section.querySelector(".files");
       const urlInput = section.querySelector(".url");
       const requestJSONInput = section.querySelector(".requestJSON");
       const beginButton = section.querySelector(".begin");
       const cancelButton = section.querySelector(".cancel");
-      requestJSONInput.value = `{
-  "memoryMap": [
-    [
-      "firefox.pdb",
-      "AA152DEB2D9B76084C4C44205044422E2"
-    ],
-    [
-      "mozglue.pdb",
-      "63C609072D3499F64C4C44205044422E2"
-    ]
-  ],
-  "stacks": [
-    [
-      [0,204776],
-      [0,129423],
-      [0,244290],
-      [0,244219],
-      [1,244290],
-      [1,244219],
-      [1, 237799]
-    ]
-  ]
-}`
-      // requestJSONInput.value = '{"jobs": [{"stacks":[[[0,247618],[0,685896],[0,686768]]],"memoryMap":[["libmozglue.so","0CE47B7C29F27CED55C41233B93EBA450"]]}]}';
+      filesInput.addEventListener("change", () => { pickdirRadio.checked = true });
+
+      requestJSONInput.value = JSON.stringify({
+        "memoryMap": [
+          [
+            "firefox.pdb",
+            "AA152DEB2D9B76084C4C44205044422E2"
+          ],
+          [
+            "mozglue.pdb",
+            "63C609072D3499F64C4C44205044422E2"
+          ],
+          [
+            "libmozglue.so",
+            "0CE47B7C29F27CED55C41233B93EBA450"
+          ]
+        ],
+        "stacks": [
+          [
+            [0, 204776],
+            [0, 129423],
+            [0, 244290],
+            [0, 244219],
+            [1, 244290],
+            [1, 244219],
+            [1, 237799],
+            [2, 247618],
+            [2, 685896],
+            [2, 686768]
+          ]
+        ]
+      }, null, 2);
+
       try {
         return await new Promise((resolve, reject) => {
           beginButton.onclick = () => {
             const url = urlInput.value;
             const requestJSON = requestJSONInput.value;
-            resolve({ url, requestJSON });
+            const fileObtainmentMode = {
+              mode: section.querySelector('input[type=radio]:checked').value,
+              filesInput
+            };
+            resolve({ url, requestJSON, fileObtainmentMode });
           };
           cancelButton.onclick = () => {
             reject(new Error("Cancel button clicked"));
           };
         });
       } finally {
+        downloadRadio.disabled = true;
+        pickdirRadio.disabled = true;
+        pickfilesRadio.disabled = true;
+        filesInput.disabled = true;
         urlInput.disabled = true;
         requestJSONInput.disabled = true;
         beginButton.disabled = true;
@@ -177,7 +237,7 @@
         <h3>Exception Fired</h3>
         <p><textarea class="exceptionText" readonly cols="100" rows="4"></textarea></p>`;
       parentElement.appendChild(section);
-      document.scrollingElement.scrollTo(0, 100000);
+      section.scrollIntoView({ behavior: "smooth" });
       const exceptionTextTextarea = section.querySelector(".exceptionText");
       const { name, message } = error;
       exceptionTextTextarea.value = JSON.stringify({ name, message, ...error });
@@ -187,12 +247,63 @@
       const section = document.createElement("section");
       section.innerHTML = `
         <h3><code>getCandidatePathsForBinaryOrPdb</code> called</h3>
-        <p><textarea class="values" readonly cols="100" rows="2"></textarea></p>`;
+        <p class="params"></p>
+        <p>Returning <code class="returnValue"></code></p>`;
       parentElement.appendChild(section);
-      document.scrollingElement.scrollTo(0, 100000);
-      const valuesTextarea = section.querySelector(".values");
-      valuesTextarea.value = `debugName: ${debugName}, breakpadId: ${breakpadId}
-returning ${JSON.stringify(res)}`;
+      section.scrollIntoView({ behavior: "smooth" });
+      const paramsP = section.querySelector(".params");
+      const returnValueCode = section.querySelector(".returnValue");
+      paramsP.textContent = `debugName: ${debugName}, breakpadId: ${breakpadId}`;
+      returnValueCode.textContent = JSON.stringify(res);
+    }
+
+    async function getFileFromURL(path, parentElement) {
+      const section = document.createElement("section");
+      section.innerHTML = `
+        <h3><code>readFile</code> called</h3>
+        <p class="text"></p>
+        <p class="progressWrapper"><progress min="0" max="100" value="0" class="progress"></progress></p>`;
+      parentElement.appendChild(section);
+      section.scrollIntoView({ behavior: "smooth" });
+      const textP = section.querySelector(".text");
+      const progressWrapperP = section.querySelector(".progressWrapper");
+      const progressInput = section.querySelector(".progress");
+      textP.textContent = `Downloading ${path}...`;
+      try {
+        let arrayBuffer = await new Promise((resolve, reject) => {
+          const request = new XMLHttpRequest();
+          request.addEventListener("progress", e => {
+            progressInput.max = e.total;
+            progressInput.value = e.loaded;
+          });
+          request.addEventListener("error", e => {
+            reject(new Error(`XHR error when loading ${path}`));
+          });
+          request.addEventListener("abort", e => {
+            reject(new Error(`XHR abort when loading ${path}`));
+          });
+          request.addEventListener("readystatechange", e => {
+            if (request.readyState === XMLHttpRequest.DONE) {
+              const status = request.status;
+              if (status === 0 || (status >= 200 && status < 400)) {
+                resolve(request.response);
+              } else {
+                reject(new Error(`XHR finished with status code ${status} when loading ${path}`));
+              }
+            }
+          });
+          request.responseType = "arraybuffer";
+          request.open("GET", path);
+          request.send();
+        });
+        textP.textContent = `Downloaded ${path} successfully.`;
+        return arrayBuffer;
+      } catch (e) {
+        textP.textContent = `Failed when downloading ${path}.`;
+        throw e;
+      } finally {
+        progressWrapperP.parentNode.removeChild(progressWrapperP);
+      }
     }
 
     async function getFileFromUser(filename, parentElement) {
@@ -202,7 +313,7 @@ returning ${JSON.stringify(res)}`;
         <p>Please pick the following file: <code class="filename"></code></p>
         <p><input type="file" class="fileInput"> <input type="button" class="ok" value="OK"> <input type="button" class="cancel" value="Cancel"></p>`;
       parentElement.appendChild(section);
-      document.scrollingElement.scrollTo(0, 100000);
+      section.scrollIntoView({ behavior: "smooth" });
       const filenameCode = section.querySelector(".filename");
       const fileInput = section.querySelector(".fileInput");
       const okButton = section.querySelector(".ok");
@@ -222,11 +333,30 @@ returning ${JSON.stringify(res)}`;
         okButton.disabled = true;
         cancelButton.disabled = true;
       }
-      const arrayBufferOrUndefined = getFileResultOrUndefined(fileInput);
-      if (arrayBufferOrUndefined === undefined) {
+      const arrayBuffer = getArrayBufferFromFile(fileInput.files[0]);
+      if (arrayBuffer === undefined) {
         throw new Error("Didn't get file result");
       }
-      return arrayBufferOrUndefined;
+      return arrayBuffer;
+    }
+
+    async function getFileFromFile(file, parentElement) {
+      const section = document.createElement("section");
+      section.innerHTML = `
+        <h3><code>readFile</code> called</h3>
+        <p class="text"></p>`;
+      parentElement.appendChild(section);
+      section.scrollIntoView({ behavior: "smooth" });
+      const textP = section.querySelector(".text");
+      textP.textContent = `Reading file ${file.webkitRelativePath}...`;
+      try {
+        const arrayBuffer = getArrayBufferFromFile(file);
+        textP.textContent= `Successfully read file ${file.webkitRelativePath}.`;
+        return arrayBuffer;
+      } catch (e) {
+        textP.textContent= `Error when reading file ${file.webkitRelativePath}; ${e.toString()}`;
+        throw e;
+      }
     }
 
     function printSymbolTableOutput(output, parentElement) {
@@ -236,7 +366,7 @@ returning ${JSON.stringify(res)}`;
         <p>Result from symbol table query:</p>
         <p><textarea class="output" readonly cols="100" rows="25"></textarea></p>`;
       parentElement.appendChild(section);
-      document.scrollingElement.scrollTo(0, 100000);
+      section.scrollIntoView({ behavior: "smooth" });
       const outputTextarea = section.querySelector(".output");
 
       const [addr, index, buffer] = output;
@@ -252,7 +382,7 @@ returning ${JSON.stringify(res)}`;
         <p>Result from symbol table query:</p>
         <p><textarea class="output" readonly cols="100" rows="25"></textarea></p>`;
       parentElement.appendChild(section);
-      document.scrollingElement.scrollTo(0, 100000);
+      section.scrollIntoView({ behavior: "smooth" });
       const outputTextarea = section.querySelector(".output");
       try {
         // Pretty-print JSON.
@@ -262,7 +392,7 @@ returning ${JSON.stringify(res)}`;
       }
     }
 
-    class Helper {
+    class PickFilesHelper {
       constructor(parentElement) {
         this._element = parentElement;
       }
@@ -284,15 +414,103 @@ returning ${JSON.stringify(res)}`;
       }
     }
 
+    function getBasename(path) {
+      const lastSlash = path.lastIndexOf("/");
+      return lastSlash === -1 ? path : path.slice(lastSlash + 1);
+    }
+
+    class DownloadFilesHelper {
+      // Generate with find fixtures -name "[\!.]*" -type file
+      _availableFiles = [
+        "fixtures/android32-ci/libmozglue.so.dbg",
+        "fixtures/android32-ci/libsoftokn3.so.dbg",
+        "fixtures/android32-local/libmozglue.so",
+        "fixtures/android32-local/libsoftokn3.so",
+        "fixtures/win64-ci/WriteArgument.exe",
+        "fixtures/win64-ci/softokn3.pdb",
+        "fixtures/win64-ci/firefox.pdb",
+        "fixtures/win64-ci/firefox.exe",
+        "fixtures/win64-ci/WriteArgument.pdb",
+        "fixtures/win64-ci/softokn3.dll",
+        "fixtures/win64-ci/mozglue.pdb",
+        "fixtures/win64-ci/mozglue.dll",
+        "fixtures/macos-local/firefox",
+        "fixtures/macos-local/libmozglue.dylib",
+      ]
+
+      constructor(parentElement) {
+        this._element = parentElement;
+      }
+
+      async getCandidatePathsForBinaryOrPdb(debugName, breakpadId) {
+        const res = this._availableFiles.filter(path => getBasename(path) == debugName);
+        addGetCandidatePathsForBinaryOrPdbSection(this._element, debugName, breakpadId, res);
+        return res;
+      }
+
+      async readFile(path) {
+        const arrayBuffer = await getFileFromURL(path, this._element);
+        const buffer = new WasmMemBuffer(arrayBuffer.byteLength, array => {
+          array.set(new Uint8Array(arrayBuffer));
+        });
+        return {
+          getBuffer: () => buffer
+        };
+      }
+    }
+
+    class PickDirHelper {
+      constructor(parentElement, filesInput) {
+        this._element = parentElement;
+        const files = [...filesInput.files];
+        this._files = new Map(files.map(file => ([file.webkitRelativePath, file])));
+        this._fileNamesAndPaths = files.map(({ name, webkitRelativePath }) => ({ name, path: webkitRelativePath }));
+      }
+
+      async getCandidatePathsForBinaryOrPdb(debugName, breakpadId) {
+        const res = this._fileNamesAndPaths.filter(({name}) => name == debugName).map(({path}) => path);
+        addGetCandidatePathsForBinaryOrPdbSection(this._element, debugName, breakpadId, res);
+        return res;
+      }
+
+      async readFile(path) {
+        const file = this._files.get(path);
+        if (!file) {
+          throw new Error(`This path is not among the files in the directory picker: ${path}`);
+        }
+        const arrayBuffer = await getFileFromFile(file, this._element);
+        const buffer = new WasmMemBuffer(arrayBuffer.byteLength, array => {
+          array.set(new Uint8Array(arrayBuffer));
+        });
+        return {
+          getBuffer: () => buffer
+        };
+      }
+    }
+
+    function makeHelper(parentElement, fileObtainmentMode) {
+      switch (fileObtainmentMode.mode) {
+        case 'pickfiles':
+          return new PickFilesHelper(parentElement);
+        case 'pickdir':
+          return new PickDirHelper(parentElement, fileObtainmentMode.filesInput);
+        case 'download':
+          return new DownloadFilesHelper(parentElement);
+        default:
+          throw new Error(`Unknown fileObtainmentMode ${fileObtainmentMode}`);
+      }
+    }
+
     async function startSymbolTableQuery() {
       const symbolTableQuerySection = document.createElement("section");
       symbolTableQuerySection.innerHTML = `
         <h2>Symbol Table Query</h2>`;
       mainSection.appendChild(symbolTableQuerySection);
-      document.scrollingElement.scrollTo(0, 100000);
-      const helper = new Helper(symbolTableQuerySection);
+      symbolTableQuerySection.scrollIntoView({ behavior: "smooth" });
       try {
-        const { debugName, breakpadId } = await queryInputForSymbolTable(symbolTableQuerySection);
+        const { debugName, breakpadId, fileObtainmentMode } =
+          await queryInputForSymbolTable(symbolTableQuerySection);
+        const helper = makeHelper(symbolTableQuerySection, fileObtainmentMode);
         const output = await getCompactSymbolTable(debugName, breakpadId, helper);
         printSymbolTableOutput(output, symbolTableQuerySection);
       } catch (e) {
@@ -305,10 +523,11 @@ returning ${JSON.stringify(res)}`;
       apiQuerySection.innerHTML = `
         <h2>Symbol API Query</h2>`;
       mainSection.appendChild(apiQuerySection);
-      document.scrollingElement.scrollTo(0, 100000);
-      const helper = new Helper(apiQuerySection);
+      apiQuerySection.scrollIntoView({ behavior: "smooth" });
       try {
-        const { url, requestJSON } = await queryInputForAPI(apiQuerySection);
+        const { url, requestJSON, fileObtainmentMode } =
+          await queryInputForAPI(apiQuerySection);
+        const helper = makeHelper(apiQuerySection, fileObtainmentMode);
         const output = await queryAPI(url, requestJSON, helper);
         printAPIOutput(output, apiQuerySection);
       } catch (e) {
