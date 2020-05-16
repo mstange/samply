@@ -432,17 +432,23 @@ impl<'a> TypeDumper<'a> {
         attributes: Vec<PtrAttributes>,
     ) -> Result<()> {
         // Output: <typ> <attrs>, possibly with a space in between.
-        let typ = self.dump_data(typ)?;
+
+        // Buffer dump_data into a temp buffer so that we can check whether it
+        // ended with * or &. There's probably a better solution to this.
+        let mut data_buf: Vec<u8> = Vec::new();
+        self.dump_data(&mut data_buf, typ)?;
+        w.write_all(&data_buf)?;
+
         let attrs = self.dump_attributes(attributes);
 
-        // Do we need a space between typ and attrs?
+        // Do we need a space between data and attrs?
         let need_space = if attrs.starts_with('c') {
             // The first attribute has a const pointee, so the attributes start with
             // "const &&" or "const&&", for example. Always insert a space before const.
             true
         } else if self.flags.intersects(DumperFlags::SPACE_BEFORE_POINTER) {
-            let c = typ.chars().last().unwrap();
-            let type_is_pointer = c == '*' || c == '&';
+            let c = *data_buf.last().unwrap();
+            let type_is_pointer = c == b'*' || c == b'&';
             if type_is_pointer {
                 // The type is a pointer, and we put the space before the
                 // pointer. So there is already a space just in front of the
@@ -461,7 +467,7 @@ impl<'a> TypeDumper<'a> {
         };
         let space = if need_space { " " } else { "" };
 
-        write!(w, "{}{}{}", typ, space, attrs)?;
+        write!(w, "{}{}", space, attrs)?;
         Ok(())
     }
 
@@ -547,8 +553,7 @@ impl<'a> TypeDumper<'a> {
     fn dump_array(&self, w: &mut impl Write, array: ArrayType) -> Result<()> {
         let (dimensions, base) = self.get_array_info(array)?;
         let base_size = self.get_data_size(&base);
-        let base_typ = self.dump_data(base)?;
-        write!(w, "{}", base_typ)?;
+        self.dump_data(w, base)?;
 
         let mut size = base_size;
         let mut dims = dimensions
@@ -581,8 +586,7 @@ impl<'a> TypeDumper<'a> {
                 if modifier.constant {
                     write!(w, "const ")?
                 }
-                let underlying_typ = self.dump_data(typ)?;
-                write!(w, "{}", underlying_typ)?
+                self.dump_data(w, typ)?;
             }
         }
         Ok(())
@@ -700,43 +704,42 @@ impl<'a> TypeDumper<'a> {
 
     fn dump_index(&self, w: &mut impl Write, index: TypeIndex) -> Result<()> {
         let typ = self.find(index)?;
-        write!(w, "{}", self.dump_data(typ)?)?;
+        self.dump_data(w, typ)?;
         Ok(())
     }
 
-    fn dump_data(&self, typ: TypeData) -> Result<String> {
-        let mut w: Vec<u8> = Vec::new();
+    fn dump_data(&self, w: &mut impl Write, typ: TypeData) -> Result<()> {
         match typ {
-            TypeData::Primitive(t) => self.dump_primitive(&mut w, t, false)?,
-            TypeData::Class(t) => self.dump_class(&mut w, t)?,
+            TypeData::Primitive(t) => self.dump_primitive(w, t, false)?,
+            TypeData::Class(t) => self.dump_class(w, t)?,
             TypeData::MemberFunction(t) => {
                 let ztatic = t.this_pointer_type.is_none();
                 if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
-                    self.dump_return_type(&mut w, Some(t.return_type), t.attributes)?;
+                    self.dump_return_type(w, Some(t.return_type), t.attributes)?;
                 }
 
                 write!(w, "()")?;
-                let _ = self.dump_method_args(&mut w, t, ztatic)?;
+                let _ = self.dump_method_args(w, t, ztatic)?;
             }
             TypeData::Procedure(t) => {
                 if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
-                    self.dump_return_type(&mut w, t.return_type, t.attributes)?;
+                    self.dump_return_type(w, t.return_type, t.attributes)?;
                 }
 
                 write!(w, "()(")?;
-                self.dump_index(&mut w, t.argument_list)?;
+                self.dump_index(w, t.argument_list)?;
                 write!(w, "")?;
             }
-            TypeData::ArgumentList(t) => self.dump_arg_list(&mut w, t)?,
-            TypeData::Pointer(t) => self.dump_ptr(&mut w, t, false)?,
-            TypeData::Array(t) => self.dump_array(&mut w, t)?,
-            TypeData::Union(t) => self.dump_named(&mut w, "union", t.name)?,
-            TypeData::Enumeration(t) => self.dump_named(&mut w, "enum", t.name)?,
-            TypeData::Enumerate(t) => self.dump_named(&mut w, "enum class", t.name)?,
-            TypeData::Modifier(t) => self.dump_modifier(&mut w, t)?,
+            TypeData::ArgumentList(t) => self.dump_arg_list(w, t)?,
+            TypeData::Pointer(t) => self.dump_ptr(w, t, false)?,
+            TypeData::Array(t) => self.dump_array(w, t)?,
+            TypeData::Union(t) => self.dump_named(w, "union", t.name)?,
+            TypeData::Enumeration(t) => self.dump_named(w, "enum", t.name)?,
+            TypeData::Enumerate(t) => self.dump_named(w, "enum class", t.name)?,
+            TypeData::Modifier(t) => self.dump_modifier(w, t)?,
             _ => write!(w, "unhandled type /* {:?} */", typ)?,
         }
 
-        Ok(String::from_utf8_lossy(&w).to_string())
+        Ok(())
     }
 }
