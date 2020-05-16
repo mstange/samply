@@ -330,30 +330,31 @@ impl<'a> TypeDumper<'a> {
         // https://hg.mozilla.org/releases/mozilla-release/annotate/7ece03f6971968eede29275477502309bbe399da/toolkit/components/bitsdownload/src/bits_interface/task/service_task.rs#l217
         // So we dump "this" when the underlying type (modulo pointer) is different from the class type
 
+        if ztatic {
+            write!(w, "(")?;
+            write!(w, "{}", self.dump_index(typ.argument_list)?)?;
+            write!(w, ")")?;
+            return Ok(false);
+        }
+
+        let this_typ = typ.this_pointer_type.unwrap();
+        let this_kind = self.check_this_type(this_typ, typ.class_type)?;
+
         write!(w, "(")?;
-        let const_meth = if !ztatic {
-            let this_typ = typ.this_pointer_type.unwrap();
-            let this_kind = self.check_this_type(this_typ, typ.class_type)?;
-            if this_kind == ThisKind::NotThis {
-                let this_typ = self.dump_index(this_typ)?;
-                write!(w, "{}", this_typ)?;
-                let args_typ = self.dump_index(typ.argument_list)?;
-                if !args_typ.is_empty() {
-                    write!(w, ", ")?;
-                }
-                write!(w, "{}", args_typ)?;
-                false
-            } else {
-                write!(w, "{}", self.dump_index(typ.argument_list)?)?;
-                this_kind == ThisKind::ConstThis
+        if this_kind == ThisKind::NotThis {
+            write!(w, "{}", self.dump_index(this_typ)?)?;
+            let mut args_buf: Vec<u8> = Vec::new();
+            write!(args_buf, "{}", self.dump_index(typ.argument_list)?)?;
+            if !args_buf.is_empty() {
+                write!(w, ", ")?;
             }
+            w.write_all(&args_buf)?;
         } else {
             write!(w, "{}", self.dump_index(typ.argument_list)?)?;
-            false
-        };
+        }
         write!(w, ")")?;
 
-        Ok(const_meth)
+        Ok(this_kind == ThisKind::ConstThis)
     }
 
     fn dump_attributes(&self, attrs: Vec<PtrAttributes>) -> String {
