@@ -576,9 +576,7 @@ impl<'a> TypeDumper<'a> {
         let typ = self.find(modifier.underlying_type)?;
         match typ {
             TypeData::Pointer(ptr) => self.dump_ptr(w, ptr, modifier.constant)?,
-            TypeData::Primitive(prim) => {
-                write!(w, "{}", self.dump_primitive(prim, modifier.constant)?)?
-            }
+            TypeData::Primitive(prim) => self.dump_primitive(w, prim, modifier.constant)?,
             _ => {
                 if modifier.constant {
                     write!(w, "const ")?
@@ -621,8 +619,12 @@ impl<'a> TypeDumper<'a> {
         Ok(String::from_utf8_lossy(&w).to_string())
     }
 
-    fn dump_primitive(&self, prim: PrimitiveType, is_const: bool) -> Result<String> {
-        let mut w: Vec<u8> = Vec::new();
+    fn dump_primitive(
+        &self,
+        w: &mut impl Write,
+        prim: PrimitiveType,
+        is_const: bool,
+    ) -> Result<()> {
         // TODO: check that these names are what we want to see
         let name = match prim.kind {
             PrimitiveKind::NoType => "<NoType>",
@@ -684,7 +686,7 @@ impl<'a> TypeDumper<'a> {
         } else {
             write!(w, "{}", name)?
         }
-        Ok(String::from_utf8_lossy(&w).to_string())
+        Ok(())
     }
 
     fn dump_named(&self, base: &str, name: RawString) -> Result<String> {
@@ -707,7 +709,7 @@ impl<'a> TypeDumper<'a> {
     fn dump_data(&self, typ: TypeData) -> Result<String> {
         let mut w: Vec<u8> = Vec::new();
         match typ {
-            TypeData::Primitive(t) => write!(w, "{}", self.dump_primitive(t, false)?)?,
+            TypeData::Primitive(t) => self.dump_primitive(&mut w, t, false)?,
             TypeData::Class(t) => self.dump_class(&mut w, t)?,
             TypeData::MemberFunction(t) => {
                 let ztatic = t.this_pointer_type.is_none();
