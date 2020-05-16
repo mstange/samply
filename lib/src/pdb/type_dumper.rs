@@ -572,11 +572,10 @@ impl<'a> TypeDumper<'a> {
         Ok(())
     }
 
-    fn dump_modifier(&self, modifier: ModifierType) -> Result<String> {
-        let mut w: Vec<u8> = Vec::new();
+    fn dump_modifier(&self, w: &mut impl Write, modifier: ModifierType) -> Result<()> {
         let typ = self.find(modifier.underlying_type)?;
         match typ {
-            TypeData::Pointer(ptr) => self.dump_ptr(&mut w, ptr, modifier.constant)?,
+            TypeData::Pointer(ptr) => self.dump_ptr(w, ptr, modifier.constant)?,
             TypeData::Primitive(prim) => {
                 write!(w, "{}", self.dump_primitive(prim, modifier.constant)?)?
             }
@@ -588,7 +587,7 @@ impl<'a> TypeDumper<'a> {
                 write!(w, "{}", underlying_typ)?
             }
         }
-        Ok(String::from_utf8_lossy(&w).to_string())
+        Ok(())
     }
 
     fn dump_class(&self, class: ClassType) -> Result<String> {
@@ -735,7 +734,7 @@ impl<'a> TypeDumper<'a> {
             TypeData::Union(t) => write!(w, "{}", self.dump_named("union", t.name)?)?,
             TypeData::Enumeration(t) => write!(w, "{}", self.dump_named("enum", t.name)?)?,
             TypeData::Enumerate(t) => write!(w, "{}", self.dump_named("enum class", t.name)?)?,
-            TypeData::Modifier(t) => write!(w, "{}", self.dump_modifier(t)?)?,
+            TypeData::Modifier(t) => self.dump_modifier(&mut w, t)?,
             _ => write!(w, "unhandled type /* {:?} */", typ)?,
         }
 
