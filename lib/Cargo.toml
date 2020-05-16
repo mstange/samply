@@ -6,7 +6,7 @@ license = "MIT/Apache-2.0"
 edition = "2018"
 
 [dependencies]
-pdb = "0.3.0"
+pdb = "0.6.0"
 uuid = "0.8.1"
 goblin = "0.0.17"
 thiserror = "1.0"

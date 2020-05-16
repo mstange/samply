@@ -125,13 +125,22 @@ where
     let global_symbols = pdb.global_symbols().context("global_symbols")?;
     let mut hashmap: HashMap<_, _> = global_symbols
         .iter()
-        .filter_map(|symbol| match symbol.parse() {
-            Ok(SymbolData::PublicSymbol(PublicSymbol {
-                function: true,
-                offset,
-                ..
-            })) => Some((offset.to_rva(&addr_map)?.0, symbol.name().ok()?.to_string())),
-            _ => None,
+        .filter_map(|symbol| {
+            Ok(match symbol.parse() {
+                Ok(SymbolData::Public(PublicSymbol {
+                    function: true,
+                    name,
+                    offset,
+                    ..
+                })) => {
+                    if let Some(rva) = offset.to_rva(&addr_map) {
+                        Some((rva.0, name.to_string()))
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            })
         })
         .collect()?;
 
@@ -144,18 +153,20 @@ where
         let mut modules = dbi.modules().context("dbi.modules()")?;
         while let Some(module) = modules.next().context("modules.next()")? {
             let info = match pdb.module_info(&module) {
-                Ok(info) => info,
+                Ok(Some(info)) => info,
                 _ => continue,
             };
             let mut symbols = info.symbols().context("info.symbols()")?;
             while let Ok(Some(symbol)) = symbols.next() {
-                let offset = match symbol.parse() {
-                    Ok(SymbolData::Procedure(ProcedureSymbol { offset, .. })) => offset,
+                let (offset, name) = match symbol.parse() {
+                    Ok(SymbolData::Procedure(ProcedureSymbol { offset, name, .. })) => {
+                        (offset, name)
+                    }
                     _ => continue,
                 };
-                if let (Ok(name), Some(query)) = (symbol.name(), offset.to_rva(&addr_map)) {
+                if let Some(rva) = offset.to_rva(&addr_map) {
                     hashmap
-                        .entry(query.0)
+                        .entry(rva.0)
                         .or_insert_with(|| Cow::from(name.to_string().into_owned()));
                 }
             }
