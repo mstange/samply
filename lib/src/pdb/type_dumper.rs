@@ -243,8 +243,9 @@ impl<'a> TypeDumper<'a> {
                     if ztatic {
                         w.write_all(b"static ")?;
                     }
-                    let no_return = self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN);
-                    self.dump_return_type(&mut w, Some(t.return_type), t.attributes, no_return)?;
+                    if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
+                        self.dump_return_type(&mut w, Some(t.return_type), t.attributes)?;
+                    }
 
                     let (const_meth, args) = self.dump_method_parts(t, ztatic)?;
                     if let Some(i) = parent_index {
@@ -257,8 +258,9 @@ impl<'a> TypeDumper<'a> {
                     }
                 }
                 TypeData::Procedure(t) => {
-                    let no_return = self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN);
-                    self.dump_return_type(&mut w, t.return_type, t.attributes, no_return)?;
+                    if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
+                        self.dump_return_type(&mut w, t.return_type, t.attributes)?;
+                    }
 
                     if let Some(i) = parent_index {
                         self.dump_parent_scope(&mut w, i)?;
@@ -279,9 +281,8 @@ impl<'a> TypeDumper<'a> {
         w: &mut impl Write,
         typ: Option<TypeIndex>,
         attrs: FunctionAttributes,
-        no_return: bool,
     ) -> Result<()> {
-        if !no_return && !attrs.is_constructor() {
+        if !attrs.is_constructor() {
             if let Some(index) = typ {
                 write!(w, "{} ", self.dump_index(index)?)?
             }
@@ -384,7 +385,7 @@ impl<'a> TypeDumper<'a> {
     ) -> Result<String> {
         let ztatic = fun.this_pointer_type.is_none();
         let mut w: Vec<u8> = Vec::new();
-        self.dump_return_type(&mut w, Some(fun.return_type), fun.attributes, false)?;
+        self.dump_return_type(&mut w, Some(fun.return_type), fun.attributes)?;
 
         let (_, args) = self.dump_method_parts(fun, ztatic)?;
         let class = self.dump_index(fun.class_type)?;
@@ -397,8 +398,7 @@ impl<'a> TypeDumper<'a> {
 
     fn dump_proc_ptr(&self, fun: ProcedureType, attributes: Vec<PtrAttributes>) -> Result<String> {
         let mut w: Vec<u8> = Vec::new();
-        let no_return = false;
-        self.dump_return_type(&mut w, fun.return_type, fun.attributes, no_return)?;
+        self.dump_return_type(&mut w, fun.return_type, fun.attributes)?;
 
         let attrs = self.dump_attributes(attributes);
         write!(w, "({})", attrs)?;
@@ -685,15 +685,17 @@ impl<'a> TypeDumper<'a> {
             TypeData::Class(t) => write!(w, "{}", self.dump_class(t)?)?,
             TypeData::MemberFunction(t) => {
                 let ztatic = t.this_pointer_type.is_none();
-                let no_return = self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN);
-                self.dump_return_type(&mut w, Some(t.return_type), t.attributes, no_return)?;
+                if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
+                    self.dump_return_type(&mut w, Some(t.return_type), t.attributes)?;
+                }
 
                 let (_, args) = self.dump_method_parts(t, ztatic)?;
                 write!(w, "()({})", args)?
             }
             TypeData::Procedure(t) => {
-                let no_return = self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN);
-                self.dump_return_type(&mut w, t.return_type, t.attributes, no_return)?;
+                if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
+                    self.dump_return_type(&mut w, t.return_type, t.attributes)?;
+                }
 
                 let args = self.dump_index(t.argument_list)?;
                 write!(w, "()({})", args)?;
