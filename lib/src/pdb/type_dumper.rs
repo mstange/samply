@@ -688,15 +688,14 @@ impl<'a> TypeDumper<'a> {
         Ok(())
     }
 
-    fn dump_named(&self, base: &str, name: RawString) -> Result<String> {
-        let mut w: Vec<u8> = Vec::new();
+    fn dump_named(&self, w: &mut impl Write, base: &str, name: RawString) -> Result<()> {
         if self.flags.intersects(DumperFlags::NAME_ONLY) {
             write!(w, "{}", name)?
         } else {
             write!(w, "{} {}", base, name)?
         }
 
-        Ok(String::from_utf8_lossy(&w).to_string())
+        Ok(())
     }
 
     fn dump_index(&self, w: &mut impl Write, index: TypeIndex) -> Result<()> {
@@ -731,9 +730,9 @@ impl<'a> TypeDumper<'a> {
             TypeData::ArgumentList(t) => self.dump_arg_list(&mut w, t)?,
             TypeData::Pointer(t) => self.dump_ptr(&mut w, t, false)?,
             TypeData::Array(t) => self.dump_array(&mut w, t)?,
-            TypeData::Union(t) => write!(w, "{}", self.dump_named("union", t.name)?)?,
-            TypeData::Enumeration(t) => write!(w, "{}", self.dump_named("enum", t.name)?)?,
-            TypeData::Enumerate(t) => write!(w, "{}", self.dump_named("enum class", t.name)?)?,
+            TypeData::Union(t) => self.dump_named(&mut w, "union", t.name)?,
+            TypeData::Enumeration(t) => self.dump_named(&mut w, "enum", t.name)?,
+            TypeData::Enumerate(t) => self.dump_named(&mut w, "enum class", t.name)?,
             TypeData::Modifier(t) => self.dump_modifier(&mut w, t)?,
             _ => write!(w, "unhandled type /* {:?} */", typ)?,
         }
