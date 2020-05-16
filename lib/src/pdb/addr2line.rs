@@ -54,30 +54,52 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         })
     }
 
-    fn line_info_to_location<'b>(
+    pub fn find_frames<'b, 't, S>(
         &self,
-        line_info: pdb::LineInfo,
-        line_program: &pdb::LineProgram,
-    ) -> Location<'b>
+        pdb: &mut PDB<'t, S>,
+        address: u32,
+    ) -> Result<Vec<Frame<'b>>>
     where
-        'a: 'b,
+        S: pdb::Source<'t>,
+        's: 't,
+        S: 's,
         's: 'b,
+        'a: 'b,
     {
-        let file = line_program
-            .get_file_info(line_info.file_index)
-            .and_then(|file_info| file_info.name.to_string_lossy(&self.string_table))
-            .ok()
-            .map(|name| name);
-        Location {
-            file,
-            line: Some(line_info.line_start),
-            column: line_info.column_start,
+        let mut modules = self.dbi.modules()?.filter_map(|m| pdb.module_info(&m));
+        while let Some(module_info) = modules.next()? {
+            let proc_symbol = module_info.symbols()?.find_map(|symbol| {
+                if let Ok(SymbolData::Procedure(proc)) = symbol.parse() {
+                    let start_rva = match proc.offset.to_rva(&self.address_map) {
+                        Some(rva) => rva,
+                        None => return Ok(None),
+                    };
+
+                    let procedure_rva_range = start_rva.0..(start_rva.0 + proc.len);
+                    if !procedure_rva_range.contains(&address) {
+                        return Ok(None);
+                    }
+                    return Ok(Some((symbol.index(), proc, procedure_rva_range)));
+                }
+                Ok(None)
+            })?;
+
+            if let Some((symbol_index, proc, procedure_rva_range)) = proc_symbol {
+                return self.find_frames_from_procedure(
+                    address,
+                    &module_info,
+                    symbol_index,
+                    proc,
+                    procedure_rva_range,
+                );
+            }
         }
+        Ok(vec![])
     }
 
-    pub fn find_frames_from_procedure<'b>(
+    fn find_frames_from_procedure<'b>(
         &self,
-        target: u32,
+        address: u32,
         module_info: &pdb::ModuleInfo,
         symbol_index: pdb::SymbolIndex,
         proc: pdb::ProcedureSymbol,
@@ -97,7 +119,7 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         let location = self
             .find_line_info_containing_address(
                 line_program.lines_at_offset(proc.offset),
-                target,
+                address,
                 Some(procedure_rva_range.end),
             )
             .map(|line_info| self.line_info_to_location(line_info, &line_program));
@@ -124,7 +146,7 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
                 Ok(SymbolData::InlineSite(site)) => {
                     if let Some(frame) = self.frame_for_inline_symbol(
                         site,
-                        target,
+                        address,
                         &inlinees,
                         proc.offset,
                         &line_program,
@@ -145,7 +167,7 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
     fn frame_for_inline_symbol<'b>(
         &self,
         site: pdb::InlineSiteSymbol,
-        target: u32,
+        address: u32,
         inlinees: &BTreeMap<pdb::IdIndex, pdb::Inlinee>,
         proc_offset: pdb::PdbInternalSectionOffset,
         line_program: &pdb::LineProgram,
@@ -157,7 +179,7 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         if let Some(inlinee) = inlinees.get(&site.inlinee) {
             if let Some(line_info) = self.find_line_info_containing_address(
                 inlinee.lines(proc_offset, &site),
-                target,
+                address,
                 None,
             ) {
                 let location = self.line_info_to_location(line_info, line_program);
@@ -194,53 +216,10 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         None
     }
 
-    pub fn find_frames<'b, 't, S>(
-        &self,
-        pdb: &mut PDB<'t, S>,
-        target: u32,
-    ) -> Result<Vec<Frame<'b>>>
-    where
-        S: pdb::Source<'t>,
-        's: 't,
-        S: 's,
-        's: 'b,
-        'a: 'b,
-    {
-        let mut modules = self.dbi.modules()?.filter_map(|m| pdb.module_info(&m));
-        while let Some(module_info) = modules.next()? {
-            let proc_symbol = module_info.symbols()?.find_map(|symbol| {
-                if let Ok(SymbolData::Procedure(proc)) = symbol.parse() {
-                    let start_rva = match proc.offset.to_rva(&self.address_map) {
-                        Some(rva) => rva,
-                        None => return Ok(None),
-                    };
-
-                    let procedure_rva_range = start_rva.0..(start_rva.0 + proc.len);
-                    if !procedure_rva_range.contains(&target) {
-                        return Ok(None);
-                    }
-                    return Ok(Some((symbol.index(), proc, procedure_rva_range)));
-                }
-                Ok(None)
-            })?;
-
-            if let Some((symbol_index, proc, procedure_rva_range)) = proc_symbol {
-                return self.find_frames_from_procedure(
-                    target,
-                    &module_info,
-                    symbol_index,
-                    proc,
-                    procedure_rva_range,
-                );
-            }
-        }
-        Ok(vec![])
-    }
-
     fn find_line_info_containing_address<LineIterator>(
         &self,
         iterator: LineIterator,
-        target: u32,
+        address: u32,
         outer_end_rva: Option<u32>,
     ) -> Option<pdb::LineInfo>
     where
@@ -253,7 +232,7 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
                 .to_rva(&self.address_map)
                 .expect("invalid rva")
                 .0;
-            if target < start_rva {
+            if address < start_rva {
                 continue;
             }
             let end_rva = match (line_info.length, outer_end_rva) {
@@ -268,10 +247,31 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
                 (None, None) => None,
             };
             match end_rva {
-                Some(end_rva) if target < end_rva => return Some(line_info),
+                Some(end_rva) if address < end_rva => return Some(line_info),
                 _ => {}
             }
         }
         None
+    }
+
+    fn line_info_to_location<'b>(
+        &self,
+        line_info: pdb::LineInfo,
+        line_program: &pdb::LineProgram,
+    ) -> Location<'b>
+    where
+        'a: 'b,
+        's: 'b,
+    {
+        let file = line_program
+            .get_file_info(line_info.file_index)
+            .and_then(|file_info| file_info.name.to_string_lossy(&self.string_table))
+            .ok()
+            .map(|name| name);
+        Location {
+            file,
+            line: Some(line_info.line_start),
+            column: line_info.column_start,
+        }
     }
 }
