@@ -266,7 +266,7 @@ impl<'a> TypeDumper<'a> {
                     }
                     write!(w, "{}", name)?;
                     write!(w, "(")?;
-                    write!(w, "{}", self.dump_index(t.argument_list)?)?;
+                    self.dump_index(&mut w, t.argument_list)?;
                     write!(w, ")")?;
                 }
                 _ => return Ok(name.to_string()),
@@ -284,7 +284,8 @@ impl<'a> TypeDumper<'a> {
     ) -> Result<()> {
         if !attrs.is_constructor() {
             if let Some(index) = typ {
-                write!(w, "{} ", self.dump_index(index)?)?
+                self.dump_index(w, index)?;
+                write!(w, " ")?;
             }
         }
         Ok(())
@@ -333,7 +334,7 @@ impl<'a> TypeDumper<'a> {
 
         if ztatic {
             write!(w, "(")?;
-            write!(w, "{}", self.dump_index(typ.argument_list)?)?;
+            self.dump_index(w, typ.argument_list)?;
             write!(w, ")")?;
             return Ok(false);
         }
@@ -343,15 +344,15 @@ impl<'a> TypeDumper<'a> {
 
         write!(w, "(")?;
         if this_kind == ThisKind::NotThis {
-            write!(w, "{}", self.dump_index(this_typ)?)?;
+            self.dump_index(w, this_typ)?;
             let mut args_buf: Vec<u8> = Vec::new();
-            write!(args_buf, "{}", self.dump_index(typ.argument_list)?)?;
+            self.dump_index(&mut args_buf, typ.argument_list)?;
             if !args_buf.is_empty() {
                 write!(w, ", ")?;
             }
             w.write_all(&args_buf)?;
         } else {
-            write!(w, "{}", self.dump_index(typ.argument_list)?)?;
+            self.dump_index(w, typ.argument_list)?;
         }
         write!(w, ")")?;
 
@@ -400,7 +401,7 @@ impl<'a> TypeDumper<'a> {
         self.dump_return_type(&mut w, Some(fun.return_type), fun.attributes)?;
 
         write!(w, "(")?;
-        write!(w, "{}", self.dump_index(fun.class_type)?)?;
+        self.dump_index(&mut w, fun.class_type)?;
         write!(w, "{}", self.dump_attributes(attributes))?;
         write!(w, ")")?;
         let _ = self.dump_method_args(&mut w, fun, ztatic)?;
@@ -415,7 +416,7 @@ impl<'a> TypeDumper<'a> {
         write!(w, "{}", self.dump_attributes(attributes))?;
         write!(w, ")")?;
         write!(w, "(")?;
-        write!(w, "{}", self.dump_index(fun.argument_list)?)?;
+        self.dump_index(&mut w, fun.argument_list)?;
         write!(w, ")")?;
         Ok(String::from_utf8_lossy(&w).to_string())
     }
@@ -599,10 +600,10 @@ impl<'a> TypeDumper<'a> {
         };
         if let Some((last, args)) = list.arguments.split_last() {
             for index in args.iter() {
-                write!(w, "{}", self.dump_index(*index)?)?;
+                self.dump_index(&mut w, *index)?;
                 write!(w, "{}", comma)?;
             }
-            write!(w, "{}", self.dump_index(*last)?)?;
+            self.dump_index(&mut w, *last)?;
         }
         Ok(String::from_utf8_lossy(&w).to_string())
     }
@@ -684,9 +685,10 @@ impl<'a> TypeDumper<'a> {
         Ok(String::from_utf8_lossy(&w).to_string())
     }
 
-    fn dump_index(&self, index: TypeIndex) -> Result<String> {
+    fn dump_index(&self, w: &mut impl Write, index: TypeIndex) -> Result<()> {
         let typ = self.find(index)?;
-        self.dump_data(typ)
+        write!(w, "{}", self.dump_data(typ)?)?;
+        Ok(())
     }
 
     fn dump_data(&self, typ: TypeData) -> Result<String> {
@@ -709,7 +711,7 @@ impl<'a> TypeDumper<'a> {
                 }
 
                 write!(w, "()(")?;
-                write!(w, "{}", self.dump_index(t.argument_list)?)?;
+                self.dump_index(&mut w, t.argument_list)?;
                 write!(w, "")?;
             }
             TypeData::ArgumentList(t) => write!(w, "{}", self.dump_arg_list(t)?)?,
