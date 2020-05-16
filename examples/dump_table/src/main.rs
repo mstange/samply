@@ -36,7 +36,7 @@ struct Opt {
 
 fn main() -> anyhow::Result<()> {
     let opt = Opt::from_args();
-    futures::executor::block_on(dump_table(
+    futures::executor::block_on(main_impl(
         &opt.debug_name,
         opt.breakpad_id,
         opt.symbol_directory,
@@ -44,13 +44,20 @@ fn main() -> anyhow::Result<()> {
     ))
 }
 
-async fn dump_table(
+async fn main_impl(
     debug_name: &str,
     breakpad_id: Option<String>,
     symbol_directory: PathBuf,
     full: bool,
 ) -> anyhow::Result<()> {
     let table = get_table(debug_name, breakpad_id, symbol_directory).await?;
+    dump_table(table, full)
+}
+
+fn dump_table(
+    table: CompactSymbolTable,
+    full: bool,
+) -> anyhow::Result<()> {
     println!("Found {} symbols.", table.addr.len());
     for (i, address) in table.addr.iter().enumerate() {
         if i >= 15 && !full {
