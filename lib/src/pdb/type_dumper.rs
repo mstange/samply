@@ -543,28 +543,22 @@ impl<'a> TypeDumper<'a> {
     }
 
     fn dump_array(&self, w: &mut impl Write, array: ArrayType) -> Result<()> {
-        let (dimensions, base) = self.get_array_info(array)?;
+        let (dimensions_as_bytes, base) = self.get_array_info(array)?;
         let base_size = self.get_data_size(&base);
         self.dump_data(w, base)?;
 
-        let mut size = base_size;
-        let mut dims = dimensions
-            .iter()
-            .rev()
-            .map(|dim| {
-                let s = if size != 0 {
-                    format!("[{}]", dim / size)
-                } else {
-                    // The base size can be zero: struct A{}; void foo(A x[10])
-                    // No way to get the array dimension in such a case
-                    "[]".to_string()
-                };
-                size = *dim;
-                s
-            })
-            .collect::<Vec<String>>();
-        dims.reverse();
-        write!(w, "{}", dims.join(""))?;
+        let mut iter = dimensions_as_bytes.into_iter().peekable();
+        while let Some(current_level_byte_size) = iter.next() {
+            let next_level_byte_size = *iter.peek().unwrap_or(&base_size);
+            if next_level_byte_size != 0 {
+                let element_count = current_level_byte_size / next_level_byte_size;
+                write!(w, "[{}]", element_count)?;
+            } else {
+                // The base size can be zero: struct A{}; void foo(A x[10])
+                // No way to get the array dimension in such a case
+                write!(w, "[]")?;
+            };
+        }
 
         Ok(())
     }
