@@ -359,24 +359,42 @@ impl<'a> TypeDumper<'a> {
         Ok(this_kind == ThisKind::ConstThis)
     }
 
+    // Should we emit a space as the first byte from dump_attributes? It depends.
+    // "*" in a table cell means "value has no impact on the outcome".
+    //
+    //  caller allows space | attributes start with | SPACE_BEFORE_POINTER mode | previous byte was   | put space at the beginning?
+    // ---------------------+-----------------------+---------------------------+---------------------+----------------------------
+    //  no                  | *                     | *                         | *                   | no
+    //  yes                 | const                 | *                         | *                   | yes
+    //  yes                 | pointer sigil         | off                       | *                   | no
+    //  yes                 | pointer sigil         | on                        | pointer sigil       | no
+    //  yes                 | pointer sigil         | on                        | not a pointer sigil | yes
     fn dump_attributes(
         &self,
         w: &mut impl Write,
         attrs: Vec<PtrAttributes>,
-        mut space_before_const: bool,
+        allow_space_at_beginning: bool,
+        mut previous_byte_was_pointer_sigil: bool,
     ) -> Result<()> {
-        let mut iter = attrs.iter().rev().peekable();
-        while let Some(attr) = iter.next() {
+        let mut is_at_beginning = true;
+        for attr in attrs.iter().rev() {
             if attr.is_pointee_const {
-                if space_before_const {
+                if !is_at_beginning || allow_space_at_beginning {
                     write!(w, " ")?;
                 }
                 write!(w, "const")?;
-                if self.flags.intersects(DumperFlags::SPACE_BEFORE_POINTER) {
+                is_at_beginning = false;
+                previous_byte_was_pointer_sigil = false;
+            }
+
+            if self.flags.intersects(DumperFlags::SPACE_BEFORE_POINTER)
+                && !previous_byte_was_pointer_sigil
+            {
+                if !is_at_beginning || allow_space_at_beginning {
                     write!(w, " ")?;
                 }
-                space_before_const = true;
             }
+            is_at_beginning = false;
             match attr.mode {
                 PointerMode::Pointer => write!(w, "*")?,
                 PointerMode::LValueReference => write!(w, "&")?,
@@ -384,12 +402,10 @@ impl<'a> TypeDumper<'a> {
                 PointerMode::MemberFunction => write!(w, "::*")?,
                 PointerMode::RValueReference => write!(w, "&&")?,
             }
+            previous_byte_was_pointer_sigil = true;
             if attr.is_pointer_const {
                 write!(w, " const")?;
-                let has_more = iter.peek().is_some();
-                if has_more && self.flags.intersects(DumperFlags::SPACE_BEFORE_POINTER) {
-                    write!(w, " ")?;
-                }
+                previous_byte_was_pointer_sigil = false;
             }
         }
         Ok(())
@@ -406,7 +422,7 @@ impl<'a> TypeDumper<'a> {
 
         write!(w, "(")?;
         self.dump_index(w, fun.class_type)?;
-        self.dump_attributes(w, attributes, false)?;
+        self.dump_attributes(w, attributes, false, false)?;
         write!(w, ")")?;
         let _ = self.dump_method_args(w, fun, ztatic)?;
         Ok(())
@@ -421,7 +437,7 @@ impl<'a> TypeDumper<'a> {
         self.dump_return_type(w, fun.return_type, fun.attributes)?;
 
         write!(w, "(")?;
-        self.dump_attributes(w, attributes, false)?;
+        self.dump_attributes(w, attributes, false, false)?;
         write!(w, ")")?;
         write!(w, "(")?;
         self.dump_index(w, fun.argument_list)?;
@@ -435,8 +451,14 @@ impl<'a> TypeDumper<'a> {
         typ: TypeData,
         attributes: Vec<PtrAttributes>,
     ) -> Result<()> {
-        self.dump_data(w, typ)?;
-        self.dump_attributes(w, attributes, true)?;
+        let mut data_buf: Vec<u8> = Vec::new();
+        self.dump_data(&mut data_buf, typ)?;
+        w.write_all(&data_buf)?;
+        let previous_byte_was_pointer_sigil = data_buf
+            .last()
+            .map(|&b| b == b'*' || b == b'&')
+            .unwrap_or(false);
+        self.dump_attributes(w, attributes, true, previous_byte_was_pointer_sigil)?;
 
         Ok(())
     }
