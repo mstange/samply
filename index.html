@@ -143,11 +143,15 @@
     [
       [0,204776],
       [0,129423],
+      [0,244290],
+      [0,244219],
+      [1,244290],
+      [1,244219],
       [1, 237799]
     ]
   ]
 }`
-      requestJSONInput.value = '{"jobs": [{"stacks":[[[0,247618],[0,685896],[0,686768]]],"memoryMap":[["libmozglue.so","0CE47B7C29F27CED55C41233B93EBA450"]]}]}';
+      // requestJSONInput.value = '{"jobs": [{"stacks":[[[0,247618],[0,685896],[0,686768]]],"memoryMap":[["libmozglue.so","0CE47B7C29F27CED55C41233B93EBA450"]]}]}';
       try {
         return await new Promise((resolve, reject) => {
           beginButton.onclick = () => {

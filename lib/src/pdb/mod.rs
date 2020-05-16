@@ -1,12 +1,17 @@
 use crate::error::{Context, GetSymbolsError, Result};
 use crate::pdb_crate::{FallibleIterator, ProcedureSymbol, PublicSymbol, SymbolData, PDB};
-use crate::shared::{FileAndPathHelper, OwnedFileData, SymbolicationQuery, SymbolicationResult};
+use crate::shared::{
+    AddressDebugInfo, FileAndPathHelper, InlineStackFrame, OwnedFileData, SymbolicationQuery,
+    SymbolicationResult,
+};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::Cursor;
 
+mod addr2line;
 mod type_dumper;
 
+use super::pdb::addr2line::Addr2LineContext;
 use type_dumper::{DumperFlags, TypeDumper};
 
 pub async fn get_symbolication_result_via_binary<'a, R>(
@@ -181,9 +186,57 @@ where
                 }
             }
         }
-    }
 
-    Ok(R::from_map(hashmap, addresses))
+        let mut symbolication_result = R::from_map(hashmap, addresses);
+        if R::wants_address_debug_info() {
+            if let Ok(string_table) = pdb.string_table() {
+                if let Ok(ipi) = pdb.id_information() {
+                    if let Ok(context) = Addr2LineContext::new(
+                        &addr_map,
+                        &string_table,
+                        &dbi,
+                        &ipi,
+                        &tpi,
+                        Some(type_dumper),
+                    ) {
+                        for address in addresses {
+                            if let Ok(frames) = context.find_frames(&mut pdb, *address) {
+                                let frames: std::result::Result<Vec<_>, _> =
+                                    frames.into_iter().map(convert_stack_frame).collect();
+                                if let Ok(frames) = frames {
+                                    symbolication_result.add_address_debug_info(
+                                        *address,
+                                        AddressDebugInfo { frames },
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(symbolication_result)
+    } else {
+        Ok(R::from_map(hashmap, addresses))
+    }
+}
+
+fn convert_stack_frame<'a>(
+    frame: super::pdb::addr2line::Frame<'a>,
+) -> std::result::Result<InlineStackFrame, crate::pdb_crate::Error> {
+    let mut file_path = None;
+    let mut line_number = None;
+    if let Some(location) = frame.location {
+        if let Some(file) = location.file {
+            file_path = Some(file.to_string());
+        }
+        line_number = location.line;
+    }
+    Ok(InlineStackFrame {
+        function: frame.function,
+        file_path,
+        line_number,
+    })
 }
 
 fn get_symbolication_result_from_pe_binary<R>(pe: goblin::pe::PE, addresses: &[u32]) -> Result<R>

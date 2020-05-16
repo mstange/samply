@@ -203,14 +203,6 @@ function __wbg_adapter_20(arg0, arg1, arg2) {
     wasm.wasm_bindgen__convert__closures__invoke1_mut__h291ea91dd79c011e(arg0, arg1, addHeapObject(arg2));
 }
 
-let stack_pointer = 32;
-
-function addBorrowedObject(obj) {
-    if (stack_pointer == 1) throw new Error('out of js stack');
-    heap[--stack_pointer] = obj;
-    return stack_pointer;
-}
-
 function _assertClass(instance, klass) {
     if (!(instance instanceof klass)) {
         throw new Error(`expected instance of ${klass.name}`);
@@ -311,10 +303,17 @@ function handleError(f) {
         }
     };
 }
-function __wbg_adapter_44(arg0, arg1, arg2, arg3) {
+function __wbg_adapter_43(arg0, arg1, arg2, arg3) {
     wasm.wasm_bindgen__convert__closures__invoke2_mut__he8f98e755a470a76(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
+let stack_pointer = 32;
+
+function addBorrowedObject(obj) {
+    if (stack_pointer == 1) throw new Error('out of js stack');
+    heap[--stack_pointer] = obj;
+    return stack_pointer;
+}
 /**
 * WasmMemBuffer lets you allocate a chunk of memory on the wasm heap and
 * directly initialize it from JS without a copy. The constructor takes the
@@ -419,6 +418,24 @@ async function init(input) {
         var ret = getObject(arg0);
         return addHeapObject(ret);
     };
+    imports.wbg.__wbg_new_09f2ad087112acf0 = function(arg0, arg1) {
+        try {
+            var state0 = {a: arg0, b: arg1};
+            var cb0 = (arg0, arg1) => {
+                const a = state0.a;
+                state0.a = 0;
+                try {
+                    return __wbg_adapter_43(a, state0.b, arg0, arg1);
+                } finally {
+                    state0.a = a;
+                }
+            };
+            var ret = new Promise(cb0);
+            return addHeapObject(ret);
+        } finally {
+            state0.a = state0.b = 0;
+        }
+    };
     imports.wbg.__wbindgen_memory = function() {
         var ret = wasm.memory;
         return addHeapObject(ret);
@@ -435,42 +452,8 @@ async function init(input) {
         var ret = getObject(arg0).call(getObject(arg1), getObject(arg2));
         return addHeapObject(ret);
     });
-    imports.wbg.__wbg_new_09f2ad087112acf0 = function(arg0, arg1) {
-        try {
-            var state0 = {a: arg0, b: arg1};
-            var cb0 = (arg0, arg1) => {
-                const a = state0.a;
-                state0.a = 0;
-                try {
-                    return __wbg_adapter_44(a, state0.b, arg0, arg1);
-                } finally {
-                    state0.a = a;
-                }
-            };
-            var ret = new Promise(cb0);
-            return addHeapObject(ret);
-        } finally {
-            state0.a = state0.b = 0;
-        }
-    };
-    imports.wbg.__wbg_newwithbyteoffsetandlength_2b9826f4decf50b2 = function(arg0, arg1, arg2) {
-        var ret = new Uint32Array(getObject(arg0), arg1 >>> 0, arg2 >>> 0);
-        return addHeapObject(ret);
-    };
-    imports.wbg.__wbg_new_425c4bc0e35ec22f = function(arg0) {
-        var ret = new Uint32Array(getObject(arg0));
-        return addHeapObject(ret);
-    };
-    imports.wbg.__wbg_new_3d94e83f0a6bf252 = function(arg0) {
-        var ret = new Uint8Array(getObject(arg0));
-        return addHeapObject(ret);
-    };
-    imports.wbg.__wbg_of_3443bb8ae1672de5 = function(arg0, arg1, arg2) {
-        var ret = Array.of(getObject(arg0), getObject(arg1), getObject(arg2));
-        return addHeapObject(ret);
-    };
-    imports.wbg.__wbindgen_json_parse = function(arg0, arg1) {
-        var ret = JSON.parse(getStringFromWasm0(arg0, arg1));
+    imports.wbg.__wbindgen_string_new = function(arg0, arg1) {
+        var ret = getStringFromWasm0(arg0, arg1);
         return addHeapObject(ret);
     };
     imports.wbg.__wbg_getCandidatePathsForBinaryOrPdb_6ff1ea4b13b7cbee = function(arg0, arg1, arg2, arg3, arg4) {
@@ -505,6 +488,26 @@ async function init(input) {
         var ret = getObject(arg0)[arg1 >>> 0];
         return addHeapObject(ret);
     };
+    imports.wbg.__wbg_newwithbyteoffsetandlength_2b9826f4decf50b2 = function(arg0, arg1, arg2) {
+        var ret = new Uint32Array(getObject(arg0), arg1 >>> 0, arg2 >>> 0);
+        return addHeapObject(ret);
+    };
+    imports.wbg.__wbg_new_425c4bc0e35ec22f = function(arg0) {
+        var ret = new Uint32Array(getObject(arg0));
+        return addHeapObject(ret);
+    };
+    imports.wbg.__wbg_new_3d94e83f0a6bf252 = function(arg0) {
+        var ret = new Uint8Array(getObject(arg0));
+        return addHeapObject(ret);
+    };
+    imports.wbg.__wbg_of_3443bb8ae1672de5 = function(arg0, arg1, arg2) {
+        var ret = Array.of(getObject(arg0), getObject(arg1), getObject(arg2));
+        return addHeapObject(ret);
+    };
+    imports.wbg.__wbindgen_json_parse = function(arg0, arg1) {
+        var ret = JSON.parse(getStringFromWasm0(arg0, arg1));
+        return addHeapObject(ret);
+    };
     imports.wbg.__wbg_readFile_1005cc171b90cf75 = function(arg0, arg1, arg2) {
         var ret = getObject(arg0).readFile(getStringFromWasm0(arg1, arg2));
         return addHeapObject(ret);
@@ -515,10 +518,6 @@ async function init(input) {
         var ptr0 = ret.ptr;
         ret.ptr = 0;
         return ptr0;
-    };
-    imports.wbg.__wbindgen_string_new = function(arg0, arg1) {
-        var ret = getStringFromWasm0(arg0, arg1);
-        return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_debug_string = function(arg0, arg1) {
         var ret = debugString(getObject(arg1));
@@ -542,8 +541,8 @@ async function init(input) {
         var ret = getObject(arg0).then(getObject(arg1));
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper1440 = function(arg0, arg1, arg2) {
-        var ret = makeMutClosure(arg0, arg1, 81, __wbg_adapter_20);
+    imports.wbg.__wbindgen_closure_wrapper1550 = function(arg0, arg1, arg2) {
+        var ret = makeMutClosure(arg0, arg1, 85, __wbg_adapter_20);
         return addHeapObject(ret);
     };
 

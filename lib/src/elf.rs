@@ -69,6 +69,7 @@ fn convert_stack_frame<R: gimli::Reader>(
         line_number: frame.location.and_then(|l| l.line).map(|l| l as u32),
     })
 }
+
 fn create_elf_id(identifier: &[u8], little_endian: bool) -> Uuid {
     // Make sure that we have exactly UUID_SIZE bytes available
     let mut data = [0 as u8; UUID_SIZE];
