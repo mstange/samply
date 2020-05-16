@@ -247,11 +247,11 @@ impl<'a> TypeDumper<'a> {
                         self.dump_return_type(&mut w, Some(t.return_type), t.attributes)?;
                     }
 
-                    let (const_meth, args) = self.dump_method_parts(t, ztatic)?;
                     if let Some(i) = parent_index {
                         self.dump_parent_scope(&mut w, i)?;
                     }
                     write!(w, "{}", name)?;
+                    let (const_meth, args) = self.dump_method_parts(t, ztatic)?;
                     write!(w, "({})", args)?;
                     if const_meth {
                         w.write_all(b" const")?;
@@ -387,11 +387,11 @@ impl<'a> TypeDumper<'a> {
         let mut w: Vec<u8> = Vec::new();
         self.dump_return_type(&mut w, Some(fun.return_type), fun.attributes)?;
 
-        let (_, args) = self.dump_method_parts(fun, ztatic)?;
         let class = self.dump_index(fun.class_type)?;
         write!(w, "({}", class)?;
         let attrs = self.dump_attributes(attributes);
         write!(w, "{})", attrs)?;
+        let (_, args) = self.dump_method_parts(fun, ztatic)?;
         write!(w, "({})", args)?;
         Ok(String::from_utf8_lossy(&w).to_string())
     }
@@ -689,8 +689,9 @@ impl<'a> TypeDumper<'a> {
                     self.dump_return_type(&mut w, Some(t.return_type), t.attributes)?;
                 }
 
+                write!(w, "()")?;
                 let (_, args) = self.dump_method_parts(t, ztatic)?;
-                write!(w, "()({})", args)?
+                write!(w, "({})", args)?
             }
             TypeData::Procedure(t) => {
                 if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
