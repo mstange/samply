@@ -427,11 +427,34 @@ impl<'a> TypeDumper<'a> {
     }
 
     fn dump_other_ptr(&self, typ: TypeData, attributes: Vec<PtrAttributes>) -> Result<String> {
+        // Output: <typ> <attrs>, possibly with a space in between.
         let typ = self.dump_data(typ)?;
         let attrs = self.dump_attributes(attributes);
-        let c = typ.chars().last().unwrap();
-        let need_space = attrs.starts_with('c')
-            || (c != '*' && c != '&' && self.flags.intersects(DumperFlags::SPACE_BEFORE_POINTER));
+
+        // Do we need a space between typ and attrs?
+        let need_space = if attrs.starts_with('c') {
+            // The first attribute has a const pointee, so the attributes start with
+            // "const &&" or "const&&", for example. Always insert a space before const.
+            true
+        } else if self.flags.intersects(DumperFlags::SPACE_BEFORE_POINTER) {
+            let c = typ.chars().last().unwrap();
+            let type_is_pointer = c == '*' || c == '&';
+            if type_is_pointer {
+                // The type is a pointer, and we put the space before the
+                // pointer. So there is already a space just in front of the
+                // pointer sigil, and we can skip the space after the sigil.
+                false
+            } else {
+                // The type does not end in a pointer sigil. Have a space.
+                true
+            }
+        } else {
+            // No space before pointer, that means space after pointer.
+            // If the type is a pointer, it will already come with a space just
+            // before its pointer sigil.
+            // TODO: What if the type is not a pointer?
+            false
+        };
         let space = if need_space { " " } else { "" };
 
         Ok(format!("{}{}{}", typ, space, attrs))
