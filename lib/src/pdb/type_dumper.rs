@@ -251,8 +251,7 @@ impl<'a> TypeDumper<'a> {
                         self.dump_parent_scope(&mut w, i)?;
                     }
                     write!(w, "{}", name)?;
-                    let (const_meth, args) = self.dump_method_parts(t, ztatic)?;
-                    write!(w, "({})", args)?;
+                    let const_meth = self.dump_method_args(&mut w, t, ztatic)?;
                     if const_meth {
                         w.write_all(b" const")?;
                     }
@@ -319,31 +318,42 @@ impl<'a> TypeDumper<'a> {
         Ok(is_this)
     }
 
-    fn dump_method_parts(&self, typ: MemberFunctionType, ztatic: bool) -> Result<(bool, String)> {
-        let args_typ = self.dump_index(typ.argument_list)?;
+    // Return value describes whether this is a const method.
+    fn dump_method_args(
+        &self,
+        w: &mut impl Write,
+        typ: MemberFunctionType,
+        ztatic: bool,
+    ) -> Result<bool> {
         // Note: "this" isn't dumped but there are some cases in rust code where
         // a first argument shouldn't be "this" but in fact it is:
         // https://hg.mozilla.org/releases/mozilla-release/annotate/7ece03f6971968eede29275477502309bbe399da/toolkit/components/bitsdownload/src/bits_interface/task/service_task.rs#l217
         // So we dump "this" when the underlying type (modulo pointer) is different from the class type
 
-        let (args_typ, const_meth) = if !ztatic {
+        write!(w, "(")?;
+        let const_meth = if !ztatic {
             let this_typ = typ.this_pointer_type.unwrap();
             let this_kind = self.check_this_type(this_typ, typ.class_type)?;
             if this_kind == ThisKind::NotThis {
                 let this_typ = self.dump_index(this_typ)?;
-                if args_typ.is_empty() {
-                    (this_typ, false)
-                } else {
-                    (format!("{}, {}", this_typ, args_typ), false)
+                write!(w, "{}", this_typ)?;
+                let args_typ = self.dump_index(typ.argument_list)?;
+                if !args_typ.is_empty() {
+                    write!(w, ", ")?;
                 }
+                write!(w, "{}", args_typ)?;
+                false
             } else {
-                (args_typ, this_kind == ThisKind::ConstThis)
+                write!(w, "{}", self.dump_index(typ.argument_list)?)?;
+                this_kind == ThisKind::ConstThis
             }
         } else {
-            (args_typ, false)
+            write!(w, "{}", self.dump_index(typ.argument_list)?)?;
+            false
         };
+        write!(w, ")")?;
 
-        Ok((const_meth, args_typ))
+        Ok(const_meth)
     }
 
     fn dump_attributes(&self, attrs: Vec<PtrAttributes>) -> String {
@@ -391,8 +401,7 @@ impl<'a> TypeDumper<'a> {
         write!(w, "({}", class)?;
         let attrs = self.dump_attributes(attributes);
         write!(w, "{})", attrs)?;
-        let (_, args) = self.dump_method_parts(fun, ztatic)?;
-        write!(w, "({})", args)?;
+        let _ = self.dump_method_args(&mut w, fun, ztatic)?;
         Ok(String::from_utf8_lossy(&w).to_string())
     }
 
@@ -690,8 +699,7 @@ impl<'a> TypeDumper<'a> {
                 }
 
                 write!(w, "()")?;
-                let (_, args) = self.dump_method_parts(t, ztatic)?;
-                write!(w, "({})", args)?
+                let _ = self.dump_method_args(&mut w, t, ztatic)?;
             }
             TypeData::Procedure(t) => {
                 if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
