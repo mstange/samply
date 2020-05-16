@@ -194,7 +194,7 @@ mod test {
             std::str::from_utf8(
                 &result.buffer[result.index[776] as usize..result.index[777] as usize]
             ),
-            Ok("sandbox::ProcessMitigationsWin32KDispatcher::EnumDisplayMonitors")
+            Ok("sandbox::ProcessMitigationsWin32KDispatcher::EnumDisplayMonitors(sandbox::IPCInfo*, sandbox::CountedBuffer*)")
         );
     }
 
@@ -213,7 +213,7 @@ mod test {
             std::str::from_utf8(
                 &result.buffer[result.index[776] as usize..result.index[777] as usize]
             ),
-            Ok("sandbox::ProcessMitigationsWin32KDispatcher::EnumDisplayMonitors")
+            Ok("sandbox::ProcessMitigationsWin32KDispatcher::EnumDisplayMonitors(sandbox::IPCInfo*, sandbox::CountedBuffer*)")
         );
     }
 
