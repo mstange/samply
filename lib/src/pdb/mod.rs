@@ -5,6 +5,10 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::Cursor;
 
+mod type_dumper;
+
+use type_dumper::{DumperFlags, TypeDumper};
+
 pub async fn get_symbolication_result_via_binary<'a, R>(
     buffer: &[u8],
     query: SymbolicationQuery<'a>,
@@ -150,6 +154,8 @@ where
     // function signature whereas the procedure symbol only has the function
     // name itself.
     if let Ok(dbi) = pdb.debug_information() {
+        let tpi = pdb.type_information()?;
+        let type_dumper = TypeDumper::new(&tpi, 8, DumperFlags::default())?;
         let mut modules = dbi.modules().context("dbi.modules()")?;
         while let Some(module) = modules.next().context("modules.next()")? {
             let info = match pdb.module_info(&module) {
@@ -159,15 +165,19 @@ where
             let mut symbols = info.symbols().context("info.symbols()")?;
             while let Ok(Some(symbol)) = symbols.next() {
                 let (offset, name) = match symbol.parse() {
-                    Ok(SymbolData::Procedure(ProcedureSymbol { offset, name, .. })) => {
-                        (offset, name)
-                    }
+                    Ok(SymbolData::Procedure(ProcedureSymbol {
+                        offset,
+                        name,
+                        type_index,
+                        ..
+                    })) => (
+                        offset,
+                        type_dumper.dump_function(&name.to_string(), type_index, None)?,
+                    ),
                     _ => continue,
                 };
                 if let Some(rva) = offset.to_rva(&addr_map) {
-                    hashmap
-                        .entry(rva.0)
-                        .or_insert_with(|| Cow::from(name.to_string().into_owned()));
+                    hashmap.entry(rva.0).or_insert_with(|| Cow::from(name));
                 }
             }
         }
