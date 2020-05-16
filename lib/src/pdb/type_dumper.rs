@@ -6,6 +6,7 @@ use pdb::{
     Result, TypeData, TypeFinder, TypeIndex, TypeInformation, UnionType, Variant,
 };
 use std::collections::HashMap;
+use std::io::Write;
 
 type FwdRefSize<'a> = HashMap<RawString<'a>, u32>;
 
@@ -233,6 +234,7 @@ impl<'a> TypeDumper<'a> {
         } else if index == TypeIndex(0) {
             Ok(name.to_string())
         } else {
+            let mut w: Vec<u8> = Vec::new();
             let typ = self.find(index)?;
             match typ {
                 TypeData::MemberFunction(t) => {
@@ -240,42 +242,37 @@ impl<'a> TypeDumper<'a> {
                         t,
                         self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN),
                     )?;
-                    let method_scope = match parent_index.and_then(|i| self.dump_parent_scope(i)) {
-                        Some(method_scope) => format!("{}::", method_scope),
-                        None => String::from(""),
-                    };
-                    let ztatic = if ztatic { "static " } else { "" };
-                    let konst = if const_meth { " const" } else { "" };
-                    Ok(format!(
-                        "{}{}{}{}({}){}",
-                        ztatic,
-                        Self::fix_return(ret),
-                        method_scope,
-                        name,
-                        args,
-                        konst,
-                    ))
+                    if ztatic {
+                        w.write_all(b"static ")?;
+                    }
+                    write!(w, "{}", Self::fix_return(ret))?;
+                    if let Some(method_scope) = parent_index.and_then(|i| self.dump_parent_scope(i))
+                    {
+                        write!(w, "{}::", method_scope)?;
+                    }
+                    write!(w, "{}", name)?;
+                    write!(w, "({})", args)?;
+                    if const_meth {
+                        w.write_all(b" const")?;
+                    }
                 }
                 TypeData::Procedure(t) => {
                     let (ret, args) = self.dump_procedure_parts(
                         t,
                         self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN),
                     )?;
-                    let function_scope = match parent_index.and_then(|i| self.dump_parent_scope(i))
+                    write!(w, "{}", Self::fix_return(ret))?;
+                    if let Some(function_scope) = parent_index.and_then(|i| self.dump_parent_scope(i))
                     {
-                        Some(function_scope) => format!("{}::", function_scope),
-                        None => String::from(""),
-                    };
-                    Ok(format!(
-                        "{}{}{}({})",
-                        Self::fix_return(ret),
-                        function_scope,
-                        name,
-                        args
-                    ))
+                        write!(w, "{}::", function_scope)?;
+                    }
+                    write!(w, "{}", name)?;
+                    write!(w, "({})", args)?;
                 }
-                _ => Ok(name.to_string()),
+                _ => return Ok(name.to_string()),
             }
+            Ok(String::from_utf8(w)
+                .unwrap_or_else(|e| String::from_utf8_lossy(&e.into_bytes()).to_string()))
         }
     }
 
