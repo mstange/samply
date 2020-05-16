@@ -359,36 +359,40 @@ impl<'a> TypeDumper<'a> {
         Ok(this_kind == ThisKind::ConstThis)
     }
 
-    fn dump_attributes(&self, attrs: Vec<PtrAttributes>) -> String {
-        attrs
-            .iter()
-            .rev()
-            .fold(String::new(), |mut buf, attr| {
-                if attr.is_pointee_const {
-                    if self.flags.intersects(DumperFlags::SPACE_BEFORE_POINTER) {
-                        buf.push_str(" const ");
-                    } else {
-                        buf.push_str(" const");
-                    }
+    fn dump_attributes(
+        &self,
+        w: &mut impl Write,
+        attrs: Vec<PtrAttributes>,
+        mut space_before_const: bool,
+    ) -> Result<()> {
+        let mut iter = attrs.iter().rev().peekable();
+        while let Some(attr) = iter.next() {
+            if attr.is_pointee_const {
+                if space_before_const {
+                    write!(w, " ")?;
                 }
-                match attr.mode {
-                    PointerMode::Pointer => buf.push('*'),
-                    PointerMode::LValueReference => buf.push('&'),
-                    PointerMode::Member => buf.push_str("::*"),
-                    PointerMode::MemberFunction => buf.push_str("::*"),
-                    PointerMode::RValueReference => buf.push_str("&&"),
+                write!(w, "const")?;
+                if self.flags.intersects(DumperFlags::SPACE_BEFORE_POINTER) {
+                    write!(w, " ")?;
                 }
-                if attr.is_pointer_const {
-                    if self.flags.intersects(DumperFlags::SPACE_BEFORE_POINTER) {
-                        buf.push_str(" const ");
-                    } else {
-                        buf.push_str(" const");
-                    }
+                space_before_const = true;
+            }
+            match attr.mode {
+                PointerMode::Pointer => write!(w, "*")?,
+                PointerMode::LValueReference => write!(w, "&")?,
+                PointerMode::Member => write!(w, "::*")?,
+                PointerMode::MemberFunction => write!(w, "::*")?,
+                PointerMode::RValueReference => write!(w, "&&")?,
+            }
+            if attr.is_pointer_const {
+                write!(w, " const")?;
+                let has_more = iter.peek().is_some();
+                if has_more && self.flags.intersects(DumperFlags::SPACE_BEFORE_POINTER) {
+                    write!(w, " ")?;
                 }
-                buf
-            })
-            .trim()
-            .to_string()
+            }
+        }
+        Ok(())
     }
 
     fn dump_member_ptr(
@@ -402,7 +406,7 @@ impl<'a> TypeDumper<'a> {
 
         write!(w, "(")?;
         self.dump_index(w, fun.class_type)?;
-        write!(w, "{}", self.dump_attributes(attributes))?;
+        self.dump_attributes(w, attributes, false)?;
         write!(w, ")")?;
         let _ = self.dump_method_args(w, fun, ztatic)?;
         Ok(())
@@ -417,7 +421,7 @@ impl<'a> TypeDumper<'a> {
         self.dump_return_type(w, fun.return_type, fun.attributes)?;
 
         write!(w, "(")?;
-        write!(w, "{}", self.dump_attributes(attributes))?;
+        self.dump_attributes(w, attributes, false)?;
         write!(w, ")")?;
         write!(w, "(")?;
         self.dump_index(w, fun.argument_list)?;
@@ -431,43 +435,9 @@ impl<'a> TypeDumper<'a> {
         typ: TypeData,
         attributes: Vec<PtrAttributes>,
     ) -> Result<()> {
-        // Output: <typ> <attrs>, possibly with a space in between.
+        self.dump_data(w, typ)?;
+        self.dump_attributes(w, attributes, true)?;
 
-        // Buffer dump_data into a temp buffer so that we can check whether it
-        // ended with * or &. There's probably a better solution to this.
-        let mut data_buf: Vec<u8> = Vec::new();
-        self.dump_data(&mut data_buf, typ)?;
-        w.write_all(&data_buf)?;
-
-        let attrs = self.dump_attributes(attributes);
-
-        // Do we need a space between data and attrs?
-        let need_space = if attrs.starts_with('c') {
-            // The first attribute has a const pointee, so the attributes start with
-            // "const &&" or "const&&", for example. Always insert a space before const.
-            true
-        } else if self.flags.intersects(DumperFlags::SPACE_BEFORE_POINTER) {
-            let c = *data_buf.last().unwrap();
-            let type_is_pointer = c == b'*' || c == b'&';
-            if type_is_pointer {
-                // The type is a pointer, and we put the space before the
-                // pointer. So there is already a space just in front of the
-                // pointer sigil, and we can skip the space after the sigil.
-                false
-            } else {
-                // The type does not end in a pointer sigil. Have a space.
-                true
-            }
-        } else {
-            // No space before pointer, that means space after pointer.
-            // If the type is a pointer, it will already come with a space just
-            // before its pointer sigil.
-            // TODO: What if the type is not a pointer?
-            false
-        };
-        let space = if need_space { " " } else { "" };
-
-        write!(w, "{}{}", space, attrs)?;
         Ok(())
     }
 
