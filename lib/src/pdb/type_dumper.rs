@@ -602,8 +602,7 @@ impl<'a> TypeDumper<'a> {
         Ok(())
     }
 
-    fn dump_arg_list(&self, list: ArgumentList) -> Result<String> {
-        let mut w: Vec<u8> = Vec::new();
+    fn dump_arg_list(&self, w: &mut impl Write, list: ArgumentList) -> Result<()> {
         let comma = if self.flags.intersects(DumperFlags::SPACE_AFTER_COMMA) {
             ", "
         } else {
@@ -611,12 +610,12 @@ impl<'a> TypeDumper<'a> {
         };
         if let Some((last, args)) = list.arguments.split_last() {
             for index in args.iter() {
-                self.dump_index(&mut w, *index)?;
+                self.dump_index(w, *index)?;
                 write!(w, "{}", comma)?;
             }
-            self.dump_index(&mut w, *last)?;
+            self.dump_index(w, *last)?;
         }
-        Ok(String::from_utf8_lossy(&w).to_string())
+        Ok(())
     }
 
     fn dump_primitive(
@@ -729,7 +728,7 @@ impl<'a> TypeDumper<'a> {
                 self.dump_index(&mut w, t.argument_list)?;
                 write!(w, "")?;
             }
-            TypeData::ArgumentList(t) => write!(w, "{}", self.dump_arg_list(t)?)?,
+            TypeData::ArgumentList(t) => self.dump_arg_list(&mut w, t)?,
             TypeData::Pointer(t) => self.dump_ptr(&mut w, t, false)?,
             TypeData::Array(t) => self.dump_array(&mut w, t)?,
             TypeData::Union(t) => write!(w, "{}", self.dump_named("union", t.name)?)?,
