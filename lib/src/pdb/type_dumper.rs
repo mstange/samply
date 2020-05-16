@@ -239,13 +239,15 @@ impl<'a> TypeDumper<'a> {
             let typ = self.find(index)?;
             match typ {
                 TypeData::MemberFunction(t) => {
-                    let (ztatic, const_meth, ret, args) = self.dump_method_parts(
-                        t,
-                        self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN),
-                    )?;
+                    let ztatic = t.this_pointer_type.is_none();
                     if ztatic {
                         w.write_all(b"static ")?;
                     }
+                    let (const_meth, ret, args) = self.dump_method_parts(
+                        t,
+                        self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN),
+                        ztatic,
+                    )?;
                     write!(w, "{}", Self::fix_return(ret))?;
                     if let Some(i) = parent_index {
                         self.dump_parent_scope(&mut w, i)?;
@@ -338,7 +340,8 @@ impl<'a> TypeDumper<'a> {
         &self,
         typ: MemberFunctionType,
         no_return: bool,
-    ) -> Result<(bool, bool, String, String)> {
+        ztatic: bool,
+    ) -> Result<(bool, String, String)> {
         let ret_typ = self.get_return_type(Some(typ.return_type), typ.attributes, no_return);
         let args_typ = self.dump_index(typ.argument_list)?;
         // Note: "this" isn't dumped but there are some cases in rust code where
@@ -346,7 +349,6 @@ impl<'a> TypeDumper<'a> {
         // https://hg.mozilla.org/releases/mozilla-release/annotate/7ece03f6971968eede29275477502309bbe399da/toolkit/components/bitsdownload/src/bits_interface/task/service_task.rs#l217
         // So we dump "this" when the underlying type (modulo pointer) is different from the class type
 
-        let ztatic = typ.this_pointer_type.is_none();
         let (args_typ, const_meth) = if !ztatic {
             let this_typ = typ.this_pointer_type.unwrap();
             let this_kind = self.check_this_type(this_typ, typ.class_type)?;
@@ -364,7 +366,7 @@ impl<'a> TypeDumper<'a> {
             (args_typ, false)
         };
 
-        Ok((ztatic, const_meth, ret_typ, args_typ))
+        Ok((const_meth, ret_typ, args_typ))
     }
 
     fn dump_attributes(&self, attrs: Vec<PtrAttributes>) -> String {
@@ -405,7 +407,8 @@ impl<'a> TypeDumper<'a> {
         attributes: Vec<PtrAttributes>,
     ) -> Result<String> {
         let class = self.dump_index(fun.class_type)?;
-        let (_, _, ret, args) = self.dump_method_parts(fun, false)?;
+        let ztatic = fun.this_pointer_type.is_none();
+        let (_, ret, args) = self.dump_method_parts(fun, false, ztatic)?;
         let attrs = self.dump_attributes(attributes);
         Ok(format!(
             "{}({}{})({})",
@@ -681,8 +684,12 @@ impl<'a> TypeDumper<'a> {
             TypeData::Primitive(t) => self.dump_primitive(t, false),
             TypeData::Class(t) => self.dump_class(t),
             TypeData::MemberFunction(t) => {
-                let (_, _, ret, args) = self
-                    .dump_method_parts(t, self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN))?;
+                let ztatic = t.this_pointer_type.is_none();
+                let (_, ret, args) = self.dump_method_parts(
+                    t,
+                    self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN),
+                    ztatic,
+                )?;
                 format!("{}()({})", Self::fix_return(ret), args)
             }
             TypeData::Procedure(t) => {
