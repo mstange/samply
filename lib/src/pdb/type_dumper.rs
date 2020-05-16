@@ -393,36 +393,44 @@ impl<'a> TypeDumper<'a> {
 
     fn dump_member_ptr(
         &self,
+        w: &mut impl Write,
         fun: MemberFunctionType,
         attributes: Vec<PtrAttributes>,
-    ) -> Result<String> {
+    ) -> Result<()> {
         let ztatic = fun.this_pointer_type.is_none();
-        let mut w: Vec<u8> = Vec::new();
-        self.dump_return_type(&mut w, Some(fun.return_type), fun.attributes)?;
+        self.dump_return_type(w, Some(fun.return_type), fun.attributes)?;
 
         write!(w, "(")?;
-        self.dump_index(&mut w, fun.class_type)?;
+        self.dump_index(w, fun.class_type)?;
         write!(w, "{}", self.dump_attributes(attributes))?;
         write!(w, ")")?;
-        let _ = self.dump_method_args(&mut w, fun, ztatic)?;
-        Ok(String::from_utf8_lossy(&w).to_string())
+        let _ = self.dump_method_args(w, fun, ztatic)?;
+        Ok(())
     }
 
-    fn dump_proc_ptr(&self, fun: ProcedureType, attributes: Vec<PtrAttributes>) -> Result<String> {
-        let mut w: Vec<u8> = Vec::new();
-        self.dump_return_type(&mut w, fun.return_type, fun.attributes)?;
+    fn dump_proc_ptr(
+        &self,
+        w: &mut impl Write,
+        fun: ProcedureType,
+        attributes: Vec<PtrAttributes>,
+    ) -> Result<()> {
+        self.dump_return_type(w, fun.return_type, fun.attributes)?;
 
         write!(w, "(")?;
         write!(w, "{}", self.dump_attributes(attributes))?;
         write!(w, ")")?;
         write!(w, "(")?;
-        self.dump_index(&mut w, fun.argument_list)?;
+        self.dump_index(w, fun.argument_list)?;
         write!(w, ")")?;
-        Ok(String::from_utf8_lossy(&w).to_string())
+        Ok(())
     }
 
-    fn dump_other_ptr(&self, typ: TypeData, attributes: Vec<PtrAttributes>) -> Result<String> {
-        let mut w: Vec<u8> = Vec::new();
+    fn dump_other_ptr(
+        &self,
+        w: &mut impl Write,
+        typ: TypeData,
+        attributes: Vec<PtrAttributes>,
+    ) -> Result<()> {
         // Output: <typ> <attrs>, possibly with a space in between.
         let typ = self.dump_data(typ)?;
         let attrs = self.dump_attributes(attributes);
@@ -454,18 +462,24 @@ impl<'a> TypeDumper<'a> {
         let space = if need_space { " " } else { "" };
 
         write!(w, "{}{}{}", typ, space, attrs)?;
-        Ok(String::from_utf8_lossy(&w).to_string())
+        Ok(())
     }
 
-    fn dump_ptr_helper(&self, attributes: Vec<PtrAttributes>, typ: TypeData) -> Result<String> {
+    fn dump_ptr_helper(
+        &self,
+        w: &mut impl Write,
+        attributes: Vec<PtrAttributes>,
+        typ: TypeData,
+    ) -> Result<()> {
         match typ {
-            TypeData::MemberFunction(t) => self.dump_member_ptr(t, attributes),
-            TypeData::Procedure(t) => self.dump_proc_ptr(t, attributes),
-            _ => self.dump_other_ptr(typ, attributes),
-        }
+            TypeData::MemberFunction(t) => self.dump_member_ptr(w, t, attributes)?,
+            TypeData::Procedure(t) => self.dump_proc_ptr(w, t, attributes)?,
+            _ => self.dump_other_ptr(w, typ, attributes)?,
+        };
+        Ok(())
     }
 
-    fn dump_ptr(&self, ptr: PointerType, is_const: bool) -> Result<String> {
+    fn dump_ptr(&self, w: &mut impl Write, ptr: PointerType, is_const: bool) -> Result<()> {
         let mut attributes = Vec::new();
         attributes.push(PtrAttributes {
             is_pointer_const: ptr.attributes.is_const() || is_const,
@@ -496,11 +510,13 @@ impl<'a> TypeDumper<'a> {
                         });
                         ptr = t;
                     } else {
-                        return self.dump_ptr_helper(attributes, typ);
+                        self.dump_ptr_helper(w, attributes, typ)?;
+                        return Ok(());
                     }
                 }
                 _ => {
-                    return self.dump_ptr_helper(attributes, typ);
+                    self.dump_ptr_helper(w, attributes, typ)?;
+                    return Ok(());
                 }
             }
         }
@@ -561,7 +577,7 @@ impl<'a> TypeDumper<'a> {
         let mut w: Vec<u8> = Vec::new();
         let typ = self.find(modifier.underlying_type)?;
         match typ {
-            TypeData::Pointer(ptr) => write!(w, "{}", self.dump_ptr(ptr, modifier.constant)?)?,
+            TypeData::Pointer(ptr) => self.dump_ptr(&mut w, ptr, modifier.constant)?,
             TypeData::Primitive(prim) => {
                 write!(w, "{}", self.dump_primitive(prim, modifier.constant)?)?
             }
@@ -715,7 +731,7 @@ impl<'a> TypeDumper<'a> {
                 write!(w, "")?;
             }
             TypeData::ArgumentList(t) => write!(w, "{}", self.dump_arg_list(t)?)?,
-            TypeData::Pointer(t) => write!(w, "{}", self.dump_ptr(t, false)?)?,
+            TypeData::Pointer(t) => self.dump_ptr(&mut w, t, false)?,
             TypeData::Array(t) => write!(w, "{}", self.dump_array(t)?)?,
             TypeData::Union(t) => write!(w, "{}", self.dump_named("union", t.name)?)?,
             TypeData::Enumeration(t) => write!(w, "{}", self.dump_named("enum", t.name)?)?,
