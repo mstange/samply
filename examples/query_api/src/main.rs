@@ -22,15 +22,21 @@ struct Opt {
     #[structopt()]
     url: String,
 
-    /// Breakpad ID of the binary
+    /// Request data, or path to file with request data if preceded by @ (like curl)
     #[structopt()]
-    request_json: String,
+    request_json_or_filename: String,
 }
 
 fn main() -> anyhow::Result<()> {
     let opt = Opt::from_args();
+    let request_json = if opt.request_json_or_filename.starts_with('@') {
+        let filename = opt.request_json_or_filename.trim_start_matches('@');
+        std::fs::read_to_string(filename)?
+    } else {
+        opt.request_json_or_filename
+    };
     let response_json =
-        futures::executor::block_on(query_api(&opt.url, &opt.request_json, opt.symbol_directory));
+        futures::executor::block_on(query_api(&opt.url, &request_json, opt.symbol_directory));
     println!("{}", response_json);
     Ok(())
 }
