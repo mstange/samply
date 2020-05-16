@@ -288,9 +288,14 @@ impl<'a> TypeDumper<'a> {
         attrs: FunctionAttributes,
         no_return: bool,
     ) -> String {
-        typ.filter(|_| !no_return && !attrs.is_constructor())
-            .and_then(|r| self.dump_index(r).ok())
-            .map_or_else(|| "".to_string(), |r| r)
+        if !no_return && !attrs.is_constructor() {
+            if let Some(index) = typ {
+                if let Ok(ret) = self.dump_index(index) {
+                    return ret;
+                }
+            }
+        }
+        "".to_string()
     }
 
     fn check_this_type(&self, this: TypeIndex, class: TypeIndex) -> Result<ThisKind> {
