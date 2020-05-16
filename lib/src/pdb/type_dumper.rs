@@ -243,12 +243,10 @@ impl<'a> TypeDumper<'a> {
                     if ztatic {
                         w.write_all(b"static ")?;
                     }
-                    let (const_meth, ret, args) = self.dump_method_parts(
-                        t,
-                        self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN),
-                        ztatic,
-                    )?;
+                    let no_return = self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN);
+                    let ret = self.get_return_type(Some(t.return_type), t.attributes, no_return);
                     Self::dump_return(&mut w, ret)?;
+                    let (const_meth, args) = self.dump_method_parts(t, ztatic)?;
                     if let Some(i) = parent_index {
                         self.dump_parent_scope(&mut w, i)?;
                     }
@@ -324,13 +322,7 @@ impl<'a> TypeDumper<'a> {
         Ok(is_this)
     }
 
-    fn dump_method_parts(
-        &self,
-        typ: MemberFunctionType,
-        no_return: bool,
-        ztatic: bool,
-    ) -> Result<(bool, String, String)> {
-        let ret_typ = self.get_return_type(Some(typ.return_type), typ.attributes, no_return);
+    fn dump_method_parts(&self, typ: MemberFunctionType, ztatic: bool) -> Result<(bool, String)> {
         let args_typ = self.dump_index(typ.argument_list)?;
         // Note: "this" isn't dumped but there are some cases in rust code where
         // a first argument shouldn't be "this" but in fact it is:
@@ -354,7 +346,7 @@ impl<'a> TypeDumper<'a> {
             (args_typ, false)
         };
 
-        Ok((const_meth, ret_typ, args_typ))
+        Ok((const_meth, args_typ))
     }
 
     fn dump_attributes(&self, attrs: Vec<PtrAttributes>) -> String {
@@ -396,8 +388,9 @@ impl<'a> TypeDumper<'a> {
     ) -> Result<String> {
         let ztatic = fun.this_pointer_type.is_none();
         let mut w: Vec<u8> = Vec::new();
-        let (_, ret, args) = self.dump_method_parts(fun, false, ztatic)?;
+        let ret = self.get_return_type(Some(fun.return_type), fun.attributes, false);
         Self::dump_return(&mut w, ret)?;
+        let (_, args) = self.dump_method_parts(fun, ztatic)?;
         let class = self.dump_index(fun.class_type)?;
         write!(w, "({}", class)?;
         let attrs = self.dump_attributes(attributes);
@@ -559,7 +552,9 @@ impl<'a> TypeDumper<'a> {
         let typ = self.find(modifier.underlying_type)?;
         match typ {
             TypeData::Pointer(ptr) => write!(w, "{}", self.dump_ptr(ptr, modifier.constant)?)?,
-            TypeData::Primitive(prim) => write!(w, "{}", self.dump_primitive(prim, modifier.constant)?)?,
+            TypeData::Primitive(prim) => {
+                write!(w, "{}", self.dump_primitive(prim, modifier.constant)?)?
+            }
             _ => {
                 if modifier.constant {
                     write!(w, "const ")?
@@ -694,12 +689,10 @@ impl<'a> TypeDumper<'a> {
             TypeData::Class(t) => write!(w, "{}", self.dump_class(t)?)?,
             TypeData::MemberFunction(t) => {
                 let ztatic = t.this_pointer_type.is_none();
-                let (_, ret, args) = self.dump_method_parts(
-                    t,
-                    self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN),
-                    ztatic,
-                )?;
+                let no_return = self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN);
+                let ret = self.get_return_type(Some(t.return_type), t.attributes, no_return);
                 Self::dump_return(&mut w, ret)?;
+                let (_, args) = self.dump_method_parts(t, ztatic)?;
                 write!(w, "()({})", args)?
             }
             TypeData::Procedure(t) => {
