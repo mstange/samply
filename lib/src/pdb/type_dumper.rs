@@ -590,8 +590,7 @@ impl<'a> TypeDumper<'a> {
         Ok(())
     }
 
-    fn dump_class(&self, class: ClassType) -> Result<String> {
-        let mut w: Vec<u8> = Vec::new();
+    fn dump_class(&self, w: &mut impl Write, class: ClassType) -> Result<()> {
         if self.flags.intersects(DumperFlags::NAME_ONLY) {
             write!(w, "{}", class.name)?;
         } else {
@@ -602,7 +601,7 @@ impl<'a> TypeDumper<'a> {
             };
             write!(w, "{} {}", name, class.name)?
         }
-        Ok(String::from_utf8_lossy(&w).to_string())
+        Ok(())
     }
 
     fn dump_arg_list(&self, list: ArgumentList) -> Result<String> {
@@ -709,7 +708,7 @@ impl<'a> TypeDumper<'a> {
         let mut w: Vec<u8> = Vec::new();
         match typ {
             TypeData::Primitive(t) => write!(w, "{}", self.dump_primitive(t, false)?)?,
-            TypeData::Class(t) => write!(w, "{}", self.dump_class(t)?)?,
+            TypeData::Class(t) => self.dump_class(&mut w, t)?,
             TypeData::MemberFunction(t) => {
                 let ztatic = t.this_pointer_type.is_none();
                 if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
