@@ -261,12 +261,12 @@ impl<'a> TypeDumper<'a> {
                 TypeData::Procedure(t) => {
                     let no_return = self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN);
                     let ret = self.get_return_type(t.return_type, t.attributes, no_return);
-                    let args = self.dump_index(t.argument_list)?;
                     write!(w, "{}", Self::fix_return(ret))?;
                     if let Some(i) = parent_index {
                         self.dump_parent_scope(&mut w, i)?;
                     }
                     write!(w, "{}", name)?;
+                    let args = self.dump_index(t.argument_list)?;
                     write!(w, "({})", args)?;
                 }
                 _ => return Ok(name.to_string()),
@@ -407,19 +407,19 @@ impl<'a> TypeDumper<'a> {
     }
 
     fn dump_proc_ptr(&self, fun: ProcedureType, attributes: Vec<PtrAttributes>) -> Result<String> {
+        let mut w: Vec<u8> = Vec::new();
         let no_return = false;
         let ret = self.get_return_type(fun.return_type, fun.attributes, no_return);
-        let args = self.dump_index(fun.argument_list)?;
-
-        let mut w: Vec<u8> = Vec::new();
         write!(w, "{}", Self::fix_return(ret))?;
         let attrs = self.dump_attributes(attributes);
         write!(w, "({})", attrs)?;
+        let args = self.dump_index(fun.argument_list)?;
         write!(w, "({})", args)?;
         Ok(String::from_utf8_lossy(&w).to_string())
     }
 
     fn dump_other_ptr(&self, typ: TypeData, attributes: Vec<PtrAttributes>) -> Result<String> {
+        let mut w: Vec<u8> = Vec::new();
         // Output: <typ> <attrs>, possibly with a space in between.
         let typ = self.dump_data(typ)?;
         let attrs = self.dump_attributes(attributes);
@@ -450,7 +450,8 @@ impl<'a> TypeDumper<'a> {
         };
         let space = if need_space { " " } else { "" };
 
-        Ok(format!("{}{}{}", typ, space, attrs))
+        write!(w, "{}{}{}", typ, space, attrs)?;
+        Ok(String::from_utf8_lossy(&w).to_string())
     }
 
     fn dump_ptr_helper(&self, attributes: Vec<PtrAttributes>, typ: TypeData) -> Result<String> {
@@ -525,8 +526,12 @@ impl<'a> TypeDumper<'a> {
     }
 
     fn dump_array(&self, array: ArrayType) -> Result<String> {
+        let mut w: Vec<u8> = Vec::new();
         let (dimensions, base) = self.get_array_info(array)?;
         let base_size = self.get_data_size(&base);
+        let base_typ = self.dump_data(base)?;
+        write!(w, "{}", base_typ)?;
+
         let mut size = base_size;
         let mut dims = dimensions
             .iter()
@@ -544,41 +549,45 @@ impl<'a> TypeDumper<'a> {
             })
             .collect::<Vec<String>>();
         dims.reverse();
-        let base_typ = self.dump_data(base)?;
-        Ok(format!("{}{}", base_typ, dims.join("")))
+        write!(w, "{}", dims.join(""))?;
+
+        Ok(String::from_utf8_lossy(&w).to_string())
     }
 
     fn dump_modifier(&self, modifier: ModifierType) -> Result<String> {
+        let mut w: Vec<u8> = Vec::new();
         let typ = self.find(modifier.underlying_type)?;
         match typ {
-            TypeData::Pointer(ptr) => self.dump_ptr(ptr, modifier.constant),
-            TypeData::Primitive(prim) => Ok(self.dump_primitive(prim, modifier.constant)),
+            TypeData::Pointer(ptr) => write!(w, "{}", self.dump_ptr(ptr, modifier.constant)?)?,
+            TypeData::Primitive(prim) => write!(w, "{}", self.dump_primitive(prim, modifier.constant)?)?,
             _ => {
+                if modifier.constant {
+                    write!(w, "const ")?
+                }
                 let underlying_typ = self.dump_data(typ)?;
-                Ok(if modifier.constant {
-                    format!("const {}", underlying_typ)
-                } else {
-                    underlying_typ
-                })
+                write!(w, "{}", underlying_typ)?
             }
         }
+        Ok(String::from_utf8_lossy(&w).to_string())
     }
 
-    fn dump_class(&self, class: ClassType) -> String {
+    fn dump_class(&self, class: ClassType) -> Result<String> {
+        let mut w: Vec<u8> = Vec::new();
         if self.flags.intersects(DumperFlags::NAME_ONLY) {
-            class.name.to_string().into()
+            write!(w, "{}", class.name)?;
         } else {
             let name = match class.kind {
                 ClassKind::Class => "class",
                 ClassKind::Interface => "interface",
                 ClassKind::Struct => "struct",
             };
-            format!("{} {}", name, class.name)
+            write!(w, "{} {}", name, class.name)?
         }
+        Ok(String::from_utf8_lossy(&w).to_string())
     }
 
     fn dump_arg_list(&self, list: ArgumentList) -> Result<String> {
-        let mut buf = String::new();
+        let mut w: Vec<u8> = Vec::new();
         let comma = if self.flags.intersects(DumperFlags::SPACE_AFTER_COMMA) {
             ", "
         } else {
@@ -587,16 +596,17 @@ impl<'a> TypeDumper<'a> {
         if let Some((last, args)) = list.arguments.split_last() {
             for index in args.iter() {
                 let typ = self.dump_index(*index)?;
-                buf.push_str(&typ);
-                buf.push_str(comma);
+                write!(w, "{}", typ)?;
+                write!(w, "{}", comma)?;
             }
             let typ = self.dump_index(*last)?;
-            buf.push_str(&typ);
+            write!(w, "{}", typ)?;
         }
-        Ok(buf)
+        Ok(String::from_utf8_lossy(&w).to_string())
     }
 
-    fn dump_primitive(&self, prim: PrimitiveType, is_const: bool) -> String {
+    fn dump_primitive(&self, prim: PrimitiveType, is_const: bool) -> Result<String> {
+        let mut w: Vec<u8> = Vec::new();
         // TODO: check that these names are what we want to see
         let name = match prim.kind {
             PrimitiveKind::NoType => "<NoType>",
@@ -644,28 +654,32 @@ impl<'a> TypeDumper<'a> {
         if prim.indirection.is_some() {
             if self.flags.intersects(DumperFlags::SPACE_BEFORE_POINTER) {
                 if is_const {
-                    format!("{} const *", name)
+                    write!(w, "{} const *", name)?
                 } else {
-                    format!("{} *", name)
+                    write!(w, "{} *", name)?
                 }
             } else if is_const {
-                format!("{} const*", name)
+                write!(w, "{} const*", name)?
             } else {
-                format!("{}*", name)
+                write!(w, "{}*", name)?
             }
         } else if is_const {
-            format!("const {}", name)
+            write!(w, "const {}", name)?
         } else {
-            name.to_string()
+            write!(w, "{}", name)?
         }
+        Ok(String::from_utf8_lossy(&w).to_string())
     }
 
-    fn dump_named(&self, base: &str, name: RawString) -> String {
+    fn dump_named(&self, base: &str, name: RawString) -> Result<String> {
+        let mut w: Vec<u8> = Vec::new();
         if self.flags.intersects(DumperFlags::NAME_ONLY) {
-            name.to_string().into()
+            write!(w, "{}", name)?
         } else {
-            format!("{} {}", base, name)
+            write!(w, "{} {}", base, name)?
         }
+
+        Ok(String::from_utf8_lossy(&w).to_string())
     }
 
     fn dump_index(&self, index: TypeIndex) -> Result<String> {
@@ -674,9 +688,10 @@ impl<'a> TypeDumper<'a> {
     }
 
     fn dump_data(&self, typ: TypeData) -> Result<String> {
-        let typ = match typ {
-            TypeData::Primitive(t) => self.dump_primitive(t, false),
-            TypeData::Class(t) => self.dump_class(t),
+        let mut w: Vec<u8> = Vec::new();
+        match typ {
+            TypeData::Primitive(t) => write!(w, "{}", self.dump_primitive(t, false)?)?,
+            TypeData::Class(t) => write!(w, "{}", self.dump_class(t)?)?,
             TypeData::MemberFunction(t) => {
                 let ztatic = t.this_pointer_type.is_none();
                 let (_, ret, args) = self.dump_method_parts(
@@ -684,24 +699,24 @@ impl<'a> TypeDumper<'a> {
                     self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN),
                     ztatic,
                 )?;
-                format!("{}()({})", Self::fix_return(ret), args)
+                write!(w, "{}()({})", Self::fix_return(ret), args)?
             }
             TypeData::Procedure(t) => {
                 let no_return = self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN);
                 let ret = self.get_return_type(t.return_type, t.attributes, no_return);
                 let args = self.dump_index(t.argument_list)?;
-                format!("{}()({})", Self::fix_return(ret), args)
+                write!(w, "{}()({})", Self::fix_return(ret), args)?;
             }
-            TypeData::ArgumentList(t) => self.dump_arg_list(t)?,
-            TypeData::Pointer(t) => self.dump_ptr(t, false)?,
-            TypeData::Array(t) => self.dump_array(t)?,
-            TypeData::Union(t) => self.dump_named("union", t.name),
-            TypeData::Enumeration(t) => self.dump_named("enum", t.name),
-            TypeData::Enumerate(t) => self.dump_named("enum class", t.name),
-            TypeData::Modifier(t) => self.dump_modifier(t)?,
-            _ => format!("unhandled type /* {:?} */", typ),
-        };
+            TypeData::ArgumentList(t) => write!(w, "{}", self.dump_arg_list(t)?)?,
+            TypeData::Pointer(t) => write!(w, "{}", self.dump_ptr(t, false)?)?,
+            TypeData::Array(t) => write!(w, "{}", self.dump_array(t)?)?,
+            TypeData::Union(t) => write!(w, "{}", self.dump_named("union", t.name)?)?,
+            TypeData::Enumeration(t) => write!(w, "{}", self.dump_named("enum", t.name)?)?,
+            TypeData::Enumerate(t) => write!(w, "{}", self.dump_named("enum class", t.name)?)?,
+            TypeData::Modifier(t) => write!(w, "{}", self.dump_modifier(t)?)?,
+            _ => write!(w, "unhandled type /* {:?} */", typ)?,
+        }
 
-        Ok(typ)
+        Ok(String::from_utf8_lossy(&w).to_string())
     }
 }
