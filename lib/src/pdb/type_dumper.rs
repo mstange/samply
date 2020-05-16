@@ -430,13 +430,9 @@ impl<'a> TypeDumper<'a> {
         let typ = self.dump_data(typ)?;
         let attrs = self.dump_attributes(attributes);
         let c = typ.chars().last().unwrap();
-        let space = if !attrs.starts_with('c')
-            && (c == '*' || c == '&' || !self.flags.intersects(DumperFlags::SPACE_BEFORE_POINTER))
-        {
-            ""
-        } else {
-            " "
-        };
+        let need_space = attrs.starts_with('c')
+            || (c != '*' && c != '&' && self.flags.intersects(DumperFlags::SPACE_BEFORE_POINTER));
+        let space = if need_space { " " } else { "" };
 
         Ok(format!("{}{}{}", typ, space, attrs))
     }
