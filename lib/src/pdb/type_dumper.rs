@@ -215,7 +215,7 @@ impl<'a> TypeDumper<'a> {
             },
             ParentScope::WithId(id_data) => match id_data {
                 pdb::IdData::String(s) => s.name.to_string().to_string(),
-                other => format!("<unhandled id scope {:?}", other),
+                other => format!("<unhandled id scope {:?}>", other),
             },
         })
     }
