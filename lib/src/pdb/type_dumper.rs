@@ -208,17 +208,18 @@ impl<'a> TypeDumper<'a> {
         }
     }
 
-    fn dump_parent_scope(&self, scope: ParentScope) -> Option<String> {
-        Some(match scope {
-            ParentScope::WithType(scope_index) => match self.find(scope_index).ok()? {
-                TypeData::Class(c) => c.name.to_string().to_string(),
-                other => format!("<unhandled scope type {:?}>", other),
+    fn dump_parent_scope(&self, w: &mut impl Write, scope: ParentScope) -> Result<()> {
+        match scope {
+            ParentScope::WithType(scope_index) => match self.find(scope_index)? {
+                TypeData::Class(c) => write!(w, "{}::", c.name)?,
+                other => write!(w, "<unhandled scope type {:?}>::", other)?,
             },
             ParentScope::WithId(id_data) => match id_data {
-                pdb::IdData::String(s) => s.name.to_string().to_string(),
-                other => format!("<unhandled id scope {:?}>", other),
+                pdb::IdData::String(s) => write!(w, "{}::", s.name)?,
+                other => write!(w, "<unhandled id scope {:?}>::", other)?,
             },
-        })
+        }
+        Ok(())
     }
 
     /// Dump a ProcedureType at the given TypeIndex
@@ -246,9 +247,8 @@ impl<'a> TypeDumper<'a> {
                         w.write_all(b"static ")?;
                     }
                     write!(w, "{}", Self::fix_return(ret))?;
-                    if let Some(method_scope) = parent_index.and_then(|i| self.dump_parent_scope(i))
-                    {
-                        write!(w, "{}::", method_scope)?;
+                    if let Some(i) = parent_index {
+                        self.dump_parent_scope(&mut w, i)?;
                     }
                     write!(w, "{}", name)?;
                     write!(w, "({})", args)?;
@@ -262,10 +262,8 @@ impl<'a> TypeDumper<'a> {
                         self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN),
                     )?;
                     write!(w, "{}", Self::fix_return(ret))?;
-                    if let Some(function_scope) =
-                        parent_index.and_then(|i| self.dump_parent_scope(i))
-                    {
-                        write!(w, "{}::", function_scope)?;
+                    if let Some(i) = parent_index {
+                        self.dump_parent_scope(&mut w, i)?;
                     }
                     write!(w, "{}", name)?;
                     write!(w, "({})", args)?;
