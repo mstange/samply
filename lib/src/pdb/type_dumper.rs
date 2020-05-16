@@ -544,8 +544,7 @@ impl<'a> TypeDumper<'a> {
         }
     }
 
-    fn dump_array(&self, array: ArrayType) -> Result<String> {
-        let mut w: Vec<u8> = Vec::new();
+    fn dump_array(&self, w: &mut impl Write, array: ArrayType) -> Result<()> {
         let (dimensions, base) = self.get_array_info(array)?;
         let base_size = self.get_data_size(&base);
         let base_typ = self.dump_data(base)?;
@@ -570,7 +569,7 @@ impl<'a> TypeDumper<'a> {
         dims.reverse();
         write!(w, "{}", dims.join(""))?;
 
-        Ok(String::from_utf8_lossy(&w).to_string())
+        Ok(())
     }
 
     fn dump_modifier(&self, modifier: ModifierType) -> Result<String> {
@@ -732,7 +731,7 @@ impl<'a> TypeDumper<'a> {
             }
             TypeData::ArgumentList(t) => write!(w, "{}", self.dump_arg_list(t)?)?,
             TypeData::Pointer(t) => self.dump_ptr(&mut w, t, false)?,
-            TypeData::Array(t) => write!(w, "{}", self.dump_array(t)?)?,
+            TypeData::Array(t) => self.dump_array(&mut w, t)?,
             TypeData::Union(t) => write!(w, "{}", self.dump_named("union", t.name)?)?,
             TypeData::Enumeration(t) => write!(w, "{}", self.dump_named("enum", t.name)?)?,
             TypeData::Enumerate(t) => write!(w, "{}", self.dump_named("enum class", t.name)?)?,
