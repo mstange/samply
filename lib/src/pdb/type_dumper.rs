@@ -262,7 +262,8 @@ impl<'a> TypeDumper<'a> {
                         self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN),
                     )?;
                     write!(w, "{}", Self::fix_return(ret))?;
-                    if let Some(function_scope) = parent_index.and_then(|i| self.dump_parent_scope(i))
+                    if let Some(function_scope) =
+                        parent_index.and_then(|i| self.dump_parent_scope(i))
                     {
                         write!(w, "{}::", function_scope)?;
                     }
