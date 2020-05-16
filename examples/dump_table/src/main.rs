@@ -51,20 +51,22 @@ async fn main_impl(
     full: bool,
 ) -> anyhow::Result<()> {
     let table = get_table(debug_name, breakpad_id, symbol_directory).await?;
-    dump_table(table, full)
+    dump_table(&mut std::io::stdout(), table, full)
 }
 
 fn dump_table(
+    w: &mut impl std::io::Write,
     table: CompactSymbolTable,
     full: bool,
 ) -> anyhow::Result<()> {
-    println!("Found {} symbols.", table.addr.len());
+    writeln!(w, "Found {} symbols.", table.addr.len())?;
     for (i, address) in table.addr.iter().enumerate() {
         if i >= 15 && !full {
-            println!(
+            writeln!(
+                w,
                 "and {} more symbols. Pass --full to print the full list.",
                 table.addr.len() - i
-            );
+            )?;
             break;
         }
 
@@ -72,7 +74,7 @@ fn dump_table(
         let end_pos = table.index[i + 1];
         let symbol_bytes = &table.buffer[start_pos as usize..end_pos as usize];
         let symbol_string = std::str::from_utf8(symbol_bytes)?;
-        println!("{:x} {}", address, symbol_string);
+        writeln!(w, "{:x} {}", address, symbol_string)?;
     }
     Ok(())
 }
@@ -179,6 +181,8 @@ impl FileAndPathHelper for Helper {
 mod test {
 
     use profiler_get_symbols::GetSymbolsError;
+    use std::fs::File;
+    use std::io::{Read, Write};
     use std::path::PathBuf;
 
     fn fixtures_dir() -> PathBuf {
@@ -247,5 +251,37 @@ mod test {
             }
             _ => panic!("wrong GetSymbolsError subtype"),
         }
+    }
+
+    #[test]
+    fn compare_snapshot() {
+        let table = futures::executor::block_on(crate::get_table(
+            "mozglue.pdb",
+            Some(String::from("63C609072D3499F64C4C44205044422E2")),
+            fixtures_dir().join("win64-ci"),
+        ))
+        .unwrap();
+        let mut output: Vec<u8> = Vec::new();
+        crate::dump_table(&mut output, table, true).unwrap();
+
+        if false {
+            let mut output_file = File::create(
+                fixtures_dir()
+                    .join("snapshots")
+                    .join("output-win64-ci-mozglue.pdb.txt"),
+            )
+            .unwrap();
+            output_file.write_all(&output).unwrap();
+        }
+
+        let mut snapshot_file = File::open(
+            fixtures_dir()
+                .join("snapshots")
+                .join("win64-ci-mozglue.pdb.txt"),
+        )
+        .unwrap();
+        let mut expected: Vec<u8> = Vec::new();
+        snapshot_file.read_to_end(&mut expected).unwrap();
+        assert_eq!(output, expected);
     }
 }
