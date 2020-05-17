@@ -85,6 +85,7 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
                     .inlinees()?
                     .map(|i| Ok((i.index(), i)))
                     .collect()?;
+                let lines_for_proc = line_program.lines_at_offset(proc.offset);
 
                 return self.find_frames_from_procedure(
                     address,
@@ -94,6 +95,7 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
                     procedure_rva_range,
                     &line_program,
                     &inlinees,
+                    lines_for_proc,
                 );
             }
         }
@@ -109,6 +111,7 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         procedure_rva_range: std::ops::Range<u32>,
         line_program: &pdb::LineProgram,
         inlinees: &BTreeMap<pdb::IdIndex, pdb::Inlinee>,
+        lines_for_proc: pdb::LineIterator,
     ) -> Result<Vec<Frame<'b>>>
     where
         's: 'b,
@@ -119,7 +122,6 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
             .dump_function(&proc.name.to_string(), proc.type_index, None)
             .ok();
 
-        let lines_for_proc = line_program.lines_at_offset(proc.offset);
         let location = self
             .find_line_info_containing_address(
                 lines_for_proc,
@@ -175,44 +177,40 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         's: 'b,
         'a: 'b,
     {
-        if let Some(inlinee) = inlinees.get(&site.inlinee) {
-            if let Some(line_info) = self.find_line_info_containing_address(
-                inlinee.lines(proc_offset, &site),
-                address,
-                None,
-            ) {
-                let location = self.line_info_to_location(line_info, line_program);
+        // This inlining site only covers the address if it has a line info that covers this address.
+        let inlinee = inlinees.get(&site.inlinee)?;
+        let lines = inlinee.lines(proc_offset, &site);
+        let line_info = self.find_line_info_containing_address(lines, address, None)?;
 
-                let function = match self.id_finder.find(site.inlinee).and_then(|i| i.parse()) {
-                    Ok(pdb::IdData::Function(f)) => {
-                        // TODO: Do cross-module resolution when looking up scope ID
-                        let scope = f
-                            .scope
-                            .and_then(|scope| self.id_finder.find(scope).ok())
-                            .and_then(|i| i.parse().ok())
-                            .map(|id_data| ParentScope::WithId(id_data));
+        let function = match self.id_finder.find(site.inlinee).and_then(|i| i.parse()) {
+            Ok(pdb::IdData::Function(f)) => {
+                // TODO: Do cross-module resolution when looking up scope ID
+                let scope = f
+                    .scope
+                    .and_then(|scope| self.id_finder.find(scope).ok())
+                    .and_then(|i| i.parse().ok())
+                    .map(|id_data| ParentScope::WithId(id_data));
 
-                        self.type_dumper
-                            .dump_function(&f.name.to_string(), f.function_type, scope)
-                            .ok()
-                    }
-                    Ok(pdb::IdData::MemberFunction(m)) => self
-                        .type_dumper
-                        .dump_function(
-                            &m.name.to_string(),
-                            m.function_type,
-                            Some(ParentScope::WithType(m.parent)),
-                        )
-                        .ok(),
-                    _ => None,
-                };
-                return Some(Frame {
-                    function,
-                    location: Some(location),
-                });
+                self.type_dumper
+                    .dump_function(&f.name.to_string(), f.function_type, scope)
+                    .ok()
             }
-        }
-        None
+            Ok(pdb::IdData::MemberFunction(m)) => self
+                .type_dumper
+                .dump_function(
+                    &m.name.to_string(),
+                    m.function_type,
+                    Some(ParentScope::WithType(m.parent)),
+                )
+                .ok(),
+            _ => None,
+        };
+        let location = self.line_info_to_location(line_info, line_program);
+
+        Some(Frame {
+            function,
+            location: Some(location),
+        })
     }
 
     fn find_line_info_containing_address<LineIterator>(

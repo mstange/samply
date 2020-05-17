@@ -231,27 +231,31 @@ where
                                     for address in covered_addresses {
                                         symbolication_result
                                             .add_address_symbol(*address, rva.0, &name);
-                                        if let Some(context) = &addr2line_context {
-                                            let line_program = match line_program_cache.as_ref() {
-                                                Some(line_program) => line_program,
-                                                None => {
-                                                    line_program_cache = Some(info.line_program()?);
-                                                    line_program_cache.as_ref().unwrap()
-                                                }
-                                            };
+                                    }
+                                    if let Some(context) = &addr2line_context {
+                                        let line_program = match line_program_cache.as_ref() {
+                                            Some(line_program) => line_program,
+                                            None => {
+                                                line_program_cache = Some(info.line_program()?);
+                                                line_program_cache.as_ref().unwrap()
+                                            }
+                                        };
 
-                                            let inlinees = match inlinees_cache.as_ref() {
-                                                Some(inlinees) => inlinees,
-                                                None => {
-                                                    inlinees_cache = Some(
-                                                        info.inlinees()?
-                                                            .map(|i| Ok((i.index(), i)))
-                                                            .collect()?,
-                                                    );
-                                                    inlinees_cache.as_ref().unwrap()
-                                                }
-                                            };
+                                        let inlinees = match inlinees_cache.as_ref() {
+                                            Some(inlinees) => inlinees,
+                                            None => {
+                                                inlinees_cache = Some(
+                                                    info.inlinees()?
+                                                        .map(|i| Ok((i.index(), i)))
+                                                        .collect()?,
+                                                );
+                                                inlinees_cache.as_ref().unwrap()
+                                            }
+                                        };
+                                        let lines_for_proc =
+                                            line_program.lines_at_offset(proc.offset);
 
+                                        for address in covered_addresses {
                                             if let Ok(frames) = context.find_frames_from_procedure(
                                                 *address,
                                                 &info,
@@ -260,6 +264,7 @@ where
                                                 rva_range.clone(),
                                                 &line_program,
                                                 &inlinees,
+                                                lines_for_proc.clone(),
                                             ) {
                                                 let frames: std::result::Result<Vec<_>, _> = frames
                                                     .into_iter()
