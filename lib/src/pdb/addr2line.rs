@@ -2,11 +2,13 @@ use super::type_dumper::{ParentScope, TypeDumper};
 use pdb::{FallibleIterator, Result, SymbolData, PDB};
 use std::collections::BTreeMap;
 
+#[derive(Clone)]
 pub struct Frame<'s> {
     pub function: Option<String>,
     pub location: Option<Location<'s>>,
 }
 
+#[derive(Clone)]
 pub struct Location<'s> {
     pub file: Option<std::borrow::Cow<'s, str>>,
     pub line: Option<u32>,
@@ -117,21 +119,60 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         's: 'b,
         'a: 'b,
     {
+        self.find_frames_for_addresses_from_procedure(
+            &[address],
+            module_info,
+            symbol_index,
+            proc,
+            procedure_rva_range,
+            line_program,
+            inlinees,
+            lines_for_proc,
+        )
+        .map(|map| map.into_iter().next().unwrap().1)
+    }
+
+    /// addresses must be sorted, low to high
+    pub fn find_frames_for_addresses_from_procedure<'b>(
+        &self,
+        addresses: &[u32],
+        module_info: &pdb::ModuleInfo,
+        symbol_index: pdb::SymbolIndex,
+        proc: pdb::ProcedureSymbol,
+        procedure_rva_range: std::ops::Range<u32>,
+        line_program: &pdb::LineProgram,
+        inlinees: &BTreeMap<pdb::IdIndex, pdb::Inlinee>,
+        lines_for_proc: pdb::LineIterator,
+    ) -> Result<BTreeMap<u32, Vec<Frame<'b>>>>
+    where
+        's: 'b,
+        'a: 'b,
+    {
         let function = self
             .type_dumper
             .dump_function(&proc.name.to_string(), proc.type_index, None)
             .ok();
 
-        let location = self
-            .find_line_info_containing_address(
-                lines_for_proc,
-                address,
-                Some(procedure_rva_range.end),
-            )
-            .map(|line_info| self.line_info_to_location(line_info, &line_program));
-
         // Ordered outside to inside, until just before the end of this function.
-        let mut frames = vec![Frame { function, location }];
+        let mut frames_per_address: BTreeMap<u32, Vec<_>> =
+            addresses.iter().map(|&address| (address, vec![])).collect();
+
+        for (addresses_subset, line_info) in self
+            .find_line_infos_containing_addresses_no_size(
+                lines_for_proc,
+                addresses,
+                procedure_rva_range.end,
+            )
+            .into_iter()
+        {
+            let location = self.line_info_to_location(line_info, &line_program);
+            for address in addresses_subset {
+                frames_per_address.get_mut(address).unwrap().push(Frame {
+                    function: function.clone(),
+                    location: Some(location.clone()),
+                });
+            }
+        }
 
         let mut inline_symbols_iter = module_info.symbols_at(symbol_index)?;
 
@@ -145,14 +186,23 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
                     break;
                 }
                 Ok(SymbolData::InlineSite(site)) => {
-                    if let Some(frame) = self.frame_for_inline_symbol(
-                        site,
-                        address,
-                        &inlinees,
-                        proc.offset,
-                        &line_program,
-                    ) {
-                        frames.push(frame);
+                    if let Some(inline_frames_for_addresses) = self
+                        .frames_for_addresses_for_inline_symbol(
+                            site,
+                            addresses,
+                            &inlinees,
+                            proc.offset,
+                            &line_program,
+                        )
+                    {
+                        for (addresses_subset, frame) in inline_frames_for_addresses.into_iter() {
+                            for address in addresses_subset {
+                                frames_per_address
+                                    .get_mut(address)
+                                    .unwrap()
+                                    .push(frame.clone());
+                            }
+                        }
                     }
                 }
                 _ => {}
@@ -160,27 +210,33 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         }
 
         // Now order from inside to outside.
-        frames.reverse();
+        for (_address, frames) in frames_per_address.iter_mut() {
+            frames.reverse();
+        }
 
-        Ok(frames)
+        Ok(frames_per_address)
     }
 
-    fn frame_for_inline_symbol<'b>(
+    fn frames_for_addresses_for_inline_symbol<'b, 'addresses>(
         &self,
         site: pdb::InlineSiteSymbol,
-        address: u32,
+        addresses: &'addresses [u32],
         inlinees: &BTreeMap<pdb::IdIndex, pdb::Inlinee>,
         proc_offset: pdb::PdbInternalSectionOffset,
         line_program: &pdb::LineProgram,
-    ) -> Option<Frame<'b>>
+    ) -> Option<Vec<(&'addresses [u32], Frame<'b>)>>
     where
         's: 'b,
         'a: 'b,
+        'b: 'addresses,
     {
         // This inlining site only covers the address if it has a line info that covers this address.
         let inlinee = inlinees.get(&site.inlinee)?;
         let lines = inlinee.lines(proc_offset, &site);
-        let line_info = self.find_line_info_containing_address(lines, address, None)?;
+        let line_infos = self.find_line_infos_containing_addresses_with_size(lines, addresses);
+        if line_infos.is_empty() {
+            return None;
+        }
 
         let function = match self.id_finder.find(site.inlinee).and_then(|i| i.parse()) {
             Ok(pdb::IdData::Function(f)) => {
@@ -205,50 +261,76 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
                 .ok(),
             _ => None,
         };
-        let location = self.line_info_to_location(line_info, line_program);
 
-        Some(Frame {
-            function,
-            location: Some(location),
-        })
+        let mut frames = Vec::new();
+        for (address_range, line_info) in line_infos.into_iter() {
+            let location = self.line_info_to_location(line_info, line_program);
+
+            frames.push((
+                address_range,
+                Frame {
+                    function: function.clone(),
+                    location: Some(location),
+                },
+            ));
+        }
+        Some(frames)
     }
 
-    fn find_line_info_containing_address<LineIterator>(
+    fn find_line_infos_containing_addresses_no_size<'addresses>(
         &self,
-        iterator: LineIterator,
-        address: u32,
-        outer_end_rva: Option<u32>,
-    ) -> Option<pdb::LineInfo>
+        iterator: impl FallibleIterator<Item = pdb::LineInfo, Error = pdb::Error> + Clone,
+        addresses: &'addresses [u32],
+        outer_end_rva: u32,
+    ) -> Vec<(&'addresses [u32], pdb::LineInfo)>
     where
-        LineIterator: FallibleIterator<Item = pdb::LineInfo, Error = pdb::Error>,
+        'a: 'addresses,
+        's: 'addresses,
     {
-        let mut lines = iterator.peekable();
-        while let Some(line_info) = lines.next().ok()? {
-            let start_rva = line_info
-                .offset
-                .to_rva(&self.address_map)
-                .expect("invalid rva")
-                .0;
-            if address < start_rva {
-                continue;
-            }
-            let end_rva = match (line_info.length, outer_end_rva) {
-                (Some(length), _) => Some(start_rva + length),
-                (None, Some(fallback_end)) => {
-                    let next_line_info_rva = lines
-                        .peek()
-                        .ok()?
-                        .map(|i| i.offset.to_rva(&self.address_map).expect("invalid rva").0);
-                    Some(next_line_info_rva.unwrap_or(fallback_end))
-                }
-                (None, None) => None,
-            };
-            match end_rva {
-                Some(end_rva) if address < end_rva => return Some(line_info),
-                _ => {}
+        let start_rva_iterator = iterator
+            .clone()
+            .map(|line_info| Ok(line_info.offset.to_rva(&self.address_map).unwrap().0));
+        let outer_end_rva_iterator = fallible_once(Ok(outer_end_rva));
+        let end_rva_iterator = start_rva_iterator
+            .clone()
+            .skip(1)
+            .chain(outer_end_rva_iterator);
+        let mut line_iterator = start_rva_iterator.zip(end_rva_iterator).zip(iterator);
+        let mut line_infos = Vec::new();
+        while let Ok(Some(((start_rva, end_rva), line_info))) = line_iterator.next() {
+            let range = start_rva..end_rva;
+            let covered_addresses = get_addresses_covered_by_range(addresses, range);
+            if !covered_addresses.is_empty() {
+                line_infos.push((covered_addresses, line_info));
             }
         }
-        None
+        line_infos
+    }
+
+    fn find_line_infos_containing_addresses_with_size<'addresses>(
+        &self,
+        mut iterator: impl FallibleIterator<Item = pdb::LineInfo, Error = pdb::Error> + Clone,
+        addresses: &'addresses [u32],
+    ) -> Vec<(&'addresses [u32], pdb::LineInfo)>
+    where
+        'a: 'addresses,
+        's: 'addresses,
+    {
+        let mut line_infos = Vec::new();
+        while let Ok(Some(line_info)) = iterator.next() {
+            let length = match line_info.length {
+                Some(l) => l,
+                None => continue,
+            };
+            let start_rva = line_info.offset.to_rva(&self.address_map).unwrap().0;
+            let end_rva = start_rva + length;
+            let range = start_rva..end_rva;
+            let covered_addresses = get_addresses_covered_by_range(addresses, range);
+            if !covered_addresses.is_empty() {
+                line_infos.push((covered_addresses, line_info));
+            }
+        }
+        line_infos
     }
 
     fn line_info_to_location<'b>(
@@ -270,5 +352,43 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
             line: Some(line_info.line_start),
             column: line_info.column_start,
         }
+    }
+}
+
+fn fallible_once<T, E>(value: std::result::Result<T, E>) -> Once<T, E> {
+    Once { value: Some(value) }
+}
+
+struct Once<T, E> {
+    value: Option<std::result::Result<T, E>>,
+}
+
+impl<T, E> FallibleIterator for Once<T, E> {
+    type Item = T;
+    type Error = E;
+
+    fn next(&mut self) -> std::result::Result<Option<Self::Item>, Self::Error> {
+        match self.value.take() {
+            Some(Ok(value)) => Ok(Some(value)),
+            Some(Err(err)) => Err(err),
+            None => Ok(None),
+        }
+    }
+}
+
+pub fn get_addresses_covered_by_range(addresses: &[u32], range: std::ops::Range<u32>) -> &[u32] {
+    let index_of_first_address_gte_range_start = match addresses.binary_search(&range.start) {
+        Ok(i) => i,
+        Err(i) => i,
+    };
+    // Compute the index of the first item *outside* the range (one past last)
+    let index_of_first_address_gt_range_end = match addresses.binary_search(&range.end) {
+        Ok(i) => i,
+        Err(i) => i,
+    };
+    if index_of_first_address_gt_range_end > index_of_first_address_gte_range_start {
+        &addresses[index_of_first_address_gte_range_start..index_of_first_address_gt_range_end]
+    } else {
+        &[]
     }
 }

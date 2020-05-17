@@ -255,9 +255,9 @@ where
                                         let lines_for_proc =
                                             line_program.lines_at_offset(proc.offset);
 
-                                        for address in covered_addresses {
-                                            if let Ok(frames) = context.find_frames_from_procedure(
-                                                *address,
+                                        if let Ok(frames_per_address) = context
+                                            .find_frames_for_addresses_from_procedure(
+                                                covered_addresses,
                                                 &info,
                                                 symbol.index(),
                                                 proc,
@@ -265,14 +265,16 @@ where
                                                 &line_program,
                                                 &inlinees,
                                                 lines_for_proc.clone(),
-                                            ) {
+                                            )
+                                        {
+                                            for (address, frames) in frames_per_address {
                                                 let frames: std::result::Result<Vec<_>, _> = frames
                                                     .into_iter()
                                                     .map(convert_stack_frame)
                                                     .collect();
                                                 if let Ok(frames) = frames {
                                                     symbolication_result.add_address_debug_info(
-                                                        *address,
+                                                        address,
                                                         AddressDebugInfo { frames },
                                                     );
                                                 }
