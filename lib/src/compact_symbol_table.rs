@@ -38,9 +38,9 @@ impl SymbolicationResult for CompactSymbolTable {
     }
 
     fn from_map_with_addresses<S>(
-        map: HashMap<u32, S>,
-        addresses: &[u32],
-        total_symbol_count: u32,
+        _map: HashMap<u32, S>,
+        _addresses: &[u32],
+        _total_symbol_count: u32,
     ) -> Self
     where
         S: Deref<Target = str>,
