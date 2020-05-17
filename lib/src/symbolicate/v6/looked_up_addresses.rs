@@ -2,7 +2,7 @@ use super::super::demangle;
 use crate::shared::{
     AddressDebugInfo, InlineStackFrame, SymbolicationResult, SymbolicationResultKind,
 };
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::ops::Deref;
 
 pub struct AddressResult {
@@ -11,13 +11,15 @@ pub struct AddressResult {
     pub inline_frames: Option<Vec<InlineStackFrame>>,
 }
 
+pub type AddressResults = BTreeMap<u32, Option<AddressResult>>;
+
 pub struct LookedUpAddresses {
-    pub address_results: HashMap<u32, Option<AddressResult>>,
+    pub address_results: AddressResults,
     pub symbol_count: u32,
 }
 
 impl SymbolicationResult for LookedUpAddresses {
-    fn from_full_map<T: Deref<Target = str>>(map: HashMap<u32, T>, addresses: &[u32]) -> Self {
+    fn from_full_map<T: Deref<Target = str>>(map: BTreeMap<u32, T>, addresses: &[u32]) -> Self {
         let mut symbols: Vec<_> = map.into_iter().collect();
         symbols.sort_by_key(|&(addr, _)| addr);
         let symbol_count = symbols.len() as u32;

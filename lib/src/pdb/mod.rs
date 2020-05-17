@@ -5,7 +5,7 @@ use crate::shared::{
     SymbolicationResult, SymbolicationResultKind,
 };
 use std::borrow::Cow;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::io::Cursor;
 
 pub mod addr2line;
@@ -132,7 +132,7 @@ where
 
     // Start with the public function symbols.
     let global_symbols = pdb.global_symbols().context("global_symbols")?;
-    let mut hashmap: HashMap<_, _> = global_symbols
+    let mut symbol_map: BTreeMap<_, _> = global_symbols
         .iter()
         .filter_map(|symbol| {
             Ok(match symbol.parse() {
@@ -183,12 +183,12 @@ where
                                     type_index,
                                     None,
                                 )?;
-                                hashmap.entry(rva.0).or_insert_with(|| Cow::from(name));
+                                symbol_map.entry(rva.0).or_insert_with(|| Cow::from(name));
                             }
                         }
                     }
                 }
-                let symbolication_result = R::from_full_map(hashmap, addresses);
+                let symbolication_result = R::from_full_map(symbol_map, addresses);
                 Ok(symbolication_result)
             }
             SymbolicationResultKind::SymbolsForAddresses { with_debug_info } => {
@@ -198,7 +198,7 @@ where
                     None
                 };
                 let mut symbolication_result = R::for_addresses(addresses);
-                let mut all_symbol_addresses: HashSet<u32> = hashmap.keys().cloned().collect();
+                let mut all_symbol_addresses: HashSet<u32> = symbol_map.keys().cloned().collect();
                 while let Some(module) = modules.next().context("modules.next()")? {
                     let info = match pdb.module_info(&module) {
                         Ok(Some(info)) => info,
@@ -296,7 +296,7 @@ where
             }
         }
     } else {
-        Ok(R::from_full_map(hashmap, addresses))
+        Ok(R::from_full_map(symbol_map, addresses))
     }
 }
 

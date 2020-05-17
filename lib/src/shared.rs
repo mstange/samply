@@ -1,6 +1,6 @@
 use addr2line::object;
 use object::{Object, SymbolKind};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::future::Future;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
@@ -61,7 +61,7 @@ pub enum SymbolicationResultKind {
 }
 
 pub trait SymbolicationResult {
-    fn from_full_map<S>(map: HashMap<u32, S>, addresses: &[u32]) -> Self
+    fn from_full_map<S>(map: BTreeMap<u32, S>, addresses: &[u32]) -> Self
     where
         S: Deref<Target = str>;
 
@@ -82,7 +82,7 @@ pub struct SymbolicationQuery<'a> {
     pub addresses: &'a [u32],
 }
 
-pub fn object_to_map<'a, 'b, T>(object_file: &'b T) -> HashMap<u32, &'a str>
+pub fn object_to_map<'a, 'b, T>(object_file: &'b T) -> BTreeMap<u32, &'a str>
 where
     T: Object<'a, 'b>,
 {

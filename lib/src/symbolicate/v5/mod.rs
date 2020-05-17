@@ -6,7 +6,7 @@ pub mod looked_up_addresses;
 pub mod response_json;
 
 use super::request_json::{self, Lib};
-use looked_up_addresses::{AddressResult, LookedUpAddresses};
+use looked_up_addresses::{AddressResults, LookedUpAddresses};
 use serde_json::json;
 
 pub async fn query_api_json(request_json: &str, helper: &impl FileAndPathHelper) -> String {
@@ -64,9 +64,8 @@ fn gather_requested_addresses(request: &request_json::Request) -> Result<HashMap
 async fn symbolicate_requested_addresses(
     requested_addresses: HashMap<Lib, Vec<u32>>,
     helper: &impl FileAndPathHelper,
-) -> HashMap<Lib, Option<HashMap<u32, Option<AddressResult>>>> {
-    let mut symbolicated_addresses: HashMap<Lib, Option<HashMap<u32, Option<AddressResult>>>> =
-        HashMap::new();
+) -> HashMap<Lib, Option<AddressResults>> {
+    let mut symbolicated_addresses: HashMap<Lib, Option<AddressResults>> = HashMap::new();
     for (lib, addresses) in requested_addresses.into_iter() {
         let address_results = get_address_results(&lib, addresses, helper).await.ok();
         symbolicated_addresses.insert(lib, address_results);
@@ -78,7 +77,7 @@ async fn get_address_results(
     lib: &Lib,
     mut addresses: Vec<u32>,
     helper: &impl FileAndPathHelper,
-) -> Result<HashMap<u32, Option<AddressResult>>> {
+) -> Result<AddressResults> {
     addresses.sort();
     addresses.dedup();
     let symbol_table: LookedUpAddresses =
@@ -89,13 +88,13 @@ async fn get_address_results(
 
 fn create_response(
     request: &request_json::Request,
-    symbolicated_addresses: HashMap<Lib, Option<HashMap<u32, Option<AddressResult>>>>,
+    symbolicated_addresses: HashMap<Lib, Option<AddressResults>>,
 ) -> response_json::Response {
     use response_json::{Response, Result, Stack, StackFrame, Symbol};
 
     fn result_for_job(
         job: &request_json::Job,
-        symbolicated_addresses: &HashMap<Lib, Option<HashMap<u32, Option<AddressResult>>>>,
+        symbolicated_addresses: &HashMap<Lib, Option<AddressResults>>,
     ) -> Result {
         let mut found_modules = HashMap::new();
         let mut symbols_by_module_index = HashMap::new();
@@ -124,7 +123,7 @@ fn create_response(
     fn response_stack_for_request_stack(
         stack: &request_json::Stack,
         memory_map: &Vec<Lib>,
-        symbols_by_module_index: &HashMap<u32, &HashMap<u32, Option<AddressResult>>>,
+        symbols_by_module_index: &HashMap<u32, &AddressResults>,
     ) -> Stack {
         let frames = stack.0.iter().enumerate().map(|(frame_index, frame)| {
             response_frame_for_request_frame(
@@ -141,7 +140,7 @@ fn create_response(
         frame: &request_json::StackFrame,
         frame_index: u32,
         memory_map: &Vec<Lib>,
-        symbols_by_module_index: &HashMap<u32, &HashMap<u32, Option<AddressResult>>>,
+        symbols_by_module_index: &HashMap<u32, &AddressResults>,
     ) -> StackFrame {
         let symbol = symbols_by_module_index
             .get(&frame.module_index)

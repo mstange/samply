@@ -6,7 +6,7 @@ pub mod looked_up_addresses;
 pub mod response_json;
 
 use super::request_json::{self, Lib};
-use looked_up_addresses::{AddressResult, LookedUpAddresses};
+use looked_up_addresses::{AddressResults, LookedUpAddresses};
 use serde_json::json;
 
 pub async fn query_api_json(request_json: &str, helper: &impl FileAndPathHelper) -> String {
@@ -137,7 +137,7 @@ fn create_response(
     fn response_stack_for_request_stack(
         stack: &request_json::Stack,
         memory_map: &Vec<Lib>,
-        symbols_by_module_index: &HashMap<u32, &HashMap<u32, Option<AddressResult>>>,
+        symbols_by_module_index: &HashMap<u32, &AddressResults>,
     ) -> Stack {
         let frames = stack.0.iter().enumerate().map(|(frame_index, frame)| {
             response_frame_for_request_frame(
@@ -154,7 +154,7 @@ fn create_response(
         frame: &request_json::StackFrame,
         frame_index: u32,
         memory_map: &Vec<Lib>,
-        symbols_by_module_index: &HashMap<u32, &HashMap<u32, Option<AddressResult>>>,
+        symbols_by_module_index: &HashMap<u32, &AddressResults>,
     ) -> StackFrame {
         let symbol = symbols_by_module_index
             .get(&frame.module_index)

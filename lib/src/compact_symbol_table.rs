@@ -1,5 +1,5 @@
 use super::shared::{AddressDebugInfo, SymbolicationResult, SymbolicationResultKind};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::ops::Deref;
 
 #[repr(C)]
@@ -24,7 +24,7 @@ impl CompactSymbolTable {
 }
 
 impl SymbolicationResult for CompactSymbolTable {
-    fn from_full_map<T: Deref<Target = str>>(map: HashMap<u32, T>, _addresses: &[u32]) -> Self {
+    fn from_full_map<T: Deref<Target = str>>(map: BTreeMap<u32, T>, _addresses: &[u32]) -> Self {
         let mut table = Self::new();
         let mut entries: Vec<_> = map.into_iter().collect();
         entries.sort_by_key(|&(addr, _)| addr);
