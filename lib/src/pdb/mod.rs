@@ -204,6 +204,9 @@ where
                         Ok(Some(info)) => info,
                         _ => continue,
                     };
+                    let mut line_program_cache = None;
+                    let mut inlinees_cache = None;
+
                     let mut symbols = info.symbols().context("info.symbols()")?;
                     while let Ok(Some(symbol)) = symbols.next() {
                         if let Ok(SymbolData::Procedure(proc)) = symbol.parse() {
@@ -229,12 +232,34 @@ where
                                         symbolication_result
                                             .add_address_symbol(*address, rva.0, &name);
                                         if let Some(context) = &addr2line_context {
+                                            let line_program = match line_program_cache.as_ref() {
+                                                Some(line_program) => line_program,
+                                                None => {
+                                                    line_program_cache = Some(info.line_program()?);
+                                                    line_program_cache.as_ref().unwrap()
+                                                }
+                                            };
+
+                                            let inlinees = match inlinees_cache.as_ref() {
+                                                Some(inlinees) => inlinees,
+                                                None => {
+                                                    inlinees_cache = Some(
+                                                        info.inlinees()?
+                                                            .map(|i| Ok((i.index(), i)))
+                                                            .collect()?,
+                                                    );
+                                                    inlinees_cache.as_ref().unwrap()
+                                                }
+                                            };
+
                                             if let Ok(frames) = context.find_frames_from_procedure(
                                                 *address,
                                                 &info,
                                                 symbol.index(),
                                                 proc,
                                                 rva_range.clone(),
+                                                &line_program,
+                                                &inlinees,
                                             ) {
                                                 let frames: std::result::Result<Vec<_>, _> = frames
                                                     .into_iter()

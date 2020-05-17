@@ -79,12 +79,21 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
             })?;
 
             if let Some((symbol_index, proc, procedure_rva_range)) = proc_symbol {
+                let line_program = module_info.line_program()?;
+
+                let inlinees: BTreeMap<pdb::IdIndex, pdb::Inlinee> = module_info
+                    .inlinees()?
+                    .map(|i| Ok((i.index(), i)))
+                    .collect()?;
+
                 return self.find_frames_from_procedure(
                     address,
                     &module_info,
                     symbol_index,
                     proc,
                     procedure_rva_range,
+                    &line_program,
+                    &inlinees,
                 );
             }
         }
@@ -98,6 +107,8 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         symbol_index: pdb::SymbolIndex,
         proc: pdb::ProcedureSymbol,
         procedure_rva_range: std::ops::Range<u32>,
+        line_program: &pdb::LineProgram,
+        inlinees: &BTreeMap<pdb::IdIndex, pdb::Inlinee>,
     ) -> Result<Vec<Frame<'b>>>
     where
         's: 'b,
@@ -108,11 +119,10 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
             .dump_function(&proc.name.to_string(), proc.type_index, None)
             .ok();
 
-        let line_program = module_info.line_program()?;
-
+        let lines_for_proc = line_program.lines_at_offset(proc.offset);
         let location = self
             .find_line_info_containing_address(
-                line_program.lines_at_offset(proc.offset),
+                lines_for_proc,
                 address,
                 Some(procedure_rva_range.end),
             )
@@ -120,11 +130,6 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
 
         // Ordered outside to inside, until just before the end of this function.
         let mut frames = vec![Frame { function, location }];
-
-        let inlinees: BTreeMap<_, _> = module_info
-            .inlinees()?
-            .map(|i| Ok((i.index(), i)))
-            .collect()?;
 
         let mut inline_symbols_iter = module_info.symbols_at(symbol_index)?;
 
