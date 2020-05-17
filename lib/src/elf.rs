@@ -1,6 +1,7 @@
 use crate::error::{GetSymbolsError, Result};
 use crate::shared::{
     object_to_map, AddressDebugInfo, InlineStackFrame, SymbolicationQuery, SymbolicationResult,
+    SymbolicationResultKind,
 };
 use addr2line::{fallible_iterator, gimli, object};
 use fallible_iterator::FallibleIterator;
@@ -36,7 +37,10 @@ where
     let map = object_to_map(&elf_file);
     let mut symbolication_result = R::from_full_map(map, addresses);
 
-    if R::wants_address_debug_info() {
+    if let SymbolicationResultKind::SymbolsForAddresses {
+        with_debug_info: true,
+    } = R::result_kind()
+    {
         if let Ok(context) = addr2line::Context::new(&elf_file) {
             for address in addresses {
                 if let Ok(frame_iter) = context.find_frames(*address as u64) {

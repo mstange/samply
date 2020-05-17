@@ -22,6 +22,9 @@ pub use crate::shared::{
 };
 use crate::shared::{SymbolicationQuery, SymbolicationResult};
 
+// Just to hide unused method  warnings. Should be exposed differently.
+pub use crate::pdb::addr2line;
+
 pub async fn get_compact_symbol_table(
     debug_name: &str,
     breakpad_id: &str,

@@ -137,7 +137,7 @@ fn create_response(
     fn response_stack_for_request_stack(
         stack: &request_json::Stack,
         memory_map: &Vec<Lib>,
-        symbols_by_module_index: &HashMap<u32, &HashMap<u32, AddressResult>>,
+        symbols_by_module_index: &HashMap<u32, &HashMap<u32, Option<AddressResult>>>,
     ) -> Stack {
         let frames = stack.0.iter().enumerate().map(|(frame_index, frame)| {
             response_frame_for_request_frame(
@@ -154,30 +154,33 @@ fn create_response(
         frame: &request_json::StackFrame,
         frame_index: u32,
         memory_map: &Vec<Lib>,
-        symbols_by_module_index: &HashMap<u32, &HashMap<u32, AddressResult>>,
+        symbols_by_module_index: &HashMap<u32, &HashMap<u32, Option<AddressResult>>>,
     ) -> StackFrame {
         let symbol = symbols_by_module_index
             .get(&frame.module_index)
-            .map(|symbol_map| {
+            .and_then(|symbol_map| {
                 // If we have a symbol table for this library, then we know that
                 // this address is present in it.
-                let address_result = symbol_map.get(&frame.address).unwrap();
-                Symbol {
-                    function: address_result.symbol_name.clone(),
-                    function_offset: frame.address - address_result.symbol_address,
-                    debug_info: address_result
-                        .inline_frames
-                        .as_ref()
-                        .map(|frames| DebugInfo {
-                            inline_stack: frames
-                                .iter()
-                                .map(|inline_frame| InlineStackFrame {
-                                    function_name: inline_frame.function.clone(),
-                                    file_path: inline_frame.file_path.clone(),
-                                    line_number: inline_frame.line_number,
-                                })
-                                .collect(),
-                        }),
+                if let Some(address_result) = symbol_map.get(&frame.address).unwrap() {
+                    Some(Symbol {
+                        function: address_result.symbol_name.clone(),
+                        function_offset: frame.address - address_result.symbol_address,
+                        debug_info: address_result
+                            .inline_frames
+                            .as_ref()
+                            .map(|frames| DebugInfo {
+                                inline_stack: frames
+                                    .iter()
+                                    .map(|inline_frame| InlineStackFrame {
+                                        function_name: inline_frame.function.clone(),
+                                        file_path: inline_frame.file_path.clone(),
+                                        line_number: inline_frame.line_number,
+                                    })
+                                    .collect(),
+                            }),
+                    })
+                } else {
+                    None
                 }
             });
         StackFrame {

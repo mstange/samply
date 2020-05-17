@@ -1,4 +1,4 @@
-use super::type_dumper::{DumperFlags, ParentScope, TypeDumper};
+use super::type_dumper::{ParentScope, TypeDumper};
 use pdb::{FallibleIterator, Result, SymbolData, PDB};
 use std::collections::BTreeMap;
 
@@ -20,7 +20,7 @@ where
     address_map: &'a pdb::AddressMap<'s>,
     string_table: &'a pdb::StringTable<'s>,
     dbi: &'a pdb::DebugInformation<'s>,
-    type_dumper: TypeDumper<'a>,
+    type_dumper: &'a TypeDumper<'a>,
     id_finder: pdb::ItemFinder<'a, pdb::IdIndex>,
 }
 
@@ -30,14 +30,8 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         string_table: &'a pdb::StringTable<'s>,
         dbi: &'a pdb::DebugInformation<'s>,
         ipi: &'a pdb::ItemInformation<'s, pdb::IdIndex>,
-        tpi: &'a pdb::ItemInformation<'s, pdb::TypeIndex>,
-        type_dumper: Option<TypeDumper<'a>>,
+        type_dumper: &'a TypeDumper<'a>,
     ) -> Result<Self> {
-        let type_dumper = match type_dumper {
-            Some(type_dumper) => type_dumper,
-            None => TypeDumper::new(&tpi, 8, DumperFlags::default())?,
-        };
-
         // Fill id_finder
         let mut id_finder = ipi.finder();
         let mut id_iter = ipi.iter();
@@ -97,7 +91,7 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         Ok(vec![])
     }
 
-    fn find_frames_from_procedure<'b>(
+    pub fn find_frames_from_procedure<'b>(
         &self,
         address: u32,
         module_info: &pdb::ModuleInfo,

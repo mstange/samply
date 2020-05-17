@@ -1,5 +1,5 @@
 use super::super::demangle;
-use crate::shared::{AddressDebugInfo, SymbolicationResult};
+use crate::shared::{AddressDebugInfo, SymbolicationResult, SymbolicationResultKind};
 use std::collections::HashMap;
 use std::ops::Deref;
 
@@ -9,7 +9,7 @@ pub struct AddressResult {
 }
 
 pub struct LookedUpAddresses {
-    pub address_results: HashMap<u32, AddressResult>,
+    pub address_results: HashMap<u32, Option<AddressResult>>,
 }
 
 impl SymbolicationResult for LookedUpAddresses {
@@ -32,36 +32,37 @@ impl SymbolicationResult for LookedUpAddresses {
                 };
                 (
                     address,
-                    AddressResult {
+                    Some(AddressResult {
                         symbol_address,
                         symbol_name,
-                    },
+                    }),
                 )
             })
             .collect();
         LookedUpAddresses { address_results }
     }
 
-    fn from_map_with_addresses<S>(
-        map: HashMap<u32, S>,
-        addresses: &[u32],
-        _total_symbol_count: u32,
-    ) -> Self
-    where
-        S: Deref<Target = str>,
-    {
-        Self::from_full_map(map, addresses)
+    fn for_addresses(addresses: &[u32]) -> Self {
+        LookedUpAddresses {
+            address_results: addresses.iter().map(|&addr| (addr, None)).collect(),
+        }
     }
 
-    fn wants_full_map() -> bool {
-        false
+    fn result_kind() -> SymbolicationResultKind {
+        SymbolicationResultKind::SymbolsForAddresses {
+            with_debug_info: false,
+        }
     }
 
-    fn wants_address_debug_info() -> bool {
-        false
+    fn add_address_symbol(&mut self, address: u32, symbol_address: u32, symbol_name: &str) {
+        *self.address_results.get_mut(&address).unwrap() = Some(AddressResult {
+            symbol_address,
+            symbol_name: demangle::demangle_any(symbol_name),
+        });
     }
 
     fn add_address_debug_info(&mut self, _address: u32, _info: AddressDebugInfo) {
         panic!("Should not be called")
     }
+    fn set_total_symbol_count(&mut self, _total_symbol_count: u32) {}
 }

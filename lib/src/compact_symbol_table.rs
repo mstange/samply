@@ -1,4 +1,4 @@
-use super::shared::{AddressDebugInfo, SymbolicationResult};
+use super::shared::{AddressDebugInfo, SymbolicationResult, SymbolicationResultKind};
 use std::collections::HashMap;
 use std::ops::Deref;
 
@@ -37,26 +37,21 @@ impl SymbolicationResult for CompactSymbolTable {
         table
     }
 
-    fn from_map_with_addresses<S>(
-        _map: HashMap<u32, S>,
-        _addresses: &[u32],
-        _total_symbol_count: u32,
-    ) -> Self
-    where
-        S: Deref<Target = str>,
-    {
+    fn for_addresses(_addresses: &[u32]) -> Self {
         panic!("Should not be called")
     }
 
-    fn wants_address_debug_info() -> bool {
-        false
+    fn result_kind() -> SymbolicationResultKind {
+        SymbolicationResultKind::AllSymbols
     }
 
-    fn wants_full_map() -> bool {
-        true
+    fn add_address_symbol(&mut self, _address: u32, _symbol_address: u32, _symbol_name: &str) {
+        panic!("Should not be called")
     }
 
     fn add_address_debug_info(&mut self, _address: u32, _info: AddressDebugInfo) {
         panic!("Should not be called")
     }
+
+    fn set_total_symbol_count(&mut self, _total_symbol_count: u32) {}
 }

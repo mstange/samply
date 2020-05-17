@@ -1,5 +1,7 @@
 use super::super::demangle;
-use crate::shared::{AddressDebugInfo, InlineStackFrame, SymbolicationResult};
+use crate::shared::{
+    AddressDebugInfo, InlineStackFrame, SymbolicationResult, SymbolicationResultKind,
+};
 use std::collections::HashMap;
 use std::ops::Deref;
 
@@ -10,7 +12,7 @@ pub struct AddressResult {
 }
 
 pub struct LookedUpAddresses {
-    pub address_results: HashMap<u32, AddressResult>,
+    pub address_results: HashMap<u32, Option<AddressResult>>,
     pub symbol_count: u32,
 }
 
@@ -35,11 +37,11 @@ impl SymbolicationResult for LookedUpAddresses {
                 };
                 (
                     address,
-                    AddressResult {
+                    Some(AddressResult {
                         symbol_address,
                         symbol_name,
                         inline_frames: None,
-                    },
+                    }),
                 )
             })
             .collect();
@@ -49,30 +51,37 @@ impl SymbolicationResult for LookedUpAddresses {
         }
     }
 
-    fn from_map_with_addresses<S>(
-        map: HashMap<u32, S>,
-        addresses: &[u32],
-        total_symbol_count: u32,
-    ) -> Self
-    where
-        S: Deref<Target = str>,
-    {
-        let mut s = Self::from_full_map(map, addresses);
-        s.symbol_count = total_symbol_count;
-        s
+    fn for_addresses(addresses: &[u32]) -> Self {
+        LookedUpAddresses {
+            address_results: addresses.iter().map(|&addr| (addr, None)).collect(),
+            symbol_count: 0,
+        }
     }
 
-    fn wants_address_debug_info() -> bool {
-        true
+    fn result_kind() -> SymbolicationResultKind {
+        SymbolicationResultKind::SymbolsForAddresses {
+            with_debug_info: true,
+        }
     }
-    fn wants_full_map() -> bool {
-        false
+
+    fn add_address_symbol(&mut self, address: u32, symbol_address: u32, symbol_name: &str) {
+        *self.address_results.get_mut(&address).unwrap() = Some(AddressResult {
+            symbol_address,
+            symbol_name: demangle::demangle_any(symbol_name),
+            inline_frames: None,
+        });
     }
 
     fn add_address_debug_info(&mut self, address: u32, info: AddressDebugInfo) {
         self.address_results
             .get_mut(&address)
             .unwrap()
+            .as_mut()
+            .unwrap()
             .inline_frames = Some(info.frames);
+    }
+
+    fn set_total_symbol_count(&mut self, total_symbol_count: u32) {
+        self.symbol_count = total_symbol_count;
     }
 }

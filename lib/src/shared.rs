@@ -55,23 +55,23 @@ pub struct InlineStackFrame {
     pub line_number: Option<u32>,
 }
 
+pub enum SymbolicationResultKind {
+    AllSymbols,
+    SymbolsForAddresses { with_debug_info: bool },
+}
+
 pub trait SymbolicationResult {
     fn from_full_map<S>(map: HashMap<u32, S>, addresses: &[u32]) -> Self
     where
         S: Deref<Target = str>;
 
-    fn from_map_with_addresses<S>(
-        map: HashMap<u32, S>,
-        addresses: &[u32],
-        total_symbol_count: u32,
-    ) -> Self
-    where
-        S: Deref<Target = str>;
+    fn for_addresses(addresses: &[u32]) -> Self;
 
-    fn wants_address_debug_info() -> bool;
-    fn wants_full_map() -> bool;
+    fn result_kind() -> SymbolicationResultKind;
 
+    fn add_address_symbol(&mut self, address: u32, symbol_address: u32, symbol_name: &str);
     fn add_address_debug_info(&mut self, address: u32, info: AddressDebugInfo);
+    fn set_total_symbol_count(&mut self, total_symbol_count: u32);
 }
 
 #[derive(Clone)]

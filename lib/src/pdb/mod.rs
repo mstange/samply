@@ -2,13 +2,13 @@ use crate::error::{Context, GetSymbolsError, Result};
 use crate::pdb_crate::{FallibleIterator, ProcedureSymbol, PublicSymbol, SymbolData, PDB};
 use crate::shared::{
     AddressDebugInfo, FileAndPathHelper, InlineStackFrame, OwnedFileData, SymbolicationQuery,
-    SymbolicationResult,
+    SymbolicationResult, SymbolicationResultKind,
 };
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Cursor;
 
-mod addr2line;
+pub mod addr2line;
 mod type_dumper;
 
 use super::pdb::addr2line::Addr2LineContext;
@@ -157,63 +157,127 @@ where
     if let Ok(dbi) = pdb.debug_information() {
         let tpi = pdb.type_information()?;
         let type_dumper = TypeDumper::new(&tpi, 8, DumperFlags::default())?;
+        let string_table = pdb.string_table()?;
+        let ipi = pdb.id_information()?;
         let mut modules = dbi.modules().context("dbi.modules()")?;
-        while let Some(module) = modules.next().context("modules.next()")? {
-            let info = match pdb.module_info(&module) {
-                Ok(Some(info)) => info,
-                _ => continue,
-            };
-            let mut symbols = info.symbols().context("info.symbols()")?;
-            while let Ok(Some(symbol)) = symbols.next() {
-                let (offset, name) = match symbol.parse() {
-                    Ok(SymbolData::Procedure(ProcedureSymbol {
-                        offset,
-                        name,
-                        type_index,
-                        ..
-                    })) => (
-                        offset,
-                        type_dumper.dump_function(&name.to_string(), type_index, None)?,
-                    ),
-                    _ => continue,
-                };
-                if let Some(rva) = offset.to_rva(&addr_map) {
-                    hashmap.entry(rva.0).or_insert_with(|| Cow::from(name));
-                }
-            }
-        }
 
-        let mut symbolication_result = R::from_full_map(hashmap, addresses);
-        if R::wants_address_debug_info() {
-            if let Ok(string_table) = pdb.string_table() {
-                if let Ok(ipi) = pdb.id_information() {
-                    if let Ok(context) = Addr2LineContext::new(
-                        &addr_map,
-                        &string_table,
-                        &dbi,
-                        &ipi,
-                        &tpi,
-                        Some(type_dumper),
-                    ) {
-                        for address in addresses {
-                            if let Ok(frames) = context.find_frames(&mut pdb, *address) {
-                                let frames: std::result::Result<Vec<_>, _> =
-                                    frames.into_iter().map(convert_stack_frame).collect();
-                                if let Ok(frames) = frames {
-                                    symbolication_result.add_address_debug_info(
-                                        *address,
-                                        AddressDebugInfo { frames },
-                                    );
+        match R::result_kind() {
+            SymbolicationResultKind::AllSymbols => {
+                while let Some(module) = modules.next().context("modules.next()")? {
+                    let info = match pdb.module_info(&module) {
+                        Ok(Some(info)) => info,
+                        _ => continue,
+                    };
+                    let mut symbols = info.symbols().context("info.symbols()")?;
+                    while let Ok(Some(symbol)) = symbols.next() {
+                        if let Ok(SymbolData::Procedure(ProcedureSymbol {
+                            offset,
+                            name,
+                            type_index,
+                            ..
+                        })) = symbol.parse()
+                        {
+                            if let Some(rva) = offset.to_rva(&addr_map) {
+                                let name = type_dumper.dump_function(
+                                    &name.to_string(),
+                                    type_index,
+                                    None,
+                                )?;
+                                hashmap.entry(rva.0).or_insert_with(|| Cow::from(name));
+                            }
+                        }
+                    }
+                }
+                let symbolication_result = R::from_full_map(hashmap, addresses);
+                Ok(symbolication_result)
+            }
+            SymbolicationResultKind::SymbolsForAddresses { with_debug_info } => {
+                let addr2line_context = if with_debug_info {
+                    Addr2LineContext::new(&addr_map, &string_table, &dbi, &ipi, &&type_dumper).ok()
+                } else {
+                    None
+                };
+                let mut symbolication_result = R::for_addresses(addresses);
+                let mut all_symbol_addresses: HashSet<u32> = hashmap.keys().cloned().collect();
+                while let Some(module) = modules.next().context("modules.next()")? {
+                    let info = match pdb.module_info(&module) {
+                        Ok(Some(info)) => info,
+                        _ => continue,
+                    };
+                    let mut symbols = info.symbols().context("info.symbols()")?;
+                    while let Ok(Some(symbol)) = symbols.next() {
+                        if let Ok(SymbolData::Procedure(proc)) = symbol.parse() {
+                            let ProcedureSymbol {
+                                offset,
+                                len,
+                                name,
+                                type_index,
+                                ..
+                            } = proc;
+                            if let Some(rva) = offset.to_rva(&addr_map) {
+                                all_symbol_addresses.insert(rva.0);
+                                let rva_range = rva.0..(rva.0 + len);
+                                let covered_addresses =
+                                    get_addresses_covered_by_range(addresses, rva_range.clone());
+                                if !covered_addresses.is_empty() {
+                                    let name = type_dumper.dump_function(
+                                        &name.to_string(),
+                                        type_index,
+                                        None,
+                                    )?;
+                                    for address in covered_addresses {
+                                        symbolication_result
+                                            .add_address_symbol(*address, rva.0, &name);
+                                        if let Some(context) = &addr2line_context {
+                                            if let Ok(frames) = context.find_frames_from_procedure(
+                                                *address,
+                                                &info,
+                                                symbol.index(),
+                                                proc,
+                                                rva_range.clone(),
+                                            ) {
+                                                let frames: std::result::Result<Vec<_>, _> = frames
+                                                    .into_iter()
+                                                    .map(convert_stack_frame)
+                                                    .collect();
+                                                if let Ok(frames) = frames {
+                                                    symbolication_result.add_address_debug_info(
+                                                        *address,
+                                                        AddressDebugInfo { frames },
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
                 }
+                let total_symbol_count = all_symbol_addresses.len() as u32;
+                symbolication_result.set_total_symbol_count(total_symbol_count);
+                Ok(symbolication_result)
             }
         }
-        Ok(symbolication_result)
     } else {
         Ok(R::from_full_map(hashmap, addresses))
+    }
+}
+
+pub fn get_addresses_covered_by_range(addresses: &[u32], range: std::ops::Range<u32>) -> &[u32] {
+    let index_of_first_address_gte_range_start = match addresses.binary_search(&range.start) {
+        Ok(i) => i,
+        Err(i) => i,
+    };
+    // Compute the index of the first item *outside* the range (one past last)
+    let index_of_first_address_gt_range_end = match addresses.binary_search(&range.end) {
+        Ok(i) => i,
+        Err(i) => i,
+    };
+    if index_of_first_address_gt_range_end > index_of_first_address_gte_range_start {
+        &addresses[index_of_first_address_gte_range_start..index_of_first_address_gt_range_end]
+    } else {
+        &[]
     }
 }
 
@@ -263,4 +327,50 @@ fn pe_signature_to_uuid(identifier: &[u8; 16]) -> uuid::Uuid {
     data[6..8].reverse(); // uuid field 3
 
     uuid::Uuid::from_bytes(data)
+}
+
+#[cfg(test)]
+mod test {
+    use super::get_addresses_covered_by_range;
+    #[test]
+    fn test_get_addresses_covered_by_range() {
+        let empty_slice: &[u32] = &[];
+        assert_eq!(
+            get_addresses_covered_by_range(&[2, 4, 6], 0..1),
+            empty_slice
+        );
+        assert_eq!(
+            get_addresses_covered_by_range(&[2, 4, 6], 0..2),
+            empty_slice
+        );
+        assert_eq!(get_addresses_covered_by_range(&[2, 4, 6], 0..3), &[2]);
+        assert_eq!(get_addresses_covered_by_range(&[2, 4, 6], 2..3), &[2]);
+        assert_eq!(get_addresses_covered_by_range(&[2, 4, 6], 2..4), &[2]);
+        assert_eq!(get_addresses_covered_by_range(&[2, 4, 6], 2..6), &[2, 4]);
+        assert_eq!(
+            get_addresses_covered_by_range(&[2, 4, 6], 3..4),
+            empty_slice
+        );
+        assert_eq!(get_addresses_covered_by_range(&[2, 4, 6], 2..7), &[2, 4, 6]);
+        assert_eq!(
+            get_addresses_covered_by_range(&[2, 4, 6], 5..5),
+            empty_slice
+        );
+        assert_eq!(
+            get_addresses_covered_by_range(&[2, 4, 6], 6..6),
+            empty_slice
+        );
+        assert_eq!(get_addresses_covered_by_range(&[2, 4, 6], 6..8), &[6]);
+        assert_eq!(
+            get_addresses_covered_by_range(&[2, 4, 6], 7..8),
+            empty_slice
+        );
+        assert_eq!(get_addresses_covered_by_range(&[2], 0..1), empty_slice);
+        assert_eq!(get_addresses_covered_by_range(&[2], 0..2), empty_slice);
+        assert_eq!(get_addresses_covered_by_range(&[2], 0..3), &[2]);
+        assert_eq!(get_addresses_covered_by_range(&[2], 1..3), &[2]);
+        assert_eq!(get_addresses_covered_by_range(&[2], 2..3), &[2]);
+        assert_eq!(get_addresses_covered_by_range(&[2], 3..3), empty_slice);
+        assert_eq!(get_addresses_covered_by_range(&[2], 3..4), empty_slice);
+    }
 }
