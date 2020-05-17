@@ -301,20 +301,16 @@ where
 }
 
 pub fn get_addresses_covered_by_range(addresses: &[u32], range: std::ops::Range<u32>) -> &[u32] {
-    let index_of_first_address_gte_range_start = match addresses.binary_search(&range.start) {
+    let start_index = match addresses.binary_search(&range.start) {
         Ok(i) => i,
         Err(i) => i,
     };
-    // Compute the index of the first item *outside* the range (one past last)
-    let index_of_first_address_gt_range_end = match addresses.binary_search(&range.end) {
+    let half_range = &addresses[start_index..];
+    let len = match half_range.binary_search(&range.end) {
         Ok(i) => i,
         Err(i) => i,
     };
-    if index_of_first_address_gt_range_end > index_of_first_address_gte_range_start {
-        &addresses[index_of_first_address_gte_range_start..index_of_first_address_gt_range_end]
-    } else {
-        &[]
-    }
+    &half_range[..len]
 }
 
 fn convert_stack_frame<'a>(
