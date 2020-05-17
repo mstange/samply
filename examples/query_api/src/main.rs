@@ -93,72 +93,174 @@ mod test {
 
     // use profiler_get_symbols::GetSymbolsError;
     use std::path::PathBuf;
+    use std::fs::File;
+    use std::io::{Read, Write};
 
     fn fixtures_dir() -> PathBuf {
         let this_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         this_dir.join("..").join("..").join("fixtures")
     }
-    /*
-    #[test]
-    fn successful_pdb() {
-        let result = futures::executor::block_on(crate::get_table(
-            "firefox.pdb",
-            Some(String::from("AA152DEB2D9B76084C4C44205044422E2")),
-            fixtures_dir().join("win64-ci"),
-        ));
-        assert!(result.is_ok());
-        let result = result.unwrap();
-        assert_eq!(result.addr.len(), 1286);
-        assert_eq!(result.addr[776], 0x31fc0);
-        assert_eq!(
-            std::str::from_utf8(
-                &result.buffer[result.index[776] as usize..result.index[777] as usize]
-            ),
-            Ok("sandbox::ProcessMitigationsWin32KDispatcher::EnumDisplayMonitors")
-        );
-    }
 
-    #[test]
-    fn successful_pdb_unspecified_id() {
-        let result = futures::executor::block_on(crate::get_table(
-            "firefox.pdb",
-            None,
-            fixtures_dir().join("win64-ci"),
+    fn compare_snapshot(request_url: &str, request_json: &str, symbol_directory: PathBuf, snapshot_filename: &str, output_filename: &str) {
+        let output = futures::executor::block_on(crate::query_api(
+            request_url,
+            request_json,
+            symbol_directory,
         ));
-        assert!(result.is_ok());
-        let result = result.unwrap();
-        assert_eq!(result.addr.len(), 1286);
-        assert_eq!(result.addr[776], 0x31fc0);
-        assert_eq!(
-            std::str::from_utf8(
-                &result.buffer[result.index[776] as usize..result.index[777] as usize]
-            ),
-            Ok("sandbox::ProcessMitigationsWin32KDispatcher::EnumDisplayMonitors")
-        );
-    }
 
-    #[test]
-    fn unsuccessful_pdb_wrong_id() {
-        let result = futures::executor::block_on(crate::get_table(
-            "firefox.pdb",
-            Some(String::from("AA152DEBFFFFFFFFFFFFFFFFF044422E2")),
-            fixtures_dir().join("win64-ci"),
-        ));
-        assert!(result.is_err());
-        let err = match result {
-            Ok(_) => panic!("Shouldn't have succeeded with wrong breakpad ID"),
-            Err(err) => err,
-        };
-        let err = match err.downcast::<GetSymbolsError>() {
-            Ok(err) => err,
-            Err(_) => panic!("wrong error type"),
-        };
-        match err {
-            GetSymbolsError::UnmatchedBreakpadId(expected, actual) => {
-                assert_eq!(expected, "AA152DEB2D9B76084C4C44205044422E2");
-                assert_eq!(actual, "AA152DEBFFFFFFFFFFFFFFFFF044422E2");
-            }
-            _ => panic!("wrong GetSymbolsError subtype"),
+        if false {
+            let mut output_file = File::create(
+                fixtures_dir()
+                    .join("snapshots")
+                    .join(output_filename),
+            )
+            .unwrap();
+            output_file.write_all(&output.as_bytes()).unwrap();
         }
-    }*/
+
+        let mut snapshot_file = File::open(
+            fixtures_dir()
+                .join("snapshots")
+                .join(snapshot_filename),
+        )
+        .unwrap();
+        let mut expected: String = String::new();
+        snapshot_file.read_to_string(&mut expected).unwrap();
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn win64_ci_v5_snapshot_1() {
+        compare_snapshot(
+            "/symbolicate/v5",
+            r#"{
+                "memoryMap": [
+                  [
+                    "firefox.pdb",
+                    "AA152DEB2D9B76084C4C44205044422E2"
+                  ]
+                ],
+                "stacks": [
+                  [
+                    [0, 204776],
+                    [0, 129423],
+                    [0, 244290],
+                    [0, 244219]
+                  ]
+                ]
+              }"#,
+            fixtures_dir().join("win64-ci"),
+            "api-v5-win64-ci-1.txt",
+            "output-api-v5-win64-ci-1.txt",
+        );
+    }
+
+    #[test]
+    fn win64_ci_v5_snapshot_2() {
+        compare_snapshot(
+            "/symbolicate/v5",
+            r#"{
+                "memoryMap": [
+                  [
+                    "mozglue.pdb",
+                    "63C609072D3499F64C4C44205044422E2"
+                  ]
+                ],
+                "stacks": [
+                  [
+                    [0, 244290],
+                    [0, 244219],
+                    [0, 237799]
+                  ]
+                ]
+              }"#,
+            fixtures_dir().join("win64-ci"),
+            "api-v5-win64-ci-2.txt",
+            "output-api-v5-win64-ci-2.txt",
+        );
+    }
+
+    #[test]
+    fn win64_ci_v6_snapshot() {
+        compare_snapshot(
+            "/symbolicate/v6a1",
+            r#"{
+                "memoryMap": [
+                  [
+                    "firefox.pdb",
+                    "AA152DEB2D9B76084C4C44205044422E2"
+                  ],
+                  [
+                    "mozglue.pdb",
+                    "63C609072D3499F64C4C44205044422E2"
+                  ]
+                ],
+                "stacks": [
+                  [
+                    [0, 204776],
+                    [0, 129423],
+                    [0, 244290],
+                    [0, 244219],
+                    [1, 244290],
+                    [1, 244219],
+                    [1, 237799]
+                  ]
+                ]
+              }"#,
+            fixtures_dir().join("win64-ci"),
+            "api-v6-win64-ci.txt",
+            "output-api-v6-win64-ci.txt",
+        );
+    }
+
+    #[test]
+    fn android32_v5_local() {
+        compare_snapshot(
+            "/symbolicate/v5",
+            r#"{
+                "memoryMap": [
+                  [
+                    "libmozglue.so",
+                    "0CE47B7C29F27CED55C41233B93EBA450"
+                  ]
+                ],
+                "stacks": [
+                  [
+                    [0, 247618],
+                    [0, 685896],
+                    [0, 686768]
+                  ]
+                ]
+              }"#,
+            fixtures_dir().join("android32-local"),
+            "api-v5-android32-local.txt",
+            "output-api-v5-android32-local.txt",
+        );
+    }
+
+    #[test]
+    #[should_panic] // https://github.com/gimli-rs/addr2line/issues/167
+    fn android32_v6_local() {
+        compare_snapshot(
+            "/symbolicate/v6a1",
+            r#"{
+                "memoryMap": [
+                  [
+                    "libmozglue.so",
+                    "0CE47B7C29F27CED55C41233B93EBA450"
+                  ]
+                ],
+                "stacks": [
+                  [
+                    [0, 247618],
+                    [0, 685896],
+                    [0, 686768]
+                  ]
+                ]
+              }"#,
+            fixtures_dir().join("android32-local"),
+            "api-v6-android32-local.txt",
+            "output-api-v6-android32-local.txt",
+        );
+    }
 }
