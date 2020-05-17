@@ -223,15 +223,6 @@ where
                                 let covered_addresses =
                                     get_addresses_covered_by_range(addresses, rva_range.clone());
                                 if !covered_addresses.is_empty() {
-                                    let name = type_dumper.dump_function(
-                                        &name.to_string(),
-                                        type_index,
-                                        None,
-                                    )?;
-                                    for address in covered_addresses {
-                                        symbolication_result
-                                            .add_address_symbol(*address, rva.0, &name);
-                                    }
                                     if let Some(context) = &addr2line_context {
                                         let line_program = match line_program_cache.as_ref() {
                                             Some(line_program) => line_program,
@@ -252,8 +243,6 @@ where
                                                 inlinees_cache.as_ref().unwrap()
                                             }
                                         };
-                                        let lines_for_proc =
-                                            line_program.lines_at_offset(proc.offset);
 
                                         if let Ok(frames_per_address) = context
                                             .find_frames_for_addresses_from_procedure(
@@ -264,10 +253,15 @@ where
                                                 rva_range.clone(),
                                                 &line_program,
                                                 &inlinees,
-                                                lines_for_proc.clone(),
                                             )
                                         {
                                             for (address, frames) in frames_per_address {
+                                                if let Some(name) =
+                                                    frames.last().unwrap().function.clone()
+                                                {
+                                                    symbolication_result
+                                                        .add_address_symbol(address, rva.0, &name);
+                                                }
                                                 let frames: std::result::Result<Vec<_>, _> = frames
                                                     .into_iter()
                                                     .map(convert_stack_frame)
@@ -279,6 +273,16 @@ where
                                                     );
                                                 }
                                             }
+                                        }
+                                    } else {
+                                        let name = type_dumper.dump_function(
+                                            &name.to_string(),
+                                            type_index,
+                                            None,
+                                        )?;
+                                        for address in covered_addresses {
+                                            symbolication_result
+                                                .add_address_symbol(*address, rva.0, &name);
                                         }
                                     }
                                 }

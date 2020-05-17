@@ -87,7 +87,6 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
                     .inlinees()?
                     .map(|i| Ok((i.index(), i)))
                     .collect()?;
-                let lines_for_proc = line_program.lines_at_offset(proc.offset);
 
                 return self.find_frames_from_procedure(
                     address,
@@ -97,7 +96,6 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
                     procedure_rva_range,
                     &line_program,
                     &inlinees,
-                    lines_for_proc,
                 );
             }
         }
@@ -113,7 +111,6 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         procedure_rva_range: std::ops::Range<u32>,
         line_program: &pdb::LineProgram,
         inlinees: &BTreeMap<pdb::IdIndex, pdb::Inlinee>,
-        lines_for_proc: pdb::LineIterator,
     ) -> Result<Vec<Frame<'b>>>
     where
         's: 'b,
@@ -127,7 +124,6 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
             procedure_rva_range,
             line_program,
             inlinees,
-            lines_for_proc,
         )
         .map(|map| map.into_iter().next().unwrap().1)
     }
@@ -142,7 +138,6 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         procedure_rva_range: std::ops::Range<u32>,
         line_program: &pdb::LineProgram,
         inlinees: &BTreeMap<pdb::IdIndex, pdb::Inlinee>,
-        lines_for_proc: pdb::LineIterator,
     ) -> Result<BTreeMap<u32, Vec<Frame<'b>>>>
     where
         's: 'b,
@@ -157,6 +152,7 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         let mut frames_per_address: BTreeMap<u32, Vec<_>> =
             addresses.iter().map(|&address| (address, vec![])).collect();
 
+        let lines_for_proc = line_program.lines_at_offset(proc.offset);
         for (addresses_subset, line_info) in self
             .find_line_infos_containing_addresses_no_size(
                 lines_for_proc,
