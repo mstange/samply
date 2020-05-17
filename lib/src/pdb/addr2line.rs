@@ -149,8 +149,15 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
             .ok();
 
         // Ordered outside to inside, until just before the end of this function.
-        let mut frames_per_address: BTreeMap<u32, Vec<_>> =
-            addresses.iter().map(|&address| (address, vec![])).collect();
+        let mut frames_per_address: BTreeMap<u32, Vec<_>> = BTreeMap::new();
+
+        for &address in addresses {
+            let frame = Frame {
+                function: function.clone(),
+                location: None,
+            };
+            frames_per_address.insert(address, vec![frame]);
+        }
 
         let lines_for_proc = line_program.lines_at_offset(proc.offset);
         for (addresses_subset, line_info) in self
@@ -163,10 +170,8 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         {
             let location = self.line_info_to_location(line_info, &line_program);
             for address in addresses_subset {
-                frames_per_address.get_mut(address).unwrap().push(Frame {
-                    function: function.clone(),
-                    location: Some(location.clone()),
-                });
+                let frame = &mut frames_per_address.get_mut(address).unwrap()[0];
+                frame.location = Some(location.clone());
             }
         }
 
