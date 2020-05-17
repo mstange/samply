@@ -48,5 +48,5 @@ where
         ));
     }
     let map = object_to_map(&macho_file);
-    Ok(R::from_map(map, addresses))
+    Ok(R::from_full_map(map, addresses))
 }

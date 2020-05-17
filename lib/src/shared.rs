@@ -56,11 +56,20 @@ pub struct InlineStackFrame {
 }
 
 pub trait SymbolicationResult {
-    fn from_map<S>(map: HashMap<u32, S>, addresses: &[u32]) -> Self
+    fn from_full_map<S>(map: HashMap<u32, S>, addresses: &[u32]) -> Self
+    where
+        S: Deref<Target = str>;
+
+    fn from_map_with_addresses<S>(
+        map: HashMap<u32, S>,
+        addresses: &[u32],
+        total_symbol_count: u32,
+    ) -> Self
     where
         S: Deref<Target = str>;
 
     fn wants_address_debug_info() -> bool;
+    fn wants_full_map() -> bool;
 
     fn add_address_debug_info(&mut self, address: u32, info: AddressDebugInfo);
 }

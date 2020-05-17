@@ -153,11 +153,7 @@ where
         })
         .collect()?;
 
-    // Add Procedure symbols from the modules, if present. Some of these might
-    // duplicate public symbols; in that case, don't overwrite the existing
-    // symbol name because usually the public symbol version has the full
-    // function signature whereas the procedure symbol only has the function
-    // name itself.
+    // Add Procedure symbols from the modules, if present.
     if let Ok(dbi) = pdb.debug_information() {
         let tpi = pdb.type_information()?;
         let type_dumper = TypeDumper::new(&tpi, 8, DumperFlags::default())?;
@@ -187,7 +183,7 @@ where
             }
         }
 
-        let mut symbolication_result = R::from_map(hashmap, addresses);
+        let mut symbolication_result = R::from_full_map(hashmap, addresses);
         if R::wants_address_debug_info() {
             if let Ok(string_table) = pdb.string_table() {
                 if let Ok(ipi) = pdb.id_information() {
@@ -217,7 +213,7 @@ where
         }
         Ok(symbolication_result)
     } else {
-        Ok(R::from_map(hashmap, addresses))
+        Ok(R::from_full_map(hashmap, addresses))
     }
 }
 
@@ -243,7 +239,7 @@ fn get_symbolication_result_from_pe_binary<R>(pe: goblin::pe::PE, addresses: &[u
 where
     R: SymbolicationResult,
 {
-    Ok(R::from_map(
+    Ok(R::from_full_map(
         pe.exports
             .iter()
             .map(|export| {

@@ -13,7 +13,7 @@ pub struct LookedUpAddresses {
 }
 
 impl SymbolicationResult for LookedUpAddresses {
-    fn from_map<T: Deref<Target = str>>(map: HashMap<u32, T>, addresses: &[u32]) -> Self {
+    fn from_full_map<T: Deref<Target = str>>(map: HashMap<u32, T>, addresses: &[u32]) -> Self {
         let mut symbols: Vec<_> = map.into_iter().collect();
         symbols.sort_by_key(|&(addr, _)| addr);
 
@@ -40,6 +40,21 @@ impl SymbolicationResult for LookedUpAddresses {
             })
             .collect();
         LookedUpAddresses { address_results }
+    }
+
+    fn from_map_with_addresses<S>(
+        map: HashMap<u32, S>,
+        addresses: &[u32],
+        total_symbol_count: u32,
+    ) -> Self
+    where
+        S: Deref<Target = str>,
+    {
+        Self::from_full_map(map, addresses)
+    }
+
+    fn wants_full_map() -> bool {
+        false
     }
 
     fn wants_address_debug_info() -> bool {

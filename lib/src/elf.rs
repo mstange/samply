@@ -34,7 +34,7 @@ where
         ));
     }
     let map = object_to_map(&elf_file);
-    let mut symbolication_result = R::from_map(map, addresses);
+    let mut symbolication_result = R::from_full_map(map, addresses);
 
     if R::wants_address_debug_info() {
         if let Ok(context) = addr2line::Context::new(&elf_file) {

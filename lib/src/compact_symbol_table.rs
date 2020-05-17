@@ -24,7 +24,7 @@ impl CompactSymbolTable {
 }
 
 impl SymbolicationResult for CompactSymbolTable {
-    fn from_map<T: Deref<Target = str>>(map: HashMap<u32, T>, _addresses: &[u32]) -> Self {
+    fn from_full_map<T: Deref<Target = str>>(map: HashMap<u32, T>, _addresses: &[u32]) -> Self {
         let mut table = Self::new();
         let mut entries: Vec<_> = map.into_iter().collect();
         entries.sort_by_key(|&(addr, _)| addr);
@@ -37,8 +37,23 @@ impl SymbolicationResult for CompactSymbolTable {
         table
     }
 
+    fn from_map_with_addresses<S>(
+        map: HashMap<u32, S>,
+        addresses: &[u32],
+        total_symbol_count: u32,
+    ) -> Self
+    where
+        S: Deref<Target = str>,
+    {
+        panic!("Should not be called")
+    }
+
     fn wants_address_debug_info() -> bool {
         false
+    }
+
+    fn wants_full_map() -> bool {
+        true
     }
 
     fn add_address_debug_info(&mut self, _address: u32, _info: AddressDebugInfo) {
