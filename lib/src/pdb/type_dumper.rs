@@ -593,15 +593,13 @@ impl<'a> TypeDumper<'a> {
     }
 
     fn dump_arg_list(&self, w: &mut impl Write, list: ArgumentList) -> Result<()> {
-        let comma = if self.flags.intersects(DumperFlags::SPACE_AFTER_COMMA) {
-            ", "
-        } else {
-            ","
-        };
         if let Some((last, args)) = list.arguments.split_last() {
             for index in args.iter() {
                 self.dump_index(w, *index)?;
-                write!(w, "{}", comma)?;
+                write!(w, ",")?;
+                if self.flags.intersects(DumperFlags::SPACE_AFTER_COMMA) {
+                    write!(w, " ")?;
+                }
             }
             self.dump_index(w, *last)?;
         }
