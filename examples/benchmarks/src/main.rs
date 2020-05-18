@@ -63,26 +63,20 @@ fn main() -> anyhow::Result<()> {
     )?;
 
     // macOS
-    let dsym_contents_dir = big_fixtures_dir()
-        .join("macos-ci")
-        .join("XUL.dSYM")
-        .join("Contents")
-        .join("Resources")
-        .join("DWARF");
     run_dump_table_benchmark(
         "XUL",
         Some("D2139EE3190B37028A98D55519AA0B870".into()),
-        dsym_contents_dir.clone(),
+        big_fixtures_dir().join("macos-ci"),
     )?;
     run_api_query_benchmark(
         "/symbolicate/v5",
         &fixtures_dir().join("requests").join("macos-ci-xul.json"),
-        dsym_contents_dir.clone(),
+        big_fixtures_dir().join("macos-ci"),
     )?;
     run_api_query_benchmark(
         "/symbolicate/v6a1",
         &fixtures_dir().join("requests").join("macos-ci-xul.json"),
-        dsym_contents_dir.clone(),
+        big_fixtures_dir().join("macos-ci"),
     )?;
 
     // Linux

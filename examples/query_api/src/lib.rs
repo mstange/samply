@@ -37,13 +37,27 @@ impl FileAndPathHelper for Helper {
         }
 
         let mut paths = vec![];
-        paths.push(self.symbol_directory.join(debug_name));
 
         // Also consider .so.dbg files in the symbol directory.
         if debug_name.ends_with(".so") {
             let debug_debug_name = format!("{}.dbg", debug_name);
             paths.push(self.symbol_directory.join(debug_debug_name));
         }
+
+        // And dSYM packages.
+        if !debug_name.ends_with(".pdb") {
+            paths.push(
+                self.symbol_directory
+                    .join(&format!("{}.dSYM", debug_name))
+                    .join("Contents")
+                    .join("Resources")
+                    .join("DWARF")
+                    .join(debug_name),
+            );
+        }
+
+        // Finally, the file itself.
+        paths.push(self.symbol_directory.join(debug_name));
 
         Box::pin(to_future(Ok(paths)))
     }
