@@ -72,10 +72,7 @@ where
     // Now it's time to check the breakpad ID!
 
     let signature = pe_signature_to_uuid(&info.signature);
-    // TODO: Is the + 1 the right thing to do here? The example PDBs I've looked at have
-    // a 2 at the end, but info.age in the corresponding exe/dll files is always 1.
-    // Should we maybe check just the signature and not the age?
-    let expected_breakpad_id = format!("{:X}{:x}", signature.to_simple(), info.age + 1);
+    let expected_breakpad_id = format!("{:X}{:x}", signature.to_simple(), info.age);
 
     if breakpad_id != expected_breakpad_id {
         return Err(GetSymbolsError::UnmatchedBreakpadId(
@@ -113,13 +110,21 @@ where
 {
     // Check against the expected breakpad_id.
     let info = pdb.pdb_information().context("pdb_information")?;
-    let pdb_id = format!("{}{:x}", format!("{:X}", info.guid.to_simple()), info.age);
+    let mut pdb_id = format!("{}{:x}", format!("{:X}", info.guid.to_simple()), info.age);
 
     let SymbolicationQuery {
         breakpad_id,
         addresses,
         ..
     } = query;
+
+    if pdb_id != breakpad_id && info.age == 2 {
+        // HACK: The PDB files from the Mozilla symbol server seem to have age 2 when they should have age 1.
+        // I don't know why that is.
+        // Just pretend they have age 1, until we understand the problem better.
+        pdb_id = format!("{}{:x}", format!("{:X}", info.guid.to_simple()), 1);
+    }
+
     if pdb_id != breakpad_id {
         return Err(GetSymbolsError::UnmatchedBreakpadId(
             pdb_id,
