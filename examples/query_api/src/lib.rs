@@ -109,7 +109,7 @@ mod test {
                 "memoryMap": [
                   [
                     "firefox.pdb",
-                    "AA152DEB2D9B76084C4C44205044422E2"
+                    "AA152DEB2D9B76084C4C44205044422E1"
                   ]
                 ],
                 "stacks": [
@@ -135,7 +135,7 @@ mod test {
                 "memoryMap": [
                   [
                     "mozglue.pdb",
-                    "63C609072D3499F64C4C44205044422E2"
+                    "63C609072D3499F64C4C44205044422E1"
                   ]
                 ],
                 "stacks": [
@@ -160,11 +160,11 @@ mod test {
                 "memoryMap": [
                   [
                     "firefox.pdb",
-                    "AA152DEB2D9B76084C4C44205044422E2"
+                    "AA152DEB2D9B76084C4C44205044422E1"
                   ],
                   [
                     "mozglue.pdb",
-                    "63C609072D3499F64C4C44205044422E2"
+                    "63C609072D3499F64C4C44205044422E1"
                   ]
                 ],
                 "stacks": [

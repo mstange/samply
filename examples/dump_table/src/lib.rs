@@ -159,7 +159,7 @@ mod test {
     fn successful_pdb() {
         let result = futures::executor::block_on(crate::get_table(
             "firefox.pdb",
-            Some(String::from("AA152DEB2D9B76084C4C44205044422E2")),
+            Some(String::from("AA152DEB2D9B76084C4C44205044422E1")),
             fixtures_dir().join("win64-ci"),
         ));
         assert!(result.is_ok());
@@ -197,7 +197,7 @@ mod test {
     fn unsuccessful_pdb_wrong_id() {
         let result = futures::executor::block_on(crate::get_table(
             "firefox.pdb",
-            Some(String::from("AA152DEBFFFFFFFFFFFFFFFFF044422E2")),
+            Some(String::from("AA152DEBFFFFFFFFFFFFFFFFF044422E1")),
             fixtures_dir().join("win64-ci"),
         ));
         assert!(result.is_err());
@@ -211,8 +211,8 @@ mod test {
         };
         match err {
             GetSymbolsError::UnmatchedBreakpadId(expected, actual) => {
-                assert_eq!(expected, "AA152DEB2D9B76084C4C44205044422E2");
-                assert_eq!(actual, "AA152DEBFFFFFFFFFFFFFFFFF044422E2");
+                assert_eq!(expected, "AA152DEB2D9B76084C4C44205044422E1");
+                assert_eq!(actual, "AA152DEBFFFFFFFFFFFFFFFFF044422E1");
             }
             _ => panic!("wrong GetSymbolsError subtype"),
         }
@@ -222,7 +222,7 @@ mod test {
     fn compare_snapshot() {
         let table = futures::executor::block_on(crate::get_table(
             "mozglue.pdb",
-            Some(String::from("63C609072D3499F64C4C44205044422E2")),
+            Some(String::from("63C609072D3499F64C4C44205044422E1")),
             fixtures_dir().join("win64-ci"),
         ))
         .unwrap();

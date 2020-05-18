@@ -11,7 +11,7 @@ the functionality, for example as follows (executed from the workspace root):
 
 ```
 cargo run -p dump-table -- firefox.pdb fixtures/win64-ci
-cargo run -p query-api -- fixtures/win64-ci /symbolicate/v5 '{"jobs": [{"stacks":[[[0,204776],[0,129423],[1, 237799]]],"memoryMap":[["firefox.pdb","AA152DEB2D9B76084C4C44205044422E2"],["mozglue.pdb","63C609072D3499F64C4C44205044422E2"],["wntdll.pdb","D74F79EB1F8D4A45ABCD2F476CCABACC2"]]}]}'
+cargo run -p query-api -- fixtures/win64-ci /symbolicate/v5 '{"jobs": [{"stacks":[[[0,204776],[0,129423],[1, 237799]]],"memoryMap":[["firefox.pdb","AA152DEB2D9B76084C4C44205044422E1"],["mozglue.pdb","63C609072D3499F64C4C44205044422E1"],["wntdll.pdb","D74F79EB1F8D4A45ABCD2F476CCABACC1"]]}]}'
 ```
 
 The .wasm file and the JavaScript bindings are used by the Gecko profiler.
@@ -40,12 +40,12 @@ cargo run -p dump-table -- libsystem_kernel.dylib /usr/lib/system B6602BF0012138
 Examples of running the `query-api` tool:
 
 ```
-cargo run -p query-api -- fixtures/win64-ci /symbolicate/v5 '{"jobs": [{"stacks":[[[0,204776],[0,129423],[1, 237799]]],"memoryMap":[["firefox.pdb","AA152DEB2D9B76084C4C44205044422E2"],["mozglue.pdb","63C609072D3499F64C4C44205044422E2"],["wntdll.pdb","D74F79EB1F8D4A45ABCD2F476CCABACC2"]]}]}'
+cargo run -p query-api -- fixtures/win64-ci /symbolicate/v5 '{"jobs": [{"stacks":[[[0,204776],[0,129423],[1, 237799]]],"memoryMap":[["firefox.pdb","AA152DEB2D9B76084C4C44205044422E1"],["mozglue.pdb","63C609072D3499F64C4C44205044422E1"],["wntdll.pdb","D74F79EB1F8D4A45ABCD2F476CCABACC1"]]}]}'
 cargo run -p query-api -- fixtures/android32-local /symbolicate/v5 '{"jobs": [{"stacks":[[[0,247618],[0,685896],[0,686768]]],"memoryMap":[["libmozglue.so","0CE47B7C29F27CED55C41233B93EBA450"]]}]}'
 cargo run -p query-api -- fixtures/android32-local /symbolicate/v6a1 '{"jobs": [{"stacks":[[[0,247618],[0,685896],[0,686768]]],"memoryMap":[["libmozglue.so","0CE47B7C29F27CED55C41233B93EBA450"]]}]}'
 cargo run -p query-api -- fixtures/android32-local /symbolicate/v6a1 '{"jobs": [{"stacks":[[[0,247618],[0,685896],[0,686768]]],"memoryMap":[["libmozglue.so","0CE47B7C29F27CED55C41233B93EBA45"]]}]}'
 cargo run -p query-api -- fixtures/android32-local /symbolicate/v6a1 '{"jobs": [{"stacks":[[[0,247618],[0,685896],[0,686768]]],"memoryMap":[["lebmozglue.so","0CE47B7C29F27CED55C41233B93EBA45"]]}]}'
-cargo run -p query-api -- fixtures/win64-ci /symbolicate/v6a1 '{"jobs": [{"stacks":[[[0,244290],[0,244219]]],"memoryMap":[["mozglue.pdb","63C609072D3499F64C4C44205044422E2"]]}]}'
+cargo run -p query-api -- fixtures/win64-ci /symbolicate/v6a1 '{"jobs": [{"stacks":[[[0,244290],[0,244219]]],"memoryMap":[["mozglue.pdb","63C609072D3499F64C4C44205044422E1"]]}]}'
 ```
 
 Running tests:

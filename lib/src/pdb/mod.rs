@@ -110,20 +110,15 @@ where
 {
     // Check against the expected breakpad_id.
     let info = pdb.pdb_information().context("pdb_information")?;
-    let mut pdb_id = format!("{}{:x}", format!("{:X}", info.guid.to_simple()), info.age);
+    let dbi = pdb.debug_information()?;
+    let age = dbi.age().unwrap_or(info.age);
+    let pdb_id = format!("{}{:x}", format!("{:X}", info.guid.to_simple()), age);
 
     let SymbolicationQuery {
         breakpad_id,
         addresses,
         ..
     } = query;
-
-    if pdb_id != breakpad_id && info.age == 2 {
-        // HACK: The PDB files from the Mozilla symbol server seem to have age 2 when they should have age 1.
-        // I don't know why that is.
-        // Just pretend they have age 1, until we understand the problem better.
-        pdb_id = format!("{}{:x}", format!("{:X}", info.guid.to_simple()), 1);
-    }
 
     if pdb_id != breakpad_id {
         return Err(GetSymbolsError::UnmatchedBreakpadId(
@@ -158,150 +153,143 @@ where
         })
         .collect()?;
 
-    // Add Procedure symbols from the modules, if present.
-    if let Ok(dbi) = pdb.debug_information() {
-        let tpi = pdb.type_information()?;
-        let type_dumper = TypeDumper::new(&tpi, 8, DumperFlags::default())?;
-        let string_table = pdb.string_table()?;
-        let ipi = pdb.id_information()?;
-        let mut modules = dbi.modules().context("dbi.modules()")?;
+    // Add Procedure symbols from the modules.
+    let tpi = pdb.type_information()?;
+    let type_dumper = TypeDumper::new(&tpi, 8, DumperFlags::default())?;
+    let string_table = pdb.string_table()?;
+    let ipi = pdb.id_information()?;
+    let mut modules = dbi.modules().context("dbi.modules()")?;
 
-        match R::result_kind() {
-            SymbolicationResultKind::AllSymbols => {
-                while let Some(module) = modules.next().context("modules.next()")? {
-                    let info = match pdb.module_info(&module) {
-                        Ok(Some(info)) => info,
-                        _ => continue,
-                    };
-                    let mut symbols = info.symbols().context("info.symbols()")?;
-                    while let Ok(Some(symbol)) = symbols.next() {
-                        if let Ok(SymbolData::Procedure(ProcedureSymbol {
-                            offset,
-                            name,
-                            type_index,
-                            ..
-                        })) = symbol.parse()
-                        {
-                            if let Some(rva) = offset.to_rva(&addr_map) {
-                                let name = type_dumper.dump_function(
-                                    &name.to_string(),
-                                    type_index,
-                                    None,
-                                )?;
-                                symbol_map.entry(rva.0).or_insert_with(|| Cow::from(name));
-                            }
+    match R::result_kind() {
+        SymbolicationResultKind::AllSymbols => {
+            while let Some(module) = modules.next().context("modules.next()")? {
+                let info = match pdb.module_info(&module) {
+                    Ok(Some(info)) => info,
+                    _ => continue,
+                };
+                let mut symbols = info.symbols().context("info.symbols()")?;
+                while let Ok(Some(symbol)) = symbols.next() {
+                    if let Ok(SymbolData::Procedure(ProcedureSymbol {
+                        offset,
+                        name,
+                        type_index,
+                        ..
+                    })) = symbol.parse()
+                    {
+                        if let Some(rva) = offset.to_rva(&addr_map) {
+                            let name =
+                                type_dumper.dump_function(&name.to_string(), type_index, None)?;
+                            symbol_map.entry(rva.0).or_insert_with(|| Cow::from(name));
                         }
                     }
                 }
-                let symbolication_result = R::from_full_map(symbol_map, addresses);
-                Ok(symbolication_result)
             }
-            SymbolicationResultKind::SymbolsForAddresses { with_debug_info } => {
-                let addr2line_context = if with_debug_info {
-                    Addr2LineContext::new(&addr_map, &string_table, &dbi, &ipi, &&type_dumper).ok()
-                } else {
-                    None
+            let symbolication_result = R::from_full_map(symbol_map, addresses);
+            Ok(symbolication_result)
+        }
+        SymbolicationResultKind::SymbolsForAddresses { with_debug_info } => {
+            let addr2line_context = if with_debug_info {
+                Addr2LineContext::new(&addr_map, &string_table, &dbi, &ipi, &&type_dumper).ok()
+            } else {
+                None
+            };
+            let mut symbolication_result = R::for_addresses(addresses);
+            let mut all_symbol_addresses: HashSet<u32> = symbol_map.keys().cloned().collect();
+            while let Some(module) = modules.next().context("modules.next()")? {
+                let info = match pdb.module_info(&module) {
+                    Ok(Some(info)) => info,
+                    _ => continue,
                 };
-                let mut symbolication_result = R::for_addresses(addresses);
-                let mut all_symbol_addresses: HashSet<u32> = symbol_map.keys().cloned().collect();
-                while let Some(module) = modules.next().context("modules.next()")? {
-                    let info = match pdb.module_info(&module) {
-                        Ok(Some(info)) => info,
-                        _ => continue,
-                    };
-                    let mut line_program_cache = None;
-                    let mut inlinees_cache = None;
+                let mut line_program_cache = None;
+                let mut inlinees_cache = None;
 
-                    let mut symbols = info.symbols().context("info.symbols()")?;
-                    while let Ok(Some(symbol)) = symbols.next() {
-                        if let Ok(SymbolData::Procedure(proc)) = symbol.parse() {
-                            let ProcedureSymbol {
-                                offset,
-                                len,
-                                name,
-                                type_index,
-                                ..
-                            } = proc;
-                            if let Some(rva) = offset.to_rva(&addr_map) {
-                                all_symbol_addresses.insert(rva.0);
-                                let rva_range = rva.0..(rva.0 + len);
-                                let covered_addresses =
-                                    get_addresses_covered_by_range(addresses, rva_range.clone());
-                                if !covered_addresses.is_empty() {
-                                    if let Some(context) = &addr2line_context {
-                                        let line_program = match line_program_cache.as_ref() {
-                                            Some(line_program) => line_program,
-                                            None => {
-                                                line_program_cache = Some(info.line_program()?);
-                                                line_program_cache.as_ref().unwrap()
+                let mut symbols = info.symbols().context("info.symbols()")?;
+                while let Ok(Some(symbol)) = symbols.next() {
+                    if let Ok(SymbolData::Procedure(proc)) = symbol.parse() {
+                        let ProcedureSymbol {
+                            offset,
+                            len,
+                            name,
+                            type_index,
+                            ..
+                        } = proc;
+                        if let Some(rva) = offset.to_rva(&addr_map) {
+                            all_symbol_addresses.insert(rva.0);
+                            let rva_range = rva.0..(rva.0 + len);
+                            let covered_addresses =
+                                get_addresses_covered_by_range(addresses, rva_range.clone());
+                            if !covered_addresses.is_empty() {
+                                if let Some(context) = &addr2line_context {
+                                    let line_program = match line_program_cache.as_ref() {
+                                        Some(line_program) => line_program,
+                                        None => {
+                                            line_program_cache = Some(info.line_program()?);
+                                            line_program_cache.as_ref().unwrap()
+                                        }
+                                    };
+
+                                    let inlinees = match inlinees_cache.as_ref() {
+                                        Some(inlinees) => inlinees,
+                                        None => {
+                                            inlinees_cache = Some(
+                                                info.inlinees()?
+                                                    .map(|i| Ok((i.index(), i)))
+                                                    .collect()?,
+                                            );
+                                            inlinees_cache.as_ref().unwrap()
+                                        }
+                                    };
+
+                                    if let Ok(frames_per_address) = context
+                                        .find_frames_for_addresses_from_procedure(
+                                            covered_addresses,
+                                            &info,
+                                            symbol.index(),
+                                            proc,
+                                            rva_range.clone(),
+                                            &line_program,
+                                            &inlinees,
+                                        )
+                                    {
+                                        for (address, frames) in frames_per_address {
+                                            if let Some(name) =
+                                                frames.last().unwrap().function.clone()
+                                            {
+                                                symbolication_result
+                                                    .add_address_symbol(address, rva.0, &name);
                                             }
-                                        };
-
-                                        let inlinees = match inlinees_cache.as_ref() {
-                                            Some(inlinees) => inlinees,
-                                            None => {
-                                                inlinees_cache = Some(
-                                                    info.inlinees()?
-                                                        .map(|i| Ok((i.index(), i)))
-                                                        .collect()?,
+                                            let frames: std::result::Result<Vec<_>, _> = frames
+                                                .into_iter()
+                                                .map(convert_stack_frame)
+                                                .collect();
+                                            if let Ok(frames) = frames {
+                                                symbolication_result.add_address_debug_info(
+                                                    address,
+                                                    AddressDebugInfo { frames },
                                                 );
-                                                inlinees_cache.as_ref().unwrap()
-                                            }
-                                        };
-
-                                        if let Ok(frames_per_address) = context
-                                            .find_frames_for_addresses_from_procedure(
-                                                covered_addresses,
-                                                &info,
-                                                symbol.index(),
-                                                proc,
-                                                rva_range.clone(),
-                                                &line_program,
-                                                &inlinees,
-                                            )
-                                        {
-                                            for (address, frames) in frames_per_address {
-                                                if let Some(name) =
-                                                    frames.last().unwrap().function.clone()
-                                                {
-                                                    symbolication_result
-                                                        .add_address_symbol(address, rva.0, &name);
-                                                }
-                                                let frames: std::result::Result<Vec<_>, _> = frames
-                                                    .into_iter()
-                                                    .map(convert_stack_frame)
-                                                    .collect();
-                                                if let Ok(frames) = frames {
-                                                    symbolication_result.add_address_debug_info(
-                                                        address,
-                                                        AddressDebugInfo { frames },
-                                                    );
-                                                }
                                             }
                                         }
-                                    } else {
-                                        let name = type_dumper.dump_function(
-                                            &name.to_string(),
-                                            type_index,
-                                            None,
-                                        )?;
-                                        for address in covered_addresses {
-                                            symbolication_result
-                                                .add_address_symbol(*address, rva.0, &name);
-                                        }
+                                    }
+                                } else {
+                                    let name = type_dumper.dump_function(
+                                        &name.to_string(),
+                                        type_index,
+                                        None,
+                                    )?;
+                                    for address in covered_addresses {
+                                        symbolication_result
+                                            .add_address_symbol(*address, rva.0, &name);
                                     }
                                 }
                             }
                         }
                     }
                 }
-                let total_symbol_count = all_symbol_addresses.len() as u32;
-                symbolication_result.set_total_symbol_count(total_symbol_count);
-                Ok(symbolication_result)
             }
+            let total_symbol_count = all_symbol_addresses.len() as u32;
+            symbolication_result.set_total_symbol_count(total_symbol_count);
+            Ok(symbolication_result)
         }
-    } else {
-        Ok(R::from_full_map(symbol_map, addresses))
     }
 }
 
