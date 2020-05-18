@@ -35,7 +35,17 @@ impl FileAndPathHelper for Helper {
         ) -> FileAndPathHelperResult<Vec<PathBuf>> {
             res
         }
-        Box::pin(to_future(Ok(vec![self.symbol_directory.join(debug_name)])))
+
+        let mut paths = vec![];
+        paths.push(self.symbol_directory.join(debug_name));
+
+        // Also consider .so.dbg files in the symbol directory.
+        if debug_name.ends_with(".so") {
+            let debug_debug_name = format!("{}.dbg", debug_name);
+            paths.push(self.symbol_directory.join(debug_debug_name));
+        }
+
+        Box::pin(to_future(Ok(paths)))
     }
 
     fn read_file(
