@@ -1,0 +1,18 @@
+[package]
+name = "benchmarks"
+version = "0.1.0"
+authors = ["Markus Stange <mstange@themasta.com>"]
+license = "MIT/Apache-2.0"
+edition = "2018"
+
+[dependencies]
+dump-table = { path = "../dump_table" }
+query-api = { path = "../query_api" }
+reqwest = { version = "0.10.4", features = ["blocking"] }
+anyhow = "1.0.28"
+tempfile = "3.1.0"
+futures = "0.3.5"
+cab = "0.2.0"
+flate2 = "1.0.14"
+tar = "0.4.26"
+bzip2 = "0.3.3"
