@@ -56,16 +56,22 @@ impl FileAndPathHelper for Helper {
 mod test {
 
     // use profiler_get_symbols::GetSymbolsError;
-    use std::path::PathBuf;
     use std::fs::File;
     use std::io::{Read, Write};
+    use std::path::PathBuf;
 
     fn fixtures_dir() -> PathBuf {
         let this_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         this_dir.join("..").join("..").join("fixtures")
     }
 
-    fn compare_snapshot(request_url: &str, request_json: &str, symbol_directory: PathBuf, snapshot_filename: &str, output_filename: &str) {
+    fn compare_snapshot(
+        request_url: &str,
+        request_json: &str,
+        symbol_directory: PathBuf,
+        snapshot_filename: &str,
+        output_filename: &str,
+    ) {
         let output = futures::executor::block_on(crate::query_api(
             request_url,
             request_json,
@@ -73,21 +79,13 @@ mod test {
         ));
 
         if false {
-            let mut output_file = File::create(
-                fixtures_dir()
-                    .join("snapshots")
-                    .join(output_filename),
-            )
-            .unwrap();
+            let mut output_file =
+                File::create(fixtures_dir().join("snapshots").join(output_filename)).unwrap();
             output_file.write_all(&output.as_bytes()).unwrap();
         }
 
-        let mut snapshot_file = File::open(
-            fixtures_dir()
-                .join("snapshots")
-                .join(snapshot_filename),
-        )
-        .unwrap();
+        let mut snapshot_file =
+            File::open(fixtures_dir().join("snapshots").join(snapshot_filename)).unwrap();
         let mut expected: String = String::new();
         snapshot_file.read_to_string(&mut expected).unwrap();
         assert_eq!(output, expected);

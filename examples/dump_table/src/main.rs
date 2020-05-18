@@ -3,7 +3,7 @@ use futures;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
-use dump_table::{get_table, dump_table};
+use dump_table::{dump_table, get_table};
 
 #[derive(Debug, StructOpt)]
 #[structopt(
