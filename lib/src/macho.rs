@@ -1,5 +1,8 @@
+use crate::dwarf::collect_dwarf_address_debug_data;
 use crate::error::{GetSymbolsError, Result};
-use crate::shared::{object_to_map, SymbolicationQuery, SymbolicationResult};
+use crate::shared::{
+    object_to_map, SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
+};
 use addr2line::object;
 use goblin::mach;
 use object::read::{File, Object};
@@ -48,5 +51,14 @@ where
         ));
     }
     let map = object_to_map(&macho_file);
-    Ok(R::from_full_map(map, addresses))
+    let mut symbolication_result = R::from_full_map(map, addresses);
+
+    if let SymbolicationResultKind::SymbolsForAddresses {
+        with_debug_info: true,
+    } = R::result_kind()
+    {
+        collect_dwarf_address_debug_data(&macho_file, addresses, &mut symbolication_result);
+    }
+
+    Ok(symbolication_result)
 }
