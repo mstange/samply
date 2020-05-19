@@ -15,6 +15,7 @@ use goblin::Hint;
 use pdb_crate::PDB;
 use serde_json::json;
 use std::io::Cursor;
+use std::rc::Rc;
 
 pub use crate::compact_symbol_table::CompactSymbolTable;
 pub use crate::error::{GetSymbolsError, Result};
@@ -101,8 +102,12 @@ where
     let mut reader = Cursor::new(buffer);
     match goblin::peek(&mut reader)? {
         Hint::Elf(_) => elf::get_symbolication_result(buffer, query),
-        Hint::Mach(_) => macho::get_symbolication_result(buffer, query, helper).await,
-        Hint::MachFat(_) => macho::get_symbolication_result_multiarch(buffer, query, helper).await,
+        Hint::Mach(_) => {
+            macho::get_symbolication_result(Rc::new(owned_data), None, query, helper).await
+        }
+        Hint::MachFat(_) => {
+            macho::get_symbolication_result_multiarch(Rc::new(owned_data), query, helper).await
+        }
         Hint::PE => pdb::get_symbolication_result_via_binary(buffer, query, helper).await,
         _ => {
             // Might this be a PDB, then?

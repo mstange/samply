@@ -9,21 +9,30 @@ use goblin::mach;
 use object::read::{File, Object};
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use uuid::Uuid;
 
 pub async fn get_symbolication_result_multiarch<'a, R>(
-    buffer: &[u8],
+    owned_data: Rc<impl OwnedFileData>,
     query: SymbolicationQuery<'a>,
     helper: &impl FileAndPathHelper,
 ) -> Result<R>
 where
     R: SymbolicationResult,
 {
+    let buffer = owned_data.get_data();
     let mut errors = vec![];
-    let multi_arch = mach::MultiArch::new(buffer)?;
-    for fat_arch in multi_arch.iter_arches().filter_map(std::result::Result::ok) {
-        let arch_slice = fat_arch.slice(buffer);
-        match get_symbolication_result(arch_slice, query.clone(), helper).await {
+    let arches: Vec<_> = {
+        let multi_arch = mach::MultiArch::new(buffer)?;
+        multi_arch
+            .iter_arches()
+            .filter_map(std::result::Result::ok)
+            .collect()
+    };
+    for fat_arch in arches {
+        let slice = (fat_arch.offset as usize)..(fat_arch.offset as usize + fat_arch.size as usize);
+        match get_symbolication_result(owned_data.clone(), Some(slice), query.clone(), helper).await
+        {
             Ok(table) => return Ok(table),
             Err(err) => errors.push(err),
         }
@@ -31,14 +40,19 @@ where
     Err(GetSymbolsError::NoMatchMultiArch(errors))
 }
 
-pub async fn get_symbolication_result<'a, R>(
-    buffer: &[u8],
+pub async fn get_symbolication_result<'a, 'b, R>(
+    owned_data: Rc<impl OwnedFileData>,
+    slice: Option<std::ops::Range<usize>>,
     query: SymbolicationQuery<'a>,
     helper: &impl FileAndPathHelper,
 ) -> Result<R>
 where
     R: SymbolicationResult,
 {
+    let mut buffer = owned_data.get_data();
+    if let Some(slice) = slice {
+        buffer = &buffer[slice];
+    }
     let macho_file =
         File::parse(buffer).or_else(|x| Err(GetSymbolsError::MachOHeaderParseError(x)))?;
 
@@ -68,17 +82,23 @@ where
         with_debug_info: true,
     } = R::result_kind()
     {
+        let mut remainder = VecDeque::new();
+
+        // Look up addresses that don't have external debug info, and collect information
+        // about the ones that do have external debug info.
         let goblin_macho = mach::MachO::parse(buffer, 0)?;
         let addresses_in_this_object: Vec<_> =
             addresses.iter().map(|a| AddressPair::same(*a)).collect();
-        let mut remainder = VecDeque::new();
         remainder.extend(collect_debug_info_and_remainder(
             &macho_file,
             &goblin_macho,
             &addresses_in_this_object,
             &mut symbolication_result,
         )?);
+        // Now we're done with the original file. Release it.
+        drop(owned_data);
 
+        // Do a breadth-first-traversal of the external debug info reference tree.
         while let Some(obj_ref) = remainder.pop_front() {
             let path = obj_ref.path();
             let owned_data = match helper.read_file(path).await {
