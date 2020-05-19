@@ -5,6 +5,7 @@ use crate::shared::{
 };
 use addr2line::{fallible_iterator, gimli, object};
 use fallible_iterator::FallibleIterator;
+use crate::dwarf::SectionDataNoCopy;
 use object::read::File;
 use object::read::Object;
 use object::SectionKind;
@@ -41,7 +42,8 @@ where
         with_debug_info: true,
     } = R::result_kind()
     {
-        if let Ok(context) = addr2line::Context::new(&elf_file) {
+        let section_data = SectionDataNoCopy::from_object(&elf_file);
+        if let Ok(context) = section_data.make_addr2line_context() {
             for address in addresses {
                 if let Ok(frame_iter) = context.find_frames(*address as u64) {
                     let frames: std::result::Result<Vec<_>, _> =

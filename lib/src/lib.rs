@@ -3,6 +3,7 @@ extern crate pdb as pdb_crate;
 use goblin;
 
 mod compact_symbol_table;
+mod dwarf;
 mod elf;
 mod error;
 mod macho;
