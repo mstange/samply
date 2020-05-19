@@ -1,13 +1,10 @@
+use crate::dwarf::collect_dwarf_address_debug_data;
 use crate::error::{GetSymbolsError, Result};
 use crate::shared::{
-    object_to_map, AddressDebugInfo, InlineStackFrame, SymbolicationQuery, SymbolicationResult,
-    SymbolicationResultKind,
+    object_to_map, SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
 };
-use addr2line::{fallible_iterator, gimli, object};
-use fallible_iterator::FallibleIterator;
-use crate::dwarf::SectionDataNoCopy;
-use object::read::File;
-use object::read::Object;
+use addr2line::object;
+use object::read::{File, Object};
 use object::SectionKind;
 use std::cmp;
 use uuid::Uuid;
@@ -42,38 +39,10 @@ where
         with_debug_info: true,
     } = R::result_kind()
     {
-        let section_data = SectionDataNoCopy::from_object(&elf_file);
-        if let Ok(context) = section_data.make_addr2line_context() {
-            for address in addresses {
-                if let Ok(frame_iter) = context.find_frames(*address as u64) {
-                    let frames: std::result::Result<Vec<_>, _> =
-                        frame_iter.map(convert_stack_frame).collect();
-                    if let Ok(frames) = frames {
-                        symbolication_result
-                            .add_address_debug_info(*address, AddressDebugInfo { frames });
-                    }
-                }
-            }
-        }
+        collect_dwarf_address_debug_data(&elf_file, addresses, &mut symbolication_result);
     }
 
     Ok(symbolication_result)
-}
-
-fn convert_stack_frame<R: gimli::Reader>(
-    frame: addr2line::Frame<R>,
-) -> std::result::Result<InlineStackFrame, gimli::read::Error> {
-    Ok(InlineStackFrame {
-        function: frame
-            .function
-            .and_then(|f| f.demangle().ok().map(|n| n.into_owned())),
-        file_path: frame
-            .location
-            .as_ref()
-            .and_then(|l| l.file)
-            .map(|f| f.to_owned()),
-        line_number: frame.location.and_then(|l| l.line).map(|l| l as u32),
-    })
 }
 
 fn create_elf_id(identifier: &[u8], little_endian: bool) -> Uuid {

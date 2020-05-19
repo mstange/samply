@@ -1,5 +1,46 @@
-use addr2line::{gimli, object};
+use crate::shared::{AddressDebugInfo, InlineStackFrame, SymbolicationResult};
+use addr2line::{fallible_iterator, gimli, object};
+use fallible_iterator::FallibleIterator;
 use gimli::{EndianSlice, SectionId};
+
+pub fn collect_dwarf_address_debug_data<'data, 'file, O, R>(
+    object: &'file O,
+    addresses: &[u32],
+    symbolication_result: &mut R,
+) where
+    O: object::Object<'data, 'file>,
+    R: SymbolicationResult,
+{
+    let section_data = SectionDataNoCopy::from_object(object);
+    if let Ok(context) = section_data.make_addr2line_context() {
+        for address in addresses {
+            if let Ok(frame_iter) = context.find_frames(*address as u64) {
+                let frames: std::result::Result<Vec<_>, _> =
+                    frame_iter.map(convert_stack_frame).collect();
+                if let Ok(frames) = frames {
+                    symbolication_result
+                        .add_address_debug_info(*address, AddressDebugInfo { frames });
+                }
+            }
+        }
+    }
+}
+
+fn convert_stack_frame<R: gimli::Reader>(
+    frame: addr2line::Frame<R>,
+) -> std::result::Result<InlineStackFrame, gimli::read::Error> {
+    Ok(InlineStackFrame {
+        function: frame
+            .function
+            .and_then(|f| f.demangle().ok().map(|n| n.into_owned())),
+        file_path: frame
+            .location
+            .as_ref()
+            .and_then(|l| l.file)
+            .map(|f| f.to_owned()),
+        line_number: frame.location.and_then(|l| l.line).map(|l| l as u32),
+    })
+}
 
 /// Holds on to section data so that we can create an addr2line::Context for that
 /// that data. This avoids one copy compared to what addr2line::Context::new does
