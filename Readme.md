@@ -46,6 +46,8 @@ cargo run -p query-api -- fixtures/android32-local /symbolicate/v6a1 '{"jobs": [
 cargo run -p query-api -- fixtures/android32-local /symbolicate/v6a1 '{"jobs": [{"stacks":[[[0,247618],[0,685896],[0,686768]]],"memoryMap":[["libmozglue.so","0CE47B7C29F27CED55C41233B93EBA45"]]}]}'
 cargo run -p query-api -- fixtures/android32-local /symbolicate/v6a1 '{"jobs": [{"stacks":[[[0,247618],[0,685896],[0,686768]]],"memoryMap":[["lebmozglue.so","0CE47B7C29F27CED55C41233B93EBA45"]]}]}'
 cargo run -p query-api -- fixtures/win64-ci /symbolicate/v6a1 '{"jobs": [{"stacks":[[[0,244290],[0,244219]]],"memoryMap":[["mozglue.pdb","63C609072D3499F64C4C44205044422E1"]]}]}'
+cargo run -p query-api -- fixtures/macos-local /symbolicate/v6a1 '{"jobs": [{"stacks":[[[0,247618],[0,685896],[0,686768]]],"memoryMap":[["libmozglue.dylib","F38030E4A3783F90B2282FCB0B33261A0"]]}]}'
+cargo run --release -p query-api -- ~/code/obj-m-opt/dist/bin /symbolicate/v6a1 @fixtures/requests/macos-local-xul.json
 ```
 
 Running tests:

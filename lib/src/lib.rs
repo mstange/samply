@@ -101,8 +101,8 @@ where
     let mut reader = Cursor::new(buffer);
     match goblin::peek(&mut reader)? {
         Hint::Elf(_) => elf::get_symbolication_result(buffer, query),
-        Hint::Mach(_) => macho::get_symbolication_result(buffer, query),
-        Hint::MachFat(_) => macho::get_symbolication_result_multiarch(buffer, query),
+        Hint::Mach(_) => macho::get_symbolication_result(buffer, query, helper).await,
+        Hint::MachFat(_) => macho::get_symbolication_result_multiarch(buffer, query, helper).await,
         Hint::PE => pdb::get_symbolication_result_via_binary(buffer, query, helper).await,
         _ => {
             // Might this be a PDB, then?

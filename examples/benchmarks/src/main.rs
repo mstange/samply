@@ -202,7 +202,12 @@ fn main() -> anyhow::Result<()> {
 
     eprintln!("");
     eprintln!("Results:");
-    for Timing { platform, action, duration } in timings {
+    for Timing {
+        platform,
+        action,
+        duration,
+    } in timings
+    {
         eprintln!("  - {:12} {:16} {:?}", platform, action, duration);
     }
 

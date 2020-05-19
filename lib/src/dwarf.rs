@@ -1,11 +1,27 @@
 use crate::shared::{AddressDebugInfo, InlineStackFrame, SymbolicationResult};
+use crate::symbolicate::demangle;
 use addr2line::{fallible_iterator, gimli, object};
 use fallible_iterator::FallibleIterator;
 use gimli::{EndianSlice, SectionId};
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct AddressPair {
+    pub original_address: u32,
+    pub address_in_this_object: u32,
+}
+
+impl AddressPair {
+    pub fn same(address: u32) -> Self {
+        AddressPair {
+            original_address: address,
+            address_in_this_object: address,
+        }
+    }
+}
+
 pub fn collect_dwarf_address_debug_data<'data, 'file, O, R>(
     object: &'file O,
-    addresses: &[u32],
+    addresses: &[AddressPair],
     symbolication_result: &mut R,
 ) where
     O: object::Object<'data, 'file>,
@@ -13,13 +29,17 @@ pub fn collect_dwarf_address_debug_data<'data, 'file, O, R>(
 {
     let section_data = SectionDataNoCopy::from_object(object);
     if let Ok(context) = section_data.make_addr2line_context() {
-        for address in addresses {
-            if let Ok(frame_iter) = context.find_frames(*address as u64) {
+        for AddressPair {
+            original_address,
+            address_in_this_object,
+        } in addresses
+        {
+            if let Ok(frame_iter) = context.find_frames(*address_in_this_object as u64) {
                 let frames: std::result::Result<Vec<_>, _> =
                     frame_iter.map(convert_stack_frame).collect();
                 if let Ok(frames) = frames {
                     symbolication_result
-                        .add_address_debug_info(*address, AddressDebugInfo { frames });
+                        .add_address_debug_info(*original_address, AddressDebugInfo { frames });
                 }
             }
         }
@@ -29,15 +49,30 @@ pub fn collect_dwarf_address_debug_data<'data, 'file, O, R>(
 fn convert_stack_frame<R: gimli::Reader>(
     frame: addr2line::Frame<R>,
 ) -> std::result::Result<InlineStackFrame, gimli::read::Error> {
+    let function = match frame.function {
+        Some(function_name) => {
+            if let Ok(name) = function_name.raw_name() {
+                Some(demangle::demangle_any(&name))
+            } else {
+                None
+            }
+        }
+        None => None,
+    };
+    let file_path = match &frame.location {
+        Some(location) => {
+            if let Some(file) = location.file {
+                Some(file.to_owned())
+            } else {
+                None
+            }
+        }
+        None => None,
+    };
+
     Ok(InlineStackFrame {
-        function: frame
-            .function
-            .and_then(|f| f.demangle().ok().map(|n| n.into_owned())),
-        file_path: frame
-            .location
-            .as_ref()
-            .and_then(|l| l.file)
-            .map(|f| f.to_owned()),
+        function,
+        file_path,
         line_number: frame.location.and_then(|l| l.line).map(|l| l as u32),
     })
 }

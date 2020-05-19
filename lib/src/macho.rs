@@ -1,14 +1,21 @@
-use crate::dwarf::collect_dwarf_address_debug_data;
+use crate::dwarf::{collect_dwarf_address_debug_data, AddressPair};
 use crate::error::{GetSymbolsError, Result};
 use crate::shared::{
-    object_to_map, SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
+    object_to_map, FileAndPathHelper, OwnedFileData, SymbolicationQuery, SymbolicationResult,
+    SymbolicationResultKind,
 };
 use addr2line::object;
 use goblin::mach;
 use object::read::{File, Object};
+use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
-pub fn get_symbolication_result_multiarch<R>(buffer: &[u8], query: SymbolicationQuery) -> Result<R>
+pub async fn get_symbolication_result_multiarch<'a, R>(
+    buffer: &[u8],
+    query: SymbolicationQuery<'a>,
+    helper: &impl FileAndPathHelper,
+) -> Result<R>
 where
     R: SymbolicationResult,
 {
@@ -16,7 +23,7 @@ where
     let multi_arch = mach::MultiArch::new(buffer)?;
     for fat_arch in multi_arch.iter_arches().filter_map(std::result::Result::ok) {
         let arch_slice = fat_arch.slice(buffer);
-        match get_symbolication_result(arch_slice, query.clone()) {
+        match get_symbolication_result(arch_slice, query.clone(), helper).await {
             Ok(table) => return Ok(table),
             Err(err) => errors.push(err),
         }
@@ -24,7 +31,11 @@ where
     Err(GetSymbolsError::NoMatchMultiArch(errors))
 }
 
-pub fn get_symbolication_result<R>(buffer: &[u8], query: SymbolicationQuery) -> Result<R>
+pub async fn get_symbolication_result<'a, R>(
+    buffer: &[u8],
+    query: SymbolicationQuery<'a>,
+    helper: &impl FileAndPathHelper,
+) -> Result<R>
 where
     R: SymbolicationResult,
 {
@@ -57,8 +68,328 @@ where
         with_debug_info: true,
     } = R::result_kind()
     {
-        collect_dwarf_address_debug_data(&macho_file, addresses, &mut symbolication_result);
+        let goblin_macho = mach::MachO::parse(buffer, 0)?;
+        let addresses_in_this_object: Vec<_> =
+            addresses.iter().map(|a| AddressPair::same(*a)).collect();
+        let mut remainder = VecDeque::new();
+        remainder.extend(collect_debug_info_and_remainder(
+            &macho_file,
+            &goblin_macho,
+            &addresses_in_this_object,
+            &mut symbolication_result,
+        )?);
+
+        while let Some(obj_ref) = remainder.pop_front() {
+            let path = obj_ref.path();
+            let owned_data = match helper.read_file(path).await {
+                Ok(data) => data,
+                Err(_) => {
+                    // We probably couldn't find the file, but that's fine.
+                    // It would be good to collect this error somewher.
+                    continue;
+                }
+            };
+            let buffer = owned_data.get_data();
+
+            match obj_ref {
+                ObjectReference::RegularObject {
+                    path,
+                    funs_with_addresses,
+                    ..
+                } => {
+                    let macho_file = File::parse(buffer)
+                        .or_else(|x| Err(GetSymbolsError::MachOHeaderParseError(x)))?;
+                    let addresses_in_this_object =
+                        translate_addresses_to_object(&path, &macho_file, funs_with_addresses);
+                    let goblin_macho = mach::MachO::parse(buffer, 0)?;
+                    remainder.extend(collect_debug_info_and_remainder(
+                        &macho_file,
+                        &goblin_macho,
+                        &addresses_in_this_object,
+                        &mut symbolication_result,
+                    )?);
+                }
+                ObjectReference::Archive {
+                    path, archive_info, ..
+                } => {
+                    let archive = goblin::archive::Archive::parse(buffer)?;
+                    for (name_in_archive, funs_with_addresses) in archive_info {
+                        let buffer = match archive.extract(&name_in_archive, buffer) {
+                            Ok(buffer) => buffer,
+                            Err(_) => continue,
+                        };
+                        let macho_file = File::parse(buffer)
+                            .or_else(|x| Err(GetSymbolsError::MachOHeaderParseError(x)))?;
+                        let addresses_in_this_object =
+                            translate_addresses_to_object(&path, &macho_file, funs_with_addresses);
+                        let goblin_macho = mach::MachO::parse(buffer, 0)?;
+                        remainder.extend(collect_debug_info_and_remainder(
+                            &macho_file,
+                            &goblin_macho,
+                            &addresses_in_this_object,
+                            &mut symbolication_result,
+                        )?);
+                    }
+                }
+            };
+        }
     }
 
     Ok(symbolication_result)
+}
+
+fn translate_addresses_to_object<'data, 'file, O>(
+    _path: &Path,
+    macho_file: &'file O,
+    mut funs_with_addresses: HashMap<String, Vec<AddressWithOffset>>,
+) -> Vec<AddressPair>
+where
+    O: object::Object<'data, 'file>,
+{
+    let mut addresses_in_this_object = Vec::new();
+    for (_, symbol) in macho_file.symbols() {
+        if let Some(symbol_name) = symbol.name() {
+            if let Some(addresses) = funs_with_addresses.remove(symbol_name) {
+                for AddressWithOffset {
+                    original_address,
+                    offset_from_function_start,
+                } in addresses
+                {
+                    let address_in_this_object =
+                        symbol.address() as u32 + offset_from_function_start;
+                    addresses_in_this_object.push(AddressPair {
+                        original_address,
+                        address_in_this_object,
+                    });
+                }
+            }
+        }
+    }
+    addresses_in_this_object.sort_by_key(|ap| ap.address_in_this_object);
+    addresses_in_this_object
+}
+
+enum ObjectReference {
+    RegularObject {
+        path: PathBuf,
+        funs_with_addresses: HashMap<String, Vec<AddressWithOffset>>,
+    },
+    Archive {
+        path: PathBuf,
+        archive_info: HashMap<String, HashMap<String, Vec<AddressWithOffset>>>,
+    },
+}
+
+impl ObjectReference {
+    fn path(&self) -> &Path {
+        match self {
+            ObjectReference::RegularObject { path, .. } => path,
+            ObjectReference::Archive { path, .. } => path,
+        }
+    }
+}
+
+fn collect_debug_info_and_remainder<'data, 'file, 'a, O, R>(
+    macho_file: &'file O,
+    goblin_macho: &'a mach::MachO<'data>,
+    addresses: &[AddressPair],
+    symbolication_result: &mut R,
+) -> Result<Vec<ObjectReference>>
+where
+    O: object::Object<'data, 'file>,
+    R: SymbolicationResult,
+{
+    let ObjectsAndFunctions { objects, functions } = ObjectsAndFunctions::from_macho(&goblin_macho);
+    let functions_with_addresses = match_funs_to_addresses(&functions, addresses);
+    let mut external_funs_by_object: HashMap<usize, HashMap<String, Vec<AddressWithOffset>>> =
+        HashMap::new();
+    let mut original_addresses_found_in_external_objects = BTreeSet::new();
+    for MatchedFunctionWithAddresses {
+        object_index,
+        fun_name,
+        addresses,
+    } in functions_with_addresses.into_iter()
+    {
+        for AddressWithOffset {
+            original_address, ..
+        } in &addresses
+        {
+            original_addresses_found_in_external_objects.insert(*original_address);
+        }
+        external_funs_by_object
+            .entry(object_index)
+            .or_insert_with(HashMap::new)
+            .insert(fun_name.to_owned(), addresses);
+    }
+    let internal_addresses: Vec<_> = addresses
+        .iter()
+        .cloned()
+        .filter(|ap| !original_addresses_found_in_external_objects.contains(&ap.original_address))
+        .collect();
+    collect_dwarf_address_debug_data(macho_file, &internal_addresses, symbolication_result);
+
+    let mut archives = HashMap::new();
+    let mut regular_objects = HashMap::new();
+
+    for (object_index, funs_with_addresses) in external_funs_by_object.into_iter() {
+        let object_name = objects[object_index].name;
+        match object_name.find('(') {
+            Some(index) => {
+                let (path, paren_rest) = object_name.split_at(index);
+                let path: PathBuf = path.into();
+                let name_in_archive = paren_rest
+                    .trim_start_matches('(')
+                    .trim_end_matches(')')
+                    .to_string();
+                let archive_info = archives.entry(path).or_insert_with(HashMap::new);
+                archive_info.insert(name_in_archive, funs_with_addresses);
+            }
+            None => {
+                let path: PathBuf = object_name.into();
+                regular_objects.insert(path, funs_with_addresses);
+                // ObjectReference::RegularObject{ path: object_name.into()}
+            }
+        }
+    }
+
+    let combined: Vec<_> = archives
+        .into_iter()
+        .map(|(path, archive_info)| ObjectReference::Archive { path, archive_info })
+        .chain(
+            regular_objects
+                .into_iter()
+                .map(
+                    |(path, funs_with_addresses)| ObjectReference::RegularObject {
+                        path,
+                        funs_with_addresses,
+                    },
+                ),
+        )
+        .collect();
+
+    Ok(combined)
+}
+
+#[derive(Debug)]
+struct AddressWithOffset {
+    original_address: u32,
+    offset_from_function_start: u32,
+}
+
+struct MatchedFunctionWithAddresses<'a> {
+    object_index: usize,
+    fun_name: &'a str,
+    addresses: Vec<AddressWithOffset>,
+}
+
+// functions must be sorted by function.address_range.start
+// addresses must be sorted
+fn match_funs_to_addresses<'a, 'b, 'c>(
+    functions: &'a [Function<'c>],
+    addresses: &'b [AddressPair],
+) -> Vec<MatchedFunctionWithAddresses<'c>> {
+    let mut yo: Vec<MatchedFunctionWithAddresses> = Vec::new();
+    let mut addr_iter = addresses.iter();
+    let mut cur_addr = addr_iter.next();
+    let mut fun_iter = functions.iter();
+    let mut cur_fun = fun_iter.next();
+    let mut cur_fun_is_last_vec_element = false;
+    while let (Some(address_pair), Some(fun)) = (cur_addr, cur_fun) {
+        let original_address = address_pair.original_address;
+        let address_in_this_object = address_pair.address_in_this_object;
+        if !(fun.address_range.start <= address_in_this_object) {
+            // Advance address_pair.
+            cur_addr = addr_iter.next();
+            continue;
+        }
+        if !(address_in_this_object < fun.address_range.end || !fun.object_index.is_some()) {
+            // Advance fun.
+            cur_fun = fun_iter.next();
+            cur_fun_is_last_vec_element = false;
+            continue;
+        }
+        // Now the following is true:
+        // fun.object_index.is_some() &&
+        // fun.address_range.start <= address_in_this_object && address_in_this_object < fun.addr_range.end
+        let offset_from_function_start = address_in_this_object - fun.address_range.start;
+        let address_with_offset = AddressWithOffset {
+            original_address,
+            offset_from_function_start,
+        };
+        if cur_fun_is_last_vec_element {
+            yo.last_mut().unwrap().addresses.push(address_with_offset);
+        } else {
+            yo.push(MatchedFunctionWithAddresses {
+                object_index: fun.object_index.unwrap(),
+                fun_name: fun.name,
+                addresses: vec![address_with_offset],
+            });
+            cur_fun_is_last_vec_element = true;
+        }
+        // Advance addr.
+        cur_addr = addr_iter.next();
+    }
+    yo
+}
+
+#[derive(Debug)]
+struct OriginObject<'a> {
+    name: &'a str,
+}
+
+#[derive(Debug)]
+struct Function<'a> {
+    name: &'a str,
+    address_range: std::ops::Range<u32>,
+    object_index: Option<usize>,
+}
+
+struct ObjectsAndFunctions<'a> {
+    objects: Vec<OriginObject<'a>>,
+    functions: Vec<Function<'a>>,
+}
+
+impl<'a> ObjectsAndFunctions<'a> {
+    pub fn from_macho(macho: &mach::MachO<'a>) -> Self {
+        use mach::symbols;
+        let mut objects = Vec::new();
+        let mut functions = Vec::new();
+        let mut current_function = None;
+        for symbol in macho.symbols() {
+            let (name, nlist) = match symbol {
+                Ok(sym) => sym,
+                Err(_) => continue,
+            };
+            if !nlist.is_stab() {
+                continue;
+            }
+            match nlist.n_type {
+                symbols::N_OSO => {
+                    objects.push(OriginObject { name });
+                }
+                symbols::N_FUN => {
+                    if !name.is_empty() {
+                        current_function = Some((name, nlist.n_value));
+                    } else if let Some((name, start_address)) = current_function.take() {
+                        let start_address = start_address as u32;
+                        let size = nlist.n_value as u32;
+                        let object_index = if objects.is_empty() {
+                            None
+                        } else {
+                            Some(objects.len() - 1)
+                        };
+                        let address_range = start_address..(start_address + size);
+                        functions.push(Function {
+                            name,
+                            address_range,
+                            object_index,
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+        functions.sort_by_key(|f| f.address_range.start);
+        Self { objects, functions }
+    }
 }
