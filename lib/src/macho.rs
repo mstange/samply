@@ -105,22 +105,20 @@ where
                 Ok(data) => data,
                 Err(_) => {
                     // We probably couldn't find the file, but that's fine.
-                    // It would be good to collect this error somewher.
+                    // It would be good to collect this error somewhere.
                     continue;
                 }
             };
             let buffer = owned_data.get_data();
 
             match obj_ref {
-                ObjectReference::RegularObject {
-                    path,
-                    funs_with_addresses,
-                    ..
+                ObjectReference::Regular {
+                    path, functions, ..
                 } => {
                     let macho_file = File::parse(buffer)
                         .or_else(|x| Err(GetSymbolsError::MachOHeaderParseError(x)))?;
                     let addresses_in_this_object =
-                        translate_addresses_to_object(&path, &macho_file, funs_with_addresses);
+                        translate_addresses_to_object(&path, &macho_file, functions);
                     let goblin_macho = mach::MachO::parse(buffer, 0)?;
                     remainder.extend(collect_debug_info_and_remainder(
                         &macho_file,
@@ -133,7 +131,7 @@ where
                     path, archive_info, ..
                 } => {
                     let archive = goblin::archive::Archive::parse(buffer)?;
-                    for (name_in_archive, funs_with_addresses) in archive_info {
+                    for (name_in_archive, functions) in archive_info {
                         let buffer = match archive.extract(&name_in_archive, buffer) {
                             Ok(buffer) => buffer,
                             Err(_) => continue,
@@ -141,7 +139,7 @@ where
                         let macho_file = File::parse(buffer)
                             .or_else(|x| Err(GetSymbolsError::MachOHeaderParseError(x)))?;
                         let addresses_in_this_object =
-                            translate_addresses_to_object(&path, &macho_file, funs_with_addresses);
+                            translate_addresses_to_object(&path, &macho_file, functions);
                         let goblin_macho = mach::MachO::parse(buffer, 0)?;
                         remainder.extend(collect_debug_info_and_remainder(
                             &macho_file,
@@ -161,7 +159,7 @@ where
 fn translate_addresses_to_object<'data, 'file, O>(
     _path: &Path,
     macho_file: &'file O,
-    mut funs_with_addresses: HashMap<String, Vec<AddressWithOffset>>,
+    mut functions: HashMap<String, Vec<AddressWithOffset>>,
 ) -> Vec<AddressPair>
 where
     O: object::Object<'data, 'file>,
@@ -169,7 +167,7 @@ where
     let mut addresses_in_this_object = Vec::new();
     for (_, symbol) in macho_file.symbols() {
         if let Some(symbol_name) = symbol.name() {
-            if let Some(addresses) = funs_with_addresses.remove(symbol_name) {
+            if let Some(addresses) = functions.remove(symbol_name) {
                 for AddressWithOffset {
                     original_address,
                     offset_from_function_start,
@@ -190,9 +188,9 @@ where
 }
 
 enum ObjectReference {
-    RegularObject {
+    Regular {
         path: PathBuf,
-        funs_with_addresses: HashMap<String, Vec<AddressWithOffset>>,
+        functions: HashMap<String, Vec<AddressWithOffset>>,
     },
     Archive {
         path: PathBuf,
@@ -203,7 +201,7 @@ enum ObjectReference {
 impl ObjectReference {
     fn path(&self) -> &Path {
         match self {
-            ObjectReference::RegularObject { path, .. } => path,
+            ObjectReference::Regular { path, .. } => path,
             ObjectReference::Archive { path, .. } => path,
         }
     }
@@ -251,10 +249,12 @@ where
     let mut archives = HashMap::new();
     let mut regular_objects = HashMap::new();
 
-    for (object_index, funs_with_addresses) in external_funs_by_object.into_iter() {
+    for (object_index, functions) in external_funs_by_object.into_iter() {
         let object_name = objects[object_index].name;
         match object_name.find('(') {
             Some(index) => {
+                // This is an "archive" reference of the form
+                // "/Users/mstange/code/obj-m-opt/toolkit/library/build/../../../js/src/build/libjs_static.a(Unified_cpp_js_src13.o)"
                 let (path, paren_rest) = object_name.split_at(index);
                 let path: PathBuf = path.into();
                 let name_in_archive = paren_rest
@@ -262,30 +262,24 @@ where
                     .trim_end_matches(')')
                     .to_string();
                 let archive_info = archives.entry(path).or_insert_with(HashMap::new);
-                archive_info.insert(name_in_archive, funs_with_addresses);
+                archive_info.insert(name_in_archive, functions);
             }
             None => {
+                // This is a reference to a regular object file. Example:
+                // "/Users/mstange/code/obj-m-opt/toolkit/library/build/../../components/sessionstore/Unified_cpp_sessionstore0.o"
                 let path: PathBuf = object_name.into();
-                regular_objects.insert(path, funs_with_addresses);
-                // ObjectReference::RegularObject{ path: object_name.into()}
+                regular_objects.insert(path, functions);
             }
         }
     }
 
-    let combined: Vec<_> = archives
-        .into_iter()
-        .map(|(path, archive_info)| ObjectReference::Archive { path, archive_info })
-        .chain(
-            regular_objects
-                .into_iter()
-                .map(
-                    |(path, funs_with_addresses)| ObjectReference::RegularObject {
-                        path,
-                        funs_with_addresses,
-                    },
-                ),
-        )
-        .collect();
+    let mut combined: Vec<_> = Vec::new();
+    for (path, archive_info) in archives.into_iter() {
+        combined.push(ObjectReference::Archive { path, archive_info });
+    }
+    for (path, functions) in regular_objects.into_iter() {
+        combined.push(ObjectReference::Regular { path, functions });
+    }
 
     Ok(combined)
 }
