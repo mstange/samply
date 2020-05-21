@@ -20,8 +20,14 @@ pub fn demangle_any(name: &str) -> String {
         return format!("{:#}", demangled_symbol);
     }
 
-    if let Ok(demangled_symbol) = cpp_demangle::Symbol::new(name) {
-        return format!("{}", demangled_symbol);
+    let options = cpp_demangle::DemangleOptions {
+        no_params: false,
+        no_return_type: true,
+    };
+    if let Ok(symbol) = cpp_demangle::Symbol::new(name) {
+        if let Ok(demangled_string) = symbol.demangle(&options) {
+            return demangled_string;
+        }
     }
 
     if name.starts_with('_') {

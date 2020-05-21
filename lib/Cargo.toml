@@ -12,7 +12,7 @@ goblin = "0.0.17"
 thiserror = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.53"
-cpp_demangle = "0.2.16"
+cpp_demangle = { git = "https://github.com/gimli-rs/cpp_demangle", rev = "526474ec68ce5f198897d8fee75e0f788371dac4" }
 msvc-demangler = "0.8.0"
 rustc-demangle = "0.1.16"
 addr2line = "0.12.0"
