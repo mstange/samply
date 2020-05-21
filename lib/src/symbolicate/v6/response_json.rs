@@ -72,7 +72,7 @@ pub struct Error {
     pub filename: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub line: Option<String>,
+    pub line: Option<u32>,
 }
 
 impl From<&crate::GetSymbolsError> for Error {
