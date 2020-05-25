@@ -2,8 +2,8 @@
 
 This is a work in progress.
 
-The end goal is to have a macOS-only command line profiler that makes use of the
-[Firefox profiler](https://profiler.firefox.com/).
+The end goal is to have a macOS-only command line profiler that displays the result
+in the [Firefox profiler](https://profiler.firefox.com/).
 
 Once it's finished, it should look something like this:
 
