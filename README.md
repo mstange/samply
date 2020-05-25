@@ -49,7 +49,7 @@ cd perfrecord-preload
 cargo build --release
 cd ..
 cd perfrecord
-# Now open process_launcher.rs and edit PRELOAD_LIB_PATH
+# Now open src/process_launcher.rs and edit `PRELOAD_LIB_PATH`
 cargo run --release
 ```
 
