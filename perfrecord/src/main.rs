@@ -31,7 +31,6 @@ fn main() -> Result<(), MachError> {
         "/bin/sleep",
         &["sleep", "2"],
         &env,
-        "/Users/mstange/code/profiler-get-symbols/",
     )?;
     let child_pid = launcher.get_pid();
     let child_task = launcher.take_task();

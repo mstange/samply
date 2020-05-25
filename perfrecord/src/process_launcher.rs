@@ -20,7 +20,6 @@ impl ProcessLauncher {
         binary: &str,
         argv: &[&str],
         env: &[&str],
-        working_dir: &str,
     ) -> Result<Self, MachError> {
         let (server, name) = OsIpcOneShotServer::new()?;
 
@@ -41,7 +40,6 @@ impl ProcessLauncher {
 
         let child_pid = unsafe {
             fork(|| {
-                libc::chdir(CString::new(working_dir).unwrap().as_ptr());
                 libc::execve(
                     CString::new(binary).unwrap().as_ptr(),
                     child_args.as_ptr(),
