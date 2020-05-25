@@ -9,11 +9,11 @@ Once it's finished, it should look something like this:
 
 ```
 % cargo install perfrecord
-% perfrecord sleep 2
+% perfrecord ./your-command your-arguments
 % perfrecord --open profile.json
 ```
 
-This would collect a profile of the `sleep 2` command and save it to a file. Then it should open
+This would collect a profile of the `./your-command your-arguments` command and save it to a file. Then it should open
 your default browser, load the profile in it, and run a local webserver so that profiler.firefox.com
 can symbolicate the profile and show source code and assembly code on demand.
 
@@ -21,7 +21,7 @@ Tha captured data should be similar to that of the "CPU Profiler" in Instruments
 `perfrecord` should be a sampling profiler that collects stack traces, per thread, at some sampling interval,
 and it should support sampling based on wall-clock time ("All thread states") and CPU time.
 
-`perfrecord` should not require sudo privileges for profiling processes that it launches itself.
+`perfrecord` should not require sudo privileges for profiling (non-signed) processes that it launches itself.
 
 ## Why?
 
@@ -50,7 +50,13 @@ cargo build --release
 cd ..
 cd perfrecord
 # Now open src/process_launcher.rs and edit `PRELOAD_LIB_PATH`
-cargo run --release
+
+# And then run it:
+cargo run --release -- your-command your-arguments
+
+# Example (using sleep, but copied to a different place so that we can use DYLD_INSERT_LIBRARIES on it without needing to disable SIP):
+cat /bin/sleep > /tmp/sleep; chmod +x /tmp/sleep
+cargo run --release -- /tmp/sleep 2
 ```
 
 ## How does it work?

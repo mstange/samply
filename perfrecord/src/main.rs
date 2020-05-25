@@ -4,6 +4,8 @@ use objc::rc::autoreleasepool;
 use objc::{class, msg_send, sel, sel_impl};
 use uuid::Uuid;
 use std::ffi::CStr;
+use which::which;
+use std::{thread, time};
 
 mod process_launcher;
 
@@ -27,9 +29,19 @@ fn main() -> Result<(), MachError> {
         .collect();
     let env: Vec<&str> = env.iter().map(std::ops::Deref::deref).collect();
 
+    let args: Vec<_> = std::env::args().skip(1).collect();
+    let command = match args.first() {
+        Some(command) => which(command).unwrap(),
+        None => {
+            println!("Usage: perfrecord somecommand");
+            panic!()
+        }
+    };
+    let args: Vec<&str> = args.iter().map(std::ops::Deref::deref).collect();
+
     let mut launcher = ProcessLauncher::new(
-        "/bin/sleep",
-        &["sleep", "2"],
+        &command,
+        &args,
         &env,
     )?;
     let child_pid = launcher.get_pid();
@@ -43,6 +55,8 @@ fn main() -> Result<(), MachError> {
 
     let sampler = Sampler::new_with_task(child_task, Some(5.0), 0.001, true);
     sampler.start();
+
+    thread::sleep(time::Duration::from_millis(100));
 
     launcher.start_execution();
 

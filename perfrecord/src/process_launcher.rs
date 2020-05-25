@@ -4,6 +4,7 @@ use mach_ipc_rendezvous::{OsIpcOneShotServer, OsIpcSender};
 use libc;
 use std::mem;
 use std::ptr;
+use std::path::Path;
 
 pub use mach_ipc_rendezvous::{MachError, mach_port_t, MACH_PORT_NULL};
 
@@ -17,7 +18,7 @@ static PRELOAD_LIB_PATH: &'static str = "/Users/mstange/code/perfrecord/perfreco
 
 impl ProcessLauncher {
     pub fn new(
-        binary: &str,
+        binary: &Path,
         argv: &[&str],
         env: &[&str],
     ) -> Result<Self, MachError> {
@@ -40,8 +41,9 @@ impl ProcessLauncher {
 
         let child_pid = unsafe {
             fork(|| {
+                use std::os::unix::ffi::OsStrExt;
                 libc::execve(
-                    CString::new(binary).unwrap().as_ptr(),
+                    CString::new(binary.as_os_str().as_bytes()).unwrap().as_ptr(),
                     child_args.as_ptr(),
                     child_env.as_ptr(),
                 );
