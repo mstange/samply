@@ -44,7 +44,6 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "mach-ipc-rendezvous",
- "rand",
 ]
 
 [[package]]
