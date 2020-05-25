@@ -73,6 +73,9 @@ The injected library establishes a mach connection to perfrecord during its modu
 and sends its `mach_task_self()` up to the perfrecord process.
 This makes use of code from the [ipc-channel crate](https://github.com/servo/ipc-channel/)'s
 mach implementation.
+We can only get the task of binaries that are not signed or have entitlements.
+Similar tools require you to use Xcode to create a build that has task_for_pid
+entitelments to work around this restriction.
 
 ### Obtaining stacks
 
