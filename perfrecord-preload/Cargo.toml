@@ -1,0 +1,13 @@
+[package]
+name = "perfrecord-preload"
+version = "0.1.0"
+authors = ["Markus Stange <mstange@themasta.com>"]
+edition = "2018"
+license = "MIT/Apache-2.0"
+
+[lib]
+crate_type = ["dylib"]
+
+[dependencies]
+mach-ipc-rendezvous = { path = "../mach-ipc-rendezvous" }
+libc = "0.2.70"
