@@ -1,0 +1,17 @@
+[package]
+name = "profiler-symbol-server"
+version = "0.1.0"
+authors = ["Markus Stange <mstange@themasta.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+hyper = "0.13"
+tokio = { version = "0.2", features = ["full"] }
+futures = "0.3"
+profiler-get-symbols = { path = "../profiler-get-symbols/lib" }
+memmap = "0.7.0"
+serde_json = "1.0.53"
+moria = { git = "https://github.com/gimli-rs/moria/" }
+uuid = "0.7" # really moria::uuid
