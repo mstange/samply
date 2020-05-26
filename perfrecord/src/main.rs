@@ -6,10 +6,14 @@ use uuid::Uuid;
 use std::ffi::CStr;
 use which::which;
 use std::{thread, time};
+use std::fs::File;
+use serde_json::to_writer;
 
 mod process_launcher;
+mod gecko_profile;
 
 use process_launcher::{ProcessLauncher, MachError, mach_port_t};
+use gecko_profile::ProfileBuilder;
 
 #[cfg(target_os = "macos")]
 #[link(name = "Symbolication", kind = "framework")]
@@ -48,12 +52,14 @@ fn main() -> Result<(), MachError> {
     let child_task = launcher.take_task();
     println!("child PID: {}, childTask: {}\n", child_pid, child_task);
 
-    println!(
-        "binary images: {:?}",
-        get_binary_images_for_task(child_task)
-    );
+    let binary_images = get_binary_images_for_task(child_task);
 
-    let sampler = Sampler::new_with_task(child_task, Some(5.0), 0.001, true);
+    // println!(
+    //     "binary images: {:?}",
+    //     binary_images
+    // );
+
+    let sampler = Sampler::new_with_task(child_task, Some(5000.0), 0.001, true);
     sampler.start();
 
     thread::sleep(time::Duration::from_millis(100));
@@ -62,7 +68,21 @@ fn main() -> Result<(), MachError> {
 
     sampler.wait_until_done();
     let samples = sampler.get_samples();
-    println!("samples: {:?}", samples);
+
+    let mut profile_builder = ProfileBuilder::new();
+    for BinaryImage { uuid, path, name, address_range } in binary_images {
+        let uuid = match uuid {
+            Some(uuid) => uuid,
+            None => continue
+        };
+        profile_builder.add_lib(&name, &path, &uuid, &address_range);
+    }
+    for Sample { timestamp, thread_index, frames, ..} in &samples {
+        profile_builder.add_sample(*thread_index, *timestamp * 1000.0, frames);
+    }
+    let file = File::create("profile.json").unwrap();
+    to_writer(file, &profile_builder.to_json()).expect("Couldn't write JSON");
+    // println!("profile: {:?}", profile_builder);
 
     Ok(())
 }
@@ -200,9 +220,10 @@ impl Sampler {
                 let thread_index = callstack.context.thread;
                 let thread_state = callstack.context.run_state;
                 let frame_count = callstack.length;
-                let frames: Vec<_> = (0..frame_count)
+                let mut frames: Vec<_> = (0..frame_count)
                     .map(|i| unsafe { *callstack.frames.offset(i as isize) })
                     .collect();
+                frames.reverse();
                 samples.push(Sample {
                     timestamp, thread_index, thread_state, frames
                 });
