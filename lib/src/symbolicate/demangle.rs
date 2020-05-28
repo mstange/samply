@@ -22,7 +22,7 @@ pub fn demangle_any(name: &str) -> String {
 
     let options = cpp_demangle::DemangleOptions {
         no_params: false,
-        no_return_type: true,
+        // no_return_type: true, // TODO: wait for cpp_demangle release
     };
     if let Ok(symbol) = cpp_demangle::Symbol::new(name) {
         if let Ok(demangled_string) = symbol.demangle(&options) {
