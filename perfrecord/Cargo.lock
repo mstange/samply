@@ -719,6 +719,8 @@ dependencies = [
 [[package]]
 name = "perfrecord-mach-ipc-rendezvous"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d69170b0f48624cca114583c29322d725ce4da4b7fcdcd089170f169fbde33ba"
 dependencies = [
  "lazy_static",
  "libc",
