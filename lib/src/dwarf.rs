@@ -3,6 +3,7 @@ use crate::symbolicate::demangle;
 use addr2line::{fallible_iterator, gimli, object};
 use fallible_iterator::FallibleIterator;
 use gimli::{EndianSlice, SectionId};
+use std::borrow::Cow;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct AddressPair {
@@ -84,15 +85,16 @@ fn convert_stack_frame<R: gimli::Reader>(
 /// See addr2line::Context::new for details.
 pub struct SectionDataNoCopy<'a> {
     pub endian: gimli::RunTimeEndian,
-    pub debug_abbrev_data: std::borrow::Cow<'a, [u8]>,
-    pub debug_addr_data: std::borrow::Cow<'a, [u8]>,
-    pub debug_info_data: std::borrow::Cow<'a, [u8]>,
-    pub debug_line_data: std::borrow::Cow<'a, [u8]>,
-    pub debug_line_str_data: std::borrow::Cow<'a, [u8]>,
-    pub debug_ranges_data: std::borrow::Cow<'a, [u8]>,
-    pub debug_rnglists_data: std::borrow::Cow<'a, [u8]>,
-    pub debug_str_data: std::borrow::Cow<'a, [u8]>,
-    pub debug_str_offsets_data: std::borrow::Cow<'a, [u8]>,
+    pub debug_abbrev_data: Cow<'a, [u8]>,
+    pub debug_addr_data: Cow<'a, [u8]>,
+    pub debug_info_data: Cow<'a, [u8]>,
+    pub debug_line_data: Cow<'a, [u8]>,
+    pub debug_line_str_data: Cow<'a, [u8]>,
+    pub debug_ranges_data: Cow<'a, [u8]>,
+    pub debug_rnglists_data: Cow<'a, [u8]>,
+    pub debug_str_data: Cow<'a, [u8]>,
+    pub debug_str_offsets_data: Cow<'a, [u8]>,
+    pub default_section_data: Cow<'a, [u8]>,
 }
 
 impl<'data> SectionDataNoCopy<'data> {
@@ -109,14 +111,17 @@ impl<'data> SectionDataNoCopy<'data> {
         fn get_section_data<'data, 'file, O>(
             file: &'file O,
             section_name: &'static str,
-        ) -> std::borrow::Cow<'data, [u8]>
+        ) -> Cow<'data, [u8]>
         where
             O: object::Object<'data, 'file>,
         {
             use object::ObjectSection;
-            file.section_by_name(section_name)
-                .and_then(|section| section.uncompressed_data().ok())
-                .unwrap_or(std::borrow::Cow::Borrowed(&[]))
+            if let Some(section) = file.section_by_name(section_name) {
+                if let Ok(data) = section.uncompressed_data() {
+                    return data;
+                }
+            }
+            Cow::Borrowed(&[])
         }
 
         let debug_abbrev_data = get_section_data(file, SectionId::DebugAbbrev.name());
@@ -140,6 +145,7 @@ impl<'data> SectionDataNoCopy<'data> {
             debug_rnglists_data,
             debug_str_data,
             debug_str_offsets_data,
+            default_section_data: Cow::Borrowed(&[]),
         }
     }
 
@@ -150,36 +156,24 @@ impl<'data> SectionDataNoCopy<'data> {
         gimli::read::Error,
     > {
         let endian = self.endian;
-        let debug_abbrev: gimli::DebugAbbrev<_> =
-            EndianSlice::new(&*self.debug_abbrev_data, endian).into();
-        let debug_addr: gimli::DebugAddr<_> =
-            EndianSlice::new(&*self.debug_addr_data, endian).into();
-        let debug_info: gimli::DebugInfo<_> =
-            EndianSlice::new(&*self.debug_info_data, endian).into();
-        let debug_line: gimli::DebugLine<_> =
-            EndianSlice::new(&*self.debug_line_data, endian).into();
-        let debug_line_str: gimli::DebugLineStr<_> =
-            EndianSlice::new(&*self.debug_line_str_data, endian).into();
-        let debug_ranges: gimli::DebugRanges<_> =
-            EndianSlice::new(&*self.debug_ranges_data, endian).into();
-        let debug_rnglists: gimli::DebugRngLists<_> =
-            EndianSlice::new(&*self.debug_rnglists_data, endian).into();
-        let debug_str: gimli::DebugStr<_> = EndianSlice::new(&*self.debug_str_data, endian).into();
-        let debug_str_offsets: gimli::DebugStrOffsets<_> =
-            EndianSlice::new(&*self.debug_str_offsets_data, endian).into();
-        let default_section = EndianSlice::new(&[], endian);
+        fn get<'a, S>(section_data: &'a [u8], endian: gimli::RunTimeEndian) -> S
+        where
+            S: From<EndianSlice<'a, gimli::RunTimeEndian>>,
+        {
+            EndianSlice::new(&*section_data, endian).into()
+        }
 
         addr2line::Context::from_sections(
-            debug_abbrev,
-            debug_addr,
-            debug_info,
-            debug_line,
-            debug_line_str,
-            debug_ranges,
-            debug_rnglists,
-            debug_str,
-            debug_str_offsets,
-            default_section,
+            get(&self.debug_abbrev_data, endian),
+            get(&self.debug_addr_data, endian),
+            get(&self.debug_info_data, endian),
+            get(&self.debug_line_data, endian),
+            get(&self.debug_line_str_data, endian),
+            get(&self.debug_ranges_data, endian),
+            get(&self.debug_rnglists_data, endian),
+            get(&self.debug_str_data, endian),
+            get(&self.debug_str_offsets_data, endian),
+            get(&self.default_section_data, endian),
         )
     }
 }
