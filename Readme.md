@@ -14,7 +14,7 @@ This collects a profile of the `./your-command your-arguments` command and saves
 your default browser, loads the profile in it, and runs a local webserver so that profiler.firefox.com
 can symbolicate the profile and show source code and assembly code on demand.
 
-Tha captured data is similar to that of the "CPU Profiler" in Instruments.
+The captured data is similar to that of the "CPU Profiler" in Instruments.
 `perfrecord` is a sampling profiler that collects stack traces, per thread, at some sampling interval.
 In the future it supports sampling based on wall-clock time ("All thread states") and CPU time.
 
