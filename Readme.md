@@ -1,5 +1,7 @@
 # perfrecord
 
+This is a work in progress and not ready for public consumption.
+
 `perfrecord` is a macOS-only command line CPU profiler that displays the result
 in the [Firefox profiler](https://profiler.firefox.com/).
 
@@ -48,6 +50,7 @@ It is meant to overcome the following shortcomings:
  - `sample` and the dtrace `@[ustack()] = count();` script do not capture sample timestamps. They only capture aggregates. This makes it impossible to see the sequence of execution.
  - The Instruments command line tool does not allow specifying the sampling interval or to capture all-thread-states (wall-clock time-based) profiles. This means that you often have to initiate profiling from the UI, which can be cumbersome.
  - Instruments is not open source.
+ - Instruments only profiles a single process (or all processes system-wide). It would be nice to have a profiler that can follow the process subtree of a command.
  - Instruments is unusably slow when loading profiles of large binaries. For example, profiling a local Firefox build with debug information hangs the Instruments UI for ten minutes (!).
  - Instruments has bugs, lots of them.
  - It misses some features, such as certain call tree transforms, or Rust demangling.
