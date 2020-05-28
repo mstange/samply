@@ -42,7 +42,6 @@ dependencies = [
 name = "perfrecord-preload"
 version = "0.1.0"
 dependencies = [
- "libc",
  "mach-ipc-rendezvous",
 ]
 
