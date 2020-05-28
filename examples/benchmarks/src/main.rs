@@ -26,6 +26,11 @@ fn main() -> anyhow::Result<()> {
         FileType::TarBz2,
     )?;
     prepare(
+        big_fixtures_dir().join("macos-local"),
+        "https://storage.googleapis.com/profiler-get-symbols-fixtures/macos-local.tar.bz2",
+        FileType::TarBz2,
+    )?;
+    prepare(
         big_fixtures_dir().join("linux64-ci").join("libxul.so.dbg"),
         "https://symbols.mozilla.org/libxul.so/F33E37832964290A31906802CE8F3C9C0/libxul.so.dbg.gz",
         FileType::Gzip,
@@ -102,6 +107,35 @@ fn main() -> anyhow::Result<()> {
             "/symbolicate/v6a1",
             &fixtures_dir().join("requests").join("macos-ci-xul.json"),
             big_fixtures_dir().join("macos-ci"),
+        )?,
+    });
+
+    // macOS, local with object files referenced by OSO stab symbols
+    timings.push(Timing {
+        platform: "macos-local",
+        action: "dump-table",
+        duration: run_dump_table_benchmark(
+            "XUL",
+            Some("D2139EE3190B37028A98D55519AA0B870".into()),
+            big_fixtures_dir().join("macos-local"),
+        )?,
+    });
+    timings.push(Timing {
+        platform: "macos-local",
+        action: "query-api v5",
+        duration: run_api_query_benchmark(
+            "/symbolicate/v5",
+            &fixtures_dir().join("requests").join("macos-local-xul.json"),
+            big_fixtures_dir().join("macos-local"),
+        )?,
+    });
+    timings.push(Timing {
+        platform: "macos-local",
+        action: "query-api v6a1",
+        duration: run_api_query_benchmark(
+            "/symbolicate/v6a1",
+            &fixtures_dir().join("requests").join("macos-local-xul.json"),
+            big_fixtures_dir().join("macos-local"),
         )?,
     });
 

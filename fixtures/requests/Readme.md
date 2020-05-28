@@ -3,6 +3,7 @@ The JSON in the example files in this directory was obtained by triggering re-sy
  - `win64-local-*.json`: https://perfht.ml/2z2IJBR
  - `win64-ci-*.json`: https://perfht.ml/2WHa7yt
  - `macos-ci-*.json`: https://perfht.ml/2YOcIYz
+ - `macos-local-xul.json`: https://perfht.ml/2X7DwAM
  - `linux64-ci-*.json`: https://perfht.ml/2WFmaMy
  - `android32-ci-*.json`: https://perfht.ml/2VabBjW
  - `android64-ci-*.json`: https://perfht.ml/2Za35Ui
