@@ -1,10 +1,12 @@
 use cocoa::base::id;
 use objc::rc::autoreleasepool;
 use objc::{msg_send, sel, sel_impl};
+use profiler_symbol_server::start_server;
 use serde_json::to_writer;
 use std::fs::File;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::{thread, time};
+use structopt::StructOpt;
 use which::which;
 
 mod dyld_bindings;
@@ -14,7 +16,7 @@ mod process_launcher;
 
 use gecko_profile::ProfileBuilder;
 use proc_maps::{get_dyld_info, DyldInfo};
-use process_launcher::{mach_port_t, MachError, ProcessLauncher};
+use process_launcher::{mach_port_t, MachError, ProcessLauncher, Wait};
 
 #[cfg(target_os = "macos")]
 #[link(name = "Symbolication", kind = "framework")]
@@ -24,20 +26,95 @@ extern "C" {
     static VMUSampler_class: objc::runtime::Class;
 }
 
+#[derive(Debug, StructOpt)]
+#[structopt(
+    name = "perfrecord",
+    about = r#"Run a command and record a CPU profile of its execution.
+
+EXAMPLES:
+    perfrecord ./yourcommand args
+    perfrecord --launch-when-done ./yourcommand args
+    perfrecord -o prof.json ./yourcommand args
+    perfrecord --launch prof.json"#
+)]
+struct Opt {
+    /// Launch the profiler and display the collected profile after recording.
+    #[structopt(long = "launch-when-done")]
+    launch_when_done: bool,
+
+    /// When recording, limit the recorded time to the specified number of seconds
+    #[structopt(short = "t", long = "time-limit")]
+    time_limit: Option<f64>,
+
+    /// When recording, save the collected profile to this file.
+    #[structopt(
+        short = "o",
+        long = "out",
+        default_value = "profile.json",
+        parse(from_os_str)
+    )]
+    output_file: PathBuf,
+
+    /// If neither --launch nor --serve are specified, profile this command.
+    #[structopt(subcommand)]
+    rest: Option<Subcommands>,
+
+    /// Launch the profiler in your default browser and display the selected profile.
+    #[structopt(short = "l", long = "launch", parse(from_os_str))]
+    file_to_launch: Option<PathBuf>,
+
+    /// Serve the specified profile from a local webserver but do not open the browser.
+    #[structopt(short = "s", long = "serve", parse(from_os_str))]
+    file_to_serve: Option<PathBuf>,
+}
+
+#[derive(Debug, PartialEq, StructOpt)]
+enum Subcommands {
+    #[structopt(external_subcommand)]
+    Command(Vec<String>),
+}
+
 fn main() -> Result<(), MachError> {
+    let opt = Opt::from_args();
+    let open_in_browser = opt.file_to_launch.is_some();
+    let file_for_launching_or_serving = opt.file_to_launch.or(opt.file_to_serve);
+    if let Some(file) = file_for_launching_or_serving {
+        start_server_main(&file, open_in_browser);
+        return Ok(());
+    }
+    if let Some(Subcommands::Command(command)) = opt.rest {
+        if !command.is_empty() {
+            start_recording(
+                &opt.output_file,
+                &command,
+                opt.time_limit,
+                opt.launch_when_done,
+            )?;
+            return Ok(());
+        }
+    }
+    println!("Error: missing command\n");
+    Opt::clap().print_help().unwrap();
+    std::process::exit(1);
+}
+
+#[tokio::main]
+async fn start_server_main(file: &Path, open_in_browser: bool) {
+    start_server(file, open_in_browser).await;
+}
+
+fn start_recording(
+    output_file: &Path,
+    args: &[String],
+    time_limit: Option<f64>,
+    launch_when_done: bool,
+) -> Result<(), MachError> {
     let env: Vec<_> = std::env::vars()
         .map(|(k, v)| format!("{}={}", k, v))
         .collect();
     let env: Vec<&str> = env.iter().map(std::ops::Deref::deref).collect();
 
-    let args: Vec<_> = std::env::args().skip(1).collect();
-    let command = match args.first() {
-        Some(command) => which(command).unwrap(),
-        None => {
-            println!("Usage: perfrecord somecommand");
-            panic!()
-        }
-    };
+    let command = which(args.first().unwrap()).expect("Couldn't resolve command name");
     let args: Vec<&str> = args.iter().map(std::ops::Deref::deref).collect();
 
     let mut launcher = ProcessLauncher::new(&command, &args, &env)?;
@@ -47,7 +124,7 @@ fn main() -> Result<(), MachError> {
 
     let dyld_info = get_dyld_info(child_task).expect("get_dyld_info failed");
 
-    let sampler = Sampler::new_with_task(child_task, Some(5000.0), 0.001, true);
+    let sampler = Sampler::new_with_task(child_task, time_limit.or(Some(5000.0)), 0.001, true);
     sampler.start();
 
     thread::sleep(time::Duration::from_millis(100));
@@ -67,10 +144,7 @@ fn main() -> Result<(), MachError> {
     {
         let uuid = match uuid {
             Some(uuid) => uuid,
-            None => {
-                println!("no uuid for {}", file);
-                continue;
-            }
+            None => continue,
         };
         let name = Path::new(&file).file_name().unwrap().to_str().unwrap();
         let address_range = address..(address + vmsize);
@@ -85,9 +159,15 @@ fn main() -> Result<(), MachError> {
     {
         profile_builder.add_sample(*thread_index, *timestamp * 1000.0, frames);
     }
-    let file = File::create("profile.json").unwrap();
+    let file = File::create(output_file).unwrap();
     to_writer(file, &profile_builder.to_json()).expect("Couldn't write JSON");
     // println!("profile: {:?}", profile_builder);
+
+    if launch_when_done {
+        start_server_main(output_file, true);
+    }
+
+    child_pid.wait();
 
     Ok(())
 }

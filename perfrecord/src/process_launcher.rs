@@ -15,6 +15,7 @@ pub struct ProcessLauncher {
     child_task: mach_port_t,
     child_pid: libc::pid_t,
     sender_channel: OsIpcSender,
+    _temp_dir: tempfile::TempDir,
 }
 
 static PRELOAD_LIB_CONTENTS: &'static [u8] = include_bytes!("../resources/libperfrecord_preload.dylib");
@@ -62,6 +63,10 @@ impl ProcessLauncher {
                 );
             })
         };
+
+
+
+
         // Wait until the child is ready
         let (_server, res, mut channels, _) = server.accept()?;
         assert!(res == b"My task");
@@ -75,6 +80,7 @@ impl ProcessLauncher {
             child_task,
             child_pid,
             sender_channel,
+            _temp_dir: dir,
         })
     }
 
@@ -105,7 +111,7 @@ unsafe fn fork<F: FnOnce()>(child_func: F) -> libc::pid_t {
     }
 }
 
-trait Wait {
+pub trait Wait {
     fn wait(self);
 }
 
