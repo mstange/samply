@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 use structopt::StructOpt;
 
-mod lib;
-use lib::start_server;
+use profiler_symbol_server::start_server;
+
 
 #[derive(Debug, StructOpt)]
 #[structopt(

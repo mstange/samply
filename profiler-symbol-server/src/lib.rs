@@ -2,7 +2,6 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::{header, Body, Request, Response, Server};
 use hyper::{Method, StatusCode};
 use memmap::MmapOptions;
-use moria;
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use profiler_get_symbols::query_api;
 use profiler_get_symbols::{
@@ -19,14 +18,13 @@ use std::pin::Pin;
 use std::process::Command;
 use std::sync::Arc;
 use uuid::Uuid;
-const BAD_CHARS: &AsciiSet = &CONTROLS
-    .add(b':')
-    .add(b'/')
-    .add(b' ')
-    .add(b'"')
-    .add(b'<')
-    .add(b'>')
-    .add(b'`');
+
+mod moria_mac;
+
+#[cfg(target_os = "macos")]
+mod moria_mac_spotlight;
+
+const BAD_CHARS: &AsciiSet = &CONTROLS.add(b':').add(b'/');
 
 pub async fn start_server(file: &Path, open_in_browser: bool) {
     // Read the profile.json file and parse it as JSON. TODO: allow specifying the file on the command line
@@ -168,7 +166,7 @@ impl FileAndPathHelper for Helper {
         {
             // First, see if we can find a dSYM file for the binary.
             if let Ok(uuid) = Uuid::parse_str(&breakpad_id[0..32]) {
-                if let Ok(dsym_path) = moria::locate_dsym(&path, uuid) {
+                if let Ok(dsym_path) = moria_mac::locate_dsym(&path, uuid) {
                     paths.push(dsym_path.clone());
                     paths.push(
                         dsym_path

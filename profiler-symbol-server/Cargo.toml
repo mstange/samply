@@ -3,17 +3,23 @@ name = "profiler-symbol-server"
 version = "0.1.0"
 authors = ["Markus Stange <mstange@themasta.com>"]
 edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "A local webserver that lets the Firefox profiler obtain symbol information."
+homepage = "https://github.com/mstange/profiler-symbol-server/"
+repository = "https://github.com/mstange/profiler-symbol-server/"
+readme = "README.md"
 
 [dependencies]
 hyper = "0.13"
 tokio = { version = "0.2", features = ["full"] }
 futures = "0.3"
-profiler-get-symbols = { git = "https://github.com/mstange/profiler-get-symbols/", rev = "2a3f8de8f2ee89ec96c4831573e5a591e2a64b06", features = ["send_futures"] }
+profiler-get-symbols = { version = "0.1.0", features = ["send_futures"] }
 memmap = "0.7.0"
 serde_json = "1.0.53"
-moria = { git = "https://github.com/gimli-rs/moria/" }
 uuid = "0.7" # really moria::uuid
 structopt = "0.3.14"
 percent-encoding = "2.1.0"
+failure = "0.1.8"
+object = "0.19.0"
+libc = "0.2.71"
+core-foundation-sys = "0.7.0"
+core-foundation = "0.7.0"
