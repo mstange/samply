@@ -2,7 +2,10 @@
 name = "perfrecord-mach-ipc-rendezvous"
 version = "0.1.0"
 description = "A subset of the ipc-channel mach functionality to establish two-way communication and exchange the mach_task_self port."
-authors = ["The Servo Project Developers"]
+homepage = "https://github.com/mstange/perfrecord/"
+repository = "https://github.com/mstange/perfrecord/"
+readme = "README.md"
+authors = ["The Servo Project Developers", "Markus Stange <mstange@themasta.com>"]
 license = "MIT/Apache-2.0"
 edition = "2018"
 
