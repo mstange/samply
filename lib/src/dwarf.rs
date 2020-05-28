@@ -8,14 +8,14 @@ use std::borrow::Cow;
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct AddressPair {
     pub original_address: u32,
-    pub address_in_this_object: u32,
+    pub address_in_this_object: u64,
 }
 
 impl AddressPair {
     pub fn same(address: u32) -> Self {
         AddressPair {
             original_address: address,
-            address_in_this_object: address,
+            address_in_this_object: address as u64,
         }
     }
 }

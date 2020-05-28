@@ -82,13 +82,26 @@ where
         with_debug_info: true,
     } = R::result_kind()
     {
+        use object::read::ObjectSegment;
+        let vmaddr_of_text_segment = macho_file
+            .segments()
+            .find(|segment| segment.name() == Ok(Some("__TEXT")))
+            .map(|segment| segment.address())
+            .unwrap_or(0);
+
         let mut remainder = VecDeque::new();
 
         // Look up addresses that don't have external debug info, and collect information
         // about the ones that do have external debug info.
         let goblin_macho = mach::MachO::parse(buffer, 0)?;
-        let addresses_in_this_object: Vec<_> =
-            addresses.iter().map(|a| AddressPair::same(*a)).collect();
+
+        let addresses_in_this_object: Vec<_> = addresses
+            .iter()
+            .map(|a| AddressPair {
+                original_address: *a,
+                address_in_this_object: vmaddr_of_text_segment + *a as u64,
+            })
+            .collect();
         remainder.extend(collect_debug_info_and_remainder(
             &macho_file,
             &goblin_macho,
@@ -174,7 +187,7 @@ where
                 } in addresses
                 {
                     let address_in_this_object =
-                        symbol.address() as u32 + offset_from_function_start;
+                        symbol.address() + offset_from_function_start as u64;
                     addresses_in_this_object.push(AddressPair {
                         original_address,
                         address_in_this_object,
@@ -325,7 +338,7 @@ fn match_funs_to_addresses<'a, 'b, 'c>(
         // Now the following is true:
         // fun.object_index.is_some() &&
         // fun.address_range.start <= address_in_this_object && address_in_this_object < fun.addr_range.end
-        let offset_from_function_start = address_in_this_object - fun.address_range.start;
+        let offset_from_function_start = (address_in_this_object - fun.address_range.start) as u32;
         let address_with_offset = AddressWithOffset {
             original_address,
             offset_from_function_start,
@@ -354,7 +367,7 @@ struct OriginObject<'a> {
 #[derive(Debug)]
 struct Function<'a> {
     name: &'a str,
-    address_range: std::ops::Range<u32>,
+    address_range: std::ops::Range<u64>,
     object_index: Option<usize>,
 }
 
@@ -385,8 +398,8 @@ impl<'a> ObjectsAndFunctions<'a> {
                     if !name.is_empty() {
                         current_function = Some((name, nlist.n_value));
                     } else if let Some((name, start_address)) = current_function.take() {
-                        let start_address = start_address as u32;
-                        let size = nlist.n_value as u32;
+                        let start_address = start_address;
+                        let size = nlist.n_value;
                         let object_index = if objects.is_empty() {
                             None
                         } else {
