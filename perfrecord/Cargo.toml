@@ -10,9 +10,10 @@ repository = "https://github.com/mstange/perfrecord/"
 readme = "README.md"
 
 [dependencies]
-perfrecord-mach-ipc-rendezvous = { path = "../perfrecord-mach-ipc-rendezvous" }
-profiler-symbol-server = "0.1.0"
+# perfrecord-mach-ipc-rendezvous = { path = "../perfrecord-mach-ipc-rendezvous" }
+perfrecord-mach-ipc-rendezvous = "0.1.0"
 
+profiler-symbol-server = "0.1.0"
 tokio = { version = "0.2", features = ["full"] }
 objc = "0.2.7"
 cocoa = "0.20.1"
