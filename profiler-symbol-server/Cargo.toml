@@ -10,8 +10,10 @@ edition = "2018"
 hyper = "0.13"
 tokio = { version = "0.2", features = ["full"] }
 futures = "0.3"
-profiler-get-symbols = { path = "../../profiler-get-symbols/lib" }
+profiler-get-symbols = { git = "https://github.com/mstange/profiler-get-symbols/", rev = "2a3f8de8f2ee89ec96c4831573e5a591e2a64b06", features = ["send_futures"] }
 memmap = "0.7.0"
 serde_json = "1.0.53"
 moria = { git = "https://github.com/gimli-rs/moria/" }
 uuid = "0.7" # really moria::uuid
+structopt = "0.3.14"
+percent-encoding = "2.1.0"
