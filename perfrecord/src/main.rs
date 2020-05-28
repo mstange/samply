@@ -20,10 +20,6 @@ use process_launcher::{mach_port_t, MachError, ProcessLauncher};
 #[link(name = "Symbolication", kind = "framework")]
 extern "C" {
     #[no_mangle]
-    #[link_name = "OBJC_CLASS_$_VMUProcessDescription"]
-    static VMUProcessDescription_class: objc::runtime::Class;
-
-    #[no_mangle]
     #[link_name = "OBJC_CLASS_$_VMUSampler"]
     static VMUSampler_class: objc::runtime::Class;
 }

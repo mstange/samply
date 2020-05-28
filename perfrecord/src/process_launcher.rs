@@ -1,9 +1,13 @@
 use libc;
 use mach_ipc_rendezvous::{OsIpcOneShotServer, OsIpcSender};
+use tempfile::tempdir;
+
 use std::ffi::CString;
 use std::mem;
 use std::path::Path;
 use std::ptr;
+use std::fs::File;
+use std::io::Write;
 
 pub use mach_ipc_rendezvous::{mach_port_t, MachError, MACH_PORT_NULL};
 
@@ -13,11 +17,22 @@ pub struct ProcessLauncher {
     sender_channel: OsIpcSender,
 }
 
-static PRELOAD_LIB_PATH: &'static str =
-    "/Users/mstange/code/perfrecord/perfrecord-preload/target/release/libperfrecord_preload.dylib";
+static PRELOAD_LIB_CONTENTS: &'static [u8] = include_bytes!("../resources/libperfrecord_preload.dylib");
 
 impl ProcessLauncher {
     pub fn new(binary: &Path, argv: &[&str], env: &[&str]) -> Result<Self, MachError> {
+        // Launch the child with DYLD_INSERT_LIBRARIES set to libperfrecord_preload.dylib.
+
+        // We would like to ship with libperfrecord_preload.dylib as a separate resource file.
+        // But this won't work with cargo install. So we write out libperfrecord_preload.dylib
+        // to a temporary directory.
+        let dir = tempdir().expect("Couldn't create temporary directory for preload-lib");
+        let preload_lib_path = dir.path().join("libperfrecord_preload.dylib");
+        let mut file = File::create(&preload_lib_path).expect("Couldn't create libperfrecord_preload.dylib");
+        file.write_all(PRELOAD_LIB_CONTENTS).expect("Couldn't write libperfrecord_preload.dylib");
+        mem::drop(file);
+        let preload_lib_path = preload_lib_path.as_os_str().to_str().expect("Couldn't convert path to string");
+
         let (server, name) = OsIpcOneShotServer::new()?;
 
         let mut child_env: Vec<CString> = env
@@ -25,7 +40,7 @@ impl ProcessLauncher {
             .map(|env_var| CString::new(env_var.as_bytes()).unwrap())
             .collect();
         child_env
-            .push(CString::new(format!("DYLD_INSERT_LIBRARIES={}", PRELOAD_LIB_PATH)).unwrap());
+            .push(CString::new(format!("DYLD_INSERT_LIBRARIES={}", preload_lib_path)).unwrap());
         child_env.push(CString::new(format!("PERFRECORD_BOOTSTRAP_SERVER_NAME={}", name)).unwrap());
 
         let mut child_env: Vec<_> = child_env.iter().map(|e| e.as_ptr()).collect();
