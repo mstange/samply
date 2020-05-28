@@ -4,10 +4,17 @@ version = "0.1.0"
 authors = ["Markus Stange <mstange@themasta.com>"]
 edition = "2018"
 license = "MIT/Apache-2.0"
+description = "A macOS command line profiler."
+homepage = "https://github.com/mstange/perfrecord/"
+repository = "https://github.com/mstange/perfrecord/"
+readme = "README.md"
 
 [dependencies]
-mach-ipc-rendezvous = { path = "../mach-ipc-rendezvous" }
-profiler-symbol-server = { path = "../profiler-symbol-server" }
+# mach-ipc-rendezvous = { git = "../mach-ipc-rendezvous" }
+# profiler-symbol-server = { git = "../profiler-symbol-server" }
+mach-ipc-rendezvous = { git = "https://github.com/mstange/perfrecord/" }
+profiler-symbol-server = { git = "https://github.com/mstange/perfrecord/" }
+
 tokio = { version = "0.2", features = ["full"] }
 objc = "0.2.7"
 cocoa = "0.20.1"

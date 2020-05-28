@@ -567,6 +567,7 @@ dependencies = [
 [[package]]
 name = "mach-ipc-rendezvous"
 version = "0.1.0"
+source = "git+https://github.com/mstange/perfrecord/#1629c435aefcd49e65eb0d4fe75721476a3babac"
 dependencies = [
  "lazy_static",
  "libc",
@@ -916,6 +917,7 @@ dependencies = [
 [[package]]
 name = "profiler-symbol-server"
 version = "0.1.0"
+source = "git+https://github.com/mstange/perfrecord/#1629c435aefcd49e65eb0d4fe75721476a3babac"
 dependencies = [
  "futures",
  "hyper",
