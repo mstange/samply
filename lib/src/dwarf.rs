@@ -28,6 +28,10 @@ pub fn collect_dwarf_address_debug_data<'data, 'file, O, R>(
     O: object::Object<'data, 'file>,
     R: SymbolicationResult,
 {
+    if addresses.is_empty() {
+        return;
+    }
+
     let section_data = SectionDataNoCopy::from_object(object);
     if let Ok(context) = section_data.make_addr2line_context() {
         for AddressPair {
