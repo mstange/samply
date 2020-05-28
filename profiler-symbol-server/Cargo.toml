@@ -10,7 +10,7 @@ edition = "2018"
 hyper = "0.13"
 tokio = { version = "0.2", features = ["full"] }
 futures = "0.3"
-profiler-get-symbols = { path = "../profiler-get-symbols/lib" }
+profiler-get-symbols = { path = "../../profiler-get-symbols/lib" }
 memmap = "0.7.0"
 serde_json = "1.0.53"
 moria = { git = "https://github.com/gimli-rs/moria/" }
