@@ -3,6 +3,7 @@ name = "profiler-symbol-server"
 version = "0.1.0"
 authors = ["Markus Stange <mstange@themasta.com>"]
 edition = "2018"
+license = "MIT/Apache-2.0"
 description = "A local webserver that lets the Firefox profiler obtain symbol information."
 homepage = "https://github.com/mstange/profiler-symbol-server/"
 repository = "https://github.com/mstange/profiler-symbol-server/"
