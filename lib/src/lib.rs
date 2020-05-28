@@ -15,12 +15,13 @@ use goblin::Hint;
 use pdb_crate::PDB;
 use serde_json::json;
 use std::io::Cursor;
-use std::rc::Rc;
+use std::sync::Arc;
 
 pub use crate::compact_symbol_table::CompactSymbolTable;
 pub use crate::error::{GetSymbolsError, Result};
 pub use crate::shared::{
-    FileAndPathHelper, FileAndPathHelperError, FileAndPathHelperResult, OwnedFileData,
+    FileAndPathHelper, FileAndPathHelperError, FileAndPathHelperResult, OptionallySendFuture,
+    OwnedFileData,
 };
 use crate::shared::{SymbolicationQuery, SymbolicationResult};
 
@@ -103,10 +104,10 @@ where
     match goblin::peek(&mut reader)? {
         Hint::Elf(_) => elf::get_symbolication_result(buffer, query),
         Hint::Mach(_) => {
-            macho::get_symbolication_result(Rc::new(owned_data), None, query, helper).await
+            macho::get_symbolication_result(Arc::new(owned_data), None, query, helper).await
         }
         Hint::MachFat(_) => {
-            macho::get_symbolication_result_multiarch(Rc::new(owned_data), query, helper).await
+            macho::get_symbolication_result_multiarch(Arc::new(owned_data), query, helper).await
         }
         Hint::PE => pdb::get_symbolication_result_via_binary(buffer, query, helper).await,
         _ => {

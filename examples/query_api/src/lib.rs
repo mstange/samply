@@ -1,7 +1,8 @@
 use memmap::MmapOptions;
-use profiler_get_symbols::{self, FileAndPathHelper, FileAndPathHelperResult, OwnedFileData};
+use profiler_get_symbols::{
+    self, FileAndPathHelper, FileAndPathHelperResult, OptionallySendFuture, OwnedFileData,
+};
 use std::fs::File;
-use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 
@@ -29,7 +30,7 @@ impl FileAndPathHelper for Helper {
         &self,
         debug_name: &str,
         _breakpad_id: &str,
-    ) -> Pin<Box<dyn Future<Output = FileAndPathHelperResult<Vec<PathBuf>>>>> {
+    ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Vec<PathBuf>>>>> {
         async fn to_future(
             res: FileAndPathHelperResult<Vec<PathBuf>>,
         ) -> FileAndPathHelperResult<Vec<PathBuf>> {
@@ -65,7 +66,8 @@ impl FileAndPathHelper for Helper {
     fn read_file(
         &self,
         path: &Path,
-    ) -> Pin<Box<dyn Future<Output = FileAndPathHelperResult<Self::FileContents>>>> {
+    ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::FileContents>>>>
+    {
         async fn read_file_impl(path: PathBuf) -> FileAndPathHelperResult<MmapFileContents> {
             eprintln!("Reading file {:?}", &path);
             let file = File::open(&path)?;

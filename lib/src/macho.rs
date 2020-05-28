@@ -9,11 +9,11 @@ use goblin::mach;
 use object::read::{File, Object};
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::sync::Arc;
 use uuid::Uuid;
 
 pub async fn get_symbolication_result_multiarch<'a, R>(
-    owned_data: Rc<impl OwnedFileData>,
+    owned_data: Arc<impl OwnedFileData>,
     query: SymbolicationQuery<'a>,
     helper: &impl FileAndPathHelper,
 ) -> Result<R>
@@ -41,7 +41,7 @@ where
 }
 
 pub async fn get_symbolication_result<'a, 'b, R>(
-    owned_data: Rc<impl OwnedFileData>,
+    owned_data: Arc<impl OwnedFileData>,
     slice: Option<std::ops::Range<usize>>,
     query: SymbolicationQuery<'a>,
     helper: &impl FileAndPathHelper,

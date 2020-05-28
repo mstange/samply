@@ -5,11 +5,12 @@ mod error;
 mod wasm_mem_buffer;
 
 use js_sys::Promise;
-use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
+
+use profiler_get_symbols::OptionallySendFuture;
 
 pub use error::{GenericError, GetSymbolsError, JsValueError};
 pub use wasm_mem_buffer::WasmMemBuffer;
@@ -152,8 +153,13 @@ impl profiler_get_symbols::FileAndPathHelper for FileAndPathHelper {
         &self,
         debug_name: &str,
         breakpad_id: &str,
-    ) -> Pin<Box<dyn Future<Output = profiler_get_symbols::FileAndPathHelperResult<Vec<PathBuf>>>>>
-    {
+    ) -> Pin<
+        Box<
+            dyn OptionallySendFuture<
+                Output = profiler_get_symbols::FileAndPathHelperResult<Vec<PathBuf>>,
+            >,
+        >,
+    > {
         Box::pin(get_candidate_paths_for_binary_or_pdb_impl(
             FileAndPathHelper::from((*self).clone()),
             debug_name.to_owned(),
@@ -165,7 +171,11 @@ impl profiler_get_symbols::FileAndPathHelper for FileAndPathHelper {
         &self,
         path: &Path,
     ) -> Pin<
-        Box<dyn Future<Output = profiler_get_symbols::FileAndPathHelperResult<Self::FileContents>>>,
+        Box<
+            dyn OptionallySendFuture<
+                Output = profiler_get_symbols::FileAndPathHelperResult<Self::FileContents>,
+            >,
+        >,
     > {
         Box::pin(read_file_impl(
             FileAndPathHelper::from((*self).clone()),

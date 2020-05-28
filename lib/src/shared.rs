@@ -13,6 +13,29 @@ pub trait OwnedFileData {
 pub type FileAndPathHelperError = Box<dyn std::error::Error + Send + Sync + 'static>;
 pub type FileAndPathHelperResult<T> = std::result::Result<T, FileAndPathHelperError>;
 
+// Define a OptionallySendFuture trait. This exists for the following reasons:
+//  - The "+ Send" in the return types of the FileAndPathHelper trait methods
+//    trickles down all the way to the root async functions exposed by this crate.
+//  - We have two consumers: One that requires Send on the futures returned by those
+//    root functions, and one that cannot return Send futures from the trait methods.
+//    The former is hyper/tokio (in profiler-symbol-server), the latter is the wasm/js
+//    implementation: JsFutures are not Send.
+// So we provide a cargo feature to allow the consumer to select whether they want Send or not.
+//
+// Please tell me that there is a better way.
+
+#[cfg(not(feature = "send_futures"))]
+pub trait OptionallySendFuture: Future {}
+
+#[cfg(not(feature = "send_futures"))]
+impl<T> OptionallySendFuture for T where T: Future {}
+
+#[cfg(feature = "send_futures")]
+pub trait OptionallySendFuture: Future + Send {}
+
+#[cfg(feature = "send_futures")]
+impl<T> OptionallySendFuture for T where T: Future + Send {}
+
 pub trait FileAndPathHelper {
     type FileContents: OwnedFileData;
 
@@ -20,7 +43,7 @@ pub trait FileAndPathHelper {
         &self,
         debug_name: &str,
         breakpad_id: &str,
-    ) -> Pin<Box<dyn Future<Output = FileAndPathHelperResult<Vec<PathBuf>>>>>;
+    ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Vec<PathBuf>>>>>;
 
     fn get_candidate_paths_for_pdb(
         &self,
@@ -28,7 +51,7 @@ pub trait FileAndPathHelper {
         _breakpad_id: &str,
         pdb_path_as_stored_in_binary: &std::ffi::CStr,
         _binary_path: &Path,
-    ) -> Pin<Box<dyn Future<Output = FileAndPathHelperResult<Vec<PathBuf>>>>> {
+    ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Vec<PathBuf>>>>> {
         async fn single_value_path_vec(
             path: std::ffi::CString,
         ) -> FileAndPathHelperResult<Vec<PathBuf>> {
@@ -42,7 +65,7 @@ pub trait FileAndPathHelper {
     fn read_file(
         &self,
         path: &Path,
-    ) -> Pin<Box<dyn Future<Output = FileAndPathHelperResult<Self::FileContents>>>>;
+    ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::FileContents>>>>;
 }
 
 pub struct AddressDebugInfo {

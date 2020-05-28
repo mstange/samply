@@ -5,6 +5,10 @@ authors = ["Markus Stange <mstange@themasta.com>"]
 license = "MIT/Apache-2.0"
 edition = "2018"
 
+[features]
+default = []
+send_futures = []
+
 [dependencies]
 pdb = "0.6.0"
 uuid = "0.8.1"
