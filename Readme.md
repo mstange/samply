@@ -1,27 +1,39 @@
 # perfrecord
 
-This is a work in progress.
-
-The end goal is to have a macOS-only command line profiler that displays the result
+`perfrecord` is a macOS-only command line CPU profiler that displays the result
 in the [Firefox profiler](https://profiler.firefox.com/).
 
-Once it's finished, it should look something like this:
+Try it out now:
 
 ```
 % cargo install perfrecord
-% perfrecord ./your-command your-arguments
-% perfrecord --open profile.json
+% perfrecord --launch-when-done ./your-command your-arguments
 ```
 
-This would collect a profile of the `./your-command your-arguments` command and save it to a file. Then it should open
-your default browser, load the profile in it, and run a local webserver so that profiler.firefox.com
+This collects a profile of the `./your-command your-arguments` command and saves it to a file. Then it opens
+your default browser, loads the profile in it, and runs a local webserver so that profiler.firefox.com
 can symbolicate the profile and show source code and assembly code on demand.
 
-Tha captured data should be similar to that of the "CPU Profiler" in Instruments.
-`perfrecord` should be a sampling profiler that collects stack traces, per thread, at some sampling interval,
-and it should support sampling based on wall-clock time ("All thread states") and CPU time.
+Tha captured data is similar to that of the "CPU Profiler" in Instruments.
+`perfrecord` is a sampling profiler that collects stack traces, per thread, at some sampling interval.
+In the future it supports sampling based on wall-clock time ("All thread states") and CPU time.
 
-`perfrecord` should not require sudo privileges for profiling (non-signed) processes that it launches itself.
+`perfrecord` does not require sudo privileges for profiling (non-signed) processes that it launches itself.
+
+## Other examples
+
+`perfrecord --launch-when-done rustup check` generates [this profile](https://deploy-preview-2556--perf-html.netlify.app/public/7c64cd279d674a29ae445a4eb3b7e046748083da/calltree/?globalTrackOrder=0-1-2-3-4-5-6-7&thread=5&timelineType=stack&v=4).
+
+Profiling system-provided command line tools is not straightforward because of system-integrity protection.
+Here's an example for profiling `sleep`:
+
+```
+cat /bin/sleep > /tmp/sleep; chmod +x /tmp/sleep
+perfrecord --launch-when-done /tmp/sleep 2
+```
+
+It produces [this profile](https://deploy-preview-2556--perf-html.netlify.app/public/ffc4c3a15a6da64c1e6b7ecdc7d4ffc37d41c032/calltree/?globalTrackOrder=0&thread=0&timelineType=stack&v=4).
+
 
 ## Why?
 
@@ -41,23 +53,6 @@ It is meant to overcome the following shortcomings:
  - It misses some features, such as certain call tree transforms, or Rust demangling.
 
 The last two could be overcome by using Instruments just as a way to capture data, and then loading the .trace bundles in our own tool.
-
-## Run the work in progress
-
-```
-cd perfrecord-preload
-cargo build --release
-cd ..
-cd perfrecord
-# Now open src/process_launcher.rs and edit `PRELOAD_LIB_PATH`
-
-# And then run it:
-cargo run --release -- your-command your-arguments
-
-# Example (using sleep, but copied to a different place so that we can use DYLD_INSERT_LIBRARIES on it without needing to disable SIP):
-cat /bin/sleep > /tmp/sleep; chmod +x /tmp/sleep
-cargo run --release -- /tmp/sleep 2
-```
 
 ## How does it work?
 
@@ -86,7 +81,8 @@ It can enumerate threads, pause them at will, and read process memory.
 In the future, I would like to obtain stacks using our own code, given these primitives.
 
 However, for now, we make use of a private macOS framework called "Symbolication".
-The Symbolication framework has two Objective C classes called `VMUSampler` and
-`VMUProcessDescription` that provide exactly the type of functionality we need.
-Obviously we don't want to rely on private frameworks long-term. But for now they
-can get us started.
+The Symbolication framework has an Objective C class called `VMUSampler` that provides
+stack sampling functionality.
+The use of `VMUSampler` is intended to be temporary. `VMUSampler` runs into the same
+performance problem as Instruments with local Firefox binaries because it tries to
+symbolicate eagerly.
