@@ -10,16 +10,14 @@ repository = "https://github.com/mstange/perfrecord/"
 readme = "README.md"
 
 [dependencies]
-# mach-ipc-rendezvous = { git = "../mach-ipc-rendezvous" }
-# profiler-symbol-server = { git = "../profiler-symbol-server" }
-mach-ipc-rendezvous = { git = "https://github.com/mstange/perfrecord/" }
-profiler-symbol-server = { git = "https://github.com/mstange/perfrecord/" }
+perfrecord-mach-ipc-rendezvous = { path = "../perfrecord-mach-ipc-rendezvous" }
+profiler-symbol-server = "0.1.0"
 
 tokio = { version = "0.2", features = ["full"] }
 objc = "0.2.7"
 cocoa = "0.20.1"
 uuid = "0.8.1"
-libc = "0.2.70"
+libc = "0.2.71"
 which = "3.1.1"
 serde_json = "1.0.53"
 mach = "0.3.2"

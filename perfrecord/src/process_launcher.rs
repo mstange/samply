@@ -1,5 +1,5 @@
 use libc;
-use mach_ipc_rendezvous::{OsIpcOneShotServer, OsIpcSender};
+use perfrecord_mach_ipc_rendezvous::{OsIpcOneShotServer, OsIpcSender};
 use tempfile::tempdir;
 
 use std::ffi::CString;
@@ -9,7 +9,7 @@ use std::ptr;
 use std::fs::File;
 use std::io::Write;
 
-pub use mach_ipc_rendezvous::{mach_port_t, MachError, MACH_PORT_NULL};
+pub use perfrecord_mach_ipc_rendezvous::{mach_port_t, MachError, MACH_PORT_NULL};
 
 pub struct ProcessLauncher {
     child_task: mach_port_t,
