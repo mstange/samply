@@ -1,12 +1,11 @@
-
-use std::ffi::CString;
-use mach_ipc_rendezvous::{OsIpcOneShotServer, OsIpcSender};
 use libc;
+use mach_ipc_rendezvous::{OsIpcOneShotServer, OsIpcSender};
+use std::ffi::CString;
 use std::mem;
-use std::ptr;
 use std::path::Path;
+use std::ptr;
 
-pub use mach_ipc_rendezvous::{MachError, mach_port_t, MACH_PORT_NULL};
+pub use mach_ipc_rendezvous::{mach_port_t, MachError, MACH_PORT_NULL};
 
 pub struct ProcessLauncher {
     child_task: mach_port_t,
@@ -14,14 +13,11 @@ pub struct ProcessLauncher {
     sender_channel: OsIpcSender,
 }
 
-static PRELOAD_LIB_PATH: &'static str = "/Users/mstange/code/perfrecord/perfrecord-preload/target/release/libperfrecord_preload.dylib";
+static PRELOAD_LIB_PATH: &'static str =
+    "/Users/mstange/code/perfrecord/perfrecord-preload/target/release/libperfrecord_preload.dylib";
 
 impl ProcessLauncher {
-    pub fn new(
-        binary: &Path,
-        argv: &[&str],
-        env: &[&str],
-    ) -> Result<Self, MachError> {
+    pub fn new(binary: &Path, argv: &[&str], env: &[&str]) -> Result<Self, MachError> {
         let (server, name) = OsIpcOneShotServer::new()?;
 
         let mut child_env: Vec<CString> = env
@@ -43,7 +39,9 @@ impl ProcessLauncher {
             fork(|| {
                 use std::os::unix::ffi::OsStrExt;
                 libc::execve(
-                    CString::new(binary.as_os_str().as_bytes()).unwrap().as_ptr(),
+                    CString::new(binary.as_os_str().as_bytes())
+                        .unwrap()
+                        .as_ptr(),
                     child_args.as_ptr(),
                     child_env.as_ptr(),
                 );

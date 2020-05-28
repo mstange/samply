@@ -1,19 +1,20 @@
-use cocoa::base::{id, YES};
-use cocoa::foundation::{NSArray, NSData, NSDictionary, NSString, NSUInteger};
+use cocoa::base::id;
 use objc::rc::autoreleasepool;
-use objc::{class, msg_send, sel, sel_impl};
-use uuid::Uuid;
-use std::ffi::CStr;
-use which::which;
-use std::{thread, time};
-use std::fs::File;
+use objc::{msg_send, sel, sel_impl};
 use serde_json::to_writer;
+use std::fs::File;
+use std::path::Path;
+use std::{thread, time};
+use which::which;
 
-mod process_launcher;
+mod dyld_bindings;
 mod gecko_profile;
+mod proc_maps;
+mod process_launcher;
 
-use process_launcher::{ProcessLauncher, MachError, mach_port_t};
 use gecko_profile::ProfileBuilder;
+use proc_maps::{get_dyld_info, DyldInfo};
+use process_launcher::{mach_port_t, MachError, ProcessLauncher};
 
 #[cfg(target_os = "macos")]
 #[link(name = "Symbolication", kind = "framework")]
@@ -43,21 +44,12 @@ fn main() -> Result<(), MachError> {
     };
     let args: Vec<&str> = args.iter().map(std::ops::Deref::deref).collect();
 
-    let mut launcher = ProcessLauncher::new(
-        &command,
-        &args,
-        &env,
-    )?;
+    let mut launcher = ProcessLauncher::new(&command, &args, &env)?;
     let child_pid = launcher.get_pid();
     let child_task = launcher.take_task();
     println!("child PID: {}, childTask: {}\n", child_pid, child_task);
 
-    let binary_images = get_binary_images_for_task(child_task);
-
-    // println!(
-    //     "binary images: {:?}",
-    //     binary_images
-    // );
+    let dyld_info = get_dyld_info(child_task).expect("get_dyld_info failed");
 
     let sampler = Sampler::new_with_task(child_task, Some(5000.0), 0.001, true);
     sampler.start();
@@ -70,14 +62,31 @@ fn main() -> Result<(), MachError> {
     let samples = sampler.get_samples();
 
     let mut profile_builder = ProfileBuilder::new();
-    for BinaryImage { uuid, path, name, address_range } in binary_images {
+    for DyldInfo {
+        file,
+        uuid,
+        address,
+        vmsize,
+    } in dyld_info
+    {
         let uuid = match uuid {
             Some(uuid) => uuid,
-            None => continue
+            None => {
+                println!("no uuid for {}", file);
+                continue;
+            }
         };
-        profile_builder.add_lib(&name, &path, &uuid, &address_range);
+        let name = Path::new(&file).file_name().unwrap().to_str().unwrap();
+        let address_range = address..(address + vmsize);
+        profile_builder.add_lib(&name, &file, &uuid, &address_range);
     }
-    for Sample { timestamp, thread_index, frames, ..} in &samples {
+    for Sample {
+        timestamp,
+        thread_index,
+        frames,
+        ..
+    } in &samples
+    {
         profile_builder.add_sample(*thread_index, *timestamp * 1000.0, frames);
     }
     let file = File::create("profile.json").unwrap();
@@ -85,87 +94,6 @@ fn main() -> Result<(), MachError> {
     // println!("profile: {:?}", profile_builder);
 
     Ok(())
-}
-
-#[derive(Debug)]
-struct BinaryImage {
-    uuid: Option<Uuid>,
-    path: String,
-    name: String,
-    address_range: std::ops::Range<u64>,
-}
-
-fn get_binary_images_for_task(task: mach_port_t) -> Vec<BinaryImage> {
-    let mut images = Vec::new();
-
-    autoreleasepool(|| {
-        let process_description: id = unsafe { msg_send![&VMUProcessDescription_class, alloc] };
-        // let task: u64 = child_task as _;
-        let process_description: id =
-            unsafe { msg_send![process_description, initWithTask:task getBinariesList:YES] };
-        let binary_images: id = unsafe { msg_send![process_description, binaryImages] };
-
-        // Example:
-        // BinaryInfoDwarfUUIDKey = {length = 16, bytes = 0x8b4f3346832935b0a914389abc5e9260};
-        // DisplayName = "libunwind.dylib";
-        // ExecutablePath = "/usr/lib/system/libunwind.dylib";
-        // Identifier = "libunwind.dylib";
-        // IsAppleCode = 1;
-        // Size = 24568;
-        // SourceVersion = "35.4";
-        // StartAddress = 140735077703680;
-        // Version = "35.4";
-
-        let count: NSUInteger = unsafe { NSArray::count(binary_images) };
-        let exe_key: id = unsafe { msg_send![class![NSString], alloc] };
-        let exe_key = unsafe { exe_key.init_str("ExecutablePath") };
-        let uuid_key: id = unsafe { msg_send![class![NSString], alloc] };
-        let uuid_key = unsafe { uuid_key.init_str("BinaryInfoDwarfUUIDKey") };
-        let ident_key: id = unsafe { msg_send![class![NSString], alloc] };
-        let ident_key = unsafe { ident_key.init_str("Identifier") };
-        let start_addr_key: id = unsafe { msg_send![class![NSString], alloc] };
-        let start_addr_key = unsafe { start_addr_key.init_str("StartAddress") };
-        let size_key: id = unsafe { msg_send![class![NSString], alloc] };
-        let size_key = unsafe { size_key.init_str("Size") };
-        for i in 0..count {
-            let image: id = unsafe { NSArray::objectAtIndex(binary_images, i) };
-            let exe: id = unsafe { NSDictionary::objectForKey_(image, exe_key) };
-            let exe_name = unsafe { CStr::from_ptr(exe.UTF8String()) };
-            let path = exe_name.to_string_lossy().to_string();
-            let ident: id = unsafe { NSDictionary::objectForKey_(image, ident_key) };
-            let ident = unsafe { CStr::from_ptr(ident.UTF8String()) };
-            let name = ident.to_string_lossy().to_string();
-            let start_addr: id = unsafe { NSDictionary::objectForKey_(image, start_addr_key) };
-            let start_addr: u64 = unsafe { msg_send![start_addr, unsignedLongLongValue] };
-            let size: id = unsafe { NSDictionary::objectForKey_(image, size_key) };
-            let size: u64 = unsafe { msg_send![size, unsignedLongLongValue] };
-            let uuid: id = unsafe { NSDictionary::objectForKey_(image, uuid_key) };
-            let uuid = {
-                let uuid_length = unsafe { NSData::length(uuid) };
-                if uuid_length == 16 {
-                    let mut data = [0u8; 16];
-                    unsafe { NSData::getBytes_length_(uuid, data.as_mut_ptr() as _, 16) };
-                    Some(Uuid::from_bytes(data))
-                } else {
-                    None
-                }
-            };
-            images.push(BinaryImage {
-                uuid,
-                path,
-                name,
-                address_range: start_addr..(start_addr + size),
-            });
-        }
-        let _: () = unsafe { msg_send![exe_key, release] };
-        let _: () = unsafe { msg_send![uuid_key, release] };
-        let _: () = unsafe { msg_send![ident_key, release] };
-        let _: () = unsafe { msg_send![start_addr_key, release] };
-        let _: () = unsafe { msg_send![size_key, release] };
-
-        let _: () = unsafe { msg_send![process_description, release] };
-    });
-    images
 }
 
 struct Sampler {
@@ -190,7 +118,7 @@ impl Sampler {
         let vmu_sampler: id = unsafe { msg_send![&VMUSampler_class, alloc] };
         let vmu_sampler: id = unsafe { msg_send![vmu_sampler, initWithTask:task options:0] };
         if let Some(time_limit) = time_limit {
-            let _: () = unsafe { msg_send![vmu_sampler, setTimeLimit:time_limit] };
+            let _: () = unsafe { msg_send![vmu_sampler, setTimeLimit: time_limit] };
         }
         let _: () = unsafe { msg_send![vmu_sampler, setSamplingInterval: interval] };
         let _: () = unsafe { msg_send![vmu_sampler, setRecordThreadStates: all_thread_states] };
@@ -225,7 +153,10 @@ impl Sampler {
                     .collect();
                 frames.reverse();
                 samples.push(Sample {
-                    timestamp, thread_index, thread_state, frames
+                    timestamp,
+                    thread_index,
+                    thread_state,
+                    frames,
                 });
             }
         });
@@ -259,7 +190,7 @@ struct Callstack {
 #[derive(Debug)]
 struct CallstackContext {
     t_begin: libc::c_double, // In nanoseconds since sampling start
-    t_end: libc::c_double, // In nanoseconds since sampling start
+    t_end: libc::c_double,   // In nanoseconds since sampling start
     pid: libc::c_int,
     thread: libc::c_uint,
     run_state: libc::c_int,
@@ -277,7 +208,9 @@ unsafe impl objc::Encode for Callstack {
             //  4. This brings you to the "struct __objc_ivar" for the symbol,
             //     which points to an aContexttbegind string for the type.
             //     That string is the one we need.
-            objc::Encoding::from_str(r#"{?="context"{?="t_begin"d"t_end"d"pid"i"thread"I"run_state"i"dispatch_queue_serial_num"Q}"frames"^Q"framePtrs"^Q"length"I}"#)
+            objc::Encoding::from_str(
+                r#"{?="context"{?="t_begin"d"t_end"d"pid"i"thread"I"run_state"i"dispatch_queue_serial_num"Q}"frames"^Q"framePtrs"^Q"length"I}"#,
+            )
         }
     }
 }

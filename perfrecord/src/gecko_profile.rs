@@ -16,7 +16,13 @@ impl ProfileBuilder {
         }
     }
 
-    pub fn add_lib(&mut self, name: &str, path: &str, uuid: &Uuid, address_range: &std::ops::Range<u64>) {
+    pub fn add_lib(
+        &mut self,
+        name: &str,
+        path: &str,
+        uuid: &Uuid,
+        address_range: &std::ops::Range<u64>,
+    ) {
         self.libs.push(Lib {
             name: name.to_string(),
             path: path.to_string(),
