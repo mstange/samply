@@ -16,7 +16,7 @@ can symbolicate the profile and show source code and assembly code on demand.
 
 The captured data is similar to that of the "CPU Profiler" in Instruments.
 `perfrecord` is a sampling profiler that collects stack traces, per thread, at some sampling interval.
-In the future it supports sampling based on wall-clock time ("All thread states") and CPU time.
+In the future it should support sampling based on wall-clock time ("All thread states") and CPU time.
 
 `perfrecord` does not require sudo privileges for profiling (non-signed) processes that it launches itself.
 
