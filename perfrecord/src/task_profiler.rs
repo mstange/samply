@@ -19,7 +19,7 @@ pub struct TaskProfiler {
     pid: u32,
     interval: Duration,
     start_time: Instant,
-    _end_time: Option<Instant>,
+    end_time: Option<Instant>,
     live_threads: HashMap<thread_act_t, ThreadProfiler>,
     dead_threads: Vec<ThreadProfiler>,
     lib_info_manager: DyldInfoManager,
@@ -49,7 +49,7 @@ impl TaskProfiler {
             pid,
             interval,
             start_time: now,
-            _end_time: None,
+            end_time: None,
             live_threads,
             dead_threads: Vec::new(),
             lib_info_manager: DyldInfoManager::new(task),
@@ -128,6 +128,15 @@ impl TaskProfiler {
         Ok(())
     }
 
+    pub fn notify_dead(&mut self, end_time: Instant) {
+        for (_, mut thread) in self.live_threads.drain() {
+            thread.notify_dead(end_time);
+            self.dead_threads.push(thread);
+        }
+        self.end_time = Some(end_time);
+        self.lib_info_manager.unmap_memory();
+    }
+
     pub fn into_profile(self) -> ProfileBuilder {
         let mut profile_builder =
             ProfileBuilder::new(self.start_time, &self.command_name, self.pid, self.interval);
@@ -139,6 +148,10 @@ impl TaskProfiler {
             .map(|t| t.into_profile_thread());
         for thread in all_threads {
             profile_builder.add_thread(thread);
+        }
+
+        if let Some(end_time) = self.end_time {
+            profile_builder.set_end_time(end_time.duration_since(self.start_time));
         }
 
         for DyldInfo {

@@ -149,6 +149,7 @@ fn start_recording(
         match task_profiler.sample(sample_timestamp) {
             Ok(true) => {}
             Ok(false) => {
+                task_profiler.notify_dead(sample_timestamp);
                 println!("Task terminated.");
                 break;
             }

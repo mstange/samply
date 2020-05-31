@@ -61,6 +61,10 @@ impl DyldInfoManager {
         }
     }
 
+    pub fn unmap_memory(&mut self) {
+        self.memory.clear();
+    }
+
     pub fn check_for_changes(&mut self) -> kernel_error::Result<Vec<Modification<DyldInfo>>> {
         with_suspended_task(self.task, || {
             let info_addr = match self.all_image_info_addr {

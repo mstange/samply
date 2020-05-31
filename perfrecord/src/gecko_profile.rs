@@ -34,6 +34,10 @@ impl ProfileBuilder {
         }
     }
 
+    pub fn set_end_time(&mut self, duration_since_start: Duration) {
+        self.end_time = Some(duration_since_start.as_secs_f64() * 1000.0);
+    }
+
     pub fn add_lib(
         &mut self,
         name: &str,
