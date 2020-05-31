@@ -83,7 +83,7 @@ impl ProfileBuilder {
         let libs: Vec<Value> = sorted_libs.iter().map(|l| l.to_json()).collect();
         json!({
             "meta": {
-                "version": 11,
+                "version": 14,
                 "startTime": self.start_time,
                 "shutdownTime": self.end_time,
                 "pausedRanges": [],
@@ -309,14 +309,20 @@ impl FrameTable {
     }
 
     pub fn to_json(&self) -> Value {
-        let data: Vec<Value> = self.frame_locations.iter().map(|l| json!([l])).collect();
+        let data: Vec<Value> = self
+            .frame_locations
+            .iter()
+            .map(|l| json!([l, false, null, null, null, null, 1]))
+            .collect();
         json!({
             "schema": {
                 "location": 0,
-                "implementation": 1,
-                "optimizations": 2,
-                "line": 3,
-                "category": 4
+                "relevantForJS": 1,
+                "implementation": 2,
+                "optimizations": 3,
+                "line": 4,
+                "column": 5,
+                "category": 6,
             },
             "data": data
         })
