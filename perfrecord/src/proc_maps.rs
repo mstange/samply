@@ -547,6 +547,8 @@ impl Drop for VmData {
     }
 }
 
+unsafe impl Send for VmData {}
+
 pub enum Modification<T> {
     Added(T),
     Removed(T),

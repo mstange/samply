@@ -3,6 +3,8 @@ use profiler_symbol_server::start_server;
 use serde_json::to_writer;
 use std::fs::File;
 use std::path::{Path, PathBuf};
+use std::process::ExitStatus;
+use std::thread;
 use std::time::{Duration, Instant};
 use structopt::StructOpt;
 use which::which;
@@ -19,6 +21,7 @@ pub mod kernel_error;
 pub mod thread_act;
 pub mod thread_info;
 
+use gecko_profile::ProfileBuilder;
 use process_launcher::{MachError, ProcessLauncher};
 use sampler::Sampler;
 use task_profiler::TaskProfiler;
@@ -87,14 +90,14 @@ fn main() -> Result<(), MachError> {
         if !command.is_empty() {
             let time_limit = opt.time_limit.map(|secs| Duration::from_secs_f64(secs));
             let interval = Duration::from_secs_f64(opt.interval);
-            start_recording(
+            let exit_status = start_recording(
                 &opt.output_file,
                 &command,
                 time_limit,
                 interval,
                 opt.launch_when_done,
             )?;
-            return Ok(());
+            std::process::exit(exit_status.code().unwrap_or(0));
         }
     }
     println!("Error: missing command\n");
@@ -113,13 +116,32 @@ fn start_recording(
     time_limit: Option<Duration>,
     interval: Duration,
     launch_when_done: bool,
-) -> Result<(), MachError> {
+) -> Result<ExitStatus, MachError> {
+    let (saver_sender, saver_receiver) = unbounded();
+    let output_file = output_file.to_owned();
+    let saver_thread = thread::spawn(move || {
+        let profile_builder: ProfileBuilder = saver_receiver.recv().expect("saver couldn't recv");
+        let file = File::create(&output_file).unwrap();
+        to_writer(file, &profile_builder.to_json()).expect("Couldn't write JSON");
+        // println!("profile: {:?}", profile_builder);
+
+        if launch_when_done {
+            start_server_main(&output_file, true);
+        }
+    });
+
+    let (task_sender, task_receiver) = unbounded();
+    let sampler_thread = thread::spawn(move || {
+        let sampler = Sampler::new(task_receiver, interval, time_limit);
+        let profile_builder = sampler.run().expect("Sampler ran into an error");
+        saver_sender
+            .send(profile_builder)
+            .expect("couldn't send profile");
+    });
+
     let command_name = args.first().unwrap();
     let command = which(command_name).expect("Couldn't resolve command name");
     let args: Vec<&str> = args.iter().skip(1).map(std::ops::Deref::deref).collect();
-
-    let (task_sender, task_receiver) = unbounded();
-    let sampler = Sampler::new(task_receiver, interval, time_limit);
 
     let mut launcher = ProcessLauncher::new(&command, &args)?;
     let child_pid = launcher.get_id();
@@ -134,23 +156,17 @@ fn start_recording(
         interval,
     )
     .expect("couldn't create TaskProfiler");
-    launcher.start_execution();
 
     task_sender
         .send(task_profiler)
         .expect("couldn't send task to sampler");
 
-    let profile_builder = sampler.run().expect("Sampler ran into an error");
+    launcher.start_execution();
 
-    let file = File::create(output_file).unwrap();
-    to_writer(file, &profile_builder.to_json()).expect("Couldn't write JSON");
-    // println!("profile: {:?}", profile_builder);
+    let exit_status = launcher.wait().expect("couldn't wait for child");
 
-    if launch_when_done {
-        start_server_main(output_file, true);
-    }
+    sampler_thread.join().expect("couldn't join sampler thread");
+    saver_thread.join().expect("couldn't join saver thread");
 
-    let _exit_code = launcher.wait().expect("couldn't wait for child");
-
-    Ok(())
+    Ok(exit_status)
 }
