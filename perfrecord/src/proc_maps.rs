@@ -277,23 +277,24 @@ fn do_frame_pointer_stackwalk(
     // }
     // and rbp is a *const CallFrameInfo.
 
-    let mut bp = initial_state.__rbp;
-    while bp != 0 && (bp & 7) == 0 {
-        let next = match memory.read_u64_at_address(bp) {
+    let mut frame_ptr = initial_state.__rbp;
+    while frame_ptr != 0 && (frame_ptr & 7) == 0 {
+        let caller_frame_ptr = match memory.read_u64_at_address(frame_ptr) {
             Ok(val) => val,
             Err(_) => break, // usually KernelError::InvalidAddress
         };
-        // The caller frame will always be lower on the stack (at a higher address)
-        // than this frame. Make sure this is the case, so that we don't go in circles.
-        if next <= bp {
+        // The stack grows towards lower addresses, so the caller frame will always
+        // be at a higher address than this frame. Make sure this is the case, so
+        // that we don't go in circles.
+        if caller_frame_ptr <= frame_ptr {
             break;
         }
-        let return_address = match memory.read_u64_at_address(bp + 8) {
+        let return_address = match memory.read_u64_at_address(frame_ptr + 8) {
             Ok(val) => val,
             Err(_) => break, // usually KernelError::InvalidAddress
         };
         frames.push(return_address);
-        bp = next;
+        frame_ptr = caller_frame_ptr;
     }
 
     frames.reverse();
