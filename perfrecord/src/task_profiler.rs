@@ -137,7 +137,7 @@ impl TaskProfiler {
         self.lib_info_manager.unmap_memory();
     }
 
-    pub fn into_profile(self) -> ProfileBuilder {
+    pub fn into_profile(self, subtasks: Vec<TaskProfiler>) -> ProfileBuilder {
         let mut profile_builder =
             ProfileBuilder::new(self.start_time, &self.command_name, self.pid, self.interval);
         let all_threads = self
@@ -168,6 +168,10 @@ impl TaskProfiler {
             let name = Path::new(&file).file_name().unwrap().to_str().unwrap();
             let address_range = address..(address + vmsize);
             profile_builder.add_lib(&name, &file, &uuid, &address_range);
+        }
+
+        for subtask in subtasks {
+            profile_builder.add_subprocess(subtask.into_profile(Vec::new()));
         }
 
         profile_builder

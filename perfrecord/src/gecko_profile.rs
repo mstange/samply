@@ -14,6 +14,7 @@ pub struct ProfileBuilder {
     start_time: f64,       // as milliseconds since unix epoch
     end_time: Option<f64>, // as milliseconds since start_time
     command_name: String,
+    subprocesses: Vec<ProfileBuilder>,
 }
 
 impl ProfileBuilder {
@@ -31,6 +32,7 @@ impl ProfileBuilder {
             start_time: duration_since_unix_epoch.as_secs_f64() * 1000.0,
             end_time: None,
             command_name: command_name.to_owned(),
+            subprocesses: Vec::new(),
         }
     }
 
@@ -66,6 +68,10 @@ impl ProfileBuilder {
         self.threads.insert(thread_builder.index, thread_builder);
     }
 
+    pub fn add_subprocess(&mut self, profile_builder: ProfileBuilder) {
+        self.subprocesses.push(profile_builder);
+    }
+
     pub fn to_json(&self) -> serde_json::Value {
         let mut sorted_threads: Vec<_> = self.threads.iter().collect();
         sorted_threads.sort_by(|(_, a), (_, b)| {
@@ -87,6 +93,18 @@ impl ProfileBuilder {
         let mut sorted_libs: Vec<_> = self.libs.iter().collect();
         sorted_libs.sort_by_key(|l| l.start_address);
         let libs: Vec<Value> = sorted_libs.iter().map(|l| l.to_json()).collect();
+
+        let mut sorted_subprocesses: Vec<_> = self.subprocesses.iter().collect();
+        sorted_subprocesses.sort_by(|a, b| {
+            if let Some(ordering) = a.start_time.partial_cmp(&b.start_time) {
+                if ordering != Ordering::Equal {
+                    return ordering;
+                }
+            }
+            a.pid.cmp(&b.pid)
+        });
+
+        let subprocesses: Vec<Value> = sorted_subprocesses.iter().map(|p| p.to_json()).collect();
         json!({
             "meta": {
                 "version": 14,
@@ -114,7 +132,7 @@ impl ProfileBuilder {
             },
             "libs": libs,
             "threads": threads,
-            "processes": [],
+            "processes": subprocesses,
         })
     }
 }

@@ -1,8 +1,8 @@
+use crossbeam_channel::unbounded;
 use profiler_symbol_server::start_server;
 use serde_json::to_writer;
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::thread;
 use std::time::{Duration, Instant};
 use structopt::StructOpt;
 use which::which;
@@ -11,6 +11,7 @@ mod dyld_bindings;
 mod gecko_profile;
 mod proc_maps;
 mod process_launcher;
+mod sampler;
 mod task_profiler;
 mod thread_profiler;
 
@@ -19,6 +20,7 @@ pub mod thread_act;
 pub mod thread_info;
 
 use process_launcher::{MachError, ProcessLauncher};
+use sampler::Sampler;
 use task_profiler::TaskProfiler;
 
 #[derive(Debug, StructOpt)]
@@ -105,16 +107,6 @@ async fn start_server_main(file: &Path, open_in_browser: bool) {
     start_server(file, open_in_browser).await;
 }
 
-fn sleep_and_save_overshoot(duration: Duration, overshoot: &mut Duration) {
-    let before_sleep = Instant::now();
-    thread::sleep(duration);
-    let after_sleep = Instant::now();
-    *overshoot = after_sleep
-        .duration_since(before_sleep)
-        .checked_sub(duration)
-        .unwrap_or(Duration::from_nanos(0));
-}
-
 fn start_recording(
     output_file: &Path,
     args: &[String],
@@ -126,50 +118,29 @@ fn start_recording(
     let command = which(command_name).expect("Couldn't resolve command name");
     let args: Vec<&str> = args.iter().skip(1).map(std::ops::Deref::deref).collect();
 
+    let (task_sender, task_receiver) = unbounded();
+    let sampler = Sampler::new(task_receiver, interval, time_limit);
+
     let mut launcher = ProcessLauncher::new(&command, &args)?;
     let child_pid = launcher.get_id();
     let child_task = launcher.take_task();
     println!("child PID: {}, childTask: {}\n", child_pid, child_task);
 
-    let now = Instant::now();
-    let sampling_start = now;
-    let mut task_profiler = TaskProfiler::new(child_task, child_pid, now, command_name, interval)
-        .expect("couldn't create TaskProfiler");
+    let task_profiler = TaskProfiler::new(
+        child_task,
+        child_pid,
+        Instant::now(),
+        command_name,
+        interval,
+    )
+    .expect("couldn't create TaskProfiler");
     launcher.start_execution();
 
-    let mut last_sleep_overshoot = Duration::from_nanos(0);
+    task_sender
+        .send(task_profiler)
+        .expect("couldn't send task to sampler");
 
-    loop {
-        let sample_timestamp = Instant::now();
-        if let Some(time_limit) = time_limit {
-            if sample_timestamp.duration_since(sampling_start) >= time_limit {
-                break;
-            }
-        }
-        match task_profiler.sample(sample_timestamp) {
-            Ok(true) => {}
-            Ok(false) => {
-                task_profiler.notify_dead(sample_timestamp);
-                println!("Task terminated.");
-                break;
-            }
-            Err(err) => {
-                println!("Got error: {:?}", err);
-                break;
-            }
-        }
-
-        let intended_wakeup_time = sample_timestamp + interval;
-        let indended_wait_time = intended_wakeup_time.saturating_duration_since(Instant::now());
-        let sleep_time = if indended_wait_time > last_sleep_overshoot {
-            indended_wait_time - last_sleep_overshoot
-        } else {
-            Duration::from_nanos(0)
-        };
-        sleep_and_save_overshoot(sleep_time, &mut last_sleep_overshoot);
-    }
-
-    let profile_builder = task_profiler.into_profile();
+    let profile_builder = sampler.run().expect("Sampler ran into an error");
 
     let file = File::create(output_file).unwrap();
     to_writer(file, &profile_builder.to_json()).expect("Couldn't write JSON");
