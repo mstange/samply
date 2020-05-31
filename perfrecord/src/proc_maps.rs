@@ -395,7 +395,7 @@ impl VmData {
             return Err(io::Error::last_os_error());
         }
         Ok(Self {
-            address_range: original_address..(original_address + size as u64),
+            address_range: original_address..(original_address + size),
             data,
             data_size: size as usize,
         })
