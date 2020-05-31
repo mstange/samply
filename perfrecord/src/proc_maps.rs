@@ -1,5 +1,4 @@
 use super::kernel_error::{self, IntoResult};
-use libc::strlen;
 use mach;
 use mach::message::mach_msg_type_number_t;
 use mach::port::mach_port_t;
@@ -8,7 +7,7 @@ use mach::task_info::{task_info_t, TASK_DYLD_INFO};
 use mach::thread_act::{thread_get_state, thread_resume, thread_suspend};
 use mach::thread_status::{thread_state_t, x86_THREAD_STATE64};
 use mach::traps::mach_task_self;
-use mach::vm::{mach_vm_deallocate, mach_vm_read, mach_vm_read_overwrite, mach_vm_remap};
+use mach::vm::{mach_vm_deallocate, mach_vm_read, mach_vm_remap};
 use mach::vm_inherit::VM_INHERIT_SHARE;
 use mach::vm_page_size::{mach_vm_trunc_page, vm_page_size};
 use mach::vm_prot::{vm_prot_t, VM_PROT_NONE};
@@ -25,6 +24,8 @@ use dyld_bindings::{
     dyld_all_image_infos, dyld_image_info, load_command, mach_header_64, segment_command_64,
     uuid_command,
 };
+
+pub const TASK_DYLD_INFO_COUNT: mach_msg_type_number_t = 5;
 
 #[derive(Debug, Clone)]
 pub struct ThreadInfo {
@@ -59,9 +60,7 @@ pub fn get_dyld_info_with_suspended_task(task: mach_port_t) -> kernel_error::Res
         all_image_info_format: 0,
     };
 
-    // TASK_DYLD_INFO_COUNT is #define'd to be 5 in /usr/include/mach/task_info.h
-    // ... doesn't seem to be included in the mach crate =(
-    let mut count: mach_msg_type_number_t = 5;
+    let mut count = TASK_DYLD_INFO_COUNT;
     unsafe {
         task_info(
             task,
@@ -72,92 +71,54 @@ pub fn get_dyld_info_with_suspended_task(task: mach_port_t) -> kernel_error::Res
     }
     .into_result()?;
 
-    // Read in the dyld_all_image_infos information here here.
-    let mut image_infos = dyld_all_image_infos::default();
-    let mut read_len = std::mem::size_of_val(&image_infos) as mach_vm_size_t;
+    let mut memory = ForeignMemory::new(task);
 
-    unsafe {
-        // While we could use the read_process_memory crate for this, this adds a dependency
-        // for something that is pretty trivial
-        mach_vm_read_overwrite(
-            task,
-            dyld_info.all_image_info_addr,
-            read_len,
-            (&mut image_infos) as *mut dyld_all_image_infos as mach_vm_address_t,
-            &mut read_len,
+    let (info_array_addr, info_array_count) = {
+        let image_infos: &dyld_all_image_infos =
+            unsafe { memory.get_type_ref_at_address(dyld_info.all_image_info_addr) }?;
+        (
+            image_infos.infoArray as usize as u64,
+            image_infos.infoArrayCount,
         )
-    }
-    .into_result()?;
+    };
 
-    // copy the infoArray element of dyld_all_image_infos ovber
-    let mut modules = vec![dyld_image_info::default(); image_infos.infoArrayCount as usize];
-    let mut read_len = (std::mem::size_of::<dyld_image_info>()
-        * image_infos.infoArrayCount as usize) as mach_vm_size_t;
-    unsafe {
-        mach_vm_read_overwrite(
-            task,
-            image_infos.infoArray as mach_vm_address_t,
-            read_len,
-            modules.as_mut_ptr() as mach_vm_address_t,
-            &mut read_len,
-        )
-    }
-    .into_result()?;
-
-    for module in modules {
-        let mut read_len = 512 as mach_vm_size_t;
-        let mut image_filename = [0_i8; 512];
-        unsafe {
-            mach_vm_read_overwrite(
-                task,
-                module.imageFilePath as mach_vm_address_t,
-                read_len,
-                image_filename.as_mut_ptr() as mach_vm_address_t,
-                &mut read_len,
+    for image_index in 0..info_array_count {
+        let (image_load_address, image_file_path) = {
+            let info_array_elem_addr =
+                info_array_addr + image_index as u64 * mem::size_of::<dyld_image_info>() as u64;
+            let image_info: &dyld_image_info =
+                unsafe { memory.get_type_ref_at_address(info_array_elem_addr) }?;
+            (
+                image_info.imageLoadAddress as usize as u64,
+                image_info.imageFilePath as usize as u64,
             )
-        }
-        .into_result()?;
+        };
 
-        let ptr = image_filename.as_ptr();
-        let slice = unsafe { std::slice::from_raw_parts(ptr as *mut u8, strlen(ptr)) };
-        let filename = std::str::from_utf8(slice).unwrap().to_owned();
+        let filename = {
+            let filename_bytes: &[i8; 512] =
+                unsafe { memory.get_type_ref_at_address(image_file_path) }?;
+            unsafe { std::ffi::CStr::from_ptr(filename_bytes.as_ptr()) }
+                .to_string_lossy()
+                .to_string()
+        };
 
-        // read in the mach header
-        let mut header = mach_header_64::default();
-        let mut read_len = std::mem::size_of_val(&header) as mach_vm_size_t;
-        unsafe {
-            mach_vm_read_overwrite(
-                task,
-                module.imageLoadAddress as u64,
-                read_len,
-                (&mut header) as *mut mach_header_64 as mach_vm_address_t,
-                &mut read_len,
-            )
-        }
-        .into_result()?;
+        let (header_n_cmds, header_sizeof_cmds) = {
+            let header: &mach_header_64 =
+                unsafe { memory.get_type_ref_at_address(image_load_address) }?;
+            (header.ncmds, header.sizeofcmds)
+        };
 
-        let mut commands_buffer = vec![0_i8; header.sizeofcmds as usize];
-        let mut read_len = mach_vm_size_t::from(header.sizeofcmds);
-        unsafe {
-            mach_vm_read_overwrite(
-                task,
-                (module.imageLoadAddress as usize + std::mem::size_of_val(&header))
-                    as mach_vm_size_t,
-                read_len,
-                commands_buffer.as_mut_ptr() as mach_vm_address_t,
-                &mut read_len,
-            )
-        }
-        .into_result()?;
+        let commands_addr = image_load_address + mem::size_of::<mach_header_64>() as u64;
+        let commands_range = commands_addr..(commands_addr + header_sizeof_cmds as u64);
+        let commands_buffer = memory.get_slice(commands_range)?;
 
         // Figure out the slide from the __TEXT segment if appropiate
         let mut vmsize: u64 = 0;
         let mut uuid = None;
         let mut offset = 0;
-        for _ in 0..header.ncmds {
+        for _ in 0..header_n_cmds {
             unsafe {
-                let command =
-                    commands_buffer.as_ptr().offset(offset as isize) as *const load_command;
+                let command = &commands_buffer[offset] as *const u8 as *const load_command;
                 match (*command).cmd {
                     0x19 => {
                         // LC_SEGMENT_64
@@ -174,12 +135,12 @@ pub fn get_dyld_info_with_suspended_task(task: mach_port_t) -> kernel_error::Res
                     }
                     _ => {}
                 }
-                offset += (*command).cmdsize;
+                offset += (*command).cmdsize as usize;
             }
         }
         vec.push(DyldInfo {
             file: filename.clone(),
-            address: module.imageLoadAddress as u64,
+            address: image_load_address,
             vmsize,
             uuid,
         });
@@ -320,16 +281,7 @@ impl ForeignMemory {
     }
 
     pub fn read_u64_at_address(&mut self, address: u64) -> kernel_error::Result<u64> {
-        let search = self.data.binary_search_by(|d| {
-            if d.address_range.start > address {
-                Ordering::Greater
-            } else if d.address_range.end <= address {
-                Ordering::Less
-            } else {
-                Ordering::Equal
-            }
-        });
-        let vm_data = match search {
+        let vm_data = match self.data_index_for_address(address) {
             Ok(i) => &self.data[i],
             Err(i) => {
                 let start_addr = unsafe { mach_vm_trunc_page(address) };
@@ -340,6 +292,59 @@ impl ForeignMemory {
             }
         };
         Ok(vm_data.read_u64_at_address(address))
+    }
+
+    fn data_index_for_address(&self, address: u64) -> std::result::Result<usize, usize> {
+        self.data.binary_search_by(|d| {
+            if d.address_range.start > address {
+                Ordering::Greater
+            } else if d.address_range.end <= address {
+                Ordering::Less
+            } else {
+                Ordering::Equal
+            }
+        })
+    }
+
+    fn get_data_for_range(
+        &mut self,
+        address_range: std::ops::Range<u64>,
+    ) -> kernel_error::Result<&VmData> {
+        let first_byte_addr = address_range.start;
+        let last_byte_addr = address_range.end - 1;
+        let vm_data = match (
+            self.data_index_for_address(first_byte_addr),
+            self.data_index_for_address(last_byte_addr),
+        ) {
+            (Ok(i), Ok(j)) if i == j => &self.data[i],
+            (Ok(i), Ok(j)) | (Ok(i), Err(j)) | (Err(i), Ok(j)) | (Err(i), Err(j)) => {
+                let start_addr = unsafe { mach_vm_trunc_page(first_byte_addr) };
+                let end_addr = unsafe { mach_vm_trunc_page(last_byte_addr) + vm_page_size as u64 };
+                let size = end_addr - start_addr;
+                let data = VmData::map_from_task(self.task, start_addr, size)?;
+                // Replace everything between i and j with the new combined range.
+                self.data.splice(i..j, std::iter::once(data));
+                &self.data[i]
+            }
+        };
+        Ok(vm_data)
+    }
+
+    pub fn get_slice<'a>(
+        &'a mut self,
+        range: std::ops::Range<u64>,
+    ) -> kernel_error::Result<&'a [u8]> {
+        let vm_data = self.get_data_for_range(range.clone())?;
+        Ok(vm_data.get_slice(range))
+    }
+
+    pub unsafe fn get_type_ref_at_address<'a, T>(
+        &'a mut self,
+        address: u64,
+    ) -> kernel_error::Result<&'a T> {
+        let end_addr = address + mem::size_of::<T>() as u64;
+        let vm_data = self.get_data_for_range(address..end_addr)?;
+        Ok(vm_data.get_type_ref(address))
     }
 }
 
@@ -427,6 +432,22 @@ impl VmData {
                 .offset((address - self.address_range.start) as isize)
         };
         unsafe { *(ptr as *const u8 as *const u64) }
+    }
+
+    pub fn get_slice<'a>(&'a self, address_range: std::ops::Range<u64>) -> &'a [u8] {
+        assert!(self.address_range.start <= address_range.start);
+        assert!(self.address_range.end >= address_range.end);
+        let offset = address_range.start - self.address_range.start;
+        let len = address_range.end - address_range.start;
+        unsafe { std::slice::from_raw_parts(self.data.offset(offset as isize), len as usize) }
+    }
+
+    pub unsafe fn get_type_ref<'a, T>(&'a self, address: u64) -> &'a T {
+        assert!(address % mem::align_of::<T>() as u64 == 0);
+        let range = address..(address + mem::size_of::<T>() as u64);
+        let slice = self.get_slice(range);
+        assert!(slice.len() == mem::size_of::<T>());
+        &*(slice.as_ptr() as *const T)
     }
 }
 
