@@ -70,13 +70,21 @@ impl DyldInfoManager {
 
             self.all_image_info_addr = Some(info_addr);
 
-            let (info_array_addr, info_array_count, info_array_change_timestamp) = {
+            let (
+                info_array_addr,
+                info_array_count,
+                info_array_change_timestamp,
+                dyld_image_load_addr,
+                dyld_image_path,
+            ) = {
                 let image_infos: &dyld_all_image_infos =
                     unsafe { self.memory.get_type_ref_at_address(info_addr) }?;
                 (
                     image_infos.infoArray as usize as u64,
                     image_infos.infoArrayCount,
-                    image_infos.infoArrayChangeTimestamp,
+                    image_infos.infoArrayChangeTimestamp, // 10.12+
+                    image_infos.dyldImageLoadAddress as usize as u64,
+                    image_infos.dyldPath as usize as u64, // 10.12+
                 )
             };
 
@@ -96,8 +104,13 @@ impl DyldInfoManager {
                 return Ok(Vec::new());
             }
 
-            let new_image_info =
-                enumerate_dyld_images(&mut self.memory, info_array_addr, info_array_count)?;
+            let new_image_info = enumerate_dyld_images(
+                &mut self.memory,
+                info_array_addr,
+                info_array_count,
+                dyld_image_load_addr,
+                dyld_image_path,
+            )?;
             let diff = diff_sorted_slices(&self.last_contents, &new_image_info, |left, right| {
                 left.address.cmp(&right.address)
             });
@@ -145,9 +158,17 @@ fn enumerate_dyld_images(
     memory: &mut ForeignMemory,
     info_array_addr: u64,
     info_array_count: u32,
+    dyld_image_load_addr: u64,
+    dyld_image_path: u64,
 ) -> kernel_error::Result<Vec<DyldInfo>> {
     // Adapted from rbspy and from the Gecko profiler's shared-libraries-macos.cc.
     let mut vec = Vec::new();
+
+    vec.push(get_dyld_image_info(
+        memory,
+        dyld_image_load_addr,
+        dyld_image_path,
+    )?);
 
     for image_index in 0..info_array_count {
         let (image_load_address, image_file_path) = {
