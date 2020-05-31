@@ -107,7 +107,7 @@ fn start_recording(
 
     let command_name = args.first().unwrap();
     let command = which(command_name).expect("Couldn't resolve command name");
-    let args: Vec<&str> = args.iter().map(std::ops::Deref::deref).collect();
+    let args: Vec<&str> = args.iter().skip(1).map(std::ops::Deref::deref).collect();
 
     let mut launcher = ProcessLauncher::new(&command, &args)?;
     let child_pid = launcher.get_id();
