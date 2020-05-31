@@ -6,8 +6,10 @@ use mach::port::mach_port_t;
 use mach::thread_act::{thread_get_state, thread_resume, thread_suspend};
 use mach::thread_status::{thread_state_t, x86_THREAD_STATE64};
 use mach::traps::mach_task_self;
-use mach::vm::{mach_vm_deallocate, mach_vm_read, mach_vm_read_overwrite};
+use mach::vm::{mach_vm_deallocate, mach_vm_read, mach_vm_read_overwrite, mach_vm_remap};
+use mach::vm_inherit::VM_INHERIT_SHARE;
 use mach::vm_page_size::{mach_vm_trunc_page, vm_page_size};
+use mach::vm_prot::{vm_prot_t, VM_PROT_NONE};
 use mach::vm_types::{mach_vm_address_t, mach_vm_size_t};
 use std::cmp::Ordering;
 use std::io;
@@ -215,7 +217,7 @@ pub struct task_dyld_info {
 }
 
 pub fn get_backtrace(
-    task: mach_port_t,
+    memory: &mut ForeignMemory,
     thread_act: mach_port_t,
     frames: &mut Vec<u64>,
 ) -> io::Result<()> {
@@ -240,8 +242,7 @@ pub fn get_backtrace(
         return Err(io::Error::last_os_error());
     }
 
-    let mut memory = ForeignMemory::new(task);
-    do_frame_pointer_stackwalk(&state, &mut memory, frames);
+    do_frame_pointer_stackwalk(&state, memory, frames);
 
     let _ = unsafe { thread_resume(thread_act) };
 
@@ -311,6 +312,11 @@ impl ForeignMemory {
         }
     }
 
+    pub fn clear(&mut self) {
+        self.data.clear();
+        self.data.shrink_to_fit();
+    }
+
     pub fn read_u64_at_address(&mut self, address: u64) -> io::Result<u64> {
         let search = self.data.binary_search_by(|d| {
             if d.address_range.start > address {
@@ -326,7 +332,7 @@ impl ForeignMemory {
             Err(i) => {
                 let start_addr = unsafe { mach_vm_trunc_page(address) };
                 let size = unsafe { vm_page_size } as u64;
-                let data = VmData::read_from_task(self.task, start_addr, size)?;
+                let data = VmData::map_from_task(self.task, start_addr, size)?;
                 self.data.insert(i, data);
                 &self.data[i]
             }
@@ -343,6 +349,7 @@ struct VmData {
 }
 
 impl VmData {
+    #[allow(unused)]
     pub fn read_from_task(task: mach_port_t, original_address: u64, size: u64) -> io::Result<Self> {
         let mut data: *mut u8 = ptr::null_mut();
         let mut data_size: usize = 0;
@@ -362,6 +369,35 @@ impl VmData {
             address_range: original_address..(original_address + data_size as u64),
             data,
             data_size,
+        })
+    }
+
+    pub fn map_from_task(task: mach_port_t, original_address: u64, size: u64) -> io::Result<Self> {
+        let mut data: *mut u8 = ptr::null_mut();
+        let mut cur_protection: vm_prot_t = VM_PROT_NONE;
+        let mut max_protection: vm_prot_t = VM_PROT_NONE;
+        let kret = unsafe {
+            mach_vm_remap(
+                mach_task_self(),
+                mem::transmute(&mut data),
+                size,
+                0,
+                1, /* anywhere: true */
+                task,
+                original_address,
+                0,
+                mem::transmute(&mut cur_protection),
+                mem::transmute(&mut max_protection),
+                VM_INHERIT_SHARE,
+            )
+        };
+        if kret != KERN_SUCCESS {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(Self {
+            address_range: original_address..(original_address + size as u64),
+            data,
+            data_size: size as usize,
         })
     }
 

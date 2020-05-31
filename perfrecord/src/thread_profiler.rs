@@ -4,7 +4,7 @@ use std::io;
 use std::mem;
 use std::time::Instant;
 
-use super::proc_maps::get_backtrace;
+use super::proc_maps::{get_backtrace, ForeignMemory};
 
 use mach::kern_return::KERN_SUCCESS;
 use mach::port::mach_port_t;
@@ -17,7 +17,6 @@ use super::thread_info::{
 };
 
 pub struct ThreadProfiler {
-    task: mach_port_t,
     process_start: Instant,
     thread_act: thread_act_t,
     _tid: u32,
@@ -25,6 +24,7 @@ pub struct ThreadProfiler {
     stack_scratch_space: Vec<u64>,
     thread_builder: ThreadBuilder,
     tick_count: usize,
+    stack_memory: ForeignMemory,
 }
 
 impl ThreadProfiler {
@@ -46,7 +46,6 @@ impl ThreadProfiler {
             thread_builder.set_name("GeckoMain"); // https://github.com/firefox-devtools/profiler/issues/2508
         }
         Ok(ThreadProfiler {
-            task,
             process_start,
             thread_act,
             _tid: tid,
@@ -54,6 +53,7 @@ impl ThreadProfiler {
             stack_scratch_space: Vec::new(),
             thread_builder,
             tick_count: 0,
+            stack_memory: ForeignMemory::new(task),
         })
     }
 
@@ -68,7 +68,11 @@ impl ThreadProfiler {
         }
 
         self.stack_scratch_space.clear();
-        get_backtrace(self.task, self.thread_act, &mut self.stack_scratch_space)?;
+        get_backtrace(
+            &mut self.stack_memory,
+            self.thread_act,
+            &mut self.stack_scratch_space,
+        )?;
 
         self.thread_builder.add_sample(
             now.duration_since(self.process_start).as_secs_f64() * 1000.0,
@@ -81,6 +85,7 @@ impl ThreadProfiler {
     pub fn notify_dead(&mut self, end_time: Instant) {
         self.thread_builder
             .notify_dead(end_time.duration_since(self.process_start).as_secs_f64() * 1000.0);
+        self.stack_memory.clear();
     }
 
     pub fn into_profile_thread(self) -> ThreadBuilder {
