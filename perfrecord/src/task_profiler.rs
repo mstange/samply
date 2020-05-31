@@ -1,14 +1,14 @@
+use super::kernel_error::{self, IntoResult, KernelError};
 use super::proc_maps::{get_dyld_info, DyldInfo};
 use super::thread_profiler::ThreadProfiler;
 use mach;
-use mach::kern_return::KERN_SUCCESS;
 use mach::mach_types::thread_act_port_array_t;
 use mach::mach_types::thread_act_t;
 use mach::message::mach_msg_type_number_t;
 use mach::port::mach_port_t;
 use mach::task::task_threads;
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
-use std::io;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -33,7 +33,7 @@ impl TaskProfiler {
         now: Instant,
         command_name: &str,
         interval: Duration,
-    ) -> io::Result<Self> {
+    ) -> kernel_error::Result<Self> {
         let thread_acts = get_thread_list(task)?;
         let mut live_threads = HashMap::new();
         for (i, thread_act) in thread_acts.into_iter().enumerate() {
@@ -57,33 +57,55 @@ impl TaskProfiler {
         })
     }
 
-    pub fn sample(&mut self, now: Instant) -> io::Result<()> {
-        let mut previously_live_threads: HashSet<_> =
+    pub fn sample(&mut self, now: Instant) -> kernel_error::Result<bool> {
+        let result = self.sample_impl(now);
+        match result {
+            Ok(()) => Ok(true),
+            Err(KernelError::MachSendInvalidDest) => Ok(false),
+            Err(KernelError::Terminated) => Ok(false),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn sample_impl(&mut self, now: Instant) -> kernel_error::Result<()> {
+        let thread_acts = get_thread_list(self.task).map_err(|err| match err {
+            KernelError::InvalidArgument => KernelError::Terminated,
+            err => err,
+        })?;
+        let previously_live_threads: HashSet<_> =
             self.live_threads.iter().map(|(t, _)| *t).collect();
-        let thread_acts = get_thread_list(self.task)?;
+        let mut now_live_threads = HashSet::new();
         for thread_act in thread_acts {
-            if self.live_threads.get(&thread_act).is_none() {
-                self.live_threads.insert(
-                    thread_act,
-                    ThreadProfiler::new(
+            let mut entry = self.live_threads.entry(thread_act);
+            let thread = match entry {
+                Entry::Occupied(ref mut entry) => entry.get_mut(),
+                Entry::Vacant(entry) => {
+                    let result = ThreadProfiler::new(
                         self.task,
                         self.pid,
                         self.start_time,
                         thread_act,
                         now,
                         false,
-                    )?,
-                );
+                    );
+                    let thread = match result {
+                        Ok(thread) => thread,
+                        Err(KernelError::MachSendInvalidDest) => continue,
+                        Err(err) => return Err(err),
+                    };
+                    entry.insert(thread)
+                }
+            };
+            let still_alive = thread.sample(now)?;
+            if still_alive {
+                now_live_threads.insert(thread_act);
             }
-            previously_live_threads.remove(&thread_act);
         }
-        for dead_thread_act in previously_live_threads {
-            let mut dead_thread = self.live_threads.remove(&dead_thread_act).unwrap();
-            dead_thread.notify_dead(now);
-            self.dead_threads.push(dead_thread);
-        }
-        for (_, thread) in &mut self.live_threads {
-            thread.sample(now)?;
+        let dead_threads = previously_live_threads.difference(&now_live_threads);
+        for thread_act in dead_threads {
+            let mut thread = self.live_threads.remove(&thread_act).unwrap();
+            thread.notify_dead(now);
+            self.dead_threads.push(thread);
         }
         Ok(())
     }
@@ -121,13 +143,10 @@ impl TaskProfiler {
     }
 }
 
-fn get_thread_list(task: mach_port_t) -> io::Result<Vec<thread_act_t>> {
+fn get_thread_list(task: mach_port_t) -> kernel_error::Result<Vec<thread_act_t>> {
     let mut thread_list: thread_act_port_array_t = std::ptr::null_mut();
     let mut thread_count: mach_msg_type_number_t = Default::default();
-    let kret = unsafe { task_threads(task, &mut thread_list, &mut thread_count) };
-    if kret != KERN_SUCCESS {
-        return Err(io::Error::last_os_error());
-    }
+    unsafe { task_threads(task, &mut thread_list, &mut thread_count) }.into_result()?;
 
     let thread_acts = unsafe { std::slice::from_raw_parts(thread_list, thread_count as usize) };
     // leak thread_list or what?

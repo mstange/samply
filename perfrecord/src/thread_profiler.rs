@@ -1,12 +1,11 @@
 use super::gecko_profile::ThreadBuilder;
 use mach::mach_types::thread_act_t;
-use std::io;
 use std::mem;
 use std::time::Instant;
 
 use super::proc_maps::{get_backtrace, ForeignMemory};
 
-use mach::kern_return::KERN_SUCCESS;
+use super::kernel_error::{self, IntoResult, KernelError};
 use mach::port::mach_port_t;
 
 use super::thread_act::thread_info;
@@ -36,7 +35,7 @@ impl ThreadProfiler {
         thread_act: thread_act_t,
         now: Instant,
         is_main: bool,
-    ) -> io::Result<Self> {
+    ) -> kernel_error::Result<Self> {
         let tid = get_thread_id(thread_act)? as u32;
         let mut thread_builder = ThreadBuilder::new(
             pid,
@@ -58,7 +57,17 @@ impl ThreadProfiler {
         })
     }
 
-    pub fn sample(&mut self, now: Instant) -> io::Result<()> {
+    pub fn sample(&mut self, now: Instant) -> kernel_error::Result<bool> {
+        let result = self.sample_impl(now);
+        match result {
+            Ok(()) => Ok(true),
+            Err(KernelError::MachSendInvalidDest) => Ok(false),
+            Err(KernelError::InvalidArgument) => Ok(false),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn sample_impl(&mut self, now: Instant) -> kernel_error::Result<()> {
         self.tick_count += 1;
 
         if self.name.is_none() && self.tick_count % 10 == 1 {
@@ -97,38 +106,35 @@ impl ThreadProfiler {
     }
 }
 
-fn get_thread_id(thread_act: thread_act_t) -> io::Result<u64> {
+fn get_thread_id(thread_act: thread_act_t) -> kernel_error::Result<u64> {
     let mut identifier_info_data: thread_identifier_info_data_t = unsafe { mem::zeroed() };
     let mut count = THREAD_IDENTIFIER_INFO_COUNT;
-    let kret = unsafe {
+    unsafe {
         thread_info(
             thread_act,
             THREAD_IDENTIFIER_INFO,
             &mut identifier_info_data as *mut _ as thread_info_t,
             &mut count,
         )
-    };
-    if kret != KERN_SUCCESS {
-        return Err(io::Error::last_os_error());
     }
+    .into_result()?;
+
     Ok(identifier_info_data.thread_id)
 }
 
-fn get_thread_name(thread_act: thread_act_t) -> io::Result<Option<String>> {
+fn get_thread_name(thread_act: thread_act_t) -> kernel_error::Result<Option<String>> {
     // Get the thread name.
     let mut extended_info_data: thread_extended_info_data_t = unsafe { mem::zeroed() };
     let mut count = THREAD_EXTENDED_INFO_COUNT;
-    let kret = unsafe {
+    unsafe {
         thread_info(
             thread_act,
             THREAD_EXTENDED_INFO,
             &mut extended_info_data as *mut _ as thread_info_t,
             &mut count,
         )
-    };
-    if kret != KERN_SUCCESS {
-        return Err(io::Error::last_os_error());
     }
+    .into_result()?;
 
     let name = unsafe { std::ffi::CStr::from_ptr(extended_info_data.pth_name.as_ptr()) }
         .to_string_lossy()
@@ -136,21 +142,19 @@ fn get_thread_name(thread_act: thread_act_t) -> io::Result<Option<String>> {
     Ok(if name.is_empty() { None } else { Some(name) })
 }
 
-fn is_thread_idle(thread_act: thread_act_t) -> io::Result<bool> {
+fn is_thread_idle(thread_act: thread_act_t) -> kernel_error::Result<bool> {
     // Get the thread name.
     let mut basic_info_data: thread_basic_info_data_t = unsafe { mem::zeroed() };
     let mut count = THREAD_BASIC_INFO_COUNT;
-    let kret = unsafe {
+    unsafe {
         thread_info(
             thread_act,
             THREAD_BASIC_INFO,
             &mut basic_info_data as *mut _ as thread_info_t,
             &mut count,
         )
-    };
-    if kret != KERN_SUCCESS {
-        return Err(io::Error::last_os_error());
     }
+    .into_result()?;
 
     Ok(basic_info_data.run_state != TH_STATE_RUNNING as i32)
 }

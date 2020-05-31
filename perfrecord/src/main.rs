@@ -14,6 +14,7 @@ mod process_launcher;
 mod task_profiler;
 mod thread_profiler;
 
+pub mod kernel_error;
 pub mod thread_act;
 pub mod thread_info;
 
@@ -137,7 +138,6 @@ fn start_recording(
     launcher.start_execution();
 
     let mut last_sleep_overshoot = Duration::from_nanos(0);
-    sleep_and_save_overshoot(interval, &mut last_sleep_overshoot);
 
     loop {
         let sample_timestamp = Instant::now();
@@ -146,10 +146,18 @@ fn start_recording(
                 break;
             }
         }
-        let got_sample = task_profiler.sample(sample_timestamp).is_ok();
-        if !got_sample {
-            break;
+        match task_profiler.sample(sample_timestamp) {
+            Ok(true) => {}
+            Ok(false) => {
+                println!("Task terminated.");
+                break;
+            }
+            Err(err) => {
+                println!("Got error: {:?}", err);
+                break;
+            }
         }
+
         let intended_wakeup_time = sample_timestamp + interval;
         let indended_wait_time = intended_wakeup_time.saturating_duration_since(Instant::now());
         let sleep_time = if indended_wait_time > last_sleep_overshoot {

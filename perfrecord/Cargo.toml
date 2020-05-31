@@ -22,6 +22,8 @@ serde_json = "1.0.53"
 mach = "0.3.2"
 tempfile = "3.1.0"
 structopt = "0.3.14"
+thiserror = "1.0.19"
+backtrace = "0.3.48"
 
 [profile.release]
 debug = true

@@ -636,6 +636,7 @@ checksum = "d4fd5641d01c8f18a23da7b6fe29298ff4b55afcccdf78973b24cf3175fee32e"
 name = "perfrecord"
 version = "0.3.0"
 dependencies = [
+ "backtrace",
  "libc",
  "mach",
  "perfrecord-mach-ipc-rendezvous",
@@ -643,6 +644,7 @@ dependencies = [
  "serde_json",
  "structopt",
  "tempfile",
+ "thiserror",
  "tokio",
  "uuid 0.8.1",
  "which",
