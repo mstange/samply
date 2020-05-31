@@ -251,12 +251,32 @@ fn do_frame_pointer_stackwalk(
     // Functions are called with callq; callq pushes the return address onto the stack.
     // When a function reaches its end, ret pops the return address from the stack and jumps to it.
     // So when a function is called, we have the following stack layout:
-    //         [caller's frame pointer]  [return address]  [... rest of the stack from caller]
-    //         ^
-    //         `---- stack pointer (rsp) points here
-    // And this value of rsp is saved in rbp. It can be recovered at any point in the function.
+    //
+    //                                                                     [... rest of the stack]
+    //                                                                     ^ rsp           ^ rbp
+    //     callq some_function
+    //                                                   [return address]  [... rest of the stack]
+    //                                                   ^ rsp                             ^ rbp
+    //     pushq %rbp
+    //                         [caller's frame pointer]  [return address]  [... rest of the stack]
+    //                         ^ rsp                                                       ^ rbp
+    //     movq %rsp, %rbp
+    //                         [caller's frame pointer]  [return address]  [... rest of the stack]
+    //                         ^ rsp, rbp
+    //     <other instructions>
+    //       [... more stack]  [caller's frame pointer]  [return address]  [... rest of the stack]
+    //       ^ rsp             ^ rbp
     //
     // So: *rbp is the caller's frame pointer, and *(rbp + 8) is the return address.
+    //
+    // Or, in other words, the following linked list is built up on the stack:
+    // #[repr(C)]
+    // struct CallFrameInfo {
+    //     previous: *const CallFrameInfo,
+    //     return_address: *const c_void,
+    // }
+    // and rbp is a *const CallFrameInfo.
+
     let mut bp = initial_state.__rbp;
     while bp != 0 && (bp & 7) == 0 {
         let next = match memory.read_u64_at_address(bp) {
