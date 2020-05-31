@@ -17,7 +17,6 @@ profiler-symbol-server = "0.1.0"
 tokio = { version = "0.2", features = ["full"] }
 uuid = "0.8.1"
 libc = "0.2.71"
-which = "3.1.1"
 serde_json = "1.0.53"
 mach = "0.3.2"
 tempfile = "3.1.0"

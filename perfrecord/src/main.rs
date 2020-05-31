@@ -7,7 +7,6 @@ use std::process::ExitStatus;
 use std::thread;
 use std::time::{Duration, Instant};
 use structopt::StructOpt;
-use which::which;
 
 mod dyld_bindings;
 mod gecko_profile;
@@ -123,8 +122,8 @@ fn start_recording(
         let profile_builder: ProfileBuilder = saver_receiver.recv().expect("saver couldn't recv");
         let file = File::create(&output_file).unwrap();
         to_writer(file, &profile_builder.to_json()).expect("Couldn't write JSON");
-        // println!("profile: {:?}", profile_builder);
 
+        // Reuse the saver thread as the server thread.
         if launch_when_done {
             start_server_main(&output_file, true);
         }
@@ -140,10 +139,9 @@ fn start_recording(
     });
 
     let command_name = args.first().unwrap();
-    let command = which(command_name).expect("Couldn't resolve command name");
     let args: Vec<&str> = args.iter().skip(1).map(std::ops::Deref::deref).collect();
 
-    let mut launcher = ProcessLauncher::new(&command, &args)?;
+    let mut launcher = ProcessLauncher::new(command_name, &args)?;
     let child_pid = launcher.get_id();
     let child_task = launcher.take_task();
     println!("child PID: {}, childTask: {}\n", child_pid, child_task);

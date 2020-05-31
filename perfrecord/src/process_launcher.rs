@@ -4,7 +4,6 @@ use tempfile::tempdir;
 use std::fs::File;
 use std::io::{self, Write};
 use std::mem;
-use std::path::Path;
 use std::process::{Child, Command, ExitStatus};
 
 pub use perfrecord_mach_ipc_rendezvous::{mach_port_t, MachError, MACH_PORT_NULL};
@@ -20,7 +19,7 @@ static PRELOAD_LIB_CONTENTS: &'static [u8] =
     include_bytes!("../resources/libperfrecord_preload.dylib");
 
 impl ProcessLauncher {
-    pub fn new(binary: &Path, args: &[&str]) -> Result<Self, MachError> {
+    pub fn new(program: &str, args: &[&str]) -> Result<Self, MachError> {
         // Launch the child with DYLD_INSERT_LIBRARIES set to libperfrecord_preload.dylib.
 
         // We would like to ship with libperfrecord_preload.dylib as a separate resource file.
@@ -48,7 +47,7 @@ impl ProcessLauncher {
                 server_name.into(),
             )));
 
-        let child = Command::new(binary)
+        let child = Command::new(program)
             .args(args)
             .envs(child_env)
             .spawn()

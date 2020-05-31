@@ -675,7 +675,6 @@ dependencies = [
  "thiserror",
  "tokio",
  "uuid 0.8.1",
- "which",
 ]
 
 [[package]]
@@ -1296,16 +1295,6 @@ name = "wasmparser"
 version = "0.54.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "747467da102640806cf6643e032a70174e7768839bcac7e71a0a9aaa54761d59"
-
-[[package]]
-name = "which"
-version = "3.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d011071ae14a2f6671d0b74080ae0cd8ebf3a6f8c9589a2cd45f23126fe29724"
-dependencies = [
- "failure",
- "libc",
-]
 
 [[package]]
 name = "winapi"
