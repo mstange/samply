@@ -313,9 +313,9 @@ impl ForeignMemory {
 
     pub fn read_u64_at_address(&mut self, address: u64) -> io::Result<u64> {
         let search = self.data.binary_search_by(|d| {
-            if d.address_range.end >= address {
+            if d.address_range.start > address {
                 Ordering::Greater
-            } else if d.address_range.start < address {
+            } else if d.address_range.end <= address {
                 Ordering::Less
             } else {
                 Ordering::Equal
