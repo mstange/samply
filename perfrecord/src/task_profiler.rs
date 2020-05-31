@@ -21,10 +21,11 @@ pub struct TaskProfiler {
     live_threads: HashMap<thread_act_t, ThreadProfiler>,
     dead_threads: Vec<ThreadProfiler>,
     libs: Vec<DyldInfo>,
+    command_name: String,
 }
 
 impl TaskProfiler {
-    pub fn new(task: mach_port_t, now: Instant) -> io::Result<Self> {
+    pub fn new(task: mach_port_t, now: Instant, command_name: &str) -> io::Result<Self> {
         let thread_acts = get_thread_list(task)?;
         let mut live_threads = HashMap::new();
         for thread_act in thread_acts {
@@ -37,6 +38,7 @@ impl TaskProfiler {
             live_threads,
             dead_threads: Vec::new(),
             libs: get_dyld_info(task)?,
+            command_name: command_name.to_owned(),
         })
     }
 
@@ -65,7 +67,7 @@ impl TaskProfiler {
     }
 
     pub fn into_profile(self) -> ProfileBuilder {
-        let mut profile_builder = ProfileBuilder::new(self.start_time);
+        let mut profile_builder = ProfileBuilder::new(self.start_time, &self.command_name);
         let all_threads = self
             .live_threads
             .into_iter()

@@ -105,7 +105,8 @@ fn start_recording(
 ) -> Result<(), MachError> {
     let time_limit = time_limit.map(|secs| Duration::from_secs_f64(secs));
 
-    let command = which(args.first().unwrap()).expect("Couldn't resolve command name");
+    let command_name = args.first().unwrap();
+    let command = which(command_name).expect("Couldn't resolve command name");
     let args: Vec<&str> = args.iter().map(std::ops::Deref::deref).collect();
 
     let mut launcher = ProcessLauncher::new(&command, &args)?;
@@ -116,7 +117,7 @@ fn start_recording(
     let now = Instant::now();
     let sampling_start = now;
     let mut task_profiler =
-        TaskProfiler::new(child_task, now).expect("couldn't create TaskProfiler");
+        TaskProfiler::new(child_task, now, command_name).expect("couldn't create TaskProfiler");
     task_profiler.sample(now).expect("sampling failed");
 
     launcher.start_execution();

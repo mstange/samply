@@ -10,10 +10,11 @@ pub struct ProfileBuilder {
     threads: HashMap<u32, ThreadBuilder>,
     start_time: f64, // as seconds since unix epoch
     end_time: Option<f64>,
+    command_name: String,
 }
 
 impl ProfileBuilder {
-    pub fn new(start_time: Instant) -> Self {
+    pub fn new(start_time: Instant, command_name: &str) -> Self {
         let now_instant = Instant::now();
         let now_system = SystemTime::now();
         let duration_before_now = now_instant.duration_since(start_time);
@@ -24,6 +25,7 @@ impl ProfileBuilder {
             libs: Vec::new(),
             start_time: duration_since_unix_epoch.as_secs_f64() * 1000.0,
             end_time: None,
+            command_name: command_name.to_owned(),
         }
     }
 
@@ -69,13 +71,15 @@ impl ProfileBuilder {
         let libs: Vec<Value> = sorted_libs.iter().map(|l| l.to_json()).collect();
         json!({
             "meta": {
-                "version": 4,
-                "processType": 0,
+                "version": 7,
+                "startTime": self.start_time,
+                "product": self.command_name,
                 "interval": 1,
-                "startTime": self.start_time
+                "processType": 0,
             },
             "libs": libs,
             "threads": threads,
+            "processes": [],
         })
     }
 }
