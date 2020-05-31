@@ -148,14 +148,13 @@ fn start_recording(
             break;
         }
         let intended_wakeup_time = sample_timestamp + interval;
-        let mut indended_sleep_time =
-            intended_wakeup_time.saturating_duration_since(Instant::now());
-        if indended_sleep_time > last_sleep_overshoot {
-            indended_sleep_time -= last_sleep_overshoot;
+        let indended_wait_time = intended_wakeup_time.saturating_duration_since(Instant::now());
+        let sleep_time = if indended_wait_time > last_sleep_overshoot {
+            indended_wait_time - last_sleep_overshoot
         } else {
-            indended_sleep_time = Duration::from_nanos(0);
-        }
-        sleep_and_save_overshoot(indended_sleep_time, &mut last_sleep_overshoot);
+            Duration::from_nanos(0)
+        };
+        sleep_and_save_overshoot(sleep_time, &mut last_sleep_overshoot);
     }
 
     let profile_builder = task_profiler.into_profile();
