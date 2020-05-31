@@ -24,7 +24,7 @@ In the future it should support sampling based on wall-clock time ("All thread s
 
 ## Other examples
 
-`perfrecord --launch-when-done rustup check` generates [this profile](https://deploy-preview-2556--perf-html.netlify.app/public/7c64cd279d674a29ae445a4eb3b7e046748083da/calltree/?globalTrackOrder=0-1-2-3-4-5-6-7&thread=5&timelineType=stack&v=4).
+`perfrecord --launch-when-done rustup check` generates [this profile](https://share.firefox.dev/2MfPzak).
 
 Profiling system-provided command line tools is not straightforward because of system-integrity protection.
 Here's an example for profiling `sleep`:
@@ -34,7 +34,7 @@ cat /bin/sleep > /tmp/sleep; chmod +x /tmp/sleep
 perfrecord --launch-when-done /tmp/sleep 2
 ```
 
-It produces [this profile](https://deploy-preview-2556--perf-html.netlify.app/public/ffc4c3a15a6da64c1e6b7ecdc7d4ffc37d41c032/calltree/?globalTrackOrder=0&thread=0&timelineType=stack&v=4).
+It produces [this profile](https://share.firefox.dev/2ZRmN7H).
 
 
 ## Why?
@@ -81,11 +81,6 @@ entitelments to work around this restriction.
 Once perfrecord has the `mach_port_t` for the child task, it has complete control over it.
 It can enumerate threads, pause them at will, and read process memory.
 
-In the future, I would like to obtain stacks using our own code, given these primitives.
+We use these primitives to walk the stack and enumerate shared libraries.
 
-However, for now, we make use of a private macOS framework called "Symbolication".
-The Symbolication framework has an Objective C class called `VMUSampler` that provides
-stack sampling functionality.
-The use of `VMUSampler` is intended to be temporary. `VMUSampler` runs into the same
-performance problem as Instruments with local Firefox binaries because it tries to
-symbolicate eagerly.
+At the moment, only frame pointer stack walking is implemented. This is usually fine because keeping frame pointers is the default on macOS.
