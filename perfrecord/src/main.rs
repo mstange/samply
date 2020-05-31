@@ -97,6 +97,16 @@ async fn start_server_main(file: &Path, open_in_browser: bool) {
     start_server(file, open_in_browser).await;
 }
 
+fn sleep_and_save_overshoot(duration: Duration, overshoot: &mut Duration) {
+    let before_sleep = Instant::now();
+    thread::sleep(duration);
+    let after_sleep = Instant::now();
+    *overshoot = after_sleep
+        .duration_since(before_sleep)
+        .checked_sub(duration)
+        .unwrap_or(Duration::from_nanos(0));
+}
+
 fn start_recording(
     output_file: &Path,
     args: &[String],
@@ -120,22 +130,32 @@ fn start_recording(
         .expect("couldn't create TaskProfiler");
     task_profiler.sample(now).expect("sampling failed");
 
+    let interval = Duration::from_millis(1);
+
     launcher.start_execution();
-    thread::sleep(Duration::from_millis(1));
+    let mut last_sleep_overshoot = Duration::from_nanos(0);
+    sleep_and_save_overshoot(interval, &mut last_sleep_overshoot);
 
     loop {
-        let now = Instant::now();
+        let sample_timestamp = Instant::now();
         if let Some(time_limit) = time_limit {
-            if now.duration_since(sampling_start) >= time_limit {
+            if sample_timestamp.duration_since(sampling_start) >= time_limit {
                 break;
             }
         }
-        let got_sample = task_profiler.sample(now).is_ok();
+        let got_sample = task_profiler.sample(sample_timestamp).is_ok();
         if !got_sample {
             break;
         }
-
-        thread::sleep(Duration::from_millis(1));
+        let intended_wakeup_time = sample_timestamp + interval;
+        let mut indended_sleep_time =
+            intended_wakeup_time.saturating_duration_since(Instant::now());
+        if indended_sleep_time > last_sleep_overshoot {
+            indended_sleep_time -= last_sleep_overshoot;
+        } else {
+            indended_sleep_time = Duration::from_nanos(0);
+        }
+        sleep_and_save_overshoot(indended_sleep_time, &mut last_sleep_overshoot);
     }
 
     let profile_builder = task_profiler.into_profile();
