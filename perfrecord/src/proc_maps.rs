@@ -268,10 +268,13 @@ fn do_frame_pointer_stackwalk(
     //
     // Functions are called with callq; callq pushes the return address onto the stack.
     // When a function reaches its end, ret pops the return address from the stack and jumps to it.
-    // So when a function is called, we have [return address, caller's frame pointer] on the
-    // stack, and rbp contains the address on the stack where this is written down.
-    // The stack grows downwards, so everything is upside down.
-    // *rbp is the caller's frame pointer, and *(rbp + 8) is the return address.
+    // So when a function is called, we have the following stack layout:
+    //         [caller's frame pointer]  [return address]  [... rest of the stack from caller]
+    //         ^
+    //         `---- stack pointer (rsp) points here
+    // And this value of rsp is saved in rbp. It can be recovered at any point in the function.
+    //
+    // So: *rbp is the caller's frame pointer, and *(rbp + 8) is the return address.
     let mut bp = initial_state.__rbp;
     while bp != 0 && (bp & 7) == 0 {
         let next = match memory.read_u64_at_address(bp) {
