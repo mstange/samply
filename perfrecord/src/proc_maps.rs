@@ -281,17 +281,8 @@ impl ForeignMemory {
     }
 
     pub fn read_u64_at_address(&mut self, address: u64) -> kernel_error::Result<u64> {
-        let vm_data = match self.data_index_for_address(address) {
-            Ok(i) => &self.data[i],
-            Err(i) => {
-                let start_addr = unsafe { mach_vm_trunc_page(address) };
-                let size = unsafe { vm_page_size } as u64;
-                let data = VmData::map_from_task(self.task, start_addr, size)?;
-                self.data.insert(i, data);
-                &self.data[i]
-            }
-        };
-        Ok(vm_data.read_u64_at_address(address))
+        let number: &u64 = unsafe { self.get_type_ref_at_address(address) }?;
+        Ok(*number)
     }
 
     fn data_index_for_address(&self, address: u64) -> std::result::Result<usize, usize> {
@@ -412,26 +403,6 @@ impl VmData {
             data,
             data_size: size as usize,
         })
-    }
-
-    pub fn read_u64_at_address(&self, address: u64) -> u64 {
-        if address < self.address_range.start {
-            panic!(
-                "address {} is before the range that we read (which starts at {})",
-                address, self.address_range.start
-            );
-        }
-        if address >= self.address_range.end {
-            panic!(
-                "address {} is after the range that we read (which ends at {})",
-                address, self.address_range.end
-            );
-        }
-        let ptr = unsafe {
-            self.data
-                .offset((address - self.address_range.start) as isize)
-        };
-        unsafe { *(ptr as *const u8 as *const u64) }
     }
 
     pub fn get_slice<'a>(&'a self, address_range: std::ops::Range<u64>) -> &'a [u8] {
