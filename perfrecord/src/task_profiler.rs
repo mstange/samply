@@ -39,10 +39,9 @@ impl TaskProfiler {
         for (i, thread_act) in thread_acts.into_iter().enumerate() {
             // Pretend that the first thread is the main thread. Might not be true.
             let is_main = i == 0;
-            live_threads.insert(
-                thread_act,
-                ThreadProfiler::new(task, pid, now, thread_act, now, is_main)?,
-            );
+            if let Some(thread) = ThreadProfiler::new(task, pid, now, thread_act, now, is_main)? {
+                live_threads.insert(thread_act, thread);
+            }
         }
         Ok(TaskProfiler {
             task,
@@ -80,20 +79,17 @@ impl TaskProfiler {
             let thread = match entry {
                 Entry::Occupied(ref mut entry) => entry.get_mut(),
                 Entry::Vacant(entry) => {
-                    let result = ThreadProfiler::new(
+                    match ThreadProfiler::new(
                         self.task,
                         self.pid,
                         self.start_time,
                         thread_act,
                         now,
                         false,
-                    );
-                    let thread = match result {
-                        Ok(thread) => thread,
-                        Err(KernelError::MachSendInvalidDest) => continue,
-                        Err(err) => return Err(err),
-                    };
-                    entry.insert(thread)
+                    )? {
+                        Some(thread) => entry.insert(thread),
+                        None => continue,
+                    }
                 }
             };
             let still_alive = thread.sample(now)?;

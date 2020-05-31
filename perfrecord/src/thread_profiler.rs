@@ -35,8 +35,12 @@ impl ThreadProfiler {
         thread_act: thread_act_t,
         now: Instant,
         is_main: bool,
-    ) -> kernel_error::Result<Self> {
-        let tid = get_thread_id(thread_act)? as u32;
+    ) -> kernel_error::Result<Option<Self>> {
+        let tid = match get_thread_id(thread_act) {
+            Ok(tid) => tid as u32,
+            Err(KernelError::MachSendInvalidDest) => return Ok(None),
+            Err(err) => return Err(err),
+        };
         let mut thread_builder = ThreadBuilder::new(
             pid,
             tid,
@@ -45,7 +49,7 @@ impl ThreadProfiler {
         if is_main {
             thread_builder.set_name("GeckoMain"); // https://github.com/firefox-devtools/profiler/issues/2508
         }
-        Ok(ThreadProfiler {
+        Ok(Some(ThreadProfiler {
             process_start,
             thread_act,
             _tid: tid,
@@ -54,7 +58,7 @@ impl ThreadProfiler {
             thread_builder,
             tick_count: 0,
             stack_memory: ForeignMemory::new(task),
-        })
+        }))
     }
 
     pub fn sample(&mut self, now: Instant) -> kernel_error::Result<bool> {
