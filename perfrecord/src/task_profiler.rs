@@ -80,7 +80,10 @@ impl TaskProfiler {
         for change in changes {
             match change {
                 Modification::Added(lib) => self.libs.push(lib),
-                Modification::Removed(_) => { /* ignore */ }
+                Modification::Removed(_) => {
+                    // Ignore, and hope that the address ranges won't be reused by other libraries
+                    // during the rest of the recording...
+                }
             }
         }
 
@@ -110,6 +113,7 @@ impl TaskProfiler {
                     }
                 }
             };
+            // Grab a sample from the thread.
             let still_alive = thread.sample(now)?;
             if still_alive {
                 now_live_threads.insert(thread_act);
