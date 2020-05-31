@@ -10,8 +10,8 @@ pub struct ProfileBuilder {
     pid: u32,
     libs: Vec<Lib>,
     threads: HashMap<u32, ThreadBuilder>,
-    start_time: f64, // as seconds since unix epoch
-    end_time: Option<f64>,
+    start_time: f64,       // as milliseconds since unix epoch
+    end_time: Option<f64>, // as milliseconds since start_time
     command_name: String,
 }
 
