@@ -2,17 +2,28 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use uuid::Uuid;
 
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
 #[derive(Debug)]
 pub struct ProfileBuilder {
     libs: Vec<Lib>,
     threads: HashMap<u32, ThreadBuilder>,
+    start_time: f64, // as seconds since unix epoch
+    end_time: Option<f64>,
 }
 
 impl ProfileBuilder {
-    pub fn new() -> Self {
+    pub fn new(start_time: Instant) -> Self {
+        let now_instant = Instant::now();
+        let now_system = SystemTime::now();
+        let duration_before_now = now_instant.duration_since(start_time);
+        let start_time_system = now_system - duration_before_now;
+        let duration_since_unix_epoch = start_time_system.duration_since(UNIX_EPOCH).unwrap();
         ProfileBuilder {
             threads: HashMap::new(),
             libs: Vec::new(),
+            start_time: duration_since_unix_epoch.as_secs_f64() * 1000.0,
+            end_time: None,
         }
     }
 
@@ -32,26 +43,36 @@ impl ProfileBuilder {
         })
     }
 
-    pub fn add_sample(&mut self, thread_index: u32, timestamp: f64, frames: &[u64]) {
-        let thread = self
-            .threads
-            .entry(thread_index)
-            .or_insert_with(|| ThreadBuilder::new(thread_index));
-        thread.add_sample(timestamp, frames);
+    // pub fn add_sample(&mut self, thread_index: u32, timestamp: f64, frames: &[u64]) {
+    //     let thread = self
+    //         .threads
+    //         .entry(thread_index)
+    //         .or_insert_with(|| ThreadBuilder::new(thread_index, timestamp));
+    //     thread.add_sample(timestamp, frames);
+    // }
+
+    pub fn add_thread(&mut self, thread_builder: ThreadBuilder) {
+        self.threads.insert(thread_builder.index, thread_builder);
     }
 
     pub fn to_json(&self) -> serde_json::Value {
+        let mut sorted_threads: Vec<_> = self.threads.iter().collect();
+        sorted_threads
+            .sort_by(|(_, a), (_, b)| a.get_start_time().partial_cmp(&b.get_start_time()).unwrap());
         let threads: Vec<Value> = self
             .threads
             .iter()
             .map(|(_, thread)| thread.to_json())
             .collect();
-        let libs: Vec<Value> = self.libs.iter().map(|l| l.to_json()).collect();
+        let mut sorted_libs: Vec<_> = self.libs.iter().collect();
+        sorted_libs.sort_by_key(|l| l.start_address);
+        let libs: Vec<Value> = sorted_libs.iter().map(|l| l.to_json()).collect();
         json!({
             "meta": {
                 "version": 4,
                 "processType": 0,
-                "interval": 1
+                "interval": 1,
+                "startTime": self.start_time
             },
             "libs": libs,
             "threads": threads,
@@ -62,6 +83,8 @@ impl ProfileBuilder {
 #[derive(Debug)]
 pub struct ThreadBuilder {
     index: u32,
+    start_time: f64,
+    end_time: Option<f64>,
     stack_table: StackTable,
     frame_table: FrameTable,
     samples: SampleTable,
@@ -69,14 +92,20 @@ pub struct ThreadBuilder {
 }
 
 impl ThreadBuilder {
-    pub fn new(thread_index: u32) -> Self {
+    pub fn new(thread_index: u32, start_time: f64) -> Self {
         ThreadBuilder {
             index: thread_index,
+            start_time,
+            end_time: None,
             stack_table: StackTable::new(),
             frame_table: FrameTable::new(),
             samples: SampleTable(Vec::new()),
             string_table: StringTable::new(),
         }
+    }
+
+    pub fn get_start_time(&self) -> f64 {
+        self.start_time
     }
 
     pub fn add_sample(&mut self, timestamp: f64, frames: &[u64]) {
@@ -85,6 +114,10 @@ impl ThreadBuilder {
             timestamp,
             stack_index,
         });
+    }
+
+    pub fn notify_dead(&mut self, end_time: f64) {
+        self.end_time = Some(end_time);
     }
 
     fn stack_index_for_frames(&mut self, frames: &[u64]) -> Option<usize> {

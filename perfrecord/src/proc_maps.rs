@@ -1,18 +1,34 @@
 use libc::strlen;
 use mach;
-use mach::kern_return::{kern_return_t, KERN_SUCCESS};
+use mach::kern_return::KERN_SUCCESS;
 use mach::message::mach_msg_type_number_t;
 use mach::port::mach_port_t;
+use mach::thread_act::{thread_get_state, thread_resume, thread_suspend};
+use mach::thread_status::{thread_state_t, x86_THREAD_STATE64};
+use mach::traps::mach_task_self;
+use mach::vm::{mach_vm_deallocate, mach_vm_read, mach_vm_read_overwrite};
+use mach::vm_page_size::{mach_vm_trunc_page, vm_page_size};
 use mach::vm_types::{mach_vm_address_t, mach_vm_size_t};
-use std;
+use std::cmp::Ordering;
 use std::io;
+use std::mem;
+use std::ptr;
 use uuid::Uuid;
+
+use mach::structs::x86_thread_state64_t;
 
 use crate::dyld_bindings;
 use dyld_bindings::{
     dyld_all_image_infos, dyld_image_info, load_command, mach_header_64, segment_command_64,
     uuid_command,
 };
+
+#[derive(Debug, Clone)]
+pub struct ThreadInfo {
+    pub tid: u64,
+    pub name: String,
+    pub backtrace: Option<Vec<u64>>,
+}
 
 #[derive(Debug, Clone)]
 pub struct DyldInfo {
@@ -68,7 +84,7 @@ pub fn get_dyld_info(task: mach_port_t) -> io::Result<Vec<DyldInfo>> {
     let result = unsafe {
         // While we could use the read_process_memory crate for this, this adds a dependency
         // for something that is pretty trivial
-        vm_read_overwrite(
+        mach_vm_read_overwrite(
             task,
             dyld_info.all_image_info_addr,
             read_len,
@@ -85,7 +101,7 @@ pub fn get_dyld_info(task: mach_port_t) -> io::Result<Vec<DyldInfo>> {
     let mut read_len = (std::mem::size_of::<dyld_image_info>()
         * image_infos.infoArrayCount as usize) as mach_vm_size_t;
     let result = unsafe {
-        vm_read_overwrite(
+        mach_vm_read_overwrite(
             task,
             image_infos.infoArray as mach_vm_address_t,
             read_len,
@@ -101,7 +117,7 @@ pub fn get_dyld_info(task: mach_port_t) -> io::Result<Vec<DyldInfo>> {
         let mut read_len = 512 as mach_vm_size_t;
         let mut image_filename = [0_i8; 512];
         let result = unsafe {
-            vm_read_overwrite(
+            mach_vm_read_overwrite(
                 task,
                 module.imageFilePath as mach_vm_address_t,
                 read_len,
@@ -121,9 +137,7 @@ pub fn get_dyld_info(task: mach_port_t) -> io::Result<Vec<DyldInfo>> {
         let mut header = mach_header_64::default();
         let mut read_len = std::mem::size_of_val(&header) as mach_vm_size_t;
         let result = unsafe {
-            // While we could use the read_process_memory crate for this, this adds a dependency
-            // for something that is pretty trivial
-            vm_read_overwrite(
+            mach_vm_read_overwrite(
                 task,
                 module.imageLoadAddress as u64,
                 read_len,
@@ -138,7 +152,7 @@ pub fn get_dyld_info(task: mach_port_t) -> io::Result<Vec<DyldInfo>> {
         let mut commands_buffer = vec![0_i8; header.sizeofcmds as usize];
         let mut read_len = mach_vm_size_t::from(header.sizeofcmds);
         let result = unsafe {
-            vm_read_overwrite(
+            mach_vm_read_overwrite(
                 task,
                 (module.imageLoadAddress as usize + std::mem::size_of_val(&header))
                     as mach_vm_size_t,
@@ -189,16 +203,6 @@ pub fn get_dyld_info(task: mach_port_t) -> io::Result<Vec<DyldInfo>> {
     Ok(vec)
 }
 
-extern "C" {
-    fn vm_read_overwrite(
-        target_task: mach_port_t,
-        address: mach_vm_address_t,
-        size: mach_vm_size_t,
-        data: mach_vm_address_t,
-        out_size: *mut mach_vm_size_t,
-    ) -> kern_return_t;
-}
-
 // bindgen seemed to put all the members for this struct as a single opaque blob:
 //      (bindgen /usr/include/mach/task_info.h --with-derive-default --whitelist-type task_dyld_info)
 // rather than debug the bindgen command, just define manually here
@@ -208,4 +212,185 @@ pub struct task_dyld_info {
     pub all_image_info_addr: mach_vm_address_t,
     pub all_image_info_size: mach_vm_size_t,
     pub all_image_info_format: mach::vm_types::integer_t,
+}
+
+pub fn get_backtrace(
+    task: mach_port_t,
+    thread_act: mach_port_t,
+    frames: &mut Vec<u64>,
+) -> io::Result<()> {
+    let kret = unsafe { thread_suspend(thread_act) };
+    if kret != KERN_SUCCESS {
+        return Err(io::Error::last_os_error());
+    }
+
+    let mut state: x86_thread_state64_t = unsafe { mem::zeroed() };
+    let mut count = x86_thread_state64_t::count();
+    let kret = unsafe {
+        thread_get_state(
+            thread_act,
+            x86_THREAD_STATE64,
+            &mut state as *mut _ as thread_state_t,
+            &mut count as *mut _,
+        )
+    };
+
+    if kret != KERN_SUCCESS {
+        let _ = unsafe { thread_resume(thread_act) };
+        return Err(io::Error::last_os_error());
+    }
+
+    let mut memory = ForeignMemory::new(task);
+    do_frame_pointer_stackwalk(&state, &mut memory, frames);
+
+    let _ = unsafe { thread_resume(thread_act) };
+
+    Ok(())
+}
+
+fn do_frame_pointer_stackwalk(
+    initial_state: &x86_thread_state64_t,
+    memory: &mut ForeignMemory,
+    frames: &mut Vec<u64>,
+) {
+    frames.push(initial_state.__rip);
+
+    // Do a frame pointer stack walk. Code that is compiled with frame pointers
+    // has the following function prologues and epilogues:
+    //
+    // Function prologue:
+    // pushq  %rbp
+    // movq   %rsp, %rbp
+    //
+    // Function epilogue:
+    // popq   %rbp
+    // ret
+    //
+    // Functions are called with callq; callq pushes the return address onto the stack.
+    // When a function reaches its end, ret pops the return address from the stack and jumps to it.
+    // So when a function is called, we have [return address, caller's frame pointer] on the
+    // stack, and rbp contains the address on the stack where this is written down.
+    // The stack grows downwards, so everything is upside down.
+    // *rbp is the caller's frame pointer, and *(rbp + 8) is the return address.
+    let mut bp = initial_state.__rbp;
+    while bp != 0 && (bp & 7) == 0 {
+        let next = match memory.read_u64_at_address(bp) {
+            Ok(val) => val,
+            Err(_) => break,
+        };
+        // The caller frame will always be lower on the stack (at a higher address)
+        // than this frame. Make sure this is the case, so that we don't go in circles.
+        if next <= bp {
+            break;
+        }
+        let return_address = match memory.read_u64_at_address(bp + 8) {
+            Ok(val) => val,
+            Err(_) => break,
+        };
+        frames.push(return_address);
+        bp = next;
+    }
+
+    frames.reverse();
+}
+
+#[derive(Debug, Clone)]
+pub struct ForeignMemory {
+    task: mach_port_t,
+    data: Vec<VmData>,
+}
+
+impl ForeignMemory {
+    pub fn new(task: mach_port_t) -> Self {
+        Self {
+            task,
+            data: Vec::new(),
+        }
+    }
+
+    pub fn read_u64_at_address(&mut self, address: u64) -> io::Result<u64> {
+        let search = self.data.binary_search_by(|d| {
+            if d.address_range.end >= address {
+                Ordering::Greater
+            } else if d.address_range.start < address {
+                Ordering::Less
+            } else {
+                Ordering::Equal
+            }
+        });
+        let vm_data = match search {
+            Ok(i) => &self.data[i],
+            Err(i) => {
+                let start_addr = unsafe { mach_vm_trunc_page(address) };
+                let size = unsafe { vm_page_size } as u64;
+                let data = VmData::read_from_task(self.task, start_addr, size)?;
+                self.data.insert(i, data);
+                &self.data[i]
+            }
+        };
+        Ok(vm_data.read_u64_at_address(address))
+    }
+}
+
+#[derive(Debug, Clone)]
+struct VmData {
+    address_range: std::ops::Range<u64>,
+    data: *mut u8,
+    data_size: usize,
+}
+
+impl VmData {
+    pub fn read_from_task(task: mach_port_t, original_address: u64, size: u64) -> io::Result<Self> {
+        let mut data: *mut u8 = ptr::null_mut();
+        let mut data_size: usize = 0;
+        let kret = unsafe {
+            mach_vm_read(
+                task,
+                original_address,
+                size,
+                mem::transmute(&mut data),
+                mem::transmute(&mut data_size),
+            )
+        };
+        if kret != KERN_SUCCESS {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(Self {
+            address_range: original_address..(original_address + data_size as u64),
+            data,
+            data_size,
+        })
+    }
+
+    pub fn read_u64_at_address(&self, address: u64) -> u64 {
+        if address < self.address_range.start {
+            panic!(
+                "address {} is before the range that we read (which starts at {})",
+                address, self.address_range.start
+            );
+        }
+        if address >= self.address_range.end {
+            panic!(
+                "address {} is after the range that we read (which ends at {})",
+                address, self.address_range.end
+            );
+        }
+        let ptr = unsafe {
+            self.data
+                .offset((address - self.address_range.start) as isize)
+        };
+        unsafe { *(ptr as *const u8 as *const u64) }
+    }
+}
+
+impl Drop for VmData {
+    fn drop(&mut self) {
+        let _ = unsafe {
+            mach_vm_deallocate(
+                mach_task_self(),
+                self.data as *mut _ as _,
+                self.data_size as _,
+            )
+        };
+    }
 }
