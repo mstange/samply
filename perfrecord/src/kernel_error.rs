@@ -396,9 +396,11 @@ impl From<kern_return_t> for KernelError {
             MACH_RCV_INVALID_REPLY => KernelError::MachRcvInvalidReply,
             unknown => KernelError::Unknown(unknown),
         };
-        // let bt = backtrace::Backtrace::new();
-        // println!("got error: {:?}", err);
-        // println!("{:?}", bt);
+        // if err == KernelError::InvalidArgument {
+        //     let bt = backtrace::Backtrace::new();
+        //     println!("got error: {:?}", err);
+        //     println!("{:?}", bt);
+        // }
         err
     }
 }

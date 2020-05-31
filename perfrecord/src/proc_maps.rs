@@ -34,7 +34,7 @@ pub struct ThreadInfo {
     pub backtrace: Option<Vec<u64>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DyldInfo {
     pub file: String,
     pub address: u64,
@@ -42,18 +42,75 @@ pub struct DyldInfo {
     pub uuid: Option<Uuid>,
 }
 
-pub fn get_dyld_info(task: mach_port_t) -> kernel_error::Result<Vec<DyldInfo>> {
-    unsafe { task_suspend(task) }.into_result()?;
-    let result = get_dyld_info_with_suspended_task(task);
-    let _ = unsafe { task_resume(task) };
-    result
+pub struct DyldInfoManager {
+    task: mach_port_t,
+    memory: ForeignMemory,
+    all_image_info_addr: Option<u64>,
+    last_change_timestamp: Option<u64>,
+    last_contents: Vec<DyldInfo>,
 }
 
-pub fn get_dyld_info_with_suspended_task(task: mach_port_t) -> kernel_error::Result<Vec<DyldInfo>> {
-    // Adapted from rbspy and from the Gecko profiler's shared-libraries-macos.cc.
+impl DyldInfoManager {
+    pub fn new(task: mach_port_t) -> DyldInfoManager {
+        DyldInfoManager {
+            task,
+            memory: ForeignMemory::new(task),
+            all_image_info_addr: None,
+            last_change_timestamp: None,
+            last_contents: Vec::new(),
+        }
+    }
 
-    let mut vec = Vec::new();
+    pub fn check_for_changes(&mut self) -> kernel_error::Result<Vec<Modification<DyldInfo>>> {
+        with_suspended_task(self.task, || {
+            let info_addr = match self.all_image_info_addr {
+                Some(addr) => addr,
+                None => get_all_image_info_addr(self.task)?,
+            };
 
+            self.all_image_info_addr = Some(info_addr);
+
+            let (info_array_addr, info_array_count, info_array_change_timestamp) = {
+                let image_infos: &dyld_all_image_infos =
+                    unsafe { self.memory.get_type_ref_at_address(info_addr) }?;
+                (
+                    image_infos.infoArray as usize as u64,
+                    image_infos.infoArrayCount,
+                    image_infos.infoArrayChangeTimestamp,
+                )
+            };
+
+            // Don't check if the change timestamp says nothing changed.
+            if let Some(last_change_timestamp) = self.last_change_timestamp {
+                if last_change_timestamp == info_array_change_timestamp {
+                    return Ok(Vec::new());
+                }
+            }
+
+            // From dyld_images.h:
+            // For a snashot of what images are currently loaded, the infoArray fields contain a pointer
+            // to an array of all images. If infoArray is NULL, it means it is being modified, come back later.
+            if info_array_addr == 0 {
+                // Pretend there are no modifications. We will find the modifications when we're
+                // called the next time.
+                return Ok(Vec::new());
+            }
+
+            let new_image_info =
+                enumerate_dyld_images(&mut self.memory, info_array_addr, info_array_count)?;
+            let diff = diff_sorted_slices(&self.last_contents, &new_image_info, |left, right| {
+                left.address.cmp(&right.address)
+            });
+
+            self.last_change_timestamp = Some(info_array_change_timestamp);
+            self.last_contents = new_image_info;
+
+            Ok(diff)
+        })
+    }
+}
+
+fn get_all_image_info_addr(task: mach_port_t) -> kernel_error::Result<u64> {
     let mut dyld_info = task_dyld_info {
         all_image_info_addr: 0,
         all_image_info_size: 0,
@@ -71,16 +128,26 @@ pub fn get_dyld_info_with_suspended_task(task: mach_port_t) -> kernel_error::Res
     }
     .into_result()?;
 
-    let mut memory = ForeignMemory::new(task);
+    Ok(dyld_info.all_image_info_addr)
+}
 
-    let (info_array_addr, info_array_count) = {
-        let image_infos: &dyld_all_image_infos =
-            unsafe { memory.get_type_ref_at_address(dyld_info.all_image_info_addr) }?;
-        (
-            image_infos.infoArray as usize as u64,
-            image_infos.infoArrayCount,
-        )
-    };
+fn with_suspended_task<T>(
+    task: mach_port_t,
+    f: impl FnOnce() -> kernel_error::Result<T>,
+) -> kernel_error::Result<T> {
+    unsafe { task_suspend(task) }.into_result()?;
+    let result = f();
+    let _ = unsafe { task_resume(task) };
+    result
+}
+
+fn enumerate_dyld_images(
+    memory: &mut ForeignMemory,
+    info_array_addr: u64,
+    info_array_count: u32,
+) -> kernel_error::Result<Vec<DyldInfo>> {
+    // Adapted from rbspy and from the Gecko profiler's shared-libraries-macos.cc.
+    let mut vec = Vec::new();
 
     for image_index in 0..info_array_count {
         let (image_load_address, image_file_path) = {
@@ -93,60 +160,71 @@ pub fn get_dyld_info_with_suspended_task(task: mach_port_t) -> kernel_error::Res
                 image_info.imageFilePath as usize as u64,
             )
         };
-
-        let filename = {
-            let filename_bytes: &[i8; 512] =
-                unsafe { memory.get_type_ref_at_address(image_file_path) }?;
-            unsafe { std::ffi::CStr::from_ptr(filename_bytes.as_ptr()) }
-                .to_string_lossy()
-                .to_string()
-        };
-
-        let (header_n_cmds, header_sizeof_cmds) = {
-            let header: &mach_header_64 =
-                unsafe { memory.get_type_ref_at_address(image_load_address) }?;
-            (header.ncmds, header.sizeofcmds)
-        };
-
-        let commands_addr = image_load_address + mem::size_of::<mach_header_64>() as u64;
-        let commands_range = commands_addr..(commands_addr + header_sizeof_cmds as u64);
-        let commands_buffer = memory.get_slice(commands_range)?;
-
-        // Figure out the slide from the __TEXT segment if appropiate
-        let mut vmsize: u64 = 0;
-        let mut uuid = None;
-        let mut offset = 0;
-        for _ in 0..header_n_cmds {
-            unsafe {
-                let command = &commands_buffer[offset] as *const u8 as *const load_command;
-                match (*command).cmd {
-                    0x19 => {
-                        // LC_SEGMENT_64
-                        let segcmd = command as *const segment_command_64;
-                        if (*segcmd).segname[0..7] == [95, 95, 84, 69, 88, 84, 0] {
-                            // This is the __TEXT segment.
-                            vmsize = (*segcmd).vmsize;
-                        }
-                    }
-                    0x1b => {
-                        // LC_UUID
-                        let ucmd = command as *const uuid_command;
-                        uuid = Some(Uuid::from_slice(&(*ucmd).uuid).unwrap());
-                    }
-                    _ => {}
-                }
-                offset += (*command).cmdsize as usize;
-            }
-        }
-        vec.push(DyldInfo {
-            file: filename.clone(),
-            address: image_load_address,
-            vmsize,
-            uuid,
-        });
+        vec.push(get_dyld_image_info(
+            memory,
+            image_load_address,
+            image_file_path,
+        )?);
     }
     vec.sort_by_key(|info| info.address);
     Ok(vec)
+}
+
+fn get_dyld_image_info(
+    memory: &mut ForeignMemory,
+    image_load_address: u64,
+    image_file_path: u64,
+) -> kernel_error::Result<DyldInfo> {
+    let filename = {
+        let filename_bytes: &[i8; 512] =
+            unsafe { memory.get_type_ref_at_address(image_file_path) }?;
+        unsafe { std::ffi::CStr::from_ptr(filename_bytes.as_ptr()) }
+            .to_string_lossy()
+            .to_string()
+    };
+
+    let (header_n_cmds, header_sizeof_cmds) = {
+        let header: &mach_header_64 =
+            unsafe { memory.get_type_ref_at_address(image_load_address) }?;
+        (header.ncmds, header.sizeofcmds)
+    };
+
+    let commands_addr = image_load_address + mem::size_of::<mach_header_64>() as u64;
+    let commands_range = commands_addr..(commands_addr + header_sizeof_cmds as u64);
+    let commands_buffer = memory.get_slice(commands_range)?;
+
+    // Figure out the slide from the __TEXT segment if appropiate
+    let mut vmsize: u64 = 0;
+    let mut uuid = None;
+    let mut offset = 0;
+    for _ in 0..header_n_cmds {
+        unsafe {
+            let command = &commands_buffer[offset] as *const u8 as *const load_command;
+            match (*command).cmd {
+                0x19 => {
+                    // LC_SEGMENT_64
+                    let segcmd = command as *const segment_command_64;
+                    if (*segcmd).segname[0..7] == [95, 95, 84, 69, 88, 84, 0] {
+                        // This is the __TEXT segment.
+                        vmsize = (*segcmd).vmsize;
+                    }
+                }
+                0x1b => {
+                    // LC_UUID
+                    let ucmd = command as *const uuid_command;
+                    uuid = Some(Uuid::from_slice(&(*ucmd).uuid).unwrap());
+                }
+                _ => {}
+            }
+            offset += (*command).cmdsize as usize;
+        }
+    }
+    Ok(DyldInfo {
+        file: filename.clone(),
+        address: image_load_address,
+        vmsize,
+        uuid,
+    })
 }
 
 // bindgen seemed to put all the members for this struct as a single opaque blob:
@@ -432,4 +510,56 @@ impl Drop for VmData {
             )
         };
     }
+}
+
+pub enum Modification<T> {
+    Added(T),
+    Removed(T),
+}
+
+pub fn diff_sorted_slices<T>(
+    left: &[T],
+    right: &[T],
+    cmp_fn: impl Fn(&T, &T) -> Ordering,
+) -> Vec<Modification<T>>
+where
+    T: Clone + Eq,
+{
+    let mut left_iter = left.iter();
+    let mut right_iter = right.iter();
+    let mut cur_left_elem = left_iter.next();
+    let mut cur_right_elem = right_iter.next();
+    let mut modifications = Vec::new();
+    loop {
+        match (cur_left_elem, cur_right_elem) {
+            (None, None) => break,
+            (Some(left), None) => {
+                modifications.push(Modification::Removed(left.clone()));
+                cur_left_elem = left_iter.next();
+            }
+            (None, Some(right)) => {
+                modifications.push(Modification::Added(right.clone()));
+                cur_right_elem = right_iter.next();
+            }
+            (Some(left), Some(right)) => match cmp_fn(left, right) {
+                Ordering::Less => {
+                    modifications.push(Modification::Removed(left.clone()));
+                    cur_left_elem = left_iter.next();
+                }
+                Ordering::Greater => {
+                    modifications.push(Modification::Added(right.clone()));
+                    cur_right_elem = right_iter.next();
+                }
+                Ordering::Equal => {
+                    if left != right {
+                        modifications.push(Modification::Removed(left.clone()));
+                        modifications.push(Modification::Added(right.clone()));
+                    }
+                    cur_left_elem = left_iter.next();
+                    cur_right_elem = right_iter.next();
+                }
+            },
+        }
+    }
+    modifications
 }

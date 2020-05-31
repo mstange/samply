@@ -39,6 +39,7 @@ impl ThreadProfiler {
         let tid = match get_thread_id(thread_act) {
             Ok(tid) => tid as u32,
             Err(KernelError::MachSendInvalidDest) => return Ok(None),
+            Err(KernelError::InvalidArgument) => return Ok(None),
             Err(err) => return Err(err),
         };
         let mut thread_builder = ThreadBuilder::new(

@@ -1,5 +1,5 @@
 use super::kernel_error::{self, IntoResult, KernelError};
-use super::proc_maps::{get_dyld_info, DyldInfo};
+use super::proc_maps::{DyldInfo, DyldInfoManager, Modification};
 use super::thread_profiler::ThreadProfiler;
 use mach;
 use mach::mach_types::thread_act_port_array_t;
@@ -22,6 +22,7 @@ pub struct TaskProfiler {
     _end_time: Option<Instant>,
     live_threads: HashMap<thread_act_t, ThreadProfiler>,
     dead_threads: Vec<ThreadProfiler>,
+    lib_info_manager: DyldInfoManager,
     libs: Vec<DyldInfo>,
     command_name: String,
 }
@@ -51,7 +52,8 @@ impl TaskProfiler {
             _end_time: None,
             live_threads,
             dead_threads: Vec::new(),
-            libs: get_dyld_info(task)?,
+            lib_info_manager: DyldInfoManager::new(task),
+            libs: Vec::new(),
             command_name: command_name.to_owned(),
         })
     }
@@ -67,6 +69,16 @@ impl TaskProfiler {
     }
 
     fn sample_impl(&mut self, now: Instant) -> kernel_error::Result<()> {
+        // First, check for any newly-loaded libraries.
+        let changes = self.lib_info_manager.check_for_changes()?;
+        for change in changes {
+            match change {
+                Modification::Added(lib) => self.libs.push(lib),
+                Modification::Removed(_) => { /* ignore */ }
+            }
+        }
+
+        // Enumerate threads.
         let thread_acts = get_thread_list(self.task).map_err(|err| match err {
             KernelError::InvalidArgument => KernelError::Terminated,
             err => err,
