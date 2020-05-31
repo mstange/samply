@@ -47,7 +47,7 @@ pub struct DyldInfoManager {
     memory: ForeignMemory,
     all_image_info_addr: Option<u64>,
     last_change_timestamp: Option<u64>,
-    last_contents: Vec<DyldInfo>,
+    saved_image_info: Vec<DyldInfo>,
 }
 
 impl DyldInfoManager {
@@ -57,7 +57,7 @@ impl DyldInfoManager {
             memory: ForeignMemory::new(task),
             all_image_info_addr: None,
             last_change_timestamp: None,
-            last_contents: Vec::new(),
+            saved_image_info: Vec::new(),
         }
     }
 
@@ -66,6 +66,21 @@ impl DyldInfoManager {
     }
 
     pub fn check_for_changes(&mut self) -> kernel_error::Result<Vec<Modification<DyldInfo>>> {
+        // Avoid suspending the task if we know that the image info array hasn't changed.
+        // The process-wide dyld_all_image_infos instance always stays in the same place,
+        // so we can keep its memory mapped and just check the timestamp in the mapped memory.
+        if let (Some(last_change_timestamp), Some(info_addr)) =
+            (self.last_change_timestamp, self.all_image_info_addr)
+        {
+            let image_infos: &dyld_all_image_infos =
+                unsafe { self.memory.get_type_ref_at_address(info_addr) }?;
+            // infoArrayChangeTimestamp is 10.12+. TODO: check version
+            if image_infos.infoArrayChangeTimestamp == last_change_timestamp {
+                return Ok(Vec::new());
+            }
+        }
+
+        // Now, suspend the task, enumerate the libraries, and diff against our saved list.
         with_suspended_task(self.task, || {
             let info_addr = match self.all_image_info_addr {
                 Some(addr) => addr,
@@ -92,19 +107,11 @@ impl DyldInfoManager {
                 )
             };
 
-            // Don't check if the change timestamp says nothing changed.
-            if let Some(last_change_timestamp) = self.last_change_timestamp {
-                if last_change_timestamp == info_array_change_timestamp {
-                    return Ok(Vec::new());
-                }
-            }
-
             // From dyld_images.h:
             // For a snashot of what images are currently loaded, the infoArray fields contain a pointer
             // to an array of all images. If infoArray is NULL, it means it is being modified, come back later.
             if info_array_addr == 0 {
-                // Pretend there are no modifications. We will find the modifications when we're
-                // called the next time.
+                // Pretend there are no modifications. We will pick up the modifications the next time we're called.
                 return Ok(Vec::new());
             }
 
@@ -115,12 +122,15 @@ impl DyldInfoManager {
                 dyld_image_load_addr,
                 dyld_image_path,
             )?;
-            let diff = diff_sorted_slices(&self.last_contents, &new_image_info, |left, right| {
-                left.address.cmp(&right.address)
-            });
+
+            // self.saved_image_info and new_image_info are sorted by address. Diff the two lists.
+            let diff =
+                diff_sorted_slices(&self.saved_image_info, &new_image_info, |left, right| {
+                    left.address.cmp(&right.address)
+                });
 
             self.last_change_timestamp = Some(info_array_change_timestamp);
-            self.last_contents = new_image_info;
+            self.saved_image_info = new_image_info;
 
             Ok(diff)
         })
