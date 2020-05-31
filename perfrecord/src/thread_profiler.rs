@@ -30,30 +30,41 @@ pub struct ThreadProfiler {
 impl ThreadProfiler {
     pub fn new(
         task: mach_port_t,
+        pid: u32,
         process_start: Instant,
         thread_act: thread_act_t,
         now: Instant,
+        is_main: bool,
     ) -> io::Result<Self> {
         let tid = get_thread_id(thread_act)? as u32;
+        let mut thread_builder = ThreadBuilder::new(
+            pid,
+            tid,
+            now.duration_since(process_start).as_secs_f64() * 1000.0,
+        );
+        if is_main {
+            thread_builder.set_name("GeckoMain"); // https://github.com/firefox-devtools/profiler/issues/2508
+        }
         Ok(ThreadProfiler {
             task,
             process_start,
             thread_act,
             _tid: tid,
-            name: get_thread_name(thread_act)?,
+            name: None,
             stack_scratch_space: Vec::new(),
-            thread_builder: ThreadBuilder::new(
-                tid,
-                now.duration_since(process_start).as_secs_f64() * 1000.0,
-            ),
+            thread_builder,
             tick_count: 0,
         })
     }
 
     pub fn sample(&mut self, now: Instant) -> io::Result<()> {
         self.tick_count += 1;
-        if self.name.is_none() && self.tick_count % 10 == 0 {
+
+        if self.name.is_none() && self.tick_count % 10 == 1 {
             self.name = get_thread_name(self.thread_act)?;
+            if let Some(name) = &self.name {
+                self.thread_builder.set_name(name);
+            }
         }
 
         self.stack_scratch_space.clear();

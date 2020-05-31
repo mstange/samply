@@ -16,6 +16,7 @@ use super::gecko_profile::ProfileBuilder;
 
 pub struct TaskProfiler {
     task: mach_port_t,
+    pid: u32,
     start_time: Instant,
     _end_time: Option<Instant>,
     live_threads: HashMap<thread_act_t, ThreadProfiler>,
@@ -25,14 +26,20 @@ pub struct TaskProfiler {
 }
 
 impl TaskProfiler {
-    pub fn new(task: mach_port_t, now: Instant, command_name: &str) -> io::Result<Self> {
+    pub fn new(task: mach_port_t, pid: u32, now: Instant, command_name: &str) -> io::Result<Self> {
         let thread_acts = get_thread_list(task)?;
         let mut live_threads = HashMap::new();
-        for thread_act in thread_acts {
-            live_threads.insert(thread_act, ThreadProfiler::new(task, now, thread_act, now)?);
+        for (i, thread_act) in thread_acts.into_iter().enumerate() {
+            // Pretend that the first thread is the main thread. Might not be true.
+            let is_main = i == 0;
+            live_threads.insert(
+                thread_act,
+                ThreadProfiler::new(task, pid, now, thread_act, now, is_main)?,
+            );
         }
         Ok(TaskProfiler {
             task,
+            pid,
             start_time: now,
             _end_time: None,
             live_threads,
@@ -50,7 +57,14 @@ impl TaskProfiler {
             if self.live_threads.get(&thread_act).is_none() {
                 self.live_threads.insert(
                     thread_act,
-                    ThreadProfiler::new(self.task, self.start_time, thread_act, now)?,
+                    ThreadProfiler::new(
+                        self.task,
+                        self.pid,
+                        self.start_time,
+                        thread_act,
+                        now,
+                        false,
+                    )?,
                 );
             }
             previously_live_threads.remove(&thread_act);
@@ -67,7 +81,8 @@ impl TaskProfiler {
     }
 
     pub fn into_profile(self) -> ProfileBuilder {
-        let mut profile_builder = ProfileBuilder::new(self.start_time, &self.command_name);
+        let mut profile_builder =
+            ProfileBuilder::new(self.start_time, &self.command_name, self.pid);
         let all_threads = self
             .live_threads
             .into_iter()

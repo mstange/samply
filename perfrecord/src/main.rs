@@ -116,8 +116,8 @@ fn start_recording(
 
     let now = Instant::now();
     let sampling_start = now;
-    let mut task_profiler =
-        TaskProfiler::new(child_task, now, command_name).expect("couldn't create TaskProfiler");
+    let mut task_profiler = TaskProfiler::new(child_task, child_pid, now, command_name)
+        .expect("couldn't create TaskProfiler");
     task_profiler.sample(now).expect("sampling failed");
 
     launcher.start_execution();

@@ -2,10 +2,12 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use uuid::Uuid;
 
+use std::cmp::Ordering;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 #[derive(Debug)]
 pub struct ProfileBuilder {
+    pid: u32,
     libs: Vec<Lib>,
     threads: HashMap<u32, ThreadBuilder>,
     start_time: f64, // as seconds since unix epoch
@@ -14,13 +16,14 @@ pub struct ProfileBuilder {
 }
 
 impl ProfileBuilder {
-    pub fn new(start_time: Instant, command_name: &str) -> Self {
+    pub fn new(start_time: Instant, command_name: &str, pid: u32) -> Self {
         let now_instant = Instant::now();
         let now_system = SystemTime::now();
         let duration_before_now = now_instant.duration_since(start_time);
         let start_time_system = now_system - duration_before_now;
         let duration_since_unix_epoch = start_time_system.duration_since(UNIX_EPOCH).unwrap();
         ProfileBuilder {
+            pid,
             threads: HashMap::new(),
             libs: Vec::new(),
             start_time: duration_since_unix_epoch.as_secs_f64() * 1000.0,
@@ -59,11 +62,20 @@ impl ProfileBuilder {
 
     pub fn to_json(&self) -> serde_json::Value {
         let mut sorted_threads: Vec<_> = self.threads.iter().collect();
-        sorted_threads
-            .sort_by(|(_, a), (_, b)| a.get_start_time().partial_cmp(&b.get_start_time()).unwrap());
-        let threads: Vec<Value> = self
-            .threads
-            .iter()
+        sorted_threads.sort_by(|(_, a), (_, b)| {
+            if let Some(ordering) = a.get_start_time().partial_cmp(&b.get_start_time()) {
+                if ordering != Ordering::Equal {
+                    return ordering;
+                }
+            }
+            let ordering = a.get_name().cmp(&b.get_name());
+            if ordering != Ordering::Equal {
+                return ordering;
+            }
+            a.get_tid().cmp(&b.get_tid())
+        });
+        let threads: Vec<Value> = sorted_threads
+            .into_iter()
             .map(|(_, thread)| thread.to_json())
             .collect();
         let mut sorted_libs: Vec<_> = self.libs.iter().collect();
@@ -71,11 +83,24 @@ impl ProfileBuilder {
         let libs: Vec<Value> = sorted_libs.iter().map(|l| l.to_json()).collect();
         json!({
             "meta": {
-                "version": 7,
+                "version": 11,
                 "startTime": self.start_time,
+                "shutdownTime": self.end_time,
+                "pausedRanges": [],
                 "product": self.command_name,
                 "interval": 1,
+                "pid": self.pid,
                 "processType": 0,
+                "categories": [
+                    {
+                        "name": "Idle",
+                        "color": "transparent",
+                    },
+                    {
+                        "name": "Other",
+                        "color": "grey",
+                    }
+                ]
             },
             "libs": libs,
             "threads": threads,
@@ -86,7 +111,9 @@ impl ProfileBuilder {
 
 #[derive(Debug)]
 pub struct ThreadBuilder {
+    pid: u32,
     index: u32,
+    name: Option<String>,
     start_time: f64,
     end_time: Option<f64>,
     stack_table: StackTable,
@@ -96,9 +123,11 @@ pub struct ThreadBuilder {
 }
 
 impl ThreadBuilder {
-    pub fn new(thread_index: u32, start_time: f64) -> Self {
+    pub fn new(pid: u32, thread_index: u32, start_time: f64) -> Self {
         ThreadBuilder {
+            pid,
             index: thread_index,
+            name: None,
             start_time,
             end_time: None,
             stack_table: StackTable::new(),
@@ -110,6 +139,18 @@ impl ThreadBuilder {
 
     pub fn get_start_time(&self) -> f64 {
         self.start_time
+    }
+
+    pub fn set_name(&mut self, name: &str) {
+        self.name = Some(name.to_owned());
+    }
+
+    pub fn get_name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
+
+    pub fn get_tid(&self) -> u32 {
+        self.index
     }
 
     pub fn add_sample(&mut self, timestamp: f64, frames: &[u64]) {
@@ -140,8 +181,12 @@ impl ThreadBuilder {
 
     fn to_json(&self) -> Value {
         json!({
-            "name": "All",
+            "name": self.name.clone().unwrap_or_else(|| format!("Thread <{}>", self.index)),
+            "tid": self.index,
+            "pid": self.pid,
             "processType": "default",
+            "registerTime": self.start_time,
+            "unregisterTime": self.end_time,
             "frameTable": self.frame_table.to_json(),
             "stackTable": self.stack_table.to_json(),
             "samples": self.samples.to_json(),
