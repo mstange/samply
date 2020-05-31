@@ -70,7 +70,13 @@ impl TaskProfiler {
 
     fn sample_impl(&mut self, now: Instant) -> kernel_error::Result<()> {
         // First, check for any newly-loaded libraries.
-        let changes = self.lib_info_manager.check_for_changes()?;
+        let changes = self
+            .lib_info_manager
+            .check_for_changes()
+            .map_err(|err| match err {
+                KernelError::InvalidArgument => KernelError::Terminated,
+                err => err,
+            })?;
         for change in changes {
             match change {
                 Modification::Added(lib) => self.libs.push(lib),
