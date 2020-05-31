@@ -3,11 +3,12 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 use std::cmp::Ordering;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[derive(Debug)]
 pub struct ProfileBuilder {
     pid: u32,
+    interval: Duration,
     libs: Vec<Lib>,
     threads: HashMap<u32, ThreadBuilder>,
     start_time: f64,       // as milliseconds since unix epoch
@@ -16,7 +17,7 @@ pub struct ProfileBuilder {
 }
 
 impl ProfileBuilder {
-    pub fn new(start_time: Instant, command_name: &str, pid: u32) -> Self {
+    pub fn new(start_time: Instant, command_name: &str, pid: u32, interval: Duration) -> Self {
         let now_instant = Instant::now();
         let now_system = SystemTime::now();
         let duration_before_now = now_instant.duration_since(start_time);
@@ -24,6 +25,7 @@ impl ProfileBuilder {
         let duration_since_unix_epoch = start_time_system.duration_since(UNIX_EPOCH).unwrap();
         ProfileBuilder {
             pid,
+            interval,
             threads: HashMap::new(),
             libs: Vec::new(),
             start_time: duration_since_unix_epoch.as_secs_f64() * 1000.0,
@@ -88,7 +90,7 @@ impl ProfileBuilder {
                 "shutdownTime": self.end_time,
                 "pausedRanges": [],
                 "product": self.command_name,
-                "interval": 1,
+                "interval": self.interval.as_secs_f64() * 1000.0,
                 "pid": self.pid,
                 "processType": 0,
                 "categories": [

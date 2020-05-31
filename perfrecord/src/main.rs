@@ -32,15 +32,19 @@ EXAMPLES:
     perfrecord --launch prof.json"#
 )]
 struct Opt {
-    /// Launch the profiler and display the collected profile after recording.
+    /// Launch the profiler after recording and display the collected profile.
     #[structopt(long = "launch-when-done")]
     launch_when_done: bool,
 
-    /// When recording, limit the recorded time to the specified number of seconds
+    /// Sampling interval, in seconds
+    #[structopt(short = "i", long = "interval", default_value = "0.001")]
+    interval: f64,
+
+    /// Limit the recorded time to the specified number of seconds
     #[structopt(short = "t", long = "time-limit")]
     time_limit: Option<f64>,
 
-    /// When recording, save the collected profile to this file.
+    /// Save the collected profile to this file.
     #[structopt(
         short = "o",
         long = "out",
@@ -53,11 +57,11 @@ struct Opt {
     #[structopt(subcommand)]
     rest: Option<Subcommands>,
 
-    /// Launch the profiler in your default browser and display the selected profile.
+    /// Don't record. Instead, launch the profiler with the selected file in your default browser.
     #[structopt(short = "l", long = "launch", parse(from_os_str))]
     file_to_launch: Option<PathBuf>,
 
-    /// Serve the specified profile from a local webserver but do not open the browser.
+    /// Don't record. Instead, serve the selected file from a local webserver.
     #[structopt(short = "s", long = "serve", parse(from_os_str))]
     file_to_serve: Option<PathBuf>,
 }
@@ -78,10 +82,13 @@ fn main() -> Result<(), MachError> {
     }
     if let Some(Subcommands::Command(command)) = opt.rest {
         if !command.is_empty() {
+            let time_limit = opt.time_limit.map(|secs| Duration::from_secs_f64(secs));
+            let interval = Duration::from_secs_f64(opt.interval);
             start_recording(
                 &opt.output_file,
                 &command,
-                opt.time_limit,
+                time_limit,
+                interval,
                 opt.launch_when_done,
             )?;
             return Ok(());
@@ -110,11 +117,10 @@ fn sleep_and_save_overshoot(duration: Duration, overshoot: &mut Duration) {
 fn start_recording(
     output_file: &Path,
     args: &[String],
-    time_limit: Option<f64>,
+    time_limit: Option<Duration>,
+    interval: Duration,
     launch_when_done: bool,
 ) -> Result<(), MachError> {
-    let time_limit = time_limit.map(|secs| Duration::from_secs_f64(secs));
-
     let command_name = args.first().unwrap();
     let command = which(command_name).expect("Couldn't resolve command name");
     let args: Vec<&str> = args.iter().skip(1).map(std::ops::Deref::deref).collect();
@@ -126,13 +132,10 @@ fn start_recording(
 
     let now = Instant::now();
     let sampling_start = now;
-    let mut task_profiler = TaskProfiler::new(child_task, child_pid, now, command_name)
+    let mut task_profiler = TaskProfiler::new(child_task, child_pid, now, command_name, interval)
         .expect("couldn't create TaskProfiler");
-    task_profiler.sample(now).expect("sampling failed");
-
-    let interval = Duration::from_millis(1);
-
     launcher.start_execution();
+
     let mut last_sleep_overshoot = Duration::from_nanos(0);
     sleep_and_save_overshoot(interval, &mut last_sleep_overshoot);
 

@@ -10,13 +10,14 @@ use mach::task::task_threads;
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::path::Path;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use super::gecko_profile::ProfileBuilder;
 
 pub struct TaskProfiler {
     task: mach_port_t,
     pid: u32,
+    interval: Duration,
     start_time: Instant,
     _end_time: Option<Instant>,
     live_threads: HashMap<thread_act_t, ThreadProfiler>,
@@ -26,7 +27,13 @@ pub struct TaskProfiler {
 }
 
 impl TaskProfiler {
-    pub fn new(task: mach_port_t, pid: u32, now: Instant, command_name: &str) -> io::Result<Self> {
+    pub fn new(
+        task: mach_port_t,
+        pid: u32,
+        now: Instant,
+        command_name: &str,
+        interval: Duration,
+    ) -> io::Result<Self> {
         let thread_acts = get_thread_list(task)?;
         let mut live_threads = HashMap::new();
         for (i, thread_act) in thread_acts.into_iter().enumerate() {
@@ -40,6 +47,7 @@ impl TaskProfiler {
         Ok(TaskProfiler {
             task,
             pid,
+            interval,
             start_time: now,
             _end_time: None,
             live_threads,
@@ -82,7 +90,7 @@ impl TaskProfiler {
 
     pub fn into_profile(self) -> ProfileBuilder {
         let mut profile_builder =
-            ProfileBuilder::new(self.start_time, &self.command_name, self.pid);
+            ProfileBuilder::new(self.start_time, &self.command_name, self.pid, self.interval);
         let all_threads = self
             .live_threads
             .into_iter()
