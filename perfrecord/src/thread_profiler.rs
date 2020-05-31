@@ -11,9 +11,10 @@ use mach::port::mach_port_t;
 
 use super::thread_act::thread_info;
 use super::thread_info::{
-    thread_extended_info_data_t, thread_identifier_info_data_t, thread_info_t,
-    THREAD_EXTENDED_INFO, THREAD_EXTENDED_INFO_COUNT, THREAD_IDENTIFIER_INFO,
-    THREAD_IDENTIFIER_INFO_COUNT,
+    thread_basic_info_data_t, thread_extended_info_data_t, thread_identifier_info_data_t,
+    thread_info_t, THREAD_BASIC_INFO, THREAD_BASIC_INFO_COUNT, THREAD_EXTENDED_INFO,
+    THREAD_EXTENDED_INFO_COUNT, THREAD_IDENTIFIER_INFO, THREAD_IDENTIFIER_INFO_COUNT,
+    TH_STATE_RUNNING,
 };
 
 pub struct ThreadProfiler {
@@ -67,6 +68,8 @@ impl ThreadProfiler {
             }
         }
 
+        let idle = is_thread_idle(self.thread_act)?;
+
         self.stack_scratch_space.clear();
         get_backtrace(
             &mut self.stack_memory,
@@ -77,6 +80,7 @@ impl ThreadProfiler {
         self.thread_builder.add_sample(
             now.duration_since(self.process_start).as_secs_f64() * 1000.0,
             &self.stack_scratch_space,
+            idle,
         );
 
         Ok(())
@@ -130,4 +134,23 @@ fn get_thread_name(thread_act: thread_act_t) -> io::Result<Option<String>> {
         .to_string_lossy()
         .to_string();
     Ok(if name.is_empty() { None } else { Some(name) })
+}
+
+fn is_thread_idle(thread_act: thread_act_t) -> io::Result<bool> {
+    // Get the thread name.
+    let mut basic_info_data: thread_basic_info_data_t = unsafe { mem::zeroed() };
+    let mut count = THREAD_BASIC_INFO_COUNT;
+    let kret = unsafe {
+        thread_info(
+            thread_act,
+            THREAD_BASIC_INFO,
+            &mut basic_info_data as *mut _ as thread_info_t,
+            &mut count,
+        )
+    };
+    if kret != KERN_SUCCESS {
+        return Err(io::Error::last_os_error());
+    }
+
+    Ok(basic_info_data.run_state != TH_STATE_RUNNING as i32)
 }

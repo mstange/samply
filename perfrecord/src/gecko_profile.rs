@@ -97,6 +97,10 @@ impl ProfileBuilder {
                         "color": "transparent",
                     },
                     {
+                        "name": "Running",
+                        "color": "blue",
+                    },
+                    {
                         "name": "Other",
                         "color": "grey",
                     }
@@ -153,8 +157,8 @@ impl ThreadBuilder {
         self.index
     }
 
-    pub fn add_sample(&mut self, timestamp: f64, frames: &[u64]) {
-        let stack_index = self.stack_index_for_frames(frames);
+    pub fn add_sample(&mut self, timestamp: f64, frames: &[u64], idle: bool) {
+        let stack_index = self.stack_index_for_frames(frames, idle);
         self.samples.0.push(Sample {
             timestamp,
             stack_index,
@@ -165,18 +169,23 @@ impl ThreadBuilder {
         self.end_time = Some(end_time);
     }
 
-    fn stack_index_for_frames(&mut self, frames: &[u64]) -> Option<usize> {
+    fn stack_index_for_frames(&mut self, frames: &[u64], idle: bool) -> Option<usize> {
         let frame_indexes: Vec<_> = frames
             .iter()
-            .map(|&address| self.frame_index_for_address(address))
+            .enumerate()
+            .map(|(i, &address)| {
+                let frame_idle = idle && i == frames.len() - 1;
+                self.frame_index_for_address(address, frame_idle)
+            })
             .collect();
         self.stack_table.index_for_frames(&frame_indexes)
     }
 
-    fn frame_index_for_address(&mut self, address: u64) -> usize {
+    fn frame_index_for_address(&mut self, address: u64, idle: bool) -> usize {
         let location_string = format!("0x{:x}", address);
         let location_string_index = self.string_table.index_for_string(&location_string);
-        self.frame_table.index_for_location(location_string_index)
+        self.frame_table
+            .index_for_frame(location_string_index, idle)
     }
 
     fn to_json(&self) -> Value {
@@ -284,25 +293,26 @@ impl StackTable {
 
 #[derive(Debug)]
 struct FrameTable {
-    frame_locations: Vec<usize>,
-    index: HashMap<usize, usize>,
+    frames: Vec<(usize, bool)>,
+    index: HashMap<(usize, bool), usize>,
 }
 
 impl FrameTable {
     pub fn new() -> FrameTable {
         FrameTable {
-            frame_locations: Vec::new(),
+            frames: Vec::new(),
             index: HashMap::new(),
         }
     }
 
-    pub fn index_for_location(&mut self, location_string_index: usize) -> usize {
-        match self.index.get(&location_string_index) {
+    pub fn index_for_frame(&mut self, location_string_index: usize, idle: bool) -> usize {
+        match self.index.get(&(location_string_index, idle)) {
             Some(frame_index) => *frame_index,
             None => {
-                let frame_index = self.frame_locations.len();
-                self.frame_locations.push(location_string_index);
-                self.index.insert(location_string_index, frame_index);
+                let frame_index = self.frames.len();
+                self.frames.push((location_string_index, idle));
+                self.index
+                    .insert((location_string_index, idle), frame_index);
                 frame_index
             }
         }
@@ -310,9 +320,12 @@ impl FrameTable {
 
     pub fn to_json(&self) -> Value {
         let data: Vec<Value> = self
-            .frame_locations
+            .frames
             .iter()
-            .map(|l| json!([l, false, null, null, null, null, 1]))
+            .map(|&(location, idle)| {
+                let category = if idle { 0 } else { 1 };
+                json!([location, false, null, null, null, null, category])
+            })
             .collect();
         json!({
             "schema": {
