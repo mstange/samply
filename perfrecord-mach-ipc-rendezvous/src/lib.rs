@@ -28,6 +28,7 @@ use std::ops::Deref;
 use std::ptr;
 use std::slice;
 use std::sync::RwLock;
+use std::time::Duration;
 use std::usize;
 
 mod mach_sys;
@@ -324,7 +325,7 @@ impl OsIpcReceiver {
         Ok(())
     }
 
-    fn recv_with_blocking_mode(
+    pub fn recv_with_blocking_mode(
         &self,
         blocking_mode: BlockingMode,
     ) -> Result<(Vec<u8>, Vec<OsOpaqueIpcChannel>, Vec<OsIpcSharedMemory>), MachError> {
@@ -690,8 +691,9 @@ impl OsIpcSelectionResult {
 }
 
 #[derive(Copy, Clone)]
-enum BlockingMode {
+pub enum BlockingMode {
     Blocking,
+    BlockingWithTimeout(Duration),
     Nonblocking,
 }
 
@@ -707,6 +709,10 @@ fn select(
         let mut message = &mut buffer[0] as *mut _ as *mut Message;
         let (flags, timeout) = match blocking_mode {
             BlockingMode::Blocking => (MACH_RCV_MSG | MACH_RCV_LARGE, MACH_MSG_TIMEOUT_NONE),
+            BlockingMode::BlockingWithTimeout(dur) => (
+                MACH_RCV_MSG | MACH_RCV_LARGE | MACH_RCV_TIMEOUT,
+                (dur.as_secs_f32() * 1000.0).round() as u32,
+            ),
             BlockingMode::Nonblocking => (MACH_RCV_MSG | MACH_RCV_LARGE | MACH_RCV_TIMEOUT, 0),
         };
         match mach_sys::mach_msg(
@@ -857,6 +863,54 @@ impl OsIpcOneShotServer {
         let (bytes, channels, shared_memory_regions) = self.receiver.recv()?;
         Ok((
             self.receiver.consume(),
+            bytes,
+            channels,
+            shared_memory_regions,
+        ))
+    }
+}
+
+pub struct OsIpcMultiShotServer {
+    receiver: OsIpcReceiver,
+    name: String,
+}
+
+impl Drop for OsIpcMultiShotServer {
+    fn drop(&mut self) {
+        drop(OsIpcReceiver::unregister_global_name(mem::replace(
+            &mut self.name,
+            String::new(),
+        )));
+    }
+}
+
+impl OsIpcMultiShotServer {
+    pub fn new() -> Result<(OsIpcMultiShotServer, String), MachError> {
+        let receiver = OsIpcReceiver::new()?;
+        let name = receiver.register_bootstrap_name()?;
+        Ok((
+            OsIpcMultiShotServer {
+                receiver: receiver,
+                name: name.clone(),
+            },
+            name,
+        ))
+    }
+
+    pub fn accept(
+        &mut self,
+        blocking_mode: BlockingMode,
+    ) -> Result<
+        (
+            Vec<u8>,
+            Vec<OsOpaqueIpcChannel>,
+            Vec<OsIpcSharedMemory>,
+        ),
+        MachError,
+    > {
+        let (bytes, channels, shared_memory_regions) =
+            self.receiver.recv_with_blocking_mode(blocking_mode)?;
+        Ok((
             bytes,
             channels,
             shared_memory_regions,
