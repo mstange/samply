@@ -1,6 +1,6 @@
 [package]
 name = "perfrecord"
-version = "0.4.1"
+version = "0.4.2"
 authors = ["Markus Stange <mstange@themasta.com>"]
 edition = "2018"
 license = "MIT/Apache-2.0"
@@ -14,7 +14,7 @@ readme = "Readme.md"
 perfrecord-mach-ipc-rendezvous = "0.2.0"
 
 # profiler-symbol-server = { path = "../../profiler-symbol-server" }
-profiler-symbol-server = "0.1.1"
+profiler-symbol-server = "0.2.0"
 
 tokio = { version = "0.2", features = ["full"] }
 uuid = "0.8.1"

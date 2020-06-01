@@ -661,7 +661,7 @@ checksum = "d4fd5641d01c8f18a23da7b6fe29298ff4b55afcccdf78973b24cf3175fee32e"
 
 [[package]]
 name = "perfrecord"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "backtrace",
  "crossbeam-channel",
@@ -809,9 +809,9 @@ dependencies = [
 
 [[package]]
 name = "profiler-symbol-server"
-version = "0.1.1"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d301e167d4de06f7a92632e0515a4c41cd8b187c98ab8e72b482cb87f618f53a"
+checksum = "a9a34f02ecc4d6e5f4a60f0c8b295ee8033369fadbaa1f39e0454c3ce710da33"
 dependencies = [
  "core-foundation",
  "core-foundation-sys",
