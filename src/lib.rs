@@ -51,7 +51,8 @@ pub async fn start_server(file: &Path, open_in_browser: bool) {
     let server = Server::bind(&addr).serve(new_service);
 
     let profile_url = "http://127.0.0.1:3000/profile.json";
-    let profiler_url_prefix = "https://profiler.firefox.com/from-url/";
+    // let profiler_url_prefix = "https://profiler.firefox.com/from-url/";
+    let profiler_url_prefix = "https://deploy-preview-2576--perf-html.netlify.app/from-url/"; // TODO: come up with a proper fix
     let encoded_profile_url = utf8_percent_encode(profile_url, BAD_CHARS).to_string();
     let url = format!("{}{}", profiler_url_prefix, encoded_profile_url);
 
