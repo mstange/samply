@@ -7,8 +7,12 @@ use mach::mach_types::thread_act_t;
 use mach::message::mach_msg_type_number_t;
 use mach::port::mach_port_t;
 use mach::task::task_threads;
+use mach::traps::mach_task_self;
+use mach::vm::mach_vm_deallocate;
+use mach::vm_types::{mach_vm_address_t, mach_vm_size_t};
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+use std::mem;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -183,7 +187,17 @@ fn get_thread_list(task: mach_port_t) -> kernel_error::Result<Vec<thread_act_t>>
     let mut thread_count: mach_msg_type_number_t = Default::default();
     unsafe { task_threads(task, &mut thread_list, &mut thread_count) }.into_result()?;
 
-    let thread_acts = unsafe { std::slice::from_raw_parts(thread_list, thread_count as usize) };
-    // leak thread_list or what?
-    Ok(thread_acts.to_owned())
+    let thread_acts =
+        unsafe { std::slice::from_raw_parts(thread_list, thread_count as usize) }.to_owned();
+
+    unsafe {
+        mach_vm_deallocate(
+            mach_task_self(),
+            thread_list as usize as mach_vm_address_t,
+            (thread_count as usize * mem::size_of::<thread_act_t>()) as mach_vm_size_t,
+        )
+    }
+    .into_result()?;
+
+    Ok(thread_acts)
 }
