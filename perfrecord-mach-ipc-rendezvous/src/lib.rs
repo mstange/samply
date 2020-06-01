@@ -505,7 +505,7 @@ impl OsIpcSender {
                 (*port_descriptor_dest).disposition = match *outgoing_port {
                     OsIpcChannel::Sender(_) => MACH_MSG_TYPE_MOVE_SEND,
                     OsIpcChannel::Receiver(_) => MACH_MSG_TYPE_MOVE_RECEIVE,
-                    OsIpcChannel::RawPort(_) => MACH_MSG_TYPE_PORT_SEND,
+                    OsIpcChannel::RawPort(_) => MACH_MSG_TYPE_COPY_SEND,
                 };
 
                 (*port_descriptor_dest).type_ = MACH_MSG_PORT_DESCRIPTOR;
