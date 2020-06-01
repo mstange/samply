@@ -50,20 +50,23 @@ pub async fn start_server(file: &Path, open_in_browser: bool) {
 
     let server = Server::bind(&addr).serve(new_service);
 
+    let profile_url = "http://127.0.0.1:3000/profile.json";
+    let profiler_url_prefix = "https://profiler.firefox.com/from-url/";
+    let encoded_profile_url = utf8_percent_encode(profile_url, BAD_CHARS).to_string();
+    let url = format!("{}{}", profiler_url_prefix, encoded_profile_url);
+
     eprintln!("Serving symbolication server at http://127.0.0.1:3000");
     eprintln!("  The profile is at http://127.0.0.1:3000/profile.json");
     eprintln!("  Symbols can be obtained by posting to");
     eprintln!("    http://127.0.0.1:3000/symbolicate/v5 or");
     eprintln!("    http://127.0.0.1:3000/symbolicate/v6a1");
+    eprintln!("  Open the profiler at");
+    eprintln!("    {}", url);
     eprintln!("Press Ctrl+C to abort.");
     eprintln!("");
 
     if open_in_browser {
         let mut cmd = Command::new("open");
-        let profile_url = "http://127.0.0.1:3000/profile.json";
-        let profiler_url_prefix = "https://profiler.firefox.com/from-url/";
-        let encoded_profile_url = utf8_percent_encode(profile_url, BAD_CHARS).to_string();
-        let url = format!("{}{}", profiler_url_prefix, encoded_profile_url);
         let _ = cmd.arg(&url).status();
     }
 
@@ -120,25 +123,28 @@ struct Helper {
     path_map: HashMap<(String, String), String>,
 }
 
+fn add_to_path_map_recursive(profile: &Value, path_map: &mut HashMap<(String, String), String>) {
+    if let Value::Array(libs) = &profile["libs"] {
+        for lib in libs {
+            let debug_name = lib["debugName"].as_str().unwrap().to_string();
+            let breakpad_id = lib["breakpadId"].as_str().unwrap().to_string();
+            let debug_path = lib["debugPath"].as_str().unwrap().to_string();
+            path_map.insert((debug_name, breakpad_id), debug_path);
+        }
+    }
+    if let Value::Array(processes) = &profile["processes"] {
+        for process in processes {
+            add_to_path_map_recursive(process, path_map);
+        }
+    }
+}
+
 impl Helper {
     pub fn for_profile(profile: Value) -> Self {
         // Build a map (debugName, breakpadID) -> debugPath from the information
         // in profile.libs.
-        let path_map = if let Value::Array(libs) = &profile["libs"] {
-            libs.iter()
-                .map(|l| {
-                    (
-                        (
-                            l["debugName"].as_str().unwrap().to_string(),
-                            l["breakpadId"].as_str().unwrap().to_string(),
-                        ),
-                        l["debugPath"].as_str().unwrap().to_string(),
-                    )
-                })
-                .collect()
-        } else {
-            HashMap::new()
-        };
+        let mut path_map = HashMap::new();
+        add_to_path_map_recursive(&profile, &mut path_map);
         Helper { path_map }
     }
 }
