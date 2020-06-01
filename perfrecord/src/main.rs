@@ -21,7 +21,7 @@ pub mod thread_act;
 pub mod thread_info;
 
 use gecko_profile::ProfileBuilder;
-use process_launcher::{MachError, ProcessLauncher};
+use process_launcher::{MachError, TaskAccepter};
 use sampler::Sampler;
 use task_profiler::TaskProfiler;
 
@@ -138,31 +138,42 @@ fn start_recording(
             .expect("couldn't send profile");
     });
 
-    let command_name = args.first().unwrap();
+    let command_name = args.first().unwrap().clone();
     let args: Vec<&str> = args.iter().skip(1).map(std::ops::Deref::deref).collect();
 
-    let mut launcher = ProcessLauncher::new(command_name, &args)?;
-    let child_pid = launcher.get_id();
-    let child_task = launcher.take_task();
-    println!("child PID: {}, childTask: {}\n", child_pid, child_task);
+    let (mut task_accepter, mut root_child) =
+        TaskAccepter::create_and_launch_root_task(&command_name, &args)?;
 
-    let task_profiler = TaskProfiler::new(
-        child_task,
-        child_pid,
-        Instant::now(),
-        command_name,
-        interval,
-    )
-    .expect("couldn't create TaskProfiler");
+    let (accepter_sender, accepter_receiver) = unbounded();
+    let accepter_thread = thread::spawn(move || loop {
+        if let Ok(()) = accepter_receiver.try_recv() {
+            break;
+        }
+        if let Ok(mut accepted_task) = task_accepter.try_accept(Duration::from_secs_f64(0.5)) {
+            let task_profiler = TaskProfiler::new(
+                accepted_task.take_task(),
+                accepted_task.get_id(),
+                Instant::now(),
+                &command_name,
+                interval,
+            )
+            .expect("couldn't create TaskProfiler");
+            let send_result = task_sender.send(task_profiler);
+            if let Err(_) = send_result {
+                // The sampler has already shut down. This task arrived too late.
+            }
+            accepted_task.start_execution();
+        }
+    });
 
-    task_sender
-        .send(task_profiler)
-        .expect("couldn't send task to sampler");
+    let exit_status = root_child.wait().expect("couldn't wait for child");
 
-    launcher.start_execution();
-
-    let exit_status = launcher.wait().expect("couldn't wait for child");
-
+    accepter_sender
+        .send(())
+        .expect("couldn't tell accepter thread to stop");
+    accepter_thread
+        .join()
+        .expect("couldn't join accepter thread");
     sampler_thread.join().expect("couldn't join sampler thread");
     saver_thread.join().expect("couldn't join saver thread");
 

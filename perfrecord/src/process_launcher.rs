@@ -1,25 +1,28 @@
-use perfrecord_mach_ipc_rendezvous::{OsIpcOneShotServer, OsIpcSender};
+use std::fs::File;
+use std::io::Write;
+use std::mem;
+use std::process::{Child, Command};
+use std::time::Duration;
+
+pub use perfrecord_mach_ipc_rendezvous::{mach_port_t, MachError, OsIpcSender};
+use perfrecord_mach_ipc_rendezvous::{BlockingMode, OsIpcMultiShotServer, MACH_PORT_NULL};
 use tempfile::tempdir;
 
-use std::fs::File;
-use std::io::{self, Write};
-use std::mem;
-use std::process::{Child, Command, ExitStatus};
-
-pub use perfrecord_mach_ipc_rendezvous::{mach_port_t, MachError, MACH_PORT_NULL};
-
-pub struct ProcessLauncher {
-    child_task: mach_port_t,
-    child: Child,
-    sender_channel: OsIpcSender,
+pub struct TaskAccepter {
+    server: OsIpcMultiShotServer,
     _temp_dir: tempfile::TempDir,
 }
 
 static PRELOAD_LIB_CONTENTS: &'static [u8] =
     include_bytes!("../resources/libperfrecord_preload.dylib");
 
-impl ProcessLauncher {
-    pub fn new(program: &str, args: &[&str]) -> Result<Self, MachError> {
+impl TaskAccepter {
+    pub fn create_and_launch_root_task(
+        program: &str,
+        args: &[&str],
+    ) -> Result<(Self, Child), MachError> {
+        let (server, server_name) = OsIpcMultiShotServer::new()?;
+
         // Launch the child with DYLD_INSERT_LIBRARIES set to libperfrecord_preload.dylib.
 
         // We would like to ship with libperfrecord_preload.dylib as a separate resource file.
@@ -33,8 +36,6 @@ impl ProcessLauncher {
             .expect("Couldn't write libperfrecord_preload.dylib");
         mem::drop(file);
 
-        let (server, server_name) = OsIpcOneShotServer::new()?;
-
         // Take this process's environment variables and add DYLD_INSERT_LIBRARIES
         // and PERFRECORD_BOOTSTRAP_SERVER_NAME.
         let child_env = std::env::vars_os()
@@ -47,39 +48,58 @@ impl ProcessLauncher {
                 server_name.into(),
             )));
 
-        let child = Command::new(program)
+        let root_child = Command::new(program)
             .args(args)
             .envs(child_env)
             .spawn()
             .expect("launching child unsuccessful");
 
+        Ok((
+            TaskAccepter {
+                server,
+                _temp_dir: dir,
+            },
+            root_child,
+        ))
+    }
+
+    pub fn try_accept(&mut self, timeout: Duration) -> Result<AcceptedTask, MachError> {
         // Wait until the child is ready
-        let (_server, res, mut channels, _) = server.accept()?;
-        assert!(res == b"My task");
+        let (res, mut channels, _) = self
+            .server
+            .accept(BlockingMode::BlockingWithTimeout(timeout))?;
+        assert_eq!(res.len(), 11);
+        assert!(&res[0..7] == b"My task");
+        let mut pid_bytes: [u8; 4] = Default::default();
+        pid_bytes.copy_from_slice(&res[7..11]);
+        let pid = u32::from_le_bytes(pid_bytes);
         let mut task_channel = channels.pop().unwrap();
         let mut sender_channel = channels.pop().unwrap();
         let sender_channel = sender_channel.to_sender();
 
-        let child_task = task_channel.to_port();
+        let task = task_channel.to_port();
 
-        Ok(ProcessLauncher {
-            child_task,
-            child,
+        Ok(AcceptedTask {
+            task,
+            pid,
             sender_channel,
-            _temp_dir: dir,
         })
     }
+}
 
+pub struct AcceptedTask {
+    task: mach_port_t,
+    pid: u32,
+    sender_channel: OsIpcSender,
+}
+
+impl AcceptedTask {
     pub fn take_task(&mut self) -> mach_port_t {
-        mem::replace(&mut self.child_task, MACH_PORT_NULL)
+        mem::replace(&mut self.task, MACH_PORT_NULL)
     }
 
     pub fn get_id(&self) -> u32 {
-        self.child.id()
-    }
-
-    pub fn wait(&mut self) -> io::Result<ExitStatus> {
-        self.child.wait()
+        self.pid
     }
 
     pub fn start_execution(&self) {

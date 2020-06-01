@@ -73,8 +73,18 @@ impl Sampler {
             }
 
             if self.live_root_task.is_none() && self.live_other_tasks.is_empty() {
-                println!("All tasks terminated.");
-                break;
+                // All tasks we know about are dead.
+                // Wait for a little more in case one of the just-ended tasks spawned a new task.
+                if let Ok(new_task) = self
+                    .task_receiver
+                    .recv_timeout(Duration::from_secs_f32(0.5))
+                {
+                    // Got one!
+                    self.live_other_tasks.push(new_task);
+                } else {
+                    println!("All tasks terminated.");
+                    break;
+                }
             }
 
             let intended_wakeup_time = sample_timestamp + self.interval;

@@ -679,9 +679,9 @@ dependencies = [
 
 [[package]]
 name = "perfrecord-mach-ipc-rendezvous"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d69170b0f48624cca114583c29322d725ce4da4b7fcdcd089170f169fbde33ba"
+checksum = "8b93450add10f4ebe623619c8e1afdbbc7ab203a8ea2ed64c3f3bb4dd74172dd"
 dependencies = [
  "lazy_static",
  "libc",
@@ -809,9 +809,9 @@ dependencies = [
 
 [[package]]
 name = "profiler-symbol-server"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69a95148ab362765df974e9aee2525cd2d25ae4d35790645a2daabb68cfb9d92"
+checksum = "d301e167d4de06f7a92632e0515a4c41cd8b187c98ab8e72b482cb87f618f53a"
 dependencies = [
  "core-foundation",
  "core-foundation-sys",

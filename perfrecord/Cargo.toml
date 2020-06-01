@@ -11,9 +11,11 @@ readme = "Readme.md"
 
 [dependencies]
 # perfrecord-mach-ipc-rendezvous = { path = "../perfrecord-mach-ipc-rendezvous" }
-perfrecord-mach-ipc-rendezvous = "0.1.0"
+perfrecord-mach-ipc-rendezvous = "0.2.0"
 
-profiler-symbol-server = "0.1.0"
+# profiler-symbol-server = { path = "../../profiler-symbol-server" }
+profiler-symbol-server = "0.1.1"
+
 tokio = { version = "0.2", features = ["full"] }
 uuid = "0.8.1"
 libc = "0.2.71"
