@@ -3,7 +3,6 @@ use structopt::StructOpt;
 
 use profiler_symbol_server::start_server;
 
-
 #[derive(Debug, StructOpt)]
 #[structopt(
     name = "profiler-symbol-server",

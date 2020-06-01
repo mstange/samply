@@ -102,7 +102,11 @@ where
     t.as_concrete_TypeRef()
 }
 
-fn cast<T, U>(t: &T) -> Result<U, Error> where T: TCFType, U: TCFType {
+fn cast<T, U>(t: &T) -> Result<U, Error>
+where
+    T: TCFType,
+    U: TCFType,
+{
     if !t.instance_of::<U>() {
         return Err(failure::err_msg("dsym_paths attribute not an array"));
     }
