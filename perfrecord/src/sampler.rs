@@ -36,7 +36,15 @@ impl Sampler {
     }
 
     pub fn run(mut self) -> kernel_error::Result<ProfileBuilder> {
-        self.live_root_task = Some(self.task_receiver.recv().expect("couldn't recv"));
+        let root_task = match self.task_receiver.recv() {
+            Ok(task) => task,
+            Err(_) => {
+                // The sender went away. No profiling today.
+                return Err(kernel_error::KernelError::MachRcvPortDied);
+            }
+        };
+
+        self.live_root_task = Some(root_task);
 
         let mut last_sleep_overshoot = Duration::from_nanos(0);
 

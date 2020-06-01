@@ -77,10 +77,7 @@ impl TaskProfiler {
         let changes = self
             .lib_info_manager
             .check_for_changes()
-            .map_err(|err| match err {
-                KernelError::InvalidArgument => KernelError::Terminated,
-                err => err,
-            })?;
+            .unwrap_or_else(|_| Vec::new());
         for change in changes {
             match change {
                 Modification::Added(lib) => self.libs.push(lib),
