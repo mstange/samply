@@ -1,4 +1,4 @@
-use mach_ipc_rendezvous::{mach_task_self, channel, OsIpcSender, OsIpcChannel};
+use perfrecord_mach_ipc_rendezvous::{channel, mach_task_self, OsIpcChannel, OsIpcSender};
 
 // Run our code as early as possible, by pretending to be a global constructor.
 // This code was taken from https://github.com/neon-bindings/neon/blob/2277e943a619579c144c1da543874f4a7ec39879/src/lib.rs#L40-L44
