@@ -20,7 +20,11 @@ fn set_up_perfrecord_connection() -> Option<()> {
     // Send our task to the parent. Then the parent can control us completely.
     let p = unsafe { mach_task_self() };
     let c = OsIpcChannel::RawPort(p);
-    tx1.send(b"My task", vec![OsIpcChannel::Sender(tx0), c], vec![])
+    let pid = std::process::id();
+    let mut message_bytes = Vec::new();
+    message_bytes.extend_from_slice(b"My task");
+    message_bytes.extend_from_slice(&pid.to_le_bytes());
+    tx1.send(&message_bytes, vec![OsIpcChannel::Sender(tx0), c], vec![])
         .unwrap();
     // Wait for the parent to tell us to proceed, in case it wants to do any more setup with our task.
     let (result, _, _) = rx0.recv().unwrap();
