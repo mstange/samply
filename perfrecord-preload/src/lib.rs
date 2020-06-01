@@ -27,7 +27,10 @@ fn set_up_perfrecord_connection() -> Option<()> {
     tx1.send(&message_bytes, vec![OsIpcChannel::Sender(tx0), c], vec![])
         .unwrap();
     // Wait for the parent to tell us to proceed, in case it wants to do any more setup with our task.
-    let (result, _, _) = rx0.recv().unwrap();
-    assert_eq!(b"Proceed", &result[..]);
+    if let Ok((result, _, _)) = rx0.recv() {
+        assert_eq!(b"Proceed", &result[..]);
+    } else {
+        // If the parent messed up or terminated, we want to proceed anyway.
+    }
     Some(())
 }

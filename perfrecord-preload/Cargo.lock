@@ -31,7 +31,7 @@ checksum = "3baa92041a6fec78c687fa0cc2b3fae8884f743d672cf551bed1d6dac6988d0f"
 
 [[package]]
 name = "perfrecord-mach-ipc-rendezvous"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "lazy_static",
  "libc",
