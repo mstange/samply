@@ -6,7 +6,7 @@ use crate::shared::{
 };
 use addr2line::object;
 use goblin::mach;
-use object::read::{File, Object};
+use object::read::{File, Object, ObjectSymbol};
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -169,7 +169,7 @@ where
     Ok(symbolication_result)
 }
 
-fn translate_addresses_to_object<'data, 'file, O>(
+fn translate_addresses_to_object<'data: 'file, 'file, O>(
     _path: &Path,
     macho_file: &'file O,
     mut functions: HashMap<String, Vec<AddressWithOffset>>,
@@ -178,8 +178,8 @@ where
     O: object::Object<'data, 'file>,
 {
     let mut addresses_in_this_object = Vec::new();
-    for (_, symbol) in macho_file.symbols() {
-        if let Some(symbol_name) = symbol.name() {
+    for symbol in macho_file.symbols() {
+        if let Ok(symbol_name) = symbol.name() {
             if let Some(addresses) = functions.remove(symbol_name) {
                 for AddressWithOffset {
                     original_address,
@@ -220,7 +220,7 @@ impl ObjectReference {
     }
 }
 
-fn collect_debug_info_and_remainder<'data, 'file, 'a, O, R>(
+fn collect_debug_info_and_remainder<'data: 'file, 'file, 'a, O, R>(
     macho_file: &'file O,
     goblin_macho: &'a mach::MachO<'data>,
     addresses: &[AddressPair],

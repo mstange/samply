@@ -20,7 +20,7 @@ impl AddressPair {
     }
 }
 
-pub fn collect_dwarf_address_debug_data<'data, 'file, O, R>(
+pub fn collect_dwarf_address_debug_data<'data: 'file, 'file, O, R>(
     object: &'file O,
     addresses: &[AddressPair],
     symbolication_result: &mut R,
@@ -104,6 +104,7 @@ pub struct SectionDataNoCopy<'a> {
 impl<'data> SectionDataNoCopy<'data> {
     pub fn from_object<'file, O>(file: &'file O) -> Self
     where
+        'data: 'file,
         O: object::Object<'data, 'file>,
     {
         let endian = if file.is_little_endian() {
@@ -117,6 +118,7 @@ impl<'data> SectionDataNoCopy<'data> {
             section_name: &'static str,
         ) -> Cow<'data, [u8]>
         where
+            'data: 'file,
             O: object::Object<'data, 'file>,
         {
             use object::ObjectSection;

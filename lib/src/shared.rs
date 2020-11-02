@@ -1,5 +1,5 @@
 use addr2line::object;
-use object::{Object, SymbolKind};
+use object::{Object, ObjectSymbol, SymbolKind};
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::ops::Deref;
@@ -105,14 +105,19 @@ pub struct SymbolicationQuery<'a> {
     pub addresses: &'a [u32],
 }
 
-pub fn object_to_map<'a, 'b, T>(object_file: &'b T) -> BTreeMap<u32, &'a str>
+pub fn object_to_map<'a: 'b, 'b, T>(object_file: &'b T) -> BTreeMap<u32, &'a str>
 where
     T: Object<'a, 'b>,
 {
     object_file
         .dynamic_symbols()
         .chain(object_file.symbols())
-        .filter(|(_, symbol)| symbol.kind() == SymbolKind::Text)
-        .filter_map(|(_, symbol)| symbol.name().map(|name| (symbol.address() as u32, name)))
+        .filter(|symbol| symbol.kind() == SymbolKind::Text)
+        .filter_map(|symbol| {
+            symbol
+                .name()
+                .ok()
+                .map(|name| (symbol.address() as u32, name))
+        })
         .collect()
 }
