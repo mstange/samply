@@ -138,11 +138,24 @@ where
                 ObjectReference::Archive {
                     path, archive_info, ..
                 } => {
-                    let archive = goblin::archive::Archive::parse(buffer)?;
+                    let archive =
+                        object::read::archive::ArchiveFile::parse(buffer).or_else(|x| {
+                            Err(GetSymbolsError::ArchiveParseError(
+                                path.clone(),
+                                Box::new(x),
+                            ))
+                        })?;
+                    let archive_members_by_name: HashMap<Vec<u8>, &[u8]> = archive
+                        .members()
+                        .filter_map(|member| match member {
+                            Ok(member) => Some((member.name().to_owned(), member.data())),
+                            Err(_) => None,
+                        })
+                        .collect();
                     for (name_in_archive, functions) in archive_info {
-                        let buffer = match archive.extract(&name_in_archive, buffer) {
-                            Ok(buffer) => buffer,
-                            Err(_) => continue,
+                        let buffer = match archive_members_by_name.get(name_in_archive.as_bytes()) {
+                            Some(buffer) => *buffer,
+                            None => continue,
                         };
                         let macho_file = File::parse(buffer)
                             .or_else(|x| Err(GetSymbolsError::MachOHeaderParseError(x)))?;

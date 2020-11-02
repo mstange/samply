@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use crate::pdb_crate::Error as PDBError;
 use addr2line::object;
 use goblin::error::Error as GoblinError;
@@ -53,6 +55,9 @@ pub enum GetSymbolsError {
     #[error("In the PE (Windows) binary at path {0}, the embedded path to the PDB file did not end with a nul byte.")]
     PdbPathDidntEndWithNul(String),
 
+    #[error("Could not parse archive file at {0}, ArchiveFile::parse returned error: {1}.")]
+    ArchiveParseError(PathBuf, #[source] Box<dyn std::error::Error + Send + Sync>),
+
     #[error("Couldn't parse request: {0}")]
     ParseRequestErrorSerde(#[from] serde_json::error::Error),
 
@@ -95,6 +100,7 @@ impl GetSymbolsError {
             GetSymbolsError::NoCandidatePathForBinary(_, _) => "NoCandidatePathForBinary",
             GetSymbolsError::NoDebugInfoInPeBinary(_) => "NoDebugInfoInPeBinary",
             GetSymbolsError::PdbPathDidntEndWithNul(_) => "PdbPathDidntEndWithNul",
+            GetSymbolsError::ArchiveParseError(_, _) => "ArchiveParseError",
             GetSymbolsError::ParseRequestErrorSerde(_) => "ParseRequestErrorSerde",
             GetSymbolsError::ParseRequestErrorContents(_) => "ParseRequestErrorContents",
         }
