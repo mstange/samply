@@ -93,8 +93,6 @@ where
 
         // Look up addresses that don't have external debug info, and collect information
         // about the ones that do have external debug info.
-        let goblin_macho = mach::MachO::parse(buffer, 0)?;
-
         let addresses_in_this_object: Vec<_> = addresses
             .iter()
             .map(|a| AddressPair {
@@ -104,7 +102,6 @@ where
             .collect();
         remainder.extend(collect_debug_info_and_remainder(
             &macho_file,
-            &goblin_macho,
             &addresses_in_this_object,
             &mut symbolication_result,
         )?);
@@ -132,10 +129,8 @@ where
                         .or_else(|x| Err(GetSymbolsError::MachOHeaderParseError(x)))?;
                     let addresses_in_this_object =
                         translate_addresses_to_object(&path, &macho_file, functions);
-                    let goblin_macho = mach::MachO::parse(buffer, 0)?;
                     remainder.extend(collect_debug_info_and_remainder(
                         &macho_file,
-                        &goblin_macho,
                         &addresses_in_this_object,
                         &mut symbolication_result,
                     )?);
@@ -153,10 +148,8 @@ where
                             .or_else(|x| Err(GetSymbolsError::MachOHeaderParseError(x)))?;
                         let addresses_in_this_object =
                             translate_addresses_to_object(&path, &macho_file, functions);
-                        let goblin_macho = mach::MachO::parse(buffer, 0)?;
                         remainder.extend(collect_debug_info_and_remainder(
                             &macho_file,
-                            &goblin_macho,
                             &addresses_in_this_object,
                             &mut symbolication_result,
                         )?);
@@ -172,7 +165,7 @@ where
 fn translate_addresses_to_object<'data: 'file, 'file, O>(
     _path: &Path,
     macho_file: &'file O,
-    mut functions: HashMap<String, Vec<AddressWithOffset>>,
+    mut functions: HashMap<Vec<u8>, Vec<AddressWithOffset>>,
 ) -> Vec<AddressPair>
 where
     O: object::Object<'data, 'file>,
@@ -180,7 +173,7 @@ where
     let mut addresses_in_this_object = Vec::new();
     for symbol in macho_file.symbols() {
         if let Ok(symbol_name) = symbol.name() {
-            if let Some(addresses) = functions.remove(symbol_name) {
+            if let Some(addresses) = functions.remove(symbol_name.as_bytes()) {
                 for AddressWithOffset {
                     original_address,
                     offset_from_function_start,
@@ -203,11 +196,11 @@ where
 enum ObjectReference {
     Regular {
         path: PathBuf,
-        functions: HashMap<String, Vec<AddressWithOffset>>,
+        functions: HashMap<Vec<u8>, Vec<AddressWithOffset>>,
     },
     Archive {
         path: PathBuf,
-        archive_info: HashMap<String, HashMap<String, Vec<AddressWithOffset>>>,
+        archive_info: HashMap<String, HashMap<Vec<u8>, Vec<AddressWithOffset>>>,
     },
 }
 
@@ -220,9 +213,15 @@ impl ObjectReference {
     }
 }
 
+#[derive(Debug)]
+struct ObjectMapSymbol<'a> {
+    name: &'a [u8],
+    address_range: std::ops::Range<u64>,
+    object_index: Option<usize>,
+}
+
 fn collect_debug_info_and_remainder<'data: 'file, 'file, 'a, O, R>(
     macho_file: &'file O,
-    goblin_macho: &'a mach::MachO<'data>,
     addresses: &[AddressPair],
     symbolication_result: &mut R,
 ) -> Result<Vec<ObjectReference>>
@@ -230,9 +229,23 @@ where
     O: object::Object<'data, 'file>,
     R: SymbolicationResult,
 {
-    let ObjectsAndFunctions { objects, functions } = ObjectsAndFunctions::from_macho(&goblin_macho);
-    let functions_with_addresses = match_funs_to_addresses(&functions, addresses);
-    let mut external_funs_by_object: HashMap<usize, HashMap<String, Vec<AddressWithOffset>>> =
+    let object_map = macho_file.object_map();
+    let objects = object_map.objects();
+    let mut object_map_symbols: Vec<_> = object_map
+        .symbols()
+        .iter()
+        .map(|entry| {
+            let address = entry.address();
+            ObjectMapSymbol {
+                name: entry.name(),
+                address_range: address..(address + entry.size()),
+                object_index: Some(entry.object_index()),
+            }
+        })
+        .collect();
+    object_map_symbols.sort_by_key(|f| f.address_range.start);
+    let functions_with_addresses = match_funs_to_addresses(&object_map_symbols[..], addresses);
+    let mut external_funs_by_object: HashMap<usize, HashMap<Vec<u8>, Vec<AddressWithOffset>>> =
         HashMap::new();
     let mut original_addresses_found_in_external_objects = BTreeSet::new();
     for MatchedFunctionWithAddresses {
@@ -263,7 +276,7 @@ where
     let mut regular_objects = HashMap::new();
 
     for (object_index, functions) in external_funs_by_object.into_iter() {
-        let object_name = objects[object_index].name;
+        let object_name = std::str::from_utf8(objects[object_index]).unwrap();
         match object_name.find('(') {
             Some(index) => {
                 // This is an "archive" reference of the form
@@ -305,14 +318,14 @@ struct AddressWithOffset {
 
 struct MatchedFunctionWithAddresses<'a> {
     object_index: usize,
-    fun_name: &'a str,
+    fun_name: &'a [u8],
     addresses: Vec<AddressWithOffset>,
 }
 
 // functions must be sorted by function.address_range.start
 // addresses must be sorted
 fn match_funs_to_addresses<'a, 'b, 'c>(
-    functions: &'a [Function<'c>],
+    functions: &'a [ObjectMapSymbol<'c>],
     addresses: &'b [AddressPair],
 ) -> Vec<MatchedFunctionWithAddresses<'c>> {
     let mut yo: Vec<MatchedFunctionWithAddresses> = Vec::new();
@@ -369,54 +382,4 @@ struct Function<'a> {
     name: &'a str,
     address_range: std::ops::Range<u64>,
     object_index: Option<usize>,
-}
-
-struct ObjectsAndFunctions<'a> {
-    objects: Vec<OriginObject<'a>>,
-    functions: Vec<Function<'a>>,
-}
-
-impl<'a> ObjectsAndFunctions<'a> {
-    pub fn from_macho(macho: &mach::MachO<'a>) -> Self {
-        use mach::symbols;
-        let mut objects = Vec::new();
-        let mut functions = Vec::new();
-        let mut current_function = None;
-        for symbol in macho.symbols() {
-            let (name, nlist) = match symbol {
-                Ok(sym) => sym,
-                Err(_) => continue,
-            };
-            if !nlist.is_stab() {
-                continue;
-            }
-            match nlist.n_type {
-                symbols::N_OSO => {
-                    objects.push(OriginObject { name });
-                }
-                symbols::N_FUN => {
-                    if !name.is_empty() {
-                        current_function = Some((name, nlist.n_value));
-                    } else if let Some((name, start_address)) = current_function.take() {
-                        let start_address = start_address;
-                        let size = nlist.n_value;
-                        let object_index = if objects.is_empty() {
-                            None
-                        } else {
-                            Some(objects.len() - 1)
-                        };
-                        let address_range = start_address..(start_address + size);
-                        functions.push(Function {
-                            name,
-                            address_range,
-                            object_index,
-                        });
-                    }
-                }
-                _ => {}
-            }
-        }
-        functions.sort_by_key(|f| f.address_range.start);
-        Self { objects, functions }
-    }
 }
