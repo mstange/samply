@@ -20,10 +20,7 @@ pub fn demangle_any(name: &str) -> String {
         return format!("{:#}", demangled_symbol);
     }
 
-    let options = cpp_demangle::DemangleOptions {
-        no_params: false,
-        // no_return_type: true, // TODO: wait for cpp_demangle release
-    };
+    let options = cpp_demangle::DemangleOptions::default().no_return_type();
     if let Ok(symbol) = cpp_demangle::Symbol::new(name) {
         if let Ok(demangled_string) = symbol.demangle(&options) {
             return demangled_string;
