@@ -39,23 +39,6 @@ async fn get_symbols_retry_id(
                         eprintln!("Using breakpadID: {}", expected);
                         expected
                     }
-                    GetSymbolsError::NoMatchMultiArch(errors) => {
-                        // There's no one breakpad ID. We need the user to specify which one they want.
-                        // Print out all potential breakpad IDs so that the user can pick.
-                        let mut potential_ids: Vec<String> = vec![];
-                        for err in errors {
-                            if let GetSymbolsError::UnmatchedBreakpadId(expected, _) = err {
-                                potential_ids.push(expected);
-                            } else {
-                                return Err(err.into());
-                            }
-                        }
-                        eprintln!("This is a multi-arch container. Please specify one of the following breakpadIDs to pick a symbol table:");
-                        for id in potential_ids {
-                            println!(" - {}", id);
-                        }
-                        std::process::exit(0);
-                    }
                     err => return Err(err.into()),
                 },
             }
@@ -230,6 +213,79 @@ mod test {
             }
             _ => panic!("wrong GetSymbolsError subtype"),
         }
+    }
+
+    #[test]
+    fn unspecified_id_fat_arch() {
+        let result = futures::executor::block_on(crate::get_table(
+            "firefox",
+            None,
+            fixtures_dir().join("macos-ci"),
+        ));
+        assert!(result.is_err());
+        let err = match result {
+            Ok(_) => panic!("Shouldn't have succeeded with unspecified breakpad ID"),
+            Err(err) => err,
+        };
+        let err = match err.downcast::<GetSymbolsError>() {
+            Ok(err) => err,
+            Err(_) => panic!("wrong error type"),
+        };
+        match err {
+            GetSymbolsError::NoMatchMultiArch(errors) => {
+                let mut expected_ids = vec![];
+                for err in errors {
+                    match err {
+                        GetSymbolsError::UnmatchedBreakpadId(expected, _actual) => {
+                            expected_ids.push(expected);
+                        }
+                        _ => panic!("wrong GetSymbolsError subtype"),
+                    }
+                }
+                assert_eq!(expected_ids.len(), 2);
+                assert!(expected_ids.contains(&"B993FABD8143361AB199F7DE9DF7E4360".to_string()));
+                assert!(expected_ids.contains(&"8E7B0ED0B04F3FCCA05E139E5250BA720".to_string()));
+            }
+            _ => panic!("wrong GetSymbolsError subtype: {:?}", err),
+        }
+    }
+
+    #[test]
+    fn fat_arch_1() {
+        let result = futures::executor::block_on(crate::get_table(
+            "firefox",
+            Some("B993FABD8143361AB199F7DE9DF7E4360".to_string()),
+            fixtures_dir().join("macos-ci"),
+        ));
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert_eq!(result.addr.len(), 13);
+        assert_eq!(result.addr[9], 0x2730);
+        assert_eq!(
+            std::str::from_utf8(
+                &result.buffer[result.index[9] as usize..result.index[10] as usize]
+            ),
+            Ok("__ZN7mozilla20ProfileChunkedBuffer17ResetChunkManagerEv")
+        );
+    }
+
+    #[test]
+    fn fat_arch_2() {
+        let result = futures::executor::block_on(crate::get_table(
+            "firefox",
+            Some("8E7B0ED0B04F3FCCA05E139E5250BA720".to_string()),
+            fixtures_dir().join("macos-ci"),
+        ));
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert_eq!(result.addr.len(), 13);
+        assert_eq!(result.addr[9], 0x759c);
+        assert_eq!(
+            std::str::from_utf8(
+                &result.buffer[result.index[9] as usize..result.index[10] as usize]
+            ),
+            Ok("__ZN7mozilla20ProfileChunkedBuffer17ResetChunkManagerEv")
+        );
     }
 
     #[test]

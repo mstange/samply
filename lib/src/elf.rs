@@ -3,9 +3,8 @@ use crate::error::{GetSymbolsError, Result};
 use crate::shared::{
     object_to_map, SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
 };
-use addr2line::object;
-use object::read::{File, Object};
-use object::SectionKind;
+use addr2line::object::read::{File, Object};
+use addr2line::object::SectionKind;
 use std::cmp;
 use uuid::Uuid;
 
@@ -98,7 +97,7 @@ pub fn get_elf_id<'a>(elf_file: &File<'a>) -> Option<Uuid> {
 
 /// Returns a reference to the data of the the .text section in an ELF binary.
 fn find_text_section<'a>(file: &File<'a>) -> Option<&'a [u8]> {
-    use object::read::ObjectSection;
+    use addr2line::object::read::ObjectSection;
     file.sections()
         .find(|header| header.kind() == SectionKind::Text)
         .and_then(|header| header.data().ok())

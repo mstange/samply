@@ -13,6 +13,11 @@ readme = "README.md"
 default = []
 send_futures = []
 
+[dependencies.object]
+default-features = false
+features = ["read"]
+version = "0.23"
+
 [dependencies]
 pdb = "0.6.0"
 uuid = "0.8.1"

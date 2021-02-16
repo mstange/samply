@@ -4,33 +4,28 @@ use crate::shared::{
     object_to_map, FileAndPathHelper, OwnedFileData, SymbolicationQuery, SymbolicationResult,
     SymbolicationResultKind,
 };
-use addr2line::object;
-use goblin::mach;
-use object::read::{File, Object, ObjectSymbol};
+use addr2line::object::read::{File, Object, ObjectSymbol};
+use object::read::macho::FatArch;
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use uuid::Uuid;
 
-pub async fn get_symbolication_result_multiarch<'a, R>(
+pub async fn get_symbolication_result_multiarch<'a, R, FA>(
     owned_data: Arc<impl OwnedFileData>,
+    arches: &[FA],
     query: SymbolicationQuery<'a>,
     helper: &impl FileAndPathHelper,
 ) -> Result<R>
 where
     R: SymbolicationResult,
+    FA: FatArch,
 {
-    let buffer = owned_data.get_data();
     let mut errors = vec![];
-    let arches: Vec<_> = {
-        let multi_arch = mach::MultiArch::new(buffer)?;
-        multi_arch
-            .iter_arches()
-            .filter_map(std::result::Result::ok)
-            .collect()
-    };
     for fat_arch in arches {
-        let slice = (fat_arch.offset as usize)..(fat_arch.offset as usize + fat_arch.size as usize);
+        let offset: u64 = fat_arch.offset().into();
+        let size: u64 = fat_arch.size().into();
+        let slice = (offset as usize)..(offset as usize + size as usize);
         match get_symbolication_result(owned_data.clone(), Some(slice), query.clone(), helper).await
         {
             Ok(table) => return Ok(table),
@@ -82,7 +77,7 @@ where
         with_debug_info: true,
     } = R::result_kind()
     {
-        use object::read::ObjectSegment;
+        use addr2line::object::read::ObjectSegment;
         let vmaddr_of_text_segment = macho_file
             .segments()
             .find(|segment| segment.name() == Ok(Some("__TEXT")))
@@ -138,8 +133,8 @@ where
                 ObjectReference::Archive {
                     path, archive_info, ..
                 } => {
-                    let archive =
-                        object::read::archive::ArchiveFile::parse(buffer).or_else(|x| {
+                    let archive = addr2line::object::read::archive::ArchiveFile::parse(buffer)
+                        .or_else(|x| {
                             Err(GetSymbolsError::ArchiveParseError(
                                 path.clone(),
                                 Box::new(x),
@@ -181,7 +176,7 @@ fn translate_addresses_to_object<'data: 'file, 'file, O>(
     mut functions: HashMap<Vec<u8>, Vec<AddressWithOffset>>,
 ) -> Vec<AddressPair>
 where
-    O: object::Object<'data, 'file>,
+    O: addr2line::object::Object<'data, 'file>,
 {
     let mut addresses_in_this_object = Vec::new();
     for symbol in macho_file.symbols() {
@@ -239,7 +234,7 @@ fn collect_debug_info_and_remainder<'data: 'file, 'file, 'a, O, R>(
     symbolication_result: &mut R,
 ) -> Result<Vec<ObjectReference>>
 where
-    O: object::Object<'data, 'file>,
+    O: addr2line::object::Object<'data, 'file>,
     R: SymbolicationResult,
 {
     let object_map = macho_file.object_map();

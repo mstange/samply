@@ -1,6 +1,6 @@
 extern crate pdb as pdb_crate;
 
-use goblin;
+use object::{macho::FatHeader, read::File, BinaryFormat};
 
 mod compact_symbol_table;
 mod dwarf;
@@ -11,7 +11,6 @@ mod pdb;
 mod shared;
 mod symbolicate;
 
-use goblin::Hint;
 use pdb_crate::PDB;
 use serde_json::json;
 use std::io::Cursor;
@@ -26,7 +25,7 @@ pub use crate::shared::{
 use crate::shared::{SymbolicationQuery, SymbolicationResult};
 
 // Just to hide unused method  warnings. Should be exposed differently.
-pub use crate::pdb::addr2line;
+pub use crate::pdb::addr2line as pdb_addr2line;
 
 pub async fn get_compact_symbol_table(
     debug_name: &str,
@@ -95,33 +94,41 @@ async fn try_get_symbolication_result_from_path<'a, R>(
 where
     R: SymbolicationResult,
 {
-    let owned_data = helper.read_file(query.path).await.map_err(|e| {
+    let owned_data = Arc::new(helper.read_file(query.path).await.map_err(|e| {
         GetSymbolsError::HelperErrorDuringReadFile(query.path.to_string_lossy().to_string(), e)
-    })?;
-    let buffer = owned_data.get_data();
+    })?);
 
-    let mut reader = Cursor::new(buffer);
-    match goblin::peek(&mut reader)? {
-        Hint::Elf(_) => elf::get_symbolication_result(buffer, query),
-        Hint::Mach(_) => {
-            macho::get_symbolication_result(Arc::new(owned_data), None, query, helper).await
-        }
-        Hint::MachFat(_) => {
-            macho::get_symbolication_result_multiarch(Arc::new(owned_data), query, helper).await
-        }
-        Hint::PE => pdb::get_symbolication_result_via_binary(buffer, query, helper).await,
-        _ => {
-            // Might this be a PDB, then?
-            let pdb_reader = Cursor::new(buffer);
-            match PDB::open(pdb_reader) {
-                Ok(pdb) => {
-                    // This is a PDB file.
-                    pdb::get_symbolication_result(pdb, query)
-                }
-                Err(_) => Err(GetSymbolsError::InvalidInputError(
-                    "Neither goblin::peek nor PDB::open were able to read the file",
-                )),
+    let data_clone = owned_data.clone();
+    let buffer = data_clone.get_data();
+
+    if let Ok(arches) = FatHeader::parse_arch32(buffer) {
+        macho::get_symbolication_result_multiarch(owned_data, arches, query, helper).await
+    } else if let Ok(arches) = FatHeader::parse_arch64(buffer) {
+        macho::get_symbolication_result_multiarch(owned_data, arches, query, helper).await
+    } else if let Ok(file) = File::parse(buffer) {
+        match file.format() {
+            BinaryFormat::MachO => {
+                macho::get_symbolication_result(owned_data, None, query, helper).await
             }
+            BinaryFormat::Elf => elf::get_symbolication_result(buffer, query),
+            BinaryFormat::Pe => {
+                pdb::get_symbolication_result_via_binary(buffer, query, helper).await
+            }
+            BinaryFormat::Coff | BinaryFormat::Wasm => Err(GetSymbolsError::InvalidInputError(
+                "Input was Coff or Wasm format, which are unsupported for naw",
+            )),
+        }
+    } else {
+        // Might this be a PDB, then?
+        let pdb_reader = Cursor::new(buffer);
+        match PDB::open(pdb_reader) {
+            Ok(pdb) => {
+                // This is a PDB file.
+                pdb::get_symbolication_result(pdb, query)
+            }
+            Err(_) => Err(GetSymbolsError::InvalidInputError(
+                "Neither object::File::parse nor PDB::open were able to read the file",
+            )),
         }
     }
 }

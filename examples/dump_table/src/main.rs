@@ -1,5 +1,6 @@
 use anyhow;
 use futures;
+use profiler_get_symbols::GetSymbolsError;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
@@ -30,12 +31,37 @@ struct Opt {
 
 fn main() -> anyhow::Result<()> {
     let opt = Opt::from_args();
-    futures::executor::block_on(main_impl(
+    let result = futures::executor::block_on(main_impl(
         &opt.debug_name,
         opt.breakpad_id,
         opt.symbol_directory,
         opt.full,
-    ))
+    ));
+    let err = match result {
+        Ok(()) => return Ok(()),
+        Err(err) => err,
+    };
+    match err.downcast::<GetSymbolsError>() {
+        Ok(GetSymbolsError::NoMatchMultiArch(errors)) => {
+            // There's no one breakpad ID. We need the user to specify which one they want.
+            // Print out all potential breakpad IDs so that the user can pick.
+            let mut potential_ids: Vec<String> = vec![];
+            for err in errors {
+                if let GetSymbolsError::UnmatchedBreakpadId(expected, _) = err {
+                    potential_ids.push(expected);
+                } else {
+                    return Err(err.into());
+                }
+            }
+            eprintln!("This is a multi-arch container. Please specify one of the following breakpadIDs to pick a symbol table:");
+            for id in potential_ids {
+                println!(" - {}", id);
+            }
+            Ok(())
+        }
+        Ok(err) => Err(err)?,
+        Err(err) => Err(err),
+    }
 }
 
 async fn main_impl(

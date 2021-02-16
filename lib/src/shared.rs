@@ -1,5 +1,4 @@
-use addr2line::object;
-use object::{Object, ObjectSymbol, SymbolKind};
+use addr2line::object::{Object, ObjectSymbol, SymbolKind};
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::ops::Deref;

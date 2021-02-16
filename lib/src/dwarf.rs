@@ -1,6 +1,6 @@
 use crate::shared::{AddressDebugInfo, InlineStackFrame, SymbolicationResult};
 use crate::symbolicate::demangle;
-use addr2line::{fallible_iterator, gimli, object};
+use addr2line::{fallible_iterator, gimli};
 use fallible_iterator::FallibleIterator;
 use gimli::{EndianSlice, SectionId};
 use std::borrow::Cow;
@@ -25,7 +25,7 @@ pub fn collect_dwarf_address_debug_data<'data: 'file, 'file, O, R>(
     addresses: &[AddressPair],
     symbolication_result: &mut R,
 ) where
-    O: object::Object<'data, 'file>,
+    O: addr2line::object::Object<'data, 'file>,
     R: SymbolicationResult,
 {
     if addresses.is_empty() {
@@ -105,7 +105,7 @@ impl<'data> SectionDataNoCopy<'data> {
     pub fn from_object<'file, O>(file: &'file O) -> Self
     where
         'data: 'file,
-        O: object::Object<'data, 'file>,
+        O: addr2line::object::Object<'data, 'file>,
     {
         let endian = if file.is_little_endian() {
             gimli::RunTimeEndian::Little
@@ -119,9 +119,9 @@ impl<'data> SectionDataNoCopy<'data> {
         ) -> Cow<'data, [u8]>
         where
             'data: 'file,
-            O: object::Object<'data, 'file>,
+            O: addr2line::object::Object<'data, 'file>,
         {
-            use object::ObjectSection;
+            use addr2line::object::ObjectSection;
             if let Some(section) = file.section_by_name(section_name) {
                 if let Ok(data) = section.uncompressed_data() {
                     return data;
