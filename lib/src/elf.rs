@@ -3,15 +3,16 @@ use crate::error::{GetSymbolsError, Result};
 use crate::shared::{
     object_to_map, SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
 };
-use addr2line::object::read::{File, Object};
-use addr2line::object::SectionKind;
 use std::cmp;
 use uuid::Uuid;
 
 const UUID_SIZE: usize = 16;
 const PAGE_SIZE: usize = 4096;
 
-pub fn get_symbolication_result<R>(buffer: &[u8], query: SymbolicationQuery) -> Result<R>
+pub fn get_symbolication_result<'a, R>(
+    elf_file: object::File<'a>,
+    query: SymbolicationQuery,
+) -> Result<R>
 where
     R: SymbolicationResult,
 {
@@ -20,8 +21,6 @@ where
         addresses,
         ..
     } = query;
-    let elf_file = File::parse(buffer)
-        .map_err(|_| GetSymbolsError::InvalidInputError("Could not parse ELF header"))?;
     let elf_id = get_elf_id(&elf_file)
         .ok_or_else(|| GetSymbolsError::InvalidInputError("id cannot be read"))?;
     let elf_id_string = format!("{:X}0", elf_id.to_simple());
@@ -75,7 +74,8 @@ fn create_elf_id(identifier: &[u8], little_endian: bool) -> Uuid {
 /// processor does.
 ///
 /// If all of the above fails, this function will return `None`.
-pub fn get_elf_id<'a>(elf_file: &File<'a>) -> Option<Uuid> {
+pub fn get_elf_id<'a>(elf_file: &object::File<'a>) -> Option<Uuid> {
+    use object::Object;
     if let Some(identifier) = elf_file.build_id().ok()? {
         return Some(create_elf_id(identifier, elf_file.is_little_endian()));
     }
@@ -96,8 +96,8 @@ pub fn get_elf_id<'a>(elf_file: &File<'a>) -> Option<Uuid> {
 }
 
 /// Returns a reference to the data of the the .text section in an ELF binary.
-fn find_text_section<'a>(file: &File<'a>) -> Option<&'a [u8]> {
-    use addr2line::object::read::ObjectSection;
+fn find_text_section<'a>(file: &object::File<'a>) -> Option<&'a [u8]> {
+    use object::{Object, ObjectSection, SectionKind};
     file.sections()
         .find(|header| header.kind() == SectionKind::Text)
         .and_then(|header| header.data().ok())

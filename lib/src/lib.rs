@@ -108,14 +108,14 @@ where
     } else if let Ok(file) = File::parse(buffer) {
         match file.format() {
             BinaryFormat::MachO => {
-                macho::get_symbolication_result(owned_data, None, query, helper).await
+                macho::get_symbolication_result(owned_data, file, query, helper).await
             }
-            BinaryFormat::Elf => elf::get_symbolication_result(buffer, query),
+            BinaryFormat::Elf => elf::get_symbolication_result(file, query),
             BinaryFormat::Pe => {
                 pdb::get_symbolication_result_via_binary(buffer, query, helper).await
             }
             BinaryFormat::Coff | BinaryFormat::Wasm => Err(GetSymbolsError::InvalidInputError(
-                "Input was Coff or Wasm format, which are unsupported for naw",
+                "Input was Coff or Wasm format, which are unsupported for now",
             )),
         }
     } else {
