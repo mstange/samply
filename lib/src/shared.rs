@@ -1,8 +1,8 @@
-use std::collections::BTreeMap;
-use std::future::Future;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
+use std::{cell::Cell, future::Future};
+use std::{collections::BTreeMap, fmt::Debug};
 
 pub type FileAndPathHelperError = Box<dyn std::error::Error + Send + Sync + 'static>;
 pub type FileAndPathHelperResult<T> = std::result::Result<T, FileAndPathHelperError>;
@@ -123,10 +123,54 @@ where
         .collect()
 }
 
-pub struct FileContentsWrapper<T: FileContents>(pub T);
+pub struct FileContentsWrapper<T: FileContents> {
+    file_contents: T,
+    len: usize,
+    bytes_read: Cell<usize>,
+}
 
 impl<T: FileContents> FileContentsWrapper<T> {
+    pub fn new(file_contents: T) -> Self {
+        let len = file_contents.len();
+        Self {
+            file_contents,
+            len,
+            bytes_read: Cell::new(0),
+        }
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    #[inline]
+    pub fn read_bytes_at<'a>(
+        &'a self,
+        offset: usize,
+        size: usize,
+    ) -> FileAndPathHelperResult<&'a [u8]> {
+        self.bytes_read.set(self.bytes_read.get() + size);
+        self.file_contents.read_bytes_at(offset, size)
+    }
+
     pub fn read_entire_data(&self) -> FileAndPathHelperResult<&[u8]> {
-        self.0.read_bytes_at(0, self.0.len())
+        self.read_bytes_at(0, self.len())
+    }
+
+    pub fn bytes_read(&self) -> usize {
+        self.bytes_read.get()
+    }
+}
+
+// impl<T: FileContents> Drop for FileContentsWrapper<T> {
+//     fn drop(&mut self)  {
+//         eprintln!("Read {} of {} bytes.", self.bytes_read(), self.len());
+//     }
+// }
+
+impl<T: FileContents> Debug for FileContentsWrapper<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "FileContentsWrapper({} bytes)", self.len())
     }
 }

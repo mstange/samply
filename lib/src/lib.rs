@@ -13,7 +13,6 @@ mod symbolicate;
 
 use pdb_crate::PDB;
 use serde_json::json;
-use std::io::Cursor;
 
 pub use crate::compact_symbol_table::CompactSymbolTable;
 pub use crate::error::{GetSymbolsError, Result};
@@ -93,9 +92,16 @@ async fn try_get_symbolication_result_from_path<'a, R>(
 where
     R: SymbolicationResult,
 {
-    let file_contents = FileContentsWrapper(helper.open_file(query.path).await.map_err(|e| {
-        GetSymbolsError::HelperErrorDuringOpenFile(query.path.to_string_lossy().to_string(), e)
-    })?);
+    let file_contents =
+        FileContentsWrapper::new(helper.open_file(query.path).await.map_err(|e| {
+            GetSymbolsError::HelperErrorDuringOpenFile(query.path.to_string_lossy().to_string(), e)
+        })?);
+
+    if let Ok(pdb) = PDB::open(&file_contents) {
+        // This is a PDB file.
+        return pdb::get_symbolication_result(pdb, query);
+    }
+
     let buffer = file_contents.read_entire_data().map_err(|e| {
         GetSymbolsError::HelperErrorDuringFileReading(query.path.to_string_lossy().to_string(), e)
     })?;
@@ -116,16 +122,8 @@ where
             )),
         }
     } else {
-        // Might this be a PDB, then?
-        let pdb_reader = Cursor::new(buffer);
-        match PDB::open(pdb_reader) {
-            Ok(pdb) => {
-                // This is a PDB file.
-                pdb::get_symbolication_result(pdb, query)
-            }
-            Err(_) => Err(GetSymbolsError::InvalidInputError(
-                "Neither object::File::parse nor PDB::open were able to read the file",
-            )),
-        }
+        Err(GetSymbolsError::InvalidInputError(
+            "Neither object::File::parse nor PDB::open were able to read the file",
+        ))
     }
 }

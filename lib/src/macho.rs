@@ -110,7 +110,7 @@ where
         while let Some(obj_ref) = remainder.pop_front() {
             let path = obj_ref.path();
             let file_contents = match helper.open_file(path).await {
-                Ok(data) => FileContentsWrapper(data),
+                Ok(data) => FileContentsWrapper::new(data),
                 Err(_) => {
                     // We probably couldn't find the file, but that's fine.
                     // It would be good to collect this error somewhere.

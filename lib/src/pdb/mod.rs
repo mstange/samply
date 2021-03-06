@@ -1,8 +1,8 @@
 use crate::error::{Context, GetSymbolsError, Result};
 use crate::pdb_crate::{FallibleIterator, ProcedureSymbol, PublicSymbol, SymbolData, PDB};
 use crate::shared::{
-    AddressDebugInfo, FileAndPathHelper, FileContentsWrapper, InlineStackFrame, SymbolicationQuery,
-    SymbolicationResult, SymbolicationResultKind,
+    AddressDebugInfo, FileAndPathHelper, FileContents, FileContentsWrapper, InlineStackFrame,
+    SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
 };
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashSet};
@@ -91,9 +91,10 @@ async fn try_get_symbolication_result_from_pdb_path<'a, R>(
 where
     R: SymbolicationResult,
 {
-    let file_contents = FileContentsWrapper(helper.open_file(query.path).await.map_err(|e| {
-        GetSymbolsError::HelperErrorDuringOpenFile(query.path.to_string_lossy().to_string(), e)
-    })?);
+    let file_contents =
+        FileContentsWrapper::new(helper.open_file(query.path).await.map_err(|e| {
+            GetSymbolsError::HelperErrorDuringOpenFile(query.path.to_string_lossy().to_string(), e)
+        })?);
     let buffer = file_contents.read_entire_data().map_err(|e| {
         GetSymbolsError::HelperErrorDuringFileReading(query.path.to_string_lossy().to_string(), e)
     })?;
@@ -354,6 +355,51 @@ fn pe_signature_to_uuid(identifier: &[u8; 16]) -> uuid::Uuid {
     data[6..8].reverse(); // uuid field 3
 
     uuid::Uuid::from_bytes(data)
+}
+
+#[derive(Clone)]
+struct ReadView {
+    bytes: Vec<u8>,
+}
+
+impl std::fmt::Debug for ReadView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ReadView({} bytes)", self.bytes.len())
+    }
+}
+
+impl pdb::SourceView<'_> for ReadView {
+    fn as_slice(&self) -> &[u8] {
+        self.bytes.as_slice()
+    }
+}
+
+impl<'s, F: FileContents> pdb::Source<'s> for &'s FileContentsWrapper<F> {
+    fn view(
+        &mut self,
+        slices: &[pdb_crate::SourceSlice],
+    ) -> std::result::Result<Box<dyn pdb_crate::SourceView<'s>>, std::io::Error> {
+        let len = slices.iter().fold(0, |acc, s| acc + s.size);
+
+        let mut v = ReadView {
+            bytes: Vec::with_capacity(len),
+        };
+        v.bytes.resize(len, 0);
+
+        {
+            let bytes = v.bytes.as_mut_slice();
+            let mut output_offset: usize = 0;
+            for slice in slices {
+                let slice_buf = self
+                    .read_bytes_at(slice.offset as usize, slice.size)
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+                bytes[output_offset..(output_offset + slice.size)].copy_from_slice(slice_buf);
+                output_offset += slice.size;
+            }
+        }
+
+        Ok(Box::new(v))
+    }
 }
 
 #[cfg(test)]
