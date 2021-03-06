@@ -24,7 +24,7 @@ features = ["std", "read"]
 version = "0.23"
 
 [dependencies]
-pdb = "0.6.0"
+pdb = "0.7.0"
 uuid = "0.8.1"
 goblin = { version = "0.3.4", features = ["pe32", "pe64"] }
 thiserror = "1.0"

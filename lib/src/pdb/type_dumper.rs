@@ -188,6 +188,7 @@ impl<'a> TypeDumper<'a> {
                     PrimitiveKind::F80 => 10,
                     PrimitiveKind::Complex80 => 20,
                     PrimitiveKind::Complex128 => 32,
+                    _ => panic!("Unknown PrimitiveKind {:?} in get_data_size", t.kind),
                 }
             }
             TypeData::Class(t) => self.get_class_size(t),
@@ -654,6 +655,7 @@ impl<'a> TypeDumper<'a> {
             PrimitiveKind::Bool32 => "bool32_t",
             PrimitiveKind::Bool64 => "bool64_t",
             PrimitiveKind::HRESULT => "HRESULT",
+            _ => panic!("Unknown PrimitiveKind {:?} in dump_primitive", prim.kind),
         };
 
         if prim.indirection.is_some() {
