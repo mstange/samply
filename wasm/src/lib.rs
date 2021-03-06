@@ -146,8 +146,28 @@ async fn get_compact_symbol_table_impl(
     }
 }
 
+pub struct FileHandle {
+    buffer: WasmMemBuffer,
+}
+
+impl profiler_get_symbols::FileContents for FileHandle {
+    #[inline]
+    fn len(&self) -> usize {
+        self.buffer.get().len()
+    }
+
+    #[inline]
+    fn read_bytes_at<'a>(
+        &'a self,
+        offset: usize,
+        size: usize,
+    ) -> profiler_get_symbols::FileAndPathHelperResult<&'a [u8]> {
+        Ok(&self.buffer.get()[offset..][..size])
+    }
+}
+
 impl profiler_get_symbols::FileAndPathHelper for FileAndPathHelper {
-    type FileContents = WasmMemBuffer;
+    type F = FileHandle;
 
     fn get_candidate_paths_for_binary_or_pdb(
         &self,
@@ -167,13 +187,13 @@ impl profiler_get_symbols::FileAndPathHelper for FileAndPathHelper {
         ))
     }
 
-    fn read_file(
+    fn open_file(
         &self,
         path: &Path,
     ) -> Pin<
         Box<
             dyn OptionallySendFuture<
-                Output = profiler_get_symbols::FileAndPathHelperResult<Self::FileContents>,
+                Output = profiler_get_symbols::FileAndPathHelperResult<Self::F>,
             >,
         >,
     > {
@@ -202,12 +222,14 @@ async fn get_candidate_paths_for_binary_or_pdb_impl(
 async fn read_file_impl(
     helper: FileAndPathHelper,
     path: PathBuf,
-) -> profiler_get_symbols::FileAndPathHelperResult<WasmMemBuffer> {
+) -> profiler_get_symbols::FileAndPathHelperResult<FileHandle> {
     let path = path.to_str().ok_or(GenericError(
         "read_file: Path could not be converted to string",
     ))?;
     let res = JsFuture::from(helper.readFile(path)).await;
     let buffer = res.map_err(JsValueError::from)?;
     // Workaround for not having WasmMemBuffer::from(JsValue)
-    Ok(BufferWrapper::from(buffer).getBuffer())
+    let buffer = BufferWrapper::from(buffer).getBuffer();
+    let file_handle = FileHandle { buffer };
+    Ok(file_handle)
 }

@@ -1,7 +1,7 @@
 use crate::error::{Context, GetSymbolsError, Result};
 use crate::pdb_crate::{FallibleIterator, ProcedureSymbol, PublicSymbol, SymbolData, PDB};
 use crate::shared::{
-    AddressDebugInfo, FileAndPathHelper, InlineStackFrame, OwnedFileData, SymbolicationQuery,
+    AddressDebugInfo, FileAndPathHelper, FileContentsWrapper, InlineStackFrame, SymbolicationQuery,
     SymbolicationResult, SymbolicationResultKind,
 };
 use std::borrow::Cow;
@@ -91,11 +91,13 @@ async fn try_get_symbolication_result_from_pdb_path<'a, R>(
 where
     R: SymbolicationResult,
 {
-    let owned_data = helper.read_file(query.path).await.map_err(|e| {
-        GetSymbolsError::HelperErrorDuringReadFile(query.path.to_string_lossy().to_string(), e)
+    let file_contents = FileContentsWrapper(helper.open_file(query.path).await.map_err(|e| {
+        GetSymbolsError::HelperErrorDuringOpenFile(query.path.to_string_lossy().to_string(), e)
+    })?);
+    let buffer = file_contents.read_entire_data().map_err(|e| {
+        GetSymbolsError::HelperErrorDuringFileReading(query.path.to_string_lossy().to_string(), e)
     })?;
-    let pdb_data = owned_data.get_data();
-    let pdb_reader = Cursor::new(pdb_data);
+    let pdb_reader = Cursor::new(buffer);
     let pdb = PDB::open(pdb_reader)?;
     get_symbolication_result(pdb, query)
 }

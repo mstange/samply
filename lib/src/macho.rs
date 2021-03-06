@@ -1,18 +1,17 @@
 use crate::dwarf::{collect_dwarf_address_debug_data, AddressPair};
 use crate::error::{GetSymbolsError, Result};
 use crate::shared::{
-    object_to_map, FileAndPathHelper, OwnedFileData, SymbolicationQuery, SymbolicationResult,
-    SymbolicationResultKind,
+    object_to_map, FileAndPathHelper, FileContents, FileContentsWrapper, SymbolicationQuery,
+    SymbolicationResult, SymbolicationResultKind,
 };
 use object::read::macho::FatArch;
 use object::read::{File, Object, ObjectSymbol};
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use uuid::Uuid;
 
 pub async fn get_symbolication_result_multiarch<'a, R, FA>(
-    owned_data: Arc<impl OwnedFileData>,
+    file_contents: &FileContentsWrapper<impl FileContents>,
     arches: &[FA],
     query: SymbolicationQuery<'a>,
     helper: &impl FileAndPathHelper,
@@ -21,9 +20,11 @@ where
     R: SymbolicationResult,
     FA: FatArch,
 {
+    let buffer = file_contents.read_entire_data().map_err(|e| {
+        GetSymbolsError::HelperErrorDuringFileReading(query.path.to_string_lossy().to_string(), e)
+    })?;
     let mut errors = vec![];
     for fat_arch in arches {
-        let buffer = owned_data.get_data();
         let buffer = match fat_arch.data(buffer) {
             Ok(buffer) => buffer,
             Err(err) => {
@@ -39,8 +40,7 @@ where
             }
         };
 
-        match get_symbolication_result(owned_data.clone(), macho_file, query.clone(), helper).await
-        {
+        match get_symbolication_result(macho_file, query.clone(), helper).await {
             Ok(table) => return Ok(table),
             Err(err) => errors.push(err),
         }
@@ -49,7 +49,6 @@ where
 }
 
 pub async fn get_symbolication_result<'a, 'b, R>(
-    owned_data: Arc<impl OwnedFileData>,
     macho_file: object::File<'b>,
     query: SymbolicationQuery<'a>,
     helper: &impl FileAndPathHelper,
@@ -106,21 +105,24 @@ where
             &addresses_in_this_object,
             &mut symbolication_result,
         )?);
-        // Now we're done with the original file. Release it.
-        drop(owned_data);
 
         // Do a breadth-first-traversal of the external debug info reference tree.
         while let Some(obj_ref) = remainder.pop_front() {
             let path = obj_ref.path();
-            let owned_data = match helper.read_file(path).await {
-                Ok(data) => data,
+            let file_contents = match helper.open_file(path).await {
+                Ok(data) => FileContentsWrapper(data),
                 Err(_) => {
                     // We probably couldn't find the file, but that's fine.
                     // It would be good to collect this error somewhere.
                     continue;
                 }
             };
-            let buffer = owned_data.get_data();
+            let buffer = file_contents.read_entire_data().map_err(|e| {
+                GetSymbolsError::HelperErrorDuringFileReading(
+                    query.path.to_string_lossy().to_string(),
+                    e,
+                )
+            })?;
 
             match obj_ref {
                 ObjectReference::Regular {

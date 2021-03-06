@@ -14,13 +14,12 @@ mod symbolicate;
 use pdb_crate::PDB;
 use serde_json::json;
 use std::io::Cursor;
-use std::sync::Arc;
 
 pub use crate::compact_symbol_table::CompactSymbolTable;
 pub use crate::error::{GetSymbolsError, Result};
 pub use crate::shared::{
-    FileAndPathHelper, FileAndPathHelperError, FileAndPathHelperResult, OptionallySendFuture,
-    OwnedFileData,
+    FileAndPathHelper, FileAndPathHelperError, FileAndPathHelperResult, FileContents,
+    FileContentsWrapper, OptionallySendFuture,
 };
 use crate::shared::{SymbolicationQuery, SymbolicationResult};
 
@@ -94,22 +93,20 @@ async fn try_get_symbolication_result_from_path<'a, R>(
 where
     R: SymbolicationResult,
 {
-    let owned_data = Arc::new(helper.read_file(query.path).await.map_err(|e| {
-        GetSymbolsError::HelperErrorDuringReadFile(query.path.to_string_lossy().to_string(), e)
+    let file_contents = FileContentsWrapper(helper.open_file(query.path).await.map_err(|e| {
+        GetSymbolsError::HelperErrorDuringOpenFile(query.path.to_string_lossy().to_string(), e)
     })?);
-
-    let data_clone = owned_data.clone();
-    let buffer = data_clone.get_data();
+    let buffer = file_contents.read_entire_data().map_err(|e| {
+        GetSymbolsError::HelperErrorDuringFileReading(query.path.to_string_lossy().to_string(), e)
+    })?;
 
     if let Ok(arches) = FatHeader::parse_arch32(buffer) {
-        macho::get_symbolication_result_multiarch(owned_data, arches, query, helper).await
+        macho::get_symbolication_result_multiarch(&file_contents, arches, query, helper).await
     } else if let Ok(arches) = FatHeader::parse_arch64(buffer) {
-        macho::get_symbolication_result_multiarch(owned_data, arches, query, helper).await
+        macho::get_symbolication_result_multiarch(&file_contents, arches, query, helper).await
     } else if let Ok(file) = File::parse(buffer) {
         match file.format() {
-            BinaryFormat::MachO => {
-                macho::get_symbolication_result(owned_data, file, query, helper).await
-            }
+            BinaryFormat::MachO => macho::get_symbolication_result(file, query, helper).await,
             BinaryFormat::Elf => elf::get_symbolication_result(file, query),
             BinaryFormat::Pe => {
                 pdb::get_symbolication_result_via_binary(buffer, query, helper).await

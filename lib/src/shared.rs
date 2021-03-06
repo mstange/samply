@@ -4,12 +4,14 @@ use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 
-pub trait OwnedFileData {
-    fn get_data(&self) -> &[u8];
-}
-
 pub type FileAndPathHelperError = Box<dyn std::error::Error + Send + Sync + 'static>;
 pub type FileAndPathHelperResult<T> = std::result::Result<T, FileAndPathHelperError>;
+
+pub trait FileContents {
+    fn len(&self) -> usize;
+    fn read_bytes_at<'a>(&'a self, offset: usize, size: usize)
+        -> FileAndPathHelperResult<&'a [u8]>;
+}
 
 // Define a OptionallySendFuture trait. This exists for the following reasons:
 //  - The "+ Send" in the return types of the FileAndPathHelper trait methods
@@ -35,7 +37,7 @@ pub trait OptionallySendFuture: Future + Send {}
 impl<T> OptionallySendFuture for T where T: Future + Send {}
 
 pub trait FileAndPathHelper {
-    type FileContents: OwnedFileData;
+    type F: FileContents;
 
     fn get_candidate_paths_for_binary_or_pdb(
         &self,
@@ -60,10 +62,10 @@ pub trait FileAndPathHelper {
         ))
     }
 
-    fn read_file(
+    fn open_file(
         &self,
         path: &Path,
-    ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::FileContents>>>>;
+    ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>>>>;
 }
 
 pub struct AddressDebugInfo {
@@ -119,4 +121,12 @@ where
                 .map(|name| (symbol.address() as u32, name))
         })
         .collect()
+}
+
+pub struct FileContentsWrapper<T: FileContents>(pub T);
+
+impl<T: FileContents> FileContentsWrapper<T> {
+    pub fn read_entire_data(&self) -> FileAndPathHelperResult<&[u8]> {
+        self.0.read_bytes_at(0, self.0.len())
+    }
 }

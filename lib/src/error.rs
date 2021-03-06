@@ -43,8 +43,11 @@ pub enum GetSymbolsError {
         #[source] Box<dyn std::error::Error + Send + Sync>,
     ),
 
-    #[error("read_file helper callback for file {0} returned error: {1}")]
-    HelperErrorDuringReadFile(String, #[source] Box<dyn std::error::Error + Send + Sync>),
+    #[error("open_file helper callback for file {0} returned error: {1}")]
+    HelperErrorDuringOpenFile(String, #[source] Box<dyn std::error::Error + Send + Sync>),
+
+    #[error("FileContents read_bytes_at for file {0} returned error: {1}")]
+    HelperErrorDuringFileReading(String, #[source] Box<dyn std::error::Error + Send + Sync>),
 
     #[error("No candidate path for binary, for {0} {1}")]
     NoCandidatePathForBinary(String, String),
@@ -96,7 +99,8 @@ impl GetSymbolsError {
             GetSymbolsError::HelperErrorDuringGetCandidatePathsForPdb(_, _, _) => {
                 "HelperErrorDuringGetCandidatePathsForPdb"
             }
-            GetSymbolsError::HelperErrorDuringReadFile(_, _) => "HelperErrorDuringReadFile",
+            GetSymbolsError::HelperErrorDuringOpenFile(_, _) => "HelperErrorDuringOpenFile",
+            GetSymbolsError::HelperErrorDuringFileReading(_, _) => "HelperErrorDuringFileReading",
             GetSymbolsError::NoCandidatePathForBinary(_, _) => "NoCandidatePathForBinary",
             GetSymbolsError::NoDebugInfoInPeBinary(_) => "NoDebugInfoInPeBinary",
             GetSymbolsError::PdbPathDidntEndWithNul(_) => "PdbPathDidntEndWithNul",
