@@ -1,6 +1,6 @@
 use memmap::MmapOptions;
 use profiler_get_symbols::{
-    self, FileAndPathHelper, FileAndPathHelperResult, OptionallySendFuture, OwnedFileData,
+    self, FileAndPathHelper, FileAndPathHelperResult, FileContents, OptionallySendFuture,
 };
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -13,18 +13,27 @@ pub async fn query_api(request_url: &str, request_json: &str, symbol_directory: 
 
 struct MmapFileContents(memmap::Mmap);
 
-impl OwnedFileData for MmapFileContents {
-    fn get_data(&self) -> &[u8] {
-        &*self.0
+impl FileContents for MmapFileContents {
+    #[inline]
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    #[inline]
+    fn read_bytes_at<'a>(
+        &'a self,
+        offset: usize,
+        size: usize,
+    ) -> FileAndPathHelperResult<&'a [u8]> {
+        Ok(&self.0[offset..][..size])
     }
 }
-
 struct Helper {
     symbol_directory: PathBuf,
 }
 
 impl FileAndPathHelper for Helper {
-    type FileContents = MmapFileContents;
+    type F = MmapFileContents;
 
     fn get_candidate_paths_for_binary_or_pdb(
         &self,
@@ -63,11 +72,10 @@ impl FileAndPathHelper for Helper {
         Box::pin(to_future(Ok(paths)))
     }
 
-    fn read_file(
+    fn open_file(
         &self,
         path: &Path,
-    ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::FileContents>>>>
-    {
+    ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>>>> {
         async fn read_file_impl(path: PathBuf) -> FileAndPathHelperResult<MmapFileContents> {
             eprintln!("Reading file {:?}", &path);
             let file = File::open(&path)?;

@@ -404,12 +404,15 @@
       }
 
       async readFile(filename) {
-        const arrayBuffer = await getFileFromUser(filename, this._element);
-        const buffer = new WasmMemBuffer(arrayBuffer.byteLength, array => {
-          array.set(new Uint8Array(arrayBuffer));
-        });
+        const array = new Uint8Array(await getFileFromUser(filename, this._element));
         return {
-          getBuffer: () => buffer
+          getLength: () => array.byteLength,
+          readBytesAt: (offset, size) => {
+            return new WasmMemBuffer(size, dest => {
+              dest.set(array.subarray(offset, offset + size));
+            });
+          },
+          drop: () => {},
         };
       }
     }
@@ -449,12 +452,15 @@
       }
 
       async readFile(path) {
-        const arrayBuffer = await getFileFromURL(path, this._element);
-        const buffer = new WasmMemBuffer(arrayBuffer.byteLength, array => {
-          array.set(new Uint8Array(arrayBuffer));
-        });
+        const array = new Uint8Array(await getFileFromURL(path, this._element));
         return {
-          getBuffer: () => buffer
+          getLength: () => array.byteLength,
+          readBytesAt: (offset, size) => {
+            return new WasmMemBuffer(size, dest => {
+              dest.set(array.subarray(offset, offset + size));
+            });
+          },
+          drop: () => {},
         };
       }
     }
@@ -478,12 +484,15 @@
         if (!file) {
           throw new Error(`This path is not among the files in the directory picker: ${path}`);
         }
-        const arrayBuffer = await getFileFromFile(file, this._element);
-        const buffer = new WasmMemBuffer(arrayBuffer.byteLength, array => {
-          array.set(new Uint8Array(arrayBuffer));
-        });
+        const array = new Uint8Array(await getFileFromFile(file, this._element));
         return {
-          getBuffer: () => buffer
+          getLength: () => array.byteLength,
+          readBytesAt: (offset, size) => {
+            return new WasmMemBuffer(size, dest => {
+              dest.set(array.subarray(offset, offset + size));
+            });
+          },
+          drop: () => {},
         };
       }
     }

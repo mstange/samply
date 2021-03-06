@@ -5,8 +5,12 @@ mod error;
 mod wasm_mem_buffer;
 
 use js_sys::Promise;
-use std::path::{Path, PathBuf};
-use std::pin::Pin;
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
+use std::{mem, pin::Pin};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
@@ -41,10 +45,16 @@ extern "C" {
     #[wasm_bindgen(method)]
     fn readFile(this: &FileAndPathHelper, path: &str) -> Promise;
 
-    pub type BufferWrapper;
+    pub type FileContents;
 
     #[wasm_bindgen(method)]
-    fn getBuffer(this: &BufferWrapper) -> WasmMemBuffer;
+    fn getLength(this: &FileContents) -> f64;
+
+    #[wasm_bindgen(method)]
+    fn readBytesAt(this: &FileContents, offset: f64, size: f64) -> WasmMemBuffer;
+
+    #[wasm_bindgen(method)]
+    fn drop(this: &FileContents);
 }
 
 /// Usage:
@@ -61,13 +71,16 @@ extern "C" {
 ///     },
 ///     readFile: async (filename) => {
 ///       const byteLength = await getFileSizeInBytes(filename);
-///       const buffer = new WasmMemBuffer(byteLength, array => {
-///         syncReadFileIntoBuffer(filename, array);
-///       });
+///       const fileHandle = getFileHandle(filename);
 ///       return {
-///         getBuffer: () => buffer
+///         getLength: () => byteLength,
+///         readBytesAt: (offset, size) => {
+///           return new WasmMemBuffer(size, array => {
+///             syncReadFilePartIntoBuffer(fileHandle, offset, size, array);
+///           });
+///         },
 ///       };
-///     }
+///     },
 ///   };
 ///
 ///   const [addr, index, buffer] = await getCompactSymbolTable(debugName, breakpadId, helper);
@@ -101,13 +114,16 @@ pub fn get_compact_symbol_table(
 ///     },
 ///     readFile: async (filename) => {
 ///       const byteLength = await getFileSizeInBytes(filename);
-///       const buffer = new WasmMemBuffer(byteLength, array => {
-///         syncReadFileIntoBuffer(filename, array);
-///       });
+///       const fileHandle = getFileHandle(filename);
 ///       return {
-///         getBuffer: () => buffer
+///         getLength: () => byteLength,
+///         readBytesAt: (offset, size) => {
+///           return new WasmMemBuffer(size, array => {
+///             syncReadFilePartIntoBuffer(fileHandle, offset, size, array);
+///           });
+///         },
 ///       };
-///     }
+///     },
 ///   };
 ///
 ///   const responseJSONString = await queryAPI(deburlugName, requestJSONString, helper);
@@ -147,13 +163,14 @@ async fn get_compact_symbol_table_impl(
 }
 
 pub struct FileHandle {
-    buffer: WasmMemBuffer,
+    contents: FileContents,
+    cache: RefCell<HashMap<(usize, usize), Box<[u8]>>>,
 }
 
 impl profiler_get_symbols::FileContents for FileHandle {
     #[inline]
     fn len(&self) -> usize {
-        self.buffer.get().len()
+        self.contents.getLength() as usize
     }
 
     #[inline]
@@ -162,7 +179,23 @@ impl profiler_get_symbols::FileContents for FileHandle {
         offset: usize,
         size: usize,
     ) -> profiler_get_symbols::FileAndPathHelperResult<&'a [u8]> {
-        Ok(&self.buffer.get()[offset..][..size])
+        let cache = &mut *self.cache.borrow_mut();
+        let buf = cache.entry((offset, size)).or_insert_with(|| {
+            self.contents
+                .readBytesAt(offset as f64, size as f64) // todo: catch JS exception from readBytesAt
+                .into_buffer()
+                .into_boxed_slice()
+        });
+        let buf = &buf[..];
+        // Extend the lifetime to that of self.
+        // This is OK because we never mutate or remove entries in self.cache.
+        Ok(unsafe { mem::transmute::<&[u8], &[u8]>(buf) })
+    }
+}
+
+impl Drop for FileHandle {
+    fn drop(&mut self) {
+        self.contents.drop();
     }
 }
 
@@ -226,10 +259,11 @@ async fn read_file_impl(
     let path = path.to_str().ok_or(GenericError(
         "read_file: Path could not be converted to string",
     ))?;
-    let res = JsFuture::from(helper.readFile(path)).await;
-    let buffer = res.map_err(JsValueError::from)?;
-    // Workaround for not having WasmMemBuffer::from(JsValue)
-    let buffer = BufferWrapper::from(buffer).getBuffer();
-    let file_handle = FileHandle { buffer };
+    let file_res = JsFuture::from(helper.readFile(path)).await;
+    let file = file_res.map_err(JsValueError::from)?;
+    let file_handle = FileHandle {
+        contents: FileContents::from(file),
+        cache: RefCell::new(HashMap::new()),
+    };
     Ok(file_handle)
 }

@@ -46,4 +46,8 @@ impl WasmMemBuffer {
     pub fn get_mut(&mut self) -> &[u8] {
         &mut self.buffer
     }
+
+    pub fn into_buffer(self) -> Vec<u8> {
+        self.buffer
+    }
 }
