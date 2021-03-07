@@ -1,12 +1,10 @@
 use crate::dwarf::{collect_dwarf_address_debug_data, AddressPair};
 use crate::error::{GetSymbolsError, Result};
 use crate::shared::{
-    object_to_map, SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
+    object_to_map, FileContents, FileContentsWrapper, SymbolicationQuery, SymbolicationResult,
+    SymbolicationResultKind,
 };
-use object::{
-    read::elf::{ElfFile, FileHeader},
-    ReadRef,
-};
+use object::{File, FileKind, Object, ObjectSection, SectionKind};
 use std::cmp;
 use uuid::Uuid;
 
@@ -14,7 +12,8 @@ const UUID_SIZE: usize = 16;
 const PAGE_SIZE: usize = 4096;
 
 pub fn get_symbolication_result<'a, R>(
-    elf_file: ElfFile<'a, impl FileHeader, impl ReadRef<'a>>,
+    file_kind: FileKind,
+    file_contents: FileContentsWrapper<impl FileContents>,
     query: SymbolicationQuery,
 ) -> Result<R>
 where
@@ -25,6 +24,8 @@ where
         addresses,
         ..
     } = query;
+    let elf_file =
+        File::parse(&file_contents).map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
     let elf_id = get_elf_id(&elf_file)
         .ok_or_else(|| GetSymbolsError::InvalidInputError("id cannot be read"))?;
     let elf_id_string = format!("{:X}0", elf_id.to_simple());
@@ -78,8 +79,7 @@ fn create_elf_id(identifier: &[u8], little_endian: bool) -> Uuid {
 /// processor does.
 ///
 /// If all of the above fails, this function will return `None`.
-pub fn get_elf_id<'a>(elf_file: &ElfFile<'a, impl FileHeader, impl ReadRef<'a>>) -> Option<Uuid> {
-    use object::Object;
+pub fn get_elf_id<'data: 'file, 'file>(elf_file: &'file impl Object<'data, 'file>) -> Option<Uuid> {
     if let Some(identifier) = elf_file.build_id().ok()? {
         return Some(create_elf_id(identifier, elf_file.is_little_endian()));
     }
@@ -100,10 +100,9 @@ pub fn get_elf_id<'a>(elf_file: &ElfFile<'a, impl FileHeader, impl ReadRef<'a>>)
 }
 
 /// Returns a reference to the data of the the .text section in an ELF binary.
-fn find_text_section<'a>(
-    file: &ElfFile<'a, impl FileHeader, impl ReadRef<'a>>,
-) -> Option<&'a [u8]> {
-    use object::{Object, ObjectSection, SectionKind};
+fn find_text_section<'data: 'file, 'file>(
+    file: &'file impl Object<'data, 'file>,
+) -> Option<&'data [u8]> {
     file.sections()
         .find(|header| header.kind() == SectionKind::Text)
         .and_then(|header| header.data().ok())

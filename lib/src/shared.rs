@@ -1,8 +1,8 @@
-use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::{cell::Cell, future::Future};
 use std::{collections::BTreeMap, fmt::Debug};
+use std::{marker::PhantomData, ops::Deref};
 
 pub type FileAndPathHelperError = Box<dyn std::error::Error + Send + Sync + 'static>;
 pub type FileAndPathHelperResult<T> = std::result::Result<T, FileAndPathHelperError>;
@@ -160,6 +160,14 @@ impl<T: FileContents> FileContentsWrapper<T> {
     pub fn bytes_read(&self) -> u64 {
         self.bytes_read.get()
     }
+
+    pub fn full_range<'a>(&'a self) -> RangeReadRef<'a, &'a Self> {
+        RangeReadRef::new(self, 0, self.len)
+    }
+
+    pub fn range<'a>(&'a self, start: u64, size: u64) -> RangeReadRef<'a, &'a Self> {
+        RangeReadRef::new(self, start, size)
+    }
 }
 
 // impl<T: FileContents> Drop for FileContentsWrapper<T> {
@@ -185,5 +193,41 @@ impl<'data, T: FileContents> object::ReadRef<'data> for &'data FileContentsWrapp
         self.read_bytes_at(offset, size).map_err(|_| {
             // Note: We're discarding the error from the FileContents method here.
         })
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct RangeReadRef<'data, T: object::ReadRef<'data>> {
+    original_readref: T,
+    range_start: u64,
+    range_size: u64,
+    _phantom_data: PhantomData<&'data ()>,
+}
+
+impl<'data, T: object::ReadRef<'data>> RangeReadRef<'data, T> {
+    pub fn new(original_readref: T, range_start: u64, range_size: u64) -> Self {
+        Self {
+            original_readref,
+            range_start,
+            range_size,
+            _phantom_data: PhantomData,
+        }
+    }
+
+    pub fn range(&self, start: u64, size: u64) -> Self {
+        Self::new(self.original_readref, self.range_start + start, size)
+    }
+}
+
+impl<'data, T: object::ReadRef<'data>> object::ReadRef<'data> for RangeReadRef<'data, T> {
+    #[inline]
+    fn len(self) -> Result<u64, ()> {
+        Ok(self.range_size)
+    }
+
+    #[inline]
+    fn read_bytes_at(self, offset: u64, size: u64) -> Result<&'data [u8], ()> {
+        self.original_readref
+            .read_bytes_at(self.range_start + offset, size)
     }
 }

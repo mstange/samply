@@ -1,14 +1,6 @@
 extern crate pdb as pdb_crate;
 
-use object::{
-    macho::FatHeader,
-    read::{
-        elf::{ElfFile32, ElfFile64},
-        macho::{MachOFile32, MachOFile64},
-        FileKind,
-    },
-    Endianness,
-};
+use object::{macho::FatHeader, read::FileKind};
 
 mod compact_symbol_table;
 mod dwarf;
@@ -29,6 +21,7 @@ pub use crate::shared::{
     FileContentsWrapper, OptionallySendFuture,
 };
 use crate::shared::{SymbolicationQuery, SymbolicationResult};
+use std::rc::Rc;
 
 // Just to hide unused method  warnings. Should be exposed differently.
 pub use crate::pdb::addr2line as pdb_addr2line;
@@ -106,61 +99,42 @@ where
             GetSymbolsError::HelperErrorDuringOpenFile(query.path.to_string_lossy().to_string(), e)
         })?);
 
-    try_get_symbolication_result_from_file_contents(query, &file_contents, helper).await
-}
-
-async fn try_get_symbolication_result_from_file_contents<'a, 'b, R, H, T>(
-    query: SymbolicationQuery<'a>,
-    file_contents: &'b FileContentsWrapper<T>,
-    helper: &H,
-) -> Result<R>
-where
-    R: SymbolicationResult,
-    H: FileAndPathHelper,
-    T: FileContents,
-{
-    if let Ok(pdb) = PDB::open(file_contents) {
+    if let Ok(pdb) = PDB::open(&file_contents) {
         // This is a PDB file.
         return pdb::get_symbolication_result(pdb, query);
     }
 
-    if let Ok(file_kind) = FileKind::parse(file_contents) {
+    if let Ok(file_kind) = FileKind::parse(&file_contents) {
         match file_kind {
-            FileKind::Elf32 => {
-                let file =
-                    ElfFile32::<Endianness, &'b FileContentsWrapper<T>>::parse(file_contents)
-                        .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
-                elf::get_symbolication_result(file, query)
-            }
-            FileKind::Elf64 => {
-                let file =
-                    ElfFile64::<Endianness, &'b FileContentsWrapper<T>>::parse(file_contents)
-                        .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
-                elf::get_symbolication_result(file, query)
+            FileKind::Elf32 | FileKind::Elf64 => {
+                elf::get_symbolication_result(file_kind, file_contents, query)
             }
             FileKind::MachOFat32 => {
-                let arches = FatHeader::parse_arch32(file_contents)
+                let file_contents = Rc::new(file_contents);
+                let arches = FatHeader::parse_arch32(&*file_contents)
                     .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
-                macho::get_symbolication_result_multiarch(file_contents, arches, query, helper)
-                    .await
+                macho::get_symbolication_result_multiarch(
+                    file_contents.clone(),
+                    arches,
+                    query,
+                    helper,
+                )
+                .await
             }
             FileKind::MachOFat64 => {
-                let arches = FatHeader::parse_arch64(file_contents)
+                let file_contents = Rc::new(file_contents);
+                let arches = FatHeader::parse_arch64(&*file_contents)
                     .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
-                macho::get_symbolication_result_multiarch(file_contents, arches, query, helper)
-                    .await
+                macho::get_symbolication_result_multiarch(
+                    file_contents.clone(),
+                    arches,
+                    query,
+                    helper,
+                )
+                .await
             }
-            FileKind::MachO32 => {
-                let file =
-                    MachOFile32::<Endianness, &'b FileContentsWrapper<T>>::parse(file_contents)
-                        .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
-                macho::get_symbolication_result(file, query, helper).await
-            }
-            FileKind::MachO64 => {
-                let file =
-                    MachOFile64::<Endianness, &'b FileContentsWrapper<T>>::parse(file_contents)
-                        .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
-                macho::get_symbolication_result(file, query, helper).await
+            FileKind::MachO32 | FileKind::MachO64 => {
+                macho::get_symbolication_result(Rc::new(file_contents), None, query, helper).await
             }
             FileKind::Pe32 | FileKind::Pe64 => {
                 let buffer = file_contents.read_entire_data().map_err(|e| {

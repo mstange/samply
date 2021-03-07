@@ -4,20 +4,15 @@ use crate::shared::{
     object_to_map, FileAndPathHelper, FileContents, FileContentsWrapper, SymbolicationQuery,
     SymbolicationResult, SymbolicationResultKind,
 };
-use object::{
-    read::macho::{FatArch, MachHeader, MachOFile, MachOFile32, MachOFile64},
-    Endianness, FileKind,
-};
-use object::{
-    read::{File, Object, ObjectSymbol},
-    ReadRef,
-};
+use object::read::macho::FatArch;
+use object::read::{File, Object, ObjectSymbol};
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use uuid::Uuid;
 
 pub async fn get_symbolication_result_multiarch<'a, R, FA>(
-    file_contents: &FileContentsWrapper<impl FileContents>,
+    file_contents: Rc<FileContentsWrapper<impl FileContents>>,
     arches: &[FA],
     query: SymbolicationQuery<'a>,
     helper: &impl FileAndPathHelper,
@@ -26,45 +21,12 @@ where
     R: SymbolicationResult,
     FA: FatArch,
 {
-    let buffer = file_contents.read_entire_data().map_err(|e| {
-        GetSymbolsError::HelperErrorDuringFileReading(query.path.to_string_lossy().to_string(), e)
-    })?;
     let mut errors = vec![];
     for fat_arch in arches {
-        let buffer = match fat_arch.data(buffer) {
-            Ok(buffer) => buffer,
-            Err(err) => {
-                errors.push(GetSymbolsError::MachOHeaderParseError(err));
-                continue;
-            }
-        };
-        let result = match FileKind::parse(buffer) {
-            Ok(FileKind::MachO32) => match MachOFile32::<Endianness>::parse(buffer) {
-                Ok(macho_file) => get_symbolication_result(macho_file, query.clone(), helper).await,
-                Err(err) => {
-                    errors.push(GetSymbolsError::ObjectParseError(FileKind::MachO32, err));
-                    continue;
-                }
-            },
-            Ok(FileKind::MachO64) => match MachOFile64::<Endianness>::parse(buffer) {
-                Ok(macho_file) => get_symbolication_result(macho_file, query.clone(), helper).await,
-                Err(err) => {
-                    errors.push(GetSymbolsError::ObjectParseError(FileKind::MachO64, err));
-                    continue;
-                }
-            },
-            Ok(_) => {
-                errors.push(GetSymbolsError::InvalidInputError(
-                    "Mach-o fat arch contained something other than mach-o objects",
-                ));
-                continue;
-            }
-            Err(err) => {
-                errors.push(GetSymbolsError::MachOHeaderParseError(err));
-                continue;
-            }
-        };
-
+        let range = fat_arch.file_range();
+        let result =
+            get_symbolication_result(file_contents.clone(), Some(range), query.clone(), helper)
+                .await;
         match result {
             Ok(table) => return Ok(table),
             Err(err) => errors.push(err),
@@ -74,13 +36,21 @@ where
 }
 
 pub async fn get_symbolication_result<'a, 'b, R>(
-    macho_file: MachOFile<'b, impl MachHeader, impl ReadRef<'b>>,
+    file_contents: Rc<FileContentsWrapper<impl FileContents>>,
+    file_range: Option<(u64, u64)>,
     query: SymbolicationQuery<'a>,
     helper: &impl FileAndPathHelper,
 ) -> Result<R>
 where
     R: SymbolicationResult,
 {
+    let file_contents_ref = &*file_contents;
+    let range = match file_range {
+        Some((start, size)) => file_contents_ref.range(start, size),
+        None => file_contents_ref.full_range(),
+    };
+    let macho_file = File::parse(range).map_err(|e| GetSymbolsError::MachOHeaderParseError(e))?;
+
     let macho_id = match macho_file.mach_uuid() {
         Ok(Some(uuid)) => format!("{:X}0", Uuid::from_bytes(uuid).to_simple()),
         _ => {
@@ -130,6 +100,8 @@ where
             &addresses_in_this_object,
             &mut symbolication_result,
         )?);
+        drop(macho_file);
+        drop(file_contents);
 
         // Do a breadth-first-traversal of the external debug info reference tree.
         while let Some(obj_ref) = remainder.pop_front() {
