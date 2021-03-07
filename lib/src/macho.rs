@@ -4,10 +4,13 @@ use crate::shared::{
     object_to_map, FileAndPathHelper, FileContents, FileContentsWrapper, SymbolicationQuery,
     SymbolicationResult, SymbolicationResultKind,
 };
-use object::read::{File, Object, ObjectSymbol};
 use object::{
     read::macho::{FatArch, MachHeader, MachOFile, MachOFile32, MachOFile64},
     Endianness, FileKind,
+};
+use object::{
+    read::{File, Object, ObjectSymbol},
+    ReadRef,
 };
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -71,7 +74,7 @@ where
 }
 
 pub async fn get_symbolication_result<'a, 'b, R>(
-    macho_file: MachOFile<'b, impl MachHeader>,
+    macho_file: MachOFile<'b, impl MachHeader, impl ReadRef<'b>>,
     query: SymbolicationQuery<'a>,
     helper: &impl FileAndPathHelper,
 ) -> Result<R>

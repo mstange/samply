@@ -173,3 +173,17 @@ impl<T: FileContents> Debug for FileContentsWrapper<T> {
         write!(f, "FileContentsWrapper({} bytes)", self.len())
     }
 }
+
+impl<'data, T: FileContents> object::ReadRef<'data> for &'data FileContentsWrapper<T> {
+    #[inline]
+    fn len(self) -> Result<u64, ()> {
+        Ok(self.len() as u64)
+    }
+
+    #[inline]
+    fn read_bytes_at(self, offset: u64, size: u64) -> Result<&'data [u8], ()> {
+        self.read_bytes_at(offset, size).map_err(|_| {
+            // Note: We're discarding the error from the FileContents method here.
+        })
+    }
+}

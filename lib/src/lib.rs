@@ -93,62 +93,82 @@ pub async fn query_api(
     }
 }
 
-async fn try_get_symbolication_result_from_path<'a, R>(
+async fn try_get_symbolication_result_from_path<'a, R, H>(
     query: SymbolicationQuery<'a>,
-    helper: &impl FileAndPathHelper,
+    helper: &H,
 ) -> Result<R>
 where
     R: SymbolicationResult,
+    H: FileAndPathHelper,
 {
     let file_contents =
         FileContentsWrapper::new(helper.open_file(query.path).await.map_err(|e| {
             GetSymbolsError::HelperErrorDuringOpenFile(query.path.to_string_lossy().to_string(), e)
         })?);
 
-    if let Ok(pdb) = PDB::open(&file_contents) {
+    try_get_symbolication_result_from_file_contents(query, &file_contents, helper).await
+}
+
+async fn try_get_symbolication_result_from_file_contents<'a, 'b, R, H, T>(
+    query: SymbolicationQuery<'a>,
+    file_contents: &'b FileContentsWrapper<T>,
+    helper: &H,
+) -> Result<R>
+where
+    R: SymbolicationResult,
+    H: FileAndPathHelper,
+    T: FileContents,
+{
+    if let Ok(pdb) = PDB::open(file_contents) {
         // This is a PDB file.
         return pdb::get_symbolication_result(pdb, query);
     }
 
-    let buffer = file_contents.read_entire_data().map_err(|e| {
-        GetSymbolsError::HelperErrorDuringFileReading(query.path.to_string_lossy().to_string(), e)
-    })?;
-
-    if let Ok(file_kind) = FileKind::parse(buffer) {
+    if let Ok(file_kind) = FileKind::parse(file_contents) {
         match file_kind {
             FileKind::Elf32 => {
-                let file = ElfFile32::<Endianness>::parse(buffer)
-                    .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
+                let file =
+                    ElfFile32::<Endianness, &'b FileContentsWrapper<T>>::parse(file_contents)
+                        .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
                 elf::get_symbolication_result(file, query)
             }
             FileKind::Elf64 => {
-                let file = ElfFile64::<Endianness>::parse(buffer)
-                    .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
+                let file =
+                    ElfFile64::<Endianness, &'b FileContentsWrapper<T>>::parse(file_contents)
+                        .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
                 elf::get_symbolication_result(file, query)
             }
             FileKind::MachOFat32 => {
-                let arches = FatHeader::parse_arch32(buffer)
+                let arches = FatHeader::parse_arch32(file_contents)
                     .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
-                macho::get_symbolication_result_multiarch(&file_contents, arches, query, helper)
+                macho::get_symbolication_result_multiarch(file_contents, arches, query, helper)
                     .await
             }
             FileKind::MachOFat64 => {
-                let arches = FatHeader::parse_arch64(buffer)
+                let arches = FatHeader::parse_arch64(file_contents)
                     .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
-                macho::get_symbolication_result_multiarch(&file_contents, arches, query, helper)
+                macho::get_symbolication_result_multiarch(file_contents, arches, query, helper)
                     .await
             }
             FileKind::MachO32 => {
-                let file = MachOFile32::<Endianness>::parse(buffer)
-                    .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
+                let file =
+                    MachOFile32::<Endianness, &'b FileContentsWrapper<T>>::parse(file_contents)
+                        .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
                 macho::get_symbolication_result(file, query, helper).await
             }
             FileKind::MachO64 => {
-                let file = MachOFile64::<Endianness>::parse(buffer)
-                    .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
+                let file =
+                    MachOFile64::<Endianness, &'b FileContentsWrapper<T>>::parse(file_contents)
+                        .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
                 macho::get_symbolication_result(file, query, helper).await
             }
             FileKind::Pe32 | FileKind::Pe64 => {
+                let buffer = file_contents.read_entire_data().map_err(|e| {
+                    GetSymbolsError::HelperErrorDuringFileReading(
+                        query.path.to_string_lossy().to_string(),
+                        e,
+                    )
+                })?;
                 pdb::get_symbolication_result_via_binary(buffer, query, helper).await
             }
             FileKind::Archive | _ => Err(GetSymbolsError::InvalidInputError(
