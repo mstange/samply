@@ -21,6 +21,9 @@ pub enum GetSymbolsError {
     #[error("Invalid input: {0}")]
     InvalidInputError(&'static str),
 
+    #[error("Object could not parse the file as {0:?}: {1}")]
+    ObjectParseError(object::read::FileKind, #[source] object::read::Error),
+
     #[error("goblin error: {0}")]
     GoblinError(#[from] GoblinError),
 
@@ -91,6 +94,7 @@ impl GetSymbolsError {
             GetSymbolsError::NoMatchMultiArch(_) => "NoMatchMultiArch",
             GetSymbolsError::PDBError(_, _) => "PDBError",
             GetSymbolsError::InvalidInputError(_) => "InvalidInputError",
+            GetSymbolsError::ObjectParseError(_, _) => "ObjectParseError",
             GetSymbolsError::GoblinError(_) => "GoblinError",
             GetSymbolsError::MachOHeaderParseError(_) => "MachOHeaderParseError",
             GetSymbolsError::HelperErrorDuringGetCandidatePathsForBinaryOrPdb(_, _, _) => {

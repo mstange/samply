@@ -3,6 +3,7 @@ use crate::error::{GetSymbolsError, Result};
 use crate::shared::{
     object_to_map, SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
 };
+use object::read::elf::{ElfFile, FileHeader};
 use std::cmp;
 use uuid::Uuid;
 
@@ -10,7 +11,7 @@ const UUID_SIZE: usize = 16;
 const PAGE_SIZE: usize = 4096;
 
 pub fn get_symbolication_result<'a, R>(
-    elf_file: object::File<'a>,
+    elf_file: ElfFile<'a, impl FileHeader>,
     query: SymbolicationQuery,
 ) -> Result<R>
 where
@@ -74,7 +75,7 @@ fn create_elf_id(identifier: &[u8], little_endian: bool) -> Uuid {
 /// processor does.
 ///
 /// If all of the above fails, this function will return `None`.
-pub fn get_elf_id<'a>(elf_file: &object::File<'a>) -> Option<Uuid> {
+pub fn get_elf_id<'a>(elf_file: &ElfFile<'a, impl FileHeader>) -> Option<Uuid> {
     use object::Object;
     if let Some(identifier) = elf_file.build_id().ok()? {
         return Some(create_elf_id(identifier, elf_file.is_little_endian()));
@@ -96,7 +97,7 @@ pub fn get_elf_id<'a>(elf_file: &object::File<'a>) -> Option<Uuid> {
 }
 
 /// Returns a reference to the data of the the .text section in an ELF binary.
-fn find_text_section<'a>(file: &object::File<'a>) -> Option<&'a [u8]> {
+fn find_text_section<'a>(file: &ElfFile<'a, impl FileHeader>) -> Option<&'a [u8]> {
     use object::{Object, ObjectSection, SectionKind};
     file.sections()
         .find(|header| header.kind() == SectionKind::Text)

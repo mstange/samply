@@ -20,7 +20,7 @@ version = "0.14.0"
 
 [dependencies.object]
 default-features = false
-features = ["std", "read"]
+features = ["std", "read_core", "archive", "elf", "macho", "pe", "unaligned"]
 version = "0.23"
 
 [dependencies]

@@ -1,6 +1,14 @@
 extern crate pdb as pdb_crate;
 
-use object::{macho::FatHeader, read::File, BinaryFormat};
+use object::{
+    macho::FatHeader,
+    read::{
+        elf::{ElfFile32, ElfFile64},
+        macho::{MachOFile32, MachOFile64},
+        FileKind,
+    },
+    Endianness,
+};
 
 mod compact_symbol_table;
 mod dwarf;
@@ -106,24 +114,50 @@ where
         GetSymbolsError::HelperErrorDuringFileReading(query.path.to_string_lossy().to_string(), e)
     })?;
 
-    if let Ok(arches) = FatHeader::parse_arch32(buffer) {
-        macho::get_symbolication_result_multiarch(&file_contents, arches, query, helper).await
-    } else if let Ok(arches) = FatHeader::parse_arch64(buffer) {
-        macho::get_symbolication_result_multiarch(&file_contents, arches, query, helper).await
-    } else if let Ok(file) = File::parse(buffer) {
-        match file.format() {
-            BinaryFormat::MachO => macho::get_symbolication_result(file, query, helper).await,
-            BinaryFormat::Elf => elf::get_symbolication_result(file, query),
-            BinaryFormat::Pe => {
+    if let Ok(file_kind) = FileKind::parse(buffer) {
+        match file_kind {
+            FileKind::Elf32 => {
+                let file = ElfFile32::<Endianness>::parse(buffer)
+                    .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
+                elf::get_symbolication_result(file, query)
+            }
+            FileKind::Elf64 => {
+                let file = ElfFile64::<Endianness>::parse(buffer)
+                    .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
+                elf::get_symbolication_result(file, query)
+            }
+            FileKind::MachOFat32 => {
+                let arches = FatHeader::parse_arch32(buffer)
+                    .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
+                macho::get_symbolication_result_multiarch(&file_contents, arches, query, helper)
+                    .await
+            }
+            FileKind::MachOFat64 => {
+                let arches = FatHeader::parse_arch64(buffer)
+                    .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
+                macho::get_symbolication_result_multiarch(&file_contents, arches, query, helper)
+                    .await
+            }
+            FileKind::MachO32 => {
+                let file = MachOFile32::<Endianness>::parse(buffer)
+                    .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
+                macho::get_symbolication_result(file, query, helper).await
+            }
+            FileKind::MachO64 => {
+                let file = MachOFile64::<Endianness>::parse(buffer)
+                    .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
+                macho::get_symbolication_result(file, query, helper).await
+            }
+            FileKind::Pe32 | FileKind::Pe64 => {
                 pdb::get_symbolication_result_via_binary(buffer, query, helper).await
             }
-            BinaryFormat::Coff | BinaryFormat::Wasm => Err(GetSymbolsError::InvalidInputError(
-                "Input was Coff or Wasm format, which are unsupported for now",
+            FileKind::Archive | _ => Err(GetSymbolsError::InvalidInputError(
+                "Input was Archive, Coff or Wasm format, which are unsupported for now",
             )),
         }
     } else {
         Err(GetSymbolsError::InvalidInputError(
-            "Neither object::File::parse nor PDB::open were able to read the file",
+            "The file does not have a known format; PDB::open was not able to parse it and object::FileKind::parse was not able to detect the format.",
         ))
     }
 }

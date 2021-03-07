@@ -4,8 +4,11 @@ use crate::shared::{
     object_to_map, FileAndPathHelper, FileContents, FileContentsWrapper, SymbolicationQuery,
     SymbolicationResult, SymbolicationResultKind,
 };
-use object::read::macho::FatArch;
 use object::read::{File, Object, ObjectSymbol};
+use object::{
+    read::macho::{FatArch, MachHeader, MachOFile, MachOFile32, MachOFile64},
+    Endianness, FileKind,
+};
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -32,15 +35,34 @@ where
                 continue;
             }
         };
-        let macho_file = match File::parse(buffer) {
-            Ok(file) => file,
+        let result = match FileKind::parse(buffer) {
+            Ok(FileKind::MachO32) => match MachOFile32::<Endianness>::parse(buffer) {
+                Ok(macho_file) => get_symbolication_result(macho_file, query.clone(), helper).await,
+                Err(err) => {
+                    errors.push(GetSymbolsError::ObjectParseError(FileKind::MachO32, err));
+                    continue;
+                }
+            },
+            Ok(FileKind::MachO64) => match MachOFile64::<Endianness>::parse(buffer) {
+                Ok(macho_file) => get_symbolication_result(macho_file, query.clone(), helper).await,
+                Err(err) => {
+                    errors.push(GetSymbolsError::ObjectParseError(FileKind::MachO64, err));
+                    continue;
+                }
+            },
+            Ok(_) => {
+                errors.push(GetSymbolsError::InvalidInputError(
+                    "Mach-o fat arch contained something other than mach-o objects",
+                ));
+                continue;
+            }
             Err(err) => {
                 errors.push(GetSymbolsError::MachOHeaderParseError(err));
                 continue;
             }
         };
 
-        match get_symbolication_result(macho_file, query.clone(), helper).await {
+        match result {
             Ok(table) => return Ok(table),
             Err(err) => errors.push(err),
         }
@@ -49,7 +71,7 @@ where
 }
 
 pub async fn get_symbolication_result<'a, 'b, R>(
-    macho_file: object::File<'b>,
+    macho_file: MachOFile<'b, impl MachHeader>,
     query: SymbolicationQuery<'a>,
     helper: &impl FileAndPathHelper,
 ) -> Result<R>
