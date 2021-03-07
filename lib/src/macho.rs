@@ -173,7 +173,10 @@ where
                     let archive_members_by_name: HashMap<Vec<u8>, &[u8]> = archive
                         .members()
                         .filter_map(|member| match member {
-                            Ok(member) => Some((member.name().to_owned(), member.data())),
+                            Ok(member) => member
+                                .data(buffer)
+                                .ok()
+                                .map(|data| (member.name().to_owned(), data)),
                             Err(_) => None,
                         })
                         .collect();
