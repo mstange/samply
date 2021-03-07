@@ -164,20 +164,20 @@ async fn get_compact_symbol_table_impl(
 
 pub struct FileHandle {
     contents: FileContents,
-    cache: RefCell<HashMap<(usize, usize), Box<[u8]>>>,
+    cache: RefCell<HashMap<(u64, u64), Box<[u8]>>>,
 }
 
 impl profiler_get_symbols::FileContents for FileHandle {
     #[inline]
-    fn len(&self) -> usize {
-        self.contents.getLength() as usize
+    fn len(&self) -> u64 {
+        self.contents.getLength() as u64
     }
 
     #[inline]
     fn read_bytes_at<'a>(
         &'a self,
-        offset: usize,
-        size: usize,
+        offset: u64,
+        size: u64,
     ) -> profiler_get_symbols::FileAndPathHelperResult<&'a [u8]> {
         let cache = &mut *self.cache.borrow_mut();
         let buf = cache.entry((offset, size)).or_insert_with(|| {

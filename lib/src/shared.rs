@@ -8,9 +8,8 @@ pub type FileAndPathHelperError = Box<dyn std::error::Error + Send + Sync + 'sta
 pub type FileAndPathHelperResult<T> = std::result::Result<T, FileAndPathHelperError>;
 
 pub trait FileContents {
-    fn len(&self) -> usize;
-    fn read_bytes_at<'a>(&'a self, offset: usize, size: usize)
-        -> FileAndPathHelperResult<&'a [u8]>;
+    fn len(&self) -> u64;
+    fn read_bytes_at<'a>(&'a self, offset: u64, size: u64) -> FileAndPathHelperResult<&'a [u8]>;
 }
 
 // Define a OptionallySendFuture trait. This exists for the following reasons:
@@ -125,8 +124,8 @@ where
 
 pub struct FileContentsWrapper<T: FileContents> {
     file_contents: T,
-    len: usize,
-    bytes_read: Cell<usize>,
+    len: u64,
+    bytes_read: Cell<u64>,
 }
 
 impl<T: FileContents> FileContentsWrapper<T> {
@@ -140,15 +139,15 @@ impl<T: FileContents> FileContentsWrapper<T> {
     }
 
     #[inline]
-    pub fn len(&self) -> usize {
+    pub fn len(&self) -> u64 {
         self.len
     }
 
     #[inline]
     pub fn read_bytes_at<'a>(
         &'a self,
-        offset: usize,
-        size: usize,
+        offset: u64,
+        size: u64,
     ) -> FileAndPathHelperResult<&'a [u8]> {
         self.bytes_read.set(self.bytes_read.get() + size);
         self.file_contents.read_bytes_at(offset, size)
@@ -158,7 +157,7 @@ impl<T: FileContents> FileContentsWrapper<T> {
         self.read_bytes_at(0, self.len())
     }
 
-    pub fn bytes_read(&self) -> usize {
+    pub fn bytes_read(&self) -> u64 {
         self.bytes_read.get()
     }
 }

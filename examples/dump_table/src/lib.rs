@@ -76,17 +76,13 @@ struct MmapFileContents(memmap::Mmap);
 
 impl FileContents for MmapFileContents {
     #[inline]
-    fn len(&self) -> usize {
-        self.0.len()
+    fn len(&self) -> u64 {
+        self.0.len() as u64
     }
 
     #[inline]
-    fn read_bytes_at<'a>(
-        &'a self,
-        offset: usize,
-        size: usize,
-    ) -> FileAndPathHelperResult<&'a [u8]> {
-        Ok(&self.0[offset..][..size])
+    fn read_bytes_at<'a>(&'a self, offset: u64, size: u64) -> FileAndPathHelperResult<&'a [u8]> {
+        Ok(&self.0[offset as usize..][..size as usize])
     }
 }
 

@@ -391,7 +391,7 @@ impl<'s, F: FileContents> pdb::Source<'s> for &'s FileContentsWrapper<F> {
             let mut output_offset: usize = 0;
             for slice in slices {
                 let slice_buf = self
-                    .read_bytes_at(slice.offset as usize, slice.size)
+                    .read_bytes_at(slice.offset, slice.size as u64)
                     .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
                 bytes[output_offset..(output_offset + slice.size)].copy_from_slice(slice_buf);
                 output_offset += slice.size;
