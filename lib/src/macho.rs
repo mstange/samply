@@ -356,7 +356,6 @@ where
     collect_dwarf_address_debug_data(macho_file, &internal_addresses, symbolication_result);
 
     let mut archives = HashMap::new();
-    let mut regular_objects = HashMap::new();
 
     for (object_index, functions) in external_funs_by_object.into_iter() {
         let object_name = std::str::from_utf8(objects[object_index]).unwrap();
@@ -377,16 +376,13 @@ where
                 // This is a reference to a regular object file. Example:
                 // "/Users/mstange/code/obj-m-opt/toolkit/library/build/../../components/sessionstore/Unified_cpp_sessionstore0.o"
                 let path: PathBuf = object_name.into();
-                regular_objects.insert(path, functions);
+                remaining_object_references.push_back(ObjectReference::Regular { path, functions });
             }
         }
     }
 
     for (path, archive_info) in archives.into_iter() {
         remaining_object_references.push_back(ObjectReference::Archive { path, archive_info });
-    }
-    for (path, functions) in regular_objects.into_iter() {
-        remaining_object_references.push_back(ObjectReference::Regular { path, functions });
     }
 
     Ok(())
