@@ -7,7 +7,12 @@ use std::borrow::Cow;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct AddressPair {
+    /// An address that is meaningful when compared to the addresses of symbols
+    /// in the root object's symbol table.
     pub original_address: u32,
+
+    /// An address that is meaningful in the current object and in the space that
+    /// DWARF debug info addresses in this object are expressed in.
     pub address_in_this_object: u64,
 }
 

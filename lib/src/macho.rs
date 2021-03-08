@@ -1,8 +1,11 @@
-use crate::dwarf::{collect_dwarf_address_debug_data, AddressPair};
 use crate::error::{GetSymbolsError, Result};
 use crate::shared::{
     object_to_map, FileAndPathHelper, FileContents, FileContentsWrapper, SymbolicationQuery,
     SymbolicationResult,
+};
+use crate::{
+    dwarf::{collect_dwarf_address_debug_data, AddressPair},
+    shared::RangeReadRef,
 };
 use object::read::{archive::ArchiveFile, File, FileKind, Object, ObjectSymbol};
 use object::{
@@ -99,6 +102,22 @@ where
         return Ok(symbolication_result);
     }
 
+    // We need to gather debug info for the supplied addresses.
+    // On macOS, debug info can either be in this macho_file, or it can be in
+    // other files ("external objects").
+    // The following code is written in a way that handles a mixture of the two;
+    // it gathers what debug info it can find in the current object, and also
+    // gathers external object references. Then it reads those external objects
+    // and keeps gathering more data until it has it all.
+    // In theory, external objects can reference other external objects. The code
+    // below handles such nesting, but it's unclear if this can happen in practice.
+
+    // The original addresses which our caller wants to look up are relative to
+    // the "root object". In the external objects they'll be at a different address.
+    // To correctly associate the found information with the original address,
+    // we need to track an AddressPair, which has both the original address and
+    // the address that we need to look up in the current object.
+
     let addresses_in_root_object = make_address_pairs_for_root_object(addresses, &macho_file);
     let mut object_references = VecDeque::new();
     collect_debug_info_and_object_references(
@@ -143,56 +162,17 @@ async fn traverse_object_references_and_collect_debug_info(
             }
         };
 
-        match obj_ref {
-            ObjectReference::Regular { functions, .. } => {
-                let macho_file = File::parse(&file_contents)
-                    .or_else(|x| Err(GetSymbolsError::MachOHeaderParseError(x)))?;
-                let addresses_in_this_object =
-                    translate_addresses_to_object(&macho_file, functions);
-                collect_debug_info_and_object_references(
-                    &macho_file,
-                    &addresses_in_this_object,
-                    symbolication_result,
-                    &mut remaining_object_references,
-                )?;
-            }
-            ObjectReference::Archive {
-                path, archive_info, ..
-            } => {
-                let archive = ArchiveFile::parse(&file_contents).or_else(|x| {
-                    Err(GetSymbolsError::ArchiveParseError(
-                        path.clone(),
-                        Box::new(x),
-                    ))
-                })?;
-                let archive_members_by_name: HashMap<Vec<u8>, &[u8]> = archive
-                    .members()
-                    .filter_map(|member| match member {
-                        Ok(member) => member
-                            .data(&file_contents)
-                            .ok()
-                            .map(|data| (member.name().to_owned(), data)),
-                        Err(_) => None,
-                    })
-                    .collect();
-                for (name_in_archive, functions) in archive_info {
-                    let buffer = match archive_members_by_name.get(name_in_archive.as_bytes()) {
-                        Some(buffer) => *buffer,
-                        None => continue,
-                    };
-                    let macho_file = File::parse(buffer)
-                        .or_else(|x| Err(GetSymbolsError::MachOHeaderParseError(x)))?;
-                    let addresses_in_this_object =
-                        translate_addresses_to_object(&macho_file, functions);
-                    collect_debug_info_and_object_references(
-                        &macho_file,
-                        &addresses_in_this_object,
-                        symbolication_result,
-                        &mut remaining_object_references,
-                    )?;
-                }
-            }
-        };
+        for (data, functions) in obj_ref.into_objects(&file_contents)?.into_iter() {
+            let macho_file =
+                File::parse(data).or_else(|x| Err(GetSymbolsError::MachOHeaderParseError(x)))?;
+            let addresses_in_this_object = translate_addresses_to_object(&macho_file, functions);
+            collect_debug_info_and_object_references(
+                &macho_file,
+                &addresses_in_this_object,
+                symbolication_result,
+                &mut remaining_object_references,
+            )?;
+        }
     }
 
     Ok(())
@@ -205,6 +185,17 @@ fn make_address_pairs_for_root_object<'data: 'file, 'file, O>(
 where
     O: Object<'data, 'file>,
 {
+    // Make an AddressPair for every address.
+    // You'd think that this is the root address, we'd just have pairs of
+    // identical addresses here. However, AddressPair also encodes the difference
+    // between "symbol table address space" and "DWARF debug info address space".
+
+    // For executable files, there's a 0x100000000 offset between the addresses
+    // that are used in the symbol table and the addresses that are used in the
+    // debug info. This 0x100000000 is the vmaddr of the text section.
+    // I'm not sure what the names of those two spaces are, and I can't give a
+    // better explanation than "the code below seems to work".
+    // For shared libraries, vmaddr_of_text_segment is 0, in my experience.
     use object::read::ObjectSegment;
     let vmaddr_of_text_segment = macho_file
         .segments()
@@ -212,8 +203,6 @@ where
         .map(|segment| segment.address())
         .unwrap_or(0);
 
-    // Look up addresses that don't have external debug info, and collect information
-    // about the ones that do have external debug info.
     addresses
         .iter()
         .map(|a| AddressPair {
@@ -269,6 +258,49 @@ impl ObjectReference {
         match self {
             ObjectReference::Regular { path, .. } => path,
             ObjectReference::Archive { path, .. } => path,
+        }
+    }
+
+    fn into_objects<'a, 'b, R: ReadRef<'b>>(
+        self,
+        data: R,
+    ) -> Result<
+        Vec<(
+            RangeReadRef<'b, R>,
+            HashMap<Vec<u8>, Vec<AddressWithOffset>>,
+        )>,
+    > {
+        match self {
+            ObjectReference::Regular { functions, .. } => Ok(vec![(
+                RangeReadRef::new(data, 0, data.len().unwrap_or(0)),
+                functions,
+            )]),
+            ObjectReference::Archive {
+                path, archive_info, ..
+            } => {
+                let archive = ArchiveFile::parse(data).or_else(|x| {
+                    Err(GetSymbolsError::ArchiveParseError(
+                        path.clone(),
+                        Box::new(x),
+                    ))
+                })?;
+                let archive_members_by_name: HashMap<Vec<u8>, (u64, u64)> = archive
+                    .members()
+                    .filter_map(|member| match member {
+                        Ok(member) => Some((member.name().to_owned(), member.file_range())),
+                        Err(_) => None,
+                    })
+                    .collect();
+                let v: Vec<_> = archive_info
+                    .into_iter()
+                    .filter_map(|(name_in_archive, functions)| {
+                        archive_members_by_name
+                            .get(name_in_archive.as_bytes())
+                            .map(|&(start, size)| (RangeReadRef::new(data, start, size), functions))
+                    })
+                    .collect();
+                Ok(v)
+            }
         }
     }
 }
