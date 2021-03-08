@@ -7,7 +7,6 @@ use crate::{
     dwarf::{collect_dwarf_address_debug_data, AddressPair},
     shared::RangeReadRef,
 };
-use object::read::{archive::ArchiveFile, File, FileKind, Object, ObjectSymbol};
 use object::{
     macho::{MachHeader32, MachHeader64},
     ReadRef,
@@ -15,6 +14,10 @@ use object::{
 use object::{
     read::macho::{FatArch, MachHeader},
     Endianness,
+};
+use object::{
+    read::{archive::ArchiveFile, File, FileKind, Object, ObjectSymbol},
+    ObjectMapEntry,
 };
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -212,9 +215,34 @@ where
         .collect()
 }
 
+struct FunctionsWithAddresses {
+    /// Keys are byte strings of the function name.
+    /// Values are the addresses under that function.
+    map: HashMap<Vec<u8>, Vec<AddressWithOffset>>,
+}
+
+impl FunctionsWithAddresses {
+    pub fn new() -> Self {
+        Self {
+            map: HashMap::new(),
+        }
+    }
+
+    pub fn insert(&mut self, symbol_name: &[u8], addresses: Vec<AddressWithOffset>) {
+        self.map.insert(symbol_name.to_owned(), addresses);
+    }
+
+    pub fn get_and_remove_addresses_for_function(
+        &mut self,
+        symbol_name: &str,
+    ) -> Option<Vec<AddressWithOffset>> {
+        self.map.remove(symbol_name.as_bytes())
+    }
+}
+
 fn translate_addresses_to_object<'data: 'file, 'file, O>(
     macho_file: &'file O,
-    mut functions: HashMap<Vec<u8>, Vec<AddressWithOffset>>,
+    mut functions: FunctionsWithAddresses,
 ) -> Vec<AddressPair>
 where
     O: Object<'data, 'file>,
@@ -222,7 +250,7 @@ where
     let mut addresses_in_this_object = Vec::new();
     for symbol in macho_file.symbols() {
         if let Ok(symbol_name) = symbol.name() {
-            if let Some(addresses) = functions.remove(symbol_name.as_bytes()) {
+            if let Some(addresses) = functions.get_and_remove_addresses_for_function(symbol_name) {
                 for AddressWithOffset {
                     original_address,
                     offset_from_function_start,
@@ -245,11 +273,11 @@ where
 enum ObjectReference {
     Regular {
         path: PathBuf,
-        functions: HashMap<Vec<u8>, Vec<AddressWithOffset>>,
+        functions: FunctionsWithAddresses,
     },
     Archive {
         path: PathBuf,
-        archive_info: HashMap<String, HashMap<Vec<u8>, Vec<AddressWithOffset>>>,
+        archive_info: HashMap<String, FunctionsWithAddresses>,
     },
 }
 
@@ -264,12 +292,7 @@ impl ObjectReference {
     fn into_objects<'a, 'b, R: ReadRef<'b>>(
         self,
         data: R,
-    ) -> Result<
-        Vec<(
-            RangeReadRef<'b, R>,
-            HashMap<Vec<u8>, Vec<AddressWithOffset>>,
-        )>,
-    > {
+    ) -> Result<Vec<(RangeReadRef<'b, R>, FunctionsWithAddresses)>> {
         match self {
             ObjectReference::Regular { functions, .. } => Ok(vec![(
                 RangeReadRef::new(data, 0, data.len().unwrap_or(0)),
@@ -308,10 +331,12 @@ impl ObjectReference {
 #[derive(Debug)]
 struct ObjectMapSymbol<'a> {
     name: &'a [u8],
-    address_range: std::ops::Range<u64>,
-    object_index: Option<usize>,
+    address: u64,
+    size: u64,
+    object_index: usize,
 }
 
+/// addresses must be sorted by address_in_this_object
 fn collect_debug_info_and_object_references<'data: 'file, 'file, 'a, O, R>(
     macho_file: &'file O,
     addresses: &[AddressPair],
@@ -324,22 +349,10 @@ where
 {
     let object_map = macho_file.object_map();
     let objects = object_map.objects();
-    let mut object_map_symbols: Vec<_> = object_map
-        .symbols()
-        .iter()
-        .map(|entry| {
-            let address = entry.address();
-            ObjectMapSymbol {
-                name: entry.name(),
-                address_range: address..(address + entry.size()),
-                object_index: Some(entry.object_index()),
-            }
-        })
-        .collect();
-    object_map_symbols.sort_by_key(|f| f.address_range.start);
+    let mut object_map_symbols: Vec<_> = object_map.symbols().to_owned();
+    object_map_symbols.sort_by_key(|symbol| symbol.address());
     let functions_with_addresses = match_funs_to_addresses(&object_map_symbols[..], addresses);
-    let mut external_funs_by_object: HashMap<usize, HashMap<Vec<u8>, Vec<AddressWithOffset>>> =
-        HashMap::new();
+    let mut external_funs_by_object: HashMap<usize, FunctionsWithAddresses> = HashMap::new();
     let mut original_addresses_found_in_external_objects = BTreeSet::new();
     for MatchedFunctionWithAddresses {
         object_index,
@@ -355,8 +368,8 @@ where
         }
         external_funs_by_object
             .entry(object_index)
-            .or_insert_with(HashMap::new)
-            .insert(fun_name.to_owned(), addresses);
+            .or_insert_with(FunctionsWithAddresses::new)
+            .insert(fun_name, addresses);
     }
     let internal_addresses: Vec<_> = addresses
         .iter()
@@ -414,46 +427,51 @@ struct MatchedFunctionWithAddresses<'a> {
     addresses: Vec<AddressWithOffset>,
 }
 
-// functions must be sorted by function.address_range.start
-// addresses must be sorted
+/// Assign each address to a function in an object.
+/// function_symbols must be sorted by function.address().
+/// addresses must be sorted by address_in_this_object.
+/// This function is implemented as a linear single pass over both slices.
 fn match_funs_to_addresses<'a, 'b, 'c>(
-    functions: &'a [ObjectMapSymbol<'c>],
+    function_symbols: &'a [ObjectMapEntry<'c>],
     addresses: &'b [AddressPair],
 ) -> Vec<MatchedFunctionWithAddresses<'c>> {
-    let mut yo: Vec<MatchedFunctionWithAddresses> = Vec::new();
+    let mut matches: Vec<MatchedFunctionWithAddresses> = Vec::new();
     let mut addr_iter = addresses.iter();
     let mut cur_addr = addr_iter.next();
-    let mut fun_iter = functions.iter();
+    let mut fun_iter = function_symbols.iter();
     let mut cur_fun = fun_iter.next();
     let mut cur_fun_is_last_vec_element = false;
     while let (Some(address_pair), Some(fun)) = (cur_addr, cur_fun) {
         let original_address = address_pair.original_address;
         let address_in_this_object = address_pair.address_in_this_object;
-        if !(fun.address_range.start <= address_in_this_object) {
+        if !(fun.address() <= address_in_this_object) {
             // Advance address_pair.
             cur_addr = addr_iter.next();
             continue;
         }
-        if !(address_in_this_object < fun.address_range.end || !fun.object_index.is_some()) {
+        if !(address_in_this_object < fun.address() + fun.size()) {
             // Advance fun.
             cur_fun = fun_iter.next();
             cur_fun_is_last_vec_element = false;
             continue;
         }
         // Now the following is true:
-        // fun.object_index.is_some() &&
-        // fun.address_range.start <= address_in_this_object && address_in_this_object < fun.addr_range.end
-        let offset_from_function_start = (address_in_this_object - fun.address_range.start) as u32;
+        // fun.address() <= address_in_this_object && address_in_this_object < fun.address() + fun.size()
+        let offset_from_function_start = (address_in_this_object - fun.address()) as u32;
         let address_with_offset = AddressWithOffset {
             original_address,
             offset_from_function_start,
         };
         if cur_fun_is_last_vec_element {
-            yo.last_mut().unwrap().addresses.push(address_with_offset);
+            matches
+                .last_mut()
+                .unwrap()
+                .addresses
+                .push(address_with_offset);
         } else {
-            yo.push(MatchedFunctionWithAddresses {
-                object_index: fun.object_index.unwrap(),
-                fun_name: fun.name,
+            matches.push(MatchedFunctionWithAddresses {
+                object_index: fun.object_index(),
+                fun_name: fun.name(),
                 addresses: vec![address_with_offset],
             });
             cur_fun_is_last_vec_element = true;
@@ -461,7 +479,7 @@ fn match_funs_to_addresses<'a, 'b, 'c>(
         // Advance addr.
         cur_addr = addr_iter.next();
     }
-    yo
+    matches
 }
 
 #[derive(Debug)]
