@@ -4,39 +4,72 @@ use crate::shared::{
     object_to_map, FileAndPathHelper, FileContents, FileContentsWrapper, SymbolicationQuery,
     SymbolicationResult, SymbolicationResultKind,
 };
-use object::read::macho::FatArch;
-use object::read::{File, Object, ObjectSymbol};
+use object::macho::{MachHeader32, MachHeader64};
+use object::read::{File, FileKind, Object, ObjectSymbol};
+use object::{
+    read::macho::{FatArch, MachHeader},
+    Endianness,
+};
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 use uuid::Uuid;
 
-pub async fn get_symbolication_result_multiarch<'a, R, FA>(
-    file_contents: Rc<FileContentsWrapper<impl FileContents>>,
-    arches: &[FA],
-    query: SymbolicationQuery<'a>,
-    helper: &impl FileAndPathHelper,
-) -> Result<R>
-where
-    R: SymbolicationResult,
-    FA: FatArch,
-{
-    let mut errors = vec![];
+pub fn get_arch_range(
+    file_contents: &FileContentsWrapper<impl FileContents>,
+    arches: &[impl FatArch],
+    breakpad_id: &str,
+) -> Result<(u64, u64)> {
+    let mut uuids = Vec::new();
+    let mut errors = Vec::new();
+
     for fat_arch in arches {
         let range = fat_arch.file_range();
-        let result =
-            get_symbolication_result(file_contents.clone(), Some(range), query.clone(), helper)
-                .await;
-        match result {
-            Ok(table) => return Ok(table),
-            Err(err) => errors.push(err),
+        match get_macho_uuid(file_contents, Some(range)) {
+            Ok(uuid) => {
+                if uuid == breakpad_id {
+                    return Ok(range);
+                }
+                uuids.push(uuid);
+            }
+            Err(err) => {
+                errors.push(err);
+            }
         }
     }
-    Err(GetSymbolsError::NoMatchMultiArch(errors))
+    Err(GetSymbolsError::NoMatchMultiArch(uuids, errors))
+}
+
+pub fn get_macho_uuid(
+    file_contents: &FileContentsWrapper<impl FileContents>,
+    file_range: Option<(u64, u64)>,
+) -> Result<String> {
+    let range = match file_range {
+        Some((start, size)) => file_contents.range(start, size),
+        None => file_contents.full_range(),
+    };
+    let helper = || {
+        let file_kind = FileKind::parse(range)?;
+        match file_kind {
+            FileKind::MachO32 => {
+                let header = MachHeader32::<Endianness>::parse(range)?;
+                header.uuid(header.endian()?, range)
+            }
+            FileKind::MachO64 => {
+                let header = MachHeader64::<Endianness>::parse(range)?;
+                header.uuid(header.endian()?, range)
+            }
+            _ => panic!("Unexpected file kind {:?}", file_kind),
+        }
+    };
+    match helper() {
+        Ok(Some(uuid)) => Ok(format!("{:X}0", Uuid::from_bytes(uuid).to_simple())),
+        Ok(None) => Err(GetSymbolsError::InvalidInputError("Missing mach-o uuid")),
+        Err(err) => Err(GetSymbolsError::MachOHeaderParseError(err)),
+    }
 }
 
 pub async fn get_symbolication_result<'a, 'b, R>(
-    file_contents: Rc<FileContentsWrapper<impl FileContents>>,
+    file_contents: FileContentsWrapper<impl FileContents>,
     file_range: Option<(u64, u64)>,
     query: SymbolicationQuery<'a>,
     helper: &impl FileAndPathHelper,
@@ -44,32 +77,26 @@ pub async fn get_symbolication_result<'a, 'b, R>(
 where
     R: SymbolicationResult,
 {
-    let file_contents_ref = &*file_contents;
-    let range = match file_range {
-        Some((start, size)) => file_contents_ref.range(start, size),
-        None => file_contents_ref.full_range(),
-    };
-    let macho_file = File::parse(range).map_err(|e| GetSymbolsError::MachOHeaderParseError(e))?;
-
-    let macho_id = match macho_file.mach_uuid() {
-        Ok(Some(uuid)) => format!("{:X}0", Uuid::from_bytes(uuid).to_simple()),
-        _ => {
-            return Err(GetSymbolsError::InvalidInputError(
-                "Could not get mach uuid",
-            ))
-        }
-    };
     let SymbolicationQuery {
         breakpad_id,
         addresses,
         ..
     } = query;
-    if macho_id != breakpad_id {
+
+    let uuid = get_macho_uuid(&file_contents, file_range)?;
+    if uuid != breakpad_id {
         return Err(GetSymbolsError::UnmatchedBreakpadId(
-            macho_id,
+            uuid,
             breakpad_id.to_string(),
         ));
     }
+
+    let file_contents_ref = &file_contents;
+    let range = match file_range {
+        Some((start, size)) => file_contents_ref.range(start, size),
+        None => file_contents_ref.full_range(),
+    };
+    let macho_file = File::parse(range).map_err(|e| GetSymbolsError::MachOHeaderParseError(e))?;
     let map = object_to_map(&macho_file);
     let mut symbolication_result = R::from_full_map(map, addresses);
 

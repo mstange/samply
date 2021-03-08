@@ -12,8 +12,8 @@ pub enum GetSymbolsError {
     #[error("Unmatched breakpad_id: Expected {0}, but received {1}")]
     UnmatchedBreakpadId(String, String),
 
-    #[error("No match in multi-arch binary, errors: {}", .0.iter().map(|e| format!("{}", e)).collect::<Vec<String>>().join(", "))]
-    NoMatchMultiArch(Vec<GetSymbolsError>),
+    #[error("No match in multi-arch binary, available UUIDs: {}, errors: {}", .0.join(", "), .1.iter().map(|e| format!("{}", e)).collect::<Vec<String>>().join(", "))]
+    NoMatchMultiArch(Vec<String>, Vec<GetSymbolsError>),
 
     #[error("pdb_crate error: {1} ({0})")]
     PDBError(&'static str, PDBError),
@@ -91,7 +91,7 @@ impl GetSymbolsError {
     pub fn enum_as_string(&self) -> &'static str {
         match *self {
             GetSymbolsError::UnmatchedBreakpadId(_, _) => "UnmatchedBreakpadId",
-            GetSymbolsError::NoMatchMultiArch(_) => "NoMatchMultiArch",
+            GetSymbolsError::NoMatchMultiArch(_, _) => "NoMatchMultiArch",
             GetSymbolsError::PDBError(_, _) => "PDBError",
             GetSymbolsError::InvalidInputError(_) => "InvalidInputError",
             GetSymbolsError::ObjectParseError(_, _) => "ObjectParseError",

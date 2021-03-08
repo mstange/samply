@@ -237,16 +237,7 @@ mod test {
             Err(_) => panic!("wrong error type"),
         };
         match err {
-            GetSymbolsError::NoMatchMultiArch(errors) => {
-                let mut expected_ids = vec![];
-                for err in errors {
-                    match err {
-                        GetSymbolsError::UnmatchedBreakpadId(expected, _actual) => {
-                            expected_ids.push(expected);
-                        }
-                        _ => panic!("wrong GetSymbolsError subtype"),
-                    }
-                }
+            GetSymbolsError::NoMatchMultiArch(expected_ids, _) => {
                 assert_eq!(expected_ids.len(), 2);
                 assert!(expected_ids.contains(&"B993FABD8143361AB199F7DE9DF7E4360".to_string()));
                 assert!(expected_ids.contains(&"8E7B0ED0B04F3FCCA05E139E5250BA720".to_string()));

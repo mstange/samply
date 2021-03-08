@@ -42,19 +42,11 @@ fn main() -> anyhow::Result<()> {
         Err(err) => err,
     };
     match err.downcast::<GetSymbolsError>() {
-        Ok(GetSymbolsError::NoMatchMultiArch(errors)) => {
+        Ok(GetSymbolsError::NoMatchMultiArch(uuids, _)) => {
             // There's no one breakpad ID. We need the user to specify which one they want.
             // Print out all potential breakpad IDs so that the user can pick.
-            let mut potential_ids: Vec<String> = vec![];
-            for err in errors {
-                if let GetSymbolsError::UnmatchedBreakpadId(expected, _) = err {
-                    potential_ids.push(expected);
-                } else {
-                    return Err(err.into());
-                }
-            }
             eprintln!("This is a multi-arch container. Please specify one of the following breakpadIDs to pick a symbol table:");
-            for id in potential_ids {
+            for id in uuids {
                 println!(" - {}", id);
             }
             Ok(())

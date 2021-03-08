@@ -21,7 +21,6 @@ pub use crate::shared::{
     FileContentsWrapper, OptionallySendFuture,
 };
 use crate::shared::{SymbolicationQuery, SymbolicationResult};
-use std::rc::Rc;
 
 // Just to hide unused method  warnings. Should be exposed differently.
 pub use crate::pdb::addr2line as pdb_addr2line;
@@ -110,31 +109,19 @@ where
                 elf::get_symbolication_result(file_kind, file_contents, query)
             }
             FileKind::MachOFat32 => {
-                let file_contents = Rc::new(file_contents);
-                let arches = FatHeader::parse_arch32(&*file_contents)
+                let arches = FatHeader::parse_arch32(&file_contents)
                     .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
-                macho::get_symbolication_result_multiarch(
-                    file_contents.clone(),
-                    arches,
-                    query,
-                    helper,
-                )
-                .await
+                let range = macho::get_arch_range(&file_contents, arches, query.breakpad_id)?;
+                macho::get_symbolication_result(file_contents, Some(range), query, helper).await
             }
             FileKind::MachOFat64 => {
-                let file_contents = Rc::new(file_contents);
-                let arches = FatHeader::parse_arch64(&*file_contents)
+                let arches = FatHeader::parse_arch64(&file_contents)
                     .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
-                macho::get_symbolication_result_multiarch(
-                    file_contents.clone(),
-                    arches,
-                    query,
-                    helper,
-                )
-                .await
+                let range = macho::get_arch_range(&file_contents, arches, query.breakpad_id)?;
+                macho::get_symbolication_result(file_contents, Some(range), query, helper).await
             }
             FileKind::MachO32 | FileKind::MachO64 => {
-                macho::get_symbolication_result(Rc::new(file_contents), None, query, helper).await
+                macho::get_symbolication_result(file_contents, None, query, helper).await
             }
             FileKind::Pe32 | FileKind::Pe64 => {
                 let buffer = file_contents.read_entire_data().map_err(|e| {
