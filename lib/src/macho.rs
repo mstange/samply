@@ -19,7 +19,7 @@ use object::{
     read::{archive::ArchiveFile, File, FileKind, Object, ObjectSymbol},
     ObjectMapEntry,
 };
-use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -351,31 +351,8 @@ where
     let objects = object_map.objects();
     let mut object_map_symbols: Vec<_> = object_map.symbols().to_owned();
     object_map_symbols.sort_by_key(|symbol| symbol.address());
-    let functions_with_addresses = match_funs_to_addresses(&object_map_symbols[..], addresses);
-    let mut external_funs_by_object: HashMap<usize, FunctionsWithAddresses> = HashMap::new();
-    let mut original_addresses_found_in_external_objects = BTreeSet::new();
-    for MatchedFunctionWithAddresses {
-        object_index,
-        fun_name,
-        addresses,
-    } in functions_with_addresses.into_iter()
-    {
-        for AddressWithOffset {
-            original_address, ..
-        } in &addresses
-        {
-            original_addresses_found_in_external_objects.insert(*original_address);
-        }
-        external_funs_by_object
-            .entry(object_index)
-            .or_insert_with(FunctionsWithAddresses::new)
-            .insert(fun_name, addresses);
-    }
-    let internal_addresses: Vec<_> = addresses
-        .iter()
-        .cloned()
-        .filter(|ap| !original_addresses_found_in_external_objects.contains(&ap.original_address))
-        .collect();
+    let (external_funs_by_object, internal_addresses) =
+        match_funs_to_addresses(&object_map_symbols, addresses);
     collect_dwarf_address_debug_data(macho_file, &internal_addresses, symbolication_result);
 
     let mut archives = HashMap::new();
@@ -421,65 +398,72 @@ struct AddressWithOffset {
     offset_from_function_start: u32,
 }
 
-struct MatchedFunctionWithAddresses<'a> {
-    object_index: usize,
-    fun_name: &'a [u8],
-    addresses: Vec<AddressWithOffset>,
-}
-
 /// Assign each address to a function in an object.
 /// function_symbols must be sorted by function.address().
 /// addresses must be sorted by address_in_this_object.
 /// This function is implemented as a linear single pass over both slices.
-fn match_funs_to_addresses<'a, 'b, 'c>(
-    function_symbols: &'a [ObjectMapEntry<'c>],
-    addresses: &'b [AddressPair],
-) -> Vec<MatchedFunctionWithAddresses<'c>> {
-    let mut matches: Vec<MatchedFunctionWithAddresses> = Vec::new();
+/// Also returns a sorted Vec of AddressPairs for addresses that were not found
+/// in an external object.
+fn match_funs_to_addresses<'a>(
+    function_symbols: &[ObjectMapEntry<'a>],
+    addresses: &[AddressPair],
+) -> (HashMap<usize, FunctionsWithAddresses>, Vec<AddressPair>) {
+    let mut external_funs_by_object: HashMap<usize, FunctionsWithAddresses> = HashMap::new();
+    let mut internal_addresses = Vec::new();
     let mut addr_iter = addresses.iter();
     let mut cur_addr = addr_iter.next();
     let mut fun_iter = function_symbols.iter();
     let mut cur_fun = fun_iter.next();
-    let mut cur_fun_is_last_vec_element = false;
+    let mut cur_fun_addresses = Vec::new();
+
+    let mut flush_cur_fun = |object_index, fun_name, addresses: Vec<AddressWithOffset>| {
+        if !addresses.is_empty() {
+            external_funs_by_object
+                .entry(object_index)
+                .or_insert_with(FunctionsWithAddresses::new)
+                .insert(fun_name, addresses);
+        }
+    };
+
     while let (Some(address_pair), Some(fun)) = (cur_addr, cur_fun) {
         let original_address = address_pair.original_address;
         let address_in_this_object = address_pair.address_in_this_object;
         if !(fun.address() <= address_in_this_object) {
-            // Advance address_pair.
+            internal_addresses.push(address_pair.clone());
+            // Advance cur_addr.
             cur_addr = addr_iter.next();
             continue;
         }
         if !(address_in_this_object < fun.address() + fun.size()) {
-            // Advance fun.
+            // Advance cur_fun.
+            flush_cur_fun(fun.object_index(), fun.name(), cur_fun_addresses);
             cur_fun = fun_iter.next();
-            cur_fun_is_last_vec_element = false;
+            cur_fun_addresses = Vec::new();
             continue;
         }
         // Now the following is true:
         // fun.address() <= address_in_this_object && address_in_this_object < fun.address() + fun.size()
         let offset_from_function_start = (address_in_this_object - fun.address()) as u32;
-        let address_with_offset = AddressWithOffset {
+        cur_fun_addresses.push(AddressWithOffset {
             original_address,
             offset_from_function_start,
-        };
-        if cur_fun_is_last_vec_element {
-            matches
-                .last_mut()
-                .unwrap()
-                .addresses
-                .push(address_with_offset);
-        } else {
-            matches.push(MatchedFunctionWithAddresses {
-                object_index: fun.object_index(),
-                fun_name: fun.name(),
-                addresses: vec![address_with_offset],
-            });
-            cur_fun_is_last_vec_element = true;
-        }
-        // Advance addr.
+        });
+        // Advance cur_addr.
         cur_addr = addr_iter.next();
     }
-    matches
+
+    // Flush addresses for the final function.
+    if let Some(fun) = cur_fun {
+        flush_cur_fun(fun.object_index(), fun.name(), cur_fun_addresses);
+    }
+
+    // Consume remaining addresses.
+    while let Some(address_pair) = cur_addr {
+        internal_addresses.push(address_pair.clone());
+        cur_addr = addr_iter.next();
+    }
+
+    (external_funs_by_object, internal_addresses)
 }
 
 #[derive(Debug)]
