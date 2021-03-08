@@ -4,7 +4,7 @@ use crate::shared::{
     object_to_map, FileAndPathHelper, FileContents, FileContentsWrapper, SymbolicationQuery,
     SymbolicationResult,
 };
-use object::read::{File, FileKind, Object, ObjectSymbol};
+use object::read::{archive::ArchiveFile, File, FileKind, Object, ObjectSymbol};
 use object::{
     macho::{MachHeader32, MachHeader64},
     ReadRef,
@@ -99,27 +99,11 @@ where
         return Ok(symbolication_result);
     }
 
-    use object::read::ObjectSegment;
-    let vmaddr_of_text_segment = macho_file
-        .segments()
-        .find(|segment| segment.name() == Ok(Some("__TEXT")))
-        .map(|segment| segment.address())
-        .unwrap_or(0);
-
-    // Look up addresses that don't have external debug info, and collect information
-    // about the ones that do have external debug info.
-    let addresses_in_this_object: Vec<_> = addresses
-        .iter()
-        .map(|a| AddressPair {
-            original_address: *a,
-            address_in_this_object: vmaddr_of_text_segment + *a as u64,
-        })
-        .collect();
-
+    let addresses_in_root_object = make_address_pairs_for_root_object(addresses, &macho_file);
     let mut object_references = VecDeque::new();
     collect_debug_info_and_object_references(
         &macho_file,
-        &addresses_in_this_object,
+        &addresses_in_root_object,
         &mut symbolication_result,
         &mut object_references,
     )?;
@@ -128,6 +112,22 @@ where
     drop(macho_file);
     drop(file_contents);
 
+    // Collect the debug info from the external references.
+    traverse_object_references_and_collect_debug_info(
+        object_references,
+        &mut symbolication_result,
+        helper,
+    )
+    .await?;
+
+    Ok(symbolication_result)
+}
+
+async fn traverse_object_references_and_collect_debug_info(
+    object_references: VecDeque<ObjectReference>,
+    symbolication_result: &mut impl SymbolicationResult,
+    helper: &impl FileAndPathHelper,
+) -> Result<()> {
     // Do a breadth-first-traversal of the external debug info reference tree.
     // We do this using a while loop and a VecDeque rather than recursion, because
     // async functions can't easily recurse.
@@ -142,30 +142,24 @@ where
                 continue;
             }
         };
-        let buffer = file_contents.read_entire_data().map_err(|e| {
-            GetSymbolsError::HelperErrorDuringFileReading(
-                query.path.to_string_lossy().to_string(),
-                e,
-            )
-        })?;
 
         match obj_ref {
             ObjectReference::Regular { functions, .. } => {
-                let macho_file = File::parse(buffer)
+                let macho_file = File::parse(&file_contents)
                     .or_else(|x| Err(GetSymbolsError::MachOHeaderParseError(x)))?;
                 let addresses_in_this_object =
                     translate_addresses_to_object(&macho_file, functions);
                 collect_debug_info_and_object_references(
                     &macho_file,
                     &addresses_in_this_object,
-                    &mut symbolication_result,
+                    symbolication_result,
                     &mut remaining_object_references,
                 )?;
             }
             ObjectReference::Archive {
                 path, archive_info, ..
             } => {
-                let archive = object::read::archive::ArchiveFile::parse(buffer).or_else(|x| {
+                let archive = ArchiveFile::parse(&file_contents).or_else(|x| {
                     Err(GetSymbolsError::ArchiveParseError(
                         path.clone(),
                         Box::new(x),
@@ -175,7 +169,7 @@ where
                     .members()
                     .filter_map(|member| match member {
                         Ok(member) => member
-                            .data(buffer)
+                            .data(&file_contents)
                             .ok()
                             .map(|data| (member.name().to_owned(), data)),
                         Err(_) => None,
@@ -193,7 +187,7 @@ where
                     collect_debug_info_and_object_references(
                         &macho_file,
                         &addresses_in_this_object,
-                        &mut symbolication_result,
+                        symbolication_result,
                         &mut remaining_object_references,
                     )?;
                 }
@@ -201,7 +195,32 @@ where
         };
     }
 
-    Ok(symbolication_result)
+    Ok(())
+}
+
+fn make_address_pairs_for_root_object<'data: 'file, 'file, O>(
+    addresses: &[u32],
+    macho_file: &'file O,
+) -> Vec<AddressPair>
+where
+    O: Object<'data, 'file>,
+{
+    use object::read::ObjectSegment;
+    let vmaddr_of_text_segment = macho_file
+        .segments()
+        .find(|segment| segment.name() == Ok(Some("__TEXT")))
+        .map(|segment| segment.address())
+        .unwrap_or(0);
+
+    // Look up addresses that don't have external debug info, and collect information
+    // about the ones that do have external debug info.
+    addresses
+        .iter()
+        .map(|a| AddressPair {
+            original_address: *a,
+            address_in_this_object: vmaddr_of_text_segment + *a as u64,
+        })
+        .collect()
 }
 
 fn translate_addresses_to_object<'data: 'file, 'file, O>(
@@ -209,7 +228,7 @@ fn translate_addresses_to_object<'data: 'file, 'file, O>(
     mut functions: HashMap<Vec<u8>, Vec<AddressWithOffset>>,
 ) -> Vec<AddressPair>
 where
-    O: object::Object<'data, 'file>,
+    O: Object<'data, 'file>,
 {
     let mut addresses_in_this_object = Vec::new();
     for symbol in macho_file.symbols() {
@@ -268,7 +287,7 @@ fn collect_debug_info_and_object_references<'data: 'file, 'file, 'a, O, R>(
     remaining_object_references: &mut VecDeque<ObjectReference>,
 ) -> Result<()>
 where
-    O: object::Object<'data, 'file>,
+    O: Object<'data, 'file>,
     R: SymbolicationResult,
 {
     let object_map = macho_file.object_map();
