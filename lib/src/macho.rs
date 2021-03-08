@@ -2,10 +2,13 @@ use crate::dwarf::{collect_dwarf_address_debug_data, AddressPair};
 use crate::error::{GetSymbolsError, Result};
 use crate::shared::{
     object_to_map, FileAndPathHelper, FileContents, FileContentsWrapper, SymbolicationQuery,
-    SymbolicationResult, SymbolicationResultKind,
+    SymbolicationResult,
 };
-use object::macho::{MachHeader32, MachHeader64};
 use object::read::{File, FileKind, Object, ObjectSymbol};
+use object::{
+    macho::{MachHeader32, MachHeader64},
+    ReadRef,
+};
 use object::{
     read::macho::{FatArch, MachHeader},
     Endianness,
@@ -14,6 +17,8 @@ use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
+/// Returns the (offset, size) in the fat binary file for the object that matches
+// breakpad_id, if found.
 pub fn get_arch_range(
     file_contents: &FileContentsWrapper<impl FileContents>,
     arches: &[impl FatArch],
@@ -24,7 +29,8 @@ pub fn get_arch_range(
 
     for fat_arch in arches {
         let range = fat_arch.file_range();
-        match get_macho_uuid(file_contents, Some(range)) {
+        let (start, size) = range;
+        match get_macho_uuid(file_contents.range(start, size)) {
             Ok(uuid) => {
                 if uuid == breakpad_id {
                     return Ok(range);
@@ -39,24 +45,17 @@ pub fn get_arch_range(
     Err(GetSymbolsError::NoMatchMultiArch(uuids, errors))
 }
 
-pub fn get_macho_uuid(
-    file_contents: &FileContentsWrapper<impl FileContents>,
-    file_range: Option<(u64, u64)>,
-) -> Result<String> {
-    let range = match file_range {
-        Some((start, size)) => file_contents.range(start, size),
-        None => file_contents.full_range(),
-    };
+pub fn get_macho_uuid<'a, R: ReadRef<'a>>(data: R) -> Result<String> {
     let helper = || {
-        let file_kind = FileKind::parse(range)?;
+        let file_kind = FileKind::parse(data)?;
         match file_kind {
             FileKind::MachO32 => {
-                let header = MachHeader32::<Endianness>::parse(range)?;
-                header.uuid(header.endian()?, range)
+                let header = MachHeader32::<Endianness>::parse(data)?;
+                header.uuid(header.endian()?, data)
             }
             FileKind::MachO64 => {
-                let header = MachHeader64::<Endianness>::parse(range)?;
-                header.uuid(header.endian()?, range)
+                let header = MachHeader64::<Endianness>::parse(data)?;
+                header.uuid(header.endian()?, data)
             }
             _ => panic!("Unexpected file kind {:?}", file_kind),
         }
@@ -77,136 +76,135 @@ pub async fn get_symbolication_result<'a, 'b, R>(
 where
     R: SymbolicationResult,
 {
-    let SymbolicationQuery {
-        breakpad_id,
-        addresses,
-        ..
-    } = query;
-
-    let uuid = get_macho_uuid(&file_contents, file_range)?;
-    if uuid != breakpad_id {
-        return Err(GetSymbolsError::UnmatchedBreakpadId(
-            uuid,
-            breakpad_id.to_string(),
-        ));
-    }
-
     let file_contents_ref = &file_contents;
     let range = match file_range {
         Some((start, size)) => file_contents_ref.range(start, size),
         None => file_contents_ref.full_range(),
     };
+
+    let uuid = get_macho_uuid(range)?;
+    if uuid != query.breakpad_id {
+        return Err(GetSymbolsError::UnmatchedBreakpadId(
+            uuid,
+            query.breakpad_id.to_string(),
+        ));
+    }
+
     let macho_file = File::parse(range).map_err(|e| GetSymbolsError::MachOHeaderParseError(e))?;
     let map = object_to_map(&macho_file);
+    let addresses = query.addresses;
     let mut symbolication_result = R::from_full_map(map, addresses);
 
-    if let SymbolicationResultKind::SymbolsForAddresses {
-        with_debug_info: true,
-    } = R::result_kind()
-    {
-        use object::read::ObjectSegment;
-        let vmaddr_of_text_segment = macho_file
-            .segments()
-            .find(|segment| segment.name() == Ok(Some("__TEXT")))
-            .map(|segment| segment.address())
-            .unwrap_or(0);
+    if !R::result_kind().wants_debug_info_for_addresses() {
+        return Ok(symbolication_result);
+    }
 
-        let mut remainder = VecDeque::new();
+    use object::read::ObjectSegment;
+    let vmaddr_of_text_segment = macho_file
+        .segments()
+        .find(|segment| segment.name() == Ok(Some("__TEXT")))
+        .map(|segment| segment.address())
+        .unwrap_or(0);
 
-        // Look up addresses that don't have external debug info, and collect information
-        // about the ones that do have external debug info.
-        let addresses_in_this_object: Vec<_> = addresses
-            .iter()
-            .map(|a| AddressPair {
-                original_address: *a,
-                address_in_this_object: vmaddr_of_text_segment + *a as u64,
-            })
-            .collect();
-        remainder.extend(collect_debug_info_and_remainder(
-            &macho_file,
-            &addresses_in_this_object,
-            &mut symbolication_result,
-        )?);
-        drop(macho_file);
-        drop(file_contents);
+    // Look up addresses that don't have external debug info, and collect information
+    // about the ones that do have external debug info.
+    let addresses_in_this_object: Vec<_> = addresses
+        .iter()
+        .map(|a| AddressPair {
+            original_address: *a,
+            address_in_this_object: vmaddr_of_text_segment + *a as u64,
+        })
+        .collect();
 
-        // Do a breadth-first-traversal of the external debug info reference tree.
-        while let Some(obj_ref) = remainder.pop_front() {
-            let path = obj_ref.path();
-            let file_contents = match helper.open_file(path).await {
-                Ok(data) => FileContentsWrapper::new(data),
-                Err(_) => {
-                    // We probably couldn't find the file, but that's fine.
-                    // It would be good to collect this error somewhere.
-                    continue;
-                }
-            };
-            let buffer = file_contents.read_entire_data().map_err(|e| {
-                GetSymbolsError::HelperErrorDuringFileReading(
-                    query.path.to_string_lossy().to_string(),
-                    e,
-                )
-            })?;
+    let mut object_references = VecDeque::new();
+    collect_debug_info_and_object_references(
+        &macho_file,
+        &addresses_in_this_object,
+        &mut symbolication_result,
+        &mut object_references,
+    )?;
 
-            match obj_ref {
-                ObjectReference::Regular {
-                    path, functions, ..
-                } => {
+    // We are now done with the "root object" and can discard its data.
+    drop(macho_file);
+    drop(file_contents);
+
+    // Do a breadth-first-traversal of the external debug info reference tree.
+    // We do this using a while loop and a VecDeque rather than recursion, because
+    // async functions can't easily recurse.
+    let mut remaining_object_references = object_references;
+    while let Some(obj_ref) = remaining_object_references.pop_front() {
+        let path = obj_ref.path();
+        let file_contents = match helper.open_file(path).await {
+            Ok(data) => FileContentsWrapper::new(data),
+            Err(_) => {
+                // We probably couldn't find the file, but that's fine.
+                // It would be good to collect this error somewhere.
+                continue;
+            }
+        };
+        let buffer = file_contents.read_entire_data().map_err(|e| {
+            GetSymbolsError::HelperErrorDuringFileReading(
+                query.path.to_string_lossy().to_string(),
+                e,
+            )
+        })?;
+
+        match obj_ref {
+            ObjectReference::Regular { functions, .. } => {
+                let macho_file = File::parse(buffer)
+                    .or_else(|x| Err(GetSymbolsError::MachOHeaderParseError(x)))?;
+                let addresses_in_this_object =
+                    translate_addresses_to_object(&macho_file, functions);
+                collect_debug_info_and_object_references(
+                    &macho_file,
+                    &addresses_in_this_object,
+                    &mut symbolication_result,
+                    &mut remaining_object_references,
+                )?;
+            }
+            ObjectReference::Archive {
+                path, archive_info, ..
+            } => {
+                let archive = object::read::archive::ArchiveFile::parse(buffer).or_else(|x| {
+                    Err(GetSymbolsError::ArchiveParseError(
+                        path.clone(),
+                        Box::new(x),
+                    ))
+                })?;
+                let archive_members_by_name: HashMap<Vec<u8>, &[u8]> = archive
+                    .members()
+                    .filter_map(|member| match member {
+                        Ok(member) => member
+                            .data(buffer)
+                            .ok()
+                            .map(|data| (member.name().to_owned(), data)),
+                        Err(_) => None,
+                    })
+                    .collect();
+                for (name_in_archive, functions) in archive_info {
+                    let buffer = match archive_members_by_name.get(name_in_archive.as_bytes()) {
+                        Some(buffer) => *buffer,
+                        None => continue,
+                    };
                     let macho_file = File::parse(buffer)
                         .or_else(|x| Err(GetSymbolsError::MachOHeaderParseError(x)))?;
                     let addresses_in_this_object =
-                        translate_addresses_to_object(&path, &macho_file, functions);
-                    remainder.extend(collect_debug_info_and_remainder(
+                        translate_addresses_to_object(&macho_file, functions);
+                    collect_debug_info_and_object_references(
                         &macho_file,
                         &addresses_in_this_object,
                         &mut symbolication_result,
-                    )?);
+                        &mut remaining_object_references,
+                    )?;
                 }
-                ObjectReference::Archive {
-                    path, archive_info, ..
-                } => {
-                    let archive =
-                        object::read::archive::ArchiveFile::parse(buffer).or_else(|x| {
-                            Err(GetSymbolsError::ArchiveParseError(
-                                path.clone(),
-                                Box::new(x),
-                            ))
-                        })?;
-                    let archive_members_by_name: HashMap<Vec<u8>, &[u8]> = archive
-                        .members()
-                        .filter_map(|member| match member {
-                            Ok(member) => member
-                                .data(buffer)
-                                .ok()
-                                .map(|data| (member.name().to_owned(), data)),
-                            Err(_) => None,
-                        })
-                        .collect();
-                    for (name_in_archive, functions) in archive_info {
-                        let buffer = match archive_members_by_name.get(name_in_archive.as_bytes()) {
-                            Some(buffer) => *buffer,
-                            None => continue,
-                        };
-                        let macho_file = File::parse(buffer)
-                            .or_else(|x| Err(GetSymbolsError::MachOHeaderParseError(x)))?;
-                        let addresses_in_this_object =
-                            translate_addresses_to_object(&path, &macho_file, functions);
-                        remainder.extend(collect_debug_info_and_remainder(
-                            &macho_file,
-                            &addresses_in_this_object,
-                            &mut symbolication_result,
-                        )?);
-                    }
-                }
-            };
-        }
+            }
+        };
     }
 
     Ok(symbolication_result)
 }
 
 fn translate_addresses_to_object<'data: 'file, 'file, O>(
-    _path: &Path,
     macho_file: &'file O,
     mut functions: HashMap<Vec<u8>, Vec<AddressWithOffset>>,
 ) -> Vec<AddressPair>
@@ -263,11 +261,12 @@ struct ObjectMapSymbol<'a> {
     object_index: Option<usize>,
 }
 
-fn collect_debug_info_and_remainder<'data: 'file, 'file, 'a, O, R>(
+fn collect_debug_info_and_object_references<'data: 'file, 'file, 'a, O, R>(
     macho_file: &'file O,
     addresses: &[AddressPair],
     symbolication_result: &mut R,
-) -> Result<Vec<ObjectReference>>
+    remaining_object_references: &mut VecDeque<ObjectReference>,
+) -> Result<()>
 where
     O: object::Object<'data, 'file>,
     R: SymbolicationResult,
@@ -342,15 +341,14 @@ where
         }
     }
 
-    let mut combined: Vec<_> = Vec::new();
     for (path, archive_info) in archives.into_iter() {
-        combined.push(ObjectReference::Archive { path, archive_info });
+        remaining_object_references.push_back(ObjectReference::Archive { path, archive_info });
     }
     for (path, functions) in regular_objects.into_iter() {
-        combined.push(ObjectReference::Regular { path, functions });
+        remaining_object_references.push_back(ObjectReference::Regular { path, functions });
     }
 
-    Ok(combined)
+    Ok(())
 }
 
 #[derive(Debug)]

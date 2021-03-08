@@ -82,6 +82,15 @@ pub enum SymbolicationResultKind {
     SymbolsForAddresses { with_debug_info: bool },
 }
 
+impl SymbolicationResultKind {
+    pub fn wants_debug_info_for_addresses(&self) -> bool {
+        match self {
+            Self::AllSymbols => false,
+            Self::SymbolsForAddresses { with_debug_info } => *with_debug_info,
+        }
+    }
+}
+
 pub trait SymbolicationResult {
     fn from_full_map<S>(map: BTreeMap<u32, S>, addresses: &[u32]) -> Self
     where
