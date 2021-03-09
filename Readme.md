@@ -56,6 +56,19 @@ Running tests:
 cargo test --workspace
 ```
 
+Benchmarks:
+
+```
+# Download big-benchmark-fixtures directory once (multiple GB), and run all benchmarks:
+cargo run --release -p benchmarks
+
+# Run a specific benchmark (requires big-benchmark-fixtures directory):
+cargo run --release -p query-api -- big-benchmark-fixtures/win64-ci/ /symbolicate/v6a1 @fixtures/requests/win64-ci-xul.json > /dev/null
+cargo run --release -p query-api -- big-benchmark-fixtures/macos-ci/ /symbolicate/v6a1 @fixtures/requests/macos-ci-xul.json > /dev/null
+cargo run --release -p query-api -- big-benchmark-fixtures/macos-local/ /symbolicate/v6a1 @fixtures/requests/macos-local-xul.json > /dev/null
+# ... (see examples/benchmarks/src/main.rs for more)
+```
+
 ### WebAssembly
 
 There's a UI for the WebAssembly / JavaScript version in `index.html`.
