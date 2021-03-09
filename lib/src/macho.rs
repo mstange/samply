@@ -124,6 +124,7 @@ where
     let addresses_in_root_object = make_address_pairs_for_root_object(addresses, &macho_file);
     let mut object_references = VecDeque::new();
     collect_debug_info_and_object_references(
+        range,
         &macho_file,
         &addresses_in_root_object,
         &mut symbolication_result,
@@ -170,6 +171,7 @@ async fn traverse_object_references_and_collect_debug_info(
                 File::parse(data).or_else(|x| Err(GetSymbolsError::MachOHeaderParseError(x)))?;
             let addresses_in_this_object = translate_addresses_to_object(&macho_file, functions);
             collect_debug_info_and_object_references(
+                data,
                 &macho_file,
                 &addresses_in_this_object,
                 symbolication_result,
@@ -338,6 +340,7 @@ struct ObjectMapSymbol<'a> {
 
 /// addresses must be sorted by address_in_this_object
 fn collect_debug_info_and_object_references<'data: 'file, 'file, 'a, O, R>(
+    file_data: RangeReadRef<'data, impl ReadRef<'data>>,
     macho_file: &'file O,
     addresses: &[AddressPair],
     symbolication_result: &mut R,
@@ -353,7 +356,12 @@ where
     object_map_symbols.sort_by_key(|symbol| symbol.address());
     let (external_funs_by_object, internal_addresses) =
         match_funs_to_addresses(&object_map_symbols, addresses);
-    collect_dwarf_address_debug_data(macho_file, &internal_addresses, symbolication_result);
+    collect_dwarf_address_debug_data(
+        file_data,
+        macho_file,
+        &internal_addresses,
+        symbolication_result,
+    );
 
     let mut archives = HashMap::new();
 

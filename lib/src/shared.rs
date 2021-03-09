@@ -223,8 +223,20 @@ impl<'data, T: object::ReadRef<'data>> RangeReadRef<'data, T> {
         }
     }
 
-    pub fn range(&self, start: u64, size: u64) -> Self {
+    pub fn make_subrange(&self, start: u64, size: u64) -> Self {
         Self::new(self.original_readref, self.range_start + start, size)
+    }
+
+    pub fn original_readref(&self) -> T {
+        self.original_readref
+    }
+
+    pub fn range_start(&self) -> u64 {
+        self.range_start
+    }
+
+    pub fn range_size(&self) -> u64 {
+        self.range_size
     }
 }
 

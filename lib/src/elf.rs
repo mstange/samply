@@ -43,7 +43,12 @@ where
     } = R::result_kind()
     {
         let addresses: Vec<_> = addresses.iter().map(|a| AddressPair::same(*a)).collect();
-        collect_dwarf_address_debug_data(&elf_file, &addresses, &mut symbolication_result);
+        collect_dwarf_address_debug_data(
+            file_contents.full_range(),
+            &elf_file,
+            &addresses,
+            &mut symbolication_result,
+        );
     }
 
     Ok(symbolication_result)
