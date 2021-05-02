@@ -1,3 +1,4 @@
+use object::read::ReadRef;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::{cell::Cell, future::Future};
@@ -191,7 +192,7 @@ impl<T: FileContents> Debug for FileContentsWrapper<T> {
     }
 }
 
-impl<'data, T: FileContents> object::ReadRef<'data> for &'data FileContentsWrapper<T> {
+impl<'data, T: FileContents> ReadRef<'data> for &'data FileContentsWrapper<T> {
     #[inline]
     fn len(self) -> Result<u64, ()> {
         Ok(self.len() as u64)
@@ -206,14 +207,14 @@ impl<'data, T: FileContents> object::ReadRef<'data> for &'data FileContentsWrapp
 }
 
 #[derive(Clone, Copy)]
-pub struct RangeReadRef<'data, T: object::ReadRef<'data>> {
+pub struct RangeReadRef<'data, T: ReadRef<'data>> {
     original_readref: T,
     range_start: u64,
     range_size: u64,
     _phantom_data: PhantomData<&'data ()>,
 }
 
-impl<'data, T: object::ReadRef<'data>> RangeReadRef<'data, T> {
+impl<'data, T: ReadRef<'data>> RangeReadRef<'data, T> {
     pub fn new(original_readref: T, range_start: u64, range_size: u64) -> Self {
         Self {
             original_readref,
@@ -240,7 +241,7 @@ impl<'data, T: object::ReadRef<'data>> RangeReadRef<'data, T> {
     }
 }
 
-impl<'data, T: object::ReadRef<'data>> object::ReadRef<'data> for RangeReadRef<'data, T> {
+impl<'data, T: ReadRef<'data>> ReadRef<'data> for RangeReadRef<'data, T> {
     #[inline]
     fn len(self) -> Result<u64, ()> {
         Ok(self.range_size)

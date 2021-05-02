@@ -6,7 +6,8 @@ use addr2line::{
 };
 use fallible_iterator::FallibleIterator;
 use gimli::SectionId;
-use object::{CompressionFormat, ReadRef};
+use object::read::ReadRef;
+use object::CompressionFormat;
 use std::{borrow::Cow, cmp::min, marker::PhantomData, str};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
