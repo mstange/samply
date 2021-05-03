@@ -107,6 +107,7 @@ pub struct SectionDataNoCopy<'data, T: ReadRef<'data>> {
     endian: gimli::RunTimeEndian,
     debug_abbrev_data: SingleSectionData<'data, T>,
     debug_addr_data: SingleSectionData<'data, T>,
+    debug_aranges_data: SingleSectionData<'data, T>,
     debug_info_data: SingleSectionData<'data, T>,
     debug_line_data: SingleSectionData<'data, T>,
     debug_line_str_data: SingleSectionData<'data, T>,
@@ -159,6 +160,7 @@ impl<'data, T: ReadRef<'data>> SectionDataNoCopy<'data, T> {
 
         let debug_abbrev_data = get_section_data(data, file, SectionId::DebugAbbrev.name());
         let debug_addr_data = get_section_data(data, file, SectionId::DebugAddr.name());
+        let debug_aranges_data = get_section_data(data, file, SectionId::DebugAranges.name());
         let debug_info_data = get_section_data(data, file, SectionId::DebugInfo.name());
         let debug_line_data = get_section_data(data, file, SectionId::DebugLine.name());
         let debug_line_str_data = get_section_data(data, file, SectionId::DebugLineStr.name());
@@ -173,6 +175,7 @@ impl<'data, T: ReadRef<'data>> SectionDataNoCopy<'data, T> {
             endian,
             debug_abbrev_data,
             debug_addr_data,
+            debug_aranges_data,
             debug_info_data,
             debug_line_data,
             debug_line_str_data,
@@ -211,6 +214,7 @@ impl<'data, T: ReadRef<'data>> SectionDataNoCopy<'data, T> {
         addr2line::Context::from_sections(
             get(&self.debug_abbrev_data, endian).into(),
             get(&self.debug_addr_data, endian).into(),
+            get(&self.debug_aranges_data, endian).into(),
             get(&self.debug_info_data, endian).into(),
             get(&self.debug_line_data, endian).into(),
             get(&self.debug_line_str_data, endian).into(),
@@ -254,6 +258,7 @@ impl<'data, T: ReadRef<'data>> SectionDataNoCopy<'data, T> {
         Some(addr2line::Context::from_sections(
             get(&self.debug_abbrev_data, endian)?.into(),
             get(&self.debug_addr_data, endian)?.into(),
+            get(&self.debug_aranges_data, endian)?.into(),
             get(&self.debug_info_data, endian)?.into(),
             get(&self.debug_line_data, endian)?.into(),
             get(&self.debug_line_str_data, endian)?.into(),
