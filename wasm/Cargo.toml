@@ -6,9 +6,9 @@ edition = "2018"
 
 [dependencies]
 profiler-get-symbols = { path = "../lib/" }
-js-sys = "0.3.39"
-wasm-bindgen = {version = "0.2.69", features = ["serde-serialize"] }
-wasm-bindgen-futures = "0.4.12"
+js-sys = "0.3.50"
+wasm-bindgen = {version = "0.2.73", features = ["serde-serialize"] }
+wasm-bindgen-futures = "0.4.23"
 serde = { version = "1.0", features = ["derive"] }
 serde_derive = "^1.0.59"
 

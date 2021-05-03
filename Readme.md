@@ -110,6 +110,8 @@ cargo build --target wasm32-unknown-unknown --release
 wasm-bindgen target/wasm32-unknown-unknown/release/profiler_get_symbols_wasm.wasm --out-dir . --no-modules --no-typescript
 ```
 
+If this complains about wasm-bindgen version mismatches, update both your local wasm-bindgen-cli and the wasm-bindgen dependency at wasm/Cargo.toml to the latest version.
+
 ## Publishing
 
 At the moment, the resulting wasm files are hosted in a separate repo called
