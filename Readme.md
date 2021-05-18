@@ -37,6 +37,7 @@ cargo run -p dump-table -- firefox.exe fixtures/win64-ci
 cargo run -p dump-table -- libmozglue.dylib fixtures/macos-local
 cargo run -p dump-table -- libmozglue.dylib fixtures/macos-local INCORRECTID
 cargo run -p dump-table -- libmozglue.dylib fixtures/macos-local F38030E4A3783F90B2282FCB0B33261A0
+cargo run -p dump-table -- AppKit /System/Library/Frameworks/AppKit.framework/Versions/C/
 cargo run -p dump-table -- libsystem_kernel.dylib /usr/lib/system
 cargo run -p dump-table -- libsystem_kernel.dylib /usr/lib/system B6602BF001213894AED620A8CF2A30B80 --full
 ```

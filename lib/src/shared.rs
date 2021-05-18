@@ -31,6 +31,14 @@ pub trait OptionallySendFuture: Future + Send {}
 #[cfg(feature = "send_futures")]
 impl<T> OptionallySendFuture for T where T: Future + Send {}
 
+pub enum CandidatePathInfo {
+    Normal(PathBuf),
+    InDyldCache {
+        dyld_cache_path: PathBuf,
+        dylib_path: String,
+    },
+}
+
 /// This is the trait that consumers need to implement so that they can call
 /// the main entry points of this crate. This crate contains no direct file
 /// access - all access to the file system is via this trait, and its associated
@@ -61,7 +69,7 @@ pub trait FileAndPathHelper {
         &self,
         debug_name: &str,
         breakpad_id: &str,
-    ) -> FileAndPathHelperResult<Vec<PathBuf>>;
+    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>>;
 
     /// This method can usually be ignored and does not need to be implemented; its default
     /// implementation is usually what you want.
@@ -110,6 +118,13 @@ pub trait FileContents {
     /// `FileContents` object. This restriction may be a bit cumbersome to satisfy;
     /// it's a restriction that's inherited from the `object` crate's `ReadRef` trait.
     fn read_bytes_at<'a>(&'a self, offset: u64, size: u64) -> FileAndPathHelperResult<&'a [u8]>;
+
+    /// TODO: document
+    fn read_bytes_at_until<'a>(
+        &'a self,
+        offset: u64,
+        delimiter: u8,
+    ) -> FileAndPathHelperResult<&'a [u8]>;
 }
 
 pub struct AddressDebugInfo {
@@ -179,9 +194,6 @@ pub struct SymbolicationQuery<'a> {
     pub debug_name: &'a str,
     /// The breakpad ID of the binary whose symbols need to be looked up.
     pub breakpad_id: &'a str,
-    /// The file path to check for symbol data, with the help of a FileAndPathHelper
-    /// which is supplied separately.
-    pub path: &'a Path,
     /// The set of addresses which need to be fed into the `SymbolicationResult`.
     /// Only used if the `SymbolicationResult`'s `result_kind()` is `SymbolsForAddresses`.
     pub addresses: &'a [u32],
@@ -248,6 +260,18 @@ impl<T: FileContents> FileContentsWrapper<T> {
         self.file_contents.read_bytes_at(offset, size)
     }
 
+    #[inline]
+    pub fn read_bytes_at_until<'a>(
+        &'a self,
+        offset: u64,
+        delimiter: u8,
+    ) -> FileAndPathHelperResult<&'a [u8]> {
+        let bytes = self.file_contents.read_bytes_at_until(offset, delimiter)?;
+        self.bytes_read
+            .set(self.bytes_read.get() + bytes.len() as u64);
+        Ok(bytes)
+    }
+
     pub fn read_entire_data(&self) -> FileAndPathHelperResult<&[u8]> {
         self.read_bytes_at(0, self.len())
     }
@@ -286,6 +310,13 @@ impl<'data, T: FileContents> ReadRef<'data> for &'data FileContentsWrapper<T> {
     #[inline]
     fn read_bytes_at(self, offset: u64, size: u64) -> Result<&'data [u8], ()> {
         self.read_bytes_at(offset, size).map_err(|_| {
+            // Note: We're discarding the error from the FileContents method here.
+        })
+    }
+
+    #[inline]
+    fn read_bytes_at_until(self, offset: u64, delimiter: u8) -> Result<&'data [u8], ()> {
+        self.read_bytes_at_until(offset, delimiter).map_err(|_| {
             // Note: We're discarding the error from the FileContents method here.
         })
     }
@@ -336,5 +367,11 @@ impl<'data, T: ReadRef<'data>> ReadRef<'data> for RangeReadRef<'data, T> {
     fn read_bytes_at(self, offset: u64, size: u64) -> Result<&'data [u8], ()> {
         self.original_readref
             .read_bytes_at(self.range_start + offset, size)
+    }
+
+    #[inline]
+    fn read_bytes_at_until(self, offset: u64, delimiter: u8) -> Result<&'data [u8], ()> {
+        self.original_readref
+            .read_bytes_at_until(self.range_start + offset, delimiter)
     }
 }

@@ -21,7 +21,9 @@ version = "0.15.1"
 [dependencies.object]
 default-features = false
 features = ["std", "read_core", "archive", "elf", "macho", "pe", "unaligned"]
-version = "0.24.0"
+# version = "0.24.0"
+git = "https://github.com/gimli-rs/object"
+rev = "ad3a1ad4cd1d2521578ab9092dae4929ea1288fc"
 
 [dependencies]
 pdb = "0.7.0"

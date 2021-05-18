@@ -4,9 +4,9 @@ use crate::shared::{
     AddressDebugInfo, FileAndPathHelper, FileContents, FileContentsWrapper, InlineStackFrame,
     SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
 };
-use std::borrow::Cow;
 use std::collections::{BTreeMap, HashSet};
 use std::io::Cursor;
+use std::{borrow::Cow, path::Path};
 
 pub mod addr2line;
 mod type_dumper;
@@ -17,6 +17,7 @@ use type_dumper::{DumperFlags, TypeDumper};
 pub async fn get_symbolication_result_via_binary<'a, R>(
     buffer: &[u8],
     query: SymbolicationQuery<'a>,
+    path: &Path,
     helper: &impl FileAndPathHelper,
 ) -> Result<R>
 where
@@ -25,7 +26,6 @@ where
     let SymbolicationQuery {
         debug_name,
         breakpad_id,
-        path,
         addresses,
         ..
     } = query.clone();
@@ -62,7 +62,9 @@ where
         if pdb_path == path {
             continue;
         }
-        if let Ok(table) = try_get_symbolication_result_from_pdb_path(query.clone(), helper).await {
+        if let Ok(table) =
+            try_get_symbolication_result_from_pdb_path(query.clone(), path, helper).await
+        {
             return Ok(table);
         }
     }
@@ -85,17 +87,17 @@ where
 
 async fn try_get_symbolication_result_from_pdb_path<'a, R>(
     query: SymbolicationQuery<'a>,
+    path: &Path,
     helper: &impl FileAndPathHelper,
 ) -> Result<R>
 where
     R: SymbolicationResult,
 {
-    let file_contents =
-        FileContentsWrapper::new(helper.open_file(query.path).await.map_err(|e| {
-            GetSymbolsError::HelperErrorDuringOpenFile(query.path.to_string_lossy().to_string(), e)
-        })?);
+    let file_contents = FileContentsWrapper::new(helper.open_file(path).await.map_err(|e| {
+        GetSymbolsError::HelperErrorDuringOpenFile(path.to_string_lossy().to_string(), e)
+    })?);
     let buffer = file_contents.read_entire_data().map_err(|e| {
-        GetSymbolsError::HelperErrorDuringFileReading(query.path.to_string_lossy().to_string(), e)
+        GetSymbolsError::HelperErrorDuringFileReading(path.to_string_lossy().to_string(), e)
     })?;
     let pdb_reader = Cursor::new(buffer);
     let pdb = PDB::open(pdb_reader)?;

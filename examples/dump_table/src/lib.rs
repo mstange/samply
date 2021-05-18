@@ -1,7 +1,7 @@
 use anyhow;
 use profiler_get_symbols::{
-    self, CompactSymbolTable, FileAndPathHelper, FileAndPathHelperResult, FileContents,
-    GetSymbolsError, OptionallySendFuture,
+    self, CandidatePathInfo, CompactSymbolTable, FileAndPathHelper, FileAndPathHelperResult,
+    FileContents, GetSymbolsError, OptionallySendFuture,
 };
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -85,6 +85,23 @@ impl FileContents for MmapFileContents {
     fn read_bytes_at<'a>(&'a self, offset: u64, size: u64) -> FileAndPathHelperResult<&'a [u8]> {
         Ok(&self.0[offset as usize..][..size as usize])
     }
+
+    #[inline]
+    fn read_bytes_at_until<'a>(
+        &'a self,
+        offset: u64,
+        delimiter: u8,
+    ) -> FileAndPathHelperResult<&'a [u8]> {
+        let slice_to_end = &self.0[offset as usize..];
+        if let Some(pos) = slice_to_end.iter().position(|b| *b == delimiter) {
+            Ok(&slice_to_end[..pos])
+        } else {
+            Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Delimiter not found in MmapFileContents",
+            )))
+        }
+    }
 }
 
 struct Helper {
@@ -98,29 +115,56 @@ impl FileAndPathHelper for Helper {
         &self,
         debug_name: &str,
         _breakpad_id: &str,
-    ) -> FileAndPathHelperResult<Vec<PathBuf>> {
+    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
         let mut paths = vec![];
 
         // Also consider .so.dbg files in the symbol directory.
         if debug_name.ends_with(".so") {
             let debug_debug_name = format!("{}.dbg", debug_name);
-            paths.push(self.symbol_directory.join(debug_debug_name));
+            paths.push(CandidatePathInfo::Normal(
+                self.symbol_directory.join(debug_debug_name),
+            ));
         }
 
         // And dSYM packages.
         if !debug_name.ends_with(".pdb") {
-            paths.push(
+            paths.push(CandidatePathInfo::Normal(
                 self.symbol_directory
                     .join(&format!("{}.dSYM", debug_name))
                     .join("Contents")
                     .join("Resources")
                     .join("DWARF")
                     .join(debug_name),
-            );
+            ));
         }
 
         // Finally, the file itself.
-        paths.push(self.symbol_directory.join(debug_name));
+        paths.push(CandidatePathInfo::Normal(
+            self.symbol_directory.join(debug_name),
+        ));
+
+        // For macOS system libraries, also consult the dyld shared cache.
+        if self.symbol_directory.starts_with("/usr/")
+            || self.symbol_directory.starts_with("/System/")
+        {
+            if let Some(dylib_path) = self.symbol_directory.join(debug_name).to_str() {
+                paths.push(CandidatePathInfo::InDyldCache {
+                    dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_arm64e")
+                        .to_path_buf(),
+                    dylib_path: dylib_path.to_string(),
+                });
+                paths.push(CandidatePathInfo::InDyldCache {
+                    dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_x86_64h")
+                        .to_path_buf(),
+                    dylib_path: dylib_path.to_string(),
+                });
+                paths.push(CandidatePathInfo::InDyldCache {
+                    dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_x86_64")
+                        .to_path_buf(),
+                    dylib_path: dylib_path.to_string(),
+                });
+            }
+        }
 
         Ok(paths)
     }

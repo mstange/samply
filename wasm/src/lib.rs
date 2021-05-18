@@ -7,7 +7,8 @@ mod wasm_mem_buffer;
 use js_sys::Promise;
 use std::{
     cell::RefCell,
-    collections::HashMap,
+    cmp::min,
+    collections::{hash_map::Entry, HashMap},
     path::{Path, PathBuf},
 };
 use std::{mem, pin::Pin};
@@ -24,6 +25,10 @@ extern "C" {
     pub type FileAndPathHelper;
 
     /// Returns Array<String>
+    /// The strings in the array can be either
+    ///   - The path to a binary, or
+    ///   - a special string with the syntax "dyldcache:<dyld_cache_path>:<dylib_path>"
+    ///     for libraries that are in the dyld shared cache.
     #[wasm_bindgen(catch, method)]
     fn getCandidatePathsForBinaryOrPdb(
         this: &FileAndPathHelper,
@@ -165,6 +170,7 @@ async fn get_compact_symbol_table_impl(
 pub struct FileHandle {
     contents: FileContents,
     cache: RefCell<HashMap<(u64, u64), Box<[u8]>>>,
+    string_cache: RefCell<HashMap<(u64, u8), Box<[u8]>>>,
 }
 
 impl profiler_get_symbols::FileContents for FileHandle {
@@ -191,6 +197,50 @@ impl profiler_get_symbols::FileContents for FileHandle {
         // This is OK because we never mutate or remove entries in self.cache.
         Ok(unsafe { mem::transmute::<&[u8], &[u8]>(buf) })
     }
+
+    #[inline]
+    fn read_bytes_at_until<'a>(
+        &'a self,
+        offset: u64,
+        delimiter: u8,
+    ) -> profiler_get_symbols::FileAndPathHelperResult<&'a [u8]> {
+        let cache = &mut *self.string_cache.borrow_mut();
+        let buf = match cache.entry((offset, delimiter)) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => {
+                let mut bytes = Vec::new();
+                let mut checked = 0;
+                let mut remaining_len: u64 = self.len() - offset;
+                loop {
+                    let chunk_size = min(256, remaining_len);
+                    let chunk: Vec<u8> = self
+                        .contents
+                        .readBytesAt((offset + checked) as f64, chunk_size as f64) // todo: catch JS exception from readBytesAt
+                        .into_buffer();
+
+                    if let Some(pos) = chunk.iter().position(|b| *b == delimiter) {
+                        bytes.extend_from_slice(&chunk[..pos]);
+                        break entry.insert(bytes.into_boxed_slice());
+                    }
+
+                    bytes.extend_from_slice(&chunk);
+                    checked += chunk_size;
+                    remaining_len -= chunk_size;
+                    // Strings should be relatively small.
+                    // TODO: make this configurable?
+                    if checked > 4096 || remaining_len == 0 {
+                        return Err(Box::new(std::io::Error::new(
+                            std::io::ErrorKind::InvalidInput,
+                            "Could not find delimiter",
+                        )));
+                    }
+                }
+            }
+        };
+        // Extend the lifetime to that of self.
+        // This is OK because we never mutate or remove entries.
+        Ok(unsafe { mem::transmute::<&[u8], &[u8]>(buf) })
+    }
 }
 
 impl Drop for FileHandle {
@@ -206,7 +256,8 @@ impl profiler_get_symbols::FileAndPathHelper for FileAndPathHelper {
         &self,
         debug_name: &str,
         breakpad_id: &str,
-    ) -> profiler_get_symbols::FileAndPathHelperResult<Vec<PathBuf>> {
+    ) -> profiler_get_symbols::FileAndPathHelperResult<Vec<profiler_get_symbols::CandidatePathInfo>>
+    {
         get_candidate_paths_for_binary_or_pdb_impl(
             FileAndPathHelper::from((*self).clone()),
             debug_name.to_owned(),
@@ -235,13 +286,27 @@ fn get_candidate_paths_for_binary_or_pdb_impl(
     helper: FileAndPathHelper,
     debug_name: String,
     breakpad_id: String,
-) -> profiler_get_symbols::FileAndPathHelperResult<Vec<PathBuf>> {
+) -> profiler_get_symbols::FileAndPathHelperResult<Vec<profiler_get_symbols::CandidatePathInfo>> {
     let res = helper.getCandidatePathsForBinaryOrPdb(&debug_name, &breakpad_id);
     let value = res.map_err(JsValueError::from)?;
     let array = js_sys::Array::from(&value);
     Ok(array
         .iter()
-        .filter_map(|val| val.as_string().map(|s| s.into()))
+        .filter_map(|val| val.as_string())
+        .map(|s| {
+            // Support special syntax "dyldcache:<dyld_cache_path>:<dylib_path>"
+            if let Some(remainder) = s.strip_prefix("dyldcache:") {
+                if let Some(offset) = remainder.find(":") {
+                    let dyld_cache_path = &remainder[0..offset];
+                    let dylib_path = &remainder[offset + 1..];
+                    return profiler_get_symbols::CandidatePathInfo::InDyldCache {
+                        dyld_cache_path: dyld_cache_path.into(),
+                        dylib_path: dylib_path.into(),
+                    };
+                }
+            }
+            profiler_get_symbols::CandidatePathInfo::Normal(s.into())
+        })
         .collect())
 }
 
@@ -257,6 +322,7 @@ async fn read_file_impl(
     let file_handle = FileHandle {
         contents: FileContents::from(file),
         cache: RefCell::new(HashMap::new()),
+        string_cache: RefCell::new(HashMap::new()),
     };
     Ok(file_handle)
 }

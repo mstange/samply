@@ -15,6 +15,9 @@ pub enum GetSymbolsError {
     #[error("No match in multi-arch binary, available UUIDs: {}, errors: {}", .0.join(", "), .1.iter().map(|e| format!("{}", e)).collect::<Vec<String>>().join(", "))]
     NoMatchMultiArch(Vec<String>, Vec<GetSymbolsError>),
 
+    #[error("Couldn't get symbols from system library, errors: {}", .0.iter().map(|e| format!("{}", e)).collect::<Vec<String>>().join(", "))]
+    NoLuckMacOsSystemLibrary(Vec<GetSymbolsError>),
+
     #[error("pdb_crate error: {1} ({0})")]
     PDBError(&'static str, PDBError),
 
@@ -26,6 +29,12 @@ pub enum GetSymbolsError {
 
     #[error("goblin error: {0}")]
     GoblinError(#[from] GoblinError),
+
+    #[error("Dyld cache parsing error: {0}")]
+    DyldCacheParseError(#[source] object::read::Error),
+
+    #[error("The dyld shared cache file did not include an entry for the dylib at {0}")]
+    NoMatchingDyldCacheImagePath(String),
 
     #[error("MachOHeader parsing error: {0}")]
     MachOHeaderParseError(#[source] object::read::Error),
@@ -92,8 +101,11 @@ impl GetSymbolsError {
         match *self {
             GetSymbolsError::UnmatchedBreakpadId(_, _) => "UnmatchedBreakpadId",
             GetSymbolsError::NoMatchMultiArch(_, _) => "NoMatchMultiArch",
+            GetSymbolsError::NoLuckMacOsSystemLibrary(_) => "NoLuckMacOsSystemLibrary",
             GetSymbolsError::PDBError(_, _) => "PDBError",
             GetSymbolsError::InvalidInputError(_) => "InvalidInputError",
+            GetSymbolsError::DyldCacheParseError(_) => "DyldCacheParseError",
+            GetSymbolsError::NoMatchingDyldCacheImagePath(_) => "NoMatchingDyldCacheImagePath",
             GetSymbolsError::ObjectParseError(_, _) => "ObjectParseError",
             GetSymbolsError::GoblinError(_) => "GoblinError",
             GetSymbolsError::MachOHeaderParseError(_) => "MachOHeaderParseError",

@@ -399,6 +399,11 @@
 
       getCandidatePathsForBinaryOrPdb(debugName, breakpadId) {
         const res = [debugName];
+        if (debugName === "AppKit") {
+          res.push("dyldcache:/System/Library/dyld/dyld_shared_cache_arm64e:/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit");
+          res.push("dyldcache:/System/Library/dyld/dyld_shared_cache_x86_64h:/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit");
+          res.push("dyldcache:/System/Library/dyld/dyld_shared_cache_x86_64:/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit");
+        }
         addGetCandidatePathsForBinaryOrPdbSection(this._element, debugName, breakpadId, res);
         return res;
       }

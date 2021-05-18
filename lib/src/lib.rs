@@ -49,7 +49,7 @@
 //! # Example
 //!
 //! ```
-//! use profiler_get_symbols::{FileContents, FileAndPathHelper, FileAndPathHelperResult, OptionallySendFuture};
+//! use profiler_get_symbols::{FileContents, FileAndPathHelper, FileAndPathHelperResult, OptionallySendFuture, CandidatePathInfo};
 //!
 //! async fn run_query() -> String {
 //!     let this_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -91,8 +91,8 @@
 //!         &self,
 //!         debug_name: &str,
 //!         _breakpad_id: &str,
-//!     ) -> FileAndPathHelperResult<Vec<std::path::PathBuf>> {
-//!         Ok(vec![self.artifact_directory.join(debug_name)])
+//!     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
+//!         Ok(vec![CandidatePathInfo::Normal(self.artifact_directory.join(debug_name))])
 //!     }
 //!
 //!     fn open_file(
@@ -117,12 +117,31 @@
 //!     fn read_bytes_at<'a>(&'a self, offset: u64, size: u64) -> FileAndPathHelperResult<&'a [u8]> {
 //!         Ok(&self.0[offset as usize..][..size as usize])
 //!     }
+//!
+//!     #[inline]
+//!     fn read_bytes_at_until<'a>(
+//!         &'a self,
+//!         offset: u64,
+//!         delimiter: u8,
+//!     ) -> FileAndPathHelperResult<&'a [u8]> {
+//!         let slice_to_end = &self.0[offset as usize..];
+//!         if let Some(pos) = slice_to_end.iter().position(|b| *b == delimiter) {
+//!             Ok(&slice_to_end[..pos])
+//!         } else {
+//!             Err(Box::new(std::io::Error::new(
+//!                 std::io::ErrorKind::InvalidInput,
+//!                 "Delimiter not found in RawFileBytes",
+//!             )))
+//!         }
+//!     }
 //! }
 //! ```
 
 extern crate pdb as pdb_crate;
 
-use object::{macho::FatHeader, read::FileKind};
+use std::path::Path;
+
+use object::{macho::FatHeader, read::macho::DyldCache, read::FileKind, Endianness};
 
 mod compact_symbol_table;
 mod dwarf;
@@ -145,8 +164,8 @@ pub use crate::compact_symbol_table::CompactSymbolTable;
 pub use crate::error::{GetSymbolsError, Result};
 use crate::shared::FileContentsWrapper;
 pub use crate::shared::{
-    FileAndPathHelper, FileAndPathHelperError, FileAndPathHelperResult, FileContents,
-    OptionallySendFuture,
+    CandidatePathInfo, FileAndPathHelper, FileAndPathHelperError, FileAndPathHelperResult,
+    FileContents, OptionallySendFuture,
 };
 
 /// Returns a symbol table in `CompactSymbolTable` format for the requested binary.
@@ -185,14 +204,31 @@ where
         })?;
 
     let mut last_err = None;
-    for path in candidate_paths_for_binary {
+    for candidate_info in candidate_paths_for_binary {
         let query = SymbolicationQuery {
             debug_name,
             breakpad_id,
-            path: &path,
             addresses,
         };
-        match try_get_symbolication_result_from_path(query, helper).await {
+        let result = match candidate_info {
+            CandidatePathInfo::Normal(path) => {
+                try_get_symbolication_result_from_path(query, &path, helper).await
+            }
+            CandidatePathInfo::InDyldCache {
+                dyld_cache_path,
+                dylib_path,
+            } => {
+                try_get_symbolication_result_from_dyld_shared_cache(
+                    query,
+                    &dyld_cache_path,
+                    &dylib_path,
+                    helper,
+                )
+                .await
+            }
+        };
+
+        match result {
             Ok(result) => return Ok(result),
             Err(err) => last_err = Some(err),
         };
@@ -231,16 +267,18 @@ pub async fn query_api(
 
 async fn try_get_symbolication_result_from_path<'a, R, H>(
     query: SymbolicationQuery<'a>,
+    path: &Path,
     helper: &H,
 ) -> Result<R>
 where
     R: SymbolicationResult,
     H: FileAndPathHelper,
 {
-    let file_contents =
-        FileContentsWrapper::new(helper.open_file(query.path).await.map_err(|e| {
-            GetSymbolsError::HelperErrorDuringOpenFile(query.path.to_string_lossy().to_string(), e)
-        })?);
+    let file_contents = helper.open_file(path).await.map_err(|e| {
+        GetSymbolsError::HelperErrorDuringOpenFile(path.to_string_lossy().to_string(), e)
+    })?;
+
+    let file_contents = FileContentsWrapper::new(file_contents);
 
     if let Ok(pdb) = PDB::open(&file_contents) {
         // This is a PDB file.
@@ -256,25 +294,25 @@ where
                 let arches = FatHeader::parse_arch32(&file_contents)
                     .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
                 let range = macho::get_arch_range(&file_contents, arches, query.breakpad_id)?;
-                macho::get_symbolication_result(file_contents, Some(range), query, helper).await
+                macho::get_symbolication_result(file_contents, Some(range), 0, query, helper).await
             }
             FileKind::MachOFat64 => {
                 let arches = FatHeader::parse_arch64(&file_contents)
                     .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
                 let range = macho::get_arch_range(&file_contents, arches, query.breakpad_id)?;
-                macho::get_symbolication_result(file_contents, Some(range), query, helper).await
+                macho::get_symbolication_result(file_contents, Some(range), 0, query, helper).await
             }
             FileKind::MachO32 | FileKind::MachO64 => {
-                macho::get_symbolication_result(file_contents, None, query, helper).await
+                macho::get_symbolication_result(file_contents, None, 0, query, helper).await
             }
             FileKind::Pe32 | FileKind::Pe64 => {
                 let buffer = file_contents.read_entire_data().map_err(|e| {
                     GetSymbolsError::HelperErrorDuringFileReading(
-                        query.path.to_string_lossy().to_string(),
+                        path.to_string_lossy().to_string(),
                         e,
                     )
                 })?;
-                pdb::get_symbolication_result_via_binary(buffer, query, helper).await
+                pdb::get_symbolication_result_via_binary(buffer, query, path, helper).await
             }
             FileKind::Archive | _ => Err(GetSymbolsError::InvalidInputError(
                 "Input was Archive, Coff or Wasm format, which are unsupported for now",
@@ -285,4 +323,39 @@ where
             "The file does not have a known format; PDB::open was not able to parse it and object::FileKind::parse was not able to detect the format.",
         ))
     }
+}
+
+async fn try_get_symbolication_result_from_dyld_shared_cache<'a, R, H>(
+    query: SymbolicationQuery<'a>,
+    dyld_cache_path: &Path,
+    dylib_path: &str,
+    helper: &H,
+) -> Result<R>
+where
+    R: SymbolicationResult,
+    H: FileAndPathHelper,
+{
+    let file_contents = helper.open_file(dyld_cache_path).await.map_err(|e| {
+        GetSymbolsError::HelperErrorDuringOpenFile(dyld_cache_path.to_string_lossy().to_string(), e)
+    })?;
+
+    let file_contents = FileContentsWrapper::new(file_contents);
+    let header_offset = {
+        let cache = DyldCache::<Endianness, _>::parse(&file_contents)
+            .map_err(|e| GetSymbolsError::DyldCacheParseError(e))?;
+        let image = cache.images().find(|image| image.path() == Ok(dylib_path));
+        let image = match image {
+            Some(image) => image,
+            None => {
+                return Err(GetSymbolsError::NoMatchingDyldCacheImagePath(
+                    dylib_path.to_string(),
+                ))
+            }
+        };
+        image
+            .file_offset()
+            .map_err(|e| GetSymbolsError::DyldCacheParseError(e))?
+    };
+
+    macho::get_symbolication_result(file_contents, None, header_offset, query, helper).await
 }
