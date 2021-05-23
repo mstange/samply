@@ -2,39 +2,45 @@ use super::shared::{AddressDebugInfo, SymbolicationResult, SymbolicationResultKi
 use std::collections::BTreeMap;
 use std::ops::Deref;
 
-#[repr(C)]
+/// A "compact" representation of a symbol table.
+/// This is a legacy concept used by the Firefox profiler and kept for
+/// compatibility purposes. It's called `SymbolTableAsTuple` in the profiler code.
+///
+/// The string for the address `addrs[i]` is
+/// `std::str::from_utf8(buffer[index[i] as usize .. index[i + 1] as usize])`
 pub struct CompactSymbolTable {
+    /// A sorted array of symbol addresses, as library-relative offsets in
+    /// bytes, in ascending order.
     pub addr: Vec<u32>,
+    /// Contains positions into `buffer`. For every address `addr[i]`,
+    /// `index[i]` is the position where the string for that address starts in
+    /// the buffer. Also contains one extra index at the end which is `buffer.len()`.
+    /// `index.len() == addr.len() + 1`
     pub index: Vec<u32>,
+    /// A buffer of bytes that contains all strings from this symbol table,
+    /// in the order of the addresses they correspond to, in utf-8 encoded
+    /// form, all concatenated together.
     pub buffer: Vec<u8>,
-}
-
-impl CompactSymbolTable {
-    pub fn new() -> Self {
-        Self {
-            addr: Vec::new(),
-            index: Vec::new(),
-            buffer: Vec::new(),
-        }
-    }
-
-    fn add_name(&mut self, name: &str) {
-        self.buffer.extend_from_slice(name.as_bytes());
-    }
 }
 
 impl SymbolicationResult for CompactSymbolTable {
     fn from_full_map<T: Deref<Target = str>>(map: BTreeMap<u32, T>, _addresses: &[u32]) -> Self {
-        let mut table = Self::new();
+        let mut addr = Vec::new();
+        let mut index = Vec::new();
+        let mut buffer = Vec::new();
         let mut entries: Vec<_> = map.into_iter().collect();
-        entries.sort_by_key(|&(addr, _)| addr);
-        for (addr, name) in entries {
-            table.addr.push(addr);
-            table.index.push(table.buffer.len() as u32);
-            table.add_name(&name);
+        entries.sort_by_key(|&(address, _)| address);
+        for (address, name) in entries {
+            addr.push(address);
+            index.push(buffer.len() as u32);
+            buffer.extend_from_slice(name.as_bytes());
         }
-        table.index.push(table.buffer.len() as u32);
-        table
+        index.push(buffer.len() as u32);
+        Self {
+            addr,
+            index,
+            buffer,
+        }
     }
 
     fn for_addresses(_addresses: &[u32]) -> Self {

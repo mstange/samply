@@ -18,13 +18,17 @@ pub use crate::compact_symbol_table::CompactSymbolTable;
 pub use crate::error::{GetSymbolsError, Result};
 pub use crate::shared::{
     FileAndPathHelper, FileAndPathHelperError, FileAndPathHelperResult, FileContents,
-    FileContentsWrapper, OptionallySendFuture,
+    OptionallySendFuture,
 };
 use crate::shared::{SymbolicationQuery, SymbolicationResult};
 
 // Just to hide unused method  warnings. Should be exposed differently.
 pub use crate::pdb::addr2line as pdb_addr2line;
 
+use crate::shared::FileContentsWrapper;
+
+/// Returns a symbol table in `CompactSymbolTable` format for the requested binary.
+/// `FileAndPathHelper` must be implemented by the caller, to provide file access.
 pub async fn get_compact_symbol_table(
     debug_name: &str,
     breakpad_id: &str,
@@ -33,6 +37,12 @@ pub async fn get_compact_symbol_table(
     get_symbolication_result(debug_name, breakpad_id, &[], helper).await
 }
 
+/// A generic method which is used in the implementation of both `get_compact_symbol_table`
+/// and `query_api`. Allows obtaining symbol data for a given binary. The level of detail
+/// is determined by the implementation of the `SymbolicationResult` trait: The caller can
+/// either get a regular symbol table, or extended information for a set of addresses, if
+/// the information is present in the found files. See the `SymbolicationResult` trait for
+/// more details.
 pub async fn get_symbolication_result<R>(
     debug_name: &str,
     breakpad_id: &str,
@@ -70,6 +80,19 @@ where
     }))
 }
 
+/// This is the main API of this crate.
+/// It implements the "Tecken" JSON API, which is also used by the Mozilla symbol server.
+/// It's intended to be used as a drop-in "local symbol server" which gathers its data
+/// directly from file artifacts produced during compilation (rather than consulting
+/// e.g. a database).
+/// The caller needs to implement the `FileAndPathHelper` trait to provide file system access.
+/// The return value is a JSON string.
+///
+/// The following "URLs" are supported:
+///  - `/symbolicate/v5`: This API is documented at <https://tecken.readthedocs.io/en/latest/symbolication.html>.
+///  - `/symbolicate/v6a1`: Same request API as v5, but richer response data. This is still experimental.
+///    See the raw response struct definitions in symbolicate/v6/response_json.rs for details.
+///    V6 extends V5 by inline callstacks and filename + line number data, and richer error reporting.
 pub async fn query_api(
     request_url: &str,
     request_json_data: &str,
