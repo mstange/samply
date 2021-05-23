@@ -397,7 +397,7 @@
         this._element = parentElement;
       }
 
-      async getCandidatePathsForBinaryOrPdb(debugName, breakpadId) {
+      getCandidatePathsForBinaryOrPdb(debugName, breakpadId) {
         const res = [debugName];
         addGetCandidatePathsForBinaryOrPdbSection(this._element, debugName, breakpadId, res);
         return res;
@@ -445,7 +445,7 @@
         this._element = parentElement;
       }
 
-      async getCandidatePathsForBinaryOrPdb(debugName, breakpadId) {
+      getCandidatePathsForBinaryOrPdb(debugName, breakpadId) {
         const res = this._availableFiles.filter(path => getBasename(path) == debugName);
         addGetCandidatePathsForBinaryOrPdbSection(this._element, debugName, breakpadId, res);
         return res;
@@ -473,7 +473,7 @@
         this._fileNamesAndPaths = files.map(({ name, webkitRelativePath }) => ({ name, path: webkitRelativePath }));
       }
 
-      async getCandidatePathsForBinaryOrPdb(debugName, breakpadId) {
+      getCandidatePathsForBinaryOrPdb(debugName, breakpadId) {
         const res = this._fileNamesAndPaths.filter(({name}) => name == debugName).map(({path}) => path);
         addGetCandidatePathsForBinaryOrPdbSection(this._element, debugName, breakpadId, res);
         return res;

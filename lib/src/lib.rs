@@ -44,7 +44,6 @@ where
 {
     let candidate_paths_for_binary = helper
         .get_candidate_paths_for_binary_or_pdb(debug_name, breakpad_id)
-        .await
         .map_err(|e| {
             GetSymbolsError::HelperErrorDuringGetCandidatePathsForBinaryOrPdb(
                 debug_name.to_string(),

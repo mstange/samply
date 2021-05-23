@@ -97,13 +97,7 @@ impl FileAndPathHelper for Helper {
         &self,
         debug_name: &str,
         _breakpad_id: &str,
-    ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Vec<PathBuf>>>>> {
-        async fn to_future(
-            res: FileAndPathHelperResult<Vec<PathBuf>>,
-        ) -> FileAndPathHelperResult<Vec<PathBuf>> {
-            res
-        }
-
+    ) -> FileAndPathHelperResult<Vec<PathBuf>> {
         let mut paths = vec![];
 
         // Also consider .so.dbg files in the symbol directory.
@@ -127,7 +121,7 @@ impl FileAndPathHelper for Helper {
         // Finally, the file itself.
         paths.push(self.symbol_directory.join(debug_name));
 
-        Box::pin(to_future(Ok(paths)))
+        Ok(paths)
     }
 
     fn open_file(

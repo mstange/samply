@@ -50,7 +50,6 @@ where
 
     let candidate_paths_for_pdb = helper
         .get_candidate_paths_for_pdb(debug_name, breakpad_id, pdb_path, path)
-        .await
         .map_err(|e| {
             GetSymbolsError::HelperErrorDuringGetCandidatePathsForPdb(
                 debug_name.to_string(),

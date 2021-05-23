@@ -23,23 +23,23 @@ pub use wasm_mem_buffer::WasmMemBuffer;
 extern "C" {
     pub type FileAndPathHelper;
 
-    /// Returns Promise<Array<String>>
-    #[wasm_bindgen(method)]
+    /// Returns Array<String>
+    #[wasm_bindgen(catch, method)]
     fn getCandidatePathsForBinaryOrPdb(
         this: &FileAndPathHelper,
         debugName: &str,
         breakpadId: &str,
-    ) -> Promise;
+    ) -> Result<JsValue, JsValue>;
 
-    /// Returns Promise<Array<String>>
-    #[wasm_bindgen(method)]
+    /// Returns Array<String>
+    #[wasm_bindgen(catch, method)]
     fn getCandidatePathsForPdb(
         this: &FileAndPathHelper,
         debugName: &str,
         breakpadId: &str,
         pdbPathAsStoredInBinary: &str,
         binaryPath: &str,
-    ) -> Promise;
+    ) -> Result<JsValue, JsValue>;
 
     /// Returns Promise<BufferWrapper>
     #[wasm_bindgen(method)]
@@ -62,7 +62,7 @@ extern "C" {
 /// ```js
 /// async function getSymbolTable(debugName, breakpadId, libKeyToPathMap) {
 ///   const helper = {
-///     getCandidatePathsForBinaryOrPdb: async (debugName, breakpadId) => {
+///     getCandidatePathsForBinaryOrPdb: (debugName, breakpadId) => {
 ///       const path = libKeyToPathMap.get(`${debugName}/${breakpadId}`);
 ///       if (path !== undefined) {
 ///         return [path];
@@ -105,7 +105,7 @@ pub fn get_compact_symbol_table(
 /// ```js
 /// async function getSymbolTable(url, requestJSONString, libKeyToPathMap) {
 ///   const helper = {
-///     getCandidatePathsForBinaryOrPdb: async (debugName, breakpadId) => {
+///     getCandidatePathsForBinaryOrPdb: (debugName, breakpadId) => {
 ///       const path = libKeyToPathMap.get(`${debugName}/${breakpadId}`);
 ///       if (path !== undefined) {
 ///         return [path];
@@ -206,18 +206,12 @@ impl profiler_get_symbols::FileAndPathHelper for FileAndPathHelper {
         &self,
         debug_name: &str,
         breakpad_id: &str,
-    ) -> Pin<
-        Box<
-            dyn OptionallySendFuture<
-                Output = profiler_get_symbols::FileAndPathHelperResult<Vec<PathBuf>>,
-            >,
-        >,
-    > {
-        Box::pin(get_candidate_paths_for_binary_or_pdb_impl(
+    ) -> profiler_get_symbols::FileAndPathHelperResult<Vec<PathBuf>> {
+        get_candidate_paths_for_binary_or_pdb_impl(
             FileAndPathHelper::from((*self).clone()),
             debug_name.to_owned(),
             breakpad_id.to_owned(),
-        ))
+        )
     }
 
     fn open_file(
@@ -237,13 +231,12 @@ impl profiler_get_symbols::FileAndPathHelper for FileAndPathHelper {
     }
 }
 
-async fn get_candidate_paths_for_binary_or_pdb_impl(
+fn get_candidate_paths_for_binary_or_pdb_impl(
     helper: FileAndPathHelper,
     debug_name: String,
     breakpad_id: String,
 ) -> profiler_get_symbols::FileAndPathHelperResult<Vec<PathBuf>> {
-    let res =
-        JsFuture::from(helper.getCandidatePathsForBinaryOrPdb(&debug_name, &breakpad_id)).await;
+    let res = helper.getCandidatePathsForBinaryOrPdb(&debug_name, &breakpad_id);
     let value = res.map_err(JsValueError::from)?;
     let array = js_sys::Array::from(&value);
     Ok(array

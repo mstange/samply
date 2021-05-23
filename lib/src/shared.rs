@@ -43,7 +43,7 @@ pub trait FileAndPathHelper {
         &self,
         debug_name: &str,
         breakpad_id: &str,
-    ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Vec<PathBuf>>>>>;
+    ) -> FileAndPathHelperResult<Vec<PathBuf>>;
 
     fn get_candidate_paths_for_pdb(
         &self,
@@ -51,15 +51,9 @@ pub trait FileAndPathHelper {
         _breakpad_id: &str,
         pdb_path_as_stored_in_binary: &std::ffi::CStr,
         _binary_path: &Path,
-    ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Vec<PathBuf>>>>> {
-        async fn single_value_path_vec(
-            path: std::ffi::CString,
-        ) -> FileAndPathHelperResult<Vec<PathBuf>> {
-            Ok(vec![path.into_string()?.into()])
-        }
-        Box::pin(single_value_path_vec(
-            pdb_path_as_stored_in_binary.to_owned(),
-        ))
+    ) -> FileAndPathHelperResult<Vec<PathBuf>> {
+        let s = std::str::from_utf8(pdb_path_as_stored_in_binary.to_bytes())?;
+        Ok(vec![s.into()])
     }
 
     fn open_file(
