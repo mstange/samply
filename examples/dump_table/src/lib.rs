@@ -34,7 +34,9 @@ async fn get_symbols_retry_id(
             match result {
                 Ok(table) => return Ok(table),
                 Err(err) => match err {
-                    GetSymbolsError::UnmatchedBreakpadId(expected, _) => {
+                    GetSymbolsError::UnmatchedBreakpadId(expected, supplied)
+                        if supplied == "<unspecified>" =>
+                    {
                         eprintln!("Using breakpadID: {}", expected);
                         expected
                     }

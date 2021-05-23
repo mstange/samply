@@ -31,6 +31,7 @@ struct Opt {
 
 fn main() -> anyhow::Result<()> {
     let opt = Opt::from_args();
+    let has_breakpad_id = opt.breakpad_id.is_some();
     let result = futures::executor::block_on(main_impl(
         &opt.debug_name,
         opt.breakpad_id,
@@ -42,7 +43,7 @@ fn main() -> anyhow::Result<()> {
         Err(err) => err,
     };
     match err.downcast::<GetSymbolsError>() {
-        Ok(GetSymbolsError::NoMatchMultiArch(uuids, _)) => {
+        Ok(GetSymbolsError::NoMatchMultiArch(uuids, _)) if !has_breakpad_id => {
             // There's no one breakpad ID. We need the user to specify which one they want.
             // Print out all potential breakpad IDs so that the user can pick.
             eprintln!("This is a multi-arch container. Please specify one of the following breakpadIDs to pick a symbol table:");
