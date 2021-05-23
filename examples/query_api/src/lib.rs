@@ -239,7 +239,6 @@ mod test {
     }
 
     #[test]
-    #[should_panic] // https://github.com/gimli-rs/addr2line/issues/167
     fn android32_v6_local() {
         compare_snapshot(
             "/symbolicate/v6a1",
