@@ -1,5 +1,4 @@
 use anyhow;
-use memmap::MmapOptions;
 use profiler_get_symbols::{
     self, CompactSymbolTable, FileAndPathHelper, FileAndPathHelperResult, FileContents,
     GetSymbolsError, OptionallySendFuture,
@@ -72,7 +71,7 @@ pub fn dump_table(
     Ok(())
 }
 
-struct MmapFileContents(memmap::Mmap);
+struct MmapFileContents(memmap2::Mmap);
 
 impl FileContents for MmapFileContents {
     #[inline]
@@ -131,7 +130,9 @@ impl FileAndPathHelper for Helper {
         async fn open_file_impl(path: PathBuf) -> FileAndPathHelperResult<MmapFileContents> {
             eprintln!("Opening file {:?}", &path);
             let file = File::open(&path)?;
-            Ok(MmapFileContents(unsafe { MmapOptions::new().map(&file)? }))
+            Ok(MmapFileContents(unsafe {
+                memmap2::MmapOptions::new().map(&file)?
+            }))
         }
 
         Box::pin(open_file_impl(path.to_owned()))

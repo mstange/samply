@@ -1,4 +1,4 @@
-use memmap::MmapOptions;
+use memmap2::MmapOptions;
 use profiler_get_symbols::{
     self, FileAndPathHelper, FileAndPathHelperResult, FileContents, OptionallySendFuture,
 };
@@ -11,7 +11,7 @@ pub async fn query_api(request_url: &str, request_json: &str, symbol_directory: 
     profiler_get_symbols::query_api(request_url, request_json, &helper).await
 }
 
-struct MmapFileContents(memmap::Mmap);
+struct MmapFileContents(memmap2::Mmap);
 
 impl FileContents for MmapFileContents {
     #[inline]
