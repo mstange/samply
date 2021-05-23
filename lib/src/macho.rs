@@ -4,7 +4,7 @@ use crate::shared::{
     SymbolicationResult,
 };
 use crate::{
-    dwarf::{collect_dwarf_address_debug_data, AddressPair},
+    dwarf::{collect_dwarf_address_debug_data, make_address_pairs_for_root_object, AddressPair},
     shared::RangeReadRef,
 };
 use object::{
@@ -110,7 +110,7 @@ where
     // other files ("external objects").
     // The following code is written in a way that handles a mixture of the two;
     // it gathers what debug info it can find in the current object, and also
-    // gathers external object references. Then it reads those external objects
+    // makes a list of external object references. Then it reads those external objects
     // and keeps gathering more data until it has it all.
     // In theory, external objects can reference other external objects. The code
     // below handles such nesting, but it's unclear if this can happen in practice.
@@ -181,40 +181,6 @@ async fn traverse_object_references_and_collect_debug_info(
     }
 
     Ok(())
-}
-
-fn make_address_pairs_for_root_object<'data: 'file, 'file, O>(
-    addresses: &[u32],
-    macho_file: &'file O,
-) -> Vec<AddressPair>
-where
-    O: Object<'data, 'file>,
-{
-    // Make an AddressPair for every address.
-    // You'd think that this is the root address, we'd just have pairs of
-    // identical addresses here. However, AddressPair also encodes the difference
-    // between "symbol table address space" and "DWARF debug info address space".
-
-    // For executable files, there's a 0x100000000 offset between the addresses
-    // that are used in the symbol table and the addresses that are used in the
-    // debug info. This 0x100000000 is the vmaddr of the text section.
-    // I'm not sure what the names of those two spaces are, and I can't give a
-    // better explanation than "the code below seems to work".
-    // For shared libraries, vmaddr_of_text_segment is 0, in my experience.
-    use object::read::ObjectSegment;
-    let vmaddr_of_text_segment = macho_file
-        .segments()
-        .find(|segment| segment.name() == Ok(Some("__TEXT")))
-        .map(|segment| segment.address())
-        .unwrap_or(0);
-
-    addresses
-        .iter()
-        .map(|a| AddressPair {
-            original_address: *a,
-            address_in_this_object: vmaddr_of_text_segment + *a as u64,
-        })
-        .collect()
 }
 
 struct FunctionsWithAddresses {

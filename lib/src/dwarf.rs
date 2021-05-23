@@ -12,22 +12,43 @@ use std::{borrow::Cow, cmp::min, marker::PhantomData, str};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct AddressPair {
-    /// An address that is meaningful when compared to the addresses of symbols
-    /// in the root object's symbol table.
+    /// An address (or rather, offset) that is relative to the root object's
+    /// __TEXT segment's address. This in the space in which the addresses
+    /// that our API consumer wants to look up are.
     pub original_address: u32,
 
     /// An address that is meaningful in the current object and in the space that
-    /// DWARF debug info addresses in this object are expressed in.
+    /// symbol addresses and DWARF debug info addresses in this object are expressed in.
     pub address_in_this_object: u64,
 }
 
-impl AddressPair {
-    pub fn same(address: u32) -> Self {
-        AddressPair {
-            original_address: address,
-            address_in_this_object: address as u64,
-        }
-    }
+pub fn make_address_pairs_for_root_object<'data: 'file, 'file, O>(
+    addresses: &[u32],
+    object: &'file O,
+) -> Vec<AddressPair>
+where
+    O: object::Object<'data, 'file>,
+{
+    // Make an AddressPair for every address.
+    // The incoming addresses are offsets relative to the __TEXT segment's address.
+    // The __TEXT segment's address is usually zero, with the following exceptions:
+    //  - mach-o executable files (not dylibs) have a __TEXT segment at address 0x100000000.
+    //  - mach-o libraries in the dyld shared cache have a __TEXT segment at an arbitrary
+    //    address in the cache.
+    use object::read::ObjectSegment;
+    let vmaddr_of_text_segment = object
+        .segments()
+        .find(|segment| segment.name() == Ok(Some("__TEXT")))
+        .map(|segment| segment.address())
+        .unwrap_or(0);
+
+    addresses
+        .iter()
+        .map(|a| AddressPair {
+            original_address: *a,
+            address_in_this_object: vmaddr_of_text_segment + *a as u64,
+        })
+        .collect()
 }
 
 pub fn collect_dwarf_address_debug_data<'data: 'file, 'file, O, R>(

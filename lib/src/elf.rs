@@ -1,4 +1,4 @@
-use crate::dwarf::{collect_dwarf_address_debug_data, AddressPair};
+use crate::dwarf::{collect_dwarf_address_debug_data, make_address_pairs_for_root_object};
 use crate::error::{GetSymbolsError, Result};
 use crate::shared::{
     object_to_map, FileContents, FileContentsWrapper, SymbolicationQuery, SymbolicationResult,
@@ -42,7 +42,7 @@ where
         with_debug_info: true,
     } = R::result_kind()
     {
-        let addresses: Vec<_> = addresses.iter().map(|a| AddressPair::same(*a)).collect();
+        let addresses: Vec<_> = make_address_pairs_for_root_object(addresses, &elf_file);
         collect_dwarf_address_debug_data(
             file_contents.full_range(),
             &elf_file,

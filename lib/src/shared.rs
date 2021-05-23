@@ -114,11 +114,21 @@ pub struct SymbolicationQuery<'a> {
     pub addresses: &'a [u32],
 }
 
+/// Return a BTreeMap that contains address -> symbol name entries.
+/// The address is relative to the address of the __TEXT segment (if present).
+/// We discard the symbol "size"; the address is where the symbol starts.
 pub fn object_to_map<'a: 'b, 'b, T>(object_file: &'b T) -> BTreeMap<u32, &'a str>
 where
     T: object::Object<'a, 'b>,
 {
+    use object::read::ObjectSegment;
     use object::{ObjectSymbol, SymbolKind};
+    let vmaddr_of_text_segment = object_file
+        .segments()
+        .find(|segment| segment.name() == Ok(Some("__TEXT")))
+        .map(|segment| segment.address())
+        .unwrap_or(0);
+
     object_file
         .dynamic_symbols()
         .chain(object_file.symbols())
@@ -127,7 +137,7 @@ where
             symbol
                 .name()
                 .ok()
-                .map(|name| (symbol.address() as u32, name))
+                .map(|name| ((symbol.address() - vmaddr_of_text_segment) as u32, name))
         })
         .collect()
 }
