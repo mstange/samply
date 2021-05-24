@@ -1,4 +1,3 @@
-use memmap2::MmapOptions;
 use profiler_get_symbols::{
     self, FileAndPathHelper, FileAndPathHelperResult, FileContents, OptionallySendFuture,
 };
@@ -69,7 +68,9 @@ impl FileAndPathHelper for Helper {
         async fn read_file_impl(path: PathBuf) -> FileAndPathHelperResult<MmapFileContents> {
             eprintln!("Reading file {:?}", &path);
             let file = File::open(&path)?;
-            Ok(MmapFileContents(unsafe { MmapOptions::new().map(&file)? }))
+            Ok(MmapFileContents(unsafe {
+                memmap2::MmapOptions::new().map(&file)?
+            }))
         }
 
         // See if this file exists in self.symbol_directory.
