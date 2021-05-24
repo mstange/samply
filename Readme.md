@@ -21,6 +21,10 @@ it is used to get symbols for native system libraries, and on all platforms it
 is used if you're profiling a local build of Firefox for which there are no
 symbols on the [Mozilla symbol server](https://symbols.mozilla.org/).
 
+## Documentation
+
+Documentation can be found at [https://docs.rs/profiler-get-symbols/].
+
 ## Running / Testing
 
 ### command line tools
