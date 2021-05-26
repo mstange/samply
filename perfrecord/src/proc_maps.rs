@@ -282,7 +282,7 @@ pub fn get_backtrace(
 
     let mut state: x86_thread_state64_t = unsafe { mem::zeroed() };
     let mut count = x86_thread_state64_t::count();
-    let res = unsafe {
+    let result = unsafe {
         thread_get_state(
             thread_act,
             x86_THREAD_STATE64,
@@ -292,16 +292,13 @@ pub fn get_backtrace(
     }
     .into_result();
 
-    if let Err(err) = res {
-        let _ = unsafe { thread_resume(thread_act) };
-        return Err(err);
+    if let Ok(()) = result {
+        do_frame_pointer_stackwalk(&state, memory, frames);
     }
-
-    do_frame_pointer_stackwalk(&state, memory, frames);
 
     let _ = unsafe { thread_resume(thread_act) };
 
-    Ok(())
+    result
 }
 
 fn do_frame_pointer_stackwalk(
