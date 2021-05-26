@@ -45,11 +45,13 @@ impl ProfileBuilder {
         name: &str,
         path: &str,
         uuid: &Uuid,
+        arch: &'static str,
         address_range: &std::ops::Range<u64>,
     ) {
         self.libs.push(Lib {
             name: name.to_string(),
             path: path.to_string(),
+            arch,
             breakpad_id: format!("{:X}0", uuid.to_simple()),
             start_address: address_range.start,
             end_address: address_range.end,
@@ -240,6 +242,7 @@ impl ThreadBuilder {
 struct Lib {
     name: String,
     path: String,
+    arch: &'static str,
     breakpad_id: String,
     start_address: u64,
     end_address: u64,
@@ -256,7 +259,7 @@ impl Lib {
             "offset": 0,
             "start": self.start_address,
             "end": self.end_address,
-            "arch": "x86_64"
+            "arch": self.arch,
         })
     }
 }

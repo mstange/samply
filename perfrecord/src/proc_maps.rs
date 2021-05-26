@@ -40,6 +40,7 @@ pub struct DyldInfo {
     pub address: u64,
     pub vmsize: u64,
     pub uuid: Option<Uuid>,
+    pub arch: Option<&'static str>,
 }
 
 pub struct DyldInfoManager {
@@ -205,6 +206,29 @@ fn enumerate_dyld_images(
     Ok(vec)
 }
 
+const CPU_ARCH_ABI64: u32 = 0x0100_0000;
+const CPU_TYPE_X86: u32 = 7;
+const CPU_TYPE_ARM: u32 = 12;
+const CPU_TYPE_X86_64: u32 = CPU_TYPE_X86 | CPU_ARCH_ABI64;
+const CPU_TYPE_ARM64: u32 = CPU_TYPE_ARM | CPU_ARCH_ABI64;
+
+const CPU_SUBTYPE_MASK: u32 = 0xff000000u32;
+const CPU_SUBTYPE_X86_64_ALL: u32 = 3;
+const CPU_SUBTYPE_X86_64_H: u32 = 8;
+const CPU_SUBTYPE_ARM64_ALL: u32 = 0;
+const CPU_SUBTYPE_ARM64E: u32 = 2;
+
+fn get_arch_string(cputype: u32, cpusubtype: u32) -> Option<&'static str> {
+    let s = match (cputype, cpusubtype & !CPU_SUBTYPE_MASK) {
+        (CPU_TYPE_X86_64, CPU_SUBTYPE_X86_64_ALL) => "x86_64",
+        (CPU_TYPE_X86_64, CPU_SUBTYPE_X86_64_H) => "x86_64h",
+        (CPU_TYPE_ARM64, CPU_SUBTYPE_ARM64_ALL) => "arm64",
+        (CPU_TYPE_ARM64, CPU_SUBTYPE_ARM64E) => "arm64e",
+        _ => return None,
+    };
+    Some(s)
+}
+
 fn get_dyld_image_info(
     memory: &mut ForeignMemory,
     image_load_address: u64,
@@ -218,21 +242,21 @@ fn get_dyld_image_info(
             .to_string()
     };
 
-    let (header_n_cmds, header_sizeof_cmds) = {
+    let header = {
         let header: &mach_header_64 =
             unsafe { memory.get_type_ref_at_address(image_load_address) }?;
-        (header.ncmds, header.sizeofcmds)
+        *header
     };
 
     let commands_addr = image_load_address + mem::size_of::<mach_header_64>() as u64;
-    let commands_range = commands_addr..(commands_addr + header_sizeof_cmds as u64);
+    let commands_range = commands_addr..(commands_addr + header.sizeofcmds as u64);
     let commands_buffer = memory.get_slice(commands_range)?;
 
     // Figure out the slide from the __TEXT segment if appropiate
     let mut vmsize: u64 = 0;
     let mut uuid = None;
     let mut offset = 0;
-    for _ in 0..header_n_cmds {
+    for _ in 0..header.ncmds {
         unsafe {
             let command = &commands_buffer[offset] as *const u8 as *const load_command;
             match (*command).cmd {
@@ -259,6 +283,7 @@ fn get_dyld_image_info(
         address: image_load_address,
         vmsize,
         uuid,
+        arch: get_arch_string(header.cputype as u32, header.cpusubtype as u32),
     })
 }
 

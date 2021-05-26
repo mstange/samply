@@ -160,15 +160,16 @@ impl TaskProfiler {
             uuid,
             address,
             vmsize,
+            arch,
         } in self.libs
         {
-            let uuid = match uuid {
-                Some(uuid) => uuid,
-                None => continue,
+            let (uuid, arch) = match (uuid, arch) {
+                (Some(uuid), Some(arch)) => (uuid, arch),
+                _ => continue,
             };
             let name = Path::new(&file).file_name().unwrap().to_str().unwrap();
             let address_range = address..(address + vmsize);
-            profile_builder.add_lib(&name, &file, &uuid, &address_range);
+            profile_builder.add_lib(&name, &file, &uuid, arch, &address_range);
         }
 
         for subtask in subtasks {
