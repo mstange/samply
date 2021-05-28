@@ -79,22 +79,25 @@ cargo run --release -p query-api -- big-benchmark-fixtures/macos-local/ /symboli
 There's a UI for the WebAssembly / JavaScript version in `index.html`.
 You can use the files in the `fixtures` directory as examples.
 
-To test, as a one-time setup, install http-server using cargo:
+To test, as a one-time setup, install `simple-http-server` using cargo:
 
 ```bash
-cargo install http-server
+cargo install simple-http-server
 ```
 
-(The advantage of this over python's `SimpleHTTPServer` is that `http-server` sends the correct mime type for .wasm files.)
+(The advantage of this over python's `SimpleHTTPServer` is that `simple-http-server` sends the correct mime type for .wasm files.)
 
-Then start the server in this directory, by typing `http-server` and pressing enter:
+Then start the server in this directory, by typing `simple-http-server` and pressing enter:
 
 ```bash
-$ http-server
-Starting up http-server, serving ./
-Available on:
-  http://0.0.0.0:8080
-Hit CTRL-C to stop the server
+$ simple-http-server
+     Index: disabled, Upload: disabled, Cache: enabled, Cors: disabled, Range: enabled, Sort: enabled, Threads: 3
+          Auth: disabled, Compression: disabled
+         https: disabled, Cert: , Cert-Password: 
+          Root: /Users/mstange/code/profiler-get-symbols,
+    TryFile404: 
+       Address: http://0.0.0.0:8000
+    ======== [2021-05-28 14:50:47] ========
 ```
 
 Now you can open [http://0.0.0.0:8080](http://0.0.0.0:8080) in your browser and play with the API.
