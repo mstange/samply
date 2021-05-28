@@ -2,7 +2,7 @@
 
 The crates in this repo allow you to obtain symbol tables from ELF, Mach-O and PE
 binaries as well as from pdb files. The implementation makes use of the crates
-`object`, `goblin` and `pdb`.
+`object` and `pdb`.
 
 The `lib` directory contains a generic Rust implementation. The `wasm` directory
 contains a wrapper that targets WebAssembly and JavaScript.
