@@ -1,8 +1,11 @@
-use crate::error::{Context, GetSymbolsError, Result};
 use crate::pdb_crate::{FallibleIterator, ProcedureSymbol, PublicSymbol, SymbolData, PDB};
 use crate::shared::{
     AddressDebugInfo, FileAndPathHelper, FileContents, FileContentsWrapper, InlineStackFrame,
     SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
+};
+use crate::{
+    error::{Context, GetSymbolsError, Result},
+    shared::object_to_map,
 };
 use std::collections::{BTreeMap, HashSet};
 use std::io::Cursor;
@@ -12,10 +15,16 @@ pub mod addr2line;
 mod type_dumper;
 
 use super::pdb::addr2line::Addr2LineContext;
+use object::{
+    pe::{ImageDosHeader, ImageNtHeaders32, ImageNtHeaders64},
+    read::pe::{ImageNtHeaders, ImageOptionalHeader},
+    ReadRef,
+};
 use type_dumper::{DumperFlags, TypeDumper};
 
 pub async fn get_symbolication_result_via_binary<'a, R>(
-    buffer: &[u8],
+    file_kind: object::FileKind,
+    file_contents: FileContentsWrapper<impl FileContents>,
     query: SymbolicationQuery<'a>,
     path: &Path,
     helper: &impl FileAndPathHelper,
@@ -23,21 +32,28 @@ pub async fn get_symbolication_result_via_binary<'a, R>(
 where
     R: SymbolicationResult,
 {
+    let is_64 = match file_kind {
+        object::FileKind::Pe32 => false,
+        object::FileKind::Pe64 => true,
+        _ => panic!("Unexpected file_kind"),
+    };
+
     let SymbolicationQuery {
         debug_name,
         breakpad_id,
         addresses,
         ..
     } = query.clone();
-    let pe = goblin::pe::PE::parse(buffer)?;
-    let debug_info = pe.debug_data.and_then(|d| d.codeview_pdb70_debug_info);
-    let info = match debug_info {
-        None => {
+    use object::Object;
+    let pe = object::File::parse(&file_contents)
+        .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
+    let info = match pe.pdb_info() {
+        Ok(Some(info)) => info,
+        _ => {
             return Err(GetSymbolsError::NoDebugInfoInPeBinary(
                 path.to_string_lossy().to_string(),
             ))
         }
-        Some(info) => info,
     };
 
     // We could check the binary's signature here against breakpad_id, but we don't really
@@ -45,11 +61,11 @@ where
     // signature, that's all we need, and we'll happily accept correct PDB files even when
     // we found them via incorrect binaries.
 
-    let pdb_path = std::ffi::CStr::from_bytes_with_nul(info.filename)
-        .map_err(|_| GetSymbolsError::PdbPathDidntEndWithNul(path.to_string_lossy().to_string()))?;
+    let pdb_path =
+        std::ffi::CString::new(info.path()).expect("info.path() should have stripped the nul byte");
 
     let candidate_paths_for_pdb = helper
-        .get_candidate_paths_for_pdb(debug_name, breakpad_id, pdb_path, path)
+        .get_candidate_paths_for_pdb(debug_name, breakpad_id, &pdb_path, path)
         .map_err(|e| {
             GetSymbolsError::HelperErrorDuringGetCandidatePathsForPdb(
                 debug_name.to_string(),
@@ -63,7 +79,7 @@ where
             continue;
         }
         if let Ok(table) =
-            try_get_symbolication_result_from_pdb_path(query.clone(), path, helper).await
+            try_get_symbolication_result_from_pdb_path(query.clone(), &pdb_path, helper).await
         {
             return Ok(table);
         }
@@ -72,8 +88,8 @@ where
     // Fallback: If no PDB file is present, make a symbol table with just the exports.
     // Now it's time to check the breakpad ID!
 
-    let signature = pe_signature_to_uuid(&info.signature);
-    let expected_breakpad_id = format!("{:X}{:x}", signature.to_simple(), info.age);
+    let signature = pe_signature_to_uuid(&info.guid());
+    let expected_breakpad_id = format!("{:X}{:x}", signature.to_simple(), info.age());
 
     if breakpad_id != expected_breakpad_id {
         return Err(GetSymbolsError::UnmatchedBreakpadId(
@@ -82,7 +98,27 @@ where
         ));
     }
 
-    get_symbolication_result_from_pe_binary(pe, addresses)
+    let mut map = object_to_map(&pe);
+    if let Ok(exports) = pe.exports() {
+        let image_base_address: u64 = match is_64 {
+            false => get_image_base_address::<ImageNtHeaders32, _>(&file_contents).unwrap_or(0),
+            true => get_image_base_address::<ImageNtHeaders64, _>(&file_contents).unwrap_or(0),
+        };
+        for export in exports {
+            if let Ok(name) = std::str::from_utf8(export.name()) {
+                map.insert((export.address() - image_base_address) as u32, name);
+            }
+        }
+    }
+    Ok(R::from_full_map(map, addresses))
+}
+
+fn get_image_base_address<'data, Pe: ImageNtHeaders, R: ReadRef<'data>>(data: R) -> Option<u64> {
+    let dos_header = ImageDosHeader::parse(data).ok()?;
+    let mut offset = dos_header.nt_headers_offset().into();
+    let (nt_headers, _) = Pe::parse(data, &mut offset).ok()?;
+    let optional_header = nt_headers.optional_header();
+    Some(optional_header.image_base())
 }
 
 async fn try_get_symbolication_result_from_pdb_path<'a, R>(
@@ -326,24 +362,6 @@ fn convert_stack_frame<'a>(
         file_path,
         line_number,
     })
-}
-
-fn get_symbolication_result_from_pe_binary<R>(pe: goblin::pe::PE, addresses: &[u32]) -> Result<R>
-where
-    R: SymbolicationResult,
-{
-    Ok(R::from_full_map(
-        pe.exports
-            .iter()
-            .map(|export| {
-                (
-                    export.rva as u32,
-                    export.name.unwrap_or("<unknown>").to_owned(),
-                )
-            })
-            .collect(),
-        addresses,
-    ))
 }
 
 fn pe_signature_to_uuid(identifier: &[u8; 16]) -> uuid::Uuid {

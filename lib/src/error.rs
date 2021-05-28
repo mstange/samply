@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
 use crate::pdb_crate::Error as PDBError;
-use goblin::error::Error as GoblinError;
 use object;
 use thiserror::Error;
 
@@ -26,9 +25,6 @@ pub enum GetSymbolsError {
 
     #[error("Object could not parse the file as {0:?}: {1}")]
     ObjectParseError(object::read::FileKind, #[source] object::read::Error),
-
-    #[error("goblin error: {0}")]
-    GoblinError(#[from] GoblinError),
 
     #[error("Dyld cache parsing error: {0}")]
     DyldCacheParseError(#[source] object::read::Error),
@@ -107,7 +103,6 @@ impl GetSymbolsError {
             GetSymbolsError::DyldCacheParseError(_) => "DyldCacheParseError",
             GetSymbolsError::NoMatchingDyldCacheImagePath(_) => "NoMatchingDyldCacheImagePath",
             GetSymbolsError::ObjectParseError(_, _) => "ObjectParseError",
-            GetSymbolsError::GoblinError(_) => "GoblinError",
             GetSymbolsError::MachOHeaderParseError(_) => "MachOHeaderParseError",
             GetSymbolsError::HelperErrorDuringGetCandidatePathsForBinaryOrPdb(_, _, _) => {
                 "HelperErrorDuringGetCandidatePathsForBinaryOrPdb"

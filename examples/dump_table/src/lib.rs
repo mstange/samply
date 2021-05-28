@@ -218,6 +218,47 @@ mod test {
     }
 
     #[test]
+    fn successful_pdb2() {
+        let result = futures::executor::block_on(crate::get_table(
+            "mozglue.pdb",
+            Some(String::from("B3CC644ECC086E044C4C44205044422E1")),
+            fixtures_dir().join("win64-local"),
+        ));
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert_eq!(result.addr.len(), 1074);
+        assert_eq!(result.addr[454], 0x34670);
+        assert_eq!(
+            std::str::from_utf8(
+                &result.buffer[result.index[454] as usize..result.index[455] as usize]
+            ),
+            Ok("?profiler_get_profile@baseprofiler@mozilla@@YA?AV?$UniquePtr@$$BY0A@DV?$DefaultDelete@$$BY0A@D@mozilla@@@2@N_N0@Z")
+        );
+    }
+
+    #[test]
+    fn successful_dll() {
+        // The breakpad ID, symbol address and symbol name in this test are the same as
+        // in the previous PDB test. The difference is that this test is looking at the
+        // exports in the DLL rather than the symbols in the PDB.
+        let result = futures::executor::block_on(crate::get_table(
+            "mozglue.dll",
+            Some(String::from("B3CC644ECC086E044C4C44205044422E1")),
+            fixtures_dir().join("win64-local"),
+        ));
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert_eq!(result.addr.len(), 302);
+        assert_eq!(result.addr[123], 0x34670);
+        assert_eq!(
+            std::str::from_utf8(
+                &result.buffer[result.index[123] as usize..result.index[124] as usize]
+            ),
+            Ok("?profiler_get_profile@baseprofiler@mozilla@@YA?AV?$UniquePtr@$$BY0A@DV?$DefaultDelete@$$BY0A@D@mozilla@@@2@N_N0@Z")
+        );
+    }
+
+    #[test]
     fn successful_pdb_unspecified_id() {
         let result = futures::executor::block_on(crate::get_table(
             "firefox.pdb",

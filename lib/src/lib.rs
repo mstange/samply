@@ -306,13 +306,14 @@ where
                 macho::get_symbolication_result(file_contents, None, 0, query, helper).await
             }
             FileKind::Pe32 | FileKind::Pe64 => {
-                let buffer = file_contents.read_entire_data().map_err(|e| {
-                    GetSymbolsError::HelperErrorDuringFileReading(
-                        path.to_string_lossy().to_string(),
-                        e,
-                    )
-                })?;
-                pdb::get_symbolication_result_via_binary(buffer, query, path, helper).await
+                pdb::get_symbolication_result_via_binary(
+                    file_kind,
+                    file_contents,
+                    query,
+                    path,
+                    helper,
+                )
+                .await
             }
             FileKind::Archive | _ => Err(GetSymbolsError::InvalidInputError(
                 "Input was Archive, Coff or Wasm format, which are unsupported for now",
