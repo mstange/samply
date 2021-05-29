@@ -210,7 +210,7 @@ impl<'a> TypeDumper<'a> {
         }
     }
 
-    fn dump_parent_scope(&self, w: &mut impl Write, scope: ParentScope) -> Result<()> {
+    fn dump_parent_scope(&self, w: &mut Vec<u8>, scope: ParentScope) -> Result<()> {
         match scope {
             ParentScope::WithType(scope_index) => match self.find(scope_index)? {
                 TypeData::Class(c) => write!(w, "{}::", c.name)?,
@@ -246,7 +246,11 @@ impl<'a> TypeDumper<'a> {
             match typ {
                 TypeData::MemberFunction(t) => {
                     let ztatic = t.this_pointer_type.is_none();
-                    if ztatic && !self.flags.intersects(DumperFlags::NO_MEMBER_FUNCTION_STATIC) {
+                    if ztatic
+                        && !self
+                            .flags
+                            .intersects(DumperFlags::NO_MEMBER_FUNCTION_STATIC)
+                    {
                         w.write_all(b"static ")?;
                     }
                     if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
@@ -292,7 +296,7 @@ impl<'a> TypeDumper<'a> {
 
     fn dump_return_type(
         &self,
-        w: &mut impl Write,
+        w: &mut Vec<u8>,
         typ: Option<TypeIndex>,
         attrs: FunctionAttributes,
     ) -> Result<()> {
@@ -337,7 +341,7 @@ impl<'a> TypeDumper<'a> {
     // Return value describes whether this is a const method.
     fn dump_method_args(
         &self,
-        w: &mut impl Write,
+        w: &mut Vec<u8>,
         typ: MemberFunctionType,
         ztatic: bool,
     ) -> Result<bool> {
@@ -385,7 +389,7 @@ impl<'a> TypeDumper<'a> {
     //  yes                 | pointer sigil         | on                        | not a pointer sigil | yes
     fn dump_attributes(
         &self,
-        w: &mut impl Write,
+        w: &mut Vec<u8>,
         attrs: Vec<PtrAttributes>,
         allow_space_at_beginning: bool,
         mut previous_byte_was_pointer_sigil: bool,
@@ -427,7 +431,7 @@ impl<'a> TypeDumper<'a> {
 
     fn dump_member_ptr(
         &self,
-        w: &mut impl Write,
+        w: &mut Vec<u8>,
         fun: MemberFunctionType,
         attributes: Vec<PtrAttributes>,
     ) -> Result<()> {
@@ -444,7 +448,7 @@ impl<'a> TypeDumper<'a> {
 
     fn dump_proc_ptr(
         &self,
-        w: &mut impl Write,
+        w: &mut Vec<u8>,
         fun: ProcedureType,
         attributes: Vec<PtrAttributes>,
     ) -> Result<()> {
@@ -461,7 +465,7 @@ impl<'a> TypeDumper<'a> {
 
     fn dump_other_ptr(
         &self,
-        w: &mut impl Write,
+        w: &mut Vec<u8>,
         typ: TypeData,
         attributes: Vec<PtrAttributes>,
     ) -> Result<()> {
@@ -479,7 +483,7 @@ impl<'a> TypeDumper<'a> {
 
     fn dump_ptr_helper(
         &self,
-        w: &mut impl Write,
+        w: &mut Vec<u8>,
         attributes: Vec<PtrAttributes>,
         typ: TypeData,
     ) -> Result<()> {
@@ -491,7 +495,7 @@ impl<'a> TypeDumper<'a> {
         Ok(())
     }
 
-    fn dump_ptr(&self, w: &mut impl Write, ptr: PointerType, is_const: bool) -> Result<()> {
+    fn dump_ptr(&self, w: &mut Vec<u8>, ptr: PointerType, is_const: bool) -> Result<()> {
         let mut attributes = Vec::new();
         attributes.push(PtrAttributes {
             is_pointer_const: ptr.attributes.is_const() || is_const,
@@ -556,7 +560,7 @@ impl<'a> TypeDumper<'a> {
         }
     }
 
-    fn dump_array(&self, w: &mut impl Write, array: ArrayType) -> Result<()> {
+    fn dump_array(&self, w: &mut Vec<u8>, array: ArrayType) -> Result<()> {
         let (dimensions_as_bytes, base) = self.get_array_info(array)?;
         let base_size = self.get_data_size(&base);
         self.dump_data(w, base)?;
@@ -577,7 +581,7 @@ impl<'a> TypeDumper<'a> {
         Ok(())
     }
 
-    fn dump_modifier(&self, w: &mut impl Write, modifier: ModifierType) -> Result<()> {
+    fn dump_modifier(&self, w: &mut Vec<u8>, modifier: ModifierType) -> Result<()> {
         let typ = self.find(modifier.underlying_type)?;
         match typ {
             TypeData::Pointer(ptr) => self.dump_ptr(w, ptr, modifier.constant)?,
@@ -592,7 +596,7 @@ impl<'a> TypeDumper<'a> {
         Ok(())
     }
 
-    fn dump_class(&self, w: &mut impl Write, class: ClassType) -> Result<()> {
+    fn dump_class(&self, w: &mut Vec<u8>, class: ClassType) -> Result<()> {
         if self.flags.intersects(DumperFlags::NAME_ONLY) {
             write!(w, "{}", class.name)?;
         } else {
@@ -606,7 +610,7 @@ impl<'a> TypeDumper<'a> {
         Ok(())
     }
 
-    fn dump_arg_list(&self, w: &mut impl Write, list: ArgumentList) -> Result<()> {
+    fn dump_arg_list(&self, w: &mut Vec<u8>, list: ArgumentList) -> Result<()> {
         if let Some((last, args)) = list.arguments.split_last() {
             for index in args.iter() {
                 self.dump_index(w, *index)?;
@@ -620,12 +624,7 @@ impl<'a> TypeDumper<'a> {
         Ok(())
     }
 
-    fn dump_primitive(
-        &self,
-        w: &mut impl Write,
-        prim: PrimitiveType,
-        is_const: bool,
-    ) -> Result<()> {
+    fn dump_primitive(&self, w: &mut Vec<u8>, prim: PrimitiveType, is_const: bool) -> Result<()> {
         // TODO: check that these names are what we want to see
         let name = match prim.kind {
             PrimitiveKind::NoType => "<NoType>",
@@ -691,7 +690,7 @@ impl<'a> TypeDumper<'a> {
         Ok(())
     }
 
-    fn dump_named(&self, w: &mut impl Write, base: &str, name: RawString) -> Result<()> {
+    fn dump_named(&self, w: &mut Vec<u8>, base: &str, name: RawString) -> Result<()> {
         if self.flags.intersects(DumperFlags::NAME_ONLY) {
             write!(w, "{}", name)?
         } else {
@@ -701,13 +700,13 @@ impl<'a> TypeDumper<'a> {
         Ok(())
     }
 
-    fn dump_index(&self, w: &mut impl Write, index: TypeIndex) -> Result<()> {
+    fn dump_index(&self, w: &mut Vec<u8>, index: TypeIndex) -> Result<()> {
         let typ = self.find(index)?;
         self.dump_data(w, typ)?;
         Ok(())
     }
 
-    fn dump_data(&self, w: &mut impl Write, typ: TypeData) -> Result<()> {
+    fn dump_data(&self, w: &mut Vec<u8>, typ: TypeData) -> Result<()> {
         match typ {
             TypeData::Primitive(t) => self.dump_primitive(w, t, false)?,
             TypeData::Class(t) => self.dump_class(w, t)?,
