@@ -233,10 +233,12 @@ impl<'a> TypeDumper<'a> {
         index: TypeIndex,
         parent_index: Option<ParentScope>,
     ) -> Result<String> {
-        if name.is_empty() {
-            Ok("<name omitted>".to_string())
-        } else if index == TypeIndex(0) {
-            Ok(name.to_string())
+        if index == TypeIndex(0) {
+            if name.is_empty() {
+                Ok("<name omitted>".to_string())
+            } else {
+                Ok(name.to_string())
+            }
         } else {
             let mut w: Vec<u8> = Vec::new();
             let typ = self.find(index)?;
@@ -253,7 +255,11 @@ impl<'a> TypeDumper<'a> {
                     if let Some(i) = parent_index {
                         self.dump_parent_scope(&mut w, i)?;
                     }
-                    write!(w, "{}", name)?;
+                    if name.is_empty() {
+                        write!(w, "{}", "<name omitted>")?;
+                    } else {
+                        write!(w, "{}", name)?;
+                    };
                     let const_meth = self.dump_method_args(&mut w, t, ztatic)?;
                     if const_meth {
                         w.write_all(b" const")?;
@@ -267,7 +273,11 @@ impl<'a> TypeDumper<'a> {
                     if let Some(i) = parent_index {
                         self.dump_parent_scope(&mut w, i)?;
                     }
-                    write!(w, "{}", name)?;
+                    if name.is_empty() {
+                        write!(w, "{}", "<name omitted>")?;
+                    } else {
+                        write!(w, "{}", name)?;
+                    };
                     write!(w, "(")?;
                     self.dump_index(&mut w, t.argument_list)?;
                     write!(w, ")")?;
