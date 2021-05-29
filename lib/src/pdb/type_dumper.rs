@@ -261,7 +261,7 @@ impl<'a> TypeDumper<'a> {
                         self.dump_parent_scope(&mut w, i)?;
                     }
                     if name.is_empty() {
-                        write!(w, "{}", "<name omitted>")?;
+                        write!(w, "<name omitted>")?;
                     } else {
                         write!(w, "{}", name)?;
                     };
@@ -279,7 +279,7 @@ impl<'a> TypeDumper<'a> {
                         self.dump_parent_scope(&mut w, i)?;
                     }
                     if name.is_empty() {
-                        write!(w, "{}", "<name omitted>")?;
+                        write!(w, "<name omitted>")?;
                     } else {
                         write!(w, "{}", name)?;
                     };
