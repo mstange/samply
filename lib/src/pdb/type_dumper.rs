@@ -469,13 +469,9 @@ impl<'a> TypeDumper<'a> {
         typ: TypeData,
         attributes: Vec<PtrAttributes>,
     ) -> Result<()> {
-        let mut data_buf: Vec<u8> = Vec::new();
-        self.dump_data(&mut data_buf, typ)?;
-        w.write_all(&data_buf)?;
-        let previous_byte_was_pointer_sigil = data_buf
-            .last()
-            .map(|&b| b == b'*' || b == b'&')
-            .unwrap_or(false);
+        self.dump_data(w, typ)?;
+        let previous_byte_was_pointer_sigil =
+            w.last().map(|&b| b == b'*' || b == b'&').unwrap_or(false);
         self.dump_attributes(w, attributes, true, previous_byte_was_pointer_sigil)?;
 
         Ok(())
