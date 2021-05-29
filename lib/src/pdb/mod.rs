@@ -152,7 +152,7 @@ where
     let info = pdb.pdb_information().context("pdb_information")?;
     let dbi = pdb.debug_information()?;
     let age = dbi.age().unwrap_or(info.age);
-    let pdb_id = format!("{}{:x}", format!("{:X}", info.guid.to_simple()), age);
+    let pdb_id = format!("{:X}{:x}", info.guid.to_simple(), age);
 
     let SymbolicationQuery {
         breakpad_id,
