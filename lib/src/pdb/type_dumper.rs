@@ -11,24 +11,12 @@ use std::io::Write;
 type FwdRefSize<'a> = HashMap<RawString<'a>, u32>;
 
 #[derive(Eq, PartialEq)]
-enum ThisKind {
-    This,
-    ConstThis,
-    NotThis,
-}
-
-impl ThisKind {
-    fn new(is_this: bool, is_const: bool) -> Self {
-        if is_this {
-            if is_const {
-                Self::ConstThis
-            } else {
-                Self::This
-            }
-        } else {
-            Self::NotThis
-        }
-    }
+enum PtrToClassKind {
+    PtrToGivenClass {
+        /// If true, the pointer is a "pointer to const ClassType".
+        constant: bool,
+    },
+    OtherType,
 }
 
 #[derive(Debug)]
@@ -309,72 +297,91 @@ impl<'a> TypeDumper<'a> {
         Ok(())
     }
 
-    fn check_this_type(&self, this: TypeIndex, class: TypeIndex) -> Result<ThisKind> {
-        let this = self.find(this)?;
-
-        let is_this = match this {
-            TypeData::Pointer(ptr) => {
-                if ptr.underlying_type == class {
-                    ThisKind::This
-                } else {
-                    let underlying_typ = self.find(ptr.underlying_type)?;
-                    if let TypeData::Modifier(modifier) = underlying_typ {
-                        ThisKind::new(modifier.underlying_type == class, modifier.constant)
-                    } else {
-                        ThisKind::NotThis
-                    }
+    /// Check if ptr points to the specified class, and if so, whether it points to const or non-const class.
+    /// If it points to a different class than the one supplied in the `class` argument, don't check constness.
+    fn is_ptr_to_class(&self, ptr: TypeIndex, class: TypeIndex) -> Result<PtrToClassKind> {
+        if let TypeData::Pointer(ptr_type) = self.find(ptr)? {
+            let underlying_type = ptr_type.underlying_type;
+            if underlying_type == class {
+                return Ok(PtrToClassKind::PtrToGivenClass { constant: false });
+            }
+            let underlying_type_data = self.find(underlying_type)?;
+            if let TypeData::Modifier(modifier) = underlying_type_data {
+                if modifier.underlying_type == class {
+                    return Ok(PtrToClassKind::PtrToGivenClass {
+                        constant: modifier.constant,
+                    });
                 }
             }
-            TypeData::Modifier(modifier) => {
-                let underlying_typ = self.find(modifier.underlying_type)?;
-                if let TypeData::Pointer(ptr) = underlying_typ {
-                    ThisKind::new(ptr.underlying_type == class, modifier.constant)
-                } else {
-                    ThisKind::NotThis
-                }
-            }
-            _ => ThisKind::NotThis,
         };
-        Ok(is_this)
+        Ok(PtrToClassKind::OtherType)
+    }
+
+    /// Return value: (this is pointer to const class, optional extra first argument)
+    fn get_class_constness_and_extra_arguments(
+        &self,
+        this: TypeIndex,
+        class: TypeIndex,
+    ) -> Result<(bool, Option<TypeIndex>)> {
+        match self.is_ptr_to_class(this, class)? {
+            PtrToClassKind::PtrToGivenClass { constant } => {
+                // The this type looks normal. Don't return an extra argument.
+                Ok((constant, None))
+            }
+            PtrToClassKind::OtherType => {
+                // The type of the "this" pointer did not match the class type.
+                // This is arguably bad type information.
+                // It looks like this bad type information is emitted for all Rust "associated
+                // functions" whose first argument is a reference. Associated functions don't
+                // take a self argument, so it would make sense to treat them as static.
+                // But instead, these functions are marked as non-static, and the first argument's
+                // type, rather than being part of the arguments list, is stored in the "this" type.
+                // For example, for ProfileScope::new(name: &'static CStr), the arguments list is
+                // empty and the this type is CStr*.
+                // To work around this, return the this type as an extra first argument.
+                Ok((false, Some(this)))
+            }
+        }
     }
 
     // Return value describes whether this is a const method.
     fn dump_method_args(
         &self,
         w: &mut Vec<u8>,
-        typ: MemberFunctionType,
-        ztatic: bool,
+        method_type: MemberFunctionType,
+        is_static_method: bool,
     ) -> Result<bool> {
-        // Note: "this" isn't dumped but there are some cases in rust code where
-        // a first argument shouldn't be "this" but in fact it is:
-        // https://hg.mozilla.org/releases/mozilla-release/annotate/7ece03f6971968eede29275477502309bbe399da/toolkit/components/bitsdownload/src/bits_interface/task/service_task.rs#l217
-        // So we dump "this" when the underlying type (modulo pointer) is different from the class type
+        let args_list = match self.find(method_type.argument_list)? {
+            TypeData::ArgumentList(t) => t,
+            _ => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "argument type was not TypeData::ArgumentList",
+                )
+                .into());
+            }
+        };
 
-        if ztatic {
-            write!(w, "(")?;
-            self.dump_index(w, typ.argument_list)?;
-            write!(w, ")")?;
-            return Ok(false);
-        }
-
-        let this_typ = typ.this_pointer_type.unwrap();
-        let this_kind = self.check_this_type(this_typ, typ.class_type)?;
+        let (is_const_method, extra_first_arg) = if is_static_method {
+            // Static methods have the correct arguments and are not const methods.
+            (false, None)
+        } else {
+            // For non-static methods, check whether the method is const, and work around a
+            // problem with bad type information for Rust associated functions.
+            let this_type = method_type.this_pointer_type.unwrap();
+            self.get_class_constness_and_extra_arguments(this_type, method_type.class_type)?
+        };
 
         write!(w, "(")?;
-        if this_kind == ThisKind::NotThis {
-            self.dump_index(w, this_typ)?;
-            let mut args_buf: Vec<u8> = Vec::new();
-            self.dump_index(&mut args_buf, typ.argument_list)?;
-            if !args_buf.is_empty() {
-                write!(w, ", ")?;
-            }
-            w.write_all(&args_buf)?;
+        if let Some(first_arg) = extra_first_arg {
+            self.dump_index(w, first_arg)?;
+            self.dump_arg_list(w, args_list, true)?;
         } else {
-            self.dump_index(w, typ.argument_list)?;
+            self.dump_arg_list(w, args_list, false)?;
         }
         write!(w, ")")?;
 
-        Ok(this_kind == ThisKind::ConstThis)
+        Ok(is_const_method)
     }
 
     // Should we emit a space as the first byte from dump_attributes? It depends.
@@ -606,16 +613,27 @@ impl<'a> TypeDumper<'a> {
         Ok(())
     }
 
-    fn dump_arg_list(&self, w: &mut Vec<u8>, list: ArgumentList) -> Result<()> {
-        if let Some((last, args)) = list.arguments.split_last() {
-            for index in args.iter() {
-                self.dump_index(w, *index)?;
+    fn dump_arg_list(
+        &self,
+        w: &mut Vec<u8>,
+        list: ArgumentList,
+        comma_before_first: bool,
+    ) -> Result<()> {
+        if let Some((first, args)) = list.arguments.split_first() {
+            if comma_before_first {
                 write!(w, ",")?;
                 if self.flags.intersects(DumperFlags::SPACE_AFTER_COMMA) {
                     write!(w, " ")?;
                 }
             }
-            self.dump_index(w, *last)?;
+            self.dump_index(w, *first)?;
+            for index in args.iter() {
+                write!(w, ",")?;
+                if self.flags.intersects(DumperFlags::SPACE_AFTER_COMMA) {
+                    write!(w, " ")?;
+                }
+                self.dump_index(w, *index)?;
+            }
         }
         Ok(())
     }
@@ -724,7 +742,7 @@ impl<'a> TypeDumper<'a> {
                 self.dump_index(w, t.argument_list)?;
                 write!(w, "")?;
             }
-            TypeData::ArgumentList(t) => self.dump_arg_list(w, t)?,
+            TypeData::ArgumentList(t) => self.dump_arg_list(w, t, false)?,
             TypeData::Pointer(t) => self.dump_ptr(w, t, false)?,
             TypeData::Array(t) => self.dump_array(w, t)?,
             TypeData::Union(t) => self.dump_named(w, "union", t.name)?,
