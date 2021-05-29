@@ -1,6 +1,6 @@
 The JSON in the example files in this directory was obtained by triggering re-symbolication for the following profiles:
 
- - `win64-local-*.json`: https://perfht.ml/2z2IJBR
+ - `win64-local-*.json`: https://share.firefox.dev/34tLx77
  - `win64-ci-*.json`: https://perfht.ml/2WHa7yt
  - `macos-ci-*.json`: https://perfht.ml/2YOcIYz
  - `macos-local-xul.json`: https://perfht.ml/2X7DwAM

@@ -21,6 +21,11 @@ fn main() -> anyhow::Result<()> {
         FileType::CabArchive,
     )?;
     prepare(
+        big_fixtures_dir().join("win64-local").join("xul.pdb"),
+        "https://storage.googleapis.com/profiler-get-symbols-fixtures/win64-local-xul.pdb.gz",
+        FileType::Gzip,
+    )?;
+    prepare(
         big_fixtures_dir().join("macos-ci").join("XUL.dSYM"),
         "https://symbols.mozilla.org/XUL/D2139EE3190B37028A98D55519AA0B870/XUL.dSYM.tar.bz2",
         FileType::TarBz2,
@@ -78,6 +83,33 @@ fn main() -> anyhow::Result<()> {
             "/symbolicate/v6a1",
             &fixtures_dir().join("requests").join("win64-ci-xul.json"),
             big_fixtures_dir().join("win64-ci"),
+        )?,
+    });
+    timings.push(Timing {
+        platform: "win64-local",
+        action: "dump-table",
+        duration: run_dump_table_benchmark(
+            "xul.pdb",
+            Some("518A025063D22EEA4C4C44205044422E1".into()),
+            big_fixtures_dir().join("win64-local"),
+        )?,
+    });
+    timings.push(Timing {
+        platform: "win64-local",
+        action: "query-api v5",
+        duration: run_api_query_benchmark(
+            "/symbolicate/v5",
+            &fixtures_dir().join("requests").join("win64-local-xul.json"),
+            big_fixtures_dir().join("win64-local"),
+        )?,
+    });
+    timings.push(Timing {
+        platform: "win64-local",
+        action: "query-api v6a1",
+        duration: run_api_query_benchmark(
+            "/symbolicate/v6a1",
+            &fixtures_dir().join("requests").join("win64-local-xul.json"),
+            big_fixtures_dir().join("win64-local"),
         )?,
     });
 
