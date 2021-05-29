@@ -41,9 +41,10 @@ struct PtrAttributes {
 bitflags! {
     pub struct DumperFlags: u32 {
         const NO_FUNCTION_RETURN = 0b1;
-        const SPACE_AFTER_COMMA = 0b10;
-        const SPACE_BEFORE_POINTER = 0b100;
-        const NAME_ONLY = 0b1000;
+        const NO_MEMBER_FUNCTION_STATIC = 0b10;
+        const SPACE_AFTER_COMMA = 0b100;
+        const SPACE_BEFORE_POINTER = 0b1000;
+        const NAME_ONLY = 0b10000;
     }
 }
 
@@ -245,7 +246,7 @@ impl<'a> TypeDumper<'a> {
             match typ {
                 TypeData::MemberFunction(t) => {
                     let ztatic = t.this_pointer_type.is_none();
-                    if ztatic {
+                    if ztatic && !self.flags.intersects(DumperFlags::NO_MEMBER_FUNCTION_STATIC) {
                         w.write_all(b"static ")?;
                     }
                     if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {

@@ -15,15 +15,15 @@ Found 1283 symbols.
 6800 arena_t::Palloc(unsigned long long, unsigned long long)
 6900 arena_t::PallocHuge(unsigned long long, unsigned long long, bool)
 6ab0 Debug::jemalloc_ptr_info(void const*)
-6ad0 static Allocator<MozJemallocBase>::jemalloc_ptr_info(void const*, jemalloc_ptr_info_s*)
+6ad0 Allocator<MozJemallocBase>::jemalloc_ptr_info(void const*, jemalloc_ptr_info_s*)
 6e70 arena_t::RallocShrinkLarge(arena_chunk_t*, void*, unsigned long long, unsigned long long)
 6f10 arena_t::RallocHuge(void*, unsigned long long, unsigned long long)
-71d0 static TypedBaseAlloc<arena_t>::alloc()
+71d0 TypedBaseAlloc<arena_t>::alloc()
 7230 arena_t::arena_t(arena_params_s*)
 7480 arena_t::~arena_t()
 7580 ?CreateArena@ArenaCollection@@QEAAPEAUarena_t@@_NPEAUarena_params_s@@@Z
 76d0 _malloc_message<const char *>(char const*, char const*)
-7720 static TypedBaseAlloc<extent_node_t>::alloc()
+7720 TypedBaseAlloc<extent_node_t>::alloc()
 7780 jemalloc_replace_dynamic
 79a0 get_bridge
 79d0 ?init@@YAXXZ.llvm.8665101945953613174
@@ -77,27 +77,27 @@ a800 RedBlackTree<extent_node_t,ExtentTreeBoundsTrait>::Search(RedBlackTree<exte
 a860 arena_dalloc(void*, unsigned long long, arena_t*)
 a9b0 ?huge_dalloc@@YAXPEAXPEAUarena_t@@@Z.llvm.8665101945953613174
 ab10 ?DallocSmall@arena_t@@QEAAXPEAUarena_chunk_t@@PEAXPEAUarena_chunk_map_t@@@Z
-b550 static Allocator<MozJemallocBase>::malloc(unsigned long long)
-bd50 static Allocator<MozJemallocBase>::calloc(unsigned long long, unsigned long long)
-c580 static Allocator<MozJemallocBase>::realloc(void*, unsigned long long)
+b550 Allocator<MozJemallocBase>::malloc(unsigned long long)
+bd50 Allocator<MozJemallocBase>::calloc(unsigned long long, unsigned long long)
+c580 Allocator<MozJemallocBase>::realloc(void*, unsigned long long)
 d0c0 ?free@?$Allocator@UMozJemallocBase@@@@SAXPEAX@Z
-d270 static Allocator<MozJemallocBase>::memalign(unsigned long long, unsigned long long)
-d340 static Allocator<MozJemallocBase>::posix_memalign(void**, unsigned long long, unsigned long long)
-d480 static Allocator<MozJemallocBase>::aligned_alloc(unsigned long long, unsigned long long)
-d550 static Allocator<MozJemallocBase>::valloc(unsigned long long)
-d610 static Allocator<MozJemallocBase>::malloc_usable_size(void const*)
-d8d0 static Allocator<MozJemallocBase>::malloc_good_size(unsigned long long)
-d960 static Allocator<MozJemallocBase>::jemalloc_stats(jemalloc_stats_t*)
+d270 Allocator<MozJemallocBase>::memalign(unsigned long long, unsigned long long)
+d340 Allocator<MozJemallocBase>::posix_memalign(void**, unsigned long long, unsigned long long)
+d480 Allocator<MozJemallocBase>::aligned_alloc(unsigned long long, unsigned long long)
+d550 Allocator<MozJemallocBase>::valloc(unsigned long long)
+d610 Allocator<MozJemallocBase>::malloc_usable_size(void const*)
+d8d0 Allocator<MozJemallocBase>::malloc_good_size(unsigned long long)
+d960 Allocator<MozJemallocBase>::jemalloc_stats(jemalloc_stats_t*)
 dd80 ?ReenablePHCOnCurrentThread@ReplaceMallocBridge@@UEAAXXZ
-dd90 static Allocator<MozJemallocBase>::jemalloc_free_dirty_pages()
-df00 static Allocator<MozJemallocBase>::jemalloc_thread_local_arena(bool)
+dd90 Allocator<MozJemallocBase>::jemalloc_free_dirty_pages()
+df00 Allocator<MozJemallocBase>::jemalloc_thread_local_arena(bool)
 df50 ?moz_create_arena_with_params@?$Allocator@UMozJemallocBase@@@@SA_KPEAUarena_params_s@@@Z
-df80 static Allocator<MozJemallocBase>::moz_dispose_arena(unsigned long long)
-e040 static Allocator<MozJemallocBase>::moz_arena_malloc(unsigned long long, unsigned long long)
-e8e0 static Allocator<MozJemallocBase>::moz_arena_calloc(unsigned long long, unsigned long long, unsigned long long)
-f1c0 static Allocator<MozJemallocBase>::moz_arena_realloc(unsigned long long, void*, unsigned long long)
-fdf0 static Allocator<MozJemallocBase>::moz_arena_free(unsigned long long, void*)
-ff10 static Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, unsigned long long, unsigned long long)
+df80 Allocator<MozJemallocBase>::moz_dispose_arena(unsigned long long)
+e040 Allocator<MozJemallocBase>::moz_arena_malloc(unsigned long long, unsigned long long)
+e8e0 Allocator<MozJemallocBase>::moz_arena_calloc(unsigned long long, unsigned long long, unsigned long long)
+f1c0 Allocator<MozJemallocBase>::moz_arena_realloc(unsigned long long, void*, unsigned long long)
+fdf0 Allocator<MozJemallocBase>::moz_arena_free(unsigned long long, void*)
+ff10 Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, unsigned long long, unsigned long long)
 10070 ?malloc_init@@YA_NXZ.llvm.8665101945953613174
 10380 GetKernelPageSize()
 10410 ArenaCollection::Init()
@@ -112,15 +112,15 @@ ff10 static Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, u
 10fb0 RedBlackTree<arena_t,ArenaTreeTrait>::MoveRedRight(RedBlackTree<arena_t,ArenaTreeTrait>::TreeNode)
 11190 RedBlackTree<arena_t,ArenaTreeTrait>::RotateRight(RedBlackTree<arena_t,ArenaTreeTrait>::TreeNode)
 11220 RedBlackTree<arena_t,ArenaTreeTrait>::RotateLeft(RedBlackTree<arena_t,ArenaTreeTrait>::TreeNode)
-112b0 static AlignedAllocator<&Allocator<ReplaceMallocBase>::memalign>::posix_memalign(void**, unsigned long long, unsigned long long)
-11380 static AlignedAllocator<&Allocator<ReplaceMallocBase>::memalign>::aligned_alloc(unsigned long long, unsigned long long)
-113d0 static AlignedAllocator<&Allocator<ReplaceMallocBase>::memalign>::valloc(unsigned long long)
+112b0 AlignedAllocator<&Allocator<ReplaceMallocBase>::memalign>::posix_memalign(void**, unsigned long long, unsigned long long)
+11380 AlignedAllocator<&Allocator<ReplaceMallocBase>::memalign>::aligned_alloc(unsigned long long, unsigned long long)
+113d0 AlignedAllocator<&Allocator<ReplaceMallocBase>::memalign>::valloc(unsigned long long)
 11410 ?SubstituteForLSP@LoaderObserver@glue@mozilla@@UEAA_NPEBU_UNICODE_STRING@@PEAPEAX@Z
-11420 static DummyArenaAllocator<Allocator<ReplaceMallocBase> >::moz_arena_malloc(unsigned long long, unsigned long long)
-11450 static DummyArenaAllocator<Allocator<ReplaceMallocBase> >::moz_arena_calloc(unsigned long long, unsigned long long, unsigned long long)
-11490 static DummyArenaAllocator<Allocator<ReplaceMallocBase> >::moz_arena_realloc(unsigned long long, void*, unsigned long long)
-114d0 static DummyArenaAllocator<Allocator<ReplaceMallocBase> >::moz_arena_free(unsigned long long, void*)
-11500 static DummyArenaAllocator<Allocator<ReplaceMallocBase> >::moz_arena_memalign(unsigned long long, unsigned long long, unsigned long long)
+11420 DummyArenaAllocator<Allocator<ReplaceMallocBase> >::moz_arena_malloc(unsigned long long, unsigned long long)
+11450 DummyArenaAllocator<Allocator<ReplaceMallocBase> >::moz_arena_calloc(unsigned long long, unsigned long long, unsigned long long)
+11490 DummyArenaAllocator<Allocator<ReplaceMallocBase> >::moz_arena_realloc(unsigned long long, void*, unsigned long long)
+114d0 DummyArenaAllocator<Allocator<ReplaceMallocBase> >::moz_arena_free(unsigned long long, void*)
+11500 DummyArenaAllocator<Allocator<ReplaceMallocBase> >::moz_arena_memalign(unsigned long long, unsigned long long, unsigned long long)
 11540 RedBlackTree<extent_node_t,ExtentTreeTrait>::Insert(RedBlackTree<extent_node_t,ExtentTreeTrait>::TreeNode)
 118a0 RedBlackTree<extent_node_t,ExtentTreeTrait>::LeanLeft(RedBlackTree<extent_node_t,ExtentTreeTrait>::TreeNode)
 11910 RedBlackTree<arena_chunk_map_t,ArenaAvailTreeTrait>::Remove(RedBlackTree<arena_chunk_map_t,ArenaAvailTreeTrait>::TreeNode)
@@ -146,9 +146,9 @@ ff10 static Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, u
 14ad0 mozilla::dmd::DMDBridge::GetDMDFuncs()
 14ae0 mozilla::dmd::DMDFuncs::StatusMsg(char const*, char*)
 14b80 sprintf(char* const, char const* const, <NoType>)
-14c00 static mozilla::dmd::StackTrace::Get(mozilla::dmd::Thread*)
-14f10 static mozilla::dmd::StackTrace::StackWalkCallback(unsigned int, void*, void*, void*)
-14f20 static mozilla::dmd::InfallibleAllocPolicy::new_<mozilla::dmd::StackTrace,mozilla::dmd::StackTrace>(mozilla::dmd::StackTrace const&)
+14c00 mozilla::dmd::StackTrace::Get(mozilla::dmd::Thread*)
+14f10 mozilla::dmd::StackTrace::StackWalkCallback(unsigned int, void*, void*, void*)
+14f20 mozilla::dmd::InfallibleAllocPolicy::new_<mozilla::dmd::StackTrace,mozilla::dmd::StackTrace>(mozilla::dmd::StackTrace const&)
 14fb0 mozilla::dmd::MaybeAddToDeadBlockTable(mozilla::dmd::DeadBlock const&)
 15340 dmd_init
 15520 replace_malloc(unsigned long long)
@@ -156,10 +156,10 @@ ff10 static Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, u
 15690 replace_realloc(void*, unsigned long long)
 157f0 replace_free(void*)
 158d0 replace_memalign(unsigned long long, unsigned long long)
-15990 static mozilla::dmd::Options::ValueIfMatch(char const*, char const*)
-159d0 static mozilla::dmd::Options::GetBool(char const*, char const*, bool*)
+15990 mozilla::dmd::Options::ValueIfMatch(char const*, char const*)
+159d0 mozilla::dmd::Options::GetBool(char const*, char const*, bool*)
 15a30 mozilla::dmd::Options::Options(char const*)
-15c40 static mozilla::dmd::InfallibleAllocPolicy::strdup_(char const*)
+15c40 mozilla::dmd::InfallibleAllocPolicy::strdup_(char const*)
 15c90 mozilla::dmd::StatusMsg(char const*, <NoType>)
 15ce0 mozilla::dmd::DMDFuncs::Report(void const*)
 15cf0 mozilla::dmd::ReportHelper(void const*, bool)
@@ -169,13 +169,13 @@ ff10 static Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, u
 16170 mozilla::dmd::DMDFuncs::ClearReports()
 16270 mozilla::dmd::DMDFuncs::Analyze(mozilla::UniquePtr<mozilla::JSONWriteFunc,mozilla::DefaultDelete<mozilla::JSONWriteFunc> >)
 17610 mozilla::dmd::DMDFuncs::ResetEverything(char const*)
-17720 static mozilla::dmd::InfallibleAllocPolicy::new_<mozilla::dmd::Options,const char *>(char const* const&)
+17720 mozilla::dmd::InfallibleAllocPolicy::new_<mozilla::dmd::Options,const char *>(char const* const&)
 17770 __local_stdio_printf_options
 17780 mozilla::dmd::AllocCallback(void*, unsigned long long, mozilla::dmd::Thread*)
 178b0 mozilla::FastBernoulliTrial::chooseSkipCount()
 179a0 mozilla::detail::HashTable<const mozilla::dmd::LiveBlock,mozilla::HashSet<mozilla::dmd::LiveBlock,mozilla::dmd::LiveBlock,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::rehashIfOverloaded(mozilla::detail::HashTable<const mozilla::dmd::LiveBlock,mozilla::HashSet<mozilla::dmd::LiveBlock,mozilla::dmd::LiveBlock,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::FailureBehavior)
 17a10 mozilla::detail::HashTable<const mozilla::dmd::LiveBlock,mozilla::HashSet<mozilla::dmd::LiveBlock,mozilla::dmd::LiveBlock,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::changeTableSize(unsigned int, mozilla::detail::HashTable<const mozilla::dmd::LiveBlock,mozilla::HashSet<mozilla::dmd::LiveBlock,mozilla::dmd::LiveBlock,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::FailureBehavior)
-17b90 static mozilla::detail::HashTable<const mozilla::dmd::LiveBlock,mozilla::HashSet<mozilla::dmd::LiveBlock,mozilla::dmd::LiveBlock,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::createTable(mozilla::dmd::InfallibleAllocPolicy&, unsigned int, mozilla::detail::HashTable<const mozilla::dmd::LiveBlock,mozilla::HashSet<mozilla::dmd::LiveBlock,mozilla::dmd::LiveBlock,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::FailureBehavior)
+17b90 mozilla::detail::HashTable<const mozilla::dmd::LiveBlock,mozilla::HashSet<mozilla::dmd::LiveBlock,mozilla::dmd::LiveBlock,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::createTable(mozilla::dmd::InfallibleAllocPolicy&, unsigned int, mozilla::detail::HashTable<const mozilla::dmd::LiveBlock,mozilla::HashSet<mozilla::dmd::LiveBlock,mozilla::dmd::LiveBlock,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::FailureBehavior)
 17d50 mozilla::detail::HashTable<const mozilla::dmd::LiveBlock,mozilla::HashSet<mozilla::dmd::LiveBlock,mozilla::dmd::LiveBlock,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::findNonLiveSlot(unsigned int)
 17e20 mozilla::detail::HashTable<const mozilla::dmd::LiveBlock,mozilla::HashSet<mozilla::dmd::LiveBlock,mozilla::dmd::LiveBlock,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::putNewInfallibleInternal<mozilla::dmd::LiveBlock &>(void const* const&, mozilla::dmd::LiveBlock&)
 17ed0 mozilla::dmd::FreeCallback(void*, mozilla::dmd::Thread*, mozilla::dmd::DeadBlock*)
@@ -186,7 +186,7 @@ ff10 static Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, u
 18580 mozilla::dmd::LiveBlock::AddStackTracesToTable(mozilla::HashSet<const mozilla::dmd::StackTrace *,mozilla::DefaultHasher<const mozilla::dmd::StackTrace *>,mozilla::dmd::InfallibleAllocPolicy>&) const
 18680 mozilla::dmd::DeadBlock::AddStackTracesToTable(mozilla::HashSet<const mozilla::dmd::StackTrace *,mozilla::DefaultHasher<const mozilla::dmd::StackTrace *>,mozilla::dmd::InfallibleAllocPolicy>&) const
 186f0 mozilla::detail::HashTable<const mozilla::dmd::StackTrace *const,mozilla::HashSet<const mozilla::dmd::StackTrace *,mozilla::DefaultHasher<const mozilla::dmd::StackTrace *>,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::changeTableSize(unsigned int, mozilla::detail::HashTable<const mozilla::dmd::StackTrace *const,mozilla::HashSet<const mozilla::dmd::StackTrace *,mozilla::DefaultHasher<const mozilla::dmd::StackTrace *>,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::FailureBehavior)
-18850 static mozilla::detail::HashTable<const mozilla::dmd::StackTrace *const,mozilla::HashSet<const mozilla::dmd::StackTrace *,mozilla::DefaultHasher<const mozilla::dmd::StackTrace *>,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::createTable(mozilla::dmd::InfallibleAllocPolicy&, unsigned int, mozilla::detail::HashTable<const mozilla::dmd::StackTrace *const,mozilla::HashSet<const mozilla::dmd::StackTrace *,mozilla::DefaultHasher<const mozilla::dmd::StackTrace *>,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::FailureBehavior)
+18850 mozilla::detail::HashTable<const mozilla::dmd::StackTrace *const,mozilla::HashSet<const mozilla::dmd::StackTrace *,mozilla::DefaultHasher<const mozilla::dmd::StackTrace *>,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::createTable(mozilla::dmd::InfallibleAllocPolicy&, unsigned int, mozilla::detail::HashTable<const mozilla::dmd::StackTrace *const,mozilla::HashSet<const mozilla::dmd::StackTrace *,mozilla::DefaultHasher<const mozilla::dmd::StackTrace *>,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::FailureBehavior)
 18980 mozilla::detail::HashTable<const mozilla::dmd::StackTrace *const,mozilla::HashSet<const mozilla::dmd::StackTrace *,mozilla::DefaultHasher<const mozilla::dmd::StackTrace *>,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::findNonLiveSlot(unsigned int)
 18a50 mozilla::HashSet<const mozilla::dmd::StackTrace *,mozilla::DefaultHasher<const mozilla::dmd::StackTrace *>,mozilla::dmd::InfallibleAllocPolicy>::put<const mozilla::dmd::StackTrace *>(mozilla::dmd::StackTrace const*&&)
 18c90 mozilla::detail::HashTable<const mozilla::dmd::StackTrace *const,mozilla::HashSet<const mozilla::dmd::StackTrace *,mozilla::DefaultHasher<const mozilla::dmd::StackTrace *>,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::add<const mozilla::dmd::StackTrace *>(mozilla::detail::HashTable<const mozilla::dmd::StackTrace *const,mozilla::HashSet<const mozilla::dmd::StackTrace *,mozilla::DefaultHasher<const mozilla::dmd::StackTrace *>,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::AddPtr&, mozilla::dmd::StackTrace const*&&)
@@ -197,11 +197,11 @@ ff10 static Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, u
 18fb0 mozilla::detail::HashTable<mozilla::dmd::StackTrace *const,mozilla::HashSet<mozilla::dmd::StackTrace *,mozilla::dmd::StackTrace,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::rehashIfOverloaded(mozilla::detail::HashTable<mozilla::dmd::StackTrace *const,mozilla::HashSet<mozilla::dmd::StackTrace *,mozilla::dmd::StackTrace,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::FailureBehavior)
 19020 mozilla::detail::HashTable<mozilla::dmd::StackTrace *const,mozilla::HashSet<mozilla::dmd::StackTrace *,mozilla::dmd::StackTrace,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::rehashTableInPlace()
 191d0 mozilla::detail::HashTable<mozilla::dmd::StackTrace *const,mozilla::HashSet<mozilla::dmd::StackTrace *,mozilla::dmd::StackTrace,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::changeTableSize(unsigned int, mozilla::detail::HashTable<mozilla::dmd::StackTrace *const,mozilla::HashSet<mozilla::dmd::StackTrace *,mozilla::dmd::StackTrace,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::FailureBehavior)
-19330 static mozilla::detail::HashTable<mozilla::dmd::StackTrace *const,mozilla::HashSet<mozilla::dmd::StackTrace *,mozilla::dmd::StackTrace,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::createTable(mozilla::dmd::InfallibleAllocPolicy&, unsigned int, mozilla::detail::HashTable<mozilla::dmd::StackTrace *const,mozilla::HashSet<mozilla::dmd::StackTrace *,mozilla::dmd::StackTrace,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::FailureBehavior)
-19470 static mozilla::detail::HashTable<mozilla::dmd::StackTrace *const,mozilla::HashSet<mozilla::dmd::StackTrace *,mozilla::dmd::StackTrace,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::hashShift(unsigned int)
-194f0 static mozilla::dmd::InfallibleAllocPolicy::new_<mozilla::dmd::Mutex>()
-19540 static mozilla::dmd::InfallibleAllocPolicy::new_<mozilla::HashSet<mozilla::dmd::StackTrace *,mozilla::dmd::StackTrace,mozilla::dmd::InfallibleAllocPolicy>,int>(int const&)
-195a0 static mozilla::dmd::InfallibleAllocPolicy::new_<mozilla::CodeAddressService<mozilla::dmd::InfallibleAllocPolicy,mozilla::dmd::DescribeCodeAddressLock> >()
+19330 mozilla::detail::HashTable<mozilla::dmd::StackTrace *const,mozilla::HashSet<mozilla::dmd::StackTrace *,mozilla::dmd::StackTrace,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::createTable(mozilla::dmd::InfallibleAllocPolicy&, unsigned int, mozilla::detail::HashTable<mozilla::dmd::StackTrace *const,mozilla::HashSet<mozilla::dmd::StackTrace *,mozilla::dmd::StackTrace,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::FailureBehavior)
+19470 mozilla::detail::HashTable<mozilla::dmd::StackTrace *const,mozilla::HashSet<mozilla::dmd::StackTrace *,mozilla::dmd::StackTrace,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::hashShift(unsigned int)
+194f0 mozilla::dmd::InfallibleAllocPolicy::new_<mozilla::dmd::Mutex>()
+19540 mozilla::dmd::InfallibleAllocPolicy::new_<mozilla::HashSet<mozilla::dmd::StackTrace *,mozilla::dmd::StackTrace,mozilla::dmd::InfallibleAllocPolicy>,int>(int const&)
+195a0 mozilla::dmd::InfallibleAllocPolicy::new_<mozilla::CodeAddressService<mozilla::dmd::InfallibleAllocPolicy,mozilla::dmd::DescribeCodeAddressLock> >()
 19750 ?StringProperty@JSONWriter@mozilla@@QEAAXPEBD0@Z
 197d0 mozilla::dmd::AnalyzeImpl::<unnamed-tag>::operator()(mozilla::dmd::LiveBlock const&, unsigned long long) const
 19b40 mozilla::dmd::ToIdStringConverter::ToIdString(void const*)
@@ -215,14 +215,14 @@ ff10 static Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, u
 1a440 ??$SprintfLiteral@$0EA@@@YAHAEAY0EA@DPEBDZZ
 1a4d0 ?QuotedScalar@JSONWriter@mozilla@@IEAAXPEBD0_K@Z
 1a550 ?EndCollection@JSONWriter@mozilla@@IEAAXPEBD@Z
-1a5d0 static mozilla::dmd::AggregatedLiveBlockHashPolicy::hash(mozilla::dmd::LiveBlock const* const&)
+1a5d0 mozilla::dmd::AggregatedLiveBlockHashPolicy::hash(mozilla::dmd::LiveBlock const* const&)
 1a6d0 mozilla::AddToHash<unsigned long long,unsigned long long,const mozilla::dmd::StackTrace *,bool,bool>(unsigned int, unsigned long long, unsigned long long, mozilla::dmd::StackTrace const*, bool, bool)
-1a780 static mozilla::dmd::AggregatedLiveBlockHashPolicy::match(mozilla::dmd::LiveBlock const* const&, mozilla::dmd::LiveBlock const* const&)
+1a780 mozilla::dmd::AggregatedLiveBlockHashPolicy::match(mozilla::dmd::LiveBlock const* const&, mozilla::dmd::LiveBlock const* const&)
 1a860 mozilla::detail::HashTable<mozilla::HashMapEntry<const mozilla::dmd::LiveBlock *,unsigned long long>,mozilla::HashMap<const mozilla::dmd::LiveBlock *,unsigned long long,mozilla::dmd::AggregatedLiveBlockHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::MapHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::add<const mozilla::dmd::LiveBlock *,int>(mozilla::detail::HashTable<mozilla::HashMapEntry<const mozilla::dmd::LiveBlock *,unsigned long long>,mozilla::HashMap<const mozilla::dmd::LiveBlock *,unsigned long long,mozilla::dmd::AggregatedLiveBlockHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::MapHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::AddPtr&, mozilla::dmd::LiveBlock const*&&, int&&)
 1a930 mozilla::detail::HashTable<mozilla::HashMapEntry<const mozilla::dmd::LiveBlock *,unsigned long long>,mozilla::HashMap<const mozilla::dmd::LiveBlock *,unsigned long long,mozilla::dmd::AggregatedLiveBlockHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::MapHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::changeTableSize(unsigned int, mozilla::detail::HashTable<mozilla::HashMapEntry<const mozilla::dmd::LiveBlock *,unsigned long long>,mozilla::HashMap<const mozilla::dmd::LiveBlock *,unsigned long long,mozilla::dmd::AggregatedLiveBlockHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::MapHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::FailureBehavior)
 1aa90 mozilla::detail::HashTable<mozilla::HashMapEntry<const mozilla::dmd::LiveBlock *,unsigned long long>,mozilla::HashMap<const mozilla::dmd::LiveBlock *,unsigned long long,mozilla::dmd::AggregatedLiveBlockHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::MapHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::findNonLiveSlot(unsigned int)
 1ab60 mozilla::detail::HashTable<mozilla::HashMapEntry<const mozilla::dmd::LiveBlock *,unsigned long long>,mozilla::HashMap<const mozilla::dmd::LiveBlock *,unsigned long long,mozilla::dmd::AggregatedLiveBlockHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::MapHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::rehashIfOverloaded(mozilla::detail::HashTable<mozilla::HashMapEntry<const mozilla::dmd::LiveBlock *,unsigned long long>,mozilla::HashMap<const mozilla::dmd::LiveBlock *,unsigned long long,mozilla::dmd::AggregatedLiveBlockHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::MapHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::FailureBehavior)
-1abd0 static mozilla::detail::HashTable<mozilla::HashMapEntry<const mozilla::dmd::LiveBlock *,unsigned long long>,mozilla::HashMap<const mozilla::dmd::LiveBlock *,unsigned long long,mozilla::dmd::AggregatedLiveBlockHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::MapHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::createTable(mozilla::dmd::InfallibleAllocPolicy&, unsigned int, mozilla::detail::HashTable<mozilla::HashMapEntry<const mozilla::dmd::LiveBlock *,unsigned long long>,mozilla::HashMap<const mozilla::dmd::LiveBlock *,unsigned long long,mozilla::dmd::AggregatedLiveBlockHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::MapHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::FailureBehavior)
+1abd0 mozilla::detail::HashTable<mozilla::HashMapEntry<const mozilla::dmd::LiveBlock *,unsigned long long>,mozilla::HashMap<const mozilla::dmd::LiveBlock *,unsigned long long,mozilla::dmd::AggregatedLiveBlockHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::MapHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::createTable(mozilla::dmd::InfallibleAllocPolicy&, unsigned int, mozilla::detail::HashTable<mozilla::HashMapEntry<const mozilla::dmd::LiveBlock *,unsigned long long>,mozilla::HashMap<const mozilla::dmd::LiveBlock *,unsigned long long,mozilla::dmd::AggregatedLiveBlockHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::MapHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::FailureBehavior)
 1ace0 mozilla::detail::HashTable<mozilla::HashMapEntry<const mozilla::dmd::LiveBlock *,unsigned long long>,mozilla::HashMap<const mozilla::dmd::LiveBlock *,unsigned long long,mozilla::dmd::AggregatedLiveBlockHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::MapHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::Iterator::Iterator(mozilla::detail::HashTable<mozilla::HashMapEntry<const mozilla::dmd::LiveBlock *,unsigned long long>,mozilla::HashMap<const mozilla::dmd::LiveBlock *,unsigned long long,mozilla::dmd::AggregatedLiveBlockHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::MapHashPolicy,mozilla::dmd::InfallibleAllocPolicy> const&)
 1ad70 snprintf
 1ae00 mozilla::detail::HashTable<mozilla::HashMapEntry<const void *,unsigned int>,mozilla::HashMap<const void *,unsigned int,mozilla::DefaultHasher<const void *>,mozilla::dmd::InfallibleAllocPolicy>::MapHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::add<const void *&,unsigned int &>(mozilla::detail::HashTable<mozilla::HashMapEntry<const void *,unsigned int>,mozilla::HashMap<const void *,unsigned int,mozilla::DefaultHasher<const void *>,mozilla::dmd::InfallibleAllocPolicy>::MapHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::AddPtr&, void const*&, unsigned int&)
@@ -235,7 +235,7 @@ ff10 static Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, u
 1b5b0 mozilla::detail::HashTable<mozilla::HashMapEntry<mozilla::dmd::DeadBlock,unsigned long long>,mozilla::HashMap<mozilla::dmd::DeadBlock,unsigned long long,mozilla::dmd::DeadBlock,mozilla::dmd::InfallibleAllocPolicy>::MapHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::changeTableSize(unsigned int, mozilla::detail::HashTable<mozilla::HashMapEntry<mozilla::dmd::DeadBlock,unsigned long long>,mozilla::HashMap<mozilla::dmd::DeadBlock,unsigned long long,mozilla::dmd::DeadBlock,mozilla::dmd::InfallibleAllocPolicy>::MapHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::FailureBehavior)
 1b710 mozilla::detail::HashTable<mozilla::HashMapEntry<mozilla::dmd::DeadBlock,unsigned long long>,mozilla::HashMap<mozilla::dmd::DeadBlock,unsigned long long,mozilla::dmd::DeadBlock,mozilla::dmd::InfallibleAllocPolicy>::MapHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::findNonLiveSlot(unsigned int)
 1b7e0 mozilla::detail::HashTable<mozilla::HashMapEntry<mozilla::dmd::DeadBlock,unsigned long long>,mozilla::HashMap<mozilla::dmd::DeadBlock,unsigned long long,mozilla::dmd::DeadBlock,mozilla::dmd::InfallibleAllocPolicy>::MapHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::rehashIfOverloaded(mozilla::detail::HashTable<mozilla::HashMapEntry<mozilla::dmd::DeadBlock,unsigned long long>,mozilla::HashMap<mozilla::dmd::DeadBlock,unsigned long long,mozilla::dmd::DeadBlock,mozilla::dmd::InfallibleAllocPolicy>::MapHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::FailureBehavior)
-1b850 static mozilla::detail::HashTable<mozilla::HashMapEntry<mozilla::dmd::DeadBlock,unsigned long long>,mozilla::HashMap<mozilla::dmd::DeadBlock,unsigned long long,mozilla::dmd::DeadBlock,mozilla::dmd::InfallibleAllocPolicy>::MapHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::createTable(mozilla::dmd::InfallibleAllocPolicy&, unsigned int, mozilla::detail::HashTable<mozilla::HashMapEntry<mozilla::dmd::DeadBlock,unsigned long long>,mozilla::HashMap<mozilla::dmd::DeadBlock,unsigned long long,mozilla::dmd::DeadBlock,mozilla::dmd::InfallibleAllocPolicy>::MapHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::FailureBehavior)
+1b850 mozilla::detail::HashTable<mozilla::HashMapEntry<mozilla::dmd::DeadBlock,unsigned long long>,mozilla::HashMap<mozilla::dmd::DeadBlock,unsigned long long,mozilla::dmd::DeadBlock,mozilla::dmd::InfallibleAllocPolicy>::MapHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::createTable(mozilla::dmd::InfallibleAllocPolicy&, unsigned int, mozilla::detail::HashTable<mozilla::HashMapEntry<mozilla::dmd::DeadBlock,unsigned long long>,mozilla::HashMap<mozilla::dmd::DeadBlock,unsigned long long,mozilla::dmd::DeadBlock,mozilla::dmd::InfallibleAllocPolicy>::MapHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::FailureBehavior)
 1b9a0 mozilla::detail::HashTable<const mozilla::dmd::LiveBlock,mozilla::HashSet<mozilla::dmd::LiveBlock,mozilla::dmd::LiveBlock,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy>::Iterator::Iterator(mozilla::detail::HashTable<const mozilla::dmd::LiveBlock,mozilla::HashSet<mozilla::dmd::LiveBlock,mozilla::dmd::LiveBlock,mozilla::dmd::InfallibleAllocPolicy>::SetHashPolicy,mozilla::dmd::InfallibleAllocPolicy> const&)
 1ba30 ?StackWalkCallback@StackTrace@@CAXIPEAX00@Z
 1ba40 replace_jemalloc_stats(jemalloc_stats_t*)
@@ -255,8 +255,8 @@ ff10 static Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, u
 1d480 ?replace_free@@YAXPEAX@Z.llvm.9644785861825410556
 1d670 replace_memalign(unsigned long long, unsigned long long)
 1d710 ?replace_malloc_usable_size@@YA_KPEBX@Z.llvm.9644785861825410556
-1d800 static InfallibleAllocPolicy::new_<GConst>()
-1d840 static InfallibleAllocPolicy::new_<GMut>()
+1d800 InfallibleAllocPolicy::new_<GConst>()
+1d840 InfallibleAllocPolicy::new_<GMut>()
 1d880 MaybePageAlloc(mozilla::Maybe<unsigned long long> const&, unsigned long long, unsigned long long, bool)
 1db00 GMut::SetPageInUse(AutoLock<Mutex> const&, unsigned long long, mozilla::Maybe<unsigned long long> const&, unsigned char*, StackTrace const&)
 1dbb0 ?EnsureValidAndInUse@GMut@@QEAAXAEBU?$AutoLock@UMutex@@@@PEAX_K@Z
@@ -292,11 +292,11 @@ ff10 static Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, u
 1eb20 moz_malloc_enclosing_size_of
 1eb70 ?mozalloc_set_oom_abort_handler@@YAXP6AX_K@Z@Z
 1eb80 patched_RtlInstallFunctionTableCallback(unsigned long long, unsigned long long, unsigned long, _IMAGE_RUNTIME_FUNCTION_ENTRY* (*)(unsigned long long, void*), void*, wchar_t const*)
-1ec50 static DllBlockSet::Add(char const*, unsigned long long)
-1ece0 static DllBlockSet::Write(WritableBuffer&)
+1ec50 DllBlockSet::Add(char const*, unsigned long long)
+1ece0 DllBlockSet::Write(WritableBuffer&)
 1ee30 WritableBuffer::Write(char const*, unsigned long long)
 1ee70 ?DllBlocklist_Initialize@@YAXI@Z
-1f3c0 static ReentrancySentinel::InitializeStatics()
+1f3c0 ReentrancySentinel::InitializeStatics()
 1f420 patched_LdrLoadDll(wchar_t*, unsigned long*, _UNICODE_STRING*, void**)
 1fb60 patched_BaseThreadInitThunk(int, void*, void*)
 1fbf0 ?DllBlocklist_WriteNotes@@YAXAEAVAnnotationWriter@CrashReporter@@@Z
@@ -325,7 +325,7 @@ ff10 static Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, u
 20e10 ?Commit@?$WritableTargetFunction@VMMPolicyInProcess@interceptor@mozilla@@@interceptor@mozilla@@QEAA_NXZ
 20e80 ?growStorageBy@?$Vector@E$0CA@VMallocAllocPolicy@mozilla@@@mozilla@@AEAA_N_K@Z
 210d0 ??1AutoProtect@?$WritableTargetFunction@VMMPolicyInProcess@interceptor@mozilla@@@interceptor@mozilla@@QEAA@XZ
-21100 static mozilla::interceptor::FuncHook<mozilla::interceptor::WindowsDllInterceptor<mozilla::interceptor::VMSharingPolicyShared<mozilla::interceptor::MMPolicyInProcess,1> >,unsigned char (*)(unsigned long long, unsigned long long, unsigned long, _IMAGE_RUNTIME_FUNCTION_ENTRY *(*)(unsigned long long, void *), void *, const wchar_t *)>::InitOnceCallback(_RTL_RUN_ONCE*, void*, void**)
+21100 mozilla::interceptor::FuncHook<mozilla::interceptor::WindowsDllInterceptor<mozilla::interceptor::VMSharingPolicyShared<mozilla::interceptor::MMPolicyInProcess,1> >,unsigned char (*)(unsigned long long, unsigned long long, unsigned long, _IMAGE_RUNTIME_FUNCTION_ENTRY *(*)(unsigned long long, void *), void *, const wchar_t *)>::InitOnceCallback(_RTL_RUN_ONCE*, void*, void**)
 21170 ?AddDetour@?$WindowsDllInterceptor@V?$VMSharingPolicyShared@VMMPolicyInProcess@interceptor@mozilla@@$00@interceptor@mozilla@@@interceptor@mozilla@@AEAA_NP6A_JXZ_JPEAPEAX@Z
 21670 ?AddHook@?$WindowsDllDetourPatcher@V?$VMSharingPolicyShared@VMMPolicyInProcess@interceptor@mozilla@@$00@interceptor@mozilla@@@interceptor@mozilla@@QEAA_NP6A_JXZ_JPEAPEAX@Z
 217f0 ?ResolveRedirectedAddress@?$WindowsDllPatcherBase@V?$VMSharingPolicyShared@VMMPolicyInProcess@interceptor@mozilla@@$00@interceptor@mozilla@@@interceptor@mozilla@@IEAA?AV?$ReadOnlyTargetFunction@VMMPolicyInProcess@interceptor@mozilla@@@23@P6A_JXZ@Z
@@ -365,7 +365,7 @@ ff10 static Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, u
 259c0 ??0AutoProtect@?$WritableTargetFunction@VMMPolicyInProcess@interceptor@mozilla@@@interceptor@mozilla@@QEAA@$$QEAV0123@@Z
 25a70 ?WriteByte@?$WritableTargetFunction@VMMPolicyInProcess@interceptor@mozilla@@@interceptor@mozilla@@QEAAXAEBE@Z
 25ac0 ?WriteLong@?$WritableTargetFunction@VMMPolicyInProcess@interceptor@mozilla@@@interceptor@mozilla@@QEAAXI@Z
-25b30 static mozilla::interceptor::FuncHook<mozilla::interceptor::WindowsDllInterceptor<mozilla::interceptor::VMSharingPolicyShared<mozilla::interceptor::MMPolicyInProcess,1> >,long (*)(wchar_t *, unsigned long *, _UNICODE_STRING *, void **)>::InitOnceCallback(_RTL_RUN_ONCE*, void*, void**)
+25b30 mozilla::interceptor::FuncHook<mozilla::interceptor::WindowsDllInterceptor<mozilla::interceptor::VMSharingPolicyShared<mozilla::interceptor::MMPolicyInProcess,1> >,long (*)(wchar_t *, unsigned long *, _UNICODE_STRING *, void **)>::InitOnceCallback(_RTL_RUN_ONCE*, void*, void**)
 25ba0 _GLOBAL__sub_I_WindowsDllBlocklist.cpp()
 25c10 mozilla::AuthenticodeImpl::GetBinaryOrgName(wchar_t const*, mozilla::AuthenticodeFlags)
 26930 ?OnBeginDllLoad@LoaderObserver@glue@mozilla@@UEAAXPEAPEAXPEBU_UNICODE_STRING@@@Z
@@ -396,7 +396,7 @@ ff10 static Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, u
 27a40 mozilla::Vector<void *,0,mozilla::nt::RtlAllocPolicy>::growStorageBy(unsigned long long)
 27ba0 mozilla::Vector<mozilla::ModuleLoadInfo,0,mozilla::nt::RtlAllocPolicy>::growStorageBy(unsigned long long)
 27c20 mozilla::Vector<mozilla::ModuleLoadInfo,0,mozilla::nt::RtlAllocPolicy>::convertToHeapStorage(unsigned long long)
-27d30 static mozilla::detail::VectorImpl<mozilla::ModuleLoadInfo,0,mozilla::nt::RtlAllocPolicy,0>::growTo(mozilla::Vector<mozilla::ModuleLoadInfo,0,mozilla::nt::RtlAllocPolicy>&, unsigned long long)
+27d30 mozilla::detail::VectorImpl<mozilla::ModuleLoadInfo,0,mozilla::nt::RtlAllocPolicy,0>::growTo(mozilla::Vector<mozilla::ModuleLoadInfo,0,mozilla::nt::RtlAllocPolicy>&, unsigned long long)
 27f50 mozilla::ModuleLoadInfo::ModuleLoadInfo(mozilla::ModuleLoadInfo&&)
 28000 mozilla::detail::DynamicallyLinkedFunctionPtrBase<long (*)(void *, void *, MEMORY_INFORMATION_CLASS, void *, unsigned long long, unsigned long long *)>::DynamicallyLinkedFunctionPtrBase(wchar_t const*, char const*)
 28070 ?GetInfoForSelf@SharedLibraryInfo@@SA?AV1@XZ
@@ -425,11 +425,11 @@ ff10 static Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, u
 2b020 mozilla::baseprofiler::PageInformation::StreamJSON(mozilla::baseprofiler::SpliceableJSONWriter&) const
 2b120 mozilla::JSONWriter::DoubleProperty(char const*, double)
 2b200 mozilla::baseprofiler::ProfileBuffer::ProfileBuffer(mozilla::ProfileChunkedBuffer&)
-2b310 static mozilla::ProfileBufferChunk::Create(unsigned int)
+2b310 mozilla::ProfileBufferChunk::Create(unsigned int)
 2b390 mozilla::ProfileBufferChunkManagerSingle::ProfileBufferChunkManagerSingle(mozilla::UniquePtr<mozilla::ProfileBufferChunk,mozilla::DefaultDelete<mozilla::ProfileBufferChunk> >)
 2b400 mozilla::baseprofiler::ProfileBuffer::~ProfileBuffer()
 2b490 mozilla::ProfileChunkedBuffer::ResetChunkManager()
-2b520 static mozilla::baseprofiler::ProfileBuffer::AddEntry(mozilla::ProfileChunkedBuffer&, mozilla::baseprofiler::ProfileBufferEntry const&)
+2b520 mozilla::baseprofiler::ProfileBuffer::AddEntry(mozilla::ProfileChunkedBuffer&, mozilla::baseprofiler::ProfileBufferEntry const&)
 2b610 mozilla::baseprofiler::ProfileBuffer::CollectCodeLocation(char const*, char const*, unsigned int, unsigned long long, mozilla::Maybe<unsigned int> const&, mozilla::Maybe<unsigned int> const&, mozilla::Maybe<mozilla::baseprofiler::ProfilingCategoryPair> const&)
 2b820 mozilla::baseprofiler::ProfileBuffer::CollectOverheadStats(mozilla::BaseTimeDuration<mozilla::TimeDurationValueCalculator>, mozilla::BaseTimeDuration<mozilla::TimeDurationValueCalculator>, mozilla::BaseTimeDuration<mozilla::TimeDurationValueCalculator>, mozilla::BaseTimeDuration<mozilla::TimeDurationValueCalculator>, mozilla::BaseTimeDuration<mozilla::TimeDurationValueCalculator>)
 2bc50 mozilla::baseprofiler::ProfileBuffer::GetProfilerBufferInfo() const
@@ -484,23 +484,23 @@ ff10 static Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, u
 2f360 ??1TracingMarkerPayload@baseprofiler@mozilla@@UEAA@XZ
 2f3a0 ?TagAndSerializationBytes@TracingMarkerPayload@baseprofiler@mozilla@@UEBAIXZ
 2f3e0 ?SerializeTagAndPayload@TracingMarkerPayload@baseprofiler@mozilla@@UEBAXAEAVProfileBufferEntryWriter@3@@Z
-2f4b0 static mozilla::baseprofiler::TracingMarkerPayload::Deserialize(mozilla::ProfileBufferEntryReader&)
+2f4b0 mozilla::baseprofiler::TracingMarkerPayload::Deserialize(mozilla::ProfileBufferEntryReader&)
 2f590 ?StreamPayload@TracingMarkerPayload@baseprofiler@mozilla@@UEBAXAEAVSpliceableJSONWriter@23@AEBVTimeStamp@3@AEAVUniqueStacks@23@@Z
 2f610 ??0FileIOMarkerPayload@baseprofiler@mozilla@@QEAA@PEBD00AEBVTimeStamp@2@1V?$UniquePtr@VProfilerBacktrace@baseprofiler@mozilla@@UProfilerBacktraceDestructor@23@@2@@Z
 2f700 ??0FileIOMarkerPayload@baseprofiler@mozilla@@AEAA@$$QEAUCommonProps@ProfilerMarkerPayload@12@PEBD$$QEAV?$UniquePtr@DU?$FreePolicy@D@detail@mozilla@@@2@2@Z
 2f780 ??1FileIOMarkerPayload@baseprofiler@mozilla@@UEAA@XZ
 2f800 ?TagAndSerializationBytes@FileIOMarkerPayload@baseprofiler@mozilla@@UEBAIXZ
 2f860 ?SerializeTagAndPayload@FileIOMarkerPayload@baseprofiler@mozilla@@UEBAXAEAVProfileBufferEntryWriter@3@@Z
-2f930 static mozilla::baseprofiler::FileIOMarkerPayload::Deserialize(mozilla::ProfileBufferEntryReader&)
+2f930 mozilla::baseprofiler::FileIOMarkerPayload::Deserialize(mozilla::ProfileBufferEntryReader&)
 2fa70 ?StreamPayload@FileIOMarkerPayload@baseprofiler@mozilla@@UEBAXAEAVSpliceableJSONWriter@23@AEBVTimeStamp@3@AEAVUniqueStacks@23@@Z
 2faf0 ??0UserTimingMarkerPayload@baseprofiler@mozilla@@QEAA@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEBVTimeStamp@2@AEBV?$Maybe@_K@2@@Z
 2fb70 ??0UserTimingMarkerPayload@baseprofiler@mozilla@@QEAA@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEBV?$Maybe@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@1AEBVTimeStamp@2@2AEBV?$Maybe@_K@2@@Z
 2fc40 ??0UserTimingMarkerPayload@baseprofiler@mozilla@@AEAA@$$QEAUCommonProps@ProfilerMarkerPayload@12@PEBD$$QEAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@$$QEAV?$Maybe@V?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@2@3@Z
 2fd10 ??1UserTimingMarkerPayload@baseprofiler@mozilla@@UEAA@XZ
 2fe70 ?TagAndSerializationBytes@UserTimingMarkerPayload@baseprofiler@mozilla@@UEBAIXZ
-2fed0 static mozilla::ProfileBufferEntryWriter::SumBytes<mozilla::ProfileBufferRawPointer<const char>,std::basic_string<char,std::char_traits<char>,std::allocator<char> >,mozilla::Maybe<std::basic_string<char,std::char_traits<char>,std::allocator<char> > >,mozilla::Maybe<std::basic_string<char,std::char_traits<char>,std::allocator<char> > > >(mozilla::ProfileBufferRawPointer<const char> const&, std::basic_string<char,std::char_traits<char>,std::allocator<char> > const&, mozilla::Maybe<std::basic_string<char,std::char_traits<char>,std::allocator<char> > > const&, mozilla::Maybe<std::basic_string<char,std::char_traits<char>,std::allocator<char> > > const&)
+2fed0 mozilla::ProfileBufferEntryWriter::SumBytes<mozilla::ProfileBufferRawPointer<const char>,std::basic_string<char,std::char_traits<char>,std::allocator<char> >,mozilla::Maybe<std::basic_string<char,std::char_traits<char>,std::allocator<char> > >,mozilla::Maybe<std::basic_string<char,std::char_traits<char>,std::allocator<char> > > >(mozilla::ProfileBufferRawPointer<const char> const&, std::basic_string<char,std::char_traits<char>,std::allocator<char> > const&, mozilla::Maybe<std::basic_string<char,std::char_traits<char>,std::allocator<char> > > const&, mozilla::Maybe<std::basic_string<char,std::char_traits<char>,std::allocator<char> > > const&)
 2ff50 ?SerializeTagAndPayload@UserTimingMarkerPayload@baseprofiler@mozilla@@UEBAXAEAVProfileBufferEntryWriter@3@@Z
-30060 static mozilla::baseprofiler::UserTimingMarkerPayload::Deserialize(mozilla::ProfileBufferEntryReader&)
+30060 mozilla::baseprofiler::UserTimingMarkerPayload::Deserialize(mozilla::ProfileBufferEntryReader&)
 30270 ?StreamPayload@UserTimingMarkerPayload@baseprofiler@mozilla@@UEBAXAEAVSpliceableJSONWriter@23@AEBVTimeStamp@3@AEAVUniqueStacks@23@@Z
 30490 ??0TextMarkerPayload@baseprofiler@mozilla@@QEAA@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEBVTimeStamp@2@@Z
 30520 ??0TextMarkerPayload@baseprofiler@mozilla@@QEAA@AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@AEBVTimeStamp@2@1@Z
@@ -510,24 +510,24 @@ ff10 static Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, u
 30740 ??1TextMarkerPayload@baseprofiler@mozilla@@UEAA@XZ
 307e0 ?TagAndSerializationBytes@TextMarkerPayload@baseprofiler@mozilla@@UEBAIXZ
 30840 ?SerializeTagAndPayload@TextMarkerPayload@baseprofiler@mozilla@@UEBAXAEAVProfileBufferEntryWriter@3@@Z
-308f0 static mozilla::baseprofiler::TextMarkerPayload::Deserialize(mozilla::ProfileBufferEntryReader&)
+308f0 mozilla::baseprofiler::TextMarkerPayload::Deserialize(mozilla::ProfileBufferEntryReader&)
 309c0 ?StreamPayload@TextMarkerPayload@baseprofiler@mozilla@@UEBAXAEAVSpliceableJSONWriter@23@AEBVTimeStamp@3@AEAVUniqueStacks@23@@Z
 30a10 ??0LogMarkerPayload@baseprofiler@mozilla@@QEAA@PEBD0AEBVTimeStamp@2@@Z
 30ac0 ??0LogMarkerPayload@baseprofiler@mozilla@@AEAA@$$QEAUCommonProps@ProfilerMarkerPayload@12@$$QEAV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@1@Z
 30b60 ??1LogMarkerPayload@baseprofiler@mozilla@@UEAA@XZ
 30c50 ?TagAndSerializationBytes@LogMarkerPayload@baseprofiler@mozilla@@UEBAIXZ
 30cd0 ?SerializeTagAndPayload@LogMarkerPayload@baseprofiler@mozilla@@UEBAXAEAVProfileBufferEntryWriter@3@@Z
-30db0 static mozilla::baseprofiler::LogMarkerPayload::Deserialize(mozilla::ProfileBufferEntryReader&)
+30db0 mozilla::baseprofiler::LogMarkerPayload::Deserialize(mozilla::ProfileBufferEntryReader&)
 30eb0 ?StreamPayload@LogMarkerPayload@baseprofiler@mozilla@@UEBAXAEAVSpliceableJSONWriter@23@AEBVTimeStamp@3@AEAVUniqueStacks@23@@Z
 30f20 ??0HangMarkerPayload@baseprofiler@mozilla@@QEAA@AEBVTimeStamp@2@0@Z
 30f90 ??0HangMarkerPayload@baseprofiler@mozilla@@AEAA@$$QEAUCommonProps@ProfilerMarkerPayload@12@@Z
 30ff0 ?SerializeTagAndPayload@HangMarkerPayload@baseprofiler@mozilla@@UEBAXAEAVProfileBufferEntryWriter@3@@Z
-31070 static mozilla::baseprofiler::HangMarkerPayload::Deserialize(mozilla::ProfileBufferEntryReader&)
+31070 mozilla::baseprofiler::HangMarkerPayload::Deserialize(mozilla::ProfileBufferEntryReader&)
 31110 ?StreamPayload@HangMarkerPayload@baseprofiler@mozilla@@UEBAXAEAVSpliceableJSONWriter@23@AEBVTimeStamp@3@AEAVUniqueStacks@23@@Z
 31140 ??0LongTaskMarkerPayload@baseprofiler@mozilla@@QEAA@AEBVTimeStamp@2@0@Z
 311b0 ??0LongTaskMarkerPayload@baseprofiler@mozilla@@AEAA@$$QEAUCommonProps@ProfilerMarkerPayload@12@@Z
 31210 ?SerializeTagAndPayload@LongTaskMarkerPayload@baseprofiler@mozilla@@UEBAXAEAVProfileBufferEntryWriter@3@@Z
-31290 static mozilla::baseprofiler::LongTaskMarkerPayload::Deserialize(mozilla::ProfileBufferEntryReader&)
+31290 mozilla::baseprofiler::LongTaskMarkerPayload::Deserialize(mozilla::ProfileBufferEntryReader&)
 31330 ?StreamPayload@LongTaskMarkerPayload@baseprofiler@mozilla@@UEBAXAEAVSpliceableJSONWriter@23@AEBVTimeStamp@3@AEAVUniqueStacks@23@@Z
 31370 ??1ProfilingStack@baseprofiler@mozilla@@QEAA@XZ
 313b0 ?ensureCapacitySlow@ProfilingStack@baseprofiler@mozilla@@AEAAXXZ
@@ -575,13 +575,13 @@ ff10 static Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, u
 36a60 ?profiler_get_start_params@baseprofiler@mozilla@@YAXPEAHPEAV?$Maybe@N@2@PEANPEAIPEAV?$Vector@PEBD$0A@VMallocAllocPolicy@mozilla@@@2@@Z
 36cb0 ?GetProfilerEnvVarsForChildProcess@baseprofiler@mozilla@@YAX$$QEAV?$function@$$A6AXPEBD0@Z@std@@@Z
 370f0 mozilla::Smprintf<mozilla::MallocAllocPolicy>(char const*, <NoType>)
-37230 static mozilla::baseprofiler::ActivePS::MoveExitProfiles(mozilla::baseprofiler::PSAutoLock const&)
+37230 mozilla::baseprofiler::ActivePS::MoveExitProfiles(mozilla::baseprofiler::PSAutoLock const&)
 37460 ?profiler_save_profile_to_file@baseprofiler@mozilla@@YAXPEBD@Z
 37520 ?profiler_get_available_features@baseprofiler@mozilla@@YAIXZ
 37560 ?profiler_get_buffer_info@baseprofiler@mozilla@@YA?AV?$Maybe@UProfilerBufferInfo@baseprofiler@mozilla@@@2@XZ
 37650 ?profiler_start@baseprofiler@mozilla@@YAXV?$PowerOfTwo@I@2@NIPEAPEBDIAEBV?$Maybe@N@2@@Z
 37770 ?profiler_ensure_started@baseprofiler@mozilla@@YAXV?$PowerOfTwo@I@2@NIPEAPEBDIAEBV?$Maybe@N@2@@Z
-378f0 static mozilla::baseprofiler::ActivePS::Equals(mozilla::baseprofiler::PSAutoLock const&, mozilla::PowerOfTwo<unsigned int>, mozilla::Maybe<double> const&, double, unsigned int, char const**, unsigned int)
+378f0 mozilla::baseprofiler::ActivePS::Equals(mozilla::baseprofiler::PSAutoLock const&, mozilla::PowerOfTwo<unsigned int>, mozilla::Maybe<double> const&, double, unsigned int, char const**, unsigned int)
 379b0 ?profiler_stop@baseprofiler@mozilla@@YAXXZ
 37ab0 ?profiler_is_paused@baseprofiler@mozilla@@YA_NXZ
 37b30 ?profiler_pause@baseprofiler@mozilla@@YAXXZ
@@ -589,17 +589,17 @@ ff10 static Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, u
 37d50 ?profiler_resume@baseprofiler@mozilla@@YAXXZ
 37e60 ?profiler_feature_active@baseprofiler@mozilla@@YA_NI@Z
 37ea0 ?profiler_add_sampled_counter@baseprofiler@mozilla@@YAXPEAVBaseProfilerCount@12@@Z
-37f20 static mozilla::baseprofiler::CorePS::AppendCounter(mozilla::baseprofiler::PSAutoLock const&, mozilla::baseprofiler::BaseProfilerCount*)
+37f20 mozilla::baseprofiler::CorePS::AppendCounter(mozilla::baseprofiler::PSAutoLock const&, mozilla::baseprofiler::BaseProfilerCount*)
 37f90 ?profiler_remove_sampled_counter@baseprofiler@mozilla@@YAXPEAVBaseProfilerCount@12@@Z
-38010 static mozilla::baseprofiler::CorePS::RemoveCounter(mozilla::baseprofiler::PSAutoLock const&, mozilla::baseprofiler::BaseProfilerCount*)
+38010 mozilla::baseprofiler::CorePS::RemoveCounter(mozilla::baseprofiler::PSAutoLock const&, mozilla::baseprofiler::BaseProfilerCount*)
 380c0 ?profiler_register_thread@baseprofiler@mozilla@@YAPEAVProfilingStack@12@PEBDPEAX@Z
 38190 ?profiler_unregister_thread@baseprofiler@mozilla@@YAXXZ
 38410 mozilla::baseprofiler::FindCurrentThreadRegisteredThread(mozilla::baseprofiler::PSAutoLock const&)
-38500 static mozilla::baseprofiler::ActivePS::UnregisterThread(mozilla::baseprofiler::PSAutoLock const&, mozilla::baseprofiler::RegisteredThread*)
+38500 mozilla::baseprofiler::ActivePS::UnregisterThread(mozilla::baseprofiler::PSAutoLock const&, mozilla::baseprofiler::RegisteredThread*)
 38760 ?profiler_register_page@baseprofiler@mozilla@@YAX_K0AEBV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@0@Z
-38980 static mozilla::baseprofiler::CorePS::AppendRegisteredPage(mozilla::baseprofiler::PSAutoLock const&, RefPtr<mozilla::baseprofiler::PageInformation>&&)
+38980 mozilla::baseprofiler::CorePS::AppendRegisteredPage(mozilla::baseprofiler::PSAutoLock const&, RefPtr<mozilla::baseprofiler::PageInformation>&&)
 38b20 ?profiler_unregister_page@baseprofiler@mozilla@@YAX_K@Z
-38bc0 static mozilla::baseprofiler::ActivePS::UnregisterPage(mozilla::baseprofiler::PSAutoLock const&, unsigned long long)
+38bc0 mozilla::baseprofiler::ActivePS::UnregisterPage(mozilla::baseprofiler::PSAutoLock const&, unsigned long long)
 38de0 ?profiler_thread_sleep@baseprofiler@mozilla@@YAXXZ
 38e40 ?profiler_thread_wake@baseprofiler@mozilla@@YAXXZ
 38ea0 ?IsThreadBeingProfiled@detail@baseprofiler@mozilla@@YA_NXZ
@@ -695,7 +695,7 @@ ff10 static Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, u
 3ec30 mozilla::detail::HashTable<mozilla::HashMapEntry<unsigned long long,mozilla::Vector<mozilla::baseprofiler::CounterKeyedSample,0,mozilla::MallocAllocPolicy> >,mozilla::HashMap<unsigned long long,mozilla::Vector<mozilla::baseprofiler::CounterKeyedSample,0,mozilla::MallocAllocPolicy>,mozilla::DefaultHasher<unsigned long long>,mozilla::MallocAllocPolicy>::MapHashPolicy,mozilla::MallocAllocPolicy>::clear()
 3ecb0 mozilla::detail::HashTable<mozilla::HashMapEntry<unsigned long long,mozilla::Vector<mozilla::baseprofiler::CounterKeyedSample,0,mozilla::MallocAllocPolicy> >,mozilla::HashMap<unsigned long long,mozilla::Vector<mozilla::baseprofiler::CounterKeyedSample,0,mozilla::MallocAllocPolicy>,mozilla::DefaultHasher<unsigned long long>,mozilla::MallocAllocPolicy>::MapHashPolicy,mozilla::MallocAllocPolicy>::compact()
 3ed70 mozilla::detail::HashTable<mozilla::HashMapEntry<unsigned long long,mozilla::Vector<mozilla::baseprofiler::CounterKeyedSample,0,mozilla::MallocAllocPolicy> >,mozilla::HashMap<unsigned long long,mozilla::Vector<mozilla::baseprofiler::CounterKeyedSample,0,mozilla::MallocAllocPolicy>,mozilla::DefaultHasher<unsigned long long>,mozilla::MallocAllocPolicy>::MapHashPolicy,mozilla::MallocAllocPolicy>::changeTableSize(unsigned int, mozilla::detail::HashTable<mozilla::HashMapEntry<unsigned long long,mozilla::Vector<mozilla::baseprofiler::CounterKeyedSample,0,mozilla::MallocAllocPolicy> >,mozilla::HashMap<unsigned long long,mozilla::Vector<mozilla::baseprofiler::CounterKeyedSample,0,mozilla::MallocAllocPolicy>,mozilla::DefaultHasher<unsigned long long>,mozilla::MallocAllocPolicy>::MapHashPolicy,mozilla::MallocAllocPolicy>::FailureBehavior)
-3f070 static mozilla::detail::HashTable<mozilla::HashMapEntry<unsigned long long,mozilla::Vector<mozilla::baseprofiler::CounterKeyedSample,0,mozilla::MallocAllocPolicy> >,mozilla::HashMap<unsigned long long,mozilla::Vector<mozilla::baseprofiler::CounterKeyedSample,0,mozilla::MallocAllocPolicy>,mozilla::DefaultHasher<unsigned long long>,mozilla::MallocAllocPolicy>::MapHashPolicy,mozilla::MallocAllocPolicy>::destroyTable(mozilla::MallocAllocPolicy&, char*, unsigned int)
+3f070 mozilla::detail::HashTable<mozilla::HashMapEntry<unsigned long long,mozilla::Vector<mozilla::baseprofiler::CounterKeyedSample,0,mozilla::MallocAllocPolicy> >,mozilla::HashMap<unsigned long long,mozilla::Vector<mozilla::baseprofiler::CounterKeyedSample,0,mozilla::MallocAllocPolicy>,mozilla::DefaultHasher<unsigned long long>,mozilla::MallocAllocPolicy>::MapHashPolicy,mozilla::MallocAllocPolicy>::destroyTable(mozilla::MallocAllocPolicy&, char*, unsigned int)
 3f0f0 mozilla::detail::HashTable<mozilla::HashMapEntry<unsigned long long,mozilla::Vector<mozilla::baseprofiler::CounterKeyedSample,0,mozilla::MallocAllocPolicy> >,mozilla::HashMap<unsigned long long,mozilla::Vector<mozilla::baseprofiler::CounterKeyedSample,0,mozilla::MallocAllocPolicy>,mozilla::DefaultHasher<unsigned long long>,mozilla::MallocAllocPolicy>::MapHashPolicy,mozilla::MallocAllocPolicy>::add<unsigned long long &,mozilla::Vector<mozilla::baseprofiler::CounterKeyedSample,0,mozilla::MallocAllocPolicy> >(mozilla::detail::HashTable<mozilla::HashMapEntry<unsigned long long,mozilla::Vector<mozilla::baseprofiler::CounterKeyedSample,0,mozilla::MallocAllocPolicy> >,mozilla::HashMap<unsigned long long,mozilla::Vector<mozilla::baseprofiler::CounterKeyedSample,0,mozilla::MallocAllocPolicy>,mozilla::DefaultHasher<unsigned long long>,mozilla::MallocAllocPolicy>::MapHashPolicy,mozilla::MallocAllocPolicy>::AddPtr&, unsigned long long&, mozilla::Vector<mozilla::baseprofiler::CounterKeyedSample,0,mozilla::MallocAllocPolicy>&&)
 3f240 mozilla::detail::HashTable<mozilla::HashMapEntry<unsigned long long,mozilla::Vector<mozilla::baseprofiler::CounterKeyedSample,0,mozilla::MallocAllocPolicy> >,mozilla::HashMap<unsigned long long,mozilla::Vector<mozilla::baseprofiler::CounterKeyedSample,0,mozilla::MallocAllocPolicy>,mozilla::DefaultHasher<unsigned long long>,mozilla::MallocAllocPolicy>::MapHashPolicy,mozilla::MallocAllocPolicy>::rehashIfOverloaded(mozilla::detail::HashTable<mozilla::HashMapEntry<unsigned long long,mozilla::Vector<mozilla::baseprofiler::CounterKeyedSample,0,mozilla::MallocAllocPolicy> >,mozilla::HashMap<unsigned long long,mozilla::Vector<mozilla::baseprofiler::CounterKeyedSample,0,mozilla::MallocAllocPolicy>,mozilla::DefaultHasher<unsigned long long>,mozilla::MallocAllocPolicy>::MapHashPolicy,mozilla::MallocAllocPolicy>::FailureBehavior)
 3f2b0 mozilla::Vector<mozilla::baseprofiler::CounterKeyedSample,0,mozilla::MallocAllocPolicy>::growStorageBy(unsigned long long)
@@ -709,7 +709,7 @@ ff10 static Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, u
 3fa40 std::_Func_impl_no_alloc<`lambda at /builds/worker/workspace/obj-build/dist/include/mozilla/ProfileChunkedBuffer.h:1186:9',void,const mozilla::ProfileBufferChunk &>::_Target_type() const
 3fa50 std::_Func_impl_no_alloc<`lambda at /builds/worker/workspace/obj-build/dist/include/mozilla/ProfileChunkedBuffer.h:1186:9',void,const mozilla::ProfileBufferChunk &>::_Delete_this(bool)
 3fa60 mozilla::baseprofiler::ProfileBuffer::DuplicateLastSample::<unnamed-tag>::operator()(mozilla::ProfileChunkedBuffer::Reader*) const
-3fec0 static mozilla::detail::HashTable<mozilla::HashMapEntry<mozilla::baseprofiler::UniqueStacks::FrameKey,unsigned int>,mozilla::HashMap<mozilla::baseprofiler::UniqueStacks::FrameKey,unsigned int,mozilla::baseprofiler::UniqueStacks::FrameKeyHasher,mozilla::MallocAllocPolicy>::MapHashPolicy,mozilla::MallocAllocPolicy>::destroyTable(mozilla::MallocAllocPolicy&, char*, unsigned int)
+3fec0 mozilla::detail::HashTable<mozilla::HashMapEntry<mozilla::baseprofiler::UniqueStacks::FrameKey,unsigned int>,mozilla::HashMap<mozilla::baseprofiler::UniqueStacks::FrameKey,unsigned int,mozilla::baseprofiler::UniqueStacks::FrameKeyHasher,mozilla::MallocAllocPolicy>::MapHashPolicy,mozilla::MallocAllocPolicy>::destroyTable(mozilla::MallocAllocPolicy&, char*, unsigned int)
 3ffa0 mozilla::baseprofiler::ProfilerMarkerPayload::~ProfilerMarkerPayload()
 3ffb0 mozilla::Maybe<std::basic_string<char,std::char_traits<char>,std::allocator<char> > >::emplace<const std::basic_string<char,std::char_traits<char>,std::allocator<char> > &>(std::basic_string<char,std::char_traits<char>,std::allocator<char> > const&)
 3fff0 mozilla::detail::Maybe_CopyMove_Enabler<std::basic_string<char,std::char_traits<char>,std::allocator<char> >,0,1,1>::Maybe_CopyMove_Enabler(mozilla::detail::Maybe_CopyMove_Enabler<std::basic_string<char,std::char_traits<char>,std::allocator<char> >,0,1,1>&&)
@@ -720,8 +720,8 @@ ff10 static Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, u
 42de0 SharedLibrary::operator=(SharedLibrary const&)
 42e90 std::basic_string<char,std::char_traits<char>,std::allocator<char> >::operator=(std::basic_string<char,std::char_traits<char>,std::allocator<char> > const&)
 42ef0 std::vector<SharedLibrary,std::allocator<SharedLibrary> >::_Tidy()
-431f0 static mozilla::baseprofiler::ActivePS::ProfiledThreads(mozilla::baseprofiler::PSAutoLock const&)
-433d0 static mozilla::baseprofiler::ActivePS::ProfiledPages(mozilla::baseprofiler::PSAutoLock const&)
+431f0 mozilla::baseprofiler::ActivePS::ProfiledThreads(mozilla::baseprofiler::PSAutoLock const&)
+433d0 mozilla::baseprofiler::ActivePS::ProfiledPages(mozilla::baseprofiler::PSAutoLock const&)
 43520 mozilla::Vector<RefPtr<mozilla::baseprofiler::PageInformation>,0,mozilla::MallocAllocPolicy>::growStorageBy(unsigned long long)
 437b0 mozilla::Vector<mozilla::UniquePtr<mozilla::baseprofiler::ProfiledThreadData,mozilla::DefaultDelete<mozilla::baseprofiler::ProfiledThreadData> >,0,mozilla::MallocAllocPolicy>::eraseIf<`lambda at /builds/worker/checkouts/gecko/mozglue/baseprofiler/core/platform.cpp:868:9'>(mozilla::baseprofiler::ActivePS::DiscardExpiredDeadProfiledThreads::<unnamed-tag>)
 438f0 mozilla::DefaultDelete<mozilla::baseprofiler::ProfiledThreadData>::operator()(mozilla::baseprofiler::ProfiledThreadData*) const
@@ -733,7 +733,7 @@ ff10 static Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, u
 45240 std::_Pop_heap_hole_by_index<std::pair<mozilla::baseprofiler::RegisteredThread *,mozilla::baseprofiler::ProfiledThreadData *> *,std::pair<mozilla::baseprofiler::RegisteredThread *,mozilla::baseprofiler::ProfiledThreadData *>,`lambda at /builds/worker/checkouts/gecko/mozglue/baseprofiler/core/platform.cpp:785:15'>(std::pair<mozilla::baseprofiler::RegisteredThread *,mozilla::baseprofiler::ProfiledThreadData *>*, long long, long long, std::pair<mozilla::baseprofiler::RegisteredThread *,mozilla::baseprofiler::ProfiledThreadData *>&&, mozilla::baseprofiler::ActivePS::ProfiledThreads::<unnamed-tag>)
 455e0 mozilla::Vector<mozilla::baseprofiler::ActivePS::ExitProfile,0,mozilla::MallocAllocPolicy>::eraseIf<`lambda at /builds/worker/checkouts/gecko/mozglue/baseprofiler/core/platform.cpp:918:9'>(mozilla::baseprofiler::ActivePS::ClearExpiredExitProfiles::<unnamed-tag>)
 457a0 mozilla::ProfileChunkedBuffer::ReadEach<`lambda at /builds/worker/workspace/obj-build/dist/include/mozilla/ProfileChunkedBuffer.h:1073:19'>(mozilla::ProfileChunkedBuffer::AppendContents::<unnamed-tag>&&) const
-45810 static mozilla::ProfileChunkedBuffer::ReadEach<`lambda at /builds/worker/workspace/obj-build/dist/include/mozilla/ProfileChunkedBuffer.h:1073:19'>(mozilla::ProfileBufferChunk const*, mozilla::ProfileBufferChunk const*, mozilla::ProfileChunkedBuffer::AppendContents::<unnamed-tag>&&)
+45810 mozilla::ProfileChunkedBuffer::ReadEach<`lambda at /builds/worker/workspace/obj-build/dist/include/mozilla/ProfileChunkedBuffer.h:1073:19'>(mozilla::ProfileBufferChunk const*, mozilla::ProfileBufferChunk const*, mozilla::ProfileChunkedBuffer::AppendContents::<unnamed-tag>&&)
 458f0 mozilla::detail::InChunkPointer::InChunkPointer(mozilla::ProfileBufferChunk const*, mozilla::ProfileBufferChunk const*, unsigned long long)
 45990 mozilla::ProfileChunkedBuffer::ReserveAndPut<`lambda at /builds/worker/workspace/obj-build/dist/include/mozilla/ProfileChunkedBuffer.h:642:26',`lambda at /builds/worker/workspace/obj-build/dist/include/mozilla/ProfileChunkedBuffer.h:1078:38'>(mozilla::ProfileChunkedBuffer::Put<`lambda at /builds/worker/workspace/obj-build/dist/include/mozilla/ProfileChunkedBuffer.h:1078:38'>::<unnamed-tag>&&, mozilla::ProfileChunkedBuffer::AppendContents::<unnamed-tag>::operator()::<unnamed-tag>&&)
 45a20 mozilla::ProfileChunkedBuffer::ReserveAndPutRaw<`lambda at /builds/worker/workspace/obj-build/dist/include/mozilla/ProfileChunkedBuffer.h:625:9',`lambda at /builds/worker/workspace/obj-build/dist/include/mozilla/ProfileChunkedBuffer.h:630:9'>(mozilla::ProfileChunkedBuffer::ReserveAndPut<`lambda at /builds/worker/workspace/obj-build/dist/include/mozilla/ProfileChunkedBuffer.h:642:26',`lambda at /builds/worker/workspace/obj-build/dist/include/mozilla/ProfileChunkedBuffer.h:1078:38'>::<unnamed-tag>&&, mozilla::ProfileChunkedBuffer::ReserveAndPut<`lambda at /builds/worker/workspace/obj-build/dist/include/mozilla/ProfileChunkedBuffer.h:642:26',`lambda at /builds/worker/workspace/obj-build/dist/include/mozilla/ProfileChunkedBuffer.h:1078:38'>::<unnamed-tag>&&, mozilla::baseprofiler::detail::BaseProfilerMaybeAutoLock&, unsigned long long)
@@ -750,8 +750,8 @@ ff10 static Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, u
 467b0 std::vector<mozilla::ProfileBufferControlledChunkManager::ChunkMetadata,std::allocator<mozilla::ProfileBufferControlledChunkManager::ChunkMetadata> >::_Change_array(mozilla::ProfileBufferControlledChunkManager::ChunkMetadata* const, const unsigned long long, const unsigned long long)
 46820 std::vector<mozilla::ProfileBufferControlledChunkManager::ChunkMetadata,std::allocator<mozilla::ProfileBufferControlledChunkManager::ChunkMetadata> >::_Tidy()
 46880 mozilla::baseprofiler::CorePS::CorePS()
-46960 static mozilla::baseprofiler::ActivePS::AddLiveProfiledThread(mozilla::baseprofiler::PSAutoLock const&, mozilla::baseprofiler::RegisteredThread*, mozilla::UniquePtr<mozilla::baseprofiler::ProfiledThreadData,mozilla::DefaultDelete<mozilla::baseprofiler::ProfiledThreadData> >&&)
-469f0 static mozilla::baseprofiler::CorePS::AppendRegisteredThread(mozilla::baseprofiler::PSAutoLock const&, mozilla::UniquePtr<mozilla::baseprofiler::RegisteredThread,mozilla::DefaultDelete<mozilla::baseprofiler::RegisteredThread> >&&)
+46960 mozilla::baseprofiler::ActivePS::AddLiveProfiledThread(mozilla::baseprofiler::PSAutoLock const&, mozilla::baseprofiler::RegisteredThread*, mozilla::UniquePtr<mozilla::baseprofiler::ProfiledThreadData,mozilla::DefaultDelete<mozilla::baseprofiler::ProfiledThreadData> >&&)
+469f0 mozilla::baseprofiler::CorePS::AppendRegisteredThread(mozilla::baseprofiler::PSAutoLock const&, mozilla::UniquePtr<mozilla::baseprofiler::RegisteredThread,mozilla::DefaultDelete<mozilla::baseprofiler::RegisteredThread> >&&)
 46a70 mozilla::baseprofiler::ActivePS::ThreadSelected(char const*)
 46e60 std::basic_string<char,std::char_traits<char>,std::allocator<char> >::compare(unsigned long long, unsigned long long, std::basic_string<char,std::char_traits<char>,std::allocator<char> > const&) const
 46ed0 std::basic_string<char,std::char_traits<char>,std::allocator<char> >::_Equal(char const* const) const
@@ -834,14 +834,14 @@ ff10 static Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, u
 4b4f0 mozilla::detail::HashTable<mozilla::HashMapEntry<mozilla::baseprofiler::UniqueStacks::StackKey,unsigned int>,mozilla::HashMap<mozilla::baseprofiler::UniqueStacks::StackKey,unsigned int,mozilla::baseprofiler::UniqueStacks::StackKeyHasher,mozilla::MallocAllocPolicy>::MapHashPolicy,mozilla::MallocAllocPolicy>::changeTableSize(unsigned int, mozilla::detail::HashTable<mozilla::HashMapEntry<mozilla::baseprofiler::UniqueStacks::StackKey,unsigned int>,mozilla::HashMap<mozilla::baseprofiler::UniqueStacks::StackKey,unsigned int,mozilla::baseprofiler::UniqueStacks::StackKeyHasher,mozilla::MallocAllocPolicy>::MapHashPolicy,mozilla::MallocAllocPolicy>::FailureBehavior)
 4b780 mozilla::detail::HashTable<mozilla::HashMapEntry<mozilla::baseprofiler::UniqueStacks::StackKey,unsigned int>,mozilla::HashMap<mozilla::baseprofiler::UniqueStacks::StackKey,unsigned int,mozilla::baseprofiler::UniqueStacks::StackKeyHasher,mozilla::MallocAllocPolicy>::MapHashPolicy,mozilla::MallocAllocPolicy>::findNonLiveSlot(unsigned int)
 4b850 mozilla::detail::HashTable<mozilla::HashMapEntry<mozilla::baseprofiler::UniqueStacks::StackKey,unsigned int>,mozilla::HashMap<mozilla::baseprofiler::UniqueStacks::StackKey,unsigned int,mozilla::baseprofiler::UniqueStacks::StackKeyHasher,mozilla::MallocAllocPolicy>::MapHashPolicy,mozilla::MallocAllocPolicy>::rehashIfOverloaded(mozilla::detail::HashTable<mozilla::HashMapEntry<mozilla::baseprofiler::UniqueStacks::StackKey,unsigned int>,mozilla::HashMap<mozilla::baseprofiler::UniqueStacks::StackKey,unsigned int,mozilla::baseprofiler::UniqueStacks::StackKeyHasher,mozilla::MallocAllocPolicy>::MapHashPolicy,mozilla::MallocAllocPolicy>::FailureBehavior)
-4b8c0 static mozilla::baseprofiler::UniqueStacks::FrameKeyHasher::hash(mozilla::baseprofiler::UniqueStacks::FrameKey const&)
-4b9a0 static mozilla::detail::VariantImplementation<bool,0,mozilla::baseprofiler::UniqueStacks::FrameKey::NormalFrameData>::equal<mozilla::Variant<mozilla::baseprofiler::UniqueStacks::FrameKey::NormalFrameData> >(mozilla::Variant<mozilla::baseprofiler::UniqueStacks::FrameKey::NormalFrameData> const&, mozilla::Variant<mozilla::baseprofiler::UniqueStacks::FrameKey::NormalFrameData> const&)
+4b8c0 mozilla::baseprofiler::UniqueStacks::FrameKeyHasher::hash(mozilla::baseprofiler::UniqueStacks::FrameKey const&)
+4b9a0 mozilla::detail::VariantImplementation<bool,0,mozilla::baseprofiler::UniqueStacks::FrameKey::NormalFrameData>::equal<mozilla::Variant<mozilla::baseprofiler::UniqueStacks::FrameKey::NormalFrameData> >(mozilla::Variant<mozilla::baseprofiler::UniqueStacks::FrameKey::NormalFrameData> const&, mozilla::Variant<mozilla::baseprofiler::UniqueStacks::FrameKey::NormalFrameData> const&)
 4b9e0 mozilla::detail::HashTable<mozilla::HashMapEntry<mozilla::baseprofiler::UniqueStacks::FrameKey,unsigned int>,mozilla::HashMap<mozilla::baseprofiler::UniqueStacks::FrameKey,unsigned int,mozilla::baseprofiler::UniqueStacks::FrameKeyHasher,mozilla::MallocAllocPolicy>::MapHashPolicy,mozilla::MallocAllocPolicy>::add<const mozilla::baseprofiler::UniqueStacks::FrameKey &,unsigned int &>(mozilla::detail::HashTable<mozilla::HashMapEntry<mozilla::baseprofiler::UniqueStacks::FrameKey,unsigned int>,mozilla::HashMap<mozilla::baseprofiler::UniqueStacks::FrameKey,unsigned int,mozilla::baseprofiler::UniqueStacks::FrameKeyHasher,mozilla::MallocAllocPolicy>::MapHashPolicy,mozilla::MallocAllocPolicy>::AddPtr&, mozilla::baseprofiler::UniqueStacks::FrameKey const&, unsigned int&)
 4bac0 mozilla::detail::HashTable<mozilla::HashMapEntry<mozilla::baseprofiler::UniqueStacks::FrameKey,unsigned int>,mozilla::HashMap<mozilla::baseprofiler::UniqueStacks::FrameKey,unsigned int,mozilla::baseprofiler::UniqueStacks::FrameKeyHasher,mozilla::MallocAllocPolicy>::MapHashPolicy,mozilla::MallocAllocPolicy>::changeTableSize(unsigned int, mozilla::detail::HashTable<mozilla::HashMapEntry<mozilla::baseprofiler::UniqueStacks::FrameKey,unsigned int>,mozilla::HashMap<mozilla::baseprofiler::UniqueStacks::FrameKey,unsigned int,mozilla::baseprofiler::UniqueStacks::FrameKeyHasher,mozilla::MallocAllocPolicy>::MapHashPolicy,mozilla::MallocAllocPolicy>::FailureBehavior)
 4beb0 mozilla::detail::HashTable<mozilla::HashMapEntry<mozilla::baseprofiler::UniqueStacks::FrameKey,unsigned int>,mozilla::HashMap<mozilla::baseprofiler::UniqueStacks::FrameKey,unsigned int,mozilla::baseprofiler::UniqueStacks::FrameKeyHasher,mozilla::MallocAllocPolicy>::MapHashPolicy,mozilla::MallocAllocPolicy>::findNonLiveSlot(unsigned int)
 4bf80 mozilla::detail::HashTable<mozilla::HashMapEntry<mozilla::baseprofiler::UniqueStacks::FrameKey,unsigned int>,mozilla::HashMap<mozilla::baseprofiler::UniqueStacks::FrameKey,unsigned int,mozilla::baseprofiler::UniqueStacks::FrameKeyHasher,mozilla::MallocAllocPolicy>::MapHashPolicy,mozilla::MallocAllocPolicy>::rehashIfOverloaded(mozilla::detail::HashTable<mozilla::HashMapEntry<mozilla::baseprofiler::UniqueStacks::FrameKey,unsigned int>,mozilla::HashMap<mozilla::baseprofiler::UniqueStacks::FrameKey,unsigned int,mozilla::baseprofiler::UniqueStacks::FrameKeyHasher,mozilla::MallocAllocPolicy>::MapHashPolicy,mozilla::MallocAllocPolicy>::FailureBehavior)
-4bff0 static mozilla::detail::VariantImplementation<bool,0,mozilla::baseprofiler::UniqueStacks::FrameKey::NormalFrameData>::copyConstruct<mozilla::Variant<mozilla::baseprofiler::UniqueStacks::FrameKey::NormalFrameData> >(void*, mozilla::Variant<mozilla::baseprofiler::UniqueStacks::FrameKey::NormalFrameData> const&)
-4c050 static mozilla::ProfileBufferEntryReader::Deserializer<std::basic_string<char,std::char_traits<char>,std::allocator<char> > >::Read(mozilla::ProfileBufferEntryReader&)
+4bff0 mozilla::detail::VariantImplementation<bool,0,mozilla::baseprofiler::UniqueStacks::FrameKey::NormalFrameData>::copyConstruct<mozilla::Variant<mozilla::baseprofiler::UniqueStacks::FrameKey::NormalFrameData> >(void*, mozilla::Variant<mozilla::baseprofiler::UniqueStacks::FrameKey::NormalFrameData> const&)
+4c050 mozilla::ProfileBufferEntryReader::Deserializer<std::basic_string<char,std::char_traits<char>,std::allocator<char> > >::Read(mozilla::ProfileBufferEntryReader&)
 4c120 mozilla::ProfileBufferEntryReader::EmptyIteratorAtOffset(unsigned int) const
 4c1c0 mozilla::ReadULEB128<unsigned long long,mozilla::ProfileBufferEntryReader>(mozilla::ProfileBufferEntryReader&)
 4c230 mozilla::ProfileBufferEntryReader::operator++()
@@ -853,27 +853,27 @@ ff10 static Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, u
 4c5f0 std::_Func_impl_no_alloc<`lambda at /builds/worker/checkouts/gecko/mozglue/baseprofiler/core/ProfileJSONWriter.cpp:76:37',char *,unsigned long long>::_Target_type() const
 4c600 mozilla::Vector<unsigned long long,0,mozilla::MallocAllocPolicy>::growStorageBy(unsigned long long)
 4c6f0 mozilla::Vector<mozilla::UniquePtr<char [],mozilla::DefaultDelete<char []> >,0,mozilla::MallocAllocPolicy>::growStorageBy(unsigned long long)
-4c8a0 static mozilla::ProfileBufferEntryWriter::Serializer<mozilla::baseprofiler::ProfilerBacktrace>::Bytes(mozilla::baseprofiler::ProfilerBacktrace const&)
+4c8a0 mozilla::ProfileBufferEntryWriter::Serializer<mozilla::baseprofiler::ProfilerBacktrace>::Bytes(mozilla::baseprofiler::ProfilerBacktrace const&)
 4c900 mozilla::ProfileChunkedBuffer::Read<`lambda at /builds/worker/workspace/obj-build/dist/include/mozilla/ProfileChunkedBuffer.h:1608:25'>(mozilla::ProfileBufferEntryWriter::Serializer<mozilla::ProfileChunkedBuffer>::Bytes::<unnamed-tag>&&) const
 4c9d0 mozilla::ProfileChunkedBuffer::Reader::SingleChunkDataAsEntry()
-4cb30 static mozilla::ProfileBufferEntryWriter::Serializer<mozilla::baseprofiler::ProfilerBacktrace>::Write(mozilla::ProfileBufferEntryWriter&, mozilla::baseprofiler::ProfilerBacktrace const&)
+4cb30 mozilla::ProfileBufferEntryWriter::Serializer<mozilla::baseprofiler::ProfilerBacktrace>::Write(mozilla::ProfileBufferEntryWriter&, mozilla::baseprofiler::ProfilerBacktrace const&)
 4cc00 mozilla::ProfileChunkedBuffer::Read<`lambda at /builds/worker/workspace/obj-build/dist/include/mozilla/ProfileChunkedBuffer.h:1633:18'>(mozilla::ProfileBufferEntryWriter::Serializer<mozilla::ProfileChunkedBuffer>::Write::<unnamed-tag>&&) const
 4ccb0 mozilla::ProfileBufferEntryWriter::Serializer<mozilla::ProfileChunkedBuffer>::Write::<unnamed-tag>::operator()(mozilla::ProfileChunkedBuffer::Reader*) const
-4cdb0 static mozilla::ProfileBufferEntryWriter::Serializer<mozilla::Maybe<unsigned long long> >::Write(mozilla::ProfileBufferEntryWriter&, mozilla::Maybe<unsigned long long> const&)
-4ce60 static mozilla::ProfileBufferEntryReader::Deserializer<mozilla::UniquePtr<mozilla::baseprofiler::ProfilerBacktrace,mozilla::baseprofiler::ProfilerBacktraceDestructor> >::ReadInto(mozilla::ProfileBufferEntryReader&, mozilla::UniquePtr<mozilla::baseprofiler::ProfilerBacktrace,mozilla::baseprofiler::ProfilerBacktraceDestructor>&)
-4ced0 static mozilla::ProfileBufferEntryReader::Deserializer<mozilla::UniquePtr<mozilla::baseprofiler::ProfilerBacktrace,mozilla::baseprofiler::ProfilerBacktraceDestructor> >::Read(mozilla::ProfileBufferEntryReader&)
-4d000 static mozilla::ProfileBufferEntryReader::Deserializer<mozilla::UniquePtr<mozilla::ProfileChunkedBuffer,mozilla::DefaultDelete<mozilla::ProfileChunkedBuffer> > >::Read(mozilla::ProfileBufferEntryReader&)
+4cdb0 mozilla::ProfileBufferEntryWriter::Serializer<mozilla::Maybe<unsigned long long> >::Write(mozilla::ProfileBufferEntryWriter&, mozilla::Maybe<unsigned long long> const&)
+4ce60 mozilla::ProfileBufferEntryReader::Deserializer<mozilla::UniquePtr<mozilla::baseprofiler::ProfilerBacktrace,mozilla::baseprofiler::ProfilerBacktraceDestructor> >::ReadInto(mozilla::ProfileBufferEntryReader&, mozilla::UniquePtr<mozilla::baseprofiler::ProfilerBacktrace,mozilla::baseprofiler::ProfilerBacktraceDestructor>&)
+4ced0 mozilla::ProfileBufferEntryReader::Deserializer<mozilla::UniquePtr<mozilla::baseprofiler::ProfilerBacktrace,mozilla::baseprofiler::ProfilerBacktraceDestructor> >::Read(mozilla::ProfileBufferEntryReader&)
+4d000 mozilla::ProfileBufferEntryReader::Deserializer<mozilla::UniquePtr<mozilla::ProfileChunkedBuffer,mozilla::DefaultDelete<mozilla::ProfileChunkedBuffer> > >::Read(mozilla::ProfileBufferEntryReader&)
 4d0f0 mozilla::ReadULEB128<unsigned int,mozilla::ProfileBufferEntryReader>(mozilla::ProfileBufferEntryReader&)
-4d150 static mozilla::ProfileBufferEntryReader::Deserializer<mozilla::ProfileChunkedBuffer>::ReadInto(mozilla::ProfileBufferEntryReader&, mozilla::ProfileChunkedBuffer&)
+4d150 mozilla::ProfileBufferEntryReader::Deserializer<mozilla::ProfileChunkedBuffer>::ReadInto(mozilla::ProfileBufferEntryReader&, mozilla::ProfileChunkedBuffer&)
 4d380 mozilla::ProfileChunkedBuffer::SetChunkManager(mozilla::UniquePtr<mozilla::ProfileBufferChunkManager,mozilla::DefaultDelete<mozilla::ProfileBufferChunkManager> >&&)
 4d450 mozilla::ProfileChunkedBuffer::ReserveAndPutRaw<`lambda at /builds/worker/workspace/obj-build/dist/include/mozilla/ProfileChunkedBuffer.h:1487:29',`lambda at /builds/worker/workspace/obj-build/dist/include/mozilla/ProfileChunkedBuffer.h:1702:9'>(mozilla::ProfileChunkedBuffer::ReserveAndPutRaw<`lambda at /builds/worker/workspace/obj-build/dist/include/mozilla/ProfileChunkedBuffer.h:1702:9'>::<unnamed-tag>&&, mozilla::ProfileBufferEntryReader::Deserializer<mozilla::ProfileChunkedBuffer>::ReadInto::<unnamed-tag>&&, mozilla::baseprofiler::detail::BaseProfilerMaybeAutoLock&, unsigned long long)
-4d680 static mozilla::ProfileBufferEntryReader::Deserializer<mozilla::Maybe<unsigned long long> >::ReadInto(mozilla::ProfileBufferEntryReader&, mozilla::Maybe<unsigned long long>&)
-4d710 static mozilla::ProfileBufferEntryWriter::Serializer<mozilla::UniquePtr<char,mozilla::detail::FreePolicy<char> > >::Bytes(mozilla::UniquePtr<char,mozilla::detail::FreePolicy<char> > const&)
-4d750 static mozilla::ProfileBufferEntryWriter::Serializer<mozilla::UniquePtr<char,mozilla::detail::FreePolicy<char> > >::Write(mozilla::ProfileBufferEntryWriter&, mozilla::UniquePtr<char,mozilla::detail::FreePolicy<char> > const&)
-4d7a0 static mozilla::ProfileBufferEntryWriter::Serializer<mozilla::Maybe<std::basic_string<char,std::char_traits<char>,std::allocator<char> > > >::Write(mozilla::ProfileBufferEntryWriter&, mozilla::Maybe<std::basic_string<char,std::char_traits<char>,std::allocator<char> > > const&)
-4d870 static mozilla::ProfileBufferEntryReader::Deserializer<mozilla::Maybe<std::basic_string<char,std::char_traits<char>,std::allocator<char> > > >::Read(mozilla::ProfileBufferEntryReader&)
+4d680 mozilla::ProfileBufferEntryReader::Deserializer<mozilla::Maybe<unsigned long long> >::ReadInto(mozilla::ProfileBufferEntryReader&, mozilla::Maybe<unsigned long long>&)
+4d710 mozilla::ProfileBufferEntryWriter::Serializer<mozilla::UniquePtr<char,mozilla::detail::FreePolicy<char> > >::Bytes(mozilla::UniquePtr<char,mozilla::detail::FreePolicy<char> > const&)
+4d750 mozilla::ProfileBufferEntryWriter::Serializer<mozilla::UniquePtr<char,mozilla::detail::FreePolicy<char> > >::Write(mozilla::ProfileBufferEntryWriter&, mozilla::UniquePtr<char,mozilla::detail::FreePolicy<char> > const&)
+4d7a0 mozilla::ProfileBufferEntryWriter::Serializer<mozilla::Maybe<std::basic_string<char,std::char_traits<char>,std::allocator<char> > > >::Write(mozilla::ProfileBufferEntryWriter&, mozilla::Maybe<std::basic_string<char,std::char_traits<char>,std::allocator<char> > > const&)
+4d870 mozilla::ProfileBufferEntryReader::Deserializer<mozilla::Maybe<std::basic_string<char,std::char_traits<char>,std::allocator<char> > > >::Read(mozilla::ProfileBufferEntryReader&)
 4d980 mozilla::Maybe<std::basic_string<char,std::char_traits<char>,std::allocator<char> > >::operator=<std::basic_string<char,std::char_traits<char>,std::allocator<char> >,void>(mozilla::Maybe<std::basic_string<char,std::char_traits<char>,std::allocator<char> > >&&)
-4db10 static mozilla::ProfileBufferEntryReader::Deserializer<std::basic_string<char,std::char_traits<char>,std::allocator<char> > >::ReadInto(mozilla::ProfileBufferEntryReader&, std::basic_string<char,std::char_traits<char>,std::allocator<char> >&)
+4db10 mozilla::ProfileBufferEntryReader::Deserializer<std::basic_string<char,std::char_traits<char>,std::allocator<char> > >::ReadInto(mozilla::ProfileBufferEntryReader&, std::basic_string<char,std::char_traits<char>,std::allocator<char> >&)
 4dba0 std::basic_string<char,std::char_traits<char>,std::allocator<char> >::assign<mozilla::ProfileBufferEntryReader,void>(const mozilla::ProfileBufferEntryReader, const mozilla::ProfileBufferEntryReader)
 4dc90 std::basic_string<char,std::char_traits<char>,std::allocator<char> >::_Replace_range<mozilla::ProfileBufferEntryReader>(const std::_String_const_iterator<std::_String_val<std::_Simple_types<char> > >, const std::_String_const_iterator<std::_String_val<std::_Simple_types<char> > >, const mozilla::ProfileBufferEntryReader, const mozilla::ProfileBufferEntryReader, std::integral_constant<bool,0>)
 4dde0 std::basic_string<char,std::char_traits<char>,std::allocator<char> >::replace(const unsigned long long, unsigned long long, char const* const, const unsigned long long)
@@ -1117,7 +1117,7 @@ ff10 static Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, u
 71ce0 double_conversion::Bignum::DivideModuloIntBignum(double_conversion::Bignum const&)
 71eb0 double_conversion::Bignum::SubtractTimes(double_conversion::Bignum const&, const int)
 72010 ?Compare@Bignum@double_conversion@@SAHAEBV12@0@Z
-720b0 static double_conversion::Bignum::PlusCompare(double_conversion::Bignum const&, double_conversion::Bignum const&, double_conversion::Bignum const&)
+720b0 double_conversion::Bignum::PlusCompare(double_conversion::Bignum const&, double_conversion::Bignum const&, double_conversion::Bignum const&)
 721f0 ?GetCachedPowerForBinaryExponentRange@PowersOfTenCache@double_conversion@@YAXHHPEAVDiyFp@2@PEAH@Z
 72260 ?GetCachedPowerForDecimalExponent@PowersOfTenCache@double_conversion@@YAXHPEAVDiyFp@2@PEAH@Z
 722a0 ?EcmaScriptConverter@DoubleToStringConverter@double_conversion@@SAAEBV12@XZ
@@ -1146,7 +1146,7 @@ ff10 static Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, u
 75fd0 double_conversion::RoundWeed(double_conversion::Vector<char>, int, unsigned long long, unsigned long long, unsigned long long, unsigned long long, unsigned long long)
 760a0 double_conversion::RoundWeedCounted(double_conversion::Vector<char>, int, unsigned long long, unsigned long long, unsigned long long, int*)
 76130 double_conversion::RoundUp(double_conversion::Vector<char>, int*, int*)
-761b0 static double_conversion::Double::DiyFpToUint64(double_conversion::DiyFp)
+761b0 double_conversion::Double::DiyFpToUint64(double_conversion::DiyFp)
 76290 double_conversion::`anonymous namespace'::ConsumeSubString<const char *>(char const**, char const*, char const*, bool)
 76460 double_conversion::Advance<const char *>(char const**, unsigned short, int, char const*&)
 76550 double_conversion::IsHexFloatString<const char *>(char const*, char const*, unsigned short, bool)
