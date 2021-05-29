@@ -213,6 +213,8 @@ impl<'a> TypeDumper<'a> {
         match scope {
             ParentScope::WithType(scope_index) => match self.find(scope_index)? {
                 TypeData::Class(c) => write!(w, "{}::", c.name)?,
+                TypeData::Union(u) => write!(w, "{}::", u.name)?,
+                TypeData::Enumeration(e) => write!(w, "{}::", e.name)?,
                 other => write!(w, "<unhandled scope type {:?}>::", other)?,
             },
             ParentScope::WithId(id_data) => match id_data {
