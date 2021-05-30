@@ -198,7 +198,7 @@ impl<'a> TypeDumper<'a> {
         }
     }
 
-    fn dump_parent_scope(&self, w: &mut Vec<u8>, scope: ParentScope) -> Result<()> {
+    fn emit_parent_scope(&self, w: &mut Vec<u8>, scope: ParentScope) -> Result<()> {
         match scope {
             ParentScope::WithType(scope_index) => match self.find(scope_index)? {
                 TypeData::Class(c) => write!(w, "{}::", c.name)?,
@@ -214,15 +214,20 @@ impl<'a> TypeDumper<'a> {
         Ok(())
     }
 
-    /// Dump a ProcedureType at the given TypeIndex
-    /// If the TypeIndex is 0 then try to use demanglers to have the correct name
+    /// Return a function or method signature, including return type (if requested),
+    /// namespace and/or class qualifiers, and arguments.
+    /// The function's name is really just the raw name. The arguments need to be
+    /// obtained from its type information.
+    /// If the TypeIndex is 0, then only the raw name is emitted. In that case, the
+    /// name may need to go through additional demangling / "undecorating", but this
+    /// is the responsibility of the caller.
     pub fn dump_function(
         &self,
         name: &str,
-        index: TypeIndex,
-        parent_index: Option<ParentScope>,
+        function_type_index: TypeIndex,
+        parent_scope: Option<ParentScope>,
     ) -> Result<String> {
-        if index == TypeIndex(0) {
+        if function_type_index == TypeIndex(0) {
             if name.is_empty() {
                 Ok("<name omitted>".to_string())
             } else {
@@ -230,11 +235,11 @@ impl<'a> TypeDumper<'a> {
             }
         } else {
             let mut w: Vec<u8> = Vec::new();
-            let typ = self.find(index)?;
+            let typ = self.find(function_type_index)?;
             match typ {
                 TypeData::MemberFunction(t) => {
-                    let ztatic = t.this_pointer_type.is_none();
-                    if ztatic
+                    let is_static_method = t.this_pointer_type.is_none();
+                    if is_static_method
                         && !self
                             .flags
                             .intersects(DumperFlags::NO_MEMBER_FUNCTION_STATIC)
@@ -242,29 +247,29 @@ impl<'a> TypeDumper<'a> {
                         w.write_all(b"static ")?;
                     }
                     if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
-                        self.dump_return_type(&mut w, Some(t.return_type), t.attributes)?;
+                        self.emit_return_type(&mut w, Some(t.return_type), t.attributes)?;
                     }
 
-                    if let Some(i) = parent_index {
-                        self.dump_parent_scope(&mut w, i)?;
+                    if let Some(i) = parent_scope {
+                        self.emit_parent_scope(&mut w, i)?;
                     }
                     if name.is_empty() {
                         write!(w, "<name omitted>")?;
                     } else {
                         write!(w, "{}", name)?;
                     };
-                    let const_meth = self.dump_method_args(&mut w, t, ztatic)?;
+                    let const_meth = self.emit_method_args(&mut w, t, is_static_method)?;
                     if const_meth {
                         w.write_all(b" const")?;
                     }
                 }
                 TypeData::Procedure(t) => {
                     if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
-                        self.dump_return_type(&mut w, t.return_type, t.attributes)?;
+                        self.emit_return_type(&mut w, t.return_type, t.attributes)?;
                     }
 
-                    if let Some(i) = parent_index {
-                        self.dump_parent_scope(&mut w, i)?;
+                    if let Some(i) = parent_scope {
+                        self.emit_parent_scope(&mut w, i)?;
                     }
                     if name.is_empty() {
                         write!(w, "<name omitted>")?;
@@ -272,7 +277,7 @@ impl<'a> TypeDumper<'a> {
                         write!(w, "{}", name)?;
                     };
                     write!(w, "(")?;
-                    self.dump_index(&mut w, t.argument_list)?;
+                    self.emit_index(&mut w, t.argument_list)?;
                     write!(w, ")")?;
                 }
                 _ => return Ok(name.to_string()),
@@ -282,7 +287,7 @@ impl<'a> TypeDumper<'a> {
         }
     }
 
-    fn dump_return_type(
+    fn emit_return_type(
         &self,
         w: &mut Vec<u8>,
         typ: Option<TypeIndex>,
@@ -290,7 +295,7 @@ impl<'a> TypeDumper<'a> {
     ) -> Result<()> {
         if !attrs.is_constructor() {
             if let Some(index) = typ {
-                self.dump_index(w, index)?;
+                self.emit_index(w, index)?;
                 write!(w, " ")?;
             }
         }
@@ -345,7 +350,7 @@ impl<'a> TypeDumper<'a> {
     }
 
     // Return value describes whether this is a const method.
-    fn dump_method_args(
+    fn emit_method_args(
         &self,
         w: &mut Vec<u8>,
         method_type: MemberFunctionType,
@@ -374,17 +379,17 @@ impl<'a> TypeDumper<'a> {
 
         write!(w, "(")?;
         if let Some(first_arg) = extra_first_arg {
-            self.dump_index(w, first_arg)?;
-            self.dump_arg_list(w, args_list, true)?;
+            self.emit_index(w, first_arg)?;
+            self.emit_arg_list(w, args_list, true)?;
         } else {
-            self.dump_arg_list(w, args_list, false)?;
+            self.emit_arg_list(w, args_list, false)?;
         }
         write!(w, ")")?;
 
         Ok(is_const_method)
     }
 
-    // Should we emit a space as the first byte from dump_attributes? It depends.
+    // Should we emit a space as the first byte from emit_attributes? It depends.
     // "*" in a table cell means "value has no impact on the outcome".
     //
     //  caller allows space | attributes start with | SPACE_BEFORE_POINTER mode | previous byte was   | put space at the beginning?
@@ -394,7 +399,7 @@ impl<'a> TypeDumper<'a> {
     //  yes                 | pointer sigil         | off                       | *                   | no
     //  yes                 | pointer sigil         | on                        | pointer sigil       | no
     //  yes                 | pointer sigil         | on                        | not a pointer sigil | yes
-    fn dump_attributes(
+    fn emit_attributes(
         &self,
         w: &mut Vec<u8>,
         attrs: Vec<PtrAttributes>,
@@ -436,69 +441,69 @@ impl<'a> TypeDumper<'a> {
         Ok(())
     }
 
-    fn dump_member_ptr(
+    fn emit_member_ptr(
         &self,
         w: &mut Vec<u8>,
         fun: MemberFunctionType,
         attributes: Vec<PtrAttributes>,
     ) -> Result<()> {
         let ztatic = fun.this_pointer_type.is_none();
-        self.dump_return_type(w, Some(fun.return_type), fun.attributes)?;
+        self.emit_return_type(w, Some(fun.return_type), fun.attributes)?;
 
         write!(w, "(")?;
-        self.dump_index(w, fun.class_type)?;
-        self.dump_attributes(w, attributes, false, false)?;
+        self.emit_index(w, fun.class_type)?;
+        self.emit_attributes(w, attributes, false, false)?;
         write!(w, ")")?;
-        let _ = self.dump_method_args(w, fun, ztatic)?;
+        let _ = self.emit_method_args(w, fun, ztatic)?;
         Ok(())
     }
 
-    fn dump_proc_ptr(
+    fn emit_proc_ptr(
         &self,
         w: &mut Vec<u8>,
         fun: ProcedureType,
         attributes: Vec<PtrAttributes>,
     ) -> Result<()> {
-        self.dump_return_type(w, fun.return_type, fun.attributes)?;
+        self.emit_return_type(w, fun.return_type, fun.attributes)?;
 
         write!(w, "(")?;
-        self.dump_attributes(w, attributes, false, false)?;
+        self.emit_attributes(w, attributes, false, false)?;
         write!(w, ")")?;
         write!(w, "(")?;
-        self.dump_index(w, fun.argument_list)?;
+        self.emit_index(w, fun.argument_list)?;
         write!(w, ")")?;
         Ok(())
     }
 
-    fn dump_other_ptr(
+    fn emit_other_ptr(
         &self,
         w: &mut Vec<u8>,
         typ: TypeData,
         attributes: Vec<PtrAttributes>,
     ) -> Result<()> {
-        self.dump_data(w, typ)?;
+        self.emit_data(w, typ)?;
         let previous_byte_was_pointer_sigil =
             w.last().map(|&b| b == b'*' || b == b'&').unwrap_or(false);
-        self.dump_attributes(w, attributes, true, previous_byte_was_pointer_sigil)?;
+        self.emit_attributes(w, attributes, true, previous_byte_was_pointer_sigil)?;
 
         Ok(())
     }
 
-    fn dump_ptr_helper(
+    fn emit_ptr_helper(
         &self,
         w: &mut Vec<u8>,
         attributes: Vec<PtrAttributes>,
         typ: TypeData,
     ) -> Result<()> {
         match typ {
-            TypeData::MemberFunction(t) => self.dump_member_ptr(w, t, attributes)?,
-            TypeData::Procedure(t) => self.dump_proc_ptr(w, t, attributes)?,
-            _ => self.dump_other_ptr(w, typ, attributes)?,
+            TypeData::MemberFunction(t) => self.emit_member_ptr(w, t, attributes)?,
+            TypeData::Procedure(t) => self.emit_proc_ptr(w, t, attributes)?,
+            _ => self.emit_other_ptr(w, typ, attributes)?,
         };
         Ok(())
     }
 
-    fn dump_ptr(&self, w: &mut Vec<u8>, ptr: PointerType, is_const: bool) -> Result<()> {
+    fn emit_ptr(&self, w: &mut Vec<u8>, ptr: PointerType, is_const: bool) -> Result<()> {
         let mut attributes = Vec::new();
         attributes.push(PtrAttributes {
             is_pointer_const: ptr.attributes.is_const() || is_const,
@@ -529,12 +534,12 @@ impl<'a> TypeDumper<'a> {
                         });
                         ptr = t;
                     } else {
-                        self.dump_ptr_helper(w, attributes, typ)?;
+                        self.emit_ptr_helper(w, attributes, typ)?;
                         return Ok(());
                     }
                 }
                 _ => {
-                    self.dump_ptr_helper(w, attributes, typ)?;
+                    self.emit_ptr_helper(w, attributes, typ)?;
                     return Ok(());
                 }
             }
@@ -563,10 +568,10 @@ impl<'a> TypeDumper<'a> {
         }
     }
 
-    fn dump_array(&self, w: &mut Vec<u8>, array: ArrayType) -> Result<()> {
+    fn emit_array(&self, w: &mut Vec<u8>, array: ArrayType) -> Result<()> {
         let (dimensions_as_bytes, base) = self.get_array_info(array)?;
         let base_size = self.get_data_size(&base);
-        self.dump_data(w, base)?;
+        self.emit_data(w, base)?;
 
         let mut iter = dimensions_as_bytes.into_iter().peekable();
         while let Some(current_level_byte_size) = iter.next() {
@@ -584,22 +589,22 @@ impl<'a> TypeDumper<'a> {
         Ok(())
     }
 
-    fn dump_modifier(&self, w: &mut Vec<u8>, modifier: ModifierType) -> Result<()> {
+    fn emit_modifier(&self, w: &mut Vec<u8>, modifier: ModifierType) -> Result<()> {
         let typ = self.find(modifier.underlying_type)?;
         match typ {
-            TypeData::Pointer(ptr) => self.dump_ptr(w, ptr, modifier.constant)?,
-            TypeData::Primitive(prim) => self.dump_primitive(w, prim, modifier.constant)?,
+            TypeData::Pointer(ptr) => self.emit_ptr(w, ptr, modifier.constant)?,
+            TypeData::Primitive(prim) => self.emit_primitive(w, prim, modifier.constant)?,
             _ => {
                 if modifier.constant {
                     write!(w, "const ")?
                 }
-                self.dump_data(w, typ)?;
+                self.emit_data(w, typ)?;
             }
         }
         Ok(())
     }
 
-    fn dump_class(&self, w: &mut Vec<u8>, class: ClassType) -> Result<()> {
+    fn emit_class(&self, w: &mut Vec<u8>, class: ClassType) -> Result<()> {
         if self.flags.intersects(DumperFlags::NAME_ONLY) {
             write!(w, "{}", class.name)?;
         } else {
@@ -613,7 +618,7 @@ impl<'a> TypeDumper<'a> {
         Ok(())
     }
 
-    fn dump_arg_list(
+    fn emit_arg_list(
         &self,
         w: &mut Vec<u8>,
         list: ArgumentList,
@@ -626,19 +631,19 @@ impl<'a> TypeDumper<'a> {
                     write!(w, " ")?;
                 }
             }
-            self.dump_index(w, *first)?;
+            self.emit_index(w, *first)?;
             for index in args.iter() {
                 write!(w, ",")?;
                 if self.flags.intersects(DumperFlags::SPACE_AFTER_COMMA) {
                     write!(w, " ")?;
                 }
-                self.dump_index(w, *index)?;
+                self.emit_index(w, *index)?;
             }
         }
         Ok(())
     }
 
-    fn dump_primitive(&self, w: &mut Vec<u8>, prim: PrimitiveType, is_const: bool) -> Result<()> {
+    fn emit_primitive(&self, w: &mut Vec<u8>, prim: PrimitiveType, is_const: bool) -> Result<()> {
         // TODO: check that these names are what we want to see
         let name = match prim.kind {
             PrimitiveKind::NoType => "<NoType>",
@@ -681,7 +686,7 @@ impl<'a> TypeDumper<'a> {
             PrimitiveKind::Bool32 => "bool32_t",
             PrimitiveKind::Bool64 => "bool64_t",
             PrimitiveKind::HRESULT => "HRESULT",
-            _ => panic!("Unknown PrimitiveKind {:?} in dump_primitive", prim.kind),
+            _ => panic!("Unknown PrimitiveKind {:?} in emit_primitive", prim.kind),
         };
 
         if prim.indirection.is_some() {
@@ -704,7 +709,7 @@ impl<'a> TypeDumper<'a> {
         Ok(())
     }
 
-    fn dump_named(&self, w: &mut Vec<u8>, base: &str, name: RawString) -> Result<()> {
+    fn emit_named(&self, w: &mut Vec<u8>, base: &str, name: RawString) -> Result<()> {
         if self.flags.intersects(DumperFlags::NAME_ONLY) {
             write!(w, "{}", name)?
         } else {
@@ -714,41 +719,41 @@ impl<'a> TypeDumper<'a> {
         Ok(())
     }
 
-    fn dump_index(&self, w: &mut Vec<u8>, index: TypeIndex) -> Result<()> {
+    fn emit_index(&self, w: &mut Vec<u8>, index: TypeIndex) -> Result<()> {
         let typ = self.find(index)?;
-        self.dump_data(w, typ)?;
+        self.emit_data(w, typ)?;
         Ok(())
     }
 
-    fn dump_data(&self, w: &mut Vec<u8>, typ: TypeData) -> Result<()> {
+    fn emit_data(&self, w: &mut Vec<u8>, typ: TypeData) -> Result<()> {
         match typ {
-            TypeData::Primitive(t) => self.dump_primitive(w, t, false)?,
-            TypeData::Class(t) => self.dump_class(w, t)?,
+            TypeData::Primitive(t) => self.emit_primitive(w, t, false)?,
+            TypeData::Class(t) => self.emit_class(w, t)?,
             TypeData::MemberFunction(t) => {
                 let ztatic = t.this_pointer_type.is_none();
                 if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
-                    self.dump_return_type(w, Some(t.return_type), t.attributes)?;
+                    self.emit_return_type(w, Some(t.return_type), t.attributes)?;
                 }
 
                 write!(w, "()")?;
-                let _ = self.dump_method_args(w, t, ztatic)?;
+                let _ = self.emit_method_args(w, t, ztatic)?;
             }
             TypeData::Procedure(t) => {
                 if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
-                    self.dump_return_type(w, t.return_type, t.attributes)?;
+                    self.emit_return_type(w, t.return_type, t.attributes)?;
                 }
 
                 write!(w, "()(")?;
-                self.dump_index(w, t.argument_list)?;
+                self.emit_index(w, t.argument_list)?;
                 write!(w, "")?;
             }
-            TypeData::ArgumentList(t) => self.dump_arg_list(w, t, false)?,
-            TypeData::Pointer(t) => self.dump_ptr(w, t, false)?,
-            TypeData::Array(t) => self.dump_array(w, t)?,
-            TypeData::Union(t) => self.dump_named(w, "union", t.name)?,
-            TypeData::Enumeration(t) => self.dump_named(w, "enum", t.name)?,
-            TypeData::Enumerate(t) => self.dump_named(w, "enum class", t.name)?,
-            TypeData::Modifier(t) => self.dump_modifier(w, t)?,
+            TypeData::ArgumentList(t) => self.emit_arg_list(w, t, false)?,
+            TypeData::Pointer(t) => self.emit_ptr(w, t, false)?,
+            TypeData::Array(t) => self.emit_array(w, t)?,
+            TypeData::Union(t) => self.emit_named(w, "union", t.name)?,
+            TypeData::Enumeration(t) => self.emit_named(w, "enum", t.name)?,
+            TypeData::Enumerate(t) => self.emit_named(w, "enum class", t.name)?,
+            TypeData::Modifier(t) => self.emit_modifier(w, t)?,
             _ => write!(w, "unhandled type /* {:?} */", typ)?,
         }
 
