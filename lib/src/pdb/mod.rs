@@ -12,7 +12,7 @@ use std::io::Cursor;
 use std::{borrow::Cow, path::Path};
 
 pub mod addr2line;
-mod type_dumper;
+pub mod type_dumper;
 
 use super::pdb::addr2line::Addr2LineContext;
 use object::{
@@ -218,9 +218,16 @@ where
                     })) = symbol.parse()
                     {
                         if let Some(rva) = offset.to_rva(&addr_map) {
-                            let name =
-                                type_dumper.dump_function(&name.to_string(), type_index, None)?;
-                            symbol_map.entry(rva.0).or_insert_with(|| Cow::from(name));
+                            let mut formatted_name = String::new();
+                            type_dumper.write_function(
+                                &mut formatted_name,
+                                &name.to_string(),
+                                type_index,
+                                None,
+                            )?;
+                            symbol_map
+                                .entry(rva.0)
+                                .or_insert_with(|| Cow::from(formatted_name));
                         }
                     }
                 }
@@ -312,14 +319,19 @@ where
                                         }
                                     }
                                 } else {
-                                    let name = type_dumper.dump_function(
+                                    let mut formatted_name = String::new();
+                                    type_dumper.write_function(
+                                        &mut formatted_name,
                                         &name.to_string(),
                                         type_index,
                                         None,
                                     )?;
                                     for address in covered_addresses {
-                                        symbolication_result
-                                            .add_address_symbol(*address, rva.0, &name);
+                                        symbolication_result.add_address_symbol(
+                                            *address,
+                                            rva.0,
+                                            &formatted_name,
+                                        );
                                     }
                                 }
                             }

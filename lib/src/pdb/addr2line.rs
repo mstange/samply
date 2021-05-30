@@ -143,10 +143,14 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         's: 'b,
         'a: 'b,
     {
-        let function = self
-            .type_dumper
-            .dump_function(&proc.name.to_string(), proc.type_index, None)
-            .ok();
+        let mut formatted_function_name = String::new();
+        let _ = self.type_dumper.write_function(
+            &mut formatted_function_name,
+            &proc.name.to_string(),
+            proc.type_index,
+            None,
+        );
+        let function = Some(formatted_function_name);
 
         // Ordered outside to inside, until just before the end of this function.
         let mut frames_per_address: BTreeMap<u32, Vec<_>> = BTreeMap::new();
@@ -248,18 +252,25 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
                     .and_then(|i| i.parse().ok())
                     .map(|id_data| ParentScope::WithId(id_data));
 
-                self.type_dumper
-                    .dump_function(&f.name.to_string(), f.function_type, scope)
-                    .ok()
+                let mut formatted_name = String::new();
+                let _ = self.type_dumper.write_function(
+                    &mut formatted_name,
+                    &f.name.to_string(),
+                    f.function_type,
+                    scope,
+                );
+                Some(formatted_name)
             }
-            Ok(pdb::IdData::MemberFunction(m)) => self
-                .type_dumper
-                .dump_function(
+            Ok(pdb::IdData::MemberFunction(m)) => {
+                let mut formatted_name = String::new();
+                let _ = self.type_dumper.write_function(
+                    &mut formatted_name,
                     &m.name.to_string(),
                     m.function_type,
                     Some(ParentScope::WithType(m.parent)),
-                )
-                .ok(),
+                );
+                Some(formatted_name)
+            }
             _ => None,
         };
 

@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use crate::pdb::type_dumper;
 use crate::pdb_crate::Error as PDBError;
 use object;
 use thiserror::Error;
@@ -74,6 +75,9 @@ pub enum GetSymbolsError {
 
     #[error("Malformed request JSON: {0}")]
     ParseRequestErrorContents(&'static str),
+
+    #[error("Error while formatting function from PDB: {0}")]
+    TypeDumperError(#[source] type_dumper::Error),
 }
 
 pub trait Context<T> {
@@ -89,6 +93,12 @@ impl<T> Context<T> for std::result::Result<T, PDBError> {
 impl From<PDBError> for GetSymbolsError {
     fn from(err: PDBError) -> GetSymbolsError {
         GetSymbolsError::PDBError("Unknown", err)
+    }
+}
+
+impl From<type_dumper::Error> for GetSymbolsError {
+    fn from(err: type_dumper::Error) -> GetSymbolsError {
+        GetSymbolsError::TypeDumperError(err)
     }
 }
 
@@ -118,6 +128,7 @@ impl GetSymbolsError {
             GetSymbolsError::ArchiveParseError(_, _) => "ArchiveParseError",
             GetSymbolsError::ParseRequestErrorSerde(_) => "ParseRequestErrorSerde",
             GetSymbolsError::ParseRequestErrorContents(_) => "ParseRequestErrorContents",
+            GetSymbolsError::TypeDumperError(_) => "TypeDumperError",
         }
     }
 }

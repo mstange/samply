@@ -3,12 +3,38 @@ use bitflags::bitflags;
 use pdb::{
     ArgumentList, ArrayType, ClassKind, ClassType, FunctionAttributes, MemberFunctionType,
     ModifierType, PointerMode, PointerType, PrimitiveKind, PrimitiveType, ProcedureType, RawString,
-    Result, TypeData, TypeFinder, TypeIndex, TypeInformation, UnionType, Variant,
+    TypeData, TypeFinder, TypeIndex, TypeInformation, UnionType, Variant,
 };
 use std::collections::HashMap;
-use std::io::Write;
+use std::fmt::Write;
 
 type FwdRefSize<'a> = HashMap<RawString<'a>, u32>;
+
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("Formatting error: {0}")]
+    FormatError(#[source] std::fmt::Error),
+
+    #[error("PDB error: {0}")]
+    PdbError(#[source] pdb::Error),
+
+    #[error("Unexpected type for argument list")]
+    ArgumentTypeNotArgumentList,
+}
+
+impl From<pdb::Error> for Error {
+    fn from(err: pdb::Error) -> Self {
+        Self::PdbError(err)
+    }
+}
+
+impl From<std::fmt::Error> for Error {
+    fn from(err: std::fmt::Error) -> Self {
+        Self::FormatError(err)
+    }
+}
+
+type Result<V> = std::result::Result<V, Error>;
 
 #[derive(Eq, PartialEq)]
 enum PtrToClassKind {
@@ -60,7 +86,7 @@ impl<'a> TypeDumper<'a> {
         type_info: &'a TypeInformation<'b>,
         ptr_size: u32,
         flags: DumperFlags,
-    ) -> Result<Self> {
+    ) -> std::result::Result<Self, pdb::Error> {
         let mut types = type_info.iter();
         let mut finder = type_info.finder();
 
@@ -100,7 +126,7 @@ impl<'a> TypeDumper<'a> {
 
     pub fn find(&self, index: TypeIndex) -> Result<TypeData> {
         let typ = self.finder.find(index).unwrap();
-        typ.parse()
+        Ok(typ.parse()?)
     }
 
     fn get_class_size(&self, typ: &ClassType) -> u32 {
@@ -214,27 +240,27 @@ impl<'a> TypeDumper<'a> {
         Ok(())
     }
 
-    /// Return a function or method signature, including return type (if requested),
+    /// Write out the function or method signature, including return type (if requested),
     /// namespace and/or class qualifiers, and arguments.
     /// The function's name is really just the raw name. The arguments need to be
     /// obtained from its type information.
     /// If the TypeIndex is 0, then only the raw name is emitted. In that case, the
     /// name may need to go through additional demangling / "undecorating", but this
     /// is the responsibility of the caller.
-    pub fn dump_function(
+    pub fn write_function(
         &self,
+        w: &mut impl Write,
         name: &str,
         function_type_index: TypeIndex,
         parent_scope: Option<ParentScope>,
-    ) -> Result<String> {
+    ) -> Result<()> {
         if function_type_index == TypeIndex(0) {
             if name.is_empty() {
-                Ok("<name omitted>".to_string())
+                write!(w, "<name omitted>")?;
             } else {
-                Ok(name.to_string())
+                write!(w, "{}", name)?;
             }
         } else {
-            let mut w: Vec<u8> = Vec::new();
             let typ = self.find(function_type_index)?;
             match typ {
                 TypeData::MemberFunction(t) => {
@@ -244,32 +270,32 @@ impl<'a> TypeDumper<'a> {
                             .flags
                             .intersects(DumperFlags::NO_MEMBER_FUNCTION_STATIC)
                     {
-                        w.write_all(b"static ")?;
+                        w.write_str("static ")?;
                     }
                     if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
-                        self.emit_return_type(&mut w, Some(t.return_type), t.attributes)?;
+                        self.emit_return_type(w, Some(t.return_type), t.attributes)?;
                     }
 
                     if let Some(i) = parent_scope {
-                        self.emit_parent_scope(&mut w, i)?;
+                        self.emit_parent_scope(w, i)?;
                     }
                     if name.is_empty() {
                         write!(w, "<name omitted>")?;
                     } else {
                         write!(w, "{}", name)?;
                     };
-                    let const_meth = self.emit_method_args(&mut w, t, is_static_method)?;
+                    let const_meth = self.emit_method_args(w, t, is_static_method)?;
                     if const_meth {
-                        w.write_all(b" const")?;
+                        w.write_str(" const")?;
                     }
                 }
                 TypeData::Procedure(t) => {
                     if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
-                        self.emit_return_type(&mut w, t.return_type, t.attributes)?;
+                        self.emit_return_type(w, t.return_type, t.attributes)?;
                     }
 
                     if let Some(i) = parent_scope {
-                        self.emit_parent_scope(&mut w, i)?;
+                        self.emit_parent_scope(w, i)?;
                     }
                     if name.is_empty() {
                         write!(w, "<name omitted>")?;
@@ -277,14 +303,15 @@ impl<'a> TypeDumper<'a> {
                         write!(w, "{}", name)?;
                     };
                     write!(w, "(")?;
-                    self.emit_index(&mut w, t.argument_list)?;
+                    self.emit_index(w, t.argument_list)?;
                     write!(w, ")")?;
                 }
-                _ => return Ok(name.to_string()),
+                _ => {
+                    write!(w, "{}", name)?;
+                }
             }
-            Ok(String::from_utf8(w)
-                .unwrap_or_else(|e| String::from_utf8_lossy(&e.into_bytes()).to_string()))
         }
+        Ok(())
     }
 
     fn emit_return_type(
@@ -359,11 +386,7 @@ impl<'a> TypeDumper<'a> {
         let args_list = match self.find(method_type.argument_list)? {
             TypeData::ArgumentList(t) => t,
             _ => {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "argument type was not TypeData::ArgumentList",
-                )
-                .into());
+                return Err(Error::ArgumentTypeNotArgumentList);
             }
         };
 
@@ -481,11 +504,14 @@ impl<'a> TypeDumper<'a> {
         typ: TypeData,
         attributes: Vec<PtrAttributes>,
     ) -> Result<()> {
-        let mut buf: Vec<u8> = Vec::new();
+        let mut buf = String::new();
         self.emit_data(&mut buf, typ)?;
-        let previous_byte_was_pointer_sigil =
-            buf.last().map(|&b| b == b'*' || b == b'&').unwrap_or(false);
-        w.write_all(&buf)?;
+        let previous_byte_was_pointer_sigil = buf
+            .as_bytes()
+            .last()
+            .map(|&b| b == b'*' || b == b'&')
+            .unwrap_or(false);
+        w.write_str(&buf)?;
         self.emit_attributes(w, attributes, true, previous_byte_was_pointer_sigil)?;
 
         Ok(())
