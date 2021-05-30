@@ -472,14 +472,14 @@ impl<'a> TypeDumper<'a> {
         fun: MemberFunctionType,
         attributes: Vec<PtrAttributes>,
     ) -> Result<()> {
-        let ztatic = fun.this_pointer_type.is_none();
+        let is_static_method = fun.this_pointer_type.is_none();
         self.emit_return_type(w, Some(fun.return_type), fun.attributes)?;
 
         write!(w, "(")?;
         self.emit_type_index(w, fun.class_type)?;
         self.emit_attributes(w, attributes, false, false)?;
         write!(w, ")")?;
-        let _ = self.emit_method_args(w, fun, ztatic)?;
+        let _ = self.emit_method_args(w, fun, is_static_method)?;
         Ok(())
     }
 
@@ -763,13 +763,13 @@ impl<'a> TypeDumper<'a> {
             TypeData::Primitive(t) => self.emit_primitive(w, t, false)?,
             TypeData::Class(t) => self.emit_class(w, t)?,
             TypeData::MemberFunction(t) => {
-                let ztatic = t.this_pointer_type.is_none();
+                let is_static_method = t.this_pointer_type.is_none();
                 if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
                     self.emit_return_type(w, Some(t.return_type), t.attributes)?;
                 }
 
                 write!(w, "()")?;
-                let _ = self.emit_method_args(w, t, ztatic)?;
+                let _ = self.emit_method_args(w, t, is_static_method)?;
             }
             TypeData::Procedure(t) => {
                 if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
