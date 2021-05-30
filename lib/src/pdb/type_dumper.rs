@@ -268,49 +268,50 @@ impl<'a> TypeDumper<'a> {
             } else {
                 write!(w, "{}", name)?;
             }
-        } else {
-            let function_type_data = self.find(function_type_index)?;
-            match function_type_data {
-                TypeData::MemberFunction(t) => {
-                    let is_static_method = t.this_pointer_type.is_none();
-                    if is_static_method
-                        && !self
-                            .flags
-                            .intersects(DumperFlags::NO_MEMBER_FUNCTION_STATIC)
-                    {
-                        w.write_str("static ")?;
-                    }
-                    if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
-                        self.emit_return_type(w, Some(t.return_type), t.attributes)?;
-                    }
+            return Ok(());
+        }
 
-                    if name.is_empty() {
-                        write!(w, "<name omitted>")?;
-                    } else {
-                        write!(w, "{}", name)?;
-                    };
-                    let is_const_method = self.emit_method_args(w, t, is_static_method)?;
-                    if is_const_method {
-                        w.write_str(" const")?;
-                    }
+        let function_type_data = self.find(function_type_index)?;
+        match function_type_data {
+            TypeData::MemberFunction(t) => {
+                let is_static_method = t.this_pointer_type.is_none();
+                if is_static_method
+                    && !self
+                        .flags
+                        .intersects(DumperFlags::NO_MEMBER_FUNCTION_STATIC)
+                {
+                    w.write_str("static ")?;
                 }
-                TypeData::Procedure(t) => {
-                    if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
-                        self.emit_return_type(w, t.return_type, t.attributes)?;
-                    }
+                if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
+                    self.emit_return_type(w, Some(t.return_type), t.attributes)?;
+                }
 
-                    if name.is_empty() {
-                        write!(w, "<name omitted>")?;
-                    } else {
-                        write!(w, "{}", name)?;
-                    };
-                    write!(w, "(")?;
-                    self.emit_type_index(w, t.argument_list)?;
-                    write!(w, ")")?;
-                }
-                _ => {
+                if name.is_empty() {
+                    write!(w, "<name omitted>")?;
+                } else {
                     write!(w, "{}", name)?;
+                };
+                let is_const_method = self.emit_method_args(w, t, is_static_method)?;
+                if is_const_method {
+                    w.write_str(" const")?;
                 }
+            }
+            TypeData::Procedure(t) => {
+                if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
+                    self.emit_return_type(w, t.return_type, t.attributes)?;
+                }
+
+                if name.is_empty() {
+                    write!(w, "<name omitted>")?;
+                } else {
+                    write!(w, "{}", name)?;
+                };
+                write!(w, "(")?;
+                self.emit_type_index(w, t.argument_list)?;
+                write!(w, ")")?;
+            }
+            _ => {
+                write!(w, "{}", name)?;
             }
         }
         Ok(())
