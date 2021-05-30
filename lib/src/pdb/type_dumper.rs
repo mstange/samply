@@ -284,8 +284,8 @@ impl<'a> TypeDumper<'a> {
                     } else {
                         write!(w, "{}", name)?;
                     };
-                    let const_meth = self.emit_method_args(w, t, is_static_method)?;
-                    if const_meth {
+                    let is_const_method = self.emit_method_args(w, t, is_static_method)?;
+                    if is_const_method {
                         w.write_str(" const")?;
                     }
                 }
