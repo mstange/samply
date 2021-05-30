@@ -198,7 +198,7 @@ impl<'a> TypeDumper<'a> {
         }
     }
 
-    fn emit_parent_scope(&self, w: &mut Vec<u8>, scope: ParentScope) -> Result<()> {
+    fn emit_parent_scope(&self, w: &mut impl Write, scope: ParentScope) -> Result<()> {
         match scope {
             ParentScope::WithType(scope_index) => match self.find(scope_index)? {
                 TypeData::Class(c) => write!(w, "{}::", c.name)?,
@@ -289,7 +289,7 @@ impl<'a> TypeDumper<'a> {
 
     fn emit_return_type(
         &self,
-        w: &mut Vec<u8>,
+        w: &mut impl Write,
         typ: Option<TypeIndex>,
         attrs: FunctionAttributes,
     ) -> Result<()> {
@@ -352,7 +352,7 @@ impl<'a> TypeDumper<'a> {
     // Return value describes whether this is a const method.
     fn emit_method_args(
         &self,
-        w: &mut Vec<u8>,
+        w: &mut impl Write,
         method_type: MemberFunctionType,
         is_static_method: bool,
     ) -> Result<bool> {
@@ -401,7 +401,7 @@ impl<'a> TypeDumper<'a> {
     //  yes                 | pointer sigil         | on                        | not a pointer sigil | yes
     fn emit_attributes(
         &self,
-        w: &mut Vec<u8>,
+        w: &mut impl Write,
         attrs: Vec<PtrAttributes>,
         allow_space_at_beginning: bool,
         mut previous_byte_was_pointer_sigil: bool,
@@ -443,7 +443,7 @@ impl<'a> TypeDumper<'a> {
 
     fn emit_member_ptr(
         &self,
-        w: &mut Vec<u8>,
+        w: &mut impl Write,
         fun: MemberFunctionType,
         attributes: Vec<PtrAttributes>,
     ) -> Result<()> {
@@ -460,7 +460,7 @@ impl<'a> TypeDumper<'a> {
 
     fn emit_proc_ptr(
         &self,
-        w: &mut Vec<u8>,
+        w: &mut impl Write,
         fun: ProcedureType,
         attributes: Vec<PtrAttributes>,
     ) -> Result<()> {
@@ -477,13 +477,15 @@ impl<'a> TypeDumper<'a> {
 
     fn emit_other_ptr(
         &self,
-        w: &mut Vec<u8>,
+        w: &mut impl Write,
         typ: TypeData,
         attributes: Vec<PtrAttributes>,
     ) -> Result<()> {
-        self.emit_data(w, typ)?;
+        let mut buf: Vec<u8> = Vec::new();
+        self.emit_data(&mut buf, typ)?;
         let previous_byte_was_pointer_sigil =
-            w.last().map(|&b| b == b'*' || b == b'&').unwrap_or(false);
+            buf.last().map(|&b| b == b'*' || b == b'&').unwrap_or(false);
+        w.write_all(&buf)?;
         self.emit_attributes(w, attributes, true, previous_byte_was_pointer_sigil)?;
 
         Ok(())
@@ -491,7 +493,7 @@ impl<'a> TypeDumper<'a> {
 
     fn emit_ptr_helper(
         &self,
-        w: &mut Vec<u8>,
+        w: &mut impl Write,
         attributes: Vec<PtrAttributes>,
         typ: TypeData,
     ) -> Result<()> {
@@ -503,7 +505,7 @@ impl<'a> TypeDumper<'a> {
         Ok(())
     }
 
-    fn emit_ptr(&self, w: &mut Vec<u8>, ptr: PointerType, is_const: bool) -> Result<()> {
+    fn emit_ptr(&self, w: &mut impl Write, ptr: PointerType, is_const: bool) -> Result<()> {
         let mut attributes = Vec::new();
         attributes.push(PtrAttributes {
             is_pointer_const: ptr.attributes.is_const() || is_const,
@@ -568,7 +570,7 @@ impl<'a> TypeDumper<'a> {
         }
     }
 
-    fn emit_array(&self, w: &mut Vec<u8>, array: ArrayType) -> Result<()> {
+    fn emit_array(&self, w: &mut impl Write, array: ArrayType) -> Result<()> {
         let (dimensions_as_bytes, base) = self.get_array_info(array)?;
         let base_size = self.get_data_size(&base);
         self.emit_data(w, base)?;
@@ -589,7 +591,7 @@ impl<'a> TypeDumper<'a> {
         Ok(())
     }
 
-    fn emit_modifier(&self, w: &mut Vec<u8>, modifier: ModifierType) -> Result<()> {
+    fn emit_modifier(&self, w: &mut impl Write, modifier: ModifierType) -> Result<()> {
         let typ = self.find(modifier.underlying_type)?;
         match typ {
             TypeData::Pointer(ptr) => self.emit_ptr(w, ptr, modifier.constant)?,
@@ -604,7 +606,7 @@ impl<'a> TypeDumper<'a> {
         Ok(())
     }
 
-    fn emit_class(&self, w: &mut Vec<u8>, class: ClassType) -> Result<()> {
+    fn emit_class(&self, w: &mut impl Write, class: ClassType) -> Result<()> {
         if self.flags.intersects(DumperFlags::NAME_ONLY) {
             write!(w, "{}", class.name)?;
         } else {
@@ -620,7 +622,7 @@ impl<'a> TypeDumper<'a> {
 
     fn emit_arg_list(
         &self,
-        w: &mut Vec<u8>,
+        w: &mut impl Write,
         list: ArgumentList,
         comma_before_first: bool,
     ) -> Result<()> {
@@ -643,7 +645,12 @@ impl<'a> TypeDumper<'a> {
         Ok(())
     }
 
-    fn emit_primitive(&self, w: &mut Vec<u8>, prim: PrimitiveType, is_const: bool) -> Result<()> {
+    fn emit_primitive(
+        &self,
+        w: &mut impl Write,
+        prim: PrimitiveType,
+        is_const: bool,
+    ) -> Result<()> {
         // TODO: check that these names are what we want to see
         let name = match prim.kind {
             PrimitiveKind::NoType => "<NoType>",
@@ -709,7 +716,7 @@ impl<'a> TypeDumper<'a> {
         Ok(())
     }
 
-    fn emit_named(&self, w: &mut Vec<u8>, base: &str, name: RawString) -> Result<()> {
+    fn emit_named(&self, w: &mut impl Write, base: &str, name: RawString) -> Result<()> {
         if self.flags.intersects(DumperFlags::NAME_ONLY) {
             write!(w, "{}", name)?
         } else {
@@ -719,13 +726,13 @@ impl<'a> TypeDumper<'a> {
         Ok(())
     }
 
-    fn emit_index(&self, w: &mut Vec<u8>, index: TypeIndex) -> Result<()> {
+    fn emit_index(&self, w: &mut impl Write, index: TypeIndex) -> Result<()> {
         let typ = self.find(index)?;
         self.emit_data(w, typ)?;
         Ok(())
     }
 
-    fn emit_data(&self, w: &mut Vec<u8>, typ: TypeData) -> Result<()> {
+    fn emit_data(&self, w: &mut impl Write, typ: TypeData) -> Result<()> {
         match typ {
             TypeData::Primitive(t) => self.emit_primitive(w, t, false)?,
             TypeData::Class(t) => self.emit_class(w, t)?,
