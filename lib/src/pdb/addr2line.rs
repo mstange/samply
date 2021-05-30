@@ -1,4 +1,4 @@
-use super::type_dumper::{ParentScope, TypeDumper};
+use super::type_dumper::TypeDumper;
 use pdb::{FallibleIterator, Result, SymbolData, PDB};
 use std::collections::BTreeMap;
 
@@ -23,7 +23,6 @@ where
     string_table: &'a pdb::StringTable<'s>,
     dbi: &'a pdb::DebugInformation<'s>,
     type_dumper: &'a TypeDumper<'a>,
-    id_finder: pdb::ItemFinder<'a, pdb::IdIndex>,
 }
 
 impl<'a, 's> Addr2LineContext<'a, 's> {
@@ -31,22 +30,13 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         address_map: &'a pdb::AddressMap<'s>,
         string_table: &'a pdb::StringTable<'s>,
         dbi: &'a pdb::DebugInformation<'s>,
-        ipi: &'a pdb::ItemInformation<'s, pdb::IdIndex>,
         type_dumper: &'a TypeDumper<'a>,
     ) -> Result<Self> {
-        // Fill id_finder
-        let mut id_finder = ipi.finder();
-        let mut id_iter = ipi.iter();
-        while let Some(_) = id_iter.next()? {
-            id_finder.update(&id_iter);
-        }
-
         Ok(Self {
             address_map,
             string_table,
             dbi,
             type_dumper,
-            id_finder,
         })
     }
 
@@ -243,36 +233,9 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
             return None;
         }
 
-        let function = match self.id_finder.find(site.inlinee).and_then(|i| i.parse()) {
-            Ok(pdb::IdData::Function(f)) => {
-                // TODO: Do cross-module resolution when looking up scope ID
-                let scope = f
-                    .scope
-                    .and_then(|scope| self.id_finder.find(scope).ok())
-                    .and_then(|i| i.parse().ok())
-                    .map(|id_data| ParentScope::WithId(id_data));
-
-                let mut formatted_name = String::new();
-                let _ = self.type_dumper.write_function(
-                    &mut formatted_name,
-                    &f.name.to_string(),
-                    f.function_type,
-                    scope,
-                );
-                Some(formatted_name)
-            }
-            Ok(pdb::IdData::MemberFunction(m)) => {
-                let mut formatted_name = String::new();
-                let _ = self.type_dumper.write_function(
-                    &mut formatted_name,
-                    &m.name.to_string(),
-                    m.function_type,
-                    Some(ParentScope::WithType(m.parent)),
-                );
-                Some(formatted_name)
-            }
-            _ => None,
-        };
+        let mut formatted_name = String::new();
+        let _ = self.type_dumper.write_id(&mut formatted_name, site.inlinee);
+        let function = Some(formatted_name);
 
         let mut frames = Vec::new();
         for (address_range, line_info) in line_infos.into_iter() {

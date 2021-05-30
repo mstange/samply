@@ -1,8 +1,9 @@
 use bitflags::bitflags;
 use pdb::{
     ArgumentList, ArrayType, ClassKind, ClassType, FallibleIterator, FunctionAttributes, IdData,
-    MemberFunctionType, ModifierType, PointerMode, PointerType, PrimitiveKind, PrimitiveType,
-    ProcedureType, RawString, TypeData, TypeFinder, TypeIndex, TypeInformation, UnionType, Variant,
+    IdFinder, IdIndex, IdInformation, MemberFunctionType, ModifierType, PointerMode, PointerType,
+    PrimitiveKind, PrimitiveType, ProcedureType, RawString, TypeData, TypeFinder, TypeIndex,
+    TypeInformation, UnionType, Variant,
 };
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -67,6 +68,7 @@ impl Default for DumperFlags {
 
 pub struct TypeDumper<'a> {
     type_finder: TypeFinder<'a>,
+    id_finder: IdFinder<'a>,
 
     /// A hashmap that maps a type's (unique) name to its type size.
     forward_ref_sizes: HashMap<RawString<'a>, u32>,
@@ -84,10 +86,11 @@ impl<'a> TypeDumper<'a> {
     /// Collect all the Type and their TypeIndex to be able to search for a TypeIndex
     pub fn new<'b>(
         type_info: &'a TypeInformation<'b>,
+        id_info: &'a IdInformation<'b>,
         ptr_size: u32,
         flags: DumperFlags,
     ) -> std::result::Result<Self, pdb::Error> {
-        let mut types = type_info.iter();
+        let mut type_iter = type_info.iter();
         let mut type_finder = type_info.finder();
 
         // When computing type sizes, special care must be taken for types which are
@@ -100,8 +103,8 @@ impl<'a> TypeDumper<'a> {
         // printing array types. They are also needed for the public get_type_size method.
         let mut forward_ref_sizes = HashMap::new();
 
-        while let Some(item) = types.next()? {
-            type_finder.update(&types);
+        while let Some(item) = type_iter.next()? {
+            type_finder.update(&type_iter);
             if let Ok(type_data) = item.parse() {
                 match type_data {
                     TypeData::Class(t) => {
@@ -121,8 +124,15 @@ impl<'a> TypeDumper<'a> {
             }
         }
 
+        let mut id_finder = id_info.finder();
+        let mut id_iter = id_info.iter();
+        while let Some(_) = id_iter.next()? {
+            id_finder.update(&id_iter);
+        }
+
         Ok(Self {
             type_finder,
+            id_finder,
             forward_ref_sizes,
             ptr_size,
             flags,
@@ -326,6 +336,29 @@ impl<'a> TypeDumper<'a> {
             }
         }
         Ok(())
+    }
+
+    pub fn write_id(&self, w: &mut impl Write, id_index: IdIndex) -> Result<()> {
+        let item = self.id_finder.find(id_index)?;
+        match item.parse() {
+            Ok(IdData::Function(f)) => {
+                let scope = if let Some(scope_id_index) = f.scope {
+                    let scope_id = self.id_finder.find(scope_id_index)?;
+                    Some(ParentScope::WithId(scope_id.parse()?))
+                } else {
+                    None
+                };
+
+                self.write_function(w, &f.name.to_string(), f.function_type, scope)
+            }
+            Ok(IdData::MemberFunction(m)) => self.write_function(
+                w,
+                &m.name.to_string(),
+                m.function_type,
+                Some(ParentScope::WithType(m.parent)),
+            ),
+            _ => Ok(()),
+        }
     }
 
     fn emit_return_type(

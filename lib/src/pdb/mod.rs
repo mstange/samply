@@ -195,10 +195,10 @@ where
 
     // Add Procedure symbols from the modules.
     let tpi = pdb.type_information()?;
-    let flags = DumperFlags::default() | DumperFlags::NO_MEMBER_FUNCTION_STATIC;
-    let type_dumper = TypeDumper::new(&tpi, 8, flags)?;
-    let string_table = pdb.string_table()?;
     let ipi = pdb.id_information()?;
+    let flags = DumperFlags::default() | DumperFlags::NO_MEMBER_FUNCTION_STATIC;
+    let type_dumper = TypeDumper::new(&tpi, &ipi, 8, flags)?;
+    let string_table = pdb.string_table()?;
     let mut modules = dbi.modules().context("dbi.modules()")?;
 
     match R::result_kind() {
@@ -237,7 +237,7 @@ where
         }
         SymbolicationResultKind::SymbolsForAddresses { with_debug_info } => {
             let addr2line_context = if with_debug_info {
-                Addr2LineContext::new(&addr_map, &string_table, &dbi, &ipi, &&type_dumper).ok()
+                Addr2LineContext::new(&addr_map, &string_table, &dbi, &type_dumper).ok()
             } else {
                 None
             };
