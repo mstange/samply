@@ -223,7 +223,6 @@ where
                                 &mut formatted_name,
                                 &name.to_string(),
                                 type_index,
-                                None,
                             )?;
                             symbol_map
                                 .entry(rva.0)
@@ -324,7 +323,6 @@ where
                                         &mut formatted_name,
                                         &name.to_string(),
                                         type_index,
-                                        None,
                                     )?;
                                     for address in covered_addresses {
                                         symbolication_result.add_address_symbol(

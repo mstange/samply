@@ -18,6 +18,12 @@ pub enum Error {
 
     #[error("Unexpected type for argument list")]
     ArgumentTypeNotArgumentList,
+
+    #[error("Id of type Function doesn't have type of Procedure")]
+    FunctionIdIsNotProcedureType,
+
+    #[error("Id of type MemberFunction doesn't have type of MemberFunction")]
+    MemberFunctionIdIsNotMemberFunctionType,
 }
 
 impl From<pdb::Error> for Error {
@@ -75,11 +81,6 @@ pub struct TypeDumper<'a> {
 
     ptr_size: u32,
     flags: DumperFlags,
-}
-
-pub enum ParentScope<'a> {
-    WithType(TypeIndex),
-    WithId(IdData<'a>),
 }
 
 impl<'a> TypeDumper<'a> {
@@ -248,22 +249,6 @@ impl<'a> TypeDumper<'a> {
         }
     }
 
-    fn emit_parent_scope(&self, w: &mut impl Write, scope: ParentScope) -> Result<()> {
-        match scope {
-            ParentScope::WithType(scope_index) => match self.find(scope_index)? {
-                TypeData::Class(c) => write!(w, "{}::", c.name)?,
-                TypeData::Union(u) => write!(w, "{}::", u.name)?,
-                TypeData::Enumeration(e) => write!(w, "{}::", e.name)?,
-                other => write!(w, "<unhandled scope type {:?}>::", other)?,
-            },
-            ParentScope::WithId(id_data) => match id_data {
-                IdData::String(s) => write!(w, "{}::", s.name)?,
-                other => write!(w, "<unhandled id scope {:?}>::", other)?,
-            },
-        }
-        Ok(())
-    }
-
     /// Write out the function or method signature, including return type (if requested),
     /// namespace and/or class qualifiers, and arguments.
     /// The function's name is really just the raw name. The arguments need to be
@@ -276,7 +261,6 @@ impl<'a> TypeDumper<'a> {
         w: &mut impl Write,
         name: &str,
         function_type_index: TypeIndex,
-        parent_scope: Option<ParentScope>,
     ) -> Result<()> {
         if function_type_index == TypeIndex(0) {
             if name.is_empty() {
@@ -300,9 +284,6 @@ impl<'a> TypeDumper<'a> {
                         self.emit_return_type(w, Some(t.return_type), t.attributes)?;
                     }
 
-                    if let Some(i) = parent_scope {
-                        self.emit_parent_scope(w, i)?;
-                    }
                     if name.is_empty() {
                         write!(w, "<name omitted>")?;
                     } else {
@@ -318,9 +299,6 @@ impl<'a> TypeDumper<'a> {
                         self.emit_return_type(w, t.return_type, t.attributes)?;
                     }
 
-                    if let Some(i) = parent_scope {
-                        self.emit_parent_scope(w, i)?;
-                    }
                     if name.is_empty() {
                         write!(w, "<name omitted>")?;
                     } else {
@@ -340,25 +318,64 @@ impl<'a> TypeDumper<'a> {
 
     pub fn write_id(&self, w: &mut impl Write, id_index: IdIndex) -> Result<()> {
         let item = self.id_finder.find(id_index)?;
-        match item.parse() {
-            Ok(IdData::Function(f)) => {
-                let scope = if let Some(scope_id_index) = f.scope {
-                    let scope_id = self.id_finder.find(scope_id_index)?;
-                    Some(ParentScope::WithId(scope_id.parse()?))
-                } else {
-                    None
+        match item.parse()? {
+            IdData::MemberFunction(m) => {
+                let function_type = self.type_finder.find(m.function_type)?;
+                let t = match function_type.parse()? {
+                    TypeData::MemberFunction(t) => t,
+                    _ => return Err(Error::MemberFunctionIdIsNotMemberFunctionType),
                 };
 
-                self.write_function(w, &f.name.to_string(), f.function_type, scope)
+                let is_static_method = t.this_pointer_type.is_none();
+                if is_static_method
+                    && !self
+                        .flags
+                        .intersects(DumperFlags::NO_MEMBER_FUNCTION_STATIC)
+                {
+                    w.write_str("static ")?;
+                }
+                if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
+                    self.emit_return_type(w, Some(t.return_type), t.attributes)?;
+                }
+                self.emit_type_index(w, m.parent)?;
+                write!(w, "::")?;
+
+                if m.name.is_empty() {
+                    write!(w, "<name omitted>")?;
+                } else {
+                    write!(w, "{}", m.name)?;
+                };
+                let is_const_method = self.emit_method_args(w, t, is_static_method)?;
+                if is_const_method {
+                    w.write_str(" const")?;
+                }
             }
-            Ok(IdData::MemberFunction(m)) => self.write_function(
-                w,
-                &m.name.to_string(),
-                m.function_type,
-                Some(ParentScope::WithType(m.parent)),
-            ),
-            _ => Ok(()),
+            IdData::Function(f) => {
+                let function_type = self.type_finder.find(f.function_type)?;
+                let t = match function_type.parse()? {
+                    TypeData::Procedure(t) => t,
+                    _ => return Err(Error::FunctionIdIsNotProcedureType),
+                };
+                if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
+                    self.emit_return_type(w, t.return_type, t.attributes)?;
+                }
+                if let Some(scope) = f.scope {
+                    self.write_id(w, scope)?;
+                    write!(w, "::")?;
+                }
+                if f.name.is_empty() {
+                    write!(w, "<name omitted>")?;
+                } else {
+                    write!(w, "{}", f.name)?;
+                }
+                write!(w, "(")?;
+                self.emit_type_index(w, t.argument_list)?;
+                write!(w, ")")?;
+            }
+            IdData::String(s) => write!(w, "{}", s.name)?,
+            other => write!(w, "<unhandled id scope {:?}>::", other)?,
         }
+        Ok(())
     }
 
     fn emit_return_type(

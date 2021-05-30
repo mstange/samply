@@ -138,7 +138,6 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
             &mut formatted_function_name,
             &proc.name.to_string(),
             proc.type_index,
-            None,
         );
         let function = Some(formatted_function_name);
 
