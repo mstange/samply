@@ -94,10 +94,10 @@ impl<'a> TypeDumper<'a> {
         // Once we'll need to compute a size for a fwd ref, we just use this map.
         let mut fwd = FwdRefSize::default();
 
-        while let Some(typ) = types.next()? {
+        while let Some(item) = types.next()? {
             finder.update(&types);
-            if let Ok(typ) = typ.parse() {
-                match typ {
+            if let Ok(type_data) = item.parse() {
+                match type_data {
                     TypeData::Class(t) => {
                         if !t.properties.forward_reference() {
                             let name = t.unique_name.unwrap_or(t.name);
@@ -124,38 +124,41 @@ impl<'a> TypeDumper<'a> {
     }
 
     pub fn find(&self, index: TypeIndex) -> Result<TypeData> {
-        let typ = self.finder.find(index).unwrap();
-        Ok(typ.parse()?)
+        let item = self.finder.find(index).unwrap();
+        Ok(item.parse()?)
     }
 
-    fn get_class_size(&self, typ: &ClassType) -> u32 {
-        if typ.properties.forward_reference() {
-            let name = typ.unique_name.unwrap_or(typ.name);
+    fn get_class_size(&self, class_type: &ClassType) -> u32 {
+        if class_type.properties.forward_reference() {
+            let name = class_type.unique_name.unwrap_or(class_type.name);
 
             // The name can not be in self.fwd because the type can be a forward reference to itself !!
             // (it's possible with an empty struct)
-            *self.fwd.get(&name).unwrap_or(&typ.size.into())
+            *self.fwd.get(&name).unwrap_or(&class_type.size.into())
         } else {
-            typ.size.into()
+            class_type.size.into()
         }
     }
 
-    fn get_union_size(&self, typ: &UnionType) -> u32 {
-        if typ.properties.forward_reference() {
-            let name = typ.unique_name.unwrap_or(typ.name);
-            *self.fwd.get(&name).unwrap_or(&typ.size)
+    fn get_union_size(&self, union_type: &UnionType) -> u32 {
+        if union_type.properties.forward_reference() {
+            let name = union_type.unique_name.unwrap_or(union_type.name);
+            *self.fwd.get(&name).unwrap_or(&union_type.size)
         } else {
-            typ.size
+            union_type.size
         }
     }
 
     pub fn get_type_size(&self, index: TypeIndex) -> u32 {
-        let typ = self.find(index);
-        typ.ok().map_or(0, |typ| self.get_data_size(&typ))
+        if let Ok(type_data) = self.find(index) {
+            self.get_data_size(&type_data)
+        } else {
+            0
+        }
     }
 
-    fn get_data_size(&self, typ: &TypeData) -> u32 {
-        match typ {
+    fn get_data_size(&self, type_data: &TypeData) -> u32 {
+        match type_data {
             TypeData::Primitive(t) => {
                 if t.indirection.is_some() {
                     return self.ptr_size;
@@ -260,8 +263,8 @@ impl<'a> TypeDumper<'a> {
                 write!(w, "{}", name)?;
             }
         } else {
-            let typ = self.find(function_type_index)?;
-            match typ {
+            let function_type_data = self.find(function_type_index)?;
+            match function_type_data {
                 TypeData::MemberFunction(t) => {
                     let is_static_method = t.this_pointer_type.is_none();
                     if is_static_method
@@ -302,7 +305,7 @@ impl<'a> TypeDumper<'a> {
                         write!(w, "{}", name)?;
                     };
                     write!(w, "(")?;
-                    self.emit_index(w, t.argument_list)?;
+                    self.emit_type_index(w, t.argument_list)?;
                     write!(w, ")")?;
                 }
                 _ => {
@@ -316,12 +319,12 @@ impl<'a> TypeDumper<'a> {
     fn emit_return_type(
         &self,
         w: &mut impl Write,
-        typ: Option<TypeIndex>,
+        type_index: Option<TypeIndex>,
         attrs: FunctionAttributes,
     ) -> Result<()> {
         if !attrs.is_constructor() {
-            if let Some(index) = typ {
-                self.emit_index(w, index)?;
+            if let Some(index) = type_index {
+                self.emit_type_index(w, index)?;
                 write!(w, " ")?;
             }
         }
@@ -401,7 +404,7 @@ impl<'a> TypeDumper<'a> {
 
         write!(w, "(")?;
         if let Some(first_arg) = extra_first_arg {
-            self.emit_index(w, first_arg)?;
+            self.emit_type_index(w, first_arg)?;
             self.emit_arg_list(w, args_list, true)?;
         } else {
             self.emit_arg_list(w, args_list, false)?;
@@ -473,7 +476,7 @@ impl<'a> TypeDumper<'a> {
         self.emit_return_type(w, Some(fun.return_type), fun.attributes)?;
 
         write!(w, "(")?;
-        self.emit_index(w, fun.class_type)?;
+        self.emit_type_index(w, fun.class_type)?;
         self.emit_attributes(w, attributes, false, false)?;
         write!(w, ")")?;
         let _ = self.emit_method_args(w, fun, ztatic)?;
@@ -492,7 +495,7 @@ impl<'a> TypeDumper<'a> {
         self.emit_attributes(w, attributes, false, false)?;
         write!(w, ")")?;
         write!(w, "(")?;
-        self.emit_index(w, fun.argument_list)?;
+        self.emit_type_index(w, fun.argument_list)?;
         write!(w, ")")?;
         Ok(())
     }
@@ -500,11 +503,11 @@ impl<'a> TypeDumper<'a> {
     fn emit_other_ptr(
         &self,
         w: &mut impl Write,
-        typ: TypeData,
+        type_data: TypeData,
         attributes: Vec<PtrAttributes>,
     ) -> Result<()> {
         let mut buf = String::new();
-        self.emit_data(&mut buf, typ)?;
+        self.emit_type(&mut buf, type_data)?;
         let previous_byte_was_pointer_sigil = buf
             .as_bytes()
             .last()
@@ -520,12 +523,12 @@ impl<'a> TypeDumper<'a> {
         &self,
         w: &mut impl Write,
         attributes: Vec<PtrAttributes>,
-        typ: TypeData,
+        type_data: TypeData,
     ) -> Result<()> {
-        match typ {
+        match type_data {
             TypeData::MemberFunction(t) => self.emit_member_ptr(w, t, attributes)?,
             TypeData::Procedure(t) => self.emit_proc_ptr(w, t, attributes)?,
-            _ => self.emit_other_ptr(w, typ, attributes)?,
+            _ => self.emit_other_ptr(w, type_data, attributes)?,
         };
         Ok(())
     }
@@ -539,8 +542,8 @@ impl<'a> TypeDumper<'a> {
         });
         let mut ptr = ptr;
         loop {
-            let typ = self.find(ptr.underlying_type)?;
-            match typ {
+            let type_data = self.find(ptr.underlying_type)?;
+            match type_data {
                 TypeData::Pointer(t) => {
                     attributes.push(PtrAttributes {
                         is_pointer_const: t.attributes.is_const(),
@@ -552,8 +555,8 @@ impl<'a> TypeDumper<'a> {
                 TypeData::Modifier(t) => {
                     // the vec cannot be empty since we push something in just before the loop
                     attributes.last_mut().unwrap().is_pointee_const = t.constant;
-                    let typ = self.find(t.underlying_type)?;
-                    if let TypeData::Pointer(t) = typ {
+                    let underlying_type_data = self.find(t.underlying_type)?;
+                    if let TypeData::Pointer(t) = underlying_type_data {
                         attributes.push(PtrAttributes {
                             is_pointer_const: t.attributes.is_const(),
                             is_pointee_const: false,
@@ -561,12 +564,12 @@ impl<'a> TypeDumper<'a> {
                         });
                         ptr = t;
                     } else {
-                        self.emit_ptr_helper(w, attributes, typ)?;
+                        self.emit_ptr_helper(w, attributes, underlying_type_data)?;
                         return Ok(());
                     }
                 }
                 _ => {
-                    self.emit_ptr_helper(w, attributes, typ)?;
+                    self.emit_ptr_helper(w, attributes, type_data)?;
                     return Ok(());
                 }
             }
@@ -582,14 +585,14 @@ impl<'a> TypeDumper<'a> {
         dims.push(base.dimensions[0]);
 
         loop {
-            let typ = self.find(base.element_type)?;
-            match typ {
+            let type_data = self.find(base.element_type)?;
+            match type_data {
                 TypeData::Array(a) => {
                     dims.push(a.dimensions[0]);
                     base = a;
                 }
                 _ => {
-                    return Ok((dims, typ));
+                    return Ok((dims, type_data));
                 }
             }
         }
@@ -598,7 +601,7 @@ impl<'a> TypeDumper<'a> {
     fn emit_array(&self, w: &mut impl Write, array: ArrayType) -> Result<()> {
         let (dimensions_as_bytes, base) = self.get_array_info(array)?;
         let base_size = self.get_data_size(&base);
-        self.emit_data(w, base)?;
+        self.emit_type(w, base)?;
 
         let mut iter = dimensions_as_bytes.into_iter().peekable();
         while let Some(current_level_byte_size) = iter.next() {
@@ -617,15 +620,15 @@ impl<'a> TypeDumper<'a> {
     }
 
     fn emit_modifier(&self, w: &mut impl Write, modifier: ModifierType) -> Result<()> {
-        let typ = self.find(modifier.underlying_type)?;
-        match typ {
+        let type_data = self.find(modifier.underlying_type)?;
+        match type_data {
             TypeData::Pointer(ptr) => self.emit_ptr(w, ptr, modifier.constant)?,
             TypeData::Primitive(prim) => self.emit_primitive(w, prim, modifier.constant)?,
             _ => {
                 if modifier.constant {
                     write!(w, "const ")?
                 }
-                self.emit_data(w, typ)?;
+                self.emit_type(w, type_data)?;
             }
         }
         Ok(())
@@ -658,13 +661,13 @@ impl<'a> TypeDumper<'a> {
                     write!(w, " ")?;
                 }
             }
-            self.emit_index(w, *first)?;
+            self.emit_type_index(w, *first)?;
             for index in args.iter() {
                 write!(w, ",")?;
                 if self.flags.intersects(DumperFlags::SPACE_AFTER_COMMA) {
                     write!(w, " ")?;
                 }
-                self.emit_index(w, *index)?;
+                self.emit_type_index(w, *index)?;
             }
         }
         Ok(())
@@ -751,14 +754,12 @@ impl<'a> TypeDumper<'a> {
         Ok(())
     }
 
-    fn emit_index(&self, w: &mut impl Write, index: TypeIndex) -> Result<()> {
-        let typ = self.find(index)?;
-        self.emit_data(w, typ)?;
-        Ok(())
+    fn emit_type_index(&self, w: &mut impl Write, index: TypeIndex) -> Result<()> {
+        self.emit_type(w, self.find(index)?)
     }
 
-    fn emit_data(&self, w: &mut impl Write, typ: TypeData) -> Result<()> {
-        match typ {
+    fn emit_type(&self, w: &mut impl Write, type_data: TypeData) -> Result<()> {
+        match type_data {
             TypeData::Primitive(t) => self.emit_primitive(w, t, false)?,
             TypeData::Class(t) => self.emit_class(w, t)?,
             TypeData::MemberFunction(t) => {
@@ -776,7 +777,7 @@ impl<'a> TypeDumper<'a> {
                 }
 
                 write!(w, "()(")?;
-                self.emit_index(w, t.argument_list)?;
+                self.emit_type_index(w, t.argument_list)?;
                 write!(w, "")?;
             }
             TypeData::ArgumentList(t) => self.emit_arg_list(w, t, false)?,
@@ -786,7 +787,7 @@ impl<'a> TypeDumper<'a> {
             TypeData::Enumeration(t) => self.emit_named(w, "enum", t.name)?,
             TypeData::Enumerate(t) => self.emit_named(w, "enum class", t.name)?,
             TypeData::Modifier(t) => self.emit_modifier(w, t)?,
-            _ => write!(w, "unhandled type /* {:?} */", typ)?,
+            _ => write!(w, "unhandled type /* {:?} */", type_data)?,
         }
 
         Ok(())
