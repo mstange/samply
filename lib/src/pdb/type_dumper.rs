@@ -66,7 +66,7 @@ impl Default for DumperFlags {
 }
 
 pub struct TypeDumper<'a> {
-    finder: TypeFinder<'a>,
+    type_finder: TypeFinder<'a>,
 
     /// A hashmap that maps a type's (unique) name to its type size.
     forward_ref_sizes: HashMap<RawString<'a>, u32>,
@@ -88,7 +88,7 @@ impl<'a> TypeDumper<'a> {
         flags: DumperFlags,
     ) -> std::result::Result<Self, pdb::Error> {
         let mut types = type_info.iter();
-        let mut finder = type_info.finder();
+        let mut type_finder = type_info.finder();
 
         // When computing type sizes, special care must be taken for types which are
         // marked as "forward references": For these types, the size must be taken from
@@ -101,7 +101,7 @@ impl<'a> TypeDumper<'a> {
         let mut forward_ref_sizes = HashMap::new();
 
         while let Some(item) = types.next()? {
-            finder.update(&types);
+            type_finder.update(&types);
             if let Ok(type_data) = item.parse() {
                 match type_data {
                     TypeData::Class(t) => {
@@ -122,7 +122,7 @@ impl<'a> TypeDumper<'a> {
         }
 
         Ok(Self {
-            finder,
+            type_finder,
             forward_ref_sizes,
             ptr_size,
             flags,
@@ -130,7 +130,7 @@ impl<'a> TypeDumper<'a> {
     }
 
     pub fn find(&self, index: TypeIndex) -> Result<TypeData> {
-        let item = self.finder.find(index).unwrap();
+        let item = self.type_finder.find(index).unwrap();
         Ok(item.parse()?)
     }
 
