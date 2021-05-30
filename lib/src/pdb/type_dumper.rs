@@ -588,6 +588,8 @@ impl<'a> TypeDumper<'a> {
         }
     }
 
+    /// The returned Vec has the array dimensions in bytes, with the "lower" dimensions
+    /// aggregated into the "higher" dimensions.
     fn get_array_info(&self, array: ArrayType) -> Result<(Vec<u32>, TypeData)> {
         // For an array int[12][34] it'll be represented as "int[34] *".
         // For any reason the 12 is lost...
@@ -596,6 +598,20 @@ impl<'a> TypeDumper<'a> {
         let mut dims = Vec::new();
         dims.push(base.dimensions[0]);
 
+        // See the documentation for ArrayType::dimensions:
+        //
+        // > Contains array dimensions as specified in the PDB. This is not what you expect:
+        // >
+        // > * Dimensions are specified in terms of byte sizes, not element counts.
+        // > * Multidimensional arrays aggregate the lower dimensions into the sizes of the higher
+        // >   dimensions.
+        // >
+        // > Thus a `float[4][4]` has `dimensions: [16, 64]`. Determining array dimensions in terms
+        // > of element counts requires determining the size of the `element_type` and iteratively
+        // > dividing.
+        //
+        // XXXmstange the docs above imply that dimensions can have more than just one entry.
+        // But this code only processes dimensions[0]. Is that a bug?
         loop {
             let type_data = self.find(base.element_type)?;
             match type_data {
