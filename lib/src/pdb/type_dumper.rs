@@ -7,8 +7,6 @@ use pdb::{
 use std::collections::HashMap;
 use std::fmt::Write;
 
-type FwdRefSize<'a> = HashMap<RawString<'a>, u32>;
-
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("Formatting error: {0}")]
@@ -69,7 +67,10 @@ impl Default for DumperFlags {
 
 pub struct TypeDumper<'a> {
     finder: TypeFinder<'a>,
-    fwd: FwdRefSize<'a>,
+
+    /// A hashmap that maps a type's (unique) name to its type size.
+    forward_ref_sizes: HashMap<RawString<'a>, u32>,
+
     ptr_size: u32,
     flags: DumperFlags,
 }
@@ -89,10 +90,15 @@ impl<'a> TypeDumper<'a> {
         let mut types = type_info.iter();
         let mut finder = type_info.finder();
 
-        // Some struct are incomplete so they've no size but they're forward references
-        // So create a map containing names defining the struct (when they aren't fwd ref) and their size.
-        // Once we'll need to compute a size for a fwd ref, we just use this map.
-        let mut fwd = FwdRefSize::default();
+        // When computing type sizes, special care must be taken for types which are
+        // marked as "forward references": For these types, the size must be taken from
+        // the occurrence of the type with the same (unique) name which is not marked as
+        // a forward reference.
+        // In order to be able to look up these sizes, we create a map upfront, which
+        // contains all sizes  for non-forward_reference types.
+        // Type sizes are needed when computing array lengths based on byte lengths, when
+        // printing array types. They are also needed for the public get_type_size method.
+        let mut forward_ref_sizes = HashMap::new();
 
         while let Some(item) = types.next()? {
             finder.update(&types);
@@ -101,13 +107,13 @@ impl<'a> TypeDumper<'a> {
                     TypeData::Class(t) => {
                         if !t.properties.forward_reference() {
                             let name = t.unique_name.unwrap_or(t.name);
-                            fwd.insert(name, t.size.into());
+                            forward_ref_sizes.insert(name, t.size.into());
                         }
                     }
                     TypeData::Union(t) => {
                         if !t.properties.forward_reference() {
                             let name = t.unique_name.unwrap_or(t.name);
-                            fwd.insert(name, t.size);
+                            forward_ref_sizes.insert(name, t.size);
                         }
                     }
                     _ => {}
@@ -117,7 +123,7 @@ impl<'a> TypeDumper<'a> {
 
         Ok(Self {
             finder,
-            fwd,
+            forward_ref_sizes,
             ptr_size,
             flags,
         })
@@ -132,9 +138,12 @@ impl<'a> TypeDumper<'a> {
         if class_type.properties.forward_reference() {
             let name = class_type.unique_name.unwrap_or(class_type.name);
 
-            // The name can not be in self.fwd because the type can be a forward reference to itself !!
-            // (it's possible with an empty struct)
-            *self.fwd.get(&name).unwrap_or(&class_type.size.into())
+            // Sometimes the name will not be in self.forward_ref_sizes - this can occur for
+            // the empty struct, which can be a forward reference to itself!
+            *self
+                .forward_ref_sizes
+                .get(&name)
+                .unwrap_or(&class_type.size.into())
         } else {
             class_type.size.into()
         }
@@ -143,7 +152,10 @@ impl<'a> TypeDumper<'a> {
     fn get_union_size(&self, union_type: &UnionType) -> u32 {
         if union_type.properties.forward_reference() {
             let name = union_type.unique_name.unwrap_or(union_type.name);
-            *self.fwd.get(&name).unwrap_or(&union_type.size)
+            *self
+                .forward_ref_sizes
+                .get(&name)
+                .unwrap_or(&union_type.size)
         } else {
             union_type.size
         }
