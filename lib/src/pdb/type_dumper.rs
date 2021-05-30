@@ -1,9 +1,8 @@
-use crate::pdb_crate::FallibleIterator;
 use bitflags::bitflags;
 use pdb::{
-    ArgumentList, ArrayType, ClassKind, ClassType, FunctionAttributes, MemberFunctionType,
-    ModifierType, PointerMode, PointerType, PrimitiveKind, PrimitiveType, ProcedureType, RawString,
-    TypeData, TypeFinder, TypeIndex, TypeInformation, UnionType, Variant,
+    ArgumentList, ArrayType, ClassKind, ClassType, FallibleIterator, FunctionAttributes, IdData,
+    MemberFunctionType, ModifierType, PointerMode, PointerType, PrimitiveKind, PrimitiveType,
+    ProcedureType, RawString, TypeData, TypeFinder, TypeIndex, TypeInformation, UnionType, Variant,
 };
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -77,7 +76,7 @@ pub struct TypeDumper<'a> {
 
 pub enum ParentScope<'a> {
     WithType(TypeIndex),
-    WithId(pdb::IdData<'a>),
+    WithId(IdData<'a>),
 }
 
 impl<'a> TypeDumper<'a> {
@@ -233,7 +232,7 @@ impl<'a> TypeDumper<'a> {
                 other => write!(w, "<unhandled scope type {:?}>::", other)?,
             },
             ParentScope::WithId(id_data) => match id_data {
-                pdb::IdData::String(s) => write!(w, "{}::", s.name)?,
+                IdData::String(s) => write!(w, "{}::", s.name)?,
                 other => write!(w, "<unhandled id scope {:?}>::", other)?,
             },
         }
