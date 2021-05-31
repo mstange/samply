@@ -11,7 +11,7 @@ use uuid::Uuid;
 const UUID_SIZE: usize = 16;
 const PAGE_SIZE: usize = 4096;
 
-pub fn get_symbolication_result<'a, R>(
+pub fn get_symbolication_result<R>(
     file_kind: FileKind,
     file_contents: FileContentsWrapper<impl FileContents>,
     query: SymbolicationQuery,
@@ -26,8 +26,8 @@ where
     } = query;
     let elf_file =
         File::parse(&file_contents).map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
-    let elf_id = get_elf_id(&elf_file)
-        .ok_or_else(|| GetSymbolsError::InvalidInputError("id cannot be read"))?;
+    let elf_id =
+        get_elf_id(&elf_file).ok_or(GetSymbolsError::InvalidInputError("id cannot be read"))?;
     let elf_id_string = format!("{:X}0", elf_id.to_simple());
     if elf_id_string != breakpad_id {
         return Err(GetSymbolsError::UnmatchedBreakpadId(
@@ -56,7 +56,7 @@ where
 
 fn create_elf_id(identifier: &[u8], little_endian: bool) -> Uuid {
     // Make sure that we have exactly UUID_SIZE bytes available
-    let mut data = [0 as u8; UUID_SIZE];
+    let mut data = [0u8; UUID_SIZE];
     let len = cmp::min(identifier.len(), UUID_SIZE);
     data[0..len].copy_from_slice(&identifier[0..len]);
 

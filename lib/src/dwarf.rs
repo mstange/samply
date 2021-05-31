@@ -73,7 +73,7 @@ pub fn collect_dwarf_address_debug_data<'data: 'file, 'file, O, R>(
         {
             if let Ok(frame_iter) = context.find_frames(*address_in_this_object as u64) {
                 let frames: std::result::Result<Vec<_>, _> =
-                    frame_iter.map(convert_stack_frame).collect();
+                    frame_iter.map(|f| Ok(convert_stack_frame(f))).collect();
                 if let Ok(frames) = frames {
                     symbolication_result
                         .add_address_debug_info(*original_address, AddressDebugInfo { frames });
@@ -83,9 +83,7 @@ pub fn collect_dwarf_address_debug_data<'data: 'file, 'file, O, R>(
     }
 }
 
-fn convert_stack_frame<R: gimli::Reader>(
-    frame: addr2line::Frame<R>,
-) -> std::result::Result<InlineStackFrame, gimli::read::Error> {
+fn convert_stack_frame<R: gimli::Reader>(frame: addr2line::Frame<R>) -> InlineStackFrame {
     let function = match frame.function {
         Some(function_name) => {
             if let Ok(name) = function_name.raw_name() {
@@ -107,11 +105,11 @@ fn convert_stack_frame<R: gimli::Reader>(
         None => None,
     };
 
-    Ok(InlineStackFrame {
+    InlineStackFrame {
         function,
         file_path,
         line_number: frame.location.and_then(|l| l.line).map(|l| l as u32),
-    })
+    }
 }
 
 enum SingleSectionData<'data, T: ReadRef<'data>> {
@@ -243,7 +241,7 @@ impl<'data, T: ReadRef<'data>> SectionDataNoCopy<'data, T> {
             get(&self.debug_rnglists_data, endian).into(),
             get(&self.debug_str_data, endian).into(),
             get(&self.debug_str_offsets_data, endian).into(),
-            get(&self.default_section_data, endian).into(),
+            get(&self.default_section_data, endian),
         )
     }
 
@@ -287,7 +285,7 @@ impl<'data, T: ReadRef<'data>> SectionDataNoCopy<'data, T> {
             get(&self.debug_rnglists_data, endian)?.into(),
             get(&self.debug_str_data, endian)?.into(),
             get(&self.debug_str_offsets_data, endian)?.into(),
-            get(&self.default_section_data, endian)?.into(),
+            get(&self.default_section_data, endian)?,
         ))
     }
 }
