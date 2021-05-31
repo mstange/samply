@@ -1,5 +1,3 @@
-use anyhow;
-use futures;
 use std::path::PathBuf;
 use structopt::StructOpt;
 

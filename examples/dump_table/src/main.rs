@@ -1,5 +1,3 @@
-use anyhow;
-use futures;
 use profiler_get_symbols::GetSymbolsError;
 use std::path::PathBuf;
 use structopt::StructOpt;
@@ -52,7 +50,7 @@ fn main() -> anyhow::Result<()> {
             }
             Ok(())
         }
-        Ok(err) => Err(err)?,
+        Ok(err) => Err(err.into()),
         Err(err) => Err(err),
     }
 }
