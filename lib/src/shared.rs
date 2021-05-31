@@ -113,18 +113,19 @@ pub trait FileContents {
     /// Must return the length, in bytes, of this file.
     fn len(&self) -> u64;
 
+    /// Whether the file is empty.
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Must return a slice of the file contents, or an error.
     /// The slice's lifetime must be valid for the entire lifetime of this
     /// `FileContents` object. This restriction may be a bit cumbersome to satisfy;
     /// it's a restriction that's inherited from the `object` crate's `ReadRef` trait.
-    fn read_bytes_at<'a>(&'a self, offset: u64, size: u64) -> FileAndPathHelperResult<&'a [u8]>;
+    fn read_bytes_at(&self, offset: u64, size: u64) -> FileAndPathHelperResult<&[u8]>;
 
     /// TODO: document
-    fn read_bytes_at_until<'a>(
-        &'a self,
-        offset: u64,
-        delimiter: u8,
-    ) -> FileAndPathHelperResult<&'a [u8]>;
+    fn read_bytes_at_until(&self, offset: u64, delimiter: u8) -> FileAndPathHelperResult<&[u8]>;
 }
 
 pub struct AddressDebugInfo {
@@ -251,21 +252,17 @@ impl<T: FileContents> FileContentsWrapper<T> {
     }
 
     #[inline]
-    pub fn read_bytes_at<'a>(
-        &'a self,
-        offset: u64,
-        size: u64,
-    ) -> FileAndPathHelperResult<&'a [u8]> {
+    pub fn read_bytes_at(&self, offset: u64, size: u64) -> FileAndPathHelperResult<&[u8]> {
         self.bytes_read.set(self.bytes_read.get() + size);
         self.file_contents.read_bytes_at(offset, size)
     }
 
     #[inline]
-    pub fn read_bytes_at_until<'a>(
-        &'a self,
+    pub fn read_bytes_at_until(
+        &self,
         offset: u64,
         delimiter: u8,
-    ) -> FileAndPathHelperResult<&'a [u8]> {
+    ) -> FileAndPathHelperResult<&[u8]> {
         let bytes = self.file_contents.read_bytes_at_until(offset, delimiter)?;
         self.bytes_read
             .set(self.bytes_read.get() + bytes.len() as u64);
@@ -280,11 +277,11 @@ impl<T: FileContents> FileContentsWrapper<T> {
         self.bytes_read.get()
     }
 
-    pub fn full_range<'a>(&'a self) -> RangeReadRef<'a, &'a Self> {
+    pub fn full_range(&self) -> RangeReadRef<'_, &Self> {
         RangeReadRef::new(self, 0, self.len)
     }
 
-    pub fn range<'a>(&'a self, start: u64, size: u64) -> RangeReadRef<'a, &'a Self> {
+    pub fn range(&self, start: u64, size: u64) -> RangeReadRef<'_, &Self> {
         RangeReadRef::new(self, start, size)
     }
 }

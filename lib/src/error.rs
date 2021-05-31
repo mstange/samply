@@ -1,5 +1,4 @@
 use crate::windows::type_formatter;
-use object;
 use pdb::Error as PDBError;
 use std::path::PathBuf;
 use thiserror::Error;
