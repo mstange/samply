@@ -57,7 +57,7 @@ struct PtrAttributes {
 }
 
 bitflags! {
-    pub struct DumperFlags: u32 {
+    pub struct TypeFormatterFlags: u32 {
         const NO_FUNCTION_RETURN = 0b1;
         const NO_MEMBER_FUNCTION_STATIC = 0b10;
         const SPACE_AFTER_COMMA = 0b100;
@@ -66,13 +66,13 @@ bitflags! {
     }
 }
 
-impl Default for DumperFlags {
+impl Default for TypeFormatterFlags {
     fn default() -> Self {
         Self::NO_FUNCTION_RETURN | Self::SPACE_AFTER_COMMA | Self::NAME_ONLY
     }
 }
 
-pub struct TypeDumper<'t> {
+pub struct TypeFormatter<'t> {
     type_finder: TypeFinder<'t>,
     id_finder: IdFinder<'t>,
 
@@ -80,16 +80,16 @@ pub struct TypeDumper<'t> {
     forward_ref_sizes: HashMap<RawString<'t>, u32>,
 
     ptr_size: u32,
-    flags: DumperFlags,
+    flags: TypeFormatterFlags,
 }
 
-impl<'t> TypeDumper<'t> {
+impl<'t> TypeFormatter<'t> {
     /// Collect all the Type and their TypeIndex to be able to search for a TypeIndex
     pub fn new(
         debug_info: &'t DebugInformation<'_>,
         type_info: &'t TypeInformation<'_>,
         id_info: &'t IdInformation<'_>,
-        flags: DumperFlags,
+        flags: TypeFormatterFlags,
     ) -> std::result::Result<Self, pdb::Error> {
         let mut type_iter = type_info.iter();
         let mut type_finder = type_info.finder();
@@ -340,12 +340,12 @@ impl<'t> TypeDumper<'t> {
         }
     }
 
-    fn has_flags(&self, flags: DumperFlags) -> bool {
+    fn has_flags(&self, flags: TypeFormatterFlags) -> bool {
         self.flags.intersects(flags)
     }
 
     fn maybe_emit_static(&self, w: &mut impl Write) -> Result<()> {
-        if self.has_flags(DumperFlags::NO_MEMBER_FUNCTION_STATIC) {
+        if self.has_flags(TypeFormatterFlags::NO_MEMBER_FUNCTION_STATIC) {
             return Ok(());
         }
 
@@ -359,7 +359,7 @@ impl<'t> TypeDumper<'t> {
         type_index: Option<TypeIndex>,
         attrs: FunctionAttributes,
     ) -> Result<()> {
-        if self.has_flags(DumperFlags::NO_FUNCTION_RETURN) {
+        if self.has_flags(TypeFormatterFlags::NO_FUNCTION_RETURN) {
             return Ok(());
         }
 
@@ -508,7 +508,8 @@ impl<'t> TypeDumper<'t> {
                 previous_byte_was_pointer_sigil = false;
             }
 
-            if self.has_flags(DumperFlags::SPACE_BEFORE_POINTER) && !previous_byte_was_pointer_sigil
+            if self.has_flags(TypeFormatterFlags::SPACE_BEFORE_POINTER)
+                && !previous_byte_was_pointer_sigil
             {
                 if !is_at_beginning || allow_space_at_beginning {
                     write!(w, " ")?;
@@ -714,7 +715,7 @@ impl<'t> TypeDumper<'t> {
     }
 
     fn emit_class(&self, w: &mut impl Write, class: ClassType) -> Result<()> {
-        if self.has_flags(DumperFlags::NAME_ONLY) {
+        if self.has_flags(TypeFormatterFlags::NAME_ONLY) {
             write!(w, "{}", class.name)?;
         } else {
             let name = match class.kind {
@@ -736,14 +737,14 @@ impl<'t> TypeDumper<'t> {
         if let Some((first, args)) = list.arguments.split_first() {
             if comma_before_first {
                 write!(w, ",")?;
-                if self.has_flags(DumperFlags::SPACE_AFTER_COMMA) {
+                if self.has_flags(TypeFormatterFlags::SPACE_AFTER_COMMA) {
                     write!(w, " ")?;
                 }
             }
             self.emit_type_index(w, *first)?;
             for index in args.iter() {
                 write!(w, ",")?;
-                if self.has_flags(DumperFlags::SPACE_AFTER_COMMA) {
+                if self.has_flags(TypeFormatterFlags::SPACE_AFTER_COMMA) {
                     write!(w, " ")?;
                 }
                 self.emit_type_index(w, *index)?;
@@ -804,7 +805,7 @@ impl<'t> TypeDumper<'t> {
         };
 
         if prim.indirection.is_some() {
-            if self.has_flags(DumperFlags::SPACE_BEFORE_POINTER) {
+            if self.has_flags(TypeFormatterFlags::SPACE_BEFORE_POINTER) {
                 if is_const {
                     write!(w, "{} const *", name)?
                 } else {
@@ -824,7 +825,7 @@ impl<'t> TypeDumper<'t> {
     }
 
     fn emit_named(&self, w: &mut impl Write, base: &str, name: RawString) -> Result<()> {
-        if self.has_flags(DumperFlags::NAME_ONLY) {
+        if self.has_flags(TypeFormatterFlags::NAME_ONLY) {
             write!(w, "{}", name)?
         } else {
             write!(w, "{} {}", base, name)?

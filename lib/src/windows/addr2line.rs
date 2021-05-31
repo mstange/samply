@@ -1,4 +1,4 @@
-use super::type_dumper::TypeDumper;
+use super::type_formatter::TypeFormatter;
 use pdb::{FallibleIterator, Result, SymbolData, PDB};
 use std::collections::BTreeMap;
 
@@ -22,7 +22,7 @@ where
     address_map: &'a pdb::AddressMap<'s>,
     string_table: &'a pdb::StringTable<'s>,
     dbi: &'a pdb::DebugInformation<'s>,
-    type_dumper: &'a TypeDumper<'a>,
+    type_formatter: &'a TypeFormatter<'a>,
 }
 
 impl<'a, 's> Addr2LineContext<'a, 's> {
@@ -30,13 +30,13 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         address_map: &'a pdb::AddressMap<'s>,
         string_table: &'a pdb::StringTable<'s>,
         dbi: &'a pdb::DebugInformation<'s>,
-        type_dumper: &'a TypeDumper<'a>,
+        type_formatter: &'a TypeFormatter<'a>,
     ) -> Result<Self> {
         Ok(Self {
             address_map,
             string_table,
             dbi,
-            type_dumper,
+            type_formatter,
         })
     }
 
@@ -134,7 +134,7 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         'a: 'b,
     {
         let mut formatted_function_name = String::new();
-        let _ = self.type_dumper.write_function(
+        let _ = self.type_formatter.write_function(
             &mut formatted_function_name,
             &proc.name.to_string(),
             proc.type_index,
@@ -233,7 +233,9 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         }
 
         let mut formatted_name = String::new();
-        let _ = self.type_dumper.write_id(&mut formatted_name, site.inlinee);
+        let _ = self
+            .type_formatter
+            .write_id(&mut formatted_name, site.inlinee);
         let function = Some(formatted_name);
 
         let mut frames = Vec::new();

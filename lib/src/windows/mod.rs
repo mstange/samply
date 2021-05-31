@@ -11,10 +11,10 @@ use pdb::{FallibleIterator, ProcedureSymbol, PublicSymbol, SymbolData, PDB};
 use std::collections::{BTreeMap, HashSet};
 use std::io::Cursor;
 use std::{borrow::Cow, path::Path};
-use type_dumper::{DumperFlags, TypeDumper};
+use type_formatter::{TypeFormatter, TypeFormatterFlags};
 
 pub mod addr2line;
-pub mod type_dumper;
+pub mod type_formatter;
 
 pub async fn get_symbolication_result_via_binary<'a, R>(
     file_kind: object::FileKind,
@@ -190,8 +190,8 @@ where
     // Add Procedure symbols from the modules.
     let tpi = pdb.type_information()?;
     let ipi = pdb.id_information()?;
-    let flags = DumperFlags::default() | DumperFlags::NO_MEMBER_FUNCTION_STATIC;
-    let type_dumper = TypeDumper::new(&dbi, &tpi, &ipi, flags)?;
+    let flags = TypeFormatterFlags::default() | TypeFormatterFlags::NO_MEMBER_FUNCTION_STATIC;
+    let type_formatter = TypeFormatter::new(&dbi, &tpi, &ipi, flags)?;
     let string_table = pdb.string_table()?;
     let mut modules = dbi.modules().context("dbi.modules()")?;
 
@@ -213,7 +213,7 @@ where
                     {
                         if let Some(rva) = offset.to_rva(&addr_map) {
                             let mut formatted_name = String::new();
-                            type_dumper.write_function(
+                            type_formatter.write_function(
                                 &mut formatted_name,
                                 &name.to_string(),
                                 type_index,
@@ -230,7 +230,7 @@ where
         }
         SymbolicationResultKind::SymbolsForAddresses { with_debug_info } => {
             let addr2line_context = if with_debug_info {
-                Addr2LineContext::new(&addr_map, &string_table, &dbi, &type_dumper).ok()
+                Addr2LineContext::new(&addr_map, &string_table, &dbi, &type_formatter).ok()
             } else {
                 None
             };
@@ -313,7 +313,7 @@ where
                                     }
                                 } else {
                                     let mut formatted_name = String::new();
-                                    type_dumper.write_function(
+                                    type_formatter.write_function(
                                         &mut formatted_name,
                                         &name.to_string(),
                                         type_index,

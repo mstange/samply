@@ -1,4 +1,4 @@
-use crate::windows::type_dumper;
+use crate::windows::type_formatter;
 use object;
 use pdb::Error as PDBError;
 use std::path::PathBuf;
@@ -76,7 +76,7 @@ pub enum GetSymbolsError {
     ParseRequestErrorContents(&'static str),
 
     #[error("Error while formatting function from PDB: {0}")]
-    TypeDumperError(#[source] type_dumper::Error),
+    TypeDumperError(#[source] type_formatter::Error),
 }
 
 pub trait Context<T> {
@@ -95,8 +95,8 @@ impl From<PDBError> for GetSymbolsError {
     }
 }
 
-impl From<type_dumper::Error> for GetSymbolsError {
-    fn from(err: type_dumper::Error) -> GetSymbolsError {
+impl From<type_formatter::Error> for GetSymbolsError {
+    fn from(err: type_formatter::Error) -> GetSymbolsError {
         GetSymbolsError::TypeDumperError(err)
     }
 }
