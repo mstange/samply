@@ -142,7 +142,7 @@ impl<'t> TypeFormatter<'t> {
 
         let mut id_finder = id_info.finder();
         let mut id_iter = id_info.iter();
-        while let Some(_) = id_iter.next()? {
+        while id_iter.next()?.is_some() {
             id_finder.update(&id_iter);
         }
 
@@ -527,10 +527,9 @@ impl<'t> TypeFormatter<'t> {
 
             if self.has_flags(TypeFormatterFlags::SPACE_BEFORE_POINTER)
                 && !previous_byte_was_pointer_sigil
+                && (!is_at_beginning || allow_space_at_beginning)
             {
-                if !is_at_beginning || allow_space_at_beginning {
-                    write!(w, " ")?;
-                }
+                write!(w, " ")?;
             }
             is_at_beginning = false;
             match attr.mode {
