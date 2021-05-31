@@ -197,7 +197,7 @@ where
     let tpi = pdb.type_information()?;
     let ipi = pdb.id_information()?;
     let flags = DumperFlags::default() | DumperFlags::NO_MEMBER_FUNCTION_STATIC;
-    let type_dumper = TypeDumper::new(&tpi, &ipi, 8, flags)?;
+    let type_dumper = TypeDumper::new(&dbi, &tpi, &ipi, flags)?;
     let string_table = pdb.string_table()?;
     let mut modules = dbi.modules().context("dbi.modules()")?;
 

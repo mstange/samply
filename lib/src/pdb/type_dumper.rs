@@ -1,9 +1,9 @@
 use bitflags::bitflags;
 use pdb::{
-    ArgumentList, ArrayType, ClassKind, ClassType, FallibleIterator, FunctionAttributes, IdData,
-    IdFinder, IdIndex, IdInformation, MemberFunctionType, ModifierType, PointerMode, PointerType,
-    PrimitiveKind, PrimitiveType, ProcedureType, RawString, TypeData, TypeFinder, TypeIndex,
-    TypeInformation, UnionType, Variant,
+    ArgumentList, ArrayType, ClassKind, ClassType, DebugInformation, FallibleIterator,
+    FunctionAttributes, IdData, IdFinder, IdIndex, IdInformation, MachineType, MemberFunctionType,
+    ModifierType, PointerMode, PointerType, PrimitiveKind, PrimitiveType, ProcedureType, RawString,
+    TypeData, TypeFinder, TypeIndex, TypeInformation, UnionType, Variant,
 };
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -86,9 +86,9 @@ pub struct TypeDumper<'a> {
 impl<'a> TypeDumper<'a> {
     /// Collect all the Type and their TypeIndex to be able to search for a TypeIndex
     pub fn new<'b>(
+        debug_info: &'a DebugInformation<'b>,
         type_info: &'a TypeInformation<'b>,
         id_info: &'a IdInformation<'b>,
-        ptr_size: u32,
         flags: DumperFlags,
     ) -> std::result::Result<Self, pdb::Error> {
         let mut type_iter = type_info.iter();
@@ -130,6 +130,12 @@ impl<'a> TypeDumper<'a> {
         while let Some(_) = id_iter.next()? {
             id_finder.update(&id_iter);
         }
+
+        let ptr_size = match debug_info.machine_type()? {
+            MachineType::Amd64 | MachineType::Arm64 | MachineType::Ia64 | MachineType::RiscV64 => 8,
+            MachineType::RiscV128 => 16,
+            _ => 4,
+        };
 
         Ok(Self {
             type_finder,
