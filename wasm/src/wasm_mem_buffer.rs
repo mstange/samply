@@ -1,4 +1,3 @@
-use js_sys;
 use wasm_bindgen::prelude::*;
 
 /// WasmMemBuffer lets you allocate a chunk of memory on the wasm heap and

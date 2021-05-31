@@ -1,6 +1,3 @@
-use profiler_get_symbols;
-use wasm_bindgen;
-
 mod error;
 mod wasm_mem_buffer;
 
@@ -180,11 +177,11 @@ impl profiler_get_symbols::FileContents for FileHandle {
     }
 
     #[inline]
-    fn read_bytes_at<'a>(
-        &'a self,
+    fn read_bytes_at(
+        &self,
         offset: u64,
         size: u64,
-    ) -> profiler_get_symbols::FileAndPathHelperResult<&'a [u8]> {
+    ) -> profiler_get_symbols::FileAndPathHelperResult<&[u8]> {
         let cache = &mut *self.cache.borrow_mut();
         let buf = cache.entry((offset, size)).or_insert_with(|| {
             self.contents
@@ -199,11 +196,11 @@ impl profiler_get_symbols::FileContents for FileHandle {
     }
 
     #[inline]
-    fn read_bytes_at_until<'a>(
-        &'a self,
+    fn read_bytes_at_until(
+        &self,
         offset: u64,
         delimiter: u8,
-    ) -> profiler_get_symbols::FileAndPathHelperResult<&'a [u8]> {
+    ) -> profiler_get_symbols::FileAndPathHelperResult<&[u8]> {
         let cache = &mut *self.string_cache.borrow_mut();
         let buf = match cache.entry((offset, delimiter)) {
             Entry::Occupied(entry) => entry.into_mut(),
@@ -296,7 +293,7 @@ fn get_candidate_paths_for_binary_or_pdb_impl(
         .map(|s| {
             // Support special syntax "dyldcache:<dyld_cache_path>:<dylib_path>"
             if let Some(remainder) = s.strip_prefix("dyldcache:") {
-                if let Some(offset) = remainder.find(":") {
+                if let Some(offset) = remainder.find(':') {
                     let dyld_cache_path = &remainder[0..offset];
                     let dylib_path = &remainder[offset + 1..];
                     return profiler_get_symbols::CandidatePathInfo::InDyldCache {
