@@ -168,12 +168,8 @@ impl<'a> TypeDumper<'a> {
         match self.resolve_type_index(function_type_index)? {
             TypeData::MemberFunction(t) => {
                 let is_static_method = t.this_pointer_type.is_none();
-                if is_static_method
-                    && !self
-                        .flags
-                        .intersects(DumperFlags::NO_MEMBER_FUNCTION_STATIC)
-                {
-                    w.write_str("static ")?;
+                if is_static_method {
+                    self.maybe_emit_static(w)?;
                 }
                 if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
                     self.emit_return_type(w, Some(t.return_type), t.attributes)?;
@@ -209,12 +205,8 @@ impl<'a> TypeDumper<'a> {
                 };
 
                 let is_static_method = t.this_pointer_type.is_none();
-                if is_static_method
-                    && !self
-                        .flags
-                        .intersects(DumperFlags::NO_MEMBER_FUNCTION_STATIC)
-                {
-                    w.write_str("static ")?;
+                if is_static_method {
+                    self.maybe_emit_static(w)?;
                 }
                 if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
                     self.emit_return_type(w, Some(t.return_type), t.attributes)?;
@@ -354,6 +346,19 @@ impl<'a> TypeDumper<'a> {
             TypeData::Modifier(t) => self.get_type_size(t.underlying_type),
             _ => 0,
         }
+    }
+
+    fn has_flags(&self, flags: DumperFlags) -> bool {
+        self.flags.intersects(flags)
+    }
+
+    fn maybe_emit_static(&self, w: &mut impl Write) -> Result<()> {
+        if self.has_flags(DumperFlags::NO_MEMBER_FUNCTION_STATIC) {
+            return Ok(());
+        }
+
+        w.write_str("static ")?;
+        Ok(())
     }
 
     fn emit_name_str(&self, w: &mut impl Write, name: &str) -> Result<()> {
