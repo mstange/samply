@@ -170,8 +170,7 @@ impl<'a> TypeDumper<'a> {
             return Ok(());
         }
 
-        let function_type_data = self.resolve_type_index(function_type_index)?;
-        match function_type_data {
+        match self.resolve_type_index(function_type_index)? {
             TypeData::MemberFunction(t) => {
                 let is_static_method = t.this_pointer_type.is_none();
                 if is_static_method
@@ -217,11 +216,9 @@ impl<'a> TypeDumper<'a> {
     }
 
     pub fn write_id(&self, w: &mut impl Write, id_index: IdIndex) -> Result<()> {
-        let item = self.id_finder.find(id_index)?;
-        match item.parse()? {
+        match self.resolve_id_index(id_index)? {
             IdData::MemberFunction(m) => {
-                let function_type = self.type_finder.find(m.function_type)?;
-                let t = match function_type.parse()? {
+                let t = match self.resolve_type_index(m.function_type)? {
                     TypeData::MemberFunction(t) => t,
                     _ => return Err(Error::MemberFunctionIdIsNotMemberFunctionType),
                 };
@@ -251,8 +248,7 @@ impl<'a> TypeDumper<'a> {
                 }
             }
             IdData::Function(f) => {
-                let function_type = self.type_finder.find(f.function_type)?;
-                let t = match function_type.parse()? {
+                let t = match self.resolve_type_index(f.function_type)? {
                     TypeData::Procedure(t) => t,
                     _ => return Err(Error::FunctionIdIsNotProcedureType),
                 };
@@ -280,6 +276,11 @@ impl<'a> TypeDumper<'a> {
 
     fn resolve_type_index(&self, index: TypeIndex) -> Result<TypeData> {
         let item = self.type_finder.find(index).unwrap();
+        Ok(item.parse()?)
+    }
+
+    fn resolve_id_index(&self, index: IdIndex) -> Result<IdData> {
+        let item = self.id_finder.find(index).unwrap();
         Ok(item.parse()?)
     }
 
