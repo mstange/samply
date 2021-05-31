@@ -236,7 +236,7 @@ impl profiler_get_symbols::FileContents for FileHandle {
         };
         // Extend the lifetime to that of self.
         // This is OK because we never mutate or remove entries.
-        Ok(unsafe { mem::transmute::<&[u8], &[u8]>(buf) })
+        Ok(unsafe { &*(&**buf as *const [u8]) })
     }
 }
 
