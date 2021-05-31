@@ -173,10 +173,7 @@ impl<'a> TypeDumper<'a> {
                 }
                 self.maybe_emit_return_type(w, Some(t.return_type), t.attributes)?;
                 self.emit_name_str(w, name)?;
-                let is_const_method = self.emit_method_args(w, t, is_static_method)?;
-                if is_const_method {
-                    w.write_str(" const")?;
-                }
+                self.emit_method_args(w, t, is_static_method, true)?;
             }
             TypeData::Procedure(t) => {
                 self.maybe_emit_return_type(w, t.return_type, t.attributes)?;
@@ -208,10 +205,7 @@ impl<'a> TypeDumper<'a> {
                 self.emit_type_index(w, m.parent)?;
                 write!(w, "::")?;
                 self.emit_name_str(w, &m.name.to_string())?;
-                let is_const_method = self.emit_method_args(w, t, is_static_method)?;
-                if is_const_method {
-                    w.write_str(" const")?;
-                }
+                self.emit_method_args(w, t, is_static_method, true)?;
             }
             IdData::Function(f) => {
                 let t = match self.resolve_type_index(f.function_type)? {
@@ -439,13 +433,13 @@ impl<'a> TypeDumper<'a> {
         }
     }
 
-    // Return value describes whether this is a const method.
     fn emit_method_args(
         &self,
         w: &mut impl Write,
         method_type: MemberFunctionType,
         is_static_method: bool,
-    ) -> Result<bool> {
+        allow_emit_const: bool,
+    ) -> Result<()> {
         let args_list = match self.resolve_type_index(method_type.argument_list)? {
             TypeData::ArgumentList(t) => t,
             _ => {
@@ -472,7 +466,11 @@ impl<'a> TypeDumper<'a> {
         }
         write!(w, ")")?;
 
-        Ok(is_const_method)
+        if is_const_method && allow_emit_const {
+            write!(w, " const")?;
+        }
+
+        Ok(())
     }
 
     // Should we emit a space as the first byte from emit_attributes? It depends.
@@ -503,8 +501,7 @@ impl<'a> TypeDumper<'a> {
                 previous_byte_was_pointer_sigil = false;
             }
 
-            if self.has_flags(DumperFlags::SPACE_BEFORE_POINTER)
-                && !previous_byte_was_pointer_sigil
+            if self.has_flags(DumperFlags::SPACE_BEFORE_POINTER) && !previous_byte_was_pointer_sigil
             {
                 if !is_at_beginning || allow_space_at_beginning {
                     write!(w, " ")?;
@@ -540,7 +537,7 @@ impl<'a> TypeDumper<'a> {
         self.emit_type_index(w, fun.class_type)?;
         self.emit_attributes(w, attributes, false, false)?;
         write!(w, ")")?;
-        let _ = self.emit_method_args(w, fun, is_static_method)?;
+        self.emit_method_args(w, fun, is_static_method, false)?;
         Ok(())
     }
 
@@ -843,7 +840,7 @@ impl<'a> TypeDumper<'a> {
                 let is_static_method = t.this_pointer_type.is_none();
                 self.maybe_emit_return_type(w, Some(t.return_type), t.attributes)?;
                 write!(w, "()")?;
-                let _ = self.emit_method_args(w, t, is_static_method)?;
+                self.emit_method_args(w, t, is_static_method, false)?;
             }
             TypeData::Procedure(t) => {
                 self.maybe_emit_return_type(w, t.return_type, t.attributes)?;
