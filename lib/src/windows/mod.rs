@@ -16,10 +16,10 @@ use type_formatter::{TypeFormatter, TypeFormatterFlags};
 pub mod addr2line;
 pub mod type_formatter;
 
-pub async fn get_symbolication_result_via_binary<'a, R>(
+pub async fn get_symbolication_result_via_binary<R>(
     file_kind: object::FileKind,
     file_contents: FileContentsWrapper<impl FileContents>,
-    query: SymbolicationQuery<'a>,
+    query: SymbolicationQuery<'_>,
     path: &Path,
     helper: &impl FileAndPathHelper,
 ) -> Result<R>
@@ -115,8 +115,8 @@ fn get_image_base_address<'data, Pe: ImageNtHeaders, R: ReadRef<'data>>(data: R)
     Some(optional_header.image_base())
 }
 
-async fn try_get_symbolication_result_from_pdb_path<'a, R>(
-    query: SymbolicationQuery<'a>,
+async fn try_get_symbolication_result_from_pdb_path<R>(
+    query: SymbolicationQuery<'_>,
     path: &Path,
     helper: &impl FileAndPathHelper,
 ) -> Result<R>
@@ -299,16 +299,14 @@ where
                                                 symbolication_result
                                                     .add_address_symbol(address, rva.0, &name);
                                             }
-                                            let frames: std::result::Result<Vec<_>, _> = frames
+                                            let frames: Vec<_> = frames
                                                 .into_iter()
                                                 .map(convert_stack_frame)
                                                 .collect();
-                                            if let Ok(frames) = frames {
-                                                symbolication_result.add_address_debug_info(
-                                                    address,
-                                                    AddressDebugInfo { frames },
-                                                );
-                                            }
+                                            symbolication_result.add_address_debug_info(
+                                                address,
+                                                AddressDebugInfo { frames },
+                                            );
                                         }
                                     }
                                 } else {
@@ -351,9 +349,7 @@ pub fn get_addresses_covered_by_range(addresses: &[u32], range: std::ops::Range<
     &half_range[..len]
 }
 
-fn convert_stack_frame<'a>(
-    frame: addr2line::Frame<'a>,
-) -> std::result::Result<InlineStackFrame, pdb::Error> {
+fn convert_stack_frame(frame: addr2line::Frame<'_>) -> InlineStackFrame {
     let mut file_path = None;
     let mut line_number = None;
     if let Some(location) = frame.location {
@@ -362,15 +358,15 @@ fn convert_stack_frame<'a>(
         }
         line_number = location.line;
     }
-    Ok(InlineStackFrame {
+    InlineStackFrame {
         function: frame.function,
         file_path,
         line_number,
-    })
+    }
 }
 
 fn pe_signature_to_uuid(identifier: &[u8; 16]) -> uuid::Uuid {
-    let mut data = identifier.clone();
+    let mut data = *identifier;
     // The PE file targets a little endian architecture. Convert to
     // network byte order (big endian) to match the Breakpad processor's
     // expectations. For big endian object files, this is not needed.
