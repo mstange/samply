@@ -167,13 +167,12 @@ impl<'a> TypeDumper<'a> {
 
         match self.resolve_type_index(function_type_index)? {
             TypeData::MemberFunction(t) => {
-                let is_static_method = t.this_pointer_type.is_none();
-                if is_static_method {
+                if t.this_pointer_type.is_none() {
                     self.maybe_emit_static(w)?;
                 }
                 self.maybe_emit_return_type(w, Some(t.return_type), t.attributes)?;
                 self.emit_name_str(w, name)?;
-                self.emit_method_args(w, t, is_static_method, true)?;
+                self.emit_method_args(w, t, true)?;
             }
             TypeData::Procedure(t) => {
                 self.maybe_emit_return_type(w, t.return_type, t.attributes)?;
@@ -205,7 +204,7 @@ impl<'a> TypeDumper<'a> {
                 self.emit_type_index(w, m.parent)?;
                 write!(w, "::")?;
                 self.emit_name_str(w, &m.name.to_string())?;
-                self.emit_method_args(w, t, is_static_method, true)?;
+                self.emit_method_args(w, t, true)?;
             }
             IdData::Function(f) => {
                 let t = match self.resolve_type_index(f.function_type)? {
@@ -437,7 +436,6 @@ impl<'a> TypeDumper<'a> {
         &self,
         w: &mut impl Write,
         method_type: MemberFunctionType,
-        is_static_method: bool,
         allow_emit_const: bool,
     ) -> Result<()> {
         let args_list = match self.resolve_type_index(method_type.argument_list)? {
@@ -447,14 +445,17 @@ impl<'a> TypeDumper<'a> {
             }
         };
 
-        let (is_const_method, extra_first_arg) = if is_static_method {
-            // Static methods have the correct arguments and are not const methods.
-            (false, None)
-        } else {
-            // For non-static methods, check whether the method is const, and work around a
-            // problem with bad type information for Rust associated functions.
-            let this_type = method_type.this_pointer_type.unwrap();
-            self.get_class_constness_and_extra_arguments(this_type, method_type.class_type)?
+        let (is_const_method, extra_first_arg) = match method_type.this_pointer_type {
+            None => {
+                // No this pointer - this is a static method.
+                // Static methods cannot be const, and they have the correct arguments.
+                (false, None)
+            }
+            Some(this_type) => {
+                // For non-static methods, check whether the method is const, and work around a
+                // problem with bad type information for Rust associated functions.
+                self.get_class_constness_and_extra_arguments(this_type, method_type.class_type)?
+            }
         };
 
         write!(w, "(")?;
@@ -530,14 +531,12 @@ impl<'a> TypeDumper<'a> {
         fun: MemberFunctionType,
         attributes: Vec<PtrAttributes>,
     ) -> Result<()> {
-        let is_static_method = fun.this_pointer_type.is_none();
         self.emit_return_type(w, Some(fun.return_type), fun.attributes)?;
-
         write!(w, "(")?;
         self.emit_type_index(w, fun.class_type)?;
         self.emit_attributes(w, attributes, false, false)?;
         write!(w, ")")?;
-        self.emit_method_args(w, fun, is_static_method, false)?;
+        self.emit_method_args(w, fun, false)?;
         Ok(())
     }
 
@@ -837,10 +836,9 @@ impl<'a> TypeDumper<'a> {
             TypeData::Primitive(t) => self.emit_primitive(w, t, false)?,
             TypeData::Class(t) => self.emit_class(w, t)?,
             TypeData::MemberFunction(t) => {
-                let is_static_method = t.this_pointer_type.is_none();
                 self.maybe_emit_return_type(w, Some(t.return_type), t.attributes)?;
                 write!(w, "()")?;
-                self.emit_method_args(w, t, is_static_method, false)?;
+                self.emit_method_args(w, t, false)?;
             }
             TypeData::Procedure(t) => {
                 self.maybe_emit_return_type(w, t.return_type, t.attributes)?;
