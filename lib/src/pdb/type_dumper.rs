@@ -141,7 +141,7 @@ impl<'a> TypeDumper<'a> {
     }
 
     pub fn get_type_size(&self, index: TypeIndex) -> u32 {
-        if let Ok(type_data) = self.find(index) {
+        if let Ok(type_data) = self.resolve_type_index(index) {
             self.get_data_size(&type_data)
         } else {
             0
@@ -170,7 +170,7 @@ impl<'a> TypeDumper<'a> {
             return Ok(());
         }
 
-        let function_type_data = self.find(function_type_index)?;
+        let function_type_data = self.resolve_type_index(function_type_index)?;
         match function_type_data {
             TypeData::MemberFunction(t) => {
                 let is_static_method = t.this_pointer_type.is_none();
@@ -278,7 +278,7 @@ impl<'a> TypeDumper<'a> {
         Ok(())
     }
 
-    fn find(&self, index: TypeIndex) -> Result<TypeData> {
+    fn resolve_type_index(&self, index: TypeIndex) -> Result<TypeData> {
         let item = self.type_finder.find(index).unwrap();
         Ok(item.parse()?)
     }
@@ -397,12 +397,12 @@ impl<'a> TypeDumper<'a> {
     /// Check if ptr points to the specified class, and if so, whether it points to const or non-const class.
     /// If it points to a different class than the one supplied in the `class` argument, don't check constness.
     fn is_ptr_to_class(&self, ptr: TypeIndex, class: TypeIndex) -> Result<PtrToClassKind> {
-        if let TypeData::Pointer(ptr_type) = self.find(ptr)? {
+        if let TypeData::Pointer(ptr_type) = self.resolve_type_index(ptr)? {
             let underlying_type = ptr_type.underlying_type;
             if underlying_type == class {
                 return Ok(PtrToClassKind::PtrToGivenClass { constant: false });
             }
-            let underlying_type_data = self.find(underlying_type)?;
+            let underlying_type_data = self.resolve_type_index(underlying_type)?;
             if let TypeData::Modifier(modifier) = underlying_type_data {
                 if modifier.underlying_type == class {
                     return Ok(PtrToClassKind::PtrToGivenClass {
@@ -448,7 +448,7 @@ impl<'a> TypeDumper<'a> {
         method_type: MemberFunctionType,
         is_static_method: bool,
     ) -> Result<bool> {
-        let args_list = match self.find(method_type.argument_list)? {
+        let args_list = match self.resolve_type_index(method_type.argument_list)? {
             TypeData::ArgumentList(t) => t,
             _ => {
                 return Err(Error::ArgumentTypeNotArgumentList);
@@ -605,7 +605,7 @@ impl<'a> TypeDumper<'a> {
         });
         let mut ptr = ptr;
         loop {
-            let type_data = self.find(ptr.underlying_type)?;
+            let type_data = self.resolve_type_index(ptr.underlying_type)?;
             match type_data {
                 TypeData::Pointer(t) => {
                     attributes.push(PtrAttributes {
@@ -618,7 +618,7 @@ impl<'a> TypeDumper<'a> {
                 TypeData::Modifier(t) => {
                     // the vec cannot be empty since we push something in just before the loop
                     attributes.last_mut().unwrap().is_pointee_const = t.constant;
-                    let underlying_type_data = self.find(t.underlying_type)?;
+                    let underlying_type_data = self.resolve_type_index(t.underlying_type)?;
                     if let TypeData::Pointer(t) = underlying_type_data {
                         attributes.push(PtrAttributes {
                             is_pointer_const: t.attributes.is_const(),
@@ -664,7 +664,7 @@ impl<'a> TypeDumper<'a> {
         // XXXmstange the docs above imply that dimensions can have more than just one entry.
         // But this code only processes dimensions[0]. Is that a bug?
         loop {
-            let type_data = self.find(base.element_type)?;
+            let type_data = self.resolve_type_index(base.element_type)?;
             match type_data {
                 TypeData::Array(a) => {
                     dims.push(a.dimensions[0]);
@@ -699,7 +699,7 @@ impl<'a> TypeDumper<'a> {
     }
 
     fn emit_modifier(&self, w: &mut impl Write, modifier: ModifierType) -> Result<()> {
-        let type_data = self.find(modifier.underlying_type)?;
+        let type_data = self.resolve_type_index(modifier.underlying_type)?;
         match type_data {
             TypeData::Pointer(ptr) => self.emit_ptr(w, ptr, modifier.constant)?,
             TypeData::Primitive(prim) => self.emit_primitive(w, prim, modifier.constant)?,
@@ -834,7 +834,7 @@ impl<'a> TypeDumper<'a> {
     }
 
     fn emit_type_index(&self, w: &mut impl Write, index: TypeIndex) -> Result<()> {
-        self.emit_type(w, self.find(index)?)
+        self.emit_type(w, self.resolve_type_index(index)?)
     }
 
     fn emit_type(&self, w: &mut impl Write, type_data: TypeData) -> Result<()> {
