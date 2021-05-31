@@ -97,8 +97,8 @@ where
         ));
     }
 
-    let macho_file = File::parse_at(range, header_offset)
-        .map_err(|e| GetSymbolsError::MachOHeaderParseError(e))?;
+    let macho_file =
+        File::parse_at(range, header_offset).map_err(GetSymbolsError::MachOHeaderParseError)?;
     let map = object_to_map(&macho_file);
     let addresses = query.addresses;
     let mut symbolication_result = R::from_full_map(map, addresses);
@@ -169,8 +169,7 @@ async fn traverse_object_references_and_collect_debug_info(
         };
 
         for (data, functions) in obj_ref.into_objects(&file_contents)?.into_iter() {
-            let macho_file =
-                File::parse(data).or_else(|x| Err(GetSymbolsError::MachOHeaderParseError(x)))?;
+            let macho_file = File::parse(data).map_err(GetSymbolsError::MachOHeaderParseError)?;
             let addresses_in_this_object = translate_addresses_to_object(&macho_file, functions);
             collect_debug_info_and_object_references(
                 data,
@@ -271,12 +270,8 @@ impl ObjectReference {
             ObjectReference::Archive {
                 path, archive_info, ..
             } => {
-                let archive = ArchiveFile::parse(data).or_else(|x| {
-                    Err(GetSymbolsError::ArchiveParseError(
-                        path.clone(),
-                        Box::new(x),
-                    ))
-                })?;
+                let archive = ArchiveFile::parse(data)
+                    .map_err(|x| GetSymbolsError::ArchiveParseError(path.clone(), Box::new(x)))?;
                 let archive_members_by_name: HashMap<Vec<u8>, (u64, u64)> = archive
                     .members()
                     .filter_map(|member| match member {

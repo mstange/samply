@@ -265,8 +265,8 @@ pub async fn query_api(
     }
 }
 
-async fn try_get_symbolication_result_from_path<'a, R, H>(
-    query: SymbolicationQuery<'a>,
+async fn try_get_symbolication_result_from_path<R, H>(
+    query: SymbolicationQuery<'_>,
     path: &Path,
     helper: &H,
 ) -> Result<R>
@@ -315,7 +315,7 @@ where
                 )
                 .await
             }
-            FileKind::Archive | _ => Err(GetSymbolsError::InvalidInputError(
+            _ => Err(GetSymbolsError::InvalidInputError(
                 "Input was Archive, Coff or Wasm format, which are unsupported for now",
             )),
         }
@@ -326,8 +326,8 @@ where
     }
 }
 
-async fn try_get_symbolication_result_from_dyld_shared_cache<'a, R, H>(
-    query: SymbolicationQuery<'a>,
+async fn try_get_symbolication_result_from_dyld_shared_cache<R, H>(
+    query: SymbolicationQuery<'_>,
     dyld_cache_path: &Path,
     dylib_path: &str,
     helper: &H,
@@ -343,7 +343,7 @@ where
     let file_contents = FileContentsWrapper::new(file_contents);
     let header_offset = {
         let cache = DyldCache::<Endianness, _>::parse(&file_contents)
-            .map_err(|e| GetSymbolsError::DyldCacheParseError(e))?;
+            .map_err(GetSymbolsError::DyldCacheParseError)?;
         let image = cache.images().find(|image| image.path() == Ok(dylib_path));
         let image = match image {
             Some(image) => image,
@@ -355,7 +355,7 @@ where
         };
         image
             .file_offset()
-            .map_err(|e| GetSymbolsError::DyldCacheParseError(e))?
+            .map_err(GetSymbolsError::DyldCacheParseError)?
     };
 
     macho::get_symbolication_result(file_contents, None, header_offset, query, helper).await
