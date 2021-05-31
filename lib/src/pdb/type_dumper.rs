@@ -140,112 +140,11 @@ impl<'a> TypeDumper<'a> {
         })
     }
 
-    pub fn find(&self, index: TypeIndex) -> Result<TypeData> {
-        let item = self.type_finder.find(index).unwrap();
-        Ok(item.parse()?)
-    }
-
-    fn get_class_size(&self, class_type: &ClassType) -> u32 {
-        if class_type.properties.forward_reference() {
-            let name = class_type.unique_name.unwrap_or(class_type.name);
-
-            // Sometimes the name will not be in self.forward_ref_sizes - this can occur for
-            // the empty struct, which can be a forward reference to itself!
-            *self
-                .forward_ref_sizes
-                .get(&name)
-                .unwrap_or(&class_type.size.into())
-        } else {
-            class_type.size.into()
-        }
-    }
-
-    fn get_union_size(&self, union_type: &UnionType) -> u32 {
-        if union_type.properties.forward_reference() {
-            let name = union_type.unique_name.unwrap_or(union_type.name);
-            *self
-                .forward_ref_sizes
-                .get(&name)
-                .unwrap_or(&union_type.size)
-        } else {
-            union_type.size
-        }
-    }
-
     pub fn get_type_size(&self, index: TypeIndex) -> u32 {
         if let Ok(type_data) = self.find(index) {
             self.get_data_size(&type_data)
         } else {
             0
-        }
-    }
-
-    fn get_data_size(&self, type_data: &TypeData) -> u32 {
-        match type_data {
-            TypeData::Primitive(t) => {
-                if t.indirection.is_some() {
-                    return self.ptr_size;
-                }
-                match t.kind {
-                    PrimitiveKind::NoType | PrimitiveKind::Void => 0,
-                    PrimitiveKind::Char
-                    | PrimitiveKind::UChar
-                    | PrimitiveKind::RChar
-                    | PrimitiveKind::I8
-                    | PrimitiveKind::U8
-                    | PrimitiveKind::Bool8 => 1,
-                    PrimitiveKind::WChar
-                    | PrimitiveKind::RChar16
-                    | PrimitiveKind::Short
-                    | PrimitiveKind::UShort
-                    | PrimitiveKind::I16
-                    | PrimitiveKind::U16
-                    | PrimitiveKind::F16
-                    | PrimitiveKind::Bool16 => 2,
-                    PrimitiveKind::RChar32
-                    | PrimitiveKind::Long
-                    | PrimitiveKind::ULong
-                    | PrimitiveKind::I32
-                    | PrimitiveKind::U32
-                    | PrimitiveKind::F32
-                    | PrimitiveKind::F32PP
-                    | PrimitiveKind::Bool32
-                    | PrimitiveKind::HRESULT => 4,
-                    PrimitiveKind::I64
-                    | PrimitiveKind::U64
-                    | PrimitiveKind::Quad
-                    | PrimitiveKind::UQuad
-                    | PrimitiveKind::F64
-                    | PrimitiveKind::Complex32
-                    | PrimitiveKind::Bool64 => 8,
-                    PrimitiveKind::I128
-                    | PrimitiveKind::U128
-                    | PrimitiveKind::Octa
-                    | PrimitiveKind::UOcta
-                    | PrimitiveKind::F128
-                    | PrimitiveKind::Complex64 => 16,
-                    PrimitiveKind::F48 => 6,
-                    PrimitiveKind::F80 => 10,
-                    PrimitiveKind::Complex80 => 20,
-                    PrimitiveKind::Complex128 => 32,
-                    _ => panic!("Unknown PrimitiveKind {:?} in get_data_size", t.kind),
-                }
-            }
-            TypeData::Class(t) => self.get_class_size(t),
-            TypeData::MemberFunction(_) => self.ptr_size,
-            TypeData::Procedure(_) => self.ptr_size,
-            TypeData::Pointer(t) => t.attributes.size().into(),
-            TypeData::Array(t) => *t.dimensions.last().unwrap(),
-            TypeData::Union(t) => self.get_union_size(t),
-            TypeData::Enumeration(t) => self.get_type_size(t.underlying_type),
-            TypeData::Enumerate(t) => match t.value {
-                Variant::I8(_) | Variant::U8(_) => 1,
-                Variant::I16(_) | Variant::U16(_) => 2,
-                Variant::I32(_) | Variant::U32(_) => 4,
-                Variant::I64(_) | Variant::U64(_) => 8,
-            },
-            TypeData::Modifier(t) => self.get_type_size(t.underlying_type),
-            _ => 0,
         }
     }
 
@@ -377,6 +276,107 @@ impl<'a> TypeDumper<'a> {
             other => write!(w, "<unhandled id scope {:?}>::", other)?,
         }
         Ok(())
+    }
+
+    fn find(&self, index: TypeIndex) -> Result<TypeData> {
+        let item = self.type_finder.find(index).unwrap();
+        Ok(item.parse()?)
+    }
+
+    fn get_class_size(&self, class_type: &ClassType) -> u32 {
+        if class_type.properties.forward_reference() {
+            let name = class_type.unique_name.unwrap_or(class_type.name);
+
+            // Sometimes the name will not be in self.forward_ref_sizes - this can occur for
+            // the empty struct, which can be a forward reference to itself!
+            *self
+                .forward_ref_sizes
+                .get(&name)
+                .unwrap_or(&class_type.size.into())
+        } else {
+            class_type.size.into()
+        }
+    }
+
+    fn get_union_size(&self, union_type: &UnionType) -> u32 {
+        if union_type.properties.forward_reference() {
+            let name = union_type.unique_name.unwrap_or(union_type.name);
+            *self
+                .forward_ref_sizes
+                .get(&name)
+                .unwrap_or(&union_type.size)
+        } else {
+            union_type.size
+        }
+    }
+
+    fn get_data_size(&self, type_data: &TypeData) -> u32 {
+        match type_data {
+            TypeData::Primitive(t) => {
+                if t.indirection.is_some() {
+                    return self.ptr_size;
+                }
+                match t.kind {
+                    PrimitiveKind::NoType | PrimitiveKind::Void => 0,
+                    PrimitiveKind::Char
+                    | PrimitiveKind::UChar
+                    | PrimitiveKind::RChar
+                    | PrimitiveKind::I8
+                    | PrimitiveKind::U8
+                    | PrimitiveKind::Bool8 => 1,
+                    PrimitiveKind::WChar
+                    | PrimitiveKind::RChar16
+                    | PrimitiveKind::Short
+                    | PrimitiveKind::UShort
+                    | PrimitiveKind::I16
+                    | PrimitiveKind::U16
+                    | PrimitiveKind::F16
+                    | PrimitiveKind::Bool16 => 2,
+                    PrimitiveKind::RChar32
+                    | PrimitiveKind::Long
+                    | PrimitiveKind::ULong
+                    | PrimitiveKind::I32
+                    | PrimitiveKind::U32
+                    | PrimitiveKind::F32
+                    | PrimitiveKind::F32PP
+                    | PrimitiveKind::Bool32
+                    | PrimitiveKind::HRESULT => 4,
+                    PrimitiveKind::I64
+                    | PrimitiveKind::U64
+                    | PrimitiveKind::Quad
+                    | PrimitiveKind::UQuad
+                    | PrimitiveKind::F64
+                    | PrimitiveKind::Complex32
+                    | PrimitiveKind::Bool64 => 8,
+                    PrimitiveKind::I128
+                    | PrimitiveKind::U128
+                    | PrimitiveKind::Octa
+                    | PrimitiveKind::UOcta
+                    | PrimitiveKind::F128
+                    | PrimitiveKind::Complex64 => 16,
+                    PrimitiveKind::F48 => 6,
+                    PrimitiveKind::F80 => 10,
+                    PrimitiveKind::Complex80 => 20,
+                    PrimitiveKind::Complex128 => 32,
+                    _ => panic!("Unknown PrimitiveKind {:?} in get_data_size", t.kind),
+                }
+            }
+            TypeData::Class(t) => self.get_class_size(t),
+            TypeData::MemberFunction(_) => self.ptr_size,
+            TypeData::Procedure(_) => self.ptr_size,
+            TypeData::Pointer(t) => t.attributes.size().into(),
+            TypeData::Array(t) => *t.dimensions.last().unwrap(),
+            TypeData::Union(t) => self.get_union_size(t),
+            TypeData::Enumeration(t) => self.get_type_size(t.underlying_type),
+            TypeData::Enumerate(t) => match t.value {
+                Variant::I8(_) | Variant::U8(_) => 1,
+                Variant::I16(_) | Variant::U16(_) => 2,
+                Variant::I32(_) | Variant::U32(_) => 4,
+                Variant::I64(_) | Variant::U64(_) => 8,
+            },
+            TypeData::Modifier(t) => self.get_type_size(t.underlying_type),
+            _ => 0,
+        }
     }
 
     fn emit_return_type(
