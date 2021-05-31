@@ -72,23 +72,23 @@ impl Default for DumperFlags {
     }
 }
 
-pub struct TypeDumper<'a> {
-    type_finder: TypeFinder<'a>,
-    id_finder: IdFinder<'a>,
+pub struct TypeDumper<'t> {
+    type_finder: TypeFinder<'t>,
+    id_finder: IdFinder<'t>,
 
     /// A hashmap that maps a type's (unique) name to its type size.
-    forward_ref_sizes: HashMap<RawString<'a>, u32>,
+    forward_ref_sizes: HashMap<RawString<'t>, u32>,
 
     ptr_size: u32,
     flags: DumperFlags,
 }
 
-impl<'a> TypeDumper<'a> {
+impl<'t> TypeDumper<'t> {
     /// Collect all the Type and their TypeIndex to be able to search for a TypeIndex
-    pub fn new<'b>(
-        debug_info: &'a DebugInformation<'b>,
-        type_info: &'a TypeInformation<'b>,
-        id_info: &'a IdInformation<'b>,
+    pub fn new(
+        debug_info: &'t DebugInformation<'_>,
+        type_info: &'t TypeInformation<'_>,
+        id_info: &'t IdInformation<'_>,
         flags: DumperFlags,
     ) -> std::result::Result<Self, pdb::Error> {
         let mut type_iter = type_info.iter();
