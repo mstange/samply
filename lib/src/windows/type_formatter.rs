@@ -40,6 +40,31 @@ impl From<std::fmt::Error> for Error {
 
 type Result<V> = std::result::Result<V, Error>;
 
+bitflags! {
+    pub struct TypeFormatterFlags: u32 {
+        /// Do not print the return type for the root function.
+        const NO_FUNCTION_RETURN = 0b1;
+
+        /// Do not print static before the signature of a static method.
+        const NO_MEMBER_FUNCTION_STATIC = 0b10;
+
+        /// Add a space after each comma in an argument list.
+        const SPACE_AFTER_COMMA = 0b100;
+
+        /// Add a space before the * or & sigil of a pointer or reference.
+        const SPACE_BEFORE_POINTER = 0b1000;
+
+        /// Only print "MyClassName" instead of "class MyClassName", "struct MyClassName", or "interface MyClassName".
+        const NAME_ONLY = 0b10000;
+    }
+}
+
+impl Default for TypeFormatterFlags {
+    fn default() -> Self {
+        Self::NO_FUNCTION_RETURN | Self::SPACE_AFTER_COMMA | Self::NAME_ONLY
+    }
+}
+
 #[derive(Eq, PartialEq)]
 enum PtrToClassKind {
     PtrToGivenClass {
@@ -54,22 +79,6 @@ struct PtrAttributes {
     is_pointer_const: bool,
     is_pointee_const: bool,
     mode: PointerMode,
-}
-
-bitflags! {
-    pub struct TypeFormatterFlags: u32 {
-        const NO_FUNCTION_RETURN = 0b1;
-        const NO_MEMBER_FUNCTION_STATIC = 0b10;
-        const SPACE_AFTER_COMMA = 0b100;
-        const SPACE_BEFORE_POINTER = 0b1000;
-        const NAME_ONLY = 0b10000;
-    }
-}
-
-impl Default for TypeFormatterFlags {
-    fn default() -> Self {
-        Self::NO_FUNCTION_RETURN | Self::SPACE_AFTER_COMMA | Self::NAME_ONLY
-    }
 }
 
 pub struct TypeFormatter<'t> {
