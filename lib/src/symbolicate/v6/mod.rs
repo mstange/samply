@@ -78,7 +78,7 @@ async fn get_address_results(
     mut addresses: Vec<u32>,
     helper: &impl FileAndPathHelper,
 ) -> Result<LookedUpAddresses> {
-    addresses.sort();
+    addresses.sort_unstable();
     addresses.dedup();
     Ok(
         crate::get_symbolication_result(&lib.debug_name, &lib.breakpad_id, &addresses, helper)
@@ -136,7 +136,7 @@ fn create_response(
 
     fn response_stack_for_request_stack(
         stack: &request_json::Stack,
-        memory_map: &Vec<Lib>,
+        memory_map: &[Lib],
         symbols_by_module_index: &HashMap<u32, &AddressResults>,
     ) -> Stack {
         let frames = stack.0.iter().enumerate().map(|(frame_index, frame)| {
@@ -153,7 +153,7 @@ fn create_response(
     fn response_frame_for_request_frame(
         frame: &request_json::StackFrame,
         frame_index: u32,
-        memory_map: &Vec<Lib>,
+        memory_map: &[Lib],
         symbols_by_module_index: &HashMap<u32, &AddressResults>,
     ) -> StackFrame {
         let symbol = symbols_by_module_index
