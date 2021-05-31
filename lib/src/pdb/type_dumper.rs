@@ -162,12 +162,7 @@ impl<'a> TypeDumper<'a> {
         function_type_index: TypeIndex,
     ) -> Result<()> {
         if function_type_index == TypeIndex(0) {
-            if name.is_empty() {
-                write!(w, "<name omitted>")?;
-            } else {
-                write!(w, "{}", name)?;
-            }
-            return Ok(());
+            return self.emit_name_str(w, name);
         }
 
         match self.resolve_type_index(function_type_index)? {
@@ -183,12 +178,7 @@ impl<'a> TypeDumper<'a> {
                 if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
                     self.emit_return_type(w, Some(t.return_type), t.attributes)?;
                 }
-
-                if name.is_empty() {
-                    write!(w, "<name omitted>")?;
-                } else {
-                    write!(w, "{}", name)?;
-                };
+                self.emit_name_str(w, name)?;
                 let is_const_method = self.emit_method_args(w, t, is_static_method)?;
                 if is_const_method {
                     w.write_str(" const")?;
@@ -198,12 +188,7 @@ impl<'a> TypeDumper<'a> {
                 if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
                     self.emit_return_type(w, t.return_type, t.attributes)?;
                 }
-
-                if name.is_empty() {
-                    write!(w, "<name omitted>")?;
-                } else {
-                    write!(w, "{}", name)?;
-                };
+                self.emit_name_str(w, name)?;
                 write!(w, "(")?;
                 self.emit_type_index(w, t.argument_list)?;
                 write!(w, ")")?;
@@ -236,12 +221,7 @@ impl<'a> TypeDumper<'a> {
                 }
                 self.emit_type_index(w, m.parent)?;
                 write!(w, "::")?;
-
-                if m.name.is_empty() {
-                    write!(w, "<name omitted>")?;
-                } else {
-                    write!(w, "{}", m.name)?;
-                };
+                self.emit_name_str(w, &m.name.to_string())?;
                 let is_const_method = self.emit_method_args(w, t, is_static_method)?;
                 if is_const_method {
                     w.write_str(" const")?;
@@ -259,11 +239,7 @@ impl<'a> TypeDumper<'a> {
                     self.write_id(w, scope)?;
                     write!(w, "::")?;
                 }
-                if f.name.is_empty() {
-                    write!(w, "<name omitted>")?;
-                } else {
-                    write!(w, "{}", f.name)?;
-                }
+                self.emit_name_str(w, &f.name.to_string())?;
                 write!(w, "(")?;
                 self.emit_type_index(w, t.argument_list)?;
                 write!(w, ")")?;
@@ -378,6 +354,15 @@ impl<'a> TypeDumper<'a> {
             TypeData::Modifier(t) => self.get_type_size(t.underlying_type),
             _ => 0,
         }
+    }
+
+    fn emit_name_str(&self, w: &mut impl Write, name: &str) -> Result<()> {
+        if name.is_empty() {
+            write!(w, "<name omitted>")?;
+        } else {
+            write!(w, "{}", name)?;
+        }
+        Ok(())
     }
 
     fn emit_return_type(
