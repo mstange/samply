@@ -20,16 +20,12 @@ impl FileContents for MmapFileContents {
     }
 
     #[inline]
-    fn read_bytes_at<'a>(&'a self, offset: u64, size: u64) -> FileAndPathHelperResult<&'a [u8]> {
+    fn read_bytes_at(&self, offset: u64, size: u64) -> FileAndPathHelperResult<&[u8]> {
         Ok(&self.0[offset as usize..][..size as usize])
     }
 
     #[inline]
-    fn read_bytes_at_until<'a>(
-        &'a self,
-        offset: u64,
-        delimiter: u8,
-    ) -> FileAndPathHelperResult<&'a [u8]> {
+    fn read_bytes_at_until(&self, offset: u64, delimiter: u8) -> FileAndPathHelperResult<&[u8]> {
         let slice_to_end = &self.0[offset as usize..];
         if let Some(pos) = slice_to_end.iter().position(|b| *b == delimiter) {
             Ok(&slice_to_end[..pos])
@@ -125,7 +121,7 @@ impl FileAndPathHelper for Helper {
         let mut path = path.to_owned();
         if let Some(filename) = path.file_name() {
             let redirected_path = self.symbol_directory.join(filename);
-            if let Ok(_) = std::fs::metadata(&redirected_path) {
+            if std::fs::metadata(&redirected_path).is_ok() {
                 // redirected_path exists!
                 eprintln!("Redirecting {:?} to {:?}", &path, &redirected_path);
                 path = redirected_path;

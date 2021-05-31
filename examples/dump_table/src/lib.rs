@@ -1,4 +1,3 @@
-use anyhow;
 use profiler_get_symbols::{
     self, CandidatePathInfo, CompactSymbolTable, FileAndPathHelper, FileAndPathHelperResult,
     FileContents, GetSymbolsError, OptionallySendFuture,
@@ -82,16 +81,12 @@ impl FileContents for MmapFileContents {
     }
 
     #[inline]
-    fn read_bytes_at<'a>(&'a self, offset: u64, size: u64) -> FileAndPathHelperResult<&'a [u8]> {
+    fn read_bytes_at(&self, offset: u64, size: u64) -> FileAndPathHelperResult<&[u8]> {
         Ok(&self.0[offset as usize..][..size as usize])
     }
 
     #[inline]
-    fn read_bytes_at_until<'a>(
-        &'a self,
-        offset: u64,
-        delimiter: u8,
-    ) -> FileAndPathHelperResult<&'a [u8]> {
+    fn read_bytes_at_until(&self, offset: u64, delimiter: u8) -> FileAndPathHelperResult<&[u8]> {
         let slice_to_end = &self.0[offset as usize..];
         if let Some(pos) = slice_to_end.iter().position(|b| *b == delimiter) {
             Ok(&slice_to_end[..pos])
