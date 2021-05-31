@@ -1,7 +1,6 @@
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{header, Body, Request, Response, Server};
 use hyper::{Method, StatusCode};
-use memmap::MmapOptions;
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use profiler_get_symbols::query_api;
 use profiler_get_symbols::{
@@ -50,25 +49,27 @@ pub async fn start_server(file: &Path, open_in_browser: bool) {
 
     let server = Server::bind(&addr).serve(new_service);
 
-    let profile_url = "http://127.0.0.1:3000/profile.json";
-    // let profiler_url_prefix = "https://profiler.firefox.com/from-url/";
-    let profiler_url_prefix = "https://deploy-preview-2576--perf-html.netlify.app/from-url/"; // TODO: come up with a proper fix
-    let encoded_profile_url = utf8_percent_encode(profile_url, BAD_CHARS).to_string();
-    let url = format!("{}{}", profiler_url_prefix, encoded_profile_url);
+    let server_origin = format!("http://{}", addr);
+    let profile_url = format!("{}/profile.json", server_origin);
+    let profiler_origin = "https://profiler.firefox.com";
+    // let profiler_origin = "http://localhost:4242";
+    let encoded_profile_url = utf8_percent_encode(&profile_url, BAD_CHARS).to_string();
+    let encoded_symbol_server_url = utf8_percent_encode(&server_origin, BAD_CHARS).to_string();
+    let profiler_url = format!("{}/from-url/{}/?symbolServer={}", profiler_origin, encoded_profile_url, encoded_symbol_server_url);
 
-    eprintln!("Serving symbolication server at http://127.0.0.1:3000");
-    eprintln!("  The profile is at http://127.0.0.1:3000/profile.json");
+    eprintln!("Serving symbolication server at {}", server_origin);
+    eprintln!("  The profile is at {}", profile_url);
     eprintln!("  Symbols can be obtained by posting to");
-    eprintln!("    http://127.0.0.1:3000/symbolicate/v5 or");
-    eprintln!("    http://127.0.0.1:3000/symbolicate/v6a1");
+    eprintln!("    {}/symbolicate/v5 or", server_origin);
+    eprintln!("    {}/symbolicate/v6a1", server_origin);
     eprintln!("  Open the profiler at");
-    eprintln!("    {}", url);
+    eprintln!("    {}", profiler_url);
     eprintln!("Press Ctrl+C to abort.");
     eprintln!("");
 
     if open_in_browser {
         let mut cmd = Command::new("open");
-        let _ = cmd.arg(&url).status();
+        let _ = cmd.arg(&profiler_url).status();
     }
 
     // Run this server for... forever!
@@ -112,7 +113,7 @@ async fn symbolication_service(
     Ok(response)
 }
 
-struct MmapFileContents(memmap::Mmap);
+struct MmapFileContents(memmap2::Mmap);
 
 impl OwnedFileData for MmapFileContents {
     fn get_data(&self) -> &[u8] {
@@ -199,7 +200,7 @@ impl FileAndPathHelper for Helper {
         async fn read_file_impl(path: PathBuf) -> FileAndPathHelperResult<MmapFileContents> {
             eprintln!("Reading file {:?}", &path);
             let file = File::open(&path)?;
-            Ok(MmapFileContents(unsafe { MmapOptions::new().map(&file)? }))
+            Ok(MmapFileContents(unsafe { memmap2::MmapOptions::new().map(&file)? }))
         }
 
         Box::pin(read_file_impl(path.to_owned()))
