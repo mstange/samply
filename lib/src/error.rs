@@ -1,8 +1,7 @@
-use std::path::PathBuf;
-
-use crate::pdb::type_dumper;
-use crate::pdb_crate::Error as PDBError;
+use crate::windows::type_dumper;
 use object;
+use pdb::Error as PDBError;
+use std::path::PathBuf;
 use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, GetSymbolsError>;
@@ -18,7 +17,7 @@ pub enum GetSymbolsError {
     #[error("Couldn't get symbols from system library, errors: {}", .0.iter().map(|e| format!("{}", e)).collect::<Vec<String>>().join(", "))]
     NoLuckMacOsSystemLibrary(Vec<GetSymbolsError>),
 
-    #[error("pdb_crate error: {1} ({0})")]
+    #[error("PDB error: {1} ({0})")]
     PDBError(&'static str, PDBError),
 
     #[error("Invalid input: {0}")]

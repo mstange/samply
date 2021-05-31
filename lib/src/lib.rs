@@ -137,28 +137,28 @@
 //! }
 //! ```
 
-extern crate pdb as pdb_crate;
+pub use object;
+pub use pdb;
 
 use std::path::Path;
 
 use object::{macho::FatHeader, read::macho::DyldCache, read::FileKind, Endianness};
+use pdb::PDB;
+use serde_json::json;
 
 mod compact_symbol_table;
 mod dwarf;
 mod elf;
 mod error;
 mod macho;
-mod pdb;
 mod shared;
 mod symbolicate;
-
-use pdb_crate::PDB;
-use serde_json::json;
+mod windows;
 
 use crate::shared::{SymbolicationQuery, SymbolicationResult};
 
 // Just to hide unused method  warnings. Should be exposed differently.
-pub use crate::pdb::addr2line as pdb_addr2line;
+pub use crate::windows::addr2line as pdb_addr2line;
 
 pub use crate::compact_symbol_table::CompactSymbolTable;
 pub use crate::error::{GetSymbolsError, Result};
@@ -282,7 +282,7 @@ where
 
     if let Ok(pdb) = PDB::open(&file_contents) {
         // This is a PDB file.
-        return pdb::get_symbolication_result(pdb, query);
+        return windows::get_symbolication_result(pdb, query);
     }
 
     if let Ok(file_kind) = FileKind::parse(&file_contents) {
@@ -306,7 +306,7 @@ where
                 macho::get_symbolication_result(file_contents, None, 0, query, helper).await
             }
             FileKind::Pe32 | FileKind::Pe64 => {
-                pdb::get_symbolication_result_via_binary(
+                windows::get_symbolication_result_via_binary(
                     file_kind,
                     file_contents,
                     query,

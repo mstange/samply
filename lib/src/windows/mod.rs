@@ -1,26 +1,20 @@
-use crate::pdb_crate::{FallibleIterator, ProcedureSymbol, PublicSymbol, SymbolData, PDB};
+use crate::error::{Context, GetSymbolsError, Result};
 use crate::shared::{
-    AddressDebugInfo, FileAndPathHelper, FileContents, FileContentsWrapper, InlineStackFrame,
-    SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
+    object_to_map, AddressDebugInfo, FileAndPathHelper, FileContents, FileContentsWrapper,
+    InlineStackFrame, SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
 };
-use crate::{
-    error::{Context, GetSymbolsError, Result},
-    shared::object_to_map,
-};
+use crate::windows::addr2line::Addr2LineContext;
+use object::pe::{ImageDosHeader, ImageNtHeaders32, ImageNtHeaders64};
+use object::read::pe::{ImageNtHeaders, ImageOptionalHeader};
+use object::ReadRef;
+use pdb::{FallibleIterator, ProcedureSymbol, PublicSymbol, SymbolData, PDB};
 use std::collections::{BTreeMap, HashSet};
 use std::io::Cursor;
 use std::{borrow::Cow, path::Path};
+use type_dumper::{DumperFlags, TypeDumper};
 
 pub mod addr2line;
 pub mod type_dumper;
-
-use super::pdb::addr2line::Addr2LineContext;
-use object::{
-    pe::{ImageDosHeader, ImageNtHeaders32, ImageNtHeaders64},
-    read::pe::{ImageNtHeaders, ImageOptionalHeader},
-    ReadRef,
-};
-use type_dumper::{DumperFlags, TypeDumper};
 
 pub async fn get_symbolication_result_via_binary<'a, R>(
     file_kind: object::FileKind,
@@ -146,7 +140,7 @@ pub fn get_symbolication_result<'a, 's, S, R>(
 ) -> Result<R>
 where
     R: SymbolicationResult,
-    S: pdb_crate::Source<'s> + 's,
+    S: pdb::Source<'s> + 's,
 {
     // Check against the expected breakpad_id.
     let info = pdb.pdb_information().context("pdb_information")?;
@@ -358,8 +352,8 @@ pub fn get_addresses_covered_by_range(addresses: &[u32], range: std::ops::Range<
 }
 
 fn convert_stack_frame<'a>(
-    frame: super::pdb::addr2line::Frame<'a>,
-) -> std::result::Result<InlineStackFrame, crate::pdb_crate::Error> {
+    frame: addr2line::Frame<'a>,
+) -> std::result::Result<InlineStackFrame, pdb::Error> {
     let mut file_path = None;
     let mut line_number = None;
     if let Some(location) = frame.location {
@@ -407,8 +401,8 @@ impl pdb::SourceView<'_> for ReadView {
 impl<'s, F: FileContents> pdb::Source<'s> for &'s FileContentsWrapper<F> {
     fn view(
         &mut self,
-        slices: &[pdb_crate::SourceSlice],
-    ) -> std::result::Result<Box<dyn pdb_crate::SourceView<'s>>, std::io::Error> {
+        slices: &[pdb::SourceSlice],
+    ) -> std::result::Result<Box<dyn pdb::SourceView<'s>>, std::io::Error> {
         let len = slices.iter().fold(0, |acc, s| acc + s.size);
 
         let mut v = ReadView {
