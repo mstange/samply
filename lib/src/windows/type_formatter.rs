@@ -81,6 +81,12 @@ struct PtrAttributes {
     mode: PointerMode,
 }
 
+/// Allows printing function signatures, for example for use in stack traces.
+/// Private symbols in PDBs usually have a name string which only includes the function name,
+/// and no function arguments. The arguments need to be obtained from the symbol's type information.
+/// The same is true for "inlinee" functions - these are referenced by their IdIndex, and their
+/// IdData's name string again only contains the raw function name but no arguments and also
+/// no namespace or class name.
 pub struct TypeFormatter<'t> {
     type_finder: TypeFinder<'t>,
     id_finder: IdFinder<'t>,
@@ -93,7 +99,7 @@ pub struct TypeFormatter<'t> {
 }
 
 impl<'t> TypeFormatter<'t> {
-    /// Collect all the Type and their TypeIndex to be able to search for a TypeIndex
+    /// Create a new TypeFormatter with the help of various PDB streams.
     pub fn new(
         debug_info: &'t DebugInformation<'_>,
         type_info: &'t TypeInformation<'_>,
@@ -155,6 +161,7 @@ impl<'t> TypeFormatter<'t> {
         })
     }
 
+    /// Get the size, in bytes, of the type at `index`.
     pub fn get_type_size(&self, index: TypeIndex) -> u32 {
         if let Ok(type_data) = self.resolve_type_index(index) {
             self.get_data_size(&type_data)
@@ -165,11 +172,10 @@ impl<'t> TypeFormatter<'t> {
 
     /// Write out the function or method signature, including return type (if requested),
     /// namespace and/or class qualifiers, and arguments.
-    /// The function's name is really just the raw name. The arguments need to be
-    /// obtained from its type information.
     /// If the TypeIndex is 0, then only the raw name is emitted. In that case, the
     /// name may need to go through additional demangling / "undecorating", but this
     /// is the responsibility of the caller.
+    /// This method is used for [`ProcedureSymbol`s](pdb::ProcedureSymbol).
     pub fn write_function(
         &self,
         w: &mut impl Write,
@@ -203,6 +209,9 @@ impl<'t> TypeFormatter<'t> {
         Ok(())
     }
 
+    /// Write out the function or method signature, including return type (if requested),
+    /// namespace and/or class qualifiers, and arguments.
+    /// This method is used for inlined functions.
     pub fn write_id(&self, w: &mut impl Write, id_index: IdIndex) -> Result<()> {
         match self.resolve_id_index(id_index)? {
             IdData::MemberFunction(m) => {
