@@ -171,9 +171,7 @@ impl<'a> TypeDumper<'a> {
                 if is_static_method {
                     self.maybe_emit_static(w)?;
                 }
-                if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
-                    self.emit_return_type(w, Some(t.return_type), t.attributes)?;
-                }
+                self.maybe_emit_return_type(w, Some(t.return_type), t.attributes)?;
                 self.emit_name_str(w, name)?;
                 let is_const_method = self.emit_method_args(w, t, is_static_method)?;
                 if is_const_method {
@@ -181,9 +179,7 @@ impl<'a> TypeDumper<'a> {
                 }
             }
             TypeData::Procedure(t) => {
-                if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
-                    self.emit_return_type(w, t.return_type, t.attributes)?;
-                }
+                self.maybe_emit_return_type(w, t.return_type, t.attributes)?;
                 self.emit_name_str(w, name)?;
                 write!(w, "(")?;
                 self.emit_type_index(w, t.argument_list)?;
@@ -208,9 +204,7 @@ impl<'a> TypeDumper<'a> {
                 if is_static_method {
                     self.maybe_emit_static(w)?;
                 }
-                if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
-                    self.emit_return_type(w, Some(t.return_type), t.attributes)?;
-                }
+                self.maybe_emit_return_type(w, Some(t.return_type), t.attributes)?;
                 self.emit_type_index(w, m.parent)?;
                 write!(w, "::")?;
                 self.emit_name_str(w, &m.name.to_string())?;
@@ -224,9 +218,8 @@ impl<'a> TypeDumper<'a> {
                     TypeData::Procedure(t) => t,
                     _ => return Err(Error::FunctionIdIsNotProcedureType),
                 };
-                if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
-                    self.emit_return_type(w, t.return_type, t.attributes)?;
-                }
+
+                self.maybe_emit_return_type(w, t.return_type, t.attributes)?;
                 if let Some(scope) = f.scope {
                     self.write_id(w, scope)?;
                     write!(w, "::")?;
@@ -358,6 +351,20 @@ impl<'a> TypeDumper<'a> {
         }
 
         w.write_str("static ")?;
+        Ok(())
+    }
+
+    fn maybe_emit_return_type(
+        &self,
+        w: &mut impl Write,
+        type_index: Option<TypeIndex>,
+        attrs: FunctionAttributes,
+    ) -> Result<()> {
+        if self.has_flags(DumperFlags::NO_FUNCTION_RETURN) {
+            return Ok(());
+        }
+
+        self.emit_return_type(w, type_index, attrs)?;
         Ok(())
     }
 
@@ -496,7 +503,7 @@ impl<'a> TypeDumper<'a> {
                 previous_byte_was_pointer_sigil = false;
             }
 
-            if self.flags.intersects(DumperFlags::SPACE_BEFORE_POINTER)
+            if self.has_flags(DumperFlags::SPACE_BEFORE_POINTER)
                 && !previous_byte_was_pointer_sigil
             {
                 if !is_at_beginning || allow_space_at_beginning {
@@ -705,7 +712,7 @@ impl<'a> TypeDumper<'a> {
     }
 
     fn emit_class(&self, w: &mut impl Write, class: ClassType) -> Result<()> {
-        if self.flags.intersects(DumperFlags::NAME_ONLY) {
+        if self.has_flags(DumperFlags::NAME_ONLY) {
             write!(w, "{}", class.name)?;
         } else {
             let name = match class.kind {
@@ -727,14 +734,14 @@ impl<'a> TypeDumper<'a> {
         if let Some((first, args)) = list.arguments.split_first() {
             if comma_before_first {
                 write!(w, ",")?;
-                if self.flags.intersects(DumperFlags::SPACE_AFTER_COMMA) {
+                if self.has_flags(DumperFlags::SPACE_AFTER_COMMA) {
                     write!(w, " ")?;
                 }
             }
             self.emit_type_index(w, *first)?;
             for index in args.iter() {
                 write!(w, ",")?;
-                if self.flags.intersects(DumperFlags::SPACE_AFTER_COMMA) {
+                if self.has_flags(DumperFlags::SPACE_AFTER_COMMA) {
                     write!(w, " ")?;
                 }
                 self.emit_type_index(w, *index)?;
@@ -795,7 +802,7 @@ impl<'a> TypeDumper<'a> {
         };
 
         if prim.indirection.is_some() {
-            if self.flags.intersects(DumperFlags::SPACE_BEFORE_POINTER) {
+            if self.has_flags(DumperFlags::SPACE_BEFORE_POINTER) {
                 if is_const {
                     write!(w, "{} const *", name)?
                 } else {
@@ -815,7 +822,7 @@ impl<'a> TypeDumper<'a> {
     }
 
     fn emit_named(&self, w: &mut impl Write, base: &str, name: RawString) -> Result<()> {
-        if self.flags.intersects(DumperFlags::NAME_ONLY) {
+        if self.has_flags(DumperFlags::NAME_ONLY) {
             write!(w, "{}", name)?
         } else {
             write!(w, "{} {}", base, name)?
@@ -834,18 +841,12 @@ impl<'a> TypeDumper<'a> {
             TypeData::Class(t) => self.emit_class(w, t)?,
             TypeData::MemberFunction(t) => {
                 let is_static_method = t.this_pointer_type.is_none();
-                if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
-                    self.emit_return_type(w, Some(t.return_type), t.attributes)?;
-                }
-
+                self.maybe_emit_return_type(w, Some(t.return_type), t.attributes)?;
                 write!(w, "()")?;
                 let _ = self.emit_method_args(w, t, is_static_method)?;
             }
             TypeData::Procedure(t) => {
-                if !self.flags.intersects(DumperFlags::NO_FUNCTION_RETURN) {
-                    self.emit_return_type(w, t.return_type, t.attributes)?;
-                }
-
+                self.maybe_emit_return_type(w, t.return_type, t.attributes)?;
                 write!(w, "()(")?;
                 self.emit_type_index(w, t.argument_list)?;
                 write!(w, "")?;
