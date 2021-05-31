@@ -220,8 +220,7 @@ impl<'t> TypeFormatter<'t> {
                     _ => return Err(Error::MemberFunctionIdIsNotMemberFunctionType),
                 };
 
-                let is_static_method = t.this_pointer_type.is_none();
-                if is_static_method {
+                if t.this_pointer_type.is_none() {
                     self.maybe_emit_static(w)?;
                 }
                 self.maybe_emit_return_type(w, Some(t.return_type), t.attributes)?;
