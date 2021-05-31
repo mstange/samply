@@ -131,7 +131,7 @@ where
         &addresses_in_root_object,
         &mut symbolication_result,
         &mut object_references,
-    )?;
+    );
 
     // We are now done with the "root object" and can discard its data.
     drop(macho_file);
@@ -177,7 +177,7 @@ async fn traverse_object_references_and_collect_debug_info(
                 &addresses_in_this_object,
                 symbolication_result,
                 &mut remaining_object_references,
-            )?;
+            );
         }
     }
 
@@ -308,8 +308,7 @@ fn collect_debug_info_and_object_references<'data: 'file, 'file, 'a, O, R>(
     addresses: &[AddressPair],
     symbolication_result: &mut R,
     remaining_object_references: &mut VecDeque<ObjectReference>,
-) -> Result<()>
-where
+) where
     O: Object<'data, 'file>,
     R: SymbolicationResult,
 {
@@ -355,8 +354,6 @@ where
     for (path, archive_info) in archives.into_iter() {
         remaining_object_references.push_back(ObjectReference::Archive { path, archive_info });
     }
-
-    Ok(())
 }
 
 #[derive(Debug)]
@@ -395,13 +392,13 @@ fn match_funs_to_addresses<'a>(
     while let (Some(address_pair), Some(fun)) = (cur_addr, cur_fun) {
         let original_address = address_pair.original_address;
         let address_in_this_object = address_pair.address_in_this_object;
-        if !(fun.address() <= address_in_this_object) {
+        if fun.address() > address_in_this_object {
             internal_addresses.push(address_pair.clone());
             // Advance cur_addr.
             cur_addr = addr_iter.next();
             continue;
         }
-        if !(address_in_this_object < fun.address() + fun.size()) {
+        if address_in_this_object >= fun.address() + fun.size() {
             // Advance cur_fun.
             flush_cur_fun(fun.object_index(), fun.name(), cur_fun_addresses);
             cur_fun = fun_iter.next();
