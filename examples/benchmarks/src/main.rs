@@ -1,11 +1,7 @@
-use anyhow;
 use bzip2::read::BzDecoder;
-use cab;
 use dump_table::get_table;
 use flate2::read::GzDecoder;
-use futures;
 use query_api::query_api;
-use reqwest;
 use std::collections::HashSet;
 use std::ffi::OsString;
 use std::fs::{self, File};
@@ -65,7 +61,7 @@ fn main() -> anyhow::Result<()> {
             "xul.pdb",
             Some("4C8C9680FAECFDC64C4C44205044422E1".into()),
             big_fixtures_dir().join("win64-ci"),
-        )?,
+        ),
     });
     timings.push(Timing {
         platform: "win64",
@@ -92,7 +88,7 @@ fn main() -> anyhow::Result<()> {
             "xul.pdb",
             Some("518A025063D22EEA4C4C44205044422E1".into()),
             big_fixtures_dir().join("win64-local"),
-        )?,
+        ),
     });
     timings.push(Timing {
         platform: "win64-local",
@@ -121,7 +117,7 @@ fn main() -> anyhow::Result<()> {
             "XUL",
             Some("D2139EE3190B37028A98D55519AA0B870".into()),
             big_fixtures_dir().join("macos-ci"),
-        )?,
+        ),
     });
     timings.push(Timing {
         platform: "macos",
@@ -150,7 +146,7 @@ fn main() -> anyhow::Result<()> {
             "XUL",
             Some("D2139EE3190B37028A98D55519AA0B870".into()),
             big_fixtures_dir().join("macos-local"),
-        )?,
+        ),
     });
     timings.push(Timing {
         platform: "macos-local",
@@ -179,7 +175,7 @@ fn main() -> anyhow::Result<()> {
             "libxul.so",
             Some("F33E37832964290A31906802CE8F3C9C0".into()),
             big_fixtures_dir().join("linux64-ci"),
-        )?,
+        ),
     });
     timings.push(Timing {
         platform: "linux64",
@@ -208,7 +204,7 @@ fn main() -> anyhow::Result<()> {
             "libxul.so",
             Some("CA89B171348FDEF3A6A365AC6CDF07BF0".into()),
             big_fixtures_dir().join("android32-ci"),
-        )?,
+        ),
     });
     timings.push(Timing {
         platform: "android32",
@@ -241,7 +237,7 @@ fn main() -> anyhow::Result<()> {
             "libxul.so",
             Some("B560E04259EBFBB96D6D6BB5D69F0DCE0".into()),
             big_fixtures_dir().join("android64-ci"),
-        )?,
+        ),
     });
     timings.push(Timing {
         platform: "android64",
@@ -266,7 +262,7 @@ fn main() -> anyhow::Result<()> {
         )?,
     });
 
-    eprintln!("");
+    eprintln!();
     eprintln!("Results:");
     for Timing {
         platform,
@@ -311,7 +307,7 @@ fn run_dump_table_benchmark(
     debug_name: &str,
     breakpad_id: Option<String>,
     symbol_directory: PathBuf,
-) -> anyhow::Result<Duration> {
+) -> std::time::Duration {
     eprintln!(
         "Starting dump_table benchmark for {}, {:?}, {:?}.",
         debug_name, breakpad_id, symbol_directory
@@ -328,7 +324,7 @@ fn run_dump_table_benchmark(
         debug_name, breakpad_id, symbol_directory
     );
     eprintln!("Elapsed time: {:?}", duration);
-    Ok(duration)
+    duration
 }
 
 fn fixtures_dir() -> PathBuf {
@@ -351,7 +347,7 @@ enum FileType {
 }
 
 fn prepare(local_path: PathBuf, download_url: &str, ftype: FileType) -> anyhow::Result<()> {
-    if let Ok(_) = fs::metadata(&local_path) {
+    if fs::metadata(&local_path).is_ok() {
         // Path exists.
         return Ok(());
     };
@@ -361,7 +357,7 @@ fn prepare(local_path: PathBuf, download_url: &str, ftype: FileType) -> anyhow::
     let client = reqwest::blocking::Client::builder().timeout(None).build()?;
     eprint!("Downloading {} into memory...", download_url);
     let response = client.get(download_url).send()?.bytes()?;
-    eprint!(" done.\n");
+    eprintln!(" done.");
     let dir = tempdir()?;
 
     let temp_file_path = dir.path().join(fname);
@@ -382,7 +378,7 @@ fn prepare(local_path: PathBuf, download_url: &str, ftype: FileType) -> anyhow::
             let mut reader = cabinet.read_file(&file_name_in_cab).unwrap();
             let mut file = File::create(&temp_file_path)?;
             std::io::copy(&mut reader, &mut file).unwrap();
-            eprint!(" done.\n");
+            eprintln!(" done.");
         }
         FileType::Gzip => {
             eprint!("Extracting contents to {:?}...", temp_file_path);
@@ -390,7 +386,7 @@ fn prepare(local_path: PathBuf, download_url: &str, ftype: FileType) -> anyhow::
             let mut reader = GzDecoder::new(cursor);
             let mut file = File::create(&temp_file_path)?;
             std::io::copy(&mut reader, &mut file).unwrap();
-            eprint!(" done.\n");
+            eprintln!(" done.");
         }
         FileType::TarBz2 => {
             let dir_path = dir.path();
@@ -416,7 +412,7 @@ fn prepare(local_path: PathBuf, download_url: &str, ftype: FileType) -> anyhow::
                     entry.unpack_in(&dir)?;
                 }
             }
-            eprint!(" done.\n");
+            eprintln!(" done.");
             // This created a directory structure. Make sure that there's only
             // one root directory, and that its name is the name we expect (fname).
             assert_eq!(roots.len(), 1);
@@ -428,7 +424,7 @@ fn prepare(local_path: PathBuf, download_url: &str, ftype: FileType) -> anyhow::
     fs::create_dir_all(local_path.parent().unwrap())?;
     fs::rename(temp_file_path, local_path)?;
     drop(dir);
-    eprint!(" done.\n");
+    eprintln!(" done.");
 
     Ok(())
 }
