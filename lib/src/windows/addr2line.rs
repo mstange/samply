@@ -1,5 +1,5 @@
-use super::type_formatter::TypeFormatter;
 use pdb::{FallibleIterator, Result, SymbolData, PDB};
+use pdb_addr2line::TypeFormatter;
 use std::collections::BTreeMap;
 
 #[derive(Clone)]

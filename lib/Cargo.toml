@@ -18,6 +18,10 @@ default-features = false
 features = ["std", "fallible-iterator"]
 version = "0.15.1"
 
+[dependencies.pdb-addr2line]
+git = "https://github.com/mstange/pdb-addr2line/"
+rev = "6e1c007d1da3b2391c5faf30312cf524f0da7962"
+
 [dependencies.object]
 default-features = false
 features = ["std", "read_core", "archive", "elf", "macho", "pe", "unaligned"]

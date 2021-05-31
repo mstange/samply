@@ -8,13 +8,12 @@ use object::pe::{ImageDosHeader, ImageNtHeaders32, ImageNtHeaders64};
 use object::read::pe::{ImageNtHeaders, ImageOptionalHeader};
 use object::ReadRef;
 use pdb::{FallibleIterator, ProcedureSymbol, PublicSymbol, SymbolData, PDB};
+use pdb_addr2line::{TypeFormatter, TypeFormatterFlags};
 use std::collections::{BTreeMap, HashSet};
 use std::io::Cursor;
 use std::{borrow::Cow, path::Path};
-use type_formatter::{TypeFormatter, TypeFormatterFlags};
 
 pub mod addr2line;
-pub mod type_formatter;
 
 pub async fn get_symbolication_result_via_binary<R>(
     file_kind: object::FileKind,
