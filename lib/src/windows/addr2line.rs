@@ -3,34 +3,31 @@ use pdb_addr2line::TypeFormatter;
 use std::collections::BTreeMap;
 
 #[derive(Clone)]
-pub struct Frame<'s> {
+pub struct Frame<'a> {
     pub function: Option<String>,
-    pub location: Option<Location<'s>>,
+    pub location: Option<Location<'a>>,
 }
 
 #[derive(Clone)]
-pub struct Location<'s> {
-    pub file: Option<std::borrow::Cow<'s, str>>,
+pub struct Location<'a> {
+    pub file: Option<std::borrow::Cow<'a, str>>,
     pub line: Option<u32>,
     pub column: Option<u32>,
 }
 
-pub struct Addr2LineContext<'a, 's>
-where
-    's: 'a,
-{
+pub struct Addr2LineContext<'a, 's, 't> {
     address_map: &'a pdb::AddressMap<'s>,
     string_table: &'a pdb::StringTable<'s>,
     dbi: &'a pdb::DebugInformation<'s>,
-    type_formatter: &'a TypeFormatter<'a>,
+    type_formatter: &'a TypeFormatter<'t>,
 }
 
-impl<'a, 's> Addr2LineContext<'a, 's> {
+impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
     pub fn new(
         address_map: &'a pdb::AddressMap<'s>,
         string_table: &'a pdb::StringTable<'s>,
         dbi: &'a pdb::DebugInformation<'s>,
-        type_formatter: &'a TypeFormatter<'a>,
+        type_formatter: &'a TypeFormatter<'t>,
     ) -> Result<Self> {
         Ok(Self {
             address_map,
@@ -40,18 +37,11 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         })
     }
 
-    pub fn find_frames<'b, 't, S>(
+    pub fn find_frames<S: pdb::Source<'s> + 's>(
         &self,
-        pdb: &mut PDB<'t, S>,
+        pdb: &mut PDB<'s, S>,
         address: u32,
-    ) -> Result<Vec<Frame<'b>>>
-    where
-        S: pdb::Source<'t>,
-        's: 't,
-        S: 's,
-        's: 'b,
-        'a: 'b,
-    {
+    ) -> Result<Vec<Frame<'a>>> {
         let mut modules = self.dbi.modules()?.filter_map(|m| pdb.module_info(&m));
         while let Some(module_info) = modules.next()? {
             let proc_symbol = module_info.symbols()?.find_map(|symbol| {
@@ -93,7 +83,7 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn find_frames_from_procedure<'b>(
+    pub fn find_frames_from_procedure(
         &self,
         address: u32,
         module_info: &pdb::ModuleInfo,
@@ -102,11 +92,7 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         procedure_rva_range: std::ops::Range<u32>,
         line_program: &pdb::LineProgram,
         inlinees: &BTreeMap<pdb::IdIndex, pdb::Inlinee>,
-    ) -> Result<Vec<Frame<'b>>>
-    where
-        's: 'b,
-        'a: 'b,
-    {
+    ) -> Result<Vec<Frame<'a>>> {
         let mut formatted_function_name = String::new();
         let _ = self.type_formatter.write_function(
             &mut formatted_function_name,
@@ -172,18 +158,14 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         Ok(frames_per_address.into_iter().next().unwrap().1)
     }
 
-    fn frames_for_address_for_inline_symbol<'b>(
+    fn frames_for_address_for_inline_symbol(
         &self,
         site: pdb::InlineSiteSymbol,
         address: u32,
         inlinees: &BTreeMap<pdb::IdIndex, pdb::Inlinee>,
         proc_offset: pdb::PdbInternalSectionOffset,
         line_program: &pdb::LineProgram,
-    ) -> Option<Frame<'b>>
-    where
-        's: 'b,
-        'a: 'b,
-    {
+    ) -> Option<Frame<'a>> {
         // This inlining site only covers the address if it has a line info that covers this address.
         let inlinee = inlinees.get(&site.inlinee)?;
         let lines = inlinee.lines(proc_offset, &site);
@@ -248,15 +230,11 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         None
     }
 
-    fn line_info_to_location<'b>(
+    fn line_info_to_location(
         &self,
         line_info: pdb::LineInfo,
         line_program: &pdb::LineProgram,
-    ) -> Location<'b>
-    where
-        'a: 'b,
-        's: 'b,
-    {
+    ) -> Location<'a> {
         let file = line_program
             .get_file_info(line_info.file_index)
             .and_then(|file_info| file_info.name.to_string_lossy(&self.string_table))
