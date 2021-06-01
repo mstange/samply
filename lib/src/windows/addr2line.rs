@@ -146,23 +146,17 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
                     break;
                 }
                 Ok(SymbolData::InlineSite(site)) => {
-                    if let Some(inline_frames_for_addresses) = self
-                        .frames_for_addresses_for_inline_symbol(
-                            site,
-                            &[address],
-                            &inlinees,
-                            proc.offset,
-                            &line_program,
-                        )
-                    {
-                        for (addresses_subset, frame) in inline_frames_for_addresses.into_iter() {
-                            for address in addresses_subset {
-                                frames_per_address
-                                    .get_mut(address)
-                                    .unwrap()
-                                    .push(frame.clone());
-                            }
-                        }
+                    if let Some(frame) = self.frames_for_address_for_inline_symbol(
+                        site,
+                        address,
+                        &inlinees,
+                        proc.offset,
+                        &line_program,
+                    ) {
+                        frames_per_address
+                            .get_mut(&address)
+                            .unwrap()
+                            .push(frame.clone());
                     }
                 }
                 _ => {}
@@ -177,22 +171,22 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         Ok(frames_per_address.into_iter().next().unwrap().1)
     }
 
-    fn frames_for_addresses_for_inline_symbol<'b, 'addresses>(
+    fn frames_for_address_for_inline_symbol<'b>(
         &self,
         site: pdb::InlineSiteSymbol,
-        addresses: &'addresses [u32],
+        address: u32,
         inlinees: &BTreeMap<pdb::IdIndex, pdb::Inlinee>,
         proc_offset: pdb::PdbInternalSectionOffset,
         line_program: &pdb::LineProgram,
-    ) -> Option<Vec<(&'addresses [u32], Frame<'b>)>>
+    ) -> Option<Frame<'b>>
     where
         's: 'b,
         'a: 'b,
-        'b: 'addresses,
     {
         // This inlining site only covers the address if it has a line info that covers this address.
         let inlinee = inlinees.get(&site.inlinee)?;
         let lines = inlinee.lines(proc_offset, &site);
+        let addresses = &[address];
         let line_infos = self.find_line_infos_containing_addresses_with_size(lines, addresses);
         if line_infos.is_empty() {
             return None;
@@ -204,19 +198,15 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
             .write_id(&mut formatted_name, site.inlinee);
         let function = Some(formatted_name);
 
-        let mut frames = Vec::new();
-        for (address_range, line_info) in line_infos.into_iter() {
+        if let Some((_, line_info)) = line_infos.into_iter().next() {
             let location = self.line_info_to_location(line_info, line_program);
 
-            frames.push((
-                address_range,
-                Frame {
-                    function: function.clone(),
-                    location: Some(location),
-                },
-            ));
+            return Some(Frame {
+                function,
+                location: Some(location),
+            });
         }
-        Some(frames)
+        None
     }
 
     fn find_line_info_containing_address_no_size(
