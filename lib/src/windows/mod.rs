@@ -9,7 +9,7 @@ use object::read::pe::{ImageNtHeaders, ImageOptionalHeader};
 use object::ReadRef;
 use pdb::{FallibleIterator, ProcedureSymbol, PublicSymbol, SymbolData, PDB};
 use pdb_addr2line::{TypeFormatter, TypeFormatterFlags};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::io::Cursor;
 use std::{borrow::Cow, path::Path};
 
@@ -228,89 +228,35 @@ where
             Ok(symbolication_result)
         }
         SymbolicationResultKind::SymbolsForAddresses { with_debug_info } => {
-            let addr2line_context = if with_debug_info {
-                Addr2LineContext::new(&mut pdb, &addr_map, &string_table, &dbi, &type_formatter)
-                    .ok()
-            } else {
-                None
-            };
+            let context =
+                Addr2LineContext::new(&mut pdb, &addr_map, &string_table, &dbi, &type_formatter)?;
             let mut symbolication_result = R::for_addresses(addresses);
-            let mut all_symbol_addresses: HashSet<u32> = symbol_map.keys().cloned().collect();
-            while let Some(module) = modules.next().context("modules.next()")? {
-                let info = match pdb.module_info(&module) {
-                    Ok(Some(info)) => info,
-                    _ => continue,
-                };
-
-                let mut symbols = info.symbols().context("info.symbols()")?;
-                while let Ok(Some(symbol)) = symbols.next() {
-                    if let Ok(SymbolData::Procedure(proc)) = symbol.parse() {
-                        let ProcedureSymbol {
-                            offset,
-                            len,
-                            name,
-                            type_index,
-                            ..
-                        } = proc;
-                        if let Some(rva) = offset.to_rva(&addr_map) {
-                            all_symbol_addresses.insert(rva.0);
-                            let rva_range = rva.0..(rva.0 + len);
-                            let covered_addresses =
-                                get_addresses_covered_by_range(addresses, rva_range.clone());
-                            if !covered_addresses.is_empty() {
-                                if let Some(context) = &addr2line_context {
-                                    for address in covered_addresses.iter().cloned() {
-                                        let frames = context.find_frames(address)?;
-                                        if let Some(name) = frames.last().unwrap().function.clone()
-                                        {
-                                            symbolication_result
-                                                .add_address_symbol(address, rva.0, &name);
-                                        }
-                                        let frames: Vec<_> =
-                                            frames.into_iter().map(convert_stack_frame).collect();
-                                        symbolication_result.add_address_debug_info(
-                                            address,
-                                            AddressDebugInfo { frames },
-                                        );
-                                    }
-                                } else {
-                                    let mut formatted_name = String::new();
-                                    type_formatter.write_function(
-                                        &mut formatted_name,
-                                        &name.to_string(),
-                                        type_index,
-                                    )?;
-                                    for address in covered_addresses {
-                                        symbolication_result.add_address_symbol(
-                                            *address,
-                                            rva.0,
-                                            &formatted_name,
-                                        );
-                                    }
-                                }
-                            }
-                        }
+            for &address in addresses {
+                if with_debug_info {
+                    if let Some((symbol_address, frames)) = context.find_frames(address)? {
+                        let symbol_name = match &frames.last().unwrap().function {
+                            Some(name) => name,
+                            None => "unknown",
+                        };
+                        symbolication_result.add_address_symbol(
+                            address,
+                            symbol_address,
+                            symbol_name,
+                        );
+                        let frames: Vec<_> = frames.into_iter().map(convert_stack_frame).collect();
+                        symbolication_result
+                            .add_address_debug_info(address, AddressDebugInfo { frames });
                     }
+                } else if let Some((symbol_address, symbol_name)) =
+                    context.find_function(address)?
+                {
+                    symbolication_result.add_address_symbol(address, symbol_address, &symbol_name);
                 }
             }
-            let total_symbol_count = all_symbol_addresses.len() as u32;
-            symbolication_result.set_total_symbol_count(total_symbol_count);
+            symbolication_result.set_total_symbol_count(context.total_symbol_count() as u32);
             Ok(symbolication_result)
         }
     }
-}
-
-pub fn get_addresses_covered_by_range(addresses: &[u32], range: std::ops::Range<u32>) -> &[u32] {
-    let start_index = match addresses.binary_search(&range.start) {
-        Ok(i) => i,
-        Err(i) => i,
-    };
-    let half_range = &addresses[start_index..];
-    let len = match half_range.binary_search(&range.end) {
-        Ok(i) => i,
-        Err(i) => i,
-    };
-    &half_range[..len]
 }
 
 fn convert_stack_frame(frame: addr2line::Frame<'_>) -> InlineStackFrame {
@@ -383,51 +329,5 @@ impl<'s, F: FileContents> pdb::Source<'s> for &'s FileContentsWrapper<F> {
         }
 
         Ok(Box::new(v))
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::get_addresses_covered_by_range;
-    #[test]
-    fn test_get_addresses_covered_by_range() {
-        let empty_slice: &[u32] = &[];
-        assert_eq!(
-            get_addresses_covered_by_range(&[2, 4, 6], 0..1),
-            empty_slice
-        );
-        assert_eq!(
-            get_addresses_covered_by_range(&[2, 4, 6], 0..2),
-            empty_slice
-        );
-        assert_eq!(get_addresses_covered_by_range(&[2, 4, 6], 0..3), &[2]);
-        assert_eq!(get_addresses_covered_by_range(&[2, 4, 6], 2..3), &[2]);
-        assert_eq!(get_addresses_covered_by_range(&[2, 4, 6], 2..4), &[2]);
-        assert_eq!(get_addresses_covered_by_range(&[2, 4, 6], 2..6), &[2, 4]);
-        assert_eq!(
-            get_addresses_covered_by_range(&[2, 4, 6], 3..4),
-            empty_slice
-        );
-        assert_eq!(get_addresses_covered_by_range(&[2, 4, 6], 2..7), &[2, 4, 6]);
-        assert_eq!(
-            get_addresses_covered_by_range(&[2, 4, 6], 5..5),
-            empty_slice
-        );
-        assert_eq!(
-            get_addresses_covered_by_range(&[2, 4, 6], 6..6),
-            empty_slice
-        );
-        assert_eq!(get_addresses_covered_by_range(&[2, 4, 6], 6..8), &[6]);
-        assert_eq!(
-            get_addresses_covered_by_range(&[2, 4, 6], 7..8),
-            empty_slice
-        );
-        assert_eq!(get_addresses_covered_by_range(&[2], 0..1), empty_slice);
-        assert_eq!(get_addresses_covered_by_range(&[2], 0..2), empty_slice);
-        assert_eq!(get_addresses_covered_by_range(&[2], 0..3), &[2]);
-        assert_eq!(get_addresses_covered_by_range(&[2], 1..3), &[2]);
-        assert_eq!(get_addresses_covered_by_range(&[2], 2..3), &[2]);
-        assert_eq!(get_addresses_covered_by_range(&[2], 3..3), empty_slice);
-        assert_eq!(get_addresses_covered_by_range(&[2], 3..4), empty_slice);
     }
 }

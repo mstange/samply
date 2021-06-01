@@ -96,24 +96,42 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
         })
     }
 
-    pub fn find_frames(&self, address: u32) -> Result<Vec<Frame<'a>>> {
-        let last_procedure_starting_lte_address = match self
-            .procedures
-            .binary_search_by_key(&address, |p| p.start_rva)
-        {
-            Ok(i) => i,
-            Err(0) => {
-                eprintln!("Looked up address is before first procedure");
-                return Ok(vec![]);
-            }
-            Err(i) => i - 1,
+    pub fn total_symbol_count(&self) -> usize {
+        self.procedures.len()
+    }
+
+    pub fn find_function(&self, address: u32) -> Result<Option<(u32, String)>> {
+        let proc = match self.lookup_proc(address) {
+            Some(proc) => proc,
+            None => return Ok(None),
         };
-        assert!(self.procedures[last_procedure_starting_lte_address].start_rva <= address);
-        if address >= self.procedures[last_procedure_starting_lte_address].end_rva {
-            eprintln!("Procedure does not contain address");
-            return Ok(vec![]);
-        }
-        let proc = &self.procedures[last_procedure_starting_lte_address];
+
+        let start_rva = proc.start_rva;
+        let module_info = &self.modules[proc.module_index as usize];
+        let mut symbols_iter = module_info.symbols_at(proc.symbol_index)?;
+
+        let proc = match symbols_iter.next()? {
+            Some(symbol) => match symbol.parse()? {
+                SymbolData::Procedure(proc) => proc,
+                _ => panic!("Did we store a bad symbol offset?"),
+            },
+            None => panic!("Did we store a bad symbol offset?"),
+        };
+
+        let mut formatted_function_name = String::new();
+        let _ = self.type_formatter.write_function(
+            &mut formatted_function_name,
+            &proc.name.to_string(),
+            proc.type_index,
+        );
+        Ok(Some((start_rva, formatted_function_name)))
+    }
+
+    pub fn find_frames(&self, address: u32) -> Result<Option<(u32, Vec<Frame<'a>>)>> {
+        let proc = match self.lookup_proc(address) {
+            Some(proc) => proc,
+            None => return Ok(None),
+        };
         let module_info = &self.modules[proc.module_index as usize];
         let line_program = module_info.line_program()?;
 
@@ -122,14 +140,35 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
             .map(|i| Ok((i.index(), i)))
             .collect()?;
 
-        self.find_frames_from_procedure(
+        let frames = self.find_frames_from_procedure(
             address,
             module_info,
             proc.symbol_index,
             proc.end_rva,
             &line_program,
             &inlinees,
-        )
+        )?;
+        Ok(Some((proc.start_rva, frames)))
+    }
+
+    fn lookup_proc(&self, address: u32) -> Option<&Procedure> {
+        let last_procedure_starting_lte_address = match self
+            .procedures
+            .binary_search_by_key(&address, |p| p.start_rva)
+        {
+            Ok(i) => i,
+            Err(0) => {
+                eprintln!("Looked up address is before first procedure");
+                return None;
+            }
+            Err(i) => i - 1,
+        };
+        assert!(self.procedures[last_procedure_starting_lte_address].start_rva <= address);
+        if address >= self.procedures[last_procedure_starting_lte_address].end_rva {
+            eprintln!("Procedure does not contain address");
+            return None;
+        }
+        Some(&self.procedures[last_procedure_starting_lte_address])
     }
 
     #[allow(clippy::too_many_arguments)]
