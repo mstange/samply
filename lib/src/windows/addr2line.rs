@@ -1,6 +1,10 @@
-use pdb::{FallibleIterator, Result, SymbolData, PDB};
+use pdb::{
+    AddressMap, DebugInformation, Error, FallibleIterator, IdIndex, InlineSiteSymbol, Inlinee,
+    LineInfo, LineProgram, ModuleInfo, PdbInternalSectionOffset, ProcedureSymbol, Result, Source,
+    StringTable, SymbolData, SymbolIndex, PDB,
+};
 use pdb_addr2line::TypeFormatter;
-use std::collections::BTreeMap;
+use std::{borrow::Cow, collections::BTreeMap, ops::Range};
 
 #[derive(Clone)]
 pub struct Frame<'a> {
@@ -10,23 +14,23 @@ pub struct Frame<'a> {
 
 #[derive(Clone)]
 pub struct Location<'a> {
-    pub file: Option<std::borrow::Cow<'a, str>>,
+    pub file: Option<Cow<'a, str>>,
     pub line: Option<u32>,
     pub column: Option<u32>,
 }
 
 pub struct Addr2LineContext<'a, 's, 't> {
-    address_map: &'a pdb::AddressMap<'s>,
-    string_table: &'a pdb::StringTable<'s>,
-    dbi: &'a pdb::DebugInformation<'s>,
+    address_map: &'a AddressMap<'s>,
+    string_table: &'a StringTable<'s>,
+    dbi: &'a DebugInformation<'s>,
     type_formatter: &'a TypeFormatter<'t>,
 }
 
 impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
     pub fn new(
-        address_map: &'a pdb::AddressMap<'s>,
-        string_table: &'a pdb::StringTable<'s>,
-        dbi: &'a pdb::DebugInformation<'s>,
+        address_map: &'a AddressMap<'s>,
+        string_table: &'a StringTable<'s>,
+        dbi: &'a DebugInformation<'s>,
         type_formatter: &'a TypeFormatter<'t>,
     ) -> Result<Self> {
         Ok(Self {
@@ -37,7 +41,7 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
         })
     }
 
-    pub fn find_frames<S: pdb::Source<'s> + 's>(
+    pub fn find_frames<S: Source<'s> + 's>(
         &self,
         pdb: &mut PDB<'s, S>,
         address: u32,
@@ -63,7 +67,7 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
             if let Some((symbol_index, proc, procedure_rva_range)) = proc_symbol {
                 let line_program = module_info.line_program()?;
 
-                let inlinees: BTreeMap<pdb::IdIndex, pdb::Inlinee> = module_info
+                let inlinees: BTreeMap<IdIndex, Inlinee> = module_info
                     .inlinees()?
                     .map(|i| Ok((i.index(), i)))
                     .collect()?;
@@ -86,12 +90,12 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
     pub fn find_frames_from_procedure(
         &self,
         address: u32,
-        module_info: &pdb::ModuleInfo,
-        symbol_index: pdb::SymbolIndex,
-        proc: pdb::ProcedureSymbol,
-        procedure_rva_range: std::ops::Range<u32>,
-        line_program: &pdb::LineProgram,
-        inlinees: &BTreeMap<pdb::IdIndex, pdb::Inlinee>,
+        module_info: &ModuleInfo,
+        symbol_index: SymbolIndex,
+        proc: ProcedureSymbol,
+        procedure_rva_range: Range<u32>,
+        line_program: &LineProgram,
+        inlinees: &BTreeMap<IdIndex, Inlinee>,
     ) -> Result<Vec<Frame<'a>>> {
         let mut formatted_function_name = String::new();
         let _ = self.type_formatter.write_function(
@@ -160,11 +164,11 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
 
     fn frames_for_address_for_inline_symbol(
         &self,
-        site: pdb::InlineSiteSymbol,
+        site: InlineSiteSymbol,
         address: u32,
-        inlinees: &BTreeMap<pdb::IdIndex, pdb::Inlinee>,
-        proc_offset: pdb::PdbInternalSectionOffset,
-        line_program: &pdb::LineProgram,
+        inlinees: &BTreeMap<IdIndex, Inlinee>,
+        proc_offset: PdbInternalSectionOffset,
+        line_program: &LineProgram,
     ) -> Option<Frame<'a>> {
         // This inlining site only covers the address if it has a line info that covers this address.
         let inlinee = inlinees.get(&site.inlinee)?;
@@ -190,10 +194,10 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
 
     fn find_line_info_containing_address_no_size(
         &self,
-        iterator: impl FallibleIterator<Item = pdb::LineInfo, Error = pdb::Error> + Clone,
+        iterator: impl FallibleIterator<Item = LineInfo, Error = Error> + Clone,
         address: u32,
         outer_end_rva: u32,
-    ) -> Option<pdb::LineInfo> {
+    ) -> Option<LineInfo> {
         let start_rva_iterator = iterator
             .clone()
             .map(|line_info| Ok(line_info.offset.to_rva(&self.address_map).unwrap().0));
@@ -213,9 +217,9 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
 
     fn find_line_info_containing_address_with_size(
         &self,
-        mut iterator: impl FallibleIterator<Item = pdb::LineInfo, Error = pdb::Error> + Clone,
+        mut iterator: impl FallibleIterator<Item = LineInfo, Error = Error> + Clone,
         address: u32,
-    ) -> Option<pdb::LineInfo> {
+    ) -> Option<LineInfo> {
         while let Ok(Some(line_info)) = iterator.next() {
             let length = match line_info.length {
                 Some(l) => l,
@@ -232,8 +236,8 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
 
     fn line_info_to_location(
         &self,
-        line_info: pdb::LineInfo,
-        line_program: &pdb::LineProgram,
+        line_info: LineInfo,
+        line_program: &LineProgram,
     ) -> Location<'a> {
         let file = line_program
             .get_file_info(line_info.file_index)
