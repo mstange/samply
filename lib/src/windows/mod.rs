@@ -3,7 +3,7 @@ use crate::shared::{
     object_to_map, AddressDebugInfo, FileAndPathHelper, FileContents, FileContentsWrapper,
     InlineStackFrame, SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
 };
-use crate::windows::addr2line::Addr2LineContext;
+use crate::windows::addr2line::{Addr2LineContext, CachedPdbInfo};
 use object::pe::{ImageDosHeader, ImageNtHeaders32, ImageNtHeaders64};
 use object::read::pe::{ImageNtHeaders, ImageOptionalHeader};
 use object::ReadRef;
@@ -191,7 +191,6 @@ where
     let ipi = pdb.id_information()?;
     let flags = TypeFormatterFlags::default() | TypeFormatterFlags::NO_MEMBER_FUNCTION_STATIC;
     let type_formatter = TypeFormatter::new(&dbi, &tpi, &ipi, flags)?;
-    let string_table = pdb.string_table()?;
     let mut modules = dbi.modules().context("dbi.modules()")?;
 
     match R::result_kind() {
@@ -228,8 +227,8 @@ where
             Ok(symbolication_result)
         }
         SymbolicationResultKind::SymbolsForAddresses { with_debug_info } => {
-            let context =
-                Addr2LineContext::new(&mut pdb, &addr_map, &string_table, &dbi, &type_formatter)?;
+            let pdb_info = CachedPdbInfo::try_from_pdb(&mut pdb, &dbi)?;
+            let context = Addr2LineContext::new(&pdb_info, &type_formatter)?;
             let mut symbolication_result = R::for_addresses(addresses);
             for &address in addresses {
                 if with_debug_info {

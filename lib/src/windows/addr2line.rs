@@ -33,40 +33,62 @@ struct ExtendedProcedureInfo {
     name: Rc<String>,
 }
 
-pub struct Addr2LineContext<'a, 's, 't> {
-    address_map: &'a AddressMap<'s>,
-    string_table: &'a StringTable<'s>,
-    type_formatter: &'a TypeFormatter<'t>,
+pub struct CachedPdbInfo<'s> {
+    address_map: AddressMap<'s>,
+    string_table: StringTable<'s>,
     modules: Vec<ModuleInfo<'s>>,
-    procedures: Vec<Procedure>,
-    procedure_cache: RefCell<BTreeMap<u32, ExtendedProcedureInfo>>,
 }
 
-impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
-    pub fn new<S: Source<'s> + 's>(
+impl<'s> CachedPdbInfo<'s> {
+    pub fn try_from_pdb<S: Source<'s> + 's>(
         pdb: &mut PDB<'s, S>,
-        address_map: &'a AddressMap<'s>,
-        string_table: &'a StringTable<'s>,
-        dbi: &'a DebugInformation<'s>,
-        type_formatter: &'a TypeFormatter<'t>,
+        dbi: &DebugInformation<'s>,
     ) -> Result<Self> {
         let mut modules = Vec::new();
-        let mut procedures = Vec::new();
-
         let mut module_iter = dbi.modules()?;
         while let Some(module) = module_iter.next()? {
             let module_info = match pdb.module_info(&module)? {
                 Some(m) => m,
                 None => continue,
             };
-            let module_index = modules.len() as u16;
+            modules.push(module_info);
+        }
+
+        let address_map = pdb.address_map()?;
+        let string_table = pdb.string_table()?;
+
+        Ok(Self {
+            address_map,
+            string_table,
+            modules,
+        })
+    }
+}
+
+pub struct Addr2LineContext<'a, 's, 't> {
+    address_map: &'a AddressMap<'s>,
+    string_table: &'a StringTable<'s>,
+    type_formatter: &'a TypeFormatter<'t>,
+    modules: &'a [ModuleInfo<'s>],
+    procedures: Vec<Procedure>,
+    procedure_cache: RefCell<BTreeMap<u32, ExtendedProcedureInfo>>,
+}
+
+impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
+    pub fn new(
+        pdb_info: &'a CachedPdbInfo<'s>,
+        type_formatter: &'a TypeFormatter<'t>,
+    ) -> Result<Self> {
+        let mut procedures = Vec::new();
+
+        for (module_index, module_info) in pdb_info.modules.iter().enumerate() {
             let mut symbols_iter = module_info.symbols()?;
             while let Some(symbol) = symbols_iter.next()? {
                 if let Ok(SymbolData::Procedure(proc)) = symbol.parse() {
                     if proc.len == 0 {
                         continue;
                     }
-                    let start_rva = match proc.offset.to_rva(address_map) {
+                    let start_rva = match proc.offset.to_rva(&pdb_info.address_map) {
                         Some(rva) => rva.0,
                         None => continue,
                     };
@@ -74,13 +96,12 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
                     procedures.push(Procedure {
                         start_rva,
                         end_rva: start_rva + proc.len,
-                        module_index,
+                        module_index: module_index as u16,
                         symbol_index: symbol.index(),
                         offset: proc.offset,
                     });
                 }
             }
-            modules.push(module_info);
         }
 
         // Sort and de-duplicate, so that we can use binary search during lookup.
@@ -93,10 +114,10 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
         procedures.dedup_by_key(|p| p.start_rva);
 
         Ok(Self {
-            address_map,
-            string_table,
+            address_map: &pdb_info.address_map,
+            string_table: &pdb_info.string_table,
             type_formatter,
-            modules,
+            modules: &pdb_info.modules,
             procedures,
             procedure_cache: RefCell::new(BTreeMap::new()),
         })
