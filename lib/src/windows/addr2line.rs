@@ -186,11 +186,10 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         // This inlining site only covers the address if it has a line info that covers this address.
         let inlinee = inlinees.get(&site.inlinee)?;
         let lines = inlinee.lines(proc_offset, &site);
-        let addresses = &[address];
-        let line_infos = self.find_line_infos_containing_addresses_with_size(lines, addresses);
-        if line_infos.is_empty() {
-            return None;
-        }
+        let line_info = match self.find_line_info_containing_address_with_size(lines, address) {
+            Some(line_info) => line_info,
+            None => return None,
+        };
 
         let mut formatted_name = String::new();
         let _ = self
@@ -198,15 +197,12 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
             .write_id(&mut formatted_name, site.inlinee);
         let function = Some(formatted_name);
 
-        if let Some((_, line_info)) = line_infos.into_iter().next() {
-            let location = self.line_info_to_location(line_info, line_program);
+        let location = self.line_info_to_location(line_info, line_program);
 
-            return Some(Frame {
-                function,
-                location: Some(location),
-            });
-        }
-        None
+        Some(Frame {
+            function,
+            location: Some(location),
+        })
     }
 
     fn find_line_info_containing_address_no_size(
@@ -232,16 +228,11 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         None
     }
 
-    fn find_line_infos_containing_addresses_with_size<'addresses>(
+    fn find_line_info_containing_address_with_size(
         &self,
         mut iterator: impl FallibleIterator<Item = pdb::LineInfo, Error = pdb::Error> + Clone,
-        addresses: &'addresses [u32],
-    ) -> Vec<(&'addresses [u32], pdb::LineInfo)>
-    where
-        'a: 'addresses,
-        's: 'addresses,
-    {
-        let mut line_infos = Vec::new();
+        address: u32,
+    ) -> Option<pdb::LineInfo> {
         while let Ok(Some(line_info)) = iterator.next() {
             let length = match line_info.length {
                 Some(l) => l,
@@ -249,13 +240,11 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
             };
             let start_rva = line_info.offset.to_rva(&self.address_map).unwrap().0;
             let end_rva = start_rva + length;
-            let range = start_rva..end_rva;
-            let covered_addresses = get_addresses_covered_by_range(addresses, range);
-            if !covered_addresses.is_empty() {
-                line_infos.push((covered_addresses, line_info));
+            if start_rva <= address && address < end_rva {
+                return Some(line_info);
             }
         }
-        line_infos
+        None
     }
 
     fn line_info_to_location<'b>(
@@ -298,17 +287,4 @@ impl<T, E> FallibleIterator for Once<T, E> {
             None => Ok(None),
         }
     }
-}
-
-pub fn get_addresses_covered_by_range(addresses: &[u32], range: std::ops::Range<u32>) -> &[u32] {
-    let start_index = match addresses.binary_search(&range.start) {
-        Ok(i) => i,
-        Err(i) => i,
-    };
-    let half_range = &addresses[start_index..];
-    let len = match half_range.binary_search(&range.end) {
-        Ok(i) => i,
-        Err(i) => i,
-    };
-    &half_range[..len]
 }
