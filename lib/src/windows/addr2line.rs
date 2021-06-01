@@ -4,6 +4,7 @@ use pdb::{
     SymbolData, SymbolIndex, PDB,
 };
 use pdb_addr2line::TypeFormatter;
+use std::collections::btree_map::Entry;
 use std::rc::Rc;
 use std::{borrow::Cow, cell::RefCell, collections::BTreeMap};
 
@@ -31,6 +32,11 @@ struct Procedure {
 
 struct ExtendedProcedureInfo {
     name: Rc<String>,
+}
+
+struct ExtendedModuleInfo<'a> {
+    inlinees: BTreeMap<IdIndex, Inlinee<'a>>,
+    line_program: LineProgram<'a>,
 }
 
 pub struct CachedPdbInfo<'s> {
@@ -72,6 +78,7 @@ pub struct Addr2LineContext<'a, 's, 't> {
     modules: &'a [ModuleInfo<'s>],
     procedures: Vec<Procedure>,
     procedure_cache: RefCell<BTreeMap<u32, ExtendedProcedureInfo>>,
+    module_cache: RefCell<BTreeMap<u16, Rc<ExtendedModuleInfo<'a>>>>,
 }
 
 impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
@@ -120,6 +127,7 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
             modules: &pdb_info.modules,
             procedures,
             procedure_cache: RefCell::new(BTreeMap::new()),
+            module_cache: RefCell::new(BTreeMap::new()),
         })
     }
 
@@ -143,15 +151,14 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
             None => return Ok(None),
         };
         let module_info = &self.modules[proc.module_index as usize];
-        let line_program = module_info.line_program()?;
-
-        let inlinees: BTreeMap<IdIndex, Inlinee> = module_info
-            .inlinees()?
-            .map(|i| Ok((i.index(), i)))
-            .collect()?;
-
-        let frames =
-            self.find_frames_from_procedure(address, module_info, proc, &line_program, &inlinees)?;
+        let module = self.get_extended_module_info(proc.module_index)?;
+        let frames = self.find_frames_from_procedure(
+            address,
+            module_info,
+            proc,
+            &module.line_program,
+            &module.inlinees,
+        )?;
         Ok(Some((proc.start_rva, frames)))
     }
 
@@ -209,6 +216,32 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
             })
             .name
             .clone()
+    }
+
+    fn compute_extended_module_info(&self, module_index: u16) -> Result<ExtendedModuleInfo<'a>> {
+        let module_info = &self.modules[module_index as usize];
+        let line_program = module_info.line_program()?;
+
+        let inlinees: BTreeMap<IdIndex, Inlinee> = module_info
+            .inlinees()?
+            .map(|i| Ok((i.index(), i)))
+            .collect()?;
+
+        Ok(ExtendedModuleInfo {
+            inlinees,
+            line_program,
+        })
+    }
+
+    fn get_extended_module_info(&self, module_index: u16) -> Result<Rc<ExtendedModuleInfo<'a>>> {
+        let mut cache = self.module_cache.borrow_mut();
+        match cache.entry(module_index) {
+            Entry::Occupied(e) => Ok(e.get().clone()),
+            Entry::Vacant(e) => {
+                let m = self.compute_extended_module_info(module_index)?;
+                Ok(e.insert(Rc::new(m)).clone())
+            }
+        }
     }
 
     fn find_frames_from_procedure(
