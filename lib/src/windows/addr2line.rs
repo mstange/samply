@@ -106,33 +106,6 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         's: 'b,
         'a: 'b,
     {
-        self.find_frames_for_addresses_from_procedure(
-            &[address],
-            module_info,
-            symbol_index,
-            proc,
-            procedure_rva_range,
-            line_program,
-            inlinees,
-        )
-        .map(|map| map.into_iter().next().unwrap().1)
-    }
-
-    /// addresses must be sorted, low to high
-    pub fn find_frames_for_addresses_from_procedure<'b>(
-        &self,
-        addresses: &[u32],
-        module_info: &pdb::ModuleInfo,
-        symbol_index: pdb::SymbolIndex,
-        proc: pdb::ProcedureSymbol,
-        procedure_rva_range: std::ops::Range<u32>,
-        line_program: &pdb::LineProgram,
-        inlinees: &BTreeMap<pdb::IdIndex, pdb::Inlinee>,
-    ) -> Result<BTreeMap<u32, Vec<Frame<'b>>>>
-    where
-        's: 'b,
-        'a: 'b,
-    {
         let mut formatted_function_name = String::new();
         let _ = self.type_formatter.write_function(
             &mut formatted_function_name,
@@ -144,19 +117,17 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         // Ordered outside to inside, until just before the end of this function.
         let mut frames_per_address: BTreeMap<u32, Vec<_>> = BTreeMap::new();
 
-        for &address in addresses {
-            let frame = Frame {
-                function: function.clone(),
-                location: None,
-            };
-            frames_per_address.insert(address, vec![frame]);
-        }
+        let frame = Frame {
+            function,
+            location: None,
+        };
+        frames_per_address.insert(address, vec![frame]);
 
         let lines_for_proc = line_program.lines_at_offset(proc.offset);
         for (addresses_subset, line_info) in self
             .find_line_infos_containing_addresses_no_size(
                 lines_for_proc,
-                addresses,
+                &[address],
                 procedure_rva_range.end,
             )
             .into_iter()
@@ -183,7 +154,7 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
                     if let Some(inline_frames_for_addresses) = self
                         .frames_for_addresses_for_inline_symbol(
                             site,
-                            addresses,
+                            &[address],
                             &inlinees,
                             proc.offset,
                             &line_program,
@@ -208,7 +179,7 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
             frames.reverse();
         }
 
-        Ok(frames_per_address)
+        Ok(frames_per_address.into_iter().next().unwrap().1)
     }
 
     fn frames_for_addresses_for_inline_symbol<'b, 'addresses>(
