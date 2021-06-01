@@ -19,6 +19,7 @@ pub struct Location<'a> {
     pub column: Option<u32>,
 }
 
+#[derive(Clone)]
 struct Procedure {
     start_rva: u32,
     end_rva: u32,
@@ -46,13 +47,12 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
         let mut procedures = Vec::new();
 
         let mut module_iter = dbi.modules()?;
-        let mut prev_start_rva = None;
         while let Some(module) = module_iter.next()? {
             let module_info = match pdb.module_info(&module)? {
                 Some(m) => m,
                 None => continue,
             };
-            let module_index = modules.len();
+            let module_index = modules.len() as u16;
             let mut symbols_iter = module_info.symbols()?;
             while let Some(symbol) = symbols_iter.next()? {
                 if let Ok(SymbolData::Procedure(proc)) = symbol.parse() {
@@ -60,30 +60,27 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
                         continue;
                     }
                     let start_rva = match proc.offset.to_rva(address_map) {
-                        Some(rva) => rva,
+                        Some(rva) => rva.0,
                         None => continue,
                     };
 
-                    let procedure = Procedure {
-                        start_rva: start_rva.0,
-                        end_rva: start_rva.0 + proc.len,
-                        module_index: module_index as u16,
+                    procedures.push(Procedure {
+                        start_rva,
+                        end_rva: start_rva + proc.len,
+                        module_index,
                         symbol_index: symbol.index(),
-                    };
-
-                    // De-duplicate original-order-consecutive procedures, keeping last
-                    if prev_start_rva == Some(start_rva) {
-                        *procedures.last_mut().unwrap() = procedure;
-                    } else {
-                        procedures.push(procedure);
-                    }
-                    prev_start_rva = Some(start_rva);
+                    });
                 }
             }
             modules.push(module_info);
         }
 
         // Sort and de-duplicate, so that we can use binary search during lookup.
+        // If we have multiple procs at the same address (as a result of identical code folding),
+        // we'd like to keep the last instance that we encountered in the original order.
+        // dedup_by_key keeps the *first* element of consecutive duplicates, so we reverse first
+        // and then use a stable sort before we de-duplicate.
+        procedures.reverse();
         procedures.sort_by_key(|p| p.start_rva);
         procedures.dedup_by_key(|p| p.start_rva);
 
