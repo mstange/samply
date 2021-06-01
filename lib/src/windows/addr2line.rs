@@ -156,16 +156,12 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
             .procedures
             .binary_search_by_key(&address, |p| p.start_rva)
         {
+            Err(0) => return None,
             Ok(i) => i,
-            Err(0) => {
-                eprintln!("Looked up address is before first procedure");
-                return None;
-            }
             Err(i) => i - 1,
         };
         assert!(self.procedures[last_procedure_starting_lte_address].start_rva <= address);
         if address >= self.procedures[last_procedure_starting_lte_address].end_rva {
-            eprintln!("Procedure does not contain address");
             return None;
         }
         Some(&self.procedures[last_procedure_starting_lte_address])
