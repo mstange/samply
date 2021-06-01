@@ -1,7 +1,7 @@
 use pdb::{
-    AddressMap, DebugInformation, Error, FallibleIterator, IdIndex, InlineSiteSymbol, Inlinee,
-    LineInfo, LineProgram, ModuleInfo, PdbInternalSectionOffset, Result, Source, StringTable,
-    SymbolData, SymbolIndex, PDB,
+    AddressMap, DebugInformation, Error, FallibleIterator, FileIndex, IdIndex, InlineSiteSymbol,
+    Inlinee, LineInfo, LineProgram, ModuleInfo, PdbInternalSectionOffset, Result, Source,
+    StringTable, SymbolData, SymbolIndex, PDB,
 };
 use pdb::{RawString, TypeIndex};
 use pdb_addr2line::TypeFormatter;
@@ -34,12 +34,21 @@ struct Procedure<'a> {
 }
 
 struct ExtendedProcedureInfo {
-    name: Rc<String>,
+    name: Option<Rc<String>>,
+    lines: Option<Rc<Vec<CachedLineInfo>>>,
 }
 
 struct ExtendedModuleInfo<'a> {
     inlinees: BTreeMap<IdIndex, Inlinee<'a>>,
     line_program: LineProgram<'a>,
+}
+
+#[derive(Clone)]
+struct CachedLineInfo {
+    pub start_rva: u32,
+    pub file_index: FileIndex,
+    pub line_start: u32,
+    pub column_start: Option<u32>,
 }
 
 pub struct CachedPdbInfo<'s> {
@@ -195,13 +204,42 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
 
     fn get_procedure_name(&self, proc: &Procedure) -> Rc<String> {
         let mut cache = self.procedure_cache.borrow_mut();
-        cache
+        let entry = cache
             .entry(proc.start_rva)
             .or_insert_with(|| ExtendedProcedureInfo {
-                name: Rc::new(self.compute_procedure_name(proc)),
-            })
-            .name
-            .clone()
+                name: None,
+                lines: None,
+            });
+        match &entry.name {
+            Some(name) => name.clone(),
+            None => {
+                let name = Rc::new(self.compute_procedure_name(proc));
+                entry.name = Some(name.clone());
+                name
+            }
+        }
+    }
+
+    fn get_procedure_lines(
+        &self,
+        proc: &Procedure,
+        line_program: &LineProgram,
+    ) -> Result<Rc<Vec<CachedLineInfo>>> {
+        let mut cache = self.procedure_cache.borrow_mut();
+        let entry = cache
+            .entry(proc.start_rva)
+            .or_insert_with(|| ExtendedProcedureInfo {
+                name: None,
+                lines: None,
+            });
+        match &entry.lines {
+            Some(lines) => Ok(lines.clone()),
+            None => {
+                let lines = Rc::new(self.compute_lines_for_proc(proc, line_program)?);
+                entry.lines = Some(lines.clone());
+                Ok(lines)
+            }
+        }
     }
 
     fn compute_extended_module_info(&self, module_index: u16) -> Result<ExtendedModuleInfo<'a>> {
@@ -238,12 +276,20 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
         line_program: &LineProgram,
         inlinees: &BTreeMap<IdIndex, Inlinee>,
     ) -> Result<Vec<Frame<'a>>> {
+        let name = (*self.get_procedure_name(proc)).clone();
         let location = self
             .find_line_info_containing_address(proc, line_program, address)?
-            .map(|line_info| self.line_info_to_location(line_info, &line_program));
+            .map(|line_info| {
+                self.line_info_to_location(
+                    line_info.file_index,
+                    line_info.line_start,
+                    line_info.column_start,
+                    &line_program,
+                )
+            });
 
         let frame = Frame {
-            function: Some((*self.get_procedure_name(proc)).clone()),
+            function: Some(name),
             location,
         };
 
@@ -300,7 +346,12 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
             .write_id(&mut formatted_name, site.inlinee);
         let function = Some(formatted_name);
 
-        let location = self.line_info_to_location(line_info, line_program);
+        let location = self.line_info_to_location(
+            line_info.file_index,
+            line_info.line_start,
+            line_info.column_start,
+            line_program,
+        );
 
         Some(Frame {
             function,
@@ -313,24 +364,39 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
         proc: &Procedure,
         line_program: &LineProgram,
         address: u32,
-    ) -> Result<Option<LineInfo>> {
+    ) -> Result<Option<CachedLineInfo>> {
+        let lines_for_proc = &self.get_procedure_lines(proc, line_program)?[..];
+        let index =
+            match lines_for_proc.binary_search_by_key(&address, |line_info| line_info.start_rva) {
+                Err(0) => return Ok(None),
+                Ok(i) => i,
+                Err(i) => i - 1,
+            };
+        Ok(Some(lines_for_proc[index].clone()))
+    }
+
+    fn compute_lines_for_proc(
+        &self,
+        proc: &Procedure,
+        line_program: &LineProgram,
+    ) -> Result<Vec<CachedLineInfo>> {
         let lines_for_proc = line_program.lines_at_offset(proc.offset);
         let mut iterator = lines_for_proc.map(|line_info| {
             let rva = line_info.offset.to_rva(&self.address_map).unwrap().0;
             Ok((rva, line_info))
         });
+        let mut lines = Vec::new();
         let mut next_item = iterator.next()?;
         while let Some((start_rva, line_info)) = next_item {
             next_item = iterator.next()?;
-            let end_rva = match &next_item {
-                Some((rva, _)) => *rva,
-                None => proc.end_rva,
-            };
-            if start_rva <= address && address < end_rva {
-                return Ok(Some(line_info));
-            }
+            lines.push(CachedLineInfo {
+                start_rva,
+                file_index: line_info.file_index,
+                line_start: line_info.line_start,
+                column_start: line_info.column_start,
+            });
         }
-        Ok(None)
+        Ok(lines)
     }
 
     fn find_line_info_containing_address_with_size(
@@ -354,17 +420,19 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
 
     fn line_info_to_location(
         &self,
-        line_info: LineInfo,
+        file_index: FileIndex,
+        line_start: u32,
+        column_start: Option<u32>,
         line_program: &LineProgram,
     ) -> Location<'a> {
         let file = line_program
-            .get_file_info(line_info.file_index)
+            .get_file_info(file_index)
             .and_then(|file_info| file_info.name.to_string_lossy(&self.string_table))
             .ok();
         Location {
             file,
-            line: Some(line_info.line_start),
-            column: line_info.column_start,
+            line: Some(line_start),
+            column: column_start,
         }
     }
 }
