@@ -183,7 +183,7 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
         Some(&self.procedures[last_procedure_starting_lte_address])
     }
 
-    fn compute_procedure_name(&self, proc: &Procedure) -> std::string::String {
+    fn compute_procedure_name(&self, proc: &Procedure) -> String {
         let mut formatted_function_name = String::new();
         let _ = self.type_formatter.write_function(
             &mut formatted_function_name,
