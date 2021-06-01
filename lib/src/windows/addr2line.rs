@@ -124,19 +124,14 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         frames_per_address.insert(address, vec![frame]);
 
         let lines_for_proc = line_program.lines_at_offset(proc.offset);
-        for (addresses_subset, line_info) in self
-            .find_line_infos_containing_addresses_no_size(
-                lines_for_proc,
-                &[address],
-                procedure_rva_range.end,
-            )
-            .into_iter()
-        {
+        if let Some(line_info) = self.find_line_info_containing_address_no_size(
+            lines_for_proc,
+            address,
+            procedure_rva_range.end,
+        ) {
             let location = self.line_info_to_location(line_info, &line_program);
-            for address in addresses_subset {
-                let frame = &mut frames_per_address.get_mut(address).unwrap()[0];
-                frame.location = Some(location.clone());
-            }
+            let frame = &mut frames_per_address.get_mut(&address).unwrap()[0];
+            frame.location = Some(location.clone());
         }
 
         let mut inline_symbols_iter = module_info.symbols_at(symbol_index)?;
@@ -224,16 +219,12 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         Some(frames)
     }
 
-    fn find_line_infos_containing_addresses_no_size<'addresses>(
+    fn find_line_info_containing_address_no_size(
         &self,
         iterator: impl FallibleIterator<Item = pdb::LineInfo, Error = pdb::Error> + Clone,
-        addresses: &'addresses [u32],
+        address: u32,
         outer_end_rva: u32,
-    ) -> Vec<(&'addresses [u32], pdb::LineInfo)>
-    where
-        'a: 'addresses,
-        's: 'addresses,
-    {
+    ) -> Option<pdb::LineInfo> {
         let start_rva_iterator = iterator
             .clone()
             .map(|line_info| Ok(line_info.offset.to_rva(&self.address_map).unwrap().0));
@@ -243,15 +234,12 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
             .skip(1)
             .chain(outer_end_rva_iterator);
         let mut line_iterator = start_rva_iterator.zip(end_rva_iterator).zip(iterator);
-        let mut line_infos = Vec::new();
         while let Ok(Some(((start_rva, end_rva), line_info))) = line_iterator.next() {
-            let range = start_rva..end_rva;
-            let covered_addresses = get_addresses_covered_by_range(addresses, range);
-            if !covered_addresses.is_empty() {
-                line_infos.push((covered_addresses, line_info));
+            if start_rva <= address && address < end_rva {
+                return Some(line_info);
             }
         }
-        line_infos
+        None
     }
 
     fn find_line_infos_containing_addresses_with_size<'addresses>(
