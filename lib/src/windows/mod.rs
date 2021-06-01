@@ -13,7 +13,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::io::Cursor;
 use std::{borrow::Cow, path::Path};
 
-pub mod addr2line;
+mod addr2line;
 
 pub async fn get_symbolication_result_via_binary<R>(
     file_kind: object::FileKind,

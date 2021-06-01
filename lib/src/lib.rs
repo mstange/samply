@@ -157,9 +157,6 @@ mod windows;
 
 use crate::shared::{SymbolicationQuery, SymbolicationResult};
 
-// Just to hide unused method  warnings. Should be exposed differently.
-pub use crate::windows::addr2line as pdb_addr2line;
-
 pub use crate::compact_symbol_table::CompactSymbolTable;
 pub use crate::error::{GetSymbolsError, Result};
 use crate::shared::FileContentsWrapper;
