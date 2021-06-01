@@ -240,8 +240,6 @@ where
                     Ok(Some(info)) => info,
                     _ => continue,
                 };
-                let mut line_program_cache = None;
-                let mut inlinees_cache = None;
 
                 let mut symbols = info.symbols().context("info.symbols()")?;
                 while let Ok(Some(symbol)) = symbols.next() {
@@ -260,53 +258,19 @@ where
                                 get_addresses_covered_by_range(addresses, rva_range.clone());
                             if !covered_addresses.is_empty() {
                                 if let Some(context) = &addr2line_context {
-                                    let line_program = match line_program_cache.as_ref() {
-                                        Some(line_program) => line_program,
-                                        None => {
-                                            line_program_cache = Some(info.line_program()?);
-                                            line_program_cache.as_ref().unwrap()
+                                    for address in covered_addresses.iter().cloned() {
+                                        let frames = context.find_frames(&mut pdb, address)?;
+                                        if let Some(name) = frames.last().unwrap().function.clone()
+                                        {
+                                            symbolication_result
+                                                .add_address_symbol(address, rva.0, &name);
                                         }
-                                    };
-
-                                    let inlinees = match inlinees_cache.as_ref() {
-                                        Some(inlinees) => inlinees,
-                                        None => {
-                                            inlinees_cache = Some(
-                                                info.inlinees()?
-                                                    .map(|i| Ok((i.index(), i)))
-                                                    .collect()?,
-                                            );
-                                            inlinees_cache.as_ref().unwrap()
-                                        }
-                                    };
-
-                                    if let Ok(frames_per_address) = context
-                                        .find_frames_for_addresses_from_procedure(
-                                            covered_addresses,
-                                            &info,
-                                            symbol.index(),
-                                            proc,
-                                            rva_range.clone(),
-                                            &line_program,
-                                            &inlinees,
-                                        )
-                                    {
-                                        for (address, frames) in frames_per_address {
-                                            if let Some(name) =
-                                                frames.last().unwrap().function.clone()
-                                            {
-                                                symbolication_result
-                                                    .add_address_symbol(address, rva.0, &name);
-                                            }
-                                            let frames: Vec<_> = frames
-                                                .into_iter()
-                                                .map(convert_stack_frame)
-                                                .collect();
-                                            symbolication_result.add_address_debug_info(
-                                                address,
-                                                AddressDebugInfo { frames },
-                                            );
-                                        }
+                                        let frames: Vec<_> =
+                                            frames.into_iter().map(convert_stack_frame).collect();
+                                        symbolication_result.add_address_debug_info(
+                                            address,
+                                            AddressDebugInfo { frames },
+                                        );
                                     }
                                 } else {
                                     let mut formatted_name = String::new();
