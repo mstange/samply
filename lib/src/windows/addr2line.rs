@@ -1,10 +1,10 @@
 use pdb::{
     AddressMap, DebugInformation, Error, FallibleIterator, IdIndex, InlineSiteSymbol, Inlinee,
-    LineInfo, LineProgram, ModuleInfo, PdbInternalSectionOffset, ProcedureSymbol, Result, Source,
-    StringTable, SymbolData, SymbolIndex, PDB,
+    LineInfo, LineProgram, ModuleInfo, PdbInternalSectionOffset, Result, Source, StringTable,
+    SymbolData, SymbolIndex, PDB,
 };
 use pdb_addr2line::TypeFormatter;
-use std::{borrow::Cow, collections::BTreeMap, ops::Range};
+use std::{borrow::Cow, collections::BTreeMap};
 
 #[derive(Clone)]
 pub struct Frame<'a> {
@@ -19,71 +19,117 @@ pub struct Location<'a> {
     pub column: Option<u32>,
 }
 
+struct Procedure {
+    start_rva: u32,
+    end_rva: u32,
+    module_index: u16,
+    symbol_index: SymbolIndex,
+}
+
 pub struct Addr2LineContext<'a, 's, 't> {
     address_map: &'a AddressMap<'s>,
     string_table: &'a StringTable<'s>,
-    dbi: &'a DebugInformation<'s>,
     type_formatter: &'a TypeFormatter<'t>,
+    modules: Vec<ModuleInfo<'s>>,
+    procedures: Vec<Procedure>,
 }
 
 impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
-    pub fn new(
+    pub fn new<S: Source<'s> + 's>(
+        pdb: &mut PDB<'s, S>,
         address_map: &'a AddressMap<'s>,
         string_table: &'a StringTable<'s>,
         dbi: &'a DebugInformation<'s>,
         type_formatter: &'a TypeFormatter<'t>,
     ) -> Result<Self> {
+        let mut modules = Vec::new();
+        let mut procedures = Vec::new();
+
+        let mut module_iter = dbi.modules()?;
+        let mut prev_start_rva = None;
+        while let Some(module) = module_iter.next()? {
+            let module_info = match pdb.module_info(&module)? {
+                Some(m) => m,
+                None => continue,
+            };
+            let module_index = modules.len();
+            let mut symbols_iter = module_info.symbols()?;
+            while let Some(symbol) = symbols_iter.next()? {
+                if let Ok(SymbolData::Procedure(proc)) = symbol.parse() {
+                    if proc.len == 0 {
+                        continue;
+                    }
+                    let start_rva = match proc.offset.to_rva(address_map) {
+                        Some(rva) => rva,
+                        None => continue,
+                    };
+
+                    let procedure = Procedure {
+                        start_rva: start_rva.0,
+                        end_rva: start_rva.0 + proc.len,
+                        module_index: module_index as u16,
+                        symbol_index: symbol.index(),
+                    };
+
+                    // De-duplicate original-order-consecutive procedures, keeping last
+                    if prev_start_rva == Some(start_rva) {
+                        *procedures.last_mut().unwrap() = procedure;
+                    } else {
+                        procedures.push(procedure);
+                    }
+                    prev_start_rva = Some(start_rva);
+                }
+            }
+            modules.push(module_info);
+        }
+
+        // Sort and de-duplicate, so that we can use binary search during lookup.
+        procedures.sort_by_key(|p| p.start_rva);
+        procedures.dedup_by_key(|p| p.start_rva);
+
         Ok(Self {
             address_map,
             string_table,
-            dbi,
             type_formatter,
+            modules,
+            procedures,
         })
     }
 
-    pub fn find_frames<S: Source<'s> + 's>(
-        &self,
-        pdb: &mut PDB<'s, S>,
-        address: u32,
-    ) -> Result<Vec<Frame<'a>>> {
-        let mut modules = self.dbi.modules()?.filter_map(|m| pdb.module_info(&m));
-        while let Some(module_info) = modules.next()? {
-            let proc_symbol = module_info.symbols()?.find_map(|symbol| {
-                if let Ok(SymbolData::Procedure(proc)) = symbol.parse() {
-                    let start_rva = match proc.offset.to_rva(&self.address_map) {
-                        Some(rva) => rva,
-                        None => return Ok(None),
-                    };
-
-                    let procedure_rva_range = start_rva.0..(start_rva.0 + proc.len);
-                    if !procedure_rva_range.contains(&address) {
-                        return Ok(None);
-                    }
-                    return Ok(Some((symbol.index(), proc, procedure_rva_range)));
-                }
-                Ok(None)
-            })?;
-
-            if let Some((symbol_index, proc, procedure_rva_range)) = proc_symbol {
-                let line_program = module_info.line_program()?;
-
-                let inlinees: BTreeMap<IdIndex, Inlinee> = module_info
-                    .inlinees()?
-                    .map(|i| Ok((i.index(), i)))
-                    .collect()?;
-
-                return self.find_frames_from_procedure(
-                    address,
-                    &module_info,
-                    symbol_index,
-                    proc,
-                    procedure_rva_range,
-                    &line_program,
-                    &inlinees,
-                );
+    pub fn find_frames(&self, address: u32) -> Result<Vec<Frame<'a>>> {
+        let last_procedure_starting_lte_address = match self
+            .procedures
+            .binary_search_by_key(&address, |p| p.start_rva)
+        {
+            Ok(i) => i,
+            Err(0) => {
+                eprintln!("Looked up address is before first procedure");
+                return Ok(vec![]);
             }
+            Err(i) => i - 1,
+        };
+        assert!(self.procedures[last_procedure_starting_lte_address].start_rva <= address);
+        if address >= self.procedures[last_procedure_starting_lte_address].end_rva {
+            eprintln!("Procedure does not contain address");
+            return Ok(vec![]);
         }
-        Ok(vec![])
+        let proc = &self.procedures[last_procedure_starting_lte_address];
+        let module_info = &self.modules[proc.module_index as usize];
+        let line_program = module_info.line_program()?;
+
+        let inlinees: BTreeMap<IdIndex, Inlinee> = module_info
+            .inlinees()?
+            .map(|i| Ok((i.index(), i)))
+            .collect()?;
+
+        self.find_frames_from_procedure(
+            address,
+            module_info,
+            proc.symbol_index,
+            proc.end_rva,
+            &line_program,
+            &inlinees,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -92,11 +138,20 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
         address: u32,
         module_info: &ModuleInfo,
         symbol_index: SymbolIndex,
-        proc: ProcedureSymbol,
-        procedure_rva_range: Range<u32>,
+        procedure_end_rva: u32,
         line_program: &LineProgram,
         inlinees: &BTreeMap<IdIndex, Inlinee>,
     ) -> Result<Vec<Frame<'a>>> {
+        let mut symbols_iter = module_info.symbols_at(symbol_index)?;
+
+        let proc = match symbols_iter.next()? {
+            Some(symbol) => match symbol.parse()? {
+                SymbolData::Procedure(proc) => proc,
+                _ => panic!("Did we store a bad symbol offset?"),
+            },
+            None => panic!("Did we store a bad symbol offset?"),
+        };
+
         let mut formatted_function_name = String::new();
         let _ = self.type_formatter.write_function(
             &mut formatted_function_name,
@@ -118,18 +173,14 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
         if let Some(line_info) = self.find_line_info_containing_address_no_size(
             lines_for_proc,
             address,
-            procedure_rva_range.end,
+            procedure_end_rva,
         ) {
             let location = self.line_info_to_location(line_info, &line_program);
             let frame = &mut frames_per_address.get_mut(&address).unwrap()[0];
             frame.location = Some(location.clone());
         }
 
-        let mut inline_symbols_iter = module_info.symbols_at(symbol_index)?;
-
-        // Skip the procedure symbol that we're currently in.
-        inline_symbols_iter.next()?;
-
+        let mut inline_symbols_iter = symbols_iter;
         while let Some(symbol) = inline_symbols_iter.next()? {
             match symbol.parse() {
                 Ok(SymbolData::Procedure(_)) => {

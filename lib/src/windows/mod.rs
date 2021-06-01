@@ -229,7 +229,8 @@ where
         }
         SymbolicationResultKind::SymbolsForAddresses { with_debug_info } => {
             let addr2line_context = if with_debug_info {
-                Addr2LineContext::new(&addr_map, &string_table, &dbi, &type_formatter).ok()
+                Addr2LineContext::new(&mut pdb, &addr_map, &string_table, &dbi, &type_formatter)
+                    .ok()
             } else {
                 None
             };
@@ -259,7 +260,7 @@ where
                             if !covered_addresses.is_empty() {
                                 if let Some(context) = &addr2line_context {
                                     for address in covered_addresses.iter().cloned() {
-                                        let frames = context.find_frames(&mut pdb, address)?;
+                                        let frames = context.find_frames(address)?;
                                         if let Some(name) = frames.last().unwrap().function.clone()
                                         {
                                             symbolication_result
