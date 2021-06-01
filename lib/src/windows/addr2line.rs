@@ -238,11 +238,8 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
         line_program: &LineProgram,
         inlinees: &BTreeMap<IdIndex, Inlinee>,
     ) -> Result<Vec<Frame<'a>>> {
-        let end_rva = proc.end_rva;
-
-        let lines_for_proc = line_program.lines_at_offset(proc.offset);
         let location = self
-            .find_line_info_containing_address_no_size(lines_for_proc, address, end_rva)
+            .find_line_info_containing_address(proc, line_program, address)?
             .map(|line_info| self.line_info_to_location(line_info, &line_program));
 
         let frame = Frame {
@@ -311,27 +308,29 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
         })
     }
 
-    fn find_line_info_containing_address_no_size(
+    fn find_line_info_containing_address(
         &self,
-        iterator: impl FallibleIterator<Item = LineInfo, Error = Error> + Clone,
+        proc: &Procedure,
+        line_program: &LineProgram,
         address: u32,
-        outer_end_rva: u32,
-    ) -> Option<LineInfo> {
-        let start_rva_iterator = iterator
-            .clone()
-            .map(|line_info| Ok(line_info.offset.to_rva(&self.address_map).unwrap().0));
-        let outer_end_rva_iterator = fallible_once(Ok(outer_end_rva));
-        let end_rva_iterator = start_rva_iterator
-            .clone()
-            .skip(1)
-            .chain(outer_end_rva_iterator);
-        let mut line_iterator = start_rva_iterator.zip(end_rva_iterator).zip(iterator);
-        while let Ok(Some(((start_rva, end_rva), line_info))) = line_iterator.next() {
+    ) -> Result<Option<LineInfo>> {
+        let lines_for_proc = line_program.lines_at_offset(proc.offset);
+        let mut iterator = lines_for_proc.map(|line_info| {
+            let rva = line_info.offset.to_rva(&self.address_map).unwrap().0;
+            Ok((rva, line_info))
+        });
+        let mut next_item = iterator.next()?;
+        while let Some((start_rva, line_info)) = next_item {
+            next_item = iterator.next()?;
+            let end_rva = match &next_item {
+                Some((rva, _)) => *rva,
+                None => proc.end_rva,
+            };
             if start_rva <= address && address < end_rva {
-                return Some(line_info);
+                return Ok(Some(line_info));
             }
         }
-        None
+        Ok(None)
     }
 
     fn find_line_info_containing_address_with_size(
@@ -368,10 +367,6 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
             column: line_info.column_start,
         }
     }
-}
-
-fn fallible_once<T, E>(value: std::result::Result<T, E>) -> Once<T, E> {
-    Once { value: Some(value) }
 }
 
 struct Once<T, E> {
