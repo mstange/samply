@@ -239,26 +239,19 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
         inlinees: &BTreeMap<IdIndex, Inlinee>,
     ) -> Result<Vec<Frame<'a>>> {
         let end_rva = proc.end_rva;
-        let name = self.get_procedure_name(proc);
-        let function = Some((*name).clone());
-
-        // Ordered outside to inside, until just before the end of this function.
-        let mut frames_per_address: BTreeMap<u32, Vec<_>> = BTreeMap::new();
-
-        let frame = Frame {
-            function,
-            location: None,
-        };
-        frames_per_address.insert(address, vec![frame]);
 
         let lines_for_proc = line_program.lines_at_offset(proc.offset);
-        if let Some(line_info) =
-            self.find_line_info_containing_address_no_size(lines_for_proc, address, end_rva)
-        {
-            let location = self.line_info_to_location(line_info, &line_program);
-            let frame = &mut frames_per_address.get_mut(&address).unwrap()[0];
-            frame.location = Some(location.clone());
-        }
+        let location = self
+            .find_line_info_containing_address_no_size(lines_for_proc, address, end_rva)
+            .map(|line_info| self.line_info_to_location(line_info, &line_program));
+
+        let frame = Frame {
+            function: Some((*self.get_procedure_name(proc)).clone()),
+            location,
+        };
+
+        // Ordered outside to inside, until just before the end of this function.
+        let mut frames = vec![frame];
 
         let mut inline_symbols_iter = module_info.symbols_at(proc.symbol_index)?.skip(1);
         while let Some(symbol) = inline_symbols_iter.next()? {
@@ -275,10 +268,7 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
                         proc.offset,
                         &line_program,
                     ) {
-                        frames_per_address
-                            .get_mut(&address)
-                            .unwrap()
-                            .push(frame.clone());
+                        frames.push(frame.clone());
                     }
                 }
                 _ => {}
@@ -286,11 +276,9 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
         }
 
         // Now order from inside to outside.
-        for (_address, frames) in frames_per_address.iter_mut() {
-            frames.reverse();
-        }
+        frames.reverse();
 
-        Ok(frames_per_address.into_iter().next().unwrap().1)
+        Ok(frames)
     }
 
     fn frames_for_address_for_inline_symbol(
