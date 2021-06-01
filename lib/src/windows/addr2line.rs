@@ -321,8 +321,7 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         let file = line_program
             .get_file_info(line_info.file_index)
             .and_then(|file_info| file_info.name.to_string_lossy(&self.string_table))
-            .ok()
-            .map(|name| name);
+            .ok();
         Location {
             file,
             line: Some(line_info.line_start),
