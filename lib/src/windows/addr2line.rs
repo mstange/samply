@@ -3,6 +3,7 @@ use pdb::{
     LineInfo, LineProgram, ModuleInfo, PdbInternalSectionOffset, Result, Source, StringTable,
     SymbolData, SymbolIndex, PDB,
 };
+use pdb::{RawString, TypeIndex};
 use pdb_addr2line::TypeFormatter;
 use std::collections::btree_map::Entry;
 use std::rc::Rc;
@@ -22,12 +23,14 @@ pub struct Location<'a> {
 }
 
 #[derive(Clone)]
-struct Procedure {
+struct Procedure<'a> {
     start_rva: u32,
     end_rva: u32,
     module_index: u16,
     symbol_index: SymbolIndex,
     offset: PdbInternalSectionOffset,
+    name: RawString<'a>,
+    type_index: TypeIndex,
 }
 
 struct ExtendedProcedureInfo {
@@ -76,7 +79,7 @@ pub struct Addr2LineContext<'a, 's, 't> {
     string_table: &'a StringTable<'s>,
     type_formatter: &'a TypeFormatter<'t>,
     modules: &'a [ModuleInfo<'s>],
-    procedures: Vec<Procedure>,
+    procedures: Vec<Procedure<'a>>,
     procedure_cache: RefCell<BTreeMap<u32, ExtendedProcedureInfo>>,
     module_cache: RefCell<BTreeMap<u16, Rc<ExtendedModuleInfo<'a>>>>,
 }
@@ -106,6 +109,8 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
                         module_index: module_index as u16,
                         symbol_index: symbol.index(),
                         offset: proc.offset,
+                        name: proc.name,
+                        type_index: proc.type_index,
                     });
                 }
             }
@@ -178,41 +183,22 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
         Some(&self.procedures[last_procedure_starting_lte_address])
     }
 
-    fn compute_procedure_name(&self, proc: &Procedure) -> Result<String> {
-        let module_info = &self.modules[proc.module_index as usize];
-        let mut symbols_iter = module_info.symbols_at(proc.symbol_index)?;
-
-        let proc = match symbols_iter.next()? {
-            Some(symbol) => match symbol.parse()? {
-                SymbolData::Procedure(proc) => proc,
-                _ => panic!("Did we store a bad symbol offset?"),
-            },
-            None => panic!("Did we store a bad symbol offset?"),
-        };
-
+    fn compute_procedure_name(&self, proc: &Procedure) -> std::string::String {
         let mut formatted_function_name = String::new();
         let _ = self.type_formatter.write_function(
             &mut formatted_function_name,
             &proc.name.to_string(),
             proc.type_index,
         );
-        Ok(formatted_function_name)
+        formatted_function_name
     }
 
     fn get_procedure_name(&self, proc: &Procedure) -> Rc<String> {
         let mut cache = self.procedure_cache.borrow_mut();
         cache
             .entry(proc.start_rva)
-            .or_insert_with(|| {
-                let name = self.compute_procedure_name(proc).unwrap_or_else(|_| {
-                    format!(
-                        "<error while obtaining name for function at 0x{:x}>",
-                        proc.start_rva
-                    )
-                });
-                ExtendedProcedureInfo {
-                    name: Rc::new(name),
-                }
+            .or_insert_with(|| ExtendedProcedureInfo {
+                name: Rc::new(self.compute_procedure_name(proc)),
             })
             .name
             .clone()
