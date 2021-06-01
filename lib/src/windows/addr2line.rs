@@ -92,6 +92,7 @@ impl<'a, 's> Addr2LineContext<'a, 's> {
         Ok(vec![])
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn find_frames_from_procedure<'b>(
         &self,
         address: u32,
