@@ -4,7 +4,8 @@ use pdb::{
     SymbolData, SymbolIndex, PDB,
 };
 use pdb_addr2line::TypeFormatter;
-use std::{borrow::Cow, collections::BTreeMap};
+use std::rc::Rc;
+use std::{borrow::Cow, cell::RefCell, collections::BTreeMap};
 
 #[derive(Clone)]
 pub struct Frame<'a> {
@@ -25,6 +26,11 @@ struct Procedure {
     end_rva: u32,
     module_index: u16,
     symbol_index: SymbolIndex,
+    offset: PdbInternalSectionOffset,
+}
+
+struct ExtendedProcedureInfo {
+    name: Rc<String>,
 }
 
 pub struct Addr2LineContext<'a, 's, 't> {
@@ -33,6 +39,7 @@ pub struct Addr2LineContext<'a, 's, 't> {
     type_formatter: &'a TypeFormatter<'t>,
     modules: Vec<ModuleInfo<'s>>,
     procedures: Vec<Procedure>,
+    procedure_cache: RefCell<BTreeMap<u32, ExtendedProcedureInfo>>,
 }
 
 impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
@@ -69,6 +76,7 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
                         end_rva: start_rva + proc.len,
                         module_index,
                         symbol_index: symbol.index(),
+                        offset: proc.offset,
                     });
                 }
             }
@@ -90,6 +98,7 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
             type_formatter,
             modules,
             procedures,
+            procedure_cache: RefCell::new(BTreeMap::new()),
         })
     }
 
@@ -102,26 +111,9 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
             Some(proc) => proc,
             None => return Ok(None),
         };
-
         let start_rva = proc.start_rva;
-        let module_info = &self.modules[proc.module_index as usize];
-        let mut symbols_iter = module_info.symbols_at(proc.symbol_index)?;
-
-        let proc = match symbols_iter.next()? {
-            Some(symbol) => match symbol.parse()? {
-                SymbolData::Procedure(proc) => proc,
-                _ => panic!("Did we store a bad symbol offset?"),
-            },
-            None => panic!("Did we store a bad symbol offset?"),
-        };
-
-        let mut formatted_function_name = String::new();
-        let _ = self.type_formatter.write_function(
-            &mut formatted_function_name,
-            &proc.name.to_string(),
-            proc.type_index,
-        );
-        Ok(Some((start_rva, formatted_function_name)))
+        let name = self.get_procedure_name(proc);
+        Ok(Some((start_rva, (*name).clone())))
     }
 
     pub fn find_frames(&self, address: u32) -> Result<Option<(u32, Vec<Frame<'a>>)>> {
@@ -137,14 +129,8 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
             .map(|i| Ok((i.index(), i)))
             .collect()?;
 
-        let frames = self.find_frames_from_procedure(
-            address,
-            module_info,
-            proc.symbol_index,
-            proc.end_rva,
-            &line_program,
-            &inlinees,
-        )?;
+        let frames =
+            self.find_frames_from_procedure(address, module_info, proc, &line_program, &inlinees)?;
         Ok(Some((proc.start_rva, frames)))
     }
 
@@ -164,17 +150,9 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
         Some(&self.procedures[last_procedure_starting_lte_address])
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn find_frames_from_procedure(
-        &self,
-        address: u32,
-        module_info: &ModuleInfo,
-        symbol_index: SymbolIndex,
-        procedure_end_rva: u32,
-        line_program: &LineProgram,
-        inlinees: &BTreeMap<IdIndex, Inlinee>,
-    ) -> Result<Vec<Frame<'a>>> {
-        let mut symbols_iter = module_info.symbols_at(symbol_index)?;
+    fn compute_procedure_name(&self, proc: &Procedure) -> Result<String> {
+        let module_info = &self.modules[proc.module_index as usize];
+        let mut symbols_iter = module_info.symbols_at(proc.symbol_index)?;
 
         let proc = match symbols_iter.next()? {
             Some(symbol) => match symbol.parse()? {
@@ -190,7 +168,39 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
             &proc.name.to_string(),
             proc.type_index,
         );
-        let function = Some(formatted_function_name);
+        Ok(formatted_function_name)
+    }
+
+    fn get_procedure_name(&self, proc: &Procedure) -> Rc<String> {
+        let mut cache = self.procedure_cache.borrow_mut();
+        cache
+            .entry(proc.start_rva)
+            .or_insert_with(|| {
+                let name = self.compute_procedure_name(proc).unwrap_or_else(|_| {
+                    format!(
+                        "<error while obtaining name for function at 0x{:x}>",
+                        proc.start_rva
+                    )
+                });
+                ExtendedProcedureInfo {
+                    name: Rc::new(name),
+                }
+            })
+            .name
+            .clone()
+    }
+
+    fn find_frames_from_procedure(
+        &self,
+        address: u32,
+        module_info: &ModuleInfo,
+        proc: &Procedure,
+        line_program: &LineProgram,
+        inlinees: &BTreeMap<IdIndex, Inlinee>,
+    ) -> Result<Vec<Frame<'a>>> {
+        let end_rva = proc.end_rva;
+        let name = self.get_procedure_name(proc);
+        let function = Some((*name).clone());
 
         // Ordered outside to inside, until just before the end of this function.
         let mut frames_per_address: BTreeMap<u32, Vec<_>> = BTreeMap::new();
@@ -202,17 +212,15 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
         frames_per_address.insert(address, vec![frame]);
 
         let lines_for_proc = line_program.lines_at_offset(proc.offset);
-        if let Some(line_info) = self.find_line_info_containing_address_no_size(
-            lines_for_proc,
-            address,
-            procedure_end_rva,
-        ) {
+        if let Some(line_info) =
+            self.find_line_info_containing_address_no_size(lines_for_proc, address, end_rva)
+        {
             let location = self.line_info_to_location(line_info, &line_program);
             let frame = &mut frames_per_address.get_mut(&address).unwrap()[0];
             frame.location = Some(location.clone());
         }
 
-        let mut inline_symbols_iter = symbols_iter;
+        let mut inline_symbols_iter = module_info.symbols_at(proc.symbol_index)?.skip(1);
         while let Some(symbol) = inline_symbols_iter.next()? {
             match symbol.parse() {
                 Ok(SymbolData::Procedure(_)) => {
