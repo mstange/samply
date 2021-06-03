@@ -14,7 +14,7 @@ use std::{borrow::Cow, cell::RefCell, collections::BTreeMap};
 
 pub struct ContextConstructionData<'s> {
     address_map: AddressMap<'s>,
-    string_table: StringTable<'s>,
+    string_table: Option<StringTable<'s>>,
     modules: Vec<ModuleInfo<'s>>,
 }
 
@@ -32,7 +32,7 @@ impl<'s> ContextConstructionData<'s> {
         }
 
         let address_map = pdb.address_map()?;
-        let string_table = pdb.string_table()?;
+        let string_table = pdb.string_table().ok();
 
         Ok(Self {
             address_map,
@@ -63,7 +63,7 @@ pub struct Frame<'a> {
 
 pub struct Context<'a, 's, 't> {
     address_map: &'a AddressMap<'s>,
-    string_table: &'a StringTable<'s>,
+    string_table: Option<&'a StringTable<'s>>,
     type_formatter: &'a TypeFormatter<'t>,
     modules: &'a [ModuleInfo<'s>],
     procedures: Vec<BasicProcedureInfo<'a>>,
@@ -115,7 +115,7 @@ impl<'a, 's, 't> Context<'a, 's, 't> {
 
         Ok(Self {
             address_map: &constr_data.address_map,
-            string_table: &constr_data.string_table,
+            string_table: constr_data.string_table.as_ref(),
             type_formatter,
             modules: &constr_data.modules,
             procedures,
@@ -510,10 +510,12 @@ impl<'a, 's, 't> Context<'a, 's, 't> {
         line_program: &LineProgram,
         file_index: FileIndex,
     ) -> Option<Cow<'a, str>> {
-        line_program
-            .get_file_info(file_index)
-            .ok()
-            .and_then(|file_info| file_info.name.to_string_lossy(&self.string_table).ok())
+        if let Some(string_table) = self.string_table {
+            if let Ok(file_info) = line_program.get_file_info(file_index) {
+                return file_info.name.to_string_lossy(string_table).ok();
+            }
+        }
+        None
     }
 }
 

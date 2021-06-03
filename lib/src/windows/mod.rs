@@ -166,12 +166,14 @@ where
         .collect()?;
 
     // Add Procedure symbols from the modules.
-    let tpi = pdb.type_information()?;
-    let ipi = pdb.id_information()?;
+    let tpi = pdb.type_information().context("type_information")?;
+    let ipi = pdb.id_information().context("id_information")?;
     let flags = TypeFormatterFlags::default() | TypeFormatterFlags::NO_MEMBER_FUNCTION_STATIC;
     let type_formatter = TypeFormatter::new(&dbi, &tpi, &ipi, flags)?;
-    let context_data = addr2line::ContextConstructionData::try_from_pdb(&mut pdb)?;
-    let context = addr2line::Context::new(&context_data, &type_formatter)?;
+    let context_data = addr2line::ContextConstructionData::try_from_pdb(&mut pdb)
+        .context("ContextConstructionData::try_from_pdb")?;
+    let context =
+        addr2line::Context::new(&context_data, &type_formatter).context("Context::new")?;
 
     match R::result_kind() {
         SymbolicationResultKind::AllSymbols => {
