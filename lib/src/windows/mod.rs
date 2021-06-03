@@ -233,10 +233,7 @@ where
             for &address in addresses {
                 if with_debug_info {
                     if let Some((symbol_address, frames)) = context.find_frames(address)? {
-                        let symbol_name = match &frames.last().unwrap().function {
-                            Some(name) => name,
-                            None => "unknown",
-                        };
+                        let symbol_name = &frames.last().unwrap().function;
                         symbolication_result.add_address_symbol(
                             address,
                             symbol_address,
@@ -268,7 +265,7 @@ fn convert_stack_frame(frame: addr2line::Frame<'_>) -> InlineStackFrame {
         line_number = location.line;
     }
     InlineStackFrame {
-        function: frame.function,
+        function: Some(frame.function),
         file_path,
         line_number,
     }

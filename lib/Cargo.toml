@@ -37,5 +37,6 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.53"
 cpp_demangle = "0.3.2"
 msvc-demangler = "0.8.0"
+range-collections = "0.1.1"
 rustc-demangle = "0.1.16"
 bitflags = "1.2.1"
