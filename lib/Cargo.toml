@@ -20,7 +20,7 @@ version = "0.15.1"
 
 [dependencies.pdb-addr2line]
 git = "https://github.com/mstange/pdb-addr2line/"
-rev = "6e1c007d1da3b2391c5faf30312cf524f0da7962"
+rev = "660b1cb562ae7044e0a1ce8e83c59571fd977e9c"
 
 [dependencies.object]
 default-features = false

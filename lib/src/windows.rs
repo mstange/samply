@@ -9,8 +9,6 @@ use std::collections::BTreeMap;
 use std::io::Cursor;
 use std::{borrow::Cow, path::Path};
 
-mod addr2line;
-
 pub async fn get_symbolication_result_via_binary<R>(
     file_kind: object::FileKind,
     file_contents: FileContentsWrapper<impl FileContents>,
@@ -170,10 +168,10 @@ where
     let ipi = pdb.id_information().context("id_information")?;
     let flags = TypeFormatterFlags::default() | TypeFormatterFlags::NO_MEMBER_FUNCTION_STATIC;
     let type_formatter = TypeFormatter::new(&dbi, &tpi, &ipi, flags)?;
-    let context_data = addr2line::ContextConstructionData::try_from_pdb(&mut pdb)
+    let context_data = pdb_addr2line::ContextConstructionData::try_from_pdb(&mut pdb)
         .context("ContextConstructionData::try_from_pdb")?;
     let context =
-        addr2line::Context::new(&context_data, &type_formatter).context("Context::new")?;
+        pdb_addr2line::Context::new(&context_data, &type_formatter).context("Context::new")?;
 
     match R::result_kind() {
         SymbolicationResultKind::AllSymbols => {
@@ -229,7 +227,7 @@ where
     }
 }
 
-fn convert_stack_frame(frame: addr2line::Frame<'_>) -> InlineStackFrame {
+fn convert_stack_frame(frame: pdb_addr2line::Frame<'_>) -> InlineStackFrame {
     InlineStackFrame {
         function: frame.function,
         file_path: frame.file.map(|s| s.to_string()),
