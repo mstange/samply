@@ -145,12 +145,19 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
         let inlinees = &module.inlinees;
 
         let function = (*self.get_procedure_name(proc)).clone();
-        let location = self
-            .find_line_info_containing_address(proc, line_program, address)?
-            .map(|line_info| Location {
+        let lines = &self.get_procedure_lines(proc, line_program)?[..];
+        let search = match lines.binary_search_by_key(&address, |li| li.start_rva) {
+            Err(0) => None,
+            Ok(i) => Some(i),
+            Err(i) => Some(i - 1),
+        };
+        let location = search.map(|index| {
+            let line_info = &lines[index];
+            Location {
                 file: self.resolve_filename(&line_program, line_info.file_index),
                 line: Some(line_info.line_start),
-            });
+            }
+        });
 
         let frame = Frame { function, location };
 
@@ -469,22 +476,6 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
         }
 
         Ok(ranges)
-    }
-
-    fn find_line_info_containing_address(
-        &self,
-        proc: &Procedure,
-        line_program: &LineProgram,
-        address: u32,
-    ) -> Result<Option<CachedLineInfo>> {
-        let lines_for_proc = &self.get_procedure_lines(proc, line_program)?[..];
-        let index =
-            match lines_for_proc.binary_search_by_key(&address, |line_info| line_info.start_rva) {
-                Err(0) => return Ok(None),
-                Ok(i) => i,
-                Err(i) => i - 1,
-            };
-        Ok(Some(lines_for_proc[index].clone()))
     }
 
     fn resolve_filename(
