@@ -62,7 +62,7 @@ pub struct Addr2LineContext<'a, 's, 't> {
     type_formatter: &'a TypeFormatter<'t>,
     modules: &'a [ModuleInfo<'s>],
     procedures: Vec<Procedure<'a>>,
-    procedure_cache: RefCell<BTreeMap<u32, ExtendedProcedureInfo>>,
+    procedure_cache: RefCell<ProcedureCache>,
     module_cache: RefCell<BTreeMap<u16, Rc<ExtendedModuleInfo<'a>>>>,
 }
 
@@ -114,7 +114,7 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
             type_formatter,
             modules: &pdb_info.modules,
             procedures,
-            procedure_cache: RefCell::new(BTreeMap::new()),
+            procedure_cache: RefCell::new(Default::default()),
             module_cache: RefCell::new(BTreeMap::new()),
         })
     }
@@ -253,13 +253,7 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
 
     fn get_procedure_name(&self, proc: &Procedure) -> Rc<String> {
         let mut cache = self.procedure_cache.borrow_mut();
-        let entry = cache
-            .entry(proc.start_rva)
-            .or_insert_with(|| ExtendedProcedureInfo {
-                name: None,
-                lines: None,
-                inline_ranges: None,
-            });
+        let entry = cache.get_entry_mut(proc.start_rva);
         match &entry.name {
             Some(name) => name.clone(),
             None => {
@@ -286,13 +280,7 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
         line_program: &LineProgram,
     ) -> Result<Rc<Vec<CachedLineInfo>>> {
         let mut cache = self.procedure_cache.borrow_mut();
-        let entry = cache
-            .entry(proc.start_rva)
-            .or_insert_with(|| ExtendedProcedureInfo {
-                name: None,
-                lines: None,
-                inline_ranges: None,
-            });
+        let entry = cache.get_entry_mut(proc.start_rva);
         match &entry.lines {
             Some(lines) => Ok(lines.clone()),
             None => {
@@ -333,13 +321,7 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
         inlinees: &BTreeMap<IdIndex, Inlinee>,
     ) -> Result<Rc<Vec<InlineRange>>> {
         let mut cache = self.procedure_cache.borrow_mut();
-        let entry = cache
-            .entry(proc.start_rva)
-            .or_insert_with(|| ExtendedProcedureInfo {
-                name: None,
-                lines: None,
-                inline_ranges: None,
-            });
+        let entry = cache.get_entry_mut(proc.start_rva);
         match &entry.inline_ranges {
             Some(inline_ranges) => Ok(inline_ranges.clone()),
             None => {
@@ -514,6 +496,21 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
             .get_file_info(file_index)
             .ok()
             .and_then(|file_info| file_info.name.to_string_lossy(&self.string_table).ok())
+    }
+}
+
+#[derive(Default)]
+struct ProcedureCache(BTreeMap<u32, ExtendedProcedureInfo>);
+
+impl ProcedureCache {
+    fn get_entry_mut(&mut self, procedure_start_rva: u32) -> &mut ExtendedProcedureInfo {
+        self.0
+            .entry(procedure_start_rva)
+            .or_insert_with(|| ExtendedProcedureInfo {
+                name: None,
+                lines: None,
+                inline_ranges: None,
+            })
     }
 }
 
