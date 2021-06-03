@@ -3,9 +3,6 @@ use crate::shared::{
     object_to_map, AddressDebugInfo, FileAndPathHelper, FileContents, FileContentsWrapper,
     InlineStackFrame, SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
 };
-use object::pe::{ImageDosHeader, ImageNtHeaders32, ImageNtHeaders64};
-use object::read::pe::{ImageNtHeaders, ImageOptionalHeader};
-use object::ReadRef;
 use pdb::{FallibleIterator, PublicSymbol, SymbolData, PDB};
 use pdb_addr2line::{TypeFormatter, TypeFormatterFlags};
 use std::collections::BTreeMap;
@@ -24,12 +21,6 @@ pub async fn get_symbolication_result_via_binary<R>(
 where
     R: SymbolicationResult,
 {
-    let is_64 = match file_kind {
-        object::FileKind::Pe32 => false,
-        object::FileKind::Pe64 => true,
-        _ => panic!("Unexpected file_kind"),
-    };
-
     let SymbolicationQuery {
         debug_name,
         breakpad_id,
@@ -92,10 +83,7 @@ where
 
     let mut map = object_to_map(&pe);
     if let Ok(exports) = pe.exports() {
-        let image_base_address: u64 = match is_64 {
-            false => get_image_base_address::<ImageNtHeaders32, _>(&file_contents).unwrap_or(0),
-            true => get_image_base_address::<ImageNtHeaders64, _>(&file_contents).unwrap_or(0),
-        };
+        let image_base_address: u64 = pe.relative_address_base();
         for export in exports {
             if let Ok(name) = std::str::from_utf8(export.name()) {
                 map.insert((export.address() - image_base_address) as u32, name);
@@ -103,14 +91,6 @@ where
         }
     }
     Ok(R::from_full_map(map, addresses))
-}
-
-fn get_image_base_address<'data, Pe: ImageNtHeaders, R: ReadRef<'data>>(data: R) -> Option<u64> {
-    let dos_header = ImageDosHeader::parse(data).ok()?;
-    let mut offset = dos_header.nt_headers_offset().into();
-    let (nt_headers, _) = Pe::parse(data, &mut offset).ok()?;
-    let optional_header = nt_headers.optional_header();
-    Some(optional_header.image_base())
 }
 
 async fn try_get_symbolication_result_from_pdb_path<R>(
