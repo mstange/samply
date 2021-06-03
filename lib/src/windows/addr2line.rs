@@ -164,8 +164,8 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
         // Ordered outside to inside, until just before the end of this function.
         let mut frames = vec![frame];
 
-        let inline_lines = self.get_procedure_inline_ranges(module_info, proc, inlinees)?;
-        let mut inline_lines = &inline_lines[..];
+        let inline_ranges = self.get_procedure_inline_ranges(module_info, proc, inlinees)?;
+        let mut inline_ranges = &inline_ranges[..];
 
         loop {
             let current_depth = (frames.len() - 1) as u16;
@@ -174,7 +174,7 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
             // `inlined_addresses` is sorted in "breadth-first traversal order", i.e.
             // by `call_depth` first, and then by `start_rva`. See the comment at
             // the sort call for more information about why.
-            let search = inline_lines.binary_search_by(|range| {
+            let search = inline_ranges.binary_search_by(|range| {
                 if range.call_depth > current_depth {
                     Ordering::Greater
                 } else if range.call_depth < current_depth {
@@ -188,12 +188,12 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
                 }
             });
             if let Ok(index) = search {
-                let line_info = &inline_lines[index];
+                let inline_range = &inline_ranges[index];
                 let mut function = String::new();
                 let _ = self
                     .type_formatter
-                    .write_id(&mut function, line_info.inlinee);
-                let file = line_info
+                    .write_id(&mut function, inline_range.inlinee);
+                let file = inline_range
                     .file_index
                     .and_then(|file_index| self.resolve_filename(line_program, file_index));
 
@@ -201,10 +201,10 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
                     function,
                     location: Some(Location {
                         file,
-                        line: line_info.line_start,
+                        line: inline_range.line_start,
                     }),
                 });
-                inline_lines = &inline_lines[index + 1..];
+                inline_ranges = &inline_ranges[index + 1..];
             } else {
                 break;
             }
