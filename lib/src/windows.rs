@@ -4,7 +4,6 @@ use crate::shared::{
     InlineStackFrame, SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
 };
 use pdb::{FallibleIterator, PublicSymbol, SymbolData, PDB};
-use pdb_addr2line::{TypeFormatter, TypeFormatterFlags};
 use std::collections::BTreeMap;
 use std::io::Cursor;
 use std::{borrow::Cow, path::Path};
@@ -164,19 +163,14 @@ where
         .collect()?;
 
     // Add Procedure symbols from the modules.
-    let tpi = pdb.type_information().context("type_information")?;
-    let ipi = pdb.id_information().context("id_information")?;
-    let flags = TypeFormatterFlags::default() | TypeFormatterFlags::NO_MEMBER_FUNCTION_STATIC;
-    let type_formatter = TypeFormatter::new(&dbi, &tpi, &ipi, flags)?;
-    let context_data = pdb_addr2line::ContextConstructionData::try_from_pdb(&mut pdb)
+    let context_data = pdb_addr2line::ContextPdbData::try_from_pdb(&mut pdb)
         .context("ContextConstructionData::try_from_pdb")?;
-    let context =
-        pdb_addr2line::Context::new(&context_data, &type_formatter).context("Context::new")?;
+    let context = context_data.make_context().context("make_context()")?;
 
     match R::result_kind() {
         SymbolicationResultKind::AllSymbols => {
             for procedure in context.iter_procedures() {
-                let symbol_address = procedure.procedure_start_rva;
+                let symbol_address = procedure.start_rva;
                 let symbol_name = match procedure.function {
                     Some(name) => name,
                     None => "unknown".to_string(),
@@ -193,7 +187,7 @@ where
             for &address in addresses {
                 if with_debug_info {
                     if let Some(procedure_frames) = context.find_frames(address)? {
-                        let symbol_address = procedure_frames.procedure_start_rva;
+                        let symbol_address = procedure_frames.start_rva;
                         let symbol_name = match &procedure_frames.frames.last().unwrap().function {
                             Some(name) => name,
                             None => "unknown",
@@ -211,8 +205,8 @@ where
                         symbolication_result
                             .add_address_debug_info(address, AddressDebugInfo { frames });
                     }
-                } else if let Some(procedure) = context.find_function(address)? {
-                    let symbol_address = procedure.procedure_start_rva;
+                } else if let Some(procedure) = context.find_procedure(address)? {
+                    let symbol_address = procedure.start_rva;
                     let symbol_name = match &procedure.function {
                         Some(name) => name,
                         None => "unknown",
