@@ -1,9 +1,8 @@
 use pdb::{
     AddressMap, FallibleIterator, FileIndex, IdIndex, InlineSiteSymbol, Inlinee, LineProgram,
-    ModuleInfo, PdbInternalSectionOffset, Result, Source, StringTable, SymbolData, SymbolIndex,
-    SymbolIter, PDB,
+    ModuleInfo, PdbInternalSectionOffset, RawString, Result, Source, StringTable, SymbolData,
+    SymbolIndex, SymbolIter, TypeIndex, PDB,
 };
-use pdb::{RawString, TypeIndex};
 use pdb_addr2line::TypeFormatter;
 use range_collections::RangeSet;
 use std::cmp::Ordering;
