@@ -12,13 +12,13 @@ use std::ops::Bound;
 use std::rc::Rc;
 use std::{borrow::Cow, cell::RefCell, collections::BTreeMap};
 
-pub struct CachedPdbInfo<'s> {
+pub struct ContextConstructionData<'s> {
     address_map: AddressMap<'s>,
     string_table: StringTable<'s>,
     modules: Vec<ModuleInfo<'s>>,
 }
 
-impl<'s> CachedPdbInfo<'s> {
+impl<'s> ContextConstructionData<'s> {
     pub fn try_from_pdb<S: Source<'s> + 's>(
         pdb: &mut PDB<'s, S>,
         dbi: &DebugInformation<'s>,
@@ -45,47 +45,54 @@ impl<'s> CachedPdbInfo<'s> {
 }
 
 #[derive(Clone)]
-pub struct Frame<'a> {
-    pub function: String,
-    pub location: Option<Location<'a>>,
+pub struct Procedure {
+    pub procedure_start_rva: u32,
+    pub function: Option<String>,
 }
 
 #[derive(Clone)]
-pub struct Location<'a> {
+pub struct ProcedureFrames<'a> {
+    pub procedure_start_rva: u32,
+    pub frames: Vec<Frame<'a>>,
+}
+
+#[derive(Clone)]
+pub struct Frame<'a> {
+    pub function: Option<String>,
     pub file: Option<Cow<'a, str>>,
     pub line: Option<u32>,
 }
 
-pub struct Addr2LineContext<'a, 's, 't> {
+pub struct Context<'a, 's, 't> {
     address_map: &'a AddressMap<'s>,
     string_table: &'a StringTable<'s>,
     type_formatter: &'a TypeFormatter<'t>,
     modules: &'a [ModuleInfo<'s>],
-    procedures: Vec<Procedure<'a>>,
+    procedures: Vec<BasicProcedureInfo<'a>>,
     procedure_cache: RefCell<ProcedureCache>,
     module_cache: RefCell<BTreeMap<u16, Rc<ExtendedModuleInfo<'a>>>>,
 }
 
-impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
+impl<'a, 's, 't> Context<'a, 's, 't> {
     pub fn new(
-        pdb_info: &'a CachedPdbInfo<'s>,
+        constr_data: &'a ContextConstructionData<'s>,
         type_formatter: &'a TypeFormatter<'t>,
     ) -> Result<Self> {
         let mut procedures = Vec::new();
 
-        for (module_index, module_info) in pdb_info.modules.iter().enumerate() {
+        for (module_index, module_info) in constr_data.modules.iter().enumerate() {
             let mut symbols_iter = module_info.symbols()?;
             while let Some(symbol) = symbols_iter.next()? {
                 if let Ok(SymbolData::Procedure(proc)) = symbol.parse() {
                     if proc.len == 0 {
                         continue;
                     }
-                    let start_rva = match proc.offset.to_rva(&pdb_info.address_map) {
+                    let start_rva = match proc.offset.to_rva(&constr_data.address_map) {
                         Some(rva) => rva.0,
                         None => continue,
                     };
 
-                    procedures.push(Procedure {
+                    procedures.push(BasicProcedureInfo {
                         start_rva,
                         end_rva: start_rva + proc.len,
                         module_index: module_index as u16,
@@ -109,31 +116,34 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
         procedures.dedup_by_key(|p| p.start_rva);
 
         Ok(Self {
-            address_map: &pdb_info.address_map,
-            string_table: &pdb_info.string_table,
+            address_map: &constr_data.address_map,
+            string_table: &constr_data.string_table,
             type_formatter,
-            modules: &pdb_info.modules,
+            modules: &constr_data.modules,
             procedures,
             procedure_cache: RefCell::new(Default::default()),
             module_cache: RefCell::new(BTreeMap::new()),
         })
     }
 
-    pub fn total_symbol_count(&self) -> usize {
+    pub fn procedure_count(&self) -> usize {
         self.procedures.len()
     }
 
-    pub fn find_function(&self, probe: u32) -> Result<Option<(u32, String)>> {
+    pub fn find_function(&self, probe: u32) -> Result<Option<Procedure>> {
         let proc = match self.lookup_proc(probe) {
             Some(proc) => proc,
             None => return Ok(None),
         };
-        let start_rva = proc.start_rva;
-        let name = self.get_procedure_name(proc);
-        Ok(Some((start_rva, (*name).clone())))
+        let procedure_start_rva = proc.start_rva;
+        let function = (*self.get_procedure_name(proc)).clone();
+        Ok(Some(Procedure {
+            procedure_start_rva,
+            function,
+        }))
     }
 
-    pub fn find_frames(&self, probe: u32) -> Result<Option<(u32, Vec<Frame<'a>>)>> {
+    pub fn find_frames(&self, probe: u32) -> Result<Option<ProcedureFrames>> {
         let proc = match self.lookup_proc(probe) {
             Some(proc) => proc,
             None => return Ok(None),
@@ -151,15 +161,22 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
             Ok(i) => Some(i),
             Err(i) => Some(i - 1),
         };
-        let location = search.map(|index| {
-            let line_info = &lines[index];
-            Location {
-                file: self.resolve_filename(&line_program, line_info.file_index),
-                line: Some(line_info.line_start),
+        let (file, line) = match search {
+            Some(index) => {
+                let line_info = &lines[index];
+                (
+                    self.resolve_filename(&line_program, line_info.file_index),
+                    Some(line_info.line_start),
+                )
             }
-        });
+            None => (None, None),
+        };
 
-        let frame = Frame { function, location };
+        let frame = Frame {
+            function,
+            file,
+            line,
+        };
 
         // Ordered outside to inside, until just before the end of this function.
         let mut frames = vec![frame];
@@ -191,18 +208,20 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
                 Ok(index) => (&inline_ranges[index], &inline_ranges[index + 1..]),
                 Err(_) => break,
             };
-            let mut function = String::new();
-            let _ = self
+            let mut name = String::new();
+            let res = self
                 .type_formatter
-                .write_id(&mut function, inline_range.inlinee);
+                .write_id(&mut name, inline_range.inlinee);
+            let function = res.ok().map(|_| name);
             let file = inline_range
                 .file_index
                 .and_then(|file_index| self.resolve_filename(line_program, file_index));
-            let location = Some(Location {
+            let line = inline_range.line_start;
+            frames.push(Frame {
+                function,
                 file,
-                line: inline_range.line_start,
+                line,
             });
-            frames.push(Frame { function, location });
 
             inline_ranges = remainder;
         }
@@ -210,10 +229,14 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
         // Now order from inside to outside.
         frames.reverse();
 
-        Ok(Some((proc.start_rva, frames)))
+        let procedure_start_rva = proc.start_rva;
+        Ok(Some(ProcedureFrames {
+            procedure_start_rva,
+            frames,
+        }))
     }
 
-    fn lookup_proc(&self, probe: u32) -> Option<&Procedure> {
+    fn lookup_proc(&self, probe: u32) -> Option<&BasicProcedureInfo> {
         let last_procedure_starting_lte_address = match self
             .procedures
             .binary_search_by_key(&probe, |p| p.start_rva)
@@ -255,7 +278,7 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
         })
     }
 
-    fn get_procedure_name(&self, proc: &Procedure) -> Rc<String> {
+    fn get_procedure_name(&self, proc: &BasicProcedureInfo) -> Rc<Option<String>> {
         let mut cache = self.procedure_cache.borrow_mut();
         let entry = cache.get_entry_mut(proc.start_rva);
         match &entry.name {
@@ -268,19 +291,21 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
         }
     }
 
-    fn compute_procedure_name(&self, proc: &Procedure) -> String {
+    fn compute_procedure_name(&self, proc: &BasicProcedureInfo) -> Option<String> {
         let mut formatted_function_name = String::new();
-        let _ = self.type_formatter.write_function(
-            &mut formatted_function_name,
-            &proc.name.to_string(),
-            proc.type_index,
-        );
-        formatted_function_name
+        self.type_formatter
+            .write_function(
+                &mut formatted_function_name,
+                &proc.name.to_string(),
+                proc.type_index,
+            )
+            .ok()?;
+        Some(formatted_function_name)
     }
 
     fn get_procedure_lines(
         &self,
-        proc: &Procedure,
+        proc: &BasicProcedureInfo,
         line_program: &LineProgram,
     ) -> Result<Rc<Vec<CachedLineInfo>>> {
         let mut cache = self.procedure_cache.borrow_mut();
@@ -297,7 +322,7 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
 
     fn compute_procedure_lines(
         &self,
-        proc: &Procedure,
+        proc: &BasicProcedureInfo,
         line_program: &LineProgram,
     ) -> Result<Vec<CachedLineInfo>> {
         let lines_for_proc = line_program.lines_at_offset(proc.offset);
@@ -321,7 +346,7 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
     fn get_procedure_inline_ranges(
         &self,
         module_info: &ModuleInfo,
-        proc: &Procedure,
+        proc: &BasicProcedureInfo,
         inlinees: &BTreeMap<IdIndex, Inlinee>,
     ) -> Result<Rc<Vec<InlineRange>>> {
         let mut cache = self.procedure_cache.borrow_mut();
@@ -340,7 +365,7 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
     fn compute_procedure_inline_ranges(
         &self,
         module_info: &ModuleInfo,
-        proc: &Procedure,
+        proc: &BasicProcedureInfo,
         inlinees: &BTreeMap<IdIndex, Inlinee>,
     ) -> Result<Vec<InlineRange>> {
         let mut lines = Vec::new();
@@ -503,7 +528,7 @@ impl ProcedureCache {
 }
 
 #[derive(Clone)]
-struct Procedure<'a> {
+struct BasicProcedureInfo<'a> {
     start_rva: u32,
     end_rva: u32,
     module_index: u16,
@@ -515,7 +540,7 @@ struct Procedure<'a> {
 }
 
 struct ExtendedProcedureInfo {
-    name: Option<Rc<String>>,
+    name: Option<Rc<Option<String>>>,
     lines: Option<Rc<Vec<CachedLineInfo>>>,
     inline_ranges: Option<Rc<Vec<InlineRange>>>,
 }

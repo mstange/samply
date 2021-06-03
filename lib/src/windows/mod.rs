@@ -3,7 +3,6 @@ use crate::shared::{
     object_to_map, AddressDebugInfo, FileAndPathHelper, FileContents, FileContentsWrapper,
     InlineStackFrame, SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
 };
-use crate::windows::addr2line::{Addr2LineContext, CachedPdbInfo};
 use object::pe::{ImageDosHeader, ImageNtHeaders32, ImageNtHeaders64};
 use object::read::pe::{ImageNtHeaders, ImageOptionalHeader};
 use object::ReadRef;
@@ -227,47 +226,51 @@ where
             Ok(symbolication_result)
         }
         SymbolicationResultKind::SymbolsForAddresses { with_debug_info } => {
-            let pdb_info = CachedPdbInfo::try_from_pdb(&mut pdb, &dbi)?;
-            let context = Addr2LineContext::new(&pdb_info, &type_formatter)?;
+            let pdb_info = addr2line::ContextConstructionData::try_from_pdb(&mut pdb, &dbi)?;
+            let context = addr2line::Context::new(&pdb_info, &type_formatter)?;
             let mut symbolication_result = R::for_addresses(addresses);
             for &address in addresses {
                 if with_debug_info {
-                    if let Some((symbol_address, frames)) = context.find_frames(address)? {
-                        let symbol_name = &frames.last().unwrap().function;
+                    if let Some(procedure_frames) = context.find_frames(address)? {
+                        let symbol_address = procedure_frames.procedure_start_rva;
+                        let symbol_name = match &procedure_frames.frames.last().unwrap().function {
+                            Some(name) => name,
+                            None => "unknown",
+                        };
                         symbolication_result.add_address_symbol(
                             address,
                             symbol_address,
                             symbol_name,
                         );
-                        let frames: Vec<_> = frames.into_iter().map(convert_stack_frame).collect();
+                        let frames: Vec<_> = procedure_frames
+                            .frames
+                            .into_iter()
+                            .map(convert_stack_frame)
+                            .collect();
                         symbolication_result
                             .add_address_debug_info(address, AddressDebugInfo { frames });
                     }
-                } else if let Some((symbol_address, symbol_name)) =
-                    context.find_function(address)?
-                {
-                    symbolication_result.add_address_symbol(address, symbol_address, &symbol_name);
+                } else if let Some(procedure) = context.find_function(address)? {
+                    let symbol_address = procedure.procedure_start_rva;
+                    let symbol_name = match &procedure.function {
+                        Some(name) => name,
+                        None => "unknown",
+                    };
+                    symbolication_result.add_address_symbol(address, symbol_address, symbol_name);
                 }
             }
-            symbolication_result.set_total_symbol_count(context.total_symbol_count() as u32);
+            let total_symbol_count = symbol_map.len() + context.procedure_count();
+            symbolication_result.set_total_symbol_count(total_symbol_count as u32);
             Ok(symbolication_result)
         }
     }
 }
 
 fn convert_stack_frame(frame: addr2line::Frame<'_>) -> InlineStackFrame {
-    let mut file_path = None;
-    let mut line_number = None;
-    if let Some(location) = frame.location {
-        if let Some(file) = location.file {
-            file_path = Some(file.to_string());
-        }
-        line_number = location.line;
-    }
     InlineStackFrame {
-        function: Some(frame.function),
-        file_path,
-        line_number,
+        function: frame.function,
+        file_path: frame.file.map(|s| s.to_string()),
+        line_number: frame.line,
     }
 }
 
