@@ -1,7 +1,8 @@
 use object::read::ReadRef;
+use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::{cell::Cell, future::Future};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::{collections::BTreeMap, fmt::Debug};
 use std::{marker::PhantomData, ops::Deref};
 
@@ -233,7 +234,7 @@ where
 pub struct FileContentsWrapper<T: FileContents> {
     file_contents: T,
     len: u64,
-    bytes_read: Cell<u64>,
+    bytes_read: AtomicU64,
 }
 
 impl<T: FileContents> FileContentsWrapper<T> {
@@ -242,7 +243,7 @@ impl<T: FileContents> FileContentsWrapper<T> {
         Self {
             file_contents,
             len,
-            bytes_read: Cell::new(0),
+            bytes_read: AtomicU64::new(0),
         }
     }
 
@@ -253,7 +254,7 @@ impl<T: FileContents> FileContentsWrapper<T> {
 
     #[inline]
     pub fn read_bytes_at(&self, offset: u64, size: u64) -> FileAndPathHelperResult<&[u8]> {
-        self.bytes_read.set(self.bytes_read.get() + size);
+        self.bytes_read.fetch_add(size, Ordering::Relaxed);
         self.file_contents.read_bytes_at(offset, size)
     }
 
@@ -265,7 +266,7 @@ impl<T: FileContents> FileContentsWrapper<T> {
     ) -> FileAndPathHelperResult<&[u8]> {
         let bytes = self.file_contents.read_bytes_at_until(offset, delimiter)?;
         self.bytes_read
-            .set(self.bytes_read.get() + bytes.len() as u64);
+            .fetch_add(bytes.len() as u64, Ordering::Relaxed);
         Ok(bytes)
     }
 
@@ -274,7 +275,7 @@ impl<T: FileContents> FileContentsWrapper<T> {
     }
 
     pub fn bytes_read(&self) -> u64 {
-        self.bytes_read.get()
+        self.bytes_read.load(Ordering::Relaxed)
     }
 
     pub fn full_range(&self) -> RangeReadRef<'_, &Self> {
