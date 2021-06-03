@@ -100,7 +100,7 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
         }
 
         // Sort and de-duplicate, so that we can use binary search during lookup.
-        // If we have multiple procs at the same address (as a result of identical code folding),
+        // If we have multiple procs at the same probe (as a result of identical code folding),
         // we'd like to keep the last instance that we encountered in the original order.
         // dedup_by_key keeps the *first* element of consecutive duplicates, so we reverse first
         // and then use a stable sort before we de-duplicate.
@@ -123,8 +123,8 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
         self.procedures.len()
     }
 
-    pub fn find_function(&self, address: u32) -> Result<Option<(u32, String)>> {
-        let proc = match self.lookup_proc(address) {
+    pub fn find_function(&self, probe: u32) -> Result<Option<(u32, String)>> {
+        let proc = match self.lookup_proc(probe) {
             Some(proc) => proc,
             None => return Ok(None),
         };
@@ -133,8 +133,8 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
         Ok(Some((start_rva, (*name).clone())))
     }
 
-    pub fn find_frames(&self, address: u32) -> Result<Option<(u32, Vec<Frame<'a>>)>> {
-        let proc = match self.lookup_proc(address) {
+    pub fn find_frames(&self, probe: u32) -> Result<Option<(u32, Vec<Frame<'a>>)>> {
+        let proc = match self.lookup_proc(probe) {
             Some(proc) => proc,
             None => return Ok(None),
         };
@@ -146,7 +146,7 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
 
         let function = (*self.get_procedure_name(proc)).clone();
         let lines = &self.get_procedure_lines(proc, line_program)?[..];
-        let search = match lines.binary_search_by_key(&address, |li| li.start_rva) {
+        let search = match lines.binary_search_by_key(&probe, |li| li.start_rva) {
             Err(0) => None,
             Ok(i) => Some(i),
             Err(i) => Some(i - 1),
@@ -170,7 +170,7 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
         loop {
             let current_depth = (frames.len() - 1) as u16;
 
-            // Look up (address, current_depth) in inline_ranges.
+            // Look up (probe, current_depth) in inline_ranges.
             // `inlined_addresses` is sorted in "breadth-first traversal order", i.e.
             // by `call_depth` first, and then by `start_rva`. See the comment at
             // the sort call for more information about why.
@@ -179,9 +179,9 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
                     Ordering::Greater
                 } else if range.call_depth < current_depth {
                     Ordering::Less
-                } else if range.start_rva > address {
+                } else if range.start_rva > probe {
                     Ordering::Greater
-                } else if range.end_rva <= address {
+                } else if range.end_rva <= probe {
                     Ordering::Less
                 } else {
                     Ordering::Equal
@@ -216,17 +216,17 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
         Ok(Some((proc.start_rva, frames)))
     }
 
-    fn lookup_proc(&self, address: u32) -> Option<&Procedure> {
+    fn lookup_proc(&self, probe: u32) -> Option<&Procedure> {
         let last_procedure_starting_lte_address = match self
             .procedures
-            .binary_search_by_key(&address, |p| p.start_rva)
+            .binary_search_by_key(&probe, |p| p.start_rva)
         {
             Err(0) => return None,
             Ok(i) => i,
             Err(i) => i - 1,
         };
-        assert!(self.procedures[last_procedure_starting_lte_address].start_rva <= address);
-        if address >= self.procedures[last_procedure_starting_lte_address].end_rva {
+        assert!(self.procedures[last_procedure_starting_lte_address].start_rva <= probe);
+        if probe >= self.procedures[last_procedure_starting_lte_address].end_rva {
             return None;
         }
         Some(&self.procedures[last_procedure_starting_lte_address])
