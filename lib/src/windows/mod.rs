@@ -226,7 +226,7 @@ where
             Ok(symbolication_result)
         }
         SymbolicationResultKind::SymbolsForAddresses { with_debug_info } => {
-            let pdb_info = addr2line::ContextConstructionData::try_from_pdb(&mut pdb, &dbi)?;
+            let pdb_info = addr2line::ContextConstructionData::try_from_pdb(&mut pdb)?;
             let context = addr2line::Context::new(&pdb_info, &type_formatter)?;
             let mut symbolication_result = R::for_addresses(addresses);
             for &address in addresses {

@@ -1,7 +1,7 @@
 use pdb::{
-    AddressMap, DebugInformation, FallibleIterator, FileIndex, IdIndex, InlineSiteSymbol, Inlinee,
-    LineProgram, ModuleInfo, PdbInternalSectionOffset, Result, Source, StringTable, SymbolData,
-    SymbolIndex, SymbolIter, PDB,
+    AddressMap, FallibleIterator, FileIndex, IdIndex, InlineSiteSymbol, Inlinee, LineProgram,
+    ModuleInfo, PdbInternalSectionOffset, Result, Source, StringTable, SymbolData, SymbolIndex,
+    SymbolIter, PDB,
 };
 use pdb::{RawString, TypeIndex};
 use pdb_addr2line::TypeFormatter;
@@ -19,12 +19,10 @@ pub struct ContextConstructionData<'s> {
 }
 
 impl<'s> ContextConstructionData<'s> {
-    pub fn try_from_pdb<S: Source<'s> + 's>(
-        pdb: &mut PDB<'s, S>,
-        dbi: &DebugInformation<'s>,
-    ) -> Result<Self> {
-        let mut modules = Vec::new();
+    pub fn try_from_pdb<S: Source<'s> + 's>(pdb: &mut PDB<'s, S>) -> Result<Self> {
+        let dbi = pdb.debug_information()?;
         let mut module_iter = dbi.modules()?;
+        let mut modules = Vec::new();
         while let Some(module) = module_iter.next()? {
             let module_info = match pdb.module_info(&module)? {
                 Some(m) => m,
