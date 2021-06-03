@@ -187,27 +187,24 @@ impl<'a, 's, 't> Addr2LineContext<'a, 's, 't> {
                     Ordering::Equal
                 }
             });
-            if let Ok(index) = search {
-                let inline_range = &inline_ranges[index];
-                let mut function = String::new();
-                let _ = self
-                    .type_formatter
-                    .write_id(&mut function, inline_range.inlinee);
-                let file = inline_range
-                    .file_index
-                    .and_then(|file_index| self.resolve_filename(line_program, file_index));
+            let (inline_range, remainder) = match search {
+                Ok(index) => (&inline_ranges[index], &inline_ranges[index + 1..]),
+                Err(_) => break,
+            };
+            let mut function = String::new();
+            let _ = self
+                .type_formatter
+                .write_id(&mut function, inline_range.inlinee);
+            let file = inline_range
+                .file_index
+                .and_then(|file_index| self.resolve_filename(line_program, file_index));
+            let location = Some(Location {
+                file,
+                line: inline_range.line_start,
+            });
+            frames.push(Frame { function, location });
 
-                frames.push(Frame {
-                    function,
-                    location: Some(Location {
-                        file,
-                        line: inline_range.line_start,
-                    }),
-                });
-                inline_ranges = &inline_ranges[index + 1..];
-            } else {
-                break;
-            }
+            inline_ranges = remainder;
         }
 
         // Now order from inside to outside.
