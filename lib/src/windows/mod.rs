@@ -6,7 +6,7 @@ use crate::shared::{
 use object::pe::{ImageDosHeader, ImageNtHeaders32, ImageNtHeaders64};
 use object::read::pe::{ImageNtHeaders, ImageOptionalHeader};
 use object::ReadRef;
-use pdb::{FallibleIterator, ProcedureSymbol, PublicSymbol, SymbolData, PDB};
+use pdb::{FallibleIterator, PublicSymbol, SymbolData, PDB};
 use pdb_addr2line::{TypeFormatter, TypeFormatterFlags};
 use std::collections::BTreeMap;
 use std::io::Cursor;
@@ -190,44 +190,25 @@ where
     let ipi = pdb.id_information()?;
     let flags = TypeFormatterFlags::default() | TypeFormatterFlags::NO_MEMBER_FUNCTION_STATIC;
     let type_formatter = TypeFormatter::new(&dbi, &tpi, &ipi, flags)?;
-    let mut modules = dbi.modules().context("dbi.modules()")?;
+    let context_data = addr2line::ContextConstructionData::try_from_pdb(&mut pdb)?;
+    let context = addr2line::Context::new(&context_data, &type_formatter)?;
 
     match R::result_kind() {
         SymbolicationResultKind::AllSymbols => {
-            while let Some(module) = modules.next().context("modules.next()")? {
-                let info = match pdb.module_info(&module) {
-                    Ok(Some(info)) => info,
-                    _ => continue,
+            for procedure in context.iter_procedures() {
+                let symbol_address = procedure.procedure_start_rva;
+                let symbol_name = match procedure.function {
+                    Some(name) => name,
+                    None => "unknown".to_string(),
                 };
-                let mut symbols = info.symbols().context("info.symbols()")?;
-                while let Ok(Some(symbol)) = symbols.next() {
-                    if let Ok(SymbolData::Procedure(ProcedureSymbol {
-                        offset,
-                        name,
-                        type_index,
-                        ..
-                    })) = symbol.parse()
-                    {
-                        if let Some(rva) = offset.to_rva(&addr_map) {
-                            let mut formatted_name = String::new();
-                            type_formatter.write_function(
-                                &mut formatted_name,
-                                &name.to_string(),
-                                type_index,
-                            )?;
-                            symbol_map
-                                .entry(rva.0)
-                                .or_insert_with(|| Cow::from(formatted_name));
-                        }
-                    }
-                }
+                symbol_map
+                    .entry(symbol_address)
+                    .or_insert_with(|| Cow::from(symbol_name));
             }
             let symbolication_result = R::from_full_map(symbol_map, addresses);
             Ok(symbolication_result)
         }
         SymbolicationResultKind::SymbolsForAddresses { with_debug_info } => {
-            let pdb_info = addr2line::ContextConstructionData::try_from_pdb(&mut pdb)?;
-            let context = addr2line::Context::new(&pdb_info, &type_formatter)?;
             let mut symbolication_result = R::for_addresses(addresses);
             for &address in addresses {
                 if with_debug_info {

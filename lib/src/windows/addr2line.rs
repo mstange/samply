@@ -128,6 +128,13 @@ impl<'a, 's, 't> Context<'a, 's, 't> {
         self.procedures.len()
     }
 
+    pub fn iter_procedures(&self) -> ProcedureIter<'_, 'a, 's, 't> {
+        ProcedureIter {
+            context: self,
+            cur_index: 0,
+        }
+    }
+
     pub fn find_function(&self, probe: u32) -> Result<Option<Procedure>> {
         let proc = match self.lookup_proc(probe) {
             Some(proc) => proc,
@@ -507,6 +514,30 @@ impl<'a, 's, 't> Context<'a, 's, 't> {
             .get_file_info(file_index)
             .ok()
             .and_then(|file_info| file_info.name.to_string_lossy(&self.string_table).ok())
+    }
+}
+
+pub struct ProcedureIter<'c, 'a, 's, 't> {
+    context: &'c Context<'a, 's, 't>,
+    cur_index: usize,
+}
+
+impl<'c, 'a, 's, 't> Iterator for ProcedureIter<'c, 'a, 's, 't> {
+    type Item = Procedure;
+
+    fn next(&mut self) -> Option<Procedure> {
+        if self.cur_index >= self.context.procedures.len() {
+            return None;
+        }
+        let proc = &self.context.procedures[self.cur_index];
+        self.cur_index += 1;
+
+        let function = (*self.context.get_procedure_name(proc)).clone();
+        let procedure_start_rva = proc.start_rva;
+        Some(Procedure {
+            procedure_start_rva,
+            function,
+        })
     }
 }
 
