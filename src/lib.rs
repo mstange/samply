@@ -1,3 +1,4 @@
+use flate2::read::GzDecoder;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{header, Body, Request, Response, Server};
 use hyper::{Method, StatusCode};
@@ -10,8 +11,9 @@ use profiler_get_symbols::{
 use serde_json::{self, Value};
 use std::collections::HashMap;
 use std::convert::Infallible;
+use std::ffi::OsString;
 use std::fs::File;
-use std::io::Read;
+use std::io::Cursor;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -28,9 +30,19 @@ const BAD_CHARS: &AsciiSet = &CONTROLS.add(b':').add(b'/');
 
 pub async fn start_server(profile_filename: &Path, port: u16, open_in_browser: bool) {
     // Read the profile.json file and parse it as JSON.
-    let mut file = File::open(profile_filename).expect("couldn't open file");
-    let mut buffer = Vec::new();
-    file.read_to_end(&mut buffer).expect("couldn't read file");
+    let mut buffer = std::fs::read(profile_filename).expect("couldn't read file");
+
+    // Handle .gz profiles
+    if profile_filename.extension() == Some(&OsString::from("gz")) {
+        use std::io::Read;
+        let mut decompressed_buffer = Vec::new();
+        let cursor = Cursor::new(&buffer);
+        GzDecoder::new(cursor)
+            .read_to_end(&mut decompressed_buffer)
+            .expect("couldn't decompress gzip");
+        buffer = decompressed_buffer
+    }
+
     let profile: Value = serde_json::from_slice(&buffer).expect("couldn't parse json");
     let buffer = Arc::new(buffer);
 

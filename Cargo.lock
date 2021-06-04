@@ -761,6 +761,7 @@ dependencies = [
  "core-foundation",
  "core-foundation-sys",
  "failure",
+ "flate2",
  "futures",
  "hyper",
  "libc",
