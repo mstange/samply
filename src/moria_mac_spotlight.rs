@@ -150,7 +150,7 @@ fn spotlight_get_dsym_path(bundle: &str) -> Result<String, Error> {
         CFType::wrap_under_get_rule(MDItemCopyAttribute(ctref(&bundle_item), ctref(&attr)))
     };
     let cf_array = cast::<CFType, CFArray<CFType>>(&cf_attr)?;
-    if let Some(cf_item) = cf_array.iter().nth(0) {
+    if let Some(cf_item) = cf_array.iter().next() {
         let cf_item = unsafe { CFType::wrap_under_get_rule(ctref(&*cf_item)) };
         return cast::<CFType, CFString>(&cf_item).map(|s| s.to_string());
     }

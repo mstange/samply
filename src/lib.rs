@@ -68,8 +68,8 @@ pub async fn start_server(file: &Path, open_in_browser: bool) {
     eprintln!("    {}/symbolicate/v6a1", server_origin);
     eprintln!("  Open the profiler at");
     eprintln!("    {}", profiler_url);
-    eprintln!("Press Ctrl+C to abort.");
-    eprintln!("");
+    eprintln!("Press Ctrl+C to stop.");
+    eprintln!();
 
     if open_in_browser {
         let mut cmd = Command::new("open");
@@ -107,7 +107,7 @@ async fn symbolication_service(
             let full_body = String::from_utf8(full_body.to_vec()).expect("invalid utf-8");
             let response_json = query_api(&path, &full_body, &*helper).await;
 
-            *response.body_mut() = response_json.clone().into();
+            *response.body_mut() = response_json.into();
         }
         _ => {
             *response.status_mut() = StatusCode::NOT_FOUND;
