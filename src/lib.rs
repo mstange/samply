@@ -26,16 +26,16 @@ mod moria_mac_spotlight;
 
 const BAD_CHARS: &AsciiSet = &CONTROLS.add(b':').add(b'/');
 
-pub async fn start_server(file: &Path, open_in_browser: bool) {
+pub async fn start_server(profile_filename: &Path, port: u16, open_in_browser: bool) {
     // Read the profile.json file and parse it as JSON.
-    let mut file = File::open(file).expect("couldn't open file");
+    let mut file = File::open(profile_filename).expect("couldn't open file");
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer).expect("couldn't read file");
     let profile: Value = serde_json::from_slice(&buffer).expect("couldn't parse json");
     let buffer = Arc::new(buffer);
 
     // We'll bind to 127.0.0.1:3000
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
 
     let helper = Arc::new(Helper::for_profile(profile));
     let new_service = make_service_fn(move |_conn| {
