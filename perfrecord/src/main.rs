@@ -49,6 +49,10 @@ struct Opt {
     #[structopt(short = "t", long = "time-limit")]
     time_limit: Option<f64>,
 
+    /// The port to use for the local web server
+    #[structopt(short, long, default_value = "300")]
+    port: u16,
+
     /// Save the collected profile to this file.
     #[structopt(
         short = "o",
@@ -82,7 +86,7 @@ fn main() -> Result<(), MachError> {
     let open_in_browser = opt.file_to_launch.is_some();
     let file_for_launching_or_serving = opt.file_to_launch.or(opt.file_to_serve);
     if let Some(file) = file_for_launching_or_serving {
-        start_server_main(&file, open_in_browser);
+        start_server_main(&file, opt.port, open_in_browser);
         return Ok(());
     }
     if let Some(Subcommands::Command(command)) = opt.rest {
@@ -91,6 +95,7 @@ fn main() -> Result<(), MachError> {
             let interval = Duration::from_secs_f64(opt.interval);
             let exit_status = start_recording(
                 &opt.output_file,
+                opt.port,
                 &command,
                 time_limit,
                 interval,
@@ -105,12 +110,13 @@ fn main() -> Result<(), MachError> {
 }
 
 #[tokio::main]
-async fn start_server_main(file: &Path, open_in_browser: bool) {
-    start_server(file, open_in_browser).await;
+async fn start_server_main(file: &Path, port: u16, open_in_browser: bool) {
+    start_server(file, port, open_in_browser).await;
 }
 
 fn start_recording(
     output_file: &Path,
+    port: u16,
     args: &[String],
     time_limit: Option<Duration>,
     interval: Duration,
@@ -125,7 +131,7 @@ fn start_recording(
 
         // Reuse the saver thread as the server thread.
         if launch_when_done {
-            start_server_main(&output_file, true);
+            start_server_main(&output_file, port, true);
         }
     });
 
