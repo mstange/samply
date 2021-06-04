@@ -4,7 +4,8 @@ use hyper::{Method, StatusCode};
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use profiler_get_symbols::query_api;
 use profiler_get_symbols::{
-    self, FileAndPathHelper, FileAndPathHelperResult, OptionallySendFuture, OwnedFileData,
+    self, CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileContents,
+    OptionallySendFuture,
 };
 use serde_json::{self, Value};
 use std::collections::HashMap;
@@ -26,7 +27,7 @@ mod moria_mac_spotlight;
 const BAD_CHARS: &AsciiSet = &CONTROLS.add(b':').add(b'/');
 
 pub async fn start_server(file: &Path, open_in_browser: bool) {
-    // Read the profile.json file and parse it as JSON. TODO: allow specifying the file on the command line
+    // Read the profile.json file and parse it as JSON.
     let mut file = File::open(file).expect("couldn't open file");
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer).expect("couldn't read file");
@@ -55,7 +56,10 @@ pub async fn start_server(file: &Path, open_in_browser: bool) {
     // let profiler_origin = "http://localhost:4242";
     let encoded_profile_url = utf8_percent_encode(&profile_url, BAD_CHARS).to_string();
     let encoded_symbol_server_url = utf8_percent_encode(&server_origin, BAD_CHARS).to_string();
-    let profiler_url = format!("{}/from-url/{}/?symbolServer={}", profiler_origin, encoded_profile_url, encoded_symbol_server_url);
+    let profiler_url = format!(
+        "{}/from-url/{}/?symbolServer={}",
+        profiler_origin, encoded_profile_url, encoded_symbol_server_url
+    );
 
     eprintln!("Serving symbolication server at {}", server_origin);
     eprintln!("  The profile is at {}", profile_url);
@@ -115,9 +119,28 @@ async fn symbolication_service(
 
 struct MmapFileContents(memmap2::Mmap);
 
-impl OwnedFileData for MmapFileContents {
-    fn get_data(&self) -> &[u8] {
-        &*self.0
+impl FileContents for MmapFileContents {
+    #[inline]
+    fn len(&self) -> u64 {
+        self.0.len() as u64
+    }
+
+    #[inline]
+    fn read_bytes_at(&self, offset: u64, size: u64) -> FileAndPathHelperResult<&[u8]> {
+        Ok(&self.0[offset as usize..][..size as usize])
+    }
+
+    #[inline]
+    fn read_bytes_at_until(&self, offset: u64, delimiter: u8) -> FileAndPathHelperResult<&[u8]> {
+        let slice_to_end = &self.0[offset as usize..];
+        if let Some(pos) = slice_to_end.iter().position(|b| *b == delimiter) {
+            Ok(&slice_to_end[..pos])
+        } else {
+            Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Delimiter not found in MmapFileContents",
+            )))
+        }
     }
 }
 
@@ -152,19 +175,13 @@ impl Helper {
 }
 
 impl FileAndPathHelper for Helper {
-    type FileContents = MmapFileContents;
+    type F = MmapFileContents;
 
     fn get_candidate_paths_for_binary_or_pdb(
         &self,
         debug_name: &str,
         breakpad_id: &str,
-    ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Vec<PathBuf>>>>> {
-        async fn to_future(
-            res: FileAndPathHelperResult<Vec<PathBuf>>,
-        ) -> FileAndPathHelperResult<Vec<PathBuf>> {
-            res
-        }
-
+    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
         let mut paths = vec![];
 
         // Look up (debugName, breakpadId) in the path map.
@@ -175,34 +192,64 @@ impl FileAndPathHelper for Helper {
             // First, see if we can find a dSYM file for the binary.
             if let Ok(uuid) = Uuid::parse_str(&breakpad_id[0..32]) {
                 if let Ok(dsym_path) = moria_mac::locate_dsym(&path, uuid) {
-                    paths.push(dsym_path.clone());
-                    paths.push(
+                    paths.push(CandidatePathInfo::Normal(dsym_path.clone()));
+                    paths.push(CandidatePathInfo::Normal(
                         dsym_path
                             .join("Contents")
                             .join("Resources")
                             .join("DWARF")
                             .join(debug_name),
-                    );
+                    ));
                 }
             }
+
+            // Also consider .so.dbg files in the same directory.
+            if debug_name.ends_with(".so") {
+                let debug_debug_name = format!("{}.dbg", debug_name);
+                let path = PathBuf::from(path);
+                if let Some(dir) = path.parent() {
+                    paths.push(CandidatePathInfo::Normal(dir.join(debug_debug_name)));
+                }
+            }
+
             // Fall back to getting symbols from the binary itself.
-            paths.push(path.into());
+            paths.push(CandidatePathInfo::Normal(path.into()));
+
+            // For macOS system libraries, also consult the dyld shared cache.
+            if path.starts_with("/usr/") || path.starts_with("/System/") {
+                paths.push(CandidatePathInfo::InDyldCache {
+                    dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_arm64e")
+                        .to_path_buf(),
+                    dylib_path: path.clone(),
+                });
+                paths.push(CandidatePathInfo::InDyldCache {
+                    dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_x86_64h")
+                        .to_path_buf(),
+                    dylib_path: path.clone(),
+                });
+                paths.push(CandidatePathInfo::InDyldCache {
+                    dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_x86_64")
+                        .to_path_buf(),
+                    dylib_path: path.clone(),
+                });
+            }
         }
 
-        Box::pin(to_future(Ok(paths)))
+        Ok(paths)
     }
 
-    fn read_file(
+    fn open_file(
         &self,
         path: &Path,
-    ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::FileContents>>>>
-    {
-        async fn read_file_impl(path: PathBuf) -> FileAndPathHelperResult<MmapFileContents> {
-            eprintln!("Reading file {:?}", &path);
+    ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>>>> {
+        async fn open_file_impl(path: PathBuf) -> FileAndPathHelperResult<MmapFileContents> {
+            eprintln!("Opening file {:?}", &path);
             let file = File::open(&path)?;
-            Ok(MmapFileContents(unsafe { memmap2::MmapOptions::new().map(&file)? }))
+            Ok(MmapFileContents(unsafe {
+                memmap2::MmapOptions::new().map(&file)?
+            }))
         }
 
-        Box::pin(read_file_impl(path.to_owned()))
+        Box::pin(open_file_impl(path.to_owned()))
     }
 }
