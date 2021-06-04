@@ -123,5 +123,5 @@ fn sleep_and_save_overshoot(duration: Duration, overshoot: &mut Duration) {
     *overshoot = after_sleep
         .duration_since(before_sleep)
         .checked_sub(duration)
-        .unwrap_or(Duration::from_nanos(0));
+        .unwrap_or_else(|| Duration::from_nanos(0));
 }

@@ -91,7 +91,7 @@ fn main() -> Result<(), MachError> {
     }
     if let Some(Subcommands::Command(command)) = opt.rest {
         if !command.is_empty() {
-            let time_limit = opt.time_limit.map(|secs| Duration::from_secs_f64(secs));
+            let time_limit = opt.time_limit.map(Duration::from_secs_f64);
             let interval = Duration::from_secs_f64(opt.interval);
             let exit_status = start_recording(
                 &opt.output_file,
@@ -165,7 +165,7 @@ fn start_recording(
             )
             .expect("couldn't create TaskProfiler");
             let send_result = task_sender.send(task_profiler);
-            if let Err(_) = send_result {
+            if send_result.is_err() {
                 // The sampler has already shut down. This task arrived too late.
             }
             accepted_task.start_execution();

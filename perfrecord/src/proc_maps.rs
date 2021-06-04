@@ -1,5 +1,4 @@
 use super::kernel_error::{self, IntoResult};
-use mach;
 use mach::message::mach_msg_type_number_t;
 use mach::port::mach_port_t;
 use mach::task::{task_info, task_resume, task_suspend};
@@ -279,7 +278,7 @@ fn get_dyld_image_info(
         }
     }
     Ok(DyldInfo {
-        file: filename.clone(),
+        file: filename,
         address: image_load_address,
         vmsize,
         uuid,
@@ -456,18 +455,12 @@ impl ForeignMemory {
         Ok(vm_data)
     }
 
-    pub fn get_slice<'a>(
-        &'a mut self,
-        range: std::ops::Range<u64>,
-    ) -> kernel_error::Result<&'a [u8]> {
+    pub fn get_slice(&mut self, range: std::ops::Range<u64>) -> kernel_error::Result<&[u8]> {
         let vm_data = self.get_data_for_range(range.clone())?;
         Ok(vm_data.get_slice(range))
     }
 
-    pub unsafe fn get_type_ref_at_address<'a, T>(
-        &'a mut self,
-        address: u64,
-    ) -> kernel_error::Result<&'a T> {
+    pub unsafe fn get_type_ref_at_address<T>(&mut self, address: u64) -> kernel_error::Result<&T> {
         let end_addr = address + mem::size_of::<T>() as u64;
         let vm_data = self.get_data_for_range(address..end_addr)?;
         Ok(vm_data.get_type_ref(address))
@@ -540,7 +533,7 @@ impl VmData {
         })
     }
 
-    pub fn get_slice<'a>(&'a self, address_range: std::ops::Range<u64>) -> &'a [u8] {
+    pub fn get_slice(&self, address_range: std::ops::Range<u64>) -> &[u8] {
         assert!(self.address_range.start <= address_range.start);
         assert!(self.address_range.end >= address_range.end);
         let offset = address_range.start - self.address_range.start;
@@ -548,7 +541,7 @@ impl VmData {
         unsafe { std::slice::from_raw_parts(self.data.offset(offset as isize), len as usize) }
     }
 
-    pub unsafe fn get_type_ref<'a, T>(&'a self, address: u64) -> &'a T {
+    pub unsafe fn get_type_ref<T>(&self, address: u64) -> &T {
         assert!(address % mem::align_of::<T>() as u64 == 0);
         let range = address..(address + mem::size_of::<T>() as u64);
         let slice = self.get_slice(range);

@@ -305,7 +305,7 @@ pub enum KernelError {
 
 impl From<kern_return_t> for KernelError {
     fn from(err: kern_return_t) -> KernelError {
-        let err = match err {
+        match err {
             KERN_INVALID_ADDRESS => KernelError::InvalidAddress,
             KERN_PROTECTION_FAILURE => KernelError::ProtectionFailure,
             KERN_NO_SPACE => KernelError::NoSpace,
@@ -395,12 +395,6 @@ impl From<kern_return_t> for KernelError {
             MACH_RCV_IN_PROGRESS_TIMED => KernelError::MachRcvInProgressTimed,
             MACH_RCV_INVALID_REPLY => KernelError::MachRcvInvalidReply,
             unknown => KernelError::Unknown(unknown),
-        };
-        // if err == KernelError::InvalidAddress {
-        //     let bt = backtrace::Backtrace::new();
-        //     println!("got error: {:?}", err);
-        //     println!("{:?}", bt);
-        // }
-        err
+        }
     }
 }

@@ -13,8 +13,7 @@ pub struct TaskAccepter {
     _temp_dir: tempfile::TempDir,
 }
 
-static PRELOAD_LIB_CONTENTS: &'static [u8] =
-    include_bytes!("../resources/libperfrecord_preload.dylib");
+static PRELOAD_LIB_CONTENTS: &[u8] = include_bytes!("../resources/libperfrecord_preload.dylib");
 
 impl TaskAccepter {
     pub fn create_and_launch_root_task(
