@@ -4,7 +4,8 @@ use mach::port::mach_port_t;
 use mach::task::{task_info, task_resume, task_suspend};
 use mach::task_info::{task_info_t, TASK_DYLD_INFO};
 use mach::thread_act::{thread_get_state, thread_resume, thread_suspend};
-use mach::thread_status::{thread_state_t, x86_THREAD_STATE64};
+use mach::thread_status::thread_state_flavor_t;
+use mach::thread_status::thread_state_t;
 use mach::traps::mach_task_self;
 use mach::vm::{mach_vm_deallocate, mach_vm_read, mach_vm_remap};
 use mach::vm_inherit::VM_INHERIT_SHARE;
@@ -16,7 +17,8 @@ use std::mem;
 use std::ptr;
 use uuid::Uuid;
 
-use mach::structs::x86_thread_state64_t;
+#[cfg(target_arch = "x86_64")]
+use mach::{structs::x86_thread_state64_t, thread_status::x86_THREAD_STATE64};
 
 use crate::dyld_bindings;
 use dyld_bindings::{
@@ -294,17 +296,31 @@ pub struct task_dyld_info {
     pub all_image_info_size: mach_vm_size_t,
     pub all_image_info_format: mach::vm_types::integer_t,
 }
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default, Hash, PartialOrd, PartialEq, Eq, Ord)]
+pub struct arm_thread_state64_t {
+    pub __x: [u64; 29],
+    pub __fp: u64, // frame pointer x29
+    pub __lr: u64, // link register x30
+    pub __sp: u64, // stack pointer x31
+    pub __pc: u64,
+    pub __cpsr: u32,
+    pub __pad: u32,
+}
 
-pub fn get_backtrace(
-    memory: &mut ForeignMemory,
-    thread_act: mach_port_t,
-    frames: &mut Vec<u64>,
-) -> kernel_error::Result<()> {
-    unsafe { thread_suspend(thread_act) }.into_result()?;
+impl arm_thread_state64_t {
+    pub fn count() -> mach_msg_type_number_t {
+        (mem::size_of::<Self>() / mem::size_of::<u32>()) as mach_msg_type_number_t
+    }
+}
 
+pub static ARM_THREAD_STATE64: thread_state_flavor_t = 6;
+
+#[cfg(target_arch = "x86_64")]
+fn get_unwinding_registers(thread_act: mach_port_t) -> kernel_error::Result<(u64, u64)> {
     let mut state: x86_thread_state64_t = unsafe { mem::zeroed() };
     let mut count = x86_thread_state64_t::count();
-    let result = unsafe {
+    unsafe {
         thread_get_state(
             thread_act,
             x86_THREAD_STATE64,
@@ -312,23 +328,50 @@ pub fn get_backtrace(
             &mut count as *mut _,
         )
     }
-    .into_result();
+    .into_result()?;
+    Ok((state.__rip, state.__rbp))
+}
 
-    if let Ok(()) = result {
-        do_frame_pointer_stackwalk(&state, memory, frames);
+#[cfg(target_arch = "aarch64")]
+fn get_unwinding_registers(thread_act: mach_port_t) -> kernel_error::Result<(u64, u64)> {
+    let mut state: arm_thread_state64_t = unsafe { mem::zeroed() };
+    let mut count = arm_thread_state64_t::count();
+    unsafe {
+        thread_get_state(
+            thread_act,
+            ARM_THREAD_STATE64,
+            &mut state as *mut _ as thread_state_t,
+            &mut count as *mut _,
+        )
     }
+    .into_result()?;
+    Ok((state.__pc, state.__fp))
+}
 
+fn with_suspended_thread<R>(
+    thread_act: mach_port_t,
+    f: impl FnOnce() -> kernel_error::Result<R>,
+) -> kernel_error::Result<R> {
+    unsafe { thread_suspend(thread_act) }.into_result()?;
+    let result = f();
     let _ = unsafe { thread_resume(thread_act) };
-
     result
 }
 
-fn do_frame_pointer_stackwalk(
-    initial_state: &x86_thread_state64_t,
+pub fn get_backtrace(
     memory: &mut ForeignMemory,
+    thread_act: mach_port_t,
     frames: &mut Vec<u64>,
-) {
-    frames.push(initial_state.__rip);
+) -> kernel_error::Result<()> {
+    with_suspended_thread(thread_act, || {
+        let (ip, bp) = get_unwinding_registers(thread_act)?;
+        do_frame_pointer_stackwalk(ip, bp, memory, frames);
+        Ok(())
+    })
+}
+
+fn do_frame_pointer_stackwalk(ip: u64, bp: u64, memory: &mut ForeignMemory, frames: &mut Vec<u64>) {
+    frames.push(ip);
 
     // Do a frame pointer stack walk. Code that is compiled with frame pointers
     // has the following function prologues and epilogues:
@@ -370,7 +413,7 @@ fn do_frame_pointer_stackwalk(
     // }
     // and rbp is a *const CallFrameInfo.
 
-    let mut frame_ptr = initial_state.__rbp;
+    let mut frame_ptr = bp;
     while frame_ptr != 0 && (frame_ptr & 7) == 0 {
         let caller_frame_ptr = match memory.read_u64_at_address(frame_ptr) {
             Ok(val) => val,
