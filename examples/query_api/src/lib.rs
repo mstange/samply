@@ -161,7 +161,7 @@ mod test {
         if false {
             let mut output_file =
                 File::create(fixtures_dir().join("snapshots").join(output_filename)).unwrap();
-            output_file.write_all(&output.as_bytes()).unwrap();
+            output_file.write_all(output.as_bytes()).unwrap();
         }
 
         let mut snapshot_file =

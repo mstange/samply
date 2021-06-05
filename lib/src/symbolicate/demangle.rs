@@ -10,7 +10,7 @@ pub fn demangle_any(name: &str) -> String {
             | DemangleFlags::NO_CLASS_TYPE
             | DemangleFlags::SPACE_AFTER_COMMA
             | DemangleFlags::HUG_TYPE;
-        return msvc_demangler::demangle(&name, flags).unwrap_or_else(|_| name.to_string());
+        return msvc_demangler::demangle(name, flags).unwrap_or_else(|_| name.to_string());
     }
     if let Ok(demangled_symbol) = rustc_demangle::try_demangle(name) {
         return format!("{:#}", demangled_symbol);

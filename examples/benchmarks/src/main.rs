@@ -51,216 +51,211 @@ fn main() -> anyhow::Result<()> {
         FileType::Gzip,
     )?;
 
-    let mut timings = Vec::new();
-
-    // Windows
-    timings.push(Timing {
-        platform: "win64",
-        action: "dump-table",
-        duration: run_dump_table_benchmark(
-            "xul.pdb",
-            Some("4C8C9680FAECFDC64C4C44205044422E1".into()),
-            big_fixtures_dir().join("win64-ci"),
-        ),
-    });
-    timings.push(Timing {
-        platform: "win64",
-        action: "query-api v5",
-        duration: run_api_query_benchmark(
-            "/symbolicate/v5",
-            &fixtures_dir().join("requests").join("win64-ci-xul.json"),
-            big_fixtures_dir().join("win64-ci"),
-        )?,
-    });
-    timings.push(Timing {
-        platform: "win64",
-        action: "query-api v6a1",
-        duration: run_api_query_benchmark(
-            "/symbolicate/v6a1",
-            &fixtures_dir().join("requests").join("win64-ci-xul.json"),
-            big_fixtures_dir().join("win64-ci"),
-        )?,
-    });
-    timings.push(Timing {
-        platform: "win64-local",
-        action: "dump-table",
-        duration: run_dump_table_benchmark(
-            "xul.pdb",
-            Some("518A025063D22EEA4C4C44205044422E1".into()),
-            big_fixtures_dir().join("win64-local"),
-        ),
-    });
-    timings.push(Timing {
-        platform: "win64-local",
-        action: "query-api v5",
-        duration: run_api_query_benchmark(
-            "/symbolicate/v5",
-            &fixtures_dir().join("requests").join("win64-local-xul.json"),
-            big_fixtures_dir().join("win64-local"),
-        )?,
-    });
-    timings.push(Timing {
-        platform: "win64-local",
-        action: "query-api v6a1",
-        duration: run_api_query_benchmark(
-            "/symbolicate/v6a1",
-            &fixtures_dir().join("requests").join("win64-local-xul.json"),
-            big_fixtures_dir().join("win64-local"),
-        )?,
-    });
-
-    // macOS
-    timings.push(Timing {
-        platform: "macos",
-        action: "dump-table",
-        duration: run_dump_table_benchmark(
-            "XUL",
-            Some("D2139EE3190B37028A98D55519AA0B870".into()),
-            big_fixtures_dir().join("macos-ci"),
-        ),
-    });
-    timings.push(Timing {
-        platform: "macos",
-        action: "query-api v5",
-        duration: run_api_query_benchmark(
-            "/symbolicate/v5",
-            &fixtures_dir().join("requests").join("macos-ci-xul.json"),
-            big_fixtures_dir().join("macos-ci"),
-        )?,
-    });
-    timings.push(Timing {
-        platform: "macos",
-        action: "query-api v6a1",
-        duration: run_api_query_benchmark(
-            "/symbolicate/v6a1",
-            &fixtures_dir().join("requests").join("macos-ci-xul.json"),
-            big_fixtures_dir().join("macos-ci"),
-        )?,
-    });
-
-    // macOS, local with object files referenced by OSO stab symbols
-    timings.push(Timing {
-        platform: "macos-local",
-        action: "dump-table",
-        duration: run_dump_table_benchmark(
-            "XUL",
-            Some("D2139EE3190B37028A98D55519AA0B870".into()),
-            big_fixtures_dir().join("macos-local"),
-        ),
-    });
-    timings.push(Timing {
-        platform: "macos-local",
-        action: "query-api v5",
-        duration: run_api_query_benchmark(
-            "/symbolicate/v5",
-            &fixtures_dir().join("requests").join("macos-local-xul.json"),
-            big_fixtures_dir().join("macos-local"),
-        )?,
-    });
-    timings.push(Timing {
-        platform: "macos-local",
-        action: "query-api v6a1",
-        duration: run_api_query_benchmark(
-            "/symbolicate/v6a1",
-            &fixtures_dir().join("requests").join("macos-local-xul.json"),
-            big_fixtures_dir().join("macos-local"),
-        )?,
-    });
-
-    // Linux
-    timings.push(Timing {
-        platform: "linux64",
-        action: "dump-table",
-        duration: run_dump_table_benchmark(
-            "libxul.so",
-            Some("F33E37832964290A31906802CE8F3C9C0".into()),
-            big_fixtures_dir().join("linux64-ci"),
-        ),
-    });
-    timings.push(Timing {
-        platform: "linux64",
-        action: "query-api v5",
-        duration: run_api_query_benchmark(
-            "/symbolicate/v5",
-            &fixtures_dir().join("requests").join("linux64-ci-xul.json"),
-            big_fixtures_dir().join("linux64-ci"),
-        )?,
-    });
-    timings.push(Timing {
-        platform: "linux64",
-        action: "query-api v6a1",
-        duration: run_api_query_benchmark(
-            "/symbolicate/v6a1",
-            &fixtures_dir().join("requests").join("linux64-ci-xul.json"),
-            big_fixtures_dir().join("linux64-ci"),
-        )?,
-    });
-
-    // Android 32 bit
-    timings.push(Timing {
-        platform: "android32",
-        action: "dump-table",
-        duration: run_dump_table_benchmark(
-            "libxul.so",
-            Some("CA89B171348FDEF3A6A365AC6CDF07BF0".into()),
-            big_fixtures_dir().join("android32-ci"),
-        ),
-    });
-    timings.push(Timing {
-        platform: "android32",
-        action: "query-api v5",
-        duration: run_api_query_benchmark(
-            "/symbolicate/v5",
-            &fixtures_dir()
-                .join("requests")
-                .join("android32-ci-xul.json"),
-            big_fixtures_dir().join("android32-ci"),
-        )?,
-    });
-    timings.push(Timing {
-        platform: "android32",
-        action: "query-api v6a1",
-        duration: run_api_query_benchmark(
-            "/symbolicate/v6a1",
-            &fixtures_dir()
-                .join("requests")
-                .join("android32-ci-xul.json"),
-            big_fixtures_dir().join("android32-ci"),
-        )?,
-    });
-
-    // Android 64 bit
-    timings.push(Timing {
-        platform: "android64",
-        action: "dump-table",
-        duration: run_dump_table_benchmark(
-            "libxul.so",
-            Some("B560E04259EBFBB96D6D6BB5D69F0DCE0".into()),
-            big_fixtures_dir().join("android64-ci"),
-        ),
-    });
-    timings.push(Timing {
-        platform: "android64",
-        action: "query-api v5",
-        duration: run_api_query_benchmark(
-            "/symbolicate/v5",
-            &fixtures_dir()
-                .join("requests")
-                .join("android64-ci-xul.json"),
-            big_fixtures_dir().join("android64-ci"),
-        )?,
-    });
-    timings.push(Timing {
-        platform: "android64",
-        action: "query-api v6a1",
-        duration: run_api_query_benchmark(
-            "/symbolicate/v6a1",
-            &fixtures_dir()
-                .join("requests")
-                .join("android64-ci-xul.json"),
-            big_fixtures_dir().join("android64-ci"),
-        )?,
-    });
+    let timings = vec![
+        // Windows
+        Timing {
+            platform: "win64",
+            action: "dump-table",
+            duration: run_dump_table_benchmark(
+                "xul.pdb",
+                Some("4C8C9680FAECFDC64C4C44205044422E1".into()),
+                big_fixtures_dir().join("win64-ci"),
+            ),
+        },
+        Timing {
+            platform: "win64",
+            action: "query-api v5",
+            duration: run_api_query_benchmark(
+                "/symbolicate/v5",
+                &fixtures_dir().join("requests").join("win64-ci-xul.json"),
+                big_fixtures_dir().join("win64-ci"),
+            )?,
+        },
+        Timing {
+            platform: "win64",
+            action: "query-api v6a1",
+            duration: run_api_query_benchmark(
+                "/symbolicate/v6a1",
+                &fixtures_dir().join("requests").join("win64-ci-xul.json"),
+                big_fixtures_dir().join("win64-ci"),
+            )?,
+        },
+        Timing {
+            platform: "win64-local",
+            action: "dump-table",
+            duration: run_dump_table_benchmark(
+                "xul.pdb",
+                Some("518A025063D22EEA4C4C44205044422E1".into()),
+                big_fixtures_dir().join("win64-local"),
+            ),
+        },
+        Timing {
+            platform: "win64-local",
+            action: "query-api v5",
+            duration: run_api_query_benchmark(
+                "/symbolicate/v5",
+                &fixtures_dir().join("requests").join("win64-local-xul.json"),
+                big_fixtures_dir().join("win64-local"),
+            )?,
+        },
+        Timing {
+            platform: "win64-local",
+            action: "query-api v6a1",
+            duration: run_api_query_benchmark(
+                "/symbolicate/v6a1",
+                &fixtures_dir().join("requests").join("win64-local-xul.json"),
+                big_fixtures_dir().join("win64-local"),
+            )?,
+        },
+        // macOS
+        Timing {
+            platform: "macos",
+            action: "dump-table",
+            duration: run_dump_table_benchmark(
+                "XUL",
+                Some("D2139EE3190B37028A98D55519AA0B870".into()),
+                big_fixtures_dir().join("macos-ci"),
+            ),
+        },
+        Timing {
+            platform: "macos",
+            action: "query-api v5",
+            duration: run_api_query_benchmark(
+                "/symbolicate/v5",
+                &fixtures_dir().join("requests").join("macos-ci-xul.json"),
+                big_fixtures_dir().join("macos-ci"),
+            )?,
+        },
+        Timing {
+            platform: "macos",
+            action: "query-api v6a1",
+            duration: run_api_query_benchmark(
+                "/symbolicate/v6a1",
+                &fixtures_dir().join("requests").join("macos-ci-xul.json"),
+                big_fixtures_dir().join("macos-ci"),
+            )?,
+        },
+        // macOS, local with object files referenced by OSO stab symbols
+        Timing {
+            platform: "macos-local",
+            action: "dump-table",
+            duration: run_dump_table_benchmark(
+                "XUL",
+                Some("D2139EE3190B37028A98D55519AA0B870".into()),
+                big_fixtures_dir().join("macos-local"),
+            ),
+        },
+        Timing {
+            platform: "macos-local",
+            action: "query-api v5",
+            duration: run_api_query_benchmark(
+                "/symbolicate/v5",
+                &fixtures_dir().join("requests").join("macos-local-xul.json"),
+                big_fixtures_dir().join("macos-local"),
+            )?,
+        },
+        Timing {
+            platform: "macos-local",
+            action: "query-api v6a1",
+            duration: run_api_query_benchmark(
+                "/symbolicate/v6a1",
+                &fixtures_dir().join("requests").join("macos-local-xul.json"),
+                big_fixtures_dir().join("macos-local"),
+            )?,
+        },
+        // Linux
+        Timing {
+            platform: "linux64",
+            action: "dump-table",
+            duration: run_dump_table_benchmark(
+                "libxul.so",
+                Some("F33E37832964290A31906802CE8F3C9C0".into()),
+                big_fixtures_dir().join("linux64-ci"),
+            ),
+        },
+        Timing {
+            platform: "linux64",
+            action: "query-api v5",
+            duration: run_api_query_benchmark(
+                "/symbolicate/v5",
+                &fixtures_dir().join("requests").join("linux64-ci-xul.json"),
+                big_fixtures_dir().join("linux64-ci"),
+            )?,
+        },
+        Timing {
+            platform: "linux64",
+            action: "query-api v6a1",
+            duration: run_api_query_benchmark(
+                "/symbolicate/v6a1",
+                &fixtures_dir().join("requests").join("linux64-ci-xul.json"),
+                big_fixtures_dir().join("linux64-ci"),
+            )?,
+        },
+        // Android 32 bit
+        Timing {
+            platform: "android32",
+            action: "dump-table",
+            duration: run_dump_table_benchmark(
+                "libxul.so",
+                Some("CA89B171348FDEF3A6A365AC6CDF07BF0".into()),
+                big_fixtures_dir().join("android32-ci"),
+            ),
+        },
+        Timing {
+            platform: "android32",
+            action: "query-api v5",
+            duration: run_api_query_benchmark(
+                "/symbolicate/v5",
+                &fixtures_dir()
+                    .join("requests")
+                    .join("android32-ci-xul.json"),
+                big_fixtures_dir().join("android32-ci"),
+            )?,
+        },
+        Timing {
+            platform: "android32",
+            action: "query-api v6a1",
+            duration: run_api_query_benchmark(
+                "/symbolicate/v6a1",
+                &fixtures_dir()
+                    .join("requests")
+                    .join("android32-ci-xul.json"),
+                big_fixtures_dir().join("android32-ci"),
+            )?,
+        },
+        // Android 64 bit
+        Timing {
+            platform: "android64",
+            action: "dump-table",
+            duration: run_dump_table_benchmark(
+                "libxul.so",
+                Some("B560E04259EBFBB96D6D6BB5D69F0DCE0".into()),
+                big_fixtures_dir().join("android64-ci"),
+            ),
+        },
+        Timing {
+            platform: "android64",
+            action: "query-api v5",
+            duration: run_api_query_benchmark(
+                "/symbolicate/v5",
+                &fixtures_dir()
+                    .join("requests")
+                    .join("android64-ci-xul.json"),
+                big_fixtures_dir().join("android64-ci"),
+            )?,
+        },
+        Timing {
+            platform: "android64",
+            action: "query-api v6a1",
+            duration: run_api_query_benchmark(
+                "/symbolicate/v6a1",
+                &fixtures_dir()
+                    .join("requests")
+                    .join("android64-ci-xul.json"),
+                big_fixtures_dir().join("android64-ci"),
+            )?,
+        },
+    ];
 
     eprintln!();
     eprintln!("Results:");
@@ -400,17 +395,15 @@ fn prepare(local_path: PathBuf, download_url: &str, ftype: FileType) -> anyhow::
             // structure is what we expect.
             let mut archive = Archive::new(tar);
             let mut roots: HashSet<OsString> = HashSet::new();
-            for entry in archive.entries()? {
-                if let Ok(mut entry) = entry {
-                    let path = entry.path()?;
-                    let root = path.components().next().unwrap();
-                    if let std::path::Component::Normal(root) = root {
-                        roots.insert(root.into());
-                    } else {
-                        panic!("weird path component in bz2: {:?}", root);
-                    }
-                    entry.unpack_in(&dir)?;
+            for mut entry in (archive.entries()?).flatten() {
+                let path = entry.path()?;
+                let root = path.components().next().unwrap();
+                if let std::path::Component::Normal(root) = root {
+                    roots.insert(root.into());
+                } else {
+                    panic!("weird path component in bz2: {:?}", root);
                 }
+                entry.unpack_in(&dir)?;
             }
             eprintln!(" done.");
             // This created a directory structure. Make sure that there's only

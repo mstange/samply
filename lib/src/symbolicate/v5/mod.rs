@@ -147,14 +147,14 @@ fn create_response(
             .and_then(|symbol_map| {
                 // If we have a symbol table for this library, then we know that
                 // this address is present in it.
-                if let Some(address_result) = symbol_map.get(&frame.address).unwrap() {
-                    Some(Symbol {
+                symbol_map
+                    .get(&frame.address)
+                    .unwrap()
+                    .as_ref()
+                    .map(|address_result| Symbol {
                         function: address_result.symbol_name.clone(),
                         function_offset: frame.address - address_result.symbol_address,
                     })
-                } else {
-                    None
-                }
             });
         StackFrame {
             frame: frame_index,

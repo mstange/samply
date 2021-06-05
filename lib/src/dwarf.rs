@@ -95,13 +95,7 @@ fn convert_stack_frame<R: gimli::Reader>(frame: addr2line::Frame<R>) -> InlineSt
         None => None,
     };
     let file_path = match &frame.location {
-        Some(location) => {
-            if let Some(file) = location.file {
-                Some(file.to_owned())
-            } else {
-                None
-            }
-        }
+        Some(location) => location.file.map(|file| file.to_owned()),
         None => None,
     };
 
