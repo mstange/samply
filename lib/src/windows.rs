@@ -3,8 +3,7 @@ use crate::shared::{
     object_to_map, AddressDebugInfo, FileAndPathHelper, FileContents, FileContentsWrapper,
     InlineStackFrame, SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
 };
-use pdb::{FallibleIterator, PublicSymbol, SymbolData, PDB};
-use std::collections::BTreeMap;
+use pdb::PDB;
 use std::io::Cursor;
 use std::{borrow::Cow, path::Path};
 
@@ -136,49 +135,23 @@ where
         ));
     }
 
-    // Now, gather the symbols into a hashmap.
-    let addr_map = pdb.address_map().context("address_map")?;
-
-    // Start with the public function symbols.
-    let global_symbols = pdb.global_symbols().context("global_symbols")?;
-    let mut symbol_map: BTreeMap<_, _> = global_symbols
-        .iter()
-        .filter_map(|symbol| {
-            Ok(match symbol.parse() {
-                Ok(SymbolData::Public(PublicSymbol {
-                    function: true,
-                    name,
-                    offset,
-                    ..
-                })) => {
-                    if let Some(rva) = offset.to_rva(&addr_map) {
-                        Some((rva.0, name.to_string()))
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            })
-        })
-        .collect()?;
-
-    // Add Procedure symbols from the modules.
     let context_data = pdb_addr2line::ContextPdbData::try_from_pdb(&mut pdb)
         .context("ContextConstructionData::try_from_pdb")?;
     let context = context_data.make_context().context("make_context()")?;
 
     match R::result_kind() {
         SymbolicationResultKind::AllSymbols => {
-            for procedure in context.iter_procedures() {
-                let symbol_address = procedure.start_rva;
-                let symbol_name = match procedure.function {
-                    Some(name) => name,
-                    None => "unknown".to_string(),
-                };
-                symbol_map
-                    .entry(symbol_address)
-                    .or_insert_with(|| Cow::from(symbol_name));
-            }
+            // Gather the symbols into a map.
+            let symbol_map = context
+                .functions()
+                .map(|func| {
+                    let symbol_name = match func.function {
+                        Some(name) => name,
+                        None => "unknown".to_string(),
+                    };
+                    (func.start_rva, Cow::from(symbol_name))
+                })
+                .collect();
             let symbolication_result = R::from_full_map(symbol_map, addresses);
             Ok(symbolication_result)
         }
@@ -186,9 +159,9 @@ where
             let mut symbolication_result = R::for_addresses(addresses);
             for &address in addresses {
                 if with_debug_info {
-                    if let Some(procedure_frames) = context.find_frames(address)? {
-                        let symbol_address = procedure_frames.start_rva;
-                        let symbol_name = match &procedure_frames.frames.last().unwrap().function {
+                    if let Some(function_frames) = context.find_frames(address)? {
+                        let symbol_address = function_frames.start_rva;
+                        let symbol_name = match &function_frames.frames.last().unwrap().function {
                             Some(name) => name,
                             None => "unknown",
                         };
@@ -197,13 +170,19 @@ where
                             symbol_address,
                             symbol_name,
                         );
-                        let frames: Vec<_> = procedure_frames
-                            .frames
-                            .into_iter()
-                            .map(convert_stack_frame)
-                            .collect();
-                        symbolication_result
-                            .add_address_debug_info(address, AddressDebugInfo { frames });
+                        if has_debug_info(&function_frames) {
+                            let frames: Vec<_> = function_frames
+                                .frames
+                                .into_iter()
+                                .map(|frame| InlineStackFrame {
+                                    function: frame.function,
+                                    file_path: frame.file.map(|s| s.to_string()),
+                                    line_number: frame.line,
+                                })
+                                .collect();
+                            symbolication_result
+                                .add_address_debug_info(address, AddressDebugInfo { frames });
+                        }
                     }
                 } else if let Some(procedure) = context.find_procedure(address)? {
                     let symbol_address = procedure.start_rva;
@@ -214,18 +193,19 @@ where
                     symbolication_result.add_address_symbol(address, symbol_address, symbol_name);
                 }
             }
-            let total_symbol_count = symbol_map.len() + context.procedure_count();
-            symbolication_result.set_total_symbol_count(total_symbol_count as u32);
+            symbolication_result.set_total_symbol_count(context.function_count() as u32);
             Ok(symbolication_result)
         }
     }
 }
 
-fn convert_stack_frame(frame: pdb_addr2line::Frame<'_>) -> InlineStackFrame {
-    InlineStackFrame {
-        function: frame.function,
-        file_path: frame.file.map(|s| s.to_string()),
-        line_number: frame.line,
+fn has_debug_info(func: &pdb_addr2line::FunctionFrames) -> bool {
+    if func.frames.len() > 1 {
+        true
+    } else if func.frames.is_empty() {
+        false
+    } else {
+        func.frames[0].file.is_some() || func.frames[0].line.is_some()
     }
 }
 

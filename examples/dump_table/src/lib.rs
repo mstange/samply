@@ -227,7 +227,7 @@ mod test {
             std::str::from_utf8(
                 &result.buffer[result.index[454] as usize..result.index[455] as usize]
             ),
-            Ok("?profiler_get_profile@baseprofiler@mozilla@@YA?AV?$UniquePtr@$$BY0A@DV?$DefaultDelete@$$BY0A@D@mozilla@@@2@N_N0@Z")
+            Ok("mozilla::baseprofiler::profiler_get_profile(double, bool, bool)")
         );
     }
 
