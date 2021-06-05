@@ -58,7 +58,7 @@ struct MDQuery(MDQueryRef);
 
 impl MDQuery {
     pub fn create(query_string: &str) -> Result<MDQuery, Error> {
-        let cf_query_string = CFString::new(&query_string);
+        let cf_query_string = CFString::new(query_string);
         let query = unsafe {
             MDQueryCreate(
                 kCFAllocatorDefault,
