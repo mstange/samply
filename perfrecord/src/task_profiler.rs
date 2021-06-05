@@ -121,7 +121,7 @@ impl TaskProfiler {
         }
         let dead_threads = previously_live_threads.difference(&now_live_threads);
         for thread_act in dead_threads {
-            let mut thread = self.live_threads.remove(&thread_act).unwrap();
+            let mut thread = self.live_threads.remove(thread_act).unwrap();
             thread.notify_dead(now);
             self.dead_threads.push(thread);
         }
@@ -168,7 +168,7 @@ impl TaskProfiler {
             };
             let name = Path::new(&file).file_name().unwrap().to_str().unwrap();
             let address_range = address..(address + vmsize);
-            profile_builder.add_lib(&name, &file, &uuid, arch, &address_range);
+            profile_builder.add_lib(name, &file, &uuid, arch, &address_range);
         }
 
         for subtask in subtasks {

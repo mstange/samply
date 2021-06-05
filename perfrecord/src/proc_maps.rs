@@ -176,13 +176,11 @@ fn enumerate_dyld_images(
     dyld_image_path: u64,
 ) -> kernel_error::Result<Vec<DyldInfo>> {
     // Adapted from rbspy and from the Gecko profiler's shared-libraries-macos.cc.
-    let mut vec = Vec::new();
-
-    vec.push(get_dyld_image_info(
+    let mut vec = vec![get_dyld_image_info(
         memory,
         dyld_image_load_addr,
         dyld_image_path,
-    )?);
+    )?];
 
     for image_index in 0..info_array_count {
         let (image_load_address, image_file_path) = {
