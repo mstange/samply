@@ -31,29 +31,30 @@ use task_profiler::TaskProfiler;
 #[structopt(
     name = "perfrecord",
     about = r#"
-Run a command, record a CPU profile of its execution, and open the profiler.
-
-By default, perfrecord launches the profiler at the end of execution.
+perfrecord is a sampling CPU profiler.
+Run a command, record a CPU profile of its execution, and open the profiler UI.
 
 EXAMPLES:
+    # Default usage:
     perfrecord ./yourcommand yourargs
+
+    # Alternative usage: Save profile to file for later viewing, and then load it.
     perfrecord --save-only -o prof.json ./yourcommand yourargs
     perfrecord --load prof.json
 "#
 )]
 struct Opt {
-    /// Do not open the profiler after recording, only run the server.
+    /// Do not open the profiler UI.
     #[structopt(short, long = "no-open")]
     no_open: bool,
 
-    /// Only save the recorded profile to a file, and then exit.
-    /// The file can be opened in the profiler using perfrecord --load filename.
+    /// Do not run a local server after recording.
     #[structopt(short, long = "save-only")]
     save_only: bool,
 
-    /// Sampling interval, in seconds
-    #[structopt(short = "i", long = "interval", default_value = "0.001")]
-    interval: f64,
+    /// Sampling frequency, in Hz
+    #[structopt(short, long, default_value = "1000")]
+    frequency: f64,
 
     /// Limit the recorded time to the specified number of seconds
     #[structopt(short = "t", long = "time-limit")]
@@ -76,7 +77,7 @@ struct Opt {
     #[structopt(subcommand)]
     rest: Option<Subcommands>,
 
-    /// Don't record. Instead, load the specified file in the profiler, using your default browser.
+    /// Don't record. Instead, load the specified file in the profiler.
     #[structopt(short = "l", long = "load", parse(from_os_str))]
     load: Option<PathBuf>,
 }
@@ -97,7 +98,14 @@ fn main() -> Result<(), MachError> {
     if let Some(Subcommands::Command(command)) = opt.rest {
         if !command.is_empty() {
             let time_limit = opt.time_limit.map(Duration::from_secs_f64);
-            let interval = Duration::from_secs_f64(opt.interval);
+            if opt.frequency <= 0.0 {
+                eprintln!(
+                    "Error: sampling frequency must be greater than zero, got {}",
+                    opt.frequency
+                );
+                std::process::exit(1);
+            }
+            let interval = Duration::from_secs_f64(1.0 / opt.frequency);
             let exit_status = start_recording(
                 &opt.output_file,
                 opt.port,
@@ -110,8 +118,9 @@ fn main() -> Result<(), MachError> {
             std::process::exit(exit_status.code().unwrap_or(0));
         }
     }
-    println!("Error: missing command\n");
+    eprintln!("Error: missing command\n");
     Opt::clap().print_help().unwrap();
+    println!();
     std::process::exit(1);
 }
 
