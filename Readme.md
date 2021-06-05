@@ -23,7 +23,7 @@ symbols on the [Mozilla symbol server](https://symbols.mozilla.org/).
 
 ## Documentation
 
-Documentation can be found at [https://docs.rs/profiler-get-symbols/].
+Documentation can be found at [https://docs.rs/profiler-get-symbols/](https://docs.rs/profiler-get-symbols/).
 
 ## Running / Testing
 
