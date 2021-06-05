@@ -370,8 +370,21 @@ pub fn get_backtrace(
     })
 }
 
+#[cfg(target_arch = "aarch64")]
+/// On macOS arm64, system libraries are arm64e binaries, and arm64e can do pointer authentication:
+/// The low bits of the pointer are the actual pointer value, and the high bits are an encrypted hash.
+/// During stackwalking, we need to strip off this hash.
+/// I don't know of an easy way to get the correct mask dynamically - all the potential functions
+/// I've seen for this are no-ops when called from regular arm64 code.
+/// So for now, we hardcode a mask that seems to work today, and worry about it if it stops working.
+/// 24 bits hash + 40 bits pointer
+const PTR_MASK: u64 = (1 << 40) - 1;
+
+#[cfg(not(target_arch = "aarch64"))]
+const PTR_MASK: u64 = !1;
+
 fn do_frame_pointer_stackwalk(ip: u64, bp: u64, memory: &mut ForeignMemory, frames: &mut Vec<u64>) {
-    frames.push(ip);
+    frames.push(ip & PTR_MASK);
 
     // Do a frame pointer stack walk. Code that is compiled with frame pointers
     // has the following function prologues and epilogues:
@@ -413,10 +426,10 @@ fn do_frame_pointer_stackwalk(ip: u64, bp: u64, memory: &mut ForeignMemory, fram
     // }
     // and rbp is a *const CallFrameInfo.
 
-    let mut frame_ptr = bp;
+    let mut frame_ptr = bp & PTR_MASK;
     while frame_ptr != 0 && (frame_ptr & 7) == 0 {
         let caller_frame_ptr = match memory.read_u64_at_address(frame_ptr) {
-            Ok(val) => val,
+            Ok(val) => val & PTR_MASK,
             Err(_) => break, // usually KernelError::InvalidAddress
         };
         // The stack grows towards lower addresses, so the caller frame will always
@@ -426,7 +439,7 @@ fn do_frame_pointer_stackwalk(ip: u64, bp: u64, memory: &mut ForeignMemory, fram
             break;
         }
         let return_address = match memory.read_u64_at_address(frame_ptr + 8) {
-            Ok(val) => val,
+            Ok(val) => val & PTR_MASK,
             Err(_) => break, // usually KernelError::InvalidAddress
         };
         frames.push(return_address);
