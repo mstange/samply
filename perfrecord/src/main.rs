@@ -30,18 +30,26 @@ use task_profiler::TaskProfiler;
 #[derive(Debug, StructOpt)]
 #[structopt(
     name = "perfrecord",
-    about = r#"Run a command and record a CPU profile of its execution.
+    about = r#"
+Run a command, record a CPU profile of its execution, and open the profiler.
+
+By default, perfrecord launches the profiler at the end of execution.
 
 EXAMPLES:
-    perfrecord ./yourcommand args
-    perfrecord --launch-when-done ./yourcommand args
-    perfrecord -o prof.json ./yourcommand args
-    perfrecord --launch prof.json"#
+    perfrecord ./yourcommand yourargs
+    perfrecord --save-only -o prof.json ./yourcommand yourargs
+    perfrecord --load prof.json
+"#
 )]
 struct Opt {
-    /// Launch the profiler after recording and display the collected profile.
-    #[structopt(long = "launch-when-done")]
-    launch_when_done: bool,
+    /// Do not open the profiler after recording, only run the server.
+    #[structopt(short, long = "no-open")]
+    no_open: bool,
+
+    /// Only save the recorded profile to a file, and then exit.
+    /// The file can be opened in the profiler using perfrecord --load filename.
+    #[structopt(short, long = "save-only")]
+    save_only: bool,
 
     /// Sampling interval, in seconds
     #[structopt(short = "i", long = "interval", default_value = "0.001")]
@@ -64,17 +72,13 @@ struct Opt {
     )]
     output_file: PathBuf,
 
-    /// If neither --launch nor --serve are specified, profile this command.
+    /// Profile the execution of this command. Ignored if --load is specified.
     #[structopt(subcommand)]
     rest: Option<Subcommands>,
 
-    /// Don't record. Instead, launch the profiler with the selected file in your default browser.
-    #[structopt(short = "l", long = "launch", parse(from_os_str))]
-    file_to_launch: Option<PathBuf>,
-
-    /// Don't record. Instead, serve the selected file from a local webserver.
-    #[structopt(short = "s", long = "serve", parse(from_os_str))]
-    file_to_serve: Option<PathBuf>,
+    /// Don't record. Instead, load the specified file in the profiler, using your default browser.
+    #[structopt(short = "l", long = "load", parse(from_os_str))]
+    load: Option<PathBuf>,
 }
 
 #[derive(Debug, PartialEq, StructOpt)]
@@ -85,9 +89,8 @@ enum Subcommands {
 
 fn main() -> Result<(), MachError> {
     let opt = Opt::from_args();
-    let open_in_browser = opt.file_to_launch.is_some();
-    let file_for_launching_or_serving = opt.file_to_launch.or(opt.file_to_serve);
-    if let Some(file) = file_for_launching_or_serving {
+    let open_in_browser = !opt.no_open;
+    if let Some(file) = opt.load {
         start_server_main(&file, opt.port, open_in_browser);
         return Ok(());
     }
@@ -101,7 +104,8 @@ fn main() -> Result<(), MachError> {
                 &command,
                 time_limit,
                 interval,
-                opt.launch_when_done,
+                !opt.save_only,
+                open_in_browser,
             )?;
             std::process::exit(exit_status.code().unwrap_or(0));
         }
@@ -122,7 +126,8 @@ fn start_recording(
     args: &[String],
     time_limit: Option<Duration>,
     interval: Duration,
-    launch_when_done: bool,
+    serve_when_done: bool,
+    open_in_browser: bool,
 ) -> Result<ExitStatus, MachError> {
     let (saver_sender, saver_receiver) = unbounded();
     let output_file = output_file.to_owned();
@@ -132,8 +137,8 @@ fn start_recording(
         to_writer(file, &profile_builder.to_json()).expect("Couldn't write JSON");
 
         // Reuse the saver thread as the server thread.
-        if launch_when_done {
-            start_server_main(&output_file, port, true);
+        if serve_when_done {
+            start_server_main(&output_file, port, open_in_browser);
         }
     });
 
