@@ -50,7 +50,7 @@ struct Opt {
     time_limit: Option<f64>,
 
     /// The port to use for the local web server
-    #[structopt(short, long, default_value = "300")]
+    #[structopt(short, long, default_value = "3000")]
     port: u16,
 
     /// Save the collected profile to this file.
