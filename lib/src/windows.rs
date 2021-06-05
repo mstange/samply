@@ -145,7 +145,7 @@ where
             let symbol_map = context
                 .functions()
                 .map(|func| {
-                    let symbol_name = match func.function {
+                    let symbol_name = match func.name {
                         Some(name) => name,
                         None => "unknown".to_string(),
                     };
@@ -184,9 +184,9 @@ where
                                 .add_address_debug_info(address, AddressDebugInfo { frames });
                         }
                     }
-                } else if let Some(procedure) = context.find_procedure(address)? {
-                    let symbol_address = procedure.start_rva;
-                    let symbol_name = match &procedure.function {
+                } else if let Some(func) = context.find_function(address)? {
+                    let symbol_address = func.start_rva;
+                    let symbol_name = match &func.name {
                         Some(name) => name,
                         None => "unknown",
                     };
