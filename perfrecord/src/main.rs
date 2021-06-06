@@ -2,6 +2,7 @@ use crossbeam_channel::unbounded;
 use profiler_symbol_server::{start_server, PortSelection};
 use serde_json::to_writer;
 use std::fs::File;
+use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
 use std::sync::atomic::AtomicBool;
@@ -175,7 +176,8 @@ fn start_recording(
     let saver_thread = thread::spawn(move || {
         let profile_builder: ProfileBuilder = saver_receiver.recv().expect("saver couldn't recv");
         let file = File::create(&output_file).unwrap();
-        to_writer(file, &profile_builder.to_json()).expect("Couldn't write JSON");
+        let writer = BufWriter::new(file);
+        to_writer(writer, &profile_builder.to_json()).expect("Couldn't write JSON");
 
         // Reuse the saver thread as the server thread.
         if serve_when_done {
