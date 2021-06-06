@@ -194,11 +194,25 @@ impl ThreadBuilder {
         self.index
     }
 
-    pub fn add_sample(&mut self, timestamp: f64, frames: &[u64], cpu_delta: u64) {
+    pub fn add_sample(&mut self, timestamp: f64, frames: &[u64], cpu_delta: u64) -> Option<usize> {
         let stack_index = self.stack_index_for_frames(frames);
         self.samples.0.push(Sample {
             timestamp,
             stack_index,
+            cpu_delta,
+        });
+        stack_index
+    }
+
+    pub fn add_sample_same_stack(
+        &mut self,
+        timestamp: f64,
+        previous_stack: Option<usize>,
+        cpu_delta: u64,
+    ) {
+        self.samples.0.push(Sample {
+            timestamp,
+            stack_index: previous_stack,
             cpu_delta,
         });
     }

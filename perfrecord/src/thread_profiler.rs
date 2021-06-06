@@ -27,6 +27,7 @@ pub struct ThreadProfiler {
     tick_count: usize,
     stack_memory: ForeignMemory,
     previous_sample_cpu_time: u64,
+    previous_stack: Option<Option<usize>>,
 }
 
 impl ThreadProfiler {
@@ -61,6 +62,7 @@ impl ThreadProfiler {
             tick_count: 0,
             stack_memory: ForeignMemory::new(task),
             previous_sample_cpu_time: 0,
+            previous_stack: None,
         }))
     }
 
@@ -84,22 +86,42 @@ impl ThreadProfiler {
             }
         }
 
+        let timestamp = now.duration_since(self.process_start).as_secs_f64() * 1000.0;
         let cpu_time = get_thread_cpu_time(self.thread_act)?;
         let cpu_time = cpu_time.0 + cpu_time.1;
         let cpu_delta = cpu_time.wrapping_sub(self.previous_sample_cpu_time);
 
-        self.stack_scratch_space.clear();
-        get_backtrace(
-            &mut self.stack_memory,
-            self.thread_act,
-            &mut self.stack_scratch_space,
-        )?;
+        if cpu_delta != 0 || self.previous_stack.is_none() {
+            self.stack_scratch_space.clear();
+            get_backtrace(
+                &mut self.stack_memory,
+                self.thread_act,
+                &mut self.stack_scratch_space,
+            )?;
 
-        self.thread_builder.add_sample(
-            now.duration_since(self.process_start).as_secs_f64() * 1000.0,
-            &self.stack_scratch_space,
-            cpu_delta,
-        );
+            let stack =
+                self.thread_builder
+                    .add_sample(timestamp, &self.stack_scratch_space, cpu_delta);
+            self.previous_stack = Some(stack);
+        } else if let Some(previous_stack) = self.previous_stack {
+            // No CPU time elapsed since just before the last time we grabbed a stack.
+            // Assume that the thread has done literally zero work and could not have changed
+            // its stack. This considerably reduces the overhead from sampling idle threads.
+            //
+            // More specifically, we hit this path after the following order of events
+            //  - sample n-1:
+            //     - query cpu time, call it A
+            //     - pause the thread
+            //     - walk the stack
+            //     - resume the thread
+            //  - sleep till next sample
+            //  - sample n:
+            //     - query cpu time, notice it is still the same as A
+            //     - add_sample_same_stack with stack from previous sample
+            //
+            self.thread_builder
+                .add_sample_same_stack(timestamp, previous_stack, cpu_delta);
+        }
 
         self.previous_sample_cpu_time = cpu_time;
 
