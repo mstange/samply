@@ -1,5 +1,5 @@
 use crossbeam_channel::unbounded;
-use profiler_symbol_server::start_server;
+use profiler_symbol_server::{start_server, PortSelection};
 use serde_json::to_writer;
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -61,8 +61,12 @@ struct Opt {
     time_limit: Option<f64>,
 
     /// The port to use for the local web server
-    #[structopt(short, long, default_value = "3000")]
-    port: u16,
+    #[structopt(short, long, default_value = "3000+")]
+    port: String,
+
+    /// Print debugging output.
+    #[structopt(short, long)]
+    verbose: bool,
 
     /// Save the collected profile to this file.
     #[structopt(
@@ -91,8 +95,23 @@ enum Subcommands {
 fn main() -> Result<(), MachError> {
     let opt = Opt::from_args();
     let open_in_browser = !opt.no_open;
+    let port_selection = match PortSelection::try_from_str(&opt.port) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!(
+                "Could not parse port as <u16> or <u16>+, got port {}, error: {}",
+                opt.port, e
+            );
+            std::process::exit(1)
+        }
+    };
+    let server_props = ServerProps {
+        port_selection,
+        verbose: opt.verbose,
+        open_in_browser,
+    };
     if let Some(file) = opt.load {
-        start_server_main(&file, opt.port, open_in_browser);
+        start_server_main(&file, server_props);
         return Ok(());
     }
     if let Some(Subcommands::Command(command)) = opt.rest {
@@ -108,12 +127,11 @@ fn main() -> Result<(), MachError> {
             let interval = Duration::from_secs_f64(1.0 / opt.frequency);
             let exit_status = start_recording(
                 &opt.output_file,
-                opt.port,
                 &command,
                 time_limit,
                 interval,
                 !opt.save_only,
-                open_in_browser,
+                server_props,
             )?;
             std::process::exit(exit_status.code().unwrap_or(0));
         }
@@ -124,19 +142,31 @@ fn main() -> Result<(), MachError> {
     std::process::exit(1);
 }
 
+#[derive(Clone, Debug)]
+struct ServerProps {
+    port_selection: PortSelection,
+    verbose: bool,
+    open_in_browser: bool,
+}
+
 #[tokio::main]
-async fn start_server_main(file: &Path, port: u16, open_in_browser: bool) {
-    start_server(file, port, open_in_browser).await;
+async fn start_server_main(file: &Path, props: ServerProps) {
+    start_server(
+        file,
+        props.port_selection,
+        props.verbose,
+        props.open_in_browser,
+    )
+    .await;
 }
 
 fn start_recording(
     output_file: &Path,
-    port: u16,
     args: &[String],
     time_limit: Option<Duration>,
     interval: Duration,
     serve_when_done: bool,
-    open_in_browser: bool,
+    server_props: ServerProps,
 ) -> Result<ExitStatus, MachError> {
     let (saver_sender, saver_receiver) = unbounded();
     let output_file = output_file.to_owned();
@@ -147,7 +177,7 @@ fn start_recording(
 
         // Reuse the saver thread as the server thread.
         if serve_when_done {
-            start_server_main(&output_file, port, open_in_browser);
+            start_server_main(&output_file, server_props);
         }
     });
 

@@ -14,7 +14,7 @@ readme = "Readme.md"
 perfrecord-mach-ipc-rendezvous = "0.2.0"
 
 # profiler-symbol-server = { path = "../../profiler-symbol-server" }
-profiler-symbol-server = "0.3.0"
+profiler-symbol-server = "0.4.0"
 
 tokio = { version = "1.6.1", features = ["rt", "rt-multi-thread", "macros"] }
 uuid = "0.8.1"
