@@ -36,8 +36,8 @@ impl ThreadProfiler {
         now: Instant,
         is_main: bool,
     ) -> kernel_error::Result<Option<Self>> {
-        let tid = match get_thread_id(thread_act) {
-            Ok(tid) => tid as u32,
+        let (tid, is_libdispatch_thread) = match get_thread_id(thread_act) {
+            Ok(info) => info,
             Err(KernelError::MachSendInvalidDest) => return Ok(None),
             Err(KernelError::InvalidArgument) => return Ok(None),
             Err(err) => return Err(err),
@@ -47,6 +47,7 @@ impl ThreadProfiler {
             tid,
             now.duration_since(process_start).as_secs_f64() * 1000.0,
             is_main,
+            is_libdispatch_thread,
         );
         Ok(Some(ThreadProfiler {
             process_start,
@@ -109,7 +110,8 @@ impl ThreadProfiler {
     }
 }
 
-fn get_thread_id(thread_act: thread_act_t) -> kernel_error::Result<u64> {
+/// Returns (tid, is_libdispatch_thread)
+fn get_thread_id(thread_act: thread_act_t) -> kernel_error::Result<(u32, bool)> {
     let mut identifier_info_data: thread_identifier_info_data_t = unsafe { mem::zeroed() };
     let mut count = THREAD_IDENTIFIER_INFO_COUNT;
     unsafe {
@@ -122,7 +124,10 @@ fn get_thread_id(thread_act: thread_act_t) -> kernel_error::Result<u64> {
     }
     .into_result()?;
 
-    Ok(identifier_info_data.thread_id)
+    Ok((
+        identifier_info_data.thread_id as u32,
+        identifier_info_data.dispatch_qaddr != 0,
+    ))
 }
 
 fn get_thread_name(thread_act: thread_act_t) -> kernel_error::Result<Option<String>> {

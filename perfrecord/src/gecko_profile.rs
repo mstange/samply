@@ -147,6 +147,7 @@ pub struct ThreadBuilder {
     start_time: f64,
     end_time: Option<f64>,
     is_main: bool,
+    is_libdispatch_thread: bool,
     stack_table: StackTable,
     frame_table: FrameTable,
     samples: SampleTable,
@@ -154,7 +155,13 @@ pub struct ThreadBuilder {
 }
 
 impl ThreadBuilder {
-    pub fn new(pid: u32, thread_index: u32, start_time: f64, is_main: bool) -> Self {
+    pub fn new(
+        pid: u32,
+        thread_index: u32,
+        start_time: f64,
+        is_main: bool,
+        is_libdispatch_thread: bool,
+    ) -> Self {
         ThreadBuilder {
             pid,
             index: thread_index,
@@ -162,6 +169,7 @@ impl ThreadBuilder {
             start_time,
             end_time: None,
             is_main,
+            is_libdispatch_thread,
             stack_table: StackTable::new(),
             frame_table: FrameTable::new(),
             samples: SampleTable(Vec::new()),
@@ -222,6 +230,8 @@ impl ThreadBuilder {
             "GeckoMain".to_string()
         } else if let Some(name) = &self.name {
             name.clone()
+        } else if self.is_libdispatch_thread {
+            "libdispatch".to_string()
         } else {
             format!("Thread <{}>", self.index)
         };
