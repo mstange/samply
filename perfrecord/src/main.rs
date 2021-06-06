@@ -223,7 +223,7 @@ fn start_recording(
             }
             Err(err) => {
                 eprintln!(
-                    "Encountered error while waiting for initial task port: {:?}",
+                    "Encountered error while waiting for task port: {:?}",
                     err
                 );
             }
