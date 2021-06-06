@@ -1,5 +1,5 @@
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use uuid::Uuid;
 
 use std::cmp::Ordering;
@@ -285,15 +285,18 @@ impl Lib {
 
 #[derive(Debug)]
 struct StackTable {
+    // (parent stack, frame_index)
     stacks: Vec<(Option<usize>, usize)>,
-    index: HashMap<(Option<usize>, usize), usize>,
+
+    // (parent stack, frame_index) -> stack index
+    index: BTreeMap<(Option<usize>, usize), usize>,
 }
 
 impl StackTable {
     pub fn new() -> StackTable {
         StackTable {
             stacks: Vec::new(),
-            index: HashMap::new(),
+            index: BTreeMap::new(),
         }
     }
 
@@ -343,14 +346,14 @@ struct FrameTable {
     frames: Vec<(usize, bool)>,
 
     // (address, is_idle) -> frame index
-    index: HashMap<(u64, bool), usize>,
+    index: BTreeMap<(u64, bool), usize>,
 }
 
 impl FrameTable {
     pub fn new() -> FrameTable {
         FrameTable {
             frames: Vec::new(),
-            index: HashMap::new(),
+            index: BTreeMap::new(),
         }
     }
 
