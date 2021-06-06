@@ -124,10 +124,12 @@ fn get_thread_id(thread_act: thread_act_t) -> kernel_error::Result<(u32, bool)> 
     }
     .into_result()?;
 
-    Ok((
-        identifier_info_data.thread_id as u32,
-        identifier_info_data.dispatch_qaddr != 0,
-    ))
+    // This used to check dispatch_qaddr != 0, but it looks like this can happen
+    // even for non-libdispatch threads, for example it happens for rust threads
+    // such as the perfrecord sampler thread.
+    let is_libdispatch_thread = false; // TODO
+
+    Ok((identifier_info_data.thread_id as u32, is_libdispatch_thread))
 }
 
 fn get_thread_name(thread_act: thread_act_t) -> kernel_error::Result<Option<String>> {
