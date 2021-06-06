@@ -201,20 +201,32 @@ fn start_recording(
         if let Ok(()) = accepter_receiver.try_recv() {
             break;
         }
-        if let Ok(mut accepted_task) = task_accepter.try_accept(Duration::from_secs_f64(0.5)) {
-            let task_profiler = TaskProfiler::new(
-                accepted_task.take_task(),
-                accepted_task.get_id(),
-                Instant::now(),
-                &command_name,
-                interval,
-            )
-            .expect("couldn't create TaskProfiler");
-            let send_result = task_sender.send(task_profiler);
-            if send_result.is_err() {
-                // The sampler has already shut down. This task arrived too late.
+        let timeout = Duration::from_secs_f64(1.0);
+        match task_accepter.try_accept(timeout) {
+            Ok(mut accepted_task) => {
+                let task_profiler = TaskProfiler::new(
+                    accepted_task.take_task(),
+                    accepted_task.get_id(),
+                    Instant::now(),
+                    &command_name,
+                    interval,
+                )
+                .expect("couldn't create TaskProfiler");
+                let send_result = task_sender.send(task_profiler);
+                if send_result.is_err() {
+                    // The sampler has already shut down. This task arrived too late.
+                }
+                accepted_task.start_execution();
             }
-            accepted_task.start_execution();
+            Err(MachError::RcvTimedOut) => {
+                // TODO: give status back via task_sender
+            }
+            Err(err) => {
+                eprintln!(
+                    "Encountered error while waiting for initial task port: {:?}",
+                    err
+                );
+            }
         }
     });
 

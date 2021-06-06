@@ -27,6 +27,7 @@ pub struct TaskProfiler {
     dead_threads: Vec<ThreadProfiler>,
     lib_info_manager: DyldInfoManager,
     libs: Vec<DyldInfo>,
+    executable_lib: Option<DyldInfo>,
     command_name: String,
 }
 
@@ -58,6 +59,7 @@ impl TaskProfiler {
             lib_info_manager: DyldInfoManager::new(task),
             libs: Vec::new(),
             command_name: command_name.to_owned(),
+            executable_lib: None,
         })
     }
 
@@ -79,7 +81,12 @@ impl TaskProfiler {
             .unwrap_or_else(|_| Vec::new());
         for change in changes {
             match change {
-                Modification::Added(lib) => self.libs.push(lib),
+                Modification::Added(lib) => {
+                    if self.executable_lib.is_none() && lib.is_executable {
+                        self.executable_lib = Some(lib.clone());
+                    }
+                    self.libs.push(lib)
+                }
                 Modification::Removed(_) => {
                     // Ignore, and hope that the address ranges won't be reused by other libraries
                     // during the rest of the recording...
@@ -138,8 +145,20 @@ impl TaskProfiler {
     }
 
     pub fn into_profile(self, subtasks: Vec<TaskProfiler>) -> ProfileBuilder {
+        let name = self
+            .executable_lib
+            .map(|l| {
+                Path::new(&l.file)
+                    .file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .unwrap_or(self.command_name);
+
         let mut profile_builder =
-            ProfileBuilder::new(self.start_time, &self.command_name, self.pid, self.interval);
+            ProfileBuilder::new(self.start_time, &name, self.pid, self.interval);
         let all_threads = self
             .live_threads
             .into_iter()
@@ -160,6 +179,7 @@ impl TaskProfiler {
             address,
             vmsize,
             arch,
+            ..
         } in self.libs
         {
             let (uuid, arch) = match (uuid, arch) {

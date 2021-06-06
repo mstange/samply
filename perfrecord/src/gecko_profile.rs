@@ -90,7 +90,7 @@ impl ProfileBuilder {
         });
         let threads: Vec<Value> = sorted_threads
             .into_iter()
-            .map(|(_, thread)| thread.to_json())
+            .map(|(_, thread)| thread.to_json(&self.command_name))
             .collect();
         let mut sorted_libs: Vec<_> = self.libs.iter().collect();
         sorted_libs.sort_by_key(|l| l.start_address);
@@ -146,6 +146,7 @@ pub struct ThreadBuilder {
     name: Option<String>,
     start_time: f64,
     end_time: Option<f64>,
+    is_main: bool,
     stack_table: StackTable,
     frame_table: FrameTable,
     samples: SampleTable,
@@ -153,13 +154,14 @@ pub struct ThreadBuilder {
 }
 
 impl ThreadBuilder {
-    pub fn new(pid: u32, thread_index: u32, start_time: f64) -> Self {
+    pub fn new(pid: u32, thread_index: u32, start_time: f64, is_main: bool) -> Self {
         ThreadBuilder {
             pid,
             index: thread_index,
             name: None,
             start_time,
             end_time: None,
+            is_main,
             stack_table: StackTable::new(),
             frame_table: FrameTable::new(),
             samples: SampleTable(Vec::new()),
@@ -214,12 +216,21 @@ impl ThreadBuilder {
             .index_for_frame(location_string_index, idle)
     }
 
-    fn to_json(&self) -> Value {
+    fn to_json(&self, process_name: &str) -> Value {
+        let name = if self.is_main {
+            // https://github.com/firefox-devtools/profiler/issues/2508
+            "GeckoMain".to_string()
+        } else if let Some(name) = &self.name {
+            name.clone()
+        } else {
+            format!("Thread <{}>", self.index)
+        };
         json!({
-            "name": self.name.clone().unwrap_or_else(|| format!("Thread <{}>", self.index)),
+            "name": name,
             "tid": self.index,
             "pid": self.pid,
             "processType": "default",
+            "processName": process_name,
             "registerTime": self.start_time,
             "unregisterTime": self.end_time,
             "frameTable": self.frame_table.to_json(),

@@ -42,14 +42,12 @@ impl ThreadProfiler {
             Err(KernelError::InvalidArgument) => return Ok(None),
             Err(err) => return Err(err),
         };
-        let mut thread_builder = ThreadBuilder::new(
+        let thread_builder = ThreadBuilder::new(
             pid,
             tid,
             now.duration_since(process_start).as_secs_f64() * 1000.0,
+            is_main,
         );
-        if is_main {
-            thread_builder.set_name("GeckoMain"); // https://github.com/firefox-devtools/profiler/issues/2508
-        }
         Ok(Some(ThreadProfiler {
             process_start,
             thread_act,

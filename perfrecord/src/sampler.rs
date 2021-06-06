@@ -40,6 +40,7 @@ impl Sampler {
             Ok(task) => task,
             Err(_) => {
                 // The sender went away. No profiling today.
+                eprintln!("The process we launched did not give us a task port. This commonly happens when trying to profile signed executables (system apps, system python, ...), because those ignore DYLD_INSERT_LIBRARIES (and stop it from inheriting into child processes). For now, this profiler can only be used on unsigned binaries.");
                 return Err(kernel_error::KernelError::MachRcvPortDied);
             }
         };

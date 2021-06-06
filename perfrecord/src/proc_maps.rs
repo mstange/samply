@@ -37,6 +37,7 @@ pub struct ThreadInfo {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DyldInfo {
+    pub is_executable: bool,
     pub file: String,
     pub address: u64,
     pub vmsize: u64,
@@ -217,6 +218,8 @@ const CPU_SUBTYPE_X86_64_H: u32 = 8;
 const CPU_SUBTYPE_ARM64_ALL: u32 = 0;
 const CPU_SUBTYPE_ARM64E: u32 = 2;
 
+const MH_EXECUTE: u32 = 0x2;
+
 fn get_arch_string(cputype: u32, cpusubtype: u32) -> Option<&'static str> {
     let s = match (cputype, cpusubtype & !CPU_SUBTYPE_MASK) {
         (CPU_TYPE_X86_64, CPU_SUBTYPE_X86_64_ALL) => "x86_64",
@@ -283,6 +286,7 @@ fn get_dyld_image_info(
         vmsize,
         uuid,
         arch: get_arch_string(header.cputype as u32, header.cpusubtype as u32),
+        is_executable: header.filetype == MH_EXECUTE,
     })
 }
 
@@ -618,6 +622,7 @@ impl Drop for VmData {
 
 unsafe impl Send for VmData {}
 
+#[derive(Clone, Debug)]
 pub enum Modification<T> {
     Added(T),
     Removed(T),
