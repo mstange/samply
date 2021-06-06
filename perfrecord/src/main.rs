@@ -4,6 +4,8 @@ use serde_json::to_writer;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 use structopt::StructOpt;
@@ -190,9 +192,19 @@ fn start_recording(
             .expect("couldn't send profile");
     });
 
+    // Ignore SIGINT while the subcommand is running. The signal still reaches the process
+    // under observation while we continue to record it. (ctrl+c will send the SIGINT signal
+    // to all processes in the foreground process group).
+    let should_terminate_on_ctrl_c = Arc::new(AtomicBool::new(false));
+    #[cfg(unix)]
+    signal_hook::flag::register_conditional_default(
+        signal_hook::consts::SIGINT,
+        should_terminate_on_ctrl_c.clone(),
+    )
+    .expect("cannot register signal handler");
+
     let command_name = args.first().unwrap().clone();
     let args: Vec<&str> = args.iter().skip(1).map(std::ops::Deref::deref).collect();
-
     let (mut task_accepter, mut root_child) =
         TaskAccepter::create_and_launch_root_task(&command_name, &args)?;
 
@@ -222,15 +234,15 @@ fn start_recording(
                 // TODO: give status back via task_sender
             }
             Err(err) => {
-                eprintln!(
-                    "Encountered error while waiting for task port: {:?}",
-                    err
-                );
+                eprintln!("Encountered error while waiting for task port: {:?}", err);
             }
         }
     });
 
     let exit_status = root_child.wait().expect("couldn't wait for child");
+
+    // The subprocess is done. From now on, we want to terminate if the user presses Ctrl+C.
+    should_terminate_on_ctrl_c.store(true, std::sync::atomic::Ordering::SeqCst);
 
     accepter_sender
         .send(())
