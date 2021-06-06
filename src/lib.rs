@@ -73,10 +73,16 @@ pub async fn start_server(
     let buffer = Arc::new(buffer);
 
     let (builder, addr) = make_builder_at_port(port_selection);
+
     let server_origin = format!("http://{}", addr);
     let profile_url = format!("{}/profile.json", server_origin);
-    let profiler_origin = "https://profiler.firefox.com";
-    // let profiler_origin = "http://localhost:4242";
+
+    let env_profiler_override = std::env::var("PROFILER_URL").ok();
+    let profiler_origin = match &env_profiler_override {
+        Some(s) => s.trim_end_matches('/'),
+        None => "https://profiler.firefox.com",
+    };
+
     let encoded_profile_url = utf8_percent_encode(&profile_url, BAD_CHARS).to_string();
     let encoded_symbol_server_url = utf8_percent_encode(&server_origin, BAD_CHARS).to_string();
     let profiler_url = format!(
