@@ -81,7 +81,7 @@ impl ThreadProfiler {
             }
         }
 
-        let idle = is_thread_idle(self.thread_act)?;
+        let _idle = is_thread_idle(self.thread_act)?;
 
         self.stack_scratch_space.clear();
         get_backtrace(
@@ -93,7 +93,7 @@ impl ThreadProfiler {
         self.thread_builder.add_sample(
             now.duration_since(self.process_start).as_secs_f64() * 1000.0,
             &self.stack_scratch_space,
-            idle,
+            0,
         );
 
         Ok(())

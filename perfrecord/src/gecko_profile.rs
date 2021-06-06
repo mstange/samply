@@ -119,11 +119,7 @@ impl ProfileBuilder {
                 "processType": 0,
                 "categories": [
                     {
-                        "name": "Idle",
-                        "color": "transparent",
-                    },
-                    {
-                        "name": "Running",
+                        "name": "Regular",
                         "color": "blue",
                     },
                     {
@@ -193,8 +189,8 @@ impl ThreadBuilder {
         self.index
     }
 
-    pub fn add_sample(&mut self, timestamp: f64, frames: &[u64], idle: bool) {
-        let stack_index = self.stack_index_for_frames(frames, idle);
+    pub fn add_sample(&mut self, timestamp: f64, frames: &[u64], _cpu_delta: u64) {
+        let stack_index = self.stack_index_for_frames(frames);
         self.samples.0.push(Sample {
             timestamp,
             stack_index,
@@ -205,21 +201,17 @@ impl ThreadBuilder {
         self.end_time = Some(end_time);
     }
 
-    fn stack_index_for_frames(&mut self, frames: &[u64], idle: bool) -> Option<usize> {
+    fn stack_index_for_frames(&mut self, frames: &[u64]) -> Option<usize> {
         let frame_indexes: Vec<_> = frames
             .iter()
-            .enumerate()
-            .map(|(i, &address)| {
-                let frame_idle = idle && i == frames.len() - 1;
-                self.frame_index_for_address(address, frame_idle)
-            })
+            .map(|&address| self.frame_index_for_address(address))
             .collect();
         self.stack_table.index_for_frames(&frame_indexes)
     }
 
-    fn frame_index_for_address(&mut self, address: u64, idle: bool) -> usize {
+    fn frame_index_for_address(&mut self, address: u64) -> usize {
         self.frame_table
-            .index_for_frame(&mut self.string_table, address, idle)
+            .index_for_frame(&mut self.string_table, address)
     }
 
     fn to_json(&self, process_name: &str) -> Value {
@@ -342,11 +334,11 @@ impl StackTable {
 
 #[derive(Debug)]
 struct FrameTable {
-    // (string_index, is_idle)
-    frames: Vec<(usize, bool)>,
+    // [string_index]
+    frames: Vec<usize>,
 
-    // (address, is_idle) -> frame index
-    index: BTreeMap<(u64, bool), usize>,
+    // address -> frame index
+    index: BTreeMap<u64, usize>,
 }
 
 impl FrameTable {
@@ -357,32 +349,24 @@ impl FrameTable {
         }
     }
 
-    pub fn index_for_frame(
-        &mut self,
-        string_table: &mut StringTable,
-        address: u64,
-        idle: bool,
-    ) -> usize {
-        match self.index.get(&(address, idle)) {
-            Some(frame_index) => *frame_index,
-            None => {
-                let frame_index = self.frames.len();
-                let location_string = format!("0x{:x}", address);
-                let location_string_index = string_table.index_for_string(&location_string);
-                self.frames.push((location_string_index, idle));
-                self.index.insert((address, idle), frame_index);
-                frame_index
-            }
-        }
+    pub fn index_for_frame(&mut self, string_table: &mut StringTable, address: u64) -> usize {
+        let frames = &mut self.frames;
+        *self.index.entry(address).or_insert_with(|| {
+            let frame_index = frames.len();
+            let location_string = format!("0x{:x}", address);
+            let location_string_index = string_table.index_for_string(&location_string);
+            frames.push(location_string_index);
+            frame_index
+        })
     }
 
     pub fn to_json(&self) -> Value {
         let data: Vec<Value> = self
             .frames
             .iter()
-            .map(|&(location, idle)| {
-                let category = if idle { 0 } else { 1 };
-                json!([location, false, null, null, null, null, category])
+            .map(|location| {
+                let category = 0;
+                json!([*location, false, null, null, null, null, category])
             })
             .collect();
         json!({
