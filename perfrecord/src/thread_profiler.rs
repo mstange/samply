@@ -1,3 +1,5 @@
+use crate::thread_info::time_value;
+
 use super::gecko_profile::ThreadBuilder;
 use mach::mach_types::thread_act_t;
 use std::mem;
@@ -13,7 +15,6 @@ use super::thread_info::{
     thread_basic_info_data_t, thread_extended_info_data_t, thread_identifier_info_data_t,
     thread_info_t, THREAD_BASIC_INFO, THREAD_BASIC_INFO_COUNT, THREAD_EXTENDED_INFO,
     THREAD_EXTENDED_INFO_COUNT, THREAD_IDENTIFIER_INFO, THREAD_IDENTIFIER_INFO_COUNT,
-    TH_STATE_RUNNING,
 };
 
 pub struct ThreadProfiler {
@@ -25,6 +26,7 @@ pub struct ThreadProfiler {
     thread_builder: ThreadBuilder,
     tick_count: usize,
     stack_memory: ForeignMemory,
+    previous_sample_cpu_time: u64,
 }
 
 impl ThreadProfiler {
@@ -58,6 +60,7 @@ impl ThreadProfiler {
             thread_builder,
             tick_count: 0,
             stack_memory: ForeignMemory::new(task),
+            previous_sample_cpu_time: 0,
         }))
     }
 
@@ -81,7 +84,9 @@ impl ThreadProfiler {
             }
         }
 
-        let _idle = is_thread_idle(self.thread_act)?;
+        let cpu_time = get_thread_cpu_time(self.thread_act)?;
+        let cpu_time = cpu_time.0 + cpu_time.1;
+        let cpu_delta = cpu_time.wrapping_sub(self.previous_sample_cpu_time);
 
         self.stack_scratch_space.clear();
         get_backtrace(
@@ -93,8 +98,10 @@ impl ThreadProfiler {
         self.thread_builder.add_sample(
             now.duration_since(self.process_start).as_secs_f64() * 1000.0,
             &self.stack_scratch_space,
-            0,
+            cpu_delta,
         );
+
+        self.previous_sample_cpu_time = cpu_time;
 
         Ok(())
     }
@@ -152,7 +159,8 @@ fn get_thread_name(thread_act: thread_act_t) -> kernel_error::Result<Option<Stri
     Ok(if name.is_empty() { None } else { Some(name) })
 }
 
-fn is_thread_idle(thread_act: thread_act_t) -> kernel_error::Result<bool> {
+// (user time, system time) in integer microseconds
+fn get_thread_cpu_time(thread_act: thread_act_t) -> kernel_error::Result<(u64, u64)> {
     // Get the thread name.
     let mut basic_info_data: thread_basic_info_data_t = unsafe { mem::zeroed() };
     let mut count = THREAD_BASIC_INFO_COUNT;
@@ -166,5 +174,12 @@ fn is_thread_idle(thread_act: thread_act_t) -> kernel_error::Result<bool> {
     }
     .into_result()?;
 
-    Ok(basic_info_data.run_state != TH_STATE_RUNNING as i32)
+    Ok((
+        time_value_to_microseconds(&basic_info_data.user_time),
+        time_value_to_microseconds(&basic_info_data.system_time),
+    ))
+}
+
+fn time_value_to_microseconds(tv: &time_value) -> u64 {
+    tv.seconds as u64 * 1_000_000 + tv.microseconds as u64
 }

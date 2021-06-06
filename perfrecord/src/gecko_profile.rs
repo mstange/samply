@@ -126,7 +126,12 @@ impl ProfileBuilder {
                         "name": "Other",
                         "color": "grey",
                     }
-                ]
+                ],
+                "sampleUnits": {
+                    "time": "ms",
+                    "eventDelay": "ms",
+                    "threadCPUDelta": "µs"
+                }
             },
             "libs": libs,
             "threads": threads,
@@ -189,11 +194,12 @@ impl ThreadBuilder {
         self.index
     }
 
-    pub fn add_sample(&mut self, timestamp: f64, frames: &[u64], _cpu_delta: u64) {
+    pub fn add_sample(&mut self, timestamp: f64, frames: &[u64], cpu_delta: u64) {
         let stack_index = self.stack_index_for_frames(frames);
         self.samples.0.push(Sample {
             timestamp,
             stack_index,
+            cpu_delta,
         });
     }
 
@@ -392,15 +398,14 @@ impl SampleTable {
         let data: Vec<Value> = self
             .0
             .iter()
-            .map(|sample| json!([sample.stack_index, sample.timestamp]))
+            .map(|sample| json!([sample.stack_index, sample.timestamp, 0.0, sample.cpu_delta]))
             .collect();
         json!({
             "schema": {
                 "stack": 0,
                 "time": 1,
-                "responsiveness": 2,
-                "rss": 3,
-                "uss": 4
+                "eventDelay": 2,
+                "threadCPUDelta": 3
             },
             "data": data
         })
@@ -411,6 +416,7 @@ impl SampleTable {
 struct Sample {
     timestamp: f64,
     stack_index: Option<usize>,
+    cpu_delta: u64,
 }
 
 #[derive(Debug)]
