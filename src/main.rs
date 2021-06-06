@@ -7,12 +7,12 @@ use profiler_symbol_server::{start_server, PortSelection};
 #[structopt(
     name = "profiler-symbol-server",
     about = "A local webserver that serves a profile and symbol information.",
-    usage = "profiler-symbol-server [--open] <file>"
+    usage = "profiler-symbol-server <file>"
 )]
 struct Opt {
-    /// Open the profiler in your default browser.
-    #[structopt(long)]
-    open: bool,
+    /// Do not open the profiler UI.
+    #[structopt(short, long)]
+    no_open: bool,
 
     /// The port to use for the local web server.
     #[structopt(short, long, default_value = "3000+")]
@@ -40,5 +40,5 @@ async fn main() {
             std::process::exit(1)
         }
     };
-    start_server(&opt.file, port_selection, opt.verbose, opt.open).await;
+    start_server(&opt.file, port_selection, opt.verbose, !opt.no_open).await;
 }
