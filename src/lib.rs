@@ -1,4 +1,6 @@
 use flate2::read::GzDecoder;
+use hyper::server::conn::AddrIncoming;
+use hyper::server::Builder;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{header, Body, Request, Response, Server};
 use hyper::{Method, StatusCode};
@@ -15,9 +17,11 @@ use std::ffi::OsString;
 use std::fs::File;
 use std::io::Cursor;
 use std::net::SocketAddr;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::Command;
+use std::str::FromStr;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -28,7 +32,29 @@ mod moria_mac_spotlight;
 
 const BAD_CHARS: &AsciiSet = &CONTROLS.add(b':').add(b'/');
 
-pub async fn start_server(profile_filename: &Path, port: u16, open_in_browser: bool) {
+#[derive(Clone, Debug)]
+pub enum PortSelection {
+    OnePort(u16),
+    TryMultiple(Range<u16>),
+}
+
+impl PortSelection {
+    pub fn try_from_str(s: &str) -> std::result::Result<Self, <u16 as FromStr>::Err> {
+        if s.ends_with('+') {
+            let start = s.trim_end_matches('+').parse()?;
+            let end = start + 100;
+            Ok(PortSelection::TryMultiple(start..end))
+        } else {
+            Ok(PortSelection::OnePort(s.parse()?))
+        }
+    }
+}
+
+pub async fn start_server(
+    profile_filename: &Path,
+    port_selection: PortSelection,
+    open_in_browser: bool,
+) {
     // Read the profile.json file and parse it as JSON.
     let mut buffer = std::fs::read(profile_filename).expect("couldn't read file");
 
@@ -46,9 +72,6 @@ pub async fn start_server(profile_filename: &Path, port: u16, open_in_browser: b
     let profile: Value = serde_json::from_slice(&buffer).expect("couldn't parse json");
     let buffer = Arc::new(buffer);
 
-    // We'll bind to 127.0.0.1:3000
-    let addr = SocketAddr::from(([127, 0, 0, 1], port));
-
     let helper = Arc::new(Helper::for_profile(profile));
     let new_service = make_service_fn(move |_conn| {
         let helper = helper.clone();
@@ -60,7 +83,8 @@ pub async fn start_server(profile_filename: &Path, port: u16, open_in_browser: b
         }
     });
 
-    let server = Server::bind(&addr).serve(new_service);
+    let (builder, addr) = make_builder_at_port(port_selection);
+    let server = builder.serve(new_service);
 
     let server_origin = format!("http://{}", addr);
     let profile_url = format!("{}/profile.json", server_origin);
@@ -91,6 +115,45 @@ pub async fn start_server(profile_filename: &Path, port: u16, open_in_browser: b
     // Run this server for... forever!
     if let Err(e) = server.await {
         eprintln!("server error: {}", e);
+    }
+}
+
+fn make_builder_at_port(port_selection: PortSelection) -> (Builder<AddrIncoming>, SocketAddr) {
+    match port_selection {
+        PortSelection::OnePort(port) => {
+            let addr = SocketAddr::from(([127, 0, 0, 1], port));
+            match Server::try_bind(&addr) {
+                Ok(builder) => (builder, addr),
+                Err(e) => {
+                    eprintln!("Could not bind to port {}: {}", port, e);
+                    std::process::exit(1)
+                }
+            }
+        }
+        PortSelection::TryMultiple(range) => {
+            let mut error = None;
+            for port in range.clone() {
+                let addr = SocketAddr::from(([127, 0, 0, 1], port));
+                match Server::try_bind(&addr) {
+                    Ok(builder) => return (builder, addr),
+                    Err(e) => {
+                        error.get_or_insert(e);
+                    }
+                }
+            }
+            match error {
+                Some(error) => {
+                    eprintln!(
+                        "Could not bind to any port in the range {:?}: {}",
+                        range, error,
+                    );
+                }
+                None => {
+                    eprintln!("Binding failed, port range empty? {:?}", range);
+                }
+            }
+            std::process::exit(1)
+        }
     }
 }
 

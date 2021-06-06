@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use structopt::StructOpt;
 
-use profiler_symbol_server::start_server;
+use profiler_symbol_server::{start_server, PortSelection};
 
 #[derive(Debug, StructOpt)]
 #[structopt(
@@ -15,8 +15,8 @@ struct Opt {
     open: bool,
 
     /// The port to use for the local web server.
-    #[structopt(short, long, default_value = "3000")]
-    port: u16,
+    #[structopt(short, long, default_value = "3000+")]
+    port: String,
 
     /// The profile file that should be served.
     #[structopt(parse(from_os_str))]
@@ -26,5 +26,15 @@ struct Opt {
 #[tokio::main]
 async fn main() {
     let opt = Opt::from_args();
-    start_server(&opt.file, opt.port, opt.open).await;
+    let port_selection = match PortSelection::try_from_str(&opt.port) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!(
+                "Could not parse port as <u16> or <u16>+, got port {}, error: {}",
+                opt.port, e
+            );
+            std::process::exit(1)
+        }
+    };
+    start_server(&opt.file, port_selection, opt.open).await;
 }
