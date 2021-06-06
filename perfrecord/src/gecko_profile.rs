@@ -218,10 +218,8 @@ impl ThreadBuilder {
     }
 
     fn frame_index_for_address(&mut self, address: u64, idle: bool) -> usize {
-        let location_string = format!("0x{:x}", address);
-        let location_string_index = self.string_table.index_for_string(&location_string);
         self.frame_table
-            .index_for_frame(location_string_index, idle)
+            .index_for_frame(&mut self.string_table, address, idle)
     }
 
     fn to_json(&self, process_name: &str) -> Value {
@@ -341,8 +339,11 @@ impl StackTable {
 
 #[derive(Debug)]
 struct FrameTable {
+    // (string_index, is_idle)
     frames: Vec<(usize, bool)>,
-    index: HashMap<(usize, bool), usize>,
+
+    // (address, is_idle) -> frame index
+    index: HashMap<(u64, bool), usize>,
 }
 
 impl FrameTable {
@@ -353,14 +354,20 @@ impl FrameTable {
         }
     }
 
-    pub fn index_for_frame(&mut self, location_string_index: usize, idle: bool) -> usize {
-        match self.index.get(&(location_string_index, idle)) {
+    pub fn index_for_frame(
+        &mut self,
+        string_table: &mut StringTable,
+        address: u64,
+        idle: bool,
+    ) -> usize {
+        match self.index.get(&(address, idle)) {
             Some(frame_index) => *frame_index,
             None => {
                 let frame_index = self.frames.len();
+                let location_string = format!("0x{:x}", address);
+                let location_string_index = string_table.index_for_string(&location_string);
                 self.frames.push((location_string_index, idle));
-                self.index
-                    .insert((location_string_index, idle), frame_index);
+                self.index.insert((address, idle), frame_index);
                 frame_index
             }
         }
