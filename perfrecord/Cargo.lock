@@ -665,7 +665,7 @@ checksum = "d4fd5641d01c8f18a23da7b6fe29298ff4b55afcccdf78973b24cf3175fee32e"
 
 [[package]]
 name = "perfrecord"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "backtrace",
  "crossbeam-channel",
