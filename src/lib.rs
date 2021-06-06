@@ -73,20 +73,7 @@ pub async fn start_server(
     let profile: Value = serde_json::from_slice(&buffer).expect("couldn't parse json");
     let buffer = Arc::new(buffer);
 
-    let helper = Arc::new(Helper::for_profile(profile, verbose));
-    let new_service = make_service_fn(move |_conn| {
-        let helper = helper.clone();
-        let buffer = buffer.clone();
-        async {
-            Ok::<_, Infallible>(service_fn(move |req| {
-                symbolication_service(req, helper.clone(), buffer.clone())
-            }))
-        }
-    });
-
     let (builder, addr) = make_builder_at_port(port_selection);
-    let server = builder.serve(new_service);
-
     let server_origin = format!("http://{}", addr);
     let profile_url = format!("{}/profile.json", server_origin);
     let profiler_origin = "https://profiler.firefox.com";
@@ -97,16 +84,34 @@ pub async fn start_server(
         "{}/from-url/{}/?symbolServer={}",
         profiler_origin, encoded_profile_url, encoded_symbol_server_url
     );
+    let template_values: HashMap<&'static str, String> = vec![
+        ("SERVER_URL", server_origin.clone()),
+        ("PROFILER_URL", profiler_url.clone()),
+        ("PROFILE_URL", profile_url),
+    ]
+    .into_iter()
+    .collect();
+    let template_values = Arc::new(template_values);
 
-    eprintln!("Serving symbolication server at {}", server_origin);
-    eprintln!("  The profile is at {}", profile_url);
-    eprintln!("  Symbols can be obtained by posting to");
-    eprintln!("    {}/symbolicate/v5 or", server_origin);
-    eprintln!("    {}/symbolicate/v6a1", server_origin);
-    eprintln!("  Open the profiler at");
-    eprintln!("    {}", profiler_url);
+    let helper = Arc::new(Helper::for_profile(profile, verbose));
+    let new_service = make_service_fn(move |_conn| {
+        let helper = helper.clone();
+        let buffer = buffer.clone();
+        let template_values = template_values.clone();
+        async {
+            Ok::<_, Infallible>(service_fn(move |req| {
+                symbolication_service(req, template_values.clone(), helper.clone(), buffer.clone())
+            }))
+        }
+    });
+
+    let server = builder.serve(new_service);
+
+    eprintln!("Local server listening at {}", server_origin);
+    if !open_in_browser {
+        eprintln!("  Open the profiler at {}", profiler_url);
+    }
     eprintln!("Press Ctrl+C to stop.");
-    eprintln!();
 
     if open_in_browser {
         let mut cmd = Command::new("open");
@@ -158,8 +163,24 @@ fn make_builder_at_port(port_selection: PortSelection) -> (Builder<AddrIncoming>
     }
 }
 
+const TEMPLATE: &str = r#"
+<!DOCTYPE html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Profiler Symbol Server</title>
+<body>
+
+<p>This is the profiler symbol server, running at <code>SERVER_URL</code>. You can:</p>
+<ul>
+    <li><a href="PROFILER_URL">Open the profile in the profiler UI</a></li>
+    <li><a download href="PROFILE_URL">Download the raw profile JSON</a></li>
+    <li>Obtain symbols by POSTing to <code>/symbolicate/v5</code>, with the format specified by the <a href="https://tecken.readthedocs.io/en/latest/symbolication.html">Mozilla symbolication API documentation</a>.</li>
+</ul>
+"#;
+
 async fn symbolication_service(
     req: Request<Body>,
+    template_values: Arc<HashMap<&'static str, String>>,
     helper: Arc<Helper>,
     buffer: Arc<Vec<u8>>,
 ) -> Result<Response<Body>, hyper::Error> {
@@ -168,15 +189,31 @@ async fn symbolication_service(
         header::ACCESS_CONTROL_ALLOW_ORIGIN,
         header::HeaderValue::from_static("*"),
     );
+    response.headers_mut().insert(
+        header::CONTENT_ENCODING,
+        header::HeaderValue::from_static("utf-8"),
+    );
 
     match (req.method(), req.uri().path()) {
         (&Method::GET, "/") => {
-            *response.body_mut() = Body::from("Try POSTing data to /symbolicate/v5");
+            response.headers_mut().insert(
+                header::CONTENT_TYPE,
+                header::HeaderValue::from_static("text/html"),
+            );
+            *response.body_mut() = Body::from(substitute_template(TEMPLATE, &*template_values));
         }
         (&Method::GET, "/profile.json") => {
+            response.headers_mut().insert(
+                header::CONTENT_TYPE,
+                header::HeaderValue::from_static("application/json"),
+            );
             *response.body_mut() = Body::from((*buffer).clone());
         }
         (&Method::POST, path) => {
+            response.headers_mut().insert(
+                header::CONTENT_TYPE,
+                header::HeaderValue::from_static("application/json"),
+            );
             let path = path.to_string();
             // Await the full body to be concatenated into a single `Bytes`...
             let full_body = hyper::body::to_bytes(req.into_body()).await?;
@@ -191,6 +228,14 @@ async fn symbolication_service(
     };
 
     Ok(response)
+}
+
+fn substitute_template(template: &str, template_values: &HashMap<&'static str, String>) -> String {
+    let mut s = template.to_string();
+    for (key, value) in template_values {
+        s = s.replace(key, value);
+    }
+    s
 }
 
 struct MmapFileContents(memmap2::Mmap);
