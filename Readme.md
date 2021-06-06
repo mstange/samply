@@ -9,7 +9,7 @@ Try it out now:
 
 ```
 % cargo install perfrecord
-% perfrecord --launch-when-done ./your-command your-arguments
+% perfrecord ./your-command your-arguments
 ```
 
 This collects a profile of the `./your-command your-arguments` command and saves it to a file. Then it opens
@@ -24,14 +24,14 @@ In the future it should support sampling based on wall-clock time ("All thread s
 
 ## Other examples
 
-`perfrecord --launch-when-done rustup check` generates [this profile](https://share.firefox.dev/2MfPzak).
+`perfrecord rustup check` generates [this profile](https://share.firefox.dev/2MfPzak).
 
 Profiling system-provided command line tools is not straightforward because of system-integrity protection.
 Here's an example for profiling `sleep`:
 
 ```
 cat /bin/sleep > /tmp/sleep; chmod +x /tmp/sleep
-perfrecord --launch-when-done /tmp/sleep 2
+perfrecord /tmp/sleep 2
 ```
 
 It produces [this profile](https://share.firefox.dev/2ZRmN7H).
