@@ -21,6 +21,10 @@ struct Opt {
     /// The profile file that should be served.
     #[structopt(parse(from_os_str))]
     file: PathBuf,
+
+    /// Print debugging messages.
+    #[structopt(short, long)]
+    verbose: bool,
 }
 
 #[tokio::main]
@@ -36,5 +40,5 @@ async fn main() {
             std::process::exit(1)
         }
     };
-    start_server(&opt.file, port_selection, opt.open).await;
+    start_server(&opt.file, port_selection, opt.verbose, opt.open).await;
 }

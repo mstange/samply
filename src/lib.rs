@@ -53,6 +53,7 @@ impl PortSelection {
 pub async fn start_server(
     profile_filename: &Path,
     port_selection: PortSelection,
+    verbose: bool,
     open_in_browser: bool,
 ) {
     // Read the profile.json file and parse it as JSON.
@@ -72,7 +73,7 @@ pub async fn start_server(
     let profile: Value = serde_json::from_slice(&buffer).expect("couldn't parse json");
     let buffer = Arc::new(buffer);
 
-    let helper = Arc::new(Helper::for_profile(profile));
+    let helper = Arc::new(Helper::for_profile(profile, verbose));
     let new_service = make_service_fn(move |_conn| {
         let helper = helper.clone();
         let buffer = buffer.clone();
@@ -221,6 +222,7 @@ impl FileContents for MmapFileContents {
 
 struct Helper {
     path_map: HashMap<(String, String), String>,
+    verbose: bool,
 }
 
 fn add_to_path_map_recursive(profile: &Value, path_map: &mut HashMap<(String, String), String>) {
@@ -240,12 +242,12 @@ fn add_to_path_map_recursive(profile: &Value, path_map: &mut HashMap<(String, St
 }
 
 impl Helper {
-    pub fn for_profile(profile: Value) -> Self {
+    pub fn for_profile(profile: Value, verbose: bool) -> Self {
         // Build a map (debugName, breakpadID) -> debugPath from the information
         // in profile.libs.
         let mut path_map = HashMap::new();
         add_to_path_map_recursive(&profile, &mut path_map);
-        Helper { path_map }
+        Helper { path_map, verbose }
     }
 }
 
@@ -317,8 +319,11 @@ impl FileAndPathHelper for Helper {
         &self,
         path: &Path,
     ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>>>> {
-        async fn open_file_impl(path: PathBuf) -> FileAndPathHelperResult<MmapFileContents> {
+        if self.verbose {
             eprintln!("Opening file {:?}", &path);
+        }
+
+        async fn open_file_impl(path: PathBuf) -> FileAndPathHelperResult<MmapFileContents> {
             let file = File::open(&path)?;
             Ok(MmapFileContents(unsafe {
                 memmap2::MmapOptions::new().map(&file)?
