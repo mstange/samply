@@ -20,7 +20,6 @@ use std::net::SocketAddr;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::process::Command;
 use std::str::FromStr;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -114,8 +113,7 @@ pub async fn start_server(
     eprintln!("Press Ctrl+C to stop.");
 
     if open_in_browser {
-        let mut cmd = Command::new("open");
-        let _ = cmd.arg(&profiler_url).status();
+        let _ = webbrowser::open(&profiler_url);
     }
 
     // Run this server for... forever!
