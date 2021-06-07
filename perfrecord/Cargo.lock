@@ -799,9 +799,9 @@ dependencies = [
 
 [[package]]
 name = "profiler-symbol-server"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec147beda283d85b5d5d8bcbc31be0c8cd09399c4d13b496a63beeaa4bd9b046"
+checksum = "087df3b0167db367c47ecc7767686f3350dd1d0cc681b816f4e63e0a55589672"
 dependencies = [
  "core-foundation",
  "core-foundation-sys",
