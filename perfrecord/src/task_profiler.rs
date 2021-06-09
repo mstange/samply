@@ -27,6 +27,7 @@ pub struct TaskProfiler {
     dead_threads: Vec<ThreadProfiler>,
     lib_info_manager: DyldInfoManager,
     libs: Vec<DyldInfo>,
+    commandline: Option<Vec<String>>,
     executable_lib: Option<DyldInfo>,
     command_name: String,
 }
@@ -39,6 +40,25 @@ impl TaskProfiler {
         command_name: &str,
         interval: Duration,
     ) -> kernel_error::Result<Self> {
+        let process = remoteprocess::Process {
+            pid: pid as i32,
+            task,
+        };
+        let commandline = match process.cmdline() {
+            Ok(mut cmds) => {
+                if let Some(command) = cmds.first_mut() {
+                    // Strip off path.
+                    *command = Path::new(command)
+                        .file_name()
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .to_string();
+                }
+                Some(cmds)
+            }
+            Err(_) => None,
+        };
         let thread_acts = get_thread_list(task)?;
         let mut live_threads = HashMap::new();
         for (i, thread_act) in thread_acts.into_iter().enumerate() {
@@ -59,6 +79,7 @@ impl TaskProfiler {
             lib_info_manager: DyldInfoManager::new(task),
             libs: Vec::new(),
             command_name: command_name.to_owned(),
+            commandline,
             executable_lib: None,
         })
     }
@@ -145,15 +166,19 @@ impl TaskProfiler {
     }
 
     pub fn into_profile(self, subtasks: Vec<TaskProfiler>) -> ProfileBuilder {
+        let executable_lib = self.executable_lib;
         let name = self
-            .executable_lib
-            .map(|l| {
-                Path::new(&l.file)
-                    .file_name()
-                    .unwrap()
-                    .to_str()
-                    .unwrap()
-                    .to_string()
+            .commandline
+            .map(|cmds| cmds.join(" "))
+            .or_else(|| {
+                executable_lib.map(|l| {
+                    Path::new(&l.file)
+                        .file_name()
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .to_string()
+                })
             })
             .unwrap_or(self.command_name);
 
