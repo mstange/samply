@@ -234,50 +234,52 @@ where
 }
 
 #[cfg(feature = "partial_read_stats")]
+const CHUNK_SIZE: u64 = 32 * 1024;
+
+#[cfg(feature = "partial_read_stats")]
 struct FileReadStats {
-    bytes_read: u64,
-    unique_bytes_read: BitVec,
+    unique_chunks_read: BitVec,
     read_call_count: u64,
 }
 
 #[cfg(feature = "partial_read_stats")]
 impl FileReadStats {
     pub fn new(size_in_bytes: u64) -> Self {
+        assert!(size_in_bytes > 0);
+        let chunk_count = (size_in_bytes - 1) / CHUNK_SIZE + 1;
         FileReadStats {
-            bytes_read: 0,
-            unique_bytes_read: bitvec![0; size_in_bytes as usize],
+            unique_chunks_read: bitvec![0; chunk_count as usize],
             read_call_count: 0,
         }
     }
 
     pub fn record_read(&mut self, offset: u64, size: u64) {
-        self.bytes_read += size;
-        self.unique_bytes_read[offset as usize..][..size as usize].set_all(true);
-        self.read_call_count += 1;
-    }
+        let start = offset;
+        let end = offset + size;
+        let chunk_index_start = start / CHUNK_SIZE;
+        let chunk_index_end = (end - 1) / CHUNK_SIZE + 1;
 
-    pub fn bytes_read(&self) -> u64 {
-        self.bytes_read
+        let chunkbits =
+            &mut self.unique_chunks_read[chunk_index_start as usize..chunk_index_end as usize];
+        if chunkbits.count_ones() != (chunk_index_end - chunk_index_start) as usize {
+            self.read_call_count += 1;
+        }
+        chunkbits.set_all(true);
     }
 
     pub fn unique_bytes_read(&self) -> u64 {
-        self.unique_bytes_read.count_ones() as u64
+        self.unique_chunks_read.count_ones() as u64 * CHUNK_SIZE
     }
 }
 
 #[cfg(feature = "partial_read_stats")]
 impl std::fmt::Display for FileReadStats {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let bytes_read = self.bytes_read();
         let unique_bytes_read = self.unique_bytes_read();
-        let repeated_bytes_read = bytes_read - unique_bytes_read;
-        let redundancy_percent = repeated_bytes_read * 100 / bytes_read;
         write!(
             f,
-            "Read {} total, {} unique, {}% redundancy. {} reads total",
-            bytesize::ByteSize(bytes_read),
+            "{} unique, {} reads total",
             bytesize::ByteSize(unique_bytes_read),
-            redundancy_percent,
             self.read_call_count
         )
     }
@@ -329,7 +331,7 @@ impl<T: FileContents> FileContentsWrapper<T> {
         #[cfg(feature = "partial_read_stats")]
         self.partial_read_stats
             .borrow_mut()
-            .record_read(offset, bytes.len() as u64);
+            .record_read(offset, (bytes.len() + 1) as u64);
 
         Ok(bytes)
     }
