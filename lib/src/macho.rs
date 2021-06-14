@@ -1,25 +1,16 @@
+use crate::dwarf::{
+    collect_dwarf_address_debug_data, make_address_pairs_for_root_object, AddressPair,
+};
 use crate::error::{GetSymbolsError, Result};
 use crate::shared::{
     get_symbolication_result_for_addresses_from_object, object_to_map, FileAndPathHelper,
-    FileContents, FileContentsWrapper, SymbolicationQuery, SymbolicationResult,
+    FileContents, FileContentsWrapper, RangeReadRef, SymbolicationQuery, SymbolicationResult,
     SymbolicationResultKind,
 };
-use crate::{
-    dwarf::{collect_dwarf_address_debug_data, make_address_pairs_for_root_object, AddressPair},
-    shared::RangeReadRef,
-};
-use object::{
-    macho::{MachHeader32, MachHeader64},
-    ReadRef,
-};
-use object::{
-    read::macho::{FatArch, MachHeader},
-    Endianness,
-};
-use object::{
-    read::{archive::ArchiveFile, File, FileKind, Object, ObjectSymbol},
-    ObjectMapEntry,
-};
+use object::macho::{MachHeader32, MachHeader64};
+use object::read::macho::{FatArch, MachHeader};
+use object::read::{archive::ArchiveFile, File, FileKind, Object, ObjectSymbol};
+use object::{Endianness, ObjectMapEntry, ReadRef};
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
