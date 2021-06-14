@@ -1,8 +1,8 @@
 use crate::dwarf::{collect_dwarf_address_debug_data, make_address_pairs_for_root_object};
 use crate::error::{GetSymbolsError, Result};
 use crate::shared::{
-    object_to_map, FileContents, FileContentsWrapper, SymbolicationQuery, SymbolicationResult,
-    SymbolicationResultKind,
+    get_symbolication_result_for_addresses_from_object, object_to_map, FileContents,
+    FileContentsWrapper, SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
 };
 use object::{File, FileKind, Object, ObjectSection, SectionKind};
 use std::cmp;
@@ -35,22 +35,29 @@ where
             breakpad_id.to_string(),
         ));
     }
-    let map = object_to_map(&elf_file);
-    let mut symbolication_result = R::from_full_map(map, addresses);
 
-    if let SymbolicationResultKind::SymbolsForAddresses {
-        with_debug_info: true,
-    } = R::result_kind()
-    {
-        let addresses: Vec<_> = make_address_pairs_for_root_object(addresses, &elf_file);
-        collect_dwarf_address_debug_data(
-            file_contents.full_range(),
-            &elf_file,
-            &addresses,
-            &mut symbolication_result,
-        );
-    }
+    let mut symbolication_result = match R::result_kind() {
+        SymbolicationResultKind::AllSymbols => {
+            let map = object_to_map(&elf_file);
+            return Ok(R::from_full_map(map, addresses));
+        }
+        SymbolicationResultKind::SymbolsForAddresses { with_debug_info } => {
+            let symbolication_result =
+                get_symbolication_result_for_addresses_from_object(addresses, &elf_file);
+            if !with_debug_info {
+                return Ok(symbolication_result);
+            }
+            symbolication_result
+        }
+    };
 
+    let addresses: Vec<_> = make_address_pairs_for_root_object(addresses, &elf_file);
+    collect_dwarf_address_debug_data(
+        file_contents.full_range(),
+        &elf_file,
+        &addresses,
+        &mut symbolication_result,
+    );
     Ok(symbolication_result)
 }
 

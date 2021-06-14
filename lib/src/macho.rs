@@ -1,7 +1,8 @@
 use crate::error::{GetSymbolsError, Result};
 use crate::shared::{
-    object_to_map, FileAndPathHelper, FileContents, FileContentsWrapper, SymbolicationQuery,
-    SymbolicationResult,
+    get_symbolication_result_for_addresses_from_object, object_to_map, FileAndPathHelper,
+    FileContents, FileContentsWrapper, SymbolicationQuery, SymbolicationResult,
+    SymbolicationResultKind,
 };
 use crate::{
     dwarf::{collect_dwarf_address_debug_data, make_address_pairs_for_root_object, AddressPair},
@@ -97,15 +98,24 @@ where
         ));
     }
 
+    let addresses = query.addresses;
     let macho_file =
         File::parse_at(range, header_offset).map_err(GetSymbolsError::MachOHeaderParseError)?;
-    let map = object_to_map(&macho_file);
-    let addresses = query.addresses;
-    let mut symbolication_result = R::from_full_map(map, addresses);
 
-    if !R::result_kind().wants_debug_info_for_addresses() {
-        return Ok(symbolication_result);
-    }
+    let mut symbolication_result = match R::result_kind() {
+        SymbolicationResultKind::AllSymbols => {
+            let map = object_to_map(&macho_file);
+            return Ok(R::from_full_map(map, addresses));
+        }
+        SymbolicationResultKind::SymbolsForAddresses { with_debug_info } => {
+            let symbolication_result =
+                get_symbolication_result_for_addresses_from_object(addresses, &macho_file);
+            if !with_debug_info {
+                return Ok(symbolication_result);
+            }
+            symbolication_result
+        }
+    };
 
     // We need to gather debug info for the supplied addresses.
     // On macOS, debug info can either be in this macho_file, or it can be in

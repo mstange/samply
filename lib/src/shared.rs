@@ -233,6 +233,54 @@ where
         .collect()
 }
 
+/// Return a Vec that contains address -> symbol name entries.
+/// The address is relative to the address of the __TEXT segment (if present).
+/// We discard the symbol "size"; the address is where the symbol starts.
+pub fn get_symbolication_result_for_addresses_from_object<'a: 'b, 'b, T, R>(
+    addresses: &[u32],
+    object_file: &'b T,
+) -> R
+where
+    T: object::Object<'a, 'b>,
+    R: SymbolicationResult,
+{
+    use object::read::ObjectSegment;
+    use object::{ObjectSymbol, SymbolKind};
+    let vmaddr_of_text_segment = object_file
+        .segments()
+        .find(|segment| segment.name() == Ok(Some("__TEXT")))
+        .map(|segment| segment.address())
+        .unwrap_or(0);
+
+    let mut symbols: Vec<_> = object_file
+        .dynamic_symbols()
+        .chain(object_file.symbols())
+        .filter(|symbol| symbol.kind() == SymbolKind::Text)
+        .map(|symbol| ((symbol.address() - vmaddr_of_text_segment) as u32, symbol))
+        .collect();
+    symbols.reverse();
+    symbols.sort_by_key(|(address, _)| *address);
+    symbols.dedup_by_key(|(address, _)| *address);
+
+    let mut symbolication_result = R::for_addresses(addresses);
+
+    for &address in addresses {
+        let index = match symbols.binary_search_by_key(&address, |&(addr, _)| addr) {
+            Err(0) => {
+                symbolication_result.add_address_symbol(address, address, "<before first symbol>");
+                continue;
+            }
+            Ok(i) => i,
+            Err(i) => i - 1,
+        };
+        let (addr, symbol) = &symbols[index];
+        if let Ok(name) = symbol.name() {
+            symbolication_result.add_address_symbol(address, *addr, name);
+        }
+    }
+    symbolication_result
+}
+
 #[cfg(feature = "partial_read_stats")]
 const CHUNK_SIZE: u64 = 32 * 1024;
 
@@ -254,6 +302,10 @@ impl FileReadStats {
     }
 
     pub fn record_read(&mut self, offset: u64, size: u64) {
+        if size == 0 {
+            return;
+        }
+
         let start = offset;
         let end = offset + size;
         let chunk_index_start = start / CHUNK_SIZE;
