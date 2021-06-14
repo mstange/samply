@@ -1,9 +1,9 @@
 use object::read::ReadRef;
+use std::fmt::Debug;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::{collections::BTreeMap, fmt::Debug};
 use std::{marker::PhantomData, ops::Deref};
 
 pub type FileAndPathHelperError = Box<dyn std::error::Error + Send + Sync + 'static>;
@@ -162,7 +162,7 @@ pub trait SymbolicationResult {
 
     /// Create a `SymbolicationResult` object based on a full symbol map.
     /// Can be called regardless of `result_kind()`.
-    fn from_full_map<S>(map: BTreeMap<u32, S>, addresses: &[u32]) -> Self
+    fn from_full_map<S>(map: Vec<(u32, S)>, addresses: &[u32]) -> Self
     where
         S: Deref<Target = str>;
 
@@ -201,10 +201,10 @@ pub struct SymbolicationQuery<'a> {
     pub addresses: &'a [u32],
 }
 
-/// Return a BTreeMap that contains address -> symbol name entries.
+/// Return a Vec that contains address -> symbol name entries.
 /// The address is relative to the address of the __TEXT segment (if present).
 /// We discard the symbol "size"; the address is where the symbol starts.
-pub fn object_to_map<'a: 'b, 'b, T>(object_file: &'b T) -> BTreeMap<u32, &'a str>
+pub fn object_to_map<'a: 'b, 'b, T>(object_file: &'b T) -> Vec<(u32, &'a str)>
 where
     T: object::Object<'a, 'b>,
 {

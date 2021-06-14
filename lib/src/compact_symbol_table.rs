@@ -1,5 +1,4 @@
 use super::shared::{AddressDebugInfo, SymbolicationResult, SymbolicationResultKind};
-use std::collections::BTreeMap;
 use std::ops::Deref;
 
 /// A "compact" representation of a symbol table.
@@ -24,12 +23,17 @@ pub struct CompactSymbolTable {
 }
 
 impl SymbolicationResult for CompactSymbolTable {
-    fn from_full_map<T: Deref<Target = str>>(map: BTreeMap<u32, T>, _addresses: &[u32]) -> Self {
-        let mut addr = Vec::new();
-        let mut index = Vec::new();
-        let mut buffer = Vec::new();
-        let mut entries: Vec<_> = map.into_iter().collect();
-        entries.sort_by_key(|&(address, _)| address);
+    fn from_full_map<T: Deref<Target = str>>(
+        mut entries: Vec<(u32, T)>,
+        _addresses: &[u32],
+    ) -> Self {
+        entries.reverse();
+        entries.sort_by_key(|(address, _)| *address);
+        entries.dedup_by_key(|(address, _)| *address);
+        let total_str_len = entries.iter().map(|(_, s)| s.len()).sum();
+        let mut addr = Vec::with_capacity(entries.len());
+        let mut index = Vec::with_capacity(entries.len() + 1);
+        let mut buffer = Vec::with_capacity(total_str_len);
         for (address, name) in entries {
             addr.push(address);
             index.push(buffer.len() as u32);

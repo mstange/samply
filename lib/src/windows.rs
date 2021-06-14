@@ -82,7 +82,7 @@ where
         let image_base_address: u64 = pe.relative_address_base();
         for export in exports {
             if let Ok(name) = std::str::from_utf8(export.name()) {
-                map.insert((export.address() - image_base_address) as u32, name);
+                map.push(((export.address() - image_base_address) as u32, name));
             }
         }
     }

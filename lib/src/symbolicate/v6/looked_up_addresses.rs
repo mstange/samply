@@ -19,9 +19,13 @@ pub struct LookedUpAddresses {
 }
 
 impl SymbolicationResult for LookedUpAddresses {
-    fn from_full_map<T: Deref<Target = str>>(map: BTreeMap<u32, T>, addresses: &[u32]) -> Self {
-        let mut symbols: Vec<_> = map.into_iter().collect();
-        symbols.sort_by_key(|&(addr, _)| addr);
+    fn from_full_map<T: Deref<Target = str>>(
+        mut symbols: Vec<(u32, T)>,
+        addresses: &[u32],
+    ) -> Self {
+        symbols.reverse();
+        symbols.sort_by_key(|(address, _)| *address);
+        symbols.dedup_by_key(|(address, _)| *address);
         let symbol_count = symbols.len() as u32;
 
         let address_results = addresses
