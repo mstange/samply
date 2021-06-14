@@ -25,7 +25,7 @@ version = "0.25.0"
 
 [dependencies]
 pdb = "0.7.0"
-pdb-addr2line = "0.3.0"
+pdb-addr2line = "0.4.0"
 uuid = "0.8.1"
 thiserror = "1.0"
 serde = { version = "1.0", features = ["derive"] }
