@@ -27,7 +27,7 @@ impl FileContents for MmapFileContents {
     #[inline]
     fn read_bytes_at_until(&self, offset: u64, delimiter: u8) -> FileAndPathHelperResult<&[u8]> {
         let slice_to_end = &self.0[offset as usize..];
-        if let Some(pos) = slice_to_end.iter().position(|b| *b == delimiter) {
+        if let Some(pos) = memchr::memchr(delimiter, slice_to_end) {
             Ok(&slice_to_end[..pos])
         } else {
             Err(Box::new(std::io::Error::new(
