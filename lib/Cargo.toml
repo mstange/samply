@@ -12,6 +12,7 @@ readme = "README.md"
 [features]
 default = []
 send_futures = []
+partial_read_stats = ["bytesize", "bitvec"]
 
 [dependencies.addr2line]
 default-features = false
@@ -35,3 +36,5 @@ msvc-demangler = "0.9.0"
 range-collections = "0.1.1"
 rustc-demangle = "0.1.16"
 bitflags = "1.2.1"
+bytesize = { version = "1.0.1", optional = true }
+bitvec = { version = "0.22.3", optional = true }
