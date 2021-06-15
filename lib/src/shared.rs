@@ -1,5 +1,3 @@
-use bitvec::bitvec;
-use bitvec::prelude::BitVec;
 use object::read::ReadRef;
 use std::fmt::Debug;
 use std::future::Future;
@@ -7,6 +5,8 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::{marker::PhantomData, ops::Deref};
 
+#[cfg(feature = "partial_read_stats")]
+use bitvec::{bitvec, prelude::BitVec};
 #[cfg(feature = "partial_read_stats")]
 use std::cell::RefCell;
 
@@ -286,6 +286,7 @@ const CHUNK_SIZE: u64 = 32 * 1024;
 
 #[cfg(feature = "partial_read_stats")]
 struct FileReadStats {
+    bytes_read: u64,
     unique_chunks_read: BitVec,
     read_call_count: u64,
 }
@@ -296,6 +297,7 @@ impl FileReadStats {
         assert!(size_in_bytes > 0);
         let chunk_count = (size_in_bytes - 1) / CHUNK_SIZE + 1;
         FileReadStats {
+            bytes_read: 0,
             unique_chunks_read: bitvec![0; chunk_count as usize],
             read_call_count: 0,
         }
@@ -314,6 +316,11 @@ impl FileReadStats {
         let chunkbits =
             &mut self.unique_chunks_read[chunk_index_start as usize..chunk_index_end as usize];
         if chunkbits.count_ones() != (chunk_index_end - chunk_index_start) as usize {
+            if chunkbits[0] {
+                self.bytes_read += chunk_index_end * CHUNK_SIZE - start;
+            } else {
+                self.bytes_read += (chunk_index_end - chunk_index_start) * CHUNK_SIZE;
+            }
             self.read_call_count += 1;
         }
         chunkbits.set_all(true);
@@ -328,10 +335,14 @@ impl FileReadStats {
 impl std::fmt::Display for FileReadStats {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let unique_bytes_read = self.unique_bytes_read();
+        let repeated_bytes_read = self.bytes_read - unique_bytes_read;
+        let redudancy_percentage = repeated_bytes_read * 100 / unique_bytes_read;
         write!(
             f,
-            "{} unique, {} reads total",
+            "{} total, {} unique, {}% redundancy, {} reads total",
+            bytesize::ByteSize(self.bytes_read),
             bytesize::ByteSize(unique_bytes_read),
+            redudancy_percentage,
             self.read_call_count
         )
     }
