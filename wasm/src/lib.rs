@@ -1,11 +1,11 @@
 mod error;
-mod wasm_mem_buffer;
 
 use js_sys::Promise;
+use rangemap::RangeMap;
 use std::{
     cell::RefCell,
-    cmp::min,
-    collections::{hash_map::Entry, HashMap},
+    collections::HashMap,
+    ops::Range,
     path::{Path, PathBuf},
 };
 use std::{mem, pin::Pin};
@@ -15,7 +15,6 @@ use wasm_bindgen_futures::{future_to_promise, JsFuture};
 use profiler_get_symbols::OptionallySendFuture;
 
 pub use error::{GenericError, GetSymbolsError, JsValueError};
-pub use wasm_mem_buffer::WasmMemBuffer;
 
 #[wasm_bindgen]
 extern "C" {
@@ -53,7 +52,7 @@ extern "C" {
     fn getLength(this: &FileContents) -> f64;
 
     #[wasm_bindgen(method)]
-    fn readBytesAt(this: &FileContents, offset: f64, size: f64) -> WasmMemBuffer;
+    fn readBytesInto(this: &FileContents, offset: f64, size: f64, buffer: js_sys::Uint8Array);
 
     #[wasm_bindgen(method)]
     fn drop(this: &FileContents);
@@ -76,10 +75,8 @@ extern "C" {
 ///       const fileHandle = getFileHandle(filename);
 ///       return {
 ///         getLength: () => byteLength,
-///         readBytesAt: (offset, size) => {
-///           return new WasmMemBuffer(size, array => {
-///             syncReadFilePartIntoBuffer(fileHandle, offset, size, array);
-///           });
+///         readBytesInto: (offset, size, array) => {
+///           syncReadFilePartIntoBuffer(fileHandle, offset, size, array);
 ///         },
 ///       };
 ///     },
@@ -119,10 +116,8 @@ pub fn get_compact_symbol_table(
 ///       const fileHandle = getFileHandle(filename);
 ///       return {
 ///         getLength: () => byteLength,
-///         readBytesAt: (offset, size) => {
-///           return new WasmMemBuffer(size, array => {
-///             syncReadFilePartIntoBuffer(fileHandle, offset, size, array);
-///           });
+///         readBytesInto: (offset, size, array) => {
+///           syncReadFilePartIntoBuffer(fileHandle, offset, size, array);
 ///         },
 ///       };
 ///     },
@@ -164,16 +159,155 @@ async fn get_compact_symbol_table_impl(
     }
 }
 
+impl FileContents {
+    /// Reads `len` bytes at the offset into the memory at dest_ptr.
+    /// Safety: The dest_ptr must point to at least `len` bytes of valid memory, and
+    /// exclusive access is granted to this function.
+    /// Safety: This function guarantees that the `len` bytes at `dest_ptr` will be
+    /// fully initialized after the call.
+    /// Safety: dest_ptr is not stored and the memory is not accessed after this function
+    /// returns.
+    unsafe fn read_bytes_into(&self, offset: u64, len: usize, dest_ptr: *mut u8) {
+        let array = js_sys::Uint8Array::view_mut_raw(dest_ptr, len);
+        // Safety requirements:
+        // - readBytesInto must initialize all values in the buffer.
+        // - readBytesInto must not call into wasm code which might cause the heap to grow,
+        //   because that would invalidate the TypedArray's internal buffer
+        // - readBytesInto must not hold on to the array after it has returned
+        // todo: catch JS exception from readBytesAt
+        self.readBytesInto(offset as f64, len as f64, array);
+    }
+}
+
+const CHUNK_SIZE: u64 = 32 * 1024;
+
+#[inline]
+fn round_down_to_multiple(value: u64, factor: u64) -> u64 {
+    value / factor * factor
+}
+
+#[inline]
+fn round_up_to_multiple(value: u64, factor: u64) -> u64 {
+    (value + factor - 1) / factor * factor
+}
+
+struct CachedFileBytes {
+    range: Range<u64>,
+    bytes: Box<[u8]>,
+}
+
+#[derive(Clone)]
+struct CachedString {
+    file_bytes_index: usize,
+    len: usize,
+}
+
+struct Cache {
+    file_len: u64,
+    file_bytes: Vec<CachedFileBytes>,
+    ranges: RangeMap<u64, usize>,
+    strings: HashMap<(u64, u8), CachedString>,
+}
+
+impl Cache {
+    /// Returns an index into self.file_bytes.
+    fn get_or_create_cached_range_including(
+        &mut self,
+        contents: &FileContents,
+        start: u64,
+        end: u64,
+    ) -> usize {
+        assert!(start < end);
+        let start_is_cached = if let Some((range, index)) = self.ranges.get_key_value(&start) {
+            if end <= range.end {
+                return *index;
+            }
+            true
+        } else {
+            false
+        };
+
+        // The requested range does not exist in self.file_bytes.
+        // Compute a range that we want to cache.
+        let start = if start_is_cached {
+            start
+        } else {
+            round_down_to_multiple(start, CHUNK_SIZE)
+        };
+        let end = round_up_to_multiple(end, CHUNK_SIZE).clamp(0, self.file_len);
+
+        // Read it and put it into the self.
+        // Make a buffer, wrap a Uint8Array around its bits, and call into JS to fill it.
+        // This is implemented in such a way that it avoids zero-initialization and extra
+        // copies of the contents.
+        let read_len = (end - start) as usize;
+        let mut buffer: Vec<u8> = Vec::with_capacity(read_len);
+        unsafe {
+            // Safety: The buffer has `read_len` bytes of capacity.
+            // Safety: Nothing else has a reference to the buffer at the moment; we have exclusive access of its contents.
+            contents.read_bytes_into(start, read_len, buffer.as_mut_ptr());
+            // Safety: All values in the buffer are now initialized.
+            buffer.set_len(read_len);
+        }
+
+        let index = self.file_bytes.len();
+        self.file_bytes.push(CachedFileBytes {
+            range: start..end,
+            bytes: buffer.into_boxed_slice(),
+        });
+        self.ranges.insert(start..end, index);
+        index
+    }
+
+    fn get_or_create_cached_string_at(
+        &mut self,
+        contents: &FileContents,
+        start: u64,
+        delimiter: u8,
+    ) -> Option<CachedString> {
+        const MAX_LENGTH_INCLUDING_DELIMITER: usize = 4096;
+
+        if let Some(s) = self.strings.get(&(start, delimiter)) {
+            return Some(s.clone());
+        }
+
+        let index = self.get_or_create_cached_range_including(
+            contents,
+            start,
+            start + MAX_LENGTH_INCLUDING_DELIMITER as u64,
+        );
+        let file_bytes = &self.file_bytes[index];
+        let offset_into_range = (start - file_bytes.range.start) as usize;
+        let available_length = (file_bytes.range.end - start) as usize;
+        let checked_length = available_length.clamp(0, MAX_LENGTH_INCLUDING_DELIMITER);
+        if let Some(len) = file_bytes.bytes[offset_into_range..][..checked_length]
+            .iter()
+            .position(|b| *b == delimiter)
+        {
+            // Found the string! Cache the info in the strings list.
+            let cached_string = CachedString {
+                file_bytes_index: index,
+                len,
+            };
+            self.strings
+                .insert((start, delimiter), cached_string.clone());
+            Some(cached_string)
+        } else {
+            None
+        }
+    }
+}
+
 pub struct FileHandle {
     contents: FileContents,
-    cache: RefCell<HashMap<(u64, u64), Box<[u8]>>>,
-    string_cache: RefCell<HashMap<(u64, u8), Box<[u8]>>>,
+    len: u64,
+    cache: RefCell<Cache>,
 }
 
 impl profiler_get_symbols::FileContents for FileHandle {
     #[inline]
     fn len(&self) -> u64 {
-        self.contents.getLength() as u64
+        self.len
     }
 
     #[inline]
@@ -182,16 +316,19 @@ impl profiler_get_symbols::FileContents for FileHandle {
         offset: u64,
         size: u64,
     ) -> profiler_get_symbols::FileAndPathHelperResult<&[u8]> {
+        if size == 0 {
+            return Ok(&[]);
+        }
+
         let cache = &mut *self.cache.borrow_mut();
-        let buf = cache.entry((offset, size)).or_insert_with(|| {
-            self.contents
-                .readBytesAt(offset as f64, size as f64) // todo: catch JS exception from readBytesAt
-                .into_buffer()
-                .into_boxed_slice()
-        });
-        let buf = &buf[..];
+        let file_bytes_index =
+            cache.get_or_create_cached_range_including(&self.contents, offset, offset + size);
+        let file_bytes = &cache.file_bytes[file_bytes_index];
+        let offset_into_range = (offset - file_bytes.range.start) as usize;
+        let buf = &file_bytes.bytes[offset_into_range..][..size as usize];
+
         // Extend the lifetime to that of self.
-        // This is OK because we never mutate or remove entries in self.cache.
+        // This is OK because we never mutate or remove entries in cache.file_bytes.
         Ok(unsafe { mem::transmute::<&[u8], &[u8]>(buf) })
     }
 
@@ -201,42 +338,23 @@ impl profiler_get_symbols::FileContents for FileHandle {
         offset: u64,
         delimiter: u8,
     ) -> profiler_get_symbols::FileAndPathHelperResult<&[u8]> {
-        let cache = &mut *self.string_cache.borrow_mut();
-        let buf = match cache.entry((offset, delimiter)) {
-            Entry::Occupied(entry) => entry.into_mut(),
-            Entry::Vacant(entry) => {
-                let mut bytes = Vec::new();
-                let mut checked = 0;
-                let mut remaining_len: u64 = self.len() - offset;
-                loop {
-                    let chunk_size = min(256, remaining_len);
-                    let chunk: Vec<u8> = self
-                        .contents
-                        .readBytesAt((offset + checked) as f64, chunk_size as f64) // todo: catch JS exception from readBytesAt
-                        .into_buffer();
-
-                    if let Some(pos) = chunk.iter().position(|b| *b == delimiter) {
-                        bytes.extend_from_slice(&chunk[..pos]);
-                        break entry.insert(bytes.into_boxed_slice());
-                    }
-
-                    bytes.extend_from_slice(&chunk);
-                    checked += chunk_size;
-                    remaining_len -= chunk_size;
-                    // Strings should be relatively small.
-                    // TODO: make this configurable?
-                    if checked > 4096 || remaining_len == 0 {
-                        return Err(Box::new(std::io::Error::new(
-                            std::io::ErrorKind::InvalidInput,
-                            "Could not find delimiter",
-                        )));
-                    }
-                }
+        let cache = &mut *self.cache.borrow_mut();
+        let s = match cache.get_or_create_cached_string_at(&self.contents, offset, delimiter) {
+            Some(s) => s,
+            None => {
+                return Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "Could not find delimiter",
+                )))
             }
         };
+        let file_bytes = &cache.file_bytes[s.file_bytes_index];
+        let offset_into_range = (offset - file_bytes.range.start) as usize;
+        let buf = &file_bytes.bytes[offset_into_range..][..s.len];
+
         // Extend the lifetime to that of self.
-        // This is OK because we never mutate or remove entries.
-        Ok(unsafe { &*(&**buf as *const [u8]) })
+        // This is OK because we never mutate or remove entries in cache.file_bytes.
+        Ok(unsafe { mem::transmute::<&[u8], &[u8]>(buf) })
     }
 }
 
@@ -316,10 +434,18 @@ async fn read_file_impl(
     ))?;
     let file_res = JsFuture::from(helper.readFile(path)).await;
     let file = file_res.map_err(JsValueError::from)?;
+    let contents = FileContents::from(file);
+    let len = contents.getLength() as u64;
+    let cache = RefCell::new(Cache {
+        file_len: len,
+        file_bytes: Vec::new(),
+        ranges: RangeMap::new(),
+        strings: HashMap::new(),
+    });
     let file_handle = FileHandle {
-        contents: FileContents::from(file),
-        cache: RefCell::new(HashMap::new()),
-        string_cache: RefCell::new(HashMap::new()),
+        contents,
+        len,
+        cache,
     };
     Ok(file_handle)
 }

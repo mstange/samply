@@ -412,10 +412,8 @@
         const array = new Uint8Array(await getFileFromUser(filename, this._element));
         return {
           getLength: () => array.byteLength,
-          readBytesAt: (offset, size) => {
-            return new WasmMemBuffer(size, dest => {
-              dest.set(array.subarray(offset, offset + size));
-            });
+          readBytesInto: (offset, size, dest) => {
+            dest.set(array.subarray(offset, offset + size));
           },
           drop: () => {},
         };
@@ -460,10 +458,8 @@
         const array = new Uint8Array(await getFileFromURL(path, this._element));
         return {
           getLength: () => array.byteLength,
-          readBytesAt: (offset, size) => {
-            return new WasmMemBuffer(size, dest => {
-              dest.set(array.subarray(offset, offset + size));
-            });
+          readBytesInto: (offset, size, dest) => {
+            dest.set(array.subarray(offset, offset + size));
           },
           drop: () => {},
         };
@@ -492,10 +488,8 @@
         const array = new Uint8Array(await getFileFromFile(file, this._element));
         return {
           getLength: () => array.byteLength,
-          readBytesAt: (offset, size) => {
-            return new WasmMemBuffer(size, dest => {
-              dest.set(array.subarray(offset, offset + size));
-            });
+          readBytesInto: (offset, size, dest) => {
+            dest.set(array.subarray(offset, offset + size));
           },
           drop: () => {},
         };

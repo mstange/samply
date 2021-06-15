@@ -11,6 +11,7 @@ wasm-bindgen = {version = "0.2.73", features = ["serde-serialize"] }
 wasm-bindgen-futures = "0.4.23"
 serde = { version = "1.0", features = ["derive"] }
 serde_derive = "^1.0.59"
+rangemap = "0.1.10"
 
 [lib]
 crate-type = ["cdylib"]
