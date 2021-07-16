@@ -10,7 +10,7 @@ use mach::traps::mach_task_self;
 use mach::vm::{mach_vm_deallocate, mach_vm_read, mach_vm_remap};
 use mach::vm_inherit::VM_INHERIT_SHARE;
 use mach::vm_page_size::{mach_vm_trunc_page, vm_page_size};
-use mach::vm_prot::{vm_prot_t, VM_PROT_NONE};
+use mach::vm_prot::{vm_prot_t, VM_PROT_NONE, VM_PROT_READ};
 use mach::vm_types::{mach_vm_address_t, mach_vm_size_t};
 use std::cmp::Ordering;
 use std::mem;
@@ -21,6 +21,7 @@ use uuid::Uuid;
 use mach::{structs::x86_thread_state64_t, thread_status::x86_THREAD_STATE64};
 
 use crate::dyld_bindings;
+use crate::kernel_error::KernelError;
 use dyld_bindings::{
     dyld_all_image_infos, dyld_image_info, load_command, mach_header_64, segment_command_64,
     uuid_command,
@@ -584,6 +585,12 @@ impl VmData {
         }
         .into_result()?;
 
+        if cur_protection & VM_PROT_READ == 0 {
+            // The mapped pages are not readable. Unmap them and return an error.
+            let _ = unsafe { mach_vm_deallocate(mach_task_self(), data as _, size) };
+            return Err(KernelError::NoAccess);
+        }
+
         Ok(Self {
             address_range: original_address..(original_address + size),
             data,
@@ -613,7 +620,7 @@ impl Drop for VmData {
         let _ = unsafe {
             mach_vm_deallocate(
                 mach_task_self(),
-                self.data as *mut _ as _,
+                self.data as _,
                 self.data_size as _,
             )
         };
