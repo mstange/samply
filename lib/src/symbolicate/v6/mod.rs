@@ -168,19 +168,23 @@ fn create_response(
                     .map(|address_result| Symbol {
                         function: address_result.symbol_name.clone(),
                         function_offset: frame.address - address_result.symbol_address,
-                        debug_info: address_result
-                            .inline_frames
-                            .as_ref()
-                            .map(|frames| DebugInfo {
-                                inline_stack: frames
+                        debug_info: address_result.inline_frames.as_ref().map(|frames| {
+                            let (outer, inlines) = frames
+                                .split_last()
+                                .expect("inline_frames should always have at least one element");
+                            DebugInfo {
+                                file: outer.file_path.clone(),
+                                line: outer.line_number,
+                                inlines: inlines
                                     .iter()
                                     .map(|inline_frame| InlineStackFrame {
-                                        function_name: inline_frame.function.clone(),
-                                        file_path: inline_frame.file_path.clone(),
-                                        line_number: inline_frame.line_number,
+                                        function: inline_frame.function.clone(),
+                                        file: inline_frame.file_path.clone(),
+                                        line: inline_frame.line_number,
                                     })
                                     .collect(),
-                            }),
+                            }
+                        }),
                     })
             });
         StackFrame {

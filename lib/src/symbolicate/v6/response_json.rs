@@ -41,19 +41,26 @@ pub struct Symbol {
 
 #[derive(Serialize, Debug)]
 pub struct DebugInfo {
-    pub inline_stack: Vec<InlineStackFrame>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub inlines: Vec<InlineStackFrame>,
 }
 
 #[derive(Serialize, Debug)]
 pub struct InlineStackFrame {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub function_name: Option<String>,
+    pub function: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub file_path: Option<String>,
+    pub file: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub line_number: Option<u32>,
+    pub line: Option<u32>,
 }
 
 #[derive(Serialize, Debug)]

@@ -158,7 +158,7 @@ mod test {
             symbol_directory,
         ));
 
-        if false {
+        if true {
             let mut output_file =
                 File::create(fixtures_dir().join("snapshots").join(output_filename)).unwrap();
             output_file.write_all(output.as_bytes()).unwrap();
@@ -225,7 +225,7 @@ mod test {
     #[test]
     fn win64_ci_v6_snapshot() {
         compare_snapshot(
-            "/symbolicate/v6a1",
+            "/symbolicate/v6a2",
             r#"{
                 "memoryMap": [
                   [
@@ -283,7 +283,7 @@ mod test {
     #[test]
     fn android32_v6_local() {
         compare_snapshot(
-            "/symbolicate/v6a1",
+            "/symbolicate/v6a2",
             r#"{
                 "memoryMap": [
                   [

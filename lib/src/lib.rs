@@ -245,7 +245,7 @@ where
 ///
 /// The following "URLs" are supported:
 ///  - `/symbolicate/v5`: This API is documented at <https://tecken.readthedocs.io/en/latest/symbolication.html>.
-///  - `/symbolicate/v6a1`: Same request API as v5, but richer response data. This is still experimental.
+///  - `/symbolicate/v6a2`: Same request API as v5, but richer response data. This is still experimental.
 ///    See the raw response struct definitions in symbolicate/v6/response_json.rs for details.
 ///    V6 extends V5 by inline callstacks and filename + line number data, and richer error reporting.
 pub async fn query_api(
@@ -255,7 +255,7 @@ pub async fn query_api(
 ) -> String {
     if request_url == "/symbolicate/v5" {
         symbolicate::v5::query_api_json(request_json_data, helper).await
-    } else if request_url == "/symbolicate/v6a1" {
+    } else if request_url == "/symbolicate/v6a2" {
         symbolicate::v6::query_api_json(request_json_data, helper).await
     } else {
         json!({ "error": format!("Unrecognized URL {}", request_url) }).to_string()
