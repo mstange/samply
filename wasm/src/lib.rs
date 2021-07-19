@@ -2,13 +2,13 @@ mod error;
 
 use js_sys::Promise;
 use rangemap::RangeMap;
+use std::pin::Pin;
 use std::{
     cell::RefCell,
     collections::HashMap,
     ops::Range,
     path::{Path, PathBuf},
 };
-use std::{mem, pin::Pin};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
@@ -191,11 +191,6 @@ fn round_up_to_multiple(value: u64, factor: u64) -> u64 {
     (value + factor - 1) / factor * factor
 }
 
-struct CachedFileBytes {
-    range: Range<u64>,
-    bytes: Box<[u8]>,
-}
-
 #[derive(Clone)]
 struct CachedString {
     file_bytes_index: usize,
@@ -204,7 +199,7 @@ struct CachedString {
 
 struct Cache {
     file_len: u64,
-    file_bytes: Vec<CachedFileBytes>,
+    file_bytes_ranges: Vec<Range<u64>>,
     ranges: RangeMap<u64, usize>,
     strings: HashMap<(u64, u8), CachedString>,
 }
@@ -213,6 +208,7 @@ impl Cache {
     /// Returns an index into self.file_bytes.
     fn get_or_create_cached_range_including(
         &mut self,
+        file_bytes: &elsa::FrozenVec<Box<[u8]>>,
         contents: &FileContents,
         start: u64,
         end: u64,
@@ -250,17 +246,16 @@ impl Cache {
             buffer.set_len(read_len);
         }
 
-        let index = self.file_bytes.len();
-        self.file_bytes.push(CachedFileBytes {
-            range: start..end,
-            bytes: buffer.into_boxed_slice(),
-        });
+        let index = (*file_bytes).len();
+        file_bytes.push(buffer.into_boxed_slice());
+        self.file_bytes_ranges.push(start..end);
         self.ranges.insert(start..end, index);
         index
     }
 
     fn get_or_create_cached_string_at(
         &mut self,
+        file_bytes: &elsa::FrozenVec<Box<[u8]>>,
         contents: &FileContents,
         start: u64,
         delimiter: u8,
@@ -272,15 +267,16 @@ impl Cache {
         }
 
         let index = self.get_or_create_cached_range_including(
+            file_bytes,
             contents,
             start,
             start + MAX_LENGTH_INCLUDING_DELIMITER as u64,
         );
-        let file_bytes = &self.file_bytes[index];
-        let offset_into_range = (start - file_bytes.range.start) as usize;
-        let available_length = (file_bytes.range.end - start) as usize;
+        let file_bytes_range = &self.file_bytes_ranges[index];
+        let offset_into_range = (start - file_bytes_range.start) as usize;
+        let available_length = (file_bytes_range.end - start) as usize;
         let checked_length = available_length.clamp(0, MAX_LENGTH_INCLUDING_DELIMITER);
-        if let Some(len) = file_bytes.bytes[offset_into_range..][..checked_length]
+        if let Some(len) = file_bytes[index][offset_into_range..][..checked_length]
             .iter()
             .position(|b| *b == delimiter)
         {
@@ -302,6 +298,7 @@ pub struct FileHandle {
     contents: FileContents,
     len: u64,
     cache: RefCell<Cache>,
+    file_bytes: elsa::FrozenVec<Box<[u8]>>,
 }
 
 impl profiler_get_symbols::FileContents for FileHandle {
@@ -321,15 +318,17 @@ impl profiler_get_symbols::FileContents for FileHandle {
         }
 
         let cache = &mut *self.cache.borrow_mut();
-        let file_bytes_index =
-            cache.get_or_create_cached_range_including(&self.contents, offset, offset + size);
-        let file_bytes = &cache.file_bytes[file_bytes_index];
-        let offset_into_range = (offset - file_bytes.range.start) as usize;
-        let buf = &file_bytes.bytes[offset_into_range..][..size as usize];
-
-        // Extend the lifetime to that of self.
-        // This is OK because we never mutate or remove entries in cache.file_bytes.
-        Ok(unsafe { mem::transmute::<&[u8], &[u8]>(buf) })
+        let file_bytes_index = cache.get_or_create_cached_range_including(
+            &self.file_bytes,
+            &self.contents,
+            offset,
+            offset + size,
+        );
+        let file_bytes = &self.file_bytes[file_bytes_index];
+        let file_bytes_range_start = cache.file_bytes_ranges[file_bytes_index].start;
+        let offset_into_range = (offset - file_bytes_range_start) as usize;
+        let buf = &file_bytes[offset_into_range..][..size as usize];
+        Ok(buf)
     }
 
     #[inline]
@@ -339,7 +338,12 @@ impl profiler_get_symbols::FileContents for FileHandle {
         delimiter: u8,
     ) -> profiler_get_symbols::FileAndPathHelperResult<&[u8]> {
         let cache = &mut *self.cache.borrow_mut();
-        let s = match cache.get_or_create_cached_string_at(&self.contents, offset, delimiter) {
+        let s = match cache.get_or_create_cached_string_at(
+            &self.file_bytes,
+            &self.contents,
+            offset,
+            delimiter,
+        ) {
             Some(s) => s,
             None => {
                 return Err(Box::new(std::io::Error::new(
@@ -348,13 +352,11 @@ impl profiler_get_symbols::FileContents for FileHandle {
                 )))
             }
         };
-        let file_bytes = &cache.file_bytes[s.file_bytes_index];
-        let offset_into_range = (offset - file_bytes.range.start) as usize;
-        let buf = &file_bytes.bytes[offset_into_range..][..s.len];
-
-        // Extend the lifetime to that of self.
-        // This is OK because we never mutate or remove entries in cache.file_bytes.
-        Ok(unsafe { mem::transmute::<&[u8], &[u8]>(buf) })
+        let file_bytes = &self.file_bytes[s.file_bytes_index];
+        let file_bytes_range_start = cache.file_bytes_ranges[s.file_bytes_index].start;
+        let offset_into_range = (offset - file_bytes_range_start) as usize;
+        let buf = &file_bytes[offset_into_range..][..s.len];
+        Ok(buf)
     }
 }
 
@@ -438,12 +440,13 @@ async fn read_file_impl(
     let len = contents.getLength() as u64;
     let cache = RefCell::new(Cache {
         file_len: len,
-        file_bytes: Vec::new(),
+        file_bytes_ranges: Vec::new(),
         ranges: RangeMap::new(),
         strings: HashMap::new(),
     });
     let file_handle = FileHandle {
         contents,
+        file_bytes: elsa::FrozenVec::new(),
         len,
         cache,
     };
