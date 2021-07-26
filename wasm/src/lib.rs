@@ -258,24 +258,19 @@ impl Cache {
         file_bytes: &elsa::FrozenVec<Box<[u8]>>,
         contents: &FileContents,
         start: u64,
+        max_len: u64,
         delimiter: u8,
     ) -> Option<CachedString> {
-        const MAX_LENGTH_INCLUDING_DELIMITER: usize = 4096;
-
         if let Some(s) = self.strings.get(&(start, delimiter)) {
             return Some(s.clone());
         }
 
-        let index = self.get_or_create_cached_range_including(
-            file_bytes,
-            contents,
-            start,
-            start + MAX_LENGTH_INCLUDING_DELIMITER as u64,
-        );
+        let index =
+            self.get_or_create_cached_range_including(file_bytes, contents, start, start + max_len);
         let file_bytes_range = &self.file_bytes_ranges[index];
         let offset_into_range = (start - file_bytes_range.start) as usize;
         let available_length = (file_bytes_range.end - start) as usize;
-        let checked_length = available_length.clamp(0, MAX_LENGTH_INCLUDING_DELIMITER);
+        let checked_length = available_length.clamp(0, max_len as usize);
         if let Some(len) = file_bytes[index][offset_into_range..][..checked_length]
             .iter()
             .position(|b| *b == delimiter)
@@ -334,14 +329,19 @@ impl profiler_get_symbols::FileContents for FileHandle {
     #[inline]
     fn read_bytes_at_until(
         &self,
-        offset: u64,
+        range: Range<u64>,
         delimiter: u8,
     ) -> profiler_get_symbols::FileAndPathHelperResult<&[u8]> {
+        const MAX_LENGTH_INCLUDING_DELIMITER: u64 = 4096;
+
         let cache = &mut *self.cache.borrow_mut();
+
+        let max_len = (range.end - range.start).min(MAX_LENGTH_INCLUDING_DELIMITER);
         let s = match cache.get_or_create_cached_string_at(
             &self.file_bytes,
             &self.contents,
-            offset,
+            range.start,
+            max_len,
             delimiter,
         ) {
             Some(s) => s,
@@ -354,7 +354,7 @@ impl profiler_get_symbols::FileContents for FileHandle {
         };
         let file_bytes = &self.file_bytes[s.file_bytes_index];
         let file_bytes_range_start = cache.file_bytes_ranges[s.file_bytes_index].start;
-        let offset_into_range = (offset - file_bytes_range_start) as usize;
+        let offset_into_range = (range.start - file_bytes_range_start) as usize;
         let buf = &file_bytes[offset_into_range..][..s.len];
         Ok(buf)
     }

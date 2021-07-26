@@ -1,6 +1,7 @@
 use object::read::ReadRef;
 use std::fmt::Debug;
 use std::future::Future;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::{marker::PhantomData, ops::Deref};
@@ -130,7 +131,11 @@ pub trait FileContents {
     fn read_bytes_at(&self, offset: u64, size: u64) -> FileAndPathHelperResult<&[u8]>;
 
     /// TODO: document
-    fn read_bytes_at_until(&self, offset: u64, delimiter: u8) -> FileAndPathHelperResult<&[u8]>;
+    fn read_bytes_at_until(
+        &self,
+        range: Range<u64>,
+        delimiter: u8,
+    ) -> FileAndPathHelperResult<&[u8]>;
 }
 
 pub struct AddressDebugInfo {
@@ -387,15 +392,15 @@ impl<T: FileContents> FileContentsWrapper<T> {
     #[inline]
     pub fn read_bytes_at_until(
         &self,
-        offset: u64,
+        range: Range<u64>,
         delimiter: u8,
     ) -> FileAndPathHelperResult<&[u8]> {
-        let bytes = self.file_contents.read_bytes_at_until(offset, delimiter)?;
+        let bytes = self.file_contents.read_bytes_at_until(range, delimiter)?;
 
         #[cfg(feature = "partial_read_stats")]
         self.partial_read_stats
             .borrow_mut()
-            .record_read(offset, (bytes.len() + 1) as u64);
+            .record_read(range.start, (bytes.len() + 1) as u64);
 
         Ok(bytes)
     }
@@ -440,8 +445,8 @@ impl<'data, T: FileContents> ReadRef<'data> for &'data FileContentsWrapper<T> {
     }
 
     #[inline]
-    fn read_bytes_at_until(self, offset: u64, delimiter: u8) -> Result<&'data [u8], ()> {
-        self.read_bytes_at_until(offset, delimiter).map_err(|_| {
+    fn read_bytes_at_until(self, range: Range<u64>, delimiter: u8) -> Result<&'data [u8], ()> {
+        self.read_bytes_at_until(range, delimiter).map_err(|_| {
             // Note: We're discarding the error from the FileContents method here.
         })
     }
@@ -495,8 +500,10 @@ impl<'data, T: ReadRef<'data>> ReadRef<'data> for RangeReadRef<'data, T> {
     }
 
     #[inline]
-    fn read_bytes_at_until(self, offset: u64, delimiter: u8) -> Result<&'data [u8], ()> {
-        self.original_readref
-            .read_bytes_at_until(self.range_start + offset, delimiter)
+    fn read_bytes_at_until(self, range: Range<u64>, delimiter: u8) -> Result<&'data [u8], ()> {
+        self.original_readref.read_bytes_at_until(
+            range.start + self.range_start..range.end + self.range_start,
+            delimiter,
+        )
     }
 }
