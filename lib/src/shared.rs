@@ -263,6 +263,7 @@ where
     symbols.dedup_by_key(|(address, _)| *address);
 
     let mut symbolication_result = R::for_addresses(addresses);
+    symbolication_result.set_total_symbol_count(symbols.len() as u32);
 
     for &address in addresses {
         let index = match symbols.binary_search_by_key(&address, |&(addr, _)| addr) {
