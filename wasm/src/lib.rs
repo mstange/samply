@@ -3,12 +3,7 @@ mod error;
 use js_sys::Promise;
 use rangemap::RangeMap;
 use std::pin::Pin;
-use std::{
-    cell::RefCell,
-    collections::HashMap,
-    ops::Range,
-    path::{Path, PathBuf},
-};
+use std::{cell::RefCell, collections::HashMap, ops::Range, path::Path};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
@@ -392,10 +387,31 @@ impl profiler_get_symbols::FileAndPathHelper for FileAndPathHelper {
             >,
         >,
     > {
-        Box::pin(read_file_impl(
-            FileAndPathHelper::from((*self).clone()),
-            path.to_owned(),
-        ))
+        let helper = FileAndPathHelper::from((*self).clone());
+        let path = path.to_owned();
+        let future = async move {
+            let path = path.to_str().ok_or(GenericError(
+                "read_file: Path could not be converted to string",
+            ))?;
+            let file_res = JsFuture::from(helper.readFile(path)).await;
+            let file = file_res.map_err(JsValueError::from)?;
+            let contents = FileContents::from(file);
+            let len = contents.getLength() as u64;
+            let cache = RefCell::new(Cache {
+                file_len: len,
+                file_bytes_ranges: Vec::new(),
+                ranges: RangeMap::new(),
+                strings: HashMap::new(),
+            });
+            let file_handle = FileHandle {
+                contents,
+                file_bytes: elsa::FrozenVec::new(),
+                len,
+                cache,
+            };
+            Ok(file_handle)
+        };
+        Box::pin(future)
     }
 }
 
@@ -425,30 +441,4 @@ fn get_candidate_paths_for_binary_or_pdb_impl(
             profiler_get_symbols::CandidatePathInfo::Normal(s.into())
         })
         .collect())
-}
-
-async fn read_file_impl(
-    helper: FileAndPathHelper,
-    path: PathBuf,
-) -> profiler_get_symbols::FileAndPathHelperResult<FileHandle> {
-    let path = path.to_str().ok_or(GenericError(
-        "read_file: Path could not be converted to string",
-    ))?;
-    let file_res = JsFuture::from(helper.readFile(path)).await;
-    let file = file_res.map_err(JsValueError::from)?;
-    let contents = FileContents::from(file);
-    let len = contents.getLength() as u64;
-    let cache = RefCell::new(Cache {
-        file_len: len,
-        file_bytes_ranges: Vec::new(),
-        ranges: RangeMap::new(),
-        strings: HashMap::new(),
-    });
-    let file_handle = FileHandle {
-        contents,
-        file_bytes: elsa::FrozenVec::new(),
-        len,
-        cache,
-    };
-    Ok(file_handle)
 }
