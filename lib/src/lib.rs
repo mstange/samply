@@ -277,11 +277,6 @@ where
 
     let file_contents = FileContentsWrapper::new(file_contents);
 
-    if let Ok(pdb) = PDB::open(&file_contents) {
-        // This is a PDB file.
-        return windows::get_symbolication_result(pdb, query);
-    }
-
     if let Ok(file_kind) = FileKind::parse(&file_contents) {
         match file_kind {
             FileKind::Elf32 | FileKind::Elf64 => {
@@ -316,6 +311,9 @@ where
                 "Input was Archive, Coff or Wasm format, which are unsupported for now",
             )),
         }
+    } else if let Ok(pdb) = PDB::open(&file_contents) {
+        // This is a PDB file.
+        windows::get_symbolication_result(pdb, query)
     } else {
         Err(GetSymbolsError::InvalidInputError(
             "The file does not have a known format; PDB::open was not able to parse it and object::FileKind::parse was not able to detect the format.",
