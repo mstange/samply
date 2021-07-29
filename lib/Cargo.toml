@@ -1,6 +1,6 @@
 [package]
 name = "profiler-get-symbols"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Markus Stange <mstange@themasta.com>"]
 license = "MIT/Apache-2.0"
 edition = "2018"
