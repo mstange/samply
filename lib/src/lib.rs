@@ -121,10 +121,10 @@
 //!     #[inline]
 //!     fn read_bytes_at_until<'a>(
 //!         &'a self,
-//!         offset: u64,
+//!         range: std::ops::Range<u64>,
 //!         delimiter: u8,
 //!     ) -> FileAndPathHelperResult<&'a [u8]> {
-//!         let slice_to_end = &self.0[offset as usize..];
+//!         let slice_to_end = &self.0[range.start as usize..range.end as usize];
 //!         if let Some(pos) = slice_to_end.iter().position(|b| *b == delimiter) {
 //!             Ok(&slice_to_end[..pos])
 //!         } else {
