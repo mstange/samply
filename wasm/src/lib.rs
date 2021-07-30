@@ -47,7 +47,7 @@ extern "C" {
     fn getLength(this: &FileContents) -> f64;
 
     #[wasm_bindgen(method)]
-    fn readBytesInto(this: &FileContents, offset: f64, size: f64, buffer: js_sys::Uint8Array);
+    fn readBytesInto(this: &FileContents, buffer: js_sys::Uint8Array, offset: f64);
 
     #[wasm_bindgen(method)]
     fn drop(this: &FileContents);
@@ -70,9 +70,10 @@ extern "C" {
 ///       const fileHandle = getFileHandle(filename);
 ///       return {
 ///         getLength: () => byteLength,
-///         readBytesInto: (offset, size, array) => {
-///           syncReadFilePartIntoBuffer(fileHandle, offset, size, array);
+///         readBytesInto: (array, offset) => {
+///           syncReadFilePartIntoBuffer(fileHandle, array, offset);
 ///         },
+///         drop: () => {},
 ///       };
 ///     },
 ///   };
@@ -111,9 +112,10 @@ pub fn get_compact_symbol_table(
 ///       const fileHandle = getFileHandle(filename);
 ///       return {
 ///         getLength: () => byteLength,
-///         readBytesInto: (offset, size, array) => {
-///           syncReadFilePartIntoBuffer(fileHandle, offset, size, array);
+///         readBytesInto: (array, offset) => {
+///           syncReadFilePartIntoBuffer(fileHandle, array, offset);
 ///         },
+///         drop: () => {},
 ///       };
 ///     },
 ///   };
@@ -170,7 +172,7 @@ impl FileContents {
         //   because that would invalidate the TypedArray's internal buffer
         // - readBytesInto must not hold on to the array after it has returned
         // todo: catch JS exception from readBytesAt
-        self.readBytesInto(offset as f64, len as f64, array);
+        self.readBytesInto(array, offset as f64);
     }
 }
 

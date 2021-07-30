@@ -172,9 +172,10 @@ function __wbg_adapter_33(arg0, arg1, arg2, arg3) {
 *       const fileHandle = getFileHandle(filename);
 *       return {
 *         getLength: () => byteLength,
-*         readBytesInto: (offset, size, array) => {
-*           syncReadFilePartIntoBuffer(fileHandle, offset, size, array);
+*         readBytesInto: (array, offset) => {
+*           syncReadFilePartIntoBuffer(fileHandle, array, offset);
 *         },
+*         drop: () => {},
 *       };
 *     },
 *   };
@@ -215,9 +216,10 @@ __exports.getCompactSymbolTable = function(debug_name, breakpad_id, helper) {
 *       const fileHandle = getFileHandle(filename);
 *       return {
 *         getLength: () => byteLength,
-*         readBytesInto: (offset, size, array) => {
-*           syncReadFilePartIntoBuffer(fileHandle, offset, size, array);
+*         readBytesInto: (array, offset) => {
+*           syncReadFilePartIntoBuffer(fileHandle, array, offset);
 *         },
+*         drop: () => {},
 *       };
 *     },
 *   };
@@ -358,8 +360,8 @@ async function init(input) {
         var ret = Array.of(getObject(arg0), getObject(arg1), getObject(arg2));
         return addHeapObject(ret);
     };
-    imports.wbg.__wbg_readBytesInto_02ee0cacc563822d = function(arg0, arg1, arg2, arg3) {
-        getObject(arg0).readBytesInto(arg1, arg2, takeObject(arg3));
+    imports.wbg.__wbg_readBytesInto_02ee0cacc563822d = function(arg0, arg1, arg2) {
+        getObject(arg0).readBytesInto(takeObject(arg1), arg2);
     };
     imports.wbg.__wbg_getCandidatePathsForBinaryOrPdb_6ff1ea4b13b7cbee = function() { return handleError(function (arg0, arg1, arg2, arg3, arg4) {
         var ret = getObject(arg0).getCandidatePathsForBinaryOrPdb(getStringFromWasm0(arg1, arg2), getStringFromWasm0(arg3, arg4));

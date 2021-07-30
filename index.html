@@ -412,8 +412,8 @@
         const array = new Uint8Array(await getFileFromUser(filename, this._element));
         return {
           getLength: () => array.byteLength,
-          readBytesInto: (offset, size, dest) => {
-            dest.set(array.subarray(offset, offset + size));
+          readBytesInto: (dest, offset) => {
+            dest.set(array.subarray(offset, offset + dest.length));
           },
           drop: () => {},
         };
@@ -458,8 +458,8 @@
         const array = new Uint8Array(await getFileFromURL(path, this._element));
         return {
           getLength: () => array.byteLength,
-          readBytesInto: (offset, size, dest) => {
-            dest.set(array.subarray(offset, offset + size));
+          readBytesInto: (dest, offset) => {
+            dest.set(array.subarray(offset, offset + dest.length));
           },
           drop: () => {},
         };
@@ -488,8 +488,8 @@
         const array = new Uint8Array(await getFileFromFile(file, this._element));
         return {
           getLength: () => array.byteLength,
-          readBytesInto: (offset, size, dest) => {
-            dest.set(array.subarray(offset, offset + size));
+          readBytesInto: (dest, offset) => {
+            dest.set(array.subarray(offset, offset + dest.length));
           },
           drop: () => {},
         };
