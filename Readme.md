@@ -100,7 +100,7 @@ $ simple-http-server
     ======== [2021-05-28 14:50:47] ========
 ```
 
-Now you can open [http://0.0.0.0:8080](http://0.0.0.0:8080) in your browser and play with the API.
+Now you can open [http://127.0.0.1:8000/index.html](http://127.0.0.1:8000/index.html) in your browser and play with the API.
 
 #### Updating the WebAssembly build
 
