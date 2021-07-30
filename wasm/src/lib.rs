@@ -159,11 +159,15 @@ async fn get_compact_symbol_table_impl(
 impl FileContents {
     /// Reads `len` bytes at the offset into the memory at dest_ptr.
     /// Safety: The dest_ptr must point to at least `len` bytes of valid memory, and
-    /// exclusive access is granted to this function.
+    /// exclusive access is granted to this function. The memory may be uninitialized.
     /// Safety: This function guarantees that the `len` bytes at `dest_ptr` will be
     /// fully initialized after the call.
     /// Safety: dest_ptr is not stored and the memory is not accessed after this function
     /// returns.
+    /// This function does not accept a rust slice because you have to guarantee that
+    /// slice contents are fully initialized before you create a slice, and we want to
+    /// allow calling this function with uninitialized memory. It is the point of this
+    /// function to do the initialization.
     unsafe fn read_bytes_into(&self, offset: u64, len: usize, dest_ptr: *mut u8) {
         let array = js_sys::Uint8Array::view_mut_raw(dest_ptr, len);
         // Safety requirements:
