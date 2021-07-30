@@ -289,9 +289,9 @@ async function init(input) {
         var ret = getObject(arg0);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbg_drop_6095f5f9a28379e4 = function(arg0) {
+    imports.wbg.__wbg_drop_6095f5f9a28379e4 = function() { return handleError(function (arg0) {
         getObject(arg0).drop();
-    };
+    }, arguments) };
     imports.wbg.__wbindgen_object_drop_ref = function(arg0) {
         takeObject(arg0);
     };
@@ -320,10 +320,10 @@ async function init(input) {
         var ret = false;
         return ret;
     };
-    imports.wbg.__wbg_getLength_83c461bbda972f3b = function(arg0) {
+    imports.wbg.__wbg_getLength_83c461bbda972f3b = function() { return handleError(function (arg0) {
         var ret = getObject(arg0).getLength();
         return ret;
-    };
+    }, arguments) };
     imports.wbg.__wbg_name_966f168ad0e59c92 = function(arg0) {
         var ret = getObject(arg0).name;
         return addHeapObject(ret);
@@ -360,9 +360,13 @@ async function init(input) {
         var ret = Array.of(getObject(arg0), getObject(arg1), getObject(arg2));
         return addHeapObject(ret);
     };
-    imports.wbg.__wbg_readBytesInto_02ee0cacc563822d = function(arg0, arg1, arg2) {
-        getObject(arg0).readBytesInto(takeObject(arg1), arg2);
+    imports.wbg.__wbindgen_json_parse = function(arg0, arg1) {
+        var ret = JSON.parse(getStringFromWasm0(arg0, arg1));
+        return addHeapObject(ret);
     };
+    imports.wbg.__wbg_readBytesInto_02ee0cacc563822d = function() { return handleError(function (arg0, arg1, arg2) {
+        getObject(arg0).readBytesInto(takeObject(arg1), arg2);
+    }, arguments) };
     imports.wbg.__wbg_getCandidatePathsForBinaryOrPdb_6ff1ea4b13b7cbee = function() { return handleError(function (arg0, arg1, arg2, arg3, arg4) {
         var ret = getObject(arg0).getCandidatePathsForBinaryOrPdb(getStringFromWasm0(arg1, arg2), getStringFromWasm0(arg3, arg4));
         return addHeapObject(ret);
@@ -396,10 +400,6 @@ async function init(input) {
         } finally {
             state0.a = state0.b = 0;
         }
-    };
-    imports.wbg.__wbindgen_json_parse = function(arg0, arg1) {
-        var ret = JSON.parse(getStringFromWasm0(arg0, arg1));
-        return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_string_get = function(arg0, arg1) {
         const obj = getObject(arg1);

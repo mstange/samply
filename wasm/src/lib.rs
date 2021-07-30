@@ -43,14 +43,18 @@ extern "C" {
 
     pub type FileContents;
 
-    #[wasm_bindgen(method)]
-    fn getLength(this: &FileContents) -> f64;
+    #[wasm_bindgen(catch, method)]
+    fn getLength(this: &FileContents) -> Result<f64, JsValue>;
 
-    #[wasm_bindgen(method)]
-    fn readBytesInto(this: &FileContents, buffer: js_sys::Uint8Array, offset: f64);
+    #[wasm_bindgen(catch, method)]
+    fn readBytesInto(
+        this: &FileContents,
+        buffer: js_sys::Uint8Array,
+        offset: f64,
+    ) -> Result<(), JsValue>;
 
-    #[wasm_bindgen(method)]
-    fn drop(this: &FileContents);
+    #[wasm_bindgen(catch, method)]
+    fn drop(this: &FileContents) -> Result<(), JsValue>;
 }
 
 /// Usage:
@@ -168,15 +172,20 @@ impl FileContents {
     /// slice contents are fully initialized before you create a slice, and we want to
     /// allow calling this function with uninitialized memory. It is the point of this
     /// function to do the initialization.
-    unsafe fn read_bytes_into(&self, offset: u64, len: usize, dest_ptr: *mut u8) {
+    unsafe fn read_bytes_into(
+        &self,
+        offset: u64,
+        len: usize,
+        dest_ptr: *mut u8,
+    ) -> Result<(), JsValueError> {
         let array = js_sys::Uint8Array::view_mut_raw(dest_ptr, len);
         // Safety requirements:
         // - readBytesInto must initialize all values in the buffer.
         // - readBytesInto must not call into wasm code which might cause the heap to grow,
         //   because that would invalidate the TypedArray's internal buffer
         // - readBytesInto must not hold on to the array after it has returned
-        // todo: catch JS exception from readBytesAt
-        self.readBytesInto(array, offset as f64);
+        self.readBytesInto(array, offset as f64)
+            .map_err(JsValueError::from)
     }
 }
 
@@ -213,11 +222,11 @@ impl Cache {
         contents: &FileContents,
         start: u64,
         end: u64,
-    ) -> usize {
+    ) -> Result<usize, JsValueError> {
         assert!(start < end);
         let start_is_cached = if let Some((range, index)) = self.ranges.get_key_value(&start) {
             if end <= range.end {
-                return *index;
+                return Ok(*index);
             }
             true
         } else {
@@ -242,7 +251,7 @@ impl Cache {
         unsafe {
             // Safety: The buffer has `read_len` bytes of capacity.
             // Safety: Nothing else has a reference to the buffer at the moment; we have exclusive access of its contents.
-            contents.read_bytes_into(start, read_len, buffer.as_mut_ptr());
+            contents.read_bytes_into(start, read_len, buffer.as_mut_ptr())?;
             // Safety: All values in the buffer are now initialized.
             buffer.set_len(read_len);
         }
@@ -251,7 +260,7 @@ impl Cache {
         file_bytes.push(buffer.into_boxed_slice());
         self.file_bytes_ranges.push(start..end);
         self.ranges.insert(start..end, index);
-        index
+        Ok(index)
     }
 
     fn get_or_create_cached_string_at(
@@ -261,13 +270,17 @@ impl Cache {
         start: u64,
         max_len: u64,
         delimiter: u8,
-    ) -> Option<CachedString> {
+    ) -> Result<Option<CachedString>, JsValueError> {
         if let Some(s) = self.strings.get(&(start, delimiter)) {
-            return Some(s.clone());
+            return Ok(Some(s.clone()));
         }
 
-        let index =
-            self.get_or_create_cached_range_including(file_bytes, contents, start, start + max_len);
+        let index = self.get_or_create_cached_range_including(
+            file_bytes,
+            contents,
+            start,
+            start + max_len,
+        )?;
         let file_bytes_range = &self.file_bytes_ranges[index];
         let offset_into_range = (start - file_bytes_range.start) as usize;
         let available_length = (file_bytes_range.end - start) as usize;
@@ -283,9 +296,9 @@ impl Cache {
             };
             self.strings
                 .insert((start, delimiter), cached_string.clone());
-            Some(cached_string)
+            Ok(Some(cached_string))
         } else {
-            None
+            Ok(None)
         }
     }
 }
@@ -319,7 +332,7 @@ impl profiler_get_symbols::FileContents for FileHandle {
             &self.contents,
             offset,
             offset + size,
-        );
+        )?;
         let file_bytes = &self.file_bytes[file_bytes_index];
         let file_bytes_range_start = cache.file_bytes_ranges[file_bytes_index].start;
         let offset_into_range = (offset - file_bytes_range_start) as usize;
@@ -344,7 +357,7 @@ impl profiler_get_symbols::FileContents for FileHandle {
             range.start,
             max_len,
             delimiter,
-        ) {
+        )? {
             Some(s) => s,
             None => {
                 return Err(Box::new(std::io::Error::new(
@@ -363,7 +376,7 @@ impl profiler_get_symbols::FileContents for FileHandle {
 
 impl Drop for FileHandle {
     fn drop(&mut self) {
-        self.contents.drop();
+        let _ = self.contents.drop();
     }
 }
 
@@ -402,7 +415,7 @@ impl profiler_get_symbols::FileAndPathHelper for FileAndPathHelper {
             let file_res = JsFuture::from(helper.readFile(path)).await;
             let file = file_res.map_err(JsValueError::from)?;
             let contents = FileContents::from(file);
-            let len = contents.getLength() as u64;
+            let len = contents.getLength().map_err(JsValueError::from)? as u64;
             let cache = RefCell::new(Cache {
                 file_len: len,
                 file_bytes_ranges: Vec::new(),
