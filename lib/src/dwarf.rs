@@ -75,8 +75,10 @@ pub fn collect_dwarf_address_debug_data<'data: 'file, 'file, O, R>(
                 let frames: std::result::Result<Vec<_>, _> =
                     frame_iter.map(|f| Ok(convert_stack_frame(f))).collect();
                 if let Ok(frames) = frames {
-                    symbolication_result
-                        .add_address_debug_info(*original_address, AddressDebugInfo { frames });
+                    if !frames.is_empty() {
+                        symbolication_result
+                            .add_address_debug_info(*original_address, AddressDebugInfo { frames });
+                    }
                 }
             }
         }

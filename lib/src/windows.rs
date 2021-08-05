@@ -180,8 +180,10 @@ where
                                     line_number: frame.line,
                                 })
                                 .collect();
-                            symbolication_result
-                                .add_address_debug_info(address, AddressDebugInfo { frames });
+                            if !frames.is_empty() {
+                                symbolication_result
+                                    .add_address_debug_info(address, AddressDebugInfo { frames });
+                            }
                         }
                     }
                 } else if let Some(func) = context.find_function(address)? {

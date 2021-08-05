@@ -139,6 +139,8 @@ pub trait FileContents {
 }
 
 pub struct AddressDebugInfo {
+    /// Must be non-empty. Ordered from inside to outside.
+    /// The last frame is the outer function, the other frames are inlined functions.
     pub frames: Vec<InlineStackFrame>,
 }
 
