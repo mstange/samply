@@ -33,7 +33,7 @@ fn main() -> anyhow::Result<()> {
     )?;
     prepare(
         big_fixtures_dir().join("linux64-ci").join("libxul.so.dbg"),
-        "https://symbols.mozilla.org/libxul.so/F33E37832964290A31906802CE8F3C9C0/libxul.so.dbg.gz",
+        "https://storage.googleapis.com/profiler-get-symbols-fixtures/linux64-ci-libxul.so.dbg.gz",
         FileType::Gzip,
     )?;
     prepare(
