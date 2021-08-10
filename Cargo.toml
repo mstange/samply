@@ -22,7 +22,10 @@ percent-encoding = "2.1.0"
 failure = "0.1.8"
 object = "0.25.0"
 libc = "0.2.71"
-core-foundation-sys = "0.8.2"
-core-foundation = "0.9.1"
 flate2 = "1.0"
 webbrowser = "0.5.5"
+
+# Needed for moria_mac_spotlight, to find dSYM files
+[target.'cgf(macos)'.dependencies]
+core-foundation-sys = "0.8.2"
+core-foundation = "0.9.1"
