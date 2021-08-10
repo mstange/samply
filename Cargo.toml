@@ -9,21 +9,26 @@ homepage = "https://github.com/mstange/profiler-symbol-server/"
 repository = "https://github.com/mstange/profiler-symbol-server/"
 readme = "README.md"
 
+[dependencies.object]
+default-features = false
+features = ["std", "read_core", "macho", "unaligned"]
+version = "0.26.0"
+
 [dependencies]
 hyper = { version = "0.14.8", features = ["full"] }
 tokio = { version = "1.6.1", features = ["full"] }
 futures = "0.3"
-profiler-get-symbols = { version = "0.2.2", features = ["send_futures"] }
+profiler-get-symbols = { version = "0.3.2", features = ["send_futures"] }
 memmap2 = "0.2.3"
 serde_json = "1.0.53"
 uuid = "0.8.2"
 structopt = "0.3.14"
 percent-encoding = "2.1.0"
 failure = "0.1.8"
-object = "0.25.0"
 libc = "0.2.71"
 flate2 = "1.0"
 webbrowser = "0.5.5"
+reqwest = "0.11.4"
 
 # Needed for moria_mac_spotlight, to find dSYM files
 [target.'cfg(target_os = "macos")'.dependencies]

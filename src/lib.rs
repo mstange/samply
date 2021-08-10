@@ -1,4 +1,5 @@
 use flate2::read::GzDecoder;
+use hyper::body::Bytes;
 use hyper::server::conn::AddrIncoming;
 use hyper::server::Builder;
 use hyper::service::{make_service_fn, service_fn};
@@ -242,22 +243,49 @@ fn substitute_template(template: &str, template_values: &HashMap<&'static str, S
     s
 }
 
-struct MmapFileContents(memmap2::Mmap);
+enum MyFileContents {
+    Mmap(memmap2::Mmap),
+    Bytes(Bytes),
+}
 
-impl FileContents for MmapFileContents {
+impl std::ops::Deref for MyFileContents {
+    type Target = [u8];
+
+    #[inline]
+    fn deref(&self) -> &[u8] {
+        match self {
+            MyFileContents::Mmap(mmap) => mmap,
+            MyFileContents::Bytes(bytes) => bytes,
+        }
+    }
+}
+
+impl FileContents for MyFileContents {
     #[inline]
     fn len(&self) -> u64 {
-        self.0.len() as u64
+        let sl: &[u8] = self;
+        sl.len() as u64
     }
 
     #[inline]
     fn read_bytes_at(&self, offset: u64, size: u64) -> FileAndPathHelperResult<&[u8]> {
-        Ok(&self.0[offset as usize..][..size as usize])
+        let end = match offset.checked_add(size) {
+            Some(end) => end,
+            None => return Err("read_bytes_at: offset + size overflow".into()),
+        };
+        if end > self.len() {
+            return Err("read_bytes_at: overflowing len".into());
+        }
+        Ok(&self[offset as usize..end as usize])
     }
 
     #[inline]
-    fn read_bytes_at_until(&self, offset: u64, delimiter: u8) -> FileAndPathHelperResult<&[u8]> {
-        let slice_to_end = &self.0[offset as usize..];
+    fn read_bytes_at_until(
+        &self,
+        range: Range<u64>,
+        delimiter: u8,
+    ) -> FileAndPathHelperResult<&[u8]> {
+        let slice_to_end = &self[range.start as usize..range.end as usize];
         if let Some(pos) = slice_to_end.iter().position(|b| *b == delimiter) {
             Ok(&slice_to_end[..pos])
         } else {
@@ -301,7 +329,7 @@ impl Helper {
 }
 
 impl FileAndPathHelper for Helper {
-    type F = MmapFileContents;
+    type F = MyFileContents;
 
     fn get_candidate_paths_for_binary_or_pdb(
         &self,
@@ -359,6 +387,20 @@ impl FileAndPathHelper for Helper {
                     dylib_path: path.clone(),
                 });
             }
+
+            if debug_name.ends_with(".pdb") {
+                // It could be a Windows system library which can be found on
+                // the Microsoft Symbol Server.
+                // Construct a URL and pretend it's a Path. This isn't a great
+                // way to do this, but it should travel unharmed into open_file,
+                // where we can download the file and put it into a Vec.
+                // It might be nicer to have a persistent symbol cache on disk.
+                let url = format!(
+                    "https://msdl.microsoft.com/download/symbols/{}/{}/{}",
+                    debug_name, breakpad_id, debug_name
+                );
+                paths.push(CandidatePathInfo::Normal(Path::new(&url).to_path_buf()));
+            }
         }
 
         Ok(paths)
@@ -372,9 +414,17 @@ impl FileAndPathHelper for Helper {
             eprintln!("Opening file {:?}", &path);
         }
 
-        async fn open_file_impl(path: PathBuf) -> FileAndPathHelperResult<MmapFileContents> {
+        async fn open_file_impl(path: PathBuf) -> FileAndPathHelperResult<MyFileContents> {
+            if path.starts_with("https://") {
+                if let Some(url) = path.as_os_str().to_str() {
+                    let response = reqwest::get(url).await.map_err(Box::new)?;
+                    let bytes = response.bytes().await.map_err(Box::new)?;
+                    return Ok(MyFileContents::Bytes(bytes));
+                }
+            }
+
             let file = File::open(&path)?;
-            Ok(MmapFileContents(unsafe {
+            Ok(MyFileContents::Mmap(unsafe {
                 memmap2::MmapOptions::new().map(&file)?
             }))
         }
