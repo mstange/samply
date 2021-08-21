@@ -146,6 +146,8 @@ use object::{macho::FatHeader, read::macho::DyldCache, read::FileKind, Endiannes
 use pdb::PDB;
 use serde_json::json;
 
+mod cache;
+mod chunked_read_buffer_manager;
 mod compact_symbol_table;
 mod dwarf;
 mod elf;
@@ -157,6 +159,7 @@ mod windows;
 
 use crate::shared::{SymbolicationQuery, SymbolicationResult};
 
+pub use crate::cache::{FileByteSource, FileContentsWithChunkedCaching};
 pub use crate::compact_symbol_table::CompactSymbolTable;
 pub use crate::error::{GetSymbolsError, Result};
 use crate::shared::FileContentsWrapper;

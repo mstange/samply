@@ -1,13 +1,12 @@
 mod error;
 
 use js_sys::Promise;
-use rangemap::RangeMap;
+use std::path::Path;
 use std::pin::Pin;
-use std::{cell::RefCell, collections::HashMap, ops::Range, path::Path};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
-use profiler_get_symbols::OptionallySendFuture;
+use profiler_get_symbols::{FileByteSource, FileContentsWithChunkedCaching, OptionallySendFuture};
 
 pub use error::{GenericError, GetSymbolsError, JsValueError};
 
@@ -92,6 +91,7 @@ pub fn get_compact_symbol_table(
     breakpad_id: String,
     helper: FileAndPathHelper,
 ) -> Promise {
+    console_error_panic_hook::set_once();
     future_to_promise(get_compact_symbol_table_impl(
         debug_name,
         breakpad_id,
@@ -130,6 +130,7 @@ pub fn get_compact_symbol_table(
 /// ```
 #[wasm_bindgen(js_name = queryAPI)]
 pub fn query_api(url: String, request_json: String, helper: FileAndPathHelper) -> Promise {
+    console_error_panic_hook::set_once();
     future_to_promise(query_api_impl(url, request_json, helper))
 }
 
@@ -189,199 +190,40 @@ impl FileContents {
     }
 }
 
-const CHUNK_SIZE: u64 = 32 * 1024;
+pub struct FileContentsWrapper(FileContents);
 
-#[inline]
-fn round_down_to_multiple(value: u64, factor: u64) -> u64 {
-    value / factor * factor
-}
-
-#[inline]
-fn round_up_to_multiple(value: u64, factor: u64) -> u64 {
-    (value + factor - 1) / factor * factor
-}
-
-#[derive(Clone)]
-struct CachedString {
-    file_bytes_index: usize,
-    len: usize,
-}
-
-struct Cache {
-    file_len: u64,
-    file_bytes_ranges: Vec<Range<u64>>,
-    ranges: RangeMap<u64, usize>,
-    strings: HashMap<(u64, u8), CachedString>,
-}
-
-impl Cache {
-    /// Returns an index into self.file_bytes.
-    fn get_or_create_cached_range_including(
-        &mut self,
-        file_bytes: &elsa::FrozenVec<Box<[u8]>>,
-        contents: &FileContents,
-        start: u64,
-        end: u64,
-    ) -> Result<usize, JsValueError> {
-        assert!(start < end);
-        let start_is_cached = if let Some((range, index)) = self.ranges.get_key_value(&start) {
-            if end <= range.end {
-                return Ok(*index);
-            }
-            true
-        } else {
-            false
-        };
-
-        // The requested range does not exist in self.file_bytes.
-        // Compute a range that we want to cache.
-        let start = if start_is_cached {
-            start
-        } else {
-            round_down_to_multiple(start, CHUNK_SIZE)
-        };
-        let end = round_up_to_multiple(end, CHUNK_SIZE).clamp(0, self.file_len);
-
-        // Read it and put it into the self.
+impl FileByteSource for FileContentsWrapper {
+    fn read_bytes_into(
+        &self,
+        buffer: &mut Vec<u8>,
+        offset: u64,
+        size: u64,
+    ) -> profiler_get_symbols::FileAndPathHelperResult<()> {
         // Make a buffer, wrap a Uint8Array around its bits, and call into JS to fill it.
         // This is implemented in such a way that it avoids zero-initialization and extra
         // copies of the contents.
-        let read_len = (end - start) as usize;
-        let mut buffer: Vec<u8> = Vec::with_capacity(read_len);
+        let read_len = size as usize;
+        buffer.reserve_exact(read_len);
         unsafe {
             // Safety: The buffer has `read_len` bytes of capacity.
             // Safety: Nothing else has a reference to the buffer at the moment; we have exclusive access of its contents.
-            contents.read_bytes_into(start, read_len, buffer.as_mut_ptr())?;
+            self.0
+                .read_bytes_into(offset, read_len, buffer.as_mut_ptr())?;
             // Safety: All values in the buffer are now initialized.
             buffer.set_len(read_len);
         }
-
-        let index = (*file_bytes).len();
-        file_bytes.push(buffer.into_boxed_slice());
-        self.file_bytes_ranges.push(start..end);
-        self.ranges.insert(start..end, index);
-        Ok(index)
-    }
-
-    fn get_or_create_cached_string_at(
-        &mut self,
-        file_bytes: &elsa::FrozenVec<Box<[u8]>>,
-        contents: &FileContents,
-        start: u64,
-        max_len: u64,
-        delimiter: u8,
-    ) -> Result<Option<CachedString>, JsValueError> {
-        if let Some(s) = self.strings.get(&(start, delimiter)) {
-            return Ok(Some(s.clone()));
-        }
-
-        let index = self.get_or_create_cached_range_including(
-            file_bytes,
-            contents,
-            start,
-            start + max_len,
-        )?;
-        let file_bytes_range = &self.file_bytes_ranges[index];
-        let offset_into_range = (start - file_bytes_range.start) as usize;
-        let available_length = (file_bytes_range.end - start) as usize;
-        let checked_length = available_length.clamp(0, max_len as usize);
-        if let Some(len) = file_bytes[index][offset_into_range..][..checked_length]
-            .iter()
-            .position(|b| *b == delimiter)
-        {
-            // Found the string! Cache the info in the strings list.
-            let cached_string = CachedString {
-                file_bytes_index: index,
-                len,
-            };
-            self.strings
-                .insert((start, delimiter), cached_string.clone());
-            Ok(Some(cached_string))
-        } else {
-            Ok(None)
-        }
+        Ok(())
     }
 }
 
-pub struct FileHandle {
-    contents: FileContents,
-    len: u64,
-    cache: RefCell<Cache>,
-    file_bytes: elsa::FrozenVec<Box<[u8]>>,
-}
-
-impl profiler_get_symbols::FileContents for FileHandle {
-    #[inline]
-    fn len(&self) -> u64 {
-        self.len
-    }
-
-    #[inline]
-    fn read_bytes_at(
-        &self,
-        offset: u64,
-        size: u64,
-    ) -> profiler_get_symbols::FileAndPathHelperResult<&[u8]> {
-        if size == 0 {
-            return Ok(&[]);
-        }
-
-        let cache = &mut *self.cache.borrow_mut();
-        let file_bytes_index = cache.get_or_create_cached_range_including(
-            &self.file_bytes,
-            &self.contents,
-            offset,
-            offset + size,
-        )?;
-        let file_bytes = &self.file_bytes[file_bytes_index];
-        let file_bytes_range_start = cache.file_bytes_ranges[file_bytes_index].start;
-        let offset_into_range = (offset - file_bytes_range_start) as usize;
-        let buf = &file_bytes[offset_into_range..][..size as usize];
-        Ok(buf)
-    }
-
-    #[inline]
-    fn read_bytes_at_until(
-        &self,
-        range: Range<u64>,
-        delimiter: u8,
-    ) -> profiler_get_symbols::FileAndPathHelperResult<&[u8]> {
-        const MAX_LENGTH_INCLUDING_DELIMITER: u64 = 4096;
-
-        let cache = &mut *self.cache.borrow_mut();
-
-        let max_len = (range.end - range.start).min(MAX_LENGTH_INCLUDING_DELIMITER);
-        let s = match cache.get_or_create_cached_string_at(
-            &self.file_bytes,
-            &self.contents,
-            range.start,
-            max_len,
-            delimiter,
-        )? {
-            Some(s) => s,
-            None => {
-                return Err(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "Could not find delimiter",
-                )))
-            }
-        };
-        let file_bytes = &self.file_bytes[s.file_bytes_index];
-        let file_bytes_range_start = cache.file_bytes_ranges[s.file_bytes_index].start;
-        let offset_into_range = (range.start - file_bytes_range_start) as usize;
-        let buf = &file_bytes[offset_into_range..][..s.len];
-        Ok(buf)
-    }
-}
-
-impl Drop for FileHandle {
+impl Drop for FileContentsWrapper {
     fn drop(&mut self) {
-        let _ = self.contents.drop();
+        let _ = self.0.drop();
     }
 }
 
 impl profiler_get_symbols::FileAndPathHelper for FileAndPathHelper {
-    type F = FileHandle;
+    type F = FileContentsWithChunkedCaching<FileContentsWrapper>;
 
     fn get_candidate_paths_for_binary_or_pdb(
         &self,
@@ -416,19 +258,11 @@ impl profiler_get_symbols::FileAndPathHelper for FileAndPathHelper {
             let file = file_res.map_err(JsValueError::from)?;
             let contents = FileContents::from(file);
             let len = contents.getLength().map_err(JsValueError::from)? as u64;
-            let cache = RefCell::new(Cache {
-                file_len: len,
-                file_bytes_ranges: Vec::new(),
-                ranges: RangeMap::new(),
-                strings: HashMap::new(),
-            });
-            let file_handle = FileHandle {
-                contents,
-                file_bytes: elsa::FrozenVec::new(),
+            let file_contents_wrapper = FileContentsWrapper(contents);
+            Ok(FileContentsWithChunkedCaching::new(
                 len,
-                cache,
-            };
-            Ok(file_handle)
+                file_contents_wrapper,
+            ))
         };
         Box::pin(future)
     }

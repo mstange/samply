@@ -38,3 +38,5 @@ rustc-demangle = "0.1.20"
 bitflags = "1.2.1"
 bytesize = { version = "1.0.1", optional = true }
 bitvec = { version = "0.22.3", optional = true }
+rangemap = "0.1.10"
+elsa = "1.4.0"
