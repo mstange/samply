@@ -208,9 +208,9 @@ impl FileByteSource for FileContentsWrapper {
             // Safety: The buffer has `read_len` bytes of capacity.
             // Safety: Nothing else has a reference to the buffer at the moment; we have exclusive access of its contents.
             self.0
-                .read_bytes_into(offset, read_len, buffer.as_mut_ptr())?;
+                .read_bytes_into(offset, read_len, buffer.as_mut_ptr().add(buffer.len()))?;
             // Safety: All values in the buffer are now initialized.
-            buffer.set_len(read_len);
+            buffer.set_len(buffer.len() + read_len);
         }
         Ok(())
     }

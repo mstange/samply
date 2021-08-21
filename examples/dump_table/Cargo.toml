@@ -6,7 +6,7 @@ license = "MIT/Apache-2.0"
 edition = "2018"
 
 [dependencies]
-profiler-get-symbols = { path = "../../lib" }
+profiler-get-symbols = { path = "../../lib", features = ["partial_read_stats"] }
 structopt = "0.3.14"
 memmap2 = "0.3.0"
 anyhow = "1.0.28"

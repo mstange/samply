@@ -117,4 +117,13 @@ impl<S: FileByteSource> FileContents for FileContentsWithChunkedCaching<S> {
         string_cache.insert((range.start, delimiter), location);
         Ok(&bytes[..string_len])
     }
+
+    fn read_bytes_into(
+        &self,
+        buffer: &mut Vec<u8>,
+        offset: u64,
+        size: u64,
+    ) -> FileAndPathHelperResult<()> {
+        self.source.read_bytes_into(buffer, offset, size)
+    }
 }

@@ -136,6 +136,14 @@ pub trait FileContents {
         range: Range<u64>,
         delimiter: u8,
     ) -> FileAndPathHelperResult<&[u8]>;
+
+    /// Append `size` bytes to `buffer`, starting to read at `offset` in the file.
+    fn read_bytes_into(
+        &self,
+        buffer: &mut Vec<u8>,
+        offset: u64,
+        size: u64,
+    ) -> FileAndPathHelperResult<()>;
 }
 
 pub struct AddressDebugInfo {
@@ -397,14 +405,31 @@ impl<T: FileContents> FileContentsWrapper<T> {
         range: Range<u64>,
         delimiter: u8,
     ) -> FileAndPathHelperResult<&[u8]> {
+        #[cfg(feature = "partial_read_stats")]
+        let start = range.start;
+
         let bytes = self.file_contents.read_bytes_at_until(range, delimiter)?;
 
         #[cfg(feature = "partial_read_stats")]
         self.partial_read_stats
             .borrow_mut()
-            .record_read(range.start, (bytes.len() + 1) as u64);
+            .record_read(start, (bytes.len() + 1) as u64);
 
         Ok(bytes)
+    }
+
+    pub fn read_bytes_into(
+        &self,
+        buffer: &mut Vec<u8>,
+        offset: u64,
+        size: u64,
+    ) -> FileAndPathHelperResult<()> {
+        #[cfg(feature = "partial_read_stats")]
+        self.partial_read_stats
+            .borrow_mut()
+            .record_read(offset, size);
+
+        self.file_contents.read_bytes_into(buffer, offset, size)
     }
 
     pub fn read_entire_data(&self) -> FileAndPathHelperResult<&[u8]> {

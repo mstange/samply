@@ -1,8 +1,9 @@
 use profiler_get_symbols::{
     self, CandidatePathInfo, CompactSymbolTable, FileAndPathHelper, FileAndPathHelperResult,
-    FileContents, GetSymbolsError, OptionallySendFuture,
+    FileByteSource, FileContents, GetSymbolsError, OptionallySendFuture,
 };
 use std::fs::File;
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 
@@ -47,11 +48,8 @@ async fn get_symbols_retry_id(
     Ok(profiler_get_symbols::get_compact_symbol_table(debug_name, &breakpad_id, helper).await?)
 }
 
-pub fn dump_table(
-    w: &mut impl std::io::Write,
-    table: CompactSymbolTable,
-    full: bool,
-) -> anyhow::Result<()> {
+pub fn dump_table(w: &mut impl Write, table: CompactSymbolTable, full: bool) -> anyhow::Result<()> {
+    let mut w = BufWriter::new(w);
     writeln!(w, "Found {} symbols.", table.addr.len())?;
     for (i, address) in table.addr.iter().enumerate() {
         if i >= 15 && !full {
@@ -101,6 +99,28 @@ impl FileContents for MmapFileContents {
             )))
         }
     }
+
+    fn read_bytes_into(
+        &self,
+        buffer: &mut Vec<u8>,
+        offset: u64,
+        size: u64,
+    ) -> FileAndPathHelperResult<()> {
+        buffer.extend_from_slice(&self.0[offset as usize..][..size as usize]);
+        Ok(())
+    }
+}
+
+impl FileByteSource for MmapFileContents {
+    fn read_bytes_into(
+        &self,
+        buffer: &mut Vec<u8>,
+        offset: u64,
+        size: u64,
+    ) -> FileAndPathHelperResult<()> {
+        buffer.extend_from_slice(&self.0[offset as usize..][..size as usize]);
+        Ok(())
+    }
 }
 
 struct Helper {
@@ -109,6 +129,7 @@ struct Helper {
 
 impl FileAndPathHelper for Helper {
     type F = MmapFileContents;
+    // type F = profiler_get_symbols::FileContentsWithChunkedCaching<MmapFileContents>;
 
     fn get_candidate_paths_for_binary_or_pdb(
         &self,
@@ -175,9 +196,12 @@ impl FileAndPathHelper for Helper {
         async fn open_file_impl(path: PathBuf) -> FileAndPathHelperResult<MmapFileContents> {
             eprintln!("Opening file {:?}", &path);
             let file = File::open(&path)?;
-            Ok(MmapFileContents(unsafe {
-                memmap2::MmapOptions::new().map(&file)?
-            }))
+            let mmap = unsafe { memmap2::MmapOptions::new().map(&file)? };
+            // Ok(profiler_get_symbols::FileContentsWithChunkedCaching::new(
+            //     mmap.len() as u64,
+            //     MmapFileContents(mmap),
+            // ))
+            Ok(MmapFileContents(mmap))
         }
 
         Box::pin(open_file_impl(path.to_owned()))

@@ -40,6 +40,16 @@ impl FileContents for MmapFileContents {
             )))
         }
     }
+
+    fn read_bytes_into(
+        &self,
+        buffer: &mut Vec<u8>,
+        offset: u64,
+        size: u64,
+    ) -> FileAndPathHelperResult<()> {
+        buffer.extend_from_slice(&self.0[offset as usize..][..size as usize]);
+        Ok(())
+    }
 }
 struct Helper {
     symbol_directory: PathBuf,
@@ -162,7 +172,7 @@ mod test {
             symbol_directory,
         ));
 
-        if true {
+        if false {
             let mut output_file =
                 File::create(fixtures_dir().join("snapshots").join(output_filename)).unwrap();
             output_file.write_all(output.as_bytes()).unwrap();

@@ -247,23 +247,13 @@ impl<'s, F: FileContents> pdb::Source<'s> for &'s FileContentsWrapper<F> {
     ) -> std::result::Result<Box<dyn pdb::SourceView<'s>>, std::io::Error> {
         let len = slices.iter().fold(0, |acc, s| acc + s.size);
 
-        let mut v = ReadView {
-            bytes: Vec::with_capacity(len),
-        };
-        v.bytes.resize(len, 0);
+        let mut bytes = Vec::with_capacity(len);
 
-        {
-            let bytes = v.bytes.as_mut_slice();
-            let mut output_offset: usize = 0;
-            for slice in slices {
-                let slice_buf = self
-                    .read_bytes_at(slice.offset, slice.size as u64)
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-                bytes[output_offset..(output_offset + slice.size)].copy_from_slice(slice_buf);
-                output_offset += slice.size;
-            }
+        for slice in slices {
+            self.read_bytes_into(&mut bytes, slice.offset, slice.size as u64)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         }
 
-        Ok(Box::new(v))
+        Ok(Box::new(ReadView { bytes }))
     }
 }
