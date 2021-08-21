@@ -297,6 +297,44 @@ where
     symbolication_result
 }
 
+/// Implementation for slices.
+impl<T: Deref<Target = [u8]>> FileContents for T {
+    fn len(&self) -> u64 {
+        <[u8]>::len(self) as u64
+    }
+
+    fn read_bytes_at(&self, offset: u64, size: u64) -> FileAndPathHelperResult<&[u8]> {
+        Ok(&self[offset as usize..][..size as usize])
+    }
+
+    fn read_bytes_at_until(
+        &self,
+        range: Range<u64>,
+        delimiter: u8,
+    ) -> FileAndPathHelperResult<&[u8]> {
+        let slice = &self[range.start as usize..range.end as usize];
+        if let Some(pos) = memchr::memchr(delimiter, slice) {
+            Ok(&slice[..pos])
+        } else {
+            Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Delimiter not found",
+            )))
+        }
+    }
+
+    #[inline]
+    fn read_bytes_into(
+        &self,
+        buffer: &mut Vec<u8>,
+        offset: u64,
+        size: u64,
+    ) -> FileAndPathHelperResult<()> {
+        buffer.extend_from_slice(&self[offset as usize..][..size as usize]);
+        Ok(())
+    }
+}
+
 #[cfg(feature = "partial_read_stats")]
 const CHUNK_SIZE: u64 = 32 * 1024;
 

@@ -1,6 +1,6 @@
 use profiler_get_symbols::{
     self, CandidatePathInfo, CompactSymbolTable, FileAndPathHelper, FileAndPathHelperResult,
-    FileByteSource, FileContents, GetSymbolsError, OptionallySendFuture,
+    GetSymbolsError, OptionallySendFuture,
 };
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -70,65 +70,12 @@ pub fn dump_table(w: &mut impl Write, table: CompactSymbolTable, full: bool) -> 
     Ok(())
 }
 
-struct MmapFileContents(memmap2::Mmap);
-
-impl FileContents for MmapFileContents {
-    #[inline]
-    fn len(&self) -> u64 {
-        self.0.len() as u64
-    }
-
-    #[inline]
-    fn read_bytes_at(&self, offset: u64, size: u64) -> FileAndPathHelperResult<&[u8]> {
-        Ok(&self.0[offset as usize..][..size as usize])
-    }
-
-    #[inline]
-    fn read_bytes_at_until(
-        &self,
-        range: std::ops::Range<u64>,
-        delimiter: u8,
-    ) -> FileAndPathHelperResult<&[u8]> {
-        let slice = &self.0[range.start as usize..range.end as usize];
-        if let Some(pos) = memchr::memchr(delimiter, slice) {
-            Ok(&slice[..pos])
-        } else {
-            Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "Delimiter not found in MmapFileContents",
-            )))
-        }
-    }
-
-    fn read_bytes_into(
-        &self,
-        buffer: &mut Vec<u8>,
-        offset: u64,
-        size: u64,
-    ) -> FileAndPathHelperResult<()> {
-        buffer.extend_from_slice(&self.0[offset as usize..][..size as usize]);
-        Ok(())
-    }
-}
-
-impl FileByteSource for MmapFileContents {
-    fn read_bytes_into(
-        &self,
-        buffer: &mut Vec<u8>,
-        offset: u64,
-        size: u64,
-    ) -> FileAndPathHelperResult<()> {
-        buffer.extend_from_slice(&self.0[offset as usize..][..size as usize]);
-        Ok(())
-    }
-}
-
 struct Helper {
     symbol_directory: PathBuf,
 }
 
 impl FileAndPathHelper for Helper {
-    type F = MmapFileContents;
+    type F = memmap2::Mmap;
     // type F = profiler_get_symbols::FileContentsWithChunkedCaching<MmapFileContents>;
 
     fn get_candidate_paths_for_binary_or_pdb(
@@ -193,7 +140,7 @@ impl FileAndPathHelper for Helper {
         &self,
         path: &Path,
     ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>>>> {
-        async fn open_file_impl(path: PathBuf) -> FileAndPathHelperResult<MmapFileContents> {
+        async fn open_file_impl(path: PathBuf) -> FileAndPathHelperResult<memmap2::Mmap> {
             eprintln!("Opening file {:?}", &path);
             let file = File::open(&path)?;
             let mmap = unsafe { memmap2::MmapOptions::new().map(&file)? };
@@ -201,7 +148,7 @@ impl FileAndPathHelper for Helper {
             //     mmap.len() as u64,
             //     MmapFileContents(mmap),
             // ))
-            Ok(MmapFileContents(mmap))
+            Ok(mmap)
         }
 
         Box::pin(open_file_impl(path.to_owned()))

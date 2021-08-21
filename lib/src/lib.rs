@@ -82,10 +82,8 @@
 //!     artifact_directory: std::path::PathBuf,
 //! }
 //!
-//! struct RawFileBytes(Vec<u8>);
-//!
 //! impl FileAndPathHelper for ExampleHelper {
-//!     type F = RawFileBytes;
+//!     type F = Vec<u8>;
 //!
 //!     fn get_candidate_paths_for_binary_or_pdb(
 //!         &self,
@@ -99,51 +97,11 @@
 //!         &self,
 //!         path: &std::path::Path,
 //!     ) -> std::pin::Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>>>> {
-//!         async fn read_file_impl(path: std::path::PathBuf) -> FileAndPathHelperResult<RawFileBytes> {
-//!             Ok(RawFileBytes(std::fs::read(&path)?))
+//!         async fn read_file_impl(path: std::path::PathBuf) -> FileAndPathHelperResult<Vec<u8>> {
+//!             Ok(std::fs::read(&path)?)
 //!         }
 //!
 //!         Box::pin(read_file_impl(path.to_path_buf()))
-//!     }
-//! }
-//!
-//! impl FileContents for RawFileBytes {
-//!     #[inline]
-//!     fn len(&self) -> u64 {
-//!         self.0.len() as u64
-//!     }
-//!
-//!     #[inline]
-//!     fn read_bytes_at(&self, offset: u64, size: u64) -> FileAndPathHelperResult<&[u8]> {
-//!         Ok(&self.0[offset as usize..][..size as usize])
-//!     }
-//!
-//!     #[inline]
-//!     fn read_bytes_at_until(
-//!         &self,
-//!         range: std::ops::Range<u64>,
-//!         delimiter: u8,
-//!     ) -> FileAndPathHelperResult<&[u8]> {
-//!         let slice_to_end = &self.0[range.start as usize..range.end as usize];
-//!         if let Some(pos) = slice_to_end.iter().position(|b| *b == delimiter) {
-//!             Ok(&slice_to_end[..pos])
-//!         } else {
-//!             Err(Box::new(std::io::Error::new(
-//!                 std::io::ErrorKind::InvalidInput,
-//!                 "Delimiter not found in RawFileBytes",
-//!             )))
-//!         }
-//!     }
-//!
-//!     #[inline]
-//!     fn read_bytes_into(
-//!         &self,
-//!         buffer: &mut Vec<u8>,
-//!         offset: u64,
-//!         size: u64,
-//!     ) -> FileAndPathHelperResult<()> {
-//!         buffer.extend_from_slice(&self.0[offset as usize..][..size as usize]);
-//!         Ok(())
 //!     }
 //! }
 //! ```

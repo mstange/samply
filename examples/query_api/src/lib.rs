@@ -1,6 +1,5 @@
 use profiler_get_symbols::{
-    self, CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileContents,
-    OptionallySendFuture,
+    self, CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, OptionallySendFuture,
 };
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -10,53 +9,12 @@ pub async fn query_api(request_url: &str, request_json: &str, symbol_directory: 
     let helper = Helper { symbol_directory };
     profiler_get_symbols::query_api(request_url, request_json, &helper).await
 }
-
-struct MmapFileContents(memmap2::Mmap);
-
-impl FileContents for MmapFileContents {
-    #[inline]
-    fn len(&self) -> u64 {
-        self.0.len() as u64
-    }
-
-    #[inline]
-    fn read_bytes_at(&self, offset: u64, size: u64) -> FileAndPathHelperResult<&[u8]> {
-        Ok(&self.0[offset as usize..][..size as usize])
-    }
-
-    #[inline]
-    fn read_bytes_at_until(
-        &self,
-        range: std::ops::Range<u64>,
-        delimiter: u8,
-    ) -> FileAndPathHelperResult<&[u8]> {
-        let slice = &self.0[range.start as usize..range.end as usize];
-        if let Some(pos) = memchr::memchr(delimiter, slice) {
-            Ok(&slice[..pos])
-        } else {
-            Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "Delimiter not found in MmapFileContents",
-            )))
-        }
-    }
-
-    fn read_bytes_into(
-        &self,
-        buffer: &mut Vec<u8>,
-        offset: u64,
-        size: u64,
-    ) -> FileAndPathHelperResult<()> {
-        buffer.extend_from_slice(&self.0[offset as usize..][..size as usize]);
-        Ok(())
-    }
-}
 struct Helper {
     symbol_directory: PathBuf,
 }
 
 impl FileAndPathHelper for Helper {
-    type F = MmapFileContents;
+    type F = memmap2::Mmap;
 
     fn get_candidate_paths_for_binary_or_pdb(
         &self,
@@ -120,12 +78,10 @@ impl FileAndPathHelper for Helper {
         &self,
         path: &Path,
     ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>>>> {
-        async fn read_file_impl(path: PathBuf) -> FileAndPathHelperResult<MmapFileContents> {
+        async fn read_file_impl(path: PathBuf) -> FileAndPathHelperResult<memmap2::Mmap> {
             eprintln!("Reading file {:?}", &path);
             let file = File::open(&path)?;
-            Ok(MmapFileContents(unsafe {
-                memmap2::MmapOptions::new().map(&file)?
-            }))
+            Ok(unsafe { memmap2::MmapOptions::new().map(&file)? })
         }
 
         // See if this file exists in self.symbol_directory.

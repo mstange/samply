@@ -103,7 +103,7 @@ impl<S: FileByteSource> FileContents for FileContentsWithChunkedCaching<S> {
         let mut location = self.get_range_location(range.start..(range.start + max_len))?;
         let bytes = self.slice_from_location(&location);
 
-        let string_len = match bytes.iter().position(|b| *b == delimiter) {
+        let string_len = match memchr::memchr(delimiter, bytes) {
             Some(len) => len,
             None => {
                 return Err(Box::new(std::io::Error::new(
