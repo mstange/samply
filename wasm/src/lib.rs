@@ -91,7 +91,7 @@ pub fn get_compact_symbol_table(
     breakpad_id: String,
     helper: FileAndPathHelper,
 ) -> Promise {
-    console_error_panic_hook::set_once();
+    // console_error_panic_hook::set_once();
     future_to_promise(get_compact_symbol_table_impl(
         debug_name,
         breakpad_id,
@@ -130,7 +130,7 @@ pub fn get_compact_symbol_table(
 /// ```
 #[wasm_bindgen(js_name = queryAPI)]
 pub fn query_api(url: String, request_json: String, helper: FileAndPathHelper) -> Promise {
-    console_error_panic_hook::set_once();
+    // console_error_panic_hook::set_once();
     future_to_promise(query_api_impl(url, request_json, helper))
 }
 
