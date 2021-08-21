@@ -107,7 +107,7 @@
 //! ```
 
 pub use object;
-pub use pdb;
+pub use pdb_addr2line::pdb;
 
 use std::path::Path;
 

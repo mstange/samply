@@ -1,4 +1,4 @@
-use pdb::Error as PDBError;
+use pdb_addr2line::pdb::Error as PDBError;
 use std::path::PathBuf;
 use thiserror::Error;
 

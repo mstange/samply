@@ -4,6 +4,7 @@ use crate::shared::{
     InlineStackFrame, SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
 };
 use pdb::PDB;
+use pdb_addr2line::pdb;
 use std::io::Cursor;
 use std::{borrow::Cow, path::Path};
 
