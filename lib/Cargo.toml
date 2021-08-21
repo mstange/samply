@@ -26,6 +26,7 @@ version = "0.26.0"
 
 [dependencies]
 pdb = "0.7.0"
+# pdb-addr2line = { path = "../../pdb-addr2line" }
 pdb-addr2line = "0.4.2"
 uuid = "0.8.2"
 thiserror = "1.0.26"
