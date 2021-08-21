@@ -11,4 +11,3 @@ structopt = "0.3.14"
 memmap2 = "0.3.0"
 anyhow = "1.0.28"
 futures = "0.3.5"
-memchr = { version = "2.4", default-features = false }
