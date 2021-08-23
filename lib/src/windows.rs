@@ -131,7 +131,7 @@ where
         ));
     }
 
-    let context_data = pdb_addr2line::ContextPdbData::try_from_pdb(&mut pdb)
+    let context_data = pdb_addr2line::ContextPdbData::try_from_pdb(pdb)
         .context("ContextConstructionData::try_from_pdb")?;
     let context = context_data.make_context().context("make_context()")?;
 

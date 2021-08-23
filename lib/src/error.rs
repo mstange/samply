@@ -1,4 +1,4 @@
-use pdb_addr2line::pdb::Error as PDBError;
+use pdb_addr2line::pdb::Error as PdbError;
 use std::path::PathBuf;
 use thiserror::Error;
 
@@ -16,7 +16,10 @@ pub enum GetSymbolsError {
     NoLuckMacOsSystemLibrary(Vec<GetSymbolsError>),
 
     #[error("PDB error: {1} ({0})")]
-    PDBError(&'static str, PDBError),
+    PdbError(&'static str, PdbError),
+
+    #[error("pdb-addr2line error: {1} ({0})")]
+    PdbAddr2lineErrorWithContext(&'static str, #[source] pdb_addr2line::Error),
 
     #[error("Invalid input: {0}")]
     InvalidInputError(&'static str),
@@ -73,29 +76,35 @@ pub enum GetSymbolsError {
     #[error("Malformed request JSON: {0}")]
     ParseRequestErrorContents(&'static str),
 
-    #[error("Error while formatting function from PDB: {0}")]
-    PdbTypeFormatterError(#[source] pdb_addr2line::Error),
+    #[error("Error while getting function info from PDB: {0}")]
+    PdbAddr2lineError(#[source] pdb_addr2line::Error),
 }
 
 pub trait Context<T> {
     fn context(self, context_description: &'static str) -> Result<T>;
 }
 
-impl<T> Context<T> for std::result::Result<T, PDBError> {
+impl<T> Context<T> for std::result::Result<T, PdbError> {
     fn context(self, context_description: &'static str) -> Result<T> {
-        self.map_err(|e| GetSymbolsError::PDBError(context_description, e))
+        self.map_err(|e| GetSymbolsError::PdbError(context_description, e))
     }
 }
 
-impl From<PDBError> for GetSymbolsError {
-    fn from(err: PDBError) -> GetSymbolsError {
-        GetSymbolsError::PDBError("Unknown", err)
+impl<T> Context<T> for std::result::Result<T, pdb_addr2line::Error> {
+    fn context(self, context_description: &'static str) -> Result<T> {
+        self.map_err(|e| GetSymbolsError::PdbAddr2lineErrorWithContext(context_description, e))
+    }
+}
+
+impl From<PdbError> for GetSymbolsError {
+    fn from(err: PdbError) -> GetSymbolsError {
+        GetSymbolsError::PdbError("Unknown", err)
     }
 }
 
 impl From<pdb_addr2line::Error> for GetSymbolsError {
     fn from(err: pdb_addr2line::Error) -> GetSymbolsError {
-        GetSymbolsError::PdbTypeFormatterError(err)
+        GetSymbolsError::PdbAddr2lineError(err)
     }
 }
 
@@ -105,7 +114,8 @@ impl GetSymbolsError {
             GetSymbolsError::UnmatchedBreakpadId(_, _) => "UnmatchedBreakpadId",
             GetSymbolsError::NoMatchMultiArch(_, _) => "NoMatchMultiArch",
             GetSymbolsError::NoLuckMacOsSystemLibrary(_) => "NoLuckMacOsSystemLibrary",
-            GetSymbolsError::PDBError(_, _) => "PDBError",
+            GetSymbolsError::PdbError(_, _) => "PdbError",
+            GetSymbolsError::PdbAddr2lineErrorWithContext(_, _) => "PdbAddr2lineErrorWithContext",
             GetSymbolsError::InvalidInputError(_) => "InvalidInputError",
             GetSymbolsError::DyldCacheParseError(_) => "DyldCacheParseError",
             GetSymbolsError::NoMatchingDyldCacheImagePath(_) => "NoMatchingDyldCacheImagePath",
@@ -125,7 +135,7 @@ impl GetSymbolsError {
             GetSymbolsError::ArchiveParseError(_, _) => "ArchiveParseError",
             GetSymbolsError::ParseRequestErrorSerde(_) => "ParseRequestErrorSerde",
             GetSymbolsError::ParseRequestErrorContents(_) => "ParseRequestErrorContents",
-            GetSymbolsError::PdbTypeFormatterError(_) => "PdbTypeFormatterError",
+            GetSymbolsError::PdbAddr2lineError(_) => "PdbAddr2lineError",
         }
     }
 }
