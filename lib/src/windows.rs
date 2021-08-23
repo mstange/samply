@@ -5,7 +5,6 @@ use crate::shared::{
 };
 use pdb::PDB;
 use pdb_addr2line::pdb;
-use std::io::Cursor;
 use std::{borrow::Cow, path::Path};
 
 pub async fn get_symbolication_result_via_binary<R>(
@@ -101,11 +100,7 @@ where
     let file_contents = FileContentsWrapper::new(helper.open_file(path).await.map_err(|e| {
         GetSymbolsError::HelperErrorDuringOpenFile(path.to_string_lossy().to_string(), e)
     })?);
-    let buffer = file_contents.read_entire_data().map_err(|e| {
-        GetSymbolsError::HelperErrorDuringFileReading(path.to_string_lossy().to_string(), e)
-    })?;
-    let pdb_reader = Cursor::new(buffer);
-    let pdb = PDB::open(pdb_reader)?;
+    let pdb = PDB::open(&file_contents)?;
     get_symbolication_result(pdb, query)
 }
 
