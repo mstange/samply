@@ -154,6 +154,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "elsa"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "848344296205756adc00ab3bec02658da0f72eaa1461474aa2d51d64311876a5"
+dependencies = [
+ "stable_deref_trait",
+]
+
+[[package]]
 name = "encoding_rs"
 version = "0.8.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -569,9 +578,9 @@ checksum = "b16bd47d9e329435e309c58469fe0791c2d0d1ba96ec0954152a5ae2b04387dc"
 
 [[package]]
 name = "memmap2"
-version = "0.2.3"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "723e3ebdcdc5c023db1df315364573789f8857c11b631a2fdfad7c00f5c046b4"
+checksum = "00b6c2ebff6180198788f5db08d7ce3bc1d0b617176678831a7510825973e357"
 dependencies = [
  "libc",
 ]
@@ -755,11 +764,12 @@ dependencies = [
 
 [[package]]
 name = "pdb-addr2line"
-version = "0.4.2"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c886e297c68f59d17329b521f160d8ad6238e9fa3de62e6ede2f781b9f618ddc"
+checksum = "e3c23108786875d7bf52717b19ed8e7169ff153bd97cbcd013e68dfbc001c80f"
 dependencies = [
  "bitflags",
+ "elsa",
  "maybe-owned",
  "pdb",
  "range-collections",
@@ -863,18 +873,20 @@ dependencies = [
 
 [[package]]
 name = "profiler-get-symbols"
-version = "0.3.2"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a84e4415298827ea7b146ffc9e3c364827b6fd8c461314cd9559d97c8f55a6aa"
+checksum = "9d050049af60bfb53c79c320d864e0767958899fcc9b5b822c7b2e89377f05a7"
 dependencies = [
  "addr2line 0.16.0",
  "bitflags",
  "cpp_demangle",
+ "elsa",
+ "memchr",
  "msvc-demangler",
  "object 0.26.0",
- "pdb",
  "pdb-addr2line",
  "range-collections",
+ "rangemap",
  "rustc-demangle",
  "serde",
  "serde_json",
@@ -963,6 +975,12 @@ dependencies = [
  "serde",
  "smallvec",
 ]
+
+[[package]]
+name = "rangemap"
+version = "0.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "02bd42bb6d8ec01fa40a6ef0d1e67e0fab8fd96c9d4eb97711ce0cb9d0983856"
 
 [[package]]
 name = "redox_syscall"

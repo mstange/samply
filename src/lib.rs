@@ -8,8 +8,7 @@ use hyper::{Method, StatusCode};
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use profiler_get_symbols::query_api;
 use profiler_get_symbols::{
-    self, CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileContents,
-    OptionallySendFuture,
+    self, CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, OptionallySendFuture,
 };
 use serde_json::{self, Value};
 use std::collections::HashMap;
@@ -256,43 +255,6 @@ impl std::ops::Deref for MyFileContents {
         match self {
             MyFileContents::Mmap(mmap) => mmap,
             MyFileContents::Bytes(bytes) => bytes,
-        }
-    }
-}
-
-impl FileContents for MyFileContents {
-    #[inline]
-    fn len(&self) -> u64 {
-        let sl: &[u8] = self;
-        sl.len() as u64
-    }
-
-    #[inline]
-    fn read_bytes_at(&self, offset: u64, size: u64) -> FileAndPathHelperResult<&[u8]> {
-        let end = match offset.checked_add(size) {
-            Some(end) => end,
-            None => return Err("read_bytes_at: offset + size overflow".into()),
-        };
-        if end > self.len() {
-            return Err("read_bytes_at: overflowing len".into());
-        }
-        Ok(&self[offset as usize..end as usize])
-    }
-
-    #[inline]
-    fn read_bytes_at_until(
-        &self,
-        range: Range<u64>,
-        delimiter: u8,
-    ) -> FileAndPathHelperResult<&[u8]> {
-        let slice_to_end = &self[range.start as usize..range.end as usize];
-        if let Some(pos) = slice_to_end.iter().position(|b| *b == delimiter) {
-            Ok(&slice_to_end[..pos])
-        } else {
-            Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "Delimiter not found in MmapFileContents",
-            )))
         }
     }
 }
