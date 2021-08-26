@@ -79,12 +79,17 @@ impl SymbolicationResult for LookedUpAddresses {
     }
 
     fn add_address_debug_info(&mut self, address: u32, info: AddressDebugInfo) {
-        self.address_results
+        let address_result = self
+            .address_results
             .get_mut(&address)
             .unwrap()
             .as_mut()
-            .unwrap()
-            .inline_frames = Some(info.frames);
+            .unwrap();
+
+        if let Some(name) = info.frames.last().and_then(|f| f.function.as_ref()) {
+            address_result.symbol_name = name.clone();
+        }
+        address_result.inline_frames = Some(info.frames);
     }
 
     fn set_total_symbol_count(&mut self, total_symbol_count: u32) {
