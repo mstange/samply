@@ -18,7 +18,7 @@ version = "0.26.0"
 hyper = { version = "0.14.8", features = ["full"] }
 tokio = { version = "1.6.1", features = ["full"] }
 futures = "0.3"
-profiler-get-symbols = { version = "0.4.0", features = ["send_futures"] }
+profiler-get-symbols = { version = "0.5.0", features = ["send_futures"] }
 memmap2 = "0.3.1"
 serde_json = "1.0.53"
 uuid = "0.8.2"
