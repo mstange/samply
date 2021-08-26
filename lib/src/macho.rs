@@ -185,6 +185,7 @@ async fn traverse_object_references_and_collect_debug_info(
     Ok(())
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct FunctionsWithAddresses {
     /// Keys are byte strings of the function name.
     /// Values are the addresses under that function.
@@ -357,7 +358,7 @@ fn collect_debug_info_and_object_references<'data: 'file, 'file, 'a, O, R>(
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 struct AddressWithOffset {
     original_address: u32,
     offset_from_function_start: u32,

@@ -146,12 +146,14 @@ pub trait FileContents {
     ) -> FileAndPathHelperResult<()>;
 }
 
+#[derive(Debug, Clone)]
 pub struct AddressDebugInfo {
     /// Must be non-empty. Ordered from inside to outside.
     /// The last frame is the outer function, the other frames are inlined functions.
     pub frames: Vec<InlineStackFrame>,
 }
 
+#[derive(Debug, Clone)]
 pub struct InlineStackFrame {
     pub function: Option<String>,
     pub file_path: Option<String>, // maybe PathBuf?
