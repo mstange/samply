@@ -84,17 +84,19 @@ impl FileAndPathHelper for Helper {
             Ok(unsafe { memmap2::MmapOptions::new().map(&file)? })
         }
 
-        // See if this file exists in self.symbol_directory.
-        // For example, when looking up object files referenced by mach-O binaries,
-        // we want to take the object files from the symbol directory if they exist,
-        // rather than from the original path.
         let mut path = path.to_owned();
-        if let Some(filename) = path.file_name() {
-            let redirected_path = self.symbol_directory.join(filename);
-            if std::fs::metadata(&redirected_path).is_ok() {
-                // redirected_path exists!
-                eprintln!("Redirecting {:?} to {:?}", &path, &redirected_path);
-                path = redirected_path;
+        if !path.starts_with(&self.symbol_directory) {
+            // See if this file exists in self.symbol_directory.
+            // For example, when looking up object files referenced by mach-O binaries,
+            // we want to take the object files from the symbol directory if they exist,
+            // rather than from the original path.
+            if let Some(filename) = path.file_name() {
+                let redirected_path = self.symbol_directory.join(filename);
+                if std::fs::metadata(&redirected_path).is_ok() {
+                    // redirected_path exists!
+                    eprintln!("Redirecting {:?} to {:?}", &path, &redirected_path);
+                    path = redirected_path;
+                }
             }
         }
 
