@@ -109,9 +109,9 @@
 pub use object;
 pub use pdb_addr2line::pdb;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use object::{macho::FatHeader, read::macho::DyldCache, read::FileKind, Endianness};
+use object::{macho::FatHeader, read::FileKind, Endianness};
 use pdb::PDB;
 use serde_json::json;
 
@@ -119,6 +119,7 @@ mod cache;
 mod chunked_read_buffer_manager;
 mod compact_symbol_table;
 mod dwarf;
+mod dyld_cache;
 mod elf;
 mod error;
 mod macho;
@@ -127,6 +128,7 @@ mod symbolicate;
 mod windows;
 
 use crate::shared::{SymbolicationQuery, SymbolicationResult};
+use dyld_cache::DyldCache;
 
 pub use crate::cache::{FileByteSource, FileContentsWithChunkedCaching};
 pub use crate::compact_symbol_table::CompactSymbolTable;
@@ -303,12 +305,32 @@ where
     R: SymbolicationResult,
     H: FileAndPathHelper,
 {
-    let file_contents = helper.open_file(dyld_cache_path).await.map_err(|e| {
-        GetSymbolsError::HelperErrorDuringOpenFile(dyld_cache_path.to_string_lossy().to_string(), e)
-    })?;
+    let mut chunk_index = 0;
 
-    let file_contents = FileContentsWrapper::new(file_contents);
-    let header_offset = {
+    let (header_offset, file_contents) = loop {
+        let chunk_path: PathBuf = if chunk_index == 0 {
+            dyld_cache_path.to_path_buf()
+        } else {
+            let mut s = dyld_cache_path.as_os_str().to_os_string();
+            s.push(&format!(".{}", chunk_index));
+            s.into()
+        };
+
+        let file_contents = helper.open_file(&chunk_path).await.map_err(|e| {
+            if chunk_index == 0 {
+                GetSymbolsError::HelperErrorDuringOpenFile(
+                    dyld_cache_path.to_string_lossy().to_string(),
+                    e,
+                )
+            } else {
+                GetSymbolsError::DyldCacheOutOfChunks(
+                    dyld_cache_path.to_string_lossy().to_string(),
+                    chunk_index,
+                )
+            }
+        })?;
+
+        let file_contents = FileContentsWrapper::new(file_contents);
         let cache = DyldCache::<Endianness, _>::parse(&file_contents)
             .map_err(GetSymbolsError::DyldCacheParseError)?;
         let image = cache.images().find(|image| image.path() == Ok(dylib_path));
@@ -320,10 +342,18 @@ where
                 ))
             }
         };
-        image
-            .file_offset()
-            .map_err(GetSymbolsError::DyldCacheParseError)?
+
+        // Check if the image is present in this cache chunk.
+        if let Ok(file_offset) = image.file_offset() {
+            // Found the right chunk! Exit the loop.
+            break (file_offset, file_contents);
+        }
+
+        // This dyld cache chunk did not contain a mapping which contained this image.
+        // Go to the next chunk.
+        chunk_index += 1;
     };
 
-    macho::get_symbolication_result(file_contents, None, header_offset, query, helper).await
+    return macho::get_symbolication_result(file_contents, None, header_offset, query, helper)
+        .await;
 }

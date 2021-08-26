@@ -28,7 +28,10 @@ pub enum GetSymbolsError {
     ObjectParseError(object::read::FileKind, #[source] object::read::Error),
 
     #[error("Dyld cache parsing error: {0}")]
-    DyldCacheParseError(#[source] object::read::Error),
+    DyldCacheParseError(#[source] crate::dyld_cache::Error),
+
+    #[error("Ran out of potential dyld cache chunks: {0} (no chunk with index {1})")]
+    DyldCacheOutOfChunks(String, u16),
 
     #[error("The dyld shared cache file did not include an entry for the dylib at {0}")]
     NoMatchingDyldCacheImagePath(String),
@@ -136,6 +139,7 @@ impl GetSymbolsError {
             GetSymbolsError::ParseRequestErrorSerde(_) => "ParseRequestErrorSerde",
             GetSymbolsError::ParseRequestErrorContents(_) => "ParseRequestErrorContents",
             GetSymbolsError::PdbAddr2lineError(_) => "PdbAddr2lineError",
+            GetSymbolsError::DyldCacheOutOfChunks(_, _) => "DyldCacheOutOfChunks",
         }
     }
 }
