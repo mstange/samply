@@ -1,21 +1,17 @@
 use super::super::demangle;
-use crate::shared::{
-    AddressDebugInfo, InlineStackFrame, SymbolicationResult, SymbolicationResultKind,
-};
+use crate::shared::{AddressDebugInfo, SymbolicationResult, SymbolicationResultKind};
 use std::collections::BTreeMap;
 use std::ops::Deref;
 
 pub struct AddressResult {
-    pub symbol_address: u32,
     pub symbol_name: String,
-    pub inline_frames: Option<Vec<InlineStackFrame>>,
+    pub symbol_address: u32,
 }
 
 pub type AddressResults = BTreeMap<u32, Option<AddressResult>>;
 
 pub struct LookedUpAddresses {
     pub address_results: AddressResults,
-    pub symbol_count: u32,
 }
 
 impl SymbolicationResult for LookedUpAddresses {
@@ -26,7 +22,6 @@ impl SymbolicationResult for LookedUpAddresses {
         symbols.reverse();
         symbols.sort_by_key(|(address, _)| *address);
         symbols.dedup_by_key(|(address, _)| *address);
-        let symbol_count = symbols.len() as u32;
 
         let address_results = addresses
             .iter()
@@ -46,27 +41,22 @@ impl SymbolicationResult for LookedUpAddresses {
                     Some(AddressResult {
                         symbol_address,
                         symbol_name,
-                        inline_frames: None,
                     }),
                 )
             })
             .collect();
-        LookedUpAddresses {
-            address_results,
-            symbol_count,
-        }
+        LookedUpAddresses { address_results }
     }
 
     fn for_addresses(addresses: &[u32]) -> Self {
         LookedUpAddresses {
             address_results: addresses.iter().map(|&addr| (addr, None)).collect(),
-            symbol_count: 0,
         }
     }
 
     fn result_kind() -> SymbolicationResultKind {
         SymbolicationResultKind::SymbolsForAddresses {
-            with_debug_info: true,
+            with_debug_info: false,
         }
     }
 
@@ -74,25 +64,11 @@ impl SymbolicationResult for LookedUpAddresses {
         *self.address_results.get_mut(&address).unwrap() = Some(AddressResult {
             symbol_address,
             symbol_name: demangle::demangle_any(symbol_name),
-            inline_frames: None,
         });
     }
 
-    fn add_address_debug_info(&mut self, address: u32, info: AddressDebugInfo) {
-        let address_result = self
-            .address_results
-            .get_mut(&address)
-            .unwrap()
-            .as_mut()
-            .unwrap();
-
-        if let Some(name) = info.frames.last().and_then(|f| f.function.as_ref()) {
-            address_result.symbol_name = name.clone();
-        }
-        address_result.inline_frames = Some(info.frames);
+    fn add_address_debug_info(&mut self, _address: u32, _info: AddressDebugInfo) {
+        panic!("Should not be called")
     }
-
-    fn set_total_symbol_count(&mut self, total_symbol_count: u32) {
-        self.symbol_count = total_symbol_count;
-    }
+    fn set_total_symbol_count(&mut self, _total_symbol_count: u32) {}
 }

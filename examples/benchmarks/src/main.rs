@@ -64,18 +64,18 @@ fn main() -> anyhow::Result<()> {
         },
         Timing {
             platform: "win64",
-            action: "query-api v5",
+            action: "query-api v5-legacy",
             duration: run_api_query_benchmark(
-                "/symbolicate/v5",
+                "/symbolicate/v5-legacy",
                 &fixtures_dir().join("requests").join("win64-ci-xul.json"),
                 big_fixtures_dir().join("win64-ci"),
             )?,
         },
         Timing {
             platform: "win64",
-            action: "query-api v6a2",
+            action: "query-api v5",
             duration: run_api_query_benchmark(
-                "/symbolicate/v6a2",
+                "/symbolicate/v5",
                 &fixtures_dir().join("requests").join("win64-ci-xul.json"),
                 big_fixtures_dir().join("win64-ci"),
             )?,
@@ -91,18 +91,18 @@ fn main() -> anyhow::Result<()> {
         },
         Timing {
             platform: "win64-local",
-            action: "query-api v5",
+            action: "query-api v5-legacy",
             duration: run_api_query_benchmark(
-                "/symbolicate/v5",
+                "/symbolicate/v5-legacy",
                 &fixtures_dir().join("requests").join("win64-local-xul.json"),
                 big_fixtures_dir().join("win64-local"),
             )?,
         },
         Timing {
             platform: "win64-local",
-            action: "query-api v6a2",
+            action: "query-api v5",
             duration: run_api_query_benchmark(
-                "/symbolicate/v6a2",
+                "/symbolicate/v5",
                 &fixtures_dir().join("requests").join("win64-local-xul.json"),
                 big_fixtures_dir().join("win64-local"),
             )?,
@@ -119,18 +119,18 @@ fn main() -> anyhow::Result<()> {
         },
         Timing {
             platform: "macos",
-            action: "query-api v5",
+            action: "query-api v5-legacy",
             duration: run_api_query_benchmark(
-                "/symbolicate/v5",
+                "/symbolicate/v5-legacy",
                 &fixtures_dir().join("requests").join("macos-ci-xul.json"),
                 big_fixtures_dir().join("macos-ci"),
             )?,
         },
         Timing {
             platform: "macos",
-            action: "query-api v6a2",
+            action: "query-api v5",
             duration: run_api_query_benchmark(
-                "/symbolicate/v6a2",
+                "/symbolicate/v5",
                 &fixtures_dir().join("requests").join("macos-ci-xul.json"),
                 big_fixtures_dir().join("macos-ci"),
             )?,
@@ -147,18 +147,18 @@ fn main() -> anyhow::Result<()> {
         },
         Timing {
             platform: "macos-local",
-            action: "query-api v5",
+            action: "query-api v5-legacy",
             duration: run_api_query_benchmark(
-                "/symbolicate/v5",
+                "/symbolicate/v5-legacy",
                 &fixtures_dir().join("requests").join("macos-local-xul.json"),
                 big_fixtures_dir().join("macos-local"),
             )?,
         },
         Timing {
             platform: "macos-local",
-            action: "query-api v6a2",
+            action: "query-api v5",
             duration: run_api_query_benchmark(
-                "/symbolicate/v6a2",
+                "/symbolicate/v5",
                 &fixtures_dir().join("requests").join("macos-local-xul.json"),
                 big_fixtures_dir().join("macos-local"),
             )?,
@@ -175,18 +175,18 @@ fn main() -> anyhow::Result<()> {
         },
         Timing {
             platform: "linux64",
-            action: "query-api v5",
+            action: "query-api v5-legacy",
             duration: run_api_query_benchmark(
-                "/symbolicate/v5",
+                "/symbolicate/v5-legacy",
                 &fixtures_dir().join("requests").join("linux64-ci-xul.json"),
                 big_fixtures_dir().join("linux64-ci"),
             )?,
         },
         Timing {
             platform: "linux64",
-            action: "query-api v6a2",
+            action: "query-api v5",
             duration: run_api_query_benchmark(
-                "/symbolicate/v6a2",
+                "/symbolicate/v5",
                 &fixtures_dir().join("requests").join("linux64-ci-xul.json"),
                 big_fixtures_dir().join("linux64-ci"),
             )?,
@@ -203,9 +203,9 @@ fn main() -> anyhow::Result<()> {
         },
         Timing {
             platform: "android32",
-            action: "query-api v5",
+            action: "query-api v5-legacy",
             duration: run_api_query_benchmark(
-                "/symbolicate/v5",
+                "/symbolicate/v5-legacy",
                 &fixtures_dir()
                     .join("requests")
                     .join("android32-ci-xul.json"),
@@ -214,9 +214,9 @@ fn main() -> anyhow::Result<()> {
         },
         Timing {
             platform: "android32",
-            action: "query-api v6a2",
+            action: "query-api v5",
             duration: run_api_query_benchmark(
-                "/symbolicate/v6a2",
+                "/symbolicate/v5",
                 &fixtures_dir()
                     .join("requests")
                     .join("android32-ci-xul.json"),
@@ -235,9 +235,9 @@ fn main() -> anyhow::Result<()> {
         },
         Timing {
             platform: "android64",
-            action: "query-api v5",
+            action: "query-api v5-legacy",
             duration: run_api_query_benchmark(
-                "/symbolicate/v5",
+                "/symbolicate/v5-legacy",
                 &fixtures_dir()
                     .join("requests")
                     .join("android64-ci-xul.json"),
@@ -246,9 +246,9 @@ fn main() -> anyhow::Result<()> {
         },
         Timing {
             platform: "android64",
-            action: "query-api v6a2",
+            action: "query-api v5",
             duration: run_api_query_benchmark(
-                "/symbolicate/v6a2",
+                "/symbolicate/v5",
                 &fixtures_dir()
                     .join("requests")
                     .join("android64-ci-xul.json"),

@@ -112,6 +112,8 @@ mod test {
     use std::io::{Read, Write};
     use std::path::PathBuf;
 
+    use assert_json_diff::assert_json_eq;
+
     fn fixtures_dir() -> PathBuf {
         let this_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         this_dir.join("..").join("..").join("fixtures")
@@ -135,18 +137,20 @@ mod test {
                 File::create(fixtures_dir().join("snapshots").join(output_filename)).unwrap();
             output_file.write_all(output.as_bytes()).unwrap();
         }
+        let output: serde_json::Value = serde_json::from_str(&output).unwrap();
 
         let mut snapshot_file =
             File::open(fixtures_dir().join("snapshots").join(snapshot_filename)).unwrap();
         let mut expected: String = String::new();
         snapshot_file.read_to_string(&mut expected).unwrap();
-        assert_eq!(output, expected);
+        let expected: serde_json::Value = serde_json::from_str(&expected).unwrap();
+        assert_json_eq!(output, expected);
     }
 
     #[test]
-    fn win64_ci_v5_snapshot_1() {
+    fn win64_ci_v5_legacy_snapshot_1() {
         compare_snapshot(
-            "/symbolicate/v5",
+            "/symbolicate/v5-legacy",
             r#"{
                 "memoryMap": [
                   [
@@ -164,15 +168,15 @@ mod test {
                 ]
               }"#,
             fixtures_dir().join("win64-ci"),
-            "api-v5-win64-ci-1.txt",
-            "output-api-v5-win64-ci-1.txt",
+            "api-v5-legacy-win64-ci-1.txt",
+            "output-api-v5-legacy-win64-ci-1.txt",
         );
     }
 
     #[test]
-    fn win64_ci_v5_snapshot_2() {
+    fn win64_ci_v5_legacy_snapshot_2() {
         compare_snapshot(
-            "/symbolicate/v5",
+            "/symbolicate/v5-legacy",
             r#"{
                 "memoryMap": [
                   [
@@ -189,15 +193,15 @@ mod test {
                 ]
               }"#,
             fixtures_dir().join("win64-ci"),
-            "api-v5-win64-ci-2.txt",
-            "output-api-v5-win64-ci-2.txt",
+            "api-v5-legacy-win64-ci-2.txt",
+            "output-api-v5-legacy-win64-ci-2.txt",
         );
     }
 
     #[test]
-    fn win64_ci_v6_snapshot() {
+    fn win64_ci_v5_snapshot() {
         compare_snapshot(
-            "/symbolicate/v6a2",
+            "/symbolicate/v5",
             r#"{
                 "memoryMap": [
                   [
@@ -222,8 +226,33 @@ mod test {
                 ]
               }"#,
             fixtures_dir().join("win64-ci"),
-            "api-v6-win64-ci.txt",
-            "output-api-v6-win64-ci.txt",
+            "api-v5-win64-ci.txt",
+            "output-api-v5-win64-ci.txt",
+        );
+    }
+
+    #[test]
+    fn android32_v5_legacy_local() {
+        compare_snapshot(
+            "/symbolicate/v5-legacy",
+            r#"{
+                "memoryMap": [
+                  [
+                    "libmozglue.so",
+                    "0CE47B7C29F27CED55C41233B93EBA450"
+                  ]
+                ],
+                "stacks": [
+                  [
+                    [0, 247618],
+                    [0, 685896],
+                    [0, 686768]
+                  ]
+                ]
+              }"#,
+            fixtures_dir().join("android32-local"),
+            "api-v5-legacy-android32-local.txt",
+            "output-api-v5-legacy-android32-local.txt",
         );
     }
 
@@ -249,31 +278,6 @@ mod test {
             fixtures_dir().join("android32-local"),
             "api-v5-android32-local.txt",
             "output-api-v5-android32-local.txt",
-        );
-    }
-
-    #[test]
-    fn android32_v6_local() {
-        compare_snapshot(
-            "/symbolicate/v6a2",
-            r#"{
-                "memoryMap": [
-                  [
-                    "libmozglue.so",
-                    "0CE47B7C29F27CED55C41233B93EBA450"
-                  ]
-                ],
-                "stacks": [
-                  [
-                    [0, 247618],
-                    [0, 685896],
-                    [0, 686768]
-                  ]
-                ]
-              }"#,
-            fixtures_dir().join("android32-local"),
-            "api-v6-android32-local.txt",
-            "output-api-v6-android32-local.txt",
         );
     }
 }

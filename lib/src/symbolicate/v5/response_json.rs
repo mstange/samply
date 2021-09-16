@@ -1,5 +1,6 @@
-use serde::Serialize;
 use std::collections::HashMap;
+
+use serde::Serialize;
 
 #[derive(Serialize, Debug)]
 pub struct Response {
@@ -10,6 +11,9 @@ pub struct Response {
 pub struct Result {
     pub stacks: Vec<Stack>,
     pub found_modules: HashMap<String, bool>,
+
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub module_errors: HashMap<String, Vec<Error>>,
 }
 
 #[derive(Serialize, Debug)]
@@ -32,8 +36,59 @@ pub struct StackFrame {
 #[derive(Serialize, Debug)]
 pub struct Symbol {
     pub function: String,
+
     #[serde(serialize_with = "as_hex_string")]
     pub function_offset: u32,
+
+    #[serde(flatten)]
+    pub debug_info: Option<DebugInfo>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct DebugInfo {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub inlines: Vec<InlineStackFrame>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct InlineStackFrame {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub function: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct Error {
+    pub name: String,
+    pub message: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filename: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+}
+
+impl From<&crate::GetSymbolsError> for Error {
+    fn from(err: &crate::GetSymbolsError) -> Self {
+        Self {
+            name: err.enum_as_string().to_string(),
+            message: err.to_string(),
+            filename: None,
+            line: None,
+        }
+    }
 }
 
 fn as_hex_string<S, T>(field: &T, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -46,6 +101,8 @@ where
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashMap;
+
     use super::super::response_json;
     use serde_json::Result;
 
@@ -61,6 +118,7 @@ mod test {
                         symbol: Some(response_json::Symbol {
                             function: String::from("sctp_send_initiate"),
                             function_offset: 0x4ca,
+                            debug_info: None,
                         }),
                     },
                     response_json::StackFrame {
@@ -77,6 +135,7 @@ mod test {
                 .iter()
                 .cloned()
                 .collect(),
+                module_errors: HashMap::new(),
             }],
         };
         let response = serde_json::to_string_pretty(&response)?;
@@ -105,6 +164,7 @@ mod test {
     }
   ]
 }"#;
+        eprintln!("{}", response);
         assert_eq!(response, expected);
         Ok(())
     }

@@ -64,10 +64,10 @@ fn gather_requested_addresses(request: &request_json::Request) -> Result<HashMap
 async fn symbolicate_requested_addresses(
     requested_addresses: HashMap<Lib, Vec<u32>>,
     helper: &impl FileAndPathHelper,
-) -> HashMap<Lib, Result<LookedUpAddresses>> {
-    let mut symbolicated_addresses = HashMap::new();
+) -> HashMap<Lib, Option<AddressResults>> {
+    let mut symbolicated_addresses: HashMap<Lib, Option<AddressResults>> = HashMap::new();
     for (lib, addresses) in requested_addresses.into_iter() {
-        let address_results = get_address_results(&lib, addresses, helper).await;
+        let address_results = get_address_results(&lib, addresses, helper).await.ok();
         symbolicated_addresses.insert(lib, address_results);
     }
     symbolicated_addresses
@@ -77,52 +77,38 @@ async fn get_address_results(
     lib: &Lib,
     mut addresses: Vec<u32>,
     helper: &impl FileAndPathHelper,
-) -> Result<LookedUpAddresses> {
+) -> Result<AddressResults> {
     addresses.sort_unstable();
     addresses.dedup();
-    Ok(
+    let symbol_table: LookedUpAddresses =
         crate::get_symbolication_result(&lib.debug_name, &lib.breakpad_id, &addresses, helper)
-            .await?,
-    )
+            .await?;
+    Ok(symbol_table.address_results)
 }
 
 fn create_response(
     request: &request_json::Request,
-    symbolicated_addresses: HashMap<Lib, Result<LookedUpAddresses>>,
+    symbolicated_addresses: HashMap<Lib, Option<AddressResults>>,
 ) -> response_json::Response {
-    use response_json::{
-        DebugInfo, InlineStackFrame, ModuleStatus, Response, Result, Stack, StackFrame, Symbol,
-    };
+    use response_json::{Response, Result, Stack, StackFrame, Symbol};
 
     fn result_for_job(
         job: &request_json::Job,
-        symbolicated_addresses: &HashMap<Lib, crate::Result<LookedUpAddresses>>,
+        symbolicated_addresses: &HashMap<Lib, Option<AddressResults>>,
     ) -> Result {
+        let mut found_modules = HashMap::new();
         let mut symbols_by_module_index = HashMap::new();
-        let module_status: Vec<Option<_>> = job
-            .memory_map
-            .iter()
-            .enumerate()
-            .map(|(module_index, lib)| {
-                if let Some(symbol_result) = symbolicated_addresses.get(lib) {
-                    if let Ok(symbols) = symbol_result {
-                        symbols_by_module_index
-                            .insert(module_index as u32, &symbols.address_results);
-                    }
-                    let (found, symbol_count, errors) = match symbol_result {
-                        Ok(symbols) => (true, symbols.symbol_count, vec![]),
-                        Err(err) => (false, 0, vec![err.into()]),
-                    };
-                    Some(ModuleStatus {
-                        found,
-                        symbol_count,
-                        errors,
-                    })
-                } else {
-                    None
+        for (module_index, lib) in job.memory_map.iter().enumerate() {
+            if let Some(symbols) = symbolicated_addresses.get(lib) {
+                found_modules.insert(
+                    format!("{}/{}", lib.debug_name, lib.breakpad_id),
+                    symbols.is_some(),
+                );
+                if let Some(symbols) = symbols {
+                    symbols_by_module_index.insert(module_index as u32, symbols);
                 }
-            })
-            .collect();
+            }
+        }
 
         let stacks = job.stacks.iter().map(|stack| {
             response_stack_for_request_stack(stack, &job.memory_map, &symbols_by_module_index)
@@ -130,7 +116,7 @@ fn create_response(
 
         Result {
             stacks: stacks.collect(),
-            module_status,
+            found_modules,
         }
     }
 
@@ -168,23 +154,6 @@ fn create_response(
                     .map(|address_result| Symbol {
                         function: address_result.symbol_name.clone(),
                         function_offset: frame.address - address_result.symbol_address,
-                        debug_info: address_result.inline_frames.as_ref().map(|frames| {
-                            let (outer, inlines) = frames
-                                .split_last()
-                                .expect("inline_frames should always have at least one element");
-                            DebugInfo {
-                                file: outer.file_path.clone(),
-                                line: outer.line_number,
-                                inlines: inlines
-                                    .iter()
-                                    .map(|inline_frame| InlineStackFrame {
-                                        function: inline_frame.function.clone(),
-                                        file: inline_frame.file_path.clone(),
-                                        line: inline_frame.line_number,
-                                    })
-                                    .collect(),
-                            }
-                        }),
                     })
             });
         StackFrame {

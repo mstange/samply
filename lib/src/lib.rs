@@ -227,10 +227,10 @@ pub async fn query_api(
     request_json_data: &str,
     helper: &impl FileAndPathHelper,
 ) -> String {
-    if request_url == "/symbolicate/v5" {
+    if request_url == "/symbolicate/v5-legacy" {
+        symbolicate::v5_legacy::query_api_json(request_json_data, helper).await
+    } else if request_url == "/symbolicate/v5" {
         symbolicate::v5::query_api_json(request_json_data, helper).await
-    } else if request_url == "/symbolicate/v6a2" {
-        symbolicate::v6::query_api_json(request_json_data, helper).await
     } else {
         json!({ "error": format!("Unrecognized URL {}", request_url) }).to_string()
     }

@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::collections::HashMap;
 
 #[derive(Serialize, Debug)]
 pub struct Response {
@@ -8,7 +9,7 @@ pub struct Response {
 #[derive(Serialize, Debug)]
 pub struct Result {
     pub stacks: Vec<Stack>,
-    pub module_status: Vec<Option<ModuleStatus>>,
+    pub found_modules: HashMap<String, bool>,
 }
 
 #[derive(Serialize, Debug)]
@@ -31,66 +32,8 @@ pub struct StackFrame {
 #[derive(Serialize, Debug)]
 pub struct Symbol {
     pub function: String,
-
     #[serde(serialize_with = "as_hex_string")]
     pub function_offset: u32,
-
-    #[serde(flatten)]
-    pub debug_info: Option<DebugInfo>,
-}
-
-#[derive(Serialize, Debug)]
-pub struct DebugInfo {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub file: Option<String>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub line: Option<u32>,
-
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub inlines: Vec<InlineStackFrame>,
-}
-
-#[derive(Serialize, Debug)]
-pub struct InlineStackFrame {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub function: Option<String>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub file: Option<String>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub line: Option<u32>,
-}
-
-#[derive(Serialize, Debug)]
-pub struct ModuleStatus {
-    pub found: bool,
-    pub symbol_count: u32,
-    pub errors: Vec<Error>,
-}
-
-#[derive(Serialize, Debug)]
-pub struct Error {
-    pub name: String,
-    pub message: String,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub filename: Option<String>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub line: Option<u32>,
-}
-
-impl From<&crate::GetSymbolsError> for Error {
-    fn from(err: &crate::GetSymbolsError) -> Self {
-        Self {
-            name: err.enum_as_string().to_string(),
-            message: err.to_string(),
-            filename: None,
-            line: None,
-        }
-    }
 }
 
 fn as_hex_string<S, T>(field: &T, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -118,7 +61,6 @@ mod test {
                         symbol: Some(response_json::Symbol {
                             function: String::from("sctp_send_initiate"),
                             function_offset: 0x4ca,
-                            debug_info: None,
                         }),
                     },
                     response_json::StackFrame {
@@ -128,11 +70,13 @@ mod test {
                         symbol: None,
                     },
                 ])],
-                module_status: vec![Some(response_json::ModuleStatus {
-                    found: true,
-                    symbol_count: 12345,
-                    errors: vec![],
-                })],
+                found_modules: [(
+                    String::from("xul.pdb/44E4EC8C2F41492B9369D6B9A059577C2"),
+                    true,
+                )]
+                .iter()
+                .cloned()
+                .collect(),
             }],
         };
         let response = serde_json::to_string_pretty(&response)?;
@@ -155,13 +99,9 @@ mod test {
           }
         ]
       ],
-      "module_status": [
-        {
-          "found": true,
-          "symbol_count": 12345,
-          "errors": []
-        }
-      ]
+      "found_modules": {
+        "xul.pdb/44E4EC8C2F41492B9369D6B9A059577C2": true
+      }
     }
   ]
 }"#;
