@@ -7,6 +7,7 @@ pub mod response_json;
 
 use super::request_json::{self, Lib};
 use looked_up_addresses::{AddressResults, LookedUpAddresses};
+use regex::Regex;
 use serde_json::json;
 
 pub async fn query_api_json(request_json: &str, helper: &impl FileAndPathHelper) -> String {
@@ -92,9 +93,10 @@ fn create_response(
 ) -> response_json::Response {
     use response_json::{DebugInfo, InlineStackFrame, Response, Result, Stack, StackFrame, Symbol};
 
-    fn result_for_job(
+    fn result_for_job<'a>(
         job: &request_json::Job,
-        symbolicated_addresses: &HashMap<Lib, crate::Result<LookedUpAddresses>>,
+        symbolicated_addresses: &'a HashMap<Lib, crate::Result<LookedUpAddresses>>,
+        path_mapper: &mut PathMapper<'a>,
     ) -> Result {
         let mut found_modules = HashMap::new();
         let mut module_errors = HashMap::new();
@@ -116,7 +118,12 @@ fn create_response(
         }
 
         let stacks = job.stacks.iter().map(|stack| {
-            response_stack_for_request_stack(stack, &job.memory_map, &symbols_by_module_index)
+            response_stack_for_request_stack(
+                stack,
+                &job.memory_map,
+                &symbols_by_module_index,
+                path_mapper,
+            )
         });
 
         Result {
@@ -126,10 +133,11 @@ fn create_response(
         }
     }
 
-    fn response_stack_for_request_stack(
+    fn response_stack_for_request_stack<'a>(
         stack: &request_json::Stack,
         memory_map: &[Lib],
-        symbols_by_module_index: &HashMap<u32, &AddressResults>,
+        symbols_by_module_index: &HashMap<u32, &'a AddressResults>,
+        path_mapper: &mut PathMapper<'a>,
     ) -> Stack {
         let frames = stack.0.iter().enumerate().map(|(frame_index, frame)| {
             response_frame_for_request_frame(
@@ -137,16 +145,18 @@ fn create_response(
                 frame_index as u32,
                 memory_map,
                 symbols_by_module_index,
+                path_mapper,
             )
         });
         Stack(frames.collect())
     }
 
-    fn response_frame_for_request_frame(
+    fn response_frame_for_request_frame<'a>(
         frame: &request_json::StackFrame,
         frame_index: u32,
         memory_map: &[Lib],
-        symbols_by_module_index: &HashMap<u32, &AddressResults>,
+        symbols_by_module_index: &HashMap<u32, &'a AddressResults>,
+        path_mapper: &mut PathMapper<'a>,
     ) -> StackFrame {
         let symbol = symbols_by_module_index
             .get(&frame.module_index)
@@ -165,13 +175,16 @@ fn create_response(
                                 .split_last()
                                 .expect("inline_frames should always have at least one element");
                             DebugInfo {
-                                file: outer.file_path.clone(),
+                                file: outer.file_path.as_ref().map(|p| path_mapper.map_path(p)),
                                 line: outer.line_number,
                                 inlines: inlines
                                     .iter()
                                     .map(|inline_frame| InlineStackFrame {
                                         function: inline_frame.function.clone(),
-                                        file: inline_frame.file_path.clone(),
+                                        file: inline_frame
+                                            .file_path
+                                            .as_ref()
+                                            .map(|p| path_mapper.map_path(p)),
                                         line: inline_frame.line_number,
                                     })
                                     .collect(),
@@ -187,10 +200,52 @@ fn create_response(
         }
     }
 
+    let mut path_mapper = PathMapper::new();
     Response {
         results: request
             .jobs()
-            .map(|job| result_for_job(job, &symbolicated_addresses))
+            .map(|job| result_for_job(job, &symbolicated_addresses, &mut path_mapper))
             .collect(),
+    }
+}
+
+#[derive(Debug, Clone)]
+struct PathMapper<'a> {
+    cache: HashMap<&'a str, String>,
+    rustc_regex: Regex,
+    cargo_dep_regex: Regex,
+}
+
+impl<'a> PathMapper<'a> {
+    fn new() -> Self {
+        PathMapper {
+            cache: HashMap::new(),
+            rustc_regex: Regex::new(r"^/rustc/(?P<rev>[0-9a-f]+)/(?P<path>.*)$").unwrap(),
+            cargo_dep_regex: Regex::new(r"/\.cargo/registry/src/(?P<registry>[^/]+)/(?P<crate>[^/]+)-(?P<version>[0-9]+\.[0-9]+\.[0-9]+)/(?P<path>.*)$").unwrap(),
+        }
+    }
+
+    fn map_path(&mut self, path: &'a str) -> String {
+        // TODO: 2021 edition
+        let rustc_regex = &self.rustc_regex;
+        let cargo_dep_regex = &self.cargo_dep_regex;
+        self.cache
+            .entry(path)
+            .or_insert_with(|| {
+                if let Some(captures) = rustc_regex.captures(path) {
+                    let rev = captures.name("rev").unwrap().as_str();
+                    let path = captures.name("path").unwrap().as_str();
+                    format!("git:github.com/rust-lang/rust:{}:{}", path, rev)
+                } else if let Some(captures) = cargo_dep_regex.captures(path) {
+                    let registry = captures.name("registry").unwrap().as_str();
+                    let crate_ = captures.name("crate").unwrap().as_str();
+                    let version = captures.name("version").unwrap().as_str();
+                    let path = captures.name("path").unwrap().as_str();
+                    format!("cargo:{}:{}-{}:{}", registry, crate_, version, path)
+                } else {
+                    path.into()
+                }
+            })
+            .clone()
     }
 }
