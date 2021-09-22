@@ -224,18 +224,18 @@ where
 ///
 /// The following "URLs" are supported:
 ///  - `/symbolicate/v5`: This API is documented at <https://tecken.readthedocs.io/en/latest/symbolication.html>.
-///  - `/symbolicate/v6a2`: Same request API as v5, but richer response data. This is still experimental.
-///    See the raw response struct definitions in symbolicate/v6/response_json.rs for details.
-///    V6 extends V5 by inline callstacks and filename + line number data, and richer error reporting.
+///    The returned data has two extra fields: inlines (per address) and module_errors (per job).
+///  - `/symbolicate/v5-legacy`: Like v5, but lacking any data that comes from debug information,
+///    i.e. files, lines and inlines. This is faster.
 pub async fn query_api(
     request_url: &str,
     request_json_data: &str,
     helper: &impl FileAndPathHelper,
 ) -> String {
     if request_url == "/symbolicate/v5-legacy" {
-        symbolicate::v5_legacy::query_api_json(request_json_data, helper).await
+        symbolicate::v5::query_api_json(request_json_data, helper, false).await
     } else if request_url == "/symbolicate/v5" {
-        symbolicate::v5::query_api_json(request_json_data, helper).await
+        symbolicate::v5::query_api_json(request_json_data, helper, true).await
     } else {
         json!({ "error": format!("Unrecognized URL {}", request_url) }).to_string()
     }

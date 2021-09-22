@@ -10,8 +10,12 @@ use looked_up_addresses::{AddressResults, LookedUpAddresses};
 use regex::Regex;
 use serde_json::json;
 
-pub async fn query_api_json(request_json: &str, helper: &impl FileAndPathHelper) -> String {
-    match query_api_fallible_json(request_json, helper).await {
+pub async fn query_api_json(
+    request_json: &str,
+    helper: &impl FileAndPathHelper,
+    with_debug_info: bool,
+) -> String {
+    match query_api_fallible_json(request_json, helper, with_debug_info).await {
         Ok(response_json) => response_json,
         Err(err) => json!({ "error": err.to_string() }).to_string(),
     }
@@ -20,18 +24,21 @@ pub async fn query_api_json(request_json: &str, helper: &impl FileAndPathHelper)
 pub async fn query_api_fallible_json(
     request_json: &str,
     helper: &impl FileAndPathHelper,
+    with_debug_info: bool,
 ) -> Result<String> {
     let request: request_json::Request = serde_json::from_str(request_json)?;
-    let response = query_api(&request, helper).await?;
+    let response = query_api(&request, helper, with_debug_info).await?;
     Ok(serde_json::to_string(&response)?)
 }
 
 pub async fn query_api(
     request: &request_json::Request,
     helper: &impl FileAndPathHelper,
+    with_debug_info: bool,
 ) -> Result<response_json::Response> {
     let requested_addresses = gather_requested_addresses(request)?;
-    let symbolicated_addresses = symbolicate_requested_addresses(requested_addresses, helper).await;
+    let symbolicated_addresses =
+        symbolicate_requested_addresses(requested_addresses, helper, with_debug_info).await;
     Ok(create_response(request, symbolicated_addresses))
 }
 
@@ -65,34 +72,27 @@ fn gather_requested_addresses(request: &request_json::Request) -> Result<HashMap
 async fn symbolicate_requested_addresses(
     requested_addresses: HashMap<Lib, Vec<u32>>,
     helper: &impl FileAndPathHelper,
+    with_debug_info: bool,
 ) -> HashMap<Lib, Result<LookedUpAddresses>> {
     let mut symbolicated_addresses = HashMap::new();
-    for (lib, addresses) in requested_addresses.into_iter() {
-        let address_results = get_address_results(&lib, addresses, helper).await;
+    for (lib, mut addresses) in requested_addresses.into_iter() {
+        addresses.sort_unstable();
+        addresses.dedup();
+        let address_results = crate::get_symbolication_result(
+            SymbolicationQuery {
+                debug_name: &lib.debug_name,
+                breakpad_id: &lib.breakpad_id,
+                result_kind: SymbolicationResultKind::SymbolsForAddresses {
+                    addresses: &addresses,
+                    with_debug_info,
+                },
+            },
+            helper,
+        )
+        .await;
         symbolicated_addresses.insert(lib, address_results);
     }
     symbolicated_addresses
-}
-
-async fn get_address_results(
-    lib: &Lib,
-    mut addresses: Vec<u32>,
-    helper: &impl FileAndPathHelper,
-) -> Result<LookedUpAddresses> {
-    addresses.sort_unstable();
-    addresses.dedup();
-    Ok(crate::get_symbolication_result(
-        SymbolicationQuery {
-            debug_name: &lib.debug_name,
-            breakpad_id: &lib.breakpad_id,
-            result_kind: SymbolicationResultKind::SymbolsForAddresses {
-                addresses: &addresses,
-                with_debug_info: true,
-            },
-        },
-        helper,
-    )
-    .await?)
 }
 
 fn create_response(
