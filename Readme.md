@@ -47,12 +47,12 @@ Examples of running the `query-api` tool:
 ```
 cargo run -p query-api -- fixtures/win64-ci /symbolicate/v5 '{"jobs": [{"stacks":[[[0,204776],[0,129423],[1, 237799]]],"memoryMap":[["firefox.pdb","AA152DEB2D9B76084C4C44205044422E1"],["mozglue.pdb","63C609072D3499F64C4C44205044422E1"],["wntdll.pdb","D74F79EB1F8D4A45ABCD2F476CCABACC1"]]}]}'
 cargo run -p query-api -- fixtures/android32-local /symbolicate/v5 '{"jobs": [{"stacks":[[[0,247618],[0,685896],[0,686768]]],"memoryMap":[["libmozglue.so","0CE47B7C29F27CED55C41233B93EBA450"]]}]}'
-cargo run -p query-api -- fixtures/android32-local /symbolicate/v6a2 '{"jobs": [{"stacks":[[[0,247618],[0,685896],[0,686768]]],"memoryMap":[["libmozglue.so","0CE47B7C29F27CED55C41233B93EBA450"]]}]}'
-cargo run -p query-api -- fixtures/android32-local /symbolicate/v6a2 '{"jobs": [{"stacks":[[[0,247618],[0,685896],[0,686768]]],"memoryMap":[["libmozglue.so","0CE47B7C29F27CED55C41233B93EBA45"]]}]}'
-cargo run -p query-api -- fixtures/android32-local /symbolicate/v6a2 '{"jobs": [{"stacks":[[[0,247618],[0,685896],[0,686768]]],"memoryMap":[["lebmozglue.so","0CE47B7C29F27CED55C41233B93EBA45"]]}]}'
-cargo run -p query-api -- fixtures/win64-ci /symbolicate/v6a2 '{"jobs": [{"stacks":[[[0,244290],[0,244219]]],"memoryMap":[["mozglue.pdb","63C609072D3499F64C4C44205044422E1"]]}]}'
-cargo run -p query-api -- fixtures/macos-local /symbolicate/v6a2 '{"jobs": [{"stacks":[[[0,247618],[0,685896],[0,686768]]],"memoryMap":[["libmozglue.dylib","F38030E4A3783F90B2282FCB0B33261A0"]]}]}'
-cargo run --release -p query-api -- ~/code/obj-m-opt/dist/bin /symbolicate/v6a2 @fixtures/requests/macos-local-xul.json
+cargo run -p query-api -- fixtures/android32-local /symbolicate/v5 '{"jobs": [{"stacks":[[[0,247618],[0,685896],[0,686768]]],"memoryMap":[["libmozglue.so","0CE47B7C29F27CED55C41233B93EBA450"]]}]}'
+cargo run -p query-api -- fixtures/android32-local /symbolicate/v5 '{"jobs": [{"stacks":[[[0,247618],[0,685896],[0,686768]]],"memoryMap":[["libmozglue.so","0CE47B7C29F27CED55C41233B93EBA45"]]}]}'
+cargo run -p query-api -- fixtures/android32-local /symbolicate/v5 '{"jobs": [{"stacks":[[[0,247618],[0,685896],[0,686768]]],"memoryMap":[["lebmozglue.so","0CE47B7C29F27CED55C41233B93EBA45"]]}]}'
+cargo run -p query-api -- fixtures/win64-ci /symbolicate/v5 '{"jobs": [{"stacks":[[[0,244290],[0,244219]]],"memoryMap":[["mozglue.pdb","63C609072D3499F64C4C44205044422E1"]]}]}'
+cargo run -p query-api -- fixtures/macos-local /symbolicate/v5 '{"jobs": [{"stacks":[[[0,247618],[0,685896],[0,686768]]],"memoryMap":[["libmozglue.dylib","F38030E4A3783F90B2282FCB0B33261A0"]]}]}'
+cargo run --release -p query-api -- ~/code/obj-m-opt/dist/bin /symbolicate/v5 @fixtures/requests/macos-local-xul.json
 ```
 
 Running tests:
@@ -68,9 +68,9 @@ Benchmarks:
 cargo run --release -p benchmarks
 
 # Run a specific benchmark (requires big-benchmark-fixtures directory):
-cargo run --release -p query-api -- big-benchmark-fixtures/win64-ci/ /symbolicate/v6a2 @fixtures/requests/win64-ci-xul.json > /dev/null
-cargo run --release -p query-api -- big-benchmark-fixtures/macos-ci/ /symbolicate/v6a2 @fixtures/requests/macos-ci-xul.json > /dev/null
-cargo run --release -p query-api -- big-benchmark-fixtures/macos-local/ /symbolicate/v6a2 @fixtures/requests/macos-local-xul.json > /dev/null
+cargo run --release -p query-api -- big-benchmark-fixtures/win64-ci/ /symbolicate/v5 @fixtures/requests/win64-ci-xul.json > /dev/null
+cargo run --release -p query-api -- big-benchmark-fixtures/macos-ci/ /symbolicate/v5 @fixtures/requests/macos-ci-xul.json > /dev/null
+cargo run --release -p query-api -- big-benchmark-fixtures/macos-local/ /symbolicate/v5 @fixtures/requests/macos-local-xul.json > /dev/null
 # ... (see examples/benchmarks/src/main.rs for more)
 ```
 
