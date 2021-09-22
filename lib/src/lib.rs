@@ -128,7 +128,7 @@ mod shared;
 mod symbolicate;
 mod windows;
 
-use crate::shared::{SymbolicationQuery, SymbolicationResult};
+pub use crate::shared::{SymbolicationQuery, SymbolicationResult};
 use dyld_cache::DyldCache;
 
 pub use crate::cache::{FileByteSource, FileContentsWithChunkedCaching};
@@ -148,56 +148,51 @@ pub async fn get_compact_symbol_table(
     helper: &impl FileAndPathHelper,
 ) -> Result<CompactSymbolTable> {
     get_symbolication_result(
-        debug_name,
-        breakpad_id,
+        SymbolicationQuery {
+            debug_name,
+            breakpad_id,
+            result_kind: SymbolicationResultKind::AllSymbols,
+        },
         helper,
-        SymbolicationResultKind::AllSymbols,
     )
     .await
 }
 
 /// A generic method which is used in the implementation of both `get_compact_symbol_table`
 /// and `query_api`. Allows obtaining symbol data for a given binary. The level of detail
-/// is determined by the implementation of the `SymbolicationResult` trait: The caller can
+/// is determined by `query.result_kind`: The caller can
 /// either get a regular symbol table, or extended information for a set of addresses, if
-/// the information is present in the found files. See the `SymbolicationResult` trait for
+/// the information is present in the found files. See `SymbolicationResultKind` for
 /// more details.
 pub async fn get_symbolication_result<R>(
-    debug_name: &str,
-    breakpad_id: &str,
+    query: SymbolicationQuery<'_>,
     helper: &impl FileAndPathHelper,
-    result_kind: SymbolicationResultKind<'_>,
 ) -> Result<R>
 where
     R: SymbolicationResult,
 {
     let candidate_paths_for_binary = helper
-        .get_candidate_paths_for_binary_or_pdb(debug_name, breakpad_id)
+        .get_candidate_paths_for_binary_or_pdb(query.debug_name, query.breakpad_id)
         .map_err(|e| {
             GetSymbolsError::HelperErrorDuringGetCandidatePathsForBinaryOrPdb(
-                debug_name.to_string(),
-                breakpad_id.to_string(),
+                query.debug_name.to_string(),
+                query.breakpad_id.to_string(),
                 e,
             )
         })?;
 
     let mut last_err = None;
     for candidate_info in candidate_paths_for_binary {
-        let query = SymbolicationQuery {
-            debug_name,
-            breakpad_id,
-            result_kind,
-        };
         let result = match candidate_info {
             CandidatePathInfo::Normal(path) => {
-                try_get_symbolication_result_from_path(query, &path, helper).await
+                try_get_symbolication_result_from_path(query.clone(), &path, helper).await
             }
             CandidatePathInfo::InDyldCache {
                 dyld_cache_path,
                 dylib_path,
             } => {
                 try_get_symbolication_result_from_dyld_shared_cache(
-                    query,
+                    query.clone(),
                     &dyld_cache_path,
                     &dylib_path,
                     helper,
@@ -212,7 +207,10 @@ where
         };
     }
     Err(last_err.unwrap_or_else(|| {
-        GetSymbolsError::NoCandidatePathForBinary(debug_name.to_string(), breakpad_id.to_string())
+        GetSymbolsError::NoCandidatePathForBinary(
+            query.debug_name.to_string(),
+            query.breakpad_id.to_string(),
+        )
     }))
 }
 
