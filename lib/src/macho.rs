@@ -89,22 +89,24 @@ where
         ));
     }
 
-    let addresses = query.addresses;
     let macho_file =
         File::parse_at(range, header_offset).map_err(GetSymbolsError::MachOHeaderParseError)?;
 
-    let mut symbolication_result = match query.result_kind {
+    let (addresses, mut symbolication_result) = match query.result_kind {
         SymbolicationResultKind::AllSymbols => {
             let map = object_to_map(&macho_file);
-            return Ok(R::from_full_map(map, addresses));
+            return Ok(R::from_full_map(map));
         }
-        SymbolicationResultKind::SymbolsForAddresses { with_debug_info } => {
+        SymbolicationResultKind::SymbolsForAddresses {
+            addresses,
+            with_debug_info,
+        } => {
             let symbolication_result =
                 get_symbolication_result_for_addresses_from_object(addresses, &macho_file);
             if !with_debug_info {
                 return Ok(symbolication_result);
             }
-            symbolication_result
+            (addresses, symbolication_result)
         }
     };
 

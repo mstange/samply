@@ -83,9 +83,9 @@ async fn get_address_results(
     let symbol_table: LookedUpAddresses = crate::get_symbolication_result(
         &lib.debug_name,
         &lib.breakpad_id,
-        &addresses,
         helper,
         SymbolicationResultKind::SymbolsForAddresses {
+            addresses: &addresses,
             with_debug_info: false,
         },
     )

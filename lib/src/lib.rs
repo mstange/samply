@@ -150,7 +150,6 @@ pub async fn get_compact_symbol_table(
     get_symbolication_result(
         debug_name,
         breakpad_id,
-        &[],
         helper,
         SymbolicationResultKind::AllSymbols,
     )
@@ -166,9 +165,8 @@ pub async fn get_compact_symbol_table(
 pub async fn get_symbolication_result<R>(
     debug_name: &str,
     breakpad_id: &str,
-    addresses: &[u32],
     helper: &impl FileAndPathHelper,
-    result_kind: SymbolicationResultKind,
+    result_kind: SymbolicationResultKind<'_>,
 ) -> Result<R>
 where
     R: SymbolicationResult,
@@ -188,7 +186,6 @@ where
         let query = SymbolicationQuery {
             debug_name,
             breakpad_id,
-            addresses,
             result_kind,
         };
         let result = match candidate_info {

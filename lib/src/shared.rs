@@ -161,16 +161,21 @@ pub struct InlineStackFrame {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum SymbolicationResultKind {
+pub enum SymbolicationResultKind<'a> {
     AllSymbols,
-    SymbolsForAddresses { with_debug_info: bool },
+    SymbolsForAddresses {
+        addresses: &'a [u32],
+        with_debug_info: bool,
+    },
 }
 
-impl SymbolicationResultKind {
+impl<'a> SymbolicationResultKind<'a> {
     pub fn wants_debug_info_for_addresses(&self) -> bool {
         match self {
             Self::AllSymbols => false,
-            Self::SymbolsForAddresses { with_debug_info } => *with_debug_info,
+            Self::SymbolsForAddresses {
+                with_debug_info, ..
+            } => *with_debug_info,
         }
     }
 }
@@ -180,8 +185,8 @@ impl SymbolicationResultKind {
 /// constructs a JSON response with data per looked-up address.
 pub trait SymbolicationResult {
     /// Create a `SymbolicationResult` object based on a full symbol map.
-    /// Can be called regardless of `result_kind`.
-    fn from_full_map<S>(map: Vec<(u32, S)>, addresses: &[u32]) -> Self
+    /// Only called if `result_kind` is `SymbolicationResultKind::AllSymbols`.
+    fn from_full_map<S>(map: Vec<(u32, S)>) -> Self
     where
         S: Deref<Target = str>;
 
@@ -215,11 +220,8 @@ pub struct SymbolicationQuery<'a> {
     pub debug_name: &'a str,
     /// The breakpad ID of the binary whose symbols need to be looked up.
     pub breakpad_id: &'a str,
-    /// The set of addresses which need to be fed into the `SymbolicationResult`.
-    /// Only used if `result_kind` is `SymbolsForAddresses`.
-    pub addresses: &'a [u32],
     /// The kind of data which this query wants have returned.
-    pub result_kind: SymbolicationResultKind,
+    pub result_kind: SymbolicationResultKind<'a>,
 }
 
 /// Return a Vec that contains address -> symbol name entries.
@@ -237,7 +239,7 @@ where
         .map(|segment| segment.address())
         .unwrap_or(0);
 
-    object_file
+    let mut map: Vec<(u32, &'a str)> = object_file
         .dynamic_symbols()
         .chain(object_file.symbols())
         .filter(|symbol| symbol.kind() == SymbolKind::Text)
@@ -247,7 +249,31 @@ where
                 .ok()
                 .map(|name| ((symbol.address() - vmaddr_of_text_segment) as u32, name))
         })
-        .collect()
+        .collect();
+
+    if let Ok(exports) = object_file.exports() {
+        let image_base_address: u64 = object_file.relative_address_base();
+        for export in exports {
+            if let Ok(name) = std::str::from_utf8(export.name()) {
+                map.push(((export.address() - image_base_address) as u32, name));
+            }
+        }
+    }
+    map
+}
+
+enum SymbolOrExport<'a, Symbol: object::ObjectSymbol<'a>> {
+    Symbol(Symbol),
+    Export(object::Export<'a>),
+}
+
+impl<'a, Symbol: object::ObjectSymbol<'a>> SymbolOrExport<'a, Symbol> {
+    fn name(&self) -> Result<&str, ()> {
+        match self {
+            SymbolOrExport::Symbol(symbol) => symbol.name().map_err(|_| ()),
+            SymbolOrExport::Export(export) => std::str::from_utf8(export.name()).map_err(|_| ()),
+        }
+    }
 }
 
 /// Return a Vec that contains address -> symbol name entries.
@@ -273,8 +299,24 @@ where
         .dynamic_symbols()
         .chain(object_file.symbols())
         .filter(|symbol| symbol.kind() == SymbolKind::Text)
-        .map(|symbol| ((symbol.address() - vmaddr_of_text_segment) as u32, symbol))
+        .map(|symbol| {
+            (
+                (symbol.address() - vmaddr_of_text_segment) as u32,
+                SymbolOrExport::Symbol(symbol),
+            )
+        })
         .collect();
+
+    if let Ok(exports) = object_file.exports() {
+        let image_base_address: u64 = object_file.relative_address_base();
+        for export in exports {
+            symbols.push((
+                (export.address() - image_base_address) as u32,
+                SymbolOrExport::Export(export),
+            ));
+        }
+    }
+
     symbols.reverse();
     symbols.sort_by_key(|(address, _)| *address);
     symbols.dedup_by_key(|(address, _)| *address);

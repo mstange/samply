@@ -17,42 +17,8 @@ pub struct LookedUpAddresses {
 }
 
 impl SymbolicationResult for LookedUpAddresses {
-    fn from_full_map<T: Deref<Target = str>>(
-        mut symbols: Vec<(u32, T)>,
-        addresses: &[u32],
-    ) -> Self {
-        symbols.reverse();
-        symbols.sort_by_key(|(address, _)| *address);
-        symbols.dedup_by_key(|(address, _)| *address);
-        let symbol_count = symbols.len() as u32;
-
-        let address_results = addresses
-            .iter()
-            .map(|&address| {
-                let index = match symbols.binary_search_by_key(&address, |&(addr, _)| addr) {
-                    Ok(i) => i as i32,
-                    Err(i) => i as i32 - 1,
-                };
-                let (symbol_address, symbol_name) = if index < 0 {
-                    (address, String::from("<before first symbol>"))
-                } else {
-                    let (addr, name) = &symbols[index as usize];
-                    (*addr, demangle::demangle_any(&*name))
-                };
-                (
-                    address,
-                    Some(AddressResult {
-                        symbol_address,
-                        symbol_name,
-                        inline_frames: None,
-                    }),
-                )
-            })
-            .collect();
-        LookedUpAddresses {
-            address_results,
-            symbol_count,
-        }
+    fn from_full_map<T: Deref<Target = str>>(_symbols: Vec<(u32, T)>) -> Self {
+        panic!("Should not be called")
     }
 
     fn for_addresses(addresses: &[u32]) -> Self {

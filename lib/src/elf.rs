@@ -19,11 +19,7 @@ pub fn get_symbolication_result<R>(
 where
     R: SymbolicationResult,
 {
-    let SymbolicationQuery {
-        breakpad_id,
-        addresses,
-        ..
-    } = query;
+    let SymbolicationQuery { breakpad_id, .. } = query;
     let elf_file =
         File::parse(&file_contents).map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
     let elf_id =
@@ -36,18 +32,21 @@ where
         ));
     }
 
-    let mut symbolication_result = match query.result_kind {
+    let (addresses, mut symbolication_result) = match query.result_kind {
         SymbolicationResultKind::AllSymbols => {
             let map = object_to_map(&elf_file);
-            return Ok(R::from_full_map(map, addresses));
+            return Ok(R::from_full_map(map));
         }
-        SymbolicationResultKind::SymbolsForAddresses { with_debug_info } => {
+        SymbolicationResultKind::SymbolsForAddresses {
+            addresses,
+            with_debug_info,
+        } => {
             let symbolication_result =
                 get_symbolication_result_for_addresses_from_object(addresses, &elf_file);
             if !with_debug_info {
                 return Ok(symbolication_result);
             }
-            symbolication_result
+            (addresses, symbolication_result)
         }
     };
 

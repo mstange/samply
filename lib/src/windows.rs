@@ -1,7 +1,8 @@
 use crate::error::{Context, GetSymbolsError, Result};
 use crate::shared::{
-    object_to_map, AddressDebugInfo, FileAndPathHelper, FileContents, FileContentsWrapper,
-    InlineStackFrame, SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
+    get_symbolication_result_for_addresses_from_object, object_to_map, AddressDebugInfo,
+    FileAndPathHelper, FileContents, FileContentsWrapper, InlineStackFrame, SymbolicationQuery,
+    SymbolicationResult, SymbolicationResultKind,
 };
 use pdb::PDB;
 use pdb_addr2line::pdb;
@@ -20,7 +21,6 @@ where
     let SymbolicationQuery {
         debug_name,
         breakpad_id,
-        addresses,
         ..
     } = query.clone();
     use object::Object;
@@ -77,16 +77,16 @@ where
         ));
     }
 
-    let mut map = object_to_map(&pe);
-    if let Ok(exports) = pe.exports() {
-        let image_base_address: u64 = pe.relative_address_base();
-        for export in exports {
-            if let Ok(name) = std::str::from_utf8(export.name()) {
-                map.push(((export.address() - image_base_address) as u32, name));
-            }
+    let r = match query.result_kind {
+        SymbolicationResultKind::AllSymbols => {
+            let map = object_to_map(&pe);
+            R::from_full_map(map)
         }
-    }
-    Ok(R::from_full_map(map, addresses))
+        SymbolicationResultKind::SymbolsForAddresses { addresses, .. } => {
+            get_symbolication_result_for_addresses_from_object(addresses, &pe)
+        }
+    };
+    Ok(r)
 }
 
 async fn try_get_symbolication_result_from_pdb_path<R>(
@@ -118,11 +118,7 @@ where
     let age = dbi.age().unwrap_or(info.age);
     let pdb_id = format!("{:X}{:x}", info.guid.to_simple(), age);
 
-    let SymbolicationQuery {
-        breakpad_id,
-        addresses,
-        ..
-    } = query;
+    let SymbolicationQuery { breakpad_id, .. } = query;
 
     if pdb_id != breakpad_id {
         return Err(GetSymbolsError::UnmatchedBreakpadId(
@@ -148,10 +144,13 @@ where
                     (func.start_rva, Cow::from(symbol_name))
                 })
                 .collect();
-            let symbolication_result = R::from_full_map(symbol_map, addresses);
+            let symbolication_result = R::from_full_map(symbol_map);
             Ok(symbolication_result)
         }
-        SymbolicationResultKind::SymbolsForAddresses { with_debug_info } => {
+        SymbolicationResultKind::SymbolsForAddresses {
+            addresses,
+            with_debug_info,
+        } => {
             let mut symbolication_result = R::for_addresses(addresses);
             for &address in addresses {
                 if with_debug_info {

@@ -148,6 +148,30 @@ mod test {
     }
 
     #[test]
+    fn win64_local_v5_snapshot_1() {
+        // This gets the symbols from the DLL exports, not from the PDB.
+        compare_snapshot(
+            "/symbolicate/v5",
+            r#"{
+                "memoryMap": [
+                  [
+                    "mozglue.dll",
+                    "B3CC644ECC086E044C4C44205044422E1"
+                  ]
+                ],
+                "stacks": [
+                  [
+                    [0, 214644]
+                  ]
+                ]
+              }"#,
+            fixtures_dir().join("win64-local"),
+            "api-v5-win64-local-1.txt",
+            "output-api-v5-win64-local-1.txt",
+        );
+    }
+
+    #[test]
     fn win64_ci_v5_legacy_snapshot_1() {
         compare_snapshot(
             "/symbolicate/v5-legacy",
