@@ -135,7 +135,7 @@ where
         .context("ContextConstructionData::try_from_pdb")?;
     let context = context_data.make_context().context("make_context()")?;
 
-    match R::result_kind() {
+    match query.result_kind {
         SymbolicationResultKind::AllSymbols => {
             // Gather the symbols into a map.
             let symbol_map = context

@@ -36,7 +36,7 @@ where
         ));
     }
 
-    let mut symbolication_result = match R::result_kind() {
+    let mut symbolication_result = match query.result_kind {
         SymbolicationResultKind::AllSymbols => {
             let map = object_to_map(&elf_file);
             return Ok(R::from_full_map(map, addresses));

@@ -93,7 +93,7 @@ where
     let macho_file =
         File::parse_at(range, header_offset).map_err(GetSymbolsError::MachOHeaderParseError)?;
 
-    let mut symbolication_result = match R::result_kind() {
+    let mut symbolication_result = match query.result_kind {
         SymbolicationResultKind::AllSymbols => {
             let map = object_to_map(&macho_file);
             return Ok(R::from_full_map(map, addresses));

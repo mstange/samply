@@ -1,4 +1,4 @@
-use super::shared::{AddressDebugInfo, SymbolicationResult, SymbolicationResultKind};
+use super::shared::{AddressDebugInfo, SymbolicationResult};
 use std::ops::Deref;
 
 /// A "compact" representation of a symbol table.
@@ -49,10 +49,6 @@ impl SymbolicationResult for CompactSymbolTable {
 
     fn for_addresses(_addresses: &[u32]) -> Self {
         panic!("Should not be called")
-    }
-
-    fn result_kind() -> SymbolicationResultKind {
-        SymbolicationResultKind::AllSymbols
     }
 
     fn add_address_symbol(&mut self, _address: u32, _symbol_address: u32, _symbol_name: &str) {

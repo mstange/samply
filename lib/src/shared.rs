@@ -160,6 +160,7 @@ pub struct InlineStackFrame {
     pub line_number: Option<u32>,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum SymbolicationResultKind {
     AllSymbols,
     SymbolsForAddresses { with_debug_info: bool },
@@ -178,34 +179,31 @@ impl SymbolicationResultKind {
 /// the implementation that constructs a full symbol table and the implementation that
 /// constructs a JSON response with data per looked-up address.
 pub trait SymbolicationResult {
-    /// The kind of data which this result wants to carry.
-    fn result_kind() -> SymbolicationResultKind;
-
     /// Create a `SymbolicationResult` object based on a full symbol map.
-    /// Can be called regardless of `result_kind()`.
+    /// Can be called regardless of `result_kind`.
     fn from_full_map<S>(map: Vec<(u32, S)>, addresses: &[u32]) -> Self
     where
         S: Deref<Target = str>;
 
     /// Create a `SymbolicationResult` object based on a set of addresses.
-    /// Only called if `result_kind()` is `SymbolicationResultKind::SymbolsForAddresses`.
+    /// Only called if `result_kind` is `SymbolicationResultKind::SymbolsForAddresses`.
     /// The data for each address will be supplied by subsequent calls to `add_address_symbol`
     /// and potentially `add_address_debug_info`.
     fn for_addresses(addresses: &[u32]) -> Self;
 
     /// Called to supply the symbol name for a symbol.
-    /// Only called if `result_kind()` is `SymbolicationResultKind::SymbolsForAddresses`, and
+    /// Only called if `result_kind` is `SymbolicationResultKind::SymbolsForAddresses`, and
     /// only on objects constructed by a call to `for_addresses`.
     /// `address` is the address that the consumer wants to look up, and may fall anywhere
     /// inside a function. `symbol_address` is the closest (<= address) symbol address.
     fn add_address_symbol(&mut self, address: u32, symbol_address: u32, symbol_name: &str);
 
     /// Called to supply debug info for the address.
-    /// Only called if `result_kind()` is `SymbolicationResultKind::SymbolsForAddresses { with_debug_info: true }`.
+    /// Only called if `result_kind` is `SymbolicationResultKind::SymbolsForAddresses { with_debug_info: true }`.
     fn add_address_debug_info(&mut self, address: u32, info: AddressDebugInfo);
 
     /// Supplies the total number of symbols in this binary.
-    /// Only called if `result_kind()` is `SymbolicationResultKind::SymbolsForAddresses`, and
+    /// Only called if `result_kind` is `SymbolicationResultKind::SymbolsForAddresses`, and
     /// only on objects constructed by a call to `for_addresses`.
     fn set_total_symbol_count(&mut self, total_symbol_count: u32);
 }
@@ -218,8 +216,10 @@ pub struct SymbolicationQuery<'a> {
     /// The breakpad ID of the binary whose symbols need to be looked up.
     pub breakpad_id: &'a str,
     /// The set of addresses which need to be fed into the `SymbolicationResult`.
-    /// Only used if the `SymbolicationResult`'s `result_kind()` is `SymbolsForAddresses`.
+    /// Only used if `result_kind` is `SymbolsForAddresses`.
     pub addresses: &'a [u32],
+    /// The kind of data which this query wants have returned.
+    pub result_kind: SymbolicationResultKind,
 }
 
 /// Return a Vec that contains address -> symbol name entries.

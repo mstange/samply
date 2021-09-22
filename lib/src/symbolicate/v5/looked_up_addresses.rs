@@ -1,7 +1,5 @@
 use super::super::demangle;
-use crate::shared::{
-    AddressDebugInfo, InlineStackFrame, SymbolicationResult, SymbolicationResultKind,
-};
+use crate::shared::{AddressDebugInfo, InlineStackFrame, SymbolicationResult};
 use std::collections::BTreeMap;
 use std::ops::Deref;
 
@@ -61,12 +59,6 @@ impl SymbolicationResult for LookedUpAddresses {
         LookedUpAddresses {
             address_results: addresses.iter().map(|&addr| (addr, None)).collect(),
             symbol_count: 0,
-        }
-    }
-
-    fn result_kind() -> SymbolicationResultKind {
-        SymbolicationResultKind::SymbolsForAddresses {
-            with_debug_info: true,
         }
     }
 

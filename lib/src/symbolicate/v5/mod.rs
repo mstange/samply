@@ -1,5 +1,5 @@
 use crate::error::{GetSymbolsError, Result};
-use crate::shared::FileAndPathHelper;
+use crate::shared::{FileAndPathHelper, SymbolicationResultKind};
 use std::collections::HashMap;
 
 pub mod looked_up_addresses;
@@ -81,10 +81,16 @@ async fn get_address_results(
 ) -> Result<LookedUpAddresses> {
     addresses.sort_unstable();
     addresses.dedup();
-    Ok(
-        crate::get_symbolication_result(&lib.debug_name, &lib.breakpad_id, &addresses, helper)
-            .await?,
+    Ok(crate::get_symbolication_result(
+        &lib.debug_name,
+        &lib.breakpad_id,
+        &addresses,
+        helper,
+        SymbolicationResultKind::SymbolsForAddresses {
+            with_debug_info: true,
+        },
     )
+    .await?)
 }
 
 fn create_response(

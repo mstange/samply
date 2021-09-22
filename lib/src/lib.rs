@@ -108,6 +108,7 @@
 
 pub use object;
 pub use pdb_addr2line::pdb;
+use shared::SymbolicationResultKind;
 
 use std::path::{Path, PathBuf};
 
@@ -146,7 +147,14 @@ pub async fn get_compact_symbol_table(
     breakpad_id: &str,
     helper: &impl FileAndPathHelper,
 ) -> Result<CompactSymbolTable> {
-    get_symbolication_result(debug_name, breakpad_id, &[], helper).await
+    get_symbolication_result(
+        debug_name,
+        breakpad_id,
+        &[],
+        helper,
+        SymbolicationResultKind::AllSymbols,
+    )
+    .await
 }
 
 /// A generic method which is used in the implementation of both `get_compact_symbol_table`
@@ -160,6 +168,7 @@ pub async fn get_symbolication_result<R>(
     breakpad_id: &str,
     addresses: &[u32],
     helper: &impl FileAndPathHelper,
+    result_kind: SymbolicationResultKind,
 ) -> Result<R>
 where
     R: SymbolicationResult,
@@ -180,6 +189,7 @@ where
             debug_name,
             breakpad_id,
             addresses,
+            result_kind,
         };
         let result = match candidate_info {
             CandidatePathInfo::Normal(path) => {
