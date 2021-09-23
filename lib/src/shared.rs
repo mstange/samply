@@ -364,7 +364,7 @@ impl<T: Deref<Target = [u8]>> FileContents for T {
         range: Range<u64>,
         delimiter: u8,
     ) -> FileAndPathHelperResult<&[u8]> {
-        let slice = &self[range.start as usize..range.end as usize];
+        let slice = self.read_bytes_at(range.start, range.end - range.start)?;
         if let Some(pos) = memchr::memchr(delimiter, slice) {
             Ok(&slice[..pos])
         } else {
@@ -382,7 +382,7 @@ impl<T: Deref<Target = [u8]>> FileContents for T {
         offset: u64,
         size: u64,
     ) -> FileAndPathHelperResult<()> {
-        buffer.extend_from_slice(&self[offset as usize..][..size as usize]);
+        buffer.extend_from_slice(self.read_bytes_at(offset, size)?);
         Ok(())
     }
 }
