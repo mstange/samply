@@ -49,7 +49,10 @@
 //! # Example
 //!
 //! ```
-//! use profiler_get_symbols::{FileContents, FileAndPathHelper, FileAndPathHelperResult, OptionallySendFuture, CandidatePathInfo};
+//! use profiler_get_symbols::{
+//!     FileContents, FileAndPathHelper, FileAndPathHelperResult, OptionallySendFuture,
+//!     CandidatePathInfo, FileLocation
+//! };
 //!
 //! async fn run_query() -> String {
 //!     let this_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -90,17 +93,21 @@
 //!         debug_name: &str,
 //!         _breakpad_id: &str,
 //!     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
-//!         Ok(vec![CandidatePathInfo::Normal(self.artifact_directory.join(debug_name))])
+//!         Ok(vec![CandidatePathInfo::SingleFile(FileLocation::Path(self.artifact_directory.join(debug_name)))])
 //!     }
 //!
 //!     fn open_file(
 //!         &self,
-//!         path: &std::path::Path,
+//!         location: &FileLocation,
 //!     ) -> std::pin::Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>>>> {
 //!         async fn read_file_impl(path: std::path::PathBuf) -> FileAndPathHelperResult<Vec<u8>> {
 //!             Ok(std::fs::read(&path)?)
 //!         }
 //!
+//!         let path = match location {
+//!             FileLocation::Path(path) => path.clone(),
+//!             FileLocation::Custom(_) => panic!("Unexpected FileLocation::Custom"),
+//!         };
 //!         Box::pin(read_file_impl(path.to_path_buf()))
 //!     }
 //! }
@@ -137,7 +144,7 @@ pub use crate::error::{GetSymbolsError, Result};
 use crate::shared::FileContentsWrapper;
 pub use crate::shared::{
     CandidatePathInfo, FileAndPathHelper, FileAndPathHelperError, FileAndPathHelperResult,
-    FileContents, OptionallySendFuture,
+    FileContents, FileLocation, OptionallySendFuture,
 };
 
 /// Returns a symbol table in `CompactSymbolTable` format for the requested binary.
@@ -184,8 +191,8 @@ where
     let mut last_err = None;
     for candidate_info in candidate_paths_for_binary {
         let result = match candidate_info {
-            CandidatePathInfo::Normal(path) => {
-                try_get_symbolication_result_from_path(query.clone(), &path, helper).await
+            CandidatePathInfo::SingleFile(file_location) => {
+                try_get_symbolication_result_from_path(query.clone(), &file_location, helper).await
             }
             CandidatePathInfo::InDyldCache {
                 dyld_cache_path,
@@ -243,15 +250,15 @@ pub async fn query_api(
 
 async fn try_get_symbolication_result_from_path<R, H>(
     query: SymbolicationQuery<'_>,
-    path: &Path,
+    file_location: &FileLocation,
     helper: &H,
 ) -> Result<R>
 where
     R: SymbolicationResult,
     H: FileAndPathHelper,
 {
-    let file_contents = helper.open_file(path).await.map_err(|e| {
-        GetSymbolsError::HelperErrorDuringOpenFile(path.to_string_lossy().to_string(), e)
+    let file_contents = helper.open_file(file_location).await.map_err(|e| {
+        GetSymbolsError::HelperErrorDuringOpenFile(file_location.to_string_lossy(), e)
     })?;
 
     let file_contents = FileContentsWrapper::new(file_contents);
@@ -281,7 +288,7 @@ where
                     file_kind,
                     file_contents,
                     query,
-                    path,
+                    file_location,
                     helper,
                 )
                 .await
@@ -321,7 +328,8 @@ where
             s.into()
         };
 
-        let file_contents = helper.open_file(&chunk_path).await.map_err(|e| {
+        let chunk_location = FileLocation::Path(chunk_path);
+        let file_contents = helper.open_file(&chunk_location).await.map_err(|e| {
             if chunk_index == 0 {
                 GetSymbolsError::HelperErrorDuringOpenFile(
                     dyld_cache_path.to_string_lossy().to_string(),

@@ -1,6 +1,6 @@
 use profiler_get_symbols::{
     self, CandidatePathInfo, CompactSymbolTable, FileAndPathHelper, FileAndPathHelperResult,
-    GetSymbolsError, OptionallySendFuture,
+    FileLocation, GetSymbolsError, OptionallySendFuture,
 };
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -88,27 +88,27 @@ impl FileAndPathHelper for Helper {
         // Also consider .so.dbg files in the symbol directory.
         if debug_name.ends_with(".so") {
             let debug_debug_name = format!("{}.dbg", debug_name);
-            paths.push(CandidatePathInfo::Normal(
+            paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
                 self.symbol_directory.join(debug_debug_name),
-            ));
+            )));
         }
 
         // And dSYM packages.
         if !debug_name.ends_with(".pdb") {
-            paths.push(CandidatePathInfo::Normal(
+            paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
                 self.symbol_directory
                     .join(&format!("{}.dSYM", debug_name))
                     .join("Contents")
                     .join("Resources")
                     .join("DWARF")
                     .join(debug_name),
-            ));
+            )));
         }
 
         // Finally, the file itself.
-        paths.push(CandidatePathInfo::Normal(
+        paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
             self.symbol_directory.join(debug_name),
-        ));
+        )));
 
         // For macOS system libraries, also consult the dyld shared cache.
         if self.symbol_directory.starts_with("/usr/")
@@ -138,7 +138,7 @@ impl FileAndPathHelper for Helper {
 
     fn open_file(
         &self,
-        path: &Path,
+        location: &FileLocation,
     ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>>>> {
         async fn open_file_impl(path: PathBuf) -> FileAndPathHelperResult<memmap2::Mmap> {
             eprintln!("Opening file {:?}", &path);
@@ -151,7 +151,11 @@ impl FileAndPathHelper for Helper {
             Ok(mmap)
         }
 
-        Box::pin(open_file_impl(path.to_owned()))
+        let path = match location {
+            FileLocation::Path(path) => path.clone(),
+            FileLocation::Custom(_) => panic!("Unexpected FileLocation::Custom"),
+        };
+        Box::pin(open_file_impl(path))
     }
 }
 

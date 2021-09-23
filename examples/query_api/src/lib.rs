@@ -1,5 +1,6 @@
 use profiler_get_symbols::{
-    self, CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, OptionallySendFuture,
+    self, CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
+    OptionallySendFuture,
 };
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -26,26 +27,26 @@ impl FileAndPathHelper for Helper {
         // Also consider .so.dbg files in the symbol directory.
         if debug_name.ends_with(".so") {
             let debug_debug_name = format!("{}.dbg", debug_name);
-            paths.push(CandidatePathInfo::Normal(
+            paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
                 self.symbol_directory.join(debug_debug_name),
-            ));
+            )));
         }
 
         // And dSYM packages.
         if !debug_name.ends_with(".pdb") {
-            paths.push(CandidatePathInfo::Normal(
+            paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
                 self.symbol_directory
                     .join(&format!("{}.dSYM", debug_name))
                     .join("Contents")
                     .join("Resources")
                     .join("DWARF")
                     .join(debug_name),
-            ));
+            )));
         }
 
         // Finally, the file itself.
-        paths.push(CandidatePathInfo::Normal(
-            self.symbol_directory.join(debug_name),
+        paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
+            self.symbol_directory.join(debug_name))
         ));
 
         // For macOS system libraries, also consult the dyld shared cache.
@@ -76,7 +77,7 @@ impl FileAndPathHelper for Helper {
 
     fn open_file(
         &self,
-        path: &Path,
+        location: &FileLocation,
     ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>>>> {
         async fn read_file_impl(path: PathBuf) -> FileAndPathHelperResult<memmap2::Mmap> {
             eprintln!("Reading file {:?}", &path);
@@ -84,7 +85,10 @@ impl FileAndPathHelper for Helper {
             Ok(unsafe { memmap2::MmapOptions::new().map(&file)? })
         }
 
-        let mut path = path.to_owned();
+        let mut path = match location {
+            FileLocation::Path(path) => path.clone(),
+            FileLocation::Custom(_) => panic!("Unexpected FileLocation::Custom"),
+        };
         if !path.starts_with(&self.symbol_directory) {
             // See if this file exists in self.symbol_directory.
             // For example, when looking up object files referenced by mach-O binaries,

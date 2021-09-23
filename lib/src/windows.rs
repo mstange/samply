@@ -1,18 +1,18 @@
 use crate::error::{Context, GetSymbolsError, Result};
 use crate::shared::{
     get_symbolication_result_for_addresses_from_object, object_to_map, AddressDebugInfo,
-    FileAndPathHelper, FileContents, FileContentsWrapper, InlineStackFrame, SymbolicationQuery,
-    SymbolicationResult, SymbolicationResultKind,
+    FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation, InlineStackFrame,
+    SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
 };
 use pdb::PDB;
 use pdb_addr2line::pdb;
-use std::{borrow::Cow, path::Path};
+use std::borrow::Cow;
 
 pub async fn get_symbolication_result_via_binary<R>(
     file_kind: object::FileKind,
     file_contents: FileContentsWrapper<impl FileContents>,
     query: SymbolicationQuery<'_>,
-    path: &Path,
+    file_location: &FileLocation,
     helper: &impl FileAndPathHelper,
 ) -> Result<R>
 where
@@ -30,7 +30,7 @@ where
         Ok(Some(info)) => info,
         _ => {
             return Err(GetSymbolsError::NoDebugInfoInPeBinary(
-                path.to_string_lossy().to_string(),
+                file_location.to_string_lossy(),
             ))
         }
     };
@@ -44,7 +44,7 @@ where
         std::ffi::CString::new(info.path()).expect("info.path() should have stripped the nul byte");
 
     let candidate_paths_for_pdb = helper
-        .get_candidate_paths_for_pdb(debug_name, breakpad_id, &pdb_path, path)
+        .get_candidate_paths_for_pdb(debug_name, breakpad_id, &pdb_path, file_location)
         .map_err(|e| {
             GetSymbolsError::HelperErrorDuringGetCandidatePathsForPdb(
                 debug_name.to_string(),
@@ -53,12 +53,13 @@ where
             )
         })?;
 
-    for pdb_path in candidate_paths_for_pdb {
-        if pdb_path == path {
+    for pdb_location in candidate_paths_for_pdb {
+        if &pdb_location == file_location {
             continue;
         }
         if let Ok(table) =
-            try_get_symbolication_result_from_pdb_path(query.clone(), &pdb_path, helper).await
+            try_get_symbolication_result_from_pdb_location(query.clone(), &pdb_location, helper)
+                .await
         {
             return Ok(table);
         }
@@ -89,17 +90,18 @@ where
     Ok(r)
 }
 
-async fn try_get_symbolication_result_from_pdb_path<R>(
+async fn try_get_symbolication_result_from_pdb_location<R>(
     query: SymbolicationQuery<'_>,
-    path: &Path,
+    file_location: &FileLocation,
     helper: &impl FileAndPathHelper,
 ) -> Result<R>
 where
     R: SymbolicationResult,
 {
-    let file_contents = FileContentsWrapper::new(helper.open_file(path).await.map_err(|e| {
-        GetSymbolsError::HelperErrorDuringOpenFile(path.to_string_lossy().to_string(), e)
-    })?);
+    let file_contents =
+        FileContentsWrapper::new(helper.open_file(file_location).await.map_err(|e| {
+            GetSymbolsError::HelperErrorDuringOpenFile(file_location.to_string_lossy(), e)
+        })?);
     let pdb = PDB::open(&file_contents)?;
     get_symbolication_result(pdb, query)
 }

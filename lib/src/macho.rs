@@ -4,8 +4,8 @@ use crate::dwarf::{
 use crate::error::{GetSymbolsError, Result};
 use crate::shared::{
     get_symbolication_result_for_addresses_from_object, object_to_map, FileAndPathHelper,
-    FileContents, FileContentsWrapper, RangeReadRef, SymbolicationQuery, SymbolicationResult,
-    SymbolicationResultKind,
+    FileContents, FileContentsWrapper, FileLocation, RangeReadRef, SymbolicationQuery,
+    SymbolicationResult, SymbolicationResultKind,
 };
 use object::macho::{MachHeader32, MachHeader64};
 use object::read::macho::{FatArch, MachHeader};
@@ -161,8 +161,8 @@ async fn traverse_object_references_and_collect_debug_info(
     // async functions can't easily recurse.
     let mut remaining_object_references = object_references;
     while let Some(obj_ref) = remaining_object_references.pop_front() {
-        let path = obj_ref.path();
-        let file_contents = match helper.open_file(path).await {
+        let path = obj_ref.path().to_owned();
+        let file_contents = match helper.open_file(&FileLocation::Path(path)).await {
             Ok(data) => FileContentsWrapper::new(data),
             Err(_) => {
                 // We probably couldn't find the file, but that's fine.

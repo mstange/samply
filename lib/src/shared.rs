@@ -2,7 +2,7 @@ use object::read::ReadRef;
 use std::fmt::Debug;
 use std::future::Future;
 use std::ops::Range;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::{marker::PhantomData, ops::Deref};
 
@@ -38,11 +38,26 @@ pub trait OptionallySendFuture: Future + Send {}
 impl<T> OptionallySendFuture for T where T: Future + Send {}
 
 pub enum CandidatePathInfo {
-    Normal(PathBuf),
+    SingleFile(FileLocation),
     InDyldCache {
         dyld_cache_path: PathBuf,
         dylib_path: String,
     },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FileLocation {
+    Path(PathBuf),
+    Custom(String),
+}
+
+impl FileLocation {
+    pub fn to_string_lossy(&self) -> String {
+        match self {
+            FileLocation::Path(path) => path.to_string_lossy().to_string(),
+            FileLocation::Custom(string) => string.clone(),
+        }
+    }
 }
 
 /// This is the trait that consumers need to implement so that they can call
@@ -95,10 +110,10 @@ pub trait FileAndPathHelper {
         _debug_name: &str,
         _breakpad_id: &str,
         pdb_path_as_stored_in_binary: &std::ffi::CStr,
-        _binary_path: &Path,
-    ) -> FileAndPathHelperResult<Vec<PathBuf>> {
+        _binary_file_location: &FileLocation,
+    ) -> FileAndPathHelperResult<Vec<FileLocation>> {
         let s = std::str::from_utf8(pdb_path_as_stored_in_binary.to_bytes())?;
-        Ok(vec![s.into()])
+        Ok(vec![FileLocation::Path(s.into())])
     }
 
     /// This method is the entry point for file access during symbolication.
@@ -109,7 +124,7 @@ pub trait FileAndPathHelper {
     /// other error case).
     fn open_file(
         &self,
-        path: &Path,
+        location: &FileLocation,
     ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>>>>;
 }
 

@@ -1,12 +1,13 @@
 mod error;
 
 use js_sys::Promise;
-use std::path::Path;
 use std::pin::Pin;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
-use profiler_get_symbols::{FileByteSource, FileContentsWithChunkedCaching, OptionallySendFuture};
+use profiler_get_symbols::{
+    FileByteSource, FileContentsWithChunkedCaching, FileLocation, OptionallySendFuture,
+};
 
 pub use error::{GenericError, GetSymbolsError, JsValueError};
 
@@ -240,7 +241,7 @@ impl profiler_get_symbols::FileAndPathHelper for FileAndPathHelper {
 
     fn open_file(
         &self,
-        path: &Path,
+        location: &FileLocation,
     ) -> Pin<
         Box<
             dyn OptionallySendFuture<
@@ -249,12 +250,10 @@ impl profiler_get_symbols::FileAndPathHelper for FileAndPathHelper {
         >,
     > {
         let helper = FileAndPathHelper::from((*self).clone());
-        let path = path.to_owned();
+        let location = location.clone();
         let future = async move {
-            let path = path.to_str().ok_or(GenericError(
-                "read_file: Path could not be converted to string",
-            ))?;
-            let file_res = JsFuture::from(helper.readFile(path)).await;
+            let location = location.to_string_lossy();
+            let file_res = JsFuture::from(helper.readFile(&location)).await;
             let file = file_res.map_err(JsValueError::from)?;
             let contents = FileContents::from(file);
             let len = contents.getLength().map_err(JsValueError::from)? as u64;
@@ -291,7 +290,7 @@ fn get_candidate_paths_for_binary_or_pdb_impl(
                     };
                 }
             }
-            profiler_get_symbols::CandidatePathInfo::Normal(s.into())
+            profiler_get_symbols::CandidatePathInfo::SingleFile(FileLocation::Path(s.into()))
         })
         .collect())
 }
