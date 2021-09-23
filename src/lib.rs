@@ -345,20 +345,20 @@ impl FileAndPathHelper for Helper {
                     dylib_path: path.clone(),
                 });
             }
+        }
 
-            if debug_name.ends_with(".pdb") {
-                // It could be a Windows system library which can be found on
-                // the Microsoft Symbol Server.
-                // Construct a URL and pretend it's a Path. This isn't a great
-                // way to do this, but it should travel unharmed into open_file,
-                // where we can download the file and put it into a Vec.
-                // It might be nicer to have a persistent symbol cache on disk.
-                let url = format!(
-                    "https://msdl.microsoft.com/download/symbols/{}/{}/{}",
-                    debug_name, breakpad_id, debug_name
-                );
-                paths.push(CandidatePathInfo::Normal(Path::new(&url).to_path_buf()));
-            }
+        if debug_name.ends_with(".pdb") {
+            // It could be a Windows system library which can be found on
+            // the Microsoft Symbol Server.
+            // Construct a URL and pretend it's a Path. This isn't a great
+            // way to do this, but it should travel unharmed into open_file,
+            // where we can download the file and put it into a Vec.
+            // It might be nicer to have a persistent symbol cache on disk.
+            let url = format!(
+                "https://msdl.microsoft.com/download/symbols/{}/{}/{}",
+                debug_name, breakpad_id, debug_name
+            );
+            paths.push(CandidatePathInfo::Normal(Path::new(&url).to_path_buf()));
         }
 
         Ok(paths)
