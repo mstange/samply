@@ -347,16 +347,6 @@ mod test {
         let mut output: Vec<u8> = Vec::new();
         crate::dump_table(&mut output, table, true).unwrap();
 
-        if false {
-            let mut output_file = File::create(
-                fixtures_dir()
-                    .join("snapshots")
-                    .join("output-win64-ci-mozglue.pdb.txt"),
-            )
-            .unwrap();
-            output_file.write_all(&output).unwrap();
-        }
-
         let mut snapshot_file = File::open(
             fixtures_dir()
                 .join("snapshots")
@@ -365,6 +355,20 @@ mod test {
         .unwrap();
         let mut expected: Vec<u8> = Vec::new();
         snapshot_file.read_to_end(&mut expected).unwrap();
+
+        if output != expected {
+            let mut output_file = File::create(
+                fixtures_dir()
+                    .join("snapshots")
+                    .join("win64-ci-mozglue.pdb.txt.snap"),
+            )
+            .unwrap();
+            output_file.write_all(&output).unwrap();
+        }
+
+        let output = std::str::from_utf8(&output).unwrap();
+        let expected = std::str::from_utf8(&expected).unwrap();
+
         assert_eq!(output, expected);
     }
 }

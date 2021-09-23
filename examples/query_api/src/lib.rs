@@ -132,19 +132,21 @@ mod test {
             symbol_directory,
         ));
 
-        if false {
-            let mut output_file =
-                File::create(fixtures_dir().join("snapshots").join(output_filename)).unwrap();
-            output_file.write_all(output.as_bytes()).unwrap();
-        }
-        let output: serde_json::Value = serde_json::from_str(&output).unwrap();
+        let output_json: serde_json::Value = serde_json::from_str(&output).unwrap();
 
         let mut snapshot_file =
             File::open(fixtures_dir().join("snapshots").join(snapshot_filename)).unwrap();
         let mut expected: String = String::new();
         snapshot_file.read_to_string(&mut expected).unwrap();
-        let expected: serde_json::Value = serde_json::from_str(&expected).unwrap();
-        assert_json_eq!(output, expected);
+        let expected_json: serde_json::Value = serde_json::from_str(&expected).unwrap();
+
+        if output_json != expected_json {
+            let mut output_file =
+                File::create(fixtures_dir().join("snapshots").join(output_filename)).unwrap();
+            output_file.write_all(output.as_bytes()).unwrap();
+        }
+
+        assert_json_eq!(output_json, expected_json);
     }
 
     #[test]
