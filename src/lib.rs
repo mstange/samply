@@ -193,10 +193,6 @@ async fn symbolication_service(
         header::ACCESS_CONTROL_ALLOW_ORIGIN,
         header::HeaderValue::from_static("*"),
     );
-    response.headers_mut().insert(
-        header::CONTENT_ENCODING,
-        header::HeaderValue::from_static("utf-8"),
-    );
 
     match (req.method(), req.uri().path()) {
         (&Method::GET, "/") => {
@@ -209,7 +205,7 @@ async fn symbolication_service(
         (&Method::GET, "/profile.json") => {
             response.headers_mut().insert(
                 header::CONTENT_TYPE,
-                header::HeaderValue::from_static("application/json"),
+                header::HeaderValue::from_static("application/json; charset=UTF-8"),
             );
             *response.body_mut() = Body::from((*buffer).clone());
         }
