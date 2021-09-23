@@ -348,7 +348,15 @@ impl<T: Deref<Target = [u8]>> FileContents for T {
     }
 
     fn read_bytes_at(&self, offset: u64, size: u64) -> FileAndPathHelperResult<&[u8]> {
-        Ok(&self[offset as usize..][..size as usize])
+        <[u8]>::get(self, offset as usize..)
+            .and_then(|s| s.get(..size as usize))
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "FileContents::read_bytes_at for &[u8] was called with out-of-range indexes",
+                )
+                .into()
+            })
     }
 
     fn read_bytes_at_until(
