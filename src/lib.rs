@@ -375,7 +375,10 @@ impl FileAndPathHelper for Helper {
         async fn open_file_impl(path: PathBuf) -> FileAndPathHelperResult<MyFileContents> {
             if path.starts_with("https://") {
                 if let Some(url) = path.as_os_str().to_str() {
-                    let response = reqwest::get(url).await.map_err(Box::new)?;
+                    let response = reqwest::get(url)
+                        .await
+                        .map_err(Box::new)?
+                        .error_for_status()?;
                     let bytes = response.bytes().await.map_err(Box::new)?;
                     return Ok(MyFileContents::Bytes(bytes));
                 }
