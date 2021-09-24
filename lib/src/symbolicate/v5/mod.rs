@@ -228,8 +228,8 @@ impl<'a> PathMapper<'a> {
     fn new() -> Self {
         PathMapper {
             cache: HashMap::new(),
-            rustc_regex: Regex::new(r"^/rustc/(?P<rev>[0-9a-f]+)/(?P<path>.*)$").unwrap(),
-            cargo_dep_regex: Regex::new(r"/\.cargo/registry/src/(?P<registry>[^/]+)/(?P<crate>[^/]+)-(?P<version>[0-9]+\.[0-9]+\.[0-9]+)/(?P<path>.*)$").unwrap(),
+            rustc_regex: Regex::new(r"^/rustc/(?P<rev>[0-9a-f]+)\\?/(?P<path>.*)$").unwrap(),
+            cargo_dep_regex: Regex::new(r"[/\\]\.cargo[/\\]registry[/\\]src[/\\](?P<registry>[^/\\]+)[/\\](?P<crate>[^/]+)-(?P<version>[0-9]+\.[0-9]+\.[0-9]+)[/\\](?P<path>.*)$").unwrap(),
         }
     }
 
@@ -243,12 +243,14 @@ impl<'a> PathMapper<'a> {
                 if let Some(captures) = rustc_regex.captures(path) {
                     let rev = captures.name("rev").unwrap().as_str();
                     let path = captures.name("path").unwrap().as_str();
+                    let path = path.replace("\\", "/");
                     format!("git:github.com/rust-lang/rust:{}:{}", path, rev)
                 } else if let Some(captures) = cargo_dep_regex.captures(path) {
                     let registry = captures.name("registry").unwrap().as_str();
                     let crate_ = captures.name("crate").unwrap().as_str();
                     let version = captures.name("version").unwrap().as_str();
                     let path = captures.name("path").unwrap().as_str();
+                    let path = path.replace("\\", "/");
                     format!("cargo:{}:{}-{}:{}", registry, crate_, version, path)
                 } else {
                     path.into()
