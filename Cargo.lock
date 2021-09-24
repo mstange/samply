@@ -749,9 +749,9 @@ dependencies = [
 
 [[package]]
 name = "pdb-addr2line"
-version = "0.6.1"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a49cb942d9118e18a5f3bfb47d6990029a96f45174f173b35477a7e2121a757"
+checksum = "9b7ac910432c0a0215a8bb3a89497e3d2b200de01bcfe701f733c59559f58751"
 dependencies = [
  "bitflags",
  "elsa",
@@ -838,9 +838,9 @@ dependencies = [
 
 [[package]]
 name = "profiler-get-symbols"
-version = "0.6.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95457935317c8eda9e785db3c2da96b907da99b9f19de5aed21f0a0710c7bff9"
+checksum = "339207d0723c1136e2673b698bd5b6e448a0d66b91f41256ec1dbf38fbacca66"
 dependencies = [
  "addr2line",
  "bitflags",

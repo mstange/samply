@@ -6,9 +6,9 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::{header, Body, Request, Response, Server};
 use hyper::{Method, StatusCode};
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
-use profiler_get_symbols::query_api;
 use profiler_get_symbols::{
-    self, CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, OptionallySendFuture,
+    self, query_api, CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
+    OptionallySendFuture,
 };
 use serde_json::{self, Value};
 use std::collections::HashMap;
@@ -304,14 +304,16 @@ impl FileAndPathHelper for Helper {
             // First, see if we can find a dSYM file for the binary.
             if let Ok(uuid) = Uuid::parse_str(&breakpad_id[0..32]) {
                 if let Ok(dsym_path) = moria_mac::locate_dsym(&path, uuid) {
-                    paths.push(CandidatePathInfo::Normal(dsym_path.clone()));
-                    paths.push(CandidatePathInfo::Normal(
+                    paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
+                        dsym_path.clone(),
+                    )));
+                    paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
                         dsym_path
                             .join("Contents")
                             .join("Resources")
                             .join("DWARF")
                             .join(debug_name),
-                    ));
+                    )));
                 }
             }
 
@@ -320,12 +322,16 @@ impl FileAndPathHelper for Helper {
                 let debug_debug_name = format!("{}.dbg", debug_name);
                 let path = PathBuf::from(path);
                 if let Some(dir) = path.parent() {
-                    paths.push(CandidatePathInfo::Normal(dir.join(debug_debug_name)));
+                    paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
+                        dir.join(debug_debug_name),
+                    )));
                 }
             }
 
             // Fall back to getting symbols from the binary itself.
-            paths.push(CandidatePathInfo::Normal(path.into()));
+            paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
+                path.into(),
+            )));
 
             // For macOS system libraries, also consult the dyld shared cache.
             if path.starts_with("/usr/") || path.starts_with("/System/") {
@@ -349,16 +355,13 @@ impl FileAndPathHelper for Helper {
 
         if debug_name.ends_with(".pdb") {
             // It could be a Windows system library which can be found on
-            // the Microsoft Symbol Server.
-            // Construct a URL and pretend it's a Path. This isn't a great
-            // way to do this, but it should travel unharmed into open_file,
-            // where we can download the file and put it into a Vec.
-            // It might be nicer to have a persistent symbol cache on disk.
+            // the Microsoft Symbol Server. Construct a URL so that open_file
+            // can download it.
             let url = format!(
                 "https://msdl.microsoft.com/download/symbols/{}/{}/{}",
                 debug_name, breakpad_id, debug_name
             );
-            paths.push(CandidatePathInfo::Normal(Path::new(&url).to_path_buf()));
+            paths.push(CandidatePathInfo::SingleFile(FileLocation::Custom(url)));
         }
 
         Ok(paths)
@@ -366,30 +369,33 @@ impl FileAndPathHelper for Helper {
 
     fn open_file(
         &self,
-        path: &Path,
+        location: &FileLocation,
     ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>>>> {
         if self.verbose {
-            eprintln!("Opening file {:?}", &path);
+            eprintln!("Opening file {:?}", location.to_string_lossy());
         }
 
-        async fn open_file_impl(path: PathBuf) -> FileAndPathHelperResult<MyFileContents> {
-            if path.starts_with("https://") {
-                if let Some(url) = path.as_os_str().to_str() {
-                    let response = reqwest::get(url)
+        async fn open_file_impl(location: FileLocation) -> FileAndPathHelperResult<MyFileContents> {
+            match location {
+                FileLocation::Path(path) => {
+                    let file = File::open(&path)?;
+                    Ok(MyFileContents::Mmap(unsafe {
+                        memmap2::MmapOptions::new().map(&file)?
+                    }))
+                }
+                FileLocation::Custom(url) => {
+                    // Download a PDB from the URL.
+                    // It would be nice to have a persistent symbol cache on disk.
+                    let response = reqwest::get(&url)
                         .await
                         .map_err(Box::new)?
                         .error_for_status()?;
                     let bytes = response.bytes().await.map_err(Box::new)?;
-                    return Ok(MyFileContents::Bytes(bytes));
+                    Ok(MyFileContents::Bytes(bytes))
                 }
             }
-
-            let file = File::open(&path)?;
-            Ok(MyFileContents::Mmap(unsafe {
-                memmap2::MmapOptions::new().map(&file)?
-            }))
         }
 
-        Box::pin(open_file_impl(path.to_owned()))
+        Box::pin(open_file_impl(location.clone()))
     }
 }
