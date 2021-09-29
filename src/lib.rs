@@ -29,6 +29,7 @@ pub mod sddl;
 pub mod traits;
 pub mod custom_schemas;
 
+pub use windows::Guid;
 #[repr(C)]
 #[derive(Clone)]
 pub struct EventTraceLogfile(Etw::EVENT_TRACE_LOGFILEW);

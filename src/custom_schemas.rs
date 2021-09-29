@@ -69,7 +69,7 @@ impl EventSchema for ImageID {
 pub struct DbgID {}
 
 const DbgID_PROPS: [PropDesc; 5] = [
-    PropDesc{ name: "ImageBase", in_type: TdhInType::InTypeInt64, out_type: TdhOutType::OutTypeHexInt64},
+    PropDesc{ name: "ImageBase", in_type: TdhInType::InTypeUInt64, out_type: TdhOutType::OutTypeHexInt64},
     PropDesc{ name: "ProcessId", in_type: TdhInType::InTypeUInt32, out_type: TdhOutType::OutTypeUInt32},
     PropDesc{ name: "GuidSig", in_type: TdhInType::InTypeGuid, out_type: TdhOutType::OutTypeGuid},
     PropDesc{ name: "Age", in_type: TdhInType::InTypeUInt32, out_type: TdhOutType::OutTypeUInt32},

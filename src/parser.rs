@@ -242,13 +242,16 @@ impl<'a> Parser<'a> {
 }
 
 macro_rules! impl_try_parse_primitive {
-    ($T:ident) => {
+    ($T:ident, $ty:ident) => {
         impl TryParse<$T> for Parser<'_> {
             fn try_parse(&mut self, name: &str) -> ParserResult<$T> {
+                use TdhInType::*;
                 let prop_info = self.find_property(name)?;
                 let prop_info: &PropertyInfo = prop_info.borrow();
 
-                // TODO: Check In and Out type and do a better type checking
+                if prop_info.property.in_type() != $ty {
+                    return Err(ParserError::InvalidType)
+                }
                 if std::mem::size_of::<$T>() != prop_info.buffer.len() {
                     return Err(ParserError::LengthMismatch);
                 }
@@ -258,16 +261,42 @@ macro_rules! impl_try_parse_primitive {
     };
 }
 
-impl_try_parse_primitive!(u8);
-impl_try_parse_primitive!(i8);
-impl_try_parse_primitive!(u16);
-impl_try_parse_primitive!(i16);
-impl_try_parse_primitive!(u32);
-impl_try_parse_primitive!(i32);
-impl_try_parse_primitive!(u64);
-impl_try_parse_primitive!(i64);
-impl_try_parse_primitive!(usize);
-impl_try_parse_primitive!(isize);
+impl_try_parse_primitive!(u8, InTypeUInt8);
+impl_try_parse_primitive!(i8, InTypeInt8);
+impl_try_parse_primitive!(u16, InTypeUInt16);
+impl_try_parse_primitive!(i16, InTypeInt16);
+impl_try_parse_primitive!(u32, InTypeUInt32);
+impl_try_parse_primitive!(i32, InTypeInt32);
+//impl_try_parse_primitive!(u64, InTypeUInt64);
+impl_try_parse_primitive!(i64, InTypeInt64);
+
+impl TryParse<u64> for Parser<'_> {
+    fn try_parse(&mut self, name: &str) -> ParserResult<u64> {
+        use TdhInType::*;
+        let prop_info = self.find_property(name)?;
+        let prop_info: &PropertyInfo = prop_info.borrow();
+
+        if prop_info.property.in_type() == InTypeUInt64 {
+            if std::mem::size_of::<u64>() != prop_info.buffer.len() {
+                return Err(ParserError::LengthMismatch);
+            }
+            return Ok(u64::from_ne_bytes(prop_info.buffer.as_slice().try_into()?));
+        }
+        if prop_info.property.in_type() == InTypePointer {
+            if (self.schema.event_flags() & EVENT_HEADER_FLAG_32_BIT_HEADER) != 0  {
+                if std::mem::size_of::<u32>() != prop_info.buffer.len() {
+                    return Err(ParserError::LengthMismatch);
+                }
+                return Ok(u32::from_ne_bytes(prop_info.buffer.as_slice().try_into()?) as u64);
+            }
+            if std::mem::size_of::<u64>() != prop_info.buffer.len() {
+                return Err(ParserError::LengthMismatch);
+            }
+            return Ok(u64::from_ne_bytes(prop_info.buffer.as_slice().try_into()?));
+        }
+        return Err(ParserError::InvalidType)
+    }
+}
 
 /// The `String` impl of the `TryParse` trait should be used to retrieve the following [TdhInTypes]:
 ///

@@ -78,14 +78,6 @@ pub(crate) fn property_size(mut event: EventRecord, name: &str) -> TdhNativeResu
 }
 
 
-#[repr(C)]
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
-pub struct Guid {
-    data1: u32,
-    data2: u16,
-    data3: u16,
-    data4: [u8; 8],
-}
 
 
 
