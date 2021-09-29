@@ -1,15 +1,4 @@
-
-
-extern crate num_traits;
-
-#[macro_use]
-extern crate bitflags;
-
-#[macro_use]
-extern crate num_derive;
-
-
-use etw_log::{custom_schemas, open_trace, parser::{Parser, TryParse}, schema::{EventSchema, Schema, SchemaLocator}, tdh_types::{Property, TdhInType}, utils};
+use etw_log::{open_trace, parser::{Parser, TryParse}, schema::{EventSchema, SchemaLocator}, tdh_types::{Property, TdhInType}};
 use windows::{Guid, IntoParam, Param};
 use etw_log::tdh;
 use std::{path::Path, sync::Arc};
@@ -60,13 +49,12 @@ fn main() {
                 print_property(&mut parser, &property);
             }
         } else {
-            eprintln!("event {:x?}", e.EventHeader.ProviderId);
+            eprintln!("unknown event {:x?}", e.EventHeader.ProviderId);
 
         }
     }
 
 });
 
-    println!("Hello, world!");
 }
 
