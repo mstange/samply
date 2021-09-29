@@ -71,7 +71,8 @@ pub trait EventSchema {
     fn decoding_source(&self) -> DecodingSource;
     
     fn provider_guid(&self) -> Guid;
-    fn event_id(&self) -> u16 ;
+    fn event_id(&self) -> u16;
+    fn opcode(&self) -> u8;
     fn event_version(&self) -> u8;
     fn provider_name(&self) -> String;
     fn task_name(&self) -> String;

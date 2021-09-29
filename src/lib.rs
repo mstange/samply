@@ -27,7 +27,7 @@ pub mod property;
 pub mod schema;
 pub mod sddl;
 pub mod traits;
-pub mod kernel_trace_control;
+pub mod custom_schemas;
 
 #[repr(C)]
 #[derive(Clone)]
@@ -79,52 +79,19 @@ pub fn open_trace<F: FnMut(&Etw::EVENT_RECORD)>(path: &Path, mut callback: F)  {
 use std::sync::Arc;
 
 pub fn schema_from_custom(event: Etw::EVENT_RECORD) -> Option<Schema> {
-    /*let img = kernel_trace_control::ImageID{};
-    if event.EventHeader.ProviderId == img.provider_guid() && event.EventHeader.EventDescriptor.Opcode as u16 == img.event_id() {
-        return Some(Schema::new(event.clone(), Arc::new(img)));
-    }*/
-    let dbg = kernel_trace_control::DbgID{};
-    if event.EventHeader.ProviderId == dbg.provider_guid() && event.EventHeader.EventDescriptor.Opcode as u16 == dbg.event_id() {
-        return Some(Schema::new(event.clone(), Arc::new(dbg)));
+    let event_schema = custom_schemas::ImageID{};
+    if event.EventHeader.ProviderId == event_schema.provider_guid() && event.EventHeader.EventDescriptor.Opcode == event_schema.opcode() && event.EventHeader.EventDescriptor.Version >= event_schema.event_version() {
+        return Some(Schema::new(event.clone(), Arc::new(event_schema)));
+    }
+    let event_schema = custom_schemas::DbgID{};
+    if event.EventHeader.ProviderId == event_schema.provider_guid() && event.EventHeader.EventDescriptor.Opcode == event_schema.opcode() && event.EventHeader.EventDescriptor.Version >= event_schema.event_version() {
+        return Some(Schema::new(event.clone(), Arc::new(event_schema)));
+    }
+    let event_schema = custom_schemas::ThreadStart{};
+    if event.EventHeader.ProviderId == event_schema.provider_guid() && event.EventHeader.EventDescriptor.Opcode == event_schema.opcode() && event.EventHeader.EventDescriptor.Version >= event_schema.event_version() {
+        return Some(Schema::new(event.clone(), Arc::new(event_schema)));
     }
     return None;
 }
-/* 
-fn main() {
 
-    let mut schema_locator = SchemaLocator::new();
-    let mut log_file = open_trace(Path::new("D:\\Captures\\23-09-2021_17-21-32_thread-switch-bench.etl"), 
-|e| { 
-    let s = tdh::schema_from_tdh(e.clone());    
-    if let Ok(s) = s {
-        if !(s.opcode_name().starts_with("DC") && s.task_name() == "Thread") {return}
-        if e.EventHeader.ProcessId != 33712 { return }
-        //if !(s.opcode_name().starts_with("DCStop") && s.provider_name() == "MSNT_SystemTrace") {return}
-        //if !(s.opcode_name().starts_with("DCStop")) {return}
-        println!("{}/{}/{} {} {}", s.provider_name(), s.task_name(), s.opcode_name(), s.property_count(), e.UserDataLength);
-
-        let schema = schema_locator.event_schema(e.clone()).unwrap();
-        let mut parser = Parser::create(&schema);
-        for i in 0..s.property_count() {
-            let property = s.property(i);
-            print!("{:?} = ", property.name);
-            match property.in_type() {
-                TdhInType::InTypeUnicodeString => println!("{:?}", TryParse::<String>::try_parse(&mut parser, &property.name)),
-                TdhInType::InTypeUInt32 => println!("{:?}", TryParse::<u32>::try_parse(&mut parser, &property.name)),
-                TdhInType::InTypeUInt8 => println!("{:?}", TryParse::<u8>::try_parse(&mut parser, &property.name)),
-                TdhInType::InTypePointer => println!("{:?}", TryParse::<usize>::try_parse(&mut parser, &property.name)),
-
-                _ => println!("Unknown {:?}", property.in_type())
-            }
-        }
-        println!("Name: {}", utils::parse_null_utf16_string(parser.buffer.as_slice()));
-
-    } else {
-    //println!("event {:x?} {}", e.EventHeader.ProviderId.data1, s.is_ok());
-}
-
-});
-
-    println!("Hello, world!");
-}*/
 

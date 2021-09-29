@@ -123,6 +123,10 @@ impl EventSchema for TraceEventInfoRaw {
         TraceEventInfo::from(self).EventDescriptor.Id
     }
 
+    fn opcode(&self) -> u8 {
+        TraceEventInfo::from(self).EventDescriptor.Opcode
+    }
+
     fn event_version(&self) -> u8 {
         TraceEventInfo::from(self).EventDescriptor.Version
     }
