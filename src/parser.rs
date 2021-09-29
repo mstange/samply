@@ -81,6 +81,9 @@ pub trait TryParse<T> {
     /// # Arguments
     /// * `name` - Name of the property to be found in the Schema
     fn try_parse(&mut self, name: &str) -> Result<T, ParserError>;
+    fn parse(&mut self, name: &str) -> T {
+        self.try_parse(name).unwrap()
+    }
 }
 
 /// Represents a Parser
@@ -182,6 +185,7 @@ impl<'a> Parser<'a> {
         match property.in_type {
             TdhInType::InTypeInt32 | TdhInType::InTypeUInt32 => return Ok(4),
             TdhInType::InTypeInt64 | TdhInType::InTypeUInt64 => return Ok(8),
+            TdhInType::InTypeInt8 | TdhInType::InTypeUInt8 => return Ok(1),
             TdhInType::InTypePointer => return Ok(if (self.schema.event_flags() & EVENT_HEADER_FLAG_32_BIT_HEADER) != 0 {
                 4
             } else {
@@ -196,8 +200,7 @@ impl<'a> Parser<'a> {
             }
             _ => {}
         }
-
-        Ok(tdh::property_size(self.schema.record(), &property.name)? as usize)
+        Ok(tdh::property_size(self.schema.record(), &property.name).unwrap() as usize)
     }
 
     pub fn find_property(&mut self, name: &str) -> ParserResult<Rc<PropertyInfo>> {
