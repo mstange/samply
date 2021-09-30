@@ -20,7 +20,7 @@ fn print_property(parser: &mut Parser, property: &Property) {
 fn main() {
 
     let mut schema_locator = SchemaLocator::new();
-    let mut log_file = open_trace(Path::new("D:\\Captures\\23-09-2021_17-21-32_thread-switch-bench.etl"), 
+    let mut log_file = open_trace(Path::new(&std::env::args().nth(1).unwrap()), 
 |e| { 
     //dbg!(e.EventHeader.TimeStamp);
 
