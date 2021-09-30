@@ -123,7 +123,7 @@ impl EventSchema for DbgID {
     }
 }
 
-
+// We could override ThreadStop using the same properties to get a ThreadName there too.
 pub struct ThreadStart {}
 
 const Thread_PROPS: [PropDesc; 15] = [
