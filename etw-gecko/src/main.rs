@@ -1,6 +1,6 @@
 use std::{collections::{HashMap, hash_map::Entry}, convert::TryInto, fs::File, io::{BufReader, BufWriter}, path::Path, time::{Duration, Instant}};
 
-use etw_log::{Guid, etw_types::EventPropertyInfo, open_trace, parser::{Parser, TryParse}, schema::{Schema, SchemaLocator}, tdh::{self}, tdh_types::{Property, TdhInType}};
+use etw_reader::{Guid, etw_types::EventPropertyInfo, open_trace, parser::{Parser, TryParse}, schema::{Schema, SchemaLocator}, tdh::{self}, tdh_types::{Property, TdhInType}};
 use serde_json::to_writer;
 
 use crate::gecko_profile::ThreadBuilder;
@@ -214,7 +214,7 @@ fn main() {
             
             //println!("{}", name);
         };
-        let s = etw_log::schema_from_custom(e.clone());
+        let s = etw_reader::schema_from_custom(e.clone());
         if let Some(s) = s {
             process_event(&s)
         } else {

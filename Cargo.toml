@@ -1,2 +1,2 @@
 [workspace]
-members = ["etw-reader"]
+members = ["etw-reader", "etw-gecko"]
