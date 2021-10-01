@@ -40,6 +40,7 @@ fn main() {
     let mut schema_locator = SchemaLocator::new();
     let mut threads: HashMap<u32, ThreadState> = HashMap::new();
     let mut libs: HashMap<u64, (String, u32)> = HashMap::new();
+    let start = Instant::now();
     let process_target = 33808;
     let process_target = 26956;
 
@@ -233,4 +234,5 @@ fn main() {
 
     let f = File::create("gecko.json").unwrap();
     to_writer(BufWriter::new(f), &profile.to_json()).unwrap();
+    println!("Took {} seconds", (Instant::now()-start).as_secs_f32())
 }
