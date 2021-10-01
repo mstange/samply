@@ -5,6 +5,7 @@ use crate::etw_types::{DecodingSource, EventRecord, TraceEventInfoRaw};
 use crate::tdh;
 use crate::tdh_types::Property;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use windows::Guid;
 
@@ -141,17 +142,17 @@ impl SchemaLocator {
     /// ```
     pub fn event_schema(&mut self, event: EventRecord) -> SchemaResult<Schema> {
         let key = SchemaKey::new(&event);
-        let info: Arc<dyn EventSchema>;
 
-        if !self.schemas.contains_key(&key) {
-            info = Arc::new(tdh::schema_from_tdh(event.clone())?);
-            // TODO: Cloning for now, should be a reference at some point...
-            self.schemas.insert(key, info.clone());
-        } else {
-            info = self.schemas.get(&key).unwrap().clone();
-        }
+        let info = match self.schemas.entry(key) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => {
+                let info = Arc::new(tdh::schema_from_tdh(event.clone())?);
+                // TODO: Cloning for now, should be a reference at some point...
+                entry.insert(info)
+            }
+        };
 
-        Ok(Schema::new(event, info))
+        Ok(Schema::new(event, info.clone()))
     }
 }
 

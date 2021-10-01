@@ -35,7 +35,7 @@ fn print_property(parser: &mut Parser, property: &Property) {
 }
 
 fn main() {
-    let mut profile = gecko_profile::ProfileBuilder::new(Instant::now(), "firefox", 34, Duration::from_secs_f32(1.0 / 8192));
+    let mut profile = gecko_profile::ProfileBuilder::new(Instant::now(), "firefox", 34, Duration::from_secs_f32(1. / 8192.));
     
     let mut schema_locator = SchemaLocator::new();
     etw_reader::add_custom_schemas(&mut schema_locator);
