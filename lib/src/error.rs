@@ -82,6 +82,12 @@ pub enum GetSymbolsError {
 
     #[error("Error while getting function info from PDB: {0}")]
     PdbAddr2lineError(#[source] pdb_addr2line::Error),
+
+    #[error("Error while parsing srcsrv stream from PDB: {0}")]
+    SrcSrvParseError(#[source] srcsrv::ParseError),
+
+    #[error("Error while evaluating srcsrv entry PDB: {0}")]
+    SrcSrvEvalError(#[source] srcsrv::EvalError),
 }
 
 pub trait Context<T> {
@@ -109,6 +115,18 @@ impl From<PdbError> for GetSymbolsError {
 impl From<pdb_addr2line::Error> for GetSymbolsError {
     fn from(err: pdb_addr2line::Error) -> GetSymbolsError {
         GetSymbolsError::PdbAddr2lineError(err)
+    }
+}
+
+impl From<srcsrv::ParseError> for GetSymbolsError {
+    fn from(err: srcsrv::ParseError) -> GetSymbolsError {
+        GetSymbolsError::SrcSrvParseError(err)
+    }
+}
+
+impl From<srcsrv::EvalError> for GetSymbolsError {
+    fn from(err: srcsrv::EvalError) -> GetSymbolsError {
+        GetSymbolsError::SrcSrvEvalError(err)
     }
 }
 
@@ -141,6 +159,8 @@ impl GetSymbolsError {
             GetSymbolsError::ParseRequestErrorContents(_) => "ParseRequestErrorContents",
             GetSymbolsError::PdbAddr2lineError(_) => "PdbAddr2lineError",
             GetSymbolsError::DyldCacheOutOfChunks(_, _) => "DyldCacheOutOfChunks",
+            GetSymbolsError::SrcSrvParseError(_) => "SrcSrvParseError",
+            GetSymbolsError::SrcSrvEvalError(_) => "SrcSrvEvalError",
         }
     }
 }

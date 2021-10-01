@@ -6,7 +6,9 @@ use crate::shared::{
 };
 use pdb::PDB;
 use pdb_addr2line::pdb;
+use regex::Regex;
 use std::borrow::Cow;
+use std::collections::HashMap;
 
 pub async fn get_symbolication_result_via_binary<R>(
     file_kind: object::FileKind,
@@ -129,6 +131,16 @@ where
         ));
     }
 
+    let srcsrv_stream = if query.result_kind.wants_debug_info_for_addresses() {
+        match pdb.named_stream(b"srcsrv") {
+            Ok(stream) => Some(stream),
+            Err(pdb::Error::StreamNameNotFound | pdb::Error::StreamNotFound(_)) => None,
+            Err(e) => return Err(GetSymbolsError::PdbError("pdb.named_stream(srcsrv)", e)),
+        }
+    } else {
+        None
+    };
+
     let context_data = pdb_addr2line::ContextPdbData::try_from_pdb(pdb)
         .context("ContextConstructionData::try_from_pdb")?;
     let context = context_data.make_context().context("make_context()")?;
@@ -153,6 +165,17 @@ where
             addresses,
             with_debug_info,
         } => {
+            let mut path_mapper = match &srcsrv_stream {
+                Some(srcsrv_stream) => Some(PathMapper::new(srcsrv::SrcSrvStream::parse(
+                    srcsrv_stream.as_slice(),
+                )?)),
+                None => None,
+            };
+            let mut map_path = |path: Cow<str>| match &mut path_mapper {
+                Some(pm) => pm.map_path(path.as_ref()),
+                None => path.to_string(),
+            };
+
             let mut symbolication_result = R::for_addresses(addresses);
             for &address in addresses {
                 if with_debug_info {
@@ -173,7 +196,7 @@ where
                                 .into_iter()
                                 .map(|frame| InlineStackFrame {
                                     function: frame.function,
-                                    file_path: frame.file.map(|s| s.to_string()),
+                                    file_path: frame.file.map(&mut map_path),
                                     line_number: frame.line,
                                 })
                                 .collect();
@@ -192,8 +215,120 @@ where
                     symbolication_result.add_address_symbol(address, symbol_address, symbol_name);
                 }
             }
+
             symbolication_result.set_total_symbol_count(context.function_count() as u32);
+
             Ok(symbolication_result)
+        }
+    }
+}
+
+/// Map raw file paths to special "permalink" paths, using the srcsrv stream.
+/// This allows finding source code for applications that were not compiled on this
+/// machine, for example when using PDBs that were downloaded from a symbol server.
+/// The special paths produced here have the following formats:
+///   - "hg:<repo>:<path>:<rev>"
+///   - "git:<repo>:<path>:<rev>"
+///   - "gitiles:<repo>:<path>:<rev>"
+struct PathMapper<'a> {
+    srcsrv_stream: srcsrv::SrcSrvStream<'a>,
+    cache: HashMap<String, Option<String>>,
+    github_regex: Regex,
+    hg_regex: Regex,
+    gitiles_regex: Regex,
+    command_is_file_download_with_url_in_var4_and_uncompress_function_in_var5: bool,
+}
+
+impl<'a> PathMapper<'a> {
+    pub fn new(srcsrv_stream: srcsrv::SrcSrvStream<'a>) -> Self {
+        // Detect gitiles (used by Chrome).
+        // SRC_EXTRACT_TARGET_DIR=%targ%\%fnbksl%(%var2%)\%var3%
+        // SRC_EXTRACT_TARGET=%SRC_EXTRACT_TARGET_DIR%\%fnfile%(%var1%)
+        // SRC_EXTRACT_CMD=cmd /c "mkdir "%SRC_EXTRACT_TARGET_DIR%" & python -c "import urllib2, base64;url = \"%var4%\";u = urllib2.urlopen(url);open(r\"%SRC_EXTRACT_TARGET%\", \"wb\").write(%var5%(u.read()))"
+        // c:\b\s\w\ir\cache\builder\src\third_party\pdfium\core\fdrm\fx_crypt.cpp*core/fdrm/fx_crypt.cpp*dab1161c861cc239e48a17e1a5d729aa12785a53*https://pdfium.googlesource.com/pdfium.git/+/dab1161c861cc239e48a17e1a5d729aa12785a53/core/fdrm/fx_crypt.cpp?format=TEXT*base64.b64decode
+        let command_is_file_download_with_url_in_var4_and_uncompress_function_in_var5 =
+            srcsrv_stream.get_raw_var("SRCSRVCMD") == Some("%SRC_EXTRACT_CMD%")
+                && srcsrv_stream.get_raw_var("SRC_EXTRACT_CMD")
+                    == Some(
+                        r#"cmd /c "mkdir "%SRC_EXTRACT_TARGET_DIR%" & python -c "import urllib2, base64;url = \"%var4%\";u = urllib2.urlopen(url);open(r\"%SRC_EXTRACT_TARGET%\", \"wb\").write(%var5%(u.read()))""#,
+                    );
+
+        PathMapper {
+            srcsrv_stream,
+            cache: HashMap::new(),
+            github_regex: Regex::new(r"^https://raw\.githubusercontent\.com/(?P<repo>[^/]+/[^/]+)/(?P<rev>[^/]+)/(?P<path>.*)$").unwrap(),
+            hg_regex: Regex::new(r"^https://(?P<repo>hg\..+)/raw-file/(?P<rev>[0-9a-f]+)/(?P<path>.*)$").unwrap(),
+            gitiles_regex: Regex::new(r"^https://(?P<repo>.+)\.git/\+/(?P<rev>[^/]+)/(?P<path>.*)\?format=TEXT$").unwrap(),
+            command_is_file_download_with_url_in_var4_and_uncompress_function_in_var5,
+        }
+    }
+
+    pub fn map_path(&mut self, path: &str) -> String {
+        if let Some(value) = self.cache.get(path) {
+            return value.clone().unwrap_or_else(|| path.to_string());
+        }
+
+        let value = match self
+            .srcsrv_stream
+            .source_and_raw_var_values_for_path(path, "C:\\Dummy")
+        {
+            Ok(Some((srcsrv::SourceRetrievalMethod::Download { url }, _map))) => {
+                Some(self.url_to_special_path(&url))
+            }
+            Ok(Some((srcsrv::SourceRetrievalMethod::ExecuteCommand { .. }, map))) => {
+                // We're not going to execute a command here.
+                // Instead, we have special handling for a few known cases (well, only one case for now).
+                self.gitiles_to_special_path(&map)
+            }
+            _ => None,
+        };
+        self.cache.insert(path.to_string(), value.clone());
+        value.unwrap_or_else(|| path.to_string())
+    }
+
+    /// Gitiles is the git source hosting used by Google projects like chromium and pdfium.
+    /// It only serves raw files with base64-encoding, so the Chrome PDBs contain a workaround
+    /// which uses python to do the base64-decoding. We detect this workaround and try to get
+    /// out the original gitiles URL.
+    /// The python command is only needed because https://github.com/google/gitiles/issues/7
+    /// remains unfixed.
+    fn gitiles_to_special_path(&self, map: &HashMap<String, String>) -> Option<String> {
+        if !self.command_is_file_download_with_url_in_var4_and_uncompress_function_in_var5 {
+            return None;
+        }
+        if map.get("var5").map(String::as_str) != Some("base64.b64decode") {
+            return None;
+        }
+
+        // https://pdfium.googlesource.com/pdfium.git/+/dab1161c861cc239e48a17e1a5d729aa12785a53/core/fdrm/fx_crypt.cpp?format=TEXT
+        // -> "gitiles:pdfium.googlesource.com/pdfium:core/fdrm/fx_crypt.cpp:dab1161c861cc239e48a17e1a5d729aa12785a53"
+        // https://chromium.googlesource.com/chromium/src.git/+/c15858db55ed54c230743eaa9678117f21d5517e/third_party/blink/renderer/core/svg/svg_point.cc?format=TEXT
+        // -> "gitiles:chromium.googlesource.com/chromium/src:third_party/blink/renderer/core/svg/svg_point.cc:c15858db55ed54c230743eaa9678117f21d5517e"
+        let url = map.get("var4")?;
+        let captures = self.gitiles_regex.captures(url)?;
+        let repo = captures.name("repo").unwrap().as_str();
+        let path = captures.name("path").unwrap().as_str();
+        let rev = captures.name("rev").unwrap().as_str();
+        Some(format!("gitiles:{}:{}:{}", repo, path, rev))
+    }
+
+    fn url_to_special_path(&self, url: &str) -> String {
+        if let Some(captures) = self.github_regex.captures(url) {
+            // https://raw.githubusercontent.com/baldurk/renderdoc/v1.15/renderdoc/data/glsl/gl_texsample.h
+            // -> "git:github.com/baldurk/renderdoc:renderdoc/data/glsl/gl_texsample.h:v1.15"
+            let repo = captures.name("repo").unwrap().as_str();
+            let path = captures.name("path").unwrap().as_str();
+            let rev = captures.name("rev").unwrap().as_str();
+            format!("git:github.com/{}:{}:{}", repo, path, rev)
+        } else if let Some(captures) = self.hg_regex.captures(url) {
+            // "https://hg.mozilla.org/mozilla-central/raw-file/1706d4d54ec68fae1280305b70a02cb24c16ff68/mozglue/baseprofiler/core/ProfilerBacktrace.cpp"
+            // -> "hg:hg.mozilla.org/mozilla-central:mozglue/baseprofiler/core/ProfilerBacktrace.cpp:1706d4d54ec68fae1280305b70a02cb24c16ff68"
+            let repo = captures.name("repo").unwrap().as_str();
+            let path = captures.name("path").unwrap().as_str();
+            let rev = captures.name("rev").unwrap().as_str();
+            format!("hg:{}:{}:{}", repo, path, rev)
+        } else {
+            url.to_string()
         }
     }
 }
