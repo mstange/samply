@@ -5,6 +5,7 @@ use thiserror::Error;
 pub type Result<T> = std::result::Result<T, GetSymbolsError>;
 
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum GetSymbolsError {
     #[error("Unmatched breakpad_id: Expected {0}, but received {1}")]
     UnmatchedBreakpadId(String, String),
