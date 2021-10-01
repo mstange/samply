@@ -1,6 +1,7 @@
 use object::read::ReadRef;
 use std::fmt::Debug;
 use std::future::Future;
+use std::io::Cursor;
 use std::ops::Range;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -242,7 +243,7 @@ pub struct SymbolicationQuery<'a> {
 /// Return a Vec that contains address -> symbol name entries.
 /// The address is relative to the address of the __TEXT segment (if present).
 /// We discard the symbol "size"; the address is where the symbol starts.
-pub fn object_to_map<'a: 'b, 'b, T>(object_file: &'b T) -> Vec<(u32, &'a str)>
+pub fn object_to_map<'a: 'b, 'b, T>(object_file: &'b T) -> Vec<(u32, String)>
 where
     T: object::Object<'a, 'b>,
 {
@@ -254,7 +255,7 @@ where
         .map(|segment| segment.address())
         .unwrap_or(0);
 
-    let mut map: Vec<(u32, &'a str)> = object_file
+    let mut map: Vec<(u32, String)> = object_file
         .dynamic_symbols()
         .chain(object_file.symbols())
         .filter(|symbol| symbol.kind() == SymbolKind::Text)
@@ -262,15 +263,30 @@ where
             symbol
                 .name()
                 .ok()
-                .map(|name| ((symbol.address() - vmaddr_of_text_segment) as u32, name))
+                .map(|name| ((symbol.address() - vmaddr_of_text_segment) as u32, name.to_string()))
         })
         .collect();
+
+    // Get extra symbols from the compressed object in .gnu_debugdata, if present.
+    if let Some(debugdata) = object_file.section_by_name(".gnu_debugdata") {
+        use object::ObjectSection;
+        if let Ok(data) = debugdata.data() {
+            let mut cursor = Cursor::new(data);
+            let mut objdata = Vec::new();
+            if let Ok(()) = lzma_rs::xz_decompress(&mut cursor, &mut objdata) {
+                if let Ok(object_file) = object::File::parse(&objdata[..]) {
+                    let extra_symbols = object_to_map(&object_file);
+                    map.extend(extra_symbols.into_iter());
+                }
+            }
+        }
+    }
 
     if let Ok(exports) = object_file.exports() {
         let image_base_address: u64 = object_file.relative_address_base();
         for export in exports {
             if let Ok(name) = std::str::from_utf8(export.name()) {
-                map.push(((export.address() - image_base_address) as u32, name));
+                map.push(((export.address() - image_base_address) as u32, name.to_string()));
             }
         }
     }
