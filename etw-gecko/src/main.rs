@@ -17,6 +17,7 @@ struct ThreadState {
     builder: ThreadBuilder,
     last_kernel_stack: Option<Vec<u64>>,
     last_kernel_stack_time: u64,
+    last_sample_timestamp: Option<i64>
 }
 
 fn print_property(parser: &mut Parser, property: &Property) {
@@ -40,10 +41,12 @@ fn main() {
     let mut threads: HashMap<u32, ThreadState> = HashMap::new();
     let mut libs: HashMap<u64, (String, u32)> = HashMap::new();
     let process_target = 33808;
-    let mut thread_index = 0;
-    let mut last_sample_timestamp = None;
+    let process_target = 26956;
 
-    let mut log_file = open_trace(Path::new("D:\\Captures\\30-09-2021_09-26-46_firefox.etl"), |e| {
+    let mut thread_index = 0;
+
+    //let mut log_file = open_trace(Path::new("D:\\Captures\\30-09-2021_09-26-46_firefox.etl"), |e| {
+    let mut log_file = open_trace(Path::new("D:\\Captures\\30-09-2021_15-37-50_firefox.etl"), |e| {
 
         let mut process_event = |s: &Schema| {
             let name = format!("{}/{}/{}", s.provider_name(), s.task_name(), s.opcode_name());
@@ -67,6 +70,7 @@ fn main() {
                                     builder: ThreadBuilder::new(process_id, thread_index, 0.0, false, false),
                                     last_kernel_stack: None,
                                     last_kernel_stack_time: 0,
+                                    last_sample_timestamp: None
                                 }
                             );
                             thread_index += 1;
@@ -95,6 +99,7 @@ fn main() {
                                     builder: ThreadBuilder::new(process_id, thread_index, 0.0, false, false),
                                     last_kernel_stack: None,
                                     last_kernel_stack_time: 0,
+                                    last_sample_timestamp: None
                                 }
                             );
                             thread_index += 1;
@@ -102,14 +107,21 @@ fn main() {
                         }
                     };
                     let timestamp: u64 = parser.parse("EventTimeStamp");
-                    if let Some(last) = last_sample_timestamp {
+                   // eprint!("{} {} {}", thread_id, e.EventHeader.TimeStamp, timestamp);
+
+                    // Only add callstacks if this stack is associated with a SampleProf event
+                    if let Some(last) = thread.last_sample_timestamp {
                         if timestamp as i64 != last {
+                            //eprintln!("");
                             return
                         }
                     } else {
+                        //eprintln!("");
                         return
                     }
+                    //eprintln!(" sample");
 
+                    // read the stacks out manually
                     let mut stack = parser.buffer.chunks_exact(8)
                     .map(|a| u64::from_ne_bytes(a.try_into().unwrap()))
                     .collect::<Vec<u64>>();
@@ -120,28 +132,49 @@ fn main() {
                     }*/
                     stack.reverse();
                     let to_milliseconds = 10000.;
-                    if timestamp == 6037210290464 {
-                        dbg!(&thread.last_kernel_stack);  
-  }
 
                     if is_kernel_address(stack[0], 8) {
+                        //eprintln!("kernel ");
                         thread.last_kernel_stack_time = timestamp;
                         thread.last_kernel_stack = Some(stack);
                     } else {
                         if timestamp == thread.last_kernel_stack_time {
+                            //eprintln!("matched");
                             if thread.last_kernel_stack.is_none() {
                                 dbg!(thread.last_kernel_stack_time);
                             }
                             stack.append(&mut thread.last_kernel_stack.take().unwrap());
                             thread.builder.add_sample(timestamp as f64 / to_milliseconds, &stack, 0);
                         } else if let Some(kernel_stack) = thread.last_kernel_stack.take() {
+                            // we're left with an unassociated kernel stack
+                            dbg!(thread.last_kernel_stack_time);
                             thread.builder.add_sample(thread.last_kernel_stack_time as f64 / to_milliseconds, &kernel_stack, 0);                        
                         }
                         //XXX: what unit are timestamps in the trace in?
                     }
                 }
                 "MSNT_SystemTrace/PerfInfo/SampleProf" => {
-                    last_sample_timestamp = Some(e.EventHeader.TimeStamp);
+                    let mut parser = Parser::create(&s);
+
+                    let thread_id: u32 = parser.parse("ThreadId");
+
+                    let thread = match threads.entry(thread_id) {
+                        Entry::Occupied(e) => e.into_mut(), 
+                        Entry::Vacant(e) => {
+                            let tb = e.insert(
+                                ThreadState {
+                                    builder: ThreadBuilder::new(process_target, thread_index, 0.0, false, false),
+                                    last_kernel_stack: None,
+                                    last_kernel_stack_time: 0,
+                                    last_sample_timestamp: None
+                                }
+                            );
+                            thread_index += 1;
+                            tb
+                        }
+                    };
+
+                    thread.last_sample_timestamp = Some(e.EventHeader.TimeStamp);
                 }
                 "KernelTraceControl/ImageID/" => {
 
