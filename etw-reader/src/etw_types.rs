@@ -130,6 +130,10 @@ impl EventSchema for TraceEventInfoRaw {
     fn event_version(&self) -> u8 {
         TraceEventInfo::from(self).EventDescriptor.Version
     }
+    
+    fn level(&self) -> u8 {
+        TraceEventInfo::from(self).EventDescriptor.Level
+    }
 
     fn decoding_source(&self) -> DecodingSource {
         DecodingSource::from(TraceEventInfo::from(self).DecodingSource)

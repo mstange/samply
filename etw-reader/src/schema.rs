@@ -27,7 +27,7 @@ impl From<tdh::TdhNativeError> for SchemaError {
 
 type SchemaResult<T> = Result<T, SchemaError>;
 
-// XXX: this can go away when a version of windows-rs newere than 0.21.1 comes out
+// XXX: this can go away when a version of windows-rs newer than 0.21.1 comes out
 #[derive(Debug, Eq, PartialEq)]
 struct GuidWrapper(Guid);
 
@@ -40,6 +40,9 @@ impl std::hash::Hash for GuidWrapper {
     }
 }
 
+// TraceEvent::RegisteredTraceEventParser::ExternalTraceEventParserState::TraceEventComparer 
+// doesn't compare the version or level and does different things depending on the kind of event
+// https://github.com/microsoft/perfview/blob/5c9f6059f54db41b4ac5c4fc8f57261779634489/src/TraceEvent/RegisteredTraceEventParser.cs#L1338
 #[derive(Debug, Eq, PartialEq, Hash)]
 struct SchemaKey {
     provider: GuidWrapper,
@@ -87,6 +90,7 @@ pub trait EventSchema {
     fn provider_name(&self) -> String;
     fn task_name(&self) -> String;
     fn opcode_name(&self) -> String;
+    fn level(&self) -> u8;
     
     fn property_count(&self) -> u32;
     fn property(&self, index: u32) -> Property;
@@ -105,6 +109,16 @@ impl SchemaLocator {
         SchemaLocator {
             schemas: HashMap::new(),
         }
+    }
+
+    pub fn add_custom_schema(&mut self, schema: Arc<dyn EventSchema>) {
+        let key = SchemaKey {
+            provider: GuidWrapper(schema.provider_guid()),
+            id: schema.event_id(),
+            opcode: schema.opcode(),
+            version: schema.event_version(),
+            level: schema.level() };
+        self.schemas.insert(key, schema);
     }
 
     /// Use the `event_schema` function to retrieve the Schema of an ETW Event

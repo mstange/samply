@@ -35,6 +35,8 @@ impl EventSchema for ImageID {
         2
     }
 
+    fn level(&self) -> u8 { 0 }
+
     fn decoding_source(&self) -> DecodingSource {
         panic!()
     }
@@ -92,6 +94,8 @@ impl EventSchema for DbgID {
     fn event_version(&self) -> u8 {
         2
     }
+
+    fn level(&self) -> u8 { 0 }
 
     fn decoding_source(&self) -> DecodingSource {
         panic!()
@@ -162,6 +166,9 @@ impl EventSchema for ThreadStart {
     fn event_version(&self) -> u8 {
         3
     }
+
+    fn level(&self) -> u8 { 0 }
+
 
     fn decoding_source(&self) -> DecodingSource {
         panic!()

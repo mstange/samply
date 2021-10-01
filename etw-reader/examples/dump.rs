@@ -21,36 +21,28 @@ fn print_property(parser: &mut Parser, property: &Property) {
 fn main() {
 
     let mut schema_locator = SchemaLocator::new();
+    etw_reader::add_custom_schemas(&mut schema_locator);
     let mut log_file = open_trace(Path::new(&std::env::args().nth(1).unwrap()), 
 |e| { 
     //dbg!(e.EventHeader.TimeStamp);
 
-    let s = etw_reader::schema_from_custom(e.clone());
-    if let Some(s) = s {
-        println!("{}/{}/{} {}",  s.provider_name(), s.task_name(), s.opcode_name(), e.EventHeader.TimeStamp);
-        
+
+    let s = schema_locator.event_schema(e.clone());
+    if let Ok(s) = s {
+
+        println!("{:?} {}/{}/{} {}-{} {} {}", e.EventHeader.ProviderId, s.provider_name(), s.task_name(), s.opcode_name(),  e.EventHeader.EventDescriptor.Opcode, e.EventHeader.EventDescriptor.Id, s.property_count(), e.EventHeader.TimeStamp);
+
         let mut parser = Parser::create(&s);
         for i in 0..s.property_count() {
             let property = s.property(i);
+            //dbg!(&property);
             print_property(&mut parser, &property);
         }
     } else {
-        let s = schema_locator.event_schema(e.clone());
-        if let Ok(s) = s {
+        println!("unknown event {:x?}", e.EventHeader.ProviderId);
 
-            println!("{:?} {}/{}/{} {}-{} {} {}", e.EventHeader.ProviderId, s.provider_name(), s.task_name(), s.opcode_name(),  e.EventHeader.EventDescriptor.Opcode, e.EventHeader.EventDescriptor.Id, s.property_count(), e.EventHeader.TimeStamp);
-
-            let mut parser = Parser::create(&s);
-            for i in 0..s.property_count() {
-                let property = s.property(i);
-                //dbg!(&property);
-                print_property(&mut parser, &property);
-            }
-        } else {
-            println!("unknown event {:x?}", e.EventHeader.ProviderId);
-
-        }
     }
+
 
 });
 

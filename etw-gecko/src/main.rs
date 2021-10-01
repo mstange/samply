@@ -38,6 +38,7 @@ fn main() {
     let mut profile = gecko_profile::ProfileBuilder::new(Instant::now(), "firefox", 34, Duration::from_secs_f32(1.0 / 8192));
     
     let mut schema_locator = SchemaLocator::new();
+    etw_reader::add_custom_schemas(&mut schema_locator);
     let mut threads: HashMap<u32, ThreadState> = HashMap::new();
     let mut libs: HashMap<u64, (String, u32)> = HashMap::new();
     let start = Instant::now();
@@ -215,17 +216,13 @@ fn main() {
             
             //println!("{}", name);
         };
-        let s = etw_reader::schema_from_custom(e.clone());
-        if let Some(s) = s {
-            process_event(&s)
+
+        let s = schema_locator.event_schema(e.clone());
+        if let Ok(s) = s {
+                process_event(&s)
         } else {
-            let s = schema_locator.event_schema(e.clone());
-            if let Ok(s) = s {
-                    process_event(&s)
-            } else {
-                //eprintln!("unknown event {:x?}", e.EventHeader.ProviderId);
-                
-            }
+            //eprintln!("unknown event {:x?}", e.EventHeader.ProviderId);
+            
         }
     });
 

@@ -79,20 +79,10 @@ pub fn open_trace<F: FnMut(&Etw::EVENT_RECORD)>(path: &Path, mut callback: F)  {
 
 use std::sync::Arc;
 
-pub fn schema_from_custom(event: Etw::EVENT_RECORD) -> Option<Schema> {
-    let event_schema = custom_schemas::ImageID{};
-    if event.EventHeader.ProviderId == event_schema.provider_guid() && event.EventHeader.EventDescriptor.Opcode == event_schema.opcode() && event.EventHeader.EventDescriptor.Version >= event_schema.event_version() {
-        return Some(Schema::new(event.clone(), Arc::new(event_schema)));
-    }
-    let event_schema = custom_schemas::DbgID{};
-    if event.EventHeader.ProviderId == event_schema.provider_guid() && event.EventHeader.EventDescriptor.Opcode == event_schema.opcode() && event.EventHeader.EventDescriptor.Version >= event_schema.event_version() {
-        return Some(Schema::new(event.clone(), Arc::new(event_schema)));
-    }
-    let event_schema = custom_schemas::ThreadStart{};
-    if event.EventHeader.ProviderId == event_schema.provider_guid() && event.EventHeader.EventDescriptor.Opcode == event_schema.opcode() && event.EventHeader.EventDescriptor.Version >= event_schema.event_version() {
-        return Some(Schema::new(event.clone(), Arc::new(event_schema)));
-    }
-    return None;
+pub fn add_custom_schemas(locator: &mut SchemaLocator) {
+    locator.add_custom_schema(Arc::new(custom_schemas::ImageID{}));
+    locator.add_custom_schema(Arc::new(custom_schemas::DbgID{}));
+    locator.add_custom_schema(Arc::new(custom_schemas::ThreadStart{}));
 }
 
 
