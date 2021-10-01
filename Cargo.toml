@@ -1,5 +1,5 @@
 [package]
-name = "etw-log"
+name = "etw-reader"
 version = "0.1.0"
 edition = "2018"
 

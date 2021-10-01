@@ -1,6 +1,6 @@
-use etw_log::{open_trace, parser::{Parser, TryParse}, schema::{EventSchema, SchemaLocator}, tdh_types::{Property, TdhInType}};
+use etw_reader::{open_trace, parser::{Parser, TryParse}, schema::{EventSchema, SchemaLocator}, tdh_types::{Property, TdhInType}};
 use windows::{Guid, IntoParam, Param};
-use etw_log::tdh;
+use etw_reader::tdh;
 use std::{path::Path, sync::Arc};
 
 
@@ -25,7 +25,7 @@ fn main() {
 |e| { 
     //dbg!(e.EventHeader.TimeStamp);
 
-    let s = etw_log::schema_from_custom(e.clone());
+    let s = etw_reader::schema_from_custom(e.clone());
     if let Some(s) = s {
         println!("{}/{}/{} {}",  s.provider_name(), s.task_name(), s.opcode_name(), e.EventHeader.TimeStamp);
         
