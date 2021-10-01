@@ -46,8 +46,8 @@ impl FileAndPathHelper for Helper {
 
         // Finally, the file itself.
         paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-            self.symbol_directory.join(debug_name))
-        ));
+            self.symbol_directory.join(debug_name),
+        )));
 
         // For macOS system libraries, also consult the dyld shared cache.
         if self.symbol_directory.starts_with("/usr/")
