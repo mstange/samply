@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, hash_map::Entry}, convert::TryInto, fs::File, io::{BufReader, BufWriter}, path::Path, time::{Duration, Instant}};
+use std::{collections::{HashMap, HashSet, hash_map::Entry}, convert::TryInto, fs::File, io::{BufReader, BufWriter}, path::Path, time::{Duration, Instant}};
 
 use etw_reader::{Guid, etw_types::EventPropertyInfo, open_trace, parser::{Parser, TryParse}, schema::{Schema, SchemaLocator}, tdh::{self}, tdh_types::{Property, TdhInType}};
 use serde_json::to_writer;
@@ -42,8 +42,7 @@ fn main() {
     let mut threads: HashMap<u32, ThreadState> = HashMap::new();
     let mut libs: HashMap<u64, (String, u32)> = HashMap::new();
     let start = Instant::now();
-    let process_target = 33808;
-    let process_target = 26956;
+    let mut process_targets = HashSet::new();
 
     let mut thread_index = 0;
 
@@ -55,7 +54,7 @@ fn main() {
             match name.as_str() {
                 "MSNT_SystemTrace/Thread/DCStart" => {
                     let process_id = s.process_id();
-                    if process_id != process_target {
+                    if !process_targets.contains(&process_id) {
                         return;
                     }
                     let mut parser = Parser::create(&s);
@@ -84,12 +83,21 @@ fn main() {
                     }
 
                 }
+                "MSNT_SystemTrace/Process/DCStart" => {
+                    let mut parser = Parser::create(&s);
+
+                    let image_file_name: String = parser.parse("ImageFileName");
+                    let process_id: u32 = parser.parse("ProcessId");
+                    if image_file_name.contains("firefox.exe") {
+                        process_targets.insert(process_id);
+                    }
+                }
                 "MSNT_SystemTrace/StackWalk/Stack" => {
                     let mut parser = Parser::create(&s);
 
                     let thread_id: u32 = parser.parse("StackThread");
                     let process_id: u32 = parser.parse("StackProcess");
-                    if process_id != process_target {
+                    if !process_targets.contains(&process_id) {
                         return;
                     }
                     
@@ -163,16 +171,8 @@ fn main() {
                     let thread = match threads.entry(thread_id) {
                         Entry::Occupied(e) => e.into_mut(), 
                         Entry::Vacant(e) => {
-                            let tb = e.insert(
-                                ThreadState {
-                                    builder: ThreadBuilder::new(process_target, thread_index, 0.0, false, false),
-                                    last_kernel_stack: None,
-                                    last_kernel_stack_time: 0,
-                                    last_sample_timestamp: None
-                                }
-                            );
-                            thread_index += 1;
-                            tb
+                            // We don't know what process this will before so just drop it for now
+                            return;
                         }
                     };
 
@@ -181,7 +181,7 @@ fn main() {
                 "KernelTraceControl/ImageID/" => {
 
                     let process_id = s.process_id();
-                    if process_id != process_target && process_id != 0 {
+                    if !process_targets.contains(&process_id) && process_id != 0 {
                         return;
                     }
                     let mut parser = Parser::create(&s);
@@ -195,7 +195,7 @@ fn main() {
                     let mut parser = Parser::create(&s);
 
                     let process_id = s.process_id();
-                    if process_id != process_target && process_id != 0 {
+                    if !process_targets.contains(&process_id) && process_id != 0 {
                         return;
                     }
                     let image_base: u64 = parser.try_parse("ImageBase").unwrap();
