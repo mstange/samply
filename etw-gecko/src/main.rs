@@ -43,11 +43,22 @@ fn main() {
     let mut libs: HashMap<u64, (String, u32)> = HashMap::new();
     let start = Instant::now();
     let mut process_targets = HashSet::new();
+    let mut process_target_name = None;
+    if let Some(process_filter) = std::env::args().nth(2) {
+        if let Ok(process_id) = process_filter.parse() {
+            process_targets.insert(process_id);
+        } else {
+            process_target_name = Some(process_filter);
+        }
+    } else {
+        println!("No process specified");
+        std::process::exit(1);
+    }
 
     let mut thread_index = 0;
 
     //let mut log_file = open_trace(Path::new("D:\\Captures\\30-09-2021_09-26-46_firefox.etl"), |e| {
-    let mut log_file = open_trace(Path::new("D:\\Captures\\30-09-2021_15-37-50_firefox.etl"), |e| {
+    let mut log_file = open_trace(Path::new(&std::env::args().nth(1).unwrap()), |e| {
 
         let mut process_event = |s: &Schema| {
             let name = format!("{}/{}/{}", s.provider_name(), s.task_name(), s.opcode_name());
@@ -84,12 +95,14 @@ fn main() {
 
                 }
                 "MSNT_SystemTrace/Process/DCStart" => {
-                    let mut parser = Parser::create(&s);
+                    if let Some(process_target_name) = &process_target_name {
+                        let mut parser = Parser::create(&s);
 
-                    let image_file_name: String = parser.parse("ImageFileName");
-                    let process_id: u32 = parser.parse("ProcessId");
-                    if image_file_name.contains("firefox.exe") {
-                        process_targets.insert(process_id);
+                        let image_file_name: String = parser.parse("ImageFileName");
+                        let process_id: u32 = parser.parse("ProcessId");
+                        if image_file_name.contains("firefox.exe") {
+                            process_targets.insert(process_id);
+                        }
                     }
                 }
                 "MSNT_SystemTrace/StackWalk/Stack" => {
