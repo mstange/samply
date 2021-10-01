@@ -219,9 +219,8 @@ fn main() {
         if let Some(s) = s {
             process_event(&s)
         } else {
-            let s = tdh::schema_from_tdh(e.clone());  
+            let s = schema_locator.event_schema(e.clone());
             if let Ok(s) = s {
-                let s = schema_locator.event_schema(e.clone()).unwrap();
                     process_event(&s)
             } else {
                 //eprintln!("unknown event {:x?}", e.EventHeader.ProviderId);

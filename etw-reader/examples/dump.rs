@@ -35,12 +35,10 @@ fn main() {
             print_property(&mut parser, &property);
         }
     } else {
-        let s = tdh::schema_from_tdh(e.clone());  
+        let s = schema_locator.event_schema(e.clone());
         if let Ok(s) = s {
 
             println!("{:?} {}/{}/{} {}-{} {} {}", e.EventHeader.ProviderId, s.provider_name(), s.task_name(), s.opcode_name(),  e.EventHeader.EventDescriptor.Opcode, e.EventHeader.EventDescriptor.Id, s.property_count(), e.EventHeader.TimeStamp);
-
-            let s = schema_locator.event_schema(e.clone()).unwrap();
 
             let mut parser = Parser::create(&s);
             for i in 0..s.property_count() {
