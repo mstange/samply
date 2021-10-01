@@ -62,8 +62,10 @@ unsafe fn trace_callback_thunk(event_record: *mut Etw::EVENT_RECORD) {
 pub fn open_trace<F: FnMut(&Etw::EVENT_RECORD)>(path: &Path, mut callback: F)  {
     let mut log_file = EventTraceLogfile::default();
 
-
+    #[cfg(windows)]
     let path: Param<PWSTR> = path.as_os_str().into_param();
+    #[cfg(not(windows))]
+    let path: Param<PWSTR> = panic!();
     log_file.0.LogFileName = unsafe { path.abi() };
     log_file.0.Anonymous1.ProcessTraceMode = Etw::PROCESS_TRACE_MODE_EVENT_RECORD | Etw::PROCESS_TRACE_MODE_RAW_TIMESTAMP;
     let mut cb: &mut dyn FnMut(&Etw::EVENT_RECORD) = &mut callback;
