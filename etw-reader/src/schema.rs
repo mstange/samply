@@ -27,11 +27,22 @@ impl From<tdh::TdhNativeError> for SchemaError {
 
 type SchemaResult<T> = Result<T, SchemaError>;
 
+// XXX: this can go away when a version of windows-rs newere than 0.21.1 comes out
+#[derive(Debug, Eq, PartialEq)]
+struct GuidWrapper(Guid);
+
+impl std::hash::Hash for GuidWrapper {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.data1.hash(state);
+        self.0.data2.hash(state);
+        self.0.data3.hash(state);
+        self.0.data4.hash(state);
+    }
+}
+
 #[derive(Debug, Eq, PartialEq, Hash)]
 struct SchemaKey {
-    // For now, lazy to wrap Guid around an implement Hash
-    // TODO: wrap Guid and implement hash
-    provider: String,
+    provider: GuidWrapper,
     id: u16,
     opcode: u8,
     version: u8,
@@ -40,9 +51,8 @@ struct SchemaKey {
 
 impl SchemaKey {
     pub fn new(event: &EventRecord) -> Self {
-        let provider = format!("{:?}", event.EventHeader.ProviderId);
         SchemaKey {
-            provider,
+            provider: GuidWrapper(event.EventHeader.ProviderId),
             id: event.EventHeader.EventDescriptor.Id,
             opcode: event.EventHeader.EventDescriptor.Opcode,
             version: event.EventHeader.EventDescriptor.Version,
