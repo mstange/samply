@@ -27,7 +27,7 @@ fn main() {
 
     let s = etw_log::schema_from_custom(e.clone());
     if let Some(s) = s {
-        println!("{}/{}/{}",  s.provider_name(), s.task_name(), s.opcode_name());
+        println!("{}/{}/{} {}",  s.provider_name(), s.task_name(), s.opcode_name(), e.EventHeader.TimeStamp);
         
         let mut parser = Parser::create(&s);
         for i in 0..s.property_count() {
@@ -38,7 +38,7 @@ fn main() {
         let s = tdh::schema_from_tdh(e.clone());  
         if let Ok(s) = s {
 
-            println!("{:?} {}/{}/{} {}-{} {} {}", e.EventHeader.ProviderId, s.provider_name(), s.task_name(), s.opcode_name(),  e.EventHeader.EventDescriptor.Opcode, e.EventHeader.EventDescriptor.Id, s.property_count(), e.UserDataLength);
+            println!("{:?} {}/{}/{} {}-{} {} {}", e.EventHeader.ProviderId, s.provider_name(), s.task_name(), s.opcode_name(),  e.EventHeader.EventDescriptor.Opcode, e.EventHeader.EventDescriptor.Id, s.property_count(), e.EventHeader.TimeStamp);
 
             let s = schema_locator.event_schema(e.clone()).unwrap();
 
