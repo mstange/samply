@@ -1,6 +1,6 @@
 use std::{collections::{HashMap, HashSet, hash_map::Entry}, convert::TryInto, fs::File, io::{BufReader, BufWriter}, path::Path, time::{Duration, Instant}};
 
-use etw_reader::{Guid, etw_types::EventPropertyInfo, open_trace, parser::{Parser, TryParse}, schema::{Schema, SchemaLocator}, tdh::{self}, tdh_types::{Property, TdhInType}};
+use etw_reader::{Guid, etw_types::EventPropertyInfo, open_trace, parser::{Parser, TryParse}, schema::{TypedEvent, SchemaLocator}, tdh::{self}, tdh_types::{Property, TdhInType}};
 use serde_json::to_writer;
 
 use crate::gecko_profile::ThreadBuilder;
@@ -60,7 +60,7 @@ fn main() {
     //let mut log_file = open_trace(Path::new("D:\\Captures\\30-09-2021_09-26-46_firefox.etl"), |e| {
     let mut log_file = open_trace(Path::new(&std::env::args().nth(1).unwrap()), |e| {
 
-        let mut process_event = |s: &Schema| {
+        let mut process_event = |s: &TypedEvent| {
             let name = format!("{}/{}/{}", s.provider_name(), s.task_name(), s.opcode_name());
             match name.as_str() {
                 "MSNT_SystemTrace/Thread/DCStart" => {

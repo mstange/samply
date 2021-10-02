@@ -2,6 +2,7 @@
 //!
 //! This module contains the means needed to locate and interact with the Schema of an ETW event
 use crate::etw_types::{DecodingSource, EventRecord, TraceEventInfoRaw};
+use crate::property::PropertyIter;
 use crate::tdh;
 use crate::tdh_types::Property;
 use std::collections::HashMap;
@@ -78,7 +79,7 @@ impl SchemaKey {
 /// Credits: [KrabsETW::schema_locator](https://github.com/microsoft/krabsetw/blob/master/krabs/krabs/schema_locator.hpp)
 #[derive(Default)]
 pub struct SchemaLocator {
-    schemas: HashMap<SchemaKey, Arc<dyn EventSchema>>,
+    schemas: HashMap<SchemaKey, Arc<Schema>>,
 }
 
 pub trait EventSchema {
@@ -119,7 +120,7 @@ impl SchemaLocator {
             opcode: schema.opcode(),
             version: schema.event_version(),
             level: schema.level() };
-        self.schemas.insert(key, schema);
+        self.schemas.insert(key, Arc::new(Schema::new(schema)));
     }
 
     /// Use the `event_schema` function to retrieve the Schema of an ETW Event
@@ -140,7 +141,7 @@ impl SchemaLocator {
     ///     let schema = schema_locator.event_schema(record)?;
     /// };
     /// ```
-    pub fn event_schema(&mut self, event: &EventRecord) -> SchemaResult<Schema> {
+    pub fn event_schema(&mut self, event: &EventRecord) -> SchemaResult<TypedEvent> {
         let key = SchemaKey::new(&event);
 
         let info = match self.schemas.entry(key) {
@@ -148,26 +149,33 @@ impl SchemaLocator {
             Entry::Vacant(entry) => {
                 let info = Arc::new(tdh::schema_from_tdh(event.clone())?);
                 // TODO: Cloning for now, should be a reference at some point...
-                entry.insert(info)
+                entry.insert(Arc::new(Schema::new(info)))
             }
         };
 
-        Ok(Schema::new(event.clone(), info.clone()))
+        Ok(TypedEvent::new(event.clone(), info.clone()))
     }
 }
 
-/// Represents a Schema
-///
-/// This structure holds a [TraceEventInfo](https://docs.microsoft.com/en-us/windows/win32/api/tdh/ns-tdh-trace_event_info)
-/// which let us obtain information from the ETW event
 pub struct Schema {
-    record: EventRecord,
-    schema: Arc<dyn EventSchema>,
+    pub event_schema: Arc<dyn EventSchema>,
+    properties: Option<PropertyIter>
 }
 
 impl Schema {
-    pub fn new(record: EventRecord, schema: Arc<dyn EventSchema>) -> Self {
-        Schema { record, schema }
+    fn new(event_schema: Arc<dyn EventSchema>) -> Self {
+        Schema { event_schema, properties: None }
+    }
+}
+
+pub struct TypedEvent {
+    record: EventRecord,
+    pub (crate) schema: Arc<Schema>,
+}
+
+impl TypedEvent {
+    pub fn new(record: EventRecord, schema: Arc<Schema>) -> Self {
+        TypedEvent { record, schema }
     }
 
     pub(crate) fn user_buffer(&self) -> Vec<u8> {
@@ -321,7 +329,7 @@ impl Schema {
     /// ```
     /// [TraceEventInfo]: crate::native::etw_types::TraceEventInfo
     pub fn decoding_source(&self) -> DecodingSource {
-        self.schema.decoding_source()
+        self.schema.event_schema.decoding_source()
     }
 
     /// Use the `provider_name` function to obtain the Provider name from the [TraceEventInfo]
@@ -335,7 +343,7 @@ impl Schema {
     /// ```
     /// [TraceEventInfo]: crate::native::etw_types::TraceEventInfo
     pub fn provider_name(&self) -> String {
-        self.schema.provider_name()
+        self.schema.event_schema.provider_name()
     }
 
     /// Use the `task_name` function to obtain the Task name from the [TraceEventInfo]
@@ -350,7 +358,7 @@ impl Schema {
     /// ```
     /// [TraceEventInfo]: crate::native::etw_types::TraceEventInfo
     pub fn task_name(&self) -> String {
-        self.schema.task_name()
+        self.schema.event_schema.task_name()
     }
 
     /// Use the `opcode_name` function to obtain the Opcode name from the [TraceEventInfo]
@@ -365,27 +373,27 @@ impl Schema {
     /// ```
     /// [TraceEventInfo]: crate::native::etw_types::TraceEventInfo
     pub fn opcode_name(&self) -> String {
-        self.schema.opcode_name()
+        self.schema.event_schema.opcode_name()
     }
 
     pub fn property_count(&self) -> u32 {
-        self.schema.property_count()
+        self.schema.event_schema.property_count()
     }
 
     pub fn property(&self, index: u32) -> Property {
-        self.schema.property(index)
+        self.schema.event_schema.property(index)
     }
 }
 
-impl PartialEq for Schema {
+impl PartialEq for TypedEvent {
     fn eq(&self, other: &Self) -> bool {
-        self.schema.event_id() == other.schema.event_id()
-            && self.schema.provider_guid() == other.schema.provider_guid()
-            && self.schema.event_version() == other.schema.event_version()
+        self.schema.event_schema.event_id() == other.schema.event_schema.event_id()
+            && self.schema.event_schema.provider_guid() == other.schema.event_schema.provider_guid()
+            && self.schema.event_schema.event_version() == other.schema.event_schema.event_version()
     }
 }
 
-impl Eq for Schema {}
+impl Eq for TypedEvent {}
 
 #[cfg(test)]
 mod test {

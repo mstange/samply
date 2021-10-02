@@ -3,7 +3,7 @@
 //! The `property` module expose the basic structures that represent the Properties an Event contains
 //! based on it's Schema. This Properties can then be used to parse accordingly their values.
 use crate::tdh_types::Property;
-use crate::schema::Schema;
+use crate::schema::{Schema, TypedEvent};
 
 /// Event Property information
 #[derive(Clone, Default, Debug)]
@@ -29,14 +29,14 @@ impl PropertyIter {
     fn enum_properties(schema: &Schema, prop_count: u32) -> Vec<Property> {
         let mut properties = Vec::new();
         for i in 0..prop_count {
-            properties.push(schema.property(i));
+            properties.push(schema.event_schema.property(i));
         }
         properties
     }
 
-    pub fn new(schema: &Schema) -> Self {
-        let prop_count = schema.property_count();
-        let properties = PropertyIter::enum_properties(schema, prop_count);
+    pub fn new(event: &TypedEvent) -> Self {
+        let prop_count = event.property_count();
+        let properties = PropertyIter::enum_properties(&event.schema, prop_count);
 
         PropertyIter { properties }
     }

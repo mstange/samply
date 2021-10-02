@@ -6,7 +6,7 @@ use crate::sddl;
 use crate::tdh;
 use crate::tdh_types::{Property, PropertyFlags, TdhInType, TdhOutType};
 use crate::property::{PropertyInfo, PropertyIter};
-use crate::schema::Schema;
+use crate::schema::TypedEvent;
 use crate::utils;
 use std::borrow::Borrow;
 use std::collections::HashMap;
@@ -92,7 +92,7 @@ pub trait TryParse<T> {
 /// event
 #[allow(dead_code)]
 pub struct Parser<'a> {
-    schema: &'a Schema,
+    event: &'a TypedEvent,
     properties: PropertyIter,
     pub buffer: Vec<u8>,
     last_property: u32,
@@ -113,11 +113,11 @@ impl<'a> Parser<'a> {
     ///     let parser = Parse::create(&schema);
     /// };
     /// ```
-    pub fn create(schema: &'a Schema) -> Self {
+    pub fn create(event: &'a TypedEvent) -> Self {
         Parser {
-            schema,
-            buffer: schema.user_buffer(),
-            properties: PropertyIter::new(schema),
+            event,
+            buffer: event.user_buffer(),
+            properties: PropertyIter::new(event),
             last_property: 0,
             offset: 0,
             cache: HashMap::new(), // We could fill the cache on creation
@@ -126,7 +126,7 @@ impl<'a> Parser<'a> {
 
     #[allow(dead_code)]
     fn fill_cache(
-        schema: &Schema,
+        schema: &TypedEvent,
         properties: &PropertyIter,
     ) -> ParserResult<HashMap<String, PropertyInfo>> {
         let user_buffer_len = schema.user_buffer().len();
@@ -166,7 +166,7 @@ impl<'a> Parser<'a> {
         {
             let size;
             if property.in_type() == TdhInType::InTypePointer {
-                size = if (self.schema.event_flags() & EVENT_HEADER_FLAG_32_BIT_HEADER) != 0 {
+                size = if (self.event.event_flags() & EVENT_HEADER_FLAG_32_BIT_HEADER) != 0 {
                     4
                 } else {
                     8
@@ -186,7 +186,7 @@ impl<'a> Parser<'a> {
             TdhInType::InTypeInt32 | TdhInType::InTypeUInt32 => return Ok(4),
             TdhInType::InTypeInt64 | TdhInType::InTypeUInt64 => return Ok(8),
             TdhInType::InTypeInt8 | TdhInType::InTypeUInt8 => return Ok(1),
-            TdhInType::InTypePointer => return Ok(if (self.schema.event_flags() & EVENT_HEADER_FLAG_32_BIT_HEADER) != 0 {
+            TdhInType::InTypePointer => return Ok(if (self.event.event_flags() & EVENT_HEADER_FLAG_32_BIT_HEADER) != 0 {
                 4
             } else {
                 8
@@ -200,7 +200,7 @@ impl<'a> Parser<'a> {
             }
             _ => {}
         }
-        Ok(tdh::property_size(self.schema.record(), &property.name).unwrap() as usize)
+        Ok(tdh::property_size(self.event.record(), &property.name).unwrap() as usize)
     }
 
     pub fn find_property(&mut self, name: &str) -> ParserResult<Rc<PropertyInfo>> {
@@ -212,7 +212,7 @@ impl<'a> Parser<'a> {
 
         // TODO: Find a way to do this with an iter, try_find looks promising but is not stable yet
         // TODO: Clean this a bit, not a big fan of this loop
-        for i in self.last_property..self.schema.property_count() {
+        for i in self.last_property..self.event.property_count() {
             let curr_prop = match self.properties.property(i) {
                 Some(prop) => prop,
                 None => return Err(ParserError::PropertyError("Index out of bounds".to_owned())),
@@ -286,7 +286,7 @@ impl TryParse<u64> for Parser<'_> {
             return Ok(u64::from_ne_bytes(prop_info.buffer.as_slice().try_into()?));
         }
         if prop_info.property.in_type() == InTypePointer {
-            if (self.schema.event_flags() & EVENT_HEADER_FLAG_32_BIT_HEADER) != 0  {
+            if (self.event.event_flags() & EVENT_HEADER_FLAG_32_BIT_HEADER) != 0  {
                 if std::mem::size_of::<u32>() != prop_info.buffer.len() {
                     return Err(ParserError::LengthMismatch);
                 }

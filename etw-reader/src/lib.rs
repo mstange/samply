@@ -12,7 +12,7 @@ extern crate num_derive;
 
 
 use crate::{bindings::Windows::Win32::Foundation::PWSTR, parser::{Parser, TryParse}, schema::{EventSchema, SchemaLocator}, tdh_types::TdhInType};
-use schema::Schema;
+use schema::TypedEvent;
 use windows::{IntoParam, Param};
 use std::path::Path;
 use crate::bindings::Windows::Win32::System::Diagnostics::Etw;
