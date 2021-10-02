@@ -140,7 +140,7 @@ impl SchemaLocator {
     ///     let schema = schema_locator.event_schema(record)?;
     /// };
     /// ```
-    pub fn event_schema(&mut self, event: EventRecord) -> SchemaResult<Schema> {
+    pub fn event_schema(&mut self, event: &EventRecord) -> SchemaResult<Schema> {
         let key = SchemaKey::new(&event);
 
         let info = match self.schemas.entry(key) {
@@ -152,7 +152,7 @@ impl SchemaLocator {
             }
         };
 
-        Ok(Schema::new(event, info.clone()))
+        Ok(Schema::new(event.clone(), info.clone()))
     }
 }
 

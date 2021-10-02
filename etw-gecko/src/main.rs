@@ -230,7 +230,7 @@ fn main() {
             //println!("{}", name);
         };
 
-        let s = schema_locator.event_schema(e.clone());
+        let s = schema_locator.event_schema(e);
         if let Ok(s) = s {
                 process_event(&s)
         } else {

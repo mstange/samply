@@ -27,7 +27,7 @@ fn main() {
     //dbg!(e.EventHeader.TimeStamp);
 
 
-    let s = schema_locator.event_schema(e.clone());
+    let s = schema_locator.event_schema(e);
     if let Ok(s) = s {
 
         println!("{:?} {}/{}/{} {}-{} {} {}", e.EventHeader.ProviderId, s.provider_name(), s.task_name(), s.opcode_name(),  e.EventHeader.EventDescriptor.Opcode, e.EventHeader.EventDescriptor.Id, s.property_count(), e.EventHeader.TimeStamp);
