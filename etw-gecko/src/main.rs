@@ -1,6 +1,6 @@
-use std::{collections::{HashMap, HashSet, hash_map::Entry}, convert::TryInto, fs::File, io::{BufReader, BufWriter}, path::Path, time::{Duration, Instant}};
+use std::{collections::{HashMap, HashSet, hash_map::Entry}, convert::TryInto, fs::File, io::{BufWriter}, path::Path, time::{Duration, Instant}};
 
-use etw_reader::{Guid, etw_types::EventPropertyInfo, open_trace, parser::{Parser, TryParse}, schema::{TypedEvent, SchemaLocator}, tdh::{self}, tdh_types::{Property, TdhInType}};
+use etw_reader::{Guid, open_trace, parser::{Parser, TryParse}, schema::{TypedEvent, SchemaLocator}, tdh_types::{Property, TdhInType}};
 use serde_json::to_writer;
 
 use crate::gecko_profile::ThreadBuilder;
@@ -57,8 +57,7 @@ fn main() {
 
     let mut thread_index = 0;
 
-    //let mut log_file = open_trace(Path::new("D:\\Captures\\30-09-2021_09-26-46_firefox.etl"), |e| {
-    let mut log_file = open_trace(Path::new(&std::env::args().nth(1).unwrap()), |e| {
+    open_trace(Path::new(&std::env::args().nth(1).unwrap()), |e| {
 
         let mut process_event = |s: &TypedEvent| {
             match s.name() {
@@ -182,7 +181,7 @@ fn main() {
 
                     let thread = match threads.entry(thread_id) {
                         Entry::Occupied(e) => e.into_mut(), 
-                        Entry::Vacant(e) => {
+                        Entry::Vacant(_) => {
                             // We don't know what process this will before so just drop it for now
                             return;
                         }

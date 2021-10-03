@@ -22,7 +22,7 @@ fn main() {
 
     let mut schema_locator = SchemaLocator::new();
     etw_reader::add_custom_schemas(&mut schema_locator);
-    let mut log_file = open_trace(Path::new(&std::env::args().nth(1).unwrap()), 
+    open_trace(Path::new(&std::env::args().nth(1).unwrap()), 
 |e| { 
     //dbg!(e.EventHeader.TimeStamp);
 

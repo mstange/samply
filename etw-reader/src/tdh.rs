@@ -3,11 +3,9 @@ use std::ops::Deref;
 use crate::bindings::Windows::Win32::System::Diagnostics::Etw;
 use crate::bindings::Windows::Win32::System::Diagnostics::Debug::ERROR_INSUFFICIENT_BUFFER;
 use crate::etw_types::*;
-use crate::tdh_types::*;
+
 use crate::traits::*;
 
-
-use crate::utils;
 #[derive(Debug)]
 pub enum TdhNativeError {
     /// Represents an standard IO Error
