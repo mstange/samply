@@ -17,6 +17,17 @@ impl Deref for EventRecord {
     }
 }
 
+impl EventRecord {
+    pub(crate) fn user_buffer(&self) -> &[u8] {
+        unsafe {
+            std::slice::from_raw_parts(
+                self.UserData as *mut _,
+                self.UserDataLength.into(),
+            )
+        }
+    }
+}
+
 /// Newtype wrapper over an [EVENT_PROPERTY_INFO]
 ///
 /// [EVENT_PROPERTY_INFO]: https://microsoft.github.io/windows-docs-rs/doc/bindings/Windows/Win32/Etw/struct.EVENT_PROPERTY_INFO.html

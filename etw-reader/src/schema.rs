@@ -190,12 +190,7 @@ impl<'a> TypedEvent<'a> {
     }
 
     pub(crate) fn user_buffer(&self) -> &[u8] {
-        unsafe {
-            std::slice::from_raw_parts(
-                self.record.UserData as *mut _,
-                self.record.UserDataLength.into(),
-            )
-        }
+        self.record.user_buffer()
     }
 
     // Horrible getters FTW!! :D
