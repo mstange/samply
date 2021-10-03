@@ -160,15 +160,22 @@ impl SchemaLocator {
 
 pub struct Schema {
     pub event_schema: Arc<dyn EventSchema>,
-    properties: OnceCell<PropertyIter>
+    properties: OnceCell<PropertyIter>,
+    name: OnceCell<String>,
 }
 
 impl Schema {
     fn new(event_schema: Arc<dyn EventSchema>) -> Self {
-        Schema { event_schema, properties: OnceCell::new() }
+        Schema { event_schema, properties: OnceCell::new(), name: OnceCell::new() }
     }
     pub(crate) fn properties(&self) -> &PropertyIter {
         self.properties.get_or_init(|| PropertyIter::new(self))
+    }
+    pub (crate) fn name(&self) -> &str {
+        self.name.get_or_init(|| format!("{}/{}/{}", 
+            self.event_schema.provider_name(),
+            self.event_schema.task_name(),
+            self.event_schema.opcode_name()))
     }
 }
 
@@ -386,6 +393,10 @@ impl TypedEvent {
 
     pub fn property(&self, index: u32) -> Property {
         self.schema.event_schema.property(index)
+    }
+
+    pub fn name(&self) -> &str {
+        self.schema.name()
     }
 }
 

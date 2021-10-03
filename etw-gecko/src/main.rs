@@ -61,8 +61,7 @@ fn main() {
     let mut log_file = open_trace(Path::new(&std::env::args().nth(1).unwrap()), |e| {
 
         let mut process_event = |s: &TypedEvent| {
-            let name = format!("{}/{}/{}", s.provider_name(), s.task_name(), s.opcode_name());
-            match name.as_str() {
+            match s.name() {
                 "MSNT_SystemTrace/Thread/DCStart" => {
                     let process_id = s.process_id();
                     if !process_targets.contains(&process_id) {
