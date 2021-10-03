@@ -83,9 +83,9 @@ pub fn open_trace<F: FnMut(&EventRecord)>(path: &Path, mut callback: F)  {
 use std::sync::Arc;
 
 pub fn add_custom_schemas(locator: &mut SchemaLocator) {
-    locator.add_custom_schema(Arc::new(custom_schemas::ImageID{}));
-    locator.add_custom_schema(Arc::new(custom_schemas::DbgID{}));
-    locator.add_custom_schema(Arc::new(custom_schemas::ThreadStart{}));
+    locator.add_custom_schema(Box::new(custom_schemas::ImageID{}));
+    locator.add_custom_schema(Box::new(custom_schemas::DbgID{}));
+    locator.add_custom_schema(Box::new(custom_schemas::ThreadStart{}));
 }
 
 

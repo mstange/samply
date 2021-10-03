@@ -114,7 +114,7 @@ impl SchemaLocator {
         }
     }
 
-    pub fn add_custom_schema(&mut self, schema: Arc<dyn EventSchema>) {
+    pub fn add_custom_schema(&mut self, schema: Box<dyn EventSchema>) {
         let key = SchemaKey {
             provider: GuidWrapper(schema.provider_guid()),
             id: schema.event_id(),
@@ -148,7 +148,7 @@ impl SchemaLocator {
         let info = match self.schemas.entry(key) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
-                let info = Arc::new(tdh::schema_from_tdh(event.clone())?);
+                let info = Box::new(tdh::schema_from_tdh(event.clone())?);
                 // TODO: Cloning for now, should be a reference at some point...
                 entry.insert(Arc::new(Schema::new(info)))
             }
@@ -159,13 +159,13 @@ impl SchemaLocator {
 }
 
 pub struct Schema {
-    pub event_schema: Arc<dyn EventSchema>,
+    pub event_schema: Box<dyn EventSchema>,
     properties: OnceCell<PropertyIter>,
     name: OnceCell<String>,
 }
 
 impl Schema {
-    fn new(event_schema: Arc<dyn EventSchema>) -> Self {
+    fn new(event_schema: Box<dyn EventSchema>) -> Self {
         Schema { event_schema, properties: OnceCell::new(), name: OnceCell::new() }
     }
     pub(crate) fn properties(&self) -> &PropertyIter {
