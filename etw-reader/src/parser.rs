@@ -92,9 +92,9 @@ pub trait TryParse<T> {
 /// event
 #[allow(dead_code)]
 pub struct Parser<'a> {
-    event: &'a TypedEvent,
+    event: &'a TypedEvent<'a>,
     properties: &'a PropertyIter,
-    pub buffer: Vec<u8>,
+    pub buffer: &'a [u8],
     last_property: u32,
     offset: usize,
     cache: HashMap<String, Rc<PropertyInfo>>,
@@ -229,8 +229,9 @@ impl<'a> Parser<'a> {
             // TODO: Evaluate not cloning the Property nor the buffer
             // We drain the buffer, if everything works correctly in the end the buffer will be empty
             // and we should have all properties in the cache
-            let prop_buffer = self.buffer.drain(..prop_size).collect();
-            prop_info = Rc::from(PropertyInfo::create(curr_prop.clone(), self.offset, prop_buffer));
+            let (prop_buffer, remaining) = self.buffer.split_at(prop_size);
+            self.buffer = remaining;
+            prop_info = Rc::from(PropertyInfo::create(curr_prop.clone(), self.offset, prop_buffer.to_owned()));
             self.cache
                 .insert(String::from(&curr_prop.name), Rc::clone(&prop_info));
             self.offset += prop_size;

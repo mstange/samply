@@ -142,7 +142,7 @@ impl SchemaLocator {
     ///     let schema = schema_locator.event_schema(record)?;
     /// };
     /// ```
-    pub fn event_schema(&mut self, event: &EventRecord) -> SchemaResult<TypedEvent> {
+    pub fn event_schema<'a>(&mut self, event: &'a EventRecord) -> SchemaResult<TypedEvent<'a>> {
         let key = SchemaKey::new(&event);
 
         let info = match self.schemas.entry(key) {
@@ -154,7 +154,7 @@ impl SchemaLocator {
             }
         };
 
-        Ok(TypedEvent::new(event.clone(), info.clone()))
+        Ok(TypedEvent::new(event, info.clone()))
     }
 }
 
@@ -179,29 +179,28 @@ impl Schema {
     }
 }
 
-pub struct TypedEvent {
-    record: EventRecord,
+pub struct TypedEvent<'a> {
+    record: &'a EventRecord,
     pub (crate) schema: Arc<Schema>,
 }
 
-impl TypedEvent {
-    pub fn new(record: EventRecord, schema: Arc<Schema>) -> Self {
+impl<'a> TypedEvent<'a> {
+    pub fn new(record: &'a EventRecord, schema: Arc<Schema>) -> Self {
         TypedEvent { record, schema }
     }
 
-    pub(crate) fn user_buffer(&self) -> Vec<u8> {
+    pub(crate) fn user_buffer(&self) -> &[u8] {
         unsafe {
             std::slice::from_raw_parts(
                 self.record.UserData as *mut _,
                 self.record.UserDataLength.into(),
             )
-            .to_vec()
         }
     }
 
     // Horrible getters FTW!! :D
     // TODO: Not a big fan of this, think a better way..
-    pub(crate) fn record(&self) -> EventRecord {
+    pub(crate) fn record(&self) -> &EventRecord {
         self.record
     }
 
@@ -400,7 +399,7 @@ impl TypedEvent {
     }
 }
 
-impl PartialEq for TypedEvent {
+impl<'a> PartialEq for TypedEvent<'a> {
     fn eq(&self, other: &Self) -> bool {
         self.schema.event_schema.event_id() == other.schema.event_schema.event_id()
             && self.schema.event_schema.provider_guid() == other.schema.event_schema.provider_guid()
@@ -408,7 +407,7 @@ impl PartialEq for TypedEvent {
     }
 }
 
-impl Eq for TypedEvent {}
+impl<'a> Eq for TypedEvent<'a> {}
 
 #[cfg(test)]
 mod test {

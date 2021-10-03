@@ -51,7 +51,7 @@ pub fn schema_from_tdh(event: Etw::EVENT_RECORD) -> TdhNativeResult<TraceEventIn
     }
 }
 
-pub(crate) fn property_size(mut event: EventRecord, name: &str) -> TdhNativeResult<u32> {
+pub(crate) fn property_size(mut event: &EventRecord, name: &str) -> TdhNativeResult<u32> {
     let mut property_size = 0;
 
     let mut desc = Etw::PROPERTY_DATA_DESCRIPTOR::default();
@@ -60,7 +60,7 @@ pub(crate) fn property_size(mut event: EventRecord, name: &str) -> TdhNativeResu
 
     unsafe {
         let status = Etw::TdhGetPropertySize(
-            &mut event,
+            event,
             0,
             std::ptr::null_mut(),
             1,
