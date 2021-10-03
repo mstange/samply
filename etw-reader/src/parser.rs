@@ -93,7 +93,7 @@ pub trait TryParse<T> {
 #[allow(dead_code)]
 pub struct Parser<'a> {
     event: &'a TypedEvent,
-    properties: PropertyIter,
+    properties: &'a PropertyIter,
     pub buffer: Vec<u8>,
     last_property: u32,
     offset: usize,
@@ -117,7 +117,7 @@ impl<'a> Parser<'a> {
         Parser {
             event,
             buffer: event.user_buffer(),
-            properties: PropertyIter::new(event),
+            properties: event.schema.properties(),
             last_property: 0,
             offset: 0,
             cache: HashMap::new(), // We could fill the cache on creation

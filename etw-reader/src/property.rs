@@ -34,9 +34,9 @@ impl PropertyIter {
         properties
     }
 
-    pub fn new(event: &TypedEvent) -> Self {
-        let prop_count = event.property_count();
-        let properties = PropertyIter::enum_properties(&event.schema, prop_count);
+    pub fn new(schema: &Schema) -> Self {
+        let prop_count = schema.event_schema.property_count();
+        let properties = PropertyIter::enum_properties(schema, prop_count);
 
         PropertyIter { properties }
     }

@@ -8,6 +8,7 @@ use crate::tdh_types::Property;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
+use once_cell::unsync::OnceCell;
 use windows::Guid;
 
 /// Schema module errors
@@ -159,12 +160,15 @@ impl SchemaLocator {
 
 pub struct Schema {
     pub event_schema: Arc<dyn EventSchema>,
-    properties: Option<PropertyIter>
+    properties: OnceCell<PropertyIter>
 }
 
 impl Schema {
     fn new(event_schema: Arc<dyn EventSchema>) -> Self {
-        Schema { event_schema, properties: None }
+        Schema { event_schema, properties: OnceCell::new() }
+    }
+    pub(crate) fn properties(&self) -> &PropertyIter {
+        self.properties.get_or_init(|| PropertyIter::new(self))
     }
 }
 
