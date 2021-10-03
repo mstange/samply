@@ -12,6 +12,7 @@ extern crate num_derive;
 
 
 use crate::{bindings::Windows::Win32::Foundation::PWSTR, parser::{Parser, TryParse}, schema::{EventSchema, SchemaLocator}, tdh_types::TdhInType};
+use etw_types::EventRecord;
 use schema::TypedEvent;
 use windows::{IntoParam, Param};
 use std::path::Path;
@@ -55,11 +56,11 @@ impl std::ops::DerefMut for EventTraceLogfile {
 
 
 unsafe fn trace_callback_thunk(event_record: *mut Etw::EVENT_RECORD) {
-    let f: &mut &mut dyn FnMut(&Etw::EVENT_RECORD) = std::mem::transmute((*event_record).UserContext);
-    f(&*event_record)
+    let f: &mut &mut dyn FnMut(&EventRecord) = std::mem::transmute((*event_record).UserContext);
+    f(std::mem::transmute(event_record))
 }
 
-pub fn open_trace<F: FnMut(&Etw::EVENT_RECORD)>(path: &Path, mut callback: F)  {
+pub fn open_trace<F: FnMut(&EventRecord)>(path: &Path, mut callback: F)  {
     let mut log_file = EventTraceLogfile::default();
 
     #[cfg(windows)]
@@ -68,7 +69,7 @@ pub fn open_trace<F: FnMut(&Etw::EVENT_RECORD)>(path: &Path, mut callback: F)  {
     let path: Param<PWSTR> = panic!();
     log_file.0.LogFileName = unsafe { path.abi() };
     log_file.0.Anonymous1.ProcessTraceMode = Etw::PROCESS_TRACE_MODE_EVENT_RECORD | Etw::PROCESS_TRACE_MODE_RAW_TIMESTAMP;
-    let mut cb: &mut dyn FnMut(&Etw::EVENT_RECORD) = &mut callback;
+    let mut cb: &mut dyn FnMut(&EventRecord) = &mut callback;
     log_file.0.Context = unsafe { std::mem::transmute(&mut cb) };
     log_file.0.Anonymous2.EventRecordCallback = trace_callback_thunk as *mut _;
 

@@ -1,11 +1,21 @@
+use std::ops::Deref;
+
 use crate::bindings::Windows::Win32::System::Diagnostics::Etw;
 use crate::schema::EventSchema;
 use crate::utils;
 use crate::tdh_types::Property;
 use windows::Guid;
 
+#[repr(transparent)]
+pub struct EventRecord(Etw::EVENT_RECORD);
 
-pub type EventRecord = Etw::EVENT_RECORD;
+impl Deref for EventRecord {
+    type Target = Etw::EVENT_RECORD;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 /// Newtype wrapper over an [EVENT_PROPERTY_INFO]
 ///

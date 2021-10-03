@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use crate::bindings::Windows::Win32::System::Diagnostics::Etw;
 use crate::bindings::Windows::Win32::System::Diagnostics::Debug::ERROR_INSUFFICIENT_BUFFER;
 use crate::etw_types::*;
@@ -21,11 +23,11 @@ impl From<std::io::Error> for TdhNativeError {
 
 pub(crate) type TdhNativeResult<T> = Result<T, TdhNativeError>;
 
-pub fn schema_from_tdh(event: Etw::EVENT_RECORD) -> TdhNativeResult<TraceEventInfoRaw> {
+pub fn schema_from_tdh(event: &Etw::EVENT_RECORD) -> TdhNativeResult<TraceEventInfoRaw> {
     let mut buffer_size = 0;
     unsafe {
         if Etw::TdhGetEventInformation(
-            &event,
+            event,
             0,
             std::ptr::null_mut(),
             std::ptr::null_mut(),
@@ -37,7 +39,7 @@ pub fn schema_from_tdh(event: Etw::EVENT_RECORD) -> TdhNativeResult<TraceEventIn
 
         let mut buffer = TraceEventInfoRaw::alloc(buffer_size);
         if Etw::TdhGetEventInformation(
-            &event,
+            event,
             0,
             std::ptr::null_mut(),
             buffer.info_as_ptr() as *mut _,
@@ -60,7 +62,7 @@ pub(crate) fn property_size(mut event: &EventRecord, name: &str) -> TdhNativeRes
 
     unsafe {
         let status = Etw::TdhGetPropertySize(
-            event,
+            event.deref(),
             0,
             std::ptr::null_mut(),
             1,
