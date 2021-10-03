@@ -10,9 +10,9 @@ use looked_up_addresses::{AddressResults, LookedUpAddresses};
 use regex::Regex;
 use serde_json::json;
 
-pub async fn query_api_json(
+pub async fn query_api_json<'h>(
     request_json: &str,
-    helper: &impl FileAndPathHelper,
+    helper: &'h impl FileAndPathHelper<'h>,
     with_debug_info: bool,
 ) -> String {
     match query_api_fallible_json(request_json, helper, with_debug_info).await {
@@ -21,9 +21,9 @@ pub async fn query_api_json(
     }
 }
 
-pub async fn query_api_fallible_json(
+pub async fn query_api_fallible_json<'h>(
     request_json: &str,
-    helper: &impl FileAndPathHelper,
+    helper: &'h impl FileAndPathHelper<'h>,
     with_debug_info: bool,
 ) -> Result<String> {
     let request: request_json::Request = serde_json::from_str(request_json)?;
@@ -31,9 +31,9 @@ pub async fn query_api_fallible_json(
     Ok(serde_json::to_string(&response)?)
 }
 
-pub async fn query_api(
+pub async fn query_api<'h>(
     request: &request_json::Request,
-    helper: &impl FileAndPathHelper,
+    helper: &'h impl FileAndPathHelper<'h>,
     with_debug_info: bool,
 ) -> Result<response_json::Response> {
     let requested_addresses = gather_requested_addresses(request)?;
@@ -69,9 +69,9 @@ fn gather_requested_addresses(request: &request_json::Request) -> Result<HashMap
     Ok(requested_addresses)
 }
 
-async fn symbolicate_requested_addresses(
+async fn symbolicate_requested_addresses<'h>(
     requested_addresses: HashMap<Lib, Vec<u32>>,
-    helper: &impl FileAndPathHelper,
+    helper: &'h impl FileAndPathHelper<'h>,
     with_debug_info: bool,
 ) -> HashMap<Lib, Result<LookedUpAddresses>> {
     let mut symbolicated_addresses = HashMap::new();

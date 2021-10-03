@@ -65,12 +65,12 @@ pub fn get_macho_uuid<'a, R: ReadRef<'a>>(data: R, header_offset: u64) -> Result
     }
 }
 
-pub async fn get_symbolication_result<'a, 'b, R>(
+pub async fn get_symbolication_result<'a, 'b, 'h, R>(
     file_contents: FileContentsWrapper<impl FileContents>,
     file_range: Option<(u64, u64)>,
     header_offset: u64,
     query: SymbolicationQuery<'a>,
-    helper: &impl FileAndPathHelper,
+    helper: &'h impl FileAndPathHelper<'h>,
 ) -> Result<R>
 where
     R: SymbolicationResult,
@@ -151,10 +151,10 @@ where
     Ok(symbolication_result)
 }
 
-async fn traverse_object_references_and_collect_debug_info(
+async fn traverse_object_references_and_collect_debug_info<'h>(
     object_references: VecDeque<ObjectReference>,
     symbolication_result: &mut impl SymbolicationResult,
-    helper: &impl FileAndPathHelper,
+    helper: &'h impl FileAndPathHelper<'h>,
 ) -> Result<()> {
     // Do a breadth-first-traversal of the external debug info reference tree.
     // We do this using a while loop and a VecDeque rather than recursion, because

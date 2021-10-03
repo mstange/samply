@@ -85,8 +85,10 @@
 //!     artifact_directory: std::path::PathBuf,
 //! }
 //!
-//! impl FileAndPathHelper for ExampleHelper {
+//! impl<'h> FileAndPathHelper<'h> for ExampleHelper {
 //!     type F = Vec<u8>;
+//!     type OpenFileFuture =
+//!         std::pin::Pin<Box<dyn std::future::Future<Output = FileAndPathHelperResult<Self::F>> + 'h>>;
 //!
 //!     fn get_candidate_paths_for_binary_or_pdb(
 //!         &self,
@@ -97,9 +99,9 @@
 //!     }
 //!
 //!     fn open_file(
-//!         &self,
+//!         &'h self,
 //!         location: &FileLocation,
-//!     ) -> std::pin::Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>>>> {
+//!     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = FileAndPathHelperResult<Self::F>> + 'h>> {
 //!         async fn read_file_impl(path: std::path::PathBuf) -> FileAndPathHelperResult<Vec<u8>> {
 //!             Ok(std::fs::read(&path)?)
 //!         }
@@ -149,10 +151,10 @@ pub use crate::shared::{
 
 /// Returns a symbol table in `CompactSymbolTable` format for the requested binary.
 /// `FileAndPathHelper` must be implemented by the caller, to provide file access.
-pub async fn get_compact_symbol_table(
+pub async fn get_compact_symbol_table<'h>(
     debug_name: &str,
     breakpad_id: &str,
-    helper: &impl FileAndPathHelper,
+    helper: &'h impl FileAndPathHelper<'h>,
 ) -> Result<CompactSymbolTable> {
     get_symbolication_result(
         SymbolicationQuery {
@@ -171,9 +173,9 @@ pub async fn get_compact_symbol_table(
 /// either get a regular symbol table, or extended information for a set of addresses, if
 /// the information is present in the found files. See `SymbolicationResultKind` for
 /// more details.
-pub async fn get_symbolication_result<R>(
+pub async fn get_symbolication_result<'h, R>(
     query: SymbolicationQuery<'_>,
-    helper: &impl FileAndPathHelper,
+    helper: &'h impl FileAndPathHelper<'h>,
 ) -> Result<R>
 where
     R: SymbolicationResult,
@@ -234,10 +236,10 @@ where
 ///    The returned data has two extra fields: inlines (per address) and module_errors (per job).
 ///  - `/symbolicate/v5-legacy`: Like v5, but lacking any data that comes from debug information,
 ///    i.e. files, lines and inlines. This is faster.
-pub async fn query_api(
+pub async fn query_api<'h>(
     request_url: &str,
     request_json_data: &str,
-    helper: &impl FileAndPathHelper,
+    helper: &'h impl FileAndPathHelper<'h>,
 ) -> String {
     if request_url == "/symbolicate/v5-legacy" {
         symbolicate::v5::query_api_json(request_json_data, helper, false).await
@@ -248,14 +250,14 @@ pub async fn query_api(
     }
 }
 
-async fn try_get_symbolication_result_from_path<R, H>(
+async fn try_get_symbolication_result_from_path<'h, R, H>(
     query: SymbolicationQuery<'_>,
     file_location: &FileLocation,
-    helper: &H,
+    helper: &'h H,
 ) -> Result<R>
 where
     R: SymbolicationResult,
-    H: FileAndPathHelper,
+    H: FileAndPathHelper<'h>,
 {
     let file_contents = helper.open_file(file_location).await.map_err(|e| {
         GetSymbolsError::HelperErrorDuringOpenFile(file_location.to_string_lossy(), e)
@@ -307,15 +309,15 @@ where
     }
 }
 
-async fn try_get_symbolication_result_from_dyld_shared_cache<R, H>(
+async fn try_get_symbolication_result_from_dyld_shared_cache<'h, R, H>(
     query: SymbolicationQuery<'_>,
     dyld_cache_path: &Path,
     dylib_path: &str,
-    helper: &H,
+    helper: &'h H,
 ) -> Result<R>
 where
     R: SymbolicationResult,
-    H: FileAndPathHelper,
+    H: FileAndPathHelper<'h>,
 {
     let mut chunk_index = 0;
 

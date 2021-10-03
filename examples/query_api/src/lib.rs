@@ -1,6 +1,6 @@
+use futures::Future;
 use profiler_get_symbols::{
     self, CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
-    OptionallySendFuture,
 };
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -14,8 +14,9 @@ struct Helper {
     symbol_directory: PathBuf,
 }
 
-impl FileAndPathHelper for Helper {
+impl<'h> FileAndPathHelper<'h> for Helper {
     type F = memmap2::Mmap;
+    type OpenFileFuture = Pin<Box<dyn Future<Output = FileAndPathHelperResult<Self::F>> + 'h>>;
 
     fn get_candidate_paths_for_binary_or_pdb(
         &self,
@@ -76,9 +77,9 @@ impl FileAndPathHelper for Helper {
     }
 
     fn open_file(
-        &self,
+        &'h self,
         location: &FileLocation,
-    ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>>>> {
+    ) -> Pin<Box<dyn Future<Output = FileAndPathHelperResult<Self::F>> + 'h>> {
         async fn read_file_impl(path: PathBuf) -> FileAndPathHelperResult<memmap2::Mmap> {
             eprintln!("Reading file {:?}", &path);
             let file = File::open(&path)?;

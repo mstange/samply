@@ -1,13 +1,11 @@
 mod error;
 
 use js_sys::Promise;
-use std::pin::Pin;
+use std::{future::Future, pin::Pin};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
-use profiler_get_symbols::{
-    FileByteSource, FileContentsWithChunkedCaching, FileLocation, OptionallySendFuture,
-};
+use profiler_get_symbols::{FileByteSource, FileContentsWithChunkedCaching, FileLocation};
 
 pub use error::{GenericError, GetSymbolsError, JsValueError};
 
@@ -223,8 +221,10 @@ impl Drop for FileContentsWrapper {
     }
 }
 
-impl profiler_get_symbols::FileAndPathHelper for FileAndPathHelper {
+impl<'h> profiler_get_symbols::FileAndPathHelper<'h> for FileAndPathHelper {
     type F = FileContentsWithChunkedCaching<FileContentsWrapper>;
+    type OpenFileFuture =
+        Pin<Box<dyn Future<Output = profiler_get_symbols::FileAndPathHelperResult<Self::F>> + 'h>>;
 
     fn get_candidate_paths_for_binary_or_pdb(
         &self,
@@ -242,13 +242,8 @@ impl profiler_get_symbols::FileAndPathHelper for FileAndPathHelper {
     fn open_file(
         &self,
         location: &FileLocation,
-    ) -> Pin<
-        Box<
-            dyn OptionallySendFuture<
-                Output = profiler_get_symbols::FileAndPathHelperResult<Self::F>,
-            >,
-        >,
-    > {
+    ) -> Pin<Box<dyn Future<Output = profiler_get_symbols::FileAndPathHelperResult<Self::F>> + 'h>>
+    {
         let helper = FileAndPathHelper::from((*self).clone());
         let location = location.clone();
         let future = async move {

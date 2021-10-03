@@ -3,7 +3,6 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::ops::Range;
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::{marker::PhantomData, ops::Deref};
 
 #[cfg(feature = "partial_read_stats")]
@@ -64,8 +63,9 @@ impl FileLocation {
 /// the main entry points of this crate. This crate contains no direct file
 /// access - all access to the file system is via this trait, and its associated
 /// trait `FileContents`.
-pub trait FileAndPathHelper {
+pub trait FileAndPathHelper<'h> {
     type F: FileContents;
+    type OpenFileFuture: OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h;
 
     /// Given a "debug name" and a "breakpad ID", return a list of file paths
     /// which may potentially have artifacts containing symbol data for the
@@ -122,10 +122,7 @@ pub trait FileAndPathHelper {
     /// available synchronously because the `FileContents` methods are synchronous.
     /// If there is no file at the requested path, an error should be returned (or in any
     /// other error case).
-    fn open_file(
-        &self,
-        location: &FileLocation,
-    ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>>>>;
+    fn open_file(&'h self, location: &FileLocation) -> Self::OpenFileFuture;
 }
 
 /// Provides synchronous access to the raw bytes of a file.

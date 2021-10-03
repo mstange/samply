@@ -10,12 +10,12 @@ use regex::Regex;
 use std::borrow::Cow;
 use std::collections::HashMap;
 
-pub async fn get_symbolication_result_via_binary<R>(
+pub async fn get_symbolication_result_via_binary<'h, R>(
     file_kind: object::FileKind,
     file_contents: FileContentsWrapper<impl FileContents>,
     query: SymbolicationQuery<'_>,
     file_location: &FileLocation,
-    helper: &impl FileAndPathHelper,
+    helper: &'h impl FileAndPathHelper<'h>,
 ) -> Result<R>
 where
     R: SymbolicationResult,
@@ -92,10 +92,10 @@ where
     Ok(r)
 }
 
-async fn try_get_symbolication_result_from_pdb_location<R>(
+async fn try_get_symbolication_result_from_pdb_location<'h, R>(
     query: SymbolicationQuery<'_>,
     file_location: &FileLocation,
-    helper: &impl FileAndPathHelper,
+    helper: &'h impl FileAndPathHelper<'h>,
 ) -> Result<R>
 where
     R: SymbolicationResult,
