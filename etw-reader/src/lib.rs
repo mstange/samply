@@ -73,14 +73,10 @@ pub fn open_trace<F: FnMut(&EventRecord)>(path: &Path, mut callback: F)  {
     log_file.0.Context = unsafe { std::mem::transmute(&mut cb) };
     log_file.0.Anonymous2.EventRecordCallback = trace_callback_thunk as *mut _;
 
-    //log_file
-
     let session_handle = unsafe { Etw::OpenTraceW(&mut *log_file) };
     unsafe { Etw::ProcessTrace(&session_handle, 1, std::ptr::null_mut(), std::ptr::null_mut()) };
 
 }
-
-use std::sync::Arc;
 
 pub fn add_custom_schemas(locator: &mut SchemaLocator) {
     locator.add_custom_schema(Box::new(custom_schemas::ImageID{}));

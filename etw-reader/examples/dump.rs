@@ -1,7 +1,6 @@
 use etw_reader::{open_trace, parser::{Parser, TryParse}, schema::{EventSchema, SchemaLocator}, tdh_types::{Property, TdhInType}};
 use windows::{Guid, IntoParam, Param};
-use etw_reader::tdh;
-use std::{path::Path, sync::Arc};
+use std::path::Path;
 
 
 fn print_property(parser: &mut Parser, property: &Property) {
