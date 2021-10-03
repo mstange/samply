@@ -1,7 +1,6 @@
 use object::read::ReadRef;
 use std::fmt::Debug;
 use std::future::Future;
-use std::io::Cursor;
 use std::ops::Range;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -260,33 +259,23 @@ where
         .chain(object_file.symbols())
         .filter(|symbol| symbol.kind() == SymbolKind::Text)
         .filter_map(|symbol| {
-            symbol
-                .name()
-                .ok()
-                .map(|name| ((symbol.address() - vmaddr_of_text_segment) as u32, name.to_string()))
+            symbol.name().ok().map(|name| {
+                (
+                    (symbol.address() - vmaddr_of_text_segment) as u32,
+                    name.to_string(),
+                )
+            })
         })
         .collect();
-
-    // Get extra symbols from the compressed object in .gnu_debugdata, if present.
-    if let Some(debugdata) = object_file.section_by_name(".gnu_debugdata") {
-        use object::ObjectSection;
-        if let Ok(data) = debugdata.data() {
-            let mut cursor = Cursor::new(data);
-            let mut objdata = Vec::new();
-            if let Ok(()) = lzma_rs::xz_decompress(&mut cursor, &mut objdata) {
-                if let Ok(object_file) = object::File::parse(&objdata[..]) {
-                    let extra_symbols = object_to_map(&object_file);
-                    map.extend(extra_symbols.into_iter());
-                }
-            }
-        }
-    }
 
     if let Ok(exports) = object_file.exports() {
         let image_base_address: u64 = object_file.relative_address_base();
         for export in exports {
             if let Ok(name) = std::str::from_utf8(export.name()) {
-                map.push(((export.address() - image_base_address) as u32, name.to_string()));
+                map.push((
+                    (export.address() - image_base_address) as u32,
+                    name.to_string(),
+                ));
             }
         }
     }

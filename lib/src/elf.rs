@@ -4,8 +4,9 @@ use crate::shared::{
     get_symbolication_result_for_addresses_from_object, object_to_map, FileContents,
     FileContentsWrapper, SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
 };
-use object::{File, FileKind, Object, ObjectSection, SectionKind};
+use object::{File, FileKind, Object, ObjectSection, ReadRef, SectionKind};
 use std::cmp;
+use std::io::Cursor;
 use uuid::Uuid;
 
 const UUID_SIZE: usize = 16;
@@ -19,12 +20,13 @@ pub fn get_symbolication_result<R>(
 where
     R: SymbolicationResult,
 {
-    let SymbolicationQuery { breakpad_id, .. } = query;
     let elf_file =
         File::parse(&file_contents).map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
+
     let elf_id =
         get_elf_id(&elf_file).ok_or(GetSymbolsError::InvalidInputError("id cannot be read"))?;
     let elf_id_string = format!("{:X}0", elf_id.to_simple());
+    let SymbolicationQuery { breakpad_id, .. } = query;
     if elf_id_string != breakpad_id {
         return Err(GetSymbolsError::UnmatchedBreakpadId(
             elf_id_string,
@@ -32,6 +34,31 @@ where
         ));
     }
 
+    // If this file has a .gnu_debugdata section, use the uncompressed object from that section instead.
+    if let Some(debugdata) = elf_file.section_by_name(".gnu_debugdata") {
+        if let Ok(data) = debugdata.data() {
+            let mut cursor = Cursor::new(data);
+            let mut objdata = Vec::new();
+            if let Ok(()) = lzma_rs::xz_decompress(&mut cursor, &mut objdata) {
+                if let Ok(elf_file) = File::parse(&objdata[..]) {
+                    let file_contents = FileContentsWrapper::new(&objdata[..]);
+                    return get_symbolication_result_impl(elf_file, &file_contents, query);
+                }
+            }
+        }
+    }
+
+    get_symbolication_result_impl(elf_file, &file_contents, query)
+}
+
+pub fn get_symbolication_result_impl<'data, R>(
+    elf_file: File<'data, impl ReadRef<'data>>,
+    file_contents: &'data FileContentsWrapper<impl FileContents>,
+    query: SymbolicationQuery,
+) -> Result<R>
+where
+    R: SymbolicationResult,
+{
     let (addresses, mut symbolication_result) = match query.result_kind {
         SymbolicationResultKind::AllSymbols => {
             let map = object_to_map(&elf_file);
