@@ -29,7 +29,7 @@ fn main() {
     let s = schema_locator.event_schema(e);
     if let Ok(s) = s {
 
-        println!("{:?} {}/{}/{} {}-{} {} {}", e.EventHeader.ProviderId, s.provider_name(), s.task_name(), s.opcode_name(),  e.EventHeader.EventDescriptor.Opcode, e.EventHeader.EventDescriptor.Id, s.property_count(), e.EventHeader.TimeStamp);
+        println!("{:?} {} {}-{} {} {}", e.EventHeader.ProviderId, s.name(),  e.EventHeader.EventDescriptor.Opcode, e.EventHeader.EventDescriptor.Id, s.property_count(), e.EventHeader.TimeStamp);
 
         let mut parser = Parser::create(&s);
         for i in 0..s.property_count() {
