@@ -18,7 +18,7 @@ version = "0.26.0"
 hyper = { version = "0.14.8", features = ["full"] }
 tokio = { version = "1.6.1", features = ["full"] }
 futures = "0.3"
-profiler-get-symbols = { version = "0.7.1", features = ["send_futures"] }
+profiler-get-symbols = { version = "0.9.0", features = ["send_futures"] }
 # profiler-get-symbols = { path = "../profiler-get-symbols/lib", features = ["send_futures"] }
 memmap2 = "0.5.0"
 serde_json = "1.0.53"
@@ -30,6 +30,9 @@ libc = "0.2.71"
 flate2 = "1.0"
 webbrowser = "0.5.5"
 reqwest = "0.11.4"
+dirs = "4.0"
+thiserror = "1.0.26"
+cab = "0.3.0"
 
 # Needed for moria_mac_spotlight, to find dSYM files
 [target.'cfg(target_os = "macos")'.dependencies]

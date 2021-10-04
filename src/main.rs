@@ -1,13 +1,13 @@
 use std::path::PathBuf;
 use structopt::StructOpt;
 
-use profiler_symbol_server::{start_server, PortSelection};
+use profiler_symbol_server::{get_symbol_path_from_environment, start_server, PortSelection};
 
 #[derive(Debug, StructOpt)]
 #[structopt(
     name = "profiler-symbol-server",
     about = "A local webserver that serves a profile and symbol information.",
-    usage = "profiler-symbol-server <file>"
+    usage = "profiler-symbol-server [<file>]"
 )]
 struct Opt {
     /// Do not open the profiler UI.
@@ -20,7 +20,7 @@ struct Opt {
 
     /// The profile file that should be served.
     #[structopt(parse(from_os_str))]
-    file: PathBuf,
+    file: Option<PathBuf>,
 
     /// Print debugging messages.
     #[structopt(short, long)]
@@ -40,5 +40,14 @@ async fn main() {
             std::process::exit(1)
         }
     };
-    start_server(&opt.file, port_selection, opt.verbose, !opt.no_open).await;
+    let symbol_path =
+        get_symbol_path_from_environment("srv**https://msdl.microsoft.com/download/symbols");
+    start_server(
+        opt.file.as_deref(),
+        port_selection,
+        symbol_path,
+        opt.verbose,
+        !opt.no_open,
+    )
+    .await;
 }

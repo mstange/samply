@@ -1,5 +1,4 @@
 use flate2::read::GzDecoder;
-use hyper::body::Bytes;
 use hyper::server::conn::AddrIncoming;
 use hyper::server::Builder;
 use hyper::service::{make_service_fn, service_fn};
@@ -29,6 +28,14 @@ mod moria_mac;
 #[cfg(target_os = "macos")]
 mod moria_mac_spotlight;
 
+mod symsrv;
+
+pub use symsrv::{
+    get_default_downstream_store, get_symbol_path_from_environment, parse_nt_symbol_path,
+    NtSymbolPathEntry,
+};
+use symsrv::{FileContents, SymbolCache};
+
 const BAD_CHARS: &AsciiSet = &CONTROLS.add(b':').add(b'/');
 
 #[derive(Clone, Debug)]
@@ -50,62 +57,77 @@ impl PortSelection {
 }
 
 pub async fn start_server(
-    profile_filename: &Path,
+    profile_filename: Option<&Path>,
     port_selection: PortSelection,
+    symbol_path: Vec<NtSymbolPathEntry>,
     verbose: bool,
     open_in_browser: bool,
 ) {
-    // Read the profile.json file and parse it as JSON.
-    let mut buffer = std::fs::read(profile_filename).expect("couldn't read file");
+    let (profile, buffer) = if let Some(profile_filename) = profile_filename {
+        // Read the profile.json file and parse it as JSON.
+        let mut buffer = std::fs::read(profile_filename).expect("couldn't read file");
 
-    // Handle .gz profiles
-    if profile_filename.extension() == Some(&OsString::from("gz")) {
-        use std::io::Read;
-        let mut decompressed_buffer = Vec::new();
-        let cursor = Cursor::new(&buffer);
-        GzDecoder::new(cursor)
-            .read_to_end(&mut decompressed_buffer)
-            .expect("couldn't decompress gzip");
-        buffer = decompressed_buffer
-    }
+        // Handle .gz profiles
+        if profile_filename.extension() == Some(&OsString::from("gz")) {
+            use std::io::Read;
+            let mut decompressed_buffer = Vec::new();
+            let cursor = Cursor::new(&buffer);
+            GzDecoder::new(cursor)
+                .read_to_end(&mut decompressed_buffer)
+                .expect("couldn't decompress gzip");
+            buffer = decompressed_buffer
+        }
 
-    let profile: Value = serde_json::from_slice(&buffer).expect("couldn't parse json");
-    let buffer = Arc::new(buffer);
+        let profile: Value = serde_json::from_slice(&buffer).expect("couldn't parse json");
+        let buffer = Arc::new(buffer);
+        (Some(profile), Some(buffer))
+    } else {
+        (None, None)
+    };
 
     let (builder, addr) = make_builder_at_port(port_selection);
 
     let server_origin = format!("http://{}", addr);
-    let profile_url = format!("{}/profile.json", server_origin);
+    let mut template_values: HashMap<&'static str, String> = HashMap::new();
+    template_values.insert("SERVER_URL", server_origin.clone());
 
-    let env_profiler_override = std::env::var("PROFILER_URL").ok();
-    let profiler_origin = match &env_profiler_override {
-        Some(s) => s.trim_end_matches('/'),
-        None => "https://profiler.firefox.com",
+    let profiler_url = if profile_filename.is_some() {
+        let profile_url = format!("{}/profile.json", server_origin);
+
+        let env_profiler_override = std::env::var("PROFILER_URL").ok();
+        let profiler_origin = match &env_profiler_override {
+            Some(s) => s.trim_end_matches('/'),
+            None => "https://profiler.firefox.com",
+        };
+
+        let encoded_profile_url = utf8_percent_encode(&profile_url, BAD_CHARS).to_string();
+        let encoded_symbol_server_url = utf8_percent_encode(&server_origin, BAD_CHARS).to_string();
+        let profiler_url = format!(
+            "{}/from-url/{}/?symbolServer={}",
+            profiler_origin, encoded_profile_url, encoded_symbol_server_url
+        );
+        template_values.insert("PROFILER_URL", profiler_url.clone());
+        template_values.insert("PROFILE_URL", profile_url);
+        Some(profiler_url)
+    } else {
+        None
     };
 
-    let encoded_profile_url = utf8_percent_encode(&profile_url, BAD_CHARS).to_string();
-    let encoded_symbol_server_url = utf8_percent_encode(&server_origin, BAD_CHARS).to_string();
-    let profiler_url = format!(
-        "{}/from-url/{}/?symbolServer={}",
-        profiler_origin, encoded_profile_url, encoded_symbol_server_url
-    );
-    let template_values: HashMap<&'static str, String> = vec![
-        ("SERVER_URL", server_origin.clone()),
-        ("PROFILER_URL", profiler_url.clone()),
-        ("PROFILE_URL", profile_url),
-    ]
-    .into_iter()
-    .collect();
     let template_values = Arc::new(template_values);
 
-    let helper = Arc::new(Helper::for_profile(profile, verbose));
+    let helper = Arc::new(Helper::for_profile(profile, symbol_path, verbose));
     let new_service = make_service_fn(move |_conn| {
         let helper = helper.clone();
-        let buffer = buffer.clone();
+        let raw_profile_json_data = buffer.clone();
         let template_values = template_values.clone();
         async {
             Ok::<_, Infallible>(service_fn(move |req| {
-                symbolication_service(req, template_values.clone(), helper.clone(), buffer.clone())
+                symbolication_service(
+                    req,
+                    template_values.clone(),
+                    helper.clone(),
+                    raw_profile_json_data.clone(),
+                )
             }))
         }
     });
@@ -114,12 +136,16 @@ pub async fn start_server(
 
     eprintln!("Local server listening at {}", server_origin);
     if !open_in_browser {
-        eprintln!("  Open the profiler at {}", profiler_url);
+        if let Some(profiler_url) = &profiler_url {
+            eprintln!("  Open the profiler at {}", profiler_url);
+        }
     }
     eprintln!("Press Ctrl+C to stop.");
 
     if open_in_browser {
-        let _ = webbrowser::open(&profiler_url);
+        if let Some(profiler_url) = &profiler_url {
+            let _ = webbrowser::open(profiler_url);
+        }
     }
 
     // Run this server for... forever!
@@ -167,7 +193,7 @@ fn make_builder_at_port(port_selection: PortSelection) -> (Builder<AddrIncoming>
     }
 }
 
-const TEMPLATE: &str = r#"
+const TEMPLATE_WITH_PROFILE: &str = r#"
 <!DOCTYPE html>
 <html lang="en">
 <meta charset="utf-8">
@@ -182,34 +208,52 @@ const TEMPLATE: &str = r#"
 </ul>
 "#;
 
+const TEMPLATE_WITHOUT_PROFILE: &str = r#"
+<!DOCTYPE html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Profiler Symbol Server</title>
+<body>
+
+<p>This is the profiler symbol server, running at <code>SERVER_URL</code>. You can:</p>
+<ul>
+    <li>Obtain symbols by POSTing to <code>/symbolicate/v5</code>, with the format specified by the <a href="https://tecken.readthedocs.io/en/latest/symbolication.html">Mozilla symbolication API documentation</a>.</li>
+</ul>
+"#;
+
 async fn symbolication_service(
     req: Request<Body>,
     template_values: Arc<HashMap<&'static str, String>>,
     helper: Arc<Helper>,
-    buffer: Arc<Vec<u8>>,
+    raw_profile_json_data: Option<Arc<Vec<u8>>>,
 ) -> Result<Response<Body>, hyper::Error> {
     let mut response = Response::new(Body::empty());
     response.headers_mut().insert(
         header::ACCESS_CONTROL_ALLOW_ORIGIN,
         header::HeaderValue::from_static("*"),
     );
+    let has_profile = raw_profile_json_data.is_some();
 
-    match (req.method(), req.uri().path()) {
-        (&Method::GET, "/") => {
+    match (req.method(), req.uri().path(), raw_profile_json_data) {
+        (&Method::GET, "/", _) => {
             response.headers_mut().insert(
                 header::CONTENT_TYPE,
                 header::HeaderValue::from_static("text/html"),
             );
-            *response.body_mut() = Body::from(substitute_template(TEMPLATE, &*template_values));
+            let template = match has_profile {
+                true => TEMPLATE_WITH_PROFILE,
+                false => TEMPLATE_WITHOUT_PROFILE,
+            };
+            *response.body_mut() = Body::from(substitute_template(template, &*template_values));
         }
-        (&Method::GET, "/profile.json") => {
+        (&Method::GET, "/profile.json", Some(raw_profile_json_data)) => {
             response.headers_mut().insert(
                 header::CONTENT_TYPE,
                 header::HeaderValue::from_static("application/json; charset=UTF-8"),
             );
-            *response.body_mut() = Body::from((*buffer).clone());
+            *response.body_mut() = Body::from((*raw_profile_json_data).clone());
         }
-        (&Method::POST, path) => {
+        (&Method::POST, path, _) => {
             response.headers_mut().insert(
                 header::CONTENT_TYPE,
                 header::HeaderValue::from_static("application/json"),
@@ -238,25 +282,9 @@ fn substitute_template(template: &str, template_values: &HashMap<&'static str, S
     s
 }
 
-enum MyFileContents {
-    Mmap(memmap2::Mmap),
-    Bytes(Bytes),
-}
-
-impl std::ops::Deref for MyFileContents {
-    type Target = [u8];
-
-    #[inline]
-    fn deref(&self) -> &[u8] {
-        match self {
-            MyFileContents::Mmap(mmap) => mmap,
-            MyFileContents::Bytes(bytes) => bytes,
-        }
-    }
-}
-
 struct Helper {
     path_map: HashMap<(String, String), String>,
+    symbol_cache: SymbolCache,
     verbose: bool,
 }
 
@@ -277,17 +305,55 @@ fn add_to_path_map_recursive(profile: &Value, path_map: &mut HashMap<(String, St
 }
 
 impl Helper {
-    pub fn for_profile(profile: Value, verbose: bool) -> Self {
+    pub fn for_profile(
+        profile: Option<Value>,
+        symbol_path: Vec<NtSymbolPathEntry>,
+        verbose: bool,
+    ) -> Self {
         // Build a map (debugName, breakpadID) -> debugPath from the information
         // in profile.libs.
         let mut path_map = HashMap::new();
-        add_to_path_map_recursive(&profile, &mut path_map);
-        Helper { path_map, verbose }
+        if let Some(profile) = profile {
+            add_to_path_map_recursive(&profile, &mut path_map);
+        }
+        let symbol_cache = SymbolCache::new(symbol_path, verbose);
+        Helper {
+            path_map,
+            symbol_cache,
+            verbose,
+        }
+    }
+
+    async fn open_file_impl(
+        &self,
+        location: FileLocation,
+    ) -> FileAndPathHelperResult<FileContents> {
+        match location {
+            FileLocation::Path(path) => {
+                if self.verbose {
+                    eprintln!("Opening file {:?}", path.to_string_lossy());
+                }
+                let file = File::open(&path)?;
+                Ok(FileContents::Mmap(unsafe {
+                    memmap2::MmapOptions::new().map(&file)?
+                }))
+            }
+            FileLocation::Custom(custom) => {
+                assert!(custom.starts_with("symbolserver:"));
+                let path = custom.trim_start_matches("symbolserver:");
+                if self.verbose {
+                    eprintln!("Trying to get file {:?} from symbol cache", path);
+                }
+                Ok(self.symbol_cache.get_pdb(Path::new(path)).await?)
+            }
+        }
     }
 }
 
-impl FileAndPathHelper for Helper {
-    type F = MyFileContents;
+impl<'h> FileAndPathHelper<'h> for Helper {
+    type F = FileContents;
+    type OpenFileFuture =
+        Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>>;
 
     fn get_candidate_paths_for_binary_or_pdb(
         &self,
@@ -354,48 +420,19 @@ impl FileAndPathHelper for Helper {
         }
 
         if debug_name.ends_with(".pdb") {
-            // It could be a Windows system library which can be found on
-            // the Microsoft Symbol Server. Construct a URL so that open_file
-            // can download it.
-            let url = format!(
-                "https://msdl.microsoft.com/download/symbols/{}/{}/{}",
-                debug_name, breakpad_id, debug_name
-            );
-            paths.push(CandidatePathInfo::SingleFile(FileLocation::Custom(url)));
+            // We might find this pdb file with the help of a symbol server.
+            // Construct a custom string to identify this pdb.
+            let custom = format!("symbolserver:{}/{}/{}", debug_name, breakpad_id, debug_name);
+            paths.push(CandidatePathInfo::SingleFile(FileLocation::Custom(custom)));
         }
 
         Ok(paths)
     }
 
     fn open_file(
-        &self,
+        &'h self,
         location: &FileLocation,
-    ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>>>> {
-        if self.verbose {
-            eprintln!("Opening file {:?}", location.to_string_lossy());
-        }
-
-        async fn open_file_impl(location: FileLocation) -> FileAndPathHelperResult<MyFileContents> {
-            match location {
-                FileLocation::Path(path) => {
-                    let file = File::open(&path)?;
-                    Ok(MyFileContents::Mmap(unsafe {
-                        memmap2::MmapOptions::new().map(&file)?
-                    }))
-                }
-                FileLocation::Custom(url) => {
-                    // Download a PDB from the URL.
-                    // It would be nice to have a persistent symbol cache on disk.
-                    let response = reqwest::get(&url)
-                        .await
-                        .map_err(Box::new)?
-                        .error_for_status()?;
-                    let bytes = response.bytes().await.map_err(Box::new)?;
-                    Ok(MyFileContents::Bytes(bytes))
-                }
-            }
-        }
-
-        Box::pin(open_file_impl(location.clone()))
+    ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>> {
+        Box::pin(self.open_file_impl(location.clone()))
     }
 }
