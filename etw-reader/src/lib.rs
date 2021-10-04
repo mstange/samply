@@ -14,6 +14,7 @@ extern crate num_derive;
 use crate::{bindings::Windows::Win32::Foundation::PWSTR, parser::{Parser, TryParse}, schema::{EventSchema, SchemaLocator}, tdh_types::TdhInType};
 use etw_types::EventRecord;
 use schema::TypedEvent;
+use tdh_types::Property;
 use windows::{IntoParam, Param};
 use std::path::Path;
 use crate::bindings::Windows::Win32::System::Diagnostics::Etw;
@@ -76,6 +77,21 @@ pub fn open_trace<F: FnMut(&EventRecord)>(path: &Path, mut callback: F)  {
     let session_handle = unsafe { Etw::OpenTraceW(&mut *log_file) };
     unsafe { Etw::ProcessTrace(&session_handle, 1, std::ptr::null_mut(), std::ptr::null_mut()) };
 
+}
+
+pub fn print_property(parser: &mut Parser, property: &Property) {
+    print!("  {}= ", property.name);
+    match property.in_type() {
+        TdhInType::InTypeUnicodeString => println!("{:?}", TryParse::<String>::try_parse(parser, &property.name)),
+        TdhInType::InTypeAnsiString => println!("{:?}", TryParse::<String>::try_parse(parser, &property.name)),
+        TdhInType::InTypeUInt32 => println!("{:?}", TryParse::<u32>::try_parse(parser, &property.name)),
+        TdhInType::InTypeUInt8 => println!("{:?}", TryParse::<u8>::try_parse(parser, &property.name)),
+        TdhInType::InTypePointer => println!("{:?}", TryParse::<u64>::try_parse(parser, &property.name)),
+        TdhInType::InTypeInt64 => println!("{:?}", TryParse::<i64>::try_parse(parser, &property.name)),
+        TdhInType::InTypeUInt64 => println!("{:?}", TryParse::<u64>::try_parse(parser, &property.name)),
+        TdhInType::InTypeGuid => println!("{:?}", TryParse::<Guid>::try_parse(parser, &property.name)),
+        _ => println!("Unknown {:?}", property.in_type())
+    }
 }
 
 pub fn add_custom_schemas(locator: &mut SchemaLocator) {
