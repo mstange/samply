@@ -1,22 +1,9 @@
-use etw_reader::{open_trace, parser::{Parser, TryParse}, schema::{EventSchema, SchemaLocator}, tdh_types::{Property, TdhInType}};
+use etw_reader::{open_trace, parser::{Parser, TryParse}, print_property, schema::{EventSchema, SchemaLocator}, tdh_types::{Property, TdhInType}};
 use windows::{Guid, IntoParam, Param};
 use std::path::Path;
 
 
-fn print_property(parser: &mut Parser, property: &Property) {
-    print!("  {} = ", property.name);
-    match property.in_type() {
-        TdhInType::InTypeUnicodeString => println!("{:?}", TryParse::<String>::try_parse(parser, &property.name)),
-        TdhInType::InTypeAnsiString => println!("{:?}", TryParse::<String>::try_parse(parser, &property.name)),
-        TdhInType::InTypeUInt32 => println!("{:?}", TryParse::<u32>::try_parse(parser, &property.name)),
-        TdhInType::InTypeUInt8 => println!("{:?}", TryParse::<u8>::try_parse(parser, &property.name)),
-        TdhInType::InTypePointer => println!("{:?}", TryParse::<u64>::try_parse(parser, &property.name)),
-        TdhInType::InTypeInt64 => println!("{:?}", TryParse::<i64>::try_parse(parser, &property.name)),
-        TdhInType::InTypeUInt64 => println!("{:?}", TryParse::<u64>::try_parse(parser, &property.name)),
-        TdhInType::InTypeGuid => println!("{:?}", TryParse::<Guid>::try_parse(parser, &property.name)),
-        _ => println!("Unknown {:?}", property.in_type())
-    }
-}
+
 fn main() {
 
     let mut schema_locator = SchemaLocator::new();
