@@ -176,29 +176,29 @@ impl<'a> Parser<'a> {
             }
             return Ok(size);
         }
-
         // TODO: Study heuristic method used in krabsetw :)
-        if property.flags.is_empty() && property.len() > 0 {
+        if property.flags.is_empty() && property.len() > 0 && property.count == 1 {
             return Ok(property.len());
         }
-
-        match property.in_type {
-            TdhInType::InTypeInt32 | TdhInType::InTypeUInt32 => return Ok(4),
-            TdhInType::InTypeInt64 | TdhInType::InTypeUInt64 => return Ok(8),
-            TdhInType::InTypeInt8 | TdhInType::InTypeUInt8 => return Ok(1),
-            TdhInType::InTypePointer => return Ok(if (self.event.event_flags() & EVENT_HEADER_FLAG_32_BIT_HEADER) != 0 {
-                4
-            } else {
-                8
-            }),
-            TdhInType::InTypeGuid => return Ok(std::mem::size_of::<Guid>()),
-            TdhInType::InTypeUnicodeString => {
-                return Ok(utils::parse_unk_size_null_unicode_vec(&self.buffer).len()*2)
+        if property.count == 1 {
+            match property.in_type {
+                TdhInType::InTypeInt32 | TdhInType::InTypeUInt32 => return Ok(4),
+                TdhInType::InTypeInt64 | TdhInType::InTypeUInt64 => return Ok(8),
+                TdhInType::InTypeInt8 | TdhInType::InTypeUInt8 => return Ok(1),
+                TdhInType::InTypePointer => return Ok(if (self.event.event_flags() & EVENT_HEADER_FLAG_32_BIT_HEADER) != 0 {
+                    4
+                } else {
+                    8
+                }),
+                TdhInType::InTypeGuid => return Ok(std::mem::size_of::<Guid>()),
+                TdhInType::InTypeUnicodeString => {
+                    return Ok(utils::parse_unk_size_null_unicode_vec(&self.buffer).len()*2)
+                }
+                TdhInType::InTypeAnsiString => {
+                    return Ok(utils::parse_unk_size_null_ansi_vec(&self.buffer).len())
+                }
+                _ => {}
             }
-            TdhInType::InTypeAnsiString => {
-                return Ok(utils::parse_unk_size_null_ansi_vec(&self.buffer).len())
-            }
-            _ => {}
         }
         Ok(tdh::property_size(self.event.record(), &property.name).unwrap() as usize)
     }

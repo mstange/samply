@@ -28,6 +28,7 @@ pub struct Property {
     pub in_type: TdhInType,
     /// TDH Out type of the property
     pub out_type: TdhOutType,
+    pub count: u16,
 }
 
 #[doc(hidden)]
@@ -39,13 +40,14 @@ impl Property {
                 .unwrap_or(TdhOutType::OutTypeNull);
             let in_type = FromPrimitive::from_u16(property.Anonymous1.nonStructType.InType)
                 .unwrap_or(TdhInType::InTypeNull);
-
+            
             Property {
                 name,
                 flags: PropertyFlags::from(property.Flags),
                 length: property.Anonymous3.length,
                 in_type,
                 out_type,
+                count: property.Anonymous2.count,
             }
         }
     }

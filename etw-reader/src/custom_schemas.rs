@@ -63,6 +63,7 @@ impl EventSchema for ImageID {
             in_type: prop.in_type,
         out_type: prop.out_type,
         length: 0,
+        count: 1,
         flags: PropertyFlags::empty()}
     }
 }
@@ -122,6 +123,7 @@ impl EventSchema for DbgID {
         Property { name: prop.name.to_owned(),
             in_type: prop.in_type,
         out_type: prop.out_type,
+        count: 1,
         length: 0,
         flags: PropertyFlags::empty()}
     }
@@ -196,6 +198,7 @@ impl EventSchema for ThreadStart {
             in_type: prop.in_type,
         out_type: prop.out_type,
         length: 0,
+        count:1, 
         flags: PropertyFlags::empty()}
     }
 }
