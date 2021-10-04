@@ -1,6 +1,6 @@
 use std::{collections::{HashMap, HashSet, hash_map::Entry}, convert::TryInto, fs::File, io::{BufWriter}, path::Path, time::{Duration, Instant}};
 
-use etw_reader::{Guid, open_trace, parser::{Parser, TryParse}, schema::{TypedEvent, SchemaLocator}, tdh_types::{Property, TdhInType}};
+use etw_reader::{Guid, open_trace, parser::{Parser, TryParse}, print_property, schema::{TypedEvent, SchemaLocator}, tdh_types::{Property, TdhInType}};
 use serde_json::to_writer;
 
 use crate::gecko_profile::ThreadBuilder;
@@ -20,19 +20,6 @@ struct ThreadState {
     last_sample_timestamp: Option<i64>
 }
 
-fn print_property(parser: &mut Parser, property: &Property) {
-    print!("{} = ", property.name);
-    match property.in_type() {
-        TdhInType::InTypeUnicodeString => println!("{:?}", TryParse::<String>::try_parse(parser, &property.name)),
-        TdhInType::InTypeAnsiString => println!("{:?}", TryParse::<String>::try_parse(parser, &property.name)),
-        TdhInType::InTypeUInt32 => println!("{:?}", TryParse::<u32>::try_parse(parser, &property.name)),
-        TdhInType::InTypeUInt8 => println!("{:?}", TryParse::<u8>::try_parse(parser, &property.name)),
-        TdhInType::InTypePointer => println!("{:?}", TryParse::<u64>::try_parse(parser, &property.name)),
-        TdhInType::InTypeInt64 => println!("{:?}", TryParse::<i64>::try_parse(parser, &property.name)),
-        TdhInType::InTypeGuid => println!("{:?}", TryParse::<Guid>::try_parse(parser, &property.name)),
-        _ => println!("Unknown {:?}", property.in_type())
-    }
-}
 
 fn main() {
     let mut profile = gecko_profile::ProfileBuilder::new(Instant::now(), "firefox", 34, Duration::from_secs_f32(1. / 8192.));
@@ -48,6 +35,7 @@ fn main() {
         if let Ok(process_id) = process_filter.parse() {
             process_targets.insert(process_id);
         } else {
+            println!("targeting {}", process_filter);
             process_target_name = Some(process_filter);
         }
     } else {
@@ -56,21 +44,49 @@ fn main() {
     }
 
     let mut thread_index = 0;
+    let mut sample_count = 0;
+    let mut stack_sample_count = 0;
+    let mut dropped_sample_count = 0;
+    let mut timer_resolution: u32 = 0; // Resolution of the hardware timer, in units of 100 nanoseconds.
+    let mut start_time: u64 = 0;
+    let mut perf_freq: u64 = 0;
+    let mut event_count = 0;
 
     open_trace(Path::new(&std::env::args().nth(1).unwrap()), |e| {
-
+        event_count += 1;
         let mut process_event = |s: &TypedEvent| {
+            let to_millis = |timestamp: i64| {
+                (timestamp as f64 / perf_freq as f64) * 1000.
+            };
             match s.name() {
-                "MSNT_SystemTrace/Thread/DCStart" => {
-                    let process_id = s.process_id();
-                    if !process_targets.contains(&process_id) {
-                        return;
+                "MSNT_SystemTrace/EventTrace/Header" => {
+                    let mut parser = Parser::create(&s);
+                    timer_resolution = parser.parse("TimerResolution");
+                    perf_freq = parser.parse("PerfFreq");
+
+                    start_time = e.EventHeader.TimeStamp as u64;
+
+                    for i in 0..s.property_count() {
+                        let property = s.property(i);
+                        print_property(&mut parser, &property);
                     }
+                }
+                "MSNT_SystemTrace/Thread/Start" |
+                "MSNT_SystemTrace/Thread/DCStart" => {
                     let mut parser = Parser::create(&s);
 
                     let thread_id: u32 = parser.parse("TThreadId");
-                    let thread_name: String = parser.parse("ThreadName");
-                    println!("thread_name {}", &thread_name);
+                    let process_id: u32 = parser.parse("ProcessId");
+                    //assert_eq!(process_id,s.process_id());
+                    //println!("thread_name pid: {} tid: {} name: {:?}", process_id, thread_id, thread_name);
+
+                    if !process_targets.contains(&process_id) {
+                        return;
+                    }
+                    for i in 0..s.property_count() {
+                        let property = s.property(i);
+                        print_property(&mut parser, &property);
+                    }
 
                     let thread = match threads.entry(thread_id) {
                         Entry::Occupied(e) => e.into_mut(), 
@@ -87,18 +103,25 @@ fn main() {
                             tb
                         }
                     };
-                    if !thread_name.is_empty() {
-                        thread.builder.set_name(&thread_name);
-                    }
 
+                    let thread_name: Result<String, _> = parser.try_parse("ThreadName");
+                    match thread_name {
+                        Ok(thread_name) if !thread_name.is_empty() =>  thread.builder.set_name(&thread_name),
+                        _ => {}
+                    }
                 }
+                "MSNT_SystemTrace/Process/Start" |
                 "MSNT_SystemTrace/Process/DCStart" => {
                     if let Some(process_target_name) = &process_target_name {
                         let mut parser = Parser::create(&s);
 
+
                         let image_file_name: String = parser.parse("ImageFileName");
+                        println!("process start {}", image_file_name);
+
                         let process_id: u32 = parser.parse("ProcessId");
-                        if image_file_name.contains("firefox.exe") {
+                        if image_file_name.contains(process_target_name) {
+                            println!("tracing {}", process_id);
                             process_targets.insert(process_id);
                         }
                     }
@@ -166,11 +189,16 @@ fn main() {
                             }
                             stack.append(&mut thread.last_kernel_stack.take().unwrap());
                             thread.builder.add_sample(timestamp as f64 / to_milliseconds, &stack, 0);
-                        } else if let Some(kernel_stack) = thread.last_kernel_stack.take() {
-                            // we're left with an unassociated kernel stack
-                            dbg!(thread.last_kernel_stack_time);
-                            thread.builder.add_sample(thread.last_kernel_stack_time as f64 / to_milliseconds, &kernel_stack, 0);                        
+                        } else {
+                            if let Some(kernel_stack) = thread.last_kernel_stack.take() {
+                                // we're left with an unassociated kernel stack
+                                dbg!(thread.last_kernel_stack_time);
+
+                                thread.builder.add_sample(thread.last_kernel_stack_time as f64 / to_milliseconds, &kernel_stack, 0);
+                            }
+                            thread.builder.add_sample(timestamp as f64 / to_milliseconds, &stack, 0);
                         }
+                        stack_sample_count += 1;
                         //XXX: what unit are timestamps in the trace in?
                     }
                 }
@@ -178,10 +206,13 @@ fn main() {
                     let mut parser = Parser::create(&s);
 
                     let thread_id: u32 = parser.parse("ThreadId");
+                    //println!("sample {}", thread_id);
+                    sample_count += 1;
 
                     let thread = match threads.entry(thread_id) {
                         Entry::Occupied(e) => e.into_mut(), 
                         Entry::Vacant(_) => {
+                            dropped_sample_count += 1;
                             // We don't know what process this will before so just drop it for now
                             return;
                         }
@@ -216,13 +247,16 @@ fn main() {
                     let pdb_file_name: String = parser.try_parse("PdbFileName").unwrap();
                     // we only allow some kernel libraries so that we don't have to download symbols for all the modules that have been loaded
                     if process_id == 0 && !(pdb_file_name.contains("ntkrnlmp") || pdb_file_name.contains("win32k")) {
-                        return;
+                        //return;
                     }
                     let (ref file_name, image_size) = libs[&image_base];
                     let uuid = uuid::Uuid::parse_str(&format!("{:?}", guid)).unwrap();
                     profile.add_lib(&pdb_file_name, &pdb_file_name, &uuid, age as u8, "x86_64", &(image_base..(image_base + image_size as u64)));
                 }
-                _ => {}
+                "MSNT_SystemTrace/Thread/CSwitch" | "MSNT_SystemTrace/Thread/ReadyThread" => {}
+                _ => {
+                     //println!("unhandled {}", s.name()) 
+                    }
             }
             
             //println!("{}", name);
@@ -241,5 +275,6 @@ fn main() {
 
     let f = File::create("gecko.json").unwrap();
     to_writer(BufWriter::new(f), &profile.to_json()).unwrap();
-    println!("Took {} seconds", (Instant::now()-start).as_secs_f32())
+    println!("Took {} seconds", (Instant::now()-start).as_secs_f32());
+    println!("{} events, {} samples, {} dropped, {} stack-samples", event_count, sample_count, dropped_sample_count, stack_sample_count);
 }
