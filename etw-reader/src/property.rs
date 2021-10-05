@@ -7,17 +7,17 @@ use crate::tdh_types::Property;
 use crate::schema::{Schema, TypedEvent};
 
 /// Event Property information
-#[derive(Clone, Default, Debug)]
-pub struct PropertyInfo {
+#[derive(Clone, Debug)]
+pub struct PropertyInfo<'a> {
     /// Property attributes
-    pub property: Property,
+    pub property: &'a Property,
     pub offset: usize,
     /// Buffer with the Property data
     pub buffer: Vec<u8>,
 }
 
-impl PropertyInfo {
-    pub fn create(property: Property, offset: usize, buffer: Vec<u8>) -> Self {
+impl<'a> PropertyInfo<'a> {
+    pub fn create(property: &'a Property, offset: usize, buffer: Vec<u8>) -> Self {
         PropertyInfo { property, offset, buffer }
     }
 }

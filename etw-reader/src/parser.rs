@@ -98,7 +98,7 @@ pub struct Parser<'a> {
     last_property: u32,
     offset: usize,
     // a map from property indx to PropertyInfo
-    cache: Vec<PropertyInfo>,
+    cache: Vec<PropertyInfo<'a>>,
 }
 
 impl<'a> Parser<'a> {
@@ -124,7 +124,7 @@ impl<'a> Parser<'a> {
             cache: Vec::new(), // We could fill the cache on creation
         }
     }
-
+    /*
     #[allow(dead_code)]
     fn fill_cache(
         schema: &TypedEvent,
@@ -133,7 +133,6 @@ impl<'a> Parser<'a> {
         let user_buffer_len = schema.user_buffer().len();
         let mut prop_offset = 0;
         panic!();
-/*
         Ok(properties.properties_iter().iter().try_fold(
             HashMap::new(),
             |mut cache, x| -> ParserResult<HashMap<String, PropertyInfo>> {
@@ -155,8 +154,8 @@ impl<'a> Parser<'a> {
 
                 Ok(cache)
             },
-        )?)*/
-    }
+        )?)
+    }*/
 
     // TODO: Find a cleaner way to do this, not very happy with it rn
     fn find_property_size(&self, property: &Property) -> ParserResult<usize> {
@@ -229,7 +228,7 @@ impl<'a> Parser<'a> {
             // and we should have all properties in the cache
             let (prop_buffer, remaining) = self.buffer.split_at(prop_size);
             self.buffer = remaining;
-            self.cache.push(PropertyInfo::create(curr_prop.clone(), self.offset, prop_buffer.to_owned()));
+            self.cache.push(PropertyInfo::create(curr_prop, self.offset, prop_buffer.to_owned()));
             self.offset += prop_size;
         }
         Ok(indx)
