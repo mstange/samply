@@ -1,3 +1,4 @@
+use crate::gecko_profile::Frame;
 use crate::thread_info::time_value;
 
 use super::gecko_profile::ThreadBuilder;
@@ -89,9 +90,12 @@ impl ThreadProfiler {
                 &mut self.stack_scratch_space,
             )?;
 
-            let stack = self
-                .thread_builder
-                .add_sample(now, &self.stack_scratch_space, cpu_delta);
+            let frames = self
+                .stack_scratch_space
+                .iter()
+                .map(|address| Frame::Address(*address));
+
+            let stack = self.thread_builder.add_sample(now, frames, cpu_delta);
             self.previous_stack = Some(stack);
         } else if let Some(previous_stack) = self.previous_stack {
             // No CPU time elapsed since just before the last time we grabbed a stack.

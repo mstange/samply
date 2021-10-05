@@ -18,6 +18,17 @@ pub struct ProfileBuilder {
     subprocesses: Vec<ProfileBuilder>,
 }
 
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
+pub struct StringIndex(u32);
+
+#[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq)]
+pub enum Frame {
+    /// An instruction pointer address / return address
+    Address(u64),
+    /// A string, containing an index returned by ThreadBuilder::intern_string
+    Label(StringIndex),
+}
+
 impl ProfileBuilder {
     pub fn new(start_time: Instant, command_name: &str, pid: u32, interval: Duration) -> Self {
         ProfileBuilder {
@@ -215,10 +226,14 @@ impl ThreadBuilder {
         self.index
     }
 
+    pub fn intern_string(&mut self, s: &str) -> StringIndex {
+        self.string_table.index_for_string(s)
+    }
+
     pub fn add_sample(
         &mut self,
         timestamp: Instant,
-        frames: &[u64],
+        frames: impl Iterator<Item = Frame>,
         cpu_delta: Duration,
     ) -> Option<usize> {
         let stack_index = self.stack_index_for_frames(frames);
@@ -247,17 +262,16 @@ impl ThreadBuilder {
         self.end_time = Some(end_time);
     }
 
-    fn stack_index_for_frames(&mut self, frames: &[u64]) -> Option<usize> {
+    fn stack_index_for_frames(&mut self, frames: impl Iterator<Item = Frame>) -> Option<usize> {
         let frame_indexes: Vec<_> = frames
-            .iter()
-            .map(|&address| self.frame_index_for_address(address))
+            .map(|frame| self.frame_index_for_frame(frame))
             .collect();
         self.stack_table.index_for_frames(&frame_indexes)
     }
 
-    fn frame_index_for_address(&mut self, address: u64) -> usize {
+    fn frame_index_for_frame(&mut self, frame: Frame) -> usize {
         self.frame_table
-            .index_for_frame(&mut self.string_table, address)
+            .index_for_frame(&mut self.string_table, frame)
     }
 
     fn to_json(&self, process_name: &str, process_start: Instant) -> Value {
@@ -392,10 +406,10 @@ impl StackTable {
 #[derive(Debug)]
 struct FrameTable {
     // [string_index]
-    frames: Vec<usize>,
+    frames: Vec<StringIndex>,
 
     // address -> frame index
-    index: BTreeMap<u64, usize>,
+    index: BTreeMap<Frame, usize>,
 }
 
 impl FrameTable {
@@ -406,12 +420,17 @@ impl FrameTable {
         }
     }
 
-    pub fn index_for_frame(&mut self, string_table: &mut StringTable, address: u64) -> usize {
+    pub fn index_for_frame(&mut self, string_table: &mut StringTable, frame: Frame) -> usize {
         let frames = &mut self.frames;
-        *self.index.entry(address).or_insert_with(|| {
+        *self.index.entry(frame.clone()).or_insert_with(|| {
             let frame_index = frames.len();
-            let location_string = format!("0x{:x}", address);
-            let location_string_index = string_table.index_for_string(&location_string);
+            let location_string_index = match frame {
+                Frame::Address(address) => {
+                    let location_string = format!("0x{:x}", address);
+                    string_table.index_for_string(&location_string)
+                }
+                Frame::Label(string_index) => string_index,
+            };
             frames.push(location_string_index);
             frame_index
         })
@@ -423,7 +442,7 @@ impl FrameTable {
             .iter()
             .map(|location| {
                 let category = 0;
-                json!([*location, false, null, null, null, null, category])
+                json!([location.0, false, null, null, null, null, category])
             })
             .collect();
         json!({
@@ -480,7 +499,7 @@ struct Sample {
 #[derive(Debug)]
 struct StringTable {
     strings: Vec<String>,
-    index: HashMap<String, usize>,
+    index: HashMap<String, StringIndex>,
 }
 
 impl StringTable {
@@ -491,11 +510,11 @@ impl StringTable {
         }
     }
 
-    pub fn index_for_string(&mut self, s: &str) -> usize {
+    pub fn index_for_string(&mut self, s: &str) -> StringIndex {
         match self.index.get(s) {
             Some(string_index) => *string_index,
             None => {
-                let string_index = self.strings.len();
+                let string_index = StringIndex(self.strings.len() as u32);
                 self.strings.push(s.to_string());
                 self.index.insert(s.to_string(), string_index);
                 string_index
