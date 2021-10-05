@@ -1,5 +1,5 @@
 use crossbeam_channel::unbounded;
-use profiler_symbol_server::{start_server, PortSelection};
+use profiler_symbol_server::{get_symbol_path_from_environment, start_server, PortSelection};
 use serde_json::to_writer;
 use std::fs::File;
 use std::io::BufWriter;
@@ -154,8 +154,9 @@ struct ServerProps {
 #[tokio::main]
 async fn start_server_main(file: &Path, props: ServerProps) {
     start_server(
-        file,
+        Some(file),
         props.port_selection,
+        get_symbol_path_from_environment("srv**https://msdl.microsoft.com/download/symbols"),
         props.verbose,
         props.open_in_browser,
     )

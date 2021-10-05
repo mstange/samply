@@ -1,7 +1,7 @@
-use gecko_profile::ProfileBuilder;
 use super::kernel_error;
 use super::task_profiler::TaskProfiler;
 use crossbeam_channel::Receiver;
+use gecko_profile::ProfileBuilder;
 use std::mem;
 use std::thread;
 use std::time::{Duration, Instant};
