@@ -617,13 +617,8 @@ impl VmData {
 
 impl Drop for VmData {
     fn drop(&mut self) {
-        let _ = unsafe {
-            mach_vm_deallocate(
-                mach_task_self(),
-                self.data as _,
-                self.data_size as _,
-            )
-        };
+        let _ =
+            unsafe { mach_vm_deallocate(mach_task_self(), self.data as _, self.data_size as _) };
     }
 }
 

@@ -44,7 +44,7 @@ impl TaskProfiler {
         for (i, thread_act) in thread_acts.into_iter().enumerate() {
             // Pretend that the first thread is the main thread. Might not be true.
             let is_main = i == 0;
-            if let Some(thread) = ThreadProfiler::new(task, pid, now, thread_act, now, is_main)? {
+            if let Some(thread) = ThreadProfiler::new(task, pid, thread_act, now, is_main)? {
                 live_threads.insert(thread_act, thread);
             }
         }
@@ -107,14 +107,7 @@ impl TaskProfiler {
             let thread = match entry {
                 Entry::Occupied(ref mut entry) => entry.get_mut(),
                 Entry::Vacant(entry) => {
-                    match ThreadProfiler::new(
-                        self.task,
-                        self.pid,
-                        self.start_time,
-                        thread_act,
-                        now,
-                        false,
-                    )? {
+                    match ThreadProfiler::new(self.task, self.pid, thread_act, now, false)? {
                         Some(thread) => entry.insert(thread),
                         None => continue,
                     }
@@ -170,7 +163,7 @@ impl TaskProfiler {
         }
 
         if let Some(end_time) = self.end_time {
-            profile_builder.set_end_time(end_time.duration_since(self.start_time));
+            profile_builder.set_end_time(end_time);
         }
 
         for DyldInfo {

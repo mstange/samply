@@ -11,33 +11,28 @@ pub struct ProfileBuilder {
     interval: Duration,
     libs: Vec<Lib>,
     threads: HashMap<u32, ThreadBuilder>,
-    start_time: f64,       // as milliseconds since unix epoch
-    end_time: Option<f64>, // as milliseconds since start_time
+    start_time: Instant,
+    end_time: Option<Instant>,
     command_name: String,
     subprocesses: Vec<ProfileBuilder>,
 }
 
 impl ProfileBuilder {
     pub fn new(start_time: Instant, command_name: &str, pid: u32, interval: Duration) -> Self {
-        let now_instant = Instant::now();
-        let now_system = SystemTime::now();
-        let duration_before_now = now_instant.duration_since(start_time);
-        let start_time_system = now_system - duration_before_now;
-        let duration_since_unix_epoch = start_time_system.duration_since(UNIX_EPOCH).unwrap();
         ProfileBuilder {
             pid,
             interval,
             threads: HashMap::new(),
             libs: Vec::new(),
-            start_time: duration_since_unix_epoch.as_secs_f64() * 1000.0,
+            start_time,
             end_time: None,
             command_name: command_name.to_owned(),
             subprocesses: Vec::new(),
         }
     }
 
-    pub fn set_end_time(&mut self, duration_since_start: Duration) {
-        self.end_time = Some(duration_since_start.as_secs_f64() * 1000.0);
+    pub fn set_end_time(&mut self, end_time: Instant) {
+        self.end_time = Some(end_time);
     }
 
     pub fn add_lib(
@@ -90,7 +85,7 @@ impl ProfileBuilder {
         });
         let threads: Vec<Value> = sorted_threads
             .into_iter()
-            .map(|(_, thread)| thread.to_json(&self.command_name))
+            .map(|(_, thread)| thread.to_json(&self.command_name, self.start_time))
             .collect();
         let mut sorted_libs: Vec<_> = self.libs.iter().collect();
         sorted_libs.sort_by_key(|l| l.start_address);
@@ -107,11 +102,20 @@ impl ProfileBuilder {
         });
 
         let subprocesses: Vec<Value> = sorted_subprocesses.iter().map(|p| p.to_json()).collect();
+
+        let start_time_system = instant_to_system_time(self.start_time);
+        let duration_since_unix_epoch = start_time_system.duration_since(UNIX_EPOCH).unwrap();
+        let start_time_ms_since_unix_epoch = duration_since_unix_epoch.as_secs_f64() * 1000.0;
+
+        let end_time_ms_since_start = self
+            .end_time
+            .map(|end_time| to_profile_timestamp(end_time, self.start_time));
+
         json!({
             "meta": {
                 "version": 14,
-                "startTime": self.start_time,
-                "shutdownTime": self.end_time,
+                "startTime": start_time_ms_since_unix_epoch,
+                "shutdownTime": end_time_ms_since_start,
                 "pausedRanges": [],
                 "product": self.command_name,
                 "interval": self.interval.as_secs_f64() * 1000.0,
@@ -140,13 +144,24 @@ impl ProfileBuilder {
     }
 }
 
+fn instant_to_system_time(instant: Instant) -> SystemTime {
+    let now_instant = Instant::now();
+    let now_system = SystemTime::now();
+    let duration_before_now = now_instant - instant;
+    now_system - duration_before_now
+}
+
+fn to_profile_timestamp(instant: Instant, process_start: Instant) -> f64 {
+    (instant - process_start).as_secs_f64() * 1000.0
+}
+
 #[derive(Debug)]
 pub struct ThreadBuilder {
     pid: u32,
     index: u32,
     name: Option<String>,
-    start_time: f64,
-    end_time: Option<f64>,
+    start_time: Instant,
+    end_time: Option<Instant>,
     is_main: bool,
     is_libdispatch_thread: bool,
     stack_table: StackTable,
@@ -159,7 +174,7 @@ impl ThreadBuilder {
     pub fn new(
         pid: u32,
         thread_index: u32,
-        start_time: f64,
+        start_time: Instant,
         is_main: bool,
         is_libdispatch_thread: bool,
     ) -> Self {
@@ -178,7 +193,7 @@ impl ThreadBuilder {
         }
     }
 
-    pub fn get_start_time(&self) -> f64 {
+    pub fn get_start_time(&self) -> Instant {
         self.start_time
     }
 
@@ -194,7 +209,12 @@ impl ThreadBuilder {
         self.index
     }
 
-    pub fn add_sample(&mut self, timestamp: f64, frames: &[u64], cpu_delta: u64) -> Option<usize> {
+    pub fn add_sample(
+        &mut self,
+        timestamp: Instant,
+        frames: &[u64],
+        cpu_delta: u64,
+    ) -> Option<usize> {
         let stack_index = self.stack_index_for_frames(frames);
         self.samples.0.push(Sample {
             timestamp,
@@ -206,7 +226,7 @@ impl ThreadBuilder {
 
     pub fn add_sample_same_stack(
         &mut self,
-        timestamp: f64,
+        timestamp: Instant,
         previous_stack: Option<usize>,
         cpu_delta: u64,
     ) {
@@ -217,7 +237,7 @@ impl ThreadBuilder {
         });
     }
 
-    pub fn notify_dead(&mut self, end_time: f64) {
+    pub fn notify_dead(&mut self, end_time: Instant) {
         self.end_time = Some(end_time);
     }
 
@@ -234,7 +254,7 @@ impl ThreadBuilder {
             .index_for_frame(&mut self.string_table, address)
     }
 
-    fn to_json(&self, process_name: &str) -> Value {
+    fn to_json(&self, process_name: &str, process_start: Instant) -> Value {
         let name = if self.is_main {
             // https://github.com/firefox-devtools/profiler/issues/2508
             "GeckoMain".to_string()
@@ -245,17 +265,21 @@ impl ThreadBuilder {
         } else {
             format!("Thread <{}>", self.index)
         };
+        let register_time = to_profile_timestamp(self.start_time, process_start);
+        let unregister_time = self
+            .end_time
+            .map(|end_time| to_profile_timestamp(end_time, process_start));
         json!({
             "name": name,
             "tid": self.index,
             "pid": self.pid,
             "processType": "default",
             "processName": process_name,
-            "registerTime": self.start_time,
-            "unregisterTime": self.end_time,
+            "registerTime": register_time,
+            "unregisterTime": unregister_time,
             "frameTable": self.frame_table.to_json(),
             "stackTable": self.stack_table.to_json(),
-            "samples": self.samples.to_json(),
+            "samples": self.samples.to_json(process_start),
             "markers": {
                 "schema": {
                     "name": 0,
@@ -408,11 +432,18 @@ impl FrameTable {
 struct SampleTable(Vec<Sample>);
 
 impl SampleTable {
-    pub fn to_json(&self) -> Value {
+    pub fn to_json(&self, process_start: Instant) -> Value {
         let data: Vec<Value> = self
             .0
             .iter()
-            .map(|sample| json!([sample.stack_index, sample.timestamp, 0.0, sample.cpu_delta]))
+            .map(|sample| {
+                json!([
+                    sample.stack_index,
+                    to_profile_timestamp(sample.timestamp, process_start),
+                    0.0,
+                    sample.cpu_delta
+                ])
+            })
             .collect();
         json!({
             "schema": {
@@ -428,7 +459,7 @@ impl SampleTable {
 
 #[derive(Debug)]
 struct Sample {
-    timestamp: f64,
+    timestamp: Instant,
     stack_index: Option<usize>,
     cpu_delta: u64,
 }

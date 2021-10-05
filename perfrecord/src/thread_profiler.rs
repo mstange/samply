@@ -18,7 +18,6 @@ use super::thread_info::{
 };
 
 pub struct ThreadProfiler {
-    process_start: Instant,
     thread_act: thread_act_t,
     _tid: u32,
     name: Option<String>,
@@ -34,7 +33,6 @@ impl ThreadProfiler {
     pub fn new(
         task: mach_port_t,
         pid: u32,
-        process_start: Instant,
         thread_act: thread_act_t,
         now: Instant,
         is_main: bool,
@@ -45,15 +43,8 @@ impl ThreadProfiler {
             Err(KernelError::InvalidArgument) => return Ok(None),
             Err(err) => return Err(err),
         };
-        let thread_builder = ThreadBuilder::new(
-            pid,
-            tid,
-            now.duration_since(process_start).as_secs_f64() * 1000.0,
-            is_main,
-            is_libdispatch_thread,
-        );
+        let thread_builder = ThreadBuilder::new(pid, tid, now, is_main, is_libdispatch_thread);
         Ok(Some(ThreadProfiler {
-            process_start,
             thread_act,
             _tid: tid,
             name: None,
@@ -86,7 +77,6 @@ impl ThreadProfiler {
             }
         }
 
-        let timestamp = now.duration_since(self.process_start).as_secs_f64() * 1000.0;
         let cpu_time = get_thread_cpu_time(self.thread_act)?;
         let cpu_time = cpu_time.0 + cpu_time.1;
         let cpu_delta = cpu_time.wrapping_sub(self.previous_sample_cpu_time);
@@ -99,9 +89,9 @@ impl ThreadProfiler {
                 &mut self.stack_scratch_space,
             )?;
 
-            let stack =
-                self.thread_builder
-                    .add_sample(timestamp, &self.stack_scratch_space, cpu_delta);
+            let stack = self
+                .thread_builder
+                .add_sample(now, &self.stack_scratch_space, cpu_delta);
             self.previous_stack = Some(stack);
         } else if let Some(previous_stack) = self.previous_stack {
             // No CPU time elapsed since just before the last time we grabbed a stack.
@@ -120,7 +110,7 @@ impl ThreadProfiler {
             //     - add_sample_same_stack with stack from previous sample
             //
             self.thread_builder
-                .add_sample_same_stack(timestamp, previous_stack, cpu_delta);
+                .add_sample_same_stack(now, previous_stack, cpu_delta);
         }
 
         self.previous_sample_cpu_time = cpu_time;
@@ -129,8 +119,7 @@ impl ThreadProfiler {
     }
 
     pub fn notify_dead(&mut self, end_time: Instant) {
-        self.thread_builder
-            .notify_dead(end_time.duration_since(self.process_start).as_secs_f64() * 1000.0);
+        self.thread_builder.notify_dead(end_time);
         self.stack_memory.clear();
     }
 
