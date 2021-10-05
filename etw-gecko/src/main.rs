@@ -257,9 +257,9 @@ fn main() {
 
                     let guid: Guid = parser.try_parse("GuidSig").unwrap();
                     let mut guid_vec = Vec::with_capacity(16);
-                    guid_vec.extend_from_slice(&guid.data1.to_be_bytes());
-                    guid_vec.extend_from_slice(&guid.data2.to_be_bytes());
-                    guid_vec.extend_from_slice(&guid.data3.to_be_bytes());
+                    guid_vec.extend_from_slice(&guid.data1.to_le_bytes());
+                    guid_vec.extend_from_slice(&guid.data2.to_le_bytes());
+                    guid_vec.extend_from_slice(&guid.data3.to_le_bytes());
                     guid_vec.extend_from_slice(&guid.data4);
                     let age: u32 = parser.try_parse("Age").unwrap();
                     let debug_id = DebugId::from_guid_age(&guid_vec, age).unwrap();
