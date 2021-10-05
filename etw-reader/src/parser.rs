@@ -98,7 +98,7 @@ pub struct Parser<'a> {
     last_property: u32,
     offset: usize,
     // a map from property indx to PropertyInfo
-    cache: Vec<Rc<PropertyInfo>>,
+    cache: Vec<PropertyInfo>,
 }
 
 impl<'a> Parser<'a> {
@@ -211,8 +211,6 @@ impl<'a> Parser<'a> {
             return Ok(indx);
         }
 
-        let mut prop_info = Rc::new(PropertyInfo::default());
-
         // TODO: Find a way to do this with an iter, try_find looks promising but is not stable yet
         // TODO: Clean this a bit, not a big fan of this loop
         for i in self.cache.len()..=indx {
@@ -231,8 +229,7 @@ impl<'a> Parser<'a> {
             // and we should have all properties in the cache
             let (prop_buffer, remaining) = self.buffer.split_at(prop_size);
             self.buffer = remaining;
-            prop_info = Rc::from(PropertyInfo::create(curr_prop.clone(), self.offset, prop_buffer.to_owned()));
-            self.cache.push(Rc::clone(&prop_info));
+            self.cache.push(PropertyInfo::create(curr_prop.clone(), self.offset, prop_buffer.to_owned()));
             self.offset += prop_size;
         }
         Ok(indx)
