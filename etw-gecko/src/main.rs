@@ -22,7 +22,6 @@ struct ThreadState {
 
 fn main() {
     let profile_start_instant = Instant::now();
-    let mut profile = gecko_profile::ProfileBuilder::new(profile_start_instant, "firefox", 34, Duration::from_secs_f32(1. / 8192.));
     
     let mut schema_locator = SchemaLocator::new();
     etw_reader::add_custom_schemas(&mut schema_locator);
@@ -42,6 +41,10 @@ fn main() {
         println!("No process specified");
         std::process::exit(1);
     }
+    
+    let command_name = process_target_name.as_deref().unwrap_or("firefox");
+    let mut profile = gecko_profile::ProfileBuilder::new(profile_start_instant, command_name, 34, Duration::from_secs_f32(1. / 8192.));
+
 
     let mut thread_index = 0;
     let mut sample_count = 0;
