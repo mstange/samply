@@ -3,7 +3,7 @@ use crate::thread_info::time_value;
 use super::gecko_profile::ThreadBuilder;
 use mach::mach_types::thread_act_t;
 use std::mem;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use super::proc_maps::{get_backtrace, ForeignMemory};
 
@@ -25,7 +25,7 @@ pub struct ThreadProfiler {
     thread_builder: ThreadBuilder,
     tick_count: usize,
     stack_memory: ForeignMemory,
-    previous_sample_cpu_time: u64,
+    previous_sample_cpu_time: Duration,
     previous_stack: Option<Option<usize>>,
 }
 
@@ -52,7 +52,7 @@ impl ThreadProfiler {
             thread_builder,
             tick_count: 0,
             stack_memory: ForeignMemory::new(task),
-            previous_sample_cpu_time: 0,
+            previous_sample_cpu_time: Duration::ZERO,
             previous_stack: None,
         }))
     }
@@ -77,11 +77,11 @@ impl ThreadProfiler {
             }
         }
 
-        let cpu_time = get_thread_cpu_time(self.thread_act)?;
+        let cpu_time = get_thread_cpu_time_since_thread_start(self.thread_act)?;
         let cpu_time = cpu_time.0 + cpu_time.1;
-        let cpu_delta = cpu_time.wrapping_sub(self.previous_sample_cpu_time);
+        let cpu_delta = cpu_time - self.previous_sample_cpu_time;
 
-        if cpu_delta != 0 || self.previous_stack.is_none() {
+        if !cpu_delta.is_zero() || self.previous_stack.is_none() {
             self.stack_scratch_space.clear();
             get_backtrace(
                 &mut self.stack_memory,
@@ -170,9 +170,10 @@ fn get_thread_name(thread_act: thread_act_t) -> kernel_error::Result<Option<Stri
     Ok(if name.is_empty() { None } else { Some(name) })
 }
 
-// (user time, system time) in integer microseconds
-fn get_thread_cpu_time(thread_act: thread_act_t) -> kernel_error::Result<(u64, u64)> {
-    // Get the thread name.
+// (user time, system time)
+fn get_thread_cpu_time_since_thread_start(
+    thread_act: thread_act_t,
+) -> kernel_error::Result<(Duration, Duration)> {
     let mut basic_info_data: thread_basic_info_data_t = unsafe { mem::zeroed() };
     let mut count = THREAD_BASIC_INFO_COUNT;
     unsafe {
@@ -186,11 +187,11 @@ fn get_thread_cpu_time(thread_act: thread_act_t) -> kernel_error::Result<(u64, u
     .into_result()?;
 
     Ok((
-        time_value_to_microseconds(&basic_info_data.user_time),
-        time_value_to_microseconds(&basic_info_data.system_time),
+        time_value_to_duration(&basic_info_data.user_time),
+        time_value_to_duration(&basic_info_data.system_time),
     ))
 }
 
-fn time_value_to_microseconds(tv: &time_value) -> u64 {
-    tv.seconds as u64 * 1_000_000 + tv.microseconds as u64
+fn time_value_to_duration(tv: &time_value) -> Duration {
+    Duration::from_secs(tv.seconds as u64) + Duration::from_micros(tv.microseconds as u64)
 }

@@ -213,13 +213,13 @@ impl ThreadBuilder {
         &mut self,
         timestamp: Instant,
         frames: &[u64],
-        cpu_delta: u64,
+        cpu_delta: Duration,
     ) -> Option<usize> {
         let stack_index = self.stack_index_for_frames(frames);
         self.samples.0.push(Sample {
             timestamp,
             stack_index,
-            cpu_delta,
+            cpu_delta_us: cpu_delta.as_micros() as u64,
         });
         stack_index
     }
@@ -228,12 +228,12 @@ impl ThreadBuilder {
         &mut self,
         timestamp: Instant,
         previous_stack: Option<usize>,
-        cpu_delta: u64,
+        cpu_delta: Duration,
     ) {
         self.samples.0.push(Sample {
             timestamp,
             stack_index: previous_stack,
-            cpu_delta,
+            cpu_delta_us: cpu_delta.as_micros() as u64,
         });
     }
 
@@ -441,7 +441,7 @@ impl SampleTable {
                     sample.stack_index,
                     to_profile_timestamp(sample.timestamp, process_start),
                     0.0,
-                    sample.cpu_delta
+                    sample.cpu_delta_us
                 ])
             })
             .collect();
@@ -461,7 +461,7 @@ impl SampleTable {
 struct Sample {
     timestamp: Instant,
     stack_index: Option<usize>,
-    cpu_delta: u64,
+    cpu_delta_us: u64,
 }
 
 #[derive(Debug)]
