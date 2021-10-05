@@ -41,8 +41,8 @@ impl PropertyIter {
         PropertyIter { properties, name_to_indx }
     }
 
-    pub fn property(&self, index: u32) -> Option<&Property> {
-        self.properties.get(index as usize)
+    pub fn property(&self, index: usize) -> Option<&Property> {
+        self.properties.get(index)
     }
 
     pub fn properties_iter(&self) -> &[Property] {

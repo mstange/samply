@@ -204,22 +204,19 @@ impl<'a> Parser<'a> {
         Ok(tdh::property_size(self.event.record(), &property.name).unwrap() as usize)
     }
 
-    pub fn find_property(&mut self, name: &str) -> ParserResult<Rc<PropertyInfo>> {
+    pub fn find_property(&mut self, name: &str) -> ParserResult<usize> {
         let indx = *self.properties.name_to_indx.get(name).ok_or_else(
             || ParserError::PropertyError("Unknown property".to_owned()))?;
         if indx < self.cache.len()  {
-            return Ok(Rc::clone(&self.cache[indx]));
+            return Ok(indx);
         }
 
         let mut prop_info = Rc::new(PropertyInfo::default());
 
         // TODO: Find a way to do this with an iter, try_find looks promising but is not stable yet
         // TODO: Clean this a bit, not a big fan of this loop
-        for i in self.last_property..self.event.property_count() {
-            let curr_prop = match self.properties.property(i) {
-                Some(prop) => prop,
-                None => return Err(ParserError::PropertyError("Index out of bounds".to_owned())),
-            };
+        for i in self.cache.len()..=indx {
+            let curr_prop = self.properties.property(i).unwrap();
 
             let prop_size = self.find_property_size(&curr_prop)?;
 
@@ -237,13 +234,8 @@ impl<'a> Parser<'a> {
             prop_info = Rc::from(PropertyInfo::create(curr_prop.clone(), self.offset, prop_buffer.to_owned()));
             self.cache.push(Rc::clone(&prop_info));
             self.offset += prop_size;
-            if name == curr_prop.name {
-                self.last_property = i + 1;
-                break;
-            }
         }
-
-        Ok(prop_info)
+        Ok(indx)
     }
 }
 
@@ -252,7 +244,8 @@ macro_rules! impl_try_parse_primitive {
         impl TryParse<$T> for Parser<'_> {
             fn try_parse(&mut self, name: &str) -> ParserResult<$T> {
                 use TdhInType::*;
-                let prop_info = self.find_property(name)?;
+                let indx = self.find_property(name)?;
+                let prop_info = &self.cache[indx];
                 let prop_info: &PropertyInfo = prop_info.borrow();
 
                 if prop_info.property.in_type() != $ty {
@@ -279,8 +272,8 @@ impl_try_parse_primitive!(i64, InTypeInt64);
 impl TryParse<u64> for Parser<'_> {
     fn try_parse(&mut self, name: &str) -> ParserResult<u64> {
         use TdhInType::*;
-        let prop_info = self.find_property(name)?;
-        let prop_info: &PropertyInfo = prop_info.borrow();
+        let indx = self.find_property(name)?;
+        let prop_info = &self.cache[indx];
 
         if prop_info.property.in_type() == InTypeUInt64 {
             if std::mem::size_of::<u64>() != prop_info.buffer.len() {
@@ -328,7 +321,8 @@ impl TryParse<u64> for Parser<'_> {
 /// [TdhInTypes]: TdhInType
 impl TryParse<String> for Parser<'_> {
     fn try_parse(&mut self, name: &str) -> ParserResult<String> {
-        let prop_info = self.find_property(name)?;
+        let indx = self.find_property(name)?;
+        let prop_info = &self.cache[indx];
         let prop_info: &PropertyInfo = prop_info.borrow();
 
         // TODO: Handle errors and type checking better
@@ -353,7 +347,8 @@ impl TryParse<String> for Parser<'_> {
 
 impl TryParse<Guid> for Parser<'_> {
     fn try_parse(&mut self, name: &str) -> Result<Guid, ParserError> {
-        let prop_info = self.find_property(name)?;
+        let indx = self.find_property(name)?;
+        let prop_info = &self.cache[indx];
         let prop_info: &PropertyInfo = prop_info.borrow();
         let res = match prop_info.property.in_type() {
             TdhInType::InTypeUnicodeString => {
@@ -388,7 +383,8 @@ impl TryParse<Guid> for Parser<'_> {
 
 impl TryParse<IpAddr> for Parser<'_> {
     fn try_parse(&mut self, name: &str) -> ParserResult<IpAddr> {
-        let prop_info = self.find_property(name)?;
+        let indx = self.find_property(name)?;
+        let prop_info = &self.cache[indx];
         let prop_info: &PropertyInfo = prop_info.borrow();
 
         if prop_info.property.out_type() != TdhOutType::OutTypeIpv4
@@ -457,7 +453,8 @@ impl std::fmt::Display for Pointer {
 
 impl TryParse<Pointer> for Parser<'_> {
     fn try_parse(&mut self, name: &str) -> ParserResult<Pointer> {
-        let prop_info = self.find_property(name)?;
+        let indx = self.find_property(name)?;
+        let prop_info = &self.cache[indx];
         let prop_info: &PropertyInfo = prop_info.borrow();
 
         let mut res = Pointer::default();
@@ -473,7 +470,8 @@ impl TryParse<Pointer> for Parser<'_> {
 
 impl TryParse<Vec<u8>> for Parser<'_> {
     fn try_parse(&mut self, name: &str) -> Result<Vec<u8>, ParserError> {
-        let prop_info = self.find_property(name)?;
+        let indx = self.find_property(name)?;
+        let prop_info = &self.cache[indx];
         let prop_info: &PropertyInfo = prop_info.borrow();
 
         Ok(prop_info.buffer.clone())
