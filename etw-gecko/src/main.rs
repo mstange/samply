@@ -15,6 +15,7 @@ fn is_kernel_address(ip: u64, pointer_size: u32) -> bool {
 }
 struct ThreadState {
     builder: ThreadBuilder,
+    name: Option<String>,
     last_kernel_stack: Option<Vec<u64>>,
     last_kernel_stack_time: u64,
     last_sample_timestamp: Option<i64>
@@ -23,15 +24,20 @@ struct ThreadState {
 
 fn main() {
     let profile_start_instant = Instant::now();
-    
+
     let mut schema_locator = SchemaLocator::new();
     etw_reader::add_custom_schemas(&mut schema_locator);
     let mut threads: HashMap<u32, ThreadState> = HashMap::new();
     let mut libs: HashMap<u64, (PathBuf, u32)> = HashMap::new();
     let start = Instant::now();
+    let mut pargs = pico_args::Arguments::from_env();
+    let merge_threads = pargs.contains("--merge-threads");
+
+    let trace_file: String = pargs.free_from_str().unwrap();
+
     let mut process_targets = HashSet::new();
     let mut process_target_name = None;
-    if let Some(process_filter) = std::env::args().nth(2) {
+    if let Ok(process_filter) = pargs.free_from_str::<String>() {
         if let Ok(process_id) = process_filter.parse() {
             process_targets.insert(process_id);
         } else {
@@ -46,7 +52,6 @@ fn main() {
     let command_name = process_target_name.as_deref().unwrap_or("firefox");
     let mut profile = gecko_profile::ProfileBuilder::new(profile_start_instant, command_name, 34, Duration::from_secs_f32(1. / 8192.));
 
-
     let mut thread_index = 0;
     let mut sample_count = 0;
     let mut stack_sample_count = 0;
@@ -55,8 +60,9 @@ fn main() {
     let mut start_time: u64 = 0;
     let mut perf_freq: u64 = 0;
     let mut event_count = 0;
+    let mut global_thread = ThreadBuilder::new(1, 1, profile_start_instant, false, false);
 
-    open_trace(Path::new(&std::env::args().nth(1).unwrap()), |e| {
+    open_trace(Path::new(&trace_file), |e| {
         event_count += 1;
         let mut process_event = |s: &TypedEvent| {
             let to_millis = |timestamp: i64| {
@@ -101,7 +107,8 @@ fn main() {
                                     builder: ThreadBuilder::new(process_id, thread_index, thread_start_instant, false, false),
                                     last_kernel_stack: None,
                                     last_kernel_stack_time: 0,
-                                    last_sample_timestamp: None
+                                    last_sample_timestamp: None,
+                                    name: None,
                                 }
                             );
                             thread_index += 1;
@@ -111,7 +118,7 @@ fn main() {
 
                     let thread_name: Result<String, _> = parser.try_parse("ThreadName");
                     match thread_name {
-                        Ok(thread_name) if !thread_name.is_empty() =>  thread.builder.set_name(&thread_name),
+                        Ok(thread_name) if !thread_name.is_empty() => { thread.builder.set_name(&thread_name); thread.name = Some(thread_name)},
                         _ => {}
                     }
                 }
@@ -149,7 +156,8 @@ fn main() {
                                     builder: ThreadBuilder::new(process_id, thread_index, thread_start_instant, false, false),
                                     last_kernel_stack: None,
                                     last_kernel_stack_time: 0,
-                                    last_sample_timestamp: None
+                                    last_sample_timestamp: None,
+                                    name: None,
                                 }
                             );
                             thread_index += 1;
@@ -196,7 +204,16 @@ fn main() {
                             let timestamp = profile_start_instant + Duration::from_nanos(timestamp * to_nanoseconds);
                             stack.append(&mut thread.last_kernel_stack.take().unwrap());
                             let frames = stack.iter().map(|addr| gecko_profile::Frame::Address(*addr));
-                            thread.builder.add_sample(timestamp, frames, Duration::ZERO);
+                            if merge_threads {
+                                let stack_frames = frames;
+                                let mut frames = Vec::new();
+                                let thread_name = thread.name.as_ref().map(|x| x.to_owned()).unwrap_or_else(|| format!("thread {}", thread.builder.get_tid()));
+                                frames.push(gecko_profile::Frame::Label(global_thread.intern_string(&thread_name)));
+                                frames.extend(stack_frames);
+                                global_thread.add_sample(timestamp, frames.into_iter(), Duration::ZERO);
+                            } else {
+                                thread.builder.add_sample(timestamp, frames, Duration::ZERO);
+                            }
                         } else {
                             if let Some(kernel_stack) = thread.last_kernel_stack.take() {
                                 // we're left with an unassociated kernel stack
@@ -204,11 +221,29 @@ fn main() {
 
                                 let timestamp = profile_start_instant + Duration::from_nanos(thread.last_kernel_stack_time * to_nanoseconds);
                                 let frames = kernel_stack.iter().map(|addr| gecko_profile::Frame::Address(*addr));
-                                thread.builder.add_sample(timestamp, frames, Duration::ZERO);
+                                if merge_threads {
+                                    let stack_frames = frames;
+                                    let mut frames = Vec::new();
+                                    let thread_name = thread.name.as_ref().map(|x| x.to_owned()).unwrap_or_else(|| format!("thread {}", thread.builder.get_tid()));
+                                    frames.push(gecko_profile::Frame::Label(global_thread.intern_string(&thread_name)));
+                                    frames.extend(stack_frames);
+                                    global_thread.add_sample(timestamp, frames.into_iter(), Duration::ZERO);
+                                } else {
+                                    thread.builder.add_sample(timestamp, frames, Duration::ZERO);
+                                }
                             }
                             let timestamp = profile_start_instant + Duration::from_nanos(timestamp * to_nanoseconds);
                             let frames = stack.iter().map(|addr| gecko_profile::Frame::Address(*addr));
-                            thread.builder.add_sample(timestamp, frames, Duration::ZERO);
+                            if merge_threads {
+                                let stack_frames = frames;
+                                let mut frames = Vec::new();
+                                let thread_name = thread.name.as_ref().map(|x| x.to_owned()).unwrap_or_else(|| format!("thread {}", thread.builder.get_tid()));
+                                frames.push(gecko_profile::Frame::Label(global_thread.intern_string(&thread_name)));
+                                frames.extend(stack_frames);
+                                global_thread.add_sample(timestamp, frames.into_iter(), Duration::ZERO);
+                            } else {
+                                thread.builder.add_sample(timestamp, frames, Duration::ZERO);
+                            }
                         }
                         stack_sample_count += 1;
                         //XXX: what unit are timestamps in the trace in?
@@ -282,8 +317,11 @@ fn main() {
         }
     });
 
-    for (_, thread) in threads.drain() { profile.add_thread(thread.builder); }
-
+    if merge_threads {
+        profile.add_thread(global_thread);
+    } else {
+        for (_, thread) in threads.drain() { profile.add_thread(thread.builder); }
+    }
     let f = File::create("gecko.json").unwrap();
     to_writer(BufWriter::new(f), &profile.to_json()).unwrap();
     println!("Took {} seconds", (Instant::now()-start).as_secs_f32());
