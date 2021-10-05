@@ -5,7 +5,7 @@ use crate::etw_types::{DecodingSource, EventRecord, TraceEventInfoRaw};
 use crate::property::PropertyIter;
 use crate::tdh;
 use crate::tdh_types::Property;
-use std::collections::HashMap;
+use crate::FastHashMap;
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use once_cell::unsync::OnceCell;
@@ -80,7 +80,7 @@ impl SchemaKey {
 /// Credits: [KrabsETW::schema_locator](https://github.com/microsoft/krabsetw/blob/master/krabs/krabs/schema_locator.hpp)
 #[derive(Default)]
 pub struct SchemaLocator {
-    schemas: HashMap<SchemaKey, Arc<Schema>>,
+    schemas: FastHashMap<SchemaKey, Arc<Schema>>,
 }
 
 pub trait EventSchema {
@@ -110,7 +110,7 @@ impl std::fmt::Debug for SchemaLocator {
 impl SchemaLocator {
     pub fn new() -> Self {
         SchemaLocator {
-            schemas: HashMap::new(),
+            schemas: FastHashMap::default(),
         }
     }
 

@@ -16,8 +16,9 @@ use etw_types::EventRecord;
 use schema::TypedEvent;
 use tdh_types::Property;
 use windows::{IntoParam, Param};
-use std::path::Path;
+use std::{collections::HashMap, hash::BuildHasherDefault, path::Path};
 use crate::bindings::Windows::Win32::System::Diagnostics::Etw;
+use fxhash::FxHasher;
 //, WindowsProgramming};
 
 pub mod etw_types;
@@ -32,6 +33,8 @@ pub mod traits;
 pub mod custom_schemas;
 
 pub use windows::Guid;
+
+pub type FastHashMap<K, V> = HashMap<K, V, BuildHasherDefault<FxHasher>>;
 #[repr(C)]
 #[derive(Clone)]
 pub struct EventTraceLogfile(Etw::EVENT_TRACE_LOGFILEW);
