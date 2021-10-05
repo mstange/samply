@@ -165,6 +165,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "debugid"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f91cf5a8c2f2097e2a32627123508635d47ce10563d999ec1a95addf08b502ba"
+dependencies = [
+ "uuid",
+]
+
+[[package]]
 name = "elsa"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -880,6 +889,7 @@ version = "0.6.4"
 dependencies = [
  "backtrace",
  "crossbeam-channel",
+ "debugid",
  "libc",
  "mach",
  "perfrecord-mach-ipc-rendezvous",

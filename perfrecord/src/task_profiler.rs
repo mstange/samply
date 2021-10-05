@@ -1,6 +1,7 @@
 use super::kernel_error::{self, IntoResult, KernelError};
 use super::proc_maps::{DyldInfo, DyldInfoManager, Modification};
 use super::thread_profiler::ThreadProfiler;
+use debugid::DebugId;
 use mach::mach_types::thread_act_port_array_t;
 use mach::mach_types::thread_act_t;
 use mach::message::mach_msg_type_number_t;
@@ -179,9 +180,17 @@ impl TaskProfiler {
                 (Some(uuid), Some(arch)) => (uuid, arch),
                 _ => continue,
             };
-            let name = Path::new(&file).file_name().unwrap().to_str().unwrap();
+            let path = Path::new(&file);
             let address_range = address..(address + vmsize);
-            profile_builder.add_lib(name, &file, &uuid, arch, &address_range);
+            profile_builder.add_lib(
+                path,
+                None,
+                path,
+                DebugId::from_uuid(uuid),
+                Some(arch),
+                address,
+                address_range,
+            );
         }
 
         for subtask in subtasks {

@@ -1,6 +1,7 @@
+use debugid::{CodeId, DebugId};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
-use uuid::Uuid;
+use std::path::{Path, PathBuf};
 
 use std::cmp::Ordering;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -35,19 +36,24 @@ impl ProfileBuilder {
         self.end_time = Some(end_time);
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn add_lib(
         &mut self,
-        name: &str,
-        path: &str,
-        uuid: &Uuid,
-        arch: &'static str,
-        address_range: &std::ops::Range<u64>,
+        path: &Path,
+        code_id: Option<CodeId>,
+        debug_path: &Path,
+        debug_id: DebugId,
+        arch: Option<&str>,
+        base_address: u64,
+        address_range: std::ops::Range<u64>,
     ) {
         self.libs.push(Lib {
-            name: name.to_string(),
-            path: path.to_string(),
-            arch,
-            breakpad_id: format!("{:X}0", uuid.to_simple()),
+            path: path.to_owned(),
+            debug_path: debug_path.to_owned(),
+            arch: arch.map(|arch| arch.to_owned()),
+            debug_id,
+            code_id,
+            base_address,
             start_address: address_range.start,
             end_address: address_range.end,
         })
@@ -295,23 +301,30 @@ impl ThreadBuilder {
 
 #[derive(Debug)]
 struct Lib {
-    name: String,
-    path: String,
-    arch: &'static str,
-    breakpad_id: String,
+    path: PathBuf,
+    debug_path: PathBuf,
+    arch: Option<String>,
+    debug_id: DebugId,
+    code_id: Option<CodeId>,
+    base_address: u64,
     start_address: u64,
     end_address: u64,
 }
 
 impl Lib {
     pub fn to_json(&self) -> Value {
+        let name = self.path.file_name().map(|f| f.to_string_lossy());
+        let debug_name = self.debug_path.file_name().map(|f| f.to_string_lossy());
+        let breakpad_id = format!("{}", self.debug_id.breakpad());
+        let code_id = self.code_id.as_ref().map(|cid| cid.to_string());
         json!({
-            "name": self.name,
-            "debugName": self.name,
-            "path": self.path,
-            "debugPath": self.path,
-            "breakpadId": self.breakpad_id,
-            "offset": 0,
+            "name": name,
+            "path": self.path.to_string_lossy(),
+            "debugName": debug_name,
+            "debugPath": self.debug_path.to_string_lossy(),
+            "breakpadId": breakpad_id,
+            "codeId": code_id,
+            "offset": self.start_address - self.base_address,
             "start": self.start_address,
             "end": self.end_address,
             "arch": self.arch,
