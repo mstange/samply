@@ -5,6 +5,7 @@ use serde_json::to_writer;
 
 use gecko_profile::{debugid, ThreadBuilder};
 use debugid::DebugId;
+use uuid::Uuid;
 
 fn is_kernel_address(ip: u64, pointer_size: u32) -> bool {
     if pointer_size == 4 {
@@ -256,13 +257,8 @@ fn main() {
                     let image_base: u64 = parser.try_parse("ImageBase").unwrap();
 
                     let guid: Guid = parser.try_parse("GuidSig").unwrap();
-                    let mut guid_vec = Vec::with_capacity(16);
-                    guid_vec.extend_from_slice(&guid.data1.to_le_bytes());
-                    guid_vec.extend_from_slice(&guid.data2.to_le_bytes());
-                    guid_vec.extend_from_slice(&guid.data3.to_le_bytes());
-                    guid_vec.extend_from_slice(&guid.data4);
                     let age: u32 = parser.try_parse("Age").unwrap();
-                    let debug_id = DebugId::from_guid_age(&guid_vec, age).unwrap();
+                    let debug_id = DebugId::from_parts(Uuid::from_fields(guid.data1, guid.data2, guid.data3, &guid.data4), age);
                     let pdb_path: String = parser.try_parse("PdbFileName").unwrap();
                     let pdb_path = Path::new(&pdb_path);
                     let (ref path, image_size) = libs[&image_base];
