@@ -8,5 +8,5 @@ edition = "2018"
 
 [dependencies]
 serde_json = "1.0.53"
-uuid = "0.8.1"
+gecko_profile = "0.1.0"
 etw-reader = { path = "../etw-reader" }

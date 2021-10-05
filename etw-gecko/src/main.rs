@@ -1,11 +1,10 @@
-use std::{collections::{HashMap, HashSet, hash_map::Entry}, convert::TryInto, fs::File, io::{BufWriter}, path::Path, time::{Duration, Instant}};
+use std::{collections::{HashMap, HashSet, hash_map::Entry}, convert::TryInto, fs::File, io::{BufWriter}, path::{Path, PathBuf}, time::{Duration, Instant}};
 
 use etw_reader::{Guid, open_trace, parser::{Parser, TryParse}, print_property, schema::{TypedEvent, SchemaLocator}, tdh_types::{Property, TdhInType}};
 use serde_json::to_writer;
 
-use crate::gecko_profile::ThreadBuilder;
-
-mod gecko_profile;
+use gecko_profile::{debugid, ThreadBuilder};
+use debugid::DebugId;
 
 fn is_kernel_address(ip: u64, pointer_size: u32) -> bool {
     if pointer_size == 4 {
@@ -22,12 +21,13 @@ struct ThreadState {
 
 
 fn main() {
-    let mut profile = gecko_profile::ProfileBuilder::new(Instant::now(), "firefox", 34, Duration::from_secs_f32(1. / 8192.));
+    let profile_start_instant = Instant::now();
+    let mut profile = gecko_profile::ProfileBuilder::new(profile_start_instant, "firefox", 34, Duration::from_secs_f32(1. / 8192.));
     
     let mut schema_locator = SchemaLocator::new();
     etw_reader::add_custom_schemas(&mut schema_locator);
     let mut threads: HashMap<u32, ThreadState> = HashMap::new();
-    let mut libs: HashMap<u64, (String, u32)> = HashMap::new();
+    let mut libs: HashMap<u64, (PathBuf, u32)> = HashMap::new();
     let start = Instant::now();
     let mut process_targets = HashSet::new();
     let mut process_target_name = None;
@@ -91,9 +91,10 @@ fn main() {
                     let thread = match threads.entry(thread_id) {
                         Entry::Occupied(e) => e.into_mut(), 
                         Entry::Vacant(e) => {
+                            let thread_start_instant = profile_start_instant;
                             let tb = e.insert(
                                 ThreadState {
-                                    builder: ThreadBuilder::new(process_id, thread_index, 0.0, false, false),
+                                    builder: ThreadBuilder::new(process_id, thread_index, thread_start_instant, false, false),
                                     last_kernel_stack: None,
                                     last_kernel_stack_time: 0,
                                     last_sample_timestamp: None
@@ -136,11 +137,12 @@ fn main() {
                     }
                     
                     let thread = match threads.entry(thread_id) {
-                        Entry::Occupied(e) => e.into_mut(), 
+                        Entry::Occupied(e) => e.into_mut(),
                         Entry::Vacant(e) => {
+                            let thread_start_instant = profile_start_instant;
                             let tb = e.insert(
                                 ThreadState {
-                                    builder: ThreadBuilder::new(process_id, thread_index, 0.0, false, false),
+                                    builder: ThreadBuilder::new(process_id, thread_index, thread_start_instant, false, false),
                                     last_kernel_stack: None,
                                     last_kernel_stack_time: 0,
                                     last_sample_timestamp: None
@@ -175,7 +177,7 @@ fn main() {
                         print_property(&mut parser, &property);
                     }*/
                     stack.reverse();
-                    let to_milliseconds = 10000.;
+                    let to_microseconds = 100;
 
                     if is_kernel_address(stack[0], 8) {
                         //eprintln!("kernel ");
@@ -187,16 +189,22 @@ fn main() {
                             if thread.last_kernel_stack.is_none() {
                                 dbg!(thread.last_kernel_stack_time);
                             }
+                            let timestamp = profile_start_instant + Duration::from_micros(timestamp * to_microseconds);
                             stack.append(&mut thread.last_kernel_stack.take().unwrap());
-                            thread.builder.add_sample(timestamp as f64 / to_milliseconds, &stack, 0);
+                            let frames = stack.iter().map(|addr| gecko_profile::Frame::Address(*addr));
+                            thread.builder.add_sample(timestamp, frames, Duration::ZERO);
                         } else {
                             if let Some(kernel_stack) = thread.last_kernel_stack.take() {
                                 // we're left with an unassociated kernel stack
                                 dbg!(thread.last_kernel_stack_time);
 
-                                thread.builder.add_sample(thread.last_kernel_stack_time as f64 / to_milliseconds, &kernel_stack, 0);
+                                let timestamp = profile_start_instant + Duration::from_micros(thread.last_kernel_stack_time * to_microseconds);
+                                let frames = kernel_stack.iter().map(|addr| gecko_profile::Frame::Address(*addr));
+                                thread.builder.add_sample(timestamp, frames, Duration::ZERO);
                             }
-                            thread.builder.add_sample(timestamp as f64 / to_milliseconds, &stack, 0);
+                            let timestamp = profile_start_instant + Duration::from_micros(timestamp * to_microseconds);
+                            let frames = stack.iter().map(|addr| gecko_profile::Frame::Address(*addr));
+                            thread.builder.add_sample(timestamp, frames, Duration::ZERO);
                         }
                         stack_sample_count += 1;
                         //XXX: what unit are timestamps in the trace in?
@@ -229,9 +237,11 @@ fn main() {
                     let mut parser = Parser::create(&s);
 
                     let image_base: u64 = parser.try_parse("ImageBase").unwrap();
+                    // TODO: get the image timestamp and create the CodeId
                     let image_size: u32 = parser.try_parse("ImageSize").unwrap();
-                    let file_name = parser.try_parse("OriginalFileName").unwrap();
-                    libs.insert(image_base, (file_name, image_size));
+                    let binary_path: String = parser.try_parse("OriginalFileName").unwrap();
+                    let path = PathBuf::from(binary_path);
+                    libs.insert(image_base, (path, image_size));
                 }
                 "KernelTraceControl/ImageID/DbgID_RSDS" => {
                     let mut parser = Parser::create(&s);
@@ -243,15 +253,17 @@ fn main() {
                     let image_base: u64 = parser.try_parse("ImageBase").unwrap();
 
                     let guid: Guid = parser.try_parse("GuidSig").unwrap();
+                    let mut guid_vec = Vec::with_capacity(16);
+                    guid_vec.extend_from_slice(&guid.data1.to_be_bytes());
+                    guid_vec.extend_from_slice(&guid.data2.to_be_bytes());
+                    guid_vec.extend_from_slice(&guid.data3.to_be_bytes());
+                    guid_vec.extend_from_slice(&guid.data4);
                     let age: u32 = parser.try_parse("Age").unwrap();
-                    let pdb_file_name: String = parser.try_parse("PdbFileName").unwrap();
-                    // we only allow some kernel libraries so that we don't have to download symbols for all the modules that have been loaded
-                    if process_id == 0 && !(pdb_file_name.contains("ntkrnlmp") || pdb_file_name.contains("win32k")) {
-                        //return;
-                    }
-                    let (ref file_name, image_size) = libs[&image_base];
-                    let uuid = uuid::Uuid::parse_str(&format!("{:?}", guid)).unwrap();
-                    profile.add_lib(&pdb_file_name, &pdb_file_name, &uuid, age as u8, "x86_64", &(image_base..(image_base + image_size as u64)));
+                    let debug_id = DebugId::from_guid_age(&guid_vec, age).unwrap();
+                    let pdb_path: String = parser.try_parse("PdbFileName").unwrap();
+                    let pdb_path = Path::new(&pdb_path);
+                    let (ref path, image_size) = libs[&image_base];
+                    profile.add_lib(&path, None, &pdb_path, debug_id, Some("x86_64"), image_base, (image_base..(image_base + image_size as u64)));
                 }
                 "MSNT_SystemTrace/Thread/CSwitch" | "MSNT_SystemTrace/Thread/ReadyThread" => {}
                 _ => {
