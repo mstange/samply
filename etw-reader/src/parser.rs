@@ -97,7 +97,8 @@ pub struct Parser<'a> {
     pub buffer: &'a [u8],
     last_property: u32,
     offset: usize,
-    cache: HashMap<String, Rc<PropertyInfo>>,
+    // a map from property indx to PropertyInfo
+    cache: Vec<Rc<PropertyInfo>>,
 }
 
 impl<'a> Parser<'a> {
@@ -120,7 +121,7 @@ impl<'a> Parser<'a> {
             properties: event.schema.properties(),
             last_property: 0,
             offset: 0,
-            cache: HashMap::new(), // We could fill the cache on creation
+            cache: Vec::new(), // We could fill the cache on creation
         }
     }
 
@@ -132,7 +133,7 @@ impl<'a> Parser<'a> {
         let user_buffer_len = schema.user_buffer().len();
         let mut prop_offset = 0;
         panic!();
-
+/*
         Ok(properties.properties_iter().iter().try_fold(
             HashMap::new(),
             |mut cache, x| -> ParserResult<HashMap<String, PropertyInfo>> {
@@ -154,7 +155,7 @@ impl<'a> Parser<'a> {
 
                 Ok(cache)
             },
-        )?)
+        )?)*/
     }
 
     // TODO: Find a cleaner way to do this, not very happy with it rn
@@ -204,8 +205,10 @@ impl<'a> Parser<'a> {
     }
 
     pub fn find_property(&mut self, name: &str) -> ParserResult<Rc<PropertyInfo>> {
-        if self.cache.contains_key(name) {
-            return Ok(Rc::clone(self.cache.get(name).unwrap()));
+        let indx = *self.properties.name_to_indx.get(name).ok_or_else(
+            || ParserError::PropertyError("Unknown property".to_owned()))?;
+        if indx < self.cache.len()  {
+            return Ok(Rc::clone(&self.cache[indx]));
         }
 
         let mut prop_info = Rc::new(PropertyInfo::default());
@@ -232,8 +235,7 @@ impl<'a> Parser<'a> {
             let (prop_buffer, remaining) = self.buffer.split_at(prop_size);
             self.buffer = remaining;
             prop_info = Rc::from(PropertyInfo::create(curr_prop.clone(), self.offset, prop_buffer.to_owned()));
-            self.cache
-                .insert(String::from(&curr_prop.name), Rc::clone(&prop_info));
+            self.cache.push(Rc::clone(&prop_info));
             self.offset += prop_size;
             if name == curr_prop.name {
                 self.last_property = i + 1;
