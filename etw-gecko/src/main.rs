@@ -202,7 +202,7 @@ fn main() {
                                 // we're left with an unassociated kernel stack
                                 dbg!(thread.last_kernel_stack_time);
 
-                                let timestamp = profile_start_instant + Duration::from_nanos(thread.last_kernel_stack_time * tnanoto_nanoseconds);
+                                let timestamp = profile_start_instant + Duration::from_nanos(thread.last_kernel_stack_time * to_nanoseconds);
                                 let frames = kernel_stack.iter().map(|addr| gecko_profile::Frame::Address(*addr));
                                 thread.builder.add_sample(timestamp, frames, Duration::ZERO);
                             }
@@ -258,7 +258,7 @@ fn main() {
 
                     let guid: Guid = parser.try_parse("GuidSig").unwrap();
                     let age: u32 = parser.try_parse("Age").unwrap();
-                    let debug_id = DebugId::from_parts(Uuid::from_fields(guid.data1, guid.data2, guid.data3, &guid.data4), age);
+                    let debug_id = DebugId::from_parts(Uuid::from_fields(guid.data1, guid.data2, guid.data3, &guid.data4).unwrap(), age);
                     let pdb_path: String = parser.try_parse("PdbFileName").unwrap();
                     let pdb_path = Path::new(&pdb_path);
                     let (ref path, image_size) = libs[&image_base];
