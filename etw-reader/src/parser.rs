@@ -228,7 +228,7 @@ impl<'a> Parser<'a> {
             // and we should have all properties in the cache
             let (prop_buffer, remaining) = self.buffer.split_at(prop_size);
             self.buffer = remaining;
-            self.cache.push(PropertyInfo::create(curr_prop, self.offset, prop_buffer.to_owned()));
+            self.cache.push(PropertyInfo::create(curr_prop, self.offset, prop_buffer));
             self.offset += prop_size;
         }
         Ok(indx)
@@ -250,7 +250,7 @@ macro_rules! impl_try_parse_primitive {
                 if std::mem::size_of::<$T>() != prop_info.buffer.len() {
                     return Err(ParserError::LengthMismatch);
                 }
-                Ok($T::from_ne_bytes(prop_info.buffer.as_slice().try_into()?))
+                Ok($T::from_ne_bytes(prop_info.buffer.try_into()?))
             }
         }
     };
@@ -275,19 +275,19 @@ impl TryParse<u64> for Parser<'_> {
             if std::mem::size_of::<u64>() != prop_info.buffer.len() {
                 return Err(ParserError::LengthMismatch);
             }
-            return Ok(u64::from_ne_bytes(prop_info.buffer.as_slice().try_into()?));
+            return Ok(u64::from_ne_bytes(prop_info.buffer.try_into()?));
         }
         if prop_info.property.in_type() == InTypePointer {
             if (self.event.event_flags() & EVENT_HEADER_FLAG_32_BIT_HEADER) != 0  {
                 if std::mem::size_of::<u32>() != prop_info.buffer.len() {
                     return Err(ParserError::LengthMismatch);
                 }
-                return Ok(u32::from_ne_bytes(prop_info.buffer.as_slice().try_into()?) as u64);
+                return Ok(u32::from_ne_bytes(prop_info.buffer.try_into()?) as u64);
             }
             if std::mem::size_of::<u64>() != prop_info.buffer.len() {
                 return Err(ParserError::LengthMismatch);
             }
-            return Ok(u64::from_ne_bytes(prop_info.buffer.as_slice().try_into()?));
+            return Ok(u64::from_ne_bytes(prop_info.buffer.try_into()?));
         }
         return Err(ParserError::InvalidType)
     }
@@ -324,9 +324,9 @@ impl TryParse<String> for Parser<'_> {
         // TODO: Handle errors and type checking better
         let res = match prop_info.property.in_type() {
             TdhInType::InTypeUnicodeString => {
-                utils::parse_null_utf16_string(prop_info.buffer.as_slice())
+                utils::parse_null_utf16_string(prop_info.buffer)
             }
-            TdhInType::InTypeAnsiString => String::from_utf8(prop_info.buffer.clone())?
+            TdhInType::InTypeAnsiString => String::from_utf8(prop_info.buffer.to_vec())?
                 .trim_matches(char::default())
                 .to_string(),
             TdhInType::InTypeSid => {
@@ -348,7 +348,7 @@ impl TryParse<Guid> for Parser<'_> {
         let prop_info: &PropertyInfo = prop_info.borrow();
         let res = match prop_info.property.in_type() {
             TdhInType::InTypeUnicodeString => {
-                let guid_string = utils::parse_utf16_guid(prop_info.buffer.as_slice());
+                let guid_string = utils::parse_utf16_guid(prop_info.buffer);
 
                 if guid_string.len() != 36 {
                     return Err(ParserError::LengthMismatch);
@@ -392,11 +392,11 @@ impl TryParse<IpAddr> for Parser<'_> {
         // Hardcoded values for now
         let res = match prop_info.property.len() {
             16 => {
-                let tmp: [u8; 16] = prop_info.buffer.as_slice().try_into()?;
+                let tmp: [u8; 16] = prop_info.buffer.try_into()?;
                 IpAddr::V6(Ipv6Addr::from(tmp))
             }
             4 => {
-                let tmp: [u8; 4] = prop_info.buffer.as_slice().try_into()?;
+                let tmp: [u8; 4] = prop_info.buffer.try_into()?;
                 IpAddr::V4(Ipv4Addr::from(tmp))
             }
             _ => return Err(ParserError::LengthMismatch),
@@ -470,7 +470,7 @@ impl TryParse<Vec<u8>> for Parser<'_> {
         let prop_info = &self.cache[indx];
         let prop_info: &PropertyInfo = prop_info.borrow();
 
-        Ok(prop_info.buffer.clone())
+        Ok(prop_info.buffer.to_vec())
     }
 }
 

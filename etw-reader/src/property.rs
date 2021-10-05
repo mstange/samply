@@ -13,11 +13,11 @@ pub struct PropertyInfo<'a> {
     pub property: &'a Property,
     pub offset: usize,
     /// Buffer with the Property data
-    pub buffer: Vec<u8>,
+    pub buffer: &'a [u8],
 }
 
 impl<'a> PropertyInfo<'a> {
-    pub fn create(property: &'a Property, offset: usize, buffer: Vec<u8>) -> Self {
+    pub fn create(property: &'a Property, offset: usize, buffer: &'a [u8]) -> Self {
         PropertyInfo { property, offset, buffer }
     }
 }
