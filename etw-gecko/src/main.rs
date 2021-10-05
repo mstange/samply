@@ -93,7 +93,7 @@ fn main() {
                     }
 
                     let thread = match threads.entry(thread_id) {
-                        Entry::Occupied(e) => e.into_mut(), 
+                        Entry::Occupied(e) => e.into_mut(),
                         Entry::Vacant(e) => {
                             let thread_start_instant = profile_start_instant;
                             let tb = e.insert(
@@ -181,7 +181,7 @@ fn main() {
                         print_property(&mut parser, &property);
                     }*/
                     stack.reverse();
-                    let to_microseconds = 100;
+                    let to_nanoseconds = 100;
 
                     if is_kernel_address(stack[0], 8) {
                         //eprintln!("kernel ");
@@ -193,7 +193,7 @@ fn main() {
                             if thread.last_kernel_stack.is_none() {
                                 dbg!(thread.last_kernel_stack_time);
                             }
-                            let timestamp = profile_start_instant + Duration::from_micros(timestamp * to_microseconds);
+                            let timestamp = profile_start_instant + Duration::from_nanos(timestamp * to_nanoseconds);
                             stack.append(&mut thread.last_kernel_stack.take().unwrap());
                             let frames = stack.iter().map(|addr| gecko_profile::Frame::Address(*addr));
                             thread.builder.add_sample(timestamp, frames, Duration::ZERO);
@@ -202,11 +202,11 @@ fn main() {
                                 // we're left with an unassociated kernel stack
                                 dbg!(thread.last_kernel_stack_time);
 
-                                let timestamp = profile_start_instant + Duration::from_micros(thread.last_kernel_stack_time * to_microseconds);
+                                let timestamp = profile_start_instant + Duration::from_nanos(thread.last_kernel_stack_time * tnanoto_nanoseconds);
                                 let frames = kernel_stack.iter().map(|addr| gecko_profile::Frame::Address(*addr));
                                 thread.builder.add_sample(timestamp, frames, Duration::ZERO);
                             }
-                            let timestamp = profile_start_instant + Duration::from_micros(timestamp * to_microseconds);
+                            let timestamp = profile_start_instant + Duration::from_nanos(timestamp * to_nanoseconds);
                             let frames = stack.iter().map(|addr| gecko_profile::Frame::Address(*addr));
                             thread.builder.add_sample(timestamp, frames, Duration::ZERO);
                         }
