@@ -1,7 +1,5 @@
-use crate::gecko_profile::Frame;
 use crate::thread_info::time_value;
-
-use super::gecko_profile::ThreadBuilder;
+use gecko_profile::{Frame, ThreadBuilder};
 use mach::mach_types::thread_act_t;
 use std::mem;
 use std::time::{Duration, Instant};

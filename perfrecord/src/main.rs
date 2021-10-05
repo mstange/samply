@@ -14,7 +14,6 @@ use structopt::StructOpt;
 #[allow(deref_nullptr)]
 mod dyld_bindings;
 
-mod gecko_profile;
 mod proc_maps;
 mod process_launcher;
 mod sampler;

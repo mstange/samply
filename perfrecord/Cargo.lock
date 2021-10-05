@@ -357,6 +357,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "gecko_profile"
+version = "0.1.0"
+dependencies = [
+ "debugid",
+ "serde_json",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.1.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -889,7 +897,7 @@ version = "0.6.4"
 dependencies = [
  "backtrace",
  "crossbeam-channel",
- "debugid",
+ "gecko_profile",
  "libc",
  "mach",
  "perfrecord-mach-ipc-rendezvous",

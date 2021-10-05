@@ -1,4 +1,4 @@
-use super::gecko_profile::ProfileBuilder;
+use gecko_profile::ProfileBuilder;
 use super::kernel_error;
 use super::task_profiler::TaskProfiler;
 use crossbeam_channel::Receiver;

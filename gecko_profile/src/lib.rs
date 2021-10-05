@@ -1,3 +1,5 @@
+pub use debugid;
+
 use debugid::{CodeId, DebugId};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};

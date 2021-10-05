@@ -1,7 +1,7 @@
 use super::kernel_error::{self, IntoResult, KernelError};
 use super::proc_maps::{DyldInfo, DyldInfoManager, Modification};
 use super::thread_profiler::ThreadProfiler;
-use debugid::DebugId;
+use gecko_profile::debugid::DebugId;
 use mach::mach_types::thread_act_port_array_t;
 use mach::mach_types::thread_act_t;
 use mach::message::mach_msg_type_number_t;
@@ -16,7 +16,7 @@ use std::mem;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use super::gecko_profile::ProfileBuilder;
+use gecko_profile::ProfileBuilder;
 
 pub struct TaskProfiler {
     task: mach_port_t,

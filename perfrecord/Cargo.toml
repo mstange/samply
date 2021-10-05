@@ -19,7 +19,6 @@ profiler-symbol-server = "0.5.4"
 tokio = { version = "1.6.1", features = ["rt", "rt-multi-thread", "macros"] }
 uuid = "0.8.1"
 libc = "0.2.71"
-serde_json = "1.0.53"
 mach = "0.3.2"
 tempfile = "3.1.0"
 structopt = "0.3.14"
@@ -27,7 +26,8 @@ thiserror = "1.0.19"
 backtrace = "0.3.48"
 crossbeam-channel = "0.5.1"
 signal-hook = "0.3.9"
-debugid = "0.7.2"
+serde_json = "1.0.53"
+gecko_profile = { path = "../gecko_profile" }
 
 [profile.release]
 debug = true
