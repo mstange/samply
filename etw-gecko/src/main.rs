@@ -15,12 +15,22 @@ fn is_kernel_address(ip: u64, pointer_size: u32) -> bool {
 }
 struct ThreadState {
     builder: ThreadBuilder,
-    name: Option<String>,
+    merge_name: Option<String>,
     last_kernel_stack: Option<Vec<u64>>,
     last_kernel_stack_time: u64,
     last_sample_timestamp: Option<i64>
 }
 
+
+fn strip_thread_numbers(name: &str) -> &str {
+    if let Some(hash) = name.find('#') {
+        let (prefix, suffix) = name.split_at(hash);
+        if suffix.parse::<i32>().is_ok() {
+            return prefix.trim();
+        }
+    }
+    return name;
+}
 
 fn main() {
     let profile_start_instant = Instant::now();
@@ -111,7 +121,7 @@ fn main() {
                                     last_kernel_stack: None,
                                     last_kernel_stack_time: 0,
                                     last_sample_timestamp: None,
-                                    name: None,
+                                    merge_name: None,
                                 }
                             );
                             thread_index += 1;
@@ -121,7 +131,7 @@ fn main() {
 
                     let thread_name: Result<String, _> = parser.try_parse("ThreadName");
                     match thread_name {
-                        Ok(thread_name) if !thread_name.is_empty() => { thread.builder.set_name(&thread_name); thread.name = Some(thread_name)},
+                        Ok(thread_name) if !thread_name.is_empty() => { thread.builder.set_name(&thread_name); thread.merge_name = Some(thread_name)},
                         _ => {}
                     }
                 }
@@ -160,7 +170,7 @@ fn main() {
                                     last_kernel_stack: None,
                                     last_kernel_stack_time: 0,
                                     last_sample_timestamp: None,
-                                    name: None,
+                                    merge_name: None,
                                 }
                             );
                             thread_index += 1;
@@ -198,7 +208,7 @@ fn main() {
                         if merge_threads {
                             let stack_frames = frames;
                             let mut frames = Vec::new();
-                            let thread_name = thread.name.as_ref().map(|x| x.to_owned()).unwrap_or_else(|| format!("thread {}", thread.builder.get_tid()));
+                            let thread_name = thread.merge_name.as_ref().map(|x| strip_thread_numbers(x).to_owned()).unwrap_or_else(|| format!("thread {}", thread.builder.get_tid()));
                             frames.push(gecko_profile::Frame::Label(global_thread.intern_string(&thread_name)));
                             frames.extend(stack_frames);
                             global_thread.add_sample(timestamp, frames.into_iter(), Duration::ZERO);
