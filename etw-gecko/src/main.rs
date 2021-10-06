@@ -99,6 +99,7 @@ fn main() {
                     let interval: u32 = parser.parse("NewInterval");
                     let interval = Duration::from_nanos(interval as u64 * 100);
                     println!("Sample rate {}ms", interval.as_secs_f32() * 1000.);
+                    profile.set_interval(interval);
                 }
                 "MSNT_SystemTrace/Thread/Start" |
                 "MSNT_SystemTrace/Thread/DCStart" => {

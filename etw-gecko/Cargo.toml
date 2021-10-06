@@ -8,7 +8,7 @@ edition = "2018"
 
 [dependencies]
 serde_json = "1.0.53"
-gecko_profile = "0.1.0"
+gecko_profile = "0.1.1"
 uuid = "0.8.1" # We really want gecko_profile::debugid::uuid, but debugid doesn't re-export uuid
 etw-reader = { path = "../etw-reader" }
 pico-args = "0.4.2"
