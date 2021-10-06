@@ -227,7 +227,7 @@ fn main() {
                             if thread.last_kernel_stack.is_none() {
                                 dbg!(thread.last_kernel_stack_time);
                             }
-                            let timestamp = profile_start_instant + Duration::from_nanos(to_nanos(timestamp));
+                            let timestamp = profile_start_instant + Duration::from_nanos(to_nanos(timestamp - start_time));
                             stack.append(&mut thread.last_kernel_stack.take().unwrap());
                             add_sample(thread, timestamp, stack);
                         } else {
@@ -235,10 +235,10 @@ fn main() {
                                 // we're left with an unassociated kernel stack
                                 dbg!(thread.last_kernel_stack_time);
 
-                                let timestamp = profile_start_instant + Duration::from_nanos(to_nanos(thread.last_kernel_stack_time));
+                                let timestamp = profile_start_instant + Duration::from_nanos(to_nanos(thread.last_kernel_stack_time - start_time));
                                 add_sample(thread, timestamp, kernel_stack);
                             }
-                            let timestamp = profile_start_instant + Duration::from_nanos(to_nanos(timestamp));
+                            let timestamp = profile_start_instant + Duration::from_nanos(to_nanos(timestamp - start_time));
                             add_sample(thread, timestamp, stack);
                         }
                         stack_sample_count += 1;
