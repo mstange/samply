@@ -112,10 +112,6 @@ fn main() {
                     if !process_targets.contains(&process_id) {
                         return;
                     }
-                    for i in 0..s.property_count() {
-                        let property = s.property(i);
-                        print_property(&mut parser, &property);
-                    }
 
                     let thread = match threads.entry(thread_id) {
                         Entry::Occupied(e) => e.into_mut(),
