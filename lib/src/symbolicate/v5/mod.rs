@@ -228,7 +228,7 @@ impl<'a> PathMapper<'a> {
     fn new() -> Self {
         PathMapper {
             cache: HashMap::new(),
-            rustc_regex: Regex::new(r"^/rustc/(?P<rev>[0-9a-f]+)\\?/(?P<path>.*)$").unwrap(),
+            rustc_regex: Regex::new(r"^/rustc/(?P<rev>[0-9a-f]+)\\?[/\\](?P<path>.*)$").unwrap(),
             cargo_dep_regex: Regex::new(r"[/\\]\.cargo[/\\]registry[/\\]src[/\\](?P<registry>[^/\\]+)[/\\](?P<crate>[^/]+)-(?P<version>[0-9]+\.[0-9]+\.[0-9]+)[/\\](?P<path>.*)$").unwrap(),
         }
     }
