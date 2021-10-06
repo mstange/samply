@@ -191,6 +191,20 @@ fn main() {
                     stack.reverse();
                     let to_nanoseconds = 100;
 
+                    let mut add_sample = |thread: &mut ThreadState, timestamp, stack: Vec<u64>| {
+                        let frames = stack.iter().map(|addr| gecko_profile::Frame::Address(*addr));
+                        if merge_threads {
+                            let stack_frames = frames;
+                            let mut frames = Vec::new();
+                            let thread_name = thread.name.as_ref().map(|x| x.to_owned()).unwrap_or_else(|| format!("thread {}", thread.builder.get_tid()));
+                            frames.push(gecko_profile::Frame::Label(global_thread.intern_string(&thread_name)));
+                            frames.extend(stack_frames);
+                            global_thread.add_sample(timestamp, frames.into_iter(), Duration::ZERO);
+                        } else {
+                            thread.builder.add_sample(timestamp, frames, Duration::ZERO);
+                        }
+                    };
+
                     if is_kernel_address(stack[0], 8) {
                         //eprintln!("kernel ");
                         thread.last_kernel_stack_time = timestamp;
@@ -203,47 +217,17 @@ fn main() {
                             }
                             let timestamp = profile_start_instant + Duration::from_nanos(timestamp * to_nanoseconds);
                             stack.append(&mut thread.last_kernel_stack.take().unwrap());
-                            let frames = stack.iter().map(|addr| gecko_profile::Frame::Address(*addr));
-                            if merge_threads {
-                                let stack_frames = frames;
-                                let mut frames = Vec::new();
-                                let thread_name = thread.name.as_ref().map(|x| x.to_owned()).unwrap_or_else(|| format!("thread {}", thread.builder.get_tid()));
-                                frames.push(gecko_profile::Frame::Label(global_thread.intern_string(&thread_name)));
-                                frames.extend(stack_frames);
-                                global_thread.add_sample(timestamp, frames.into_iter(), Duration::ZERO);
-                            } else {
-                                thread.builder.add_sample(timestamp, frames, Duration::ZERO);
-                            }
+                            add_sample(thread, timestamp, stack);
                         } else {
                             if let Some(kernel_stack) = thread.last_kernel_stack.take() {
                                 // we're left with an unassociated kernel stack
                                 dbg!(thread.last_kernel_stack_time);
 
                                 let timestamp = profile_start_instant + Duration::from_nanos(thread.last_kernel_stack_time * to_nanoseconds);
-                                let frames = kernel_stack.iter().map(|addr| gecko_profile::Frame::Address(*addr));
-                                if merge_threads {
-                                    let stack_frames = frames;
-                                    let mut frames = Vec::new();
-                                    let thread_name = thread.name.as_ref().map(|x| x.to_owned()).unwrap_or_else(|| format!("thread {}", thread.builder.get_tid()));
-                                    frames.push(gecko_profile::Frame::Label(global_thread.intern_string(&thread_name)));
-                                    frames.extend(stack_frames);
-                                    global_thread.add_sample(timestamp, frames.into_iter(), Duration::ZERO);
-                                } else {
-                                    thread.builder.add_sample(timestamp, frames, Duration::ZERO);
-                                }
+                                add_sample(thread, timestamp, kernel_stack);
                             }
                             let timestamp = profile_start_instant + Duration::from_nanos(timestamp * to_nanoseconds);
-                            let frames = stack.iter().map(|addr| gecko_profile::Frame::Address(*addr));
-                            if merge_threads {
-                                let stack_frames = frames;
-                                let mut frames = Vec::new();
-                                let thread_name = thread.name.as_ref().map(|x| x.to_owned()).unwrap_or_else(|| format!("thread {}", thread.builder.get_tid()));
-                                frames.push(gecko_profile::Frame::Label(global_thread.intern_string(&thread_name)));
-                                frames.extend(stack_frames);
-                                global_thread.add_sample(timestamp, frames.into_iter(), Duration::ZERO);
-                            } else {
-                                thread.builder.add_sample(timestamp, frames, Duration::ZERO);
-                            }
+                            add_sample(thread, timestamp, stack);
                         }
                         stack_sample_count += 1;
                         //XXX: what unit are timestamps in the trace in?
