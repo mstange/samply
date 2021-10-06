@@ -50,7 +50,7 @@ pub fn convert_sid_to_string(sid: isize) -> SddlResult<String> {
     }*/
     panic!()
 }
-
+/*
 #[cfg(test)]
 mod test {
     use super::*;
@@ -62,4 +62,4 @@ mod test {
             assert_eq!(string_sid, "S-1-5-32-544");
         }
     }
-}
+}*/
