@@ -94,6 +94,12 @@ fn main() {
                         print_property(&mut parser, &property);
                     }
                 }
+                "MSNT_SystemTrace/PerfInfo/CollectionStart" => {
+                    let mut parser = Parser::create(&s);
+                    let interval: u32 = parser.parse("NewInterval");
+                    let interval = Duration::from_nanos(interval as u64 * 100);
+                    println!("Sample rate {}ms", interval.as_secs_f32() * 1000.);
+                }
                 "MSNT_SystemTrace/Thread/Start" |
                 "MSNT_SystemTrace/Thread/DCStart" => {
                     let mut parser = Parser::create(&s);
