@@ -45,8 +45,16 @@ impl ProfileBuilder {
         }
     }
 
+    pub fn set_start_time(&mut self, start_time: Instant) {
+        self.start_time = start_time;
+    }
+
     pub fn set_end_time(&mut self, end_time: Instant) {
         self.end_time = Some(end_time);
+    }
+
+    pub fn set_interval(&mut self, interval: Duration) {
+        self.interval = interval;
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -122,9 +130,7 @@ impl ProfileBuilder {
 
         let subprocesses: Vec<Value> = sorted_subprocesses.iter().map(|p| p.to_json()).collect();
 
-        let start_time_system = instant_to_system_time(self.start_time);
-        let duration_since_unix_epoch = start_time_system.duration_since(UNIX_EPOCH).unwrap();
-        let start_time_ms_since_unix_epoch = duration_since_unix_epoch.as_secs_f64() * 1000.0;
+        let start_time_ms_since_unix_epoch = instant_to_unix_timestamp(self.start_time);
 
         let end_time_ms_since_start = self
             .end_time
@@ -163,11 +169,14 @@ impl ProfileBuilder {
     }
 }
 
-fn instant_to_system_time(instant: Instant) -> SystemTime {
+/// Badly convert an Instant into a floating point number of milliseconds since the UNIX epoch.
+fn instant_to_unix_timestamp(instant: Instant) -> f64 {
     let now_instant = Instant::now();
     let now_system = SystemTime::now();
     let duration_before_now = now_instant - instant;
-    now_system - duration_before_now
+    let timestamp_system = now_system - duration_before_now;
+    let duration_since_unix_epoch = timestamp_system.duration_since(UNIX_EPOCH).unwrap();
+    duration_since_unix_epoch.as_secs_f64() * 1000.0
 }
 
 fn to_profile_timestamp(instant: Instant, process_start: Instant) -> f64 {
@@ -210,6 +219,10 @@ impl ThreadBuilder {
             samples: SampleTable(Vec::new()),
             string_table: StringTable::new(),
         }
+    }
+
+    pub fn set_start_time(&mut self, start_time: Instant) {
+        self.start_time = start_time;
     }
 
     pub fn get_start_time(&self) -> Instant {
