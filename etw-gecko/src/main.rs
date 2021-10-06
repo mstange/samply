@@ -68,6 +68,9 @@ fn main() {
             let to_millis = |timestamp: i64| {
                 (timestamp as f64 / perf_freq as f64) * 1000.
             };
+            let to_nanos = |timestamp: u64| {
+                timestamp * 1000 * 1000 * 1000 / perf_freq 
+            };
             match s.name() {
                 "MSNT_SystemTrace/EventTrace/Header" => {
                     let mut parser = Parser::create(&s);
@@ -189,7 +192,6 @@ fn main() {
                         print_property(&mut parser, &property);
                     }*/
                     stack.reverse();
-                    let to_nanoseconds = 100;
 
                     let mut add_sample = |thread: &mut ThreadState, timestamp, stack: Vec<u64>| {
                         let frames = stack.iter().map(|addr| gecko_profile::Frame::Address(*addr));
@@ -215,7 +217,7 @@ fn main() {
                             if thread.last_kernel_stack.is_none() {
                                 dbg!(thread.last_kernel_stack_time);
                             }
-                            let timestamp = profile_start_instant + Duration::from_nanos(timestamp * to_nanoseconds);
+                            let timestamp = profile_start_instant + Duration::from_nanos(to_nanos(timestamp));
                             stack.append(&mut thread.last_kernel_stack.take().unwrap());
                             add_sample(thread, timestamp, stack);
                         } else {
@@ -223,10 +225,10 @@ fn main() {
                                 // we're left with an unassociated kernel stack
                                 dbg!(thread.last_kernel_stack_time);
 
-                                let timestamp = profile_start_instant + Duration::from_nanos(thread.last_kernel_stack_time * to_nanoseconds);
+                                let timestamp = profile_start_instant + Duration::from_nanos(to_nanos(thread.last_kernel_stack_time));
                                 add_sample(thread, timestamp, kernel_stack);
                             }
-                            let timestamp = profile_start_instant + Duration::from_nanos(timestamp * to_nanoseconds);
+                            let timestamp = profile_start_instant + Duration::from_nanos(to_nanos(timestamp));
                             add_sample(thread, timestamp, stack);
                         }
                         stack_sample_count += 1;
