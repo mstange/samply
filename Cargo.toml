@@ -1,6 +1,6 @@
 [package]
 name = "profiler-symbol-server"
-version = "0.7.0"
+version = "0.7.1"
 authors = ["Markus Stange <mstange@themasta.com>"]
 edition = "2018"
 license = "MIT/Apache-2.0"
