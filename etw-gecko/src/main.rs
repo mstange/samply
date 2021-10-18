@@ -1,6 +1,6 @@
 use std::{collections::{HashMap, HashSet, hash_map::Entry}, convert::TryInto, fs::File, io::{BufWriter}, path::{Path, PathBuf}, time::{Duration, Instant}};
 
-use etw_reader::{Guid, open_trace, parser::{Parser, TryParse}, print_property, schema::{TypedEvent, SchemaLocator}, tdh_types::{Property, TdhInType}};
+use etw_reader::{Guid, open_trace, parser::{Parser, TryParse}, print_property, schema::{TypedEvent, SchemaLocator}};
 use serde_json::to_writer;
 
 use gecko_profile::{debugid, ThreadBuilder};
@@ -296,7 +296,7 @@ fn main() {
                     let pdb_path: String = parser.try_parse("PdbFileName").unwrap();
                     let pdb_path = Path::new(&pdb_path);
                     let (ref path, image_size) = libs[&image_base];
-                    profile.add_lib(&path, None, &pdb_path, debug_id, Some("x86_64"), image_base, (image_base..(image_base + image_size as u64)));
+                    profile.add_lib(&path, None, &pdb_path, debug_id, Some("x86_64"), image_base, image_base..(image_base + image_size as u64))
                 }
                 "MSNT_SystemTrace/Thread/CSwitch" | "MSNT_SystemTrace/Thread/ReadyThread" => {}
                 _ => {

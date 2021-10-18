@@ -1,4 +1,4 @@
-use etw_reader::{Guid, open_trace, parser::{Parser, TryParse}, print_property, schema::{EventSchema, SchemaLocator}, tdh_types::{Property, TdhInType}};
+use etw_reader::{Guid, open_trace, schema::{SchemaLocator}};
 use std::{cmp::Reverse, collections::HashMap, path::Path};
 
 fn main() {

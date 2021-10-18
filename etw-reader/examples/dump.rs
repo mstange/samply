@@ -1,5 +1,5 @@
-use etw_reader::{open_trace, parser::{Parser, TryParse}, print_property, schema::{EventSchema, SchemaLocator}, tdh_types::{Property, TdhInType}};
-use windows::{Guid, IntoParam, Param};
+use etw_reader::{open_trace, parser::{Parser}, print_property, schema::{EventSchema, SchemaLocator}};
+
 use std::path::Path;
 
 

@@ -9,10 +9,8 @@ use crate::property::{PropertyInfo, PropertyIter};
 use crate::schema::TypedEvent;
 use crate::utils;
 use std::borrow::Borrow;
-use std::collections::HashMap;
 use std::convert::TryInto;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::rc::Rc;
 use windows::Guid;
 
 /// Parser module errors
