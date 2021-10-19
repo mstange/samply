@@ -80,14 +80,6 @@ impl ProfileBuilder {
         })
     }
 
-    // pub fn add_sample(&mut self, thread_index: u32, timestamp: f64, frames: &[u64]) {
-    //     let thread = self
-    //         .threads
-    //         .entry(thread_index)
-    //         .or_insert_with(|| ThreadBuilder::new(thread_index, timestamp));
-    //     thread.add_sample(timestamp, frames);
-    // }
-
     pub fn add_thread(&mut self, thread_builder: ThreadBuilder) {
         self.threads.insert(thread_builder.index, thread_builder);
     }
