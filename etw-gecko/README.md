@@ -16,7 +16,9 @@ To install `profiler-symbol-server`, run `cargo install profiler-symbol-server`.
 
 ## Usage
 
-Start profiling session by running `xperf -on latency -stackwalk profile` as Administrator. Then run `xperf -d out.etl` to capture it.
+Open an Administrator command shell with Win+R, "cmd", Ctrl+Shift+Enter.
+
+Start profiling session by running `xperf -on latency -stackwalk profile` in the Adminstrator shell. Then run `xperf -d out.etl` to capture it.
 
 Then run `cargo run --release out.etl [process-name]` to produce a gecko.json.
 
