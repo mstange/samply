@@ -16,6 +16,12 @@ use crate::bindings::Windows::Win32::System::Diagnostics::Etw;
 use crate::etw_types::EventPropertyInfo;
 use num_traits::FromPrimitive;
 
+#[derive(Debug, Clone, Default)]
+pub struct PropertyMapInfo {
+    pub is_bitmap: bool,
+    pub map: crate::FastHashMap<u32, String>
+}
+
 /// Attributes of a property
 #[derive(Debug, Clone, Default)]
 pub struct Property {
@@ -28,12 +34,13 @@ pub struct Property {
     pub in_type: TdhInType,
     /// TDH Out type of the property
     pub out_type: TdhOutType,
+    pub map_info: Option<PropertyMapInfo>,
     pub count: u16,
 }
 
 #[doc(hidden)]
 impl Property {
-    pub fn new(name: String, property: &EventPropertyInfo) -> Self {
+    pub fn new(name: String, property: &EventPropertyInfo, map_info: Option<PropertyMapInfo>) -> Self {
         // Fixme: Check flags to see which values to get for the in_type
         unsafe {
             let out_type = FromPrimitive::from_u16(property.Anonymous1.nonStructType.OutType)
@@ -47,6 +54,7 @@ impl Property {
                 length: property.Anonymous3.length,
                 in_type,
                 out_type,
+                map_info,
                 count: property.Anonymous2.count,
             }
         }

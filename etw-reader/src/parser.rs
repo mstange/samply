@@ -217,7 +217,7 @@ impl<'a> Parser<'a> {
 
             if self.buffer.len() < prop_size {
                 return Err(ParserError::PropertyError(
-                    "Property length out of buffer bounds".to_owned(),
+                    format!("Property of {} bytes out of buffer bounds ({})", prop_size, self.buffer.len()),
                 ));
             }
 
@@ -232,6 +232,30 @@ impl<'a> Parser<'a> {
         Ok(indx)
     }
 }
+
+/*
+impl<'a> std::fmt::Debug for Parser<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut s = f.debug_struct("ParsedEvent");
+        for i in 0..self.event.property_count() {
+            let property = self.event.property(i);
+            let value = match property.in_type() {
+                TdhInType::InTypeUnicodeString => format!("{}", TryParse::<String>::parse(self, &property.name)),
+                TdhInType::InTypeAnsiString => format!("{}", TryParse::<String>::parse(self, &property.name)),
+                TdhInType::InTypeUInt32 => format!("{}", TryParse::<u32>::parse(self, &property.name)),
+                TdhInType::InTypeUInt8 => format!("{}", TryParse::<u8>::parse(self, &property.name)),
+                TdhInType::InTypePointer => format!("{}", TryParse::<u64>::parse(self, &property.name)),
+                TdhInType::InTypeInt64 => format!("{}", TryParse::<i64>::parse(self, &property.name)),
+                TdhInType::InTypeUInt64 => format!("{}", TryParse::<u64>::parse(self, &property.name)),
+                TdhInType::InTypeGuid => format!("{:?}", TryParse::<Guid>::parse(self, &property.name)),
+                _ => panic!()
+            };
+            s.field(&property.name, &value);
+            //dbg!(&property);
+        }
+        s.finish()
+    }
+}*/
 
 macro_rules! impl_try_parse_primitive {
     ($T:ident, $ty:ident) => {

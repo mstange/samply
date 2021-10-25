@@ -1,10 +1,11 @@
 use std::ops::Deref;
 
-use crate::bindings::Windows::Win32::System::Diagnostics::Etw;
+use crate::{bindings::Windows::Win32::System::Diagnostics::Etw, tdh_types::PropertyMapInfo};
 use crate::schema::EventSchema;
 use crate::utils;
 use crate::tdh_types::Property;
 use windows::Guid;
+use crate::{bindings::Windows::Win32::Foundation::PWSTR};
 
 #[repr(transparent)]
 pub struct EventRecord(Etw::EVENT_RECORD);
@@ -123,6 +124,7 @@ impl From<&TraceEventInfoRaw> for TraceEventInfo {
     }
 }
 
+
 impl TraceEventInfoRaw {
     pub(crate) fn alloc(len: u32) -> Self {
         TraceEventInfoRaw {
@@ -133,6 +135,61 @@ impl TraceEventInfoRaw {
     pub fn info_as_ptr(&mut self) -> *mut u8 {
         self.info.as_mut_ptr()
     }
+
+    fn property_map_info(&self, index: u32) -> Option<PropertyMapInfo> {
+
+        // let's make sure index is not bigger thant the PropertyCount
+        assert!(index <= self.property_count());
+
+        // We need to subtract the sizeof(EVENT_PROPERTY_INFO) due to how TRACE_EVENT_INFO is declared
+        // in the bindings, the last field `EventPropertyInfoArray[ANYSIZE_ARRAY]` is declared as
+        // [EVENT_PROPERTY_INFO; 1]
+        // https://microsoft.github.io/windows-docs-rs/doc/bindings/Windows/Win32/Etw/struct.TRACE_EVENT_INFO.html#structfield.EventPropertyInfoArray
+        let curr_prop_offset = index as usize * std::mem::size_of::<EventPropertyInfo>()
+            + (std::mem::size_of::<TraceEventInfo>() - std::mem::size_of::<EventPropertyInfo>());
+
+        let curr_prop = EventPropertyInfo::from(&self.info[curr_prop_offset..]);
+        unsafe {
+            if curr_prop.Anonymous1.nonStructType.MapNameOffset != 0 {
+                let mut event: crate::Etw::EVENT_RECORD = unsafe { std::mem::zeroed() };
+                event.EventHeader.ProviderId = self.provider_guid();
+                let mut buffer_size = 0;
+
+                let map_name = PWSTR(self.info[curr_prop.Anonymous1.nonStructType.MapNameOffset as usize..].as_ptr() as *mut u16);
+                use crate::bindings::Windows::Win32::System::Diagnostics::Debug::ERROR_INSUFFICIENT_BUFFER;
+                // println!("map_name {}", utils::parse_unk_size_null_utf16_string(&self.info[curr_prop.Anonymous1.nonStructType.MapNameOffset as usize..]));
+
+                if Etw::TdhGetEventMapInformation(&event, map_name, std::ptr::null_mut(), &mut buffer_size) != ERROR_INSUFFICIENT_BUFFER.0 {
+                    panic!("expected this to fail");
+                }
+                
+                let mut buffer = vec![0; buffer_size as usize];
+                if Etw::TdhGetEventMapInformation(&event, map_name, buffer.as_mut_ptr() as *mut _, &mut buffer_size) != 0 {
+                    panic!();
+                }
+
+                let map_info: &crate::Etw::EVENT_MAP_INFO = &*(buffer.as_ptr() as *const _);
+                if map_info.Flag == crate::Etw::EVENTMAP_INFO_FLAG_MANIFEST_VALUEMAP || map_info.Flag == crate::Etw::EVENTMAP_INFO_FLAG_MANIFEST_BITMAP {
+                    let is_bitmap = map_info.Flag == crate::Etw::EVENTMAP_INFO_FLAG_MANIFEST_BITMAP;
+                    let mut map = crate::FastHashMap::default();
+                    assert!(map_info.Anonymous.MapEntryValueType == crate::Etw::EVENTMAP_ENTRY_VALUETYPE_ULONG);
+                    let entries = std::slice::from_raw_parts(map_info.MapEntryArray.as_ptr(), map_info.EntryCount as usize);
+                    for e in entries {
+                        let value = e.Anonymous.Value;
+                        let name = utils::parse_unk_size_null_utf16_string(&buffer[e.OutputOffset as usize..]);
+                        // println!("{} -> {:?}", value, name);
+                        map.insert(value, name);
+                    }
+                    return Some(PropertyMapInfo { is_bitmap, map });
+                } else  {
+                    eprint!("unsupported map type {:?}", map_info.Flag);
+                }
+
+            }
+        }
+        return None;
+    }
+ 
 }
 
 impl EventSchema for TraceEventInfoRaw {
@@ -197,6 +254,8 @@ impl EventSchema for TraceEventInfoRaw {
         let curr_prop = EventPropertyInfo::from(&self.info[curr_prop_offset..]);
         let name =
             utils::parse_unk_size_null_utf16_string(&self.info[curr_prop.NameOffset as usize..]);
-        Property::new(name, &curr_prop)
+        Property::new(name, &curr_prop, self.property_map_info(index))
     }
+
+
 }

@@ -84,16 +84,39 @@ pub fn open_trace<F: FnMut(&EventRecord)>(path: &Path, mut callback: F)  {
 
 pub fn print_property(parser: &mut Parser, property: &Property) {
     print!("  {}= ", property.name);
-    match property.in_type() {
-        TdhInType::InTypeUnicodeString => println!("{:?}", TryParse::<String>::try_parse(parser, &property.name)),
-        TdhInType::InTypeAnsiString => println!("{:?}", TryParse::<String>::try_parse(parser, &property.name)),
-        TdhInType::InTypeUInt32 => println!("{:?}", TryParse::<u32>::try_parse(parser, &property.name)),
-        TdhInType::InTypeUInt8 => println!("{:?}", TryParse::<u8>::try_parse(parser, &property.name)),
-        TdhInType::InTypePointer => println!("{:?}", TryParse::<u64>::try_parse(parser, &property.name)),
-        TdhInType::InTypeInt64 => println!("{:?}", TryParse::<i64>::try_parse(parser, &property.name)),
-        TdhInType::InTypeUInt64 => println!("{:?}", TryParse::<u64>::try_parse(parser, &property.name)),
-        TdhInType::InTypeGuid => println!("{:?}", TryParse::<Guid>::try_parse(parser, &property.name)),
-        _ => println!("Unknown {:?}", property.in_type())
+    if let Some(map_info) = &property.map_info {
+        let mut value = match property.in_type() {
+            TdhInType::InTypeUInt32 => TryParse::<u32>::parse(parser, &property.name),
+            _ => panic!()
+        };
+        if map_info.is_bitmap {
+            let mut matches: Vec<&str> = Vec::new();
+            for (k, v) in &map_info.map {
+                if value & k != 0 {
+                    matches.push(v);
+                    value &= !k;
+                }
+            }
+            if value != 0 {
+                panic!("unnamed bits");
+            }
+            println!("{}", matches.join(" | "));
+        } else {
+            println!("{}", map_info.map[&value]);
+        }
+    } else {
+        match property.in_type() {
+            TdhInType::InTypeUnicodeString => println!("{:?}", TryParse::<String>::try_parse(parser, &property.name)),
+            TdhInType::InTypeAnsiString => println!("{:?}", TryParse::<String>::try_parse(parser, &property.name)),
+            TdhInType::InTypeUInt32 => println!("{:?}", TryParse::<u32>::try_parse(parser, &property.name)),
+            TdhInType::InTypeUInt16 => println!("{:?}", TryParse::<u32>::try_parse(parser, &property.name)),
+            TdhInType::InTypeUInt8 => println!("{:?}", TryParse::<u16>::try_parse(parser, &property.name)),
+            TdhInType::InTypePointer => println!("{:?}", TryParse::<u64>::try_parse(parser, &property.name)),
+            TdhInType::InTypeInt64 => println!("{:?}", TryParse::<i64>::try_parse(parser, &property.name)),
+            TdhInType::InTypeUInt64 => println!("{:?}", TryParse::<u64>::try_parse(parser, &property.name)),
+            TdhInType::InTypeGuid => println!("{:?}", TryParse::<Guid>::try_parse(parser, &property.name)),
+            _ => println!("Unknown {:?}", property.in_type())
+        }
     }
 }
 
