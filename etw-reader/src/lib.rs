@@ -110,7 +110,7 @@ pub fn print_property(parser: &mut Parser, property: &Property) {
             TdhInType::InTypeAnsiString => println!("{:?}", TryParse::<String>::try_parse(parser, &property.name)),
             TdhInType::InTypeUInt32 => println!("{:?}", TryParse::<u32>::try_parse(parser, &property.name)),
             TdhInType::InTypeUInt16 => println!("{:?}", TryParse::<u32>::try_parse(parser, &property.name)),
-            TdhInType::InTypeUInt8 => println!("{:?}", TryParse::<u16>::try_parse(parser, &property.name)),
+            TdhInType::InTypeUInt8 => println!("{:?}", TryParse::<u8>::try_parse(parser, &property.name)),
             TdhInType::InTypePointer => println!("{:?}", TryParse::<u64>::try_parse(parser, &property.name)),
             TdhInType::InTypeInt64 => println!("{:?}", TryParse::<i64>::try_parse(parser, &property.name)),
             TdhInType::InTypeUInt64 => println!("{:?}", TryParse::<u64>::try_parse(parser, &property.name)),
