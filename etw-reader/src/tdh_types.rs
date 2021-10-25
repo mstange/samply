@@ -21,19 +21,33 @@ pub struct PropertyMapInfo {
     pub is_bitmap: bool,
     pub map: crate::FastHashMap<u32, String>
 }
+#[derive(Debug, Clone, Default)]
+pub struct PrimitiveDesc {
+    pub in_type: TdhInType,
+    pub out_type: TdhOutType,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct StructDesc {
+    pub start_index: u16,
+    pub num_members: u16,
+}
+
+#[derive(Debug, Clone)]
+pub enum PropertyDesc {
+    Primitive(PrimitiveDesc),
+    Struct(StructDesc),
+}
 
 /// Attributes of a property
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Property {
     /// Name of the Property
     pub name: String,
     /// Represent the [PropertyFlags]
     pub flags: PropertyFlags,
-    /// TDH In type of the property
     pub length: u16,
-    pub in_type: TdhInType,
-    /// TDH Out type of the property
-    pub out_type: TdhOutType,
+    pub desc: PropertyDesc,
     pub map_info: Option<PropertyMapInfo>,
     pub count: u16,
 }
@@ -41,30 +55,37 @@ pub struct Property {
 #[doc(hidden)]
 impl Property {
     pub fn new(name: String, property: &EventPropertyInfo, map_info: Option<PropertyMapInfo>) -> Self {
-        // Fixme: Check flags to see which values to get for the in_type
-        unsafe {
-            let out_type = FromPrimitive::from_u16(property.Anonymous1.nonStructType.OutType)
-                .unwrap_or(TdhOutType::OutTypeNull);
-            let in_type = FromPrimitive::from_u16(property.Anonymous1.nonStructType.InType)
-                .unwrap_or(TdhInType::InTypeNull);
-            
-            Property {
-                name,
-                flags: PropertyFlags::from(property.Flags),
-                length: property.Anonymous3.length,
-                in_type,
-                out_type,
-                map_info,
-                count: property.Anonymous2.count,
+        if property.Flags.0 & Etw::PropertyStruct.0 != 0 {
+            unsafe {
+                let start_index = property.Anonymous1.structType.StructStartIndex;
+                let num_members = property.Anonymous1.structType.NumOfStructMembers;
+                
+                Property {
+                    name,
+                    flags: PropertyFlags::from(property.Flags),
+                    length: property.Anonymous3.length,
+                    desc: PropertyDesc::Struct(StructDesc{start_index, num_members}),
+                    map_info,
+                    count: property.Anonymous2.count,
+                }
+            }
+        } else {
+            unsafe {
+                let out_type = FromPrimitive::from_u16(property.Anonymous1.nonStructType.OutType)
+                    .unwrap_or(TdhOutType::OutTypeNull);
+                let in_type = FromPrimitive::from_u16(property.Anonymous1.nonStructType.InType)
+                    .unwrap_or(TdhInType::InTypeNull);
+                
+                Property {
+                    name,
+                    flags: PropertyFlags::from(property.Flags),
+                    length: property.Anonymous3.length,
+                    desc: PropertyDesc::Primitive(PrimitiveDesc{in_type, out_type}),
+                    map_info,
+                    count: property.Anonymous2.count,
+                }
             }
         }
-    }
-    pub fn in_type(&self) -> TdhInType {
-        self.in_type
-    }
-
-    pub fn out_type(&self) -> TdhOutType {
-        self.out_type
     }
 
     pub fn len(&self) -> usize {

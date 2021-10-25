@@ -1,6 +1,6 @@
 use windows::Guid;
 
-use crate::{etw_types::DecodingSource, schema::EventSchema, tdh_types::{Property, PropertyFlags, TdhInType, TdhOutType}};
+use crate::{etw_types::DecodingSource, schema::EventSchema, tdh_types::{Property, PropertyDesc, PrimitiveDesc, PropertyFlags, TdhInType, TdhOutType}};
 
 struct PropDesc {
     name: &'static str,
@@ -60,8 +60,8 @@ impl EventSchema for ImageID {
     fn property(&self, index: u32) -> Property {
         let prop = &ImageID_PROPS[index as usize];
         Property { name: prop.name.to_owned(),
-            in_type: prop.in_type,
-        out_type: prop.out_type,
+        desc: PropertyDesc::Primitive(PrimitiveDesc{ in_type: prop.in_type,
+        out_type: prop.out_type,}),
         length: 0,
         count: 1,
         map_info: None,
@@ -122,8 +122,8 @@ impl EventSchema for DbgID {
     fn property(&self, index: u32) -> Property {
         let prop = &DbgID_PROPS[index as usize];
         Property { name: prop.name.to_owned(),
-            in_type: prop.in_type,
-        out_type: prop.out_type,
+            desc: PropertyDesc::Primitive(PrimitiveDesc{ in_type: prop.in_type,
+                out_type: prop.out_type,}),
         count: 1,
         length: 0,
         map_info: None,
@@ -197,8 +197,8 @@ impl EventSchema for ThreadStart {
     fn property(&self, index: u32) -> Property {
         let prop = &Thread_PROPS[index as usize];
         Property { name: prop.name.to_owned(),
-            in_type: prop.in_type,
-        out_type: prop.out_type,
+            desc: PropertyDesc::Primitive(PrimitiveDesc{ in_type: prop.in_type,
+                out_type: prop.out_type,}),
         length: 0,
         count:1,
         map_info: None,

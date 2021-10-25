@@ -4,6 +4,8 @@
 use crate::etw_types::EVENT_HEADER_FLAG_32_BIT_HEADER;
 use crate::sddl;
 use crate::tdh;
+use crate::tdh_types::PrimitiveDesc;
+use crate::tdh_types::PropertyDesc;
 use crate::tdh_types::{Property, PropertyFlags, TdhInType, TdhOutType};
 use crate::property::{PropertyInfo, PropertyIter};
 use crate::schema::TypedEvent;
@@ -163,7 +165,7 @@ impl<'a> Parser<'a> {
             && property.len() > 0
         {
             let size;
-            if property.in_type() == TdhInType::InTypePointer {
+            if let PropertyDesc::Primitive(PrimitiveDesc { in_type: TdhInType::InTypePointer, ..}) = property.desc {
                 size = if (self.event.event_flags() & EVENT_HEADER_FLAG_32_BIT_HEADER) != 0 {
                     4
                 } else {
@@ -179,23 +181,25 @@ impl<'a> Parser<'a> {
             return Ok(property.len());
         }
         if property.count == 1 {
-            match property.in_type {
-                TdhInType::InTypeInt32 | TdhInType::InTypeUInt32 => return Ok(4),
-                TdhInType::InTypeInt64 | TdhInType::InTypeUInt64 => return Ok(8),
-                TdhInType::InTypeInt8 | TdhInType::InTypeUInt8 => return Ok(1),
-                TdhInType::InTypePointer => return Ok(if (self.event.event_flags() & EVENT_HEADER_FLAG_32_BIT_HEADER) != 0 {
-                    4
-                } else {
-                    8
-                }),
-                TdhInType::InTypeGuid => return Ok(std::mem::size_of::<Guid>()),
-                TdhInType::InTypeUnicodeString => {
-                    return Ok(utils::parse_unk_size_null_unicode_vec(&self.buffer).len()*2)
+            if let PropertyDesc::Primitive(desc) = &property.desc {
+                match desc.in_type {
+                    TdhInType::InTypeInt32 | TdhInType::InTypeUInt32 => return Ok(4),
+                    TdhInType::InTypeInt64 | TdhInType::InTypeUInt64 => return Ok(8),
+                    TdhInType::InTypeInt8 | TdhInType::InTypeUInt8 => return Ok(1),
+                    TdhInType::InTypePointer => return Ok(if (self.event.event_flags() & EVENT_HEADER_FLAG_32_BIT_HEADER) != 0 {
+                        4
+                    } else {
+                        8
+                    }),
+                    TdhInType::InTypeGuid => return Ok(std::mem::size_of::<Guid>()),
+                    TdhInType::InTypeUnicodeString => {
+                        return Ok(utils::parse_unk_size_null_unicode_vec(&self.buffer).len()*2)
+                    }
+                    TdhInType::InTypeAnsiString => {
+                        return Ok(utils::parse_unk_size_null_ansi_vec(&self.buffer).len())
+                    }
+                    _ => {}
                 }
-                TdhInType::InTypeAnsiString => {
-                    return Ok(utils::parse_unk_size_null_ansi_vec(&self.buffer).len())
-                }
-                _ => {}
             }
         }
         Ok(tdh::property_size(self.event.record(), &property.name).unwrap() as usize)
@@ -265,14 +269,16 @@ macro_rules! impl_try_parse_primitive {
                 let indx = self.find_property(name)?;
                 let prop_info = &self.cache[indx];
                 let prop_info: &PropertyInfo = prop_info.borrow();
-
-                if prop_info.property.in_type() != $ty {
-                    return Err(ParserError::InvalidType)
-                }
-                if std::mem::size_of::<$T>() != prop_info.buffer.len() {
-                    return Err(ParserError::LengthMismatch);
-                }
-                Ok($T::from_ne_bytes(prop_info.buffer.try_into()?))
+                if let PropertyDesc::Primitive(desc) = &prop_info.property.desc {
+                    if desc.in_type != $ty {
+                        return Err(ParserError::InvalidType)
+                    }
+                    if std::mem::size_of::<$T>() != prop_info.buffer.len() {
+                        return Err(ParserError::LengthMismatch);
+                    }
+                    return Ok($T::from_ne_bytes(prop_info.buffer.try_into()?))
+                };
+                Err(ParserError::InvalidType)
             }
         }
     };
@@ -292,24 +298,25 @@ impl TryParse<u64> for Parser<'_> {
         use TdhInType::*;
         let indx = self.find_property(name)?;
         let prop_info = &self.cache[indx];
-
-        if prop_info.property.in_type() == InTypeUInt64 {
-            if std::mem::size_of::<u64>() != prop_info.buffer.len() {
-                return Err(ParserError::LengthMismatch);
-            }
-            return Ok(u64::from_ne_bytes(prop_info.buffer.try_into()?));
-        }
-        if prop_info.property.in_type() == InTypePointer {
-            if (self.event.event_flags() & EVENT_HEADER_FLAG_32_BIT_HEADER) != 0  {
-                if std::mem::size_of::<u32>() != prop_info.buffer.len() {
+        if let PropertyDesc::Primitive(desc) = &prop_info.property.desc {
+            if desc.in_type == InTypeUInt64 {
+                if std::mem::size_of::<u64>() != prop_info.buffer.len() {
                     return Err(ParserError::LengthMismatch);
                 }
-                return Ok(u32::from_ne_bytes(prop_info.buffer.try_into()?) as u64);
+                return Ok(u64::from_ne_bytes(prop_info.buffer.try_into()?));
             }
-            if std::mem::size_of::<u64>() != prop_info.buffer.len() {
-                return Err(ParserError::LengthMismatch);
+            if desc.in_type == InTypePointer {
+                if (self.event.event_flags() & EVENT_HEADER_FLAG_32_BIT_HEADER) != 0  {
+                    if std::mem::size_of::<u32>() != prop_info.buffer.len() {
+                        return Err(ParserError::LengthMismatch);
+                    }
+                    return Ok(u32::from_ne_bytes(prop_info.buffer.try_into()?) as u64);
+                }
+                if std::mem::size_of::<u64>() != prop_info.buffer.len() {
+                    return Err(ParserError::LengthMismatch);
+                }
+                return Ok(u64::from_ne_bytes(prop_info.buffer.try_into()?));
             }
-            return Ok(u64::from_ne_bytes(prop_info.buffer.try_into()?));
         }
         return Err(ParserError::InvalidType)
     }
@@ -344,22 +351,24 @@ impl TryParse<String> for Parser<'_> {
         let prop_info: &PropertyInfo = prop_info.borrow();
 
         // TODO: Handle errors and type checking better
-        let res = match prop_info.property.in_type() {
-            TdhInType::InTypeUnicodeString => {
-                utils::parse_null_utf16_string(prop_info.buffer)
-            }
-            TdhInType::InTypeAnsiString => String::from_utf8(prop_info.buffer.to_vec())?
-                .trim_matches(char::default())
-                .to_string(),
-            TdhInType::InTypeSid => {
-                panic!()
-                //sddl::convert_sid_to_string(prop_info.buffer.as_ptr() as isize)?
-            }
-            TdhInType::InTypeCountedString => unimplemented!(),
-            _ => return Err(ParserError::InvalidType),
-        };
-
-        Ok(res)
+        if let PropertyDesc::Primitive(desc) = &prop_info.property.desc {
+            let res = match desc.in_type {
+                TdhInType::InTypeUnicodeString => {
+                    utils::parse_null_utf16_string(prop_info.buffer)
+                }
+                TdhInType::InTypeAnsiString => String::from_utf8(prop_info.buffer.to_vec())?
+                    .trim_matches(char::default())
+                    .to_string(),
+                TdhInType::InTypeSid => {
+                    panic!()
+                    //sddl::convert_sid_to_string(prop_info.buffer.as_ptr() as isize)?
+                }
+                TdhInType::InTypeCountedString => unimplemented!(),
+                _ => return Err(ParserError::InvalidType),
+            };
+            return Ok(res)
+        }
+        Err(ParserError::InvalidType)
     }
 }
 
@@ -368,34 +377,37 @@ impl TryParse<Guid> for Parser<'_> {
         let indx = self.find_property(name)?;
         let prop_info = &self.cache[indx];
         let prop_info: &PropertyInfo = prop_info.borrow();
-        let res = match prop_info.property.in_type() {
-            TdhInType::InTypeUnicodeString => {
-                let guid_string = utils::parse_utf16_guid(prop_info.buffer);
+        if let PropertyDesc::Primitive(desc) = &prop_info.property.desc {
+            match desc.in_type {
+                TdhInType::InTypeUnicodeString => {
+                    let guid_string = utils::parse_utf16_guid(prop_info.buffer);
 
-                if guid_string.len() != 36 {
-                    return Err(ParserError::LengthMismatch);
+                    if guid_string.len() != 36 {
+                        return Err(ParserError::LengthMismatch);
+                    }
+
+                    return Ok(Guid::from(guid_string.as_str()))
                 }
-
-                return Ok(Guid::from(guid_string.as_str()))
+                TdhInType::InTypeGuid => {
+                    return Ok(Guid::from_values(u32::from_ne_bytes((&prop_info.buffer[0..4]).try_into()?),
+                                                u16::from_ne_bytes((&prop_info.buffer[4..6]).try_into()?),
+                                                u16::from_ne_bytes((&prop_info.buffer[6..8]).try_into()?),
+                                                [
+                                                    prop_info.buffer[8],
+                                                    prop_info.buffer[9],
+                                                    prop_info.buffer[10],
+                                                    prop_info.buffer[11],
+                                                    prop_info.buffer[12],
+                                                    prop_info.buffer[13],
+                                                    prop_info.buffer[14],
+                                                    prop_info.buffer[15],
+                                                ]
+                                            ))
+                }
+                _ => return Err(ParserError::InvalidType),
             }
-            TdhInType::InTypeGuid => {
-                return Ok(Guid::from_values(u32::from_ne_bytes((&prop_info.buffer[0..4]).try_into()?),
-                                            u16::from_ne_bytes((&prop_info.buffer[4..6]).try_into()?),
-                                            u16::from_ne_bytes((&prop_info.buffer[6..8]).try_into()?),
-                                            [
-                                                prop_info.buffer[8],
-                                                prop_info.buffer[9],
-                                                prop_info.buffer[10],
-                                                prop_info.buffer[11],
-                                                prop_info.buffer[12],
-                                                prop_info.buffer[13],
-                                                prop_info.buffer[14],
-                                                prop_info.buffer[15],
-                                            ]
-                                        ))
-            }
-            _ => return Err(ParserError::InvalidType),
         };
+        Err(ParserError::InvalidType)
     }
 }
 
@@ -404,27 +416,30 @@ impl TryParse<IpAddr> for Parser<'_> {
         let indx = self.find_property(name)?;
         let prop_info = &self.cache[indx];
         let prop_info: &PropertyInfo = prop_info.borrow();
+        if let PropertyDesc::Primitive(desc) = &prop_info.property.desc {
 
-        if prop_info.property.out_type() != TdhOutType::OutTypeIpv4
-            && prop_info.property.out_type() != TdhOutType::OutTypeIpv6
-        {
-            return Err(ParserError::InvalidType);
+            if desc.out_type != TdhOutType::OutTypeIpv4
+                && desc.out_type != TdhOutType::OutTypeIpv6
+            {
+                return Err(ParserError::InvalidType);
+            }
+
+            // Hardcoded values for now
+            let res = match prop_info.property.len() {
+                16 => {
+                    let tmp: [u8; 16] = prop_info.buffer.try_into()?;
+                    IpAddr::V6(Ipv6Addr::from(tmp))
+                }
+                4 => {
+                    let tmp: [u8; 4] = prop_info.buffer.try_into()?;
+                    IpAddr::V4(Ipv4Addr::from(tmp))
+                }
+                _ => return Err(ParserError::LengthMismatch),
+            };
+
+            return Ok(res)
         }
-
-        // Hardcoded values for now
-        let res = match prop_info.property.len() {
-            16 => {
-                let tmp: [u8; 16] = prop_info.buffer.try_into()?;
-                IpAddr::V6(Ipv6Addr::from(tmp))
-            }
-            4 => {
-                let tmp: [u8; 4] = prop_info.buffer.try_into()?;
-                IpAddr::V4(Ipv4Addr::from(tmp))
-            }
-            _ => return Err(ParserError::LengthMismatch),
-        };
-
-        Ok(res)
+        Err(ParserError::InvalidType)
     }
 }
 
