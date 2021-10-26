@@ -4,7 +4,6 @@ use crate::bindings::Windows::Win32::System::Diagnostics::Etw;
 use crate::bindings::Windows::Win32::System::Diagnostics::Debug::ERROR_INSUFFICIENT_BUFFER;
 use crate::etw_types::*;
 
-use crate::schema::EventSchema;
 use crate::traits::*;
 
 #[derive(Debug)]
@@ -46,10 +45,6 @@ pub fn schema_from_tdh(event: &Etw::EVENT_RECORD) -> TdhNativeResult<TraceEventI
         ) != 0
         {
             return Err(TdhNativeError::IoError(std::io::Error::last_os_error()));
-        }
-
-        for i in 0..buffer.property_count() {
-            buffer.property_map_info(i);
         }
 
         Ok(buffer)

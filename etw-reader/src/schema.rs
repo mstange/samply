@@ -4,7 +4,7 @@
 use crate::etw_types::{DecodingSource, EventRecord, TraceEventInfoRaw};
 use crate::property::PropertyIter;
 use crate::tdh;
-use crate::tdh_types::{Property, PropertyMapInfo};
+use crate::tdh_types::Property;
 use crate::FastHashMap;
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
@@ -99,9 +99,6 @@ pub trait EventSchema {
     
     fn property_count(&self) -> u32;
     fn property(&self, index: u32) -> Property;
-    fn property_map_info(&mut self, index: u32) -> Option<PropertyMapInfo> {
-        return None;
-    }
 }
 
 

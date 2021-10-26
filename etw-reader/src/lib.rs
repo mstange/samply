@@ -11,9 +11,8 @@ extern crate bitflags;
 extern crate num_derive;
 
 
-use crate::{bindings::Windows::Win32::Foundation::PWSTR, parser::{Parser, ParserError, TryParse}, schema::{EventSchema, SchemaLocator}, tdh_types::{PropertyDesc, PrimitiveDesc, TdhInType}};
+use crate::{bindings::Windows::Win32::Foundation::PWSTR, parser::{Parser, ParserError, TryParse}, schema::SchemaLocator, tdh_types::{PropertyDesc, PrimitiveDesc, TdhInType}};
 use etw_types::EventRecord;
-use schema::TypedEvent;
 use tdh_types::Property;
 use windows::{IntoParam, Param};
 use std::{collections::HashMap, hash::BuildHasherDefault, path::Path};
