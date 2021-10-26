@@ -1,6 +1,6 @@
 use crate::bindings::Windows::Win32::{
     Security,
-    Foundation::{PSTR},
+    Foundation::{PSTR, PSID},
     System::Memory::LocalFree,
 
 };
@@ -33,10 +33,10 @@ impl From<Utf8Error> for SddlNativeError {
 pub(crate) type SddlResult<T> = Result<T, SddlNativeError>;
 
 pub fn convert_sid_to_string(sid: isize) -> SddlResult<String> {
-    /*
-    let mut tmp = PSTR::NULL;
+    
+    let mut tmp = PSTR::default();
     unsafe {
-        if !Security::ConvertSidToStringSidA(Security::PSID(sid), &mut tmp).as_bool() {
+        if !Security::Authorization::ConvertSidToStringSidA(PSID(sid), &mut tmp).as_bool() {
             return Err(SddlNativeError::IoError(std::io::Error::last_os_error()));
         }
 
@@ -47,10 +47,9 @@ pub fn convert_sid_to_string(sid: isize) -> SddlResult<String> {
         LocalFree(tmp.0 as isize);
 
         Ok(sid_string)
-    }*/
-    panic!()
+    }
 }
-/*
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -62,4 +61,4 @@ mod test {
             assert_eq!(string_sid, "S-1-5-32-544");
         }
     }
-}*/
+}
