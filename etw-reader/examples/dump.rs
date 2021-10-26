@@ -1,4 +1,4 @@
-use etw_reader::{open_trace, parser::{Parser}, print_property, schema::{EventSchema, SchemaLocator}};
+use etw_reader::{open_trace, parser::{Parser}, print_property, schema::SchemaLocator};
 
 use std::path::Path;
 

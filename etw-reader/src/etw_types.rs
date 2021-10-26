@@ -151,7 +151,7 @@ impl TraceEventInfoRaw {
         let curr_prop = EventPropertyInfo::from(&self.info[curr_prop_offset..]);
         unsafe {
             if curr_prop.Anonymous1.nonStructType.MapNameOffset != 0 {
-                let mut event: crate::Etw::EVENT_RECORD = unsafe { std::mem::zeroed() };
+                let mut event: crate::Etw::EVENT_RECORD = std::mem::zeroed();
                 event.EventHeader.ProviderId = self.provider_guid();
                 let mut buffer_size = 0;
 

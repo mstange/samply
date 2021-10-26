@@ -4,7 +4,7 @@
 //! based on it's Schema. This Properties can then be used to parse accordingly their values.
 use crate::FastHashMap;
 use crate::tdh_types::Property;
-use crate::schema::{Schema, TypedEvent};
+use crate::schema::Schema;
 
 /// Event Property information
 #[derive(Clone, Debug)]
@@ -24,7 +24,7 @@ impl<'a> PropertyInfo<'a> {
 
 pub(crate) struct PropertyIter {
     properties: Vec<Property>,
-    pub (crate) name_to_indx: FastHashMap<String, usize>
+    pub (crate) name_to_indx: FastHashMap<String, usize>,
 }
 
 impl PropertyIter {
