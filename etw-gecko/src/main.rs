@@ -75,7 +75,7 @@ fn main() {
     open_trace(Path::new(&trace_file), |e| {
         event_count += 1;
         let mut process_event = |s: &TypedEvent| {
-            let to_millis = |timestamp: i64| {
+            let _to_millis = |timestamp: i64| {
                 (timestamp as f64 / perf_freq as f64) * 1000.
             };
             let to_nanos = |timestamp: u64| {
