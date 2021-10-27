@@ -1,4 +1,4 @@
-use crate::bindings::Windows::Win32::{
+use windows::Win32::{
     Security,
     Foundation::{PSTR, PSID},
     System::Memory::LocalFree,

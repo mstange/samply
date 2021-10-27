@@ -9,7 +9,7 @@ use crate::FastHashMap;
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use once_cell::unsync::OnceCell;
-use windows::Guid;
+use windows::runtime::GUID;
 
 /// Schema module errors
 #[derive(Debug)]
@@ -32,7 +32,7 @@ type SchemaResult<T> = Result<T, SchemaError>;
 
 // XXX: this can go away when a version of windows-rs newer than 0.21.1 comes out
 #[derive(Debug, Eq, PartialEq)]
-struct GuidWrapper(Guid);
+struct GuidWrapper(GUID);
 
 impl std::hash::Hash for GuidWrapper {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -88,7 +88,7 @@ pub struct SchemaLocator {
 pub trait EventSchema {
     fn decoding_source(&self) -> DecodingSource;
     
-    fn provider_guid(&self) -> Guid;
+    fn provider_guid(&self) -> GUID;
     fn event_id(&self) -> u16;
     fn opcode(&self) -> u8;
     fn event_version(&self) -> u8;
@@ -318,7 +318,7 @@ impl<'a> TypedEvent<'a> {
     /// };
     /// ```
     /// [TraceEventInfo]: crate::native::etw_types::TraceEventInfo
-    pub fn activity_id(&self) -> Guid {
+    pub fn activity_id(&self) -> GUID {
         self.record.EventHeader.ActivityId
     }
 

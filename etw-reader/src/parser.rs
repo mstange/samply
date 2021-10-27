@@ -13,7 +13,7 @@ use crate::utils;
 use std::borrow::Borrow;
 use std::convert::TryInto;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use windows::Guid;
+use windows::runtime::GUID;
 
 /// Parser module errors
 #[derive(Debug)]
@@ -191,7 +191,7 @@ impl<'a> Parser<'a> {
                     } else {
                         8
                     }),
-                    TdhInType::InTypeGuid => return Ok(std::mem::size_of::<Guid>()),
+                    TdhInType::InTypeGuid => return Ok(std::mem::size_of::<GUID>()),
                     TdhInType::InTypeUnicodeString => {
                         return Ok(utils::parse_unk_size_null_unicode_vec(&self.buffer).len()*2)
                     }
@@ -372,8 +372,8 @@ impl TryParse<String> for Parser<'_> {
     }
 }
 
-impl TryParse<Guid> for Parser<'_> {
-    fn try_parse(&mut self, name: &str) -> Result<Guid, ParserError> {
+impl TryParse<GUID> for Parser<'_> {
+    fn try_parse(&mut self, name: &str) -> Result<GUID, ParserError> {
         let indx = self.find_property(name)?;
         let prop_info = &self.cache[indx];
         let prop_info: &PropertyInfo = prop_info.borrow();
@@ -386,10 +386,10 @@ impl TryParse<Guid> for Parser<'_> {
                         return Err(ParserError::LengthMismatch);
                     }
 
-                    return Ok(Guid::from(guid_string.as_str()))
+                    return Ok(GUID::from(guid_string.as_str()))
                 }
                 TdhInType::InTypeGuid => {
-                    return Ok(Guid::from_values(u32::from_ne_bytes((&prop_info.buffer[0..4]).try_into()?),
+                    return Ok(GUID::from_values(u32::from_ne_bytes((&prop_info.buffer[0..4]).try_into()?),
                                                 u16::from_ne_bytes((&prop_info.buffer[4..6]).try_into()?),
                                                 u16::from_ne_bytes((&prop_info.buffer[6..8]).try_into()?),
                                                 [

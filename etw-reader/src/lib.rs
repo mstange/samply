@@ -1,7 +1,3 @@
-mod bindings {
-    windows::include_bindings!();
-}
-
 extern crate num_traits;
 
 #[macro_use]
@@ -10,13 +6,13 @@ extern crate bitflags;
 #[macro_use]
 extern crate num_derive;
 
-
-use crate::{bindings::Windows::Win32::Foundation::PWSTR, parser::{Parser, ParserError, TryParse}, schema::SchemaLocator, tdh_types::{PropertyDesc, PrimitiveDesc, TdhInType}};
+use windows::Win32::Foundation::PWSTR;
+use crate::{parser::{Parser, ParserError, TryParse}, schema::SchemaLocator, tdh_types::{PropertyDesc, PrimitiveDesc, TdhInType}};
 use etw_types::EventRecord;
 use tdh_types::Property;
-use windows::{IntoParam, Param};
+use windows::runtime::{IntoParam, Param};
 use std::{collections::HashMap, hash::BuildHasherDefault, path::Path};
-use crate::bindings::Windows::Win32::System::Diagnostics::Etw;
+use windows::Win32::System::Diagnostics::Etw;
 use fxhash::FxHasher;
 //, WindowsProgramming};
 
@@ -31,7 +27,7 @@ pub mod sddl;
 pub mod traits;
 pub mod custom_schemas;
 
-pub use windows::Guid;
+pub use windows::runtime::GUID;
 
 pub type FastHashMap<K, V> = HashMap<K, V, BuildHasherDefault<FxHasher>>;
 #[repr(C)]
@@ -115,7 +111,7 @@ pub fn print_property(parser: &mut Parser, property: &Property) {
                     TdhInType::InTypeInt64 => TryParse::<i64>::try_parse(parser, &property.name).map(|x| x.to_string()),
                     TdhInType::InTypeUInt64 => TryParse::<u64>::try_parse(parser, &property.name).map(|x| x.to_string()),
                     TdhInType::InTypePointer => TryParse::<u64>::try_parse(parser, &property.name).map(|x| x.to_string()),
-                    TdhInType::InTypeGuid => TryParse::<Guid>::try_parse(parser, &property.name).map(|x| format!("{:?}", x)),
+                    TdhInType::InTypeGuid => TryParse::<GUID>::try_parse(parser, &property.name).map(|x| format!("{:?}", x)),
                     _ => Ok(format!("Unknown {:?}", desc.in_type))
                 }
             }

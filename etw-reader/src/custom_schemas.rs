@@ -1,4 +1,4 @@
-use windows::Guid;
+use windows::runtime::GUID;
 
 use crate::{etw_types::DecodingSource, schema::EventSchema, tdh_types::{Property, PropertyDesc, PrimitiveDesc, PropertyFlags, TdhInType, TdhOutType}};
 
@@ -19,8 +19,8 @@ const ImageID_PROPS: [PropDesc; 5] = [
     ];
 
 impl EventSchema for ImageID {
-    fn provider_guid(&self) -> Guid {
-        Guid::from("b3e675d7-2554-4f18-830b-2762732560de")
+    fn provider_guid(&self) -> GUID {
+        GUID::from("b3e675d7-2554-4f18-830b-2762732560de")
     }
 
     fn event_id(&self) -> u16 {
@@ -81,8 +81,8 @@ const DbgID_PROPS: [PropDesc; 5] = [
     ];
 
 impl EventSchema for DbgID {
-    fn provider_guid(&self) -> Guid {
-        Guid::from("b3e675d7-2554-4f18-830b-2762732560de")
+    fn provider_guid(&self) -> GUID {
+        GUID::from("b3e675d7-2554-4f18-830b-2762732560de")
     }
 
     fn event_id(&self) -> u16 {
@@ -155,8 +155,8 @@ const Thread_PROPS: [PropDesc; 15] = [
 
 
 impl EventSchema for ThreadStart {
-    fn provider_guid(&self) -> Guid {
-        Guid::from("3D6FA8D1-FE05-11D0-9DDA-00C04FD7BA7C")
+    fn provider_guid(&self) -> GUID {
+        GUID::from("3D6FA8D1-FE05-11D0-9DDA-00C04FD7BA7C")
     }
 
     fn event_id(&self) -> u16 {

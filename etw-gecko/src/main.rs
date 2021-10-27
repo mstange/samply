@@ -1,6 +1,6 @@
 use std::{collections::{HashMap, HashSet, hash_map::Entry}, convert::TryInto, fs::File, io::{BufWriter}, path::{Path, PathBuf}, time::{Duration, Instant}};
 
-use etw_reader::{Guid, open_trace, parser::{Parser, TryParse}, print_property, schema::{TypedEvent, SchemaLocator}};
+use etw_reader::{GUID, open_trace, parser::{Parser, TryParse}, print_property, schema::{TypedEvent, SchemaLocator}};
 use serde_json::to_writer;
 
 use gecko_profile::{debugid, ThreadBuilder};
@@ -290,7 +290,7 @@ fn main() {
                     }
                     let image_base: u64 = parser.try_parse("ImageBase").unwrap();
 
-                    let guid: Guid = parser.try_parse("GuidSig").unwrap();
+                    let guid: GUID = parser.try_parse("GuidSig").unwrap();
                     let age: u32 = parser.try_parse("Age").unwrap();
                     let debug_id = DebugId::from_parts(Uuid::from_fields(guid.data1, guid.data2, guid.data3, &guid.data4).unwrap(), age);
                     let pdb_path: String = parser.try_parse("PdbFileName").unwrap();

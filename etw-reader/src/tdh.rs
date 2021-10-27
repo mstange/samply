@@ -1,7 +1,7 @@
 use std::ops::Deref;
 
-use crate::bindings::Windows::Win32::System::Diagnostics::Etw;
-use crate::bindings::Windows::Win32::System::Diagnostics::Debug::ERROR_INSUFFICIENT_BUFFER;
+use windows::Win32::System::Diagnostics::Etw;
+use windows::Win32::Foundation::ERROR_INSUFFICIENT_BUFFER;
 use crate::etw_types::*;
 
 use crate::traits::*;

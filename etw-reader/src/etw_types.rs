@@ -1,11 +1,12 @@
 use std::ops::Deref;
 
-use crate::{bindings::Windows::Win32::System::Diagnostics::Etw, tdh_types::PropertyMapInfo};
+use windows::Win32::System::Diagnostics::Etw;
+use crate::{tdh_types::PropertyMapInfo};
 use crate::schema::EventSchema;
 use crate::utils;
 use crate::tdh_types::Property;
-use windows::Guid;
-use crate::{bindings::Windows::Win32::Foundation::PWSTR};
+use windows::runtime::GUID;
+use windows::Win32::Foundation::PWSTR;
 
 #[repr(transparent)]
 pub struct EventRecord(Etw::EVENT_RECORD);
@@ -151,12 +152,12 @@ impl TraceEventInfoRaw {
         let curr_prop = EventPropertyInfo::from(&self.info[curr_prop_offset..]);
         unsafe {
             if curr_prop.Anonymous1.nonStructType.MapNameOffset != 0 {
-                let mut event: crate::Etw::EVENT_RECORD = std::mem::zeroed();
+                let mut event: Etw::EVENT_RECORD = std::mem::zeroed();
                 event.EventHeader.ProviderId = self.provider_guid();
                 let mut buffer_size = 0;
 
                 let map_name = PWSTR(self.info[curr_prop.Anonymous1.nonStructType.MapNameOffset as usize..].as_ptr() as *mut u16);
-                use crate::bindings::Windows::Win32::System::Diagnostics::Debug::ERROR_INSUFFICIENT_BUFFER;
+                use windows::Win32::Foundation::ERROR_INSUFFICIENT_BUFFER;
                 // println!("map_name {}", utils::parse_unk_size_null_utf16_string(&self.info[curr_prop.Anonymous1.nonStructType.MapNameOffset as usize..]));
 
                 if Etw::TdhGetEventMapInformation(&event, map_name, std::ptr::null_mut(), &mut buffer_size) != ERROR_INSUFFICIENT_BUFFER.0 {
@@ -193,7 +194,7 @@ impl TraceEventInfoRaw {
 }
 
 impl EventSchema for TraceEventInfoRaw {
-    fn provider_guid(&self) -> Guid {
+    fn provider_guid(&self) -> GUID {
         TraceEventInfo::from(self).ProviderGuid
     }
 
