@@ -11,7 +11,7 @@ use crate::{parser::{Parser, ParserError, TryParse}, schema::SchemaLocator, tdh_
 use etw_types::EventRecord;
 use tdh_types::Property;
 use windows::runtime::{IntoParam, Param};
-use std::{collections::HashMap, hash::BuildHasherDefault, path::Path};
+use std::{borrow::Cow, collections::HashMap, hash::BuildHasherDefault, path::Path};
 use windows::Win32::System::Diagnostics::Etw;
 use fxhash::FxHasher;
 //, WindowsProgramming};
@@ -101,7 +101,7 @@ pub fn print_property(parser: &mut Parser, property: &Property) {
             }
             println!("{}", matches.join(" | "));
         } else {
-            println!("{}", map_info.map[&value]);
+            println!("{}", map_info.map.get(&value).map(|x| Cow::from(x)).unwrap_or_else(|| Cow::from(format!("Unknown: {}", value))));
         }
     } else {
         let value = match &property.desc {
