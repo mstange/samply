@@ -82,6 +82,7 @@ pub fn print_property(parser: &mut Parser, property: &Property) {
     if let Some(map_info) = &property.map_info {
         let mut value = match property.desc {
             PropertyDesc::Primitive(PrimitiveDesc{ in_type: TdhInType::InTypeUInt32, ..}) => TryParse::<u32>::parse(parser, &property.name),
+            PropertyDesc::Primitive(PrimitiveDesc{ in_type: TdhInType::InTypeUInt8, ..}) => TryParse::<u8>::parse(parser, &property.name) as u32,
             _ => panic!("{:?}", property.desc)
         };
         if map_info.is_bitmap {
