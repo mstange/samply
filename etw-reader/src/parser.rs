@@ -183,6 +183,7 @@ impl<'a> Parser<'a> {
         if property.count == 1 {
             if let PropertyDesc::Primitive(desc) = &property.desc {
                 match desc.in_type {
+                    TdhInType::InTypeBoolean => return Ok(4),
                     TdhInType::InTypeInt32 | TdhInType::InTypeUInt32 => return Ok(4),
                     TdhInType::InTypeInt64 | TdhInType::InTypeUInt64 => return Ok(8),
                     TdhInType::InTypeInt8 | TdhInType::InTypeUInt8 => return Ok(1),
@@ -319,6 +320,29 @@ impl TryParse<u64> for Parser<'_> {
             }
         }
         return Err(ParserError::InvalidType)
+    }
+}
+
+impl TryParse<bool> for Parser<'_> {
+    fn try_parse(&mut self, name: &str) -> ParserResult<bool> {
+        use TdhInType::*;
+        let indx = self.find_property(name)?;
+        let prop_info = &self.cache[indx];
+        let prop_info: &PropertyInfo = prop_info.borrow();
+        if let PropertyDesc::Primitive(desc) = &prop_info.property.desc {
+            if desc.in_type != InTypeBoolean {
+                return Err(ParserError::InvalidType)
+            }
+            if prop_info.buffer.len() != 4  {
+                return Err(ParserError::LengthMismatch);
+            }
+            return match u32::from_ne_bytes(prop_info.buffer.try_into()?) {
+                1 => Ok(true),
+                0 => Ok(false),
+                _ => Err(ParserError::InvalidType)
+            }
+        };
+        Err(ParserError::InvalidType)
     }
 }
 

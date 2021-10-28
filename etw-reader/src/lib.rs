@@ -82,7 +82,7 @@ pub fn print_property(parser: &mut Parser, property: &Property) {
     if let Some(map_info) = &property.map_info {
         let mut value = match property.desc {
             PropertyDesc::Primitive(PrimitiveDesc{ in_type: TdhInType::InTypeUInt32, ..}) => TryParse::<u32>::parse(parser, &property.name),
-            _ => panic!()
+            _ => panic!("{:?}", property.desc)
         };
         if map_info.is_bitmap {
             let mut remaining_bits_str = String::new();
@@ -109,6 +109,7 @@ pub fn print_property(parser: &mut Parser, property: &Property) {
                 match desc.in_type {
                     TdhInType::InTypeUnicodeString => TryParse::<String>::try_parse(parser, &property.name),
                     TdhInType::InTypeAnsiString => TryParse::<String>::try_parse(parser, &property.name),
+                    TdhInType::InTypeBoolean => TryParse::<bool>::try_parse(parser, &property.name).map(|x| x.to_string()),
                     TdhInType::InTypeUInt32 => TryParse::<u32>::try_parse(parser, &property.name).map(|x| x.to_string()),
                     TdhInType::InTypeUInt16 => TryParse::<u16>::try_parse(parser, &property.name).map(|x| x.to_string()),
                     TdhInType::InTypeUInt8 => TryParse::<u8>::try_parse(parser, &property.name).map(|x| x.to_string()),
