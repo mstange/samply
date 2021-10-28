@@ -85,15 +85,19 @@ pub fn print_property(parser: &mut Parser, property: &Property) {
             _ => panic!()
         };
         if map_info.is_bitmap {
+            let mut remaining_bits_str = String::new();
             let mut matches: Vec<&str> = Vec::new();
+            let mut cleared_value = value;
             for (k, v) in &map_info.map {
                 if value & k != 0 {
-                    matches.push(v);
-                    value &= !k;
+                    matches.push(v.trim());
+                    cleared_value &= !k;
                 }
             }
-            if value != 0 {
-                panic!("unnamed bits");
+            if cleared_value != 0 {
+                remaining_bits_str = cleared_value.to_string();
+                matches.push(&remaining_bits_str);
+                println!("unnamed bits {} {} {:?}", value, cleared_value, map_info.map);
             }
             println!("{}", matches.join(" | "));
         } else {
