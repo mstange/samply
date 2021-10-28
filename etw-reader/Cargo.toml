@@ -12,6 +12,8 @@ num-traits = "0.2"
 num-derive = "0.3"
 once_cell = "1.8.0"
 fxhash = "0.2.1"
+memoffset = "0.6"
+
 
 [dependencies.windows]
 version = "0.22.1"
@@ -22,7 +24,6 @@ features =  ["Win32_System_Diagnostics_Etw",
              "Win32_System_Memory",
              "Win32_System_Time",
              "Win32_Foundation"]
-
 
 [build-dependencies]
 windows = "0.21.1"
