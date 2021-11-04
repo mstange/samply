@@ -286,6 +286,7 @@ pub fn print_property(parser: &mut Parser, property: &Property) {
     if let Some(map_info) = &property.map_info {
         let value = match property.desc {
             PropertyDesc::Primitive(PrimitiveDesc{ in_type: TdhInType::InTypeUInt32, ..}) => TryParse::<u32>::parse(parser, &property.name),
+            PropertyDesc::Primitive(PrimitiveDesc{ in_type: TdhInType::InTypeUInt16, ..}) => TryParse::<u16>::parse(parser, &property.name) as u32,
             PropertyDesc::Primitive(PrimitiveDesc{ in_type: TdhInType::InTypeUInt8, ..}) => TryParse::<u8>::parse(parser, &property.name) as u32,
             _ => panic!("{:?}", property.desc)
         };
