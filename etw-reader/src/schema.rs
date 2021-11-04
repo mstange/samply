@@ -30,25 +30,12 @@ impl From<tdh::TdhNativeError> for SchemaError {
 
 type SchemaResult<T> = Result<T, SchemaError>;
 
-// XXX: this can go away when a version of windows-rs newer than 0.21.1 comes out
-#[derive(Debug, Eq, PartialEq)]
-struct GuidWrapper(GUID);
-
-impl std::hash::Hash for GuidWrapper {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.0.data1.hash(state);
-        self.0.data2.hash(state);
-        self.0.data3.hash(state);
-        self.0.data4.hash(state);
-    }
-}
-
 // TraceEvent::RegisteredTraceEventParser::ExternalTraceEventParserState::TraceEventComparer 
 // doesn't compare the version or level and does different things depending on the kind of event
 // https://github.com/microsoft/perfview/blob/5c9f6059f54db41b4ac5c4fc8f57261779634489/src/TraceEvent/RegisteredTraceEventParser.cs#L1338
 #[derive(Debug, Eq, PartialEq, Hash)]
 struct SchemaKey {
-    provider: GuidWrapper,
+    provider: GUID,
     id: u16,
     version: u8,
     level: u8,
@@ -58,7 +45,7 @@ struct SchemaKey {
 impl SchemaKey {
     pub fn new(event: &EventRecord) -> Self {
         SchemaKey {
-            provider: GuidWrapper(event.EventHeader.ProviderId),
+            provider: event.EventHeader.ProviderId,
             id: event.EventHeader.EventDescriptor.Id,
             version: event.EventHeader.EventDescriptor.Version,
             level: event.EventHeader.EventDescriptor.Level,
@@ -118,7 +105,7 @@ impl SchemaLocator {
 
     pub fn add_custom_schema(&mut self, schema: Box<dyn EventSchema>) {
         let key = SchemaKey {
-            provider: GuidWrapper(schema.provider_guid()),
+            provider: schema.provider_guid(),
             id: schema.event_id(),
             opcode: schema.opcode(),
             version: schema.event_version(),
