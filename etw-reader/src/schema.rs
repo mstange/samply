@@ -50,9 +50,9 @@ impl std::hash::Hash for GuidWrapper {
 struct SchemaKey {
     provider: GuidWrapper,
     id: u16,
-    opcode: u8,
     version: u8,
     level: u8,
+    opcode: u8,
 }
 
 impl SchemaKey {
@@ -60,9 +60,9 @@ impl SchemaKey {
         SchemaKey {
             provider: GuidWrapper(event.EventHeader.ProviderId),
             id: event.EventHeader.EventDescriptor.Id,
-            opcode: event.EventHeader.EventDescriptor.Opcode,
             version: event.EventHeader.EventDescriptor.Version,
             level: event.EventHeader.EventDescriptor.Level,
+            opcode: event.EventHeader.EventDescriptor.Opcode,
         }
     }
 }
@@ -146,7 +146,6 @@ impl SchemaLocator {
     /// ```
     pub fn event_schema<'a>(&mut self, event: &'a EventRecord) -> SchemaResult<TypedEvent<'a>> {
         let key = SchemaKey::new(&event);
-
         let info = match self.schemas.entry(key) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
