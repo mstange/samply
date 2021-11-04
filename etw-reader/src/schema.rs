@@ -1,7 +1,7 @@
 //! ETW Event Schema locator and handler
 //!
 //! This module contains the means needed to locate and interact with the Schema of an ETW event
-use crate::etw_types::{DecodingSource, EventRecord};
+use crate::etw_types::{DecodingSource, EventRecord, TraceEventInfo};
 use crate::property::PropertyIter;
 use crate::tdh;
 use crate::tdh_types::Property;
@@ -9,6 +9,7 @@ use crate::FastHashMap;
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use once_cell::unsync::OnceCell;
+use windows::Win32::System::Diagnostics::Etw;
 use windows::runtime::GUID;
 
 /// Schema module errors
@@ -42,11 +43,45 @@ struct SchemaKey {
     opcode: u8,
 }
 
+// A map from tracelogging schema metdata to ids
+struct TraceLoggingProviderIds {
+    ids: FastHashMap<Vec<u8>, u16>,
+    next_id: u16,
+}
+
+impl TraceLoggingProviderIds {
+    fn new() -> Self {
+        // start the ids at 1 because of 0 is typically the value stored
+        TraceLoggingProviderIds { ids: FastHashMap::default(), next_id: 1}
+    }
+}
+
 impl SchemaKey {
-    pub fn new(event: &EventRecord) -> Self {
+    pub fn new(event: &EventRecord, locator: &mut SchemaLocator) -> Self {
+        // TraceLogging events all use the same id and are distinguished from each other using the metadata.
+        // Instead of storing the metadata in the SchemaKey we follow the approach of PerfView and have a side table of synthetic ids keyed on metadata.
+        // It might be better to store the metadata in the SchemaKey but then we may want to be careful not to allocate a fresh metadata for every event.
+        let mut id = event.EventHeader.EventDescriptor.Id;
+        if event.ExtendedDataCount > 0 {
+            let extended = unsafe { std::slice::from_raw_parts(event.ExtendedData, event.ExtendedDataCount as usize) };
+            for e in extended {
+                if e.ExtType as u32 == Etw::EVENT_HEADER_EXT_TYPE_EVENT_SCHEMA_TL {
+                    let mut provider = locator.tracelogging_providers.entry(event.EventHeader.ProviderId).or_insert(TraceLoggingProviderIds::new());
+                    let data = unsafe { std::slice::from_raw_parts(e.DataPtr as *const u8, e.DataSize as usize) } ;
+                    if let Some(metadata_id) = provider.ids.get(data) {
+                        // we want to ensure that our synthetic ids don't overlap with any ids used in the events
+                        assert_ne!(id, *metadata_id);
+                        id = *metadata_id;
+                    } else {
+                        provider.ids.insert(data.to_vec(), provider.next_id);
+                        provider.next_id += 1;
+                    }
+                }
+            }
+        }
         SchemaKey {
             provider: event.EventHeader.ProviderId,
-            id: event.EventHeader.EventDescriptor.Id,
+            id,
             version: event.EventHeader.EventDescriptor.Version,
             level: event.EventHeader.EventDescriptor.Level,
             opcode: event.EventHeader.EventDescriptor.Opcode,
@@ -68,6 +103,7 @@ impl SchemaKey {
 #[derive(Default)]
 pub struct SchemaLocator {
     schemas: FastHashMap<SchemaKey, Arc<Schema>>,
+    tracelogging_providers: FastHashMap<GUID, TraceLoggingProviderIds>, 
 }
 
 
@@ -100,6 +136,7 @@ impl SchemaLocator {
     pub fn new() -> Self {
         SchemaLocator {
             schemas: FastHashMap::default(),
+            tracelogging_providers: FastHashMap::default(),
         }
     }
 
@@ -132,7 +169,7 @@ impl SchemaLocator {
     /// };
     /// ```
     pub fn event_schema<'a>(&mut self, event: &'a EventRecord) -> SchemaResult<TypedEvent<'a>> {
-        let key = SchemaKey::new(&event);
+        let key = SchemaKey::new(&event, self);
         let info = match self.schemas.entry(key) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
