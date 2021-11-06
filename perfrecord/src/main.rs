@@ -8,7 +8,7 @@ use std::process::ExitStatus;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use structopt::StructOpt;
 
 #[allow(deref_nullptr)]
@@ -222,6 +222,7 @@ fn start_recording(
                     accepted_task.take_task(),
                     accepted_task.get_id(),
                     Instant::now(),
+                    SystemTime::now(),
                     &command_name,
                     interval,
                 )

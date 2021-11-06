@@ -14,7 +14,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use gecko_profile::ProfileBuilder;
 
@@ -23,6 +23,7 @@ pub struct TaskProfiler {
     pid: u32,
     interval: Duration,
     start_time: Instant,
+    start_time_system: SystemTime,
     end_time: Option<Instant>,
     live_threads: HashMap<thread_act_t, ThreadProfiler>,
     dead_threads: Vec<ThreadProfiler>,
@@ -37,6 +38,7 @@ impl TaskProfiler {
         task: mach_port_t,
         pid: u32,
         now: Instant,
+        now_system: SystemTime,
         command_name: &str,
         interval: Duration,
     ) -> kernel_error::Result<Self> {
@@ -54,6 +56,7 @@ impl TaskProfiler {
             pid,
             interval,
             start_time: now,
+            start_time_system: now_system,
             end_time: None,
             live_threads,
             dead_threads: Vec::new(),
@@ -151,8 +154,13 @@ impl TaskProfiler {
             })
             .unwrap_or(self.command_name);
 
-        let mut profile_builder =
-            ProfileBuilder::new(self.start_time, &name, self.pid, self.interval);
+        let mut profile_builder = ProfileBuilder::new(
+            self.start_time,
+            self.start_time_system,
+            &name,
+            self.pid,
+            self.interval,
+        );
         let all_threads = self
             .live_threads
             .into_iter()
