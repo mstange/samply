@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, HashSet, hash_map::Entry}, convert::TryInto, fs::File, io::{BufWriter}, path::{Path, PathBuf}, time::{Duration, Instant}};
+use std::{collections::{HashMap, HashSet, hash_map::Entry}, convert::TryInto, fs::File, io::{BufWriter}, path::{Path, PathBuf}, time::{Duration, Instant, SystemTime}};
 
 use etw_reader::{GUID, open_trace, parser::{Parser, TryParse}, print_property, schema::{TypedEvent, SchemaLocator}};
 use serde_json::to_writer;
@@ -34,6 +34,7 @@ fn strip_thread_numbers(name: &str) -> &str {
 
 fn main() {
     let profile_start_instant = Instant::now();
+    let profile_start_system = SystemTime::now();
 
     let mut schema_locator = SchemaLocator::new();
     etw_reader::add_custom_schemas(&mut schema_locator);
@@ -60,7 +61,7 @@ fn main() {
     }
     
     let command_name = process_target_name.as_deref().unwrap_or("firefox");
-    let mut profile = gecko_profile::ProfileBuilder::new(profile_start_instant, command_name, 34, Duration::from_secs_f32(1. / 8192.));
+    let mut profile = gecko_profile::ProfileBuilder::new(profile_start_instant, profile_start_system, command_name, 34, Duration::from_secs_f32(1. / 8192.));
 
     let mut thread_index = 0;
     let mut sample_count = 0;
