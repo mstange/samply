@@ -1,7 +1,7 @@
 //! ETW Event Schema locator and handler
 //!
 //! This module contains the means needed to locate and interact with the Schema of an ETW event
-use crate::etw_types::{DecodingSource, EventRecord, TraceEventInfo};
+use crate::etw_types::{DecodingSource, EventRecord};
 use crate::property::PropertyIter;
 use crate::tdh;
 use crate::tdh_types::Property;
@@ -74,6 +74,7 @@ impl SchemaKey {
                         id = *metadata_id;
                     } else {
                         provider.ids.insert(data.to_vec(), provider.next_id);
+                        id = provider.next_id;
                         provider.next_id += 1;
                     }
                 }
