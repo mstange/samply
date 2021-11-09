@@ -3,7 +3,7 @@ use std::{collections::{HashMap, HashSet, hash_map::Entry}, convert::TryInto, fs
 use etw_reader::{GUID, open_trace, parser::{Parser, TryParse}, print_property, schema::SchemaLocator};
 use serde_json::{Value, json, to_writer};
 
-use gecko_profile::{MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerTiming, ProfilerMarker, ThreadBuilder, debugid};
+use gecko_profile::{MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerTiming, ProfilerMarker, TextMarker, ThreadBuilder, debugid};
 use debugid::DebugId;
 use uuid::Uuid;
 
@@ -344,6 +344,20 @@ fn main() {
                 }
                 "MSNT_SystemTrace/Thread/CSwitch" | "MSNT_SystemTrace/Thread/ReadyThread" => {}
                 _ => {
+                    if s.name().starts_with("Google.Chrome/") {
+                        let timestamp = e.EventHeader.TimeStamp as u64;
+                        let timestamp = profile_start_instant + Duration::from_nanos(to_nanos(timestamp - start_time));
+                        let thread_id = e.EventHeader.ThreadId;
+                        let thread = match threads.entry(thread_id) {
+                            Entry::Occupied(e) => e.into_mut(), 
+                            Entry::Vacant(_) => {
+                                dropped_sample_count += 1;
+                                // We don't know what process this will before so just drop it for now
+                                return;
+                            }
+                        };
+                        thread.builder.add_marker(s.name().trim_start_matches("Google.Chrome/"), TextMarker("".to_string()), MarkerTiming::Instant(timestamp))
+                    }
                      //println!("unhandled {}", s.name()) 
                     }
             }
