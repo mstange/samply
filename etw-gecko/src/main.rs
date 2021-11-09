@@ -1,9 +1,9 @@
 use std::{collections::{HashMap, HashSet, hash_map::Entry}, convert::TryInto, fs::File, io::{BufWriter}, path::{Path, PathBuf}, time::{Duration, Instant, SystemTime}};
 
-use etw_reader::{GUID, open_trace, parser::{Parser, TryParse}, print_property, schema::{TypedEvent, SchemaLocator}};
+use etw_reader::{GUID, open_trace, parser::{Parser, TryParse}, print_property, schema::SchemaLocator};
 use serde_json::{Value, json, to_writer};
 
-use gecko_profile::{MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerTiming, ProfilerMarker, TextMarker, ThreadBuilder, debugid};
+use gecko_profile::{MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerTiming, ProfilerMarker, ThreadBuilder, debugid};
 use debugid::DebugId;
 use uuid::Uuid;
 
@@ -77,7 +77,8 @@ fn main() {
 
     open_trace(Path::new(&trace_file), |e| {
         event_count += 1;
-        let mut process_event = |s: &TypedEvent| {
+        let s = schema_locator.event_schema(e);
+        if let Ok(s) = s {
             let _to_millis = |timestamp: i64| {
                 (timestamp as f64 / perf_freq as f64) * 1000.
             };
@@ -346,16 +347,7 @@ fn main() {
                      //println!("unhandled {}", s.name()) 
                     }
             }
-            
             //println!("{}", name);
-        };
-
-        let s = schema_locator.event_schema(e);
-        if let Ok(s) = s {
-                process_event(&s)
-        } else {
-            //eprintln!("unknown event {:x?}", e.EventHeader.ProviderId);
-            
         }
     });
 
