@@ -1,9 +1,9 @@
 use std::{collections::{HashMap, HashSet, hash_map::Entry}, convert::TryInto, fs::File, io::{BufWriter}, path::{Path, PathBuf}, time::{Duration, Instant, SystemTime}};
 
 use etw_reader::{GUID, open_trace, parser::{Parser, TryParse}, print_property, schema::{TypedEvent, SchemaLocator}};
-use serde_json::to_writer;
+use serde_json::{Value, json, to_writer};
 
-use gecko_profile::{debugid, ThreadBuilder};
+use gecko_profile::{MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerTiming, ProfilerMarker, TextMarker, ThreadBuilder, debugid};
 use debugid::DebugId;
 use uuid::Uuid;
 
@@ -72,6 +72,8 @@ fn main() {
     let mut perf_freq: u64 = 0;
     let mut event_count = 0;
     let mut global_thread = ThreadBuilder::new(1, 1, profile_start_instant, false, false);
+    let mut gpu_thread = ThreadBuilder::new(1, 1, profile_start_instant, true, false);
+    let mut has_vsync = false;
 
     open_trace(Path::new(&trace_file), |e| {
         event_count += 1;
@@ -299,6 +301,46 @@ fn main() {
                     let (ref path, image_size) = libs[&image_base];
                     profile.add_lib(&path, None, &pdb_path, debug_id, Some("x86_64"), image_base, image_base..(image_base + image_size as u64))
                 }
+                "Microsoft-Windows-DxgKrnl/VSyncDPC/Info " => {
+                    let timestamp = e.EventHeader.TimeStamp as u64;
+                    let timestamp = profile_start_instant + Duration::from_nanos(to_nanos(timestamp - start_time));
+                    has_vsync = true;
+                
+                    #[derive(Debug, Clone)]
+                    pub struct VSyncMarker;
+
+                    impl ProfilerMarker for VSyncMarker {
+                        const MARKER_TYPE_NAME: &'static str = "Vsync";
+
+                        fn json_marker_data(&self) -> Value {
+                            json!({
+                                "type": Self::MARKER_TYPE_NAME,
+                                "name": ""
+                            })
+                        }
+
+                        fn schema() -> MarkerSchema {
+                            MarkerSchema {
+                                type_name: Self::MARKER_TYPE_NAME,
+                                locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable, MarkerLocation::TimelineOverview],
+                                chart_label: Some("{marker.data.name}"),
+                                tooltip_label: None,
+                                table_label: Some("{marker.name} - {marker.data.name}"),
+                                fields: vec![MarkerSchemaField::Dynamic(MarkerDynamicField {
+                                    key: "name",
+                                    label: "Details",
+                                    format: MarkerFieldFormat::String,
+                                    searchable: None,
+                                })],
+                            }
+                        }
+                    }
+                    gpu_thread.add_marker(
+                        "Vsync",
+                        VSyncMarker{},
+                        MarkerTiming::Instant(timestamp)
+                    );
+                }
                 "MSNT_SystemTrace/Thread/CSwitch" | "MSNT_SystemTrace/Thread/ReadyThread" => {}
                 _ => {
                      //println!("unhandled {}", s.name()) 
@@ -321,6 +363,9 @@ fn main() {
         profile.add_thread(global_thread);
     } else {
         for (_, thread) in threads.drain() { profile.add_thread(thread.builder); }
+    }
+    if has_vsync {
+        profile.add_thread(gpu_thread);
     }
     let f = File::create("gecko.json").unwrap();
     to_writer(BufWriter::new(f), &profile.to_json()).unwrap();
