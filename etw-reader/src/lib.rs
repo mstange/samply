@@ -281,8 +281,8 @@ pub fn start_trace<F: FnMut(&EventRecord)>(mut callback: F)  {
     println!("status: {}", status);
 }
 
-pub fn print_property(parser: &mut Parser, property: &Property) {
-    print!("  {}= ", property.name);
+pub fn format_property(parser: &mut Parser, property: &Property) -> String {
+    let mut result = format!("  {}= ", property.name);
     if let Some(map_info) = &property.map_info {
         let value = match property.desc {
             PropertyDesc::Primitive(PrimitiveDesc{ in_type: TdhInType::InTypeUInt32, ..}) => TryParse::<u32>::parse(parser, &property.name),
@@ -305,9 +305,9 @@ pub fn print_property(parser: &mut Parser, property: &Property) {
                 matches.push(&remaining_bits_str);
                 println!("unnamed bits {} {} {:?}", value, cleared_value, map_info.map);
             }
-            println!("{}", matches.join(" | "));
+            result += &format!("{}", matches.join(" | "));
         } else {
-            println!("{}", map_info.map.get(&value).map(|x| Cow::from(x)).unwrap_or_else(|| Cow::from(format!("Unknown: {}", value))));
+            result += &format!("{}", map_info.map.get(&value).map(|x| Cow::from(x)).unwrap_or_else(|| Cow::from(format!("Unknown: {}", value))));
         }
     } else {
         let value = match &property.desc {
@@ -334,9 +334,15 @@ pub fn print_property(parser: &mut Parser, property: &Property) {
             Err(ParserError::LengthMismatch) => format!("Err(LengthMismatch) type: {:?}, flags: {:?}, buf: {}", property.desc, property.flags, parser.buffer.len()),
             Err(e) => format!("Err({:?}) type: {:?}", e, property.desc)
         };
-        println!("{}", value)
+        result += &format!("{}", value);
     }
+    return result;
 }
+
+pub fn print_property(parser: &mut Parser, property: &Property) {
+    println!("{}", format_property(parser, property))
+}
+
 
 pub fn add_custom_schemas(locator: &mut SchemaLocator) {
     locator.add_custom_schema(Box::new(custom_schemas::ImageID{}));
