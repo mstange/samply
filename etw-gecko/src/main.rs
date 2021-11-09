@@ -345,9 +345,11 @@ fn main() {
                 "MSNT_SystemTrace/Thread/CSwitch" | "MSNT_SystemTrace/Thread/ReadyThread" => {}
                 _ => {
                     if s.name().starts_with("Google.Chrome/") {
+                        let mut parser = Parser::create(&s);
                         let timestamp = e.EventHeader.TimeStamp as u64;
                         let timestamp = profile_start_instant + Duration::from_nanos(to_nanos(timestamp - start_time));
                         let thread_id = e.EventHeader.ThreadId;
+                        let phase: String = parser.try_parse("Phase").unwrap();
                         let thread = match threads.entry(thread_id) {
                             Entry::Occupied(e) => e.into_mut(), 
                             Entry::Vacant(_) => {
@@ -356,7 +358,13 @@ fn main() {
                                 return;
                             }
                         };
-                        thread.builder.add_marker(s.name().trim_start_matches("Google.Chrome/"), TextMarker("".to_string()), MarkerTiming::Instant(timestamp))
+                        let timing = match phase.as_str() {
+                            "Complete" => MarkerTiming::IntervalStart(timestamp),
+                            "Complete End" => MarkerTiming::IntervalEnd(timestamp),
+                            _ => MarkerTiming::Instant(timestamp),
+                        };
+
+                        thread.builder.add_marker(s.name().trim_start_matches("Google.Chrome/"), TextMarker("".to_string()), timing)
                     }
                      //println!("unhandled {}", s.name()) 
                     }

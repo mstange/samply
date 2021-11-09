@@ -22,7 +22,6 @@ fn main() {
             }
         }
         println!("{:?} {} {}-{} {} {}", e.EventHeader.ProviderId, s.name(),  e.EventHeader.EventDescriptor.Opcode, e.EventHeader.EventDescriptor.Id, s.property_count(), e.EventHeader.TimeStamp);
-
         let mut parser = Parser::create(&s);
         for i in 0..s.property_count() {
             let property = s.property(i);
