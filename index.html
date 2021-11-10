@@ -411,11 +411,11 @@
       async readFile(filename) {
         const array = new Uint8Array(await getFileFromUser(filename, this._element));
         return {
-          getLength: () => array.byteLength,
+          size: array.byteLength,
           readBytesInto: (dest, offset) => {
             dest.set(array.subarray(offset, offset + dest.length));
           },
-          drop: () => {},
+          close: () => {},
         };
       }
     }
@@ -457,11 +457,11 @@
       async readFile(path) {
         const array = new Uint8Array(await getFileFromURL(path, this._element));
         return {
-          getLength: () => array.byteLength,
+          size: array.byteLength,
           readBytesInto: (dest, offset) => {
             dest.set(array.subarray(offset, offset + dest.length));
           },
-          drop: () => {},
+          close: () => {},
         };
       }
     }
@@ -487,11 +487,11 @@
         }
         const array = new Uint8Array(await getFileFromFile(file, this._element));
         return {
-          getLength: () => array.byteLength,
+          size: array.byteLength,
           readBytesInto: (dest, offset) => {
             dest.set(array.subarray(offset, offset + dest.length));
           },
-          drop: () => {},
+          close: () => {},
         };
       }
     }

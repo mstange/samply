@@ -171,11 +171,11 @@ function __wbg_adapter_33(arg0, arg1, arg2, arg3) {
 *       const byteLength = await getFileSizeInBytes(filename);
 *       const fileHandle = getFileHandle(filename);
 *       return {
-*         getLength: () => byteLength,
+*         size: byteLength,
 *         readBytesInto: (array, offset) => {
 *           syncReadFilePartIntoBuffer(fileHandle, array, offset);
 *         },
-*         drop: () => {},
+*         close: () => {},
 *       };
 *     },
 *   };
@@ -215,11 +215,11 @@ __exports.getCompactSymbolTable = function(debug_name, breakpad_id, helper) {
 *       const byteLength = await getFileSizeInBytes(filename);
 *       const fileHandle = getFileHandle(filename);
 *       return {
-*         getLength: () => byteLength,
+*         size: byteLength,
 *         readBytesInto: (array, offset) => {
 *           syncReadFilePartIntoBuffer(fileHandle, array, offset);
 *         },
-*         drop: () => {},
+*         close: () => {},
 *       };
 *     },
 *   };
@@ -285,8 +285,8 @@ async function init(input) {
     }
     const imports = {};
     imports.wbg = {};
-    imports.wbg.__wbg_drop_6095f5f9a28379e4 = function() { return handleError(function (arg0) {
-        getObject(arg0).drop();
+    imports.wbg.__wbg_close_43969dcfc81eee63 = function() { return handleError(function (arg0) {
+        getObject(arg0).close();
     }, arguments) };
     imports.wbg.__wbindgen_object_drop_ref = function(arg0) {
         takeObject(arg0);
@@ -352,8 +352,8 @@ async function init(input) {
         var ret = false;
         return ret;
     };
-    imports.wbg.__wbg_getLength_83c461bbda972f3b = function() { return handleError(function (arg0) {
-        var ret = getObject(arg0).getLength();
+    imports.wbg.__wbg_size_e3a695992634c2c1 = function() { return handleError(function (arg0) {
+        var ret = getObject(arg0).size;
         return ret;
     }, arguments) };
     imports.wbg.__wbg_name_53d833d3780ae3bf = function(arg0) {

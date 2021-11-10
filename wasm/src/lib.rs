@@ -41,8 +41,8 @@ extern "C" {
 
     pub type FileContents;
 
-    #[wasm_bindgen(catch, method)]
-    fn getLength(this: &FileContents) -> Result<f64, JsValue>;
+    #[wasm_bindgen(catch, method, getter)]
+    fn size(this: &FileContents) -> Result<f64, JsValue>;
 
     #[wasm_bindgen(catch, method)]
     fn readBytesInto(
@@ -52,7 +52,7 @@ extern "C" {
     ) -> Result<(), JsValue>;
 
     #[wasm_bindgen(catch, method)]
-    fn drop(this: &FileContents) -> Result<(), JsValue>;
+    fn close(this: &FileContents) -> Result<(), JsValue>;
 }
 
 /// Usage:
@@ -71,11 +71,11 @@ extern "C" {
 ///       const byteLength = await getFileSizeInBytes(filename);
 ///       const fileHandle = getFileHandle(filename);
 ///       return {
-///         getLength: () => byteLength,
+///         size: byteLength,
 ///         readBytesInto: (array, offset) => {
 ///           syncReadFilePartIntoBuffer(fileHandle, array, offset);
 ///         },
-///         drop: () => {},
+///         close: () => {},
 ///       };
 ///     },
 ///   };
@@ -114,11 +114,11 @@ pub fn get_compact_symbol_table(
 ///       const byteLength = await getFileSizeInBytes(filename);
 ///       const fileHandle = getFileHandle(filename);
 ///       return {
-///         getLength: () => byteLength,
+///         size: byteLength,
 ///         readBytesInto: (array, offset) => {
 ///           syncReadFilePartIntoBuffer(fileHandle, array, offset);
 ///         },
-///         drop: () => {},
+///         close: () => {},
 ///       };
 ///     },
 ///   };
@@ -217,7 +217,7 @@ impl FileByteSource for FileContentsWrapper {
 
 impl Drop for FileContentsWrapper {
     fn drop(&mut self) {
-        let _ = self.0.drop();
+        let _ = self.0.close();
     }
 }
 
@@ -251,7 +251,7 @@ impl<'h> profiler_get_symbols::FileAndPathHelper<'h> for FileAndPathHelper {
             let file_res = JsFuture::from(helper.readFile(&location)).await;
             let file = file_res.map_err(JsValueError::from)?;
             let contents = FileContents::from(file);
-            let len = contents.getLength().map_err(JsValueError::from)? as u64;
+            let len = contents.size().map_err(JsValueError::from)? as u64;
             let file_contents_wrapper = FileContentsWrapper(contents);
             Ok(FileContentsWithChunkedCaching::new(
                 len,
