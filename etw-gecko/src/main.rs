@@ -1,6 +1,6 @@
 use std::{collections::{HashMap, HashSet, hash_map::Entry}, convert::TryInto, fs::File, io::{BufWriter}, path::{Path, PathBuf}, time::{Duration, Instant, SystemTime}};
 
-use etw_reader::{GUID, open_trace, parser::{Parser, TryParse}, print_property, schema::SchemaLocator};
+use etw_reader::{GUID, open_trace, parser::{Parser, TryParse}, print_property, schema::SchemaLocator, write_property};
 use serde_json::{Value, json, to_writer};
 
 use gecko_profile::{MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerTiming, ProfilerMarker, TextMarker, ThreadBuilder, debugid};
@@ -364,7 +364,15 @@ fn main() {
                             _ => MarkerTiming::Instant(timestamp),
                         };
 
-                        thread.builder.add_marker(s.name().trim_start_matches("Google.Chrome/"), TextMarker("".to_string()), timing)
+                        let mut text = String::new();
+                        for i in 0..s.property_count() {
+                            let property = s.property(i);
+                            //dbg!(&property);
+                            write_property(&mut text, &mut parser, &property);
+                            text += ", "
+                        }
+
+                        thread.builder.add_marker(s.name().trim_start_matches("Google.Chrome/"), TextMarker(text), timing)
                     }
                      //println!("unhandled {}", s.name()) 
                     }

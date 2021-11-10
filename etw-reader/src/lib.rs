@@ -281,8 +281,8 @@ pub fn start_trace<F: FnMut(&EventRecord)>(mut callback: F)  {
     println!("status: {}", status);
 }
 
-pub fn format_property(parser: &mut Parser, property: &Property) -> String {
-    let mut result = format!("  {}= ", property.name);
+pub fn write_property(output: &mut dyn std::fmt::Write, parser: &mut Parser, property: &Property) {
+    write!(output, "  {}= ", property.name).unwrap();
     if let Some(map_info) = &property.map_info {
         let value = match property.desc {
             PropertyDesc::Primitive(PrimitiveDesc{ in_type: TdhInType::InTypeUInt32, ..}) => TryParse::<u32>::parse(parser, &property.name),
@@ -305,9 +305,9 @@ pub fn format_property(parser: &mut Parser, property: &Property) -> String {
                 matches.push(&remaining_bits_str);
                 println!("unnamed bits {} {} {:?}", value, cleared_value, map_info.map);
             }
-            result += &format!("{}", matches.join(" | "));
+            write!(output, "{}", matches.join(" | ")).unwrap();
         } else {
-            result += &format!("{}", map_info.map.get(&value).map(|x| Cow::from(x)).unwrap_or_else(|| Cow::from(format!("Unknown: {}", value))));
+            write!(output, "{}", map_info.map.get(&value).map(|x| Cow::from(x)).unwrap_or_else(|| Cow::from(format!("Unknown: {}", value)))).unwrap();
         }
     } else {
         let value = match &property.desc {
@@ -334,13 +334,14 @@ pub fn format_property(parser: &mut Parser, property: &Property) -> String {
             Err(ParserError::LengthMismatch) => format!("Err(LengthMismatch) type: {:?}, flags: {:?}, buf: {}", property.desc, property.flags, parser.buffer.len()),
             Err(e) => format!("Err({:?}) type: {:?}", e, property.desc)
         };
-        result += &format!("{}", value);
+        write!(output, "{}", value).unwrap();
     }
-    return result;
 }
 
 pub fn print_property(parser: &mut Parser, property: &Property) {
-    println!("{}", format_property(parser, property))
+    let mut result = String::new();
+    write_property(&mut result, parser, property);
+    println!("{}", result);
 }
 
 
