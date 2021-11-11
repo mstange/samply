@@ -312,6 +312,7 @@ pub fn write_property(output: &mut dyn std::fmt::Write, parser: &mut Parser, pro
     } else {
         let value = match &property.desc {
             PropertyDesc::Primitive(desc) => {
+                // XXX: we should be using the out_type here instead of in_type
                 match desc.in_type {
                     TdhInType::InTypeUnicodeString => TryParse::<String>::try_parse(parser, &property.name),
                     TdhInType::InTypeAnsiString => TryParse::<String>::try_parse(parser, &property.name),
