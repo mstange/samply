@@ -43,6 +43,7 @@ fn main() {
     let start = Instant::now();
     let mut pargs = pico_args::Arguments::from_env();
     let merge_threads = pargs.contains("--merge-threads");
+    let include_idle = pargs.contains("--idle");
 
     let trace_file: String = pargs.free_from_str().unwrap();
 
@@ -262,6 +263,18 @@ fn main() {
                     let thread = match threads.entry(thread_id) {
                         Entry::Occupied(e) => e.into_mut(), 
                         Entry::Vacant(_) => {
+                            if include_idle && merge_threads {
+                                let mut frames = Vec::new();
+                                let thread_name = match thread_id {
+                                    0 => "Idle",
+                                    _ => "Other"
+                                };
+                                let timestamp = e.EventHeader.TimeStamp as u64;
+                                let timestamp = profile_start_instant + Duration::from_nanos(to_nanos(timestamp - start_time));
+
+                                frames.push(gecko_profile::Frame::Label(global_thread.intern_string(&thread_name)));
+                                global_thread.add_sample(timestamp, frames.into_iter(), Duration::ZERO);
+                            }
                             dropped_sample_count += 1;
                             // We don't know what process this will before so just drop it for now
                             return;
