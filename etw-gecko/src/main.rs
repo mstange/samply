@@ -25,7 +25,7 @@ struct ThreadState {
 fn strip_thread_numbers(name: &str) -> &str {
     if let Some(hash) = name.find('#') {
         let (prefix, suffix) = name.split_at(hash);
-        if suffix.parse::<i32>().is_ok() {
+        if suffix[1..].parse::<i32>().is_ok() {
             return prefix.trim();
         }
     }
