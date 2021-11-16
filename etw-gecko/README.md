@@ -4,11 +4,12 @@ Converts from ETW logs to json consumable by https://profiler.firefox.com/.
 
 ## Setup
 
-You need three tools for the full experience:
+You need four tools for the full experience:
 
  1. `xperf` to record profiling data to an ETL file.
  2. This repo to convert from the ETL file to a `gecko.json`.
- 3. `profiler-symbol-server` to open the profile in the profiler and to provide symbols.
+ 3. [Rust](https://rustup.rs/)
+ 4. `profiler-symbol-server` to open the profile in the profiler and to provide symbols.
 
 You most likely already have `xperf`; it's part of the [Windows Performance Toolkit](https://docs.microsoft.com/en-us/windows-hardware/test/wpt/) which is installed with a Windows SDK.
 
