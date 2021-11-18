@@ -19,8 +19,9 @@ fn main() {
 
                 let image_file_name: String = parser.parse("ImageFileName");
                 let process_id: u32 = parser.parse("ProcessId");
+                let command_line: String = parser.parse("CommandLine");
 
-                println!("{} {}", image_file_name, process_id);
+                println!("{} {} {}", image_file_name, process_id, command_line);
             }
         }
     });
