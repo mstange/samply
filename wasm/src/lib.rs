@@ -101,7 +101,7 @@ pub fn get_compact_symbol_table(
 /// Usage:
 ///
 /// ```js
-/// async function getSymbolTable(url, requestJSONString, libKeyToPathMap) {
+/// async function queryAPIWrapper(url, requestJSONString, libKeyToPathMap) {
 ///   const helper = {
 ///     getCandidatePathsForBinaryOrPdb: (debugName, breakpadId) => {
 ///       const path = libKeyToPathMap.get(`${debugName}/${breakpadId}`);
@@ -123,7 +123,7 @@ pub fn get_compact_symbol_table(
 ///     },
 ///   };
 ///
-///   const responseJSONString = await queryAPI(deburlugName, requestJSONString, helper);
+///   const responseJSONString = await queryAPI(url, requestJSONString, helper);
 ///   return responseJSONString;
 /// }
 /// ```
