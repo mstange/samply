@@ -9,6 +9,9 @@ use crate::{FileAndPathHelperResult, FileContents};
 const CHUNK_SIZE: u64 = 32 * 1024;
 
 pub trait FileByteSource {
+    /// Read `size` bytes at offset `offset` and append them to `buffer`.
+    /// If successful, `buffer` must have had its len increased exactly by `size`,
+    /// otherwise the caller may panic.
     fn read_bytes_into(
         &self,
         buffer: &mut Vec<u8>,
@@ -42,6 +45,7 @@ impl<S: FileByteSource> FileContentsWithChunkedCaching<S> {
         &buffer[location.offset_from_start..][..location.size]
     }
 
+    /// Must be called with a valid, non-empty range which does not exceed file_len.
     #[inline]
     fn get_range_location(&self, range: Range<u64>) -> FileAndPathHelperResult<RangeLocation> {
         let mut buffer_manager = self.buffer_manager.borrow_mut();
@@ -49,6 +53,7 @@ impl<S: FileByteSource> FileContentsWithChunkedCaching<S> {
             RangeSourcing::InExistingBuffer(l) => return Ok(l),
             RangeSourcing::NeedToReadNewBuffer(read_range) => read_range,
         };
+        assert!(read_range.start <= read_range.end);
 
         // Read the bytes from the source.
         let mut buffer = Vec::new();
@@ -57,6 +62,7 @@ impl<S: FileByteSource> FileContentsWithChunkedCaching<S> {
             read_range.start,
             read_range.end - read_range.start,
         )?;
+        assert!(buffer.len() as u64 == read_range.end - read_range.start);
 
         let buffer_handle = self.buffers.len();
         self.buffers.push(buffer.into_boxed_slice());
@@ -82,7 +88,20 @@ impl<S: FileByteSource> FileContents for FileContentsWithChunkedCaching<S> {
             return Ok(&[]);
         }
 
-        let location = self.get_range_location(offset..(offset + size))?;
+        let start = offset;
+        let end = offset.checked_add(size).ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "read_bytes_at with offset + size overflowing u64",
+            )
+        })?;
+        if end > self.file_len {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "read_bytes_at range out-of-bounds",
+            )));
+        }
+        let location = self.get_range_location(start..end)?;
         Ok(self.slice_from_location(&location))
     }
 
@@ -93,6 +112,19 @@ impl<S: FileByteSource> FileContents for FileContentsWithChunkedCaching<S> {
         delimiter: u8,
     ) -> FileAndPathHelperResult<&[u8]> {
         const MAX_LENGTH_INCLUDING_DELIMITER: u64 = 4096;
+
+        if range.end < range.start {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "read_bytes_at_until called with range.end < range.start",
+            )));
+        }
+        if range.end > self.file_len {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "read_bytes_at_until range out-of-bounds",
+            )));
+        }
 
         let mut string_cache = self.string_cache.borrow_mut();
         if let Some(location) = string_cache.get(&(range.start, delimiter)) {

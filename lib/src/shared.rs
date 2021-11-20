@@ -150,6 +150,8 @@ pub trait FileContents {
     ) -> FileAndPathHelperResult<&[u8]>;
 
     /// Append `size` bytes to `buffer`, starting to read at `offset` in the file.
+    /// If successful, `buffer` must have had its len increased exactly by `size`,
+    /// otherwise the caller may panic.
     fn read_bytes_into(
         &self,
         buffer: &mut Vec<u8>,

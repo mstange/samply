@@ -45,8 +45,11 @@ impl<const CHUNK_SIZE: u64> ChunkedReadBufferManager<CHUNK_SIZE> {
         }
     }
 
+    /// Must be called with a valid, non-empty range which does not exceed file_len.
     pub fn determine_range_sourcing(&self, range: Range<u64>) -> RangeSourcing {
         assert!(range.start < range.end);
+        assert!(range.end <= self.file_len);
+
         let start_is_cached = if let Some(buffer_range_index) = self.range_map.get(&range.start) {
             let buffer_range = &self.buffer_ranges[*buffer_range_index];
             if range.end <= buffer_range.range.end {
@@ -72,6 +75,7 @@ impl<const CHUNK_SIZE: u64> ChunkedReadBufferManager<CHUNK_SIZE> {
         RangeSourcing::NeedToReadNewBuffer(start..end)
     }
 
+    /// Panics if range.end < range.start
     pub fn insert_buffer_range(&mut self, range: Range<u64>, buffer_handle: usize) {
         let index = self.buffer_ranges.len();
         self.buffer_ranges.push(BufferRange {
