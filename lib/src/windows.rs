@@ -382,7 +382,7 @@ impl<'s, F: FileContents> pdb::Source<'s> for &'s FileContentsWrapper<F> {
         let mut bytes = Vec::with_capacity(len);
 
         for slice in slices {
-            self.read_bytes_into(&mut bytes, slice.offset, slice.size as u64)
+            self.read_bytes_into(&mut bytes, slice.offset, slice.size)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         }
 

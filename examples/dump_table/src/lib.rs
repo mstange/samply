@@ -86,7 +86,7 @@ impl FileByteSource for MmapFileContents {
         &self,
         buffer: &mut Vec<u8>,
         offset: u64,
-        size: u64,
+        size: usize,
     ) -> FileAndPathHelperResult<()> {
         self.0.read_bytes_into(buffer, offset, size)
     }

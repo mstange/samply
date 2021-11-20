@@ -1,7 +1,7 @@
 mod error;
 
 use js_sys::Promise;
-use std::{convert::TryInto, future::Future, pin::Pin};
+use std::{future::Future, pin::Pin};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
@@ -196,20 +196,19 @@ impl FileByteSource for FileContentsWrapper {
         &self,
         buffer: &mut Vec<u8>,
         offset: u64,
-        size: u64,
+        size: usize,
     ) -> profiler_get_symbols::FileAndPathHelperResult<()> {
         // Make a buffer, wrap a Uint8Array around its bits, and call into JS to fill it.
         // This is implemented in such a way that it avoids zero-initialization and extra
         // copies of the contents.
-        let read_len: usize = size.try_into()?;
-        buffer.reserve_exact(read_len);
+        buffer.reserve_exact(size);
         unsafe {
-            // Safety: The buffer has `read_len` bytes of capacity.
+            // Safety: The buffer has `size` bytes of capacity.
             // Safety: Nothing else has a reference to the buffer at the moment; we have exclusive access of its contents.
             self.0
-                .read_bytes_into(offset, read_len, buffer.as_mut_ptr().add(buffer.len()))?;
+                .read_bytes_into(offset, size, buffer.as_mut_ptr().add(buffer.len()))?;
             // Safety: All values in the buffer are now initialized.
-            buffer.set_len(buffer.len() + read_len);
+            buffer.set_len(buffer.len() + size);
         }
         Ok(())
     }

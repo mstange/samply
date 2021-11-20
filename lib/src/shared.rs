@@ -156,7 +156,7 @@ pub trait FileContents {
         &self,
         buffer: &mut Vec<u8>,
         offset: u64,
-        size: u64,
+        size: usize,
     ) -> FileAndPathHelperResult<()>;
 }
 
@@ -399,9 +399,9 @@ impl<T: Deref<Target = [u8]>> FileContents for T {
         &self,
         buffer: &mut Vec<u8>,
         offset: u64,
-        size: u64,
+        size: usize,
     ) -> FileAndPathHelperResult<()> {
-        buffer.extend_from_slice(self.read_bytes_at(offset, size)?);
+        buffer.extend_from_slice(self.read_bytes_at(offset, size as u64)?);
         Ok(())
     }
 }
@@ -531,12 +531,12 @@ impl<T: FileContents> FileContentsWrapper<T> {
         &self,
         buffer: &mut Vec<u8>,
         offset: u64,
-        size: u64,
+        size: usize,
     ) -> FileAndPathHelperResult<()> {
         #[cfg(feature = "partial_read_stats")]
         self.partial_read_stats
             .borrow_mut()
-            .record_read(offset, size);
+            .record_read(offset, size as u64);
 
         self.file_contents.read_bytes_into(buffer, offset, size)
     }

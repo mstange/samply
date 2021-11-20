@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashMap, ops::Range};
+use std::{cell::RefCell, collections::HashMap, convert::TryInto, ops::Range};
 
 use crate::chunked_read_buffer_manager::{ChunkedReadBufferManager, RangeLocation, RangeSourcing};
 
@@ -16,7 +16,7 @@ pub trait FileByteSource {
         &self,
         buffer: &mut Vec<u8>,
         offset: u64,
-        size: u64,
+        size: usize,
     ) -> FileAndPathHelperResult<()>;
 }
 
@@ -56,13 +56,11 @@ impl<S: FileByteSource> FileContentsWithChunkedCaching<S> {
         assert!(read_range.start <= read_range.end);
 
         // Read the bytes from the source.
+        let read_len: usize = (read_range.end - read_range.start).try_into()?;
         let mut buffer = Vec::new();
-        self.source.read_bytes_into(
-            &mut buffer,
-            read_range.start,
-            read_range.end - read_range.start,
-        )?;
-        assert!(buffer.len() as u64 == read_range.end - read_range.start);
+        self.source
+            .read_bytes_into(&mut buffer, read_range.start, read_len)?;
+        assert!(buffer.len() == read_len);
 
         let buffer_handle = self.buffers.len();
         self.buffers.push(buffer.into_boxed_slice());
@@ -154,7 +152,7 @@ impl<S: FileByteSource> FileContents for FileContentsWithChunkedCaching<S> {
         &self,
         buffer: &mut Vec<u8>,
         offset: u64,
-        size: u64,
+        size: usize,
     ) -> FileAndPathHelperResult<()> {
         self.source.read_bytes_into(buffer, offset, size)
     }
