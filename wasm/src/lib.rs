@@ -1,7 +1,7 @@
 mod error;
 
 use js_sys::Promise;
-use std::{future::Future, pin::Pin};
+use std::{convert::TryInto, future::Future, pin::Pin};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
@@ -201,7 +201,7 @@ impl FileByteSource for FileContentsWrapper {
         // Make a buffer, wrap a Uint8Array around its bits, and call into JS to fill it.
         // This is implemented in such a way that it avoids zero-initialization and extra
         // copies of the contents.
-        let read_len = size as usize;
+        let read_len: usize = size.try_into()?;
         buffer.reserve_exact(read_len);
         unsafe {
             // Safety: The buffer has `read_len` bytes of capacity.
