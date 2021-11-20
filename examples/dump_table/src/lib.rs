@@ -7,6 +7,9 @@ use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 
+#[cfg(feature = "chunked_caching")]
+use profiler_get_symbols::{FileByteSource, FileContents};
+
 pub async fn get_table(
     debug_name: &str,
     breakpad_id: Option<String>,
@@ -74,9 +77,42 @@ struct Helper {
     symbol_directory: PathBuf,
 }
 
+#[cfg(feature = "chunked_caching")]
+struct MmapFileContents(memmap2::Mmap);
+
+#[cfg(feature = "chunked_caching")]
+impl FileByteSource for MmapFileContents {
+    fn read_bytes_into(
+        &self,
+        buffer: &mut Vec<u8>,
+        offset: u64,
+        size: u64,
+    ) -> FileAndPathHelperResult<()> {
+        self.0.read_bytes_into(buffer, offset, size)
+    }
+}
+
+#[cfg(feature = "chunked_caching")]
+type FileContentsType = profiler_get_symbols::FileContentsWithChunkedCaching<MmapFileContents>;
+
+#[cfg(feature = "chunked_caching")]
+fn mmap_to_file_contents(mmap: memmap2::Mmap) -> FileContentsType {
+    profiler_get_symbols::FileContentsWithChunkedCaching::new(
+        mmap.len() as u64,
+        MmapFileContents(mmap),
+    )
+}
+
+#[cfg(not(feature = "chunked_caching"))]
+type FileContentsType = memmap2::Mmap;
+
+#[cfg(not(feature = "chunked_caching"))]
+fn mmap_to_file_contents(m: memmap2::Mmap) -> FileContentsType {
+    m
+}
+
 impl<'h> FileAndPathHelper<'h> for Helper {
-    type F = memmap2::Mmap;
-    // type F = profiler_get_symbols::FileContentsWithChunkedCaching<MmapFileContents>;
+    type F = FileContentsType;
     type OpenFileFuture =
         Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>>;
 
@@ -142,15 +178,11 @@ impl<'h> FileAndPathHelper<'h> for Helper {
         &'h self,
         location: &FileLocation,
     ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>> {
-        async fn open_file_impl(path: PathBuf) -> FileAndPathHelperResult<memmap2::Mmap> {
+        async fn open_file_impl(path: PathBuf) -> FileAndPathHelperResult<FileContentsType> {
             eprintln!("Opening file {:?}", &path);
             let file = File::open(&path)?;
             let mmap = unsafe { memmap2::MmapOptions::new().map(&file)? };
-            // Ok(profiler_get_symbols::FileContentsWithChunkedCaching::new(
-            //     mmap.len() as u64,
-            //     MmapFileContents(mmap),
-            // ))
-            Ok(mmap)
+            Ok(mmap_to_file_contents(mmap))
         }
 
         let path = match location {

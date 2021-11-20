@@ -5,6 +5,11 @@ authors = ["Markus Stange <mstange@themasta.com>"]
 license = "MIT/Apache-2.0"
 edition = "2018"
 
+[features]
+default = []
+# default = ["chunked_caching"] # To simulate wasm file reading
+chunked_caching = []
+
 [dependencies]
 # profiler-get-symbols = { path = "../../lib", features = ["partial_read_stats"] }
 profiler-get-symbols = { path = "../../lib" }
