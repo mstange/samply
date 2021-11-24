@@ -202,7 +202,7 @@ __exports.getCompactSymbolTable = function(debug_name, breakpad_id, helper) {
 * Usage:
 *
 * ```js
-* async function getSymbolTable(url, requestJSONString, libKeyToPathMap) {
+* async function queryAPIWrapper(url, requestJSONString, libKeyToPathMap) {
 *   const helper = {
 *     getCandidatePathsForBinaryOrPdb: (debugName, breakpadId) => {
 *       const path = libKeyToPathMap.get(`${debugName}/${breakpadId}`);
@@ -224,7 +224,7 @@ __exports.getCompactSymbolTable = function(debug_name, breakpad_id, helper) {
 *     },
 *   };
 *
-*   const responseJSONString = await queryAPI(deburlugName, requestJSONString, helper);
+*   const responseJSONString = await queryAPI(url, requestJSONString, helper);
 *   return responseJSONString;
 * }
 * ```
@@ -331,10 +331,6 @@ async function init(input) {
         var ret = JSON.parse(getStringFromWasm0(arg0, arg1));
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_string_new = function(arg0, arg1) {
-        var ret = getStringFromWasm0(arg0, arg1);
-        return addHeapObject(ret);
-    };
     imports.wbg.__wbg_readFile_1005cc171b90cf75 = function(arg0, arg1, arg2) {
         var ret = getObject(arg0).readFile(getStringFromWasm0(arg1, arg2));
         return addHeapObject(ret);
@@ -362,6 +358,10 @@ async function init(input) {
     };
     imports.wbg.__wbg_message_365996a560a53f10 = function(arg0) {
         var ret = getObject(arg0).message;
+        return addHeapObject(ret);
+    };
+    imports.wbg.__wbindgen_string_new = function(arg0, arg1) {
+        var ret = getStringFromWasm0(arg0, arg1);
         return addHeapObject(ret);
     };
     imports.wbg.__wbg_readBytesInto_02ee0cacc563822d = function() { return handleError(function (arg0, arg1, arg2) {
@@ -420,7 +420,7 @@ async function init(input) {
         var ret = Promise.resolve(getObject(arg0));
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_closure_wrapper1689 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper1667 = function(arg0, arg1, arg2) {
         var ret = makeMutClosure(arg0, arg1, 88, __wbg_adapter_18);
         return addHeapObject(ret);
     };
