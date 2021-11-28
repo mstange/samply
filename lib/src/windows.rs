@@ -229,7 +229,6 @@ where
 /// The special paths produced here have the following formats:
 ///   - "hg:<repo>:<path>:<rev>"
 ///   - "git:<repo>:<path>:<rev>"
-///   - "gitiles:<repo>:<path>:<rev>"
 struct PathMapper<'a> {
     srcsrv_stream: srcsrv::SrcSrvStream<'a>,
     cache: HashMap<String, Option<String>>,
@@ -286,12 +285,16 @@ impl<'a> PathMapper<'a> {
         value.unwrap_or_else(|| path.to_string())
     }
 
-    /// Gitiles is the git source hosting used by Google projects like chromium and pdfium.
-    /// It only serves raw files with base64-encoding, so the Chrome PDBs contain a workaround
-    /// which uses python to do the base64-decoding. We detect this workaround and try to get
-    /// out the original gitiles URL.
-    /// The python command is only needed because https://github.com/google/gitiles/issues/7
-    /// remains unfixed.
+    /// Gitiles is the git source hosting service used by Google projects like android, chromium
+    /// and pdfium. The chromium instance is at https://chromium.googlesource.com/chromium/src.git.
+    ///
+    /// There is *no* way to get raw source files over HTTP from this service.
+    /// See https://github.com/google/gitiles/issues/7.
+    ///
+    /// Instead, you can get base64-encoded files, using the ?format=TEXT modifier.
+    ///
+    /// Due to this limitation, the Chrome PDBs contain a workaround which uses python to do the
+    /// base64 decoding. We detect this workaround and try to obtain the original paths.
     fn gitiles_to_special_path(&self, map: &HashMap<String, String>) -> Option<String> {
         if !self.command_is_file_download_with_url_in_var4_and_uncompress_function_in_var5 {
             return None;
@@ -301,15 +304,15 @@ impl<'a> PathMapper<'a> {
         }
 
         // https://pdfium.googlesource.com/pdfium.git/+/dab1161c861cc239e48a17e1a5d729aa12785a53/core/fdrm/fx_crypt.cpp?format=TEXT
-        // -> "gitiles:pdfium.googlesource.com/pdfium:core/fdrm/fx_crypt.cpp:dab1161c861cc239e48a17e1a5d729aa12785a53"
+        // -> "git:pdfium.googlesource.com/pdfium:core/fdrm/fx_crypt.cpp:dab1161c861cc239e48a17e1a5d729aa12785a53"
         // https://chromium.googlesource.com/chromium/src.git/+/c15858db55ed54c230743eaa9678117f21d5517e/third_party/blink/renderer/core/svg/svg_point.cc?format=TEXT
-        // -> "gitiles:chromium.googlesource.com/chromium/src:third_party/blink/renderer/core/svg/svg_point.cc:c15858db55ed54c230743eaa9678117f21d5517e"
+        // -> "git:chromium.googlesource.com/chromium/src:third_party/blink/renderer/core/svg/svg_point.cc:c15858db55ed54c230743eaa9678117f21d5517e"
         let url = map.get("var4")?;
         let captures = self.gitiles_regex.captures(url)?;
         let repo = captures.name("repo").unwrap().as_str();
         let path = captures.name("path").unwrap().as_str();
         let rev = captures.name("rev").unwrap().as_str();
-        Some(format!("gitiles:{}:{}:{}", repo, path, rev))
+        Some(format!("git:{}:{}:{}", repo, path, rev))
     }
 
     fn url_to_special_path(&self, url: &str) -> String {
