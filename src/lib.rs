@@ -242,7 +242,10 @@ async fn symbolication_service(
         (&Method::OPTIONS, _, _) => {
             // https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS
             *response.status_mut() = StatusCode::NO_CONTENT;
-            if req.headers().contains_key(header::ACCESS_CONTROL_REQUEST_METHOD) {
+            if req
+                .headers()
+                .contains_key(header::ACCESS_CONTROL_REQUEST_METHOD)
+            {
                 // This is a CORS preflight request.
                 // Reassure the client that we are CORS-aware and that it's free to request whatever.
                 response.headers_mut().insert(
@@ -253,12 +256,12 @@ async fn symbolication_service(
                     header::ACCESS_CONTROL_MAX_AGE,
                     header::HeaderValue::from(86400),
                 );
-                if let Some(req_headers) = req.headers().get(header::ACCESS_CONTROL_REQUEST_HEADERS) {
+                if let Some(req_headers) = req.headers().get(header::ACCESS_CONTROL_REQUEST_HEADERS)
+                {
                     // All headers are fine.
-                    response.headers_mut().insert(
-                        header::ACCESS_CONTROL_ALLOW_HEADERS,
-                        req_headers.clone(),
-                    );
+                    response
+                        .headers_mut()
+                        .insert(header::ACCESS_CONTROL_ALLOW_HEADERS, req_headers.clone());
                 }
             } else {
                 // This is a regular OPTIONS request. Just send an Allow header with the allowed methods.
