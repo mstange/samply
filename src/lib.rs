@@ -227,6 +227,10 @@ async fn symbolication_service(
     helper: Arc<Helper>,
     raw_profile_json_data: Option<Arc<Vec<u8>>>,
 ) -> Result<Response<Body>, hyper::Error> {
+    // This server is open to the public.
+    // For background on CORS, see this document:
+    // https://w3c.github.io/webappsec-cors-for-developers/#cors
+
     let mut response = Response::new(Body::empty());
     response.headers_mut().insert(
         header::ACCESS_CONTROL_ALLOW_ORIGIN,
@@ -235,6 +239,35 @@ async fn symbolication_service(
     let has_profile = raw_profile_json_data.is_some();
 
     match (req.method(), req.uri().path(), raw_profile_json_data) {
+        (&Method::OPTIONS, _, _) => {
+            // https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS
+            *response.status_mut() = StatusCode::NO_CONTENT;
+            if req.headers().contains_key(header::ACCESS_CONTROL_REQUEST_METHOD) {
+                // This is a CORS preflight request.
+                // Reassure the client that we are CORS-aware and that it's free to request whatever.
+                response.headers_mut().insert(
+                    header::ACCESS_CONTROL_ALLOW_METHODS,
+                    header::HeaderValue::from_static("POST, GET, OPTIONS"),
+                );
+                response.headers_mut().insert(
+                    header::ACCESS_CONTROL_MAX_AGE,
+                    header::HeaderValue::from(86400),
+                );
+                if let Some(req_headers) = req.headers().get(header::ACCESS_CONTROL_REQUEST_HEADERS) {
+                    // All headers are fine.
+                    response.headers_mut().insert(
+                        header::ACCESS_CONTROL_ALLOW_HEADERS,
+                        req_headers.clone(),
+                    );
+                }
+            } else {
+                // This is a regular OPTIONS request. Just send an Allow header with the allowed methods.
+                response.headers_mut().insert(
+                    header::ALLOW,
+                    header::HeaderValue::from_static("POST, GET, OPTIONS"),
+                );
+            }
+        }
         (&Method::GET, "/", _) => {
             response.headers_mut().insert(
                 header::CONTENT_TYPE,
