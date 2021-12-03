@@ -5,20 +5,19 @@ authors = ["Markus Stange <mstange@themasta.com>"]
 edition = "2018"
 license = "MIT/Apache-2.0"
 description = "A local webserver that lets the Firefox profiler obtain symbol information."
-homepage = "https://github.com/mstange/profiler-symbol-server/"
 repository = "https://github.com/mstange/profiler-symbol-server/"
 readme = "README.md"
 
 [dependencies.object]
 default-features = false
 features = ["std", "read_core", "macho", "unaligned"]
-version = "0.26.0"
+version = "0.27.1"
 
 [dependencies]
 hyper = { version = "0.14.8", features = ["full"] }
 tokio = { version = "1.6.1", features = ["full"] }
 futures = "0.3"
-profiler-get-symbols = { version = "0.9.0", features = ["send_futures"] }
+profiler-get-symbols = { version = "0.10.1", features = ["send_futures"] }
 # profiler-get-symbols = { path = "../profiler-get-symbols/lib", features = ["send_futures"] }
 memmap2 = "0.5.0"
 serde_json = "1.0.53"
