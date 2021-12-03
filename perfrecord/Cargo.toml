@@ -5,7 +5,6 @@ authors = ["Markus Stange <mstange@themasta.com>"]
 edition = "2018"
 license = "MIT/Apache-2.0"
 description = "A macOS command line profiler."
-homepage = "https://github.com/mstange/perfrecord/"
 repository = "https://github.com/mstange/perfrecord/"
 readme = "Readme.md"
 
