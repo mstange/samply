@@ -9,7 +9,6 @@ use core_foundation_sys::base::{
     kCFAllocatorDefault, CFAllocatorRef, CFIndex, CFOptionFlags, CFRelease, CFTypeID,
 };
 use core_foundation_sys::string::CFStringRef;
-use failure::{self, Error};
 use libc::c_void;
 use std::path::{Path, PathBuf};
 use std::ptr;
@@ -56,6 +55,8 @@ extern "C" {
 
 struct MDQuery(MDQueryRef);
 
+type Error = &'static str;
+
 impl MDQuery {
     pub fn create(query_string: &str) -> Result<MDQuery, Error> {
         let cf_query_string = CFString::new(query_string);
@@ -68,13 +69,13 @@ impl MDQuery {
             )
         };
         if query.is_null() {
-            return Err(failure::err_msg("MDQueryCreate failed"));
+            return Err("MDQueryCreate failed");
         }
         unsafe { Ok(MDQuery::wrap_under_create_rule(query)) }
     }
     pub fn execute(&self) -> Result<CFIndex, Error> {
         if unsafe { MDQueryExecute(ctref(self), kMDQuerySynchronous) } == FALSE {
-            return Err(failure::err_msg("MDQueryExecute failed"));
+            return Err("MDQueryExecute failed");
         }
         unsafe { Ok(MDQueryGetResultCount(ctref(self))) }
     }
@@ -108,7 +109,7 @@ where
     U: TCFType,
 {
     if !t.instance_of::<U>() {
-        return Err(failure::err_msg("dsym_paths attribute not an array"));
+        return Err("dsym_paths attribute not an array");
     }
 
     let t: *const c_void = t.as_concrete_TypeRef().as_void_ptr();
@@ -127,14 +128,14 @@ fn spotlight_locate_dsym_bundle(uuid: Uuid) -> Result<String, Error> {
         let attr = unsafe { CFString::wrap_under_get_rule(kMDItemPath) };
         let cf_attr = unsafe { MDItemCopyAttribute(item, ctref(&attr)) };
         if cf_attr.is_null() {
-            return Err(failure::err_msg("MDItemCopyAttribute failed"));
+            return Err("MDItemCopyAttribute failed");
         }
         let cf_attr = unsafe { CFType::wrap_under_get_rule(cf_attr) };
         if let Ok(path) = cast::<CFType, CFString>(&cf_attr) {
             return Ok(path.to_string());
         }
     }
-    Err(failure::err_msg("dSYM not found"))
+    Err("dSYM not found")
 }
 
 /// Get the path to the Mach-O file containing DWARF debug info inside `bundle`.
@@ -142,7 +143,7 @@ fn spotlight_get_dsym_path(bundle: &str) -> Result<String, Error> {
     let cf_bundle_string = CFString::new(bundle);
     let bundle_item = unsafe { MDItemCreate(kCFAllocatorDefault, ctref(&cf_bundle_string)) };
     if bundle_item.is_null() {
-        return Err(failure::err_msg("MDItemCreate failed"));
+        return Err("MDItemCreate failed");
     }
     let bundle_item = unsafe { MDItem::wrap_under_create_rule(bundle_item) };
     let attr = CFString::from_static_string("com_apple_xcode_dsym_paths");
@@ -154,7 +155,7 @@ fn spotlight_get_dsym_path(bundle: &str) -> Result<String, Error> {
         let cf_item = unsafe { CFType::wrap_under_get_rule(ctref(&*cf_item)) };
         return cast::<CFType, CFString>(&cf_item).map(|s| s.to_string());
     }
-    Err(failure::err_msg("dsym_paths array is empty"))
+    Err("dsym_paths array is empty")
 }
 
 pub fn locate_dsym_using_spotlight(uuid: uuid::Uuid) -> Result<PathBuf, Error> {

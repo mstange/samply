@@ -3,7 +3,6 @@
 
 #![warn(clippy::all)]
 
-use failure::Error;
 use object::Object;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -13,8 +12,8 @@ use uuid::Uuid;
 use crate::moria_mac_spotlight::locate_dsym_using_spotlight;
 
 #[cfg(not(target_os = "macos"))]
-fn locate_dsym_using_spotlight(_uuid: uuid::Uuid) -> Result<PathBuf, Error> {
-    Err(failure::err_msg("Could not locate dSYM"))
+fn locate_dsym_using_spotlight(_uuid: uuid::Uuid) -> Result<PathBuf, &'static str> {
+    Err("Could not locate dSYM")
 }
 
 /// On macOS it can take some time for spotlight to index the dSYM file and on other OSes it is
@@ -96,7 +95,7 @@ fn try_match_dsym(dsym_dir: &Path, uuid: Uuid) -> Option<PathBuf> {
 
 /// Attempt to locate the Mach-O file contained within a dSYM bundle containing the debug
 /// symbols for the Mach-O file at `path` with UUID `uuid`.
-pub fn locate_dsym<T>(path: T, uuid: Uuid) -> Result<PathBuf, Error>
+pub fn locate_dsym<T>(path: T, uuid: Uuid) -> Result<PathBuf, &'static str>
 where
     T: AsRef<Path>,
 {
