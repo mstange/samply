@@ -4,9 +4,9 @@ version = 3
 
 [[package]]
 name = "addr2line"
-version = "0.16.0"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e61f2b7f93d2c7d2b08263acaa4a363b3e276806c68af6134c44f523bf1aacd"
+checksum = "b9ecd88a8c8378ca913a680cd98f0f13ac67383d35993f86c90a70e3f137816b"
 dependencies = [
  "fallible-iterator",
  "gimli",
@@ -52,21 +52,6 @@ name = "autocfg"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cdb031dd78e28731d87d56cc8ffef4a8f36ca26c38fe2de700543e627f8a464a"
-
-[[package]]
-name = "backtrace"
-version = "0.3.61"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7a905d892734eea339e896738c14b9afce22b5318f64b951e70bf3844419b01"
-dependencies = [
- "addr2line",
- "cc",
- "cfg-if",
- "libc",
- "miniz_oxide",
- "object",
- "rustc-demangle",
-]
 
 [[package]]
 name = "base64"
@@ -174,9 +159,9 @@ checksum = "ea221b5284a47e40033bf9b66f35f984ec0ea2931eb03505246cd27a963f981b"
 
 [[package]]
 name = "cpp_demangle"
-version = "0.3.3"
+version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ea47428dc9d2237f3c6bc134472edfd63ebba0af932e783506dcfd66f10d18a"
+checksum = "eeaa953eaad386a53111e47172c2fedba671e5684c8dd601a5f474f4f118710f"
 dependencies = [
  "cfg-if",
 ]
@@ -264,28 +249,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "80df024fbc5ac80f87dfef0d9f5209a252f2a497f7f42944cff24d8253cac065"
 dependencies = [
  "cfg-if",
-]
-
-[[package]]
-name = "failure"
-version = "0.1.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d32e9bd16cc02eae7db7ef620b392808b89f6a5e16bb3497d159c6b92a0f4f86"
-dependencies = [
- "backtrace",
- "failure_derive",
-]
-
-[[package]]
-name = "failure_derive"
-version = "0.1.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa4da3c766cd7a0db8242e326e9e4e081edd567072893ed320008189715366a4"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
- "synstructure",
 ]
 
 [[package]]
@@ -464,9 +427,9 @@ dependencies = [
 
 [[package]]
 name = "gimli"
-version = "0.25.0"
+version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0a01e0497841a3b2db4f8afa483cce65f7e96a3498bd6c541734792aeac8fe7"
+checksum = "78cc372d058dcf6d5ecd98510e7fbc9e5aec4d21de70f65fea8fecebcd881bd4"
 dependencies = [
  "fallible-iterator",
  "stable_deref_trait",
@@ -881,9 +844,9 @@ dependencies = [
 
 [[package]]
 name = "object"
-version = "0.26.1"
+version = "0.27.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee2766204889d09937d00bfbb7fec56bb2a199e2ade963cab19185d8a6104c7c"
+checksum = "67ac1d3f9a1d3616fd9a60c8d74296f22406a238b6a72f5cc1e6f314df4ffbf9"
 dependencies = [
  "memchr",
 ]
@@ -987,7 +950,6 @@ checksum = "d4fd5641d01c8f18a23da7b6fe29298ff4b55afcccdf78973b24cf3175fee32e"
 name = "perfrecord"
 version = "0.6.4"
 dependencies = [
- "backtrace",
  "crossbeam-channel",
  "gecko_profile",
  "libc",
@@ -1085,9 +1047,9 @@ dependencies = [
 
 [[package]]
 name = "profiler-get-symbols"
-version = "0.9.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c9c333a76bfe937cf8e0e502203f5df185b04f2415a3b7303ae8f43740f9f40"
+checksum = "a9669b4aa76e7d4dc6456c569d998691d7812bffb3cc69c0a12cadd1c3693f69"
 dependencies = [
  "addr2line",
  "bitflags",
@@ -1098,7 +1060,6 @@ dependencies = [
  "msvc-demangler",
  "object",
  "pdb-addr2line",
- "range-collections",
  "rangemap",
  "regex",
  "rustc-demangle",
@@ -1111,15 +1072,14 @@ dependencies = [
 
 [[package]]
 name = "profiler-symbol-server"
-version = "0.7.0"
+version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "247121230480ba428efdc9bb8aa5f3053cac4c26965fcb60ce52a48f44fad67e"
+checksum = "52af8dfecd3b33d38880c186fa8a7c28a9cda482ce091f4e8be947f41de27480"
 dependencies = [
  "cab",
  "core-foundation",
  "core-foundation-sys",
  "dirs",
- "failure",
  "flate2",
  "futures",
  "hyper",
@@ -1518,18 +1478,6 @@ checksum = "b7f58f7e8eaa0009c5fec437aabf511bd9933e4b2d7407bd05273c01a8906ea7"
 dependencies = [
  "proc-macro2",
  "quote",
- "unicode-xid",
-]
-
-[[package]]
-name = "synstructure"
-version = "0.12.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "474aaa926faa1603c40b7885a9eaea29b444d1cb2850cb7c0e37bb1a4182f4fa"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
  "unicode-xid",
 ]
 
