@@ -383,6 +383,9 @@ impl<T: Deref<Target = [u8]>> FileContents for T {
         range: Range<u64>,
         delimiter: u8,
     ) -> FileAndPathHelperResult<&[u8]> {
+        if range.end < range.start {
+            return Err("Invalid range in read_bytes_at_until".into());
+        }
         let slice = self.read_bytes_at(range.start, range.end - range.start)?;
         if let Some(pos) = memchr::memchr(delimiter, slice) {
             Ok(&slice[..pos])
@@ -631,15 +634,18 @@ impl<'data, T: ReadRef<'data>> ReadRef<'data> for RangeReadRef<'data, T> {
 
     #[inline]
     fn read_bytes_at(self, offset: u64, size: u64) -> Result<&'data [u8], ()> {
-        self.original_readref
-            .read_bytes_at(self.range_start + offset, size)
+        let shifted_offset = self.range_start.checked_add(offset).ok_or(())?;
+        self.original_readref.read_bytes_at(shifted_offset, size)
     }
 
     #[inline]
     fn read_bytes_at_until(self, range: Range<u64>, delimiter: u8) -> Result<&'data [u8], ()> {
-        self.original_readref.read_bytes_at_until(
-            range.start + self.range_start..range.end + self.range_start,
-            delimiter,
-        )
+        if range.end < range.start {
+            return Err(());
+        }
+        let shifted_start = self.range_start.checked_add(range.start).ok_or(())?;
+        let shifted_end = self.range_start.checked_add(range.end).ok_or(())?;
+        let range = shifted_start..shifted_end;
+        self.original_readref.read_bytes_at_until(range, delimiter)
     }
 }
