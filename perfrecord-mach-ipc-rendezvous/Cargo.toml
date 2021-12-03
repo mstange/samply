@@ -11,5 +11,5 @@ edition = "2018"
 
 [dependencies]
 libc = "0.2.70"
-rand = "0.7.3"
+rand = "0.8.4"
 lazy_static = "1.4.0"
