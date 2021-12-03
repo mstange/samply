@@ -297,14 +297,6 @@ impl ObjectReference {
     }
 }
 
-#[derive(Debug)]
-struct ObjectMapSymbol<'a> {
-    name: &'a [u8],
-    address: u64,
-    size: u64,
-    object_index: usize,
-}
-
 /// addresses must be sorted by address_in_this_object
 fn collect_debug_info_and_object_references<'data: 'file, 'file, 'a, O, R>(
     file_data: RangeReadRef<'data, impl ReadRef<'data>>,
@@ -432,16 +424,4 @@ fn match_funs_to_addresses<'a>(
     }
 
     (external_funs_by_object, internal_addresses)
-}
-
-#[derive(Debug)]
-struct OriginObject<'a> {
-    name: &'a str,
-}
-
-#[derive(Debug)]
-struct Function<'a> {
-    name: &'a str,
-    address_range: std::ops::Range<u64>,
-    object_index: Option<usize>,
 }

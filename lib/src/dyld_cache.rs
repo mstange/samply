@@ -2,7 +2,7 @@ use core::slice;
 use std::result;
 
 use object::read::ReadRef;
-use object::{macho, Architecture, Endian, Endianness, Pod, U32, U64};
+use object::{macho, Endian, Endianness, Pod, U32, U64};
 
 // This file is basically a copy of the corresponding file in the object crate,
 // but it has changes for compatibility with macOS 12.
@@ -54,10 +54,8 @@ where
 {
     endian: E,
     data: R,
-    header: &'data macho::DyldCacheHeader<E>,
     mappings: &'data [macho::DyldCacheMappingInfo<E>],
     images: &'data [macho::DyldCacheImageInfo<E>],
-    arch: Architecture,
 }
 
 impl<'data, E, R> DyldCache<'data, E, R>
@@ -68,7 +66,7 @@ where
     /// Parse the raw dyld shared cache data.
     pub fn parse(data: R) -> Result<Self> {
         let header = macho::DyldCacheHeader::parse(data)?;
-        let (arch, endian) = header.parse_magic()?;
+        let (_arch, endian) = header.parse_magic()?;
         let mappings = header.mappings(endian, data)?;
         let mut images = header.images(endian, data)?;
         if images.is_empty() && header.mapping_offset.get(endian) >= 456 {
@@ -80,10 +78,8 @@ where
         Ok(DyldCache {
             endian,
             data,
-            header,
             mappings,
             images,
-            arch,
         })
     }
 
