@@ -902,9 +902,9 @@ dependencies = [
 
 [[package]]
 name = "profiler-get-symbols"
-version = "0.10.1"
+version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9669b4aa76e7d4dc6456c569d998691d7812bffb3cc69c0a12cadd1c3693f69"
+checksum = "0f77e95086b1b624b8d19d74d5e2a15bf7bac62541911f72f785a9a345fcb874"
 dependencies = [
  "addr2line",
  "bitflags",
