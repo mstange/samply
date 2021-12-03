@@ -927,7 +927,7 @@ dependencies = [
 
 [[package]]
 name = "profiler-symbol-server"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "cab",
  "core-foundation",
