@@ -29,7 +29,7 @@ impl IntoResult for kern_return_t {
 
 pub type Result<T> = std::result::Result<T, KernelError>;
 
-#[derive(Error, Debug, PartialEq, Eq)]
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum KernelError {
     #[error("Specified address is not currently valid.")]
     InvalidAddress,

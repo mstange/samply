@@ -1,6 +1,7 @@
-use super::kernel_error::{self, IntoResult, KernelError};
-use super::proc_maps::{DyldInfo, DyldInfoManager, Modification};
-use super::thread_profiler::ThreadProfiler;
+use crate::error::SamplingError;
+use crate::kernel_error::{IntoResult, KernelError};
+use crate::proc_maps::{DyldInfo, DyldInfoManager, Modification};
+use crate::thread_profiler::ThreadProfiler;
 use gecko_profile::debugid::DebugId;
 use mach::mach_types::thread_act_port_array_t;
 use mach::mach_types::thread_act_t;
@@ -31,6 +32,7 @@ pub struct TaskProfiler {
     libs: Vec<DyldInfo>,
     executable_lib: Option<DyldInfo>,
     command_name: String,
+    ignored_errors: Vec<SamplingError>,
 }
 
 impl TaskProfiler {
@@ -41,17 +43,17 @@ impl TaskProfiler {
         now_system: SystemTime,
         command_name: &str,
         interval: Duration,
-    ) -> kernel_error::Result<Self> {
-        let thread_acts = get_thread_list(task)?;
+    ) -> Option<Self> {
+        let thread_acts = get_thread_list(task).ok()?;
         let mut live_threads = HashMap::new();
         for (i, thread_act) in thread_acts.into_iter().enumerate() {
             // Pretend that the first thread is the main thread. Might not be true.
             let is_main = i == 0;
-            if let Some(thread) = ThreadProfiler::new(task, pid, thread_act, now, is_main)? {
+            if let Some(thread) = ThreadProfiler::new(task, pid, thread_act, now, is_main) {
                 live_threads.insert(thread_act, thread);
             }
         }
-        Ok(TaskProfiler {
+        Some(TaskProfiler {
             task,
             pid,
             interval,
@@ -64,20 +66,34 @@ impl TaskProfiler {
             libs: Vec::new(),
             command_name: command_name.to_owned(),
             executable_lib: None,
+            ignored_errors: Vec::new(),
         })
     }
 
-    pub fn sample(&mut self, now: Instant) -> kernel_error::Result<bool> {
+    pub fn sample(&mut self, now: Instant) -> Result<bool, SamplingError> {
         let result = self.sample_impl(now);
         match result {
             Ok(()) => Ok(true),
-            Err(KernelError::MachSendInvalidDest) => Ok(false),
-            Err(KernelError::Terminated) => Ok(false),
+            Err(SamplingError::ProcessTerminated(_, _)) => Ok(false),
+            Err(err @ SamplingError::Ignorable(_, _)) => {
+                self.ignored_errors.push(err);
+                if self.ignored_errors.len() >= 10 {
+                    println!(
+                        "Treating process \"{}\" [pid: {}] as terminated after 10 unknown errors:",
+                        self.command_name, self.pid
+                    );
+                    println!("{:#?}", self.ignored_errors);
+                    Ok(false)
+                } else {
+                    // Pretend that sampling worked and that the thread is still alive.
+                    Ok(true)
+                }
+            }
             Err(err) => Err(err),
         }
     }
 
-    fn sample_impl(&mut self, now: Instant) -> kernel_error::Result<()> {
+    fn sample_impl(&mut self, now: Instant) -> Result<(), SamplingError> {
         // First, check for any newly-loaded libraries.
         let changes = self
             .lib_info_manager
@@ -99,10 +115,7 @@ impl TaskProfiler {
         }
 
         // Enumerate threads.
-        let thread_acts = get_thread_list(self.task).map_err(|err| match err {
-            KernelError::InvalidArgument => KernelError::Terminated,
-            err => err,
-        })?;
+        let thread_acts = get_thread_list(self.task)?;
         let previously_live_threads: HashSet<_> =
             self.live_threads.iter().map(|(t, _)| *t).collect();
         let mut now_live_threads = HashSet::new();
@@ -111,9 +124,12 @@ impl TaskProfiler {
             let thread = match entry {
                 Entry::Occupied(ref mut entry) => entry.get_mut(),
                 Entry::Vacant(entry) => {
-                    match ThreadProfiler::new(self.task, self.pid, thread_act, now, false)? {
-                        Some(thread) => entry.insert(thread),
-                        None => continue,
+                    if let Some(thread) =
+                        ThreadProfiler::new(self.task, self.pid, thread_act, now, false)
+                    {
+                        entry.insert(thread)
+                    } else {
+                        continue;
                     }
                 }
             };
@@ -209,10 +225,19 @@ impl TaskProfiler {
     }
 }
 
-fn get_thread_list(task: mach_port_t) -> kernel_error::Result<Vec<thread_act_t>> {
+fn get_thread_list(task: mach_port_t) -> Result<Vec<thread_act_t>, SamplingError> {
     let mut thread_list: thread_act_port_array_t = std::ptr::null_mut();
     let mut thread_count: mach_msg_type_number_t = Default::default();
-    unsafe { task_threads(task, &mut thread_list, &mut thread_count) }.into_result()?;
+    unsafe { task_threads(task, &mut thread_list, &mut thread_count) }
+        .into_result()
+        .map_err(|err| match err {
+            KernelError::InvalidArgument
+            | KernelError::MachSendInvalidDest
+            | KernelError::Terminated => {
+                SamplingError::ProcessTerminated("task_threads in get_thread_list", err)
+            }
+            err => SamplingError::Ignorable("task_threads in get_thread_list", err),
+        })?;
 
     let thread_acts =
         unsafe { std::slice::from_raw_parts(thread_list, thread_count as usize) }.to_owned();
@@ -224,7 +249,8 @@ fn get_thread_list(task: mach_port_t) -> kernel_error::Result<Vec<thread_act_t>>
             (thread_count as usize * mem::size_of::<thread_act_t>()) as mach_vm_size_t,
         )
     }
-    .into_result()?;
+    .into_result()
+    .map_err(|err| SamplingError::Fatal("mach_vm_deallocate in get_thread_list", err))?;
 
     Ok(thread_acts)
 }

@@ -14,6 +14,7 @@ use structopt::StructOpt;
 #[allow(deref_nullptr)]
 mod dyld_bindings;
 
+mod error;
 mod proc_maps;
 mod process_launcher;
 mod sampler;

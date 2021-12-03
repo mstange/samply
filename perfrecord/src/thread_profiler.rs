@@ -1,20 +1,18 @@
+use crate::error::SamplingError;
+use crate::kernel_error::{self, IntoResult, KernelError};
+use crate::proc_maps::{get_backtrace, ForeignMemory};
+use crate::thread_act::thread_info;
 use crate::thread_info::time_value;
-use gecko_profile::{Frame, ThreadBuilder};
-use mach::mach_types::thread_act_t;
-use std::mem;
-use std::time::{Duration, Instant};
-
-use super::proc_maps::{get_backtrace, ForeignMemory};
-
-use super::kernel_error::{self, IntoResult, KernelError};
-use mach::port::mach_port_t;
-
-use super::thread_act::thread_info;
-use super::thread_info::{
+use crate::thread_info::{
     thread_basic_info_data_t, thread_extended_info_data_t, thread_identifier_info_data_t,
     thread_info_t, THREAD_BASIC_INFO, THREAD_BASIC_INFO_COUNT, THREAD_EXTENDED_INFO,
     THREAD_EXTENDED_INFO_COUNT, THREAD_IDENTIFIER_INFO, THREAD_IDENTIFIER_INFO_COUNT,
 };
+use gecko_profile::{Frame, ThreadBuilder};
+use mach::mach_types::thread_act_t;
+use mach::port::mach_port_t;
+use std::mem;
+use std::time::{Duration, Instant};
 
 pub struct ThreadProfiler {
     thread_act: thread_act_t,
@@ -26,6 +24,7 @@ pub struct ThreadProfiler {
     stack_memory: ForeignMemory,
     previous_sample_cpu_time: Duration,
     previous_stack: Option<Option<usize>>,
+    ignored_errors: Vec<SamplingError>,
 }
 
 impl ThreadProfiler {
@@ -35,15 +34,10 @@ impl ThreadProfiler {
         thread_act: thread_act_t,
         now: Instant,
         is_main: bool,
-    ) -> kernel_error::Result<Option<Self>> {
-        let (tid, is_libdispatch_thread) = match get_thread_id(thread_act) {
-            Ok(info) => info,
-            Err(KernelError::MachSendInvalidDest) => return Ok(None),
-            Err(KernelError::InvalidArgument) => return Ok(None),
-            Err(err) => return Err(err),
-        };
+    ) -> Option<Self> {
+        let (tid, is_libdispatch_thread) = get_thread_id(thread_act).ok()?;
         let thread_builder = ThreadBuilder::new(pid, tid, now, is_main, is_libdispatch_thread);
-        Ok(Some(ThreadProfiler {
+        Some(ThreadProfiler {
             thread_act,
             _tid: tid,
             name: None,
@@ -53,20 +47,35 @@ impl ThreadProfiler {
             stack_memory: ForeignMemory::new(task),
             previous_sample_cpu_time: Duration::ZERO,
             previous_stack: None,
-        }))
+            ignored_errors: Vec::new(),
+        })
     }
 
-    pub fn sample(&mut self, now: Instant) -> kernel_error::Result<bool> {
+    pub fn sample(&mut self, now: Instant) -> Result<bool, SamplingError> {
         let result = self.sample_impl(now);
         match result {
             Ok(()) => Ok(true),
-            Err(KernelError::MachSendInvalidDest) => Ok(false),
-            Err(KernelError::InvalidArgument) => Ok(false),
+            Err(SamplingError::ThreadTerminated(_, _)) => Ok(false),
+            Err(err @ SamplingError::Ignorable(_, _)) => {
+                self.ignored_errors.push(err);
+                if self.ignored_errors.len() >= 10 {
+                    println!(
+                        "Treating thread \"{}\" [tid: {}] as terminated after 10 unknown errors:",
+                        self.name.as_deref().unwrap_or("<unknown"),
+                        self._tid
+                    );
+                    println!("{:#?}", self.ignored_errors);
+                    Ok(false)
+                } else {
+                    // Pretend that sampling worked and that the thread is still alive.
+                    Ok(true)
+                }
+            }
             Err(err) => Err(err),
         }
     }
 
-    fn sample_impl(&mut self, now: Instant) -> kernel_error::Result<()> {
+    fn sample_impl(&mut self, now: Instant) -> Result<(), SamplingError> {
         self.tick_count += 1;
 
         if self.name.is_none() && self.tick_count % 10 == 1 {
@@ -152,7 +161,7 @@ fn get_thread_id(thread_act: thread_act_t) -> kernel_error::Result<(u32, bool)> 
     Ok((identifier_info_data.thread_id as u32, is_libdispatch_thread))
 }
 
-fn get_thread_name(thread_act: thread_act_t) -> kernel_error::Result<Option<String>> {
+fn get_thread_name(thread_act: thread_act_t) -> Result<Option<String>, SamplingError> {
     // Get the thread name.
     let mut extended_info_data: thread_extended_info_data_t = unsafe { mem::zeroed() };
     let mut count = THREAD_EXTENDED_INFO_COUNT;
@@ -164,7 +173,21 @@ fn get_thread_name(thread_act: thread_act_t) -> kernel_error::Result<Option<Stri
             &mut count,
         )
     }
-    .into_result()?;
+    .into_result()
+    .map_err(|err| match err {
+        KernelError::InvalidArgument
+        | KernelError::MachSendInvalidDest
+        | KernelError::Terminated => {
+            SamplingError::ThreadTerminated("thread_info in get_thread_name", err)
+        }
+        err => {
+            println!(
+                "thread_info in get_thread_name encountered unexpected error: {:?}",
+                err
+            );
+            SamplingError::Ignorable("thread_info in get_thread_name", err)
+        }
+    })?;
 
     let name = unsafe { std::ffi::CStr::from_ptr(extended_info_data.pth_name.as_ptr()) }
         .to_string_lossy()
@@ -175,7 +198,7 @@ fn get_thread_name(thread_act: thread_act_t) -> kernel_error::Result<Option<Stri
 // (user time, system time)
 fn get_thread_cpu_time_since_thread_start(
     thread_act: thread_act_t,
-) -> kernel_error::Result<(Duration, Duration)> {
+) -> Result<(Duration, Duration), SamplingError> {
     let mut basic_info_data: thread_basic_info_data_t = unsafe { mem::zeroed() };
     let mut count = THREAD_BASIC_INFO_COUNT;
     unsafe {
@@ -186,7 +209,18 @@ fn get_thread_cpu_time_since_thread_start(
             &mut count,
         )
     }
-    .into_result()?;
+    .into_result()
+    .map_err(|err| match err {
+        KernelError::InvalidArgument
+        | KernelError::MachSendInvalidDest
+        | KernelError::Terminated => SamplingError::ThreadTerminated(
+            "thread_info in get_thread_cpu_time_since_thread_start",
+            err,
+        ),
+        err => {
+            SamplingError::Ignorable("thread_info in get_thread_cpu_time_since_thread_start", err)
+        }
+    })?;
 
     Ok((
         time_value_to_duration(&basic_info_data.user_time),

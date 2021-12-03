@@ -1,5 +1,5 @@
-use super::kernel_error;
-use super::task_profiler::TaskProfiler;
+use crate::error::SamplingError;
+use crate::task_profiler::TaskProfiler;
 use crossbeam_channel::Receiver;
 use gecko_profile::ProfileBuilder;
 use std::mem;
@@ -35,13 +35,13 @@ impl Sampler {
         }
     }
 
-    pub fn run(mut self) -> kernel_error::Result<ProfileBuilder> {
+    pub fn run(mut self) -> Result<ProfileBuilder, SamplingError> {
         let root_task = match self.task_receiver.recv() {
             Ok(task) => task,
             Err(_) => {
                 // The sender went away. No profiling today.
                 eprintln!("The process we launched did not give us a task port. This commonly happens when trying to profile signed executables (system apps, system python, ...), because those ignore DYLD_INSERT_LIBRARIES (and stop it from inheriting into child processes). For now, this profiler can only be used on unsigned binaries.");
-                return Err(kernel_error::KernelError::MachRcvPortDied);
+                return Err(SamplingError::CouldNotObtainRootTask);
             }
         };
 

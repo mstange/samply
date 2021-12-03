@@ -1,4 +1,3 @@
-use super::kernel_error::{self, IntoResult};
 use mach::message::mach_msg_type_number_t;
 use mach::port::mach_port_t;
 use mach::task::{task_info, task_resume, task_suspend};
@@ -21,7 +20,8 @@ use uuid::Uuid;
 use mach::{structs::x86_thread_state64_t, thread_status::x86_THREAD_STATE64};
 
 use crate::dyld_bindings;
-use crate::kernel_error::KernelError;
+use crate::error::SamplingError;
+use crate::kernel_error::{self, IntoResult, KernelError};
 use dyld_bindings::{
     dyld_all_image_infos, dyld_image_info, load_command, mach_header_64, segment_command_64,
     uuid_command,
@@ -355,23 +355,42 @@ fn get_unwinding_registers(thread_act: mach_port_t) -> kernel_error::Result<(u64
 
 fn with_suspended_thread<R>(
     thread_act: mach_port_t,
-    f: impl FnOnce() -> kernel_error::Result<R>,
+    f: impl FnOnce() -> R,
 ) -> kernel_error::Result<R> {
     unsafe { thread_suspend(thread_act) }.into_result()?;
     let result = f();
     let _ = unsafe { thread_resume(thread_act) };
-    result
+    Ok(result)
 }
 
 pub fn get_backtrace(
     memory: &mut ForeignMemory,
     thread_act: mach_port_t,
     frames: &mut Vec<u64>,
-) -> kernel_error::Result<()> {
+) -> Result<(), SamplingError> {
     with_suspended_thread(thread_act, || {
-        let (ip, bp) = get_unwinding_registers(thread_act)?;
+        let (ip, bp) = get_unwinding_registers(thread_act).map_err(|err| match err {
+            KernelError::InvalidArgument
+            | KernelError::MachSendInvalidDest
+            | KernelError::Terminated => {
+                SamplingError::ThreadTerminated("thread_get_state in get_unwinding_registers", err)
+            }
+            err => SamplingError::Ignorable("thread_get_state in get_unwinding_registers", err),
+        })?;
         do_frame_pointer_stackwalk(ip, bp, memory, frames);
         Ok(())
+    })
+    .unwrap_or_else(|err| match err {
+        KernelError::InvalidArgument
+        | KernelError::MachSendInvalidDest
+        | KernelError::Terminated => Err(SamplingError::ThreadTerminated(
+            "thread_suspend in with_suspended_thread",
+            err,
+        )),
+        err => Err(SamplingError::Ignorable(
+            "thread_suspend in with_suspended_thread",
+            err,
+        )),
     })
 }
 
