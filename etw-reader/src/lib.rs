@@ -350,6 +350,9 @@ pub fn add_custom_schemas(locator: &mut SchemaLocator) {
     locator.add_custom_schema(Box::new(custom_schemas::ImageID{}));
     locator.add_custom_schema(Box::new(custom_schemas::DbgID{}));
     locator.add_custom_schema(Box::new(custom_schemas::ThreadStart{}));
+    locator.add_custom_schema(Box::new(custom_schemas::D3DUmdLogging_MapAllocation{}));
+    locator.add_custom_schema(Box::new(custom_schemas::D3DUmdLogging_RundownAllocation{}));
+    locator.add_custom_schema(Box::new(custom_schemas::D3DUmdLogging_UnmapAllocation{}));
 }
 
 

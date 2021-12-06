@@ -205,3 +205,156 @@ impl EventSchema for ThreadStart {
         flags: PropertyFlags::empty()}
     }
 }
+
+// from umdprovider.h
+pub struct D3DUmdLogging_MapAllocation {}
+
+const D3DUmdLogging_PROPS: [PropDesc; 6] = [
+    PropDesc{ name: "hD3DAllocation", in_type: TdhInType::InTypeUInt64, out_type: TdhOutType::OutTypeHexInt64},
+    PropDesc{ name: "hDxgAllocation", in_type: TdhInType::InTypeUInt64, out_type: TdhOutType::OutTypeHexInt64},
+    PropDesc{ name: "Offset", in_type: TdhInType::InTypeUInt64, out_type: TdhOutType::OutTypeUInt64},
+    PropDesc{ name: "Size", in_type: TdhInType::InTypeUInt32, out_type: TdhOutType::OutTypeUInt64},
+    // XXX: use an enum for these
+    PropDesc{ name: "Usage", in_type: TdhInType::InTypeUInt32, out_type: TdhOutType::OutTypeUInt32},
+    PropDesc{ name: "Semantic", in_type: TdhInType::InTypeUInt32, out_type: TdhOutType::OutTypeUInt32},
+    ];
+
+impl EventSchema for D3DUmdLogging_MapAllocation {
+    fn provider_guid(&self) -> GUID {
+        GUID::from("A688EE40-D8D9-4736-B6F9-6B74935BA3B1")
+    }
+
+    fn event_id(&self) -> u16 { 1 }
+
+    fn event_version(&self) -> u8 { 0 }
+
+    fn opcode(&self) -> u8 { 1 }
+
+    fn level(&self) -> u8 { 0 }
+
+    fn decoding_source(&self) -> DecodingSource {
+        panic!()
+    }
+
+    fn provider_name(&self) -> String {
+        "D3DUmdLogging".to_owned()
+    }
+
+    fn task_name(&self) -> String {
+        "MapAllocation".to_owned()
+    }
+
+    fn opcode_name(&self) -> String {
+        "Start".to_string()
+    }
+    
+    fn property_count(&self) -> u32 {
+        D3DUmdLogging_PROPS.len() as u32
+    }
+    
+    fn property(&self, index: u32) -> Property {
+        let prop = &D3DUmdLogging_PROPS[index as usize];
+        Property { name: prop.name.to_owned(),
+            desc: PropertyDesc::Primitive(PrimitiveDesc{ in_type: prop.in_type,
+                out_type: prop.out_type,}),
+        count: 1,
+        length: 0,
+        map_info: None,
+        flags: PropertyFlags::empty()}
+    }
+}
+
+pub struct D3DUmdLogging_RundownAllocation {}
+
+impl EventSchema for D3DUmdLogging_RundownAllocation {
+    fn provider_guid(&self) -> GUID {
+        GUID::from("A688EE40-D8D9-4736-B6F9-6B74935BA3B1")
+    }
+
+    fn event_id(&self) -> u16 { 2 }
+
+    fn event_version(&self) -> u8 { 0 }
+
+    fn opcode(&self) -> u8 { 3 }
+
+    fn level(&self) -> u8 { 0 }
+
+    fn decoding_source(&self) -> DecodingSource {
+        panic!()
+    }
+
+    fn provider_name(&self) -> String {
+        "D3DUmdLogging".to_owned()
+    }
+
+    fn task_name(&self) -> String {
+        "MapAllocation".to_owned()
+    }
+
+    fn opcode_name(&self) -> String {
+        "DC Start".to_string()
+    }
+    
+    fn property_count(&self) -> u32 {
+        D3DUmdLogging_PROPS.len() as u32
+    }
+    
+    fn property(&self, index: u32) -> Property {
+        let prop = &D3DUmdLogging_PROPS[index as usize];
+        Property { name: prop.name.to_owned(),
+            desc: PropertyDesc::Primitive(PrimitiveDesc{ in_type: prop.in_type,
+                out_type: prop.out_type,}),
+        count: 1,
+        length: 0,
+        map_info: None,
+        flags: PropertyFlags::empty()}
+    }
+}
+
+pub struct D3DUmdLogging_UnmapAllocation {}
+
+
+impl EventSchema for D3DUmdLogging_UnmapAllocation {
+    fn provider_guid(&self) -> GUID {
+        GUID::from("A688EE40-D8D9-4736-B6F9-6B74935BA3B1")
+    }
+
+    fn event_id(&self) -> u16 { 3 }
+
+    fn event_version(&self) -> u8 { 0 }
+
+    fn opcode(&self) -> u8 { 2 }
+
+    fn level(&self) -> u8 { 0 }
+
+    fn decoding_source(&self) -> DecodingSource {
+        panic!()
+    }
+
+    fn provider_name(&self) -> String {
+        "D3DUmdLogging".to_owned()
+    }
+
+    fn task_name(&self) -> String {
+        "MapAllocation".to_owned()
+    }
+
+    fn opcode_name(&self) -> String {
+        "End".to_string()
+    }
+    
+    fn property_count(&self) -> u32 {
+        D3DUmdLogging_PROPS.len() as u32
+    }
+    
+    fn property(&self, index: u32) -> Property {
+        let prop = &D3DUmdLogging_PROPS[index as usize];
+        Property { name: prop.name.to_owned(),
+            desc: PropertyDesc::Primitive(PrimitiveDesc{ in_type: prop.in_type,
+                out_type: prop.out_type,}),
+        count: 1,
+        length: 0,
+        map_info: None,
+        flags: PropertyFlags::empty()}
+    }
+}
