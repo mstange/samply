@@ -13,7 +13,7 @@ use crate::{parser::{Parser, ParserError, TryParse}, schema::SchemaLocator, tdh_
 extern crate memoffset;
 
 use etw_types::EventRecord;
-use tdh_types::Property;
+use tdh_types::{Property, TdhOutType};
 use windows::runtime::{IntoParam, Param};
 use std::{borrow::Cow, collections::HashMap, hash::BuildHasherDefault, path::Path};
 use windows::Win32::System::Diagnostics::Etw;
@@ -321,7 +321,14 @@ pub fn write_property(output: &mut dyn std::fmt::Write, parser: &mut Parser, pro
                     TdhInType::InTypeUInt16 => TryParse::<u16>::try_parse(parser, &property.name).map(|x| x.to_string()),
                     TdhInType::InTypeUInt8 => TryParse::<u8>::try_parse(parser, &property.name).map(|x| x.to_string()),
                     TdhInType::InTypeInt64 => TryParse::<i64>::try_parse(parser, &property.name).map(|x| x.to_string()),
-                    TdhInType::InTypeUInt64 => TryParse::<u64>::try_parse(parser, &property.name).map(|x| x.to_string()),
+                    TdhInType::InTypeUInt64 => {
+                        let i = TryParse::<u64>::try_parse(parser, &property.name);
+                        if desc.out_type == TdhOutType::OutTypeHexInt64 {
+                            i.map(|x| format!("{:x}", x))
+                        } else {
+                            i.map(|x| x.to_string())
+                        }
+                    },
                     TdhInType::InTypePointer => TryParse::<u64>::try_parse(parser, &property.name).map(|x| x.to_string()),
                     TdhInType::InTypeGuid => TryParse::<GUID>::try_parse(parser, &property.name).map(|x| format!("{:?}", x)),
                     _ => Ok(format!("Unknown {:?}", desc.in_type))
