@@ -170,8 +170,44 @@ pub struct AddressDebugInfo {
 #[derive(Debug, Clone)]
 pub struct InlineStackFrame {
     pub function: Option<String>,
-    pub file_path: Option<String>, // maybe PathBuf?
+    pub file_path: Option<FilePath>, // maybe PathBuf?
     pub line_number: Option<u32>,
+}
+
+#[derive(Debug, Clone)]
+pub enum FilePath {
+    Normal(String),
+    Mapped { raw: String, mapped: String },
+}
+
+impl FilePath {
+    pub fn mapped_path(&self) -> &str {
+        match self {
+            FilePath::Normal(s) => s,
+            FilePath::Mapped{ mapped, ..} => mapped,
+        }
+    }
+
+    pub fn into_mapped_path(self) -> String {
+        match self {
+            FilePath::Normal(s) => s,
+            FilePath::Mapped{ mapped, ..} => mapped,
+        }
+    }
+
+    pub fn raw_path(&self) -> &str {
+        match self {
+            FilePath::Normal(s) => s,
+            FilePath::Mapped{ raw, ..} => raw,
+        }
+    }
+
+    pub fn into_raw_path(self) -> String {
+        match self {
+            FilePath::Normal(s) => s,
+            FilePath::Mapped{ raw, ..} => raw,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

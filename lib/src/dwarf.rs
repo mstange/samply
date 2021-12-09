@@ -1,3 +1,4 @@
+use crate::path_mapper::PathMapper;
 use crate::shared::{AddressDebugInfo, InlineStackFrame, RangeReadRef, SymbolicationResult};
 use crate::symbolicate::demangle;
 use addr2line::{
@@ -56,6 +57,7 @@ pub fn collect_dwarf_address_debug_data<'data: 'file, 'file, O, R>(
     object: &'file O,
     addresses: &[AddressPair],
     symbolication_result: &mut R,
+    path_mapper: &mut PathMapper<()>,
 ) where
     O: object::Object<'data, 'file>,
     R: SymbolicationResult,
@@ -73,7 +75,7 @@ pub fn collect_dwarf_address_debug_data<'data: 'file, 'file, O, R>(
         {
             if let Ok(frame_iter) = context.find_frames(*address_in_this_object as u64) {
                 let frames: std::result::Result<Vec<_>, _> =
-                    frame_iter.map(|f| Ok(convert_stack_frame(f))).collect();
+                    frame_iter.map(|f| Ok(convert_stack_frame(f, path_mapper))).collect();
                 if let Ok(frames) = frames {
                     if !frames.is_empty() {
                         symbolication_result
@@ -85,7 +87,7 @@ pub fn collect_dwarf_address_debug_data<'data: 'file, 'file, O, R>(
     }
 }
 
-fn convert_stack_frame<R: gimli::Reader>(frame: addr2line::Frame<R>) -> InlineStackFrame {
+fn convert_stack_frame<R: gimli::Reader>(frame: addr2line::Frame<R>, path_mapper: &mut PathMapper<()>) -> InlineStackFrame {
     let function = match frame.function {
         Some(function_name) => {
             if let Ok(name) = function_name.raw_name() {
@@ -97,7 +99,7 @@ fn convert_stack_frame<R: gimli::Reader>(frame: addr2line::Frame<R>) -> InlineSt
         None => None,
     };
     let file_path = match &frame.location {
-        Some(location) => location.file.map(|file| file.to_owned()),
+        Some(location) => location.file.map(|file| path_mapper.map_path(file)),
         None => None,
     };
 

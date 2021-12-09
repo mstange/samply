@@ -2,6 +2,7 @@ use crate::dwarf::{
     collect_dwarf_address_debug_data, make_address_pairs_for_root_object, AddressPair,
 };
 use crate::error::{GetSymbolsError, Result};
+use crate::path_mapper::PathMapper;
 use crate::shared::{
     get_symbolication_result_for_addresses_from_object, object_to_map, FileAndPathHelper,
     FileContents, FileContentsWrapper, FileLocation, RangeReadRef, SymbolicationQuery,
@@ -127,6 +128,7 @@ where
     // the address that we need to look up in the current object.
 
     let addresses_in_root_object = make_address_pairs_for_root_object(addresses, &macho_file);
+    let mut path_mapper = PathMapper::new();
     let mut object_references = VecDeque::new();
     collect_debug_info_and_object_references(
         range,
@@ -134,6 +136,7 @@ where
         &addresses_in_root_object,
         &mut symbolication_result,
         &mut object_references,
+        &mut path_mapper,
     );
 
     // We are now done with the "root object" and can discard its data.
@@ -145,6 +148,7 @@ where
         object_references,
         &mut symbolication_result,
         helper,
+        &mut path_mapper,
     )
     .await?;
 
@@ -155,6 +159,7 @@ async fn traverse_object_references_and_collect_debug_info<'h>(
     object_references: VecDeque<ObjectReference>,
     symbolication_result: &mut impl SymbolicationResult,
     helper: &'h impl FileAndPathHelper<'h>,
+    path_mapper: &mut PathMapper<()>,
 ) -> Result<()> {
     // Do a breadth-first-traversal of the external debug info reference tree.
     // We do this using a while loop and a VecDeque rather than recursion, because
@@ -180,6 +185,7 @@ async fn traverse_object_references_and_collect_debug_info<'h>(
                 &addresses_in_this_object,
                 symbolication_result,
                 &mut remaining_object_references,
+                path_mapper,
             );
         }
     }
@@ -304,6 +310,7 @@ fn collect_debug_info_and_object_references<'data: 'file, 'file, 'a, O, R>(
     addresses: &[AddressPair],
     symbolication_result: &mut R,
     remaining_object_references: &mut VecDeque<ObjectReference>,
+    path_mapper: &mut PathMapper<()>,
 ) where
     O: Object<'data, 'file>,
     R: SymbolicationResult,
@@ -319,6 +326,7 @@ fn collect_debug_info_and_object_references<'data: 'file, 'file, 'a, O, R>(
         macho_file,
         &internal_addresses,
         symbolication_result,
+        path_mapper,
     );
 
     let mut archives = HashMap::new();

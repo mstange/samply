@@ -1,5 +1,6 @@
 use crate::dwarf::{collect_dwarf_address_debug_data, make_address_pairs_for_root_object};
 use crate::error::{GetSymbolsError, Result};
+use crate::path_mapper::PathMapper;
 use crate::shared::{
     get_symbolication_result_for_addresses_from_object, object_to_map, FileContents,
     FileContentsWrapper, SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
@@ -78,11 +79,13 @@ where
     };
 
     let addresses: Vec<_> = make_address_pairs_for_root_object(addresses, &elf_file);
+    let mut path_mapper = PathMapper::new();
     collect_dwarf_address_debug_data(
         file_contents.full_range(),
         &elf_file,
         &addresses,
         &mut symbolication_result,
+        &mut path_mapper,
     );
     Ok(symbolication_result)
 }

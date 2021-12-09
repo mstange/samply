@@ -133,6 +133,7 @@ mod dyld_cache;
 mod elf;
 mod error;
 mod macho;
+mod path_mapper;
 mod shared;
 mod symbolicate;
 mod windows;

@@ -1,4 +1,5 @@
 use crate::error::{Context, GetSymbolsError, Result};
+use crate::path_mapper::{ExtraPathMapper, PathMapper};
 use crate::shared::{
     get_symbolication_result_for_addresses_from_object, object_to_map, AddressDebugInfo,
     FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation, InlineStackFrame,
@@ -165,16 +166,14 @@ where
             addresses,
             with_debug_info,
         } => {
-            let mut path_mapper = match &srcsrv_stream {
-                Some(srcsrv_stream) => Some(PathMapper::new(srcsrv::SrcSrvStream::parse(
+            let path_mapper = match &srcsrv_stream {
+                Some(srcsrv_stream) => Some(SrcSrvPathMapper::new(srcsrv::SrcSrvStream::parse(
                     srcsrv_stream.as_slice(),
                 )?)),
                 None => None,
             };
-            let mut map_path = |path: Cow<str>| match &mut path_mapper {
-                Some(pm) => pm.map_path(path.as_ref()),
-                None => path.to_string(),
-            };
+            let mut path_mapper = PathMapper::new_with_maybe_extra_mapper(path_mapper);
+            let mut map_path = |path: Cow<str>| path_mapper.map_path(&path);
 
             let mut symbolication_result = R::for_addresses(addresses);
             for &address in addresses {
@@ -230,7 +229,7 @@ where
 ///   - "hg:<repo>:<path>:<rev>"
 ///   - "git:<repo>:<path>:<rev>"
 ///   - "s3:<bucket>:<digest_and_path>:"
-struct PathMapper<'a> {
+struct SrcSrvPathMapper<'a> {
     srcsrv_stream: srcsrv::SrcSrvStream<'a>,
     cache: HashMap<String, Option<String>>,
     github_regex: Regex,
@@ -240,34 +239,10 @@ struct PathMapper<'a> {
     command_is_file_download_with_url_in_var4_and_uncompress_function_in_var5: bool,
 }
 
-impl<'a> PathMapper<'a> {
-    pub fn new(srcsrv_stream: srcsrv::SrcSrvStream<'a>) -> Self {
-        // Detect gitiles (used by Chrome).
-        // SRC_EXTRACT_TARGET_DIR=%targ%\%fnbksl%(%var2%)\%var3%
-        // SRC_EXTRACT_TARGET=%SRC_EXTRACT_TARGET_DIR%\%fnfile%(%var1%)
-        // SRC_EXTRACT_CMD=cmd /c "mkdir "%SRC_EXTRACT_TARGET_DIR%" & python -c "import urllib2, base64;url = \"%var4%\";u = urllib2.urlopen(url);open(r\"%SRC_EXTRACT_TARGET%\", \"wb\").write(%var5%(u.read()))"
-        // c:\b\s\w\ir\cache\builder\src\third_party\pdfium\core\fdrm\fx_crypt.cpp*core/fdrm/fx_crypt.cpp*dab1161c861cc239e48a17e1a5d729aa12785a53*https://pdfium.googlesource.com/pdfium.git/+/dab1161c861cc239e48a17e1a5d729aa12785a53/core/fdrm/fx_crypt.cpp?format=TEXT*base64.b64decode
-        let command_is_file_download_with_url_in_var4_and_uncompress_function_in_var5 =
-            srcsrv_stream.get_raw_var("SRCSRVCMD") == Some("%SRC_EXTRACT_CMD%")
-                && srcsrv_stream.get_raw_var("SRC_EXTRACT_CMD")
-                    == Some(
-                        r#"cmd /c "mkdir "%SRC_EXTRACT_TARGET_DIR%" & python -c "import urllib2, base64;url = \"%var4%\";u = urllib2.urlopen(url);open(r\"%SRC_EXTRACT_TARGET%\", \"wb\").write(%var5%(u.read()))""#,
-                    );
-
-        PathMapper {
-            srcsrv_stream,
-            cache: HashMap::new(),
-            github_regex: Regex::new(r"^https://raw\.githubusercontent\.com/(?P<repo>[^/]+/[^/]+)/(?P<rev>[^/]+)/(?P<path>.*)$").unwrap(),
-            hg_regex: Regex::new(r"^https://(?P<repo>hg\..+)/raw-file/(?P<rev>[0-9a-f]+)/(?P<path>.*)$").unwrap(),
-            s3_regex: Regex::new(r"^https://(?P<bucket>[^/]+).s3.amazonaws.com/(?P<digest_and_path>.*)$").unwrap(),
-            gitiles_regex: Regex::new(r"^https://(?P<repo>.+)\.git/\+/(?P<rev>[^/]+)/(?P<path>.*)\?format=TEXT$").unwrap(),
-            command_is_file_download_with_url_in_var4_and_uncompress_function_in_var5,
-        }
-    }
-
-    pub fn map_path(&mut self, path: &str) -> String {
+impl<'a> ExtraPathMapper for SrcSrvPathMapper<'a> {
+    fn map_path(&mut self, path: &str) -> Option<String> {
         if let Some(value) = self.cache.get(path) {
-            return value.clone().unwrap_or_else(|| path.to_string());
+            return value.clone();
         }
 
         let value = match self
@@ -285,7 +260,33 @@ impl<'a> PathMapper<'a> {
             _ => None,
         };
         self.cache.insert(path.to_string(), value.clone());
-        value.unwrap_or_else(|| path.to_string())
+        value
+    }
+}
+
+impl<'a> SrcSrvPathMapper<'a> {
+    pub fn new(srcsrv_stream: srcsrv::SrcSrvStream<'a>) -> Self {
+        // Detect gitiles (used by Chrome).
+        // SRC_EXTRACT_TARGET_DIR=%targ%\%fnbksl%(%var2%)\%var3%
+        // SRC_EXTRACT_TARGET=%SRC_EXTRACT_TARGET_DIR%\%fnfile%(%var1%)
+        // SRC_EXTRACT_CMD=cmd /c "mkdir "%SRC_EXTRACT_TARGET_DIR%" & python -c "import urllib2, base64;url = \"%var4%\";u = urllib2.urlopen(url);open(r\"%SRC_EXTRACT_TARGET%\", \"wb\").write(%var5%(u.read()))"
+        // c:\b\s\w\ir\cache\builder\src\third_party\pdfium\core\fdrm\fx_crypt.cpp*core/fdrm/fx_crypt.cpp*dab1161c861cc239e48a17e1a5d729aa12785a53*https://pdfium.googlesource.com/pdfium.git/+/dab1161c861cc239e48a17e1a5d729aa12785a53/core/fdrm/fx_crypt.cpp?format=TEXT*base64.b64decode
+        let command_is_file_download_with_url_in_var4_and_uncompress_function_in_var5 =
+            srcsrv_stream.get_raw_var("SRCSRVCMD") == Some("%SRC_EXTRACT_CMD%")
+                && srcsrv_stream.get_raw_var("SRC_EXTRACT_CMD")
+                    == Some(
+                        r#"cmd /c "mkdir "%SRC_EXTRACT_TARGET_DIR%" & python -c "import urllib2, base64;url = \"%var4%\";u = urllib2.urlopen(url);open(r\"%SRC_EXTRACT_TARGET%\", \"wb\").write(%var5%(u.read()))""#,
+                    );
+
+        SrcSrvPathMapper {
+            srcsrv_stream,
+            cache: HashMap::new(),
+            github_regex: Regex::new(r"^https://raw\.githubusercontent\.com/(?P<repo>[^/]+/[^/]+)/(?P<rev>[^/]+)/(?P<path>.*)$").unwrap(),
+            hg_regex: Regex::new(r"^https://(?P<repo>hg\..+)/raw-file/(?P<rev>[0-9a-f]+)/(?P<path>.*)$").unwrap(),
+            s3_regex: Regex::new(r"^https://(?P<bucket>[^/]+).s3.amazonaws.com/(?P<digest_and_path>.*)$").unwrap(),
+            gitiles_regex: Regex::new(r"^https://(?P<repo>.+)\.git/\+/(?P<rev>[^/]+)/(?P<path>.*)\?format=TEXT$").unwrap(),
+            command_is_file_download_with_url_in_var4_and_uncompress_function_in_var5,
+        }
     }
 
     /// Gitiles is the git source hosting service used by Google projects like android, chromium
