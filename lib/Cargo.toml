@@ -43,3 +43,4 @@ memchr = { version = "2.4", default-features = false }
 regex = "1.5"
 srcsrv = "0.2.2"
 lzma-rs = "0.2.0"
+serde-hex = "0.1.0"

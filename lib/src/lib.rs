@@ -135,6 +135,7 @@ mod error;
 mod macho;
 mod path_mapper;
 mod shared;
+mod source;
 mod symbolicate;
 mod windows;
 
@@ -237,6 +238,8 @@ where
 ///    The returned data has two extra fields: inlines (per address) and module_errors (per job).
 ///  - `/symbolicate/v5-legacy`: Like v5, but lacking any data that comes from debug information,
 ///    i.e. files, lines and inlines. This is faster.
+///  - `/source/v1`: Experimental API. Symbolicates an address and lets you read one of the files in the
+///    symbol information for that address.
 pub async fn query_api<'h>(
     request_url: &str,
     request_json_data: &str,
@@ -246,6 +249,8 @@ pub async fn query_api<'h>(
         symbolicate::v5::query_api_json(request_json_data, helper, false).await
     } else if request_url == "/symbolicate/v5" {
         symbolicate::v5::query_api_json(request_json_data, helper, true).await
+    } else if request_url == "/source/v1" {
+        source::query_api_json(request_json_data, helper).await
     } else {
         json!({ "error": format!("Unrecognized URL {}", request_url) }).to_string()
     }
