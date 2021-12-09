@@ -229,11 +229,13 @@ where
 /// The special paths produced here have the following formats:
 ///   - "hg:<repo>:<path>:<rev>"
 ///   - "git:<repo>:<path>:<rev>"
+///   - "s3:<bucket>:<digest_and_path>:"
 struct PathMapper<'a> {
     srcsrv_stream: srcsrv::SrcSrvStream<'a>,
     cache: HashMap<String, Option<String>>,
     github_regex: Regex,
     hg_regex: Regex,
+    s3_regex: Regex,
     gitiles_regex: Regex,
     command_is_file_download_with_url_in_var4_and_uncompress_function_in_var5: bool,
 }
@@ -257,6 +259,7 @@ impl<'a> PathMapper<'a> {
             cache: HashMap::new(),
             github_regex: Regex::new(r"^https://raw\.githubusercontent\.com/(?P<repo>[^/]+/[^/]+)/(?P<rev>[^/]+)/(?P<path>.*)$").unwrap(),
             hg_regex: Regex::new(r"^https://(?P<repo>hg\..+)/raw-file/(?P<rev>[0-9a-f]+)/(?P<path>.*)$").unwrap(),
+            s3_regex: Regex::new(r"^https://(?P<bucket>[^/]+).s3.amazonaws.com/(?P<digest_and_path>.*)$").unwrap(),
             gitiles_regex: Regex::new(r"^https://(?P<repo>.+)\.git/\+/(?P<rev>[^/]+)/(?P<path>.*)\?format=TEXT$").unwrap(),
             command_is_file_download_with_url_in_var4_and_uncompress_function_in_var5,
         }
@@ -330,6 +333,12 @@ impl<'a> PathMapper<'a> {
             let path = captures.name("path").unwrap().as_str();
             let rev = captures.name("rev").unwrap().as_str();
             format!("hg:{}:{}:{}", repo, path, rev)
+        } else if let Some(captures) = self.s3_regex.captures(url) {
+            // "https://gecko-generated-sources.s3.amazonaws.com/7a1db5dfd0061d0e0bcca227effb419a20439aef4f6c4e9cd391a9f136c6283e89043d62e63e7edbd63ad81c339c401092bcfeff80f74f9cae8217e072f0c6f3/x86_64-pc-windows-msvc/release/build/swgl-59e3a0e09f56f4ea/out/brush_solid_DEBUG_OVERDRAW.h"
+            // -> "s3:gecko-generated-sources:7a1db5dfd0061d0e0bcca227effb419a20439aef4f6c4e9cd391a9f136c6283e89043d62e63e7edbd63ad81c339c401092bcfeff80f74f9cae8217e072f0c6f3/x86_64-pc-windows-msvc/release/build/swgl-59e3a0e09f56f4ea/out/brush_solid_DEBUG_OVERDRAW.h:"
+            let bucket = captures.name("bucket").unwrap().as_str();
+            let digest_and_path = captures.name("digest_and_path").unwrap().as_str();
+            format!("s3:{}:{}:", bucket, digest_and_path)
         } else {
             url.to_string()
         }
