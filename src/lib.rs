@@ -324,13 +324,25 @@ struct Helper {
     verbose: bool,
 }
 
+fn add_libs_to_path_map(libs: &[Value], path_map: &mut HashMap<(String, String), String>) {
+    for lib in libs {
+        let debug_name = lib["debugName"].as_str().unwrap().to_string();
+        let breakpad_id = lib["breakpadId"].as_str().unwrap().to_string();
+        let debug_path = lib["debugPath"].as_str().unwrap().to_string();
+        path_map.insert((debug_name, breakpad_id), debug_path);
+    }
+}
+
+
 fn add_to_path_map_recursive(profile: &Value, path_map: &mut HashMap<(String, String), String>) {
     if let Value::Array(libs) = &profile["libs"] {
-        for lib in libs {
-            let debug_name = lib["debugName"].as_str().unwrap().to_string();
-            let breakpad_id = lib["breakpadId"].as_str().unwrap().to_string();
-            let debug_path = lib["debugPath"].as_str().unwrap().to_string();
-            path_map.insert((debug_name, breakpad_id), debug_path);
+        add_libs_to_path_map(libs, path_map)
+    }
+    if let Value::Array(threads) = &profile["threads"] {
+        for thread in threads {
+            if let Value::Array(libs) = &thread["libs"] {
+                add_libs_to_path_map(libs, path_map);
+            }
         }
     }
     if let Value::Array(processes) = &profile["processes"] {
