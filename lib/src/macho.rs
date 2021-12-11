@@ -66,10 +66,103 @@ pub fn get_macho_uuid<'a, R: ReadRef<'a>>(data: R, header_offset: u64) -> Result
     }
 }
 
+pub async fn try_get_symbolication_result_from_dyld_shared_cache<'h, R, H>(
+    query: SymbolicationQuery<'_>,
+    dyld_cache_path: &Path,
+    dylib_path: &str,
+    helper: &'h H,
+) -> Result<R>
+where
+    R: SymbolicationResult,
+    H: FileAndPathHelper<'h>,
+{
+    let root_contents = helper
+        .open_file(&FileLocation::Path(dyld_cache_path.to_path_buf()))
+        .await
+        .map_err(|e| {
+            GetSymbolsError::HelperErrorDuringOpenFile(
+                dyld_cache_path.to_string_lossy().to_string(),
+                e,
+            )
+        })?;
+    let root_contents = FileContentsWrapper::new(root_contents);
+
+    let dyld_cache_path = dyld_cache_path.to_string_lossy();
+
+    let mut subcache_contents = Vec::new();
+    for subcache_index in 1.. {
+        let subcache_path = format!("{}.{}", dyld_cache_path, subcache_index);
+        match helper
+            .open_file(&FileLocation::Path(subcache_path.into()))
+            .await
+        {
+            Ok(subcache) => subcache_contents.push(FileContentsWrapper::new(subcache)),
+            Err(_) => break,
+        };
+    }
+    let symbols_subcache_path = format!("{}.symbols", dyld_cache_path);
+    if let Ok(subcache) = helper
+        .open_file(&FileLocation::Path(symbols_subcache_path.into()))
+        .await
+    {
+        subcache_contents.push(FileContentsWrapper::new(subcache));
+    };
+
+    let subcache_contents_refs: Vec<&FileContentsWrapper<H::F>> =
+        subcache_contents.iter().collect();
+    let cache = object::read::macho::DyldCache::<Endianness, _>::parse(
+        &root_contents,
+        &subcache_contents_refs,
+    )
+    .map_err(GetSymbolsError::DyldCacheParseError)?;
+    let image = match cache.images().find(|image| image.path() == Ok(dylib_path)) {
+        Some(image) => image,
+        None => {
+            return Err(GetSymbolsError::NoMatchingDyldCacheImagePath(
+                dylib_path.to_string(),
+            ))
+        }
+    };
+
+    let object = image
+        .parse_object()
+        .map_err(GetSymbolsError::MachOHeaderParseError)?;
+    get_symbolication_result_from_macho_object(&object, query)
+}
+
+pub fn get_symbolication_result_from_macho_object<'a, 'data, R, RR: ReadRef<'data>>(
+    macho_file: &File<'data, RR>,
+    query: SymbolicationQuery<'a>,
+) -> Result<R>
+where
+    R: SymbolicationResult,
+{
+    let uuid = match macho_file.mach_uuid() {
+        Ok(Some(uuid)) => format!("{:X}0", Uuid::from_bytes(uuid).to_simple()),
+        Ok(None) => return Err(GetSymbolsError::InvalidInputError("Missing mach-o uuid")),
+        Err(err) => return Err(GetSymbolsError::MachOHeaderParseError(err)),
+    };
+    if uuid != query.breakpad_id {
+        return Err(GetSymbolsError::UnmatchedBreakpadId(
+            uuid,
+            query.breakpad_id.to_string(),
+        ));
+    }
+
+    match query.result_kind {
+        SymbolicationResultKind::AllSymbols => {
+            let map = object_to_map(macho_file);
+            Ok(R::from_full_map(map))
+        }
+        SymbolicationResultKind::SymbolsForAddresses { addresses, .. } => Ok(
+            get_symbolication_result_for_addresses_from_object(addresses, macho_file),
+        ),
+    }
+}
+
 pub async fn get_symbolication_result<'a, 'b, 'h, R>(
     file_contents: FileContentsWrapper<impl FileContents>,
     file_range: Option<(u64, u64)>,
-    header_offset: u64,
     query: SymbolicationQuery<'a>,
     helper: &'h impl FileAndPathHelper<'h>,
 ) -> Result<R>
@@ -82,33 +175,17 @@ where
         None => file_contents_ref.full_range(),
     };
 
-    let uuid = get_macho_uuid(range, header_offset)?;
-    if uuid != query.breakpad_id {
-        return Err(GetSymbolsError::UnmatchedBreakpadId(
-            uuid,
-            query.breakpad_id.to_string(),
-        ));
-    }
+    let macho_file = File::parse(range).map_err(GetSymbolsError::MachOHeaderParseError)?;
 
-    let macho_file =
-        File::parse_at(range, header_offset).map_err(GetSymbolsError::MachOHeaderParseError)?;
+    let mut symbolication_result =
+        get_symbolication_result_from_macho_object(&macho_file, query.clone())?;
 
-    let (addresses, mut symbolication_result) = match query.result_kind {
-        SymbolicationResultKind::AllSymbols => {
-            let map = object_to_map(&macho_file);
-            return Ok(R::from_full_map(map));
-        }
+    let addresses = match query.result_kind {
         SymbolicationResultKind::SymbolsForAddresses {
+            with_debug_info: true,
             addresses,
-            with_debug_info,
-        } => {
-            let symbolication_result =
-                get_symbolication_result_for_addresses_from_object(addresses, &macho_file);
-            if !with_debug_info {
-                return Ok(symbolication_result);
-            }
-            (addresses, symbolication_result)
-        }
+        } => addresses,
+        _ => return Ok(symbolication_result),
     };
 
     // We need to gather debug info for the supplied addresses.
