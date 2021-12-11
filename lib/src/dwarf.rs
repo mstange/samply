@@ -74,8 +74,9 @@ pub fn collect_dwarf_address_debug_data<'data: 'file, 'file, O, R>(
         } in addresses
         {
             if let Ok(frame_iter) = context.find_frames(*address_in_this_object as u64) {
-                let frames: std::result::Result<Vec<_>, _> =
-                    frame_iter.map(|f| Ok(convert_stack_frame(f, path_mapper))).collect();
+                let frames: std::result::Result<Vec<_>, _> = frame_iter
+                    .map(|f| Ok(convert_stack_frame(f, path_mapper)))
+                    .collect();
                 if let Ok(frames) = frames {
                     if !frames.is_empty() {
                         symbolication_result
@@ -87,7 +88,10 @@ pub fn collect_dwarf_address_debug_data<'data: 'file, 'file, O, R>(
     }
 }
 
-fn convert_stack_frame<R: gimli::Reader>(frame: addr2line::Frame<R>, path_mapper: &mut PathMapper<()>) -> InlineStackFrame {
+fn convert_stack_frame<R: gimli::Reader>(
+    frame: addr2line::Frame<R>,
+    path_mapper: &mut PathMapper<()>,
+) -> InlineStackFrame {
     let function = match frame.function {
         Some(function_name) => {
             if let Ok(name) = function_name.raw_name() {

@@ -1,28 +1,28 @@
 use serde::Deserialize;
-use serde_hex::{SerHex, CompactPfx};
+use serde_hex::{CompactPfx, SerHex};
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Request {
-  /// The debugName of the library whose symbol information contains
-  /// a reference to the requested file.
-  pub debug_name: String,
+    /// The debugName of the library whose symbol information contains
+    /// a reference to the requested file.
+    pub debug_name: String,
 
-  /// The debugId / "breakpadId" of the library whose symbol information
-  /// contains a reference to the requested file.
-  pub debug_id: String,
+    /// The debugId / "breakpadId" of the library whose symbol information
+    /// contains a reference to the requested file.
+    pub debug_id: String,
 
-  /// An address, as a "0x"-prefixed hex string, interpreted as a
-  /// library-relative offset in bytes.
-  /// This address is symbolicated, and any of the files referenced in
-  /// the symbolication results is eligible to be requested.
-  #[serde(with = "SerHex::<CompactPfx>")]
-  pub module_offset: u32,
+    /// An address, as a "0x"-prefixed hex string, interpreted as a
+    /// library-relative offset in bytes.
+    /// This address is symbolicated, and any of the files referenced in
+    /// the symbolication results is eligible to be requested.
+    #[serde(with = "SerHex::<CompactPfx>")]
+    pub module_offset: u32,
 
-  /// The full path of the requested file, must match exactly what
-  /// /symbolicate/v5 returned in its response json for the give
-  /// address.
-  pub file: String,
+    /// The full path of the requested file, must match exactly what
+    /// /symbolicate/v5 returned in its response json for the give
+    /// address.
+    pub file: String,
 }
 
 #[cfg(test)]

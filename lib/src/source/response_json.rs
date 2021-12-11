@@ -32,7 +32,8 @@ mod test {
 * Copyright (C) 1995-2017 Jean-loup Gailly and Mark Adler
 * For conditions of distribution and use, see copyright notice in zlib.h
 */
-"#.to_string()
+"#
+            .to_string(),
         };
         let response = serde_json::to_string_pretty(&response)?;
         let expected = r#"{

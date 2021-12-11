@@ -8,7 +8,9 @@ pub trait ExtraPathMapper {
 }
 
 impl ExtraPathMapper for () {
-    fn map_path(&mut self, _path: &str) -> Option<String> { None }
+    fn map_path(&mut self, _path: &str) -> Option<String> {
+        None
+    }
 }
 
 pub struct PathMapper<E: ExtraPathMapper> {

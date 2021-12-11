@@ -184,28 +184,28 @@ impl FilePath {
     pub fn mapped_path(&self) -> &str {
         match self {
             FilePath::Normal(s) => s,
-            FilePath::Mapped{ mapped, ..} => mapped,
+            FilePath::Mapped { mapped, .. } => mapped,
         }
     }
 
     pub fn into_mapped_path(self) -> String {
         match self {
             FilePath::Normal(s) => s,
-            FilePath::Mapped{ mapped, ..} => mapped,
+            FilePath::Mapped { mapped, .. } => mapped,
         }
     }
 
     pub fn raw_path(&self) -> &str {
         match self {
             FilePath::Normal(s) => s,
-            FilePath::Mapped{ raw, ..} => raw,
+            FilePath::Mapped { raw, .. } => raw,
         }
     }
 
     pub fn into_raw_path(self) -> String {
         match self {
             FilePath::Normal(s) => s,
-            FilePath::Mapped{ raw, ..} => raw,
+            FilePath::Mapped { raw, .. } => raw,
         }
     }
 }
