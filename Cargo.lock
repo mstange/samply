@@ -756,9 +756,9 @@ dependencies = [
 
 [[package]]
 name = "object"
-version = "0.27.1"
+version = "0.28.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67ac1d3f9a1d3616fd9a60c8d74296f22406a238b6a72f5cc1e6f314df4ffbf9"
+checksum = "7ce8b38d41f9f3618fc23f908faae61510f8d8ce2d99cbe910641e8f1971f084"
 dependencies = [
  "memchr",
 ]
@@ -929,9 +929,9 @@ dependencies = [
 
 [[package]]
 name = "profiler-get-symbols"
-version = "0.11.0"
+version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b393fe500b046b3fa4af777b9ae59515d88a74a1d59750224b9a3af36e1345e"
+checksum = "8f2b1826632a7412cf5ff5d193a7b0051d8d4b511e5ef59b529efb8af8ad7caf"
 dependencies = [
  "addr2line",
  "bitflags",
