@@ -9,6 +9,7 @@ use profiler_get_symbols::{
     self, query_api, CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
     OptionallySendFuture,
 };
+use rand::RngCore;
 use serde_json::{self, Value};
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -87,12 +88,16 @@ pub async fn start_server(
 
     let (builder, addr) = make_builder_at_port(port_selection);
 
+    let token = generate_token();
+    let path_prefix = format!("/{}", token);
     let server_origin = format!("http://{}", addr);
+    let symbol_server_url = format!("{}{}", server_origin, path_prefix);
     let mut template_values: HashMap<&'static str, String> = HashMap::new();
     template_values.insert("SERVER_URL", server_origin.clone());
+    template_values.insert("PATH_PREFIX", path_prefix.clone());
 
     let profiler_url = if profile_filename.is_some() {
-        let profile_url = format!("{}/profile.json", server_origin);
+        let profile_url = format!("{}/profile.json", symbol_server_url);
 
         let env_profiler_override = std::env::var("PROFILER_URL").ok();
         let profiler_origin = match &env_profiler_override {
@@ -101,7 +106,8 @@ pub async fn start_server(
         };
 
         let encoded_profile_url = utf8_percent_encode(&profile_url, BAD_CHARS).to_string();
-        let encoded_symbol_server_url = utf8_percent_encode(&server_origin, BAD_CHARS).to_string();
+        let encoded_symbol_server_url =
+            utf8_percent_encode(&symbol_server_url, BAD_CHARS).to_string();
         let profiler_url = format!(
             "{}/from-url/{}/?symbolServer={}",
             profiler_origin, encoded_profile_url, encoded_symbol_server_url
@@ -120,6 +126,7 @@ pub async fn start_server(
         let helper = helper.clone();
         let raw_profile_json_data = buffer.clone();
         let template_values = template_values.clone();
+        let path_prefix = path_prefix.clone();
         async {
             Ok::<_, Infallible>(service_fn(move |req| {
                 symbolication_service(
@@ -127,6 +134,7 @@ pub async fn start_server(
                     template_values.clone(),
                     helper.clone(),
                     raw_profile_json_data.clone(),
+                    path_prefix.clone(),
                 )
             }))
         }
@@ -152,6 +160,13 @@ pub async fn start_server(
     if let Err(e) = server.await {
         eprintln!("server error: {}", e);
     }
+}
+
+// Returns a base32 string for 24 random bytes.
+fn generate_token() -> String {
+    let mut bytes = [0u8; 24];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    nix_base32::to_nix_base32(&bytes)
 }
 
 fn make_builder_at_port(port_selection: PortSelection) -> (Builder<AddrIncoming>, SocketAddr) {
@@ -204,7 +219,8 @@ const TEMPLATE_WITH_PROFILE: &str = r#"
 <ul>
     <li><a href="PROFILER_URL">Open the profile in the profiler UI</a></li>
     <li><a download href="PROFILE_URL">Download the raw profile JSON</a></li>
-    <li>Obtain symbols by POSTing to <code>/symbolicate/v5</code>, with the format specified by the <a href="https://tecken.readthedocs.io/en/latest/symbolication.html">Mozilla symbolication API documentation</a>.</li>
+    <li>Obtain symbols by POSTing to <code>PATH_PREFIX/symbolicate/v5</code>, with the format specified by the <a href="https://tecken.readthedocs.io/en/latest/symbolication.html">Mozilla symbolication API documentation</a>.</li>
+    <li>Obtain source code by POSTing to <code>PATH_PREFIX/source/v1</code>, with the format specified in this <a href="https://github.com/mstange/profiler-get-symbols/issues/24#issuecomment-989985588">github comment</a>.</li>
 </ul>
 "#;
 
@@ -217,7 +233,8 @@ const TEMPLATE_WITHOUT_PROFILE: &str = r#"
 
 <p>This is the profiler symbol server, running at <code>SERVER_URL</code>. You can:</p>
 <ul>
-    <li>Obtain symbols by POSTing to <code>/symbolicate/v5</code>, with the format specified by the <a href="https://tecken.readthedocs.io/en/latest/symbolication.html">Mozilla symbolication API documentation</a>.</li>
+    <li>Obtain symbols by POSTing to <code>PATH_PREFIX/symbolicate/v5</code>, with the format specified by the <a href="https://tecken.readthedocs.io/en/latest/symbolication.html">Mozilla symbolication API documentation</a>.</li>
+    <li>Obtain source code by POSTing to <code>PATH_PREFIX/source/v1</code>, with the format specified in this <a href="https://github.com/mstange/profiler-get-symbols/issues/24#issuecomment-989985588">github comment</a>.</li>
 </ul>
 "#;
 
@@ -226,19 +243,48 @@ async fn symbolication_service(
     template_values: Arc<HashMap<&'static str, String>>,
     helper: Arc<Helper>,
     raw_profile_json_data: Option<Arc<Vec<u8>>>,
+    path_prefix: String,
 ) -> Result<Response<Body>, hyper::Error> {
-    // This server is open to the public.
+    let has_profile = raw_profile_json_data.is_some();
+    let method = req.method();
+    let path = req.uri().path();
+    let mut response = Response::new(Body::empty());
+
+    let path_without_prefix = match path.strip_prefix(&path_prefix) {
+        None => {
+            // The secret prefix was not part of the URL. Do not send CORS headers.
+            match (method, path) {
+                (&Method::GET, "/") => {
+                    response.headers_mut().insert(
+                        header::CONTENT_TYPE,
+                        header::HeaderValue::from_static("text/html"),
+                    );
+                    let template = match has_profile {
+                        true => TEMPLATE_WITH_PROFILE,
+                        false => TEMPLATE_WITHOUT_PROFILE,
+                    };
+                    *response.body_mut() =
+                        Body::from(substitute_template(template, &*template_values));
+                }
+                _ => {
+                    *response.status_mut() = StatusCode::NOT_FOUND;
+                }
+            }
+            return Ok(response);
+        }
+        Some(path_without_prefix) => path_without_prefix,
+    };
+
+    // If we get here, then the secret prefix was part of the URL.
+    // This part is open to the public: we allow requests across origins.
     // For background on CORS, see this document:
     // https://w3c.github.io/webappsec-cors-for-developers/#cors
-
-    let mut response = Response::new(Body::empty());
     response.headers_mut().insert(
         header::ACCESS_CONTROL_ALLOW_ORIGIN,
         header::HeaderValue::from_static("*"),
     );
-    let has_profile = raw_profile_json_data.is_some();
 
-    match (req.method(), req.uri().path(), raw_profile_json_data) {
+    match (method, path_without_prefix, raw_profile_json_data) {
         (&Method::OPTIONS, _, _) => {
             // https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS
             *response.status_mut() = StatusCode::NO_CONTENT;
@@ -270,17 +316,6 @@ async fn symbolication_service(
                     header::HeaderValue::from_static("POST, GET, OPTIONS"),
                 );
             }
-        }
-        (&Method::GET, "/", _) => {
-            response.headers_mut().insert(
-                header::CONTENT_TYPE,
-                header::HeaderValue::from_static("text/html"),
-            );
-            let template = match has_profile {
-                true => TEMPLATE_WITH_PROFILE,
-                false => TEMPLATE_WITHOUT_PROFILE,
-            };
-            *response.body_mut() = Body::from(substitute_template(template, &*template_values));
         }
         (&Method::GET, "/profile.json", Some(raw_profile_json_data)) => {
             response.headers_mut().insert(
@@ -332,7 +367,6 @@ fn add_libs_to_path_map(libs: &[Value], path_map: &mut HashMap<(String, String),
         path_map.insert((debug_name, breakpad_id), debug_path);
     }
 }
-
 
 fn add_to_path_map_recursive(profile: &Value, path_map: &mut HashMap<(String, String), String>) {
     if let Value::Array(libs) = &profile["libs"] {

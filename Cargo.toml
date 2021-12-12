@@ -31,6 +31,8 @@ reqwest = "0.11.4"
 dirs = "4.0"
 thiserror = "1.0.26"
 cab = "0.3.0"
+rand = "0.8.4"
+nix-base32 = "0.1.1"
 
 # Needed for moria_mac_spotlight, to find dSYM files
 [target.'cfg(target_os = "macos")'.dependencies]

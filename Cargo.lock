@@ -705,6 +705,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "nix-base32"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8548db8274cf1b2b4c093557783f99e9ad64ffdaaa29a6c1af0abc9895c15612"
+
+[[package]]
 name = "nodrop"
 version = "0.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -960,9 +966,11 @@ dependencies = [
  "hyper",
  "libc",
  "memmap2",
+ "nix-base32",
  "object",
  "percent-encoding",
  "profiler-get-symbols",
+ "rand",
  "reqwest",
  "serde_json",
  "structopt",
