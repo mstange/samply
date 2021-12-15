@@ -23,7 +23,8 @@ symbols on the [Mozilla symbol server](https://symbols.mozilla.org/).
 
 ## Documentation
 
-Documentation can be found at [https://docs.rs/profiler-get-symbols/](https://docs.rs/profiler-get-symbols/).
+Documentation for the Rust API can be found at [https://docs.rs/profiler-get-symbols/](https://docs.rs/profiler-get-symbols/).
+Documentation for the "Symbolication API" format can be found in [API.md](API.md).
 
 ## Running / Testing
 
