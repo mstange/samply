@@ -18,7 +18,10 @@ struct ThreadState {
     merge_name: Option<String>,
     last_kernel_stack: Option<Vec<u64>>,
     last_kernel_stack_time: u64,
-    last_sample_timestamp: Option<i64>
+    last_sample_timestamp: Option<i64>,
+    running_since_time: Option<i64>,
+    total_running_time: i64,
+    previous_sample_cpu_time: i64,
 }
 
 
@@ -83,6 +86,7 @@ fn main() {
             let _to_millis = |timestamp: i64| {
                 (timestamp as f64 / perf_freq as f64) * 1000.
             };
+            // XXX: be careful with this as it can overflow
             let to_nanos = |timestamp: u64| {
                 timestamp * 1000 * 1000 * 1000 / perf_freq 
             };
@@ -130,6 +134,9 @@ fn main() {
                                     last_kernel_stack_time: 0,
                                     last_sample_timestamp: None,
                                     merge_name: None,
+                                    running_since_time: None,
+                                    previous_sample_cpu_time: 0,
+                                    total_running_time: 0
                                 }
                             );
                             thread_index += 1;
@@ -179,6 +186,9 @@ fn main() {
                                     last_kernel_stack_time: 0,
                                     last_sample_timestamp: None,
                                     merge_name: None,
+                                    running_since_time: None,
+                                    previous_sample_cpu_time: 0,
+                                    total_running_time: 0,
                                 }
                             );
                             thread_index += 1;
@@ -221,7 +231,10 @@ fn main() {
                             frames.extend(stack_frames);
                             global_thread.add_sample(timestamp, frames.into_iter(), Duration::ZERO);
                         } else {
-                            thread.builder.add_sample(timestamp, frames, Duration::ZERO);
+                            let delta = thread.total_running_time - thread.previous_sample_cpu_time;
+                            thread.previous_sample_cpu_time = thread.total_running_time;
+                            let delta = Duration::from_nanos(to_nanos(delta as u64));
+                            thread.builder.add_sample(timestamp, frames, delta);
                         }
                     };
 
@@ -280,7 +293,7 @@ fn main() {
                             return;
                         }
                     };
-
+                    // assert!(thread.running_since_time.is_some(), "thread {} not running @ {} on {}", thread_id, e.EventHeader.TimeStamp, unsafe { e.BufferContext.Anonymous.ProcessorIndex });
                     thread.last_sample_timestamp = Some(e.EventHeader.TimeStamp);
                 }
                 "KernelTraceControl/ImageID/" => {
@@ -355,7 +368,27 @@ fn main() {
                         MarkerTiming::Instant(timestamp)
                     );
                 }
-                "MSNT_SystemTrace/Thread/CSwitch" | "MSNT_SystemTrace/Thread/ReadyThread" => {}
+                "MSNT_SystemTrace/Thread/CSwitch" => {
+                    let mut parser = Parser::create(&s);
+                    let new_thread: u32 = parser.parse("NewThreadId");
+                    let old_thread: u32 = parser.parse("OldThreadId");
+                    // println!("CSwitch {} -> {} @ {} on {}", old_thread, new_thread, e.EventHeader.TimeStamp, unsafe { e.BufferContext.Anonymous.ProcessorIndex });
+                    if let Some(new_thread) = threads.get_mut(&new_thread) {
+                        new_thread.running_since_time = Some(e.EventHeader.TimeStamp);
+                    };
+                    if let Some(old_thread) = threads.get_mut(&old_thread) {
+                        if let Some(start_time) = old_thread.running_since_time {
+                            old_thread.total_running_time += e.EventHeader.TimeStamp - start_time
+                        }
+                        old_thread.running_since_time = None;
+                    };
+
+                }
+                "MSNT_SystemTrace/Thread/ReadyThread" => {
+                    // these events can give us the unblocking stack
+                    let mut parser = Parser::create(&s);
+                    let _thread_id: u32 = parser.parse("TThreadId");
+                }
                 _ => {
                     if s.name().starts_with("Google.Chrome/") {
                         let mut parser = Parser::create(&s);
