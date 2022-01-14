@@ -55,7 +55,7 @@ pub struct Property {
 #[doc(hidden)]
 impl Property {
     pub fn new(name: String, property: &EventPropertyInfo, map_info: Option<PropertyMapInfo>) -> Self {
-        if property.Flags.0 & Etw::PropertyStruct.0 != 0 {
+        if property.Flags & Etw::PropertyStruct != 0 {
             unsafe {
                 let start_index = property.Anonymous1.structType.StructStartIndex;
                 let num_members = property.Anonymous1.structType.NumOfStructMembers;
@@ -192,8 +192,7 @@ bitflags! {
 }
 
 impl From<Etw::PROPERTY_FLAGS> for PropertyFlags {
-    fn from(val: Etw::PROPERTY_FLAGS) -> Self {
-        let flags: i32 = val.0.into();
+    fn from(flags: Etw::PROPERTY_FLAGS) -> Self {
         // Should be a safe cast
         PropertyFlags::from_bits_truncate(flags as u32)
     }

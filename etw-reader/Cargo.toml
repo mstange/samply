@@ -16,8 +16,9 @@ memoffset = "0.6"
 
 
 [dependencies.windows]
-version = "0.25"
-features =  ["Win32_System_Diagnostics_Etw",
+version = "0.30"
+features =  ["alloc",
+             "Win32_System_Diagnostics_Etw",
              "Win32_System_Diagnostics_Debug",
              "Win32_System_SystemInformation",
              "Win32_Security_Authorization",

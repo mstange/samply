@@ -30,7 +30,7 @@ pub fn schema_from_tdh(event: &Etw::EVENT_RECORD) -> TdhNativeResult<TraceEventI
             std::ptr::null_mut(),
             std::ptr::null_mut(),
             &mut buffer_size,
-        ) != ERROR_INSUFFICIENT_BUFFER.0
+        ) != ERROR_INSUFFICIENT_BUFFER
         {
             return Err(TdhNativeError::IoError(std::io::Error::last_os_error()));
         }

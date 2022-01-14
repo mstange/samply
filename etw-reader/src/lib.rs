@@ -14,7 +14,7 @@ extern crate memoffset;
 
 use etw_types::EventRecord;
 use tdh_types::{Property, TdhOutType};
-use windows::runtime::{IntoParam, Param};
+use windows::core::{IntoParam, Param};
 use std::{borrow::Cow, collections::HashMap, hash::BuildHasherDefault, path::Path};
 use windows::Win32::System::Diagnostics::Etw;
 use fxhash::FxHasher;
@@ -37,7 +37,7 @@ pub mod custom_schemas;
 //pub mod trace;
 //pub mod provider;
 
-pub use windows::runtime::GUID;
+pub use windows::core::GUID;
 
 pub type FastHashMap<K, V> = HashMap<K, V, BuildHasherDefault<FxHasher>>;
 #[repr(C)]
@@ -63,7 +63,7 @@ impl std::ops::DerefMut for EventTraceLogfile {
     }
 }
 
-unsafe fn trace_callback_thunk(event_record: *mut Etw::EVENT_RECORD) {
+unsafe extern "system" fn trace_callback_thunk(event_record: *mut Etw::EVENT_RECORD) {
     let f: &mut &mut dyn FnMut(&EventRecord) = std::mem::transmute((*event_record).UserContext);
     f(std::mem::transmute(event_record))
 }
@@ -79,7 +79,7 @@ pub fn open_trace<F: FnMut(&EventRecord)>(path: &Path, mut callback: F)  {
     log_file.0.Anonymous1.ProcessTraceMode = Etw::PROCESS_TRACE_MODE_EVENT_RECORD | Etw::PROCESS_TRACE_MODE_RAW_TIMESTAMP;
     let mut cb: &mut dyn FnMut(&EventRecord) = &mut callback;
     log_file.0.Context = unsafe { std::mem::transmute(&mut cb) };
-    log_file.0.Anonymous2.EventRecordCallback = trace_callback_thunk as *mut _;
+    log_file.0.Anonymous2.EventRecordCallback = Some(trace_callback_thunk);
 
     let session_handle = unsafe { Etw::OpenTraceW(&mut *log_file) };
     unsafe { Etw::ProcessTrace(&session_handle, 1, std::ptr::null_mut(), std::ptr::null_mut()) };
@@ -129,7 +129,7 @@ impl TraceInfo {
         self.properties.LogFileMode =
         Etw::EVENT_TRACE_REAL_TIME_MODE | Etw::EVENT_TRACE_NO_PER_PROCESSOR_BUFFERING;
 
-        self.properties.EnableFlags.0 = 0;
+        self.properties.EnableFlags = 0;
 
         //self.properties.LoggerNameOffset = offset_of!(TraceInfo, log_file_name) as u32;
         //self.trace_name[..trace_name.len()].copy_from_slice(trace_name.as_bytes())
@@ -268,11 +268,11 @@ pub fn start_trace<F: FnMut(&EventRecord)>(mut callback: F)  {
     trace.0.Anonymous1.ProcessTraceMode = Etw::PROCESS_TRACE_MODE_REAL_TIME | Etw::PROCESS_TRACE_MODE_EVENT_RECORD;
     let mut cb: &mut dyn FnMut(&EventRecord) = &mut callback;
     trace.0.Context = unsafe { std::mem::transmute(&mut cb) };
-    trace.0.Anonymous2.EventRecordCallback = trace_callback_thunk as *mut _;
+    trace.0.Anonymous2.EventRecordCallback = Some(trace_callback_thunk);
 
     let session_handle = unsafe { Etw::OpenTraceW(&mut *trace) };
     if session_handle == INVALID_TRACE_HANDLE {
-        println!("{} {:?}", unsafe { GetLastError().0 }, windows::runtime::Error::from_win32());
+        println!("{} {:?}", unsafe { GetLastError() }, windows::core::Error::from_win32());
 
         panic!("Invalid handle");
     }

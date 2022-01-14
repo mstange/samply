@@ -5,7 +5,7 @@ use crate::{tdh_types::PropertyMapInfo};
 use crate::schema::EventSchema;
 use crate::utils;
 use crate::tdh_types::Property;
-use windows::runtime::GUID;
+use windows::core::GUID;
 use windows::Win32::Foundation::PWSTR;
 
 #[repr(transparent)]
@@ -160,7 +160,7 @@ impl TraceEventInfoRaw {
                 use windows::Win32::Foundation::ERROR_INSUFFICIENT_BUFFER;
                 // println!("map_name {}", utils::parse_unk_size_null_utf16_string(&self.info[curr_prop.Anonymous1.nonStructType.MapNameOffset as usize..]));
 
-                if Etw::TdhGetEventMapInformation(&event, map_name, std::ptr::null_mut(), &mut buffer_size) != ERROR_INSUFFICIENT_BUFFER.0 {
+                if Etw::TdhGetEventMapInformation(&event, map_name, std::ptr::null_mut(), &mut buffer_size) != ERROR_INSUFFICIENT_BUFFER {
                     panic!("expected this to fail");
                 }
                 

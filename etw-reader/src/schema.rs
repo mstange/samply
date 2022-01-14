@@ -10,7 +10,7 @@ use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use once_cell::unsync::OnceCell;
 use windows::Win32::System::Diagnostics::Etw;
-use windows::runtime::GUID;
+use windows::core::GUID;
 
 /// Schema module errors
 #[derive(Debug)]

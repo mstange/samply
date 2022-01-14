@@ -13,7 +13,7 @@ use crate::utils;
 use std::borrow::Borrow;
 use std::convert::TryInto;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use windows::runtime::GUID;
+use windows::core::GUID;
 
 /// Parser module errors
 #[derive(Debug)]
