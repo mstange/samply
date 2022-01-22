@@ -19,6 +19,11 @@ default-features = false
 features = ["std", "fallible-iterator"]
 version = "0.17.0"
 
+[dependencies.gimli]
+default-features = false
+features = ["read"]
+version = "0.26"
+
 [dependencies.object]
 default-features = false
 features = ["std", "read_core", "archive", "elf", "macho", "pe", "unaligned"]

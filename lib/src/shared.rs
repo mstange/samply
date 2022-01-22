@@ -1,4 +1,7 @@
+use gimli::{CieOrFde, EhFrame, UnwindSection};
 use object::read::ReadRef;
+use object::ObjectSection;
+use std::borrow::Cow;
 use std::fmt::Debug;
 use std::future::Future;
 use std::ops::Range;
@@ -274,6 +277,91 @@ pub struct SymbolicationQuery<'a> {
     pub result_kind: SymbolicationResultKind<'a>,
 }
 
+/// Get a list of function addresses as u64 vmaddrs.
+pub fn function_start_addresses<'a: 'b, 'b, T>(object_file: &'b T) -> Vec<u64>
+where
+    T: object::Object<'a, 'b>,
+{
+    // Get an approximation of the list of function start addresses by
+    // iterating over the exception handling info. Every FDE roughly
+    // maps to one function.
+    // This currently only covers the ELF format. For mach-O, this information is
+    // not in .eh_frame, it is in __unwind_info (plus some auxiliary data
+    // in __eh_frame, but that's only needed for the actual unwinding, not
+    // for the function start addresses).
+    // We also don't handle .debug_frame yet, which is sometimes found
+    // instead of .eh_frame.
+    // And we don't have anything for the PE format yet, either.
+
+    let eh_frame = object_file.section_by_name(".eh_frame");
+    let eh_frame_hdr = object_file.section_by_name(".eh_frame_hdr");
+    let text = object_file.section_by_name(".text");
+    let got = object_file.section_by_name(".got");
+
+    fn section_addr_or_zero<'a>(section: &Option<impl ObjectSection<'a>>) -> u64 {
+        match section {
+            Some(section) => section.address(),
+            None => 0,
+        }
+    }
+
+    let bases = gimli::BaseAddresses::default()
+        .set_eh_frame_hdr(section_addr_or_zero(&eh_frame_hdr))
+        .set_eh_frame(section_addr_or_zero(&eh_frame))
+        .set_text(section_addr_or_zero(&text))
+        .set_got(section_addr_or_zero(&got));
+
+    let endian = if object_file.is_little_endian() {
+        gimli::RunTimeEndian::Little
+    } else {
+        gimli::RunTimeEndian::Big
+    };
+
+    let address_size = object_file
+        .architecture()
+        .address_size()
+        .unwrap_or(object::AddressSize::U64) as u8;
+
+    let eh_frame = match eh_frame {
+        Some(eh_frame) => eh_frame,
+        None => return Vec::new(),
+    };
+
+    let eh_frame_data = match eh_frame.uncompressed_data() {
+        Ok(eh_frame_data) => eh_frame_data,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut eh_frame = EhFrame::new(&*eh_frame_data, endian);
+    eh_frame.set_address_size(address_size);
+    let mut cur_cie = None;
+    let mut entries_iter = eh_frame.entries(&bases);
+    let mut start_addresses = Vec::new();
+    while let Ok(Some(entry)) = entries_iter.next() {
+        match entry {
+            CieOrFde::Cie(cie) => cur_cie = Some(cie),
+            CieOrFde::Fde(partial_fde) => {
+                if let Ok(fde) = partial_fde.parse(|eh_frame, bases, cie_offset| {
+                    if let Some(cie) = &cur_cie {
+                        if cie.offset() == cie_offset.0 {
+                            return Ok(cie.clone());
+                        }
+                    }
+                    let cie = eh_frame.cie_from_offset(bases, cie_offset);
+                    if let Ok(cie) = &cie {
+                        cur_cie = Some(cie.clone());
+                    }
+                    cie
+                }) {
+                    start_addresses.push(fde.initial_address());
+                    // Note: If we want to emit the function size, fde.len() is a good guess.
+                }
+            }
+        }
+    }
+    start_addresses
+}
+
 /// Return a Vec that contains address -> symbol name entries.
 /// The address is relative to the address of the __TEXT segment (if present).
 /// We discard the symbol "size"; the address is where the symbol starts.
@@ -289,20 +377,38 @@ where
         .map(|segment| segment.address())
         .unwrap_or(0);
 
-    let mut map: Vec<(u32, String)> = object_file
-        .dynamic_symbols()
-        .chain(object_file.symbols())
-        .filter(|symbol| symbol.kind() == SymbolKind::Text)
-        .filter_map(|symbol| {
-            symbol.name().ok().map(|name| {
-                (
-                    (symbol.address() - vmaddr_of_text_segment) as u32,
-                    name.to_string(),
-                )
-            })
-        })
-        .collect();
+    let mut map: Vec<(u32, String)> = Vec::new();
 
+    // Begin with fallback function start addresses, with synthesized symbols of the form fun_abcdef.
+    // We add these first so that they'll act as the ultimate fallback.
+    // These synhesized symbols make it so that, for libraries which only contain symbols
+    // for a small subset of their functions, we will show placeholder function names
+    // rather than plain incorrect function names.
+    let function_start_addresses = function_start_addresses(object_file);
+    map.extend(function_start_addresses.into_iter().map(|address| {
+        (
+            (address - vmaddr_of_text_segment) as u32,
+            format!("fun_{:x}", address),
+        )
+    }));
+
+    // Add any symbols found in this library.
+    map.extend(
+        object_file
+            .dynamic_symbols()
+            .chain(object_file.symbols())
+            .filter(|symbol| symbol.kind() == SymbolKind::Text)
+            .filter_map(|symbol| {
+                symbol.name().ok().map(|name| {
+                    (
+                        (symbol.address() - vmaddr_of_text_segment) as u32,
+                        name.to_string(),
+                    )
+                })
+            }),
+    );
+
+    // For PE files, add the exports.
     if let Ok(exports) = object_file.exports() {
         let image_base_address: u64 = object_file.relative_address_base();
         for export in exports {
@@ -317,16 +423,24 @@ where
     map
 }
 
-enum SymbolOrExport<'a, Symbol: object::ObjectSymbol<'a>> {
+enum FullSymbolListEntry<'a, Symbol: object::ObjectSymbol<'a>> {
+    Synthesized,
     Symbol(Symbol),
     Export(object::Export<'a>),
 }
 
-impl<'a, Symbol: object::ObjectSymbol<'a>> SymbolOrExport<'a, Symbol> {
-    fn name(&self) -> Result<&str, ()> {
+impl<'a, Symbol: object::ObjectSymbol<'a>> FullSymbolListEntry<'a, Symbol> {
+    fn name(&self, addr: u32) -> Result<Cow<str>, ()> {
         match self {
-            SymbolOrExport::Symbol(symbol) => symbol.name().map_err(|_| ()),
-            SymbolOrExport::Export(export) => std::str::from_utf8(export.name()).map_err(|_| ()),
+            FullSymbolListEntry::Synthesized => Ok(format!("fun_{:x}", addr).into()),
+            FullSymbolListEntry::Symbol(symbol) => match symbol.name() {
+                Ok(name) => Ok(Cow::Borrowed(name)),
+                Err(_) => Err(()),
+            },
+            FullSymbolListEntry::Export(export) => match std::str::from_utf8(export.name()) {
+                Ok(name) => Ok(Cow::Borrowed(name)),
+                Err(_) => Err(()),
+            },
         }
     }
 }
@@ -350,24 +464,40 @@ where
         .map(|segment| segment.address())
         .unwrap_or(0);
 
-    let mut symbols: Vec<_> = object_file
-        .dynamic_symbols()
-        .chain(object_file.symbols())
-        .filter(|symbol| symbol.kind() == SymbolKind::Text)
-        .map(|symbol| {
-            (
-                (symbol.address() - vmaddr_of_text_segment) as u32,
-                SymbolOrExport::Symbol(symbol),
-            )
-        })
-        .collect();
+    let mut symbols: Vec<_> = Vec::new();
+
+    // Begin with fallback function start addresses, with synthesized symbols of the form fun_abcdef.
+    // We add these first so that they'll act as the ultimate fallback.
+    // These synhesized symbols make it so that, for libraries which only contain symbols
+    // for a small subset of their functions, we will show placeholder function names
+    // rather than plain incorrect function names.
+    let function_start_addresses = function_start_addresses(object_file);
+    symbols.extend(function_start_addresses.into_iter().map(|address| {
+        (
+            (address - vmaddr_of_text_segment) as u32,
+            FullSymbolListEntry::Synthesized,
+        )
+    }));
+
+    symbols.extend(
+        object_file
+            .dynamic_symbols()
+            .chain(object_file.symbols())
+            .filter(|symbol| symbol.kind() == SymbolKind::Text)
+            .map(|symbol| {
+                (
+                    (symbol.address() - vmaddr_of_text_segment) as u32,
+                    FullSymbolListEntry::Symbol(symbol),
+                )
+            }),
+    );
 
     if let Ok(exports) = object_file.exports() {
         let image_base_address: u64 = object_file.relative_address_base();
         for export in exports {
             symbols.push((
                 (export.address() - image_base_address) as u32,
-                SymbolOrExport::Export(export),
+                FullSymbolListEntry::Export(export),
             ));
         }
     }
@@ -389,8 +519,8 @@ where
             Err(i) => i - 1,
         };
         let (addr, symbol) = &symbols[index];
-        if let Ok(name) = symbol.name() {
-            symbolication_result.add_address_symbol(address, *addr, name);
+        if let Ok(name) = symbol.name(*addr) {
+            symbolication_result.add_address_symbol(address, *addr, &name);
         }
     }
     symbolication_result
