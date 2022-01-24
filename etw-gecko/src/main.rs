@@ -24,6 +24,21 @@ struct ThreadState {
     previous_sample_cpu_time: i64,
 }
 
+impl ThreadState {
+    fn new(builder: ThreadBuilder) -> Self {
+        ThreadState {
+            builder,
+            last_kernel_stack: None,
+            last_kernel_stack_time: 0,
+            last_sample_timestamp: None,
+            merge_name: None,
+            running_since_time: None,
+            previous_sample_cpu_time: 0,
+            total_running_time: 0
+        }
+    }
+}
+
 
 fn strip_thread_numbers(name: &str) -> &str {
     if let Some(hash) = name.find('#') {
@@ -110,6 +125,26 @@ fn main() {
                     println!("Sample rate {}ms", interval.as_secs_f32() * 1000.);
                     profile.set_interval(interval);
                 }
+                "MSNT_SystemTrace/Thread/SetName" => {
+                    let mut parser = Parser::create(&s);
+
+                    let process_id: u32 = parser.parse("ProcessId");
+                    let thread_id: u32 = parser.parse("ThreadId");
+                    let thread_name: String = parser.parse("ThreadName");
+                    let thread = match threads.entry(thread_id) {
+                        Entry::Occupied(e) => e.into_mut(),
+                        Entry::Vacant(e) => {
+                            let thread_start_instant = profile_start_instant;
+                            let tb = e.insert(
+                                ThreadState::new(ThreadBuilder::new(process_id, thread_index, thread_start_instant, false, false))
+                            );
+                            thread_index += 1;
+                            tb
+                         }
+                    };
+                    thread.builder.set_name(&thread_name);
+                    thread.merge_name = Some(thread_name);
+                }
                 "MSNT_SystemTrace/Thread/Start" |
                 "MSNT_SystemTrace/Thread/DCStart" => {
                     let mut parser = Parser::create(&s);
@@ -128,16 +163,7 @@ fn main() {
                         Entry::Vacant(e) => {
                             let thread_start_instant = profile_start_instant;
                             let tb = e.insert(
-                                ThreadState {
-                                    builder: ThreadBuilder::new(process_id, thread_index, thread_start_instant, false, false),
-                                    last_kernel_stack: None,
-                                    last_kernel_stack_time: 0,
-                                    last_sample_timestamp: None,
-                                    merge_name: None,
-                                    running_since_time: None,
-                                    previous_sample_cpu_time: 0,
-                                    total_running_time: 0
-                                }
+                                ThreadState::new(ThreadBuilder::new(process_id, thread_index, thread_start_instant, false, false))
                             );
                             thread_index += 1;
                             tb
