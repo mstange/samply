@@ -14,7 +14,8 @@ fn main() {
     open_trace(Path::new(&std::env::args().nth(1).unwrap()), |e| {
         let s = schema_locator.event_schema(e);
         if let Ok(s) = s {
-            if let "MSNT_SystemTrace/Process/Start" | "MSNT_SystemTrace/Process/DCStart" = s.name() {
+            // DCEnd is used '-Buffering' traces
+            if let "MSNT_SystemTrace/Process/Start" | "MSNT_SystemTrace/Process/DCStart" | "MSNT_SystemTrace/Process/DCEnd" = s.name() {
                 let mut parser = Parser::create(&s);
 
                 let image_file_name: String = parser.parse("ImageFileName");
