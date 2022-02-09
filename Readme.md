@@ -83,4 +83,8 @@ It can enumerate threads, pause them at will, and read process memory.
 
 We use these primitives to walk the stack and enumerate shared libraries.
 
-At the moment, only frame pointer stack walking is implemented. This is usually fine because keeping frame pointers is the default on macOS.
+Stack unwinding uses the [`framehop` crate](https://github.com/mstange/framehop/), which
+emits high quality stacks on both x86_64 and arm64. It supports Apple's compact unwind
+info format and DWARF CFI, and has heuristics for function prologues and epilogues. As
+a result, stacks should always be available, even for binaries that were compiled without
+frame pointers.
