@@ -929,14 +929,15 @@ dependencies = [
 
 [[package]]
 name = "profiler-get-symbols"
-version = "0.11.1"
+version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f2b1826632a7412cf5ff5d193a7b0051d8d4b511e5ef59b529efb8af8ad7caf"
+checksum = "8ff551e4f4ae9dbe0408c546e2eace379ccf2cb0a4ebd6e59a2b25d31dea805b"
 dependencies = [
  "addr2line",
  "bitflags",
  "cpp_demangle",
  "elsa",
+ "gimli",
  "lzma-rs",
  "memchr",
  "msvc-demangler",
