@@ -27,7 +27,7 @@ percent-encoding = "2.1.0"
 libc = "0.2.71"
 flate2 = "1.0"
 webbrowser = "0.5.5"
-reqwest = "0.11.4"
+reqwest = { version = "0.11.4", features = ["default-tls", "gzip", "brotli", "deflate"] }
 dirs = "4.0"
 thiserror = "1.0.26"
 cab = "0.3.0"
