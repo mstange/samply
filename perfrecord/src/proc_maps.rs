@@ -52,7 +52,7 @@ pub struct DyldInfo {
     pub file: String,
     pub address: u64,
     pub vmsize: u64,
-    pub sections: framehop::ModuleSectionAddresses,
+    pub sections: framehop::ModuleSectionAddressRanges,
     pub uuid: Option<Uuid>,
     pub arch: Option<&'static str>,
     pub unwind_sections: UnwindSectionInfo,
@@ -65,7 +65,7 @@ pub struct UnwindSectionInfo {
     /// (address, size)
     pub eh_frame_section: Option<(u64, u64)>,
     /// (address, size)
-    pub text_section: Option<(u64, u64)>,
+    pub text_segment: Option<(u64, u64)>,
 }
 
 pub struct DyldInfoManager {
@@ -282,7 +282,11 @@ fn get_dyld_image_info(
     let mut unwind_info_section = None;
     let mut eh_frame_section = None;
     let mut text_section = None;
-    let mut got_section_addr = 0;
+    let mut text_env_section = None;
+    let mut stubs_section = None;
+    let mut stub_helper_section = None;
+    let mut got_section = None;
+    let mut text_segment = None;
     let mut offset = 0;
     for _ in 0..header.ncmds {
         unsafe {
@@ -294,6 +298,7 @@ fn get_dyld_image_info(
                     if (*segcmd).segname[0..7] == [95, 95, 84, 69, 88, 84, 0] {
                         // This is the __TEXT segment.
                         vmsize = (*segcmd).vmsize;
+                        text_segment = Some((image_load_address, vmsize));
                         let textvmaddr = (*segcmd).vmaddr;
 
                         let mut section_offset = offset + mem::size_of::<segment_command_64>();
@@ -310,9 +315,26 @@ fn get_dyld_image_info(
                             if (*section).sectname[0..7] == [95, 95, 116, 101, 120, 116, 0] {
                                 // This is the __text section.
                                 text_section = Some((addr, size));
+                            } else if (*section).sectname[0..9]
+                                == [116, 101, 120, 116, 95, 101, 110, 118, 0]
+                            {
+                                // This is the text_env section.
+                                text_env_section = Some((addr, size));
+                            } else if (*section).sectname[0..8]
+                                == [95, 95, 115, 116, 117, 98, 115, 0]
+                            {
+                                // This is the __stubs section.
+                                stubs_section = Some((addr, size));
+                            } else if (*section).sectname[0..14]
+                                == [
+                                    95, 95, 115, 116, 117, 98, 95, 104, 101, 108, 112, 101, 114, 0,
+                                ]
+                            {
+                                // This is the __stub_helper section.
+                                stub_helper_section = Some((addr, size));
                             } else if (*section).sectname[0..6] == [95, 95, 103, 111, 116, 0] {
                                 // This is the __got section.
-                                got_section_addr = addr;
+                                got_section = Some((addr, size));
                             } else if (*section).sectname[0..14]
                                 == [
                                     95, 95, 117, 110, 119, 105, 110, 100, 95, 105, 110, 102, 111, 0,
@@ -345,11 +367,14 @@ fn get_dyld_image_info(
         file: filename,
         address: image_load_address,
         vmsize,
-        sections: framehop::ModuleSectionAddresses {
-            text: text_section.map(|(addr, _)| addr).unwrap_or(0),
-            eh_frame: eh_frame_section.map(|(addr, _)| addr).unwrap_or(0),
-            eh_frame_hdr: 0,
-            got: got_section_addr,
+        sections: framehop::ModuleSectionAddressRanges {
+            text: text_section.map(|(addr, size)| addr..addr + size),
+            text_env: text_env_section.map(|(addr, size)| addr..addr + size),
+            stubs: stubs_section.map(|(addr, size)| addr..addr + size),
+            stub_helper: stub_helper_section.map(|(addr, size)| addr..addr + size),
+            eh_frame: eh_frame_section.map(|(addr, size)| addr..addr + size),
+            eh_frame_hdr: None,
+            got: got_section.map(|(addr, size)| addr..addr + size),
         },
         uuid,
         arch: get_arch_string(header.cputype as u32, header.cpusubtype as u32),
@@ -357,7 +382,7 @@ fn get_dyld_image_info(
         unwind_sections: UnwindSectionInfo {
             unwind_info_section,
             eh_frame_section,
-            text_section,
+            text_segment,
         },
     })
 }

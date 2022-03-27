@@ -311,9 +311,9 @@ dependencies = [
 
 [[package]]
 name = "framehop"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41359a358819be9f2b1fb475a7bc7b309c404cece6fac3c7a9b0fb564ebdcfd6"
+checksum = "d6d7a16e584d6d379bfc38c9c74c576f8b236a122cc599ad8714101066a40461"
 dependencies = [
  "fallible-iterator",
  "gimli",

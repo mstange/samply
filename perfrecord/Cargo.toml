@@ -25,7 +25,7 @@ crossbeam-channel = "0.5.1"
 signal-hook = "0.3.9"
 serde_json = "1.0.53"
 gecko_profile = { version = "0.2.0", path = "../gecko_profile" }
-framehop = "0.2.0"
+framehop = "0.3.0"
 
 [profile.release]
 debug = true

@@ -1,5 +1,6 @@
 use crate::error::SamplingError;
 use crate::task_profiler::TaskProfiler;
+use crate::task_profiler::UnwinderCache;
 use crossbeam_channel::Receiver;
 use gecko_profile::ProfileBuilder;
 use std::mem;
@@ -15,6 +16,7 @@ pub struct Sampler {
     live_other_tasks: Vec<TaskProfiler>,
     dead_root_task: Option<TaskProfiler>,
     dead_other_tasks: Vec<TaskProfiler>,
+    unwinder_cache: UnwinderCache,
 }
 
 impl Sampler {
@@ -32,6 +34,7 @@ impl Sampler {
             live_other_tasks: Vec::new(),
             dead_root_task: None,
             dead_other_tasks: Vec::new(),
+            unwinder_cache: Default::default(),
         }
     }
 
@@ -62,7 +65,7 @@ impl Sampler {
             }
 
             if let Some(task) = &mut self.live_root_task {
-                let still_alive = task.sample(sample_timestamp)?;
+                let still_alive = task.sample(sample_timestamp, &mut self.unwinder_cache)?;
                 if !still_alive {
                     task.notify_dead(sample_timestamp);
                     self.dead_root_task = self.live_root_task.take();
@@ -72,7 +75,7 @@ impl Sampler {
             let mut other_tasks = Vec::with_capacity(self.live_other_tasks.capacity());
             mem::swap(&mut self.live_other_tasks, &mut other_tasks);
             for mut task in other_tasks.into_iter() {
-                let still_alive = task.sample(sample_timestamp)?;
+                let still_alive = task.sample(sample_timestamp, &mut self.unwinder_cache)?;
                 if still_alive {
                     self.live_other_tasks.push(task);
                 } else {
