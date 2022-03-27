@@ -83,11 +83,11 @@ where
 
     let r = match query.result_kind {
         SymbolicationResultKind::AllSymbols => {
-            let map = object_to_map(&pe);
+            let map = object_to_map(&pe, None);
             R::from_full_map(map)
         }
         SymbolicationResultKind::SymbolsForAddresses { addresses, .. } => {
-            get_symbolication_result_for_addresses_from_object(addresses, &pe)
+            get_symbolication_result_for_addresses_from_object(addresses, &pe, None)
         }
     };
     Ok(r)

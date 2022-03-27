@@ -8,11 +8,12 @@ use crate::shared::{
     FileContents, FileContentsWrapper, FileLocation, RangeReadRef, SymbolicationQuery,
     SymbolicationResult, SymbolicationResultKind,
 };
-use object::macho::{MachHeader32, MachHeader64};
-use object::read::macho::{FatArch, MachHeader};
+use object::macho::{self, LinkeditDataCommand, MachHeader32, MachHeader64};
+use object::read::macho::{FatArch, LoadCommandIterator, MachHeader};
 use object::read::{archive::ArchiveFile, File, FileKind, Object, ObjectSymbol};
 use object::{Endianness, ObjectMapEntry, ReadRef};
 use std::collections::{HashMap, VecDeque};
+use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -127,11 +128,17 @@ where
     let object = image
         .parse_object()
         .map_err(GetSymbolsError::MachOHeaderParseError)?;
-    get_symbolication_result_from_macho_object(&object, query)
+
+    let (data, header_offset) = image
+        .image_data_and_offset()
+        .map_err(GetSymbolsError::MachOHeaderParseError)?;
+    let macho_data = MachOData::new(data, header_offset, object.is_64());
+    get_symbolication_result_from_macho_object(&object, macho_data, query)
 }
 
 pub fn get_symbolication_result_from_macho_object<'a, 'data, R, RR: ReadRef<'data>>(
     macho_file: &File<'data, RR>,
+    macho_data: MachOData<'data, RR>,
     query: SymbolicationQuery<'a>,
 ) -> Result<R>
 where
@@ -149,14 +156,20 @@ where
         ));
     }
 
+    let function_starts = macho_data.get_function_starts()?;
+
     match query.result_kind {
         SymbolicationResultKind::AllSymbols => {
-            let map = object_to_map(macho_file);
+            let map = object_to_map(macho_file, function_starts.as_deref());
             Ok(R::from_full_map(map))
         }
-        SymbolicationResultKind::SymbolsForAddresses { addresses, .. } => Ok(
-            get_symbolication_result_for_addresses_from_object(addresses, macho_file),
-        ),
+        SymbolicationResultKind::SymbolsForAddresses { addresses, .. } => {
+            Ok(get_symbolication_result_for_addresses_from_object(
+                addresses,
+                macho_file,
+                function_starts.as_deref(),
+            ))
+        }
     }
 }
 
@@ -177,8 +190,9 @@ where
 
     let macho_file = File::parse(range).map_err(GetSymbolsError::MachOHeaderParseError)?;
 
+    let macho_data = MachOData::new(range, 0, macho_file.is_64());
     let mut symbolication_result =
-        get_symbolication_result_from_macho_object(&macho_file, query.clone())?;
+        get_symbolication_result_from_macho_object(&macho_file, macho_data, query.clone())?;
 
     let addresses = match query.result_kind {
         SymbolicationResultKind::SymbolsForAddresses {
@@ -509,4 +523,108 @@ fn match_funs_to_addresses<'a>(
     }
 
     (external_funs_by_object, internal_addresses)
+}
+
+pub struct MachOData<'data, R: ReadRef<'data>> {
+    data: R,
+    header_offset: u64,
+    is_64: bool,
+    _phantom: PhantomData<&'data ()>,
+}
+
+impl<'data, R: ReadRef<'data>> MachOData<'data, R> {
+    pub fn new(data: R, header_offset: u64, is_64: bool) -> Self {
+        Self {
+            data,
+            header_offset,
+            is_64,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Read the list of function start addresses from the LC_FUNCTION_STARTS mach-O load command.
+    /// This information is usually present even in stripped binaries. It's a uleb128 encoded list
+    /// of deltas between the function addresses, with a zero delta terminator.
+    /// We use this information to improve symbolication for stripped binaries: It allows us to
+    /// group addresses from the same function into the same (synthesized) "symbol". It also allows
+    /// better results for binaries with partial symbol tables, because it tells us where the
+    /// functions with symbols end. This means that those symbols don't "overreach" to cover
+    /// addresses after their function - instead, they get correctly terminated by a symbol-less
+    /// function's start address.
+    pub fn get_function_starts(&self) -> Result<Option<Vec<u32>>> {
+        let data = self
+            .function_start_data()
+            .map_err(GetSymbolsError::MachOHeaderParseError)?;
+        let data = if let Some(data) = data {
+            data
+        } else {
+            return Ok(None);
+        };
+        let mut function_starts = Vec::new();
+        let mut prev_address = 0;
+        let mut bytes = data;
+        while let Some((delta, rest)) = read_uleb128(bytes) {
+            if delta == 0 {
+                break;
+            }
+            bytes = rest;
+            let address = prev_address + delta;
+            function_starts.push(address as u32);
+            prev_address = address;
+        }
+
+        Ok(Some(function_starts))
+    }
+
+    fn load_command_iter<M: MachHeader>(
+        &self,
+    ) -> object::read::Result<(M::Endian, LoadCommandIterator<M::Endian>)> {
+        let header = M::parse(self.data, self.header_offset)?;
+        let endian = header.endian()?;
+        let load_commands = header.load_commands(endian, self.data, self.header_offset)?;
+        Ok((endian, load_commands))
+    }
+
+    fn function_start_data(&self) -> object::read::Result<Option<&'data [u8]>> {
+        let (endian, mut commands) = if self.is_64 {
+            self.load_command_iter::<MachHeader64<Endianness>>()?
+        } else {
+            self.load_command_iter::<MachHeader32<Endianness>>()?
+        };
+        while let Ok(Some(command)) = commands.next() {
+            if command.cmd() == macho::LC_FUNCTION_STARTS {
+                let command: &LinkeditDataCommand<_> = command.data()?;
+                let dataoff: u64 = command.dataoff.get(endian).into();
+                let datasize: u64 = command.datasize.get(endian).into();
+                let data = self.data.read_bytes_at(dataoff, datasize).ok();
+                return Ok(data);
+            }
+        }
+        Ok(None)
+    }
+}
+
+fn read_uleb128(mut bytes: &[u8]) -> Option<(u64, &[u8])> {
+    const CONTINUATION_BIT: u8 = 1 << 7;
+
+    let mut result = 0;
+    let mut shift = 0;
+
+    while !bytes.is_empty() {
+        let byte = bytes[0];
+        bytes = &bytes[1..];
+        if shift == 63 && byte != 0x00 && byte != 0x01 {
+            return None;
+        }
+
+        let low_bits = u64::from(byte & !CONTINUATION_BIT);
+        result |= low_bits << shift;
+
+        if byte & CONTINUATION_BIT == 0 {
+            return Some((result, bytes));
+        }
+
+        shift += 7;
+    }
+    None
 }

@@ -1,6 +1,4 @@
-use gimli::{CieOrFde, EhFrame, UnwindSection};
 use object::read::ReadRef;
-use object::ObjectSection;
 use std::borrow::Cow;
 use std::fmt::Debug;
 use std::future::Future;
@@ -277,95 +275,13 @@ pub struct SymbolicationQuery<'a> {
     pub result_kind: SymbolicationResultKind<'a>,
 }
 
-/// Get a list of function addresses as u64 vmaddrs.
-pub fn function_start_addresses<'a: 'b, 'b, T>(object_file: &'b T) -> Vec<u64>
-where
-    T: object::Object<'a, 'b>,
-{
-    // Get an approximation of the list of function start addresses by
-    // iterating over the exception handling info. Every FDE roughly
-    // maps to one function.
-    // This currently only covers the ELF format. For mach-O, this information is
-    // not in .eh_frame, it is in __unwind_info (plus some auxiliary data
-    // in __eh_frame, but that's only needed for the actual unwinding, not
-    // for the function start addresses).
-    // We also don't handle .debug_frame yet, which is sometimes found
-    // instead of .eh_frame.
-    // And we don't have anything for the PE format yet, either.
-
-    let eh_frame = object_file.section_by_name(".eh_frame");
-    let eh_frame_hdr = object_file.section_by_name(".eh_frame_hdr");
-    let text = object_file.section_by_name(".text");
-    let got = object_file.section_by_name(".got");
-
-    fn section_addr_or_zero<'a>(section: &Option<impl ObjectSection<'a>>) -> u64 {
-        match section {
-            Some(section) => section.address(),
-            None => 0,
-        }
-    }
-
-    let bases = gimli::BaseAddresses::default()
-        .set_eh_frame_hdr(section_addr_or_zero(&eh_frame_hdr))
-        .set_eh_frame(section_addr_or_zero(&eh_frame))
-        .set_text(section_addr_or_zero(&text))
-        .set_got(section_addr_or_zero(&got));
-
-    let endian = if object_file.is_little_endian() {
-        gimli::RunTimeEndian::Little
-    } else {
-        gimli::RunTimeEndian::Big
-    };
-
-    let address_size = object_file
-        .architecture()
-        .address_size()
-        .unwrap_or(object::AddressSize::U64) as u8;
-
-    let eh_frame = match eh_frame {
-        Some(eh_frame) => eh_frame,
-        None => return Vec::new(),
-    };
-
-    let eh_frame_data = match eh_frame.uncompressed_data() {
-        Ok(eh_frame_data) => eh_frame_data,
-        Err(_) => return Vec::new(),
-    };
-
-    let mut eh_frame = EhFrame::new(&*eh_frame_data, endian);
-    eh_frame.set_address_size(address_size);
-    let mut cur_cie = None;
-    let mut entries_iter = eh_frame.entries(&bases);
-    let mut start_addresses = Vec::new();
-    while let Ok(Some(entry)) = entries_iter.next() {
-        match entry {
-            CieOrFde::Cie(cie) => cur_cie = Some(cie),
-            CieOrFde::Fde(partial_fde) => {
-                if let Ok(fde) = partial_fde.parse(|eh_frame, bases, cie_offset| {
-                    if let Some(cie) = &cur_cie {
-                        if cie.offset() == cie_offset.0 {
-                            return Ok(cie.clone());
-                        }
-                    }
-                    let cie = eh_frame.cie_from_offset(bases, cie_offset);
-                    if let Ok(cie) = &cie {
-                        cur_cie = Some(cie.clone());
-                    }
-                    cie
-                }) {
-                    start_addresses.push(fde.initial_address());
-                    // Note: If we want to emit the function size, fde.len() is a good guess.
-                }
-            }
-        }
-    }
-    start_addresses
-}
-
 /// Return a Vec that contains address -> symbol name entries.
 /// The address is relative to the address of the __TEXT segment (if present).
 /// We discard the symbol "size"; the address is where the symbol starts.
-pub fn object_to_map<'a: 'b, 'b, T>(object_file: &'b T) -> Vec<(u32, String)>
+pub fn object_to_map<'a: 'b, 'b, T>(
+    object_file: &'b T,
+    function_start_addresses: Option<&[u32]>,
+) -> Vec<(u32, String)>
 where
     T: object::Object<'a, 'b>,
 {
@@ -379,18 +295,18 @@ where
 
     let mut map: Vec<(u32, String)> = Vec::new();
 
-    // Begin with fallback function start addresses, with synthesized symbols of the form fun_abcdef.
-    // We add these first so that they'll act as the ultimate fallback.
-    // These synhesized symbols make it so that, for libraries which only contain symbols
-    // for a small subset of their functions, we will show placeholder function names
-    // rather than plain incorrect function names.
-    let function_start_addresses = function_start_addresses(object_file);
-    map.extend(function_start_addresses.into_iter().map(|address| {
-        (
-            (address - vmaddr_of_text_segment) as u32,
-            format!("fun_{:x}", address),
-        )
-    }));
+    if let Some(function_start_addresses) = function_start_addresses {
+        // Begin with fallback function start addresses, with synthesized symbols of the form fun_abcdef.
+        // We add these first so that they'll act as the ultimate fallback.
+        // These synhesized symbols make it so that, for libraries which only contain symbols
+        // for a small subset of their functions, we will show placeholder function names
+        // rather than plain incorrect function names.
+        map.extend(
+            function_start_addresses
+                .iter()
+                .map(|address| (*address, format!("fun_{:x}", address))),
+        );
+    }
 
     // Add any symbols found in this library.
     map.extend(
@@ -451,6 +367,7 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> FullSymbolListEntry<'a, Symbol> {
 pub fn get_symbolication_result_for_addresses_from_object<'a: 'b, 'b, T, R>(
     addresses: &[u32],
     object_file: &'b T,
+    function_start_addresses: Option<&[u32]>,
 ) -> R
 where
     T: object::Object<'a, 'b>,
@@ -466,18 +383,18 @@ where
 
     let mut symbols: Vec<_> = Vec::new();
 
-    // Begin with fallback function start addresses, with synthesized symbols of the form fun_abcdef.
-    // We add these first so that they'll act as the ultimate fallback.
-    // These synhesized symbols make it so that, for libraries which only contain symbols
-    // for a small subset of their functions, we will show placeholder function names
-    // rather than plain incorrect function names.
-    let function_start_addresses = function_start_addresses(object_file);
-    symbols.extend(function_start_addresses.into_iter().map(|address| {
-        (
-            (address - vmaddr_of_text_segment) as u32,
-            FullSymbolListEntry::Synthesized,
-        )
-    }));
+    if let Some(function_start_addresses) = function_start_addresses {
+        // Begin with fallback function start addresses, with synthesized symbols of the form fun_abcdef.
+        // We add these first so that they'll act as the ultimate fallback.
+        // These synhesized symbols make it so that, for libraries which only contain symbols
+        // for a small subset of their functions, we will show placeholder function names
+        // rather than plain incorrect function names.
+        symbols.extend(
+            function_start_addresses
+                .iter()
+                .map(|address| (*address, FullSymbolListEntry::Synthesized)),
+        );
+    }
 
     symbols.extend(
         object_file
