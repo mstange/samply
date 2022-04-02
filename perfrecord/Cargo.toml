@@ -12,9 +12,9 @@ readme = "Readme.md"
 perfrecord-mach-ipc-rendezvous = { version = "0.2.1", path = "../perfrecord-mach-ipc-rendezvous" }
 
 # profiler-symbol-server = { path = "../../profiler-symbol-server" }
-profiler-symbol-server = "0.9.0"
+profiler-symbol-server = "0.10.0"
 
-tokio = { version = "1.6.1", features = ["rt", "rt-multi-thread", "macros"] }
+tokio = { version = "1.17.0", features = ["rt", "rt-multi-thread", "macros"] }
 uuid = "0.8.1"
 libc = "0.2.71"
 mach = "0.3.2"
