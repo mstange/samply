@@ -21,7 +21,7 @@ mach = "0.3.2"
 tempfile = "3.1.0"
 structopt = "0.3.14"
 thiserror = "1.0.19"
-crossbeam-channel = "0.5.1"
+crossbeam-channel = "0.5.4"
 signal-hook = "0.3.9"
 serde_json = "1.0.53"
 gecko_profile = { version = "0.2.0", path = "../gecko_profile" }
