@@ -14,10 +14,10 @@ features = ["std", "read_core", "macho", "unaligned"]
 version = "0.28.1"
 
 [dependencies]
-hyper = { version = "0.14.8", features = ["full"] }
-tokio = { version = "1.6.1", features = ["full"] }
+hyper = { version = "0.14.18", features = ["full"] }
+tokio = { version = "1.17.0", features = ["rt", "fs", "rt-multi-thread", "macros"]  }
 futures = "0.3"
-profiler-get-symbols = { version = "0.11.2", features = ["send_futures"] }
+profiler-get-symbols = { version = "0.11.3", features = ["send_futures"] }
 # profiler-get-symbols = { path = "../profiler-get-symbols/lib", features = ["send_futures"] }
 memmap2 = "0.5.0"
 serde_json = "1.0.53"
@@ -26,8 +26,8 @@ structopt = "0.3.14"
 percent-encoding = "2.1.0"
 libc = "0.2.71"
 flate2 = "1.0"
-webbrowser = "0.5.5"
-reqwest = { version = "0.11.4", features = ["default-tls", "gzip", "brotli", "deflate"] }
+webbrowser = "0.6.0"
+reqwest = { version = "0.11.10", features = ["default-tls", "gzip", "brotli", "deflate"] }
 dirs = "4.0"
 thiserror = "1.0.26"
 cab = "0.3.0"
