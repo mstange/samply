@@ -26,7 +26,7 @@ where
         breakpad_id,
         ..
     } = query.clone();
-    use object::Object;
+    use object::{Object, ObjectSection};
     let pe = object::File::parse(&file_contents)
         .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
     let info = match pe.pdb_info() {
@@ -81,13 +81,23 @@ where
         ));
     }
 
+    // Get function start addresses from the function list in .pdata.
+    let function_starts = pe
+        .section_by_name_bytes(b".pdata")
+        .and_then(|s| s.data().ok())
+        .map(function_start_addresses);
+
     let r = match query.result_kind {
         SymbolicationResultKind::AllSymbols => {
-            let map = object_to_map(&pe, None);
+            let map = object_to_map(&pe, function_starts.as_deref());
             R::from_full_map(map)
         }
         SymbolicationResultKind::SymbolsForAddresses { addresses, .. } => {
-            get_symbolication_result_for_addresses_from_object(addresses, &pe, None)
+            get_symbolication_result_for_addresses_from_object(
+                addresses,
+                &pe,
+                function_starts.as_deref(),
+            )
         }
     };
     Ok(r)
@@ -425,4 +435,17 @@ impl<'s, F: FileContents> pdb::Source<'s> for &'s FileContentsWrapper<F> {
 
         Ok(Box::new(ReadView { bytes }))
     }
+}
+
+/// Get the function start addresses (in rva form) from the .pdata section.
+/// This section has the addresses for functions with unwind info. That means
+/// it only covers a subset of functions; it does not include entries for
+/// leaf functions which don't allocate any stack space.
+fn function_start_addresses(pdata: &[u8]) -> Vec<u32> {
+    let mut start_addresses = Vec::new();
+    for entry in pdata.chunks_exact(3 * std::mem::size_of::<u32>()) {
+        let start_address = u32::from_le_bytes([entry[0], entry[1], entry[2], entry[3]]);
+        start_addresses.push(start_address);
+    }
+    start_addresses
 }
