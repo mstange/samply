@@ -428,10 +428,7 @@ where
 
     for &address in addresses {
         let index = match symbols.binary_search_by_key(&address, |&(addr, _)| addr) {
-            Err(0) => {
-                symbolication_result.add_address_symbol(address, address, "<before first symbol>");
-                continue;
-            }
+            Err(0) => continue,
             Ok(i) => i,
             Err(i) => i - 1,
         };
