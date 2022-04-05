@@ -8,9 +8,10 @@ use crate::shared::{
     FileContents, FileContentsWrapper, FileLocation, RangeReadRef, SymbolicationQuery,
     SymbolicationResult, SymbolicationResultKind,
 };
+use macho_unwind_info::UnwindInfo;
 use object::macho::{self, LinkeditDataCommand, MachHeader32, MachHeader64};
 use object::read::macho::{FatArch, LoadCommandIterator, MachHeader};
-use object::read::{archive::ArchiveFile, File, FileKind, Object, ObjectSymbol};
+use object::read::{archive::ArchiveFile, File, FileKind, Object, ObjectSection, ObjectSymbol};
 use object::{Endianness, ObjectMapEntry, ReadRef};
 use std::collections::{HashMap, VecDeque};
 use std::marker::PhantomData;
@@ -156,7 +157,21 @@ where
         ));
     }
 
-    let function_starts = macho_data.get_function_starts()?;
+    // Get function start addresses from LC_FUNCTION_STARTS
+    let mut function_starts = macho_data.get_function_starts()?;
+
+    // and from __unwind_info.
+    if let Some(unwind_info) = macho_file
+        .section_by_name_bytes(b"__unwind_info")
+        .and_then(|s| s.data().ok())
+        .and_then(|d| UnwindInfo::parse(d).ok())
+    {
+        let function_starts = function_starts.get_or_insert_with(Vec::new);
+        let mut iter = unwind_info.functions();
+        while let Ok(Some(function)) = iter.next() {
+            function_starts.push(function.start_address);
+        }
+    }
 
     match query.result_kind {
         SymbolicationResultKind::AllSymbols => {
