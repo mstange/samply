@@ -139,19 +139,25 @@ mod test {
 
         let output_json: serde_json::Value = serde_json::from_str(&output).unwrap();
 
-        let mut snapshot_file =
-            File::open(fixtures_dir().join("snapshots").join(snapshot_filename)).unwrap();
-        let mut expected: String = String::new();
-        snapshot_file.read_to_string(&mut expected).unwrap();
-        let expected_json: serde_json::Value = serde_json::from_str(&expected).unwrap();
+        let mut expected_json: Option<serde_json::Value> = None;
+        if let Ok(mut snapshot_file) =
+            File::open(fixtures_dir().join("snapshots").join(snapshot_filename))
+        {
+            let mut expected: String = String::new();
+            snapshot_file.read_to_string(&mut expected).unwrap();
+            expected_json = Some(serde_json::from_str(&expected).unwrap());
+        }
 
-        if output_json != expected_json {
+        if expected_json.as_ref() != Some(&output_json) {
             let mut output_file =
                 File::create(fixtures_dir().join("snapshots").join(output_filename)).unwrap();
             output_file.write_all(output.as_bytes()).unwrap();
         }
 
-        assert_json_eq!(output_json, expected_json);
+        match expected_json {
+            Some(expected_json) => assert_json_eq!(output_json, expected_json),
+            None => panic!("No snapshot found"),
+        }
     }
 
     #[test]
@@ -309,6 +315,30 @@ mod test {
             fixtures_dir().join("android32-local"),
             "api-v5-android32-local.txt",
             "output-api-v5-android32-local.txt",
+        );
+    }
+
+    #[test]
+    fn stripped_macos() {
+        compare_snapshot(
+            "/symbolicate/v5",
+            r#"{
+                "memoryMap": [
+                  [
+                    "libsoftokn3.dylib",
+                    "F7DE6E25737B3B1885A5079DC41D77B40"
+                  ]
+                ],
+                "stacks": [
+                  [
+                    [0, 230071],
+                    [0, 232505]
+                  ]
+                ]
+              }"#,
+            fixtures_dir().join("macos-ci"),
+            "api-v5-stripped-macos.txt",
+            "output-api-v5-stripped-macos.txt",
         );
     }
 }
