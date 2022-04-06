@@ -383,23 +383,10 @@ where
 
     let mut symbols: Vec<_> = Vec::new();
 
-    if let Some(function_start_addresses) = function_start_addresses {
-        // Begin with fallback function start addresses, with synthesized symbols of the form fun_abcdef.
-        // We add these first so that they'll act as the ultimate fallback.
-        // These synhesized symbols make it so that, for libraries which only contain symbols
-        // for a small subset of their functions, we will show placeholder function names
-        // rather than plain incorrect function names.
-        symbols.extend(
-            function_start_addresses
-                .iter()
-                .map(|address| (*address, FullSymbolListEntry::Synthesized)),
-        );
-    }
-
     symbols.extend(
         object_file
-            .dynamic_symbols()
-            .chain(object_file.symbols())
+            .symbols()
+            .chain(object_file.dynamic_symbols())
             .filter(|symbol| symbol.kind() == SymbolKind::Text)
             .map(|symbol| {
                 (
@@ -419,7 +406,19 @@ where
         }
     }
 
-    symbols.reverse();
+    if let Some(function_start_addresses) = function_start_addresses {
+        // Begin with fallback function start addresses, with synthesized symbols of the form fun_abcdef.
+        // We add these first so that they'll act as the ultimate fallback.
+        // These synhesized symbols make it so that, for libraries which only contain symbols
+        // for a small subset of their functions, we will show placeholder function names
+        // rather than plain incorrect function names.
+        symbols.extend(
+            function_start_addresses
+                .iter()
+                .map(|address| (*address, FullSymbolListEntry::Synthesized)),
+        );
+    }
+
     symbols.sort_by_key(|(address, _)| *address);
     symbols.dedup_by_key(|(address, _)| *address);
 
