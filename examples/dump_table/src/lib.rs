@@ -256,11 +256,11 @@ mod test {
         ));
         assert!(result.is_ok());
         let result = result.unwrap();
-        assert_eq!(result.addr.len(), 302);
-        assert_eq!(result.addr[123], 0x34670);
+        assert_eq!(result.addr.len(), 947);
+        assert_eq!(result.addr[430], 0x34670);
         assert_eq!(
             std::str::from_utf8(
-                &result.buffer[result.index[123] as usize..result.index[124] as usize]
+                &result.buffer[result.index[430] as usize..result.index[431] as usize]
             ),
             Ok("?profiler_get_profile@baseprofiler@mozilla@@YA?AV?$UniquePtr@$$BY0A@DV?$DefaultDelete@$$BY0A@D@mozilla@@@2@N_N0@Z")
         );
