@@ -414,8 +414,8 @@ where
 
     // 4. Placeholder symbols based on function start addresses
     if let Some(function_start_addresses) = function_start_addresses {
-        // Begin with fallback function start addresses, with synthesized symbols of the form fun_abcdef.
-        // We add these first so that they'll act as the ultimate fallback.
+        // Use function start addresses with synthesized symbols of the form fun_abcdef
+        // as the ultimate fallback.
         // These synhesized symbols make it so that, for libraries which only contain symbols
         // for a small subset of their functions, we will show placeholder function names
         // rather than plain incorrect function names.
