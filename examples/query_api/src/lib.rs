@@ -341,4 +341,28 @@ mod test {
             "output-api-v5-stripped-macos.txt",
         );
     }
+
+    #[test]
+    fn win_exe() {
+        compare_snapshot(
+            "/symbolicate/v5",
+            r#"{
+                "memoryMap": [
+                  [
+                    "updater.exe",
+                    "5C08299576CB004F4C4C44205044422E1"
+                  ]
+                ],
+                "stacks": [
+                  [
+                    [0, 27799],
+                    [0, 158574]
+                  ]
+                ]
+              }"#,
+            fixtures_dir().join("win64-local"),
+            "api-v5-win-exe.txt",
+            "output-api-v5-win-exe.txt",
+        );
+    }
 }
