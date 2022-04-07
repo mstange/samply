@@ -320,6 +320,10 @@ mod test {
 
     #[test]
     fn stripped_macos() {
+        // The address 232505 (0x38c39) is inside the __stub_helper section.
+        // It should not be considered part of the last function in the __text section.
+        // Returning no symbol at all for it is better than returning fun_384d0.
+        // (0x384d0 being the start address of the last function in __text)
         compare_snapshot(
             "/symbolicate/v5",
             r#"{

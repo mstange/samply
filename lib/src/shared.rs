@@ -343,6 +343,7 @@ enum FullSymbolListEntry<'a, Symbol: object::ObjectSymbol<'a>> {
     Synthesized,
     Symbol(Symbol),
     Export(object::Export<'a>),
+    EndAddress,
 }
 
 impl<'a, Symbol: object::ObjectSymbol<'a>> FullSymbolListEntry<'a, Symbol> {
@@ -357,6 +358,7 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> FullSymbolListEntry<'a, Symbol> {
                 Ok(name) => Ok(Cow::Borrowed(name)),
                 Err(_) => Err(()),
             },
+            FullSymbolListEntry::EndAddress => Err(()),
         }
     }
 }
@@ -374,65 +376,90 @@ where
     R: SymbolicationResult,
 {
     use object::read::ObjectSegment;
-    use object::{ObjectSymbol, SymbolKind};
-    let vmaddr_of_text_segment = object_file
+    use object::{ObjectSection, ObjectSymbol, SymbolKind};
+    let base_address = object_file
         .segments()
         .find(|segment| segment.name() == Ok(Some("__TEXT")))
         .map(|segment| segment.address())
-        .unwrap_or(0);
+        .unwrap_or_else(|| object_file.relative_address_base());
 
-    let mut symbols: Vec<_> = Vec::new();
+    let mut entries: Vec<_> = Vec::new();
 
-    symbols.extend(
+    // Add entries in the order "best to worst".
+
+    // 1. Normal symbols
+    // 2. Dynamic symbols (only used by ELF files, I think)
+    entries.extend(
         object_file
             .symbols()
             .chain(object_file.dynamic_symbols())
             .filter(|symbol| symbol.kind() == SymbolKind::Text)
             .map(|symbol| {
                 (
-                    (symbol.address() - vmaddr_of_text_segment) as u32,
+                    (symbol.address() - base_address) as u32,
                     FullSymbolListEntry::Symbol(symbol),
                 )
             }),
     );
 
+    // 3. Exports (only used by exe / dll objects)
     if let Ok(exports) = object_file.exports() {
-        let image_base_address: u64 = object_file.relative_address_base();
         for export in exports {
-            symbols.push((
-                (export.address() - image_base_address) as u32,
+            entries.push((
+                (export.address() - base_address) as u32,
                 FullSymbolListEntry::Export(export),
             ));
         }
     }
 
+    // 4. Placeholder symbols based on function start addresses
     if let Some(function_start_addresses) = function_start_addresses {
         // Begin with fallback function start addresses, with synthesized symbols of the form fun_abcdef.
         // We add these first so that they'll act as the ultimate fallback.
         // These synhesized symbols make it so that, for libraries which only contain symbols
         // for a small subset of their functions, we will show placeholder function names
         // rather than plain incorrect function names.
-        symbols.extend(
+        entries.extend(
             function_start_addresses
                 .iter()
                 .map(|address| (*address, FullSymbolListEntry::Synthesized)),
         );
     }
 
-    symbols.sort_by_key(|(address, _)| *address);
-    symbols.dedup_by_key(|(address, _)| *address);
+    // 5. End addresses from section ends
+    // These entries serve to "terminate" the last function of each section,
+    // so that addresses in the following section are not considered
+    // to be part of the last function of that previous section.
+    for section in object_file.sections() {
+        let end_address = (section.address() - base_address + section.size()) as u32;
+        entries.push((end_address, FullSymbolListEntry::EndAddress));
+    }
+
+    // Done.
+    // Now that all entries are added, sort and de-duplicate so that we only
+    // have one entry per address.
+    // If multiple entries for the same address are present, only the first
+    // entry for that address is kept. (That's also why we use a stable sort
+    // here.)
+    // We have added entries in the order best to worst, so we keep the "best"
+    // symbol for each address.
+    entries.sort_by_key(|(address, _)| *address);
+    entries.dedup_by_key(|(address, _)| *address);
 
     let mut symbolication_result = R::for_addresses(addresses);
-    symbolication_result.set_total_symbol_count(symbols.len() as u32);
+    symbolication_result.set_total_symbol_count(entries.len() as u32);
 
     for &address in addresses {
-        let index = match symbols.binary_search_by_key(&address, |&(addr, _)| addr) {
+        let index = match entries.binary_search_by_key(&address, |&(addr, _)| addr) {
             Err(0) => continue,
             Ok(i) => i,
             Err(i) => i - 1,
         };
-        let (addr, symbol) = &symbols[index];
-        if let Ok(name) = symbol.name(*addr) {
+        let (addr, entry) = &entries[index];
+        // Add the symbol.
+        // If the found entry is an EndAddress entry, this means that `address` falls
+        // in the dead space between known functions, and we consider it to be not found.
+        if let Ok(name) = entry.name(*addr) {
             symbolication_result.add_address_symbol(address, *addr, &name);
         }
     }
