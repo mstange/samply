@@ -48,7 +48,13 @@ impl SymbolicationResult for CompactSymbolTable {
         panic!("Should not be called")
     }
 
-    fn add_address_symbol(&mut self, _address: u32, _symbol_address: u32, _symbol_name: &str) {
+    fn add_address_symbol(
+        &mut self,
+        _address: u32,
+        _symbol_address: u32,
+        _symbol_name: &str,
+        _function_size: Option<u32>,
+    ) {
         panic!("Should not be called")
     }
 

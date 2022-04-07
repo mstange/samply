@@ -252,7 +252,13 @@ pub trait SymbolicationResult {
     /// only on objects constructed by a call to `for_addresses`.
     /// `address` is the address that the consumer wants to look up, and may fall anywhere
     /// inside a function. `symbol_address` is the closest (<= address) symbol address.
-    fn add_address_symbol(&mut self, address: u32, symbol_address: u32, symbol_name: &str);
+    fn add_address_symbol(
+        &mut self,
+        address: u32,
+        symbol_address: u32,
+        symbol_name: &str,
+        function_size: Option<u32>,
+    );
 
     /// Called to supply debug info for the address.
     /// Only called if `result_kind` is `SymbolicationResultKind::SymbolsForAddresses { with_debug_info: true }`.
@@ -467,12 +473,19 @@ where
             Ok(i) => i,
             Err(i) => i - 1,
         };
-        let (addr, entry) = &entries[index];
+        let (start_addr, entry) = &entries[index];
+        let next_entry = entries.get(index + 1);
         // Add the symbol.
         // If the found entry is an EndAddress entry, this means that `address` falls
         // in the dead space between known functions, and we consider it to be not found.
-        if let Ok(name) = entry.name(*addr) {
-            symbolication_result.add_address_symbol(address, *addr, &name);
+        if let (Ok(name), Some((end_addr, _))) = (entry.name(*start_addr), next_entry) {
+            let function_size = end_addr - *start_addr;
+            symbolication_result.add_address_symbol(
+                address,
+                *start_addr,
+                &name,
+                Some(function_size),
+            );
         }
     }
     symbolication_result

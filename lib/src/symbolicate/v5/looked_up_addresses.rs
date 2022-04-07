@@ -6,6 +6,7 @@ use std::ops::Deref;
 pub struct AddressResult {
     pub symbol_address: u32,
     pub symbol_name: String,
+    pub function_size: Option<u32>,
     pub inline_frames: Option<Vec<InlineStackFrame>>,
 }
 
@@ -28,10 +29,17 @@ impl SymbolicationResult for LookedUpAddresses {
         }
     }
 
-    fn add_address_symbol(&mut self, address: u32, symbol_address: u32, symbol_name: &str) {
+    fn add_address_symbol(
+        &mut self,
+        address: u32,
+        symbol_address: u32,
+        symbol_name: &str,
+        function_size: Option<u32>,
+    ) {
         *self.address_results.get_mut(&address).unwrap() = Some(AddressResult {
             symbol_address,
             symbol_name: demangle::demangle_any(symbol_name),
+            function_size,
             inline_frames: None,
         });
     }
@@ -57,6 +65,7 @@ impl SymbolicationResult for LookedUpAddresses {
                     symbol_address: address, // TODO: Would be nice to get the actual function start address from addr2line
                     symbol_name: outer_function_name
                         .map_or_else(|| format!("0x{:x}", address), str::to_string),
+                    function_size: None,
                     inline_frames: Some(info.frames),
                 });
             }

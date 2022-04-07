@@ -168,6 +168,7 @@ fn create_response(
                     .map(|address_result| Symbol {
                         function: address_result.symbol_name.clone(),
                         function_offset: frame.address - address_result.symbol_address,
+                        function_size: address_result.function_size,
                         debug_info: address_result.inline_frames.as_ref().map(|frames| {
                             let (outer, inlines) = frames
                                 .split_last()

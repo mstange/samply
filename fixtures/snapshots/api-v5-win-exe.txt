@@ -1,1 +1,1 @@
-{"results":[{"stacks":[[{"frame":0,"module_offset":"0x6c97","module":"updater.exe","function":"fun_6520","function_offset":"0x777"},{"frame":1,"module_offset":"0x26b6e","module":"updater.exe"}]],"found_modules":{"updater.exe/5C08299576CB004F4C4C44205044422E1":true}}]}
+{"results":[{"stacks":[[{"frame":0,"module_offset":"0x6c97","module":"updater.exe","function":"fun_6520","function_offset":"0x777","function_size":"0x175a"},{"frame":1,"module_offset":"0x26b6e","module":"updater.exe"}]],"found_modules":{"updater.exe/5C08299576CB004F4C4C44205044422E1":true}}]}

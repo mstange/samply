@@ -32,7 +32,13 @@ impl SymbolicationResult for FramesForSingleAddress {
         }
     }
 
-    fn add_address_symbol(&mut self, address: u32, _symbol_address: u32, _symbol_name: &str) {
+    fn add_address_symbol(
+        &mut self,
+        address: u32,
+        _symbol_address: u32,
+        _symbol_name: &str,
+        _function_size: Option<u32>,
+    ) {
         assert!(address == self.address, "Unexpected address");
     }
 

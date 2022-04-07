@@ -40,6 +40,12 @@ pub struct Symbol {
     #[serde(serialize_with = "as_hex_string")]
     pub function_offset: u32,
 
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "as_optional_hex_string"
+    )]
+    pub function_size: Option<u32>,
+
     #[serde(flatten)]
     pub debug_info: Option<DebugInfo>,
 }
@@ -99,6 +105,20 @@ where
     serializer.collect_str(&format_args!("0x{:x}", field))
 }
 
+fn as_optional_hex_string<S, T>(
+    field: &Option<T>,
+    serializer: S,
+) -> std::result::Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+    T: std::fmt::LowerHex,
+{
+    match field {
+        Some(field) => serializer.collect_str(&format_args!("0x{:x}", field)),
+        None => serializer.serialize_none(),
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::collections::HashMap;
@@ -118,6 +138,7 @@ mod test {
                         symbol: Some(response_json::Symbol {
                             function: String::from("sctp_send_initiate"),
                             function_offset: 0x4ca,
+                            function_size: None,
                             debug_info: None,
                         }),
                     },

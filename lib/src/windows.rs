@@ -201,10 +201,14 @@ where
                             Some(name) => name,
                             None => "unknown",
                         };
+                        let function_size = function_frames
+                            .end_rva
+                            .map(|end_rva| end_rva - function_frames.start_rva);
                         symbolication_result.add_address_symbol(
                             address,
                             symbol_address,
                             symbol_name,
+                            function_size,
                         );
                         if has_debug_info(&function_frames) {
                             let frames: Vec<_> = function_frames
@@ -228,7 +232,13 @@ where
                         Some(name) => name,
                         None => "unknown",
                     };
-                    symbolication_result.add_address_symbol(address, symbol_address, symbol_name);
+                    let function_size = func.end_rva.map(|end_rva| end_rva - func.start_rva);
+                    symbolication_result.add_address_symbol(
+                        address,
+                        symbol_address,
+                        symbol_name,
+                        function_size,
+                    );
                 }
             }
 
