@@ -370,6 +370,7 @@ pub fn get_symbolication_result_for_addresses_from_object<'a: 'b, 'b, T, R>(
     addresses: &[u32],
     object_file: &'b T,
     function_start_addresses: Option<&[u32]>,
+    function_end_addresses: Option<&[u32]>,
 ) -> R
 where
     T: object::Object<'a, 'b>,
@@ -433,6 +434,17 @@ where
     for section in object_file.sections() {
         let end_address = (section.address() - base_address + section.size()) as u32;
         entries.push((end_address, FullSymbolListEntry::EndAddress));
+    }
+
+    // 6. End addresses for known functions ends
+    // These addresses serve to "terminate" functions from function_start_addresses.
+    // They come from .eh_frame or .pdata info, which has the function size.
+    if let Some(function_end_addresses) = function_end_addresses {
+        entries.extend(
+            function_end_addresses
+                .iter()
+                .map(|address| (*address, FullSymbolListEntry::EndAddress)),
+        );
     }
 
     // Done.

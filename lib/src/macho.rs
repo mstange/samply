@@ -183,6 +183,7 @@ where
                 addresses,
                 macho_file,
                 function_starts.as_deref(),
+                None,
             ))
         }
     }

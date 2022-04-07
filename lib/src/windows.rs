@@ -81,11 +81,17 @@ where
         ));
     }
 
-    // Get function start addresses from the function list in .pdata.
-    let function_starts = pe
+    // Get function start and end addresses from the function list in .pdata.
+    let mut function_starts = None;
+    let mut function_ends = None;
+    if let Some(pdata) = pe
         .section_by_name_bytes(b".pdata")
         .and_then(|s| s.data().ok())
-        .map(function_start_addresses);
+    {
+        let (s, e) = function_start_and_end_addresses(pdata);
+        function_starts = Some(s);
+        function_ends = Some(e);
+    }
 
     let r = match query.result_kind {
         SymbolicationResultKind::AllSymbols => {
@@ -97,6 +103,7 @@ where
                 addresses,
                 &pe,
                 function_starts.as_deref(),
+                function_ends.as_deref(),
             )
         }
     };
@@ -441,11 +448,14 @@ impl<'s, F: FileContents> pdb::Source<'s> for &'s FileContentsWrapper<F> {
 /// This section has the addresses for functions with unwind info. That means
 /// it only covers a subset of functions; it does not include entries for
 /// leaf functions which don't allocate any stack space.
-fn function_start_addresses(pdata: &[u8]) -> Vec<u32> {
+fn function_start_and_end_addresses(pdata: &[u8]) -> (Vec<u32>, Vec<u32>) {
     let mut start_addresses = Vec::new();
+    let mut end_addresses = Vec::new();
     for entry in pdata.chunks_exact(3 * std::mem::size_of::<u32>()) {
         let start_address = u32::from_le_bytes([entry[0], entry[1], entry[2], entry[3]]);
+        let end_address = u32::from_le_bytes([entry[4], entry[5], entry[6], entry[7]]);
         start_addresses.push(start_address);
+        end_addresses.push(end_address);
     }
-    start_addresses
+    (start_addresses, end_addresses)
 }

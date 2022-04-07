@@ -348,6 +348,14 @@ mod test {
 
     #[test]
     fn win_exe() {
+        // The address 158574 (0x26b6e) is inside a leaf function which does not
+        // allocate any stack space. These functions don't require unwind info, and
+        // consequently are not listed in the .pdata section.
+        // This address should not be considered to be part of the closest function
+        // with unwind info; it is better to treat it as an unknown address than to
+        // lump it in with the placeholder function fun_26ab0.
+        // The actual function containing 0x26b6e starts at 0x26b60 and ends at 0x26b7d
+        // but we currently don't know how to obtain this information from the exe.
         compare_snapshot(
             "/symbolicate/v5",
             r#"{

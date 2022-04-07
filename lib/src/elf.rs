@@ -61,7 +61,7 @@ pub fn get_symbolication_result_impl<'data, R>(
 where
     R: SymbolicationResult,
 {
-    let function_starts = function_start_addresses(&elf_file);
+    let (function_starts, function_ends) = function_start_and_end_addresses(&elf_file);
     let (addresses, mut symbolication_result) = match query.result_kind {
         SymbolicationResultKind::AllSymbols => {
             let map = object_to_map(&elf_file, Some(&function_starts));
@@ -75,6 +75,7 @@ where
                 addresses,
                 &elf_file,
                 Some(&function_starts),
+                Some(&function_ends),
             );
             if !with_debug_info {
                 return Ok(symbolication_result);
@@ -155,7 +156,7 @@ fn find_text_section<'data: 'file, 'file>(
 }
 
 /// Get a list of function addresses as u32 relative addresses.
-pub fn function_start_addresses<'a: 'b, 'b, T>(object_file: &'b T) -> Vec<u32>
+pub fn function_start_and_end_addresses<'a: 'b, 'b, T>(object_file: &'b T) -> (Vec<u32>, Vec<u32>)
 where
     T: object::Object<'a, 'b>,
 {
@@ -201,12 +202,12 @@ where
 
     let eh_frame = match eh_frame {
         Some(eh_frame) => eh_frame,
-        None => return Vec::new(),
+        None => return (Vec::new(), Vec::new()),
     };
 
     let eh_frame_data = match eh_frame.uncompressed_data() {
         Ok(eh_frame_data) => eh_frame_data,
-        Err(_) => return Vec::new(),
+        Err(_) => return (Vec::new(), Vec::new()),
     };
 
     let mut eh_frame = EhFrame::new(&*eh_frame_data, endian);
@@ -214,6 +215,7 @@ where
     let mut cur_cie = None;
     let mut entries_iter = eh_frame.entries(&bases);
     let mut start_addresses = Vec::new();
+    let mut end_addresses = Vec::new();
     while let Ok(Some(entry)) = entries_iter.next() {
         match entry {
             CieOrFde::Cie(cie) => cur_cie = Some(cie),
@@ -231,10 +233,10 @@ where
                     cie
                 }) {
                     start_addresses.push(fde.initial_address() as u32);
-                    // Note: If we want to emit the function size, fde.len() is a good guess.
+                    end_addresses.push((fde.initial_address() + fde.len()) as u32);
                 }
             }
         }
     }
-    start_addresses
+    (start_addresses, end_addresses)
 }
