@@ -1,0 +1,15 @@
+[package]
+name = "linux-perf-data"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+byteorder = "1.4.3"
+framehop = "0.3.0"
+memchr = "2.4.1"
+object = "0.28.3"
+thiserror = "1.0.30"
+zerocopy = "0.6.1"

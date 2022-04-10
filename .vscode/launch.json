@@ -1,0 +1,45 @@
+{
+  // Use IntelliSense to learn about possible attributes.
+  // Hover to view descriptions of existing attributes.
+  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug executable 'linux-perf-data'",
+      "cargo": {
+        "args": [
+          "build",
+          "--bin=linux-perf-data",
+          "--package=linux-perf-data"
+        ],
+        "filter": {
+          "name": "linux-perf-data",
+          "kind": "bin"
+        }
+      },
+      "args": ["fixtures/perf.data"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug unit tests in executable 'linux-perf-data'",
+      "cargo": {
+        "args": [
+          "test",
+          "--no-run",
+          "--bin=linux-perf-data",
+          "--package=linux-perf-data"
+        ],
+        "filter": {
+          "name": "linux-perf-data",
+          "kind": "bin"
+        }
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}
