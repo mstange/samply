@@ -117,7 +117,6 @@
 
 pub use object;
 pub use pdb_addr2line::pdb;
-use shared::SymbolicationResultKind;
 
 use object::{macho::FatHeader, read::FileKind};
 use pdb::PDB;
@@ -136,15 +135,14 @@ mod source;
 mod symbolicate;
 mod windows;
 
-pub use crate::shared::{SymbolicationQuery, SymbolicationResult};
-
 pub use crate::cache::{FileByteSource, FileContentsWithChunkedCaching};
 pub use crate::compact_symbol_table::CompactSymbolTable;
 pub use crate::error::{GetSymbolsError, Result};
 use crate::shared::FileContentsWrapper;
 pub use crate::shared::{
-    CandidatePathInfo, FileAndPathHelper, FileAndPathHelperError, FileAndPathHelperResult,
-    FileContents, FileLocation, OptionallySendFuture,
+    AddressDebugInfo, CandidatePathInfo, FileAndPathHelper, FileAndPathHelperError,
+    FileAndPathHelperResult, FileContents, FileLocation, FilePath, OptionallySendFuture,
+    SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
 };
 
 /// Returns a symbol table in `CompactSymbolTable` format for the requested binary.
