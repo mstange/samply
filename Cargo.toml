@@ -9,7 +9,14 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 byteorder = "1.4.3"
 framehop = "0.3.0"
+futures = "0.3.21"
 memchr = "2.4.1"
+memmap2 = "0.5.3"
 object = "0.28.3"
+profiler-get-symbols = "0.12.0"
 thiserror = "1.0.30"
+uuid = "0.8.2"
 zerocopy = "0.6.1"
+
+[profile.release]
+debug = true

@@ -9,17 +9,24 @@ mod utils;
 use framehop::aarch64::UnwindRegsAarch64;
 use framehop::x86_64::UnwindRegsX86_64;
 use framehop::{Module, ModuleSectionAddressRanges, TextByteData, Unwinder};
-use object::{Object, ObjectSection, ObjectSegment};
+use object::{Object, ObjectSection, ObjectSegment, SectionKind};
 use perf_event::{Event, Mmap2Event, Regs, SampleEvent};
 use perf_event_raw::{
     PERF_REG_ARM64_LR, PERF_REG_ARM64_PC, PERF_REG_ARM64_SP, PERF_REG_ARM64_X29, PERF_REG_X86_BP,
     PERF_REG_X86_IP, PERF_REG_X86_SP,
 };
 pub use perf_file::PerfFile;
+use profiler_get_symbols::{
+    AddressDebugInfo, CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
+    FilePath, OptionallySendFuture, SymbolicationQuery, SymbolicationResult,
+    SymbolicationResultKind,
+};
 use std::collections::HashSet;
 use std::collections::{hash_map::Entry, HashMap};
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::{fs::File, io::Read, ops::Range, path::Path, sync::Arc};
+use uuid::Uuid;
 
 fn main() {
     let mut args = std::env::args_os().skip(1);
@@ -58,6 +65,7 @@ fn main() {
         );
     }
 
+    /*
     if let Some(build_ids) = file.build_ids().unwrap() {
         eprintln!("Build IDs:");
         for (build_id_ev, filename) in build_ids {
@@ -74,6 +82,8 @@ fn main() {
             );
         }
     }
+    */
+
     match file.arch().unwrap() {
         Some("x86_64") => {
             let mut cache = framehop::x86_64::CacheX86_64::new();
@@ -191,7 +201,157 @@ where
         count,
         processed_samples.len()
     );
-    eprintln!("{:#?}", processed_samples);
+    // eprintln!("{:#?}", processed_samples);
+
+    let mut address_results: Vec<HashMap<u32, Vec<String>>> =
+        image_cache.images.iter().map(|_| HashMap::new()).collect();
+    let libs: Vec<HelperLib> = image_cache
+        .images
+        .iter()
+        .enumerate()
+        .filter_map(|(image_index, image)| {
+            let filename = image.path.file_name()?;
+            let debug_name = filename.to_str()?.to_string();
+            let debug_id = image.debug_id.as_ref()?;
+            Some(HelperLib {
+                debug_name,
+                handle: ImageCacheHandle(image_index as u32),
+                path: image.path.clone(),
+                debug_id: debug_id.clone(),
+            })
+        })
+        .collect();
+    let helper = Helper::with_libs(libs.clone(), false);
+    for lib in libs {
+        let addresses: Vec<u32> = all_image_stack_frames
+            .iter()
+            .filter_map(|sf| {
+                if sf.image == lib.handle {
+                    Some(sf.relative_lookup_address)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let f = profiler_get_symbols::get_symbolication_result(
+            SymbolicationQuery {
+                debug_name: &lib.debug_name,
+                breakpad_id: &lib.debug_id,
+                result_kind: SymbolicationResultKind::SymbolsForAddresses {
+                    addresses: &addresses,
+                    with_debug_info: true,
+                },
+            },
+            &helper,
+        );
+        let r: Result<MySymbolicationResult, _> = futures::executor::block_on(f);
+        let r = match r {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("Symbolication error: {:?}", e);
+                continue;
+            }
+        };
+        address_results[lib.handle.0 as usize] = r.map;
+    }
+
+    for sample in processed_samples {
+        println!(
+            "Sample at t={} pid={} tid={}",
+            sample.timestamp, sample.pid, sample.tid
+        );
+        for frame in sample.stack {
+            match frame {
+                StackFrame::InImage(StackFrameInImage {
+                    image,
+                    relative_lookup_address,
+                }) => {
+                    if let Some(frame_strings) =
+                        address_results[image.0 as usize].get(&relative_lookup_address)
+                    {
+                        for frame_string in frame_strings {
+                            println!("  {}", frame_string);
+                        }
+                    } else {
+                        println!(
+                            "  0x{:x} (in {:?})",
+                            relative_lookup_address, image_cache.images[image.0 as usize].path
+                        );
+                    }
+                }
+                StackFrame::Address(address) => {
+                    println!("  0x{:x}", address);
+                }
+                StackFrame::TruncatedStackMarker => {
+                    println!("  <truncated stack>");
+                }
+            }
+        }
+        println!();
+    }
+}
+
+struct MySymbolicationResult {
+    map: HashMap<u32, Vec<String>>,
+}
+
+impl SymbolicationResult for MySymbolicationResult {
+    fn from_full_map<S>(_map: Vec<(u32, S)>) -> Self
+    where
+        S: std::ops::Deref<Target = str>,
+    {
+        panic!("Should not be called")
+    }
+
+    fn for_addresses(_addresses: &[u32]) -> Self {
+        // yes correct
+        Self {
+            map: HashMap::new(),
+        }
+    }
+
+    fn add_address_symbol(
+        &mut self,
+        address: u32,
+        _symbol_address: u32,
+        symbol_name: &str,
+        _function_size: Option<u32>,
+    ) {
+        self.map.insert(address, vec![symbol_name.to_owned()]);
+    }
+
+    fn add_address_debug_info(&mut self, address: u32, info: AddressDebugInfo) {
+        let funcs: Vec<String> = info
+            .frames
+            .into_iter()
+            .map(|frame| {
+                let mut s;
+                if let Some(name) = frame.function {
+                    s = name;
+                } else {
+                    s = "<unknown>".to_string();
+                }
+                if let Some(file) = frame.file_path {
+                    s.push_str(" (");
+                    let file = match file {
+                        FilePath::Normal(f) => f,
+                        FilePath::Mapped { raw, .. } => raw,
+                    };
+                    s.push_str(&file);
+                    if let Some(line) = frame.line_number {
+                        s.push_str(&format!(":{}", line));
+                    }
+                    s.push(')');
+                }
+                s
+            })
+            .collect();
+        self.map.insert(address, funcs);
+    }
+
+    fn set_total_symbol_count(&mut self, _total_symbol_count: u32) {
+        // ignored
+    }
 }
 
 struct Process<U> {
@@ -258,6 +418,7 @@ where
     U: Unwinder<Module = Module<Vec<u8>>>,
 {
     pub fn handle_mmap(&mut self, e: Mmap2Event) {
+        // println!("raw: 0x{:016x}-0x{:016x} {:?}", e.address, e.address + e.length, std::str::from_utf8(&e.filename));
         if e.inode == 0 {
             return;
         }
@@ -289,18 +450,25 @@ where
             let path = Path::new(path_str);
             let base_address = mapping.min_start;
             let address_range = mapping.min_start..mapping.max_end;
-            add_module(
+            let debug_id = add_module(
                 &mut self.unwinder,
                 path,
                 base_address,
                 address_range.clone(),
             );
-            let image = image_cache.index_for_image(path);
+            let image = image_cache.index_for_image(path, debug_id);
+            println!(
+                "0x{:016x}-0x{:016x} {:?}",
+                address_range.start, address_range.end, path
+            );
             self.added_modules.0.push(AddedModule {
                 address_range,
                 base_address,
                 image,
             });
+            self.added_modules
+                .0
+                .sort_unstable_by_key(|m| m.address_range.start);
         }
     }
 
@@ -311,7 +479,10 @@ where
         image_cache: &mut ImageCache,
     ) -> Option<ProcessedSample> {
         self.flush_pending_mappings(image_cache);
-        let regs = e.regs.unwrap();
+        let regs = match e.regs {
+            Some(regs) => regs,
+            None => return None,
+        };
         let stack = e.stack.as_slice();
         let (pc, sp, regs) = C::convert_regs(&regs);
         let mut read_stack = |addr: u64| {
@@ -385,7 +556,7 @@ impl ImageCache {
         Self { images: Vec::new() }
     }
 
-    pub fn index_for_image(&mut self, path: &Path) -> ImageCacheHandle {
+    pub fn index_for_image(&mut self, path: &Path, debug_id: Option<String>) -> ImageCacheHandle {
         match self
             .images
             .iter()
@@ -397,6 +568,7 @@ impl ImageCache {
                 let index = self.images.len() as u32;
                 self.images.push(Image {
                     path: path.to_owned(),
+                    debug_id,
                 });
                 ImageCacheHandle(index)
             }
@@ -427,6 +599,7 @@ pub struct StackFrameInImage {
 
 struct Image {
     path: PathBuf,
+    debug_id: Option<String>,
 }
 
 pub fn add_module<U>(
@@ -434,7 +607,8 @@ pub fn add_module<U>(
     objpath: &Path,
     base_address: u64,
     image_address_range: Range<u64>,
-) where
+) -> Option<String>
+where
     U: Unwinder<Module = Module<Vec<u8>>>,
 {
     let mut buf = Vec::new();
@@ -447,7 +621,7 @@ pub fn add_module<U>(
                 Ok(file) => file,
                 Err(_) => {
                     eprintln!("Could not open file {:?}", objpath);
-                    return;
+                    return None;
                 }
             }
         }
@@ -462,29 +636,24 @@ pub fn add_module<U>(
         Ok(file) => file,
         Err(_) => {
             eprintln!("file {:?} had unrecognized format", objpath);
-            return;
+            return None;
         }
     };
 
-    let text = file
-        .section_by_name(".text");
+    let text = file.section_by_name(".text");
     let text_env = file.section_by_name("text_env");
-    let eh_frame = file
-        .section_by_name(".eh_frame");
-    let got = file
-        .section_by_name(".got");
+    let eh_frame = file.section_by_name(".eh_frame");
+    let got = file.section_by_name(".got");
     let eh_frame_hdr = file.section_by_name(".eh_frame_hdr");
 
     let unwind_data = match (
         eh_frame.as_ref().and_then(section_data),
         eh_frame_hdr.as_ref().and_then(section_data),
     ) {
-        (Some(eh_frame), Some(eh_frame_hdr)) => {
-            framehop::ModuleUnwindData::EhFrameHdrAndEhFrame(
-                Arc::new(eh_frame_hdr),
-                Arc::new(eh_frame),
-            )
-        }
+        (Some(eh_frame), Some(eh_frame_hdr)) => framehop::ModuleUnwindData::EhFrameHdrAndEhFrame(
+            Arc::new(eh_frame_hdr),
+            Arc::new(eh_frame),
+        ),
         (Some(eh_frame), None) => framehop::ModuleUnwindData::EhFrame(Arc::new(eh_frame)),
         (None, _) => framehop::ModuleUnwindData::None,
     };
@@ -540,4 +709,170 @@ pub fn add_module<U>(
         text_data,
     );
     unwinder.add_module(module);
+
+    get_elf_id(&file).map(|uuid| format!("{:X}0", uuid.to_simple()))
+}
+
+const UUID_SIZE: usize = 16;
+const PAGE_SIZE: usize = 4096;
+
+fn create_elf_id(identifier: &[u8], little_endian: bool) -> Uuid {
+    // Make sure that we have exactly UUID_SIZE bytes available
+    let mut data = [0u8; UUID_SIZE];
+    let len = std::cmp::min(identifier.len(), UUID_SIZE);
+    data[0..len].copy_from_slice(&identifier[0..len]);
+
+    if little_endian {
+        // The file ELF file targets a little endian architecture. Convert to
+        // network byte order (big endian) to match the Breakpad processor's
+        // expectations. For big endian object files, this is not needed.
+        data[0..4].reverse(); // uuid field 1
+        data[4..6].reverse(); // uuid field 2
+        data[6..8].reverse(); // uuid field 3
+    }
+
+    Uuid::from_bytes(data)
+}
+
+/// Tries to obtain the object identifier of an ELF object.
+///
+/// As opposed to Mach-O, ELF does not specify a unique ID for object files in
+/// its header. Compilers and linkers usually add either `SHT_NOTE` sections or
+/// `PT_NOTE` program header elements for this purpose. If one of these notes
+/// is present, ElfFile's build_id() method will find it.
+///
+/// If neither of the above are present, this function will hash the first page
+/// of the `.text` section (program code). This matches what the Breakpad
+/// processor does.
+///
+/// If all of the above fails, this function will return `None`.
+pub fn get_elf_id<'data: 'file, 'file>(elf_file: &'file impl Object<'data, 'file>) -> Option<Uuid> {
+    if let Some(identifier) = elf_file.build_id().ok()? {
+        return Some(create_elf_id(identifier, elf_file.is_little_endian()));
+    }
+
+    // We were not able to locate the build ID, so fall back to hashing the
+    // first page of the ".text" (program code) section. This algorithm XORs
+    // 16-byte chunks directly into a UUID buffer.
+    if let Some(section_data) = find_text_section(elf_file) {
+        let mut hash = [0; UUID_SIZE];
+        for i in 0..std::cmp::min(section_data.len(), PAGE_SIZE) {
+            hash[i % UUID_SIZE] ^= section_data[i];
+        }
+
+        return Some(create_elf_id(&hash, elf_file.is_little_endian()));
+    }
+
+    None
+}
+
+/// Returns a reference to the data of the the .text section in an ELF binary.
+fn find_text_section<'data: 'file, 'file>(
+    file: &'file impl Object<'data, 'file>,
+) -> Option<&'data [u8]> {
+    file.sections()
+        .find(|header| header.kind() == SectionKind::Text)
+        .and_then(|header| header.data().ok())
+}
+
+struct FileContents(memmap2::Mmap);
+
+impl std::ops::Deref for FileContents {
+    type Target = [u8];
+
+    #[inline]
+    fn deref(&self) -> &[u8] {
+        &self.0
+    }
+}
+#[derive(Debug, Clone)]
+struct Helper {
+    libs: Vec<HelperLib>,
+    verbose: bool,
+}
+
+#[derive(Debug, Clone)]
+struct HelperLib {
+    debug_name: String,
+    debug_id: String,
+    handle: ImageCacheHandle,
+    path: PathBuf,
+}
+
+impl Helper {
+    pub fn with_libs(libs: Vec<HelperLib>, verbose: bool) -> Self {
+        Helper { libs, verbose }
+    }
+
+    async fn open_file_impl(
+        &self,
+        location: FileLocation,
+    ) -> FileAndPathHelperResult<FileContents> {
+        match location {
+            FileLocation::Path(path) => {
+                if self.verbose {
+                    eprintln!("Opening file {:?}", path.to_string_lossy());
+                }
+                let file = File::open(&path)?;
+                Ok(FileContents(unsafe {
+                    memmap2::MmapOptions::new().map(&file)?
+                }))
+            }
+            FileLocation::Custom(_) => {
+                panic!("unexpected")
+            }
+        }
+    }
+}
+
+impl<'h> FileAndPathHelper<'h> for Helper {
+    type F = FileContents;
+    type OpenFileFuture =
+        Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>>;
+
+    fn get_candidate_paths_for_binary_or_pdb(
+        &self,
+        debug_name: &str,
+        breakpad_id: &str,
+    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
+        let mut paths = vec![];
+
+        // Look up (debugName, breakpadId) in the path map.
+        if let Some(path) = self.libs.iter().find_map(|lib| {
+            if lib.debug_name == debug_name && lib.debug_id == breakpad_id {
+                Some(lib.path.clone())
+            } else {
+                None
+            }
+        }) {
+            // Also consider .so.dbg files in the same directory.
+            if debug_name.ends_with(".so") {
+                let debug_debug_name = format!("{}.dbg", debug_name);
+                if let Some(dir) = path.parent() {
+                    paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
+                        dir.join(debug_debug_name),
+                    )));
+                }
+            }
+
+            // Fall back to getting symbols from the binary itself.
+            paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
+                path.clone(),
+            )));
+
+            // Also from here
+            let mut p = Path::new("/Users/mstange/code/linux-perf-data/fixtures").to_owned();
+            p.push(path.file_name().unwrap());
+            paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(p)));
+        }
+
+        Ok(paths)
+    }
+
+    fn open_file(
+        &'h self,
+        location: &FileLocation,
+    ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>> {
+        Box::pin(self.open_file_impl(location.clone()))
+    }
 }
