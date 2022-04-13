@@ -4,7 +4,7 @@ This repo contains a parser for the perf.data format which is output by the Linu
 
 It also contains a `main.rs` which acts similarly to `perf script` and does symbolication, but with the advantage that it is much much faster than `perf script`.
 
-The end goal of this project is to create a fast drop-in replacement for `perf script`, implementing just a basic subset of functionality, but having super fast symbolication. But that replacement will move to a separate repo. This repo should just contain a library crate for parsing tha data.
+The end goal of this project is to create a fast drop-in replacement for `perf script`, implementing just a basic subset of functionality, but having super fast symbolication. But that replacement will move to a separate repo. This repo should just contain a library crate for parsing the data.
 
 ## Acknowledgements
 
