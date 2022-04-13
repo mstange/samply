@@ -25,7 +25,7 @@ use std::collections::HashSet;
 use std::collections::{hash_map::Entry, HashMap};
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::{fs::File, io::Read, ops::Range, path::Path, sync::Arc};
+use std::{fs::File, ops::Range, path::Path, sync::Arc};
 use uuid::Uuid;
 
 fn main() {
@@ -36,10 +36,10 @@ fn main() {
     }
     let path = args.next().unwrap();
 
-    let mut data = Vec::new();
-    let mut file = File::open(path).unwrap();
-    file.read_to_end(&mut data).unwrap();
-    let file = PerfFile::parse(&data).expect("Parsing failed");
+    let file = File::open(path).unwrap();
+    let mmap = unsafe { memmap2::MmapOptions::new().map(&file).unwrap() };
+    let data = &mmap[..];
+    let file = PerfFile::parse(data).expect("Parsing failed");
 
     if let Some(hostname) = file.hostname().unwrap() {
         eprintln!("Hostname: {}", hostname);
@@ -611,8 +611,7 @@ pub fn add_module<U>(
 where
     U: Unwinder<Module = Module<Vec<u8>>>,
 {
-    let mut buf = Vec::new();
-    let mut file = match std::fs::File::open(objpath) {
+    let file = match std::fs::File::open(objpath) {
         Ok(file) => file,
         Err(_) => {
             let mut p = Path::new("/Users/mstange/code/linux-perf-data/fixtures").to_owned();
@@ -626,13 +625,13 @@ where
             }
         }
     };
-    file.read_to_end(&mut buf).unwrap();
+    let mmap = unsafe { memmap2::MmapOptions::new().map(&file).ok()? };
 
     fn section_data<'a>(section: &impl ObjectSection<'a>) -> Option<Vec<u8>> {
         section.data().ok().map(|data| data.to_owned())
     }
 
-    let file = match object::File::parse(&buf[..]) {
+    let file = match object::File::parse(&mmap[..]) {
         Ok(file) => file,
         Err(_) => {
             eprintln!("file {:?} had unrecognized format", objpath);
