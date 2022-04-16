@@ -385,11 +385,9 @@ pub const PERF_RECORD_READ: u32 = 8;
  *	  char                  data[size];}&& PERF_SAMPLE_RAW
  *
  *	{ u64                   nr;
-/// idx; } && PERF_SAMPLE_BRANCH_HW_IN
-    pub const *: u64 { u64;
+ *	  { u64	hw_idx; } && PERF_SAMPLE_BRANCH_HW_INDEX
  *        { u64 from, to, flags } lbr[nr];
- /// F_SAMPLE_BRANCH_ST
- pub const *: u64 } &&;
+ *      } && PERF_SAMPLE_BRANCH_STACK
  *
  * 	{ u64			abi; # enum perf_sample_regs_abi
  * 	  u64			regs[weight(mask)]; } && PERF_SAMPLE_REGS_USER
