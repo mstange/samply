@@ -338,21 +338,21 @@ where
         if let Ok(symbol_name) = symbol.name() {
             if let Some(addresses) = functions.get_and_remove_addresses_for_function(symbol_name) {
                 for AddressWithOffset {
-                    original_address,
+                    original_relative_address,
                     offset_from_function_start,
                 } in addresses
                 {
-                    let address_in_this_object =
+                    let vmaddr_in_this_object =
                         symbol.address() + offset_from_function_start as u64;
                     addresses_in_this_object.push(AddressPair {
-                        original_address,
-                        address_in_this_object,
+                        original_relative_address,
+                        vmaddr_in_this_object,
                     });
                 }
             }
         }
     }
-    addresses_in_this_object.sort_by_key(|ap| ap.address_in_this_object);
+    addresses_in_this_object.sort_by_key(|ap| ap.vmaddr_in_this_object);
     addresses_in_this_object
 }
 
@@ -410,7 +410,7 @@ impl ObjectReference {
     }
 }
 
-/// addresses must be sorted by address_in_this_object
+/// addresses must be sorted by vmaddr_in_this_object
 fn collect_debug_info_and_object_references<'data: 'file, 'file, 'a, O, R>(
     file_data: RangeReadRef<'data, impl ReadRef<'data>>,
     macho_file: &'file O,
@@ -469,13 +469,13 @@ fn collect_debug_info_and_object_references<'data: 'file, 'file, 'a, O, R>(
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 struct AddressWithOffset {
-    original_address: u32,
+    original_relative_address: u32,
     offset_from_function_start: u32,
 }
 
 /// Assign each address to a function in an object.
 /// function_symbols must be sorted by function.address().
-/// addresses must be sorted by address_in_this_object.
+/// addresses must be sorted by vmaddr_in_this_object.
 /// This function is implemented as a linear single pass over both slices.
 /// Also returns a sorted Vec of AddressPairs for addresses that were not found
 /// in an external object.
@@ -501,15 +501,15 @@ fn match_funs_to_addresses<'a>(
     };
 
     while let (Some(address_pair), Some(fun)) = (cur_addr, cur_fun) {
-        let original_address = address_pair.original_address;
-        let address_in_this_object = address_pair.address_in_this_object;
-        if fun.address() > address_in_this_object {
+        let original_relative_address = address_pair.original_relative_address;
+        let vmaddr_in_this_object = address_pair.vmaddr_in_this_object;
+        if fun.address() > vmaddr_in_this_object {
             internal_addresses.push(address_pair.clone());
             // Advance cur_addr.
             cur_addr = addr_iter.next();
             continue;
         }
-        if address_in_this_object >= fun.address() + fun.size() {
+        if vmaddr_in_this_object >= fun.address() + fun.size() {
             // Advance cur_fun.
             flush_cur_fun(fun.object_index(), fun.name(), cur_fun_addresses);
             cur_fun = fun_iter.next();
@@ -517,10 +517,10 @@ fn match_funs_to_addresses<'a>(
             continue;
         }
         // Now the following is true:
-        // fun.address() <= address_in_this_object && address_in_this_object < fun.address() + fun.size()
-        let offset_from_function_start = (address_in_this_object - fun.address()) as u32;
+        // fun.address() <= vmaddr_in_this_object && vmaddr_in_this_object < fun.address() + fun.size()
+        let offset_from_function_start = (vmaddr_in_this_object - fun.address()) as u32;
         cur_fun_addresses.push(AddressWithOffset {
-            original_address,
+            original_relative_address,
             offset_from_function_start,
         });
         // Advance cur_addr.

@@ -1,5 +1,7 @@
 use crate::path_mapper::PathMapper;
-use crate::shared::{AddressDebugInfo, InlineStackFrame, RangeReadRef, SymbolicationResult};
+use crate::shared::{
+    relative_address_base, AddressDebugInfo, InlineStackFrame, RangeReadRef, SymbolicationResult,
+};
 use crate::symbolicate::demangle;
 use addr2line::{
     fallible_iterator,
@@ -13,41 +15,32 @@ use std::{borrow::Cow, cmp::min, marker::PhantomData, str};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct AddressPair {
-    /// An address (or rather, offset) that is relative to the root object's
-    /// __TEXT segment's address. This in the space in which the addresses
-    /// that our API consumer wants to look up are.
-    pub original_address: u32,
+    /// A "relative" address, meaningful in the final linked module / library / executable
+    /// which we're trying to symbolicate. These addresses are relative to that image's
+    /// "relative address base" whose definition depends on the image type.
+    /// See `relative_address_base` for more information.
+    pub original_relative_address: u32,
 
     /// An address that is meaningful in the current object and in the space that
     /// symbol addresses and DWARF debug info addresses in this object are expressed in.
-    pub address_in_this_object: u64,
+    pub vmaddr_in_this_object: u64,
 }
 
 pub fn make_address_pairs_for_root_object<'data: 'file, 'file, O>(
     addresses: &[u32],
-    object: &'file O,
+    object_file: &'file O,
 ) -> Vec<AddressPair>
 where
     O: object::Object<'data, 'file>,
 {
     // Make an AddressPair for every address.
-    // The incoming addresses are offsets relative to the __TEXT segment's address.
-    // The __TEXT segment's address is usually zero, with the following exceptions:
-    //  - mach-o executable files (not dylibs) have a __TEXT segment at address 0x100000000.
-    //  - mach-o libraries in the dyld shared cache have a __TEXT segment at an arbitrary
-    //    address in the cache.
-    use object::read::ObjectSegment;
-    let vmaddr_of_text_segment = object
-        .segments()
-        .find(|segment| segment.name() == Ok(Some("__TEXT")))
-        .map(|segment| segment.address())
-        .unwrap_or(0);
+    let image_base = relative_address_base(object_file);
 
     addresses
         .iter()
         .map(|a| AddressPair {
-            original_address: *a,
-            address_in_this_object: vmaddr_of_text_segment + *a as u64,
+            original_relative_address: *a,
+            vmaddr_in_this_object: image_base + *a as u64,
         })
         .collect()
 }
@@ -69,18 +62,20 @@ pub fn collect_dwarf_address_debug_data<'data: 'file, 'file, O, R>(
     let section_data = SectionDataNoCopy::from_object(data, object);
     if let Ok(context) = section_data.make_addr2line_context() {
         for AddressPair {
-            original_address,
-            address_in_this_object,
+            original_relative_address,
+            vmaddr_in_this_object,
         } in addresses
         {
-            if let Ok(frame_iter) = context.find_frames(*address_in_this_object as u64) {
+            if let Ok(frame_iter) = context.find_frames(*vmaddr_in_this_object as u64) {
                 let frames: std::result::Result<Vec<_>, _> = frame_iter
                     .map(|f| Ok(convert_stack_frame(f, path_mapper)))
                     .collect();
                 if let Ok(frames) = frames {
                     if !frames.is_empty() {
-                        symbolication_result
-                            .add_address_debug_info(*original_address, AddressDebugInfo { frames });
+                        symbolication_result.add_address_debug_info(
+                            *original_relative_address,
+                            AddressDebugInfo { frames },
+                        );
                     }
                 }
             }

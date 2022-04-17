@@ -1,4 +1,5 @@
 use object::read::ReadRef;
+use object::SymbolKind;
 use std::borrow::Cow;
 use std::fmt::Debug;
 use std::future::Future;
@@ -281,6 +282,70 @@ pub struct SymbolicationQuery<'a> {
     pub result_kind: SymbolicationResultKind<'a>,
 }
 
+/// In the symbolication query, the requested addresses are in "relative address" form.
+/// This is in contrast to the u64 "vmaddr" form which is used by section
+/// addresses, symbol addresses and DWARF pc offset information.
+///
+/// Relative addresses are u32 offsets which are relative to some "base address".
+///
+/// This function computes that base address. It is defined as follows:
+///
+///  - For Windows binaries, the base address is the "image base address".
+///  - For mach-O binaries, the base address is the vmaddr of the __TEXT segment.
+///  - For kernel ELF binaries ("vmlinux"), we define the base address as the
+///    vmaddr of the .text section. This may not have a precedent, but it's an
+///    address which is readily available in the Linux `perf` case which motivated
+///    this special treatment.
+///  - For other ELF binaries, the base address is zero.
+///
+/// In many cases, this base address is simply zero:
+///
+///  - Non-kernel ELF images are treated as having a base address of zero.
+///  - Stand-alone mach-O dylibs usually have a base address of zero because their
+///    __TEXT segment is at address zero.
+///  - In PDBs, "RVAs" are relative addresses which are already relative to the
+///    image base.
+///
+/// However, in the following cases, the base address is usually non-zero:
+///
+///  - The "image base address" of Windows binaries is usually non-zero.
+///  - mach-O executable files (not dylibs) usually have their __TEXT segment at
+///    address 0x100000000.
+///  - mach-O libraries in the dyld shared cache have a __TEXT segment at some
+///    non-zero address in the cache.
+///  - The .text section of a vmlinux image can be at a very high address such
+///    as 0xffffffff81000000.
+pub fn relative_address_base<'data: 'file, 'file>(
+    object_file: &'file impl object::Object<'data, 'file>,
+) -> u64 {
+    use object::read::ObjectSegment;
+    if let Some(text_segment) = object_file
+        .segments()
+        .find(|s| s.name() == Ok(Some("__TEXT")))
+    {
+        // This is a mach-O image. "Relative addresses" are relative to the
+        // vmaddr of the __TEXT segment.
+        return text_segment.address();
+    }
+
+    use object::ObjectSection;
+    if let Some(text_section) = object_file.section_by_name_bytes(b".text") {
+        // Detect kernel images.
+        // TODO: There is probably a better way to detect this.
+        if text_section.address() >= 0xffffffff80000000 {
+            // This is a kernel image (vmlinux). Relative addresses are relative to the
+            // text section.
+            // (This decision is up for discussion. I chose this option because perf.data
+            // has synthetic MMAP events for a "[kernel.kallsyms]_text" image, so this
+            // choice makes things simple and allows relative addresses to fit in a u32.)
+            return text_section.address();
+        }
+    }
+
+    // For PE binaries, relative_address_base() returns the image base address.
+    object_file.relative_address_base()
+}
+
 /// Return a Vec that contains address -> symbol name entries.
 /// The address is relative to the address of the __TEXT segment (if present).
 /// We discard the symbol "size"; the address is where the symbol starts.
@@ -291,13 +356,8 @@ pub fn object_to_map<'a: 'b, 'b, T>(
 where
     T: object::Object<'a, 'b>,
 {
-    use object::read::ObjectSegment;
-    use object::{ObjectSymbol, SymbolKind};
-    let vmaddr_of_text_segment = object_file
-        .segments()
-        .find(|segment| segment.name() == Ok(Some("__TEXT")))
-        .map(|segment| segment.address())
-        .unwrap_or(0);
+    use object::ObjectSymbol;
+    let image_base = relative_address_base(object_file);
 
     let mut map: Vec<(u32, String)> = Vec::new();
 
@@ -321,24 +381,18 @@ where
             .chain(object_file.symbols())
             .filter(|symbol| symbol.kind() == SymbolKind::Text)
             .filter_map(|symbol| {
-                symbol.name().ok().map(|name| {
-                    (
-                        (symbol.address() - vmaddr_of_text_segment) as u32,
-                        name.to_string(),
-                    )
-                })
+                symbol
+                    .name()
+                    .ok()
+                    .map(|name| ((symbol.address() - image_base) as u32, name.to_string()))
             }),
     );
 
     // For PE files, add the exports.
     if let Ok(exports) = object_file.exports() {
-        let image_base_address: u64 = object_file.relative_address_base();
         for export in exports {
             if let Ok(name) = std::str::from_utf8(export.name()) {
-                map.push((
-                    (export.address() - image_base_address) as u32,
-                    name.to_string(),
-                ));
+                map.push(((export.address() - image_base) as u32, name.to_string()));
             }
         }
     }
@@ -382,20 +436,15 @@ where
     T: object::Object<'a, 'b>,
     R: SymbolicationResult,
 {
-    use object::read::ObjectSegment;
-    use object::{ObjectSection, ObjectSymbol, SymbolKind};
-    let base_address = object_file
-        .segments()
-        .find(|segment| segment.name() == Ok(Some("__TEXT")))
-        .map(|segment| segment.address())
-        .unwrap_or_else(|| object_file.relative_address_base());
-
     let mut entries: Vec<_> = Vec::new();
+
+    let base_address = relative_address_base(object_file);
 
     // Add entries in the order "best to worst".
 
     // 1. Normal symbols
     // 2. Dynamic symbols (only used by ELF files, I think)
+    use object::{ObjectSection, ObjectSymbol};
     entries.extend(
         object_file
             .symbols()
