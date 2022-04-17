@@ -1,15 +1,17 @@
 use crate::perf_event_raw::{
     PERF_FORMAT_GROUP, PERF_FORMAT_ID, PERF_FORMAT_TOTAL_TIME_ENABLED,
     PERF_FORMAT_TOTAL_TIME_RUNNING, PERF_RECORD_COMM, PERF_RECORD_EXIT, PERF_RECORD_FORK,
-    PERF_RECORD_LOST, PERF_RECORD_MISC_COMM_EXEC, PERF_RECORD_MISC_SWITCH_OUT,
-    PERF_RECORD_MISC_SWITCH_OUT_PREEMPT, PERF_RECORD_MMAP2, PERF_RECORD_SAMPLE, PERF_RECORD_SWITCH,
-    PERF_RECORD_THROTTLE, PERF_RECORD_UNTHROTTLE, PERF_SAMPLE_ADDR, PERF_SAMPLE_AUX,
-    PERF_SAMPLE_BRANCH_HW_INDEX, PERF_SAMPLE_BRANCH_STACK, PERF_SAMPLE_CALLCHAIN,
-    PERF_SAMPLE_CODE_PAGE_SIZE, PERF_SAMPLE_CPU, PERF_SAMPLE_DATA_PAGE_SIZE, PERF_SAMPLE_DATA_SRC,
-    PERF_SAMPLE_ID, PERF_SAMPLE_IDENTIFIER, PERF_SAMPLE_IP, PERF_SAMPLE_PERIOD,
-    PERF_SAMPLE_PHYS_ADDR, PERF_SAMPLE_RAW, PERF_SAMPLE_READ, PERF_SAMPLE_REGS_INTR,
-    PERF_SAMPLE_REGS_USER, PERF_SAMPLE_STACK_USER, PERF_SAMPLE_STREAM_ID, PERF_SAMPLE_TID,
-    PERF_SAMPLE_TIME, PERF_SAMPLE_TRANSACTION, PERF_SAMPLE_WEIGHT,
+    PERF_RECORD_LOST, PERF_RECORD_MISC_COMM_EXEC, PERF_RECORD_MISC_CPUMODE_MASK,
+    PERF_RECORD_MISC_GUEST_KERNEL, PERF_RECORD_MISC_GUEST_USER, PERF_RECORD_MISC_KERNEL,
+    PERF_RECORD_MISC_MMAP_BUILD_ID, PERF_RECORD_MISC_MMAP_DATA, PERF_RECORD_MISC_SWITCH_OUT,
+    PERF_RECORD_MISC_SWITCH_OUT_PREEMPT, PERF_RECORD_MISC_USER, PERF_RECORD_MMAP,
+    PERF_RECORD_MMAP2, PERF_RECORD_SAMPLE, PERF_RECORD_SWITCH, PERF_RECORD_THROTTLE,
+    PERF_RECORD_UNTHROTTLE, PERF_SAMPLE_ADDR, PERF_SAMPLE_AUX, PERF_SAMPLE_BRANCH_HW_INDEX,
+    PERF_SAMPLE_BRANCH_STACK, PERF_SAMPLE_CALLCHAIN, PERF_SAMPLE_CODE_PAGE_SIZE, PERF_SAMPLE_CPU,
+    PERF_SAMPLE_DATA_PAGE_SIZE, PERF_SAMPLE_DATA_SRC, PERF_SAMPLE_ID, PERF_SAMPLE_IDENTIFIER,
+    PERF_SAMPLE_IP, PERF_SAMPLE_PERIOD, PERF_SAMPLE_PHYS_ADDR, PERF_SAMPLE_RAW, PERF_SAMPLE_READ,
+    PERF_SAMPLE_REGS_INTR, PERF_SAMPLE_REGS_USER, PERF_SAMPLE_STACK_USER, PERF_SAMPLE_STREAM_ID,
+    PERF_SAMPLE_TID, PERF_SAMPLE_TIME, PERF_SAMPLE_TRANSACTION, PERF_SAMPLE_WEIGHT,
 };
 use crate::raw_data::{RawData, RawRegs};
 use crate::utils::{HexSlice, HexValue};
@@ -24,8 +26,8 @@ pub struct RawEvent<'a> {
 
 pub struct SampleEvent<'a> {
     pub timestamp: Option<u64>,
-    pub pid: Option<u32>,
-    pub tid: Option<u32>,
+    pub pid: Option<i32>,
+    pub tid: Option<i32>,
     pub cpu: Option<u32>,
     pub period: Option<u64>,
     pub regs: Option<Regs<'a>>,
@@ -65,33 +67,145 @@ impl<'a> Regs<'a> {
 
 #[derive(Debug)]
 pub struct ProcessEvent {
-    pub pid: u32,
-    pub ppid: u32,
-    pub tid: u32,
-    pub ptid: u32,
+    pub pid: i32,
+    pub ppid: i32,
+    pub tid: i32,
+    pub ptid: i32,
     pub timestamp: u64,
 }
 
 pub struct CommEvent {
-    pub pid: u32,
-    pub tid: u32,
+    pub pid: i32,
+    pub tid: i32,
     pub name: Vec<u8>,
     pub is_execve: bool,
 }
 
-pub struct Mmap2Event {
-    pub pid: u32,
-    pub tid: u32,
+/// These aren't emitted by the kernel any more - the kernel uses MMAP2 events
+/// these days.
+/// However, `perf record` still emits synthetic MMAP events (not MMAP2!) for
+/// the kernel image. So if you want to symbolicate kernel addresses you still
+/// need to process these.
+/// The kernel image MMAP events have pid -1.
+pub struct MmapEvent {
+    pub pid: i32,
+    pub tid: i32,
     pub address: u64,
     pub length: u64,
     pub page_offset: u64,
+    pub is_executable: bool,
+    pub dso_key: Option<DsoKey>,
+    pub path: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum DsoKey {
+    Kernel,
+    GuestKernel,
+    Vdso32,
+    VdsoX32,
+    Vdso64,
+    Vsyscall,
+    KernelModule(String),
+    User(String, Vec<u8>),
+}
+
+impl DsoKey {
+    pub fn detect(path: &[u8], misc: u16) -> Option<Self> {
+        if path == b"//anon" || path == b"[stack]" || path == b"[heap]" || path == b"[vvar]" {
+            return None;
+        }
+
+        let cpumode = misc & PERF_RECORD_MISC_CPUMODE_MASK;
+        if path.starts_with(b"[kernel.kallsyms]") {
+            let dso_key = if cpumode == PERF_RECORD_MISC_GUEST_KERNEL {
+                DsoKey::GuestKernel
+            } else {
+                DsoKey::Kernel
+            };
+            return Some(dso_key);
+        }
+        if path.starts_with(b"[guest.kernel.kallsyms") {
+            return Some(DsoKey::GuestKernel);
+        }
+        if path == b"[vdso32]" {
+            return Some(DsoKey::Vdso32);
+        }
+        if path == b"[vdsox32]" {
+            return Some(DsoKey::VdsoX32);
+        }
+        if path == b"[vdso]" {
+            // TODO: I think this could also be Vdso32 when recording on a 32 bit machine.
+            return Some(DsoKey::Vdso64);
+        }
+        if path == b"[vsyscall]" {
+            return Some(DsoKey::Vsyscall);
+        }
+        if (cpumode == PERF_RECORD_MISC_KERNEL || cpumode == PERF_RECORD_MISC_GUEST_KERNEL)
+            && path.starts_with(b"[")
+        {
+            return Some(DsoKey::KernelModule(String::from_utf8_lossy(path).into()));
+        }
+
+        let filename = if let Some(final_slash_pos) = path.iter().rposition(|b| *b == b'/') {
+            &path[final_slash_pos + 1..]
+        } else {
+            path
+        };
+
+        let dso_key = match (cpumode, filename.strip_suffix(b".ko")) {
+            (PERF_RECORD_MISC_KERNEL | PERF_RECORD_MISC_GUEST_KERNEL, Some(kmod_name)) => {
+                // "/lib/modules/5.13.0-35-generic/kernel/sound/core/snd-seq-device.ko" -> "[snd-seq-device]"
+                let kmod_name = String::from_utf8_lossy(kmod_name);
+                DsoKey::KernelModule(format!("[{}]", kmod_name))
+            }
+            (PERF_RECORD_MISC_KERNEL, _) => DsoKey::Kernel,
+            (PERF_RECORD_MISC_GUEST_KERNEL, _) => DsoKey::GuestKernel,
+            (PERF_RECORD_MISC_USER | PERF_RECORD_MISC_GUEST_USER, _) => {
+                DsoKey::User(String::from_utf8_lossy(filename).into(), path.to_owned())
+            }
+            _ => return None,
+        };
+        Some(dso_key)
+    }
+
+    pub fn name(&self) -> &str {
+        match self {
+            DsoKey::Kernel => "[kernel.kallsyms]",
+            DsoKey::GuestKernel => "[guest.kernel.kallsyms]",
+            DsoKey::Vdso32 => "[vdso32]",
+            DsoKey::VdsoX32 => "[vdsox32]",
+            DsoKey::Vdso64 => "[vdso]",
+            DsoKey::Vsyscall => "[vsyscall]",
+            DsoKey::KernelModule(name) => name,
+            DsoKey::User(name, _) => name,
+        }
+    }
+}
+
+pub enum Mmap2FileId {
+    InodeAndVersion(Mmap2InodeAndVersion),
+    BuildId(Vec<u8>),
+}
+
+pub struct Mmap2Event {
+    pub pid: i32,
+    pub tid: i32,
+    pub address: u64,
+    pub length: u64,
+    pub page_offset: u64,
+    pub file_id: Mmap2FileId,
+    pub protection: u32,
+    pub flags: u32,
+    pub dso_key: Option<DsoKey>,
+    pub path: Vec<u8>,
+}
+
+pub struct Mmap2InodeAndVersion {
     pub major: u32,
     pub minor: u32,
     pub inode: u64,
     pub inode_generation: u64,
-    pub protection: u32,
-    pub flags: u32,
-    pub filename: Vec<u8>,
 }
 
 #[derive(Debug)]
@@ -119,6 +233,7 @@ pub enum Event<'a> {
     Comm(CommEvent),
     Exit(ProcessEvent),
     Fork(ProcessEvent),
+    Mmap(MmapEvent),
     Mmap2(Mmap2Event),
     Lost(LostEvent),
     Throttle(ThrottleEvent),
@@ -159,6 +274,20 @@ impl fmt::Debug for CommEvent {
     }
 }
 
+impl fmt::Debug for MmapEvent {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        fmt.debug_map()
+            .entry(&"pid", &self.pid)
+            .entry(&"tid", &self.tid)
+            .entry(&"address", &HexValue(self.address))
+            .entry(&"length", &HexValue(self.length))
+            .entry(&"page_offset", &HexValue(self.page_offset))
+            .entry(&"dso_key", &self.dso_key)
+            .entry(&"path", &&*String::from_utf8_lossy(&self.path))
+            .finish()
+    }
+}
+
 impl fmt::Debug for Mmap2Event {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         fmt.debug_map()
@@ -167,13 +296,14 @@ impl fmt::Debug for Mmap2Event {
             .entry(&"address", &HexValue(self.address))
             .entry(&"length", &HexValue(self.length))
             .entry(&"page_offset", &HexValue(self.page_offset))
-            .entry(&"major", &self.major)
-            .entry(&"minor", &self.minor)
-            .entry(&"inode", &self.inode)
-            .entry(&"inode_generation", &self.inode_generation)
+            // .entry(&"major", &self.major)
+            // .entry(&"minor", &self.minor)
+            // .entry(&"inode", &self.inode)
+            // .entry(&"inode_generation", &self.inode_generation)
             .entry(&"protection", &HexValue(self.protection as _))
             .entry(&"flags", &HexValue(self.flags as _))
-            .entry(&"filename", &&*String::from_utf8_lossy(&self.filename))
+            .entry(&"dso_key", &self.dso_key)
+            .entry(&"path", &&*String::from_utf8_lossy(&self.path))
             .finish()
     }
 }
@@ -256,10 +386,10 @@ impl<'a> RawEvent<'a> {
                 let raw_data = self.data.as_slice();
                 let mut cur = Cursor::new(&raw_data);
 
-                let pid = cur.read_u32::<T>().unwrap();
-                let ppid = cur.read_u32::<T>().unwrap();
-                let tid = cur.read_u32::<T>().unwrap();
-                let ptid = cur.read_u32::<T>().unwrap();
+                let pid = cur.read_i32::<T>().unwrap();
+                let ppid = cur.read_i32::<T>().unwrap();
+                let tid = cur.read_i32::<T>().unwrap();
+                let ptid = cur.read_i32::<T>().unwrap();
                 let timestamp = cur.read_u64::<T>().unwrap();
                 // if sample_id_all {
                 //     Self::skip_sample_id::<T, _>(&mut cur, sample_type);
@@ -293,8 +423,8 @@ impl<'a> RawEvent<'a> {
                 }
 
                 let (pid, tid) = if sample_type & PERF_SAMPLE_TID != 0 {
-                    let pid = cur.read_u32::<T>().unwrap();
-                    let tid = cur.read_u32::<T>().unwrap();
+                    let pid = cur.read_i32::<T>().unwrap();
+                    let tid = cur.read_i32::<T>().unwrap();
                     (Some(pid), Some(tid))
                 } else {
                     (None, None)
@@ -484,8 +614,8 @@ impl<'a> RawEvent<'a> {
                 let raw_data = self.data.as_slice();
                 let mut cur = Cursor::new(&raw_data);
 
-                let pid = cur.read_u32::<T>().unwrap();
-                let tid = cur.read_u32::<T>().unwrap();
+                let pid = cur.read_i32::<T>().unwrap();
+                let tid = cur.read_i32::<T>().unwrap();
                 let name = &raw_data[cur.position() as usize..];
                 let name = &name[0..name
                     .iter()
@@ -503,19 +633,75 @@ impl<'a> RawEvent<'a> {
                 })
             }
 
+            PERF_RECORD_MMAP => {
+                let raw_data = self.data.as_slice();
+                let mut cur = Cursor::new(&raw_data);
+
+                // struct {
+                //   struct perf_event_header header;
+                //
+                //   u32 pid, tid;
+                //   u64 addr;
+                //   u64 len;
+                //   u64 pgoff;
+                //   char filename[];
+                //   struct sample_id sample_id;
+                // };
+
+                let pid = cur.read_i32::<T>().unwrap();
+                let tid = cur.read_i32::<T>().unwrap();
+                let address = cur.read_u64::<T>().unwrap();
+                let length = cur.read_u64::<T>().unwrap();
+                let page_offset = cur.read_u64::<T>().unwrap();
+                let name = &raw_data[cur.position() as usize..];
+                let name = &name[0..name
+                    .iter()
+                    .position(|&byte| byte == 0)
+                    .unwrap_or(name.len())];
+                let is_executable = self.misc & PERF_RECORD_MISC_MMAP_DATA == 0;
+
+                Event::Mmap(MmapEvent {
+                    pid,
+                    tid,
+                    address,
+                    length,
+                    page_offset,
+                    is_executable,
+                    dso_key: DsoKey::detect(name, self.misc),
+                    path: name.to_owned(),
+                })
+            }
+
             PERF_RECORD_MMAP2 => {
                 let raw_data = self.data.as_slice();
                 let mut cur = Cursor::new(&raw_data);
 
-                let pid = cur.read_u32::<T>().unwrap();
-                let tid = cur.read_u32::<T>().unwrap();
+                let pid = cur.read_i32::<T>().unwrap();
+                let tid = cur.read_i32::<T>().unwrap();
                 let address = cur.read_u64::<T>().unwrap();
                 let length = cur.read_u64::<T>().unwrap();
                 let page_offset = cur.read_u64::<T>().unwrap();
-                let major = cur.read_u32::<T>().unwrap();
-                let minor = cur.read_u32::<T>().unwrap();
-                let inode = cur.read_u64::<T>().unwrap();
-                let inode_generation = cur.read_u64::<T>().unwrap();
+                let file_id = if self.misc & PERF_RECORD_MISC_MMAP_BUILD_ID != 0 {
+                    let build_id_len = cur.read_u8().unwrap();
+                    assert!(build_id_len <= 20);
+                    let _ = cur.read_u8().unwrap();
+                    let _ = cur.read_u16::<T>().unwrap();
+                    let build_id =
+                        raw_data[cur.position() as usize..][..build_id_len as usize].to_owned();
+                    cur.set_position(cur.position() + 20);
+                    Mmap2FileId::BuildId(build_id)
+                } else {
+                    let major = cur.read_u32::<T>().unwrap();
+                    let minor = cur.read_u32::<T>().unwrap();
+                    let inode = cur.read_u64::<T>().unwrap();
+                    let inode_generation = cur.read_u64::<T>().unwrap();
+                    Mmap2FileId::InodeAndVersion(Mmap2InodeAndVersion {
+                        major,
+                        minor,
+                        inode,
+                        inode_generation,
+                    })
+                };
                 let protection = cur.read_u32::<T>().unwrap();
                 let flags = cur.read_u32::<T>().unwrap();
                 let name = &raw_data[cur.position() as usize..];
@@ -530,13 +716,11 @@ impl<'a> RawEvent<'a> {
                     address,
                     length,
                     page_offset,
-                    major,
-                    minor,
-                    inode,
-                    inode_generation,
+                    file_id,
                     protection,
                     flags,
-                    filename: name.to_owned(),
+                    dso_key: DsoKey::detect(name, self.misc),
+                    path: name.to_owned(),
                 })
             }
 

@@ -367,6 +367,12 @@ pub const PERF_RECORD_READ: u32 = 8;
  *
  *	{ struct read_format	values;	  } && PERF_SAMPLE_READ
  *
+ *  #
+ *  # The callchain includes both regular addresses, and special "context"
+ *  # frames. The context frames are >= PERF_CONTEXT_MAX and annotate the
+ *  # subsequent addresses as user / kernel / hypervisor / guest addresses.
+ *  #
+ *
  *	{ u64			nr,
  *	  u64			ips[nr];  } && PERF_SAMPLE_CALLCHAIN
  *
@@ -849,7 +855,8 @@ pub const PERF_RECORD_MISC_GUEST_USER: u16 = 5;
 pub const PERF_RECORD_MISC_PROC_MAP_PARSE_TIMEOUT: u16 = 1 << 12;
 // The following PERF_RECORD_MISC_* are used on different
 // events, so can reuse the same bit position.
-/// Used on PERF_RECORD_MMAP* events.
+/// Used on PERF_RECORD_MMAP events to indicate mappings which are not executable.
+/// Not used on PERF_RECORD_MMAP2 events - those have the full protection bitset.
 pub const PERF_RECORD_MISC_MMAP_DATA: u16 = 1 << 13;
 /// Used on PERF_RECORD_COMM event.
 pub const PERF_RECORD_MISC_COMM_EXEC: u16 = 1 << 13;
@@ -868,3 +875,26 @@ pub const PERF_RECORD_MISC_SWITCH_OUT_PREEMPT: u16 = 1 << 14;
 /// Indicates that mmap2 event carries build id data.
 /// Used on PERF_RECORD_MMAP2 events.
 pub const PERF_RECORD_MISC_MMAP_BUILD_ID: u16 = 1 << 14;
+/// Used in header.misc of the HEADER_BUILD_ID event. If set, the length
+/// of the buildid is specified in the event (no more than 20).
+pub const PERF_RECORD_MISC_BUILD_ID_SIZE: u16 = 1 << 15;
+
+// These PERF_CONTEXT addresses are inserted into callchain to mark the
+// "context" of the call chain addresses that follow. The special frames
+// can be differentiated from real addresses by the fact that they are
+// >= PERF_CONTEXT_MAX.
+/// The callchain frames following this context marker frame are "hypervisor" frames.
+pub const PERF_CONTEXT_HV: u64 = -32i64 as u64;
+/// The callchain frames following this context marker frame are "kernel" frames.
+pub const PERF_CONTEXT_KERNEL: u64 = -128i64 as u64;
+/// The callchain frames following this context marker frame are "user" frames.
+pub const PERF_CONTEXT_USER: u64 = -512i64 as u64;
+/// The callchain frames following this context marker frame are "guest" frames.
+pub const PERF_CONTEXT_GUEST: u64 = -2048i64 as u64;
+/// The callchain frames following this context marker frame are "guest kernel" frames.
+pub const PERF_CONTEXT_GUEST_KERNEL: u64 = -2176i64 as u64;
+/// The callchain frames following this context marker frame are "guest user" frames.
+pub const PERF_CONTEXT_GUEST_USER: u64 = -2560i64 as u64;
+/// Any callchain frames which are >= PERF_CONTEXT_MAX are not real addresses;
+/// instead, they mark the context of the subsequent callchain frames.
+pub const PERF_CONTEXT_MAX: u64 = -4095i64 as u64;

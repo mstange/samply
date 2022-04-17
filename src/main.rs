@@ -6,14 +6,15 @@ mod reader;
 mod unaligned;
 mod utils;
 
+use debugid::CodeId;
 use framehop::aarch64::UnwindRegsAarch64;
 use framehop::x86_64::UnwindRegsX86_64;
 use framehop::{Module, ModuleSectionAddressRanges, TextByteData, Unwinder};
 use object::{Object, ObjectSection, ObjectSegment, SectionKind};
-use perf_event::{Event, Mmap2Event, Regs, SampleEvent};
+use perf_event::{Event, Mmap2Event, MmapEvent, Regs, SampleEvent};
 use perf_event_raw::{
-    PERF_REG_ARM64_LR, PERF_REG_ARM64_PC, PERF_REG_ARM64_SP, PERF_REG_ARM64_X29, PERF_REG_X86_BP,
-    PERF_REG_X86_IP, PERF_REG_X86_SP,
+    PERF_CONTEXT_MAX, PERF_REG_ARM64_LR, PERF_REG_ARM64_PC, PERF_REG_ARM64_SP, PERF_REG_ARM64_X29,
+    PERF_REG_X86_BP, PERF_REG_X86_IP, PERF_REG_X86_SP,
 };
 pub use perf_file::PerfFile;
 use profiler_get_symbols::{
@@ -27,6 +28,8 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::{fs::File, ops::Range, path::Path, sync::Arc};
 use uuid::Uuid;
+
+use crate::perf_event::{DsoKey, Mmap2FileId};
 
 fn main() {
     let mut args = std::env::args_os().skip(1);
@@ -42,38 +45,37 @@ fn main() {
     let file = PerfFile::parse(data).expect("Parsing failed");
 
     if let Some(hostname) = file.hostname().unwrap() {
-        eprintln!("Hostname: {}", hostname);
+        println!("Hostname: {}", hostname);
     }
 
     if let Some(os_release) = file.os_release().unwrap() {
-        eprintln!("OS release: {}", os_release);
+        println!("OS release: {}", os_release);
     }
 
     if let Some(perf_version) = file.perf_version().unwrap() {
-        eprintln!("Perf version: {}", perf_version);
+        println!("Perf version: {}", perf_version);
     }
 
     if let Some(arch) = file.arch().unwrap() {
-        eprintln!("Arch: {}", arch);
+        println!("Arch: {}", arch);
     }
 
     if let Some(nr_cpus) = file.nr_cpus().unwrap() {
-        eprintln!(
+        println!(
             "CPUs: {} online ({} available)",
             nr_cpus.nr_cpus_online.get(file.endian()),
             nr_cpus.nr_cpus_available.get(file.endian())
         );
     }
 
-    /*
     if let Some(build_ids) = file.build_ids().unwrap() {
-        eprintln!("Build IDs:");
-        for (build_id_ev, filename) in build_ids {
-            eprintln!(
-                " - PID {}, build ID {}, filename {}",
-                build_id_ev.pid.get(file.endian()),
-                build_id_ev
-                    .build_id
+        println!("Build IDs:");
+        for (pid, dso_key, filename, build_id) in build_ids {
+            println!(
+                " - PID {}, DSO key {:?}, build ID {}, filename {}",
+                pid,
+                dso_key.as_ref().map(DsoKey::name),
+                build_id
                     .iter()
                     .map(|b| format!("{:02x}", b))
                     .collect::<Vec<String>>()
@@ -82,7 +84,6 @@ fn main() {
             );
         }
     }
-    */
 
     match file.arch().unwrap() {
         Some("x86_64") => {
@@ -119,7 +120,6 @@ impl ConvertRegs for ConvertRegsX86_64 {
         let sp = regs.get(PERF_REG_X86_SP).unwrap();
         let bp = regs.get(PERF_REG_X86_BP).unwrap();
         let regs = UnwindRegsX86_64::new(ip, sp, bp);
-        // eprintln!("regs: 0x{:x}, {:?}", ip, regs);
         (ip, sp, regs)
     }
 }
@@ -142,10 +142,13 @@ where
     U: Unwinder<Module = Module<Vec<u8>>> + Default,
     C: ConvertRegs<UnwindRegs = U::UnwindRegs>,
 {
-    let mut processes: HashMap<u32, Process<U>> = HashMap::new();
+    let mut processes: HashMap<i32, Process<U>> = HashMap::new();
     let mut image_cache = ImageCache::new();
     let mut processed_samples = Vec::new();
     let mut all_image_stack_frames = HashSet::new();
+    let mut kernel_modules = AddedModules(Vec::new());
+    let build_ids = file.build_ids().ok().flatten().unwrap_or_else(Vec::new);
+    let little_endian = file.endian() == unaligned::Endianness::LittleEndian;
 
     let mut events = file.events();
     let mut count = 0;
@@ -158,7 +161,7 @@ where
                     .entry(pid)
                     .or_insert_with(|| Process::new(pid, format!("<{}>", pid).into_bytes()));
                 if let Some(processed_sample) =
-                    process.handle_sample::<C>(e, cache, &mut image_cache)
+                    process.handle_sample::<C>(e, cache, &mut image_cache, &kernel_modules)
                 {
                     for frame in &processed_sample.stack {
                         if let StackFrame::InImage(frame) = frame {
@@ -169,7 +172,7 @@ where
                 }
             }
             Event::Comm(e) => {
-                eprintln!("Comm: {:?}", e);
+                println!("Comm: {:?}", e);
                 match processes.entry(e.pid) {
                     Entry::Occupied(mut entry) => {
                         entry.get_mut().set_name(e.name);
@@ -183,11 +186,87 @@ where
                 // todo
             }
             Event::Fork(_) => {}
+            Event::Mmap(e) => {
+                let dso_key = match &e.dso_key {
+                    Some(dso_key) => dso_key.clone(),
+                    None => continue,
+                };
+                let build_id = build_ids
+                    .iter()
+                    .find_map(|(_pid, bdso_key, _path, buildid)| {
+                        if bdso_key.as_ref() == Some(&dso_key) {
+                            Some(*buildid)
+                        } else {
+                            None
+                        }
+                    });
+                if e.pid == -1 {
+                    // println!(
+                    //     "kernel mmap: 0x{:016x}-0x{:016x} (page offset 0x{:016x}) {:?} ({})",
+                    //     e.address,
+                    //     e.address + e.length,
+                    //     e.page_offset,
+                    //     std::str::from_utf8(&e.path),
+                    //     e.is_executable
+                    // );
+
+                    if !e.is_executable {
+                        continue;
+                    }
+
+                    let debug_id = build_id.map(|buildid| {
+                        let uuid = create_elf_id(buildid, little_endian);
+                        format!("{:X}0", uuid.to_simple())
+                    });
+
+                    let start_addr = e.address;
+                    let end_addr = e.address + e.length;
+
+                    let path_str = std::str::from_utf8(&e.path).unwrap();
+                    let path = Path::new(path_str);
+                    let base_address = start_addr;
+                    let address_range = start_addr..end_addr;
+                    let image = image_cache.index_for_image(path, &dso_key, debug_id);
+                    println!(
+                        "0x{:016x}-0x{:016x} {:?} {:?}",
+                        address_range.start,
+                        address_range.end,
+                        build_id.map(CodeId::from_binary),
+                        path
+                    );
+                    kernel_modules.0.push(AddedModule {
+                        address_range,
+                        base_address,
+                        image,
+                    });
+                    kernel_modules
+                        .0
+                        .sort_unstable_by_key(|m| m.address_range.start);
+                } else {
+                    let process = processes.entry(e.pid).or_insert_with(|| {
+                        Process::new(e.pid, format!("<{}>", e.pid).into_bytes())
+                    });
+                    process.handle_mmap(e, &dso_key, build_id);
+                }
+            }
             Event::Mmap2(e) => {
+                let dso_key = match &e.dso_key {
+                    Some(dso_key) => dso_key.clone(),
+                    None => continue,
+                };
+                let build_id = build_ids
+                    .iter()
+                    .find_map(|(_pid, bdso_key, _path, buildid)| {
+                        if bdso_key.as_ref() == Some(&dso_key) {
+                            Some(*buildid)
+                        } else {
+                            None
+                        }
+                    });
                 let process = processes
                     .entry(e.pid)
                     .or_insert_with(|| Process::new(e.pid, format!("<{}>", e.pid).into_bytes()));
-                process.handle_mmap(e);
+                process.handle_mmap2(e, &dso_key, build_id);
             }
             Event::Lost(_) => {}
             Event::Throttle(_) => {}
@@ -196,7 +275,7 @@ where
             Event::Raw(_) => {}
         }
     }
-    eprintln!(
+    println!(
         "Have {} events, converted into {} processed samples.",
         count,
         processed_samples.len()
@@ -218,6 +297,7 @@ where
                 handle: ImageCacheHandle(image_index as u32),
                 path: image.path.clone(),
                 debug_id: debug_id.clone(),
+                dso_key: image.dso_key.clone(),
             })
         })
         .collect();
@@ -356,7 +436,7 @@ impl SymbolicationResult for MySymbolicationResult {
 
 struct Process<U> {
     #[allow(unused)]
-    pid: u32,
+    pid: i32,
     name: Vec<u8>,
     unwinder: U,
     pending_modules: Vec<PendingModule>,
@@ -396,7 +476,7 @@ impl AddedModules {
 }
 
 impl<U: Unwinder + Default> Process<U> {
-    pub fn new(pid: u32, name: Vec<u8>) -> Self {
+    pub fn new(pid: i32, name: Vec<u8>) -> Self {
         Self {
             pid,
             name,
@@ -417,49 +497,96 @@ impl<U> Process<U>
 where
     U: Unwinder<Module = Module<Vec<u8>>>,
 {
-    pub fn handle_mmap(&mut self, e: Mmap2Event) {
-        // println!("raw: 0x{:016x}-0x{:016x} {:?}", e.address, e.address + e.length, std::str::from_utf8(&e.filename));
-        if e.inode == 0 {
-            return;
-        }
+    pub fn handle_mmap(&mut self, e: MmapEvent, dso_key: &DsoKey, build_id: Option<&[u8]>) {
+        // println!(
+        //     "raw1 ({}): 0x{:016x}-0x{:016x} {:?}",
+        //     self.pid,
+        //     e.address,
+        //     e.address + e.length,
+        //     std::str::from_utf8(&e.path)
+        // );
 
         let start_addr = e.address;
         let end_addr = e.address + e.length;
-        match self
-            .pending_modules
-            .iter_mut()
-            .find(|m| m.path == e.filename)
-        {
+        match self.pending_modules.iter_mut().find(|m| m.path == e.path) {
             Some(m) => {
                 m.min_start = m.min_start.min(start_addr);
                 m.max_end = m.max_end.min(end_addr);
+                m.has_exec_mapping = m.has_exec_mapping || e.is_executable;
+                m.build_id = m.build_id.take().or_else(|| build_id.map(Vec::from));
             }
             None => {
                 self.pending_modules.push(PendingModule {
-                    path: e.filename,
+                    path: e.path,
                     min_start: start_addr,
                     max_end: end_addr,
+                    build_id: build_id.map(Vec::from),
+                    dso_key: dso_key.clone(),
+                    has_exec_mapping: e.is_executable,
+                });
+            }
+        }
+    }
+
+    pub fn handle_mmap2(&mut self, e: Mmap2Event, dso_key: &DsoKey, build_id: Option<&[u8]>) {
+        // println!(
+        //     "raw2 ({}): 0x{:016x}-0x{:016x} (page offset 0x{:016x}) {:?}",
+        //     self.pid,
+        //     e.address,
+        //     e.address + e.length,
+        //     e.page_offset,
+        //     std::str::from_utf8(&e.path)
+        // );
+        let build_id = match e.file_id {
+            Mmap2FileId::BuildId(build_id) => Some(build_id),
+            Mmap2FileId::InodeAndVersion(_) => build_id.map(Vec::from),
+        };
+
+        const PROT_EXEC: u32 = 0b100;
+        let start_addr = e.address;
+        let end_addr = e.address + e.length;
+        match self.pending_modules.iter_mut().find(|m| m.path == e.path) {
+            Some(m) => {
+                m.min_start = m.min_start.min(start_addr);
+                m.max_end = m.max_end.min(end_addr);
+                m.has_exec_mapping = m.has_exec_mapping || (e.protection & PROT_EXEC != 0);
+                m.build_id = m.build_id.take().or(build_id);
+            }
+            None => {
+                self.pending_modules.push(PendingModule {
+                    path: e.path,
+                    min_start: start_addr,
+                    max_end: end_addr,
+                    build_id: build_id.map(Vec::from),
+                    dso_key: dso_key.clone(),
+                    has_exec_mapping: e.protection & PROT_EXEC != 0,
                 });
             }
         }
     }
 
     fn flush_pending_mappings(&mut self, image_cache: &mut ImageCache) {
-        for mapping in self.pending_modules.drain(..) {
-            let path_str = std::str::from_utf8(&mapping.path).unwrap();
+        for module in self.pending_modules.drain(..) {
+            if !module.has_exec_mapping {
+                continue;
+            }
+            let path_str = std::str::from_utf8(&module.path).unwrap();
             let path = Path::new(path_str);
-            let base_address = mapping.min_start;
-            let address_range = mapping.min_start..mapping.max_end;
+            let base_address = module.min_start;
+            let address_range = module.min_start..module.max_end;
             let debug_id = add_module(
                 &mut self.unwinder,
                 path,
                 base_address,
                 address_range.clone(),
             );
-            let image = image_cache.index_for_image(path, debug_id);
+            let image = image_cache.index_for_image(path, &module.dso_key, debug_id);
             println!(
-                "0x{:016x}-0x{:016x} {:?}",
-                address_range.start, address_range.end, path
+                "0x{:016x}-0x{:016x} {:?} {:?}",
+                address_range.start,
+                address_range.end,
+                module.build_id.as_deref().map(CodeId::from_binary),
+                path
             );
             self.added_modules.0.push(AddedModule {
                 address_range,
@@ -477,50 +604,80 @@ where
         e: SampleEvent,
         cache: &mut U::Cache,
         image_cache: &mut ImageCache,
+        kernel_modules: &AddedModules,
     ) -> Option<ProcessedSample> {
         self.flush_pending_mappings(image_cache);
-        let regs = match e.regs {
-            Some(regs) => regs,
-            None => return None,
-        };
-        let stack = e.stack.as_slice();
-        let (pc, sp, regs) = C::convert_regs(&regs);
-        let mut read_stack = |addr: u64| {
-            let offset = addr.checked_sub(sp).ok_or(())?;
-            let p_start = usize::try_from(offset).map_err(|_| ())?;
-            let p_end = p_start.checked_add(8).ok_or(())?;
-            if let Some(p) = stack.get(p_start..p_end) {
-                let val = u64::from_le_bytes([p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]]);
-                Ok(val)
-            } else {
-                // eprintln!("Ran out of stack when trying to read at address 0x{:x}", addr);
-                Err(())
-            }
-        };
-        let mut frames = self.unwinder.iter_frames(pc, regs, cache, &mut read_stack);
-        if !self.added_modules.0.is_empty() {
-            // eprintln!("trying to unwind now");
-        }
+
         let mut stack = Vec::new();
-        loop {
-            let frame = match frames.next() {
-                Ok(Some(frame)) => frame,
-                Ok(None) => break,
-                Err(_) => {
-                    stack.push(StackFrame::TruncatedStackMarker);
-                    break;
+
+        if let Some(callchain) = e.callchain {
+            for address in callchain {
+                if address >= PERF_CONTEXT_MAX {
+                    // Ignore synthetic addresses like 0xffffffffffffff80.
+                    continue;
+                }
+                let stack_frame = match self.added_modules.map_address(address) {
+                    Some((image, relative_lookup_address)) => {
+                        StackFrame::InImage(StackFrameInImage {
+                            image,
+                            relative_lookup_address,
+                        })
+                    }
+                    None => match kernel_modules.map_address(address) {
+                        Some((image, relative_lookup_address)) => {
+                            StackFrame::InImage(StackFrameInImage {
+                                image,
+                                relative_lookup_address,
+                            })
+                        }
+                        None => StackFrame::Address(address),
+                    },
+                };
+                stack.push(stack_frame);
+            }
+        }
+
+        if let Some(regs) = e.regs {
+            let ustack_bytes = e.stack.as_slice();
+            let (pc, sp, regs) = C::convert_regs(&regs);
+            let mut read_stack = |addr: u64| {
+                let offset = addr.checked_sub(sp).ok_or(())?;
+                let p_start = usize::try_from(offset).map_err(|_| ())?;
+                let p_end = p_start.checked_add(8).ok_or(())?;
+                if let Some(p) = ustack_bytes.get(p_start..p_end) {
+                    let val = u64::from_le_bytes([p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]]);
+                    Ok(val)
+                } else {
+                    // eprintln!("Ran out of stack when trying to read at address 0x{:x}", addr);
+                    Err(())
                 }
             };
-            let address = frame.address_for_lookup();
-            let stack_frame = match self.added_modules.map_address(address) {
-                Some((image, relative_lookup_address)) => StackFrame::InImage(StackFrameInImage {
-                    image,
-                    relative_lookup_address,
-                }),
-                None => StackFrame::Address(address),
-            };
-            stack.push(stack_frame);
-            // eprintln!("got frame: {:?}", frame);
+            let mut frames = self.unwinder.iter_frames(pc, regs, cache, &mut read_stack);
+            if !self.added_modules.0.is_empty() {
+                // eprintln!("trying to unwind now");
+            }
+            loop {
+                let frame = match frames.next() {
+                    Ok(Some(frame)) => frame,
+                    Ok(None) => break,
+                    Err(_) => {
+                        stack.push(StackFrame::TruncatedStackMarker);
+                        break;
+                    }
+                };
+                let address = frame.address_for_lookup();
+                let stack_frame = match self.added_modules.map_address(address) {
+                    Some((image, relative_lookup_address)) => {
+                        StackFrame::InImage(StackFrameInImage {
+                            image,
+                            relative_lookup_address,
+                        })
+                    }
+                    None => StackFrame::Address(address),
+                };
+                stack.push(stack_frame);
+                // eprintln!("got frame: {:?}", frame);
+            }
         }
 
         Some(ProcessedSample {
@@ -536,6 +693,9 @@ struct PendingModule {
     path: Vec<u8>,
     min_start: u64,
     max_end: u64,
+    build_id: Option<Vec<u8>>,
+    dso_key: DsoKey,
+    has_exec_mapping: bool,
 }
 
 struct AddedModule {
@@ -556,18 +716,24 @@ impl ImageCache {
         Self { images: Vec::new() }
     }
 
-    pub fn index_for_image(&mut self, path: &Path, debug_id: Option<String>) -> ImageCacheHandle {
+    pub fn index_for_image(
+        &mut self,
+        path: &Path,
+        dso_key: &DsoKey,
+        debug_id: Option<String>,
+    ) -> ImageCacheHandle {
         match self
             .images
             .iter()
             .enumerate()
-            .find(|(_, image)| image.path == path)
+            .find(|(_, image)| &image.dso_key == dso_key)
         {
             Some((index, _)) => ImageCacheHandle(index as u32),
             None => {
                 let index = self.images.len() as u32;
                 self.images.push(Image {
                     path: path.to_owned(),
+                    dso_key: dso_key.clone(),
                     debug_id,
                 });
                 ImageCacheHandle(index)
@@ -579,8 +745,8 @@ impl ImageCache {
 #[derive(Clone, Debug)]
 pub struct ProcessedSample {
     pub timestamp: u64,
-    pub pid: u32,
-    pub tid: u32,
+    pub pid: i32,
+    pub tid: i32,
     pub stack: Vec<StackFrame>,
 }
 
@@ -598,6 +764,7 @@ pub struct StackFrameInImage {
 }
 
 struct Image {
+    dso_key: DsoKey,
     path: PathBuf,
     debug_id: Option<String>,
 }
@@ -794,6 +961,7 @@ struct Helper {
 struct HelperLib {
     debug_name: String,
     debug_id: String,
+    dso_key: DsoKey,
     handle: ImageCacheHandle,
     path: PathBuf,
 }
@@ -834,16 +1002,38 @@ impl<'h> FileAndPathHelper<'h> for Helper {
         debug_name: &str,
         breakpad_id: &str,
     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
+        if self.verbose {
+            eprintln!(
+                "Listing candidates for debug_name {} and breakpad ID {}",
+                debug_name, breakpad_id
+            );
+        }
         let mut paths = vec![];
 
         // Look up (debugName, breakpadId) in the path map.
-        if let Some(path) = self.libs.iter().find_map(|lib| {
+        if let Some(lib) = self.libs.iter().find_map(|lib| {
             if lib.debug_name == debug_name && lib.debug_id == breakpad_id {
-                Some(lib.path.clone())
+                Some(lib)
             } else {
                 None
             }
         }) {
+            let fixtures_dir = PathBuf::from("/Users/mstange/code/linux-perf-data/fixtures");
+
+            if lib.dso_key == DsoKey::Kernel {
+                let mut p = fixtures_dir.clone();
+                p.push("kernel-symbols");
+                paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(p)));
+            }
+
+            if lib.dso_key == DsoKey::Vdso64 {
+                let mut p = fixtures_dir.clone();
+                p.push("vdso64-symbols");
+                paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(p)));
+            }
+
+            let path = lib.path.clone();
+
             // Also consider .so.dbg files in the same directory.
             if debug_name.ends_with(".so") {
                 let debug_debug_name = format!("{}.dbg", debug_name);
@@ -859,8 +1049,8 @@ impl<'h> FileAndPathHelper<'h> for Helper {
                 path.clone(),
             )));
 
-            // Also from here
-            let mut p = Path::new("/Users/mstange/code/linux-perf-data/fixtures").to_owned();
+            // Also from the fixtures directory.
+            let mut p = fixtures_dir;
             p.push(path.file_name().unwrap());
             paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(p)));
         }

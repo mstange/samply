@@ -1,6 +1,6 @@
-use crate::perf_event::{Event, RawEvent};
+use crate::perf_event::{DsoKey, Event, RawEvent};
 use crate::perf_event_raw::{
-    PerfEventAttr, ATTR_FLAG_BIT_ENABLE_ON_EXEC, ATTR_FLAG_BIT_SAMPLE_ID_ALL,
+    PerfEventAttr, ATTR_FLAG_BIT_SAMPLE_ID_ALL, PERF_RECORD_MISC_BUILD_ID_SIZE,
 };
 use crate::raw_data::RawData;
 use crate::reader::Reader;
@@ -72,13 +72,13 @@ impl<'a> PerfFile<'a> {
             perf_event_attrs.push(attr);
             offset += attr_size;
         }
-        eprintln!("Got {} perf_event_attrs.", perf_event_attrs.len());
-        for perf_event_attr in &perf_event_attrs {
-            eprintln!("flags: {:b}", perf_event_attr.flags.get(endian));
-            if perf_event_attr.flags.get(endian) & ATTR_FLAG_BIT_ENABLE_ON_EXEC != 0 {
-                eprintln!("ATTR_FLAG_BIT_ENABLE_ON_EXEC is set");
-            }
-        }
+        // eprintln!("Got {} perf_event_attrs.", perf_event_attrs.len());
+        // for perf_event_attr in &perf_event_attrs {
+        //     eprintln!("flags: {:b}", perf_event_attr.flags.get(endian));
+        //     if perf_event_attr.flags.get(endian) & ATTR_FLAG_BIT_ENABLE_ON_EXEC != 0 {
+        //         eprintln!("ATTR_FLAG_BIT_ENABLE_ON_EXEC is set");
+        //     }
+        // }
 
         Ok(Self {
             data,
@@ -112,7 +112,9 @@ impl<'a> PerfFile<'a> {
     }
 
     #[allow(clippy::complexity)]
-    pub fn build_ids(&self) -> Result<Option<Vec<(&'a BuildIdEvent, &'a [u8])>>, Error> {
+    pub fn build_ids(
+        &self,
+    ) -> Result<Option<Vec<(i32, Option<DsoKey>, &'a [u8], &'a [u8])>>, Error> {
         let (offset, size) = match self.feature_section(FlagFeature::BuildId) {
             Some(section) => section,
             None => return Ok(None),
@@ -131,7 +133,15 @@ impl<'a> PerfFile<'a> {
             let file_name_bytes = &section_data[file_name_start..record_end];
             let file_name_len = memchr::memchr(0, file_name_bytes).unwrap_or(record_end);
             let file_name = &file_name_bytes[..file_name_len];
-            build_ids.push((build_id_event, file_name));
+            let pid = build_id_event.pid.get(self.endian) as i32;
+            let misc = build_id_event.header.misc.get(self.endian);
+            let build_id = if misc & PERF_RECORD_MISC_BUILD_ID_SIZE != 0 {
+                let build_id_len = build_id_event.build_id[20].min(20);
+                &build_id_event.build_id[..build_id_len as usize]
+            } else {
+                &build_id_event.build_id[..]
+            };
+            build_ids.push((pid, DsoKey::detect(file_name, misc), file_name, build_id));
         }
         Ok(Some(build_ids))
     }
@@ -436,8 +446,12 @@ pub struct PerfEventHeader {
 #[derive(FromBytes, Debug, Clone, Copy)]
 #[repr(C)]
 pub struct BuildIdEvent {
+    /// If PERF_RECORD_MISC_KERNEL is set in header.misc, then this
+    /// is the build id for the vmlinux image or a kmod.
     pub header: PerfEventHeader,
     pub pid: U32, // probably rather I32
+    /// If PERF_RECORD_MISC_BUILD_ID_SIZE is set in header.misc, then build_id[20]
+    /// is the length of the build id (<= 20), and build_id[21..24] are unused.
     pub build_id: [u8; 24],
     // Followed by filename for the remaining bytes. The total size of the record is given by self.header.size.
 }
