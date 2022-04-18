@@ -289,8 +289,7 @@ where
         .iter()
         .enumerate()
         .filter_map(|(image_index, image)| {
-            let filename = image.path.file_name()?;
-            let debug_name = filename.to_str()?.to_string();
+            let debug_name = image.dso_key.name().to_string();
             let debug_id = image.debug_id.as_ref()?;
             Some(HelperLib {
                 debug_name,
@@ -354,8 +353,9 @@ where
                         }
                     } else {
                         println!(
-                            "  0x{:x} (in {:?})",
-                            relative_lookup_address, image_cache.images[image.0 as usize].path
+                            "  0x{:x} (in {})",
+                            relative_lookup_address,
+                            image_cache.images[image.0 as usize].dso_key.name()
                         );
                     }
                 }
