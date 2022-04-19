@@ -11,12 +11,12 @@ use framehop::aarch64::UnwindRegsAarch64;
 use framehop::x86_64::UnwindRegsX86_64;
 use framehop::{Module, ModuleSectionAddressRanges, TextByteData, Unwinder};
 use object::{Object, ObjectSection, ObjectSegment, SectionKind};
-use perf_event::{Event, Mmap2Event, MmapEvent, Regs, SampleEvent};
+use perf_event::{Event, Mmap2Event, Mmap2FileId, MmapEvent, Regs, SampleEvent};
 use perf_event_raw::{
     PERF_CONTEXT_MAX, PERF_REG_ARM64_LR, PERF_REG_ARM64_PC, PERF_REG_ARM64_SP, PERF_REG_ARM64_X29,
     PERF_REG_X86_BP, PERF_REG_X86_IP, PERF_REG_X86_SP,
 };
-pub use perf_file::PerfFile;
+pub use perf_file::{DsoKey, PerfFile};
 use profiler_get_symbols::{
     AddressDebugInfo, CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
     FilePath, OptionallySendFuture, SymbolicationQuery, SymbolicationResult,
@@ -28,8 +28,6 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::{fs::File, ops::Range, path::Path, sync::Arc};
 use uuid::Uuid;
-
-use crate::perf_event::{DsoKey, Mmap2FileId};
 
 fn main() {
     let mut args = std::env::args_os().skip(1);
@@ -187,8 +185,8 @@ where
             }
             Event::Fork(_) => {}
             Event::Mmap(e) => {
-                let dso_key = match &e.dso_key {
-                    Some(dso_key) => dso_key.clone(),
+                let dso_key = match DsoKey::detect(&e.path, e.cpu_mode) {
+                    Some(dso_key) => dso_key,
                     None => continue,
                 };
                 let build_id = build_ids
@@ -250,8 +248,8 @@ where
                 }
             }
             Event::Mmap2(e) => {
-                let dso_key = match &e.dso_key {
-                    Some(dso_key) => dso_key.clone(),
+                let dso_key = match DsoKey::detect(&e.path, e.cpu_mode) {
+                    Some(dso_key) => dso_key,
                     None => continue,
                 };
                 let build_id = build_ids

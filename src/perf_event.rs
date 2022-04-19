@@ -2,16 +2,17 @@ use crate::perf_event_raw::{
     PERF_FORMAT_GROUP, PERF_FORMAT_ID, PERF_FORMAT_TOTAL_TIME_ENABLED,
     PERF_FORMAT_TOTAL_TIME_RUNNING, PERF_RECORD_COMM, PERF_RECORD_EXIT, PERF_RECORD_FORK,
     PERF_RECORD_LOST, PERF_RECORD_MISC_COMM_EXEC, PERF_RECORD_MISC_CPUMODE_MASK,
-    PERF_RECORD_MISC_GUEST_KERNEL, PERF_RECORD_MISC_GUEST_USER, PERF_RECORD_MISC_KERNEL,
-    PERF_RECORD_MISC_MMAP_BUILD_ID, PERF_RECORD_MISC_MMAP_DATA, PERF_RECORD_MISC_SWITCH_OUT,
-    PERF_RECORD_MISC_SWITCH_OUT_PREEMPT, PERF_RECORD_MISC_USER, PERF_RECORD_MMAP,
-    PERF_RECORD_MMAP2, PERF_RECORD_SAMPLE, PERF_RECORD_SWITCH, PERF_RECORD_THROTTLE,
-    PERF_RECORD_UNTHROTTLE, PERF_SAMPLE_ADDR, PERF_SAMPLE_AUX, PERF_SAMPLE_BRANCH_HW_INDEX,
-    PERF_SAMPLE_BRANCH_STACK, PERF_SAMPLE_CALLCHAIN, PERF_SAMPLE_CODE_PAGE_SIZE, PERF_SAMPLE_CPU,
-    PERF_SAMPLE_DATA_PAGE_SIZE, PERF_SAMPLE_DATA_SRC, PERF_SAMPLE_ID, PERF_SAMPLE_IDENTIFIER,
-    PERF_SAMPLE_IP, PERF_SAMPLE_PERIOD, PERF_SAMPLE_PHYS_ADDR, PERF_SAMPLE_RAW, PERF_SAMPLE_READ,
-    PERF_SAMPLE_REGS_INTR, PERF_SAMPLE_REGS_USER, PERF_SAMPLE_STACK_USER, PERF_SAMPLE_STREAM_ID,
-    PERF_SAMPLE_TID, PERF_SAMPLE_TIME, PERF_SAMPLE_TRANSACTION, PERF_SAMPLE_WEIGHT,
+    PERF_RECORD_MISC_CPUMODE_UNKNOWN, PERF_RECORD_MISC_GUEST_KERNEL, PERF_RECORD_MISC_GUEST_USER,
+    PERF_RECORD_MISC_HYPERVISOR, PERF_RECORD_MISC_KERNEL, PERF_RECORD_MISC_MMAP_BUILD_ID,
+    PERF_RECORD_MISC_MMAP_DATA, PERF_RECORD_MISC_SWITCH_OUT, PERF_RECORD_MISC_SWITCH_OUT_PREEMPT,
+    PERF_RECORD_MISC_USER, PERF_RECORD_MMAP, PERF_RECORD_MMAP2, PERF_RECORD_SAMPLE,
+    PERF_RECORD_SWITCH, PERF_RECORD_THROTTLE, PERF_RECORD_UNTHROTTLE, PERF_SAMPLE_ADDR,
+    PERF_SAMPLE_AUX, PERF_SAMPLE_BRANCH_HW_INDEX, PERF_SAMPLE_BRANCH_STACK, PERF_SAMPLE_CALLCHAIN,
+    PERF_SAMPLE_CODE_PAGE_SIZE, PERF_SAMPLE_CPU, PERF_SAMPLE_DATA_PAGE_SIZE, PERF_SAMPLE_DATA_SRC,
+    PERF_SAMPLE_ID, PERF_SAMPLE_IDENTIFIER, PERF_SAMPLE_IP, PERF_SAMPLE_PERIOD,
+    PERF_SAMPLE_PHYS_ADDR, PERF_SAMPLE_RAW, PERF_SAMPLE_READ, PERF_SAMPLE_REGS_INTR,
+    PERF_SAMPLE_REGS_USER, PERF_SAMPLE_STACK_USER, PERF_SAMPLE_STREAM_ID, PERF_SAMPLE_TID,
+    PERF_SAMPLE_TIME, PERF_SAMPLE_TRANSACTION, PERF_SAMPLE_WEIGHT,
 };
 use crate::raw_data::{RawData, RawRegs};
 use crate::utils::{HexSlice, HexValue};
@@ -94,95 +95,34 @@ pub struct MmapEvent {
     pub length: u64,
     pub page_offset: u64,
     pub is_executable: bool,
-    pub dso_key: Option<DsoKey>,
+    pub cpu_mode: CpuMode,
     pub path: Vec<u8>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum DsoKey {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CpuMode {
+    Unknown,
     Kernel,
+    User,
+    Hypervisor,
     GuestKernel,
-    Vdso32,
-    VdsoX32,
-    Vdso64,
-    Vsyscall,
-    KernelModule(String),
-    User(String, Vec<u8>),
+    GuestUser,
 }
 
-impl DsoKey {
-    pub fn detect(path: &[u8], misc: u16) -> Option<Self> {
-        if path == b"//anon" || path == b"[stack]" || path == b"[heap]" || path == b"[vvar]" {
-            return None;
-        }
-
-        let cpumode = misc & PERF_RECORD_MISC_CPUMODE_MASK;
-        if path.starts_with(b"[kernel.kallsyms]") {
-            let dso_key = if cpumode == PERF_RECORD_MISC_GUEST_KERNEL {
-                DsoKey::GuestKernel
-            } else {
-                DsoKey::Kernel
-            };
-            return Some(dso_key);
-        }
-        if path.starts_with(b"[guest.kernel.kallsyms") {
-            return Some(DsoKey::GuestKernel);
-        }
-        if path == b"[vdso32]" {
-            return Some(DsoKey::Vdso32);
-        }
-        if path == b"[vdsox32]" {
-            return Some(DsoKey::VdsoX32);
-        }
-        if path == b"[vdso]" {
-            // TODO: I think this could also be Vdso32 when recording on a 32 bit machine.
-            return Some(DsoKey::Vdso64);
-        }
-        if path == b"[vsyscall]" {
-            return Some(DsoKey::Vsyscall);
-        }
-        if (cpumode == PERF_RECORD_MISC_KERNEL || cpumode == PERF_RECORD_MISC_GUEST_KERNEL)
-            && path.starts_with(b"[")
-        {
-            return Some(DsoKey::KernelModule(String::from_utf8_lossy(path).into()));
-        }
-
-        let filename = if let Some(final_slash_pos) = path.iter().rposition(|b| *b == b'/') {
-            &path[final_slash_pos + 1..]
-        } else {
-            path
-        };
-
-        let dso_key = match (cpumode, filename.strip_suffix(b".ko")) {
-            (PERF_RECORD_MISC_KERNEL | PERF_RECORD_MISC_GUEST_KERNEL, Some(kmod_name)) => {
-                // "/lib/modules/5.13.0-35-generic/kernel/sound/core/snd-seq-device.ko" -> "[snd-seq-device]"
-                let kmod_name = String::from_utf8_lossy(kmod_name);
-                DsoKey::KernelModule(format!("[{}]", kmod_name))
-            }
-            (PERF_RECORD_MISC_KERNEL, _) => DsoKey::Kernel,
-            (PERF_RECORD_MISC_GUEST_KERNEL, _) => DsoKey::GuestKernel,
-            (PERF_RECORD_MISC_USER | PERF_RECORD_MISC_GUEST_USER, _) => {
-                DsoKey::User(String::from_utf8_lossy(filename).into(), path.to_owned())
-            }
-            _ => return None,
-        };
-        Some(dso_key)
-    }
-
-    pub fn name(&self) -> &str {
-        match self {
-            DsoKey::Kernel => "[kernel.kallsyms]",
-            DsoKey::GuestKernel => "[guest.kernel.kallsyms]",
-            DsoKey::Vdso32 => "[vdso32]",
-            DsoKey::VdsoX32 => "[vdsox32]",
-            DsoKey::Vdso64 => "[vdso]",
-            DsoKey::Vsyscall => "[vsyscall]",
-            DsoKey::KernelModule(name) => name,
-            DsoKey::User(name, _) => name,
+impl CpuMode {
+    /// Initialize from the misc field of the perf event header.
+    pub fn from_misc(misc: u16) -> Self {
+        match misc & PERF_RECORD_MISC_CPUMODE_MASK {
+            PERF_RECORD_MISC_CPUMODE_UNKNOWN => Self::Unknown,
+            PERF_RECORD_MISC_KERNEL => Self::Kernel,
+            PERF_RECORD_MISC_USER => Self::User,
+            PERF_RECORD_MISC_HYPERVISOR => Self::Hypervisor,
+            PERF_RECORD_MISC_GUEST_KERNEL => Self::GuestKernel,
+            PERF_RECORD_MISC_GUEST_USER => Self::GuestUser,
+            _ => Self::Unknown,
         }
     }
 }
-
 pub enum Mmap2FileId {
     InodeAndVersion(Mmap2InodeAndVersion),
     BuildId(Vec<u8>),
@@ -197,7 +137,7 @@ pub struct Mmap2Event {
     pub file_id: Mmap2FileId,
     pub protection: u32,
     pub flags: u32,
-    pub dso_key: Option<DsoKey>,
+    pub cpu_mode: CpuMode,
     pub path: Vec<u8>,
 }
 
@@ -282,7 +222,7 @@ impl fmt::Debug for MmapEvent {
             .entry(&"address", &HexValue(self.address))
             .entry(&"length", &HexValue(self.length))
             .entry(&"page_offset", &HexValue(self.page_offset))
-            .entry(&"dso_key", &self.dso_key)
+            .entry(&"cpu_mode", &self.cpu_mode)
             .entry(&"path", &&*String::from_utf8_lossy(&self.path))
             .finish()
     }
@@ -302,7 +242,7 @@ impl fmt::Debug for Mmap2Event {
             // .entry(&"inode_generation", &self.inode_generation)
             .entry(&"protection", &HexValue(self.protection as _))
             .entry(&"flags", &HexValue(self.flags as _))
-            .entry(&"dso_key", &self.dso_key)
+            .entry(&"cpu_mode", &self.cpu_mode)
             .entry(&"path", &&*String::from_utf8_lossy(&self.path))
             .finish()
     }
@@ -667,7 +607,7 @@ impl<'a> RawEvent<'a> {
                     length,
                     page_offset,
                     is_executable,
-                    dso_key: DsoKey::detect(name, self.misc),
+                    cpu_mode: CpuMode::from_misc(self.misc),
                     path: name.to_owned(),
                 })
             }
@@ -719,7 +659,7 @@ impl<'a> RawEvent<'a> {
                     file_id,
                     protection,
                     flags,
-                    dso_key: DsoKey::detect(name, self.misc),
+                    cpu_mode: CpuMode::from_misc(self.misc),
                     path: name.to_owned(),
                 })
             }
