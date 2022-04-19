@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::perf_event::{CpuMode, Event, RawEvent};
 use crate::perf_event_raw::{
     PerfEventAttr, ATTR_FLAG_BIT_SAMPLE_ID_ALL, PERF_RECORD_MISC_BUILD_ID_SIZE,
@@ -19,6 +21,12 @@ pub struct PerfFile<'a> {
     feature_sections: Vec<(FlagFeature, &'a PerfFileSection)>,
 
     endian: Endianness,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DsoBuildId {
+    pub path: Vec<u8>,
+    pub build_id: Vec<u8>,
 }
 
 impl<'a> PerfFile<'a> {
@@ -111,13 +119,39 @@ impl<'a> PerfFile<'a> {
         }
     }
 
-    #[allow(clippy::complexity)]
-    pub fn build_ids(
-        &self,
-    ) -> Result<Option<Vec<(i32, Option<DsoKey>, &'a [u8], &'a [u8])>>, Error> {
+    /// Returns a map of build ID entries. `perf record` creates these records for any DSOs
+    /// which it thinks have been "hit" in the profile. They supplement Mmap events
+    /// the perf event stream; those usually don't come with build IDs.
+    ///
+    /// This method returns a HashMap so that you can easily look up the right build ID from
+    /// the DsoKey in an Mmap event. For some DSOs, the path in the raw Mmap event can be
+    /// different from the path in the build ID record; for example, the Mmap event for the
+    /// kernel ("vmlinux") image could have the path "[kernel.kallsyms]_text", whereas the
+    /// corresponding build ID record might have the path "[kernel.kallsyms]" (without the
+    /// trailing "_text"), or it could even have the full absolute path to a vmlinux file.
+    /// The DsoKey canonicalizes those differences away.
+    ///
+    /// Having the build ID for a DSO allows you to do the following:
+    ///
+    ///  - If the DSO file has changed in the time since the perf.data file was captured,
+    ///    you can detect this change because the new file will have a different build ID.
+    ///  - If debug symbols are installed for the DSO, you can sometimes find the debug symbol
+    ///    file using the build ID. For example, you might find it at
+    ///    /usr/lib/debug/.build-id/b8/037b6260865346802321dd2256b8ad1d857e63.debug
+    ///  - If the original DSO file is gone, or you're trying to read the perf.data file on
+    ///    an entirely different machine, you can sometimes retrieve the original DSO file just
+    ///    from its build ID, for example from a debuginfod server.
+    ///  - This also works for DSOs which are not present on the file system at all;
+    ///    specifically, the vDSO file is a bit of a pain to obtain. With the build ID you can
+    ///    instead obtain it from, say,
+    ///    https://debuginfod.elfutils.org/buildid/0d82ee4bd7f9609c367095ba0bedf155b71cb058/executable
+    ///
+    /// This method is a bit lossy. We discard the pid, because it seems to be always -1 in
+    /// the files I've tested. We also discard any entries for which we fail to create a `DsoKey`.
+    pub fn build_ids(&self) -> Result<HashMap<DsoKey, DsoBuildId>, Error> {
         let (offset, size) = match self.feature_section(FlagFeature::BuildId) {
             Some(section) => section,
-            None => return Ok(None),
+            None => return Ok(HashMap::new()),
         };
         let size = usize::try_from(size).map_err(|_| Error::SectionSizeTooBig)?;
         let section_data = self
@@ -125,30 +159,29 @@ impl<'a> PerfFile<'a> {
             .read_slice_at::<u8>(offset, size)
             .ok_or(ReadError::BuildIdSection)?;
         let mut offset = 0;
-        let mut build_ids = Vec::new();
+        let mut build_ids = HashMap::new();
         while let Some(build_id_event) = section_data.read_at::<BuildIdEvent>(offset as u64) {
             let file_name_start = offset + std::mem::size_of::<BuildIdEvent>();
             let record_end = offset + build_id_event.header.size.get(self.endian) as usize;
             offset = record_end;
             let file_name_bytes = &section_data[file_name_start..record_end];
             let file_name_len = memchr::memchr(0, file_name_bytes).unwrap_or(record_end);
-            let file_name = &file_name_bytes[..file_name_len];
-            let pid = build_id_event.pid.get(self.endian) as i32;
+            let path = &file_name_bytes[..file_name_len];
             let misc = build_id_event.header.misc.get(self.endian);
+            let dso_key = match DsoKey::detect(path, CpuMode::from_misc(misc)) {
+                Some(dso_key) => dso_key,
+                None => continue,
+            };
             let build_id = if misc & PERF_RECORD_MISC_BUILD_ID_SIZE != 0 {
                 let build_id_len = build_id_event.build_id[20].min(20);
-                &build_id_event.build_id[..build_id_len as usize]
+                build_id_event.build_id[..build_id_len as usize].to_owned()
             } else {
-                &build_id_event.build_id[..]
+                build_id_event.build_id[..].to_owned()
             };
-            build_ids.push((
-                pid,
-                DsoKey::detect(file_name, CpuMode::from_misc(misc)),
-                file_name,
-                build_id,
-            ));
+            let path = path.to_owned();
+            build_ids.insert(dso_key, DsoBuildId { path, build_id });
         }
-        Ok(Some(build_ids))
+        Ok(build_ids)
     }
 
     pub fn events(&self) -> EventIter<'a> {

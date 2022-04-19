@@ -29,6 +29,8 @@ use std::pin::Pin;
 use std::{fs::File, ops::Range, path::Path, sync::Arc};
 use uuid::Uuid;
 
+use crate::perf_file::DsoBuildId;
+
 fn main() {
     let mut args = std::env::args_os().skip(1);
     if args.len() < 1 {
@@ -66,19 +68,19 @@ fn main() {
         );
     }
 
-    if let Some(build_ids) = file.build_ids().unwrap() {
+    let build_ids = file.build_ids().unwrap();
+    if !build_ids.is_empty() {
         println!("Build IDs:");
-        for (pid, dso_key, filename, build_id) in build_ids {
+        for (dso_key, DsoBuildId { path, build_id }) in build_ids {
             println!(
-                " - PID {}, DSO key {:?}, build ID {}, filename {}",
-                pid,
-                dso_key.as_ref().map(DsoKey::name),
+                " - DSO key {}, build ID {}, path {}",
+                dso_key.name(),
                 build_id
                     .iter()
                     .map(|b| format!("{:02x}", b))
                     .collect::<Vec<String>>()
                     .join(""),
-                std::str::from_utf8(filename).unwrap()
+                std::str::from_utf8(&path).unwrap()
             );
         }
     }
@@ -145,7 +147,7 @@ where
     let mut processed_samples = Vec::new();
     let mut all_image_stack_frames = HashSet::new();
     let mut kernel_modules = AddedModules(Vec::new());
-    let build_ids = file.build_ids().ok().flatten().unwrap_or_default();
+    let build_ids = file.build_ids().ok().unwrap_or_default();
     let little_endian = file.endian() == unaligned::Endianness::LittleEndian;
 
     let mut events = file.events();
@@ -189,15 +191,7 @@ where
                     Some(dso_key) => dso_key,
                     None => continue,
                 };
-                let build_id = build_ids
-                    .iter()
-                    .find_map(|(_pid, bdso_key, _path, buildid)| {
-                        if bdso_key.as_ref() == Some(&dso_key) {
-                            Some(*buildid)
-                        } else {
-                            None
-                        }
-                    });
+                let build_id = build_ids.get(&dso_key).map(|db| &db.build_id[..]);
                 if e.pid == -1 {
                     // println!(
                     //     "kernel mmap: 0x{:016x}-0x{:016x} (page offset 0x{:016x}) {:?} ({})",
@@ -252,15 +246,7 @@ where
                     Some(dso_key) => dso_key,
                     None => continue,
                 };
-                let build_id = build_ids
-                    .iter()
-                    .find_map(|(_pid, bdso_key, _path, buildid)| {
-                        if bdso_key.as_ref() == Some(&dso_key) {
-                            Some(*buildid)
-                        } else {
-                            None
-                        }
-                    });
+                let build_id = build_ids.get(&dso_key).map(|db| &db.build_id[..]);
                 let process = processes
                     .entry(e.pid)
                     .or_insert_with(|| Process::new(e.pid, format!("<{}>", e.pid).into_bytes()));
