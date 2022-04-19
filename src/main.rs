@@ -6,7 +6,7 @@ mod reader;
 mod unaligned;
 mod utils;
 
-use debugid::CodeId;
+use debugid::{CodeId, DebugId};
 use framehop::aarch64::UnwindRegsAarch64;
 use framehop::x86_64::UnwindRegsX86_64;
 use framehop::{Module, ModuleSectionAddressRanges, TextByteData, Unwinder};
@@ -208,7 +208,7 @@ where
 
                     let debug_id = build_id.map(|buildid| {
                         let uuid = create_elf_id(buildid, little_endian);
-                        format!("{:X}0", uuid.to_simple())
+                        DebugId::from_uuid(uuid)
                     });
 
                     let start_addr = e.address;
@@ -274,12 +274,12 @@ where
         .enumerate()
         .filter_map(|(image_index, image)| {
             let debug_name = image.dso_key.name().to_string();
-            let debug_id = image.debug_id.as_ref()?;
+            let debug_id = image.debug_id?;
             Some(HelperLib {
                 debug_name,
                 handle: ImageCacheHandle(image_index as u32),
                 path: image.path.clone(),
-                debug_id: debug_id.clone(),
+                debug_id,
                 dso_key: image.dso_key.clone(),
             })
         })
@@ -296,10 +296,11 @@ where
                 }
             })
             .collect();
+        let breakpad_id = lib.debug_id.breakpad().to_string();
         let f = profiler_get_symbols::get_symbolication_result(
             SymbolicationQuery {
                 debug_name: &lib.debug_name,
-                breakpad_id: &lib.debug_id,
+                breakpad_id: &breakpad_id,
                 result_kind: SymbolicationResultKind::SymbolsForAddresses {
                     addresses: &addresses,
                     with_debug_info: true,
@@ -699,7 +700,7 @@ impl ImageCache {
         &mut self,
         path: &Path,
         dso_key: &DsoKey,
-        debug_id: Option<String>,
+        debug_id: Option<DebugId>,
     ) -> ImageCacheHandle {
         match self
             .images
@@ -745,7 +746,7 @@ pub struct StackFrameInImage {
 struct Image {
     dso_key: DsoKey,
     path: PathBuf,
-    debug_id: Option<String>,
+    debug_id: Option<DebugId>,
 }
 
 pub fn add_module<U>(
@@ -753,7 +754,7 @@ pub fn add_module<U>(
     objpath: &Path,
     base_address: u64,
     image_address_range: Range<u64>,
-) -> Option<String>
+) -> Option<DebugId>
 where
     U: Unwinder<Module = Module<Vec<u8>>>,
 {
@@ -855,7 +856,7 @@ where
     );
     unwinder.add_module(module);
 
-    get_elf_id(&file).map(|uuid| format!("{:X}0", uuid.to_simple()))
+    get_elf_id(&file).map(DebugId::from_uuid)
 }
 
 const UUID_SIZE: usize = 16;
@@ -939,7 +940,7 @@ struct Helper {
 #[derive(Debug, Clone)]
 struct HelperLib {
     debug_name: String,
-    debug_id: String,
+    debug_id: DebugId,
     dso_key: DsoKey,
     handle: ImageCacheHandle,
     path: PathBuf,
@@ -990,11 +991,9 @@ impl<'h> FileAndPathHelper<'h> for Helper {
         let mut paths = vec![];
 
         // Look up (debugName, breakpadId) in the path map.
-        if let Some(lib) = self
-            .libs
-            .iter()
-            .find(|lib| lib.debug_name == debug_name && lib.debug_id == breakpad_id)
-        {
+        if let Some(lib) = self.libs.iter().find(|lib| {
+            lib.debug_name == debug_name && lib.debug_id.breakpad().to_string() == breakpad_id
+        }) {
             let fixtures_dir = PathBuf::from("/Users/mstange/code/linux-perf-data/fixtures");
 
             if lib.dso_key == DsoKey::Kernel {
