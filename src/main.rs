@@ -147,7 +147,7 @@ where
     let mut processed_samples = Vec::new();
     let mut all_image_stack_frames = HashSet::new();
     let mut kernel_modules = AddedModules(Vec::new());
-    let build_ids = file.build_ids().ok().flatten().unwrap_or_else(Vec::new);
+    let build_ids = file.build_ids().ok().flatten().unwrap_or_default();
     let little_endian = file.endian() == unaligned::Endianness::LittleEndian;
 
     let mut events = file.events();
@@ -405,12 +405,7 @@ impl SymbolicationResult for MySymbolicationResult {
             .frames
             .into_iter()
             .map(|frame| {
-                let mut s;
-                if let Some(name) = frame.function {
-                    s = name;
-                } else {
-                    s = "<unknown>".to_string();
-                }
+                let mut s = frame.function.unwrap_or_else(|| "<unknown>".to_string());
                 if let Some(file) = frame.file_path {
                     s.push_str(" (");
                     let file = match file {
@@ -1011,13 +1006,11 @@ impl<'h> FileAndPathHelper<'h> for Helper {
         let mut paths = vec![];
 
         // Look up (debugName, breakpadId) in the path map.
-        if let Some(lib) = self.libs.iter().find_map(|lib| {
-            if lib.debug_name == debug_name && lib.debug_id == breakpad_id {
-                Some(lib)
-            } else {
-                None
-            }
-        }) {
+        if let Some(lib) = self
+            .libs
+            .iter()
+            .find(|lib| lib.debug_name == debug_name && lib.debug_id == breakpad_id)
+        {
             let fixtures_dir = PathBuf::from("/Users/mstange/code/linux-perf-data/fixtures");
 
             if lib.dso_key == DsoKey::Kernel {
