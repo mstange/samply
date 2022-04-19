@@ -868,21 +868,31 @@ impl DebugIdElfExt for DebugId {
         // Make sure that we have exactly UUID_SIZE bytes available.
         // ELF build IDs are usually 20 bytes, so this performs a lossy truncation.
         const UUID_SIZE: usize = 16;
-        let mut data = [0u8; UUID_SIZE];
+        let mut d = [0u8; UUID_SIZE];
         let len = std::cmp::min(build_id.len(), UUID_SIZE);
-        data[0..len].copy_from_slice(&build_id[0..len]);
+        d[0..len].copy_from_slice(&build_id[0..len]);
 
-        // For compatibility with the Breakpad symbol processor, endian-swap the
-        // build ID bytes for little-endian object files. This simulates serializing
-        // the three UUID fields u32, u16, u16 as big-endian. (The remaining 8 bytes
-        // are just bytes, not fields.)
-        if little_endian {
-            data[0..4].reverse(); // uuid field 1
-            data[4..6].reverse(); // uuid field 2
-            data[6..8].reverse(); // uuid field 3
-        }
-
-        DebugId::from_uuid(Uuid::from_bytes(data))
+        // Pretend that the build ID was stored as a UUID with u32 u16 u16 fields inside
+        // the file. Parse those fields in the endianness of the file. Then use
+        // Uuid::from_fields to serialize them as big endian.
+        // This is a bit silly, because ELF build IDs aren't actually field-based UUIDs,
+        // but it's what the tools in the breakpad and sentry/symbolic universe do, so
+        // we do the same for compatibility with those tools.
+        let (d1, d2, d3) = if little_endian {
+            (
+                u32::from_le_bytes([d[0], d[1], d[2], d[3]]),
+                u16::from_le_bytes([d[4], d[5]]),
+                u16::from_le_bytes([d[6], d[7]]),
+            )
+        } else {
+            (
+                u32::from_be_bytes([d[0], d[1], d[2], d[3]]),
+                u16::from_be_bytes([d[4], d[5]]),
+                u16::from_be_bytes([d[6], d[7]]),
+            )
+        };
+        let uuid = Uuid::from_fields(d1, d2, d3, &d[8..16]).unwrap();
+        DebugId::from_uuid(uuid)
     }
 }
 
