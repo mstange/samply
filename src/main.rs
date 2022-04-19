@@ -876,8 +876,8 @@ impl DebugIdElfExt for DebugId {
         // the file. Parse those fields in the endianness of the file. Then use
         // Uuid::from_fields to serialize them as big endian.
         // This is a bit silly, because ELF build IDs aren't actually field-based UUIDs,
-        // but it's what the tools in the breakpad and sentry/symbolic universe do, so
-        // we do the same for compatibility with those tools.
+        // but this is what the tools in the breakpad and sentry/symbolic universe do,
+        // so we do the same for compatibility with those tools.
         let (d1, d2, d3) = if little_endian {
             (
                 u32::from_le_bytes([d[0], d[1], d[2], d[3]]),
