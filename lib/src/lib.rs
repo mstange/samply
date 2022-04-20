@@ -53,6 +53,7 @@
 //!     FileContents, FileAndPathHelper, FileAndPathHelperResult, OptionallySendFuture,
 //!     CandidatePathInfo, FileLocation
 //! };
+//! use profiler_get_symbols::debugid::DebugId;
 //!
 //! async fn run_query() -> String {
 //!     let this_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -93,7 +94,7 @@
 //!     fn get_candidate_paths_for_binary_or_pdb(
 //!         &self,
 //!         debug_name: &str,
-//!         _breakpad_id: &str,
+//!         _debug_id: &DebugId,
 //!     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
 //!         Ok(vec![CandidatePathInfo::SingleFile(FileLocation::Path(self.artifact_directory.join(debug_name)))])
 //!     }
@@ -115,6 +116,8 @@
 //! }
 //! ```
 
+pub use debugid;
+use debugid::DebugId;
 pub use object;
 pub use pdb_addr2line::pdb;
 
@@ -129,6 +132,7 @@ mod dwarf;
 mod elf;
 mod error;
 mod macho;
+mod object_debugid;
 mod path_mapper;
 mod shared;
 mod source;
@@ -145,17 +149,22 @@ pub use crate::shared::{
     SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
 };
 
+pub(crate) fn to_debug_id(breakpad_id: &str) -> Result<DebugId> {
+    DebugId::from_breakpad(breakpad_id)
+        .map_err(|_| GetSymbolsError::InvalidBreakpadId(breakpad_id.to_string()))
+}
+
 /// Returns a symbol table in `CompactSymbolTable` format for the requested binary.
 /// `FileAndPathHelper` must be implemented by the caller, to provide file access.
 pub async fn get_compact_symbol_table<'h>(
     debug_name: &str,
-    breakpad_id: &str,
+    debug_id: DebugId,
     helper: &'h impl FileAndPathHelper<'h>,
 ) -> Result<CompactSymbolTable> {
     get_symbolication_result(
         SymbolicationQuery {
             debug_name,
-            breakpad_id,
+            debug_id,
             result_kind: SymbolicationResultKind::AllSymbols,
         },
         helper,
@@ -177,11 +186,11 @@ where
     R: SymbolicationResult,
 {
     let candidate_paths_for_binary = helper
-        .get_candidate_paths_for_binary_or_pdb(query.debug_name, query.breakpad_id)
+        .get_candidate_paths_for_binary_or_pdb(query.debug_name, &query.debug_id)
         .map_err(|e| {
             GetSymbolsError::HelperErrorDuringGetCandidatePathsForBinaryOrPdb(
                 query.debug_name.to_string(),
-                query.breakpad_id.to_string(),
+                query.debug_id,
                 e,
             )
         })?;
@@ -212,10 +221,7 @@ where
         };
     }
     Err(last_err.unwrap_or_else(|| {
-        GetSymbolsError::NoCandidatePathForBinary(
-            query.debug_name.to_string(),
-            query.breakpad_id.to_string(),
-        )
+        GetSymbolsError::NoCandidatePathForBinary(query.debug_name.to_string(), query.debug_id)
     }))
 }
 
@@ -273,13 +279,13 @@ where
             FileKind::MachOFat32 => {
                 let arches = FatHeader::parse_arch32(&file_contents)
                     .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
-                let range = macho::get_arch_range(&file_contents, arches, query.breakpad_id)?;
+                let range = macho::get_arch_range(&file_contents, arches, query.debug_id)?;
                 macho::get_symbolication_result(file_contents, Some(range), query, helper).await
             }
             FileKind::MachOFat64 => {
                 let arches = FatHeader::parse_arch64(&file_contents)
                     .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
-                let range = macho::get_arch_range(&file_contents, arches, query.breakpad_id)?;
+                let range = macho::get_arch_range(&file_contents, arches, query.debug_id)?;
                 macho::get_symbolication_result(file_contents, Some(range), query, helper).await
             }
             FileKind::MachO32 | FileKind::MachO64 => {

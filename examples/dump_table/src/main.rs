@@ -1,4 +1,4 @@
-use profiler_get_symbols::GetSymbolsError;
+use profiler_get_symbols::{debugid::DebugId, GetSymbolsError};
 use std::path::PathBuf;
 use structopt::StructOpt;
 
@@ -46,7 +46,7 @@ fn main() -> anyhow::Result<()> {
             // Print out all potential breakpad IDs so that the user can pick.
             eprintln!("This is a multi-arch container. Please specify one of the following breakpadIDs to pick a symbol table:");
             for id in uuids {
-                println!(" - {}", id);
+                println!(" - {}", id.breakpad());
             }
             Ok(())
         }
@@ -61,6 +61,9 @@ async fn main_impl(
     symbol_directory: PathBuf,
     full: bool,
 ) -> anyhow::Result<()> {
-    let table = get_table(debug_name, breakpad_id, symbol_directory).await?;
+    let debug_id = breakpad_id
+        .as_deref()
+        .and_then(|debug_id| DebugId::from_breakpad(debug_id).ok());
+    let table = get_table(debug_name, debug_id, symbol_directory).await?;
     dump_table(&mut std::io::stdout(), table, full)
 }

@@ -5,7 +5,7 @@ use crate::shared::{
     AddressDebugInfo, FileAndPathHelper, FileAndPathHelperError, FileContentsWrapper, FileLocation,
     InlineStackFrame, SymbolicationQuery, SymbolicationResultKind,
 };
-use crate::{GetSymbolsError, SymbolicationResult};
+use crate::{to_debug_id, GetSymbolsError, SymbolicationResult};
 use serde_json::json;
 
 mod request_json;
@@ -102,7 +102,7 @@ async fn query_api<'h>(
     let symbol_result: FramesForSingleAddress = crate::get_symbolication_result(
         SymbolicationQuery {
             debug_name,
-            breakpad_id: debug_id,
+            debug_id: to_debug_id(debug_id)?,
             result_kind: SymbolicationResultKind::SymbolsForAddresses {
                 addresses: &[*module_offset],
                 with_debug_info: true,

@@ -1,3 +1,4 @@
+use profiler_get_symbols::debugid::DebugId;
 use profiler_get_symbols::{
     self, CandidatePathInfo, CompactSymbolTable, FileAndPathHelper, FileAndPathHelperResult,
     FileLocation, GetSymbolsError, OptionallySendFuture,
@@ -12,35 +13,35 @@ use profiler_get_symbols::{FileByteSource, FileContents};
 
 pub async fn get_table(
     debug_name: &str,
-    breakpad_id: Option<String>,
+    debug_id: Option<DebugId>,
     symbol_directory: PathBuf,
 ) -> anyhow::Result<CompactSymbolTable> {
     let helper = Helper { symbol_directory };
-    let table = get_symbols_retry_id(debug_name, breakpad_id, &helper).await?;
+    let table = get_symbols_retry_id(debug_name, debug_id, &helper).await?;
     Ok(table)
 }
 
 async fn get_symbols_retry_id(
     debug_name: &str,
-    breakpad_id: Option<String>,
+    debug_id: Option<DebugId>,
     helper: &Helper,
 ) -> anyhow::Result<CompactSymbolTable> {
-    let breakpad_id = match breakpad_id {
-        Some(breakpad_id) => breakpad_id,
+    let debug_id = match debug_id {
+        Some(debug_id) => debug_id,
         None => {
-            // No breakpad ID was specified. get_compact_symbol_table always wants one, so we call it twice:
-            // First, with a bogus breakpad ID ("<unspecified>"), and then again with the breakpad ID that
+            // No debug ID was specified. get_compact_symbol_table always wants one, so we call it twice:
+            // First, with a bogus debug ID (DebugId::nil()), and then again with the debug ID that
             // it expected.
             let result =
-                profiler_get_symbols::get_compact_symbol_table(debug_name, "<unspecified>", helper)
+                profiler_get_symbols::get_compact_symbol_table(debug_name, DebugId::nil(), helper)
                     .await;
             match result {
                 Ok(table) => return Ok(table),
                 Err(err) => match err {
-                    GetSymbolsError::UnmatchedBreakpadId(expected, supplied)
-                        if supplied == "<unspecified>" =>
+                    GetSymbolsError::UnmatchedDebugId(expected, supplied)
+                        if supplied == DebugId::nil() =>
                     {
-                        eprintln!("Using breakpadID: {}", expected);
+                        eprintln!("Using debug ID: {}", expected.breakpad());
                         expected
                     }
                     err => return Err(err.into()),
@@ -48,7 +49,7 @@ async fn get_symbols_retry_id(
             }
         }
     };
-    Ok(profiler_get_symbols::get_compact_symbol_table(debug_name, &breakpad_id, helper).await?)
+    Ok(profiler_get_symbols::get_compact_symbol_table(debug_name, debug_id, helper).await?)
 }
 
 pub fn dump_table(w: &mut impl Write, table: CompactSymbolTable, full: bool) -> anyhow::Result<()> {
@@ -119,7 +120,7 @@ impl<'h> FileAndPathHelper<'h> for Helper {
     fn get_candidate_paths_for_binary_or_pdb(
         &self,
         debug_name: &str,
-        _breakpad_id: &str,
+        _breakpad_id: &DebugId,
     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
         let mut paths = vec![];
 
@@ -196,6 +197,7 @@ impl<'h> FileAndPathHelper<'h> for Helper {
 #[cfg(test)]
 mod test {
 
+    use profiler_get_symbols::debugid::DebugId;
     use profiler_get_symbols::GetSymbolsError;
     use std::fs::File;
     use std::io::{Read, Write};
@@ -210,7 +212,7 @@ mod test {
     fn successful_pdb() {
         let result = futures::executor::block_on(crate::get_table(
             "firefox.pdb",
-            Some(String::from("AA152DEB2D9B76084C4C44205044422E1")),
+            DebugId::from_breakpad("AA152DEB2D9B76084C4C44205044422E1").ok(),
             fixtures_dir().join("win64-ci"),
         ));
         assert!(result.is_ok());
@@ -229,7 +231,7 @@ mod test {
     fn successful_pdb2() {
         let result = futures::executor::block_on(crate::get_table(
             "mozglue.pdb",
-            Some(String::from("B3CC644ECC086E044C4C44205044422E1")),
+            DebugId::from_breakpad("B3CC644ECC086E044C4C44205044422E1").ok(),
             fixtures_dir().join("win64-local"),
         ));
         assert!(result.is_ok());
@@ -251,7 +253,7 @@ mod test {
         // exports in the DLL rather than the symbols in the PDB.
         let result = futures::executor::block_on(crate::get_table(
             "mozglue.dll",
-            Some(String::from("B3CC644ECC086E044C4C44205044422E1")),
+            DebugId::from_breakpad("B3CC644ECC086E044C4C44205044422E1").ok(),
             fixtures_dir().join("win64-local"),
         ));
         assert!(result.is_ok());
@@ -300,7 +302,7 @@ mod test {
     fn unsuccessful_pdb_wrong_id() {
         let result = futures::executor::block_on(crate::get_table(
             "firefox.pdb",
-            Some(String::from("AA152DEBFFFFFFFFFFFFFFFFF044422E1")),
+            DebugId::from_breakpad("AA152DEBFFFFFFFFFFFFFFFFF044422E1").ok(),
             fixtures_dir().join("win64-ci"),
         ));
         assert!(result.is_err());
@@ -313,9 +315,15 @@ mod test {
             Err(_) => panic!("wrong error type"),
         };
         match err {
-            GetSymbolsError::UnmatchedBreakpadId(expected, actual) => {
-                assert_eq!(expected, "AA152DEB2D9B76084C4C44205044422E1");
-                assert_eq!(actual, "AA152DEBFFFFFFFFFFFFFFFFF044422E1");
+            GetSymbolsError::UnmatchedDebugId(expected, actual) => {
+                assert_eq!(
+                    expected.breakpad().to_string(),
+                    "AA152DEB2D9B76084C4C44205044422E1"
+                );
+                assert_eq!(
+                    actual.breakpad().to_string(),
+                    "AA152DEBFFFFFFFFFFFFFFFFF044422E1"
+                );
             }
             _ => panic!("wrong GetSymbolsError subtype"),
         }
@@ -340,8 +348,12 @@ mod test {
         match err {
             GetSymbolsError::NoMatchMultiArch(expected_ids, _) => {
                 assert_eq!(expected_ids.len(), 2);
-                assert!(expected_ids.contains(&"B993FABD8143361AB199F7DE9DF7E4360".to_string()));
-                assert!(expected_ids.contains(&"8E7B0ED0B04F3FCCA05E139E5250BA720".to_string()));
+                assert!(expected_ids.contains(
+                    &DebugId::from_breakpad("B993FABD8143361AB199F7DE9DF7E4360").unwrap()
+                ));
+                assert!(expected_ids.contains(
+                    &DebugId::from_breakpad("8E7B0ED0B04F3FCCA05E139E5250BA720").unwrap()
+                ));
             }
             _ => panic!("wrong GetSymbolsError subtype: {:?}", err),
         }
@@ -351,7 +363,7 @@ mod test {
     fn fat_arch_1() {
         let result = futures::executor::block_on(crate::get_table(
             "firefox",
-            Some("B993FABD8143361AB199F7DE9DF7E4360".to_string()),
+            DebugId::from_breakpad("B993FABD8143361AB199F7DE9DF7E4360").ok(),
             fixtures_dir().join("macos-ci"),
         ));
         assert!(result.is_ok());
@@ -370,7 +382,7 @@ mod test {
     fn fat_arch_2() {
         let result = futures::executor::block_on(crate::get_table(
             "firefox",
-            Some("8E7B0ED0B04F3FCCA05E139E5250BA720".to_string()),
+            DebugId::from_breakpad("8E7B0ED0B04F3FCCA05E139E5250BA720").ok(),
             fixtures_dir().join("macos-ci"),
         ));
         assert!(result.is_ok());
@@ -389,7 +401,7 @@ mod test {
     fn compare_snapshot() {
         let table = futures::executor::block_on(crate::get_table(
             "mozglue.pdb",
-            Some(String::from("63C609072D3499F64C4C44205044422E1")),
+            DebugId::from_breakpad("63C609072D3499F64C4C44205044422E1").ok(),
             fixtures_dir().join("win64-ci"),
         ))
         .unwrap();

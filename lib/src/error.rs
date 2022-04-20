@@ -1,3 +1,4 @@
+use debugid::DebugId;
 use pdb_addr2line::pdb::Error as PdbError;
 use std::path::PathBuf;
 use thiserror::Error;
@@ -8,10 +9,13 @@ pub type Result<T> = std::result::Result<T, GetSymbolsError>;
 #[non_exhaustive]
 pub enum GetSymbolsError {
     #[error("Unmatched breakpad_id: Expected {0}, but received {1}")]
-    UnmatchedBreakpadId(String, String),
+    UnmatchedDebugId(DebugId, DebugId),
 
-    #[error("No match in multi-arch binary, available UUIDs: {}, errors: {}", .0.join(", "), .1.iter().map(|e| format!("{}", e)).collect::<Vec<String>>().join(", "))]
-    NoMatchMultiArch(Vec<String>, Vec<GetSymbolsError>),
+    #[error("Invalid breakpad ID {0}")]
+    InvalidBreakpadId(String),
+
+    #[error("No match in multi-arch binary, available UUIDs: {}, errors: {}", .0.iter().map(|di| di.breakpad().to_string()).collect::<Vec<String>>().join(", "), .1.iter().map(|e| format!("{}", e)).collect::<Vec<String>>().join(", "))]
+    NoMatchMultiArch(Vec<DebugId>, Vec<GetSymbolsError>),
 
     #[error("Couldn't get symbols from system library, errors: {}", .0.iter().map(|e| format!("{}", e)).collect::<Vec<String>>().join(", "))]
     NoLuckMacOsSystemLibrary(Vec<GetSymbolsError>),
@@ -42,14 +46,14 @@ pub enum GetSymbolsError {
     )]
     HelperErrorDuringGetCandidatePathsForBinaryOrPdb(
         String,
-        String,
+        DebugId,
         #[source] Box<dyn std::error::Error + Send + Sync>,
     ),
 
     #[error("get_candidate_paths_for_pdb helper callback for {0} {1} returned error: {2}")]
     HelperErrorDuringGetCandidatePathsForPdb(
         String,
-        String,
+        DebugId,
         #[source] Box<dyn std::error::Error + Send + Sync>,
     ),
 
@@ -60,7 +64,7 @@ pub enum GetSymbolsError {
     HelperErrorDuringFileReading(String, #[source] Box<dyn std::error::Error + Send + Sync>),
 
     #[error("No candidate path for binary, for {0} {1}")]
-    NoCandidatePathForBinary(String, String),
+    NoCandidatePathForBinary(String, DebugId),
 
     #[error("The PE (Windows) binary at path {0} did not contain information about an associated PDB file")]
     NoDebugInfoInPeBinary(String),
@@ -130,7 +134,8 @@ impl From<srcsrv::EvalError> for GetSymbolsError {
 impl GetSymbolsError {
     pub fn enum_as_string(&self) -> &'static str {
         match *self {
-            GetSymbolsError::UnmatchedBreakpadId(_, _) => "UnmatchedBreakpadId",
+            GetSymbolsError::UnmatchedDebugId(_, _) => "UnmatchedDebugId",
+            GetSymbolsError::InvalidBreakpadId(_) => "InvalidBreakpadId",
             GetSymbolsError::NoMatchMultiArch(_, _) => "NoMatchMultiArch",
             GetSymbolsError::NoLuckMacOsSystemLibrary(_) => "NoLuckMacOsSystemLibrary",
             GetSymbolsError::PdbError(_, _) => "PdbError",

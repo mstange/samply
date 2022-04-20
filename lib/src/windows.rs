@@ -1,10 +1,12 @@
 use crate::error::{Context, GetSymbolsError, Result};
+use crate::object_debugid::debug_id_for_object;
 use crate::path_mapper::{ExtraPathMapper, PathMapper};
 use crate::shared::{
     get_symbolication_result_for_addresses_from_object, object_to_map, AddressDebugInfo,
     FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation, InlineStackFrame,
     SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
 };
+use debugid::DebugId;
 use pdb::PDB;
 use pdb_addr2line::pdb;
 use regex::Regex;
@@ -23,7 +25,7 @@ where
 {
     let SymbolicationQuery {
         debug_name,
-        breakpad_id,
+        debug_id,
         ..
     } = query.clone();
     use object::{Object, ObjectSection};
@@ -38,7 +40,7 @@ where
         }
     };
 
-    // We could check the binary's signature here against breakpad_id, but we don't really
+    // We could check the binary's signature here against debug_id, but we don't really
     // care whether we have the right binary. As long as we find a PDB file with the right
     // signature, that's all we need, and we'll happily accept correct PDB files even when
     // we found them via incorrect binaries.
@@ -47,11 +49,11 @@ where
         std::ffi::CString::new(info.path()).expect("info.path() should have stripped the nul byte");
 
     let candidate_paths_for_pdb = helper
-        .get_candidate_paths_for_pdb(debug_name, breakpad_id, &pdb_path, file_location)
+        .get_candidate_paths_for_pdb(debug_name, &debug_id, &pdb_path, file_location)
         .map_err(|e| {
             GetSymbolsError::HelperErrorDuringGetCandidatePathsForPdb(
                 debug_name.to_string(),
-                breakpad_id.to_string(),
+                debug_id,
                 e,
             )
         })?;
@@ -69,16 +71,12 @@ where
     }
 
     // Fallback: If no PDB file is present, make a symbol table with just the exports.
-    // Now it's time to check the breakpad ID!
+    // Now it's time to check the debug ID!
 
-    let signature = pe_signature_to_uuid(&info.guid());
-    let expected_breakpad_id = format!("{:X}{:x}", signature.to_simple(), info.age());
+    let file_debug_id = debug_id_for_object(&pe).expect("we checked pdb_info above");
 
-    if breakpad_id != expected_breakpad_id {
-        return Err(GetSymbolsError::UnmatchedBreakpadId(
-            expected_breakpad_id,
-            breakpad_id.to_string(),
-        ));
+    if debug_id != file_debug_id {
+        return Err(GetSymbolsError::UnmatchedDebugId(file_debug_id, debug_id));
     }
 
     // Get function start and end addresses from the function list in .pdata.
@@ -134,19 +132,16 @@ where
     R: SymbolicationResult,
     S: pdb::Source<'s> + 's,
 {
-    // Check against the expected breakpad_id.
+    // Check against the expected debug_id.
     let info = pdb.pdb_information().context("pdb_information")?;
     let dbi = pdb.debug_information()?;
     let age = dbi.age().unwrap_or(info.age);
-    let pdb_id = format!("{:X}{:x}", info.guid.to_simple(), age);
+    let file_debug_id = DebugId::from_parts(info.guid, age);
 
-    let SymbolicationQuery { breakpad_id, .. } = query;
+    let SymbolicationQuery { debug_id, .. } = query;
 
-    if pdb_id != breakpad_id {
-        return Err(GetSymbolsError::UnmatchedBreakpadId(
-            pdb_id,
-            breakpad_id.to_string(),
-        ));
+    if file_debug_id != debug_id {
+        return Err(GetSymbolsError::UnmatchedDebugId(file_debug_id, debug_id));
     }
 
     let srcsrv_stream = if query.result_kind.wants_debug_info_for_addresses() {
@@ -405,18 +400,6 @@ fn has_debug_info(func: &pdb_addr2line::FunctionFrames) -> bool {
     } else {
         func.frames[0].file.is_some() || func.frames[0].line.is_some()
     }
-}
-
-fn pe_signature_to_uuid(identifier: &[u8; 16]) -> uuid::Uuid {
-    let mut data = *identifier;
-    // The PE file targets a little endian architecture. Convert to
-    // network byte order (big endian) to match the Breakpad processor's
-    // expectations. For big endian object files, this is not needed.
-    data[0..4].reverse(); // uuid field 1
-    data[4..6].reverse(); // uuid field 2
-    data[6..8].reverse(); // uuid field 3
-
-    uuid::Uuid::from_bytes(data)
 }
 
 #[derive(Clone)]

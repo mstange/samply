@@ -5,7 +5,9 @@ use std::{future::Future, pin::Pin};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
-use profiler_get_symbols::{FileByteSource, FileContentsWithChunkedCaching, FileLocation};
+use profiler_get_symbols::{
+    debugid::DebugId, FileByteSource, FileContentsWithChunkedCaching, FileLocation,
+};
 
 pub use error::{GenericError, GetSymbolsError, JsValueError};
 
@@ -147,8 +149,13 @@ async fn get_compact_symbol_table_impl(
     breakpad_id: String,
     helper: FileAndPathHelper,
 ) -> Result<JsValue, JsValue> {
+    let debug_id = DebugId::from_breakpad(&breakpad_id).map_err(|_| {
+        GetSymbolsError::from(profiler_get_symbols::GetSymbolsError::InvalidBreakpadId(
+            breakpad_id,
+        ))
+    })?;
     let result =
-        profiler_get_symbols::get_compact_symbol_table(&debug_name, &breakpad_id, &helper).await;
+        profiler_get_symbols::get_compact_symbol_table(&debug_name, debug_id, &helper).await;
     match result {
         Result::Ok(table) => Ok(js_sys::Array::of3(
             &js_sys::Uint32Array::from(&table.addr[..]),
@@ -228,13 +235,13 @@ impl<'h> profiler_get_symbols::FileAndPathHelper<'h> for FileAndPathHelper {
     fn get_candidate_paths_for_binary_or_pdb(
         &self,
         debug_name: &str,
-        breakpad_id: &str,
+        debug_id: &DebugId,
     ) -> profiler_get_symbols::FileAndPathHelperResult<Vec<profiler_get_symbols::CandidatePathInfo>>
     {
         get_candidate_paths_for_binary_or_pdb_impl(
             FileAndPathHelper::from((*self).clone()),
             debug_name.to_owned(),
-            breakpad_id.to_owned(),
+            *debug_id,
         )
     }
 
@@ -264,8 +271,9 @@ impl<'h> profiler_get_symbols::FileAndPathHelper<'h> for FileAndPathHelper {
 fn get_candidate_paths_for_binary_or_pdb_impl(
     helper: FileAndPathHelper,
     debug_name: String,
-    breakpad_id: String,
+    debug_id: DebugId,
 ) -> profiler_get_symbols::FileAndPathHelperResult<Vec<profiler_get_symbols::CandidatePathInfo>> {
+    let breakpad_id = debug_id.breakpad().to_string();
     let res = helper.getCandidatePathsForBinaryOrPdb(&debug_name, &breakpad_id);
     let value = res.map_err(JsValueError::from)?;
     let array = js_sys::Array::from(&value);

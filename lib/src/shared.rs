@@ -1,3 +1,4 @@
+use debugid::DebugId;
 use object::read::ReadRef;
 use object::SymbolKind;
 use std::borrow::Cow;
@@ -91,7 +92,7 @@ pub trait FileAndPathHelper<'h> {
     fn get_candidate_paths_for_binary_or_pdb(
         &self,
         debug_name: &str,
-        breakpad_id: &str,
+        debug_id: &DebugId,
     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>>;
 
     /// This method can usually be ignored and does not need to be implemented; its default
@@ -110,7 +111,7 @@ pub trait FileAndPathHelper<'h> {
     fn get_candidate_paths_for_pdb(
         &self,
         _debug_name: &str,
-        _breakpad_id: &str,
+        _debug_id: &DebugId,
         pdb_path_as_stored_in_binary: &std::ffi::CStr,
         _binary_file_location: &FileLocation,
     ) -> FileAndPathHelperResult<Vec<FileLocation>> {
@@ -276,8 +277,8 @@ pub trait SymbolicationResult {
 pub struct SymbolicationQuery<'a> {
     /// The debug name of the binary whose symbols need to be looked up.
     pub debug_name: &'a str,
-    /// The breakpad ID of the binary whose symbols need to be looked up.
-    pub breakpad_id: &'a str,
+    /// The debug ID of the binary whose symbols need to be looked up.
+    pub debug_id: DebugId,
     /// The kind of data which this query wants have returned.
     pub result_kind: SymbolicationResultKind<'a>,
 }

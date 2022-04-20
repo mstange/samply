@@ -2,70 +2,51 @@ use crate::dwarf::{
     collect_dwarf_address_debug_data, make_address_pairs_for_root_object, AddressPair,
 };
 use crate::error::{GetSymbolsError, Result};
+use crate::object_debugid::debug_id_for_object;
 use crate::path_mapper::PathMapper;
 use crate::shared::{
     get_symbolication_result_for_addresses_from_object, object_to_map, FileAndPathHelper,
     FileContents, FileContentsWrapper, FileLocation, RangeReadRef, SymbolicationQuery,
     SymbolicationResult, SymbolicationResultKind,
 };
+use debugid::DebugId;
 use macho_unwind_info::UnwindInfo;
 use object::macho::{self, LinkeditDataCommand, MachHeader32, MachHeader64};
 use object::read::macho::{FatArch, LoadCommandIterator, MachHeader};
-use object::read::{archive::ArchiveFile, File, FileKind, Object, ObjectSection, ObjectSymbol};
+use object::read::{archive::ArchiveFile, File, Object, ObjectSection, ObjectSymbol};
 use object::{Endianness, ObjectMapEntry, ReadRef};
 use std::collections::{HashMap, VecDeque};
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
-use uuid::Uuid;
 
 /// Returns the (offset, size) in the fat binary file for the object that matches
 // breakpad_id, if found.
 pub fn get_arch_range(
     file_contents: &FileContentsWrapper<impl FileContents>,
     arches: &[impl FatArch],
-    breakpad_id: &str,
+    debug_id: DebugId,
 ) -> Result<(u64, u64)> {
-    let mut uuids = Vec::new();
+    let mut debug_ids = Vec::new();
     let mut errors = Vec::new();
 
     for fat_arch in arches {
         let range = fat_arch.file_range();
         let (start, size) = range;
-        match get_macho_uuid(file_contents.range(start, size), 0) {
-            Ok(uuid) => {
-                if uuid == breakpad_id {
+        let file = File::parse(file_contents.range(start, size))
+            .map_err(GetSymbolsError::MachOHeaderParseError)?;
+        match debug_id_for_object(&file) {
+            Some(di) => {
+                if di == debug_id {
                     return Ok(range);
                 }
-                uuids.push(uuid);
+                debug_ids.push(di);
             }
-            Err(err) => {
-                errors.push(err);
+            None => {
+                errors.push(GetSymbolsError::InvalidInputError("Missing mach-O UUID"));
             }
         }
     }
-    Err(GetSymbolsError::NoMatchMultiArch(uuids, errors))
-}
-
-pub fn get_macho_uuid<'a, R: ReadRef<'a>>(data: R, header_offset: u64) -> Result<String> {
-    let helper = || {
-        let file_kind = FileKind::parse_at(data, header_offset)?;
-        match file_kind {
-            FileKind::MachO32 => {
-                let header = MachHeader32::<Endianness>::parse(data, header_offset)?;
-                header.uuid(header.endian()?, data, header_offset)
-            }
-            FileKind::MachO64 => {
-                let header = MachHeader64::<Endianness>::parse(data, header_offset)?;
-                header.uuid(header.endian()?, data, header_offset)
-            }
-            _ => panic!("Unexpected file kind {:?}", file_kind),
-        }
-    };
-    match helper() {
-        Ok(Some(uuid)) => Ok(format!("{:X}0", Uuid::from_bytes(uuid).to_simple())),
-        Ok(None) => Err(GetSymbolsError::InvalidInputError("Missing mach-o uuid")),
-        Err(err) => Err(GetSymbolsError::MachOHeaderParseError(err)),
-    }
+    Err(GetSymbolsError::NoMatchMultiArch(debug_ids, errors))
 }
 
 pub async fn try_get_symbolication_result_from_dyld_shared_cache<'h, R, H>(
@@ -145,15 +126,14 @@ pub fn get_symbolication_result_from_macho_object<'a, 'data, R, RR: ReadRef<'dat
 where
     R: SymbolicationResult,
 {
-    let uuid = match macho_file.mach_uuid() {
-        Ok(Some(uuid)) => format!("{:X}0", Uuid::from_bytes(uuid).to_simple()),
-        Ok(None) => return Err(GetSymbolsError::InvalidInputError("Missing mach-o uuid")),
-        Err(err) => return Err(GetSymbolsError::MachOHeaderParseError(err)),
+    let file_debug_id = match debug_id_for_object(macho_file) {
+        Some(debug_id) => debug_id,
+        None => return Err(GetSymbolsError::InvalidInputError("Missing mach-o uuid")),
     };
-    if uuid != query.breakpad_id {
-        return Err(GetSymbolsError::UnmatchedBreakpadId(
-            uuid,
-            query.breakpad_id.to_string(),
+    if file_debug_id != query.debug_id {
+        return Err(GetSymbolsError::UnmatchedDebugId(
+            file_debug_id,
+            query.debug_id,
         ));
     }
 

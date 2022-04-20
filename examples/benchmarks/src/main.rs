@@ -1,7 +1,7 @@
 use bzip2::read::BzDecoder;
 use dump_table::get_table;
 use flate2::read::GzDecoder;
-use query_api::query_api;
+use query_api::{query_api, DebugId};
 use std::collections::HashSet;
 use std::ffi::OsString;
 use std::fs::{self, File};
@@ -303,16 +303,16 @@ fn run_dump_table_benchmark(
     breakpad_id: Option<String>,
     symbol_directory: PathBuf,
 ) -> std::time::Duration {
+    let debug_id = breakpad_id
+        .as_deref()
+        .and_then(|debug_id| DebugId::from_breakpad(debug_id).ok());
     eprintln!(
         "Starting dump_table benchmark for {}, {:?}, {:?}.",
         debug_name, breakpad_id, symbol_directory
     );
     let start = Instant::now();
-    let _result = futures::executor::block_on(get_table(
-        debug_name,
-        breakpad_id.clone(),
-        symbol_directory.clone(),
-    ));
+    let _result =
+        futures::executor::block_on(get_table(debug_name, debug_id, symbol_directory.clone()));
     let duration = start.elapsed();
     eprintln!(
         "Finished dump_table benchmark for {}, {:?}, {:?}.",

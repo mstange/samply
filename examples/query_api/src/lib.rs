@@ -1,4 +1,5 @@
 use futures::Future;
+pub use profiler_get_symbols::debugid::DebugId;
 use profiler_get_symbols::{
     self, CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
 };
@@ -21,7 +22,7 @@ impl<'h> FileAndPathHelper<'h> for Helper {
     fn get_candidate_paths_for_binary_or_pdb(
         &self,
         debug_name: &str,
-        _breakpad_id: &str,
+        _debug_id: &DebugId,
     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
         let mut paths = vec![];
 

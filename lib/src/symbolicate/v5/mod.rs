@@ -1,5 +1,6 @@
 use crate::error::{GetSymbolsError, Result};
 use crate::shared::{FileAndPathHelper, SymbolicationQuery, SymbolicationResultKind};
+use crate::to_debug_id;
 use std::collections::HashMap;
 
 pub mod looked_up_addresses;
@@ -77,18 +78,23 @@ async fn symbolicate_requested_addresses<'h>(
     for (lib, mut addresses) in requested_addresses.into_iter() {
         addresses.sort_unstable();
         addresses.dedup();
-        let address_results = crate::get_symbolication_result(
-            SymbolicationQuery {
-                debug_name: &lib.debug_name,
-                breakpad_id: &lib.breakpad_id,
-                result_kind: SymbolicationResultKind::SymbolsForAddresses {
-                    addresses: &addresses,
-                    with_debug_info,
-                },
-            },
-            helper,
-        )
-        .await;
+        let address_results = match to_debug_id(&lib.breakpad_id) {
+            Ok(debug_id) => {
+                crate::get_symbolication_result(
+                    SymbolicationQuery {
+                        debug_name: &lib.debug_name,
+                        debug_id,
+                        result_kind: SymbolicationResultKind::SymbolsForAddresses {
+                            addresses: &addresses,
+                            with_debug_info,
+                        },
+                    },
+                    helper,
+                )
+                .await
+            }
+            Err(e) => Err(e),
+        };
         symbolicated_addresses.insert(lib, address_results);
     }
     symbolicated_addresses
