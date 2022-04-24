@@ -2,6 +2,7 @@ use debugid::DebugId;
 use object::read::ReadRef;
 use object::SymbolKind;
 use std::borrow::Cow;
+use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::future::Future;
 use std::ops::Range;
@@ -487,10 +488,12 @@ where
     // These entries serve to "terminate" the last function of each section,
     // so that addresses in the following section are not considered
     // to be part of the last function of that previous section.
-    for section in object_file.sections() {
-        let end_address = (section.address() - base_address + section.size()) as u32;
-        entries.push((end_address, FullSymbolListEntry::EndAddress));
-    }
+    entries.extend(object_file.sections().filter_map(|section| {
+        let vma_end_address = section.address().checked_add(section.size())?;
+        let end_address = vma_end_address.checked_sub(base_address)?;
+        let end_address = u32::try_from(end_address).ok()?;
+        Some((end_address, FullSymbolListEntry::EndAddress))
+    }));
 
     // 6. End addresses for known functions ends
     // These addresses serve to "terminate" functions from function_start_addresses.
