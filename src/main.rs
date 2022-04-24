@@ -759,7 +759,8 @@ where
     let file = match std::fs::File::open(objpath) {
         Ok(file) => file,
         Err(_) => {
-            let mut p = Path::new("/Users/mstange/code/linux-perf-data/fixtures").to_owned();
+            let mut p =
+                Path::new("/Users/mstange/code/linux-perf-data/fixtures/aarch64").to_owned();
             p.push(objpath.file_name().unwrap());
             match std::fs::File::open(&p) {
                 Ok(file) => file,
@@ -1006,17 +1007,24 @@ impl<'h> FileAndPathHelper<'h> for Helper {
         if let Some(lib) = self.libs.iter().find(|lib| {
             lib.debug_name == debug_name && lib.debug_id.breakpad().to_string() == breakpad_id
         }) {
-            let fixtures_dir = PathBuf::from("/Users/mstange/code/linux-perf-data/fixtures");
+            let fixtures_dir =
+                PathBuf::from("/Users/mstange/code/linux-perf-data/fixtures/aarch64");
 
             if lib.dso_key == DsoKey::Kernel {
                 let mut p = fixtures_dir.clone();
                 p.push("kernel-symbols");
+                paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(p)));
+                let mut p = fixtures_dir.clone();
+                p.push("vmlinux-5.4.0-109-generic");
                 paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(p)));
             }
 
             if lib.dso_key == DsoKey::Vdso64 {
                 let mut p = fixtures_dir.clone();
                 p.push("vdso64-symbols");
+                paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(p)));
+                let mut p = fixtures_dir.clone();
+                p.push("vdso.so");
                 paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(p)));
             }
 

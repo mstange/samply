@@ -19,7 +19,7 @@
           "kind": "bin"
         }
       },
-      "args": ["fixtures/perf.data"],
+      "args": ["fixtures/aarch64/perf-smalldwarf.data"],
       "cwd": "${workspaceFolder}"
     },
     {
