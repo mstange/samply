@@ -10,7 +10,7 @@ use debugid::{CodeId, DebugId};
 use framehop::aarch64::UnwindRegsAarch64;
 use framehop::x86_64::UnwindRegsX86_64;
 use framehop::{Module, ModuleSectionAddressRanges, TextByteData, Unwinder};
-use object::{Object, ObjectSection, ObjectSegment, SectionKind};
+use object::{Object, ObjectSection, ObjectSegment};
 use perf_event::{Event, Mmap2Event, Mmap2FileId, MmapEvent, Regs, SampleEvent};
 use perf_event_raw::{
     PERF_CONTEXT_MAX, PERF_REG_ARM64_LR, PERF_REG_ARM64_PC, PERF_REG_ARM64_SP, PERF_REG_ARM64_X29,
@@ -18,16 +18,15 @@ use perf_event_raw::{
 };
 pub use perf_file::{DsoKey, PerfFile};
 use profiler_get_symbols::{
-    AddressDebugInfo, CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
-    FilePath, OptionallySendFuture, SymbolicationQuery, SymbolicationResult,
-    SymbolicationResultKind,
+    debug_id_for_object, AddressDebugInfo, CandidatePathInfo, DebugIdExt, FileAndPathHelper,
+    FileAndPathHelperResult, FileLocation, FilePath, OptionallySendFuture, SymbolicationQuery,
+    SymbolicationResult, SymbolicationResultKind,
 };
 use std::collections::HashSet;
 use std::collections::{hash_map::Entry, HashMap};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::{fs::File, ops::Range, path::Path, sync::Arc};
-use uuid::Uuid;
 
 use crate::perf_file::DsoBuildId;
 
@@ -207,7 +206,7 @@ where
                     }
 
                     let debug_id =
-                        build_id.map(|buildid| DebugId::from_elf_build_id(buildid, little_endian));
+                        build_id.map(|buildid| DebugId::from_identifier(buildid, little_endian));
 
                     let start_addr = e.address;
                     let end_addr = e.address + e.length;
@@ -294,11 +293,10 @@ where
                 }
             })
             .collect();
-        let breakpad_id = lib.debug_id.breakpad().to_string();
         let f = profiler_get_symbols::get_symbolication_result(
             SymbolicationQuery {
                 debug_name: &lib.debug_name,
-                breakpad_id: &breakpad_id,
+                debug_id: lib.debug_id,
                 result_kind: SymbolicationResultKind::SymbolsForAddresses {
                     addresses: &addresses,
                     with_debug_info: true,
@@ -759,8 +757,7 @@ where
     let file = match std::fs::File::open(objpath) {
         Ok(file) => file,
         Err(_) => {
-            let mut p =
-                Path::new("/Users/mstange/code/linux-perf-data/fixtures/aarch64").to_owned();
+            let mut p = Path::new("/Users/mstange/code/linux-perf-data/fixtures/x86_64").to_owned();
             p.push(objpath.file_name().unwrap());
             match std::fs::File::open(&p) {
                 Ok(file) => file,
@@ -858,82 +855,6 @@ where
     debug_id_for_object(&file)
 }
 
-pub trait DebugIdElfExt {
-    /// Creates a DebugId from the build ID of an ELF object file.
-    /// The `little_endian` argument
-    fn from_elf_build_id(build_id: &[u8], little_endian: bool) -> Self;
-}
-
-impl DebugIdElfExt for DebugId {
-    fn from_elf_build_id(build_id: &[u8], little_endian: bool) -> Self {
-        // Make sure that we have exactly UUID_SIZE bytes available.
-        // ELF build IDs are usually 20 bytes, so this performs a lossy truncation.
-        const UUID_SIZE: usize = 16;
-        let mut d = [0u8; UUID_SIZE];
-        let len = std::cmp::min(build_id.len(), UUID_SIZE);
-        d[0..len].copy_from_slice(&build_id[0..len]);
-
-        // Pretend that the build ID was stored as a UUID with u32 u16 u16 fields inside
-        // the file. Parse those fields in the endianness of the file. Then use
-        // Uuid::from_fields to serialize them as big endian.
-        // This is a bit silly, because ELF build IDs aren't actually field-based UUIDs,
-        // but this is what the tools in the breakpad and sentry/symbolic universe do,
-        // so we do the same for compatibility with those tools.
-        let (d1, d2, d3) = if little_endian {
-            (
-                u32::from_le_bytes([d[0], d[1], d[2], d[3]]),
-                u16::from_le_bytes([d[4], d[5]]),
-                u16::from_le_bytes([d[6], d[7]]),
-            )
-        } else {
-            (
-                u32::from_be_bytes([d[0], d[1], d[2], d[3]]),
-                u16::from_be_bytes([d[4], d[5]]),
-                u16::from_be_bytes([d[6], d[7]]),
-            )
-        };
-        let uuid = Uuid::from_fields(d1, d2, d3, &d[8..16]).unwrap();
-        DebugId::from_uuid(uuid)
-    }
-}
-
-/// Tries to obtain a DebugId for an ELF object. This uses the build ID, if available,
-/// and falls back to hashing the first page of the .text section otherwise.
-/// Returns None on failure.
-pub fn debug_id_for_object<'data: 'file, 'file>(
-    elf_file: &'file impl Object<'data, 'file>,
-) -> Option<DebugId> {
-    if let Ok(Some(identifier)) = elf_file.build_id() {
-        return Some(DebugId::from_elf_build_id(
-            identifier,
-            elf_file.is_little_endian(),
-        ));
-    }
-
-    // We were not able to locate the build ID, so fall back to creating a synthetic
-    // build id from a hash of the first page of the ".text" (program code) section.
-    // This algorithm XORs 16-byte chunks directly into a 16-byte buffer.
-    if let Some(section_data) = elf_file
-        .sections()
-        .find(|header| header.kind() == SectionKind::Text)
-        .and_then(|header| header.data().ok())
-    {
-        const UUID_SIZE: usize = 16;
-        const PAGE_SIZE: usize = 4096;
-        let mut hash = [0; UUID_SIZE];
-        for i in 0..std::cmp::min(section_data.len(), PAGE_SIZE) {
-            hash[i % UUID_SIZE] ^= section_data[i];
-        }
-
-        return Some(DebugId::from_elf_build_id(
-            &hash,
-            elf_file.is_little_endian(),
-        ));
-    }
-
-    None
-}
-
 struct FileContents(memmap2::Mmap);
 
 impl std::ops::Deref for FileContents {
@@ -993,22 +914,23 @@ impl<'h> FileAndPathHelper<'h> for Helper {
     fn get_candidate_paths_for_binary_or_pdb(
         &self,
         debug_name: &str,
-        breakpad_id: &str,
+        debug_id: &DebugId,
     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
         if self.verbose {
             eprintln!(
-                "Listing candidates for debug_name {} and breakpad ID {}",
-                debug_name, breakpad_id
+                "Listing candidates for debug_name {} and debug ID {}",
+                debug_name, debug_id
             );
         }
         let mut paths = vec![];
 
-        // Look up (debugName, breakpadId) in the path map.
-        if let Some(lib) = self.libs.iter().find(|lib| {
-            lib.debug_name == debug_name && lib.debug_id.breakpad().to_string() == breakpad_id
-        }) {
-            let fixtures_dir =
-                PathBuf::from("/Users/mstange/code/linux-perf-data/fixtures/aarch64");
+        // Look up (debug_name, debug_id) in the map.
+        if let Some(lib) = self
+            .libs
+            .iter()
+            .find(|lib| lib.debug_name == debug_name && &lib.debug_id == debug_id)
+        {
+            let fixtures_dir = PathBuf::from("/Users/mstange/code/linux-perf-data/fixtures/x86_64");
 
             if lib.dso_key == DsoKey::Kernel {
                 let mut p = fixtures_dir.clone();

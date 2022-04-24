@@ -14,10 +14,9 @@ futures = "0.3.21"
 memchr = "2.4.1"
 memmap2 = "0.5.3"
 object = "0.28.3"
-profiler-get-symbols = "0.12.1"
+profiler-get-symbols = "0.13.0"
 # profiler-get-symbols = { path = "../profiler-get-symbols/lib" }
 thiserror = "1.0.30"
-uuid = "0.8.2"
 zerocopy = "0.6.1"
 
 [profile.release]
