@@ -51,7 +51,7 @@ impl<'a, E: ExtraPathMapper> PathMapper<E> {
         let value = if let Some(captures) = self.rustc_regex.captures(raw_path) {
             let rev = captures.name("rev").unwrap().as_str();
             let path = captures.name("path").unwrap().as_str();
-            let path = path.replace("\\", "/");
+            let path = path.replace('\\', "/");
             let mapped_path = format!("git:github.com/rust-lang/rust:{}:{}", path, rev);
             FilePath::Mapped {
                 raw: raw_path.into(),
@@ -62,7 +62,7 @@ impl<'a, E: ExtraPathMapper> PathMapper<E> {
             let crate_ = captures.name("crate").unwrap().as_str();
             let version = captures.name("version").unwrap().as_str();
             let path = captures.name("path").unwrap().as_str();
-            let path = path.replace("\\", "/");
+            let path = path.replace('\\', "/");
             let mapped_path = format!("cargo:{}:{}-{}:{}", registry, crate_, version, path);
             FilePath::Mapped {
                 raw: raw_path.into(),
