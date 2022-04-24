@@ -757,7 +757,7 @@ where
     let file = match std::fs::File::open(objpath) {
         Ok(file) => file,
         Err(_) => {
-            let mut p = Path::new("/Users/mstange/code/linux-perf-data/fixtures/x86_64").to_owned();
+            let mut p = Path::new("/Users/mstange/code/linux-perf-data/fixtures/aarch64").to_owned();
             p.push(objpath.file_name().unwrap());
             match std::fs::File::open(&p) {
                 Ok(file) => file,
@@ -930,7 +930,7 @@ impl<'h> FileAndPathHelper<'h> for Helper {
             .iter()
             .find(|lib| lib.debug_name == debug_name && &lib.debug_id == debug_id)
         {
-            let fixtures_dir = PathBuf::from("/Users/mstange/code/linux-perf-data/fixtures/x86_64");
+            let fixtures_dir = PathBuf::from("/Users/mstange/code/linux-perf-data/fixtures/aarch64");
 
             if lib.dso_key == DsoKey::Kernel {
                 let mut p = fixtures_dir.clone();
