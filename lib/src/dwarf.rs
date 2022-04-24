@@ -146,6 +146,73 @@ impl<'data, T: ReadRef<'data>> SectionDataNoCopy<'data, T> {
             gimli::RunTimeEndian::Big
         };
 
+        fn try_get_section_data<'data, 'file, O, T>(
+            data: RangeReadRef<'data, T>,
+            file: &'file O,
+            section_name: &'static str,
+        ) -> Option<SingleSectionData<'data, T>>
+        where
+            'data: 'file,
+            O: object::Object<'data, 'file>,
+            T: ReadRef<'data>,
+        {
+            use object::ObjectSection;
+            let (section, used_manual_zdebug_path) =
+                if let Some(section) = file.section_by_name(section_name) {
+                    (section, false)
+                } else {
+                    // Also detect old-style compressed section which start with .zdebug / __zdebug
+                    // in case object did not detect them.
+                    assert!(section_name.as_bytes().starts_with(b".debug_"));
+                    let mut name = Vec::with_capacity(section_name.len() + 1);
+                    name.extend_from_slice(b".zdebug_");
+                    name.extend_from_slice(&section_name.as_bytes()[7..]);
+                    let section = file.section_by_name_bytes(&name)?;
+                    (section, true)
+                };
+
+            // Handle sections which are not compressed.
+            if let Ok(file_range) = section.compressed_file_range() {
+                if file_range.format == CompressionFormat::None && !used_manual_zdebug_path {
+                    let size = file_range.uncompressed_size;
+                    return Some(SingleSectionData::View(
+                        data.make_subrange(file_range.offset, size),
+                        size,
+                    ));
+                }
+            }
+
+            // This section is probably compressed. Try to uncompress the data with object's
+            // built-in compressed section handling.
+            let section_data = section.uncompressed_data().ok()?;
+
+            // Make sure the data is actually decompressed.
+            if used_manual_zdebug_path && section_data.starts_with(b"ZLIB\0\0\0\0") {
+                // Object's built-in compressed section handling didn't detect this as a
+                // compressed section. This happens on old Go binaries which use compressed
+                // sections like __zdebug_ranges, which is generally uncommon on macOS, so
+                // object's mach-O parser doesn't handle them.
+                // But we want to handle them.
+                // Go fixed this in https://github.com/golang/go/issues/50796 .
+                let b = section_data.get(8..12)?;
+                let uncompressed_size = u32::from_be_bytes([b[0], b[1], b[2], b[3]]);
+                let compressed_bytes = &section_data[12..];
+
+                let mut decompressed = Vec::with_capacity(uncompressed_size as usize);
+                let mut decompress = flate2::Decompress::new(true);
+                decompress
+                    .decompress_vec(
+                        compressed_bytes,
+                        &mut decompressed,
+                        flate2::FlushDecompress::Finish,
+                    )
+                    .ok()?;
+
+                return Some(SingleSectionData::Owned(decompressed.into()));
+            }
+            Some(SingleSectionData::Owned(section_data))
+        }
+
         fn get_section_data<'data, 'file, O, T>(
             data: RangeReadRef<'data, T>,
             file: &'file O,
@@ -156,22 +223,8 @@ impl<'data, T: ReadRef<'data>> SectionDataNoCopy<'data, T> {
             O: object::Object<'data, 'file>,
             T: ReadRef<'data>,
         {
-            use object::ObjectSection;
-            if let Some(section) = file.section_by_name(section_name) {
-                if let Ok(file_range) = section.compressed_file_range() {
-                    if file_range.format == CompressionFormat::None {
-                        let size = file_range.uncompressed_size;
-                        return SingleSectionData::View(
-                            data.make_subrange(file_range.offset, size),
-                            size,
-                        );
-                    }
-                }
-                if let Ok(section_data) = section.uncompressed_data() {
-                    return SingleSectionData::Owned(section_data);
-                }
-            }
-            SingleSectionData::View(data.make_subrange(0, 0), 0)
+            try_get_section_data(data, file, section_name)
+                .unwrap_or_else(|| SingleSectionData::View(data.make_subrange(0, 0), 0))
         }
 
         let debug_abbrev_data = get_section_data(data, file, SectionId::DebugAbbrev.name());
