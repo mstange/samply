@@ -1,8 +1,8 @@
+use crate::debugid_util::debug_id_for_object;
 use crate::dwarf::{
     collect_dwarf_address_debug_data, make_address_pairs_for_root_object, AddressPair,
 };
 use crate::error::{GetSymbolsError, Result};
-use crate::object_debugid::debug_id_for_object;
 use crate::path_mapper::PathMapper;
 use crate::shared::{
     get_symbolication_result_for_addresses_from_object, object_to_map, FileAndPathHelper,

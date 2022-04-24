@@ -128,11 +128,11 @@ use serde_json::json;
 mod cache;
 mod chunked_read_buffer_manager;
 mod compact_symbol_table;
+mod debugid_util;
 mod dwarf;
 mod elf;
 mod error;
 mod macho;
-mod object_debugid;
 mod path_mapper;
 mod shared;
 mod source;
@@ -148,6 +148,7 @@ pub use crate::shared::{
     FileAndPathHelperResult, FileContents, FileLocation, FilePath, OptionallySendFuture,
     SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
 };
+pub use debugid_util::{debug_id_for_object, DebugIdExt};
 
 pub(crate) fn to_debug_id(breakpad_id: &str) -> Result<DebugId> {
     DebugId::from_breakpad(breakpad_id)

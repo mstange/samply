@@ -1,5 +1,5 @@
+use crate::debugid_util::debug_id_for_object;
 use crate::error::{Context, GetSymbolsError, Result};
-use crate::object_debugid::debug_id_for_object;
 use crate::path_mapper::{ExtraPathMapper, PathMapper};
 use crate::shared::{
     get_symbolication_result_for_addresses_from_object, object_to_map, AddressDebugInfo,

@@ -2,7 +2,7 @@ use debugid::DebugId;
 use object::{Object, ObjectSection, SectionKind};
 use uuid::Uuid;
 
-pub trait DebugIdElfExt {
+pub trait DebugIdExt {
     /// Creates a DebugId from some identifier. The identifier could be
     /// an ELF build ID, or a hash derived from the text section.
     /// The `little_endian` argument specifies whether the object file
@@ -15,7 +15,7 @@ pub trait DebugIdElfExt {
     fn from_text_first_page(text_first_page: &[u8], little_endian: bool) -> Self;
 }
 
-impl DebugIdElfExt for DebugId {
+impl DebugIdExt for DebugId {
     fn from_identifier(identifier: &[u8], little_endian: bool) -> Self {
         // Make sure that we have exactly 16 bytes available, either truncate or fill
         // the remainder with zeros.
