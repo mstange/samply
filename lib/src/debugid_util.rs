@@ -1,5 +1,6 @@
 use debugid::DebugId;
 use object::{Object, ObjectSection, SectionKind};
+use std::convert::TryInto;
 use uuid::Uuid;
 
 pub trait DebugIdExt {
@@ -45,8 +46,7 @@ impl DebugIdExt for DebugId {
                 u16::from_be_bytes([d[6], d[7]]),
             )
         };
-        let uuid = Uuid::from_fields(d1, d2, d3, &d[8..16])
-            .expect("This always succeeds because we're passing exactly 8 bytes for d4");
+        let uuid = Uuid::from_fields(d1, d2, d3, d[8..16].try_into().unwrap());
         DebugId::from_uuid(uuid)
     }
 

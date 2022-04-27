@@ -32,7 +32,7 @@ version = "0.28.1"
 [dependencies]
 # pdb-addr2line = { path = "../../pdb-addr2line" }
 pdb-addr2line = "0.7.1"
-uuid = "0.8.2"
+uuid = "1.0.0"
 thiserror = "1.0.26"
 serde = { version = "1.0.126", features = ["derive"] }
 serde_json = "1.0.64"
@@ -41,8 +41,8 @@ msvc-demangler = "0.9.0"
 rustc-demangle = "0.1.21"
 bitflags = "1.2.1"
 bytesize = { version = "1.0.1", optional = true }
-bitvec = { version = "0.22.3", optional = true }
-rangemap = "0.1.10"
+bitvec = { version = "1.0.0", optional = true }
+rangemap = "1.0.1"
 elsa = "1.4.0"
 memchr = { version = "2.4", default-features = false }
 regex = "1.5"
@@ -50,5 +50,5 @@ srcsrv = "0.2.2"
 lzma-rs = "0.2.0"
 serde-hex = "0.1.0"
 macho-unwind-info = "0.3.0"
-debugid = "0.7.3"
+debugid = "0.8.0"
 flate2 = "1"

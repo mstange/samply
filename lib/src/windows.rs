@@ -10,6 +10,7 @@ use debugid::DebugId;
 use pdb::PDB;
 use pdb_addr2line::pdb;
 use regex::Regex;
+use uuid::Uuid;
 use std::borrow::Cow;
 use std::collections::HashMap;
 
@@ -136,7 +137,12 @@ where
     let info = pdb.pdb_information().context("pdb_information")?;
     let dbi = pdb.debug_information()?;
     let age = dbi.age().unwrap_or(info.age);
-    let file_debug_id = DebugId::from_parts(info.guid, age);
+
+    // HACK: Convert uuid 0.8.2 Uuid to uuid 1.0.0 Uuid.
+    // Needs https://github.com/willglynn/pdb/pull/115
+    let guid = Uuid::from_bytes(*info.guid.as_bytes());
+
+    let file_debug_id = DebugId::from_parts(guid, age);
 
     let SymbolicationQuery { debug_id, .. } = query;
 
