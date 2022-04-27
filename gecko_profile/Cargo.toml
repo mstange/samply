@@ -1,6 +1,6 @@
 [package]
 name = "gecko_profile"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2018"
 authors = ["Markus Stange <mstange.moz@gmail.com>"]
 license = "MIT/Apache-2.0"
