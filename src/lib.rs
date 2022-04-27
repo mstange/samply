@@ -6,8 +6,8 @@ use hyper::{header, Body, Request, Response, Server};
 use hyper::{Method, StatusCode};
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use profiler_get_symbols::{
-    self, query_api, CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
-    OptionallySendFuture,
+    self, debugid::DebugId, query_api, CandidatePathInfo, FileAndPathHelper,
+    FileAndPathHelperResult, FileLocation, OptionallySendFuture,
 };
 use rand::RngCore;
 use serde_json::{self, Value};
@@ -22,7 +22,6 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::Arc;
-use uuid::Uuid;
 
 mod moria_mac;
 
@@ -354,21 +353,28 @@ fn substitute_template(template: &str, template_values: &HashMap<&'static str, S
 }
 
 struct Helper {
-    path_map: HashMap<(String, String), String>,
+    path_map: HashMap<(String, DebugId), String>,
     symbol_cache: SymbolCache,
     verbose: bool,
 }
 
-fn add_libs_to_path_map(libs: &[Value], path_map: &mut HashMap<(String, String), String>) {
+fn add_libs_to_path_map(libs: &[Value], path_map: &mut HashMap<(String, DebugId), String>) {
     for lib in libs {
-        let debug_name = lib["debugName"].as_str().unwrap().to_string();
-        let breakpad_id = lib["breakpadId"].as_str().unwrap().to_string();
-        let debug_path = lib["debugPath"].as_str().unwrap().to_string();
-        path_map.insert((debug_name, breakpad_id), debug_path);
+        if let Some(((debug_name, debug_id), debug_path)) = path_map_entry_for_lib(lib) {
+            path_map.insert((debug_name, debug_id), debug_path);
+        }
     }
 }
 
-fn add_to_path_map_recursive(profile: &Value, path_map: &mut HashMap<(String, String), String>) {
+fn path_map_entry_for_lib(lib: &Value) -> Option<((String, DebugId), String)> {
+    let debug_name = lib["debugName"].as_str()?.to_string();
+    let breakpad_id = lib["breakpadId"].as_str()?;
+    let debug_path = lib["debugPath"].as_str()?.to_string();
+    let debug_id = DebugId::from_breakpad(breakpad_id).ok()?;
+    Some(((debug_name, debug_id), debug_path))
+}
+
+fn add_to_path_map_recursive(profile: &Value, path_map: &mut HashMap<(String, DebugId), String>) {
     if let Value::Array(libs) = &profile["libs"] {
         add_libs_to_path_map(libs, path_map)
     }
@@ -440,29 +446,24 @@ impl<'h> FileAndPathHelper<'h> for Helper {
     fn get_candidate_paths_for_binary_or_pdb(
         &self,
         debug_name: &str,
-        breakpad_id: &str,
+        debug_id: &DebugId,
     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
         let mut paths = vec![];
 
         // Look up (debugName, breakpadId) in the path map.
-        if let Some(path) = self
-            .path_map
-            .get(&(debug_name.to_string(), breakpad_id.to_string()))
-        {
+        if let Some(path) = self.path_map.get(&(debug_name.to_string(), *debug_id)) {
             // First, see if we can find a dSYM file for the binary.
-            if let Ok(uuid) = Uuid::parse_str(&breakpad_id[0..32]) {
-                if let Ok(dsym_path) = moria_mac::locate_dsym(&path, uuid) {
-                    paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                        dsym_path.clone(),
-                    )));
-                    paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                        dsym_path
-                            .join("Contents")
-                            .join("Resources")
-                            .join("DWARF")
-                            .join(debug_name),
-                    )));
-                }
+            if let Ok(dsym_path) = moria_mac::locate_dsym(&path, debug_id.uuid()) {
+                paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
+                    dsym_path.clone(),
+                )));
+                paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
+                    dsym_path
+                        .join("Contents")
+                        .join("Resources")
+                        .join("DWARF")
+                        .join(debug_name),
+                )));
             }
 
             // Also consider .so.dbg files in the same directory.
@@ -504,7 +505,12 @@ impl<'h> FileAndPathHelper<'h> for Helper {
         if debug_name.ends_with(".pdb") {
             // We might find this pdb file with the help of a symbol server.
             // Construct a custom string to identify this pdb.
-            let custom = format!("symbolserver:{}/{}/{}", debug_name, breakpad_id, debug_name);
+            let custom = format!(
+                "symbolserver:{}/{}/{}",
+                debug_name,
+                debug_id.breakpad(),
+                debug_name
+            );
             paths.push(CandidatePathInfo::SingleFile(FileLocation::Custom(custom)));
         }
 
