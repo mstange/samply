@@ -20,8 +20,9 @@ use object::macho::{
 use object::read::macho::{MachHeader, Section, Segment};
 use object::LittleEndian;
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::mem;
-use std::ops::Deref;
+use std::ops::{Deref, Range};
 use std::ptr;
 use uuid::Uuid;
 
@@ -269,24 +270,16 @@ fn get_dyld_image_info(
         .load_commands(endian, header_and_command_data, 0)
         .map_err(|_| kernel_error::KernelError::InvalidValue)?;
 
+    let mut base_svma = 0;
     let mut vmsize: u64 = 0;
     let mut uuid = None;
-    let mut unwind_info_section = None;
-    let mut eh_frame_section = None;
-    let mut text_section = None;
-    let mut text_env_section = None;
-    let mut stubs_section = None;
-    let mut stub_helper_section = None;
-    let mut got_section = None;
-    let mut text_segment = None;
-    let mut base_svma = 0;
+    let mut sections = HashMap::new();
 
     while let Ok(Some(command)) = load_commands.next() {
         if let Ok(Some((segment, section_data))) = SegmentCommand64::from_command(command) {
             if segment.name() == b"__TEXT" {
                 base_svma = segment.vmaddr(endian);
                 vmsize = segment.vmsize(endian);
-                text_segment = Some((base_svma, vmsize));
 
                 for section in segment
                     .sections(endian, section_data)
@@ -294,30 +287,7 @@ fn get_dyld_image_info(
                 {
                     let addr = section.addr.get(endian);
                     let size = section.size.get(endian);
-                    match section.name() {
-                        b"__text" => {
-                            text_section = Some((addr, size));
-                        }
-                        b"text_env" => {
-                            text_env_section = Some((addr, size));
-                        }
-                        b"__stubs" => {
-                            stubs_section = Some((addr, size));
-                        }
-                        b"__stub_helper" => {
-                            stub_helper_section = Some((addr, size));
-                        }
-                        b"__got" => {
-                            got_section = Some((addr, size));
-                        }
-                        b"__unwind_info" => {
-                            unwind_info_section = Some((addr, size));
-                        }
-                        b"__eh_frame" => {
-                            eh_frame_section = Some((addr, size));
-                        }
-                        _ => {}
-                    }
+                    sections.insert(section.name(), (addr, size));
                 }
             }
         } else if let Ok(Some(uuid_command)) = command.uuid() {
@@ -325,27 +295,31 @@ fn get_dyld_image_info(
         }
     }
 
+    let section_svma_range = |name: &[u8]| -> Option<Range<u64>> {
+        sections.get(name).map(|(addr, size)| *addr..*addr + *size)
+    };
+
     Ok(DyldInfo {
         file: filename,
         base_avma,
         vmsize,
         svma_info: framehop::ModuleSvmaInfo {
             base_svma,
-            text: text_section.map(|(addr, size)| addr..addr + size),
-            text_env: text_env_section.map(|(addr, size)| addr..addr + size),
-            stubs: stubs_section.map(|(addr, size)| addr..addr + size),
-            stub_helper: stub_helper_section.map(|(addr, size)| addr..addr + size),
-            eh_frame: eh_frame_section.map(|(addr, size)| addr..addr + size),
-            eh_frame_hdr: None,
-            got: got_section.map(|(addr, size)| addr..addr + size),
+            text: section_svma_range(b"__text"),
+            text_env: section_svma_range(b"text_env"),
+            stubs: section_svma_range(b"__stubs"),
+            stub_helper: section_svma_range(b"__stub_helper"),
+            eh_frame: section_svma_range(b"__eh_frame"),
+            eh_frame_hdr: section_svma_range(b"__eh_frame_hdr"),
+            got: section_svma_range(b"__got"),
         },
         debug_id: uuid.map(DebugId::from_uuid),
         arch: get_arch_string(header.cputype(endian), header.cpusubtype(endian)),
         is_executable: header.filetype(endian) == MH_EXECUTE,
         unwind_sections: UnwindSectionInfo {
-            unwind_info_section,
-            eh_frame_section,
-            text_segment,
+            unwind_info_section: sections.get(&b"__unwind_info"[..]).cloned(),
+            eh_frame_section: sections.get(&b"__eh_frame"[..]).cloned(),
+            text_segment: Some((base_svma, vmsize)),
         },
     })
 }
