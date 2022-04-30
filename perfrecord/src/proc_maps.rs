@@ -13,6 +13,12 @@ use mach::vm_inherit::VM_INHERIT_SHARE;
 use mach::vm_page_size::{mach_vm_trunc_page, vm_page_size};
 use mach::vm_prot::{vm_prot_t, VM_PROT_NONE, VM_PROT_READ};
 use mach::vm_types::{mach_vm_address_t, mach_vm_size_t};
+use object::macho::{
+    MachHeader64, SegmentCommand64, CPU_SUBTYPE_ARM64E, CPU_SUBTYPE_ARM64_ALL, CPU_SUBTYPE_MASK,
+    CPU_SUBTYPE_X86_64_ALL, CPU_SUBTYPE_X86_64_H, CPU_TYPE_ARM64, CPU_TYPE_X86_64, MH_EXECUTE,
+};
+use object::read::macho::{MachHeader, Section, Segment};
+use object::LittleEndian;
 use std::cmp::Ordering;
 use std::mem;
 use std::ops::Deref;
@@ -30,14 +36,11 @@ use framehop::UnwindRegsNative;
 #[cfg(target_arch = "x86_64")]
 use mach::{structs::x86_thread_state64_t, thread_status::x86_THREAD_STATE64};
 
-use crate::dyld_bindings::{self, section_64};
+use crate::dyld_bindings::{self};
 use crate::error::SamplingError;
 use crate::kernel_error::{self, IntoResult, KernelError};
 use crate::task_profiler::UnwindSectionBytes;
-use dyld_bindings::{
-    dyld_all_image_infos, dyld_image_info, load_command, mach_header_64, segment_command_64,
-    uuid_command,
-};
+use dyld_bindings::{dyld_all_image_infos, dyld_image_info};
 
 pub const TASK_DYLD_INFO_COUNT: mach_msg_type_number_t = 5;
 
@@ -228,20 +231,6 @@ fn enumerate_dyld_images(
     Ok(vec)
 }
 
-const CPU_ARCH_ABI64: u32 = 0x0100_0000;
-const CPU_TYPE_X86: u32 = 7;
-const CPU_TYPE_ARM: u32 = 12;
-const CPU_TYPE_X86_64: u32 = CPU_TYPE_X86 | CPU_ARCH_ABI64;
-const CPU_TYPE_ARM64: u32 = CPU_TYPE_ARM | CPU_ARCH_ABI64;
-
-const CPU_SUBTYPE_MASK: u32 = 0xff000000u32;
-const CPU_SUBTYPE_X86_64_ALL: u32 = 3;
-const CPU_SUBTYPE_X86_64_H: u32 = 8;
-const CPU_SUBTYPE_ARM64_ALL: u32 = 0;
-const CPU_SUBTYPE_ARM64E: u32 = 2;
-
-const MH_EXECUTE: u32 = 0x2;
-
 fn get_arch_string(cputype: u32, cpusubtype: u32) -> Option<&'static str> {
     let s = match (cputype, cpusubtype & !CPU_SUBTYPE_MASK) {
         (CPU_TYPE_X86_64, CPU_SUBTYPE_X86_64_ALL) => "x86_64",
@@ -267,13 +256,18 @@ fn get_dyld_image_info(
     };
 
     let header = {
-        let header: &mach_header_64 = unsafe { memory.get_type_ref_at_address(base_avma) }?;
+        let header: &MachHeader64<LittleEndian> =
+            unsafe { memory.get_type_ref_at_address(base_avma) }?;
         *header
     };
 
-    let commands_addr = base_avma + mem::size_of::<mach_header_64>() as u64;
-    let commands_range = commands_addr..(commands_addr + header.sizeofcmds as u64);
-    let commands_buffer = memory.get_slice(commands_range)?;
+    let endian = LittleEndian;
+    let commands_start = base_avma + mem::size_of::<MachHeader64<LittleEndian>>() as u64;
+    let commands_end = commands_start + header.sizeofcmds(endian) as u64;
+    let header_and_command_data = memory.get_slice(base_avma..commands_end)?;
+    let mut load_commands = header
+        .load_commands(endian, header_and_command_data, 0)
+        .map_err(|_| kernel_error::KernelError::InvalidValue)?;
 
     let mut vmsize: u64 = 0;
     let mut uuid = None;
@@ -286,75 +280,48 @@ fn get_dyld_image_info(
     let mut got_section = None;
     let mut text_segment = None;
     let mut base_svma = 0;
-    let mut offset = 0;
-    for _ in 0..header.ncmds {
-        unsafe {
-            let command = &commands_buffer[offset] as *const u8 as *const load_command;
-            match (*command).cmd {
-                0x19 => {
-                    // LC_SEGMENT_64
-                    let segcmd = command as *const segment_command_64;
-                    if (*segcmd).segname[0..7] == [95, 95, 84, 69, 88, 84, 0] {
-                        // This is the __TEXT segment. It's mapped so that it starts at the image load address.
-                        base_svma = (*segcmd).vmaddr;
-                        vmsize = (*segcmd).vmsize;
-                        text_segment = Some((base_svma, vmsize));
 
-                        let mut section_offset = offset + mem::size_of::<segment_command_64>();
-                        let nsects = (*segcmd).nsects;
-                        for _ in 0..nsects {
-                            let section =
-                                &commands_buffer[section_offset] as *const u8 as *const section_64;
-                            let addr = (*section).addr;
-                            let size = (*section).size;
-                            if (*section).sectname[0..7] == [95, 95, 116, 101, 120, 116, 0] {
-                                // This is the __text section.
-                                text_section = Some((addr, size));
-                            } else if (*section).sectname[0..9]
-                                == [116, 101, 120, 116, 95, 101, 110, 118, 0]
-                            {
-                                // This is the text_env section.
-                                text_env_section = Some((addr, size));
-                            } else if (*section).sectname[0..8]
-                                == [95, 95, 115, 116, 117, 98, 115, 0]
-                            {
-                                // This is the __stubs section.
-                                stubs_section = Some((addr, size));
-                            } else if (*section).sectname[0..14]
-                                == [
-                                    95, 95, 115, 116, 117, 98, 95, 104, 101, 108, 112, 101, 114, 0,
-                                ]
-                            {
-                                // This is the __stub_helper section.
-                                stub_helper_section = Some((addr, size));
-                            } else if (*section).sectname[0..6] == [95, 95, 103, 111, 116, 0] {
-                                // This is the __got section.
-                                got_section = Some((addr, size));
-                            } else if (*section).sectname[0..14]
-                                == [
-                                    95, 95, 117, 110, 119, 105, 110, 100, 95, 105, 110, 102, 111, 0,
-                                ]
-                            {
-                                // This is the __unwind_info section.
-                                unwind_info_section = Some((addr, size));
-                            } else if (*section).sectname[0..11]
-                                == [95, 95, 101, 104, 95, 102, 114, 97, 109, 101, 0]
-                            {
-                                // This is the __eh_frame section.
-                                eh_frame_section = Some((addr, size));
-                            }
-                            section_offset += mem::size_of::<section_64>();
+    while let Ok(Some(command)) = load_commands.next() {
+        if let Ok(Some((segment, section_data))) = SegmentCommand64::from_command(command) {
+            if segment.name() == b"__TEXT" {
+                base_svma = segment.vmaddr(endian);
+                vmsize = segment.vmsize(endian);
+                text_segment = Some((base_svma, vmsize));
+
+                for section in segment
+                    .sections(endian, section_data)
+                    .map_err(|_| KernelError::InvalidArgument)?
+                {
+                    let addr = section.addr.get(endian);
+                    let size = section.size.get(endian);
+                    match section.name() {
+                        b"__text" => {
+                            text_section = Some((addr, size));
                         }
+                        b"text_env" => {
+                            text_env_section = Some((addr, size));
+                        }
+                        b"__stubs" => {
+                            stubs_section = Some((addr, size));
+                        }
+                        b"__stub_helper" => {
+                            stub_helper_section = Some((addr, size));
+                        }
+                        b"__got" => {
+                            got_section = Some((addr, size));
+                        }
+                        b"__unwind_info" => {
+                            unwind_info_section = Some((addr, size));
+                        }
+                        b"__eh_frame" => {
+                            eh_frame_section = Some((addr, size));
+                        }
+                        _ => {}
                     }
                 }
-                0x1b => {
-                    // LC_UUID
-                    let ucmd = command as *const uuid_command;
-                    uuid = Some(Uuid::from_slice(&(*ucmd).uuid).unwrap());
-                }
-                _ => {}
             }
-            offset += (*command).cmdsize as usize;
+        } else if let Ok(Some(uuid_command)) = command.uuid() {
+            uuid = Some(Uuid::from_bytes(uuid_command.uuid));
         }
     }
 
@@ -373,8 +340,8 @@ fn get_dyld_image_info(
             got: got_section.map(|(addr, size)| addr..addr + size),
         },
         debug_id: uuid.map(DebugId::from_uuid),
-        arch: get_arch_string(header.cputype as u32, header.cpusubtype as u32),
-        is_executable: header.filetype == MH_EXECUTE,
+        arch: get_arch_string(header.cputype(endian), header.cpusubtype(endian)),
+        is_executable: header.filetype(endian) == MH_EXECUTE,
         unwind_sections: UnwindSectionInfo {
             unwind_info_section,
             eh_frame_section,
