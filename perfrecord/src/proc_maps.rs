@@ -1,3 +1,4 @@
+use gecko_profile::debugid::DebugId;
 use mach::message::mach_msg_type_number_t;
 use mach::port::mach_port_t;
 use mach::task::{task_info, task_resume, task_suspend};
@@ -19,7 +20,7 @@ use std::ptr;
 use uuid::Uuid;
 
 #[cfg(target_arch = "aarch64")]
-use framehop::aarch64::strip_ptr_auth;
+use framehop::aarch64::PtrAuthMask;
 #[cfg(target_arch = "aarch64")]
 use framehop::aarch64::UnwindRegsAarch64;
 #[cfg(target_arch = "x86_64")]
@@ -32,6 +33,7 @@ use mach::{structs::x86_thread_state64_t, thread_status::x86_THREAD_STATE64};
 use crate::dyld_bindings::{self, section_64};
 use crate::error::SamplingError;
 use crate::kernel_error::{self, IntoResult, KernelError};
+use crate::task_profiler::UnwindSectionBytes;
 use dyld_bindings::{
     dyld_all_image_infos, dyld_image_info, load_command, mach_header_64, segment_command_64,
     uuid_command,
@@ -50,14 +52,15 @@ pub struct ThreadInfo {
 pub struct DyldInfo {
     pub is_executable: bool,
     pub file: String,
-    pub address: u64,
+    pub base_avma: u64,
     pub vmsize: u64,
-    pub sections: framehop::ModuleSectionAddressRanges,
-    pub uuid: Option<Uuid>,
+    pub svma_info: framehop::ModuleSvmaInfo,
+    pub debug_id: Option<DebugId>,
     pub arch: Option<&'static str>,
     pub unwind_sections: UnwindSectionInfo,
 }
 
+/// These are SVMAs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnwindSectionInfo {
     /// (address, size)
@@ -152,7 +155,7 @@ impl DyldInfoManager {
             // self.saved_image_info and new_image_info are sorted by address. Diff the two lists.
             let diff =
                 diff_sorted_slices(&self.saved_image_info, &new_image_info, |left, right| {
-                    left.address.cmp(&right.address)
+                    left.base_avma.cmp(&right.base_avma)
                 });
 
             self.last_change_timestamp = Some(info_array_change_timestamp);
@@ -209,7 +212,7 @@ fn enumerate_dyld_images(
     )?];
 
     for image_index in 0..info_array_count {
-        let (image_load_address, image_file_path) = {
+        let (base_avma, image_file_path) = {
             let info_array_elem_addr =
                 info_array_addr + image_index as u64 * mem::size_of::<dyld_image_info>() as u64;
             let image_info: &dyld_image_info =
@@ -219,13 +222,9 @@ fn enumerate_dyld_images(
                 image_info.imageFilePath as usize as u64,
             )
         };
-        vec.push(get_dyld_image_info(
-            memory,
-            image_load_address,
-            image_file_path,
-        )?);
+        vec.push(get_dyld_image_info(memory, base_avma, image_file_path)?);
     }
-    vec.sort_by_key(|info| info.address);
+    vec.sort_by_key(|info| info.base_avma);
     Ok(vec)
 }
 
@@ -256,7 +255,7 @@ fn get_arch_string(cputype: u32, cpusubtype: u32) -> Option<&'static str> {
 
 fn get_dyld_image_info(
     memory: &mut ForeignMemory,
-    image_load_address: u64,
+    base_avma: u64,
     image_file_path: u64,
 ) -> kernel_error::Result<DyldInfo> {
     let filename = {
@@ -268,12 +267,11 @@ fn get_dyld_image_info(
     };
 
     let header = {
-        let header: &mach_header_64 =
-            unsafe { memory.get_type_ref_at_address(image_load_address) }?;
+        let header: &mach_header_64 = unsafe { memory.get_type_ref_at_address(base_avma) }?;
         *header
     };
 
-    let commands_addr = image_load_address + mem::size_of::<mach_header_64>() as u64;
+    let commands_addr = base_avma + mem::size_of::<mach_header_64>() as u64;
     let commands_range = commands_addr..(commands_addr + header.sizeofcmds as u64);
     let commands_buffer = memory.get_slice(commands_range)?;
 
@@ -287,6 +285,7 @@ fn get_dyld_image_info(
     let mut stub_helper_section = None;
     let mut got_section = None;
     let mut text_segment = None;
+    let mut base_svma = 0;
     let mut offset = 0;
     for _ in 0..header.ncmds {
         unsafe {
@@ -296,21 +295,17 @@ fn get_dyld_image_info(
                     // LC_SEGMENT_64
                     let segcmd = command as *const segment_command_64;
                     if (*segcmd).segname[0..7] == [95, 95, 84, 69, 88, 84, 0] {
-                        // This is the __TEXT segment.
+                        // This is the __TEXT segment. It's mapped so that it starts at the image load address.
+                        base_svma = (*segcmd).vmaddr;
                         vmsize = (*segcmd).vmsize;
-                        text_segment = Some((image_load_address, vmsize));
-                        let textvmaddr = (*segcmd).vmaddr;
+                        text_segment = Some((base_svma, vmsize));
 
                         let mut section_offset = offset + mem::size_of::<segment_command_64>();
                         let nsects = (*segcmd).nsects;
                         for _ in 0..nsects {
                             let section =
                                 &commands_buffer[section_offset] as *const u8 as *const section_64;
-                            // section.addr is a vmaddr. make it relative to the __TEXT segment by subtracting
-                            // the segment's vmaddr. The __TEXT segment always starts at the image load address.
-                            // So adding the image load address to the relative address gives us the absolute
-                            // address of the section in process memory.
-                            let addr = image_load_address + ((*section).addr - textvmaddr);
+                            let addr = (*section).addr;
                             let size = (*section).size;
                             if (*section).sectname[0..7] == [95, 95, 116, 101, 120, 116, 0] {
                                 // This is the __text section.
@@ -365,9 +360,10 @@ fn get_dyld_image_info(
 
     Ok(DyldInfo {
         file: filename,
-        address: image_load_address,
+        base_avma,
         vmsize,
-        sections: framehop::ModuleSectionAddressRanges {
+        svma_info: framehop::ModuleSvmaInfo {
+            base_svma,
             text: text_section.map(|(addr, size)| addr..addr + size),
             text_env: text_env_section.map(|(addr, size)| addr..addr + size),
             stubs: stubs_section.map(|(addr, size)| addr..addr + size),
@@ -376,7 +372,7 @@ fn get_dyld_image_info(
             eh_frame_hdr: None,
             got: got_section.map(|(addr, size)| addr..addr + size),
         },
-        uuid,
+        debug_id: uuid.map(DebugId::from_uuid),
         arch: get_arch_string(header.cputype as u32, header.cpusubtype as u32),
         is_executable: header.filetype == MH_EXECUTE,
         unwind_sections: UnwindSectionInfo {
@@ -457,9 +453,10 @@ fn get_unwinding_registers(
         )
     }
     .into_result()?;
+    let mask = PtrAuthMask::new_24_40();
     Ok((
-        strip_ptr_auth(state.__pc),
-        UnwindRegsAarch64::new(state.__lr, state.__sp, state.__fp),
+        mask.strip_ptr_auth(state.__pc),
+        UnwindRegsAarch64::new_with_ptr_auth_mask(mask, state.__lr, state.__sp, state.__fp),
     ))
 }
 
@@ -474,14 +471,17 @@ fn with_suspended_thread<R>(
 }
 
 pub struct StackwalkerRef<'a> {
-    unwinder: &'a framehop::UnwinderNative<VmSubData, framehop::MayAllocateDuringUnwind>,
-    cache: &'a mut framehop::CacheNative<VmSubData, framehop::MayAllocateDuringUnwind>,
+    unwinder: &'a framehop::UnwinderNative<UnwindSectionBytes, framehop::MayAllocateDuringUnwind>,
+    cache: &'a mut framehop::CacheNative<UnwindSectionBytes, framehop::MayAllocateDuringUnwind>,
 }
 
 impl<'a> StackwalkerRef<'a> {
     pub fn new(
-        unwinder: &'a framehop::UnwinderNative<VmSubData, framehop::MayAllocateDuringUnwind>,
-        cache: &'a mut framehop::CacheNative<VmSubData, framehop::MayAllocateDuringUnwind>,
+        unwinder: &'a framehop::UnwinderNative<
+            UnwindSectionBytes,
+            framehop::MayAllocateDuringUnwind,
+        >,
+        cache: &'a mut framehop::CacheNative<UnwindSectionBytes, framehop::MayAllocateDuringUnwind>,
     ) -> Self {
         Self { unwinder, cache }
     }

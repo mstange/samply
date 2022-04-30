@@ -12,10 +12,15 @@ readme = "Readme.md"
 perfrecord-mach-ipc-rendezvous = { version = "0.2.1", path = "../perfrecord-mach-ipc-rendezvous" }
 
 # profiler-symbol-server = { path = "../../profiler-symbol-server" }
-profiler-symbol-server = "0.10.0"
+profiler-symbol-server = "0.11.0"
+
+profiler-get-symbols = "0.14.0"
+
+# gecko_profile = { path = "../gecko_profile" }
+gecko_profile = "0.3.0"
 
 tokio = { version = "1.17.0", features = ["rt", "rt-multi-thread", "macros"] }
-uuid = "0.8.1"
+uuid = "1.0.0"
 libc = "0.2.71"
 mach = "0.3.2"
 tempfile = "3.1.0"
@@ -24,8 +29,12 @@ thiserror = "1.0.19"
 crossbeam-channel = "0.5.4"
 signal-hook = "0.3.9"
 serde_json = "1.0.53"
-gecko_profile = { version = "0.2.0", path = "../gecko_profile" }
-framehop = "0.3.0"
+memmap2 = "0.5.3"
+object = "0.28.3"
+
+# framehop = { path = "../../framehop" }
+framehop = "0.6.0"
+flate2 = "1.0.23"
 
 [profile.release]
 debug = true

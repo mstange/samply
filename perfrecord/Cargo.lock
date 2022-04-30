@@ -316,11 +316,11 @@ dependencies = [
 
 [[package]]
 name = "debugid"
-version = "0.7.3"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6ee87af31d84ef885378aebca32be3d682b0e0dc119d5b4860a2c5bb5046730"
+checksum = "bef552e6f588e446098f6ba40d89ac146c8c7b64aade83c051ee00bb5d2bc18d"
 dependencies = [
- "uuid",
+ "uuid 1.0.0",
 ]
 
 [[package]]
@@ -378,9 +378,9 @@ dependencies = [
 
 [[package]]
 name = "flate2"
-version = "1.0.22"
+version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e6988e897c1c9c485f43b47a529cef42fde0547f9d8d41a7062518f1d8fc53f"
+checksum = "b39522e96686d38f4bc984b9198e3a0613264abaebaff2c5c918bfa6b6da09af"
 dependencies = [
  "cfg-if",
  "crc32fast",
@@ -421,9 +421,9 @@ dependencies = [
 
 [[package]]
 name = "framehop"
-version = "0.3.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6d7a16e584d6d379bfc38c9c74c576f8b236a122cc599ad8714101066a40461"
+checksum = "988f593edf9d51772ddabba67048ef907cf4e30340d5baf57480c26a01352b28"
 dependencies = [
  "fallible-iterator",
  "gimli",
@@ -522,7 +522,9 @@ dependencies = [
 
 [[package]]
 name = "gecko_profile"
-version = "0.2.0"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "daf59f36b567e7f20709bd4269f12e2af72aba8d2ae81cf0794dd525410dffb4"
 dependencies = [
  "debugid",
  "serde",
@@ -750,9 +752,9 @@ checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 
 [[package]]
 name = "libc"
-version = "0.2.121"
+version = "0.2.125"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "efaa7b300f3b5fe8eb6bf21ce3895e1751d9665086af2d64b42f19701015ff4f"
+checksum = "5916d2ae698f6de9bfb891ad7a8d65c09d232dc58cc4ac433c7da3b2fd84bc2b"
 
 [[package]]
 name = "log"
@@ -839,12 +841,11 @@ checksum = "2a60c7ce501c71e03a9c9c0d35b861413ae925bd979cc7a4e30d060069aaac8d"
 
 [[package]]
 name = "miniz_oxide"
-version = "0.4.4"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a92518e98c078586bc6c934028adcca4c92a53d6a958196de835170a01d84e4b"
+checksum = "d2b29bd4bc3f33391105ebee3589c19197c4271e3e5a9ec9bfe8127eeff8f082"
 dependencies = [
  "adler",
- "autocfg",
 ]
 
 [[package]]
@@ -1030,6 +1031,7 @@ version = "0.28.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40bec70ba014595f99f7aa110b84331ffe1ee9aece7fe6f387cc7e3ecda4d456"
 dependencies = [
+ "flate2",
  "memchr",
 ]
 
@@ -1080,7 +1082,7 @@ checksum = "13f4d162ecaaa1467de5afbe62d597757b674b51da8bb4e587430c5fdb2af7aa"
 dependencies = [
  "fallible-iterator",
  "scroll",
- "uuid",
+ "uuid 0.8.2",
 ]
 
 [[package]]
@@ -1108,11 +1110,15 @@ name = "perfrecord"
 version = "0.8.0"
 dependencies = [
  "crossbeam-channel",
+ "flate2",
  "framehop",
  "gecko_profile",
  "libc",
  "mach",
+ "memmap2",
+ "object",
  "perfrecord-mach-ipc-rendezvous",
+ "profiler-get-symbols",
  "profiler-symbol-server",
  "serde_json",
  "signal-hook",
@@ -1120,7 +1126,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
- "uuid",
+ "uuid 1.0.0",
 ]
 
 [[package]]
@@ -1201,16 +1207,19 @@ dependencies = [
 
 [[package]]
 name = "profiler-get-symbols"
-version = "0.11.3"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ac3a00fc6fb628c8560ba2d8a531c56e480b0846c8d5c6eb4aa718556c0cc4c"
+checksum = "1dca3c9176e958b4aa8d511536074ab128a6241650ebd76bdb2c670342d334a5"
 dependencies = [
  "addr2line",
  "bitflags",
  "cpp_demangle",
+ "debugid",
  "elsa",
+ "flate2",
  "gimli",
  "lzma-rs",
+ "macho-unwind-info",
  "memchr",
  "msvc-demangler",
  "object",
@@ -1223,14 +1232,14 @@ dependencies = [
  "serde_json",
  "srcsrv",
  "thiserror",
- "uuid",
+ "uuid 1.0.0",
 ]
 
 [[package]]
 name = "profiler-symbol-server"
-version = "0.10.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d904968363235ba50828de019cd1f0f1cf867f79e1b1a35375cda7782d18114"
+checksum = "17300dee915f8aa68ff833d158e6614fb9e10aaeb58e5df30f5d4439a6999006"
 dependencies = [
  "cab",
  "core-foundation",
@@ -1251,7 +1260,7 @@ dependencies = [
  "structopt",
  "thiserror",
  "tokio",
- "uuid",
+ "uuid 1.0.0",
  "webbrowser",
 ]
 
@@ -1306,9 +1315,9 @@ dependencies = [
 
 [[package]]
 name = "rangemap"
-version = "0.1.14"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3929836cb64d09ee7deee59635c3d9bffbc1c0373e247efff6272abd62a11baa"
+checksum = "4556ba17699ec8276a2e73e22c5b846666e06fe9db1228a9d4377e67b5d35fcb"
 
 [[package]]
 name = "redox_syscall"
@@ -1872,6 +1881,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc5cf98d8186244414c848017f0e2676b3fcb46807f6668a97dfe67359a3c4b7"
 
 [[package]]
+name = "uuid"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8cfcd319456c4d6ea10087ed423473267e1a071f3bc0aa89f80d60997843c6f0"
+
+[[package]]
 name = "vcpkg"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2000,9 +2015,9 @@ dependencies = [
 
 [[package]]
 name = "webbrowser"
-version = "0.6.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9c28b6b6a78440b02647358625e3febc90724126480b9da6a967b5f674b3554"
+checksum = "fc6a3cffdb686fbb24d9fb8f03a213803277ed2300f11026a3afe1f108dc021b"
 dependencies = [
  "jni",
  "ndk-glue",

@@ -15,16 +15,61 @@ use mach::task::task_threads;
 use mach::traps::mach_task_self;
 use mach::vm::mach_vm_deallocate;
 use mach::vm_types::{mach_vm_address_t, mach_vm_size_t};
+use object::{CompressedFileRange, CompressionFormat, Object, ObjectSection};
+use profiler_get_symbols::DebugIdExt;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::mem;
+use std::ops::Deref;
 use std::path::Path;
-use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 use gecko_profile::ProfileBuilder;
 
-pub type UnwinderCache = CacheNative<VmSubData, MayAllocateDuringUnwind>;
+pub enum UnwindSectionBytes {
+    Remapped(VmSubData),
+    Mmap(MmapSubData),
+    Allocated(Vec<u8>),
+}
+
+impl Deref for UnwindSectionBytes {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        match self {
+            UnwindSectionBytes::Remapped(vm_sub_data) => vm_sub_data.deref(),
+            UnwindSectionBytes::Mmap(mmap_sub_data) => mmap_sub_data.deref(),
+            UnwindSectionBytes::Allocated(vec) => vec.deref(),
+        }
+    }
+}
+
+pub struct MmapSubData {
+    mmap: memmap2::Mmap,
+    offset: usize,
+    len: usize,
+}
+
+impl MmapSubData {
+    pub fn try_new(mmap: memmap2::Mmap, offset: usize, len: usize) -> Option<Self> {
+        let end_addr = offset.checked_add(len)?;
+        if end_addr <= mmap.len() {
+            Some(Self { mmap, offset, len })
+        } else {
+            None
+        }
+    }
+}
+
+impl Deref for MmapSubData {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        &self.mmap.deref()[self.offset..][..self.len]
+    }
+}
+
+pub type UnwinderCache = CacheNative<UnwindSectionBytes, MayAllocateDuringUnwind>;
 
 pub struct TaskProfiler {
     task: mach_port_t,
@@ -40,7 +85,7 @@ pub struct TaskProfiler {
     executable_lib: Option<DyldInfo>,
     command_name: String,
     ignored_errors: Vec<SamplingError>,
-    unwinder: UnwinderNative<VmSubData, MayAllocateDuringUnwind>,
+    unwinder: UnwinderNative<UnwindSectionBytes, MayAllocateDuringUnwind>,
 }
 
 impl TaskProfiler {
@@ -118,11 +163,11 @@ impl TaskProfiler {
             .unwrap_or_else(|_| Vec::new());
         for change in changes {
             match change {
-                Modification::Added(lib) => {
+                Modification::Added(mut lib) => {
+                    self.add_lib_to_unwinder_and_ensure_debug_id(&mut lib);
                     if self.executable_lib.is_none() && lib.is_executable {
                         self.executable_lib = Some(lib.clone());
                     }
-                    self.add_lib_to_unwinder(&lib);
                     self.libs.push(lib)
                 }
                 Modification::Removed(_) => {
@@ -167,34 +212,72 @@ impl TaskProfiler {
         Ok(())
     }
 
-    fn add_lib_to_unwinder(&mut self, lib: &DyldInfo) {
+    fn add_lib_to_unwinder_and_ensure_debug_id(&mut self, lib: &mut DyldInfo) {
+        let base_svma = lib.svma_info.base_svma;
+        let base_avma = lib.base_avma;
         let unwind_info_data = lib
             .unwind_sections
             .unwind_info_section
-            .and_then(|(addr, size)| VmSubData::map_from_task(self.task, addr, size).ok());
+            .and_then(|(svma, size)| {
+                VmSubData::map_from_task(self.task, svma - base_svma + base_avma, size).ok()
+            });
         let eh_frame_data = lib
             .unwind_sections
             .eh_frame_section
-            .and_then(|(addr, size)| VmSubData::map_from_task(self.task, addr, size).ok());
-        let text_data = lib.unwind_sections.text_segment.and_then(|(addr, size)| {
-            VmSubData::map_from_task(self.task, addr, size)
+            .and_then(|(svma, size)| {
+                VmSubData::map_from_task(self.task, svma - base_svma + base_avma, size).ok()
+            });
+        let text_data = lib.unwind_sections.text_segment.and_then(|(svma, size)| {
+            let avma = svma - base_svma + base_avma;
+            VmSubData::map_from_task(self.task, avma, size)
                 .ok()
-                .map(|data| TextByteData::new(data, addr..addr + size))
+                .map(|data| {
+                    TextByteData::new(UnwindSectionBytes::Remapped(data), avma..avma + size)
+                })
         });
 
-        let unwind_data = match (unwind_info_data, eh_frame_data) {
-            (Some(unwind_info), eh_frame) => {
-                ModuleUnwindData::CompactUnwindInfoAndEhFrame(unwind_info, eh_frame.map(Arc::new))
+        if lib.debug_id.is_none() {
+            if let (Some(text_data), Some(text_section)) =
+                (text_data.as_ref(), lib.svma_info.text.clone())
+            {
+                let text_section_start_avma = text_section.start - base_svma + base_avma;
+                let text_section_first_page_end_avma = text_section_start_avma.wrapping_add(4096);
+                let debug_id = if let Some(text_first_page) =
+                    text_data.get_bytes(text_section_start_avma..text_section_first_page_end_avma)
+                {
+                    // Generate a debug ID from the __text section.
+                    DebugId::from_text_first_page(text_first_page, true)
+                } else {
+                    DebugId::nil()
+                };
+                lib.debug_id = Some(debug_id);
             }
-            (None, Some(eh_frame)) => ModuleUnwindData::EhFrame(Arc::new(eh_frame)),
-            (None, None) => ModuleUnwindData::None,
+        }
+
+        let unwind_data = match (unwind_info_data, eh_frame_data) {
+            (Some(unwind_info), eh_frame) => ModuleUnwindData::CompactUnwindInfoAndEhFrame(
+                UnwindSectionBytes::Remapped(unwind_info),
+                eh_frame.map(UnwindSectionBytes::Remapped),
+            ),
+            (None, Some(eh_frame)) => {
+                ModuleUnwindData::EhFrame(UnwindSectionBytes::Remapped(eh_frame))
+            }
+            (None, None) => {
+                // Have no unwind information.
+                // Let's try to open the file and use debug_frame.
+                if let Some(debug_frame) = get_debug_frame(&lib.file) {
+                    ModuleUnwindData::DebugFrame(debug_frame)
+                } else {
+                    ModuleUnwindData::None
+                }
+            }
         };
 
         let module = Module::new(
             lib.file.clone(),
-            lib.address..(lib.address + lib.vmsize),
-            lib.address,
-            lib.sections.clone(),
+            lib.base_avma..(lib.base_avma + lib.vmsize),
+            lib.base_avma,
+            lib.svma_info.clone(),
             unwind_data,
             text_data,
         );
@@ -246,26 +329,26 @@ impl TaskProfiler {
 
         for DyldInfo {
             file,
-            uuid,
-            address,
+            debug_id,
+            base_avma,
             vmsize,
             arch,
             ..
         } in self.libs
         {
-            let (uuid, arch) = match (uuid, arch) {
-                (Some(uuid), Some(arch)) => (uuid, arch),
+            let (debug_id, arch) = match (debug_id, arch) {
+                (Some(debug_id), Some(arch)) => (debug_id, arch),
                 _ => continue,
             };
             let path = Path::new(&file);
-            let address_range = address..(address + vmsize);
+            let address_range = base_avma..(base_avma + vmsize);
             profile_builder.add_lib(
                 path,
                 None,
                 path,
-                DebugId::from_uuid(uuid),
+                debug_id,
                 Some(arch),
-                address,
+                base_avma,
                 address_range,
             );
         }
@@ -275,6 +358,59 @@ impl TaskProfiler {
         }
 
         profile_builder
+    }
+}
+
+fn get_debug_frame(file_path: &str) -> Option<UnwindSectionBytes> {
+    let file = std::fs::File::open(file_path).ok()?;
+    let mmap = unsafe { memmap2::MmapOptions::new().map(&file).ok()? };
+    let data = &mmap[..];
+    let obj = object::read::File::parse(data).ok()?;
+    let compressed_range = if let Some(zdebug_frame_section) = obj.section_by_name("__zdebug_frame")
+    {
+        // Go binaries use compressed sections of the __zdebug_* type even on macOS,
+        // where doing so is quite uncommon. Object's mach-O support does not handle them.
+        // But we want to handle them.
+        let (file_range_start, file_range_size) = zdebug_frame_section.file_range()?;
+        let section_data = zdebug_frame_section.data().ok()?;
+        if !section_data.starts_with(b"ZLIB\0\0\0\0") {
+            return None;
+        }
+        let b = section_data.get(8..12)?;
+        let uncompressed_size = u32::from_be_bytes([b[0], b[1], b[2], b[3]]);
+        CompressedFileRange {
+            format: CompressionFormat::Zlib,
+            offset: file_range_start + 12,
+            compressed_size: file_range_size - 12,
+            uncompressed_size: uncompressed_size.into(),
+        }
+    } else {
+        let debug_frame_section = obj.section_by_name("__debug_frame")?;
+        debug_frame_section.compressed_file_range().ok()?
+    };
+    match compressed_range.format {
+        CompressionFormat::None => Some(UnwindSectionBytes::Mmap(MmapSubData::try_new(
+            mmap,
+            compressed_range.offset as usize,
+            compressed_range.uncompressed_size as usize,
+        )?)),
+        CompressionFormat::Unknown => None,
+        CompressionFormat::Zlib => {
+            let compressed_bytes = &mmap[compressed_range.offset as usize..]
+                [..compressed_range.compressed_size as usize];
+
+            let mut decompressed = Vec::with_capacity(compressed_range.uncompressed_size as usize);
+            let mut decompress = flate2::Decompress::new(true);
+            decompress
+                .decompress_vec(
+                    compressed_bytes,
+                    &mut decompressed,
+                    flate2::FlushDecompress::Finish,
+                )
+                .ok()?;
+            Some(UnwindSectionBytes::Allocated(decompressed))
+        }
+        _ => None,
     }
 }
 
