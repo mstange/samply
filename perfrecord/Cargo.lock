@@ -522,9 +522,9 @@ dependencies = [
 
 [[package]]
 name = "gecko_profile"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "daf59f36b567e7f20709bd4269f12e2af72aba8d2ae81cf0794dd525410dffb4"
+checksum = "890852c7e1e02bc6758e325d6b1e0236e4fbf21b492f585ce4d4715be54b4c6a"
 dependencies = [
  "debugid",
  "serde",

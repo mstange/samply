@@ -178,7 +178,7 @@ fn start_recording(
         let profile_builder: ProfileBuilder = saver_receiver.recv().expect("saver couldn't recv");
         let file = File::create(&output_file).unwrap();
         let writer = BufWriter::new(file);
-        to_writer(writer, &profile_builder.to_json()).expect("Couldn't write JSON");
+        to_writer(writer, &profile_builder.to_serializable()).expect("Couldn't write JSON");
 
         // Reuse the saver thread as the server thread.
         if serve_when_done {
