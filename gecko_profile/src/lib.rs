@@ -111,13 +111,65 @@ impl ProfileBuilder {
         marker_schemas
     }
 
-    pub fn to_json(&self) -> serde_json::Value {
+    pub fn to_serializable(&self) -> SerializableProfile {
+        SerializableProfile(self)
+    }
+}
+
+pub struct SerializableProfile<'a>(&'a ProfileBuilder);
+
+use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
+
+impl<'a> Serialize for SerializableProfile<'a> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let start_time_ms_since_unix_epoch = self
+            .0
+            .start_time_system
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64()
+            * 1000.0;
+
+        let end_time_ms_since_start = self
+            .0
+            .end_time
+            .map(|end_time| to_profile_timestamp(end_time, self.0.start_time));
+
         let mut marker_schemas: Vec<MarkerSchema> =
-            self.collect_marker_schemas().into_values().collect();
+            self.0.collect_marker_schemas().into_values().collect();
         marker_schemas.sort_by_key(|schema| schema.type_name);
 
-        let mut sorted_threads: Vec<_> = self.threads.iter().collect();
-        sorted_threads.sort_by(|(_, a), (_, b)| {
+        let meta = json!({
+            "version": 24,
+            "startTime": start_time_ms_since_unix_epoch,
+            "shutdownTime": end_time_ms_since_start,
+            "pausedRanges": [],
+            "product": self.0.command_name,
+            "interval": self.0.interval.as_secs_f64() * 1000.0,
+            "pid": self.0.pid,
+            "processType": 0,
+            "categories": [
+                {
+                    "name": "Regular",
+                    "color": "blue",
+                    "subcategories": ["Other"],
+                },
+                {
+                    "name": "Other",
+                    "color": "grey",
+                    "subcategories": ["Other"],
+                }
+            ],
+            "sampleUnits": {
+                "time": "ms",
+                "eventDelay": "ms",
+                "threadCPUDelta": "µs"
+            },
+            "markerSchema": marker_schemas
+        });
+
+        let mut sorted_threads: Vec<_> = self.0.threads.values().collect();
+        sorted_threads.sort_by(|a, b| {
             if let Some(ordering) = a.get_start_time().partial_cmp(&b.get_start_time()) {
                 if ordering != Ordering::Equal {
                     return ordering;
@@ -129,15 +181,17 @@ impl ProfileBuilder {
             }
             a.get_tid().cmp(&b.get_tid())
         });
-        let threads: Vec<Value> = sorted_threads
-            .into_iter()
-            .map(|(_, thread)| thread.to_json(&self.command_name, self.start_time))
-            .collect();
-        let mut sorted_libs: Vec<_> = self.libs.iter().collect();
-        sorted_libs.sort_by_key(|l| l.start_address);
-        let libs: Vec<Value> = sorted_libs.iter().map(|l| l.to_json()).collect();
 
-        let mut sorted_subprocesses: Vec<_> = self.subprocesses.iter().collect();
+        let command_name = self.0.command_name.clone();
+        let threads: Vec<_> = sorted_threads
+            .into_iter()
+            .map(|thread| thread.to_serializable(&command_name, self.0.start_time))
+            .collect();
+
+        let mut libs: Vec<_> = self.0.libs.iter().collect();
+        libs.sort_by_key(|l| l.start_address);
+
+        let mut sorted_subprocesses: Vec<_> = self.0.subprocesses.iter().collect();
         sorted_subprocesses.sort_by(|a, b| {
             if let Some(ordering) = a.start_time.partial_cmp(&b.start_time) {
                 if ordering != Ordering::Equal {
@@ -147,52 +201,17 @@ impl ProfileBuilder {
             a.pid.cmp(&b.pid)
         });
 
-        let subprocesses: Vec<Value> = sorted_subprocesses.iter().map(|p| p.to_json()).collect();
+        let subprocesses: Vec<_> = sorted_subprocesses
+            .iter()
+            .map(|p| p.to_serializable())
+            .collect();
 
-        let start_time_ms_since_unix_epoch = self
-            .start_time_system
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs_f64()
-            * 1000.0;
-
-        let end_time_ms_since_start = self
-            .end_time
-            .map(|end_time| to_profile_timestamp(end_time, self.start_time));
-
-        json!({
-            "meta": {
-                "version": 24,
-                "startTime": start_time_ms_since_unix_epoch,
-                "shutdownTime": end_time_ms_since_start,
-                "pausedRanges": [],
-                "product": self.command_name,
-                "interval": self.interval.as_secs_f64() * 1000.0,
-                "pid": self.pid,
-                "processType": 0,
-                "categories": [
-                    {
-                        "name": "Regular",
-                        "color": "blue",
-                        "subcategories": ["Other"],
-                    },
-                    {
-                        "name": "Other",
-                        "color": "grey",
-                        "subcategories": ["Other"],
-                    }
-                ],
-                "sampleUnits": {
-                    "time": "ms",
-                    "eventDelay": "ms",
-                    "threadCPUDelta": "µs"
-                },
-                "markerSchema": marker_schemas
-            },
-            "libs": libs,
-            "threads": threads,
-            "processes": subprocesses,
-        })
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("meta", &meta)?;
+        map.serialize_entry("libs", &libs)?;
+        map.serialize_entry("threads", &threads)?;
+        map.serialize_entry("processes", &subprocesses)?;
+        map.end()
     }
 }
 
@@ -323,35 +342,63 @@ impl ThreadBuilder {
             .index_for_frame(&mut self.string_table, frame)
     }
 
-    fn to_json(&self, process_name: &str, process_start: Instant) -> Value {
-        let name = if self.is_main {
+    fn to_serializable<'a, 'n>(
+        &'a self,
+        process_name: &'n str,
+        process_start: Instant,
+    ) -> SerializableProfileThread<'a, 'n> {
+        SerializableProfileThread {
+            thread: self,
+            process_name,
+            process_start,
+        }
+    }
+}
+
+pub struct SerializableProfileThread<'a, 'n> {
+    thread: &'a ThreadBuilder,
+    process_name: &'n str,
+    process_start: Instant,
+}
+
+impl<'a, 'n> Serialize for SerializableProfileThread<'a, 'n> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let name = if self.thread.is_main {
             // https://github.com/firefox-devtools/profiler/issues/2508
             "GeckoMain".to_string()
-        } else if let Some(name) = &self.name {
+        } else if let Some(name) = &self.thread.name {
             name.clone()
-        } else if self.is_libdispatch_thread {
+        } else if self.thread.is_libdispatch_thread {
             "libdispatch".to_string()
         } else {
-            format!("Thread <{}>", self.index)
+            format!("Thread <{}>", self.thread.index)
         };
-        let register_time = to_profile_timestamp(self.start_time, process_start);
+        let register_time = to_profile_timestamp(self.thread.start_time, self.process_start);
         let unregister_time = self
+            .thread
             .end_time
-            .map(|end_time| to_profile_timestamp(end_time, process_start));
-        json!({
-            "name": name,
-            "tid": self.index,
-            "pid": self.pid,
-            "processType": "default",
-            "processName": process_name,
-            "registerTime": register_time,
-            "unregisterTime": unregister_time,
-            "frameTable": self.frame_table.to_json(),
-            "stackTable": self.stack_table.to_json(),
-            "samples": self.samples.to_json(process_start),
-            "markers": self.markers.to_json(process_start),
-            "stringTable": self.string_table.to_json()
-        })
+            .map(|end_time| to_profile_timestamp(end_time, self.process_start));
+
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("name", &name)?;
+        map.serialize_entry("tid", &self.thread.index)?;
+        map.serialize_entry("pid", &self.thread.pid)?;
+        map.serialize_entry("processType", &"default")?;
+        map.serialize_entry("processName", &self.process_name)?;
+        map.serialize_entry("registerTime", &register_time)?;
+        map.serialize_entry("unregisterTime", &unregister_time)?;
+        map.serialize_entry("frameTable", &self.thread.frame_table)?;
+        map.serialize_entry("stackTable", &self.thread.stack_table)?;
+        map.serialize_entry(
+            "samples",
+            &self.thread.samples.to_serializable(self.process_start),
+        )?;
+        map.serialize_entry(
+            "markers",
+            &self.thread.markers.to_serializable(self.process_start),
+        )?;
+        map.serialize_entry("stringTable", &self.thread.string_table.to_serializable())?;
+        map.end()
     }
 }
 
@@ -367,24 +414,24 @@ struct Lib {
     end_address: u64,
 }
 
-impl Lib {
-    pub fn to_json(&self) -> Value {
+impl<'a> Serialize for Lib {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let name = self.path.file_name().map(|f| f.to_string_lossy());
         let debug_name = self.debug_path.file_name().map(|f| f.to_string_lossy());
         let breakpad_id = format!("{}", self.debug_id.breakpad());
         let code_id = self.code_id.as_ref().map(|cid| cid.to_string());
-        json!({
-            "name": name,
-            "path": self.path.to_string_lossy(),
-            "debugName": debug_name,
-            "debugPath": self.debug_path.to_string_lossy(),
-            "breakpadId": breakpad_id,
-            "codeId": code_id,
-            "offset": self.start_address - self.base_address,
-            "start": self.start_address,
-            "end": self.end_address,
-            "arch": self.arch,
-        })
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("name", &name)?;
+        map.serialize_entry("path", &self.path.to_string_lossy())?;
+        map.serialize_entry("debugName", &debug_name)?;
+        map.serialize_entry("debugPath", &self.debug_path.to_string_lossy())?;
+        map.serialize_entry("breakpadId", &breakpad_id)?;
+        map.serialize_entry("codeId", &code_id)?;
+        map.serialize_entry("offset", &(self.start_address - self.base_address))?;
+        map.serialize_entry("start", &self.start_address)?;
+        map.serialize_entry("end", &self.end_address)?;
+        map.serialize_entry("arch", &self.arch)?;
+        map.end()
     }
 }
 
@@ -422,26 +469,43 @@ impl StackTable {
         }
         prefix
     }
+}
 
-    pub fn to_json(&self) -> Value {
-        let data: Vec<Value> = self
-            .stacks
-            .iter()
-            .map(|(prefix, frame_index)| {
-                let prefix = match prefix {
-                    Some(prefix) => Value::Number((*prefix as u64).into()),
-                    None => Value::Null,
-                };
-                json!([prefix, frame_index])
-            })
-            .collect();
-        json!({
-            "schema": {
-                "prefix": 0,
-                "frame": 1,
-            },
-            "data": data
-        })
+impl Serialize for StackTable {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let schema = json!({
+            "prefix": 0,
+            "frame": 1,
+        });
+
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("schema", &schema)?;
+        map.serialize_entry("data", &SerializableStackTableData(self))?;
+        map.end()
+    }
+}
+
+struct SerializableStackTableData<'a>(&'a StackTable);
+
+impl<'a> Serialize for SerializableStackTableData<'a> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut seq = serializer.serialize_seq(Some(self.0.stacks.len()))?;
+        for stack in &self.0.stacks {
+            seq.serialize_element(&SerializableStackTableDataValue(stack))?;
+        }
+        seq.end()
+    }
+}
+
+struct SerializableStackTableDataValue<'a>(&'a (Option<usize>, usize));
+
+impl<'a> Serialize for SerializableStackTableDataValue<'a> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let (prefix, frame_index) = self.0;
+        let mut seq = serializer.serialize_seq(Some(2))?;
+        seq.serialize_element(prefix)?;
+        seq.serialize_element(frame_index)?;
+        seq.end()
     }
 }
 
@@ -477,41 +541,55 @@ impl FrameTable {
             frame_index
         })
     }
+}
 
-    pub fn to_json(&self) -> Value {
-        let data: Vec<Value> = self
-            .frames
-            .iter()
-            .map(|location| {
-                let category = 0;
-                let subcategory = 0;
-                json!([
-                    location.0,
-                    false,
-                    0,
-                    null,
-                    null,
-                    null,
-                    null,
-                    category,
-                    subcategory
-                ])
-            })
-            .collect();
-        json!({
-            "schema": {
-                "location": 0,
-                "relevantForJS": 1,
-                "innerWindowID": 2,
-                "implementation": 3,
-                "optimizations": 4,
-                "line": 5,
-                "column": 6,
-                "category": 7,
-                "subcategory": 8,
-            },
-            "data": data
-        })
+impl Serialize for FrameTable {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let schema = json!({
+            "location": 0,
+            "relevantForJS": 1,
+            "innerWindowID": 2,
+            "implementation": 3,
+            "optimizations": 4,
+            "line": 5,
+            "column": 6,
+            "category": 7,
+            "subcategory": 8,
+        });
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("schema", &schema)?;
+        map.serialize_entry("data", &SerializableFrameTableData(self))?;
+        map.end()
+    }
+}
+
+struct SerializableFrameTableData<'a>(&'a FrameTable);
+
+impl<'a> Serialize for SerializableFrameTableData<'a> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut seq = serializer.serialize_seq(Some(self.0.frames.len()))?;
+        for location in &self.0.frames {
+            seq.serialize_element(&SerializableFrameTableDataValue(*location))?;
+        }
+        seq.end()
+    }
+}
+
+struct SerializableFrameTableDataValue(StringIndex);
+
+impl Serialize for SerializableFrameTableDataValue {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut seq = serializer.serialize_seq(Some(9))?;
+        seq.serialize_element(&self.0 .0)?; // location
+        seq.serialize_element(&false)?; // relevantForJS
+        seq.serialize_element(&0)?; // innerWindowID
+        seq.serialize_element(&())?; // implementation
+        seq.serialize_element(&())?; // optimizations
+        seq.serialize_element(&())?; // line
+        seq.serialize_element(&())?; // column
+        seq.serialize_element(&0)?; // category
+        seq.serialize_element(&0)?; // subcategory
+        seq.end()
     }
 }
 
@@ -519,28 +597,72 @@ impl FrameTable {
 struct SampleTable(Vec<Sample>);
 
 impl SampleTable {
-    pub fn to_json(&self, process_start: Instant) -> Value {
-        let data: Vec<Value> = self
-            .0
-            .iter()
-            .map(|sample| {
-                json!([
-                    sample.stack_index,
-                    to_profile_timestamp(sample.timestamp, process_start),
-                    0.0,
-                    sample.cpu_delta_us
-                ])
-            })
-            .collect();
-        json!({
-            "schema": {
-                "stack": 0,
-                "time": 1,
-                "eventDelay": 2,
-                "threadCPUDelta": 3
+    fn to_serializable(&self, process_start: Instant) -> SerializableSampleTable<'_> {
+        SerializableSampleTable {
+            table: self,
+            process_start,
+        }
+    }
+}
+
+struct SerializableSampleTable<'a> {
+    table: &'a SampleTable,
+    process_start: Instant,
+}
+
+impl<'a> Serialize for SerializableSampleTable<'a> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let schema = json!({
+            "stack": 0,
+            "time": 1,
+            "eventDelay": 2,
+            "threadCPUDelta": 3
+        });
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("schema", &schema)?;
+        map.serialize_entry(
+            "data",
+            &SerializableSampleTableData {
+                table: self.table,
+                process_start: self.process_start,
             },
-            "data": data
-        })
+        )?;
+        map.end()
+    }
+}
+struct SerializableSampleTableData<'a> {
+    table: &'a SampleTable,
+    process_start: Instant,
+}
+
+impl<'a> Serialize for SerializableSampleTableData<'a> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut seq = serializer.serialize_seq(Some(self.table.0.len()))?;
+        for sample in &self.table.0 {
+            seq.serialize_element(&SerializableSampleTableDataValue {
+                stack_index: sample.stack_index,
+                timestamp: to_profile_timestamp(sample.timestamp, self.process_start),
+                cpu_delta_us: sample.cpu_delta_us,
+            })?;
+        }
+        seq.end()
+    }
+}
+
+struct SerializableSampleTableDataValue {
+    stack_index: Option<usize>,
+    timestamp: f64,
+    cpu_delta_us: u64,
+}
+
+impl Serialize for SerializableSampleTableDataValue {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut seq = serializer.serialize_seq(Some(4))?;
+        seq.serialize_element(&self.stack_index)?;
+        seq.serialize_element(&self.timestamp)?;
+        seq.serialize_element(&0.0)?;
+        seq.serialize_element(&self.cpu_delta_us)?;
+        seq.end()
     }
 }
 
@@ -559,23 +681,74 @@ impl MarkerTable {
         Self(Vec::new())
     }
 
-    fn to_json(&self, process_start: Instant) -> Value {
-        let data: Vec<Value> = self
-            .0
-            .iter()
-            .map(|marker| marker.to_json(process_start))
-            .collect();
-        json!({
-            "schema": {
-                "name": 0,
-                "startTime": 1,
-                "endTime": 2,
-                "phase": 3,
-                "category": 4,
-                "data": 5,
+    fn to_serializable(&self, process_start: Instant) -> SerializableMarkerTable<'_> {
+        SerializableMarkerTable {
+            table: self,
+            process_start,
+        }
+    }
+}
+
+struct SerializableMarkerTable<'a> {
+    table: &'a MarkerTable,
+    process_start: Instant,
+}
+
+impl<'a> Serialize for SerializableMarkerTable<'a> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let schema = json!({
+            "name": 0,
+            "startTime": 1,
+            "endTime": 2,
+            "phase": 3,
+            "category": 4,
+            "data": 5,
+        });
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("schema", &schema)?;
+        map.serialize_entry(
+            "data",
+            &SerializableMarkerTableData {
+                table: self.table,
+                process_start: self.process_start,
             },
-            "data": data
-        })
+        )?;
+        map.end()
+    }
+}
+struct SerializableMarkerTableData<'a> {
+    table: &'a MarkerTable,
+    process_start: Instant,
+}
+
+impl<'a> Serialize for SerializableMarkerTableData<'a> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut seq = serializer.serialize_seq(Some(self.table.0.len()))?;
+        for marker in &self.table.0 {
+            seq.serialize_element(&marker.to_serializable(self.process_start))?;
+        }
+        seq.end()
+    }
+}
+
+struct SerializableMarkerTableDataValue<'a> {
+    name_string_index: StringIndex,
+    start: f64,
+    end: f64,
+    phase: u8,
+    data: &'a Value,
+}
+
+impl<'a> Serialize for SerializableMarkerTableDataValue<'a> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut seq = serializer.serialize_seq(Some(6))?;
+        seq.serialize_element(&self.name_string_index.0)?; // name
+        seq.serialize_element(&self.start)?; // startTime
+        seq.serialize_element(&self.end)?; // endTime
+        seq.serialize_element(&self.phase)?; // phase
+        seq.serialize_element(&0)?; // category
+        seq.serialize_element(self.data)?; // data
+        seq.end()
     }
 }
 
@@ -595,7 +768,7 @@ struct Marker {
 }
 
 impl Marker {
-    fn to_json(&self, process_start: Instant) -> Value {
+    fn to_serializable(&self, process_start: Instant) -> SerializableMarkerTableDataValue<'_> {
         let (s, e, phase) = match self.timing {
             MarkerTiming::Instant(s) => {
                 (to_profile_timestamp(s, process_start), 0.0, Phase::Instant)
@@ -616,7 +789,13 @@ impl Marker {
                 Phase::IntervalEnd,
             ),
         };
-        json!([self.name_string_index.0, s, e, phase as u8, 0, self.data])
+        SerializableMarkerTableDataValue {
+            name_string_index: self.name_string_index,
+            start: s,
+            end: e,
+            phase: phase as u8,
+            data: &self.data,
+        }
     }
 }
 
@@ -646,13 +825,8 @@ impl StringTable {
         }
     }
 
-    pub fn to_json(&self) -> Value {
-        Value::Array(
-            self.strings
-                .iter()
-                .map(|s| Value::String(s.clone()))
-                .collect(),
-        )
+    fn to_serializable(&self) -> &[String] {
+        &self.strings
     }
 }
 
@@ -771,8 +945,7 @@ mod test {
             Duration::from_millis(1),
         );
         profile.add_thread(thread);
-        let result = profile.to_json();
-        // println!("{}", result.to_string());
+        let result = profile.to_serializable();
         assert_json_eq!(
             result,
             json!(
