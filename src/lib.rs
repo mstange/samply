@@ -1,4 +1,5 @@
 use flate2::read::GzDecoder;
+use hyper::body::Bytes;
 use hyper::server::conn::AddrIncoming;
 use hyper::server::Builder;
 use hyper::service::{make_service_fn, service_fn};
@@ -10,18 +11,19 @@ use profiler_get_symbols::{
     FileAndPathHelperResult, FileLocation, OptionallySendFuture,
 };
 use rand::RngCore;
-use serde_json::{self, Value};
+use serde_derive::Deserialize;
 use std::collections::HashMap;
 use std::convert::Infallible;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs::File;
-use std::io::Cursor;
+use std::io::BufReader;
 use std::net::SocketAddr;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::Arc;
+use tokio::io::AsyncReadExt;
 
 mod moria_mac;
 
@@ -63,26 +65,23 @@ pub async fn start_server(
     verbose: bool,
     open_in_browser: bool,
 ) {
-    let (profile, buffer) = if let Some(profile_filename) = profile_filename {
+    let path_map = if let Some(profile_filename) = profile_filename {
         // Read the profile.json file and parse it as JSON.
-        let mut buffer = std::fs::read(profile_filename).expect("couldn't read file");
+        // Build a map (debugName, breakpadID) -> debugPath from the information
+        // in profile(\.processes\[\d+\])*(\.threads\[\d+\])?\.libs.
+        let file = std::fs::File::open(profile_filename).expect("couldn't read file");
+        let reader = BufReader::new(file);
 
         // Handle .gz profiles
         if profile_filename.extension() == Some(&OsString::from("gz")) {
-            use std::io::Read;
-            let mut decompressed_buffer = Vec::new();
-            let cursor = Cursor::new(&buffer);
-            GzDecoder::new(cursor)
-                .read_to_end(&mut decompressed_buffer)
-                .expect("couldn't decompress gzip");
-            buffer = decompressed_buffer
+            let decoder = GzDecoder::new(reader);
+            let reader = BufReader::new(decoder);
+            parse_path_map_from_profile(reader).expect("couldn't parse json")
+        } else {
+            parse_path_map_from_profile(reader).expect("couldn't parse json")
         }
-
-        let profile: Value = serde_json::from_slice(&buffer).expect("couldn't parse json");
-        let buffer = Arc::new(buffer);
-        (Some(profile), Some(buffer))
     } else {
-        (None, None)
+        HashMap::new()
     };
 
     let (builder, addr) = make_builder_at_port(port_selection);
@@ -120,10 +119,10 @@ pub async fn start_server(
 
     let template_values = Arc::new(template_values);
 
-    let helper = Arc::new(Helper::for_profile(profile, symbol_path, verbose));
+    let helper = Arc::new(Helper::with_path_map(path_map, symbol_path, verbose));
     let new_service = make_service_fn(move |_conn| {
         let helper = helper.clone();
-        let raw_profile_json_data = buffer.clone();
+        let profile_filename = profile_filename.map(PathBuf::from);
         let template_values = template_values.clone();
         let path_prefix = path_prefix.clone();
         async {
@@ -132,7 +131,7 @@ pub async fn start_server(
                     req,
                     template_values.clone(),
                     helper.clone(),
-                    raw_profile_json_data.clone(),
+                    profile_filename.clone(),
                     path_prefix.clone(),
                 )
             }))
@@ -159,6 +158,41 @@ pub async fn start_server(
     if let Err(e) = server.await {
         eprintln!("server error: {}", e);
     }
+}
+
+fn parse_path_map_from_profile(
+    reader: impl std::io::Read,
+) -> Result<HashMap<(String, DebugId), String>, std::io::Error> {
+    let profile: ProfileJsonProcess = serde_json::from_reader(reader)?;
+    let mut path_map = HashMap::new();
+    add_to_path_map_recursive(&profile, &mut path_map);
+    Ok(path_map)
+}
+
+#[derive(Deserialize, Default, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct ProfileJsonProcess {
+    #[serde(default)]
+    pub libs: Vec<ProfileJsonLib>,
+    #[serde(default)]
+    pub threads: Vec<ProfileJsonThread>,
+    #[serde(default)]
+    pub processes: Vec<ProfileJsonProcess>,
+}
+
+#[derive(Deserialize, Default, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct ProfileJsonThread {
+    #[serde(default)]
+    pub libs: Vec<ProfileJsonLib>,
+}
+
+#[derive(Deserialize, Default, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct ProfileJsonLib {
+    pub debug_name: Option<String>,
+    pub debug_path: Option<String>,
+    pub breakpad_id: Option<String>,
 }
 
 // Returns a base32 string for 24 random bytes.
@@ -241,10 +275,10 @@ async fn symbolication_service(
     req: Request<Body>,
     template_values: Arc<HashMap<&'static str, String>>,
     helper: Arc<Helper>,
-    raw_profile_json_data: Option<Arc<Vec<u8>>>,
+    profile_filename: Option<PathBuf>,
     path_prefix: String,
 ) -> Result<Response<Body>, hyper::Error> {
-    let has_profile = raw_profile_json_data.is_some();
+    let has_profile = profile_filename.is_some();
     let method = req.method();
     let path = req.uri().path();
     let mut response = Response::new(Body::empty());
@@ -283,7 +317,7 @@ async fn symbolication_service(
         header::HeaderValue::from_static("*"),
     );
 
-    match (method, path_without_prefix, raw_profile_json_data) {
+    match (method, path_without_prefix, profile_filename) {
         (&Method::OPTIONS, _, _) => {
             // https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS
             *response.status_mut() = StatusCode::NO_CONTENT;
@@ -316,12 +350,40 @@ async fn symbolication_service(
                 );
             }
         }
-        (&Method::GET, "/profile.json", Some(raw_profile_json_data)) => {
+        (&Method::GET, "/profile.json", Some(profile_filename)) => {
+            if profile_filename.extension() == Some(OsStr::new("gz")) {
+                response.headers_mut().insert(
+                    header::CONTENT_ENCODING,
+                    header::HeaderValue::from_static("gzip"),
+                );
+            }
             response.headers_mut().insert(
                 header::CONTENT_TYPE,
                 header::HeaderValue::from_static("application/json; charset=UTF-8"),
             );
-            *response.body_mut() = Body::from((*raw_profile_json_data).clone());
+            let (mut sender, body) = Body::channel();
+            *response.body_mut() = body;
+
+            // Stream the file out to the response body, asynchronously, after this function has returned.
+            tokio::spawn(async move {
+                let mut file = tokio::fs::File::open(&profile_filename)
+                    .await
+                    .expect("couldn't open profile file");
+                let mut contents = vec![0; 1024 * 1024];
+                loop {
+                    let data_len = file
+                        .read(&mut contents)
+                        .await
+                        .expect("couldn't read profile file");
+                    if data_len == 0 {
+                        break;
+                    }
+                    sender
+                        .send_data(Bytes::copy_from_slice(&contents[..data_len]))
+                        .await
+                        .expect("couldn't send data");
+                }
+            });
         }
         (&Method::POST, path, _) => {
             response.headers_mut().insert(
@@ -358,7 +420,10 @@ struct Helper {
     verbose: bool,
 }
 
-fn add_libs_to_path_map(libs: &[Value], path_map: &mut HashMap<(String, DebugId), String>) {
+fn add_libs_to_path_map(
+    libs: &[ProfileJsonLib],
+    path_map: &mut HashMap<(String, DebugId), String>,
+) {
     for lib in libs {
         if let Some(((debug_name, debug_id), debug_path)) = path_map_entry_for_lib(lib) {
             path_map.insert((debug_name, debug_id), debug_path);
@@ -366,44 +431,33 @@ fn add_libs_to_path_map(libs: &[Value], path_map: &mut HashMap<(String, DebugId)
     }
 }
 
-fn path_map_entry_for_lib(lib: &Value) -> Option<((String, DebugId), String)> {
-    let debug_name = lib["debugName"].as_str()?.to_string();
-    let breakpad_id = lib["breakpadId"].as_str()?;
-    let debug_path = lib["debugPath"].as_str()?.to_string();
+fn path_map_entry_for_lib(lib: &ProfileJsonLib) -> Option<((String, DebugId), String)> {
+    let debug_name = lib.debug_name.clone()?;
+    let breakpad_id = lib.breakpad_id.as_ref()?;
+    let debug_path = lib.debug_path.clone()?;
     let debug_id = DebugId::from_breakpad(breakpad_id).ok()?;
     Some(((debug_name, debug_id), debug_path))
 }
 
-fn add_to_path_map_recursive(profile: &Value, path_map: &mut HashMap<(String, DebugId), String>) {
-    if let Value::Array(libs) = &profile["libs"] {
-        add_libs_to_path_map(libs, path_map)
+fn add_to_path_map_recursive(
+    profile: &ProfileJsonProcess,
+    path_map: &mut HashMap<(String, DebugId), String>,
+) {
+    add_libs_to_path_map(&profile.libs, path_map);
+    for thread in &profile.threads {
+        add_libs_to_path_map(&thread.libs, path_map);
     }
-    if let Value::Array(threads) = &profile["threads"] {
-        for thread in threads {
-            if let Value::Array(libs) = &thread["libs"] {
-                add_libs_to_path_map(libs, path_map);
-            }
-        }
-    }
-    if let Value::Array(processes) = &profile["processes"] {
-        for process in processes {
-            add_to_path_map_recursive(process, path_map);
-        }
+    for process in &profile.processes {
+        add_to_path_map_recursive(process, path_map);
     }
 }
 
 impl Helper {
-    pub fn for_profile(
-        profile: Option<Value>,
+    pub fn with_path_map(
+        path_map: HashMap<(String, DebugId), String>,
         symbol_path: Vec<NtSymbolPathEntry>,
         verbose: bool,
     ) -> Self {
-        // Build a map (debugName, breakpadID) -> debugPath from the information
-        // in profile.libs.
-        let mut path_map = HashMap::new();
-        if let Some(profile) = profile {
-            add_to_path_map_recursive(&profile, &mut path_map);
-        }
         let symbol_cache = SymbolCache::new(symbol_path, verbose);
         Helper {
             path_map,
@@ -522,5 +576,31 @@ impl<'h> FileAndPathHelper<'h> for Helper {
         location: &FileLocation,
     ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>> {
         Box::pin(self.open_file_impl(location.clone()))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{ProfileJsonLib, ProfileJsonProcess};
+
+    #[test]
+    fn deserialize_profile_json() {
+        let p: ProfileJsonProcess = serde_json::from_str("{}").unwrap();
+        assert!(p.libs.is_empty());
+        assert!(p.threads.is_empty());
+        assert!(p.processes.is_empty());
+
+        let p: ProfileJsonProcess = serde_json::from_str("{\"unknown_field\":[1, 2, 3]}").unwrap();
+        assert!(p.libs.is_empty());
+        assert!(p.threads.is_empty());
+        assert!(p.processes.is_empty());
+
+        let p: ProfileJsonProcess =
+            serde_json::from_str("{\"threads\":[{\"libs\":[{}]}]}").unwrap();
+        assert!(p.libs.is_empty());
+        assert_eq!(p.threads.len(), 1);
+        assert_eq!(p.threads[0].libs.len(), 1);
+        assert_eq!(p.threads[0].libs[0], ProfileJsonLib::default());
+        assert!(p.processes.is_empty());
     }
 }

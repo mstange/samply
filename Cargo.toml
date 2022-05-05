@@ -33,6 +33,8 @@ thiserror = "1.0.26"
 cab = "0.3.0"
 rand = "0.8.4"
 nix-base32 = "0.1.1"
+serde_derive = "1.0.137"
+serde = "1.0.137"
 
 # Needed for moria_mac_spotlight, to find dSYM files
 [target.'cfg(target_os = "macos")'.dependencies]
