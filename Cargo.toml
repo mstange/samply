@@ -30,7 +30,7 @@ webbrowser = "0.7.0"
 reqwest = { version = "0.11.10", features = ["default-tls", "gzip", "brotli", "deflate"] }
 dirs = "4.0"
 thiserror = "1.0.26"
-cab = "0.3.0"
+cab = "0.4.0"
 rand = "0.8.4"
 nix-base32 = "0.1.1"
 serde_derive = "1.0.137"
