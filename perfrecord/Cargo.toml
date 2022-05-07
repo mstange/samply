@@ -12,7 +12,7 @@ readme = "Readme.md"
 perfrecord-mach-ipc-rendezvous = { version = "0.2.1", path = "../perfrecord-mach-ipc-rendezvous" }
 
 # profiler-symbol-server = { path = "../../profiler-symbol-server" }
-profiler-symbol-server = "0.11.0"
+profiler-symbol-server = "0.12.0"
 
 profiler-get-symbols = "0.14.0"
 
