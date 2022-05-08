@@ -1,46 +1,66 @@
 use crate::error::SamplingError;
 use crate::task_profiler::TaskProfiler;
-use crate::task_profiler::UnwinderCache;
 use crossbeam_channel::Receiver;
-use gecko_profile::ProfileBuilder;
+use fxprof_processed_profile::InstantTimestampMaker;
+use fxprof_processed_profile::Profile;
+use fxprof_processed_profile::ReferenceTimestamp;
+use mach::port::mach_port_t;
 use std::mem;
+use std::path::Path;
 use std::thread;
+use std::time::SystemTime;
 use std::time::{Duration, Instant};
 
+#[derive(Debug, Clone)]
+pub struct TaskInit {
+    pub start_time: Instant,
+    pub task: mach_port_t,
+    pub pid: u32,
+}
+
 pub struct Sampler {
-    task_receiver: Receiver<TaskProfiler>,
-    sampling_start: Instant,
+    command_name: String,
+    task_receiver: Receiver<TaskInit>,
     interval: Duration,
     time_limit: Option<Duration>,
-    live_root_task: Option<TaskProfiler>,
-    live_other_tasks: Vec<TaskProfiler>,
-    dead_root_task: Option<TaskProfiler>,
-    dead_other_tasks: Vec<TaskProfiler>,
-    unwinder_cache: UnwinderCache,
 }
 
 impl Sampler {
     pub fn new(
-        task_receiver: Receiver<TaskProfiler>,
+        command: String,
+        task_receiver: Receiver<TaskInit>,
         interval: Duration,
         time_limit: Option<Duration>,
     ) -> Self {
+        let command_name = Path::new(&command)
+            .components()
+            .next_back()
+            .unwrap()
+            .as_os_str()
+            .to_string_lossy()
+            .to_string();
+
         Sampler {
+            command_name,
             task_receiver,
-            sampling_start: Instant::now(),
             interval,
             time_limit,
-            live_root_task: None,
-            live_other_tasks: Vec::new(),
-            dead_root_task: None,
-            dead_other_tasks: Vec::new(),
-            unwinder_cache: Default::default(),
         }
     }
 
-    pub fn run(mut self) -> Result<ProfileBuilder, SamplingError> {
-        let root_task = match self.task_receiver.recv() {
-            Ok(task) => task,
+    pub fn run(self) -> Result<Profile, SamplingError> {
+        let reference_instant = Instant::now();
+        let reference_system_time = SystemTime::now();
+        let timestamp_maker = InstantTimestampMaker::from(reference_instant);
+
+        let mut profile = Profile::new(
+            &self.command_name,
+            ReferenceTimestamp::from_system_time(reference_system_time),
+            self.interval,
+        );
+
+        let root_task_init = match self.task_receiver.recv() {
+            Ok(task_init) => task_init,
             Err(_) => {
                 // The sender went away. No profiling today.
                 eprintln!("The process we launched did not give us a task port. This commonly happens when trying to profile signed executables (system apps, system python, ...), because those ignore DYLD_INSERT_LIBRARIES (and stop it from inheriting into child processes). For now, this profiler can only be used on unsigned binaries.");
@@ -48,58 +68,100 @@ impl Sampler {
             }
         };
 
-        self.live_root_task = Some(root_task);
+        let root_task = TaskProfiler::new(
+            root_task_init.task,
+            root_task_init.pid,
+            timestamp_maker.make_ts(root_task_init.start_time),
+            &self.command_name,
+            &mut profile,
+        )
+        .expect("couldn't create root TaskProfiler");
 
+        let mut live_root_task = Some(root_task);
+        let mut live_other_tasks = Vec::new();
+        let mut dead_other_tasks = Vec::new();
+        let mut unwinder_cache = Default::default();
         let mut last_sleep_overshoot = Duration::from_nanos(0);
 
+        let sampling_start = Instant::now();
+
         loop {
-            while let Ok(new_task) = self.task_receiver.try_recv() {
-                self.live_other_tasks.push(new_task);
+            // Poll to see if there are any new tasks we should add. If no new tasks are available,
+            // this completes immediately.
+            while let Ok(task_init) = self.task_receiver.try_recv() {
+                let new_task = match TaskProfiler::new(
+                    task_init.task,
+                    task_init.pid,
+                    timestamp_maker.make_ts(task_init.start_time),
+                    &self.command_name,
+                    &mut profile,
+                ) {
+                    Ok(new_task) => new_task,
+                    Err(_) => {
+                        // The task is probably already dead again. We get here for tasks which are
+                        // very short-lived.
+                        continue;
+                    }
+                };
+
+                live_other_tasks.push(new_task);
             }
 
-            let sample_timestamp = Instant::now();
+            let sample_instant = Instant::now();
             if let Some(time_limit) = self.time_limit {
-                if sample_timestamp.duration_since(self.sampling_start) >= time_limit {
+                if sample_instant.duration_since(sampling_start) >= time_limit {
                     break;
                 }
             }
 
-            if let Some(task) = &mut self.live_root_task {
-                let still_alive = task.sample(sample_timestamp, &mut self.unwinder_cache)?;
+            let sample_timestamp = timestamp_maker.make_ts(sample_instant);
+
+            if let Some(task) = &mut live_root_task {
+                let still_alive =
+                    task.sample(sample_timestamp, &mut unwinder_cache, &mut profile)?;
                 if !still_alive {
-                    task.notify_dead(sample_timestamp);
-                    self.dead_root_task = self.live_root_task.take();
+                    task.notify_dead(sample_timestamp, &mut profile);
+                    live_root_task = None;
                 }
             }
 
-            let mut other_tasks = Vec::with_capacity(self.live_other_tasks.capacity());
-            mem::swap(&mut self.live_other_tasks, &mut other_tasks);
+            let mut other_tasks = Vec::with_capacity(live_other_tasks.capacity());
+            mem::swap(&mut live_other_tasks, &mut other_tasks);
             for mut task in other_tasks.into_iter() {
-                let still_alive = task.sample(sample_timestamp, &mut self.unwinder_cache)?;
+                let still_alive =
+                    task.sample(sample_timestamp, &mut unwinder_cache, &mut profile)?;
                 if still_alive {
-                    self.live_other_tasks.push(task);
+                    live_other_tasks.push(task);
                 } else {
-                    task.notify_dead(sample_timestamp);
-                    self.dead_other_tasks.push(task);
+                    task.notify_dead(sample_timestamp, &mut profile);
+                    dead_other_tasks.push(task);
                 }
             }
 
-            if self.live_root_task.is_none() && self.live_other_tasks.is_empty() {
+            if live_root_task.is_none() && live_other_tasks.is_empty() {
                 // All tasks we know about are dead.
                 // Wait for a little more in case one of the just-ended tasks spawned a new task.
-                if let Ok(new_task) = self
+                if let Ok(task_init) = self
                     .task_receiver
                     .recv_timeout(Duration::from_secs_f32(0.5))
                 {
                     // Got one!
-                    self.live_other_tasks.push(new_task);
+                    let new_task = TaskProfiler::new(
+                        task_init.task,
+                        task_init.pid,
+                        timestamp_maker.make_ts(task_init.start_time),
+                        &self.command_name,
+                        &mut profile,
+                    )
+                    .expect("couldn't create TaskProfiler");
+                    live_other_tasks.push(new_task);
                 } else {
                     println!("All tasks terminated.");
                     break;
                 }
             }
 
-            let intended_wakeup_time = sample_timestamp + self.interval;
+            let intended_wakeup_time = sample_instant + self.interval;
             let indended_wait_time = intended_wakeup_time.saturating_duration_since(Instant::now());
             let sleep_time = if indended_wait_time > last_sleep_overshoot {
                 indended_wait_time - last_sleep_overshoot
@@ -109,14 +171,7 @@ impl Sampler {
             sleep_and_save_overshoot(sleep_time, &mut last_sleep_overshoot);
         }
 
-        let root_task = self.live_root_task.or(self.dead_root_task).unwrap();
-        let other_tasks: Vec<_> = self
-            .live_other_tasks
-            .into_iter()
-            .chain(self.dead_other_tasks.into_iter())
-            .collect();
-
-        Ok(root_task.into_profile(other_tasks))
+        Ok(profile)
     }
 }
 

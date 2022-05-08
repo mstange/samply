@@ -8,7 +8,7 @@ use std::process::ExitStatus;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 use structopt::StructOpt;
 
 #[allow(deref_nullptr)]
@@ -25,10 +25,9 @@ pub mod kernel_error;
 pub mod thread_act;
 pub mod thread_info;
 
-use gecko_profile::ProfileBuilder;
+use fxprof_processed_profile::Profile;
 use process_launcher::{MachError, TaskAccepter};
-use sampler::Sampler;
-use task_profiler::TaskProfiler;
+use sampler::{Sampler, TaskInit};
 
 #[derive(Debug, StructOpt)]
 #[structopt(
@@ -175,10 +174,10 @@ fn start_recording(
     let (saver_sender, saver_receiver) = unbounded();
     let output_file = output_file.to_owned();
     let saver_thread = thread::spawn(move || {
-        let profile_builder: ProfileBuilder = saver_receiver.recv().expect("saver couldn't recv");
+        let profile: Profile = saver_receiver.recv().expect("saver couldn't recv");
         let file = File::create(&output_file).unwrap();
         let writer = BufWriter::new(file);
-        to_writer(writer, &profile_builder.to_serializable()).expect("Couldn't write JSON");
+        to_writer(writer, &profile).expect("Couldn't write JSON");
 
         // Reuse the saver thread as the server thread.
         if serve_when_done {
@@ -186,13 +185,15 @@ fn start_recording(
         }
     });
 
+    let command_name = args.first().unwrap().clone();
+    let args: Vec<&str> = args.iter().skip(1).map(std::ops::Deref::deref).collect();
+
     let (task_sender, task_receiver) = unbounded();
+    let command_name_copy = command_name.clone();
     let sampler_thread = thread::spawn(move || {
-        let sampler = Sampler::new(task_receiver, interval, time_limit);
-        let profile_builder = sampler.run().expect("Sampler ran into an error");
-        saver_sender
-            .send(profile_builder)
-            .expect("couldn't send profile");
+        let sampler = Sampler::new(command_name_copy, task_receiver, interval, time_limit);
+        let profile = sampler.run().expect("Sampler ran into an error");
+        saver_sender.send(profile).expect("couldn't send profile");
     });
 
     // Ignore SIGINT while the subcommand is running. The signal still reaches the process
@@ -206,8 +207,6 @@ fn start_recording(
     )
     .expect("cannot register signal handler");
 
-    let command_name = args.first().unwrap().clone();
-    let args: Vec<&str> = args.iter().skip(1).map(std::ops::Deref::deref).collect();
     let (mut task_accepter, mut root_child) =
         TaskAccepter::create_and_launch_root_task(&command_name, &args)?;
 
@@ -219,16 +218,11 @@ fn start_recording(
         let timeout = Duration::from_secs_f64(1.0);
         match task_accepter.try_accept(timeout) {
             Ok(mut accepted_task) => {
-                let task_profiler = TaskProfiler::new(
-                    accepted_task.take_task(),
-                    accepted_task.get_id(),
-                    Instant::now(),
-                    SystemTime::now(),
-                    &command_name,
-                    interval,
-                )
-                .expect("couldn't create TaskProfiler");
-                let send_result = task_sender.send(task_profiler);
+                let send_result = task_sender.send(TaskInit {
+                    start_time: Instant::now(),
+                    task: accepted_task.take_task(),
+                    pid: accepted_task.get_id(),
+                });
                 if send_result.is_err() {
                     // The sampler has already shut down. This task arrived too late.
                 }

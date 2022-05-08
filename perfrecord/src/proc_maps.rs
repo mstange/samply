@@ -1,4 +1,4 @@
-use gecko_profile::debugid::DebugId;
+use fxprof_processed_profile::debugid::DebugId;
 use mach::message::mach_msg_type_number_t;
 use mach::port::mach_port_t;
 use mach::task::{task_info, task_resume, task_suspend};
@@ -32,7 +32,7 @@ use framehop::aarch64::PtrAuthMask;
 use framehop::aarch64::UnwindRegsAarch64;
 #[cfg(target_arch = "x86_64")]
 use framehop::x86_64::UnwindRegsX86_64;
-use framehop::UnwindRegsNative;
+use framehop::{FrameAddress, UnwindRegsNative};
 
 #[cfg(target_arch = "x86_64")]
 use mach::{structs::x86_thread_state64_t, thread_status::x86_THREAD_STATE64};
@@ -432,7 +432,7 @@ pub fn get_backtrace(
     stackwalker: StackwalkerRef,
     memory: &mut ForeignMemory,
     thread_act: mach_port_t,
-    frames: &mut Vec<u64>,
+    frames: &mut Vec<FrameAddress>,
 ) -> Result<(), SamplingError> {
     with_suspended_thread(thread_act, || {
         let (pc, regs) = get_unwinding_registers(thread_act).map_err(|err| match err {
@@ -465,7 +465,7 @@ fn do_stackwalk(
     pc: u64,
     regs: UnwindRegsNative,
     memory: &mut ForeignMemory,
-    frames: &mut Vec<u64>,
+    frames: &mut Vec<FrameAddress>,
 ) {
     let mut read_stack = |addr| {
         if addr % 8 != 0 {
@@ -482,7 +482,7 @@ fn do_stackwalk(
         .unwinder
         .iter_frames(pc, regs, stackwalker.cache, &mut read_stack);
     while let Ok(Some(address)) = iter.next() {
-        frames.push(address.address());
+        frames.push(address);
 
         if frames.len() >= 2000 {
             break;

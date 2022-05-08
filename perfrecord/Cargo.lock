@@ -508,12 +508,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "gecko_profile"
-version = "0.4.0"
+name = "fxhash"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "890852c7e1e02bc6758e325d6b1e0236e4fbf21b492f585ce4d4715be54b4c6a"
+checksum = "c31b6d751ae2c7f11320402d34e41349dd1016f8d5d45e48c4312bc8625af50c"
+dependencies = [
+ "byteorder",
+]
+
+[[package]]
+name = "fxprof-processed-profile"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32efc8f0408085b674f5cb0cdc0ea3a8dbf9228a19639acac1d4fb80113bc57a"
 dependencies = [
  "debugid",
+ "fxhash",
  "serde",
  "serde_json",
 ]
@@ -1089,7 +1099,7 @@ dependencies = [
  "crossbeam-channel",
  "flate2",
  "framehop",
- "gecko_profile",
+ "fxprof-processed-profile",
  "libc",
  "mach",
  "memmap2",

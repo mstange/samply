@@ -8,55 +8,51 @@ use crate::thread_info::{
     thread_info_t, THREAD_BASIC_INFO, THREAD_BASIC_INFO_COUNT, THREAD_EXTENDED_INFO,
     THREAD_EXTENDED_INFO_COUNT, THREAD_IDENTIFIER_INFO, THREAD_IDENTIFIER_INFO_COUNT,
 };
-use gecko_profile::{Frame, ThreadBuilder};
+use framehop::FrameAddress;
+use fxprof_processed_profile::{CpuDelta, Frame, Profile, ThreadHandle, Timestamp};
 use mach::mach_types::thread_act_t;
 use mach::port::mach_port_t;
 use std::mem;
-use std::time::{Duration, Instant};
 
 pub struct ThreadProfiler {
     thread_act: thread_act_t,
-    _tid: u32,
     name: Option<String>,
-    stack_scratch_space: Vec<u64>,
-    thread_builder: ThreadBuilder,
+    tid: u32,
+    stack_scratch_space: Vec<framehop::FrameAddress>,
+    profile_thread: ThreadHandle,
     tick_count: usize,
     stack_memory: ForeignMemory,
-    previous_sample_cpu_time: Duration,
-    previous_stack: Option<Option<usize>>,
+    previous_sample_cpu_time_us: u64,
     ignored_errors: Vec<SamplingError>,
 }
 
 impl ThreadProfiler {
     pub fn new(
         task: mach_port_t,
-        pid: u32,
+        tid: u32,
+        profile_thread: ThreadHandle,
         thread_act: thread_act_t,
-        now: Instant,
-        is_main: bool,
-    ) -> Option<Self> {
-        let (tid, is_libdispatch_thread) = get_thread_id(thread_act).ok()?;
-        let thread_builder = ThreadBuilder::new(pid, tid, now, is_main, is_libdispatch_thread);
-        Some(ThreadProfiler {
+    ) -> Self {
+        ThreadProfiler {
             thread_act,
-            _tid: tid,
+            tid,
             name: None,
             stack_scratch_space: Vec::new(),
-            thread_builder,
+            profile_thread,
             tick_count: 0,
             stack_memory: ForeignMemory::new(task),
-            previous_sample_cpu_time: Duration::ZERO,
-            previous_stack: None,
+            previous_sample_cpu_time_us: 0,
             ignored_errors: Vec::new(),
-        })
+        }
     }
 
     pub fn sample(
         &mut self,
         stackwalker: StackwalkerRef,
-        now: Instant,
+        now: Timestamp,
+        profile: &mut Profile,
     ) -> Result<bool, SamplingError> {
-        let result = self.sample_impl(stackwalker, now);
+        let result = self.sample_impl(stackwalker, now, profile);
         match result {
             Ok(()) => Ok(true),
             Err(SamplingError::ThreadTerminated(_, _)) => Ok(false),
@@ -66,7 +62,7 @@ impl ThreadProfiler {
                     println!(
                         "Treating thread \"{}\" [tid: {}] as terminated after 10 unknown errors:",
                         self.name.as_deref().unwrap_or("<unknown"),
-                        self._tid
+                        self.tid
                     );
                     println!("{:#?}", self.ignored_errors);
                     Ok(false)
@@ -82,22 +78,24 @@ impl ThreadProfiler {
     fn sample_impl(
         &mut self,
         stackwalker: StackwalkerRef,
-        now: Instant,
+        now: Timestamp,
+        profile: &mut Profile,
     ) -> Result<(), SamplingError> {
         self.tick_count += 1;
 
         if self.name.is_none() && self.tick_count % 10 == 1 {
             self.name = get_thread_name(self.thread_act)?;
             if let Some(name) = &self.name {
-                self.thread_builder.set_name(name);
+                profile.set_thread_name(self.profile_thread, name);
             }
         }
 
-        let cpu_time = get_thread_cpu_time_since_thread_start(self.thread_act)?;
-        let cpu_time = cpu_time.0 + cpu_time.1;
-        let cpu_delta = cpu_time - self.previous_sample_cpu_time;
+        let cpu_time_us = get_thread_cpu_time_since_thread_start(self.thread_act)?;
+        let cpu_time_us = cpu_time_us.0 + cpu_time_us.1;
+        let cpu_delta_us = cpu_time_us - self.previous_sample_cpu_time_us;
+        let cpu_delta = CpuDelta::from_micros(cpu_delta_us);
 
-        if !cpu_delta.is_zero() || self.previous_stack.is_none() {
+        if !cpu_delta.is_zero() || self.tick_count == 0 {
             self.stack_scratch_space.clear();
             get_backtrace(
                 stackwalker,
@@ -109,11 +107,13 @@ impl ThreadProfiler {
             let frames = self
                 .stack_scratch_space
                 .iter()
-                .map(|address| Frame::Address(*address));
+                .map(|address| match address {
+                    FrameAddress::InstructionPointer(ip) => Frame::InstructionPointer(*ip),
+                    FrameAddress::ReturnAddress(ra) => Frame::ReturnAddress(u64::from(*ra)),
+                });
 
-            let stack = self.thread_builder.add_sample(now, frames, cpu_delta);
-            self.previous_stack = Some(stack);
-        } else if let Some(previous_stack) = self.previous_stack {
+            profile.add_sample(self.profile_thread, now, frames, cpu_delta, 1);
+        } else {
             // No CPU time elapsed since just before the last time we grabbed a stack.
             // Assume that the thread has done literally zero work and could not have changed
             // its stack. This considerably reduces the overhead from sampling idle threads.
@@ -129,27 +129,22 @@ impl ThreadProfiler {
             //     - query cpu time, notice it is still the same as A
             //     - add_sample_same_stack with stack from previous sample
             //
-            self.thread_builder
-                .add_sample_same_stack(now, previous_stack, cpu_delta);
+            profile.add_sample_same_stack_zero_cpu(self.profile_thread, now, 1);
         }
 
-        self.previous_sample_cpu_time = cpu_time;
+        self.previous_sample_cpu_time_us = cpu_time_us;
 
         Ok(())
     }
 
-    pub fn notify_dead(&mut self, end_time: Instant) {
-        self.thread_builder.notify_dead(end_time);
+    pub fn notify_dead(&mut self, end_time: Timestamp, profile: &mut Profile) {
+        profile.set_thread_end_time(self.profile_thread, end_time);
         self.stack_memory.clear();
-    }
-
-    pub fn into_profile_thread(self) -> ThreadBuilder {
-        self.thread_builder
     }
 }
 
 /// Returns (tid, is_libdispatch_thread)
-fn get_thread_id(thread_act: thread_act_t) -> kernel_error::Result<(u32, bool)> {
+pub fn get_thread_id(thread_act: thread_act_t) -> kernel_error::Result<(u32, bool)> {
     let mut identifier_info_data: thread_identifier_info_data_t = unsafe { mem::zeroed() };
     let mut count = THREAD_IDENTIFIER_INFO_COUNT;
     unsafe {
@@ -204,10 +199,10 @@ fn get_thread_name(thread_act: thread_act_t) -> Result<Option<String>, SamplingE
     Ok(if name.is_empty() { None } else { Some(name) })
 }
 
-// (user time, system time)
+// (user time, system time) in microseconds
 fn get_thread_cpu_time_since_thread_start(
     thread_act: thread_act_t,
-) -> Result<(Duration, Duration), SamplingError> {
+) -> Result<(u64, u64), SamplingError> {
     let mut basic_info_data: thread_basic_info_data_t = unsafe { mem::zeroed() };
     let mut count = THREAD_BASIC_INFO_COUNT;
     unsafe {
@@ -232,11 +227,11 @@ fn get_thread_cpu_time_since_thread_start(
     })?;
 
     Ok((
-        time_value_to_duration(&basic_info_data.user_time),
-        time_value_to_duration(&basic_info_data.system_time),
+        time_value_to_microseconds(&basic_info_data.user_time),
+        time_value_to_microseconds(&basic_info_data.system_time),
     ))
 }
 
-fn time_value_to_duration(tv: &time_value) -> Duration {
-    Duration::from_secs(tv.seconds as u64) + Duration::from_micros(tv.microseconds as u64)
+fn time_value_to_microseconds(tv: &time_value) -> u64 {
+    tv.seconds as u64 * 1_000_000 + tv.microseconds as u64
 }

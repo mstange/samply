@@ -1,12 +1,13 @@
 use crate::error::SamplingError;
 use crate::kernel_error::{IntoResult, KernelError};
 use crate::proc_maps::{DyldInfo, DyldInfoManager, Modification, StackwalkerRef, VmSubData};
-use crate::thread_profiler::ThreadProfiler;
+use crate::thread_profiler::{get_thread_id, ThreadProfiler};
 use framehop::{
     CacheNative, MayAllocateDuringUnwind, Module, ModuleUnwindData, TextByteData, Unwinder,
     UnwinderNative,
 };
-use gecko_profile::debugid::DebugId;
+use fxprof_processed_profile::debugid::DebugId;
+use fxprof_processed_profile::{ProcessHandle, Profile, Timestamp};
 use mach::mach_types::thread_act_port_array_t;
 use mach::mach_types::thread_act_t;
 use mach::message::mach_msg_type_number_t;
@@ -22,9 +23,6 @@ use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::ops::Deref;
 use std::path::Path;
-use std::time::{Duration, Instant, SystemTime};
-
-use gecko_profile::ProfileBuilder;
 
 pub enum UnwindSectionBytes {
     Remapped(VmSubData),
@@ -74,16 +72,12 @@ pub type UnwinderCache = CacheNative<UnwindSectionBytes, MayAllocateDuringUnwind
 pub struct TaskProfiler {
     task: mach_port_t,
     pid: u32,
-    interval: Duration,
-    start_time: Instant,
-    start_time_system: SystemTime,
-    end_time: Option<Instant>,
     live_threads: HashMap<thread_act_t, ThreadProfiler>,
     dead_threads: Vec<ThreadProfiler>,
     lib_info_manager: DyldInfoManager,
-    libs: Vec<DyldInfo>,
     executable_lib: Option<DyldInfo>,
     command_name: String,
+    profile_process: ProcessHandle,
     ignored_errors: Vec<SamplingError>,
     unwinder: UnwinderNative<UnwindSectionBytes, MayAllocateDuringUnwind>,
 }
@@ -92,32 +86,30 @@ impl TaskProfiler {
     pub fn new(
         task: mach_port_t,
         pid: u32,
-        now: Instant,
-        now_system: SystemTime,
+        start_time: Timestamp,
         command_name: &str,
-        interval: Duration,
-    ) -> Option<Self> {
-        let thread_acts = get_thread_list(task).ok()?;
+        profile: &mut Profile,
+    ) -> Result<Self, SamplingError> {
+        let thread_acts = get_thread_list(task)?;
+        let profile_process = profile.add_process(command_name, pid, start_time);
         let mut live_threads = HashMap::new();
         for (i, thread_act) in thread_acts.into_iter().enumerate() {
-            // Pretend that the first thread is the main thread. Might not be true.
+            // Assume that the first thread is the main thread. This seems to hold true in practice.
             let is_main = i == 0;
-            if let Some(thread) = ThreadProfiler::new(task, pid, thread_act, now, is_main) {
+            if let Ok((tid, _is_libdispatch_thread)) = get_thread_id(thread_act) {
+                let profile_thread = profile.add_thread(profile_process, tid, start_time, is_main);
+                let thread = ThreadProfiler::new(task, tid, profile_thread, thread_act);
                 live_threads.insert(thread_act, thread);
             }
         }
-        Some(TaskProfiler {
+        Ok(TaskProfiler {
             task,
             pid,
-            interval,
-            start_time: now,
-            start_time_system: now_system,
-            end_time: None,
             live_threads,
             dead_threads: Vec::new(),
             lib_info_manager: DyldInfoManager::new(task),
-            libs: Vec::new(),
             command_name: command_name.to_owned(),
+            profile_process,
             executable_lib: None,
             ignored_errors: Vec::new(),
             unwinder: UnwinderNative::new(),
@@ -126,10 +118,11 @@ impl TaskProfiler {
 
     pub fn sample(
         &mut self,
-        now: Instant,
+        now: Timestamp,
         unwinder_cache: &mut UnwinderCache,
+        profile: &mut Profile,
     ) -> Result<bool, SamplingError> {
-        let result = self.sample_impl(now, unwinder_cache);
+        let result = self.sample_impl(now, unwinder_cache, profile);
         match result {
             Ok(()) => Ok(true),
             Err(SamplingError::ProcessTerminated(_, _)) => Ok(false),
@@ -153,8 +146,9 @@ impl TaskProfiler {
 
     fn sample_impl(
         &mut self,
-        now: Instant,
+        now: Timestamp,
         unwinder_cache: &mut UnwinderCache,
+        profile: &mut Profile,
     ) -> Result<(), SamplingError> {
         // First, check for any newly-loaded libraries.
         let changes = self
@@ -165,31 +159,43 @@ impl TaskProfiler {
             match change {
                 Modification::Added(mut lib) => {
                     self.add_lib_to_unwinder_and_ensure_debug_id(&mut lib);
+                    let path = Path::new(&lib.file);
                     if self.executable_lib.is_none() && lib.is_executable {
                         self.executable_lib = Some(lib.clone());
+                        self.command_name = path.components().next_back().unwrap().as_os_str().to_string_lossy().to_string();
+                        profile.set_process_name(self.profile_process, &self.command_name);
                     }
-                    self.libs.push(lib)
+                    profile.add_lib(
+                        self.profile_process,
+                        path,
+                        None,
+                        path,
+                        lib.debug_id.unwrap(),
+                        Some("x86_64"),
+                        lib.base_avma,
+                        lib.base_avma..(lib.base_avma + lib.vmsize),
+                    );
                 }
-                Modification::Removed(_) => {
-                    // Ignore, and hope that the address ranges won't be reused by other libraries
-                    // during the rest of the recording...
+                Modification::Removed(lib) => {
+                    profile.unload_lib(self.profile_process, lib.base_avma);
                 }
             }
         }
 
         // Enumerate threads.
         let thread_acts = get_thread_list(self.task)?;
-        let previously_live_threads: HashSet<_> =
-            self.live_threads.iter().map(|(t, _)| *t).collect();
+        let previously_live_threads: HashSet<_> = self.live_threads.keys().cloned().collect();
         let mut now_live_threads = HashSet::new();
         for thread_act in thread_acts {
             let mut entry = self.live_threads.entry(thread_act);
             let thread = match entry {
                 Entry::Occupied(ref mut entry) => entry.get_mut(),
                 Entry::Vacant(entry) => {
-                    if let Some(thread) =
-                        ThreadProfiler::new(self.task, self.pid, thread_act, now, false)
-                    {
+                    if let Ok((tid, _is_libdispatch_thread)) = get_thread_id(thread_act) {
+                        let profile_thread =
+                            profile.add_thread(self.profile_process, tid, now, false);
+                        let thread =
+                            ThreadProfiler::new(self.task, tid, profile_thread, thread_act);
                         entry.insert(thread)
                     } else {
                         continue;
@@ -198,7 +204,7 @@ impl TaskProfiler {
             };
             // Grab a sample from the thread.
             let stackwalker = StackwalkerRef::new(&self.unwinder, unwinder_cache);
-            let still_alive = thread.sample(stackwalker, now)?;
+            let still_alive = thread.sample(stackwalker, now, profile)?;
             if still_alive {
                 now_live_threads.insert(thread_act);
             }
@@ -206,7 +212,7 @@ impl TaskProfiler {
         let dead_threads = previously_live_threads.difference(&now_live_threads);
         for thread_act in dead_threads {
             let mut thread = self.live_threads.remove(thread_act).unwrap();
-            thread.notify_dead(now);
+            thread.notify_dead(now, profile);
             self.dead_threads.push(thread);
         }
         Ok(())
@@ -284,80 +290,13 @@ impl TaskProfiler {
         self.unwinder.add_module(module);
     }
 
-    pub fn notify_dead(&mut self, end_time: Instant) {
+    pub fn notify_dead(&mut self, end_time: Timestamp, profile: &mut Profile) {
         for (_, mut thread) in self.live_threads.drain() {
-            thread.notify_dead(end_time);
+            thread.notify_dead(end_time, profile);
             self.dead_threads.push(thread);
         }
-        self.end_time = Some(end_time);
+        profile.set_process_end_time(self.profile_process, end_time);
         self.lib_info_manager.unmap_memory();
-    }
-
-    pub fn into_profile(self, subtasks: Vec<TaskProfiler>) -> ProfileBuilder {
-        let name = self
-            .executable_lib
-            .map(|l| {
-                Path::new(&l.file)
-                    .file_name()
-                    .unwrap()
-                    .to_str()
-                    .unwrap()
-                    .to_string()
-            })
-            .unwrap_or(self.command_name);
-
-        let mut profile_builder = ProfileBuilder::new(
-            self.start_time,
-            self.start_time_system,
-            &name,
-            self.pid,
-            self.interval,
-        );
-        let all_threads = self
-            .live_threads
-            .into_iter()
-            .map(|(_, t)| t)
-            .chain(self.dead_threads.into_iter())
-            .map(|t| t.into_profile_thread());
-        for thread in all_threads {
-            profile_builder.add_thread(thread);
-        }
-
-        if let Some(end_time) = self.end_time {
-            profile_builder.set_end_time(end_time);
-        }
-
-        for DyldInfo {
-            file,
-            debug_id,
-            base_avma,
-            vmsize,
-            arch,
-            ..
-        } in self.libs
-        {
-            let (debug_id, arch) = match (debug_id, arch) {
-                (Some(debug_id), Some(arch)) => (debug_id, arch),
-                _ => continue,
-            };
-            let path = Path::new(&file);
-            let address_range = base_avma..(base_avma + vmsize);
-            profile_builder.add_lib(
-                path,
-                None,
-                path,
-                debug_id,
-                Some(arch),
-                base_avma,
-                address_range,
-            );
-        }
-
-        for subtask in subtasks {
-            profile_builder.add_subprocess(subtask.into_profile(Vec::new()));
-        }
-
-        profile_builder
     }
 }
 
