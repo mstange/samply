@@ -160,7 +160,7 @@ where
                     .entry(pid)
                     .or_insert_with(|| Process::new(pid, format!("<{}>", pid).into_bytes()));
                 if let Some(processed_sample) =
-                    process.handle_sample::<C>(e, cache, &mut image_cache, &kernel_modules)
+                    process.handle_sample::<C>(e, cache, &kernel_modules)
                 {
                     for frame in &processed_sample.stack {
                         if let StackFrame::InImage(frame) = frame {
@@ -235,7 +235,7 @@ where
                     let process = processes.entry(e.pid).or_insert_with(|| {
                         Process::new(e.pid, format!("<{}>", e.pid).into_bytes())
                     });
-                    process.handle_mmap(e, &dso_key, build_id);
+                    process.handle_mmap(e, &dso_key, build_id, &mut image_cache);
                 }
             }
             Event::Mmap2(e) => {
@@ -247,7 +247,7 @@ where
                 let process = processes
                     .entry(e.pid)
                     .or_insert_with(|| Process::new(e.pid, format!("<{}>", e.pid).into_bytes()));
-                process.handle_mmap2(e, &dso_key, build_id);
+                process.handle_mmap2(e, &dso_key, build_id, &mut image_cache);
             }
             Event::Lost(_) => {}
             Event::Throttle(_) => {}
@@ -415,7 +415,6 @@ struct Process<U> {
     pid: i32,
     name: Vec<u8>,
     unwinder: U,
-    pending_modules: Vec<PendingModule>,
     added_modules: AddedModules,
 }
 
@@ -457,7 +456,6 @@ impl<U: Unwinder + Default> Process<U> {
             pid,
             name,
             unwinder: U::default(),
-            pending_modules: Vec::new(),
             added_modules: AddedModules(Vec::new()),
         }
     }
@@ -473,7 +471,13 @@ impl<U> Process<U>
 where
     U: Unwinder<Module = Module<Vec<u8>>>,
 {
-    pub fn handle_mmap(&mut self, e: MmapEvent, dso_key: &DsoKey, build_id: Option<&[u8]>) {
+    pub fn handle_mmap(
+        &mut self,
+        e: MmapEvent,
+        dso_key: &DsoKey,
+        build_id: Option<&[u8]>,
+        image_cache: &mut ImageCache,
+    ) {
         // println!(
         //     "raw1 ({}): 0x{:016x}-0x{:016x} {:?}",
         //     self.pid,
@@ -482,29 +486,52 @@ where
         //     std::str::from_utf8(&e.path)
         // );
 
+        if !e.is_executable {
+            // Ignore non-executable mappings.
+            return;
+        }
+
+        let path_str = std::str::from_utf8(&e.path).unwrap();
+        let path = Path::new(path_str);
         let start_addr = e.address;
         let end_addr = e.address + e.length;
-        match self.pending_modules.iter_mut().find(|m| m.path == e.path) {
-            Some(m) => {
-                m.min_start = m.min_start.min(start_addr);
-                m.max_end = m.max_end.min(end_addr);
-                m.has_exec_mapping = m.has_exec_mapping || e.is_executable;
-                m.build_id = m.build_id.take().or_else(|| build_id.map(Vec::from));
-            }
-            None => {
-                self.pending_modules.push(PendingModule {
-                    path: e.path,
-                    min_start: start_addr,
-                    max_end: end_addr,
-                    build_id: build_id.map(Vec::from),
-                    dso_key: dso_key.clone(),
-                    has_exec_mapping: e.is_executable,
-                });
-            }
-        }
+        let address_range = start_addr..end_addr;
+
+        let (debug_id, base_address) = match add_module(
+            &mut self.unwinder,
+            path,
+            e.page_offset,
+            e.address,
+            e.length,
+            build_id,
+        ) {
+            Some(module_info) => module_info,
+            None => return,
+        };
+        let image = image_cache.index_for_image(path, dso_key, Some(debug_id));
+        println!(
+            "0x{:016x}-0x{:016x} {:?}",
+            start_addr,
+            e.address + e.length,
+            path
+        );
+        self.added_modules.0.push(AddedModule {
+            address_range,
+            base_address,
+            image,
+        });
+        self.added_modules
+            .0
+            .sort_unstable_by_key(|m| m.address_range.start);
     }
 
-    pub fn handle_mmap2(&mut self, e: Mmap2Event, dso_key: &DsoKey, build_id: Option<&[u8]>) {
+    pub fn handle_mmap2(
+        &mut self,
+        e: Mmap2Event,
+        dso_key: &DsoKey,
+        build_id: Option<&[u8]>,
+        image_cache: &mut ImageCache,
+    ) {
         // println!(
         //     "raw2 ({}): 0x{:016x}-0x{:016x} (page offset 0x{:016x}) {:?}",
         //     self.pid,
@@ -513,6 +540,12 @@ where
         //     e.page_offset,
         //     std::str::from_utf8(&e.path)
         // );
+
+        if e.protection & PROT_EXEC == 0 {
+            // Ignore non-executable mappings.
+            return;
+        }
+
         let build_id = match e.file_id {
             Mmap2FileId::BuildId(build_id) => Some(build_id),
             Mmap2FileId::InodeAndVersion(_) => build_id.map(Vec::from),
@@ -521,70 +554,45 @@ where
         const PROT_EXEC: u32 = 0b100;
         let start_addr = e.address;
         let end_addr = e.address + e.length;
-        match self.pending_modules.iter_mut().find(|m| m.path == e.path) {
-            Some(m) => {
-                m.min_start = m.min_start.min(start_addr);
-                m.max_end = m.max_end.min(end_addr);
-                m.has_exec_mapping = m.has_exec_mapping || (e.protection & PROT_EXEC != 0);
-                m.build_id = m.build_id.take().or(build_id);
-            }
-            None => {
-                self.pending_modules.push(PendingModule {
-                    path: e.path,
-                    min_start: start_addr,
-                    max_end: end_addr,
-                    build_id: build_id.map(Vec::from),
-                    dso_key: dso_key.clone(),
-                    has_exec_mapping: e.protection & PROT_EXEC != 0,
-                });
-            }
-        }
-    }
 
-    fn flush_pending_mappings(&mut self, image_cache: &mut ImageCache) {
-        for module in self.pending_modules.drain(..) {
-            if !module.has_exec_mapping {
-                continue;
-            }
-            let path_str = std::str::from_utf8(&module.path).unwrap();
-            let path = Path::new(path_str);
-            let base_address = module.min_start;
-            let address_range = module.min_start..module.max_end;
-            let debug_id = add_module(
-                &mut self.unwinder,
-                path,
-                base_address,
-                address_range.clone(),
-                module.build_id.as_deref(),
-            );
-            let image = image_cache.index_for_image(path, &module.dso_key, debug_id);
-            println!(
-                "0x{:016x}-0x{:016x} {:?} {:?}",
-                address_range.start,
-                address_range.end,
-                module.build_id.as_deref().map(CodeId::from_binary),
-                path
-            );
-            self.added_modules.0.push(AddedModule {
-                address_range,
-                base_address,
-                image,
-            });
-            self.added_modules
-                .0
-                .sort_unstable_by_key(|m| m.address_range.start);
-        }
+        let path_str = std::str::from_utf8(&e.path).unwrap();
+        let path = Path::new(path_str);
+        let address_range = start_addr..end_addr;
+        let (debug_id, base_address) = match add_module(
+            &mut self.unwinder,
+            path,
+            e.page_offset,
+            e.address,
+            e.length,
+            build_id.as_deref(),
+        ) {
+            Some(module_info) => module_info,
+            None => return,
+        };
+        let image = image_cache.index_for_image(path, dso_key, Some(debug_id));
+        println!(
+            "0x{:016x}-0x{:016x} {:?} {:?}",
+            start_addr,
+            e.address + e.length,
+            build_id.as_deref().map(CodeId::from_binary),
+            path
+        );
+        self.added_modules.0.push(AddedModule {
+            address_range,
+            base_address,
+            image,
+        });
+        self.added_modules
+            .0
+            .sort_unstable_by_key(|m| m.address_range.start);
     }
 
     pub fn handle_sample<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
         &mut self,
         e: SampleEvent,
         cache: &mut U::Cache,
-        image_cache: &mut ImageCache,
         kernel_modules: &AddedModules,
     ) -> Option<ProcessedSample> {
-        self.flush_pending_mappings(image_cache);
-
         let mut stack = Vec::new();
 
         if let Some(callchain) = e.callchain {
@@ -666,15 +674,6 @@ where
     }
 }
 
-struct PendingModule {
-    path: Vec<u8>,
-    min_start: u64,
-    max_end: u64,
-    build_id: Option<Vec<u8>>,
-    dso_key: DsoKey,
-    has_exec_mapping: bool,
-}
-
 struct AddedModule {
     address_range: Range<u64>,
     base_address: u64,
@@ -749,10 +748,11 @@ struct Image {
 pub fn add_module<U>(
     unwinder: &mut U,
     objpath: &Path,
-    base_address: u64,
-    image_address_range: Range<u64>,
+    mapping_start_file_offset: u64,
+    mapping_start_avma: u64,
+    mapping_size: u64,
     build_id: Option<&[u8]>,
-) -> Option<DebugId>
+) -> Option<(DebugId, u64)>
 where
     U: Unwinder<Module = Module<Vec<u8>>>,
 {
@@ -805,6 +805,24 @@ where
         }
     }
 
+    // eprintln!("segments: {:?}", file.segments());
+    let mapping_end_file_offset = mapping_start_file_offset + mapping_size;
+    let mapped_segment = file.segments().find(|segment| {
+        let (segment_start_file_offset, segment_size) = segment.file_range();
+        let segment_end_file_offset = segment_start_file_offset + segment_size;
+        mapping_start_file_offset <= segment_start_file_offset
+            && segment_end_file_offset <= mapping_end_file_offset
+    })?;
+
+    let (segment_start_file_offset, _segment_size) = mapped_segment.file_range();
+    let segment_start_svma = mapped_segment.address();
+    let segment_start_avma =
+        mapping_start_avma + (segment_start_file_offset - mapping_start_file_offset);
+
+    // Compute the AVMA that maps to SVMA zero. This is also called the "bias" of the
+    // image. On ELF it is also the image load address.
+    let base_avma = segment_start_avma - segment_start_svma;
+
     let text = file.section_by_name(".text");
     let text_env = file.section_by_name("text_env");
     let eh_frame = file.section_by_name(".eh_frame");
@@ -828,14 +846,14 @@ where
         .find(|segment| segment.name_bytes() == Ok(Some(b"__TEXT")))
     {
         let (start, size) = text_segment.file_range();
-        let address_range = base_address + start..base_address + start + size;
+        let address_range = base_avma + start..base_avma + start + size;
         text_segment
             .data()
             .ok()
             .map(|data| TextByteData::new(data.to_owned(), address_range))
     } else if let Some(text_section) = &text {
         if let Some((start, size)) = text_section.file_range() {
-            let address_range = base_address + start..base_address + start + size;
+            let address_range = base_avma + start..base_avma + start + size;
             text_section
                 .data()
                 .ok()
@@ -849,33 +867,35 @@ where
 
     fn address_range<'a>(
         section: &Option<impl ObjectSection<'a>>,
-        base_address: u64,
+        base_avma: u64,
     ) -> Option<Range<u64>> {
         section
             .as_ref()
             .and_then(|section| section.file_range())
-            .map(|(start, size)| base_address + start..base_address + start + size)
+            .map(|(start, size)| base_avma + start..base_avma + start + size)
     }
 
+    let mapping_end_avma = mapping_start_avma + mapping_size;
     let module = framehop::Module::new(
         objpath.to_string_lossy().to_string(),
-        image_address_range,
-        base_address,
+        mapping_start_avma..mapping_end_avma,
+        base_avma,
         ModuleSectionAddressRanges {
-            text: address_range(&text, base_address),
-            text_env: address_range(&text_env, base_address),
+            text: address_range(&text, base_avma),
+            text_env: address_range(&text_env, base_avma),
             stubs: None,
             stub_helper: None,
-            eh_frame: address_range(&eh_frame, base_address),
-            eh_frame_hdr: address_range(&eh_frame_hdr, base_address),
-            got: address_range(&got, base_address),
+            eh_frame: address_range(&eh_frame, base_avma),
+            eh_frame_hdr: address_range(&eh_frame_hdr, base_avma),
+            got: address_range(&got, base_avma),
         },
         unwind_data,
         text_data,
     );
     unwinder.add_module(module);
 
-    debug_id_for_object(&file)
+    let debug_id = debug_id_for_object(&file)?;
+    Some((debug_id, base_avma))
 }
 
 struct FileContents(memmap2::Mmap);
