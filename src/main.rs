@@ -555,6 +555,7 @@ where
                 path,
                 base_address,
                 address_range.clone(),
+                module.build_id.as_deref(),
             );
             let image = image_cache.index_for_image(path, &module.dso_key, debug_id);
             println!(
@@ -750,6 +751,7 @@ pub fn add_module<U>(
     objpath: &Path,
     base_address: u64,
     image_address_range: Range<u64>,
+    build_id: Option<&[u8]>,
 ) -> Option<DebugId>
 where
     U: Unwinder<Module = Module<Vec<u8>>>,
@@ -757,7 +759,7 @@ where
     let file = match std::fs::File::open(objpath) {
         Ok(file) => file,
         Err(_) => {
-            let mut p = Path::new("/Users/mstange/code/linux-perf-data/fixtures/aarch64").to_owned();
+            let mut p = Path::new("/Users/mstange/code/linux-perf-data/fixtures/x86_64").to_owned();
             p.push(objpath.file_name().unwrap());
             match std::fs::File::open(&p) {
                 Ok(file) => file,
@@ -777,10 +779,31 @@ where
     let file = match object::File::parse(&mmap[..]) {
         Ok(file) => file,
         Err(_) => {
-            eprintln!("file {:?} had unrecognized format", objpath);
+            eprintln!("File {:?} has unrecognized format", objpath);
             return None;
         }
     };
+
+    // Verify build ID.
+    if let Some(build_id) = build_id {
+        if let Ok(Some(file_build_id)) = file.build_id() {
+            if file_build_id != build_id {
+                let file_build_id = CodeId::from_binary(file_build_id);
+                let expected_build_id = CodeId::from_binary(build_id);
+                eprintln!(
+                    "File {:?} has non-matching build ID {} (expected {})",
+                    objpath, file_build_id, expected_build_id
+                );
+                return None;
+            }
+        } else {
+            eprintln!(
+                "File {:?} does not contain a build ID, but we expected it to have one",
+                objpath
+            );
+            return None;
+        }
+    }
 
     let text = file.section_by_name(".text");
     let text_env = file.section_by_name("text_env");
@@ -930,7 +953,7 @@ impl<'h> FileAndPathHelper<'h> for Helper {
             .iter()
             .find(|lib| lib.debug_name == debug_name && &lib.debug_id == debug_id)
         {
-            let fixtures_dir = PathBuf::from("/Users/mstange/code/linux-perf-data/fixtures/aarch64");
+            let fixtures_dir = PathBuf::from("/Users/mstange/code/linux-perf-data/fixtures/x86_64");
 
             if lib.dso_key == DsoKey::Kernel {
                 let mut p = fixtures_dir.clone();

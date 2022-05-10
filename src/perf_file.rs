@@ -172,12 +172,12 @@ impl<'a> PerfFile<'a> {
                 Some(dso_key) => dso_key,
                 None => continue,
             };
-            let build_id = if misc & PERF_RECORD_MISC_BUILD_ID_SIZE != 0 {
-                let build_id_len = build_id_event.build_id[20].min(20);
-                build_id_event.build_id[..build_id_len as usize].to_owned()
+            let build_id_len = if misc & PERF_RECORD_MISC_BUILD_ID_SIZE != 0 {
+                build_id_event.build_id[20].min(20)
             } else {
-                build_id_event.build_id[..].to_owned()
+                detect_build_id_len(&build_id_event.build_id)
             };
+            let build_id = build_id_event.build_id[..build_id_len as usize].to_owned();
             let path = path.to_owned();
             build_ids.insert(dso_key, DsoBuildId { path, build_id });
         }
@@ -325,6 +325,20 @@ impl<'a> EventIter<'a> {
 
         Ok(Some(event))
     }
+}
+
+/// Old versions of perf did not write down the length of the build ID.
+/// Detect the true length by removing 4-byte chunks of zeros from the end.
+fn detect_build_id_len(build_id_bytes: &[u8]) -> u8 {
+    let mut len = build_id_bytes.len();
+    const CHUNK_SIZE: usize = 4;
+    for chunk in build_id_bytes.chunks(CHUNK_SIZE).rev() {
+        if chunk.iter().any(|b| *b != 0) {
+            break;
+        }
+        len -= chunk.len();
+    }
+    len as u8
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -574,8 +588,12 @@ pub struct BuildIdEvent {
     pub pid: U32, // probably rather I32
     /// If PERF_RECORD_MISC_BUILD_ID_SIZE is set in header.misc, then build_id[20]
     /// is the length of the build id (<= 20), and build_id[21..24] are unused.
+    /// Otherwise, the length of the build ID is unknown and has to be detected by
+    /// removing trailing 4-byte groups of zero bytes. (Usually there will be
+    /// exactly one such group, because build IDs are usually 20 bytes long.)
     pub build_id: [u8; 24],
-    // Followed by filename for the remaining bytes. The total size of the record is given by self.header.size.
+    // Followed by filename for the remaining bytes. The total size of the record
+    // is given by self.header.size.
 }
 
 /// `nr_cpus`
