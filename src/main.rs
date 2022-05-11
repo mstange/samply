@@ -596,12 +596,17 @@ where
         let mut stack = Vec::new();
 
         if let Some(callchain) = e.callchain {
+            let mut is_first_frame = true;
             for address in callchain {
                 if address >= PERF_CONTEXT_MAX {
                     // Ignore synthetic addresses like 0xffffffffffffff80.
                     continue;
                 }
-                let stack_frame = match self.added_modules.map_address(address) {
+
+                let lookup_address = if is_first_frame { address } else { address - 1 };
+                is_first_frame = false;
+
+                let stack_frame = match self.added_modules.map_address(lookup_address) {
                     Some((image, relative_lookup_address)) => {
                         StackFrame::InImage(StackFrameInImage {
                             image,
