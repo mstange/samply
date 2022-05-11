@@ -1136,10 +1136,8 @@ dependencies = [
 name = "profiler-symbol-server"
 version = "0.12.0"
 dependencies = [
- "cab",
  "core-foundation",
  "core-foundation-sys",
- "dirs",
  "flate2",
  "futures",
  "hyper",
@@ -1150,12 +1148,11 @@ dependencies = [
  "percent-encoding",
  "profiler-get-symbols",
  "rand",
- "reqwest",
  "serde",
  "serde_derive",
  "serde_json",
  "structopt",
- "thiserror",
+ "symsrv",
  "tokio",
  "uuid 1.0.0",
  "webbrowser",
@@ -1504,6 +1501,19 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "symsrv"
+version = "0.1.0"
+dependencies = [
+ "cab",
+ "dirs",
+ "hyper",
+ "memmap2",
+ "reqwest",
+ "thiserror",
+ "tokio",
 ]
 
 [[package]]
