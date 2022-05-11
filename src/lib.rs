@@ -30,8 +30,6 @@ mod moria_mac;
 #[cfg(target_os = "macos")]
 mod moria_mac_spotlight;
 
-mod symsrv;
-
 pub use symsrv::{
     get_default_downstream_store, get_symbol_path_from_environment, parse_nt_symbol_path,
     NtSymbolPathEntry,
