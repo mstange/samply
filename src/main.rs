@@ -9,7 +9,7 @@ mod utils;
 use debugid::{CodeId, DebugId};
 use framehop::aarch64::UnwindRegsAarch64;
 use framehop::x86_64::UnwindRegsX86_64;
-use framehop::{Module, ModuleSectionAddressRanges, TextByteData, Unwinder};
+use framehop::{Module, ModuleSvmaInfo, TextByteData, Unwinder};
 use object::{Object, ObjectSection, ObjectSegment};
 use perf_event::{Event, Mmap2Event, Mmap2FileId, MmapEvent, Regs, SampleEvent};
 use perf_event_raw::{
@@ -26,7 +26,7 @@ use std::collections::HashSet;
 use std::collections::{hash_map::Entry, HashMap};
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::{fs::File, ops::Range, path::Path, sync::Arc};
+use std::{fs::File, ops::Range, path::Path};
 
 use crate::perf_file::DsoBuildId;
 
@@ -826,6 +826,7 @@ where
 
     // Compute the AVMA that maps to SVMA zero. This is also called the "bias" of the
     // image. On ELF it is also the image load address.
+    let base_svma = 0;
     let base_avma = segment_start_avma - segment_start_svma;
 
     let text = file.section_by_name(".text");
@@ -838,11 +839,10 @@ where
         eh_frame.as_ref().and_then(section_data),
         eh_frame_hdr.as_ref().and_then(section_data),
     ) {
-        (Some(eh_frame), Some(eh_frame_hdr)) => framehop::ModuleUnwindData::EhFrameHdrAndEhFrame(
-            Arc::new(eh_frame_hdr),
-            Arc::new(eh_frame),
-        ),
-        (Some(eh_frame), None) => framehop::ModuleUnwindData::EhFrame(Arc::new(eh_frame)),
+        (Some(eh_frame), Some(eh_frame_hdr)) => {
+            framehop::ModuleUnwindData::EhFrameHdrAndEhFrame(eh_frame_hdr, eh_frame)
+        }
+        (Some(eh_frame), None) => framehop::ModuleUnwindData::EhFrame(eh_frame),
         (None, _) => framehop::ModuleUnwindData::None,
     };
 
@@ -870,14 +870,8 @@ where
         None
     };
 
-    fn address_range<'a>(
-        section: &Option<impl ObjectSection<'a>>,
-        base_avma: u64,
-    ) -> Option<Range<u64>> {
-        section
-            .as_ref()
-            .and_then(|section| section.file_range())
-            .map(|(start, size)| base_avma + start..base_avma + start + size)
+    fn svma_range<'a>(section: &impl ObjectSection<'a>) -> Range<u64> {
+        section.address()..section.address() + section.size()
     }
 
     let mapping_end_avma = mapping_start_avma + mapping_size;
@@ -885,14 +879,15 @@ where
         objpath.to_string_lossy().to_string(),
         mapping_start_avma..mapping_end_avma,
         base_avma,
-        ModuleSectionAddressRanges {
-            text: address_range(&text, base_avma),
-            text_env: address_range(&text_env, base_avma),
+        ModuleSvmaInfo {
+            base_svma,
+            text: text.as_ref().map(svma_range),
+            text_env: text_env.as_ref().map(svma_range),
             stubs: None,
             stub_helper: None,
-            eh_frame: address_range(&eh_frame, base_avma),
-            eh_frame_hdr: address_range(&eh_frame_hdr, base_avma),
-            got: address_range(&got, base_avma),
+            eh_frame: eh_frame.as_ref().map(svma_range),
+            eh_frame_hdr: eh_frame_hdr.as_ref().map(svma_range),
+            got: got.as_ref().map(svma_range),
         },
         unwind_data,
         text_data,

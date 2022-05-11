@@ -8,14 +8,14 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 byteorder = "1.4.3"
-debugid = "0.7.3"
-framehop = "0.4.0"
+debugid = "0.8.0"
+framehop = "0.7.0"
 # framehop = { path = "../framehop" }
 futures = "0.3.21"
 memchr = "2.4.1"
 memmap2 = "0.5.3"
 object = "0.28.3"
-profiler-get-symbols = "0.13.1"
+profiler-get-symbols = "0.14.0"
 # profiler-get-symbols = { path = "../profiler-get-symbols/lib" }
 thiserror = "1.0.30"
 zerocopy = "0.6.1"
