@@ -202,12 +202,9 @@ impl PerfFile {
 
     /// Only call this for features whose section is just a perf_header_string.
     fn feature_string(&self, feature: FlagFeature) -> Result<Option<&str>, Error> {
-        let section_data = match self.feature_section(feature) {
-            Some(section) => section,
-            None => return Ok(None),
-        };
-        let s = self.read_string(section_data)?;
-        Ok(Some(s))
+        self.feature_section(feature)
+            .map(|section| self.read_string(section))
+            .transpose()
     }
 
     pub fn hostname(&self) -> Result<Option<&str>, Error> {
