@@ -13,7 +13,7 @@ pub enum Endianness {
     Unaligned, FromBytes, Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash,
 )]
 #[repr(transparent)]
-pub struct U64([u8; 8]);
+pub struct U64(pub [u8; 8]);
 
 impl U64 {
     pub fn get(&self, endian: Endianness) -> u64 {
@@ -29,7 +29,7 @@ impl U64 {
     Unaligned, FromBytes, Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash,
 )]
 #[repr(transparent)]
-pub struct U32([u8; 4]);
+pub struct U32(pub [u8; 4]);
 
 impl U32 {
     pub fn get(&self, endian: Endianness) -> u32 {

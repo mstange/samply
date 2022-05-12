@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::{self, Read, Seek, SeekFrom};
 
 use crate::perf_event::{CpuMode, Event, RawEvent};
 use crate::perf_event_raw::{
@@ -9,16 +10,13 @@ use crate::reader::Reader;
 use crate::unaligned::{Endianness, U16, U32, U64};
 use zerocopy::FromBytes;
 
-pub struct PerfFile<'a> {
-    /// The full file data.
-    data: &'a [u8],
-
+pub struct PerfFile {
     event_data_offset_and_size: (u64, u64),
 
     /// The list of global opcodes.
-    perf_event_attrs: Vec<&'a PerfEventAttr>,
+    perf_event_attrs: Vec<PerfEventAttr>,
 
-    feature_sections: Vec<(FlagFeature, &'a PerfFileSection)>,
+    feature_sections: Vec<(FlagFeature, Vec<u8>)>,
 
     endian: Endianness,
 }
@@ -29,9 +27,15 @@ pub struct DsoBuildId {
     pub build_id: Vec<u8>,
 }
 
-impl<'a> PerfFile<'a> {
-    pub fn parse(data: &'a [u8]) -> Result<Self, Error> {
-        let header = PerfHeader::parse(data)?;
+impl PerfFile {
+    pub fn parse<C>(mut cursor: C) -> Result<Self, Error>
+    where
+        C: Read + Seek,
+    {
+        let start_offset = cursor.stream_position()?;
+        let mut header_bytes = [0; std::mem::size_of::<PerfHeader>()];
+        cursor.read_exact(&mut header_bytes)?;
+        let header = PerfHeader::parse(&header_bytes)?;
         if &header.magic != b"PERFILE2" && &header.magic != b"2ELIFREP" {
             return Err(Error::UnrecognizedMagicValue(header.magic));
         }
@@ -43,19 +47,21 @@ impl<'a> PerfFile<'a> {
 
         // Read the section information for each flag, starting just after the data section.
         let mut flag = 0u32;
-        let mut pos = header.data.offset.get(endian) + header.data.size.get(endian);
-        let mut feature_sections = Vec::new();
+        let feature_pos = header.data.offset.get(endian) + header.data.size.get(endian);
+        cursor.seek(SeekFrom::Start(start_offset + feature_pos))?;
+        let mut feature_sections_info = Vec::new();
         for flags_chunk in header.flags {
             let flags_chunk = flags_chunk.get(endian);
             for bit_index in 0..8 {
                 let flag_is_set = (flags_chunk & (1 << bit_index)) != 0;
                 if flag_is_set {
-                    let section = data
-                        .read_at::<PerfFileSection>(pos)
+                    let mut section_bytes = [0; std::mem::size_of::<PerfFileSection>()];
+                    cursor.read_exact(&mut section_bytes)?;
+                    let section = section_bytes
+                        .read_at::<PerfFileSection>(0)
                         .ok_or(ReadError::PerFlagSection)?;
-                    pos += std::mem::size_of::<PerfFileSection>() as u64;
                     if let Some(feature) = FlagFeature::from_int(flag) {
-                        feature_sections.push((feature, section));
+                        feature_sections_info.push((feature, *section));
                     } else {
                         eprintln!("Unrecognized flag feature {}", flag);
                     }
@@ -64,12 +70,23 @@ impl<'a> PerfFile<'a> {
             }
         }
 
+        let mut feature_sections = Vec::new();
+        for (feature, section) in feature_sections_info {
+            let offset = section.offset.get(endian);
+            let size =
+                usize::try_from(section.size.get(endian)).map_err(|_| Error::SectionSizeTooBig)?;
+            let mut data = vec![0; size];
+            cursor.seek(SeekFrom::Start(start_offset + offset))?;
+            cursor.read_exact(&mut data)?;
+            feature_sections.push((feature, data));
+        }
+
         let attrs_offset = header.attrs.offset.get(endian);
         let attrs_size = header.attrs.size.get(endian);
         let attrs_size = usize::try_from(attrs_size).map_err(|_| Error::SectionSizeTooBig)?;
-        let attrs_section_data = data
-            .read_slice_at::<u8>(attrs_offset, attrs_size)
-            .ok_or(ReadError::AttrsSection)?;
+        cursor.seek(SeekFrom::Start(start_offset + attrs_offset))?;
+        let mut attrs_section_data = vec![0; attrs_size];
+        cursor.read_exact(&mut attrs_section_data)?;
         let mut perf_event_attrs = Vec::new();
         let attr_size = header.attr_size.get(endian);
         let mut offset = 0;
@@ -77,7 +94,7 @@ impl<'a> PerfFile<'a> {
             let attr = attrs_section_data
                 .read_at::<PerfEventAttr>(offset)
                 .ok_or(ReadError::PerfEventAttr)?;
-            perf_event_attrs.push(attr);
+            perf_event_attrs.push(*attr);
             offset += attr_size;
         }
         // eprintln!("Got {} perf_event_attrs.", perf_event_attrs.len());
@@ -89,7 +106,6 @@ impl<'a> PerfFile<'a> {
         // }
 
         Ok(Self {
-            data,
             event_data_offset_and_size: (
                 header.data.offset.get(endian),
                 header.data.size.get(endian),
@@ -108,15 +124,10 @@ impl<'a> PerfFile<'a> {
         self.feature_sections.iter().any(|(f, _)| *f == feature)
     }
 
-    pub fn feature_section(&self, feature: FlagFeature) -> Option<(u64, u64)> {
-        match self.feature_sections.iter().find(|(f, _)| *f == feature) {
-            Some((_, section)) => {
-                let offset = section.offset.get(self.endian);
-                let size = section.size.get(self.endian);
-                Some((offset, size))
-            }
-            None => None,
-        }
+    pub fn feature_section(&self, feature: FlagFeature) -> Option<&[u8]> {
+        self.feature_sections
+            .iter()
+            .find_map(|(f, d)| if *f == feature { Some(&d[..]) } else { None })
     }
 
     /// Returns a map of build ID entries. `perf record` creates these records for any DSOs
@@ -149,15 +160,10 @@ impl<'a> PerfFile<'a> {
     /// This method is a bit lossy. We discard the pid, because it seems to be always -1 in
     /// the files I've tested. We also discard any entries for which we fail to create a `DsoKey`.
     pub fn build_ids(&self) -> Result<HashMap<DsoKey, DsoBuildId>, Error> {
-        let (offset, size) = match self.feature_section(FlagFeature::BuildId) {
+        let section_data = match self.feature_section(FlagFeature::BuildId) {
             Some(section) => section,
             None => return Ok(HashMap::new()),
         };
-        let size = usize::try_from(size).map_err(|_| Error::SectionSizeTooBig)?;
-        let section_data = self
-            .data
-            .read_slice_at::<u8>(offset, size)
-            .ok_or(ReadError::BuildIdSection)?;
         let mut offset = 0;
         let mut build_ids = HashMap::new();
         while let Some(build_id_event) = section_data.read_at::<BuildIdEvent>(offset as u64) {
@@ -184,54 +190,51 @@ impl<'a> PerfFile<'a> {
         Ok(build_ids)
     }
 
-    pub fn events(&self) -> EventIter<'a> {
+    pub fn events<'a, 'b: 'a>(&'a self, data: &'b [u8]) -> EventIter<'a> {
         EventIter {
-            data: self.data,
+            data,
             event_data_offset_and_size: self.event_data_offset_and_size,
-            attr: self.perf_event_attrs[0],
+            attr: &self.perf_event_attrs[0],
             endian: self.endian,
             offset: 0,
         }
     }
 
     /// Only call this for features whose section is just a perf_header_string.
-    fn feature_string(&self, feature: FlagFeature) -> Result<Option<&'a str>, Error> {
-        let (offset, size) = match self.feature_section(feature) {
+    fn feature_string(&self, feature: FlagFeature) -> Result<Option<&str>, Error> {
+        let section_data = match self.feature_section(feature) {
             Some(section) => section,
             None => return Ok(None),
         };
-        let s = self.read_string(offset, size)?;
+        let s = self.read_string(section_data)?;
         Ok(Some(s))
     }
 
-    pub fn hostname(&self) -> Result<Option<&'a str>, Error> {
+    pub fn hostname(&self) -> Result<Option<&str>, Error> {
         self.feature_string(FlagFeature::Hostname)
     }
 
-    pub fn os_release(&self) -> Result<Option<&'a str>, Error> {
+    pub fn os_release(&self) -> Result<Option<&str>, Error> {
         self.feature_string(FlagFeature::OsRelease)
     }
 
-    pub fn perf_version(&self) -> Result<Option<&'a str>, Error> {
+    pub fn perf_version(&self) -> Result<Option<&str>, Error> {
         self.feature_string(FlagFeature::Version)
     }
 
-    pub fn arch(&self) -> Result<Option<&'a str>, Error> {
+    pub fn arch(&self) -> Result<Option<&str>, Error> {
         self.feature_string(FlagFeature::Arch)
     }
 
-    pub fn nr_cpus(&self) -> Result<Option<&'a NrCpus>, Error> {
-        let (offset, size) = match self.feature_section(FlagFeature::NrCpus) {
+    pub fn nr_cpus(&self) -> Result<Option<&NrCpus>, Error> {
+        let section_data = match self.feature_section(FlagFeature::NrCpus) {
             Some(section) => section,
             None => return Ok(None),
         };
-        if size < std::mem::size_of::<NrCpus>() as u64 {
+        if section_data.len() < std::mem::size_of::<NrCpus>() {
             return Err(Error::NotEnoughSpaceForNrCpus);
         }
-        let nr_cpus = self
-            .data
-            .read_at::<NrCpus>(offset)
-            .ok_or(ReadError::NrCpus)?;
+        let nr_cpus = section_data.read_at::<NrCpus>(0).ok_or(ReadError::NrCpus)?;
         Ok(Some(nr_cpus))
     }
 
@@ -239,24 +242,15 @@ impl<'a> PerfFile<'a> {
         self.has_feature(FlagFeature::Stat)
     }
 
-    fn read_string(&self, offset: u64, size: u64) -> Result<&'a str, Error> {
-        if size < 4 {
+    fn read_string<'a>(&self, s: &'a [u8]) -> Result<&'a str, Error> {
+        if s.len() < 4 {
             return Err(Error::NotEnoughSpaceForStringLen);
         }
-        let len = self
-            .data
-            .read_at::<U32>(offset)
-            .ok_or(ReadError::StringLen)?;
-        let len = u64::from(len.get(self.endian));
-        if 4 + len > size {
-            return Err(Error::StringLengthTooLong);
-        }
-        let string_start = offset + 4;
+        let (len_bytes, rest) = s.split_at(4);
+        let len = U32([len_bytes[0], len_bytes[1], len_bytes[2], len_bytes[3]]);
+        let len = len.get(self.endian);
         let len = usize::try_from(len).map_err(|_| Error::StringLengthBiggerThanUsize)?;
-        let s = self
-            .data
-            .read_slice_at::<u8>(string_start, len)
-            .ok_or(ReadError::String)?;
+        let s = &rest.get(..len as usize).ok_or(Error::StringLengthTooLong)?;
         let actual_len = memchr::memchr(0, s).unwrap_or(s.len());
         let s = std::str::from_utf8(&s[..actual_len]).map_err(|_| Error::StringUtf8)?;
         Ok(s)
@@ -606,13 +600,16 @@ pub struct NrCpus {
 }
 
 /// The error type used in this crate.
-#[derive(thiserror::Error, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(thiserror::Error, Debug)]
 pub enum Error {
     /// The data slice was not big enough to read the struct, or we
     /// were trying to follow an invalid offset to somewhere outside
     /// of the data bounds.
     #[error("Read error: {0}")]
     Read(#[from] ReadError),
+
+    #[error("I/O error: {0}")]
+    IoError(#[from] io::Error),
 
     #[error("Did not recognize magic value {0:?}")]
     UnrecognizedMagicValue([u8; 8]),

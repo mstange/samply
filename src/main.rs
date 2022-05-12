@@ -24,6 +24,7 @@ use profiler_get_symbols::{
 };
 use std::collections::HashSet;
 use std::collections::{hash_map::Entry, HashMap};
+use std::io::Cursor;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::{fs::File, ops::Range, path::Path};
@@ -41,7 +42,7 @@ fn main() {
     let file = File::open(path).unwrap();
     let mmap = unsafe { memmap2::MmapOptions::new().map(&file).unwrap() };
     let data = &mmap[..];
-    let file = PerfFile::parse(data).expect("Parsing failed");
+    let file = PerfFile::parse(Cursor::new(data)).expect("Parsing failed");
 
     if let Some(hostname) = file.hostname().unwrap() {
         println!("Hostname: {}", hostname);
@@ -88,13 +89,13 @@ fn main() {
         Some("x86_64") => {
             let mut cache = framehop::x86_64::CacheX86_64::new();
             do_the_thing::<framehop::x86_64::UnwinderX86_64<Vec<u8>>, ConvertRegsX86_64>(
-                &file, &mut cache,
+                &file, data, &mut cache,
             );
         }
         Some("aarch64") => {
             let mut cache = framehop::aarch64::CacheAarch64::new();
             do_the_thing::<framehop::aarch64::UnwinderAarch64<Vec<u8>>, ConvertRegsAarch64>(
-                &file, &mut cache,
+                &file, data, &mut cache,
             );
         }
         Some(other_arch) => {
@@ -136,7 +137,7 @@ impl ConvertRegs for ConvertRegsAarch64 {
     }
 }
 
-fn do_the_thing<U, C>(file: &PerfFile, cache: &mut U::Cache)
+fn do_the_thing<U, C>(file: &PerfFile, data: &[u8], cache: &mut U::Cache)
 where
     U: Unwinder<Module = Module<Vec<u8>>> + Default,
     C: ConvertRegs<UnwindRegs = U::UnwindRegs>,
@@ -149,7 +150,7 @@ where
     let build_ids = file.build_ids().ok().unwrap_or_default();
     let little_endian = file.endian() == unaligned::Endianness::LittleEndian;
 
-    let mut events = file.events();
+    let mut events = file.events(data);
     let mut count = 0;
     while let Ok(Some(event)) = events.next() {
         count += 1;
