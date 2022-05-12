@@ -32,7 +32,6 @@ impl PerfFile {
     where
         C: Read + Seek,
     {
-        let start_offset = cursor.stream_position()?;
         let mut header_bytes = [0; std::mem::size_of::<PerfHeader>()];
         cursor.read_exact(&mut header_bytes)?;
         let header = PerfHeader::parse(&header_bytes)?;
@@ -48,7 +47,7 @@ impl PerfFile {
         // Read the section information for each flag, starting just after the data section.
         let mut flag = 0u32;
         let feature_pos = header.data.offset.get(endian) + header.data.size.get(endian);
-        cursor.seek(SeekFrom::Start(start_offset + feature_pos))?;
+        cursor.seek(SeekFrom::Start(feature_pos))?;
         let mut feature_sections_info = Vec::new();
         for flags_chunk in header.flags {
             let flags_chunk = flags_chunk.get(endian);
@@ -76,7 +75,7 @@ impl PerfFile {
             let size =
                 usize::try_from(section.size.get(endian)).map_err(|_| Error::SectionSizeTooBig)?;
             let mut data = vec![0; size];
-            cursor.seek(SeekFrom::Start(start_offset + offset))?;
+            cursor.seek(SeekFrom::Start(offset))?;
             cursor.read_exact(&mut data)?;
             feature_sections.push((feature, data));
         }
@@ -84,7 +83,7 @@ impl PerfFile {
         let attrs_offset = header.attrs.offset.get(endian);
         let attrs_size = header.attrs.size.get(endian);
         let attrs_size = usize::try_from(attrs_size).map_err(|_| Error::SectionSizeTooBig)?;
-        cursor.seek(SeekFrom::Start(start_offset + attrs_offset))?;
+        cursor.seek(SeekFrom::Start(attrs_offset))?;
         let mut attrs_section_data = vec![0; attrs_size];
         cursor.read_exact(&mut attrs_section_data)?;
         let mut perf_event_attrs = Vec::new();
