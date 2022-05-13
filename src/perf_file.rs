@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::io::{self, Cursor, Read, Seek, SeekFrom};
 
 use crate::perf_event::{
-    AttrFlags, BranchSampleFormat, CpuMode, Event, PerfEventAttr, RawEvent, SampleFormat,
+    AttrFlags, BranchSampleFormat, CpuMode, Event, PerfEventAttr, RawEvent, ReadFormat,
+    SampleFormat,
 };
 use crate::perf_event_consts::PERF_RECORD_MISC_BUILD_ID_SIZE;
 use crate::raw_data::RawData;
@@ -264,7 +265,7 @@ pub struct EventIter<'a, R: Read> {
     endian: Endianness,
     sample_format: SampleFormat,
     branch_sample_format: BranchSampleFormat,
-    read_format: u64,
+    read_format: ReadFormat,
     sample_id_all: bool,
     sample_regs_user: u64,
     regs_count: usize,

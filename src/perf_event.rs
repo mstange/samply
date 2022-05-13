@@ -163,6 +163,31 @@ bitflags! {
         const X = 4;
         const INVALID = Self::RW.bits | Self::X.bits;
     }
+
+    /// The format of the data returned by read() on a perf event fd,
+    /// as specified by attr.read_format:
+    ///
+    /// struct read_format {
+    /// 	{ u64		value;
+    /// 	  { u64		time_enabled; } && PERF_FORMAT_TOTAL_TIME_ENABLED
+    /// 	  { u64		time_running; } && PERF_FORMAT_TOTAL_TIME_RUNNING
+    /// 	  { u64		id;           } && PERF_FORMAT_ID
+    /// 	} && !PERF_FORMAT_GROUP
+    ///
+    /// 	{ u64		nr;
+    /// 	  { u64		time_enabled; } && PERF_FORMAT_TOTAL_TIME_ENABLED
+    /// 	  { u64		time_running; } && PERF_FORMAT_TOTAL_TIME_RUNNING
+    /// 	  { u64		value;
+    /// 	    { u64	id;           } && PERF_FORMAT_ID
+    /// 	  }		cntr[nr];
+    /// 	} && PERF_FORMAT_GROUP
+    /// };
+    pub struct ReadFormat: u64 {
+        const TOTAL_TIME_ENABLED = PERF_FORMAT_TOTAL_TIME_ENABLED;
+        const TOTAL_TIME_RUNNING = PERF_FORMAT_TOTAL_TIME_RUNNING;
+        const ID = PERF_FORMAT_ID;
+        const GROUP = PERF_FORMAT_GROUP;
+    }
 }
 
 /// Specifies how precise the instruction address should be.
@@ -253,8 +278,8 @@ pub struct PerfEventAttr {
     pub sample_format: SampleFormat,
 
     /// Specifies the structure values returned by read() on a perf event fd,
-    /// see `perf_event_read_format`.
-    pub read_format: u64,
+    /// see [`ReadFormat`].
+    pub read_format: ReadFormat,
 
     /// Bitset of flags.
     pub flags: AttrFlags,
@@ -421,7 +446,7 @@ impl PerfEventAttr {
             config,
             sampling_period_or_frequency,
             sample_format: SampleFormat::from_bits_truncate(sample_type),
-            read_format,
+            read_format: ReadFormat::from_bits_truncate(read_format),
             flags: AttrFlags::from_bits_truncate(flags),
             wakeup_events_or_watermark,
             bp_type: HwBreakpointType::from_bits_truncate(bp_type),
@@ -743,7 +768,7 @@ impl<'a> RawEvent<'a> {
         self,
         sample_format: SampleFormat,
         branch_sample_format: BranchSampleFormat,
-        read_format: u64,
+        read_format: ReadFormat,
         regs_count: usize,
         sample_regs_user: u64,
         _sample_id_all: bool,
@@ -831,28 +856,28 @@ impl<'a> RawEvent<'a> {
                 };
 
                 if sample_format.contains(SampleFormat::READ) {
-                    if read_format & PERF_FORMAT_GROUP == 0 {
+                    if read_format.contains(ReadFormat::GROUP) {
                         let _value = cur.read_u64::<T>()?;
-                        if read_format & PERF_FORMAT_TOTAL_TIME_ENABLED != 0 {
+                        if read_format.contains(ReadFormat::TOTAL_TIME_ENABLED) {
                             let _time_enabled = cur.read_u64::<T>()?;
                         }
-                        if read_format & PERF_FORMAT_TOTAL_TIME_RUNNING != 0 {
+                        if read_format.contains(ReadFormat::TOTAL_TIME_RUNNING) {
                             let _time_running = cur.read_u64::<T>()?;
                         }
-                        if read_format & PERF_FORMAT_ID != 0 {
+                        if read_format.contains(ReadFormat::ID) {
                             let _id = cur.read_u64::<T>()?;
                         }
                     } else {
                         let nr = cur.read_u64::<T>()?;
-                        if read_format & PERF_FORMAT_TOTAL_TIME_ENABLED != 0 {
+                        if read_format.contains(ReadFormat::TOTAL_TIME_ENABLED) {
                             let _time_enabled = cur.read_u64::<T>()?;
                         }
-                        if read_format & PERF_FORMAT_TOTAL_TIME_RUNNING != 0 {
+                        if read_format.contains(ReadFormat::TOTAL_TIME_RUNNING) {
                             let _time_running = cur.read_u64::<T>()?;
                         }
                         for _ in 0..nr {
                             let _value = cur.read_u64::<T>()?;
-                            if read_format & PERF_FORMAT_ID != 0 {
+                            if read_format.contains(ReadFormat::ID) {
                                 let _id = cur.read_u64::<T>()?;
                             }
                         }
