@@ -73,6 +73,115 @@ bitflags! {
         /// save low level index of raw branch records
         const HW_INDEX = PERF_SAMPLE_BRANCH_HW_INDEX;
     }
+
+    pub struct AttrFlags: u64 {
+        /// off by default
+        const DISABLED = ATTR_FLAG_BIT_DISABLED;
+        /// children inherit it
+        const INHERIT = ATTR_FLAG_BIT_INHERIT;
+        /// must always be on PMU
+        const PINNED = ATTR_FLAG_BIT_PINNED;
+        /// only group on PMU
+        const EXCLUSIVE = ATTR_FLAG_BIT_EXCLUSIVE;
+        /// don't count user
+        const EXCLUDE_USER = ATTR_FLAG_BIT_EXCLUDE_USER;
+        /// don't count kernel
+        const EXCLUDE_KERNEL = ATTR_FLAG_BIT_EXCLUDE_KERNEL;
+        /// don't count hypervisor
+        const EXCLUDE_HV = ATTR_FLAG_BIT_EXCLUDE_HV;
+        /// don't count when idle
+        const EXCLUDE_IDLE = ATTR_FLAG_BIT_EXCLUDE_IDLE;
+        /// include mmap data
+        const MMAP = ATTR_FLAG_BIT_MMAP;
+        /// include comm data
+        const COMM = ATTR_FLAG_BIT_COMM;
+        /// use freq, not period
+        const FREQ = ATTR_FLAG_BIT_FREQ;
+        /// per task counts
+        const INHERIT_STAT = ATTR_FLAG_BIT_INHERIT_STAT;
+        /// next exec enables
+        const ENABLE_ON_EXEC = ATTR_FLAG_BIT_ENABLE_ON_EXEC;
+        /// trace fork/exit
+        const TASK = ATTR_FLAG_BIT_TASK;
+        /// wakeup_watermark
+        const WATERMARK = ATTR_FLAG_BIT_WATERMARK;
+        /// one of the two PRECISE_IP bitmask bits
+        const PRECISE_IP_BIT_15 = 1 << 15;
+        /// one of the two PRECISE_IP bitmask bits
+        const PRECISE_IP_BIT_16 = 1 << 16;
+        /// the full PRECISE_IP bitmask
+        const PRECISE_IP_BITMASK = ATTR_FLAG_BITMASK_PRECISE_IP;
+        /// non-exec mmap data
+        const MMAP_DATA = ATTR_FLAG_BIT_MMAP_DATA;
+        /// sample_type all events
+        const SAMPLE_ID_ALL = ATTR_FLAG_BIT_SAMPLE_ID_ALL;
+        /// don't count in host
+        const EXCLUDE_HOST = ATTR_FLAG_BIT_EXCLUDE_HOST;
+        /// don't count in guest
+        const EXCLUDE_GUEST = ATTR_FLAG_BIT_EXCLUDE_GUEST;
+        /// exclude kernel callchains
+        const EXCLUDE_CALLCHAIN_KERNEL = ATTR_FLAG_BIT_EXCLUDE_CALLCHAIN_KERNEL;
+        /// exclude user callchains
+        const EXCLUDE_CALLCHAIN_USER = ATTR_FLAG_BIT_EXCLUDE_CALLCHAIN_USER;
+        /// include mmap with inode data
+        const MMAP2 = ATTR_FLAG_BIT_MMAP2;
+        /// flag comm events that are due to exec
+        const COMM_EXEC = ATTR_FLAG_BIT_COMM_EXEC;
+        /// use @clockid for time fields
+        const USE_CLOCKID = ATTR_FLAG_BIT_USE_CLOCKID;
+        /// context switch data
+        const CONTEXT_SWITCH = ATTR_FLAG_BIT_CONTEXT_SWITCH;
+        /// Write ring buffer from end to beginning
+        const WRITE_BACKWARD = ATTR_FLAG_BIT_WRITE_BACKWARD;
+        /// include namespaces data
+        const NAMESPACES = ATTR_FLAG_BIT_NAMESPACES;
+        /// include ksymbol events
+        const KSYMBOL = ATTR_FLAG_BIT_KSYMBOL;
+        /// include bpf events
+        const BPF_EVENT = ATTR_FLAG_BIT_BPF_EVENT;
+        /// generate AUX records instead of events
+        const AUX_OUTPUT = ATTR_FLAG_BIT_AUX_OUTPUT;
+        /// include cgroup events
+        const CGROUP = ATTR_FLAG_BIT_CGROUP;
+        /// include text poke events
+        const TEXT_POKE = ATTR_FLAG_BIT_TEXT_POKE;
+        /// use build id in mmap2 events
+        const BUILD_ID = ATTR_FLAG_BIT_BUILD_ID;
+        /// children only inherit if cloned with CLONE_THREAD
+        const INHERIT_THREAD = ATTR_FLAG_BIT_INHERIT_THREAD;
+        /// event is removed from task on exec
+        const REMOVE_ON_EXEC = ATTR_FLAG_BIT_REMOVE_ON_EXEC;
+        /// send synchronous SIGTRAP on event
+        const SIGTRAP = ATTR_FLAG_BIT_SIGTRAP;
+    }
+}
+
+/// Specifies how precise the instruction address should be.
+/// With `perf record -e` you can set the precision by appending /p to the
+/// event name, with varying numbers of `p`s.
+pub enum IpSkidConstraint {
+    /// 0 - SAMPLE_IP can have arbitrary skid
+    ArbitrarySkid,
+    /// 1 - SAMPLE_IP must have constant skid
+    ConstantSkid,
+    /// 2 - SAMPLE_IP requested to have 0 skid
+    ZeroSkid,
+    /// 3 - SAMPLE_IP must have 0 skid, or uses randomization to avoid
+    /// sample shadowing effects.
+    ZeroSkidOrRandomization,
+}
+
+impl AttrFlags {
+    /// Extract the IpSkidConstraint from the bits.
+    pub fn ip_skid_constraint(&self) -> IpSkidConstraint {
+        match (self.bits & Self::PRECISE_IP_BITMASK.bits) >> 15 {
+            0 => IpSkidConstraint::ArbitrarySkid,
+            1 => IpSkidConstraint::ConstantSkid,
+            2 => IpSkidConstraint::ZeroSkid,
+            3 => IpSkidConstraint::ZeroSkidOrRandomization,
+            _ => unreachable!(),
+        }
+    }
 }
 
 /// `perf_event_attr`
@@ -85,7 +194,7 @@ pub struct PerfEventAttr {
     /// Type-specific configuration information.
     pub config: u64,
 
-    /// If ATTR_FLAG_BIT_FREQ is set in `flags`, this is the sample frequency,
+    /// If AttrFlags::FREQ is set in `flags`, this is the sample frequency,
     /// otherwise it is the sample period.
     ///
     /// ```c
@@ -105,10 +214,10 @@ pub struct PerfEventAttr {
     /// see `perf_event_read_format`.
     pub read_format: u64,
 
-    /// Bitset of ATTR_FLAG_BIT* flags
-    pub flags: u64,
+    /// Bitset of flags.
+    pub flags: AttrFlags,
 
-    /// If ATTR_FLAG_BIT_WATERMARK is set in `flags`, this is the watermark,
+    /// If AttrFlags::WATERMARK is set in `flags`, this is the watermark,
     /// otherwise it is the event count after which to wake up.
     ///
     /// ```c
@@ -291,7 +400,7 @@ impl PerfEventAttr {
             sampling_period_or_frequency,
             sample_format: SampleFormat::from_bits_truncate(sample_type),
             read_format,
-            flags,
+            flags: AttrFlags::from_bits_truncate(flags),
             wakeup_events_or_watermark,
             bp_type,
             bp_addr_or_kprobe_func_or_uprobe_func_or_config1,

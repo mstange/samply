@@ -73,6 +73,12 @@ pub const ATTR_FLAG_BIT_WATERMARK: u64 = 1 << 14;
 /// >     perf record -a -e cpu-cycles:p ...    # use ibs op counting cycles
 /// >     perf record -a -e r076:p ...          # same as -e cpu-cycles:p
 /// >     perf record -a -e r0C1:p ...          # use ibs op counting micro-ops
+///
+/// From Brendan Gregg's perf page:
+///
+/// > perf can use precise sampling by adding a :p modifier to the PMC event
+/// > name, eg, "-e instructions:p". The more p's, the more accurate.
+///
 pub const ATTR_FLAG_BITMASK_PRECISE_IP: u64 = 1 << 15 | 1 << 16;
 /// non-exec mmap data
 pub const ATTR_FLAG_BIT_MMAP_DATA: u64 = 1 << 17;
