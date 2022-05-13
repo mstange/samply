@@ -15,6 +15,7 @@ use byteorder::{ByteOrder, NativeEndian};
 /// two mmap chunks, or is wrapped from the end to the start of a chunk.
 pub enum RawData<'a> {
     Single(&'a [u8]),
+    #[allow(unused)]
     Split(&'a [u8], &'a [u8]),
 }
 
@@ -48,6 +49,7 @@ impl<'a> fmt::Debug for RawData<'a> {
 }
 
 impl<'a> RawData<'a> {
+    #[allow(unused)]
     #[inline]
     pub(crate) fn empty() -> Self {
         RawData::Single(&[])

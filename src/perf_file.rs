@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::io::{self, Read, Seek, SeekFrom};
+use std::io::{self, Cursor, Read, Seek, SeekFrom};
 
 use crate::perf_event::{CpuMode, Event, RawEvent};
 use crate::perf_event_raw::{
@@ -7,7 +7,8 @@ use crate::perf_event_raw::{
 };
 use crate::raw_data::RawData;
 use crate::reader::Reader;
-use crate::unaligned::{Endianness, U16, U32, U64};
+use crate::unaligned::{Endianness, U32};
+use byteorder::{BigEndian, ByteOrder, LittleEndian, ReadBytesExt};
 use zerocopy::FromBytes;
 
 pub struct PerfFile {
@@ -28,39 +29,34 @@ pub struct DsoBuildId {
 }
 
 impl PerfFile {
-    pub fn parse<C>(mut cursor: C) -> Result<Self, Error>
+    pub fn parse<C>(cursor: &mut C) -> Result<Self, Error>
     where
         C: Read + Seek,
     {
-        let mut header_bytes = [0; std::mem::size_of::<PerfHeader>()];
-        cursor.read_exact(&mut header_bytes)?;
-        let header = PerfHeader::parse(&header_bytes)?;
-        if &header.magic != b"PERFILE2" && &header.magic != b"2ELIFREP" {
-            return Err(Error::UnrecognizedMagicValue(header.magic));
+        let header = PerfHeader::parse(cursor)?;
+        match header.endian {
+            Endianness::LittleEndian => Self::parse_impl::<C, LittleEndian>(cursor, header),
+            Endianness::BigEndian => Self::parse_impl::<C, BigEndian>(cursor, header),
         }
-        let endian = if header.magic[0] == b'P' {
-            Endianness::LittleEndian
-        } else {
-            Endianness::BigEndian
-        };
+    }
 
+    fn parse_impl<C, T>(cursor: &mut C, header: PerfHeader) -> Result<Self, Error>
+    where
+        C: Read + Seek,
+        T: ByteOrder,
+    {
         // Read the section information for each flag, starting just after the data section.
         let mut flag = 0u32;
-        let feature_pos = header.data.offset.get(endian) + header.data.size.get(endian);
+        let feature_pos = header.data_section.offset + header.data_section.size;
         cursor.seek(SeekFrom::Start(feature_pos))?;
         let mut feature_sections_info = Vec::new();
         for flags_chunk in header.flags {
-            let flags_chunk = flags_chunk.get(endian);
             for bit_index in 0..8 {
                 let flag_is_set = (flags_chunk & (1 << bit_index)) != 0;
                 if flag_is_set {
-                    let mut section_bytes = [0; std::mem::size_of::<PerfFileSection>()];
-                    cursor.read_exact(&mut section_bytes)?;
-                    let section = section_bytes
-                        .read_at::<PerfFileSection>(0)
-                        .ok_or(ReadError::PerFlagSection)?;
+                    let section = PerfFileSection::parse::<C, T>(cursor)?;
                     if let Some(feature) = FlagFeature::from_int(flag) {
-                        feature_sections_info.push((feature, *section));
+                        feature_sections_info.push((feature, section));
                     } else {
                         eprintln!("Unrecognized flag feature {}", flag);
                     }
@@ -71,23 +67,22 @@ impl PerfFile {
 
         let mut feature_sections = Vec::new();
         for (feature, section) in feature_sections_info {
-            let offset = section.offset.get(endian);
-            let size =
-                usize::try_from(section.size.get(endian)).map_err(|_| Error::SectionSizeTooBig)?;
+            let offset = section.offset;
+            let size = usize::try_from(section.size).map_err(|_| Error::SectionSizeTooBig)?;
             let mut data = vec![0; size];
             cursor.seek(SeekFrom::Start(offset))?;
             cursor.read_exact(&mut data)?;
             feature_sections.push((feature, data));
         }
 
-        let attrs_offset = header.attrs.offset.get(endian);
-        let attrs_size = header.attrs.size.get(endian);
+        let attrs_offset = header.attr_section.offset;
+        let attrs_size = header.attr_section.size;
         let attrs_size = usize::try_from(attrs_size).map_err(|_| Error::SectionSizeTooBig)?;
         cursor.seek(SeekFrom::Start(attrs_offset))?;
         let mut attrs_section_data = vec![0; attrs_size];
         cursor.read_exact(&mut attrs_section_data)?;
         let mut perf_event_attrs = Vec::new();
-        let attr_size = header.attr_size.get(endian);
+        let attr_size = header.attr_size;
         let mut offset = 0;
         while offset < attrs_size as u64 {
             let attr = attrs_section_data
@@ -98,20 +93,17 @@ impl PerfFile {
         }
         // eprintln!("Got {} perf_event_attrs.", perf_event_attrs.len());
         // for perf_event_attr in &perf_event_attrs {
-        //     eprintln!("flags: {:b}", perf_event_attr.flags.get(endian));
-        //     if perf_event_attr.flags.get(endian) & ATTR_FLAG_BIT_ENABLE_ON_EXEC != 0 {
+        //     eprintln!("flags: {:b}", perf_event_attr.flags);
+        //     if perf_event_attr.flags & ATTR_FLAG_BIT_ENABLE_ON_EXEC != 0 {
         //         eprintln!("ATTR_FLAG_BIT_ENABLE_ON_EXEC is set");
         //     }
         // }
 
         Ok(Self {
-            event_data_offset_and_size: (
-                header.data.offset.get(endian),
-                header.data.size.get(endian),
-            ),
+            event_data_offset_and_size: (header.data_section.offset, header.data_section.size),
             perf_event_attrs,
             feature_sections,
-            endian,
+            endian: header.endian,
         })
     }
 
@@ -163,39 +155,50 @@ impl PerfFile {
             Some(section) => section,
             None => return Ok(HashMap::new()),
         };
-        let mut offset = 0;
+        let mut cursor = Cursor::new(section_data);
         let mut build_ids = HashMap::new();
-        while let Some(build_id_event) = section_data.read_at::<BuildIdEvent>(offset as u64) {
-            let file_name_start = offset + std::mem::size_of::<BuildIdEvent>();
-            let record_end = offset + build_id_event.header.size.get(self.endian) as usize;
-            offset = record_end;
-            let file_name_bytes = &section_data[file_name_start..record_end];
-            let file_name_len = memchr::memchr(0, file_name_bytes).unwrap_or(record_end);
-            let path = &file_name_bytes[..file_name_len];
-            let misc = build_id_event.header.misc.get(self.endian);
-            let dso_key = match DsoKey::detect(path, CpuMode::from_misc(misc)) {
+        loop {
+            let event = match self.endian {
+                Endianness::LittleEndian => BuildIdEvent::parse::<_, LittleEndian>(&mut cursor),
+                Endianness::BigEndian => BuildIdEvent::parse::<_, BigEndian>(&mut cursor),
+            };
+            let event = match event {
+                Ok(e) => e,
+                Err(_) => break,
+            };
+            let misc = event.header.misc;
+            let path = event.file_path;
+            let build_id = event.build_id;
+            let dso_key = match DsoKey::detect(&path, CpuMode::from_misc(misc)) {
                 Some(dso_key) => dso_key,
                 None => continue,
             };
-            let build_id_len = if misc & PERF_RECORD_MISC_BUILD_ID_SIZE != 0 {
-                build_id_event.build_id[20].min(20)
-            } else {
-                detect_build_id_len(&build_id_event.build_id)
-            };
-            let build_id = build_id_event.build_id[..build_id_len as usize].to_owned();
-            let path = path.to_owned();
             build_ids.insert(dso_key, DsoBuildId { path, build_id });
         }
         Ok(build_ids)
     }
 
-    pub fn events<'a, 'b: 'a>(&'a self, data: &'b [u8]) -> EventIter<'a> {
+    pub fn events<'a, 'b: 'a, C: Read + Seek>(&'a self, cursor: &'b mut C) -> EventIter<'a, C> {
+        let endian = self.endian;
+        let attr = &self.perf_event_attrs[0];
+        let sample_type = attr.sample_type.get(endian);
+        let read_format = attr.read_format.get(endian);
+        let sample_id_all = attr.flags.get(endian) & ATTR_FLAG_BIT_SAMPLE_ID_ALL != 0;
+        let sample_regs_user = attr.sample_regs_user.get(endian);
+        let regs_count = sample_regs_user.count_ones() as usize;
+        let (offset, event_data_len) = self.event_data_offset_and_size;
+        cursor.seek(SeekFrom::Start(offset)).unwrap();
         EventIter {
-            data,
-            event_data_offset_and_size: self.event_data_offset_and_size,
-            attr: &self.perf_event_attrs[0],
-            endian: self.endian,
+            reader: cursor,
+            current_event_body: Vec::new(),
             offset: 0,
+            event_data_len,
+            sample_type,
+            read_format,
+            sample_id_all,
+            sample_regs_user,
+            regs_count,
+            endian,
         }
     }
 
@@ -253,67 +256,61 @@ impl PerfFile {
     }
 }
 
-pub struct EventIter<'a> {
-    data: &'a [u8],
-    event_data_offset_and_size: (u64, u64),
-    attr: &'a PerfEventAttr,
-    endian: Endianness,
+pub struct EventIter<'a, R: Read> {
+    reader: &'a mut R,
     offset: u64,
+    event_data_len: u64,
+    current_event_body: Vec<u8>,
+    endian: Endianness,
+    sample_type: u64,
+    read_format: u64,
+    sample_id_all: bool,
+    sample_regs_user: u64,
+    regs_count: usize,
 }
 
-impl<'a> EventIter<'a> {
+impl<'a, R: Read> EventIter<'a, R> {
     #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Result<Option<Event>, Error> {
-        if self.offset >= self.event_data_offset_and_size.1 {
+        if self.offset >= self.event_data_len {
             return Ok(None);
         }
-        let header = self
-            .data
-            .read_at::<PerfEventHeader>(self.event_data_offset_and_size.0 + self.offset)
-            .ok_or(ReadError::PerfEventHeader)?;
-        let kind = header.type_.get(self.endian);
-        let misc = header.misc.get(self.endian);
-        let size = header.size.get(self.endian);
-        let event_data = self
-            .data
-            .read_slice_at::<u8>(
-                self.event_data_offset_and_size.0
-                    + self.offset
-                    + std::mem::size_of::<PerfEventHeader>() as u64,
-                size as usize - std::mem::size_of::<PerfEventHeader>() as usize,
-            )
-            .ok_or(ReadError::PerfEventData)?;
-        self.offset += size as u64;
-        let raw_data = RawData::from(event_data);
-        let raw_event = RawEvent {
-            kind,
-            misc,
-            data: raw_data,
-        };
-        let sample_type = self.attr.sample_type.get(self.endian);
-        let read_format = self.attr.read_format.get(self.endian);
-        let sample_id_all = self.attr.flags.get(self.endian) & ATTR_FLAG_BIT_SAMPLE_ID_ALL != 0;
-        let sample_regs_user = self.attr.sample_regs_user.get(self.endian);
-        let regs_count = sample_regs_user.count_ones() as usize;
         let event = if self.endian == Endianness::LittleEndian {
-            raw_event.parse::<byteorder::LittleEndian>(
-                sample_type,
-                read_format,
-                regs_count,
-                sample_regs_user,
-                sample_id_all,
-            )
+            self.read_next_event::<byteorder::LittleEndian>()
         } else {
-            raw_event.parse::<byteorder::BigEndian>(
-                sample_type,
-                read_format,
-                regs_count,
-                sample_regs_user,
-                sample_id_all,
-            )
-        };
+            self.read_next_event::<byteorder::BigEndian>()
+        }?;
 
         Ok(Some(event))
+    }
+
+    fn read_next_event<T: ByteOrder>(&mut self) -> Result<Event, Error> {
+        let header = PerfEventHeader::parse::<_, T>(&mut self.reader)?;
+        let size = header.size as usize;
+        if size < PerfEventHeader::STRUCT_SIZE {
+            return Err(Error::InvalidPerfEventSize);
+        }
+        let event_body_len = size - PerfEventHeader::STRUCT_SIZE;
+        self.current_event_body.resize(event_body_len, 0);
+        self.reader
+            .read_exact(&mut self.current_event_body)
+            .map_err(|_| ReadError::PerfEventData)?;
+        let raw_data = RawData::from(&self.current_event_body[..]);
+        let raw_event = RawEvent {
+            kind: header.type_,
+            misc: header.misc,
+            data: raw_data,
+        };
+        let event = raw_event.parse::<T>(
+            self.sample_type,
+            self.read_format,
+            self.regs_count,
+            self.sample_regs_user,
+            self.sample_id_all,
+        );
+        self.offset += u64::from(header.size);
+
+        Ok(event)
     }
 }
 
@@ -492,21 +489,58 @@ impl DsoKey {
 /// magic value is 64bit byte swapped compared the file is in non-native
 /// endian.
 
-#[derive(FromBytes, Debug, Clone, Copy)]
-#[repr(C)]
+#[derive(Debug, Clone, Copy)]
 pub struct PerfHeader {
-    /// b"PERFILE2" for little-endian, b"2ELIFREP" for big-endian
-    pub magic: [u8; 8],
+    pub endian: Endianness,
     /// size of the header
-    pub size: U64,
+    pub header_size: u64,
     /// size of an attribute in attrs
-    pub attr_size: U64,
-    pub attrs: PerfFileSection,
-    pub data: PerfFileSection,
-    /// Ignored
-    pub event_types: PerfFileSection,
+    pub attr_size: u64,
+    pub attr_section: PerfFileSection,
+    pub data_section: PerfFileSection,
     /// Room for 4 * 64 = 256 header flag bits
-    pub flags: [U64; 4],
+    pub flags: [u64; 4],
+}
+
+impl PerfHeader {
+    pub fn parse<R: Read>(reader: &mut R) -> Result<Self, Error> {
+        let mut magic = [0; 8];
+        reader.read_exact(&mut magic)?;
+        if &magic != b"PERFILE2" && &magic != b"2ELIFREP" {
+            return Err(Error::UnrecognizedMagicValue(magic));
+        }
+
+        if magic[0] == b'P' {
+            Self::parse_impl::<R, byteorder::LittleEndian>(reader, Endianness::LittleEndian)
+        } else {
+            Self::parse_impl::<R, byteorder::BigEndian>(reader, Endianness::BigEndian)
+        }
+    }
+
+    fn parse_impl<R: Read, T: ByteOrder>(
+        reader: &mut R,
+        endian: Endianness,
+    ) -> Result<Self, Error> {
+        let header_size = reader.read_u64::<T>()?;
+        let attr_size = reader.read_u64::<T>()?;
+        let attr_section = PerfFileSection::parse::<R, T>(reader)?;
+        let data_section = PerfFileSection::parse::<R, T>(reader)?;
+        let _event_types_section = PerfFileSection::parse::<R, T>(reader)?;
+        let flags = [
+            reader.read_u64::<T>()?,
+            reader.read_u64::<T>()?,
+            reader.read_u64::<T>()?,
+            reader.read_u64::<T>()?,
+        ];
+        Ok(Self {
+            endian,
+            header_size,
+            attr_size,
+            attr_section,
+            data_section,
+            flags,
+        })
+    }
 }
 
 pub const HEADER_TRACING_DATA: u32 = 1;
@@ -542,48 +576,90 @@ pub const HEADER_HYBRID_CPU_PMU_CAPS: u32 = 31;
 ///
 /// A PerfFileSection contains a pointer to another section of the perf file.
 /// The header contains three such pointers: for attributes, data and event types.
-#[derive(FromBytes, Debug, Clone, Copy)]
-#[repr(C)]
+#[derive(Debug, Clone, Copy)]
 pub struct PerfFileSection {
     /// offset from start of file
-    pub offset: U64,
+    pub offset: u64,
     /// size of the section
-    pub size: U64,
+    pub size: u64,
 }
 
-// type Result<T> = std::result::Result<T, ReadError>;
-
-impl PerfHeader {
-    pub fn parse(data: &[u8]) -> Result<&Self, ReadError> {
-        data.read_at::<PerfHeader>(0).ok_or(ReadError::PerfHeader)
+impl PerfFileSection {
+    pub fn parse<R: Read, T: ByteOrder>(reader: &mut R) -> Result<Self, Error> {
+        let offset = reader.read_u64::<T>()?;
+        let size = reader.read_u64::<T>()?;
+        Ok(Self { offset, size })
     }
 }
 
 /// `perf_event_header`
-#[derive(FromBytes, Debug, Clone, Copy)]
-#[repr(C)]
+#[derive(Debug, Clone, Copy)]
 pub struct PerfEventHeader {
-    pub type_: U32,
-    pub misc: U16,
-    pub size: U16,
+    pub type_: u32,
+    pub misc: u16,
+    pub size: u16,
+}
+
+impl PerfEventHeader {
+    pub const STRUCT_SIZE: usize = 4 + 2 + 2;
+
+    pub fn parse<R: Read, T: ByteOrder>(reader: &mut R) -> Result<Self, Error> {
+        let type_ = reader.read_u32::<T>()?;
+        let misc = reader.read_u16::<T>()?;
+        let size = reader.read_u16::<T>()?;
+        Ok(Self { type_, misc, size })
+    }
 }
 
 /// `build_id_event`
-#[derive(FromBytes, Debug, Clone, Copy)]
-#[repr(C)]
+///
+/// If PERF_RECORD_MISC_KERNEL is set in header.misc, then this
+/// is the build id for the vmlinux image or a kmod.
+#[derive(Debug, Clone)]
 pub struct BuildIdEvent {
-    /// If PERF_RECORD_MISC_KERNEL is set in header.misc, then this
-    /// is the build id for the vmlinux image or a kmod.
     pub header: PerfEventHeader,
-    pub pid: U32, // probably rather I32
-    /// If PERF_RECORD_MISC_BUILD_ID_SIZE is set in header.misc, then build_id[20]
-    /// is the length of the build id (<= 20), and build_id[21..24] are unused.
-    /// Otherwise, the length of the build ID is unknown and has to be detected by
-    /// removing trailing 4-byte groups of zero bytes. (Usually there will be
-    /// exactly one such group, because build IDs are usually 20 bytes long.)
-    pub build_id: [u8; 24],
-    // Followed by filename for the remaining bytes. The total size of the record
-    // is given by self.header.size.
+    pub pid: i32,
+    pub build_id: Vec<u8>,
+    pub file_path: Vec<u8>,
+}
+
+impl BuildIdEvent {
+    pub fn parse<R: Read, T: ByteOrder>(reader: &mut R) -> Result<Self, Error> {
+        let header = PerfEventHeader::parse::<R, T>(reader)?;
+        let pid = reader.read_i32::<T>()?;
+        let mut build_id_bytes = [0; 24];
+        reader.read_exact(&mut build_id_bytes)?;
+
+        // Followed by file path for the remaining bytes. The total size of the record
+        // is given by header.size.
+        const BYTES_BEFORE_PATH: usize = PerfEventHeader::STRUCT_SIZE + 4 + 24;
+        let path_len = usize::from(header.size).saturating_sub(BYTES_BEFORE_PATH);
+        let mut path_bytes = vec![0; path_len];
+        reader.read_exact(&mut path_bytes)?;
+
+        let path_len = memchr::memchr(0, &path_bytes).unwrap_or(path_len);
+        path_bytes.truncate(path_len);
+        let file_path = path_bytes;
+
+        // If PERF_RECORD_MISC_BUILD_ID_SIZE is set in header.misc, then build_id_bytes[20]
+        // is the length of the build id (<= 20), and build_id_bytes[21..24] are unused.
+        // Otherwise, the length of the build ID is unknown and has to be detected by
+        // removing trailing 4-byte groups of zero bytes. (Usually there will be
+        // exactly one such group, because build IDs are usually 20 bytes long.)
+        let build_id_len = if header.misc & PERF_RECORD_MISC_BUILD_ID_SIZE != 0 {
+            build_id_bytes[20].min(20)
+        } else {
+            detect_build_id_len(&build_id_bytes)
+        };
+        let build_id = build_id_bytes[..build_id_len as usize].to_owned();
+
+        Ok(Self {
+            header,
+            pid,
+            build_id,
+            file_path,
+        })
+    }
 }
 
 /// `nr_cpus`
@@ -627,6 +703,9 @@ pub enum Error {
 
     #[error("The string was not valid utf-8")]
     StringUtf8,
+
+    #[error("The specified size in the perf event header was smaller than the header itself")]
+    InvalidPerfEventSize,
 }
 
 /// This error indicates that the data slice was not large enough to

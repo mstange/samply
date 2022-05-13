@@ -42,7 +42,7 @@ fn main() {
     let file = File::open(path).unwrap();
     let mmap = unsafe { memmap2::MmapOptions::new().map(&file).unwrap() };
     let data = &mmap[..];
-    let file = PerfFile::parse(Cursor::new(data)).expect("Parsing failed");
+    let file = PerfFile::parse(&mut Cursor::new(data)).expect("Parsing failed");
 
     if let Some(hostname) = file.hostname().unwrap() {
         println!("Hostname: {}", hostname);
@@ -150,7 +150,8 @@ where
     let build_ids = file.build_ids().ok().unwrap_or_default();
     let little_endian = file.endian() == unaligned::Endianness::LittleEndian;
 
-    let mut events = file.events(data);
+    let mut cursor = Cursor::new(data);
+    let mut events = file.events(&mut cursor);
     let mut count = 0;
     while let Ok(Some(event)) = events.next() {
         count += 1;
