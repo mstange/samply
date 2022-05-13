@@ -154,11 +154,21 @@ bitflags! {
         /// send synchronous SIGTRAP on event
         const SIGTRAP = ATTR_FLAG_BIT_SIGTRAP;
     }
+
+    pub struct HwBreakpointType: u32 {
+        const EMPTY = 0;
+        const R = 1;
+        const W = 2;
+        const RW = Self::R.bits | Self::W.bits;
+        const X = 4;
+        const INVALID = Self::RW.bits | Self::X.bits;
+    }
 }
 
 /// Specifies how precise the instruction address should be.
 /// With `perf record -e` you can set the precision by appending /p to the
 /// event name, with varying numbers of `p`s.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum IpSkidConstraint {
     /// 0 - SAMPLE_IP can have arbitrary skid
     ArbitrarySkid,
@@ -181,6 +191,38 @@ impl AttrFlags {
             3 => IpSkidConstraint::ZeroSkidOrRandomization,
             _ => unreachable!(),
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ClockId {
+    Realtime,
+    Monotonic,
+    ProcessCputimeId,
+    ThreadCputimeId,
+    MonotonicRaw,
+    RealtimeCoarse,
+    MonotonicCoarse,
+    Boottime,
+    RealtimeAlarm,
+    BoottimeAlarm,
+}
+
+impl ClockId {
+    pub fn from_u32(clockid: u32) -> Option<Self> {
+        Some(match clockid {
+            0 => Self::Realtime,
+            1 => Self::Monotonic,
+            2 => Self::ProcessCputimeId,
+            3 => Self::ThreadCputimeId,
+            4 => Self::MonotonicRaw,
+            5 => Self::RealtimeCoarse,
+            6 => Self::MonotonicCoarse,
+            7 => Self::Boottime,
+            8 => Self::RealtimeAlarm,
+            9 => Self::BoottimeAlarm,
+            _ => return None,
+        })
     }
 }
 
@@ -230,17 +272,8 @@ pub struct PerfEventAttr {
     /// ```
     pub wakeup_events_or_watermark: u32,
 
-    /// breakpoint type, uses HW_BREAKPOINT_* constants
-    ///
-    /// ```c
-    /// HW_BREAKPOINT_EMPTY    = 0,
-    /// HW_BREAKPOINT_R        = 1,
-    /// HW_BREAKPOINT_W        = 2,
-    /// HW_BREAKPOINT_RW       = HW_BREAKPOINT_R | HW_BREAKPOINT_W,
-    /// HW_BREAKPOINT_X        = 4,
-    /// HW_BREAKPOINT_INVALID  = HW_BREAKPOINT_RW | HW_BREAKPOINT_X,
-    /// ```
-    pub bp_type: u32,
+    /// breakpoint type
+    pub bp_type: HwBreakpointType,
 
     /// Union discriminator is ???
     ///
@@ -276,18 +309,7 @@ pub struct PerfEventAttr {
     pub sample_stack_user: u32,
 
     /// The clock ID.
-    ///
-    /// CLOCK_REALTIME = 0
-    /// CLOCK_MONOTONIC = 1
-    /// CLOCK_PROCESS_CPUTIME_ID = 2
-    /// CLOCK_THREAD_CPUTIME_ID = 3
-    /// CLOCK_MONOTONIC_RAW = 4
-    /// CLOCK_REALTIME_COARSE = 5
-    /// CLOCK_MONOTONIC_COARSE = 6
-    /// CLOCK_BOOTTIME = 7
-    /// CLOCK_REALTIME_ALARM = 8
-    /// CLOCK_BOOTTIME_ALARM = 9
-    pub clockid: u32,
+    pub clockid: ClockId,
 
     /// Defines set of regs to dump for each sample
     /// state captured on:
@@ -402,13 +424,13 @@ impl PerfEventAttr {
             read_format,
             flags: AttrFlags::from_bits_truncate(flags),
             wakeup_events_or_watermark,
-            bp_type,
+            bp_type: HwBreakpointType::from_bits_truncate(bp_type),
             bp_addr_or_kprobe_func_or_uprobe_func_or_config1,
             bp_len_or_kprobe_addr_or_probe_offset_or_config2,
             branch_sample_format: BranchSampleFormat::from_bits_truncate(branch_sample_type),
             sample_regs_user,
             sample_stack_user,
-            clockid,
+            clockid: ClockId::from_u32(clockid).ok_or(io::ErrorKind::InvalidInput)?,
             sample_regs_intr,
             aux_watermark,
             sample_max_stack,
