@@ -305,7 +305,7 @@ impl<'a, R: Read> EventIter<'a, R> {
             self.regs_count,
             self.sample_regs_user,
             self.sample_id_all,
-        );
+        )?;
         self.offset += u64::from(header.size);
 
         Ok(event)

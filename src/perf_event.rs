@@ -260,7 +260,10 @@ impl<'a> fmt::Debug for RawEvent<'a> {
 
 impl<'a> RawEvent<'a> {
     #[allow(unused)]
-    fn skip_sample_id<T: ByteOrder, R: std::io::Read>(cur: &mut R, sample_type: u64) {
+    fn skip_sample_id<T: ByteOrder, R: std::io::Read>(
+        cur: &mut R,
+        sample_type: u64,
+    ) -> Result<(), std::io::Error> {
         // struct sample_id {
         //     { u32 pid, tid; }   /* if PERF_SAMPLE_TID set */
         //     { u64 time;     }   /* if PERF_SAMPLE_TIME set */
@@ -270,47 +273,49 @@ impl<'a> RawEvent<'a> {
         //     { u64 id;       }   /* if PERF_SAMPLE_IDENTIFIER set */
         // };
         let (pid, tid) = if sample_type & PERF_SAMPLE_TID != 0 {
-            let pid = cur.read_u32::<T>().unwrap();
-            let tid = cur.read_u32::<T>().unwrap();
+            let pid = cur.read_u32::<T>()?;
+            let tid = cur.read_u32::<T>()?;
             (Some(pid), Some(tid))
         } else {
             (None, None)
         };
 
         let timestamp = if sample_type & PERF_SAMPLE_TIME != 0 {
-            Some(cur.read_u64::<T>().unwrap())
+            Some(cur.read_u64::<T>()?)
         } else {
             None
         };
 
         if sample_type & PERF_SAMPLE_ID != 0 {
-            let _id = cur.read_u64::<T>().unwrap();
+            let _id = cur.read_u64::<T>()?;
         }
 
         if sample_type & PERF_SAMPLE_STREAM_ID != 0 {
-            let _stream_id = cur.read_u64::<T>().unwrap();
+            let _stream_id = cur.read_u64::<T>()?;
         }
 
         let cpu = if sample_type & PERF_SAMPLE_CPU != 0 {
-            let cpu = cur.read_u32::<T>().unwrap();
-            let _ = cur.read_u32::<T>().unwrap(); // Reserved field; is always zero.
+            let cpu = cur.read_u32::<T>()?;
+            let _ = cur.read_u32::<T>()?; // Reserved field; is always zero.
             Some(cpu)
         } else {
             None
         };
 
         let period = if sample_type & PERF_SAMPLE_PERIOD != 0 {
-            let period = cur.read_u64::<T>().unwrap();
+            let period = cur.read_u64::<T>()?;
             Some(period)
         } else {
             None
         };
 
         if sample_type & PERF_SAMPLE_IDENTIFIER != 0 {
-            let _identifier = cur.read_u64::<T>().unwrap();
+            let _identifier = cur.read_u64::<T>()?;
         }
 
         let _ = (pid, tid, cpu, period);
+
+        Ok(())
     }
 
     pub fn parse<T: ByteOrder>(
@@ -320,17 +325,17 @@ impl<'a> RawEvent<'a> {
         regs_count: usize,
         sample_regs_user: u64,
         _sample_id_all: bool,
-    ) -> Event<'a> {
-        match self.kind {
+    ) -> Result<Event<'a>, std::io::Error> {
+        let event = match self.kind {
             PERF_RECORD_EXIT | PERF_RECORD_FORK => {
                 let raw_data = self.data.as_slice();
                 let mut cur = Cursor::new(&raw_data);
 
-                let pid = cur.read_i32::<T>().unwrap();
-                let ppid = cur.read_i32::<T>().unwrap();
-                let tid = cur.read_i32::<T>().unwrap();
-                let ptid = cur.read_i32::<T>().unwrap();
-                let timestamp = cur.read_u64::<T>().unwrap();
+                let pid = cur.read_i32::<T>()?;
+                let ppid = cur.read_i32::<T>()?;
+                let tid = cur.read_i32::<T>()?;
+                let ptid = cur.read_i32::<T>()?;
+                let timestamp = cur.read_u64::<T>()?;
                 // if sample_id_all {
                 //     Self::skip_sample_id::<T, _>(&mut cur, sample_type);
                 // }
@@ -355,49 +360,49 @@ impl<'a> RawEvent<'a> {
                 let mut cur = Cursor::new(&raw_data);
 
                 if sample_type & PERF_SAMPLE_IDENTIFIER != 0 {
-                    let _identifier = cur.read_u64::<T>().unwrap();
+                    let _identifier = cur.read_u64::<T>()?;
                 }
 
                 if sample_type & PERF_SAMPLE_IP != 0 {
-                    let _ip = cur.read_u64::<T>().unwrap();
+                    let _ip = cur.read_u64::<T>()?;
                 }
 
                 let (pid, tid) = if sample_type & PERF_SAMPLE_TID != 0 {
-                    let pid = cur.read_i32::<T>().unwrap();
-                    let tid = cur.read_i32::<T>().unwrap();
+                    let pid = cur.read_i32::<T>()?;
+                    let tid = cur.read_i32::<T>()?;
                     (Some(pid), Some(tid))
                 } else {
                     (None, None)
                 };
 
                 let timestamp = if sample_type & PERF_SAMPLE_TIME != 0 {
-                    Some(cur.read_u64::<T>().unwrap())
+                    Some(cur.read_u64::<T>()?)
                 } else {
                     None
                 };
 
                 if sample_type & PERF_SAMPLE_ADDR != 0 {
-                    let _addr = cur.read_u64::<T>().unwrap();
+                    let _addr = cur.read_u64::<T>()?;
                 }
 
                 if sample_type & PERF_SAMPLE_ID != 0 {
-                    let _id = cur.read_u64::<T>().unwrap();
+                    let _id = cur.read_u64::<T>()?;
                 }
 
                 if sample_type & PERF_SAMPLE_STREAM_ID != 0 {
-                    let _stream_id = cur.read_u64::<T>().unwrap();
+                    let _stream_id = cur.read_u64::<T>()?;
                 }
 
                 let cpu = if sample_type & PERF_SAMPLE_CPU != 0 {
-                    let cpu = cur.read_u32::<T>().unwrap();
-                    let _ = cur.read_u32::<T>().unwrap(); // Reserved field; is always zero.
+                    let cpu = cur.read_u32::<T>()?;
+                    let _ = cur.read_u32::<T>()?; // Reserved field; is always zero.
                     Some(cpu)
                 } else {
                     None
                 };
 
                 let period = if sample_type & PERF_SAMPLE_PERIOD != 0 {
-                    let period = cur.read_u64::<T>().unwrap();
+                    let period = cur.read_u64::<T>()?;
                     Some(period)
                 } else {
                     None
@@ -405,38 +410,38 @@ impl<'a> RawEvent<'a> {
 
                 if sample_type & PERF_SAMPLE_READ != 0 {
                     if read_format & PERF_FORMAT_GROUP == 0 {
-                        let _value = cur.read_u64::<T>().unwrap();
+                        let _value = cur.read_u64::<T>()?;
                         if read_format & PERF_FORMAT_TOTAL_TIME_ENABLED != 0 {
-                            let _time_enabled = cur.read_u64::<T>().unwrap();
+                            let _time_enabled = cur.read_u64::<T>()?;
                         }
                         if read_format & PERF_FORMAT_TOTAL_TIME_RUNNING != 0 {
-                            let _time_running = cur.read_u64::<T>().unwrap();
+                            let _time_running = cur.read_u64::<T>()?;
                         }
                         if read_format & PERF_FORMAT_ID != 0 {
-                            let _id = cur.read_u64::<T>().unwrap();
+                            let _id = cur.read_u64::<T>()?;
                         }
                     } else {
-                        let nr = cur.read_u64::<T>().unwrap();
+                        let nr = cur.read_u64::<T>()?;
                         if read_format & PERF_FORMAT_TOTAL_TIME_ENABLED != 0 {
-                            let _time_enabled = cur.read_u64::<T>().unwrap();
+                            let _time_enabled = cur.read_u64::<T>()?;
                         }
                         if read_format & PERF_FORMAT_TOTAL_TIME_RUNNING != 0 {
-                            let _time_running = cur.read_u64::<T>().unwrap();
+                            let _time_running = cur.read_u64::<T>()?;
                         }
                         for _ in 0..nr {
-                            let _value = cur.read_u64::<T>().unwrap();
+                            let _value = cur.read_u64::<T>()?;
                             if read_format & PERF_FORMAT_ID != 0 {
-                                let _id = cur.read_u64::<T>().unwrap();
+                                let _id = cur.read_u64::<T>()?;
                             }
                         }
                     }
                 }
 
                 let callchain = if sample_type & PERF_SAMPLE_CALLCHAIN != 0 {
-                    let callchain_length = cur.read_u64::<T>().unwrap();
+                    let callchain_length = cur.read_u64::<T>()?;
                     let mut callchain = Vec::with_capacity(callchain_length as usize);
                     for _ in 0..callchain_length {
-                        let addr = cur.read_u64::<T>().unwrap();
+                        let addr = cur.read_u64::<T>()?;
                         callchain.push(addr);
                     }
                     Some(callchain)
@@ -445,24 +450,24 @@ impl<'a> RawEvent<'a> {
                 };
 
                 if sample_type & PERF_SAMPLE_RAW != 0 {
-                    let size = cur.read_u32::<T>().unwrap();
+                    let size = cur.read_u32::<T>()?;
                     cur.set_position(cur.position() + size as u64);
                 }
 
                 if sample_type & PERF_SAMPLE_BRANCH_STACK != 0 {
-                    let nr = cur.read_u64::<T>().unwrap();
+                    let nr = cur.read_u64::<T>()?;
                     if sample_type & PERF_SAMPLE_BRANCH_HW_INDEX != 0 {
-                        let _hw_idx = cur.read_u64::<T>().unwrap();
+                        let _hw_idx = cur.read_u64::<T>()?;
                     }
                     for _ in 0..nr {
-                        let _from = cur.read_u64::<T>().unwrap();
-                        let _to = cur.read_u64::<T>().unwrap();
-                        let _flags = cur.read_u64::<T>().unwrap();
+                        let _from = cur.read_u64::<T>()?;
+                        let _to = cur.read_u64::<T>()?;
+                        let _flags = cur.read_u64::<T>()?;
                     }
                 }
 
                 let regs = if sample_type & PERF_SAMPLE_REGS_USER != 0 {
-                    let regs_abi = cur.read_u64::<T>().unwrap();
+                    let regs_abi = cur.read_u64::<T>()?;
                     if regs_abi == 0 {
                         None
                     } else {
@@ -482,13 +487,13 @@ impl<'a> RawEvent<'a> {
                 let stack;
                 let dynamic_stack_size;
                 if sample_type & PERF_SAMPLE_STACK_USER != 0 {
-                    let stack_size = cur.read_u64::<T>().unwrap();
+                    let stack_size = cur.read_u64::<T>()?;
                     let stack_end_pos = cur.position() + stack_size;
                     let stack_range = cur.position() as usize..stack_end_pos as usize;
                     cur.set_position(stack_end_pos);
 
                     dynamic_stack_size = if stack_size != 0 {
-                        cur.read_u64::<T>().unwrap()
+                        cur.read_u64::<T>()?
                     } else {
                         0
                     };
@@ -500,19 +505,19 @@ impl<'a> RawEvent<'a> {
                 }
 
                 if sample_type & PERF_SAMPLE_WEIGHT != 0 {
-                    let _weight = cur.read_u64::<T>().unwrap();
+                    let _weight = cur.read_u64::<T>()?;
                 }
 
                 if sample_type & PERF_SAMPLE_DATA_SRC != 0 {
-                    let _data_src = cur.read_u64::<T>().unwrap();
+                    let _data_src = cur.read_u64::<T>()?;
                 }
 
                 if sample_type & PERF_SAMPLE_TRANSACTION != 0 {
-                    let _transaction = cur.read_u64::<T>().unwrap();
+                    let _transaction = cur.read_u64::<T>()?;
                 }
 
                 if sample_type & PERF_SAMPLE_REGS_INTR != 0 {
-                    let regs_abi = cur.read_u64::<T>().unwrap();
+                    let regs_abi = cur.read_u64::<T>()?;
                     if regs_abi != 0 {
                         let regs_end_pos =
                             cur.position() + regs_count as u64 * std::mem::size_of::<u64>() as u64;
@@ -521,20 +526,20 @@ impl<'a> RawEvent<'a> {
                 }
 
                 if sample_type & PERF_SAMPLE_PHYS_ADDR != 0 {
-                    let _phys_addr = cur.read_u64::<T>().unwrap();
+                    let _phys_addr = cur.read_u64::<T>()?;
                 }
 
                 if sample_type & PERF_SAMPLE_AUX != 0 {
-                    let size = cur.read_u64::<T>().unwrap();
+                    let size = cur.read_u64::<T>()?;
                     cur.set_position(cur.position() + size);
                 }
 
                 if sample_type & PERF_SAMPLE_DATA_PAGE_SIZE != 0 {
-                    let _data_page_size = cur.read_u64::<T>().unwrap();
+                    let _data_page_size = cur.read_u64::<T>()?;
                 }
 
                 if sample_type & PERF_SAMPLE_CODE_PAGE_SIZE != 0 {
-                    let _code_page_size = cur.read_u64::<T>().unwrap();
+                    let _code_page_size = cur.read_u64::<T>()?;
                 }
 
                 Event::Sample(SampleEvent {
@@ -554,8 +559,8 @@ impl<'a> RawEvent<'a> {
                 let raw_data = self.data.as_slice();
                 let mut cur = Cursor::new(&raw_data);
 
-                let pid = cur.read_i32::<T>().unwrap();
-                let tid = cur.read_i32::<T>().unwrap();
+                let pid = cur.read_i32::<T>()?;
+                let tid = cur.read_i32::<T>()?;
                 let name = &raw_data[cur.position() as usize..];
                 let name = &name[0..name
                     .iter()
@@ -588,11 +593,11 @@ impl<'a> RawEvent<'a> {
                 //   struct sample_id sample_id;
                 // };
 
-                let pid = cur.read_i32::<T>().unwrap();
-                let tid = cur.read_i32::<T>().unwrap();
-                let address = cur.read_u64::<T>().unwrap();
-                let length = cur.read_u64::<T>().unwrap();
-                let page_offset = cur.read_u64::<T>().unwrap();
+                let pid = cur.read_i32::<T>()?;
+                let tid = cur.read_i32::<T>()?;
+                let address = cur.read_u64::<T>()?;
+                let length = cur.read_u64::<T>()?;
+                let page_offset = cur.read_u64::<T>()?;
                 let name = &raw_data[cur.position() as usize..];
                 let name = &name[0..name
                     .iter()
@@ -616,25 +621,25 @@ impl<'a> RawEvent<'a> {
                 let raw_data = self.data.as_slice();
                 let mut cur = Cursor::new(&raw_data);
 
-                let pid = cur.read_i32::<T>().unwrap();
-                let tid = cur.read_i32::<T>().unwrap();
-                let address = cur.read_u64::<T>().unwrap();
-                let length = cur.read_u64::<T>().unwrap();
-                let page_offset = cur.read_u64::<T>().unwrap();
+                let pid = cur.read_i32::<T>()?;
+                let tid = cur.read_i32::<T>()?;
+                let address = cur.read_u64::<T>()?;
+                let length = cur.read_u64::<T>()?;
+                let page_offset = cur.read_u64::<T>()?;
                 let file_id = if self.misc & PERF_RECORD_MISC_MMAP_BUILD_ID != 0 {
-                    let build_id_len = cur.read_u8().unwrap();
+                    let build_id_len = cur.read_u8()?;
                     assert!(build_id_len <= 20);
-                    let _ = cur.read_u8().unwrap();
-                    let _ = cur.read_u16::<T>().unwrap();
+                    let _ = cur.read_u8()?;
+                    let _ = cur.read_u16::<T>()?;
                     let build_id =
                         raw_data[cur.position() as usize..][..build_id_len as usize].to_owned();
                     cur.set_position(cur.position() + 20);
                     Mmap2FileId::BuildId(build_id)
                 } else {
-                    let major = cur.read_u32::<T>().unwrap();
-                    let minor = cur.read_u32::<T>().unwrap();
-                    let inode = cur.read_u64::<T>().unwrap();
-                    let inode_generation = cur.read_u64::<T>().unwrap();
+                    let major = cur.read_u32::<T>()?;
+                    let minor = cur.read_u32::<T>()?;
+                    let inode = cur.read_u64::<T>()?;
+                    let inode_generation = cur.read_u64::<T>()?;
                     Mmap2FileId::InodeAndVersion(Mmap2InodeAndVersion {
                         major,
                         minor,
@@ -642,8 +647,8 @@ impl<'a> RawEvent<'a> {
                         inode_generation,
                     })
                 };
-                let protection = cur.read_u32::<T>().unwrap();
-                let flags = cur.read_u32::<T>().unwrap();
+                let protection = cur.read_u32::<T>()?;
+                let flags = cur.read_u32::<T>()?;
                 let name = &raw_data[cur.position() as usize..];
                 let name = &name[0..name
                     .iter()
@@ -668,8 +673,8 @@ impl<'a> RawEvent<'a> {
                 let raw_data = self.data.as_slice();
                 let mut cur = Cursor::new(&raw_data);
 
-                let id = cur.read_u64::<T>().unwrap();
-                let count = cur.read_u64::<T>().unwrap();
+                let id = cur.read_u64::<T>()?;
+                let count = cur.read_u64::<T>()?;
                 Event::Lost(LostEvent { id, count })
             }
 
@@ -677,8 +682,8 @@ impl<'a> RawEvent<'a> {
                 let raw_data = self.data.as_slice();
                 let mut cur = Cursor::new(&raw_data);
 
-                let timestamp = cur.read_u64::<T>().unwrap();
-                let id = cur.read_u64::<T>().unwrap();
+                let timestamp = cur.read_u64::<T>()?;
+                let id = cur.read_u64::<T>()?;
                 let event = ThrottleEvent { id, timestamp };
                 if self.kind == PERF_RECORD_THROTTLE {
                     Event::Throttle(event)
@@ -704,6 +709,7 @@ impl<'a> RawEvent<'a> {
             }
 
             _ => Event::Raw(self),
-        }
+        };
+        Ok(event)
     }
 }
