@@ -155,11 +155,8 @@ impl PerfEventAttr {
         reader: &mut R,
         size: Option<u32>,
     ) -> Result<Self, std::io::Error> {
-        // Major type: hardware/software/tracepoint/etc.
         let type_ = reader.read_u32::<T>()?;
-        // Size of the attr structure, for fwd/bwd compat.
         let self_described_size = reader.read_u32::<T>()?;
-        // Type-specific configuration information.
         let config = reader.read_u64::<T>()?;
 
         let size = size.unwrap_or(self_described_size);
@@ -167,108 +164,29 @@ impl PerfEventAttr {
             return Err(io::ErrorKind::InvalidInput.into());
         }
 
-        // If ATTR_FLAG_BIT_FREQ is set in `flags`, this is the sample frequency,
-        // otherwise it is the sample period.
-        //
-        // ```c
-        // union {
-        //     /// Period of sampling
-        //     __u64 sample_period;
-        //     /// Frequency of sampling
-        //     __u64 sample_freq;
-        // };
-        // ```
         let sampling_period_or_frequency = reader.read_u64::<T>()?;
-
-        // Specifies values included in sample, see `perf_event_sample_format`.
         let sample_type = reader.read_u64::<T>()?;
-
-        // Specifies the structure values returned by read() on a perf event fd,
-        // see `perf_event_read_format`.
         let read_format = reader.read_u64::<T>()?;
-
-        // Bitset of ATTR_FLAG_BIT* flags
         let flags = reader.read_u64::<T>()?;
-
-        // If ATTR_FLAG_BIT_WATERMARK is set in `flags`, this is the watermark,
-        // otherwise it is the event count after which to wake up.
-        //
-        // ```c
-        // union {
-        //     /// wakeup every n events
-        //     __u32 wakeup_events;
-        //     /// bytes before wakeup
-        //     __u32 wakeup_watermark;
-        // };
-        // ```
         let wakeup_events_or_watermark = reader.read_u32::<T>()?;
-
-        // breakpoint type, uses HW_BREAKPOINT_* constants
-        //
-        // ```c
-        // HW_BREAKPOINT_EMPTY    = 0,
-        // HW_BREAKPOINT_R        = 1,
-        // HW_BREAKPOINT_W        = 2,
-        // HW_BREAKPOINT_RW       = HW_BREAKPOINT_R | HW_BREAKPOINT_W,
-        // HW_BREAKPOINT_X        = 4,
-        // HW_BREAKPOINT_INVALID  = HW_BREAKPOINT_RW | HW_BREAKPOINT_X,
-        // ```
         let bp_type = reader.read_u32::<T>()?;
-
-        // Union discriminator is ???
-        //
-        // ```c
-        // union {
-        //     __u64 bp_addr;
-        //     __u64 kprobe_func; /* for perf_kprobe */
-        //     __u64 uprobe_path; /* for perf_uprobe */
-        //     __u64 config1; /* extension of config */
-        // };
-        // ```
         let bp_addr_or_kprobe_func_or_uprobe_func_or_config1 = reader.read_u64::<T>()?;
 
         let bp_len_or_kprobe_addr_or_probe_offset_or_config2 = if size >= PERF_ATTR_SIZE_VER1 {
-            // Union discriminator is ???
-            //
-            // ```c
-            // union {
-            //     __u64 bp_len; /* breakpoint length, uses HW_BREAKPOINT_LEN_* constants */
-            //     __u64 kprobe_addr; /* when kprobe_func == NULL */
-            //     __u64 probe_offset; /* for perf_[k,u]probe */
-            //     __u64 config2; /* extension of config1 */
-            // };
             reader.read_u64::<T>()?
         } else {
             0
         };
 
         let branch_sample_type = if size >= PERF_ATTR_SIZE_VER2 {
-            // Uses enum `perf_branch_sample_type`
             reader.read_u64::<T>()?
         } else {
             0
         };
 
         let (sample_regs_user, sample_stack_user, clockid) = if size >= PERF_ATTR_SIZE_VER3 {
-            // Defines set of user regs to dump on samples.
-            // See asm/perf_regs.h for details.
             let sample_regs_user = reader.read_u64::<T>()?;
-
-            // Defines size of the user stack to dump on samples.
             let sample_stack_user = reader.read_u32::<T>()?;
-
-            // The clock ID.
-            //
-            // CLOCK_REALTIME = 0
-            // CLOCK_MONOTONIC = 1
-            // CLOCK_PROCESS_CPUTIME_ID = 2
-            // CLOCK_THREAD_CPUTIME_ID = 3
-            // CLOCK_MONOTONIC_RAW = 4
-            // CLOCK_REALTIME_COARSE = 5
-            // CLOCK_MONOTONIC_COARSE = 6
-            // CLOCK_BOOTTIME = 7
-            // CLOCK_REALTIME_ALARM = 8
-            // CLOCK_BOOTTIME_ALARM = 9
             let clockid = reader.read_u32::<T>()?;
 
             (sample_regs_user, sample_stack_user, clockid)
@@ -277,48 +195,29 @@ impl PerfEventAttr {
         };
 
         let sample_regs_intr = if size >= PERF_ATTR_SIZE_VER4 {
-            // Defines set of regs to dump for each sample
-            // state captured on:
-            //  - precise = 0: PMU interrupt
-            //  - precise > 0: sampled instruction
-            //
-            // See asm/perf_regs.h for details.
             reader.read_u64::<T>()?
         } else {
             0
         };
 
         let (aux_watermark, sample_max_stack) = if size >= PERF_ATTR_SIZE_VER5 {
-            // Wakeup watermark for AUX area
             let aux_watermark = reader.read_u32::<T>()?;
-
-            // When collecting stacks, this is the maximum number of stack frames
-            // (user + kernel) to collect.
             let sample_max_stack = reader.read_u16::<T>()?;
-
             let __reserved_2 = reader.read_u16::<T>()?;
-
             (aux_watermark, sample_max_stack)
         } else {
             (0, 0)
         };
 
         let aux_sample_size = if size >= PERF_ATTR_SIZE_VER6 {
-            // When sampling AUX events, this is the size of the AUX sample.
             let aux_sample_size = reader.read_u32::<T>()?;
-
             let __reserved_3 = reader.read_u32::<T>()?;
-
             aux_sample_size
         } else {
             0
         };
 
         let sig_data = if size >= PERF_ATTR_SIZE_VER7 {
-            // User provided data if sigtrap=1, passed back to user via
-            // siginfo_t::si_perf_data, e.g. to permit user to identify the event.
-            // Note, siginfo_t::si_perf_data is long-sized, and sig_data will be
-            // truncated accordingly on 32 bit architectures.
             reader.read_u64::<T>()?
         } else {
             0
