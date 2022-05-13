@@ -1,4 +1,6 @@
 use crate::perf_event_raw::{
+    PERF_ATTR_SIZE_VER0, PERF_ATTR_SIZE_VER1, PERF_ATTR_SIZE_VER2, PERF_ATTR_SIZE_VER3,
+    PERF_ATTR_SIZE_VER4, PERF_ATTR_SIZE_VER5, PERF_ATTR_SIZE_VER6, PERF_ATTR_SIZE_VER7,
     PERF_FORMAT_GROUP, PERF_FORMAT_ID, PERF_FORMAT_TOTAL_TIME_ENABLED,
     PERF_FORMAT_TOTAL_TIME_RUNNING, PERF_RECORD_COMM, PERF_RECORD_EXIT, PERF_RECORD_FORK,
     PERF_RECORD_LOST, PERF_RECORD_MISC_COMM_EXEC, PERF_RECORD_MISC_CPUMODE_MASK,
@@ -7,17 +9,329 @@ use crate::perf_event_raw::{
     PERF_RECORD_MISC_MMAP_DATA, PERF_RECORD_MISC_SWITCH_OUT, PERF_RECORD_MISC_SWITCH_OUT_PREEMPT,
     PERF_RECORD_MISC_USER, PERF_RECORD_MMAP, PERF_RECORD_MMAP2, PERF_RECORD_SAMPLE,
     PERF_RECORD_SWITCH, PERF_RECORD_THROTTLE, PERF_RECORD_UNTHROTTLE, PERF_SAMPLE_ADDR,
-    PERF_SAMPLE_AUX, PERF_SAMPLE_BRANCH_HW_INDEX, PERF_SAMPLE_BRANCH_STACK, PERF_SAMPLE_CALLCHAIN,
-    PERF_SAMPLE_CODE_PAGE_SIZE, PERF_SAMPLE_CPU, PERF_SAMPLE_DATA_PAGE_SIZE, PERF_SAMPLE_DATA_SRC,
-    PERF_SAMPLE_ID, PERF_SAMPLE_IDENTIFIER, PERF_SAMPLE_IP, PERF_SAMPLE_PERIOD,
-    PERF_SAMPLE_PHYS_ADDR, PERF_SAMPLE_RAW, PERF_SAMPLE_READ, PERF_SAMPLE_REGS_INTR,
-    PERF_SAMPLE_REGS_USER, PERF_SAMPLE_STACK_USER, PERF_SAMPLE_STREAM_ID, PERF_SAMPLE_TID,
-    PERF_SAMPLE_TIME, PERF_SAMPLE_TRANSACTION, PERF_SAMPLE_WEIGHT,
+    PERF_SAMPLE_AUX, PERF_SAMPLE_BRANCH_ABORT_TX, PERF_SAMPLE_BRANCH_ANY,
+    PERF_SAMPLE_BRANCH_ANY_CALL, PERF_SAMPLE_BRANCH_ANY_RETURN, PERF_SAMPLE_BRANCH_CALL,
+    PERF_SAMPLE_BRANCH_CALL_STACK, PERF_SAMPLE_BRANCH_COND, PERF_SAMPLE_BRANCH_HV,
+    PERF_SAMPLE_BRANCH_HW_INDEX, PERF_SAMPLE_BRANCH_IND_CALL, PERF_SAMPLE_BRANCH_IND_JUMP,
+    PERF_SAMPLE_BRANCH_IN_TX, PERF_SAMPLE_BRANCH_KERNEL, PERF_SAMPLE_BRANCH_NO_CYCLES,
+    PERF_SAMPLE_BRANCH_NO_FLAGS, PERF_SAMPLE_BRANCH_NO_TX, PERF_SAMPLE_BRANCH_STACK,
+    PERF_SAMPLE_BRANCH_TYPE_SAVE, PERF_SAMPLE_BRANCH_USER, PERF_SAMPLE_CALLCHAIN,
+    PERF_SAMPLE_CGROUP, PERF_SAMPLE_CODE_PAGE_SIZE, PERF_SAMPLE_CPU, PERF_SAMPLE_DATA_PAGE_SIZE,
+    PERF_SAMPLE_DATA_SRC, PERF_SAMPLE_ID, PERF_SAMPLE_IDENTIFIER, PERF_SAMPLE_IP,
+    PERF_SAMPLE_PERIOD, PERF_SAMPLE_PHYS_ADDR, PERF_SAMPLE_RAW, PERF_SAMPLE_READ,
+    PERF_SAMPLE_REGS_INTR, PERF_SAMPLE_REGS_USER, PERF_SAMPLE_STACK_USER, PERF_SAMPLE_STREAM_ID,
+    PERF_SAMPLE_TID, PERF_SAMPLE_TIME, PERF_SAMPLE_TRANSACTION, PERF_SAMPLE_WEIGHT,
+    PERF_SAMPLE_WEIGHT_STRUCT,
 };
 use crate::raw_data::{RawData, RawRegs};
 use crate::utils::{HexSlice, HexValue};
+use bitflags::bitflags;
 use byteorder::{ByteOrder, ReadBytesExt};
-use std::{fmt, io::Cursor};
+use std::io::{Cursor, Read};
+use std::{fmt, io};
+
+bitflags! {
+    pub struct SampleFormat: u64 {
+        const IP = PERF_SAMPLE_IP;
+        const TID = PERF_SAMPLE_TID;
+        const TIME = PERF_SAMPLE_TIME;
+        const ADDR = PERF_SAMPLE_ADDR;
+        const READ = PERF_SAMPLE_READ;
+        const CALLCHAIN = PERF_SAMPLE_CALLCHAIN;
+        const ID = PERF_SAMPLE_ID;
+        const CPU = PERF_SAMPLE_CPU;
+        const PERIOD = PERF_SAMPLE_PERIOD;
+        const STREAM_ID = PERF_SAMPLE_STREAM_ID;
+        const RAW = PERF_SAMPLE_RAW;
+        const BRANCH_STACK = PERF_SAMPLE_BRANCH_STACK;
+        const REGS_USER = PERF_SAMPLE_REGS_USER;
+        const STACK_USER = PERF_SAMPLE_STACK_USER;
+        const WEIGHT = PERF_SAMPLE_WEIGHT;
+        const DATA_SRC = PERF_SAMPLE_DATA_SRC;
+        const IDENTIFIER = PERF_SAMPLE_IDENTIFIER;
+        const TRANSACTION = PERF_SAMPLE_TRANSACTION;
+        const REGS_INTR = PERF_SAMPLE_REGS_INTR;
+        const PHYS_ADDR = PERF_SAMPLE_PHYS_ADDR;
+        const AUX = PERF_SAMPLE_AUX;
+        const CGROUP = PERF_SAMPLE_CGROUP;
+        const DATA_PAGE_SIZE = PERF_SAMPLE_DATA_PAGE_SIZE;
+        const CODE_PAGE_SIZE = PERF_SAMPLE_CODE_PAGE_SIZE;
+        const WEIGHT_STRUCT = PERF_SAMPLE_WEIGHT_STRUCT;
+    }
+
+    pub struct BranchSampleFormat: u64 {
+        /// user branches
+        const USER = PERF_SAMPLE_BRANCH_USER;
+        /// kernel branches
+        const KERNEL = PERF_SAMPLE_BRANCH_KERNEL;
+        /// hypervisor branches
+        const HV = PERF_SAMPLE_BRANCH_HV;
+        /// any branch types
+        const ANY = PERF_SAMPLE_BRANCH_ANY;
+        /// any call branch
+        const ANY_CALL = PERF_SAMPLE_BRANCH_ANY_CALL;
+        /// any return branch
+        const ANY_RETURN = PERF_SAMPLE_BRANCH_ANY_RETURN;
+        /// indirect calls
+        const IND_CALL = PERF_SAMPLE_BRANCH_IND_CALL;
+        /// transaction aborts
+        const ABORT_TX = PERF_SAMPLE_BRANCH_ABORT_TX;
+        /// in transaction
+        const IN_TX = PERF_SAMPLE_BRANCH_IN_TX;
+        /// not in transaction
+        const NO_TX = PERF_SAMPLE_BRANCH_NO_TX;
+        /// conditional branches
+        const COND = PERF_SAMPLE_BRANCH_COND;
+        /// call/ret stack
+        const CALL_STACK = PERF_SAMPLE_BRANCH_CALL_STACK;
+        /// indirect jumps
+        const IND_JUMP = PERF_SAMPLE_BRANCH_IND_JUMP;
+        /// direct call
+        const CALL = PERF_SAMPLE_BRANCH_CALL;
+        /// no flags
+        const NO_FLAGS = PERF_SAMPLE_BRANCH_NO_FLAGS;
+        /// no cycles
+        const NO_CYCLES = PERF_SAMPLE_BRANCH_NO_CYCLES;
+        /// save branch type
+        const TYPE_SAVE = PERF_SAMPLE_BRANCH_TYPE_SAVE;
+        /// save low level index of raw branch records
+        const HW_INDEX = PERF_SAMPLE_BRANCH_HW_INDEX;
+    }
+}
+
+/// `perf_event_attr`
+#[derive(Debug, Clone, Copy)]
+pub struct PerfEventAttr {
+    /// Major type: hardware/software/tracepoint/etc.
+    pub type_: u32,
+    /// Size of the attr structure, for fwd/bwd compat.
+    pub size: u32,
+    /// Type-specific configuration information.
+    pub config: u64,
+
+    /// If ATTR_FLAG_BIT_FREQ is set in `flags`, this is the sample frequency,
+    /// otherwise it is the sample period.
+    ///
+    /// ```c
+    /// union {
+    ///     /// Period of sampling
+    ///     __u64 sample_period;
+    ///     /// Frequency of sampling
+    ///     __u64 sample_freq;
+    /// };
+    /// ```
+    pub sampling_period_or_frequency: u64,
+
+    /// Specifies values included in sample. (original name `sample_type`)
+    pub sample_format: SampleFormat,
+
+    /// Specifies the structure values returned by read() on a perf event fd,
+    /// see `perf_event_read_format`.
+    pub read_format: u64,
+
+    /// Bitset of ATTR_FLAG_BIT* flags
+    pub flags: u64,
+
+    /// If ATTR_FLAG_BIT_WATERMARK is set in `flags`, this is the watermark,
+    /// otherwise it is the event count after which to wake up.
+    ///
+    /// ```c
+    /// union {
+    ///     /// wakeup every n events
+    ///     __u32 wakeup_events;
+    ///     /// bytes before wakeup
+    ///     __u32 wakeup_watermark;
+    /// };
+    /// ```
+    pub wakeup_events_or_watermark: u32,
+
+    /// breakpoint type, uses HW_BREAKPOINT_* constants
+    ///
+    /// ```c
+    /// HW_BREAKPOINT_EMPTY    = 0,
+    /// HW_BREAKPOINT_R        = 1,
+    /// HW_BREAKPOINT_W        = 2,
+    /// HW_BREAKPOINT_RW       = HW_BREAKPOINT_R | HW_BREAKPOINT_W,
+    /// HW_BREAKPOINT_X        = 4,
+    /// HW_BREAKPOINT_INVALID  = HW_BREAKPOINT_RW | HW_BREAKPOINT_X,
+    /// ```
+    pub bp_type: u32,
+
+    /// Union discriminator is ???
+    ///
+    /// ```c
+    /// union {
+    ///     __u64 bp_addr;
+    ///     __u64 kprobe_func; /* for perf_kprobe */
+    ///     __u64 uprobe_path; /* for perf_uprobe */
+    ///     __u64 config1; /* extension of config */
+    /// };
+    /// ```
+    pub bp_addr_or_kprobe_func_or_uprobe_func_or_config1: u64,
+
+    /// Union discriminator is ???
+    ///
+    /// ```c
+    /// union {
+    ///     __u64 bp_len; /* breakpoint length, uses HW_BREAKPOINT_LEN_* constants */
+    ///     __u64 kprobe_addr; /* when kprobe_func == NULL */
+    ///     __u64 probe_offset; /* for perf_[k,u]probe */
+    ///     __u64 config2; /* extension of config1 */
+    /// };
+    pub bp_len_or_kprobe_addr_or_probe_offset_or_config2: u64,
+
+    /// Branch-sample specific flags.
+    pub branch_sample_format: BranchSampleFormat,
+
+    /// Defines set of user regs to dump on samples.
+    /// See asm/perf_regs.h for details.
+    pub sample_regs_user: u64,
+
+    /// Defines size of the user stack to dump on samples.
+    pub sample_stack_user: u32,
+
+    /// The clock ID.
+    ///
+    /// CLOCK_REALTIME = 0
+    /// CLOCK_MONOTONIC = 1
+    /// CLOCK_PROCESS_CPUTIME_ID = 2
+    /// CLOCK_THREAD_CPUTIME_ID = 3
+    /// CLOCK_MONOTONIC_RAW = 4
+    /// CLOCK_REALTIME_COARSE = 5
+    /// CLOCK_MONOTONIC_COARSE = 6
+    /// CLOCK_BOOTTIME = 7
+    /// CLOCK_REALTIME_ALARM = 8
+    /// CLOCK_BOOTTIME_ALARM = 9
+    pub clockid: u32,
+
+    /// Defines set of regs to dump for each sample
+    /// state captured on:
+    ///  - precise = 0: PMU interrupt
+    ///  - precise > 0: sampled instruction
+    ///
+    /// See asm/perf_regs.h for details.
+    pub sample_regs_intr: u64,
+
+    /// Wakeup watermark for AUX area
+    pub aux_watermark: u32,
+
+    /// When collecting stacks, this is the maximum number of stack frames
+    /// (user + kernel) to collect.
+    pub sample_max_stack: u16,
+
+    /// When sampling AUX events, this is the size of the AUX sample.
+    pub aux_sample_size: u32,
+
+    /// User provided data if sigtrap=1, passed back to user via
+    /// siginfo_t::si_perf_data, e.g. to permit user to identify the event.
+    /// Note, siginfo_t::si_perf_data is long-sized, and sig_data will be
+    /// truncated accordingly on 32 bit architectures.
+    pub sig_data: u64,
+}
+
+impl PerfEventAttr {
+    pub fn parse<R: Read, T: ByteOrder>(
+        reader: &mut R,
+        size: Option<u32>,
+    ) -> Result<Self, std::io::Error> {
+        let type_ = reader.read_u32::<T>()?;
+        let self_described_size = reader.read_u32::<T>()?;
+        let config = reader.read_u64::<T>()?;
+
+        let size = size.unwrap_or(self_described_size);
+        if size < PERF_ATTR_SIZE_VER0 {
+            return Err(io::ErrorKind::InvalidInput.into());
+        }
+
+        let sampling_period_or_frequency = reader.read_u64::<T>()?;
+        let sample_type = reader.read_u64::<T>()?;
+        let read_format = reader.read_u64::<T>()?;
+        let flags = reader.read_u64::<T>()?;
+        let wakeup_events_or_watermark = reader.read_u32::<T>()?;
+        let bp_type = reader.read_u32::<T>()?;
+        let bp_addr_or_kprobe_func_or_uprobe_func_or_config1 = reader.read_u64::<T>()?;
+
+        let bp_len_or_kprobe_addr_or_probe_offset_or_config2 = if size >= PERF_ATTR_SIZE_VER1 {
+            reader.read_u64::<T>()?
+        } else {
+            0
+        };
+
+        let branch_sample_type = if size >= PERF_ATTR_SIZE_VER2 {
+            reader.read_u64::<T>()?
+        } else {
+            0
+        };
+
+        let (sample_regs_user, sample_stack_user, clockid) = if size >= PERF_ATTR_SIZE_VER3 {
+            let sample_regs_user = reader.read_u64::<T>()?;
+            let sample_stack_user = reader.read_u32::<T>()?;
+            let clockid = reader.read_u32::<T>()?;
+
+            (sample_regs_user, sample_stack_user, clockid)
+        } else {
+            (0, 0, 0)
+        };
+
+        let sample_regs_intr = if size >= PERF_ATTR_SIZE_VER4 {
+            reader.read_u64::<T>()?
+        } else {
+            0
+        };
+
+        let (aux_watermark, sample_max_stack) = if size >= PERF_ATTR_SIZE_VER5 {
+            let aux_watermark = reader.read_u32::<T>()?;
+            let sample_max_stack = reader.read_u16::<T>()?;
+            let __reserved_2 = reader.read_u16::<T>()?;
+            (aux_watermark, sample_max_stack)
+        } else {
+            (0, 0)
+        };
+
+        let aux_sample_size = if size >= PERF_ATTR_SIZE_VER6 {
+            let aux_sample_size = reader.read_u32::<T>()?;
+            let __reserved_3 = reader.read_u32::<T>()?;
+            aux_sample_size
+        } else {
+            0
+        };
+
+        let sig_data = if size >= PERF_ATTR_SIZE_VER7 {
+            reader.read_u64::<T>()?
+        } else {
+            0
+        };
+
+        // Consume any remaining bytes.
+        if size > PERF_ATTR_SIZE_VER7 {
+            let remaining = size - PERF_ATTR_SIZE_VER7;
+            io::copy(&mut reader.by_ref().take(remaining.into()), &mut io::sink())?;
+        }
+
+        Ok(Self {
+            type_,
+            size,
+            config,
+            sampling_period_or_frequency,
+            sample_format: SampleFormat::from_bits_truncate(sample_type),
+            read_format,
+            flags,
+            wakeup_events_or_watermark,
+            bp_type,
+            bp_addr_or_kprobe_func_or_uprobe_func_or_config1,
+            bp_len_or_kprobe_addr_or_probe_offset_or_config2,
+            branch_sample_format: BranchSampleFormat::from_bits_truncate(branch_sample_type),
+            sample_regs_user,
+            sample_stack_user,
+            clockid,
+            sample_regs_intr,
+            aux_watermark,
+            sample_max_stack,
+            aux_sample_size,
+            sig_data,
+        })
+    }
+}
 
 pub struct RawEvent<'a> {
     pub kind: u32,
@@ -262,7 +576,7 @@ impl<'a> RawEvent<'a> {
     #[allow(unused)]
     fn skip_sample_id<T: ByteOrder, R: std::io::Read>(
         cur: &mut R,
-        sample_type: u64,
+        sample_format: SampleFormat,
     ) -> Result<(), std::io::Error> {
         // struct sample_id {
         //     { u32 pid, tid; }   /* if PERF_SAMPLE_TID set */
@@ -272,7 +586,7 @@ impl<'a> RawEvent<'a> {
         //     { u32 cpu, res; }   /* if PERF_SAMPLE_CPU set */
         //     { u64 id;       }   /* if PERF_SAMPLE_IDENTIFIER set */
         // };
-        let (pid, tid) = if sample_type & PERF_SAMPLE_TID != 0 {
+        let (pid, tid) = if sample_format.contains(SampleFormat::TID) {
             let pid = cur.read_u32::<T>()?;
             let tid = cur.read_u32::<T>()?;
             (Some(pid), Some(tid))
@@ -280,21 +594,21 @@ impl<'a> RawEvent<'a> {
             (None, None)
         };
 
-        let timestamp = if sample_type & PERF_SAMPLE_TIME != 0 {
+        let timestamp = if sample_format.contains(SampleFormat::TIME) {
             Some(cur.read_u64::<T>()?)
         } else {
             None
         };
 
-        if sample_type & PERF_SAMPLE_ID != 0 {
+        if sample_format.contains(SampleFormat::ID) {
             let _id = cur.read_u64::<T>()?;
         }
 
-        if sample_type & PERF_SAMPLE_STREAM_ID != 0 {
+        if sample_format.contains(SampleFormat::STREAM_ID) {
             let _stream_id = cur.read_u64::<T>()?;
         }
 
-        let cpu = if sample_type & PERF_SAMPLE_CPU != 0 {
+        let cpu = if sample_format.contains(SampleFormat::CPU) {
             let cpu = cur.read_u32::<T>()?;
             let _ = cur.read_u32::<T>()?; // Reserved field; is always zero.
             Some(cpu)
@@ -302,14 +616,14 @@ impl<'a> RawEvent<'a> {
             None
         };
 
-        let period = if sample_type & PERF_SAMPLE_PERIOD != 0 {
+        let period = if sample_format.contains(SampleFormat::PERIOD) {
             let period = cur.read_u64::<T>()?;
             Some(period)
         } else {
             None
         };
 
-        if sample_type & PERF_SAMPLE_IDENTIFIER != 0 {
+        if sample_format.contains(SampleFormat::IDENTIFIER) {
             let _identifier = cur.read_u64::<T>()?;
         }
 
@@ -320,7 +634,8 @@ impl<'a> RawEvent<'a> {
 
     pub fn parse<T: ByteOrder>(
         self,
-        sample_type: u64,
+        sample_format: SampleFormat,
+        branch_sample_format: BranchSampleFormat,
         read_format: u64,
         regs_count: usize,
         sample_regs_user: u64,
@@ -359,15 +674,15 @@ impl<'a> RawEvent<'a> {
                 let raw_data = self.data.as_slice();
                 let mut cur = Cursor::new(&raw_data);
 
-                if sample_type & PERF_SAMPLE_IDENTIFIER != 0 {
+                if sample_format.contains(SampleFormat::IDENTIFIER) {
                     let _identifier = cur.read_u64::<T>()?;
                 }
 
-                if sample_type & PERF_SAMPLE_IP != 0 {
+                if sample_format.contains(SampleFormat::IP) {
                     let _ip = cur.read_u64::<T>()?;
                 }
 
-                let (pid, tid) = if sample_type & PERF_SAMPLE_TID != 0 {
+                let (pid, tid) = if sample_format.contains(SampleFormat::TID) {
                     let pid = cur.read_i32::<T>()?;
                     let tid = cur.read_i32::<T>()?;
                     (Some(pid), Some(tid))
@@ -375,25 +690,25 @@ impl<'a> RawEvent<'a> {
                     (None, None)
                 };
 
-                let timestamp = if sample_type & PERF_SAMPLE_TIME != 0 {
+                let timestamp = if sample_format.contains(SampleFormat::TIME) {
                     Some(cur.read_u64::<T>()?)
                 } else {
                     None
                 };
 
-                if sample_type & PERF_SAMPLE_ADDR != 0 {
+                if sample_format.contains(SampleFormat::ADDR) {
                     let _addr = cur.read_u64::<T>()?;
                 }
 
-                if sample_type & PERF_SAMPLE_ID != 0 {
+                if sample_format.contains(SampleFormat::ID) {
                     let _id = cur.read_u64::<T>()?;
                 }
 
-                if sample_type & PERF_SAMPLE_STREAM_ID != 0 {
+                if sample_format.contains(SampleFormat::STREAM_ID) {
                     let _stream_id = cur.read_u64::<T>()?;
                 }
 
-                let cpu = if sample_type & PERF_SAMPLE_CPU != 0 {
+                let cpu = if sample_format.contains(SampleFormat::CPU) {
                     let cpu = cur.read_u32::<T>()?;
                     let _ = cur.read_u32::<T>()?; // Reserved field; is always zero.
                     Some(cpu)
@@ -401,14 +716,14 @@ impl<'a> RawEvent<'a> {
                     None
                 };
 
-                let period = if sample_type & PERF_SAMPLE_PERIOD != 0 {
+                let period = if sample_format.contains(SampleFormat::PERIOD) {
                     let period = cur.read_u64::<T>()?;
                     Some(period)
                 } else {
                     None
                 };
 
-                if sample_type & PERF_SAMPLE_READ != 0 {
+                if sample_format.contains(SampleFormat::READ) {
                     if read_format & PERF_FORMAT_GROUP == 0 {
                         let _value = cur.read_u64::<T>()?;
                         if read_format & PERF_FORMAT_TOTAL_TIME_ENABLED != 0 {
@@ -437,7 +752,7 @@ impl<'a> RawEvent<'a> {
                     }
                 }
 
-                let callchain = if sample_type & PERF_SAMPLE_CALLCHAIN != 0 {
+                let callchain = if sample_format.contains(SampleFormat::CALLCHAIN) {
                     let callchain_length = cur.read_u64::<T>()?;
                     let mut callchain = Vec::with_capacity(callchain_length as usize);
                     for _ in 0..callchain_length {
@@ -449,14 +764,14 @@ impl<'a> RawEvent<'a> {
                     None
                 };
 
-                if sample_type & PERF_SAMPLE_RAW != 0 {
+                if sample_format.contains(SampleFormat::RAW) {
                     let size = cur.read_u32::<T>()?;
                     cur.set_position(cur.position() + size as u64);
                 }
 
-                if sample_type & PERF_SAMPLE_BRANCH_STACK != 0 {
+                if sample_format.contains(SampleFormat::BRANCH_STACK) {
                     let nr = cur.read_u64::<T>()?;
-                    if sample_type & PERF_SAMPLE_BRANCH_HW_INDEX != 0 {
+                    if branch_sample_format.contains(BranchSampleFormat::HW_INDEX) {
                         let _hw_idx = cur.read_u64::<T>()?;
                     }
                     for _ in 0..nr {
@@ -466,7 +781,7 @@ impl<'a> RawEvent<'a> {
                     }
                 }
 
-                let regs = if sample_type & PERF_SAMPLE_REGS_USER != 0 {
+                let regs = if sample_format.contains(SampleFormat::REGS_USER) {
                     let regs_abi = cur.read_u64::<T>()?;
                     if regs_abi == 0 {
                         None
@@ -486,7 +801,7 @@ impl<'a> RawEvent<'a> {
 
                 let stack;
                 let dynamic_stack_size;
-                if sample_type & PERF_SAMPLE_STACK_USER != 0 {
+                if sample_format.contains(SampleFormat::STACK_USER) {
                     let stack_size = cur.read_u64::<T>()?;
                     let stack_end_pos = cur.position() + stack_size;
                     let stack_range = cur.position() as usize..stack_end_pos as usize;
@@ -504,19 +819,19 @@ impl<'a> RawEvent<'a> {
                     stack = RawData::empty();
                 }
 
-                if sample_type & PERF_SAMPLE_WEIGHT != 0 {
+                if sample_format.contains(SampleFormat::WEIGHT) {
                     let _weight = cur.read_u64::<T>()?;
                 }
 
-                if sample_type & PERF_SAMPLE_DATA_SRC != 0 {
+                if sample_format.contains(SampleFormat::DATA_SRC) {
                     let _data_src = cur.read_u64::<T>()?;
                 }
 
-                if sample_type & PERF_SAMPLE_TRANSACTION != 0 {
+                if sample_format.contains(SampleFormat::TRANSACTION) {
                     let _transaction = cur.read_u64::<T>()?;
                 }
 
-                if sample_type & PERF_SAMPLE_REGS_INTR != 0 {
+                if sample_format.contains(SampleFormat::REGS_INTR) {
                     let regs_abi = cur.read_u64::<T>()?;
                     if regs_abi != 0 {
                         let regs_end_pos =
@@ -525,20 +840,20 @@ impl<'a> RawEvent<'a> {
                     }
                 }
 
-                if sample_type & PERF_SAMPLE_PHYS_ADDR != 0 {
+                if sample_format.contains(SampleFormat::PHYS_ADDR) {
                     let _phys_addr = cur.read_u64::<T>()?;
                 }
 
-                if sample_type & PERF_SAMPLE_AUX != 0 {
+                if sample_format.contains(SampleFormat::AUX) {
                     let size = cur.read_u64::<T>()?;
                     cur.set_position(cur.position() + size);
                 }
 
-                if sample_type & PERF_SAMPLE_DATA_PAGE_SIZE != 0 {
+                if sample_format.contains(SampleFormat::DATA_PAGE_SIZE) {
                     let _data_page_size = cur.read_u64::<T>()?;
                 }
 
-                if sample_type & PERF_SAMPLE_CODE_PAGE_SIZE != 0 {
+                if sample_format.contains(SampleFormat::CODE_PAGE_SIZE) {
                     let _code_page_size = cur.read_u64::<T>()?;
                 }
 

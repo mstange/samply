@@ -1,4 +1,4 @@
-mod perf_event;
+pub mod perf_event;
 pub mod perf_event_raw;
 mod perf_file;
 mod raw_data;

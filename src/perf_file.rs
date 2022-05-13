@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use std::io::{self, Cursor, Read, Seek, SeekFrom};
 
-use crate::perf_event::{CpuMode, Event, RawEvent};
-use crate::perf_event_raw::{
-    PerfEventAttr, ATTR_FLAG_BIT_SAMPLE_ID_ALL, PERF_RECORD_MISC_BUILD_ID_SIZE,
+use crate::perf_event::{
+    BranchSampleFormat, CpuMode, Event, PerfEventAttr, RawEvent, SampleFormat,
 };
+use crate::perf_event_raw::{ATTR_FLAG_BIT_SAMPLE_ID_ALL, PERF_RECORD_MISC_BUILD_ID_SIZE};
 use crate::raw_data::RawData;
 use byteorder::{BigEndian, ByteOrder, LittleEndian, ReadBytesExt};
 
@@ -176,7 +176,8 @@ impl PerfFile {
     pub fn events<'a, 'b: 'a, C: Read + Seek>(&'a self, cursor: &'b mut C) -> EventIter<'a, C> {
         let endian = self.endian;
         let attr = &self.perf_event_attrs[0];
-        let sample_type = attr.sample_type;
+        let sample_format = attr.sample_format;
+        let branch_sample_format = attr.branch_sample_format;
         let read_format = attr.read_format;
         let sample_id_all = attr.flags & ATTR_FLAG_BIT_SAMPLE_ID_ALL != 0;
         let sample_regs_user = attr.sample_regs_user;
@@ -188,7 +189,8 @@ impl PerfFile {
             current_event_body: Vec::new(),
             offset: 0,
             event_data_len,
-            sample_type,
+            sample_format,
+            branch_sample_format,
             read_format,
             sample_id_all,
             sample_regs_user,
@@ -260,7 +262,8 @@ pub struct EventIter<'a, R: Read> {
     event_data_len: u64,
     current_event_body: Vec<u8>,
     endian: Endianness,
-    sample_type: u64,
+    sample_format: SampleFormat,
+    branch_sample_format: BranchSampleFormat,
     read_format: u64,
     sample_id_all: bool,
     sample_regs_user: u64,
@@ -300,7 +303,8 @@ impl<'a, R: Read> EventIter<'a, R> {
             data: raw_data,
         };
         let event = raw_event.parse::<T>(
-            self.sample_type,
+            self.sample_format,
+            self.branch_sample_format,
             self.read_format,
             self.regs_count,
             self.sample_regs_user,

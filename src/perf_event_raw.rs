@@ -1,258 +1,21 @@
-use byteorder::{ByteOrder, ReadBytesExt};
-use std::io::{self, Read};
-
-/// Structs and constants from perf_event.h
-
-/// `perf_event_attr`
-#[derive(Debug, Clone, Copy)]
-pub struct PerfEventAttr {
-    /// Major type: hardware/software/tracepoint/etc.
-    pub type_: u32,
-    /// Size of the attr structure, for fwd/bwd compat.
-    pub size: u32,
-    /// Type-specific configuration information.
-    pub config: u64,
-
-    /// If ATTR_FLAG_BIT_FREQ is set in `flags`, this is the sample frequency,
-    /// otherwise it is the sample period.
-    ///
-    /// ```c
-    /// union {
-    ///     /// Period of sampling
-    ///     __u64 sample_period;
-    ///     /// Frequency of sampling
-    ///     __u64 sample_freq;
-    /// };
-    /// ```
-    pub sampling_period_or_frequency: u64,
-
-    /// Specifies values included in sample, see `perf_event_sample_format`.
-    pub sample_type: u64,
-
-    /// Specifies the structure values returned by read() on a perf event fd,
-    /// see `perf_event_read_format`.
-    pub read_format: u64,
-
-    /// Bitset of ATTR_FLAG_BIT* flags
-    pub flags: u64,
-
-    /// If ATTR_FLAG_BIT_WATERMARK is set in `flags`, this is the watermark,
-    /// otherwise it is the event count after which to wake up.
-    ///
-    /// ```c
-    /// union {
-    ///     /// wakeup every n events
-    ///     __u32 wakeup_events;
-    ///     /// bytes before wakeup
-    ///     __u32 wakeup_watermark;
-    /// };
-    /// ```
-    pub wakeup_events_or_watermark: u32,
-
-    /// breakpoint type, uses HW_BREAKPOINT_* constants
-    ///
-    /// ```c
-    /// HW_BREAKPOINT_EMPTY    = 0,
-    /// HW_BREAKPOINT_R        = 1,
-    /// HW_BREAKPOINT_W        = 2,
-    /// HW_BREAKPOINT_RW       = HW_BREAKPOINT_R | HW_BREAKPOINT_W,
-    /// HW_BREAKPOINT_X        = 4,
-    /// HW_BREAKPOINT_INVALID  = HW_BREAKPOINT_RW | HW_BREAKPOINT_X,
-    /// ```
-    pub bp_type: u32,
-
-    /// Union discriminator is ???
-    ///
-    /// ```c
-    /// union {
-    ///     __u64 bp_addr;
-    ///     __u64 kprobe_func; /* for perf_kprobe */
-    ///     __u64 uprobe_path; /* for perf_uprobe */
-    ///     __u64 config1; /* extension of config */
-    /// };
-    /// ```
-    pub bp_addr_or_kprobe_func_or_uprobe_func_or_config1: u64,
-
-    /// Union discriminator is ???
-    ///
-    /// ```c
-    /// union {
-    ///     __u64 bp_len; /* breakpoint length, uses HW_BREAKPOINT_LEN_* constants */
-    ///     __u64 kprobe_addr; /* when kprobe_func == NULL */
-    ///     __u64 probe_offset; /* for perf_[k,u]probe */
-    ///     __u64 config2; /* extension of config1 */
-    /// };
-    pub bp_len_or_kprobe_addr_or_probe_offset_or_config2: u64,
-
-    /// Uses enum `perf_branch_sample_type`
-    pub branch_sample_type: u64,
-
-    /// Defines set of user regs to dump on samples.
-    /// See asm/perf_regs.h for details.
-    pub sample_regs_user: u64,
-
-    /// Defines size of the user stack to dump on samples.
-    pub sample_stack_user: u32,
-
-    /// The clock ID.
-    ///
-    /// CLOCK_REALTIME = 0
-    /// CLOCK_MONOTONIC = 1
-    /// CLOCK_PROCESS_CPUTIME_ID = 2
-    /// CLOCK_THREAD_CPUTIME_ID = 3
-    /// CLOCK_MONOTONIC_RAW = 4
-    /// CLOCK_REALTIME_COARSE = 5
-    /// CLOCK_MONOTONIC_COARSE = 6
-    /// CLOCK_BOOTTIME = 7
-    /// CLOCK_REALTIME_ALARM = 8
-    /// CLOCK_BOOTTIME_ALARM = 9
-    pub clockid: u32,
-
-    /// Defines set of regs to dump for each sample
-    /// state captured on:
-    ///  - precise = 0: PMU interrupt
-    ///  - precise > 0: sampled instruction
-    ///
-    /// See asm/perf_regs.h for details.
-    pub sample_regs_intr: u64,
-
-    /// Wakeup watermark for AUX area
-    pub aux_watermark: u32,
-
-    /// When collecting stacks, this is the maximum number of stack frames
-    /// (user + kernel) to collect.
-    pub sample_max_stack: u16,
-
-    /// When sampling AUX events, this is the size of the AUX sample.
-    pub aux_sample_size: u32,
-
-    /// User provided data if sigtrap=1, passed back to user via
-    /// siginfo_t::si_perf_data, e.g. to permit user to identify the event.
-    /// Note, siginfo_t::si_perf_data is long-sized, and sig_data will be
-    /// truncated accordingly on 32 bit architectures.
-    pub sig_data: u64,
-}
+/// Constants from perf_event.h
 
 /// sizeof first published struct
-const PERF_ATTR_SIZE_VER0: u32 = 64;
+pub const PERF_ATTR_SIZE_VER0: u32 = 64;
 /// add: config2
-const PERF_ATTR_SIZE_VER1: u32 = 72;
+pub const PERF_ATTR_SIZE_VER1: u32 = 72;
 /// add: branch_sample_type
-const PERF_ATTR_SIZE_VER2: u32 = 80;
+pub const PERF_ATTR_SIZE_VER2: u32 = 80;
 /// add: sample_regs_user, sample_stack_user, clockid
-const PERF_ATTR_SIZE_VER3: u32 = 96;
+pub const PERF_ATTR_SIZE_VER3: u32 = 96;
 /// add: sample_regs_intr
-const PERF_ATTR_SIZE_VER4: u32 = 104;
+pub const PERF_ATTR_SIZE_VER4: u32 = 104;
 /// add: aux_watermark
-const PERF_ATTR_SIZE_VER5: u32 = 112;
+pub const PERF_ATTR_SIZE_VER5: u32 = 112;
 /// add: aux_sample_size
-const PERF_ATTR_SIZE_VER6: u32 = 120;
+pub const PERF_ATTR_SIZE_VER6: u32 = 120;
 /// add: sig_data
-const PERF_ATTR_SIZE_VER7: u32 = 128;
-
-impl PerfEventAttr {
-    pub fn parse<R: Read, T: ByteOrder>(
-        reader: &mut R,
-        size: Option<u32>,
-    ) -> Result<Self, std::io::Error> {
-        let type_ = reader.read_u32::<T>()?;
-        let self_described_size = reader.read_u32::<T>()?;
-        let config = reader.read_u64::<T>()?;
-
-        let size = size.unwrap_or(self_described_size);
-        if size < PERF_ATTR_SIZE_VER0 {
-            return Err(io::ErrorKind::InvalidInput.into());
-        }
-
-        let sampling_period_or_frequency = reader.read_u64::<T>()?;
-        let sample_type = reader.read_u64::<T>()?;
-        let read_format = reader.read_u64::<T>()?;
-        let flags = reader.read_u64::<T>()?;
-        let wakeup_events_or_watermark = reader.read_u32::<T>()?;
-        let bp_type = reader.read_u32::<T>()?;
-        let bp_addr_or_kprobe_func_or_uprobe_func_or_config1 = reader.read_u64::<T>()?;
-
-        let bp_len_or_kprobe_addr_or_probe_offset_or_config2 = if size >= PERF_ATTR_SIZE_VER1 {
-            reader.read_u64::<T>()?
-        } else {
-            0
-        };
-
-        let branch_sample_type = if size >= PERF_ATTR_SIZE_VER2 {
-            reader.read_u64::<T>()?
-        } else {
-            0
-        };
-
-        let (sample_regs_user, sample_stack_user, clockid) = if size >= PERF_ATTR_SIZE_VER3 {
-            let sample_regs_user = reader.read_u64::<T>()?;
-            let sample_stack_user = reader.read_u32::<T>()?;
-            let clockid = reader.read_u32::<T>()?;
-
-            (sample_regs_user, sample_stack_user, clockid)
-        } else {
-            (0, 0, 0)
-        };
-
-        let sample_regs_intr = if size >= PERF_ATTR_SIZE_VER4 {
-            reader.read_u64::<T>()?
-        } else {
-            0
-        };
-
-        let (aux_watermark, sample_max_stack) = if size >= PERF_ATTR_SIZE_VER5 {
-            let aux_watermark = reader.read_u32::<T>()?;
-            let sample_max_stack = reader.read_u16::<T>()?;
-            let __reserved_2 = reader.read_u16::<T>()?;
-            (aux_watermark, sample_max_stack)
-        } else {
-            (0, 0)
-        };
-
-        let aux_sample_size = if size >= PERF_ATTR_SIZE_VER6 {
-            let aux_sample_size = reader.read_u32::<T>()?;
-            let __reserved_3 = reader.read_u32::<T>()?;
-            aux_sample_size
-        } else {
-            0
-        };
-
-        let sig_data = if size >= PERF_ATTR_SIZE_VER7 {
-            reader.read_u64::<T>()?
-        } else {
-            0
-        };
-
-        // Consume any remaining bytes.
-        if size > PERF_ATTR_SIZE_VER7 {
-            let remaining = size - PERF_ATTR_SIZE_VER7;
-            io::copy(&mut reader.by_ref().take(remaining.into()), &mut io::sink())?;
-        }
-
-        Ok(Self {
-            type_,
-            size,
-            config,
-            sampling_period_or_frequency,
-            sample_type,
-            read_format,
-            flags,
-            wakeup_events_or_watermark,
-            bp_type,
-            bp_addr_or_kprobe_func_or_uprobe_func_or_config1,
-            bp_len_or_kprobe_addr_or_probe_offset_or_config2,
-            branch_sample_type,
-            sample_regs_user,
-            sample_stack_user,
-            clockid,
-            sample_regs_intr,
-            aux_watermark,
-            sample_max_stack,
-            aux_sample_size,
-            sig_data,
-        })
-    }
-}
+pub const PERF_ATTR_SIZE_VER7: u32 = 128;
 
 /// off by default
 pub const ATTR_FLAG_BIT_DISABLED: u64 = 1 << 0;
@@ -891,41 +654,41 @@ pub const PERF_FORMAT_GROUP: u64 = 1 << 3;
  * The branch types can be combined, however BRANCH_ANY covers all types
  * of branches and therefore it supersedes all the other types.
  */
-///  user branches
+/// user branches
 pub const PERF_SAMPLE_BRANCH_USER_SHIFT: u32 = 0;
-///  kernel branches
+/// kernel branches
 pub const PERF_SAMPLE_BRANCH_KERNEL_SHIFT: u32 = 1;
-///  hypervisor branches
+/// hypervisor branches
 pub const PERF_SAMPLE_BRANCH_HV_SHIFT: u32 = 2;
-///  any branch types
+/// any branch types
 pub const PERF_SAMPLE_BRANCH_ANY_SHIFT: u32 = 3;
-///  any call branch
+/// any call branch
 pub const PERF_SAMPLE_BRANCH_ANY_CALL_SHIFT: u32 = 4;
-///  any return branch
+/// any return branch
 pub const PERF_SAMPLE_BRANCH_ANY_RETURN_SHIFT: u32 = 5;
-///  indirect calls
+/// indirect calls
 pub const PERF_SAMPLE_BRANCH_IND_CALL_SHIFT: u32 = 6;
-///  transaction aborts
+/// transaction aborts
 pub const PERF_SAMPLE_BRANCH_ABORT_TX_SHIFT: u32 = 7;
-///  in transaction
+/// in transaction
 pub const PERF_SAMPLE_BRANCH_IN_TX_SHIFT: u32 = 8;
-///  not in transaction
+/// not in transaction
 pub const PERF_SAMPLE_BRANCH_NO_TX_SHIFT: u32 = 9;
-///  conditional branches
+/// conditional branches
 pub const PERF_SAMPLE_BRANCH_COND_SHIFT: u32 = 10;
-///  call/ret stack
+/// call/ret stack
 pub const PERF_SAMPLE_BRANCH_CALL_STACK_SHIFT: u32 = 11;
-///  indirect jumps
+/// indirect jumps
 pub const PERF_SAMPLE_BRANCH_IND_JUMP_SHIFT: u32 = 12;
-///  direct call
+/// direct call
 pub const PERF_SAMPLE_BRANCH_CALL_SHIFT: u32 = 13;
-///  no flags
+/// no flags
 pub const PERF_SAMPLE_BRANCH_NO_FLAGS_SHIFT: u32 = 14;
-///  no cycles
+/// no cycles
 pub const PERF_SAMPLE_BRANCH_NO_CYCLES_SHIFT: u32 = 15;
-///  save branch type
+/// save branch type
 pub const PERF_SAMPLE_BRANCH_TYPE_SAVE_SHIFT: u32 = 16;
-///  save low level index of raw branch records
+/// save low level index of raw branch records
 pub const PERF_SAMPLE_BRANCH_HW_INDEX_SHIFT: u32 = 17;
 
 pub const PERF_SAMPLE_BRANCH_USER: u64 = 1 << PERF_SAMPLE_BRANCH_USER_SHIFT;
