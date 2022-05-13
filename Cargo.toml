@@ -18,7 +18,6 @@ object = "0.28.3"
 profiler-get-symbols = "0.14.0"
 # profiler-get-symbols = { path = "../profiler-get-symbols/lib" }
 thiserror = "1.0.30"
-zerocopy = "0.6.1"
 
 [profile.release]
 debug = true

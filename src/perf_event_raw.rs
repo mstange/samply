@@ -1,18 +1,17 @@
-use crate::unaligned::{U16, U32, U64};
-use zerocopy::FromBytes;
+use byteorder::{ByteOrder, ReadBytesExt};
+use std::io::{self, Read};
 
 /// Structs and constants from perf_event.h
 
 /// `perf_event_attr`
-#[derive(FromBytes, Debug, Clone, Copy)]
-#[repr(C)]
+#[derive(Debug, Clone, Copy)]
 pub struct PerfEventAttr {
     /// Major type: hardware/software/tracepoint/etc.
-    pub type_: U32,
+    pub type_: u32,
     /// Size of the attr structure, for fwd/bwd compat.
-    pub size: U32,
+    pub size: u32,
     /// Type-specific configuration information.
-    pub config: U64,
+    pub config: u64,
 
     /// If ATTR_FLAG_BIT_FREQ is set in `flags`, this is the sample frequency,
     /// otherwise it is the sample period.
@@ -25,17 +24,17 @@ pub struct PerfEventAttr {
     ///     __u64 sample_freq;
     /// };
     /// ```
-    pub sampling_period_or_frequency: U64,
+    pub sampling_period_or_frequency: u64,
 
     /// Specifies values included in sample, see `perf_event_sample_format`.
-    pub sample_type: U64,
+    pub sample_type: u64,
 
     /// Specifies the structure values returned by read() on a perf event fd,
     /// see `perf_event_read_format`.
-    pub read_format: U64,
+    pub read_format: u64,
 
     /// Bitset of ATTR_FLAG_BIT* flags
-    pub flags: U64,
+    pub flags: u64,
 
     /// If ATTR_FLAG_BIT_WATERMARK is set in `flags`, this is the watermark,
     /// otherwise it is the event count after which to wake up.
@@ -48,7 +47,7 @@ pub struct PerfEventAttr {
     ///     __u32 wakeup_watermark;
     /// };
     /// ```
-    pub wakeup_events_or_watermark: U32,
+    pub wakeup_events_or_watermark: u32,
 
     /// breakpoint type, uses HW_BREAKPOINT_* constants
     ///
@@ -60,7 +59,7 @@ pub struct PerfEventAttr {
     /// HW_BREAKPOINT_X        = 4,
     /// HW_BREAKPOINT_INVALID  = HW_BREAKPOINT_RW | HW_BREAKPOINT_X,
     /// ```
-    pub bp_type: U32,
+    pub bp_type: u32,
 
     /// Union discriminator is ???
     ///
@@ -72,7 +71,7 @@ pub struct PerfEventAttr {
     ///     __u64 config1; /* extension of config */
     /// };
     /// ```
-    pub bp_addr_or_kprobe_func_or_uprobe_func_or_config1: U64,
+    pub bp_addr_or_kprobe_func_or_uprobe_func_or_config1: u64,
 
     /// Union discriminator is ???
     ///
@@ -83,17 +82,17 @@ pub struct PerfEventAttr {
     ///     __u64 probe_offset; /* for perf_[k,u]probe */
     ///     __u64 config2; /* extension of config1 */
     /// };
-    pub bp_len_or_kprobe_addr_or_probe_offset_or_config2: U64,
+    pub bp_len_or_kprobe_addr_or_probe_offset_or_config2: u64,
 
     /// Uses enum `perf_branch_sample_type`
-    pub branch_sample_type: U64,
+    pub branch_sample_type: u64,
 
     /// Defines set of user regs to dump on samples.
     /// See asm/perf_regs.h for details.
-    pub sample_regs_user: U64,
+    pub sample_regs_user: u64,
 
     /// Defines size of the user stack to dump on samples.
-    pub sample_stack_user: U32,
+    pub sample_stack_user: u32,
 
     /// The clock ID.
     ///
@@ -107,7 +106,7 @@ pub struct PerfEventAttr {
     /// CLOCK_BOOTTIME = 7
     /// CLOCK_REALTIME_ALARM = 8
     /// CLOCK_BOOTTIME_ALARM = 9
-    pub clockid: U32,
+    pub clockid: u32,
 
     /// Defines set of regs to dump for each sample
     /// state captured on:
@@ -115,27 +114,245 @@ pub struct PerfEventAttr {
     ///  - precise > 0: sampled instruction
     ///
     /// See asm/perf_regs.h for details.
-    pub sample_regs_intr: U64,
+    pub sample_regs_intr: u64,
 
     /// Wakeup watermark for AUX area
-    pub aux_watermark: U32,
+    pub aux_watermark: u32,
 
     /// When collecting stacks, this is the maximum number of stack frames
     /// (user + kernel) to collect.
-    pub sample_max_stack: U16,
-
-    pub __reserved_2: U16,
+    pub sample_max_stack: u16,
 
     /// When sampling AUX events, this is the size of the AUX sample.
-    pub aux_sample_size: U32,
-
-    pub __reserved_3: U32,
+    pub aux_sample_size: u32,
 
     /// User provided data if sigtrap=1, passed back to user via
     /// siginfo_t::si_perf_data, e.g. to permit user to identify the event.
     /// Note, siginfo_t::si_perf_data is long-sized, and sig_data will be
     /// truncated accordingly on 32 bit architectures.
-    pub sig_data: U64,
+    pub sig_data: u64,
+}
+
+/// sizeof first published struct
+const PERF_ATTR_SIZE_VER0: u32 = 64;
+/// add: config2
+const PERF_ATTR_SIZE_VER1: u32 = 72;
+/// add: branch_sample_type
+const PERF_ATTR_SIZE_VER2: u32 = 80;
+/// add: sample_regs_user, sample_stack_user, clockid
+const PERF_ATTR_SIZE_VER3: u32 = 96;
+/// add: sample_regs_intr
+const PERF_ATTR_SIZE_VER4: u32 = 104;
+/// add: aux_watermark
+const PERF_ATTR_SIZE_VER5: u32 = 112;
+/// add: aux_sample_size
+const PERF_ATTR_SIZE_VER6: u32 = 120;
+/// add: sig_data
+const PERF_ATTR_SIZE_VER7: u32 = 128;
+
+impl PerfEventAttr {
+    pub fn parse<R: Read, T: ByteOrder>(
+        reader: &mut R,
+        size: Option<u32>,
+    ) -> Result<Self, std::io::Error> {
+        // Major type: hardware/software/tracepoint/etc.
+        let type_ = reader.read_u32::<T>()?;
+        // Size of the attr structure, for fwd/bwd compat.
+        let self_described_size = reader.read_u32::<T>()?;
+        // Type-specific configuration information.
+        let config = reader.read_u64::<T>()?;
+
+        let size = size.unwrap_or(self_described_size);
+        if size < PERF_ATTR_SIZE_VER0 {
+            return Err(io::ErrorKind::InvalidInput.into());
+        }
+
+        // If ATTR_FLAG_BIT_FREQ is set in `flags`, this is the sample frequency,
+        // otherwise it is the sample period.
+        //
+        // ```c
+        // union {
+        //     /// Period of sampling
+        //     __u64 sample_period;
+        //     /// Frequency of sampling
+        //     __u64 sample_freq;
+        // };
+        // ```
+        let sampling_period_or_frequency = reader.read_u64::<T>()?;
+
+        // Specifies values included in sample, see `perf_event_sample_format`.
+        let sample_type = reader.read_u64::<T>()?;
+
+        // Specifies the structure values returned by read() on a perf event fd,
+        // see `perf_event_read_format`.
+        let read_format = reader.read_u64::<T>()?;
+
+        // Bitset of ATTR_FLAG_BIT* flags
+        let flags = reader.read_u64::<T>()?;
+
+        // If ATTR_FLAG_BIT_WATERMARK is set in `flags`, this is the watermark,
+        // otherwise it is the event count after which to wake up.
+        //
+        // ```c
+        // union {
+        //     /// wakeup every n events
+        //     __u32 wakeup_events;
+        //     /// bytes before wakeup
+        //     __u32 wakeup_watermark;
+        // };
+        // ```
+        let wakeup_events_or_watermark = reader.read_u32::<T>()?;
+
+        // breakpoint type, uses HW_BREAKPOINT_* constants
+        //
+        // ```c
+        // HW_BREAKPOINT_EMPTY    = 0,
+        // HW_BREAKPOINT_R        = 1,
+        // HW_BREAKPOINT_W        = 2,
+        // HW_BREAKPOINT_RW       = HW_BREAKPOINT_R | HW_BREAKPOINT_W,
+        // HW_BREAKPOINT_X        = 4,
+        // HW_BREAKPOINT_INVALID  = HW_BREAKPOINT_RW | HW_BREAKPOINT_X,
+        // ```
+        let bp_type = reader.read_u32::<T>()?;
+
+        // Union discriminator is ???
+        //
+        // ```c
+        // union {
+        //     __u64 bp_addr;
+        //     __u64 kprobe_func; /* for perf_kprobe */
+        //     __u64 uprobe_path; /* for perf_uprobe */
+        //     __u64 config1; /* extension of config */
+        // };
+        // ```
+        let bp_addr_or_kprobe_func_or_uprobe_func_or_config1 = reader.read_u64::<T>()?;
+
+        let bp_len_or_kprobe_addr_or_probe_offset_or_config2 = if size >= PERF_ATTR_SIZE_VER1 {
+            // Union discriminator is ???
+            //
+            // ```c
+            // union {
+            //     __u64 bp_len; /* breakpoint length, uses HW_BREAKPOINT_LEN_* constants */
+            //     __u64 kprobe_addr; /* when kprobe_func == NULL */
+            //     __u64 probe_offset; /* for perf_[k,u]probe */
+            //     __u64 config2; /* extension of config1 */
+            // };
+            reader.read_u64::<T>()?
+        } else {
+            0
+        };
+
+        let branch_sample_type = if size >= PERF_ATTR_SIZE_VER2 {
+            // Uses enum `perf_branch_sample_type`
+            reader.read_u64::<T>()?
+        } else {
+            0
+        };
+
+        let (sample_regs_user, sample_stack_user, clockid) = if size >= PERF_ATTR_SIZE_VER3 {
+            // Defines set of user regs to dump on samples.
+            // See asm/perf_regs.h for details.
+            let sample_regs_user = reader.read_u64::<T>()?;
+
+            // Defines size of the user stack to dump on samples.
+            let sample_stack_user = reader.read_u32::<T>()?;
+
+            // The clock ID.
+            //
+            // CLOCK_REALTIME = 0
+            // CLOCK_MONOTONIC = 1
+            // CLOCK_PROCESS_CPUTIME_ID = 2
+            // CLOCK_THREAD_CPUTIME_ID = 3
+            // CLOCK_MONOTONIC_RAW = 4
+            // CLOCK_REALTIME_COARSE = 5
+            // CLOCK_MONOTONIC_COARSE = 6
+            // CLOCK_BOOTTIME = 7
+            // CLOCK_REALTIME_ALARM = 8
+            // CLOCK_BOOTTIME_ALARM = 9
+            let clockid = reader.read_u32::<T>()?;
+
+            (sample_regs_user, sample_stack_user, clockid)
+        } else {
+            (0, 0, 0)
+        };
+
+        let sample_regs_intr = if size >= PERF_ATTR_SIZE_VER4 {
+            // Defines set of regs to dump for each sample
+            // state captured on:
+            //  - precise = 0: PMU interrupt
+            //  - precise > 0: sampled instruction
+            //
+            // See asm/perf_regs.h for details.
+            reader.read_u64::<T>()?
+        } else {
+            0
+        };
+
+        let (aux_watermark, sample_max_stack) = if size >= PERF_ATTR_SIZE_VER5 {
+            // Wakeup watermark for AUX area
+            let aux_watermark = reader.read_u32::<T>()?;
+
+            // When collecting stacks, this is the maximum number of stack frames
+            // (user + kernel) to collect.
+            let sample_max_stack = reader.read_u16::<T>()?;
+
+            let __reserved_2 = reader.read_u16::<T>()?;
+
+            (aux_watermark, sample_max_stack)
+        } else {
+            (0, 0)
+        };
+
+        let aux_sample_size = if size >= PERF_ATTR_SIZE_VER6 {
+            // When sampling AUX events, this is the size of the AUX sample.
+            let aux_sample_size = reader.read_u32::<T>()?;
+
+            let __reserved_3 = reader.read_u32::<T>()?;
+
+            aux_sample_size
+        } else {
+            0
+        };
+
+        let sig_data = if size >= PERF_ATTR_SIZE_VER7 {
+            // User provided data if sigtrap=1, passed back to user via
+            // siginfo_t::si_perf_data, e.g. to permit user to identify the event.
+            // Note, siginfo_t::si_perf_data is long-sized, and sig_data will be
+            // truncated accordingly on 32 bit architectures.
+            reader.read_u64::<T>()?
+        } else {
+            0
+        };
+
+        // Consume any remaining bytes.
+        if size > PERF_ATTR_SIZE_VER7 {
+            let remaining = size - PERF_ATTR_SIZE_VER7;
+            io::copy(&mut reader.by_ref().take(remaining.into()), &mut io::sink())?;
+        }
+
+        Ok(Self {
+            type_,
+            size,
+            config,
+            sampling_period_or_frequency,
+            sample_type,
+            read_format,
+            flags,
+            wakeup_events_or_watermark,
+            bp_type,
+            bp_addr_or_kprobe_func_or_uprobe_func_or_config1,
+            bp_len_or_kprobe_addr_or_probe_offset_or_config2,
+            branch_sample_type,
+            sample_regs_user,
+            sample_stack_user,
+            clockid,
+            sample_regs_intr,
+            aux_watermark,
+            sample_max_stack,
+            aux_sample_size,
+            sig_data,
+        })
+    }
 }
 
 /// off by default

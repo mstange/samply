@@ -6,20 +6,19 @@ use crate::perf_event_raw::{
     PerfEventAttr, ATTR_FLAG_BIT_SAMPLE_ID_ALL, PERF_RECORD_MISC_BUILD_ID_SIZE,
 };
 use crate::raw_data::RawData;
-use crate::reader::Reader;
-use crate::unaligned::{Endianness, U32};
 use byteorder::{BigEndian, ByteOrder, LittleEndian, ReadBytesExt};
-use zerocopy::FromBytes;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Endianness {
+    LittleEndian,
+    BigEndian,
+}
 
 pub struct PerfFile {
-    event_data_offset_and_size: (u64, u64),
-
-    /// The list of global opcodes.
-    perf_event_attrs: Vec<PerfEventAttr>,
-
-    feature_sections: Vec<(FlagFeature, Vec<u8>)>,
-
     endian: Endianness,
+    event_data_offset_and_size: (u64, u64),
+    perf_event_attrs: Vec<PerfEventAttr>,
+    feature_sections: Vec<(FlagFeature, Vec<u8>)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -77,18 +76,14 @@ impl PerfFile {
 
         let attrs_offset = header.attr_section.offset;
         let attrs_size = header.attr_section.size;
-        let attrs_size = usize::try_from(attrs_size).map_err(|_| Error::SectionSizeTooBig)?;
         cursor.seek(SeekFrom::Start(attrs_offset))?;
-        let mut attrs_section_data = vec![0; attrs_size];
-        cursor.read_exact(&mut attrs_section_data)?;
         let mut perf_event_attrs = Vec::new();
         let attr_size = header.attr_size;
         let mut offset = 0;
-        while offset < attrs_size as u64 {
-            let attr = attrs_section_data
-                .read_at::<PerfEventAttr>(offset)
-                .ok_or(ReadError::PerfEventAttr)?;
-            perf_event_attrs.push(*attr);
+        while offset + attr_size <= attrs_size {
+            let attr = PerfEventAttr::parse::<C, T>(cursor, Some(attr_size as u32))
+                .map_err(|_| ReadError::PerfEventAttr)?;
+            perf_event_attrs.push(attr);
             offset += attr_size;
         }
         // eprintln!("Got {} perf_event_attrs.", perf_event_attrs.len());
@@ -181,10 +176,10 @@ impl PerfFile {
     pub fn events<'a, 'b: 'a, C: Read + Seek>(&'a self, cursor: &'b mut C) -> EventIter<'a, C> {
         let endian = self.endian;
         let attr = &self.perf_event_attrs[0];
-        let sample_type = attr.sample_type.get(endian);
-        let read_format = attr.read_format.get(endian);
-        let sample_id_all = attr.flags.get(endian) & ATTR_FLAG_BIT_SAMPLE_ID_ALL != 0;
-        let sample_regs_user = attr.sample_regs_user.get(endian);
+        let sample_type = attr.sample_type;
+        let read_format = attr.read_format;
+        let sample_id_all = attr.flags & ATTR_FLAG_BIT_SAMPLE_ID_ALL != 0;
+        let sample_regs_user = attr.sample_regs_user;
         let regs_count = sample_regs_user.count_ones() as usize;
         let (offset, event_data_len) = self.event_data_offset_and_size;
         cursor.seek(SeekFrom::Start(offset)).unwrap();
@@ -225,16 +220,16 @@ impl PerfFile {
         self.feature_string(FlagFeature::Arch)
     }
 
-    pub fn nr_cpus(&self) -> Result<Option<&NrCpus>, Error> {
-        let section_data = match self.feature_section(FlagFeature::NrCpus) {
-            Some(section) => section,
-            None => return Ok(None),
-        };
-        if section_data.len() < std::mem::size_of::<NrCpus>() {
-            return Err(Error::NotEnoughSpaceForNrCpus);
-        }
-        let nr_cpus = section_data.read_at::<NrCpus>(0).ok_or(ReadError::NrCpus)?;
-        Ok(Some(nr_cpus))
+    pub fn nr_cpus(&self) -> Result<Option<NrCpus>, Error> {
+        self.feature_section(FlagFeature::NrCpus)
+            .map(|section| {
+                let mut cursor = Cursor::new(section);
+                match self.endian {
+                    Endianness::LittleEndian => NrCpus::parse::<_, LittleEndian>(&mut cursor),
+                    Endianness::BigEndian => NrCpus::parse::<_, BigEndian>(&mut cursor),
+                }
+            })
+            .transpose()
     }
 
     pub fn is_stats(&self) -> bool {
@@ -246,8 +241,11 @@ impl PerfFile {
             return Err(Error::NotEnoughSpaceForStringLen);
         }
         let (len_bytes, rest) = s.split_at(4);
-        let len = U32([len_bytes[0], len_bytes[1], len_bytes[2], len_bytes[3]]);
-        let len = len.get(self.endian);
+        let len_bytes = [len_bytes[0], len_bytes[1], len_bytes[2], len_bytes[3]];
+        let len = match self.endian {
+            Endianness::LittleEndian => u32::from_le_bytes(len_bytes),
+            Endianness::BigEndian => u32::from_be_bytes(len_bytes),
+        };
         let len = usize::try_from(len).map_err(|_| Error::StringLengthBiggerThanUsize)?;
         let s = &rest.get(..len as usize).ok_or(Error::StringLengthTooLong)?;
         let actual_len = memchr::memchr(0, s).unwrap_or(s.len());
@@ -663,12 +661,24 @@ impl BuildIdEvent {
 }
 
 /// `nr_cpus`
-#[derive(FromBytes, Debug, Clone, Copy)]
-#[repr(C)]
+#[derive(Debug, Clone, Copy)]
 pub struct NrCpus {
     /// CPUs not yet onlined
-    pub nr_cpus_available: U32,
-    pub nr_cpus_online: U32,
+    pub nr_cpus_available: u32,
+    pub nr_cpus_online: u32,
+}
+
+impl NrCpus {
+    pub const STRUCT_SIZE: usize = 4 + 4;
+
+    pub fn parse<R: Read, T: ByteOrder>(reader: &mut R) -> Result<Self, Error> {
+        let nr_cpus_available = reader.read_u32::<T>()?;
+        let nr_cpus_online = reader.read_u32::<T>()?;
+        Ok(Self {
+            nr_cpus_available,
+            nr_cpus_online,
+        })
+    }
 }
 
 /// The error type used in this crate.

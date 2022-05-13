@@ -2,8 +2,6 @@ mod perf_event;
 pub mod perf_event_raw;
 mod perf_file;
 mod raw_data;
-mod reader;
-mod unaligned;
 mod utils;
 
 use debugid::{CodeId, DebugId};
@@ -63,8 +61,7 @@ fn main() {
     if let Some(nr_cpus) = file.nr_cpus().unwrap() {
         println!(
             "CPUs: {} online ({} available)",
-            nr_cpus.nr_cpus_online.get(file.endian()),
-            nr_cpus.nr_cpus_available.get(file.endian())
+            nr_cpus.nr_cpus_online, nr_cpus.nr_cpus_available
         );
     }
 
@@ -148,7 +145,7 @@ where
     let mut all_image_stack_frames = HashSet::new();
     let mut kernel_modules = AddedModules(Vec::new());
     let build_ids = file.build_ids().ok().unwrap_or_default();
-    let little_endian = file.endian() == unaligned::Endianness::LittleEndian;
+    let little_endian = file.endian() == perf_file::Endianness::LittleEndian;
 
     let mut cursor = Cursor::new(data);
     let mut events = file.events(&mut cursor);
