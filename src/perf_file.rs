@@ -4,7 +4,7 @@ use std::io::{self, Cursor, Read, Seek, SeekFrom};
 use crate::perf_event::{
     BranchSampleFormat, CpuMode, Event, PerfEventAttr, RawEvent, SampleFormat,
 };
-use crate::perf_event_raw::{ATTR_FLAG_BIT_SAMPLE_ID_ALL, PERF_RECORD_MISC_BUILD_ID_SIZE};
+use crate::perf_event_consts::{ATTR_FLAG_BIT_SAMPLE_ID_ALL, PERF_RECORD_MISC_BUILD_ID_SIZE};
 use crate::raw_data::RawData;
 use byteorder::{BigEndian, ByteOrder, LittleEndian, ReadBytesExt};
 

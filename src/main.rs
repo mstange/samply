@@ -1,5 +1,5 @@
 pub mod perf_event;
-pub mod perf_event_raw;
+pub mod perf_event_consts;
 mod perf_file;
 mod raw_data;
 mod utils;
@@ -10,7 +10,7 @@ use framehop::x86_64::UnwindRegsX86_64;
 use framehop::{Module, ModuleSvmaInfo, TextByteData, Unwinder};
 use object::{Object, ObjectSection, ObjectSegment};
 use perf_event::{Event, Mmap2Event, Mmap2FileId, MmapEvent, Regs, SampleEvent};
-use perf_event_raw::{
+use perf_event_consts::{
     PERF_CONTEXT_MAX, PERF_REG_ARM64_LR, PERF_REG_ARM64_PC, PERF_REG_ARM64_SP, PERF_REG_ARM64_X29,
     PERF_REG_X86_BP, PERF_REG_X86_IP, PERF_REG_X86_SP,
 };
