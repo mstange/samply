@@ -1,9 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{self, Cursor, Read, Seek, SeekFrom};
 
 use crate::perf_event::{
-    AttrFlags, BranchSampleFormat, CpuMode, Event, PerfEventAttr, RawEvent, ReadFormat,
-    SampleFormat,
+    CpuMode, Event, PerfEventAttr, PerfEventHeader, RawEvent, RecordParseInfo, RecordType,
 };
 use crate::perf_event_consts::PERF_RECORD_MISC_BUILD_ID_SIZE;
 use crate::raw_data::RawData;
@@ -17,7 +16,7 @@ pub enum Endianness {
 
 pub struct PerfFile {
     endian: Endianness,
-    event_data_offset_and_size: (u64, u64),
+    record_data_offset_and_size: (u64, u64),
     perf_event_attrs: Vec<PerfEventAttr>,
     feature_sections: Vec<(FlagFeature, Vec<u8>)>,
 }
@@ -96,7 +95,7 @@ impl PerfFile {
         // }
 
         Ok(Self {
-            event_data_offset_and_size: (header.data_section.offset, header.data_section.size),
+            record_data_offset_and_size: (header.data_section.offset, header.data_section.size),
             perf_event_attrs,
             feature_sections,
             endian: header.endian,
@@ -174,29 +173,25 @@ impl PerfFile {
         Ok(build_ids)
     }
 
-    pub fn events<'a, 'b: 'a, C: Read + Seek>(&'a self, cursor: &'b mut C) -> EventIter<'a, C> {
+    pub fn records<'a, 'b: 'a, C: Read + Seek>(&'a self, cursor: &'b mut C) -> RecordIter<'a, C> {
         let endian = self.endian;
         let attr = &self.perf_event_attrs[0];
-        let sample_format = attr.sample_format;
-        let branch_sample_format = attr.branch_sample_format;
-        let read_format = attr.read_format;
-        let sample_id_all = attr.flags.contains(AttrFlags::SAMPLE_ID_ALL);
-        let sample_regs_user = attr.sample_regs_user;
-        let regs_count = sample_regs_user.count_ones() as usize;
-        let (offset, event_data_len) = self.event_data_offset_and_size;
+        let parse_info = RecordParseInfo::from_attr(attr);
+        let (offset, record_data_len) = self.record_data_offset_and_size;
+        println!(
+            "offset: {}, parse_info: {:#?}, attr: {:#?}",
+            offset, parse_info, attr
+        );
         cursor.seek(SeekFrom::Start(offset)).unwrap();
-        EventIter {
+        RecordIter {
             reader: cursor,
             current_event_body: Vec::new(),
-            offset: 0,
-            event_data_len,
-            sample_format,
-            branch_sample_format,
-            read_format,
-            sample_id_all,
-            sample_regs_user,
-            regs_count,
+            read_offset: 0,
+            record_data_len,
             endian,
+            parse_info,
+            remaining_pending_records: VecDeque::new(),
+            buffers_for_recycling: VecDeque::new(),
         }
     }
 
@@ -257,63 +252,142 @@ impl PerfFile {
     }
 }
 
-pub struct EventIter<'a, R: Read> {
+/// Emits records in the right order (sorted by time). It buffers records until it sees
+/// a FINISHED_ROUND record; then it sorts the buffered records.
+pub struct RecordIter<'a, R: Read> {
     reader: &'a mut R,
-    offset: u64,
-    event_data_len: u64,
+    read_offset: u64,
+    record_data_len: u64,
     current_event_body: Vec<u8>,
     endian: Endianness,
-    sample_format: SampleFormat,
-    branch_sample_format: BranchSampleFormat,
-    read_format: ReadFormat,
-    sample_id_all: bool,
-    sample_regs_user: u64,
-    regs_count: usize,
+    parse_info: RecordParseInfo,
+    /// Sorted by time
+    remaining_pending_records: VecDeque<PendingRecord>,
+    buffers_for_recycling: VecDeque<Vec<u8>>,
 }
 
-impl<'a, R: Read> EventIter<'a, R> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PendingRecord {
+    sort_key: RecordSortKey,
+    record_type: RecordType,
+    misc: u16,
+    buffer: Vec<u8>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct RecordSortKey {
+    timestamp: Option<u64>,
+    offset: u64,
+}
+
+impl<'a, R: Read> RecordIter<'a, R> {
+    /// Emits records in the correct order (sorted by time).
     #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Result<Option<Event>, Error> {
-        if self.offset >= self.event_data_len {
-            return Ok(None);
+        if self.remaining_pending_records.is_empty() {
+            self.read_current_round()?;
         }
-        let event = if self.endian == Endianness::LittleEndian {
-            self.read_next_event::<byteorder::LittleEndian>()
-        } else {
-            self.read_next_event::<byteorder::BigEndian>()
-        }?;
-
-        Ok(Some(event))
+        if let Some(pending_record) = self.remaining_pending_records.pop_front() {
+            return Ok(Some(self.convert_pending_record(pending_record)?));
+        }
+        Ok(None)
     }
 
-    fn read_next_event<T: ByteOrder>(&mut self) -> Result<Event, Error> {
-        let header = PerfEventHeader::parse::<_, T>(&mut self.reader)?;
-        let size = header.size as usize;
-        if size < PerfEventHeader::STRUCT_SIZE {
-            return Err(Error::InvalidPerfEventSize);
+    /// Reads events into self.remaining_pending_records until a FINISHED_ROUND
+    /// record is found and self.remaining_pending_records is non-empty, or until
+    /// we've run out of records to read.
+    ///
+    /// When this function returns, self.remaining_pending_records is sorted by
+    /// timestamp.
+    fn read_current_round(&mut self) -> Result<(), Error> {
+        if self.endian == Endianness::LittleEndian {
+            self.read_current_round_impl::<byteorder::LittleEndian>()
+        } else {
+            self.read_current_round_impl::<byteorder::BigEndian>()
         }
-        let event_body_len = size - PerfEventHeader::STRUCT_SIZE;
-        self.current_event_body.resize(event_body_len, 0);
-        self.reader
-            .read_exact(&mut self.current_event_body)
-            .map_err(|_| ReadError::PerfEventData)?;
+    }
+
+    /// Reads events into self.remaining_pending_records until a FINISHED_ROUND
+    /// record is found and self.remaining_pending_records is non-empty, or until
+    /// we've run out of records to read.
+    ///
+    /// When this function returns, self.remaining_pending_records is sorted by
+    /// timestamp.
+    fn read_current_round_impl<T: ByteOrder>(&mut self) -> Result<(), Error> {
+        assert!(self.remaining_pending_records.is_empty());
+
+        while self.read_offset < self.record_data_len {
+            let offset = self.read_offset;
+            let header = PerfEventHeader::parse::<_, T>(&mut self.reader)?;
+            let size = header.size as usize;
+            if size < PerfEventHeader::STRUCT_SIZE {
+                return Err(Error::InvalidPerfEventSize);
+            }
+            self.read_offset += u64::from(header.size);
+
+            let record_type = RecordType(header.type_);
+            if record_type == RecordType::FINISHED_ROUND {
+                if self.remaining_pending_records.is_empty() {
+                    // Keep going so that we never return with remaining_pending_records
+                    // being empty, unless we've truly run out of data to read.
+                    continue;
+                } else {
+                    // We've finished a non-empty round. Exit the loop.
+                    break;
+                }
+            }
+
+            let event_body_len = size - PerfEventHeader::STRUCT_SIZE;
+            let mut buffer = self.buffers_for_recycling.pop_front().unwrap_or_default();
+            buffer.resize(event_body_len, 0);
+            self.reader
+                .read_exact(&mut buffer)
+                .map_err(|_| ReadError::PerfEventData)?;
+
+            let misc = header.misc;
+            let raw_event = RawEvent {
+                record_type,
+                misc,
+                data: RawData::from(&buffer[..]),
+            };
+            let timestamp = raw_event.timestamp::<T>(&self.parse_info);
+            let sort_key = RecordSortKey { timestamp, offset };
+            let pending_record = PendingRecord {
+                sort_key,
+                record_type,
+                misc,
+                buffer,
+            };
+            self.remaining_pending_records.push_back(pending_record);
+        }
+
+        self.remaining_pending_records
+            .make_contiguous()
+            .sort_unstable_by_key(|r| r.sort_key);
+        Ok(())
+    }
+
+    /// Converts pending_record into an Event which references the data in self.current_event_body.
+    fn convert_pending_record(&mut self, pending_record: PendingRecord) -> Result<Event, Error> {
+        let PendingRecord {
+            record_type,
+            misc,
+            buffer,
+            ..
+        } = pending_record;
+        let prev_buffer = std::mem::replace(&mut self.current_event_body, buffer);
+        self.buffers_for_recycling.push_back(prev_buffer);
         let raw_data = RawData::from(&self.current_event_body[..]);
         let raw_event = RawEvent {
-            kind: header.type_,
-            misc: header.misc,
+            record_type,
+            misc,
             data: raw_data,
         };
-        let event = raw_event.parse::<T>(
-            self.sample_format,
-            self.branch_sample_format,
-            self.read_format,
-            self.regs_count,
-            self.sample_regs_user,
-            self.sample_id_all,
-        )?;
-        self.offset += u64::from(header.size);
-
-        Ok(event)
+        Ok(if self.endian == Endianness::LittleEndian {
+            raw_event.parse::<byteorder::LittleEndian>(&self.parse_info)
+        } else {
+            raw_event.parse::<byteorder::BigEndian>(&self.parse_info)
+        }?)
     }
 }
 
@@ -592,25 +666,6 @@ impl PerfFileSection {
         let offset = reader.read_u64::<T>()?;
         let size = reader.read_u64::<T>()?;
         Ok(Self { offset, size })
-    }
-}
-
-/// `perf_event_header`
-#[derive(Debug, Clone, Copy)]
-pub struct PerfEventHeader {
-    pub type_: u32,
-    pub misc: u16,
-    pub size: u16,
-}
-
-impl PerfEventHeader {
-    pub const STRUCT_SIZE: usize = 4 + 2 + 2;
-
-    pub fn parse<R: Read, T: ByteOrder>(reader: &mut R) -> Result<Self, Error> {
-        let type_ = reader.read_u32::<T>()?;
-        let misc = reader.read_u16::<T>()?;
-        let size = reader.read_u16::<T>()?;
-        Ok(Self { type_, misc, size })
     }
 }
 

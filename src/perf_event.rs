@@ -251,6 +251,25 @@ impl ClockId {
     }
 }
 
+/// `perf_event_header`
+#[derive(Debug, Clone, Copy)]
+pub struct PerfEventHeader {
+    pub type_: u32,
+    pub misc: u16,
+    pub size: u16,
+}
+
+impl PerfEventHeader {
+    pub const STRUCT_SIZE: usize = 4 + 2 + 2;
+
+    pub fn parse<R: Read, T: ByteOrder>(reader: &mut R) -> Result<Self, std::io::Error> {
+        let type_ = reader.read_u32::<T>()?;
+        let misc = reader.read_u16::<T>()?;
+        let size = reader.read_u16::<T>()?;
+        Ok(Self { type_, misc, size })
+    }
+}
+
 /// `perf_event_attr`
 #[derive(Debug, Clone, Copy)]
 pub struct PerfEventAttr {
@@ -466,7 +485,7 @@ impl PerfEventAttr {
 }
 
 pub struct RawEvent<'a> {
-    pub kind: u32,
+    pub record_type: RecordType,
     pub misc: u16,
     pub data: RawData<'a>,
 }
@@ -697,19 +716,33 @@ impl<'a> fmt::Debug for Mmap2Event<'a> {
 impl<'a> fmt::Debug for RawEvent<'a> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         fmt.debug_map()
-            .entry(&"kind", &self.kind)
+            .entry(&"record_type", &self.record_type)
             .entry(&"misc", &self.misc)
             .entry(&"data.len", &self.data.len())
             .finish()
     }
 }
 
-impl<'a> RawEvent<'a> {
-    #[allow(unused)]
-    fn skip_sample_id<T: ByteOrder, R: std::io::Read>(
-        cur: &mut R,
-        sample_format: SampleFormat,
-    ) -> Result<(), std::io::Error> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecordParseInfo {
+    pub sample_format: SampleFormat,
+    pub branch_sample_format: BranchSampleFormat,
+    pub read_format: ReadFormat,
+    pub common_data_offset_from_end: Option<usize>,
+    pub sample_regs_user: u64,
+    pub regs_count: usize,
+    pub nonsample_record_time_offset_from_end: Option<usize>,
+    pub nonsample_record_id_offset_from_end: Option<usize>,
+    pub sample_record_time_offset_from_start: Option<usize>,
+    pub sample_record_id_offset_from_start: Option<usize>,
+}
+
+impl RecordParseInfo {
+    pub fn from_attr(attr: &PerfEventAttr) -> Self {
+        let sample_format = attr.sample_format;
+        let branch_sample_format = attr.branch_sample_format;
+        let read_format = attr.read_format;
+
         // struct sample_id {
         //     { u32 pid, tid; }   /* if PERF_SAMPLE_TID set */
         //     { u64 time;     }   /* if PERF_SAMPLE_TIME set */
@@ -718,72 +751,448 @@ impl<'a> RawEvent<'a> {
         //     { u32 cpu, res; }   /* if PERF_SAMPLE_CPU set */
         //     { u64 id;       }   /* if PERF_SAMPLE_IDENTIFIER set */
         // };
-        let (pid, tid) = if sample_format.contains(SampleFormat::TID) {
-            let pid = cur.read_u32::<T>()?;
-            let tid = cur.read_u32::<T>()?;
-            (Some(pid), Some(tid))
+        let common_data_offset_from_end = if attr.flags.contains(AttrFlags::SAMPLE_ID_ALL) {
+            Some(
+                sample_format
+                    .intersection(
+                        SampleFormat::TID
+                            | SampleFormat::TIME
+                            | SampleFormat::ID
+                            | SampleFormat::STREAM_ID
+                            | SampleFormat::CPU
+                            | SampleFormat::IDENTIFIER,
+                    )
+                    .bits
+                    .count_ones() as usize
+                    * 8,
+            )
         } else {
-            (None, None)
+            None
         };
-
-        let timestamp = if sample_format.contains(SampleFormat::TIME) {
-            Some(cur.read_u64::<T>()?)
+        let sample_regs_user = attr.sample_regs_user;
+        let regs_count = sample_regs_user.count_ones() as usize;
+        let nonsample_record_time_offset_from_end = if attr.flags.contains(AttrFlags::SAMPLE_ID_ALL)
+            && sample_format.contains(SampleFormat::TIME)
+        {
+            Some(
+                sample_format
+                    .intersection(
+                        SampleFormat::TIME
+                            | SampleFormat::ID
+                            | SampleFormat::STREAM_ID
+                            | SampleFormat::CPU
+                            | SampleFormat::IDENTIFIER,
+                    )
+                    .bits
+                    .count_ones() as usize
+                    * 8,
+            )
+        } else {
+            None
+        };
+        let nonsample_record_id_offset_from_end = if attr.flags.contains(AttrFlags::SAMPLE_ID_ALL)
+            && sample_format.intersects(SampleFormat::ID | SampleFormat::IDENTIFIER)
+        {
+            if sample_format.contains(SampleFormat::IDENTIFIER) {
+                Some(8)
+            } else {
+                Some(
+                    sample_format
+                        .intersection(
+                            SampleFormat::ID
+                                | SampleFormat::STREAM_ID
+                                | SampleFormat::CPU
+                                | SampleFormat::IDENTIFIER,
+                        )
+                        .bits
+                        .count_ones() as usize
+                        * 8,
+                )
+            }
         } else {
             None
         };
 
-        if sample_format.contains(SampleFormat::ID) {
-            let _id = cur.read_u64::<T>()?;
-        }
-
-        if sample_format.contains(SampleFormat::STREAM_ID) {
-            let _stream_id = cur.read_u64::<T>()?;
-        }
-
-        let cpu = if sample_format.contains(SampleFormat::CPU) {
-            let cpu = cur.read_u32::<T>()?;
-            let _ = cur.read_u32::<T>()?; // Reserved field; is always zero.
-            Some(cpu)
+        // { u64 id;           } && PERF_SAMPLE_IDENTIFIER
+        // { u64 ip;           } && PERF_SAMPLE_IP
+        // { u32 pid; u32 tid; } && PERF_SAMPLE_TID
+        // { u64 time;         } && PERF_SAMPLE_TIME
+        // { u64 addr;         } && PERF_SAMPLE_ADDR
+        // { u64 id;           } && PERF_SAMPLE_ID
+        let sample_record_id_offset_from_start = if sample_format.contains(SampleFormat::IDENTIFIER)
+        {
+            Some(0)
+        } else if sample_format.contains(SampleFormat::ID) {
+            Some(
+                sample_format
+                    .intersection(
+                        SampleFormat::IP
+                            | SampleFormat::TID
+                            | SampleFormat::TIME
+                            | SampleFormat::ADDR,
+                    )
+                    .bits
+                    .count_ones() as usize
+                    * 8,
+            )
+        } else {
+            None
+        };
+        let sample_record_time_offset_from_start = if sample_format.contains(SampleFormat::TIME) {
+            Some(
+                sample_format
+                    .intersection(SampleFormat::IDENTIFIER | SampleFormat::IP | SampleFormat::TID)
+                    .bits
+                    .count_ones() as usize
+                    * 8,
+            )
         } else {
             None
         };
 
-        let period = if sample_format.contains(SampleFormat::PERIOD) {
-            let period = cur.read_u64::<T>()?;
-            Some(period)
-        } else {
-            None
-        };
+        Self {
+            sample_format,
+            branch_sample_format,
+            read_format,
+            common_data_offset_from_end,
+            sample_regs_user,
+            regs_count,
+            nonsample_record_time_offset_from_end,
+            nonsample_record_id_offset_from_end,
+            sample_record_time_offset_from_start,
+            sample_record_id_offset_from_start,
+        }
+    }
+}
 
-        if sample_format.contains(SampleFormat::IDENTIFIER) {
-            let _identifier = cur.read_u64::<T>()?;
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct RecordType(pub u32);
+
+impl RecordType {
+    // Kernel-built-in record types
+    pub const MMAP: Self = Self(PERF_RECORD_MMAP);
+    pub const LOST: Self = Self(PERF_RECORD_LOST);
+    pub const COMM: Self = Self(PERF_RECORD_COMM);
+    pub const EXIT: Self = Self(PERF_RECORD_EXIT);
+    pub const THROTTLE: Self = Self(PERF_RECORD_THROTTLE);
+    pub const UNTHROTTLE: Self = Self(PERF_RECORD_UNTHROTTLE);
+    pub const FORK: Self = Self(PERF_RECORD_FORK);
+    pub const READ: Self = Self(PERF_RECORD_READ);
+    pub const SAMPLE: Self = Self(PERF_RECORD_SAMPLE);
+    pub const MMAP2: Self = Self(PERF_RECORD_MMAP2);
+    pub const AUX: Self = Self(PERF_RECORD_AUX);
+    pub const ITRACE_START: Self = Self(PERF_RECORD_ITRACE_START);
+    pub const LOST_SAMPLES: Self = Self(PERF_RECORD_LOST_SAMPLES);
+    pub const SWITCH: Self = Self(PERF_RECORD_SWITCH);
+    pub const SWITCH_CPU_WIDE: Self = Self(PERF_RECORD_SWITCH_CPU_WIDE);
+    pub const NAMESPACES: Self = Self(PERF_RECORD_NAMESPACES);
+    pub const KSYMBOL: Self = Self(PERF_RECORD_KSYMBOL);
+    pub const BPF_EVENT: Self = Self(PERF_RECORD_BPF_EVENT);
+    pub const CGROUP: Self = Self(PERF_RECORD_CGROUP);
+    pub const TEXT_POKE: Self = Self(PERF_RECORD_TEXT_POKE);
+    pub const AUX_OUTPUT_HW_ID: Self = Self(PERF_RECORD_AUX_OUTPUT_HW_ID);
+
+    // Record types added by the `perf` tool from user space
+    pub const HEADER_ATTR: Self = Self(PERF_RECORD_HEADER_ATTR);
+    pub const HEADER_EVENT_TYPE: Self = Self(PERF_RECORD_HEADER_EVENT_TYPE);
+    pub const HEADER_TRACING_DATA: Self = Self(PERF_RECORD_HEADER_TRACING_DATA);
+    pub const HEADER_BUILD_ID: Self = Self(PERF_RECORD_HEADER_BUILD_ID);
+    pub const FINISHED_ROUND: Self = Self(PERF_RECORD_FINISHED_ROUND);
+    pub const ID_INDEX: Self = Self(PERF_RECORD_ID_INDEX);
+    pub const AUXTRACE_INFO: Self = Self(PERF_RECORD_AUXTRACE_INFO);
+    pub const AUXTRACE: Self = Self(PERF_RECORD_AUXTRACE);
+    pub const AUXTRACE_ERROR: Self = Self(PERF_RECORD_AUXTRACE_ERROR);
+    pub const THREAD_MAP: Self = Self(PERF_RECORD_THREAD_MAP);
+    pub const CPU_MAP: Self = Self(PERF_RECORD_CPU_MAP);
+    pub const STAT_CONFIG: Self = Self(PERF_RECORD_STAT_CONFIG);
+    pub const STAT: Self = Self(PERF_RECORD_STAT);
+    pub const STAT_ROUND: Self = Self(PERF_RECORD_STAT_ROUND);
+    pub const EVENT_UPDATE: Self = Self(PERF_RECORD_EVENT_UPDATE);
+    pub const TIME_CONV: Self = Self(PERF_RECORD_TIME_CONV);
+    pub const HEADER_FEATURE: Self = Self(PERF_RECORD_HEADER_FEATURE);
+    pub const COMPRESSED: Self = Self(PERF_RECORD_COMPRESSED);
+
+    pub fn is_builtin_type(&self) -> bool {
+        self.0 < PERF_RECORD_USER_TYPE_START
+    }
+
+    pub fn is_user_type(&self) -> bool {
+        self.0 >= PERF_RECORD_USER_TYPE_START
+    }
+}
+
+impl fmt::Debug for RecordType {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        let s = match *self {
+            Self::MMAP => "MMAP",
+            Self::LOST => "LOST",
+            Self::COMM => "COMM",
+            Self::EXIT => "EXIT",
+            Self::THROTTLE => "THROTTLE",
+            Self::UNTHROTTLE => "UNTHROTTLE",
+            Self::FORK => "FORK",
+            Self::READ => "READ",
+            Self::SAMPLE => "SAMPLE",
+            Self::MMAP2 => "MMAP2",
+            Self::AUX => "AUX",
+            Self::ITRACE_START => "ITRACE_START",
+            Self::LOST_SAMPLES => "LOST_SAMPLES",
+            Self::SWITCH => "SWITCH",
+            Self::SWITCH_CPU_WIDE => "SWITCH_CPU_WIDE",
+            Self::NAMESPACES => "NAMESPACES",
+            Self::KSYMBOL => "KSYMBOL",
+            Self::BPF_EVENT => "BPF_EVENT",
+            Self::CGROUP => "CGROUP",
+            Self::TEXT_POKE => "TEXT_POKE",
+            Self::AUX_OUTPUT_HW_ID => "AUX_OUTPUT_HW_ID",
+            Self::HEADER_ATTR => "HEADER_ATTR",
+            Self::HEADER_EVENT_TYPE => "HEADER_EVENT_TYPE",
+            Self::HEADER_TRACING_DATA => "HEADER_TRACING_DATA",
+            Self::HEADER_BUILD_ID => "HEADER_BUILD_ID",
+            Self::FINISHED_ROUND => "FINISHED_ROUND",
+            Self::ID_INDEX => "ID_INDEX",
+            Self::AUXTRACE_INFO => "AUXTRACE_INFO",
+            Self::AUXTRACE => "AUXTRACE",
+            Self::AUXTRACE_ERROR => "AUXTRACE_ERROR",
+            Self::THREAD_MAP => "THREAD_MAP",
+            Self::CPU_MAP => "CPU_MAP",
+            Self::STAT_CONFIG => "STAT_CONFIG",
+            Self::STAT => "STAT",
+            Self::STAT_ROUND => "STAT_ROUND",
+            Self::EVENT_UPDATE => "EVENT_UPDATE",
+            Self::TIME_CONV => "TIME_CONV",
+            Self::HEADER_FEATURE => "HEADER_FEATURE",
+            Self::COMPRESSED => "COMPRESSED",
+            other => {
+                return fmt.write_fmt(format_args!("Unknown: {}", other.0));
+            }
+        };
+        fmt.write_str(s)
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct CommonData {
+    pub pid: Option<i32>,
+    pub tid: Option<i32>,
+    pub timestamp: Option<u64>,
+    pub id: Option<u64>,
+    pub stream_id: Option<u64>,
+    pub cpu: Option<u32>,
+}
+
+impl<'a> RawEvent<'a> {
+    pub fn common_data<T: ByteOrder>(
+        &self,
+        parse_info: &RecordParseInfo,
+    ) -> Result<CommonData, std::io::Error> {
+        if self.record_type.is_user_type() {
+            return Ok(Default::default());
         }
 
-        let _ = (pid, tid, cpu, period);
+        let sample_format = parse_info.sample_format;
 
-        Ok(())
+        if self.record_type == RecordType::SAMPLE {
+            // { u64 id;       } && PERF_SAMPLE_IDENTIFIER
+            // { u64 ip;       } && PERF_SAMPLE_IP
+            // { u32 pid, tid; } && PERF_SAMPLE_TID
+            // { u64 time;     } && PERF_SAMPLE_TIME
+            // { u64 addr;     } && PERF_SAMPLE_ADDR
+            // { u64 id;       } && PERF_SAMPLE_ID
+            // { u64 stream_id;} && PERF_SAMPLE_STREAM_ID
+            // { u32 cpu, res; } && PERF_SAMPLE_CPU
+            let mut cur = self.data;
+            let identifier = if sample_format.contains(SampleFormat::IDENTIFIER) {
+                Some(cur.read_u64::<T>()?)
+            } else {
+                None
+            };
+
+            if sample_format.contains(SampleFormat::IP) {
+                let _ip = cur.read_u64::<T>()?;
+            }
+
+            let (pid, tid) = if sample_format.contains(SampleFormat::TID) {
+                let pid = cur.read_i32::<T>()?;
+                let tid = cur.read_i32::<T>()?;
+                (Some(pid), Some(tid))
+            } else {
+                (None, None)
+            };
+
+            let timestamp = if sample_format.contains(SampleFormat::TIME) {
+                Some(cur.read_u64::<T>()?)
+            } else {
+                None
+            };
+
+            if sample_format.contains(SampleFormat::ADDR) {
+                let _addr = cur.read_u64::<T>()?;
+            }
+
+            let id = if sample_format.contains(SampleFormat::ID) {
+                Some(cur.read_u64::<T>()?)
+            } else {
+                None
+            };
+            let id = identifier.or(id);
+
+            let stream_id = if sample_format.contains(SampleFormat::STREAM_ID) {
+                Some(cur.read_u64::<T>()?)
+            } else {
+                None
+            };
+
+            let cpu = if sample_format.contains(SampleFormat::CPU) {
+                let cpu = cur.read_u32::<T>()?;
+                let _ = cur.read_u32::<T>()?; // Reserved field; is always zero.
+                Some(cpu)
+            } else {
+                None
+            };
+
+            Ok(CommonData {
+                pid,
+                tid,
+                timestamp,
+                id,
+                stream_id,
+                cpu,
+            })
+        } else if let Some(common_data_offset_from_end) = parse_info.common_data_offset_from_end {
+            let mut cur = self.data;
+            let common_data_offset_from_start = cur
+                .len()
+                .checked_sub(common_data_offset_from_end)
+                .ok_or(std::io::ErrorKind::UnexpectedEof)?;
+            cur.skip(common_data_offset_from_start)?;
+
+            // struct sample_id {
+            //     { u32 pid, tid;  }   /* if PERF_SAMPLE_TID set */
+            //     { u64 timestamp; }   /* if PERF_SAMPLE_TIME set */
+            //     { u64 id;        }   /* if PERF_SAMPLE_ID set */
+            //     { u64 stream_id; }   /* if PERF_SAMPLE_STREAM_ID set  */
+            //     { u32 cpu, res;  }   /* if PERF_SAMPLE_CPU set */
+            //     { u64 identifier;}   /* if PERF_SAMPLE_IDENTIFIER set */
+            // };
+            let (pid, tid) = if sample_format.contains(SampleFormat::TID) {
+                let pid = cur.read_i32::<T>()?;
+                let tid = cur.read_i32::<T>()?;
+                (Some(pid), Some(tid))
+            } else {
+                (None, None)
+            };
+
+            let timestamp = if sample_format.contains(SampleFormat::TIME) {
+                Some(cur.read_u64::<T>()?)
+            } else {
+                None
+            };
+
+            let id = if sample_format.contains(SampleFormat::ID) {
+                Some(cur.read_u64::<T>()?)
+            } else {
+                None
+            };
+
+            let stream_id = if sample_format.contains(SampleFormat::STREAM_ID) {
+                Some(cur.read_u64::<T>()?)
+            } else {
+                None
+            };
+
+            let cpu = if sample_format.contains(SampleFormat::CPU) {
+                let cpu = cur.read_u32::<T>()?;
+                let _ = cur.read_u32::<T>()?; // Reserved field; is always zero.
+                Some(cpu)
+            } else {
+                None
+            };
+
+            let identifier = if sample_format.contains(SampleFormat::IDENTIFIER) {
+                Some(cur.read_u64::<T>()?)
+            } else {
+                None
+            };
+            let id = identifier.or(id);
+
+            Ok(CommonData {
+                pid,
+                tid,
+                timestamp,
+                id,
+                stream_id,
+                cpu,
+            })
+        } else {
+            Ok(Default::default())
+        }
+    }
+
+    pub fn timestamp<T: ByteOrder>(&self, parse_info: &RecordParseInfo) -> Option<u64> {
+        if self.record_type.is_user_type() {
+            return None;
+        }
+
+        if self.record_type == RecordType::SAMPLE {
+            if let Some(time_offset_from_start) = parse_info.sample_record_time_offset_from_start {
+                let mut data = self.data;
+                data.skip(time_offset_from_start).ok()?;
+                data.read_u64::<T>().ok()
+            } else {
+                None
+            }
+        } else if let Some(time_offset_from_end) = parse_info.nonsample_record_time_offset_from_end
+        {
+            let mut data = self.data;
+            let time_offset_from_start = data.len().checked_sub(time_offset_from_end)?;
+            data.skip(time_offset_from_start).ok()?;
+            data.read_u64::<T>().ok()
+        } else {
+            None
+        }
+    }
+
+    pub fn id<T: ByteOrder>(&self, parse_info: &RecordParseInfo) -> Option<u64> {
+        if self.record_type.is_user_type() {
+            return None;
+        }
+
+        if self.record_type == RecordType::SAMPLE {
+            if let Some(id_offset_from_start) = parse_info.sample_record_id_offset_from_start {
+                let mut data = self.data;
+                data.skip(id_offset_from_start).ok()?;
+                data.read_u64::<T>().ok()
+            } else {
+                None
+            }
+        } else if let Some(id_offset_from_end) = parse_info.nonsample_record_id_offset_from_end {
+            let mut data = self.data;
+            let id_offset_from_start = data.len().checked_sub(id_offset_from_end)?;
+            data.skip(id_offset_from_start).ok()?;
+            data.read_u64::<T>().ok()
+        } else {
+            None
+        }
     }
 
     pub fn parse<T: ByteOrder>(
         self,
-        sample_format: SampleFormat,
-        branch_sample_format: BranchSampleFormat,
-        read_format: ReadFormat,
-        regs_count: usize,
-        sample_regs_user: u64,
-        _sample_id_all: bool,
+        parse_info: &RecordParseInfo,
     ) -> Result<Event<'a>, std::io::Error> {
+        let sample_format = parse_info.sample_format;
+        let branch_sample_format = parse_info.branch_sample_format;
+        let read_format = parse_info.read_format;
+        let regs_count = parse_info.regs_count;
+        let sample_regs_user = parse_info.sample_regs_user;
         let mut cur = self.data;
-        let event = match self.kind {
-            PERF_RECORD_EXIT | PERF_RECORD_FORK => {
+        let event = match self.record_type {
+            RecordType::EXIT | RecordType::FORK => {
                 let pid = cur.read_i32::<T>()?;
                 let ppid = cur.read_i32::<T>()?;
                 let tid = cur.read_i32::<T>()?;
                 let ptid = cur.read_i32::<T>()?;
                 let timestamp = cur.read_u64::<T>()?;
-                // if sample_id_all {
-                //     Self::skip_sample_id::<T, _>(&mut cur, sample_type);
-                // }
 
                 let event = ProcessEvent {
                     pid,
@@ -793,14 +1202,14 @@ impl<'a> RawEvent<'a> {
                     timestamp,
                 };
 
-                if self.kind == PERF_RECORD_EXIT {
+                if self.record_type == RecordType::EXIT {
                     Event::Exit(event)
                 } else {
                     Event::Fork(event)
                 }
             }
 
-            PERF_RECORD_SAMPLE => {
+            RecordType::SAMPLE => {
                 if sample_format.contains(SampleFormat::IDENTIFIER) {
                     let _identifier = cur.read_u64::<T>()?;
                 }
@@ -988,7 +1397,7 @@ impl<'a> RawEvent<'a> {
                 })
             }
 
-            PERF_RECORD_COMM => {
+            RecordType::COMM => {
                 let pid = cur.read_i32::<T>()?;
                 let tid = cur.read_i32::<T>()?;
                 let name = cur.read_string().unwrap_or(cur); // TODO: return error if no string terminator found
@@ -1004,7 +1413,7 @@ impl<'a> RawEvent<'a> {
                 })
             }
 
-            PERF_RECORD_MMAP => {
+            RecordType::MMAP => {
                 // struct {
                 //   struct perf_event_header header;
                 //
@@ -1036,7 +1445,7 @@ impl<'a> RawEvent<'a> {
                 })
             }
 
-            PERF_RECORD_MMAP2 => {
+            RecordType::MMAP2 => {
                 let pid = cur.read_i32::<T>()?;
                 let tid = cur.read_i32::<T>()?;
                 let address = cur.read_u64::<T>()?;
@@ -1080,24 +1489,24 @@ impl<'a> RawEvent<'a> {
                 })
             }
 
-            PERF_RECORD_LOST => {
+            RecordType::LOST => {
                 let id = cur.read_u64::<T>()?;
                 let count = cur.read_u64::<T>()?;
                 Event::Lost(LostEvent { id, count })
             }
 
-            PERF_RECORD_THROTTLE | PERF_RECORD_UNTHROTTLE => {
+            RecordType::THROTTLE | RecordType::UNTHROTTLE => {
                 let timestamp = cur.read_u64::<T>()?;
                 let id = cur.read_u64::<T>()?;
                 let event = ThrottleEvent { id, timestamp };
-                if self.kind == PERF_RECORD_THROTTLE {
+                if self.record_type == RecordType::THROTTLE {
                     Event::Throttle(event)
                 } else {
                     Event::Unthrottle(event)
                 }
             }
 
-            PERF_RECORD_SWITCH => {
+            RecordType::SWITCH => {
                 let is_out = self.misc & PERF_RECORD_MISC_SWITCH_OUT != 0;
                 let is_out_preempt = self.misc & PERF_RECORD_MISC_SWITCH_OUT_PREEMPT != 0;
                 let kind = if is_out {

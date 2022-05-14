@@ -503,6 +503,26 @@ pub const PERF_RECORD_TEXT_POKE: u32 = 20;
  */
 pub const PERF_RECORD_AUX_OUTPUT_HW_ID: u32 = 21;
 
+pub const PERF_RECORD_USER_TYPE_START: u32 = 64;
+pub const PERF_RECORD_HEADER_ATTR: u32 = 64;
+pub const PERF_RECORD_HEADER_EVENT_TYPE: u32 = 65; /* deprecated */
+pub const PERF_RECORD_HEADER_TRACING_DATA: u32 = 66;
+pub const PERF_RECORD_HEADER_BUILD_ID: u32 = 67;
+pub const PERF_RECORD_FINISHED_ROUND: u32 = 68;
+pub const PERF_RECORD_ID_INDEX: u32 = 69;
+pub const PERF_RECORD_AUXTRACE_INFO: u32 = 70;
+pub const PERF_RECORD_AUXTRACE: u32 = 71;
+pub const PERF_RECORD_AUXTRACE_ERROR: u32 = 72;
+pub const PERF_RECORD_THREAD_MAP: u32 = 73;
+pub const PERF_RECORD_CPU_MAP: u32 = 74;
+pub const PERF_RECORD_STAT_CONFIG: u32 = 75;
+pub const PERF_RECORD_STAT: u32 = 76;
+pub const PERF_RECORD_STAT_ROUND: u32 = 77;
+pub const PERF_RECORD_EVENT_UPDATE: u32 = 78;
+pub const PERF_RECORD_TIME_CONV: u32 = 79;
+pub const PERF_RECORD_HEADER_FEATURE: u32 = 80;
+pub const PERF_RECORD_COMPRESSED: u32 = 81;
+
 pub const PERF_SAMPLE_IP: u64 = 1 << 0;
 pub const PERF_SAMPLE_TID: u64 = 1 << 1;
 pub const PERF_SAMPLE_TIME: u64 = 1 << 2;

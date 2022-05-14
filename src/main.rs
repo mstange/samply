@@ -148,11 +148,11 @@ where
     let little_endian = file.endian() == perf_file::Endianness::LittleEndian;
 
     let mut cursor = Cursor::new(data);
-    let mut events = file.events(&mut cursor);
+    let mut records = file.records(&mut cursor);
     let mut count = 0;
-    while let Ok(Some(event)) = events.next() {
+    while let Ok(Some(record)) = records.next() {
         count += 1;
-        match event {
+        match record {
             Event::Sample(e) => {
                 let pid = e.pid.expect("Can't handle samples without pids");
                 let process = processes
