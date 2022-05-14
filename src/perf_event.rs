@@ -3,7 +3,7 @@ use crate::raw_data::{RawData, RawRegs};
 use crate::utils::{HexSlice, HexValue};
 use bitflags::bitflags;
 use byteorder::{ByteOrder, ReadBytesExt};
-use std::io::{Cursor, Read};
+use std::io::Read;
 use std::{fmt, io};
 
 bitflags! {
@@ -521,10 +521,10 @@ pub struct ProcessEvent {
     pub timestamp: u64,
 }
 
-pub struct CommEvent {
+pub struct CommEvent<'a> {
     pub pid: i32,
     pub tid: i32,
-    pub name: Vec<u8>,
+    pub name: RawData<'a>,
     pub is_execve: bool,
 }
 
@@ -534,7 +534,7 @@ pub struct CommEvent {
 /// the kernel image. So if you want to symbolicate kernel addresses you still
 /// need to process these.
 /// The kernel image MMAP events have pid -1.
-pub struct MmapEvent {
+pub struct MmapEvent<'a> {
     pub pid: i32,
     pub tid: i32,
     pub address: u64,
@@ -542,7 +542,7 @@ pub struct MmapEvent {
     pub page_offset: u64,
     pub is_executable: bool,
     pub cpu_mode: CpuMode,
-    pub path: Vec<u8>,
+    pub path: RawData<'a>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -574,7 +574,7 @@ pub enum Mmap2FileId {
     BuildId(Vec<u8>),
 }
 
-pub struct Mmap2Event {
+pub struct Mmap2Event<'a> {
     pub pid: i32,
     pub tid: i32,
     pub address: u64,
@@ -584,7 +584,7 @@ pub struct Mmap2Event {
     pub protection: u32,
     pub flags: u32,
     pub cpu_mode: CpuMode,
-    pub path: Vec<u8>,
+    pub path: RawData<'a>,
 }
 
 pub struct Mmap2InodeAndVersion {
@@ -616,11 +616,11 @@ pub enum ContextSwitchKind {
 #[derive(Debug)]
 pub enum Event<'a> {
     Sample(SampleEvent<'a>),
-    Comm(CommEvent),
+    Comm(CommEvent<'a>),
     Exit(ProcessEvent),
     Fork(ProcessEvent),
-    Mmap(MmapEvent),
-    Mmap2(Mmap2Event),
+    Mmap(MmapEvent<'a>),
+    Mmap2(Mmap2Event<'a>),
     Lost(LostEvent),
     Throttle(ThrottleEvent),
     Unthrottle(ThrottleEvent),
@@ -643,14 +643,14 @@ impl<'a> fmt::Debug for SampleEvent<'a> {
     }
 }
 
-impl fmt::Debug for CommEvent {
+impl<'a> fmt::Debug for CommEvent<'a> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         use std::str;
 
         let mut map = fmt.debug_map();
         map.entry(&"pid", &self.pid).entry(&"tid", &self.tid);
 
-        if let Ok(string) = str::from_utf8(&self.name) {
+        if let Ok(string) = str::from_utf8(&self.name.as_slice()) {
             map.entry(&"name", &string);
         } else {
             map.entry(&"name", &self.name);
@@ -660,7 +660,7 @@ impl fmt::Debug for CommEvent {
     }
 }
 
-impl fmt::Debug for MmapEvent {
+impl<'a> fmt::Debug for MmapEvent<'a> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         fmt.debug_map()
             .entry(&"pid", &self.pid)
@@ -669,12 +669,12 @@ impl fmt::Debug for MmapEvent {
             .entry(&"length", &HexValue(self.length))
             .entry(&"page_offset", &HexValue(self.page_offset))
             .entry(&"cpu_mode", &self.cpu_mode)
-            .entry(&"path", &&*String::from_utf8_lossy(&self.path))
+            .entry(&"path", &&*String::from_utf8_lossy(&self.path.as_slice()))
             .finish()
     }
 }
 
-impl fmt::Debug for Mmap2Event {
+impl<'a> fmt::Debug for Mmap2Event<'a> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         fmt.debug_map()
             .entry(&"pid", &self.pid)
@@ -689,7 +689,7 @@ impl fmt::Debug for Mmap2Event {
             .entry(&"protection", &HexValue(self.protection as _))
             .entry(&"flags", &HexValue(self.flags as _))
             .entry(&"cpu_mode", &self.cpu_mode)
-            .entry(&"path", &&*String::from_utf8_lossy(&self.path))
+            .entry(&"path", &&*String::from_utf8_lossy(&self.path.as_slice()))
             .finish()
     }
 }
@@ -773,11 +773,9 @@ impl<'a> RawEvent<'a> {
         sample_regs_user: u64,
         _sample_id_all: bool,
     ) -> Result<Event<'a>, std::io::Error> {
+        let mut cur = self.data;
         let event = match self.kind {
             PERF_RECORD_EXIT | PERF_RECORD_FORK => {
-                let raw_data = self.data.as_slice();
-                let mut cur = Cursor::new(&raw_data);
-
                 let pid = cur.read_i32::<T>()?;
                 let ppid = cur.read_i32::<T>()?;
                 let tid = cur.read_i32::<T>()?;
@@ -803,9 +801,6 @@ impl<'a> RawEvent<'a> {
             }
 
             PERF_RECORD_SAMPLE => {
-                let raw_data = self.data.as_slice();
-                let mut cur = Cursor::new(&raw_data);
-
                 if sample_format.contains(SampleFormat::IDENTIFIER) {
                     let _identifier = cur.read_u64::<T>()?;
                 }
@@ -898,7 +893,7 @@ impl<'a> RawEvent<'a> {
 
                 if sample_format.contains(SampleFormat::RAW) {
                     let size = cur.read_u32::<T>()?;
-                    cur.set_position(cur.position() + size as u64);
+                    cur.skip(size as usize)?;
                 }
 
                 if sample_format.contains(SampleFormat::BRANCH_STACK) {
@@ -918,12 +913,9 @@ impl<'a> RawEvent<'a> {
                     if regs_abi == 0 {
                         None
                     } else {
-                        let regs_end_pos =
-                            cur.position() + regs_count as u64 * std::mem::size_of::<u64>() as u64;
-                        let regs_range = cur.position() as usize..regs_end_pos as usize;
-                        cur.set_position(regs_end_pos);
-
-                        let raw_regs = RawRegs::from_raw_data(self.data.get(regs_range));
+                        let raw_regs =
+                            cur.split_off_prefix(regs_count * std::mem::size_of::<u64>())?;
+                        let raw_regs = RawRegs::from_raw_data(raw_regs);
                         let regs = Regs::new(sample_regs_user, raw_regs);
                         Some(regs)
                     }
@@ -935,17 +927,13 @@ impl<'a> RawEvent<'a> {
                 let dynamic_stack_size;
                 if sample_format.contains(SampleFormat::STACK_USER) {
                     let stack_size = cur.read_u64::<T>()?;
-                    let stack_end_pos = cur.position() + stack_size;
-                    let stack_range = cur.position() as usize..stack_end_pos as usize;
-                    cur.set_position(stack_end_pos);
+                    stack = cur.split_off_prefix(stack_size as usize)?;
 
                     dynamic_stack_size = if stack_size != 0 {
                         cur.read_u64::<T>()?
                     } else {
                         0
                     };
-
-                    stack = self.data.get(stack_range)
                 } else {
                     dynamic_stack_size = 0;
                     stack = RawData::empty();
@@ -966,9 +954,7 @@ impl<'a> RawEvent<'a> {
                 if sample_format.contains(SampleFormat::REGS_INTR) {
                     let regs_abi = cur.read_u64::<T>()?;
                     if regs_abi != 0 {
-                        let regs_end_pos =
-                            cur.position() + regs_count as u64 * std::mem::size_of::<u64>() as u64;
-                        cur.set_position(regs_end_pos);
+                        cur.skip(regs_count * std::mem::size_of::<u64>())?;
                     }
                 }
 
@@ -978,7 +964,7 @@ impl<'a> RawEvent<'a> {
 
                 if sample_format.contains(SampleFormat::AUX) {
                     let size = cur.read_u64::<T>()?;
-                    cur.set_position(cur.position() + size);
+                    cur.skip(size as usize)?;
                 }
 
                 if sample_format.contains(SampleFormat::DATA_PAGE_SIZE) {
@@ -1003,16 +989,9 @@ impl<'a> RawEvent<'a> {
             }
 
             PERF_RECORD_COMM => {
-                let raw_data = self.data.as_slice();
-                let mut cur = Cursor::new(&raw_data);
-
                 let pid = cur.read_i32::<T>()?;
                 let tid = cur.read_i32::<T>()?;
-                let name = &raw_data[cur.position() as usize..];
-                let name = &name[0..name
-                    .iter()
-                    .position(|&byte| byte == 0)
-                    .unwrap_or(name.len())];
+                let name = cur.read_string().unwrap_or(cur); // TODO: return error if no string terminator found
 
                 // TODO: Maybe feature-gate this on 3.16+
                 let is_execve = self.misc & PERF_RECORD_MISC_COMM_EXEC != 0;
@@ -1020,15 +999,12 @@ impl<'a> RawEvent<'a> {
                 Event::Comm(CommEvent {
                     pid,
                     tid,
-                    name: name.to_owned(),
+                    name,
                     is_execve,
                 })
             }
 
             PERF_RECORD_MMAP => {
-                let raw_data = self.data.as_slice();
-                let mut cur = Cursor::new(&raw_data);
-
                 // struct {
                 //   struct perf_event_header header;
                 //
@@ -1045,11 +1021,7 @@ impl<'a> RawEvent<'a> {
                 let address = cur.read_u64::<T>()?;
                 let length = cur.read_u64::<T>()?;
                 let page_offset = cur.read_u64::<T>()?;
-                let name = &raw_data[cur.position() as usize..];
-                let name = &name[0..name
-                    .iter()
-                    .position(|&byte| byte == 0)
-                    .unwrap_or(name.len())];
+                let path = cur.read_string().unwrap_or(cur); // TODO: return error if no string terminator found
                 let is_executable = self.misc & PERF_RECORD_MISC_MMAP_DATA == 0;
 
                 Event::Mmap(MmapEvent {
@@ -1060,14 +1032,11 @@ impl<'a> RawEvent<'a> {
                     page_offset,
                     is_executable,
                     cpu_mode: CpuMode::from_misc(self.misc),
-                    path: name.to_owned(),
+                    path,
                 })
             }
 
             PERF_RECORD_MMAP2 => {
-                let raw_data = self.data.as_slice();
-                let mut cur = Cursor::new(&raw_data);
-
                 let pid = cur.read_i32::<T>()?;
                 let tid = cur.read_i32::<T>()?;
                 let address = cur.read_u64::<T>()?;
@@ -1076,12 +1045,11 @@ impl<'a> RawEvent<'a> {
                 let file_id = if self.misc & PERF_RECORD_MISC_MMAP_BUILD_ID != 0 {
                     let build_id_len = cur.read_u8()?;
                     assert!(build_id_len <= 20);
-                    let _ = cur.read_u8()?;
-                    let _ = cur.read_u16::<T>()?;
-                    let build_id =
-                        raw_data[cur.position() as usize..][..build_id_len as usize].to_owned();
-                    cur.set_position(cur.position() + 20);
-                    Mmap2FileId::BuildId(build_id)
+                    let _align = cur.read_u8()?;
+                    let _align = cur.read_u16::<T>()?;
+                    let mut build_id_bytes = [0; 20];
+                    cur.read_exact(&mut build_id_bytes)?;
+                    Mmap2FileId::BuildId(build_id_bytes[..build_id_len as usize].to_owned())
                 } else {
                     let major = cur.read_u32::<T>()?;
                     let minor = cur.read_u32::<T>()?;
@@ -1096,11 +1064,7 @@ impl<'a> RawEvent<'a> {
                 };
                 let protection = cur.read_u32::<T>()?;
                 let flags = cur.read_u32::<T>()?;
-                let name = &raw_data[cur.position() as usize..];
-                let name = &name[0..name
-                    .iter()
-                    .position(|&byte| byte == 0)
-                    .unwrap_or(name.len())];
+                let path = cur.read_string().unwrap_or(cur); // TODO: return error if no string terminator found
 
                 Event::Mmap2(Mmap2Event {
                     pid,
@@ -1112,23 +1076,17 @@ impl<'a> RawEvent<'a> {
                     protection,
                     flags,
                     cpu_mode: CpuMode::from_misc(self.misc),
-                    path: name.to_owned(),
+                    path,
                 })
             }
 
             PERF_RECORD_LOST => {
-                let raw_data = self.data.as_slice();
-                let mut cur = Cursor::new(&raw_data);
-
                 let id = cur.read_u64::<T>()?;
                 let count = cur.read_u64::<T>()?;
                 Event::Lost(LostEvent { id, count })
             }
 
             PERF_RECORD_THROTTLE | PERF_RECORD_UNTHROTTLE => {
-                let raw_data = self.data.as_slice();
-                let mut cur = Cursor::new(&raw_data);
-
                 let timestamp = cur.read_u64::<T>()?;
                 let id = cur.read_u64::<T>()?;
                 let event = ThrottleEvent { id, timestamp };

@@ -13,6 +13,7 @@ use byteorder::{ByteOrder, NativeEndian};
 /// When reading perf events from the mmap'd fd that contains the perf event
 /// stream, it often happens that a single event straddles the boundary between
 /// two mmap chunks, or is wrapped from the end to the start of a chunk.
+#[derive(Clone, Copy)]
 pub enum RawData<'a> {
     Single(&'a [u8]),
     #[allow(unused)]
@@ -55,6 +56,161 @@ impl<'a> RawData<'a> {
         RawData::Single(&[])
     }
 
+    pub fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), std::io::Error> {
+        let buf_len = buf.len();
+        *self = match *self {
+            RawData::Single(single) => {
+                if single.len() < buf_len {
+                    return Err(std::io::ErrorKind::UnexpectedEof.into());
+                }
+                buf.copy_from_slice(&single[..buf_len]);
+                RawData::Single(&single[buf_len..])
+            }
+            RawData::Split(left, right) => {
+                if buf_len <= left.len() {
+                    buf.copy_from_slice(&left[..buf_len]);
+                    if buf_len < left.len() {
+                        RawData::Split(&left[buf_len..], right)
+                    } else {
+                        RawData::Single(right)
+                    }
+                } else {
+                    let remainder_len = buf_len - left.len();
+                    if remainder_len > right.len() {
+                        return Err(std::io::ErrorKind::UnexpectedEof.into());
+                    }
+                    buf.copy_from_slice(left);
+                    buf.copy_from_slice(&right[..remainder_len]);
+                    RawData::Single(&right[remainder_len..])
+                }
+            }
+        };
+        Ok(())
+    }
+
+    pub fn read_u64<T: ByteOrder>(&mut self) -> Result<u64, std::io::Error> {
+        let mut b = [0; 8];
+        self.read_exact(&mut b)?;
+        Ok(T::read_u64(&b))
+    }
+
+    pub fn read_u32<T: ByteOrder>(&mut self) -> Result<u32, std::io::Error> {
+        let mut b = [0; 4];
+        self.read_exact(&mut b)?;
+        Ok(T::read_u32(&b))
+    }
+
+    pub fn read_i32<T: ByteOrder>(&mut self) -> Result<i32, std::io::Error> {
+        let mut b = [0; 4];
+        self.read_exact(&mut b)?;
+        Ok(T::read_i32(&b))
+    }
+
+    pub fn read_u16<T: ByteOrder>(&mut self) -> Result<u16, std::io::Error> {
+        let mut b = [0; 2];
+        self.read_exact(&mut b)?;
+        Ok(T::read_u16(&b))
+    }
+
+    pub fn read_u8(&mut self) -> Result<u8, std::io::Error> {
+        let mut b = [0; 1];
+        self.read_exact(&mut b)?;
+        Ok(b[0])
+    }
+
+    /// Finds the first nul byte. Returns everything before that nul byte.
+    /// Sets self to everything after the nul byte.
+    pub fn read_string(&mut self) -> Option<RawData<'a>> {
+        let (rv, new_self) = match *self {
+            RawData::Single(single) => {
+                let n = memchr::memchr(0, single)?;
+                (
+                    RawData::Single(&single[..n]),
+                    RawData::Single(&single[n + 1..]),
+                )
+            }
+            RawData::Split(left, right) => {
+                if let Some(n) = memchr::memchr(0, left) {
+                    (
+                        RawData::Single(&left[..n]),
+                        if n + 1 < left.len() {
+                            RawData::Split(&left[n + 1..], right)
+                        } else {
+                            RawData::Single(right)
+                        },
+                    )
+                } else if let Some(n) = memchr::memchr(0, right) {
+                    (
+                        RawData::Split(left, &right[..n]),
+                        RawData::Single(&right[n + 1..]),
+                    )
+                } else {
+                    return None;
+                }
+            }
+        };
+        *self = new_self;
+        Some(rv)
+    }
+
+    /// Returns the first `n` bytes, and sets self to the remainder.
+    pub fn split_off_prefix(&mut self, n: usize) -> Result<Self, std::io::Error> {
+        let (rv, new_self) = match *self {
+            RawData::Single(single) => {
+                if single.len() < n {
+                    return Err(std::io::ErrorKind::UnexpectedEof.into());
+                }
+                (RawData::Single(&single[..n]), RawData::Single(&single[n..]))
+            }
+            RawData::Split(left, right) => {
+                if n <= left.len() {
+                    (
+                        RawData::Single(&left[..n]),
+                        if n < left.len() {
+                            RawData::Split(&left[n..], right)
+                        } else {
+                            RawData::Single(right)
+                        },
+                    )
+                } else {
+                    let remainder_len = n - left.len();
+                    if remainder_len > right.len() {
+                        return Err(std::io::ErrorKind::UnexpectedEof.into());
+                    }
+                    (
+                        RawData::Split(left, &right[..remainder_len]),
+                        RawData::Single(&right[remainder_len..]),
+                    )
+                }
+            }
+        };
+        *self = new_self;
+        Ok(rv)
+    }
+
+    pub fn skip(&mut self, n: usize) -> Result<(), std::io::Error> {
+        *self = match *self {
+            RawData::Single(single) => {
+                if single.len() < n {
+                    return Err(std::io::ErrorKind::UnexpectedEof.into());
+                }
+                RawData::Single(&single[n..])
+            }
+            RawData::Split(left, right) => {
+                if n < left.len() {
+                    RawData::Split(&left[n..], right)
+                } else {
+                    let remainder_len = n - left.len();
+                    if remainder_len > right.len() {
+                        return Err(std::io::ErrorKind::UnexpectedEof.into());
+                    }
+                    RawData::Single(&right[remainder_len..])
+                }
+            }
+        };
+        Ok(())
+    }
+
     #[inline]
     fn write_into(&self, target: &mut Vec<u8>) {
         target.clear();
@@ -79,27 +235,27 @@ impl<'a> RawData<'a> {
         }
     }
 
-    pub fn get(&self, range: Range<usize>) -> RawData<'a> {
-        match self {
-            RawData::Single(buffer) => RawData::Single(&buffer[range]),
-            RawData::Split(first, second) => {
-                if range.start >= first.len() {
-                    RawData::Single(&second[range.start - first.len()..range.end - first.len()])
-                } else if range.end <= first.len() {
-                    RawData::Single(&first[range])
+    pub fn get(&self, range: Range<usize>) -> Option<RawData<'a>> {
+        Some(match self {
+            RawData::Single(buffer) => RawData::Single(buffer.get(range)?),
+            RawData::Split(left, right) => {
+                if range.start >= left.len() {
+                    RawData::Single(right.get(range.start - left.len()..range.end - left.len())?)
+                } else if range.end <= left.len() {
+                    RawData::Single(left.get(range)?)
                 } else {
-                    let first = &first[range.start..];
-                    let second = &second[..min(range.end - first.len(), second.len())];
-                    RawData::Split(first, second)
+                    let left = left.get(range.start..)?;
+                    let right = right.get(..min(range.end - left.len(), right.len()))?;
+                    RawData::Split(left, right)
                 }
             }
-        }
+        })
     }
 
     pub fn len(&self) -> usize {
         match *self {
             RawData::Single(buffer) => buffer.len(),
-            RawData::Split(first, second) => first.len() + second.len(),
+            RawData::Split(left, right) => left.len() + right.len(),
         }
     }
 }
@@ -118,18 +274,23 @@ impl<'a> RawRegs<'a> {
         self.raw_data.len() / mem::size_of::<u64>()
     }
 
+    // TODO: This should return an Option<u64>
     pub fn get(&self, index: usize) -> u64 {
         let offset = index * mem::size_of::<u64>();
-        match self.raw_data.get(offset..offset + mem::size_of::<u64>()) {
-            RawData::Single(buffer) => NativeEndian::read_u64(buffer),
-            RawData::Split(first, second) => {
+        match self
+            .raw_data
+            .get(offset..offset + mem::size_of::<u64>())
+            .unwrap()
+        {
+            RawData::Single(single) => NativeEndian::read_u64(single),
+            RawData::Split(left, right) => {
                 let mut buffer = [0; 4];
                 let mut index = 0;
-                for &byte in first {
+                for &byte in left {
                     buffer[index] = byte;
                     index += 1;
                 }
-                for &byte in second {
+                for &byte in right {
                     buffer[index] = byte;
                     index += 1;
                 }

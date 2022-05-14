@@ -173,10 +173,10 @@ where
                 println!("Comm: {:?}", e);
                 match processes.entry(e.pid) {
                     Entry::Occupied(mut entry) => {
-                        entry.get_mut().set_name(e.name);
+                        entry.get_mut().set_name(e.name.as_slice().into());
                     }
                     Entry::Vacant(entry) => {
-                        entry.insert(Process::new(e.pid, e.name));
+                        entry.insert(Process::new(e.pid, e.name.as_slice().into()));
                     }
                 }
             }
@@ -185,7 +185,7 @@ where
             }
             Event::Fork(_) => {}
             Event::Mmap(e) => {
-                let dso_key = match DsoKey::detect(&e.path, e.cpu_mode) {
+                let dso_key = match DsoKey::detect(&e.path.as_slice(), e.cpu_mode) {
                     Some(dso_key) => dso_key,
                     None => continue,
                 };
@@ -210,7 +210,8 @@ where
                     let start_addr = e.address;
                     let end_addr = e.address + e.length;
 
-                    let path_str = std::str::from_utf8(&e.path).unwrap();
+                    let path_slice = e.path.as_slice();
+                    let path_str = std::str::from_utf8(&path_slice).unwrap();
                     let path = Path::new(path_str);
                     let base_address = start_addr;
                     let address_range = start_addr..end_addr;
@@ -238,7 +239,7 @@ where
                 }
             }
             Event::Mmap2(e) => {
-                let dso_key = match DsoKey::detect(&e.path, e.cpu_mode) {
+                let dso_key = match DsoKey::detect(&e.path.as_slice(), e.cpu_mode) {
                     Some(dso_key) => dso_key,
                     None => continue,
                 };
@@ -490,7 +491,8 @@ where
             return;
         }
 
-        let path_str = std::str::from_utf8(&e.path).unwrap();
+        let path_slice = e.path.as_slice();
+        let path_str = std::str::from_utf8(&path_slice).unwrap();
         let path = Path::new(path_str);
         let start_addr = e.address;
         let end_addr = e.address + e.length;
@@ -554,7 +556,8 @@ where
         let start_addr = e.address;
         let end_addr = e.address + e.length;
 
-        let path_str = std::str::from_utf8(&e.path).unwrap();
+        let path_slice = e.path.as_slice();
+        let path_str = std::str::from_utf8(&path_slice).unwrap();
         let path = Path::new(path_str);
         let address_range = start_addr..end_addr;
         let (debug_id, base_address) = match add_module(
