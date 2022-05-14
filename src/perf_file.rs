@@ -1,12 +1,10 @@
 use std::collections::{HashMap, VecDeque};
 use std::io::{self, Cursor, Read, Seek, SeekFrom};
 
-use crate::perf_event::{
-    CpuMode, Event, PerfEventAttr, PerfEventHeader, RawEvent, RecordParseInfo, RecordType,
-};
-use crate::perf_event_consts::PERF_RECORD_MISC_BUILD_ID_SIZE;
-use crate::raw_data::RawData;
 use byteorder::{BigEndian, ByteOrder, LittleEndian, ReadBytesExt};
+use linux_perf_event_reader::consts::PERF_RECORD_MISC_BUILD_ID_SIZE;
+use linux_perf_event_reader::records::{ParsedRecord, RawRecord, RecordParseInfo};
+use linux_perf_event_reader::{CpuMode, PerfEventAttr, PerfEventHeader, RawData, RecordType};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Endianness {
@@ -279,7 +277,7 @@ struct RecordSortKey {
 impl<'a, R: Read> RecordIter<'a, R> {
     /// Emits records in the correct order (sorted by time).
     #[allow(clippy::should_implement_trait)]
-    pub fn next(&mut self) -> Result<Option<Event>, Error> {
+    pub fn next(&mut self) -> Result<Option<ParsedRecord>, Error> {
         if self.remaining_pending_records.is_empty() {
             self.read_current_round()?;
         }
@@ -341,7 +339,7 @@ impl<'a, R: Read> RecordIter<'a, R> {
                 .map_err(|_| ReadError::PerfEventData)?;
 
             let misc = header.misc;
-            let raw_event = RawEvent {
+            let raw_event = RawRecord {
                 record_type,
                 misc,
                 data: RawData::from(&buffer[..]),
@@ -363,8 +361,11 @@ impl<'a, R: Read> RecordIter<'a, R> {
         Ok(())
     }
 
-    /// Converts pending_record into an Event which references the data in self.current_event_body.
-    fn convert_pending_record(&mut self, pending_record: PendingRecord) -> Result<Event, Error> {
+    /// Converts pending_record into an ParsedRecord which references the data in self.current_event_body.
+    fn convert_pending_record(
+        &mut self,
+        pending_record: PendingRecord,
+    ) -> Result<ParsedRecord, Error> {
         let PendingRecord {
             record_type,
             misc,
@@ -374,7 +375,7 @@ impl<'a, R: Read> RecordIter<'a, R> {
         let prev_buffer = std::mem::replace(&mut self.current_event_body, buffer);
         self.buffers_for_recycling.push_back(prev_buffer);
         let raw_data = RawData::from(&self.current_event_body[..]);
-        let raw_event = RawEvent {
+        let raw_event = RawRecord {
             record_type,
             misc,
             data: raw_data,

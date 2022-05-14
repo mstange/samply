@@ -1,19 +1,18 @@
-pub mod perf_event;
-pub mod perf_event_consts;
 mod perf_file;
-mod raw_data;
 mod utils;
 
 use debugid::{CodeId, DebugId};
 use framehop::aarch64::UnwindRegsAarch64;
 use framehop::x86_64::UnwindRegsX86_64;
 use framehop::{Module, ModuleSvmaInfo, TextByteData, Unwinder};
-use object::{Object, ObjectSection, ObjectSegment};
-use perf_event::{Event, Mmap2Event, Mmap2FileId, MmapEvent, Regs, SampleEvent};
-use perf_event_consts::{
+use linux_perf_event_reader::consts::{
     PERF_CONTEXT_MAX, PERF_REG_ARM64_LR, PERF_REG_ARM64_PC, PERF_REG_ARM64_SP, PERF_REG_ARM64_X29,
     PERF_REG_X86_BP, PERF_REG_X86_IP, PERF_REG_X86_SP,
 };
+use linux_perf_event_reader::records::{
+    ParsedRecord, Mmap2Record, Mmap2FileId, MmapRecord, Regs, SampleRecord,
+};
+use object::{Object, ObjectSection, ObjectSegment};
 pub use perf_file::{DsoKey, PerfFile};
 use profiler_get_symbols::{
     debug_id_for_object, AddressDebugInfo, CandidatePathInfo, DebugIdExt, FileAndPathHelper,
@@ -153,7 +152,7 @@ where
     while let Ok(Some(record)) = records.next() {
         count += 1;
         match record {
-            Event::Sample(e) => {
+            ParsedRecord::Sample(e) => {
                 let pid = e.pid.expect("Can't handle samples without pids");
                 let process = processes
                     .entry(pid)
@@ -169,7 +168,7 @@ where
                     processed_samples.push(processed_sample);
                 }
             }
-            Event::Comm(e) => {
+            ParsedRecord::Comm(e) => {
                 println!("Comm: {:?}", e);
                 match processes.entry(e.pid) {
                     Entry::Occupied(mut entry) => {
@@ -180,11 +179,11 @@ where
                     }
                 }
             }
-            Event::Exit(_e) => {
+            ParsedRecord::Exit(_e) => {
                 // todo
             }
-            Event::Fork(_) => {}
-            Event::Mmap(e) => {
+            ParsedRecord::Fork(_) => {}
+            ParsedRecord::Mmap(e) => {
                 let dso_key = match DsoKey::detect(&e.path.as_slice(), e.cpu_mode) {
                     Some(dso_key) => dso_key,
                     None => continue,
@@ -238,7 +237,7 @@ where
                     process.handle_mmap(e, &dso_key, build_id, &mut image_cache);
                 }
             }
-            Event::Mmap2(e) => {
+            ParsedRecord::Mmap2(e) => {
                 let dso_key = match DsoKey::detect(&e.path.as_slice(), e.cpu_mode) {
                     Some(dso_key) => dso_key,
                     None => continue,
@@ -249,11 +248,11 @@ where
                     .or_insert_with(|| Process::new(e.pid, format!("<{}>", e.pid).into_bytes()));
                 process.handle_mmap2(e, &dso_key, build_id, &mut image_cache);
             }
-            Event::Lost(_) => {}
-            Event::Throttle(_) => {}
-            Event::Unthrottle(_) => {}
-            Event::ContextSwitch(_) => {}
-            Event::Raw(_) => {}
+            ParsedRecord::Lost(_) => {}
+            ParsedRecord::Throttle(_) => {}
+            ParsedRecord::Unthrottle(_) => {}
+            ParsedRecord::ContextSwitch(_) => {}
+            ParsedRecord::Raw(_) => {}
         }
     }
     println!(
@@ -473,7 +472,7 @@ where
 {
     pub fn handle_mmap(
         &mut self,
-        e: MmapEvent,
+        e: MmapRecord,
         dso_key: &DsoKey,
         build_id: Option<&[u8]>,
         image_cache: &mut ImageCache,
@@ -528,7 +527,7 @@ where
 
     pub fn handle_mmap2(
         &mut self,
-        e: Mmap2Event,
+        e: Mmap2Record,
         dso_key: &DsoKey,
         build_id: Option<&[u8]>,
         image_cache: &mut ImageCache,
@@ -591,7 +590,7 @@ where
 
     pub fn handle_sample<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
         &mut self,
-        e: SampleEvent,
+        e: SampleRecord,
         cache: &mut U::Cache,
         kernel_modules: &AddedModules,
     ) -> Option<ProcessedSample> {
@@ -599,10 +598,8 @@ where
 
         if let Some(callchain) = e.callchain {
             let mut is_first_frame = true;
-            let mut callchain_cur = callchain;
-            for _ in 0..callchain.len() / 8 {
-                // TODO: handle endian
-                let address = callchain_cur.read_u64::<byteorder::LittleEndian>().unwrap();
+            for i in 0..callchain.len(){
+                let address = callchain.get(i).unwrap();
                 if address >= PERF_CONTEXT_MAX {
                     // Ignore synthetic addresses like 0xffffffffffffff80.
                     continue;
