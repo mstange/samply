@@ -599,7 +599,10 @@ where
 
         if let Some(callchain) = e.callchain {
             let mut is_first_frame = true;
-            for address in callchain {
+            let mut callchain_cur = callchain;
+            for _ in 0..callchain.len() / 8 {
+                // TODO: handle endian
+                let address = callchain_cur.read_u64::<byteorder::LittleEndian>().unwrap();
                 if address >= PERF_CONTEXT_MAX {
                     // Ignore synthetic addresses like 0xffffffffffffff80.
                     continue;
@@ -629,8 +632,8 @@ where
             }
         }
 
-        if let Some(regs) = e.regs {
-            let ustack_bytes = e.stack.as_slice();
+        if let (Some(regs), Some((user_stack, _))) = (e.user_regs, e.user_stack) {
+            let ustack_bytes = user_stack.as_slice();
             let (pc, sp, regs) = C::convert_regs(&regs);
             let mut read_stack = |addr: u64| {
                 let offset = addr.checked_sub(sp).ok_or(())?;

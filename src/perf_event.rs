@@ -1,6 +1,6 @@
 use crate::perf_event_consts::*;
 use crate::raw_data::{RawData, RawRegs};
-use crate::utils::{HexSlice, HexValue};
+use crate::utils::HexValue;
 use bitflags::bitflags;
 use byteorder::{ByteOrder, ReadBytesExt};
 use std::io::Read;
@@ -490,19 +490,27 @@ pub struct RawEvent<'a> {
     pub data: RawData<'a>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SampleEvent<'a> {
+    pub id: Option<u64>,
+    pub addr: Option<u64>,
+    pub stream_id: Option<u64>,
+    pub raw: Option<RawData<'a>>,
+    pub ip: Option<u64>,
     pub timestamp: Option<u64>,
     pub pid: Option<i32>,
     pub tid: Option<i32>,
     pub cpu: Option<u32>,
     pub period: Option<u64>,
-    pub regs: Option<Regs<'a>>,
-    pub dynamic_stack_size: u64,
-    pub stack: RawData<'a>,
-    pub callchain: Option<Vec<u64>>,
+    pub user_regs: Option<Regs<'a>>,
+    pub user_stack: Option<(RawData<'a>, u64)>,
+    pub callchain: Option<RawData<'a>>,
+    pub phys_addr: Option<u64>,
+    pub data_page_size: Option<u64>,
+    pub code_page_size: Option<u64>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Regs<'a> {
     regs_mask: u64,
     raw_regs: RawRegs<'a>,
@@ -633,6 +641,7 @@ pub enum ContextSwitchKind {
 }
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum Event<'a> {
     Sample(SampleEvent<'a>),
     Comm(CommEvent<'a>),
@@ -645,21 +654,6 @@ pub enum Event<'a> {
     Unthrottle(ThrottleEvent),
     ContextSwitch(ContextSwitchKind),
     Raw(RawEvent<'a>),
-}
-
-impl<'a> fmt::Debug for SampleEvent<'a> {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        fmt.debug_map()
-            .entry(&"timestamp", &self.timestamp)
-            .entry(&"pid", &self.pid)
-            .entry(&"tid", &self.tid)
-            .entry(&"cpu", &self.cpu)
-            .entry(&"period", &self.period)
-            .entry(&"regs", &self.regs)
-            .entry(&"stack", &self.stack)
-            .entry(&"callchain", &self.callchain.as_deref().map(HexSlice))
-            .finish()
-    }
 }
 
 impl<'a> fmt::Debug for CommEvent<'a> {
@@ -1210,13 +1204,17 @@ impl<'a> RawEvent<'a> {
             }
 
             RecordType::SAMPLE => {
-                if sample_format.contains(SampleFormat::IDENTIFIER) {
-                    let _identifier = cur.read_u64::<T>()?;
-                }
+                let identifier = if sample_format.contains(SampleFormat::IDENTIFIER) {
+                    Some(cur.read_u64::<T>()?)
+                } else {
+                    None
+                };
 
-                if sample_format.contains(SampleFormat::IP) {
-                    let _ip = cur.read_u64::<T>()?;
-                }
+                let ip = if sample_format.contains(SampleFormat::IP) {
+                    Some(cur.read_u64::<T>()?)
+                } else {
+                    None
+                };
 
                 let (pid, tid) = if sample_format.contains(SampleFormat::TID) {
                     let pid = cur.read_i32::<T>()?;
@@ -1232,21 +1230,28 @@ impl<'a> RawEvent<'a> {
                     None
                 };
 
-                if sample_format.contains(SampleFormat::ADDR) {
-                    let _addr = cur.read_u64::<T>()?;
-                }
+                let addr = if sample_format.contains(SampleFormat::ADDR) {
+                    Some(cur.read_u64::<T>()?)
+                } else {
+                    None
+                };
 
-                if sample_format.contains(SampleFormat::ID) {
-                    let _id = cur.read_u64::<T>()?;
-                }
+                let id = if sample_format.contains(SampleFormat::ID) {
+                    Some(cur.read_u64::<T>()?)
+                } else {
+                    None
+                };
+                let id = identifier.or(id);
 
-                if sample_format.contains(SampleFormat::STREAM_ID) {
-                    let _stream_id = cur.read_u64::<T>()?;
-                }
+                let stream_id = if sample_format.contains(SampleFormat::STREAM_ID) {
+                    Some(cur.read_u64::<T>()?)
+                } else {
+                    None
+                };
 
                 let cpu = if sample_format.contains(SampleFormat::CPU) {
                     let cpu = cur.read_u32::<T>()?;
-                    let _ = cur.read_u32::<T>()?; // Reserved field; is always zero.
+                    let _reserved = cur.read_u32::<T>()?;
                     Some(cpu)
                 } else {
                     None
@@ -1288,22 +1293,22 @@ impl<'a> RawEvent<'a> {
                     }
                 }
 
-                let callchain = if sample_format.contains(SampleFormat::CALLCHAIN) {
-                    let callchain_length = cur.read_u64::<T>()?;
-                    let mut callchain = Vec::with_capacity(callchain_length as usize);
-                    for _ in 0..callchain_length {
-                        let addr = cur.read_u64::<T>()?;
-                        callchain.push(addr);
-                    }
-                    Some(callchain)
+                let callchain =
+                    if sample_format.contains(SampleFormat::CALLCHAIN) {
+                        let callchain_length = cur.read_u64::<T>()?;
+                        Some(cur.split_off_prefix(
+                            callchain_length as usize * std::mem::size_of::<u64>(),
+                        )?)
+                    } else {
+                        None
+                    };
+
+                let raw = if sample_format.contains(SampleFormat::RAW) {
+                    let size = cur.read_u32::<T>()?;
+                    Some(cur.split_off_prefix(size as usize)?)
                 } else {
                     None
                 };
-
-                if sample_format.contains(SampleFormat::RAW) {
-                    let size = cur.read_u32::<T>()?;
-                    cur.skip(size as usize)?;
-                }
 
                 if sample_format.contains(SampleFormat::BRANCH_STACK) {
                     let nr = cur.read_u64::<T>()?;
@@ -1317,7 +1322,7 @@ impl<'a> RawEvent<'a> {
                     }
                 }
 
-                let regs = if sample_format.contains(SampleFormat::REGS_USER) {
+                let user_regs = if sample_format.contains(SampleFormat::REGS_USER) {
                     let regs_abi = cur.read_u64::<T>()?;
                     if regs_abi == 0 {
                         None
@@ -1325,28 +1330,26 @@ impl<'a> RawEvent<'a> {
                         let raw_regs =
                             cur.split_off_prefix(regs_count * std::mem::size_of::<u64>())?;
                         let raw_regs = RawRegs::from_raw_data(raw_regs);
-                        let regs = Regs::new(sample_regs_user, raw_regs);
-                        Some(regs)
+                        let user_regs = Regs::new(sample_regs_user, raw_regs);
+                        Some(user_regs)
                     }
                 } else {
                     None
                 };
 
-                let stack;
-                let dynamic_stack_size;
-                if sample_format.contains(SampleFormat::STACK_USER) {
+                let user_stack = if sample_format.contains(SampleFormat::STACK_USER) {
                     let stack_size = cur.read_u64::<T>()?;
-                    stack = cur.split_off_prefix(stack_size as usize)?;
+                    let stack = cur.split_off_prefix(stack_size as usize)?;
 
-                    dynamic_stack_size = if stack_size != 0 {
+                    let dynamic_size = if stack_size != 0 {
                         cur.read_u64::<T>()?
                     } else {
                         0
                     };
+                    Some((stack, dynamic_size))
                 } else {
-                    dynamic_stack_size = 0;
-                    stack = RawData::empty();
-                }
+                    None
+                };
 
                 if sample_format.contains(SampleFormat::WEIGHT) {
                     let _weight = cur.read_u64::<T>()?;
@@ -1367,33 +1370,46 @@ impl<'a> RawEvent<'a> {
                     }
                 }
 
-                if sample_format.contains(SampleFormat::PHYS_ADDR) {
-                    let _phys_addr = cur.read_u64::<T>()?;
-                }
+                let phys_addr = if sample_format.contains(SampleFormat::PHYS_ADDR) {
+                    Some(cur.read_u64::<T>()?)
+                } else {
+                    None
+                };
 
                 if sample_format.contains(SampleFormat::AUX) {
                     let size = cur.read_u64::<T>()?;
                     cur.skip(size as usize)?;
                 }
 
-                if sample_format.contains(SampleFormat::DATA_PAGE_SIZE) {
-                    let _data_page_size = cur.read_u64::<T>()?;
-                }
+                let data_page_size = if sample_format.contains(SampleFormat::DATA_PAGE_SIZE) {
+                    Some(cur.read_u64::<T>()?)
+                } else {
+                    None
+                };
 
-                if sample_format.contains(SampleFormat::CODE_PAGE_SIZE) {
-                    let _code_page_size = cur.read_u64::<T>()?;
-                }
+                let code_page_size = if sample_format.contains(SampleFormat::CODE_PAGE_SIZE) {
+                    Some(cur.read_u64::<T>()?)
+                } else {
+                    None
+                };
 
                 Event::Sample(SampleEvent {
-                    regs,
-                    dynamic_stack_size,
-                    stack,
+                    id,
+                    ip,
+                    addr,
+                    stream_id,
+                    raw,
+                    user_regs,
+                    user_stack,
                     callchain,
                     cpu,
                     timestamp,
                     pid,
                     tid,
                     period,
+                    phys_addr,
+                    data_page_size,
+                    code_page_size,
                 })
             }
 

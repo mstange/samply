@@ -178,10 +178,6 @@ impl PerfFile {
         let attr = &self.perf_event_attrs[0];
         let parse_info = RecordParseInfo::from_attr(attr);
         let (offset, record_data_len) = self.record_data_offset_and_size;
-        println!(
-            "offset: {}, parse_info: {:#?}, attr: {:#?}",
-            offset, parse_info, attr
-        );
         cursor.seek(SeekFrom::Start(offset)).unwrap();
         RecordIter {
             reader: cursor,

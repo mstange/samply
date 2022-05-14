@@ -13,7 +13,7 @@ use byteorder::{ByteOrder, NativeEndian};
 /// When reading perf events from the mmap'd fd that contains the perf event
 /// stream, it often happens that a single event straddles the boundary between
 /// two mmap chunks, or is wrapped from the end to the start of a chunk.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum RawData<'a> {
     Single(&'a [u8]),
     #[allow(unused)]
@@ -260,6 +260,7 @@ impl<'a> RawData<'a> {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct RawRegs<'a> {
     raw_data: RawData<'a>,
 }
