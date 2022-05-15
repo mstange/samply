@@ -1,10 +1,8 @@
-mod perf_file;
-mod utils;
-
 use debugid::{CodeId, DebugId};
 use framehop::aarch64::UnwindRegsAarch64;
 use framehop::x86_64::UnwindRegsX86_64;
 use framehop::{Module, ModuleSvmaInfo, TextByteData, Unwinder};
+use linux_perf_data::{linux_perf_event_reader, DsoBuildId, DsoKey, PerfFileReader};
 use linux_perf_event_reader::consts::{
     PERF_CONTEXT_MAX, PERF_REG_ARM64_LR, PERF_REG_ARM64_PC, PERF_REG_ARM64_SP, PERF_REG_ARM64_X29,
     PERF_REG_X86_BP, PERF_REG_X86_IP, PERF_REG_X86_SP,
@@ -13,7 +11,6 @@ use linux_perf_event_reader::records::{
     Mmap2FileId, Mmap2Record, MmapRecord, ParsedRecord, Regs, SampleRecord,
 };
 use object::{Object, ObjectSection, ObjectSegment};
-pub use perf_file::{DsoKey, PerfFileReader};
 use profiler_get_symbols::{
     debug_id_for_object, AddressDebugInfo, CandidatePathInfo, DebugIdExt, FileAndPathHelper,
     FileAndPathHelperResult, FileLocation, FilePath, OptionallySendFuture, SymbolicationQuery,
@@ -25,8 +22,6 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::{fs::File, ops::Range, path::Path};
-
-use crate::perf_file::DsoBuildId;
 
 fn main() {
     let mut args = std::env::args_os().skip(1);
@@ -143,7 +138,7 @@ where
     let mut all_image_stack_frames = HashSet::new();
     let mut kernel_modules = AddedModules(Vec::new());
     let build_ids = file.build_ids().ok().unwrap_or_default();
-    let little_endian = file.endian() == perf_file::Endianness::LittleEndian;
+    let little_endian = file.endian() == linux_perf_data::Endianness::LittleEndian;
 
     let mut count = 0;
     while let Ok(Some(record)) = file.next_record() {
@@ -763,7 +758,7 @@ where
     let file = match std::fs::File::open(objpath) {
         Ok(file) => file,
         Err(_) => {
-            let mut p = Path::new("/Users/mstange/code/linux-perf-data/fixtures/x86_64").to_owned();
+            let mut p = Path::new("/Users/mstange/code/linux-perf-stuff/fixtures/x86_64").to_owned();
             p.push(objpath.file_name().unwrap());
             match std::fs::File::open(&p) {
                 Ok(file) => file,
@@ -972,7 +967,7 @@ impl<'h> FileAndPathHelper<'h> for Helper {
             .iter()
             .find(|lib| lib.debug_name == debug_name && &lib.debug_id == debug_id)
         {
-            let fixtures_dir = PathBuf::from("/Users/mstange/code/linux-perf-data/fixtures/x86_64");
+            let fixtures_dir = PathBuf::from("/Users/mstange/code/linux-perf-stuff/fixtures/x86_64");
 
             if lib.dso_key == DsoKey::Kernel {
                 let mut p = fixtures_dir.clone();

@@ -1,14 +1,8 @@
 # linux-perf-data
 
-This repo contains a parser for the perf.data format which is output by the Linux `perf` tool.
+In this repo I'm experimenting with a `perf script`-like tool which does stackwalking and symbolication of `perf.data` files.
 
-It also contains a `main.rs` which acts similarly to `perf script` and does symbolication, but with the advantage that it is much much faster than `perf script`.
-
-The end goal of this project is to create a fast drop-in replacement for `perf script`, implementing just a basic subset of functionality, but having super fast symbolication. But that replacement will move to a separate repo. This repo should just contain a library crate for parsing the data.
-
-## Acknowledgements
-
-Some of the code in this repo was based on [**@koute**'s `not-perf` project](https://github.com/koute/not-perf/tree/20e4ddc2bf8895d96664ab839a64c36f416023c8/perf_event_open/src).
+The end goal of this project is to create a fast drop-in replacement for `perf script`, implementing just a basic subset of functionality, but having super fast symbolication.
 
 ## Run
 

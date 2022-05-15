@@ -7,34 +7,34 @@
     {
       "type": "lldb",
       "request": "launch",
-      "name": "Debug executable 'linux-perf-data'",
+      "name": "Debug executable 'linux-perf-stuff'",
       "cargo": {
         "args": [
           "build",
-          "--bin=linux-perf-data",
-          "--package=linux-perf-data"
+          "--bin=linux-perf-stuff",
+          "--package=linux-perf-stuff"
         ],
         "filter": {
-          "name": "linux-perf-data",
+          "name": "linux-perf-stuff",
           "kind": "bin"
         }
       },
-      "args": ["fixtures/aarch64/perf-smalldwarf.data"],
+      "args": ["fixtures/x86_64/perf.data"],
       "cwd": "${workspaceFolder}"
     },
     {
       "type": "lldb",
       "request": "launch",
-      "name": "Debug unit tests in executable 'linux-perf-data'",
+      "name": "Debug unit tests in executable 'linux-perf-stuff'",
       "cargo": {
         "args": [
           "test",
           "--no-run",
-          "--bin=linux-perf-data",
-          "--package=linux-perf-data"
+          "--bin=linux-perf-stuff",
+          "--package=linux-perf-stuff"
         ],
         "filter": {
-          "name": "linux-perf-data",
+          "name": "linux-perf-stuff",
           "kind": "bin"
         }
       },
