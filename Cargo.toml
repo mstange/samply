@@ -18,8 +18,10 @@ object = "0.28.3"
 profiler-get-symbols = "0.14.0"
 # profiler-get-symbols = { path = "../profiler-get-symbols/lib" }
 thiserror = "1.0.30"
-linux-perf-data = "0.1.0"
-# linux-perf-data = { path = "../linux-perf-data" }
+fxprof-processed-profile = "0.1.0"
+# linux-perf-data = "0.1.0"
+linux-perf-data = { path = "../linux-perf-data" }
+serde_json = "1.0.81"
 
 [profile.release]
 debug = true

@@ -1,8 +1,16 @@
+use byteorder::LittleEndian;
 use debugid::{CodeId, DebugId};
 use framehop::aarch64::UnwindRegsAarch64;
 use framehop::x86_64::UnwindRegsX86_64;
 use framehop::{Module, ModuleSvmaInfo, TextByteData, Unwinder};
-use linux_perf_data::{linux_perf_event_reader, DsoBuildId, DsoKey, PerfFileReader};
+use fxprof_processed_profile::{
+    CpuDelta, Frame, ProcessHandle, Profile, ReferenceTimestamp, ThreadHandle, Timestamp,
+};
+use linux_perf_data::linux_perf_event_reader::records::{CommOrExecRecord, ForkOrExitRecord};
+use linux_perf_data::linux_perf_event_reader::RawDataU64;
+use linux_perf_data::{
+    linux_perf_event_reader, DsoBuildId, DsoKey, PerfFileReader, SampleTimeRange,
+};
 use linux_perf_event_reader::consts::{
     PERF_CONTEXT_MAX, PERF_REG_ARM64_LR, PERF_REG_ARM64_PC, PERF_REG_ARM64_SP, PERF_REG_ARM64_X29,
     PERF_REG_X86_BP, PERF_REG_X86_IP, PERF_REG_X86_SP,
@@ -11,16 +19,10 @@ use linux_perf_event_reader::records::{
     Mmap2FileId, Mmap2Record, MmapRecord, ParsedRecord, Regs, SampleRecord,
 };
 use object::{Object, ObjectSection, ObjectSegment};
-use profiler_get_symbols::{
-    debug_id_for_object, AddressDebugInfo, CandidatePathInfo, DebugIdExt, FileAndPathHelper,
-    FileAndPathHelperResult, FileLocation, FilePath, OptionallySendFuture, SymbolicationQuery,
-    SymbolicationResult, SymbolicationResultKind,
-};
-use std::collections::HashSet;
-use std::collections::{hash_map::Entry, HashMap};
-use std::io::Read;
-use std::path::PathBuf;
-use std::pin::Pin;
+use profiler_get_symbols::{debug_id_for_object, DebugIdExt};
+use std::collections::HashMap;
+use std::io::{BufWriter, Read};
+use std::time::{Duration, SystemTime};
 use std::{fs::File, ops::Range, path::Path};
 
 fn main() {
@@ -34,57 +36,17 @@ fn main() {
     let mut file = File::open(path).unwrap();
     let file = PerfFileReader::parse_file(&mut file).expect("Parsing failed");
 
-    if let Some(hostname) = file.hostname().unwrap() {
-        println!("Hostname: {}", hostname);
-    }
-
-    if let Some(os_release) = file.os_release().unwrap() {
-        println!("OS release: {}", os_release);
-    }
-
-    if let Some(perf_version) = file.perf_version().unwrap() {
-        println!("Perf version: {}", perf_version);
-    }
-
-    if let Some(arch) = file.arch().unwrap() {
-        println!("Arch: {}", arch);
-    }
-
-    if let Some(nr_cpus) = file.nr_cpus().unwrap() {
-        println!(
-            "CPUs: {} online ({} available)",
-            nr_cpus.nr_cpus_online, nr_cpus.nr_cpus_available
-        );
-    }
-
-    let build_ids = file.build_ids().unwrap();
-    if !build_ids.is_empty() {
-        println!("Build IDs:");
-        for (dso_key, DsoBuildId { path, build_id }) in build_ids {
-            println!(
-                " - DSO key {}, build ID {}, path {}",
-                dso_key.name(),
-                build_id
-                    .iter()
-                    .map(|b| format!("{:02x}", b))
-                    .collect::<Vec<String>>()
-                    .join(""),
-                std::str::from_utf8(&path).unwrap()
-            );
-        }
-    }
-
     match file.arch().unwrap() {
         Some("x86_64") => {
-            let mut cache = framehop::x86_64::CacheX86_64::new();
+            let cache = framehop::x86_64::CacheX86_64::new();
             do_the_thing::<framehop::x86_64::UnwinderX86_64<Vec<u8>>, ConvertRegsX86_64, _>(
-                file, &mut cache,
+                file, cache,
             );
         }
         Some("aarch64") => {
-            let mut cache = framehop::aarch64::CacheAarch64::new();
+            let cache = framehop::aarch64::CacheAarch64::new();
             do_the_thing::<framehop::aarch64::UnwinderAarch64<Vec<u8>>, ConvertRegsAarch64, _>(
-                file, &mut cache,
+                file, cache,
             );
         }
         Some(other_arch) => {
@@ -126,335 +88,348 @@ impl ConvertRegs for ConvertRegsAarch64 {
     }
 }
 
-fn do_the_thing<U, C, R>(mut file: PerfFileReader<R>, cache: &mut U::Cache)
+struct Converter<U>
+where
+    U: Unwinder<Module = Module<Vec<u8>>> + Default,
+{
+    cache: U::Cache,
+    profile: Profile,
+    processes: Processes<U>,
+    threads: Threads,
+    kernel_modules: Vec<GlobalModule>,
+    first_sample_time: u64,
+    build_ids: HashMap<DsoKey, DsoBuildId>,
+    little_endian: bool,
+}
+
+impl<U> Converter<U>
+where
+    U: Unwinder<Module = Module<Vec<u8>>> + Default,
+{
+    pub fn new(
+        product: &str,
+        build_ids: HashMap<DsoKey, DsoBuildId>,
+        first_sample_time: u64,
+        little_endian: bool,
+        cache: U::Cache,
+    ) -> Self {
+        Self {
+            profile: Profile::new(
+                product,
+                ReferenceTimestamp::from_system_time(SystemTime::now()),
+                Duration::from_millis(1),
+            ),
+            cache,
+            processes: Processes(HashMap::new()),
+            threads: Threads(HashMap::new()),
+            kernel_modules: Vec::new(),
+            first_sample_time,
+            build_ids,
+            little_endian,
+        }
+    }
+
+    pub fn finish(self) -> Profile {
+        self.profile
+    }
+
+    pub fn handle_sample<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(&mut self, e: SampleRecord) {
+        let pid = e.pid.expect("Can't handle samples without pids");
+        let tid = e.tid.expect("Can't handle samples without tids");
+        let timestamp = e
+            .timestamp
+            .expect("Can't handle samples without timestamps");
+        let cpu_delta = if let Some(period) = e.period {
+            // If the observed perf event is one of the clock time events, or cycles, then we should convert it to a CpuDelta.
+            // TODO: Detect event type
+            CpuDelta::from_nanos(period)
+        } else {
+            CpuDelta::from_nanos(0)
+        };
+        let is_main = pid == tid;
+        let process = self
+            .processes
+            .get_by_pid(pid, &mut self.profile, &self.kernel_modules);
+        let processed_sample = match process.handle_sample::<C>(e, &mut self.cache) {
+            Some(s) => s,
+            None => return,
+        };
+
+        let thread =
+            self.threads
+                .get_by_tid(tid, process.profile_process, is_main, &mut self.profile);
+        let timestamp = self.convert_time(timestamp);
+        let frames = processed_sample
+            .stack
+            .into_iter()
+            .rev()
+            .filter_map(|frame| match frame {
+                StackFrame::InstructionPointer(addr) => Some(Frame::InstructionPointer(addr)),
+                StackFrame::ReturnAddress(addr) => Some(Frame::ReturnAddress(addr)),
+                StackFrame::TruncatedStackMarker => None,
+            });
+        self.profile
+            .add_sample(thread, timestamp, frames, cpu_delta, 1);
+    }
+
+    pub fn handle_thread_name_update(&mut self, e: CommOrExecRecord) {
+        // println!("Comm: {:?}", e);
+        let is_main = e.pid == e.tid;
+        let process_handle = self
+            .processes
+            .get_by_pid(e.pid, &mut self.profile, &self.kernel_modules)
+            .profile_process;
+        // if e.is_execve {
+        //     self.profile.set_process_end_time(process, end_time)
+        let name = e.name.as_slice();
+        let name = String::from_utf8_lossy(&name);
+        if is_main {
+            self.profile.set_process_name(process_handle, &name);
+        }
+        let thread = self
+            .threads
+            .get_by_tid(e.tid, process_handle, is_main, &mut self.profile);
+        self.profile.set_thread_name(thread, &name);
+    }
+
+    pub fn handle_mmap(&mut self, e: MmapRecord) {
+        if !e.is_executable {
+            return;
+        }
+
+        let dso_key = match DsoKey::detect(&e.path.as_slice(), e.cpu_mode) {
+            Some(dso_key) => dso_key,
+            None => return,
+        };
+        let build_id = self.build_ids.get(&dso_key).map(|db| &db.build_id[..]);
+        if e.pid == -1 {
+            // println!(
+            //     "kernel mmap: 0x{:016x}-0x{:016x} (page offset 0x{:016x}) {:?} ({})",
+            //     e.address,
+            //     e.address + e.length,
+            //     e.page_offset,
+            //     std::str::from_utf8(&e.path),
+            //     e.is_executable
+            // );
+
+            let debug_id =
+                build_id.map(|buildid| DebugId::from_identifier(buildid, self.little_endian));
+            let code_id = build_id.map(CodeId::from_binary);
+
+            let start_addr = e.address;
+            let end_addr = e.address + e.length;
+
+            let path_slice = e.path.as_slice();
+            let path_str = std::str::from_utf8(&path_slice).unwrap();
+            let path = Path::new(path_str);
+            let base_address = start_addr;
+            let address_range = start_addr..end_addr;
+            // println!(
+            //     "0x{:016x}-0x{:016x} {:?} {:?}",
+            //     address_range.start, address_range.end, code_id, path
+            // );
+            self.kernel_modules.push(GlobalModule {
+                address_range,
+                base_address,
+                debug_id: debug_id.unwrap_or_default(),
+                path: path.to_string_lossy().to_string(),
+                code_id,
+            });
+        } else {
+            let process = self
+                .processes
+                .get_by_pid(e.pid, &mut self.profile, &self.kernel_modules);
+            process.handle_mmap(e, build_id, &mut self.profile);
+        }
+    }
+
+    pub fn handle_mmap2(&mut self, e: Mmap2Record) {
+        let dso_key = match DsoKey::detect(&e.path.as_slice(), e.cpu_mode) {
+            Some(dso_key) => dso_key,
+            None => return,
+        };
+        let build_id = self.build_ids.get(&dso_key).map(|db| &db.build_id[..]);
+        let process = self
+            .processes
+            .get_by_pid(e.pid, &mut self.profile, &self.kernel_modules);
+        process.handle_mmap2(e, build_id, &mut self.profile);
+    }
+
+    pub fn handle_thread_start(&mut self, e: ForkOrExitRecord) {
+        let is_main = e.pid == e.tid;
+        let start_time = self.convert_time(e.timestamp);
+        let process = self
+            .processes
+            .get_by_pid(e.pid, &mut self.profile, &self.kernel_modules);
+        let process_handle = process.profile_process;
+        if is_main {
+            self.profile
+                .set_process_start_time(process_handle, start_time);
+        }
+        // let thread = self
+        //     .threads
+        //     .get_by_tid(e.tid, process_handle, is_main, &mut self.profile);
+        // self.profile.set_thread_start_time(thread, start_time);
+    }
+
+    pub fn handle_thread_end(&mut self, e: ForkOrExitRecord) {
+        let is_main = e.pid == e.tid;
+        let end_time = self.convert_time(e.timestamp);
+        let process = self
+            .processes
+            .get_by_pid(e.pid, &mut self.profile, &self.kernel_modules);
+        let process_handle = process.profile_process;
+        if is_main {
+            self.profile.set_process_end_time(process_handle, end_time);
+        }
+        let thread = self
+            .threads
+            .get_by_tid(e.tid, process_handle, is_main, &mut self.profile);
+        self.profile.set_thread_end_time(thread, end_time);
+    }
+
+    fn convert_time(&self, ktime_ns: u64) -> Timestamp {
+        Timestamp::from_nanos_since_reference(ktime_ns - self.first_sample_time)
+    }
+}
+
+struct Processes<U>(HashMap<i32, Process<U>>)
+where
+    U: Unwinder<Module = Module<Vec<u8>>> + Default;
+
+impl<U> Processes<U>
+where
+    U: Unwinder<Module = Module<Vec<u8>>> + Default,
+{
+    pub fn get_by_pid(
+        &mut self,
+        pid: i32,
+        profile: &mut Profile,
+        global_modules: &[GlobalModule],
+    ) -> &mut Process<U> {
+        self.0.entry(pid).or_insert_with(|| {
+            let name = format!("<{}>", pid);
+            let handle = profile.add_process(
+                &name,
+                pid as u32,
+                Timestamp::from_millis_since_reference(0.0),
+            );
+            for module in global_modules.iter().cloned() {
+                let GlobalModule {
+                    base_address,
+                    address_range,
+                    debug_id,
+                    code_id,
+                    path,
+                } = module;
+                profile.add_lib(
+                    handle,
+                    Path::new(&path),
+                    code_id,
+                    Path::new(&path),
+                    debug_id,
+                    None,
+                    base_address,
+                    address_range,
+                );
+            }
+            Process::new(handle)
+        })
+    }
+}
+
+struct Threads(HashMap<i32, ThreadHandle>);
+
+impl Threads {
+    pub fn get_by_tid(
+        &mut self,
+        tid: i32,
+        process_handle: ProcessHandle,
+        is_main: bool,
+        profile: &mut Profile,
+    ) -> ThreadHandle {
+        *self.0.entry(tid).or_insert_with(|| {
+            profile.add_thread(
+                process_handle,
+                tid as u32,
+                Timestamp::from_millis_since_reference(0.0),
+                is_main,
+            )
+        })
+    }
+}
+
+fn do_the_thing<U, C, R>(mut file: PerfFileReader<R>, cache: U::Cache)
 where
     U: Unwinder<Module = Module<Vec<u8>>> + Default,
     C: ConvertRegs<UnwindRegs = U::UnwindRegs>,
     R: Read,
 {
-    let mut processes: HashMap<i32, Process<U>> = HashMap::new();
-    let mut image_cache = ImageCache::new();
-    let mut processed_samples = Vec::new();
-    let mut all_image_stack_frames = HashSet::new();
-    let mut kernel_modules = AddedModules(Vec::new());
     let build_ids = file.build_ids().ok().unwrap_or_default();
+    let SampleTimeRange {
+        first_sample_time, ..
+    } = file.sample_time_range().unwrap().unwrap();
     let little_endian = file.endian() == linux_perf_data::Endianness::LittleEndian;
 
-    let mut count = 0;
+    let product = "My profile";
+    let mut doer = Converter::<U>::new(product, build_ids, first_sample_time, little_endian, cache);
+
     while let Ok(Some(record)) = file.next_record() {
-        count += 1;
         match record {
             ParsedRecord::Sample(e) => {
-                let pid = e.pid.expect("Can't handle samples without pids");
-                let process = processes
-                    .entry(pid)
-                    .or_insert_with(|| Process::new(pid, format!("<{}>", pid).into_bytes()));
-                if let Some(processed_sample) =
-                    process.handle_sample::<C>(e, cache, &kernel_modules)
-                {
-                    for frame in &processed_sample.stack {
-                        if let StackFrame::InImage(frame) = frame {
-                            all_image_stack_frames.insert(frame.clone());
-                        }
-                    }
-                    processed_samples.push(processed_sample);
-                }
+                doer.handle_sample::<C>(e);
+            }
+            ParsedRecord::Fork(e) => {
+                doer.handle_thread_start(e);
             }
             ParsedRecord::Comm(e) => {
-                println!("Comm: {:?}", e);
-                match processes.entry(e.pid) {
-                    Entry::Occupied(mut entry) => {
-                        entry.get_mut().set_name(e.name.as_slice().into());
-                    }
-                    Entry::Vacant(entry) => {
-                        entry.insert(Process::new(e.pid, e.name.as_slice().into()));
-                    }
-                }
+                doer.handle_thread_name_update(e);
             }
-            ParsedRecord::Exit(_e) => {
-                // todo
+            ParsedRecord::Exit(e) => {
+                doer.handle_thread_end(e);
             }
-            ParsedRecord::Fork(_) => {}
             ParsedRecord::Mmap(e) => {
-                let dso_key = match DsoKey::detect(&e.path.as_slice(), e.cpu_mode) {
-                    Some(dso_key) => dso_key,
-                    None => continue,
-                };
-                let build_id = build_ids.get(&dso_key).map(|db| &db.build_id[..]);
-                if e.pid == -1 {
-                    // println!(
-                    //     "kernel mmap: 0x{:016x}-0x{:016x} (page offset 0x{:016x}) {:?} ({})",
-                    //     e.address,
-                    //     e.address + e.length,
-                    //     e.page_offset,
-                    //     std::str::from_utf8(&e.path),
-                    //     e.is_executable
-                    // );
-
-                    if !e.is_executable {
-                        continue;
-                    }
-
-                    let debug_id =
-                        build_id.map(|buildid| DebugId::from_identifier(buildid, little_endian));
-
-                    let start_addr = e.address;
-                    let end_addr = e.address + e.length;
-
-                    let path_slice = e.path.as_slice();
-                    let path_str = std::str::from_utf8(&path_slice).unwrap();
-                    let path = Path::new(path_str);
-                    let base_address = start_addr;
-                    let address_range = start_addr..end_addr;
-                    let image = image_cache.index_for_image(path, &dso_key, debug_id);
-                    println!(
-                        "0x{:016x}-0x{:016x} {:?} {:?}",
-                        address_range.start,
-                        address_range.end,
-                        build_id.map(CodeId::from_binary),
-                        path
-                    );
-                    kernel_modules.0.push(AddedModule {
-                        address_range,
-                        base_address,
-                        image,
-                    });
-                    kernel_modules
-                        .0
-                        .sort_unstable_by_key(|m| m.address_range.start);
-                } else {
-                    let process = processes.entry(e.pid).or_insert_with(|| {
-                        Process::new(e.pid, format!("<{}>", e.pid).into_bytes())
-                    });
-                    process.handle_mmap(e, &dso_key, build_id, &mut image_cache);
-                }
+                doer.handle_mmap(e);
             }
             ParsedRecord::Mmap2(e) => {
-                let dso_key = match DsoKey::detect(&e.path.as_slice(), e.cpu_mode) {
-                    Some(dso_key) => dso_key,
-                    None => continue,
-                };
-                let build_id = build_ids.get(&dso_key).map(|db| &db.build_id[..]);
-                let process = processes
-                    .entry(e.pid)
-                    .or_insert_with(|| Process::new(e.pid, format!("<{}>", e.pid).into_bytes()));
-                process.handle_mmap2(e, &dso_key, build_id, &mut image_cache);
+                doer.handle_mmap2(e);
             }
             ParsedRecord::Lost(_) => {}
             ParsedRecord::Throttle(_) => {}
             ParsedRecord::Unthrottle(_) => {}
             ParsedRecord::ContextSwitch(_) => {}
             ParsedRecord::Raw(_) => {}
+            ParsedRecord::ThreadMap(_) => {}
         }
     }
-    println!(
-        "Have {} events, converted into {} processed samples.",
-        count,
-        processed_samples.len()
-    );
-    // eprintln!("{:#?}", processed_samples);
 
-    let mut address_results: Vec<HashMap<u32, Vec<String>>> =
-        image_cache.images.iter().map(|_| HashMap::new()).collect();
-    let libs: Vec<HelperLib> = image_cache
-        .images
-        .iter()
-        .enumerate()
-        .filter_map(|(image_index, image)| {
-            let debug_name = image.dso_key.name().to_string();
-            let debug_id = image.debug_id?;
-            Some(HelperLib {
-                debug_name,
-                handle: ImageCacheHandle(image_index as u32),
-                path: image.path.clone(),
-                debug_id,
-                dso_key: image.dso_key.clone(),
-            })
-        })
-        .collect();
-    let helper = Helper::with_libs(libs.clone(), false);
-    for lib in libs {
-        let addresses: Vec<u32> = all_image_stack_frames
-            .iter()
-            .filter_map(|sf| {
-                if sf.image == lib.handle {
-                    Some(sf.relative_lookup_address)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let f = profiler_get_symbols::get_symbolication_result(
-            SymbolicationQuery {
-                debug_name: &lib.debug_name,
-                debug_id: lib.debug_id,
-                result_kind: SymbolicationResultKind::SymbolsForAddresses {
-                    addresses: &addresses,
-                    with_debug_info: true,
-                },
-            },
-            &helper,
-        );
-        let r: Result<MySymbolicationResult, _> = futures::executor::block_on(f);
-        let r = match r {
-            Ok(r) => r,
-            Err(e) => {
-                eprintln!("Symbolication error: {:?}", e);
-                continue;
-            }
-        };
-        address_results[lib.handle.0 as usize] = r.map;
-    }
+    let profile = doer.finish();
 
-    for sample in processed_samples {
-        println!(
-            "Sample at t={} pid={} tid={}",
-            sample.timestamp, sample.pid, sample.tid
-        );
-        for frame in sample.stack {
-            match frame {
-                StackFrame::InImage(StackFrameInImage {
-                    image,
-                    relative_lookup_address,
-                }) => {
-                    if let Some(frame_strings) =
-                        address_results[image.0 as usize].get(&relative_lookup_address)
-                    {
-                        for frame_string in frame_strings {
-                            println!("  {}", frame_string);
-                        }
-                    } else {
-                        println!(
-                            "  0x{:x} (in {})",
-                            relative_lookup_address,
-                            image_cache.images[image.0 as usize].dso_key.name()
-                        );
-                    }
-                }
-                StackFrame::Address(address) => {
-                    println!("  0x{:x}", address);
-                }
-                StackFrame::TruncatedStackMarker => {
-                    println!("  <truncated stack>");
-                }
-            }
-        }
-        println!();
-    }
+    let file = File::create("profile-conv.json").unwrap();
+    let writer = BufWriter::new(file);
+    serde_json::to_writer(writer, &profile).expect("Couldn't write JSON");
 }
 
-struct MySymbolicationResult {
-    map: HashMap<u32, Vec<String>>,
-}
-
-impl SymbolicationResult for MySymbolicationResult {
-    fn from_full_map<S>(_map: Vec<(u32, S)>) -> Self
-    where
-        S: std::ops::Deref<Target = str>,
-    {
-        panic!("Should not be called")
-    }
-
-    fn for_addresses(_addresses: &[u32]) -> Self {
-        // yes correct
-        Self {
-            map: HashMap::new(),
-        }
-    }
-
-    fn add_address_symbol(
-        &mut self,
-        address: u32,
-        _symbol_address: u32,
-        symbol_name: &str,
-        _function_size: Option<u32>,
-    ) {
-        self.map.insert(address, vec![symbol_name.to_owned()]);
-    }
-
-    fn add_address_debug_info(&mut self, address: u32, info: AddressDebugInfo) {
-        let funcs: Vec<String> = info
-            .frames
-            .into_iter()
-            .map(|frame| {
-                let mut s = frame.function.unwrap_or_else(|| "<unknown>".to_string());
-                if let Some(file) = frame.file_path {
-                    s.push_str(" (");
-                    let file = match file {
-                        FilePath::Normal(f) => f,
-                        FilePath::Mapped { raw, .. } => raw,
-                    };
-                    s.push_str(&file);
-                    if let Some(line) = frame.line_number {
-                        s.push_str(&format!(":{}", line));
-                    }
-                    s.push(')');
-                }
-                s
-            })
-            .collect();
-        self.map.insert(address, funcs);
-    }
-
-    fn set_total_symbol_count(&mut self, _total_symbol_count: u32) {
-        // ignored
-    }
+#[derive(Debug, Clone)]
+struct GlobalModule {
+    pub base_address: u64,
+    pub address_range: Range<u64>,
+    pub debug_id: DebugId,
+    pub code_id: Option<CodeId>,
+    pub path: String,
 }
 
 struct Process<U> {
-    #[allow(unused)]
-    pid: i32,
-    name: Vec<u8>,
+    profile_process: ProcessHandle,
     unwinder: U,
-    added_modules: AddedModules,
-}
-
-struct AddedModules(pub Vec<AddedModule>);
-
-impl AddedModules {
-    pub fn map_address(&self, address: u64) -> Option<(ImageCacheHandle, u32)> {
-        let module = match self
-            .0
-            .binary_search_by_key(&address, |m| m.address_range.start)
-        {
-            Ok(i) => &self.0[i],
-            Err(insertion_index) => {
-                if insertion_index == 0 {
-                    // address is before first known module
-                    return None;
-                }
-                let i = insertion_index - 1;
-                let module = &self.0[i];
-                if module.address_range.end <= address {
-                    // address is after this module
-                    return None;
-                }
-                module
-            }
-        };
-        if address < module.base_address {
-            // Invalid base address
-            return None;
-        }
-        let relative_address = u32::try_from(address - module.base_address).ok()?;
-        Some((module.image, relative_address))
-    }
 }
 
 impl<U: Unwinder + Default> Process<U> {
-    pub fn new(pid: i32, name: Vec<u8>) -> Self {
+    pub fn new(profile_process: ProcessHandle) -> Self {
         Self {
-            pid,
-            name,
+            profile_process,
             unwinder: U::default(),
-            added_modules: AddedModules(Vec::new()),
         }
-    }
-}
-
-impl<U> Process<U> {
-    pub fn set_name(&mut self, name: Vec<u8>) {
-        self.name = name;
     }
 }
 
@@ -462,13 +437,7 @@ impl<U> Process<U>
 where
     U: Unwinder<Module = Module<Vec<u8>>>,
 {
-    pub fn handle_mmap(
-        &mut self,
-        e: MmapRecord,
-        dso_key: &DsoKey,
-        build_id: Option<&[u8]>,
-        image_cache: &mut ImageCache,
-    ) {
+    pub fn handle_mmap(&mut self, e: MmapRecord, build_id: Option<&[u8]>, profile: &mut Profile) {
         // println!(
         //     "raw1 ({}): 0x{:016x}-0x{:016x} {:?}",
         //     self.pid,
@@ -489,7 +458,7 @@ where
         let end_addr = e.address + e.length;
         let address_range = start_addr..end_addr;
 
-        let (debug_id, base_address) = match add_module(
+        let (debug_id, code_id, base_address) = match add_module(
             &mut self.unwinder,
             path,
             e.page_offset,
@@ -500,30 +469,25 @@ where
             Some(module_info) => module_info,
             None => return,
         };
-        let image = image_cache.index_for_image(path, dso_key, Some(debug_id));
         println!(
             "0x{:016x}-0x{:016x} {:?}",
             start_addr,
             e.address + e.length,
             path
         );
-        self.added_modules.0.push(AddedModule {
-            address_range,
+        profile.add_lib(
+            self.profile_process,
+            path,
+            code_id,
+            path,
+            debug_id,
+            None,
             base_address,
-            image,
-        });
-        self.added_modules
-            .0
-            .sort_unstable_by_key(|m| m.address_range.start);
+            address_range,
+        );
     }
 
-    pub fn handle_mmap2(
-        &mut self,
-        e: Mmap2Record,
-        dso_key: &DsoKey,
-        build_id: Option<&[u8]>,
-        image_cache: &mut ImageCache,
-    ) {
+    pub fn handle_mmap2(&mut self, e: Mmap2Record, build_id: Option<&[u8]>, profile: &mut Profile) {
         // println!(
         //     "raw2 ({}): 0x{:016x}-0x{:016x} (page offset 0x{:016x}) {:?}",
         //     self.pid,
@@ -551,7 +515,7 @@ where
         let path_str = std::str::from_utf8(&path_slice).unwrap();
         let path = Path::new(path_str);
         let address_range = start_addr..end_addr;
-        let (debug_id, base_address) = match add_module(
+        let (debug_id, code_id, base_address) = match add_module(
             &mut self.unwinder,
             path,
             e.page_offset,
@@ -562,29 +526,29 @@ where
             Some(module_info) => module_info,
             None => return,
         };
-        let image = image_cache.index_for_image(path, dso_key, Some(debug_id));
-        println!(
-            "0x{:016x}-0x{:016x} {:?} {:?}",
-            start_addr,
-            e.address + e.length,
-            build_id.as_deref().map(CodeId::from_binary),
-            path
-        );
-        self.added_modules.0.push(AddedModule {
-            address_range,
+        // println!(
+        //     "0x{:016x}-0x{:016x} {:?} {:?}",
+        //     start_addr,
+        //     e.address + e.length,
+        //     build_id.as_deref().map(CodeId::from_binary),
+        //     path
+        // );
+        profile.add_lib(
+            self.profile_process,
+            path,
+            code_id,
+            path,
+            debug_id,
+            None,
             base_address,
-            image,
-        });
-        self.added_modules
-            .0
-            .sort_unstable_by_key(|m| m.address_range.start);
+            address_range,
+        );
     }
 
     pub fn handle_sample<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
         &mut self,
         e: SampleRecord,
         cache: &mut U::Cache,
-        kernel_modules: &AddedModules,
     ) -> Option<ProcessedSample> {
         let mut stack = Vec::new();
 
@@ -597,39 +561,24 @@ where
                     continue;
                 }
 
-                let lookup_address = if is_first_frame { address } else { address - 1 };
-                is_first_frame = false;
-
-                let stack_frame = match self.added_modules.map_address(lookup_address) {
-                    Some((image, relative_lookup_address)) => {
-                        StackFrame::InImage(StackFrameInImage {
-                            image,
-                            relative_lookup_address,
-                        })
-                    }
-                    None => match kernel_modules.map_address(address) {
-                        Some((image, relative_lookup_address)) => {
-                            StackFrame::InImage(StackFrameInImage {
-                                image,
-                                relative_lookup_address,
-                            })
-                        }
-                        None => StackFrame::Address(address),
-                    },
+                let stack_frame = if is_first_frame {
+                    StackFrame::InstructionPointer(address)
+                } else {
+                    StackFrame::ReturnAddress(address)
                 };
                 stack.push(stack_frame);
+
+                is_first_frame = false;
             }
         }
 
         if let (Some(regs), Some((user_stack, _))) = (e.user_regs, e.user_stack) {
-            let ustack_bytes = user_stack.as_slice();
+            let ustack_bytes = RawDataU64::from_raw_data::<LittleEndian>(user_stack);
             let (pc, sp, regs) = C::convert_regs(&regs);
             let mut read_stack = |addr: u64| {
                 let offset = addr.checked_sub(sp).ok_or(())?;
-                let p_start = usize::try_from(offset).map_err(|_| ())?;
-                let p_end = p_start.checked_add(8).ok_or(())?;
-                if let Some(p) = ustack_bytes.get(p_start..p_end) {
-                    let val = u64::from_le_bytes([p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]]);
+                let index = usize::try_from(offset / 8).map_err(|_| ())?;
+                if let Some(val) = ustack_bytes.get(index) {
                     Ok(val)
                 } else {
                     // eprintln!("Ran out of stack when trying to read at address 0x{:x}", addr);
@@ -637,9 +586,6 @@ where
                 }
             };
             let mut frames = self.unwinder.iter_frames(pc, regs, cache, &mut read_stack);
-            if !self.added_modules.0.is_empty() {
-                // eprintln!("trying to unwind now");
-            }
             loop {
                 let frame = match frames.next() {
                     Ok(Some(frame)) => frame,
@@ -649,15 +595,13 @@ where
                         break;
                     }
                 };
-                let address = frame.address_for_lookup();
-                let stack_frame = match self.added_modules.map_address(address) {
-                    Some((image, relative_lookup_address)) => {
-                        StackFrame::InImage(StackFrameInImage {
-                            image,
-                            relative_lookup_address,
-                        })
+                let stack_frame = match frame {
+                    framehop::FrameAddress::InstructionPointer(addr) => {
+                        StackFrame::InstructionPointer(addr)
                     }
-                    None => StackFrame::Address(address),
+                    framehop::FrameAddress::ReturnAddress(addr) => {
+                        StackFrame::ReturnAddress(addr.into())
+                    }
                 };
                 stack.push(stack_frame);
                 // eprintln!("got frame: {:?}", frame);
@@ -673,50 +617,6 @@ where
     }
 }
 
-struct AddedModule {
-    address_range: Range<u64>,
-    base_address: u64,
-    image: ImageCacheHandle,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-struct ImageCacheHandle(u32);
-
-struct ImageCache {
-    images: Vec<Image>,
-}
-
-impl ImageCache {
-    pub fn new() -> Self {
-        Self { images: Vec::new() }
-    }
-
-    pub fn index_for_image(
-        &mut self,
-        path: &Path,
-        dso_key: &DsoKey,
-        debug_id: Option<DebugId>,
-    ) -> ImageCacheHandle {
-        match self
-            .images
-            .iter()
-            .enumerate()
-            .find(|(_, image)| &image.dso_key == dso_key)
-        {
-            Some((index, _)) => ImageCacheHandle(index as u32),
-            None => {
-                let index = self.images.len() as u32;
-                self.images.push(Image {
-                    path: path.to_owned(),
-                    dso_key: dso_key.clone(),
-                    debug_id,
-                });
-                ImageCacheHandle(index)
-            }
-        }
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct ProcessedSample {
     pub timestamp: u64,
@@ -727,21 +627,9 @@ pub struct ProcessedSample {
 
 #[derive(Clone, Debug)]
 pub enum StackFrame {
-    InImage(StackFrameInImage),
-    Address(u64),
+    InstructionPointer(u64),
+    ReturnAddress(u64),
     TruncatedStackMarker,
-}
-
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub struct StackFrameInImage {
-    image: ImageCacheHandle,
-    relative_lookup_address: u32,
-}
-
-struct Image {
-    dso_key: DsoKey,
-    path: PathBuf,
-    debug_id: Option<DebugId>,
 }
 
 pub fn add_module<U>(
@@ -751,14 +639,15 @@ pub fn add_module<U>(
     mapping_start_avma: u64,
     mapping_size: u64,
     build_id: Option<&[u8]>,
-) -> Option<(DebugId, u64)>
+) -> Option<(DebugId, Option<CodeId>, u64)>
 where
     U: Unwinder<Module = Module<Vec<u8>>>,
 {
     let file = match std::fs::File::open(objpath) {
         Ok(file) => file,
         Err(_) => {
-            let mut p = Path::new("/Users/mstange/code/linux-perf-stuff/fixtures/x86_64").to_owned();
+            let mut p =
+                Path::new("/Users/mstange/code/linux-perf-stuff/fixtures/x86_64").to_owned();
             p.push(objpath.file_name().unwrap());
             match std::fs::File::open(&p) {
                 Ok(file) => file,
@@ -889,134 +778,6 @@ where
     unwinder.add_module(module);
 
     let debug_id = debug_id_for_object(&file)?;
-    Some((debug_id, base_avma))
-}
-
-struct FileContents(memmap2::Mmap);
-
-impl std::ops::Deref for FileContents {
-    type Target = [u8];
-
-    #[inline]
-    fn deref(&self) -> &[u8] {
-        &self.0
-    }
-}
-#[derive(Debug, Clone)]
-struct Helper {
-    libs: Vec<HelperLib>,
-    verbose: bool,
-}
-
-#[derive(Debug, Clone)]
-struct HelperLib {
-    debug_name: String,
-    debug_id: DebugId,
-    dso_key: DsoKey,
-    handle: ImageCacheHandle,
-    path: PathBuf,
-}
-
-impl Helper {
-    pub fn with_libs(libs: Vec<HelperLib>, verbose: bool) -> Self {
-        Helper { libs, verbose }
-    }
-
-    async fn open_file_impl(
-        &self,
-        location: FileLocation,
-    ) -> FileAndPathHelperResult<FileContents> {
-        match location {
-            FileLocation::Path(path) => {
-                if self.verbose {
-                    eprintln!("Opening file {:?}", path.to_string_lossy());
-                }
-                let file = File::open(&path)?;
-                Ok(FileContents(unsafe {
-                    memmap2::MmapOptions::new().map(&file)?
-                }))
-            }
-            FileLocation::Custom(_) => {
-                panic!("unexpected")
-            }
-        }
-    }
-}
-
-impl<'h> FileAndPathHelper<'h> for Helper {
-    type F = FileContents;
-    type OpenFileFuture =
-        Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>>;
-
-    fn get_candidate_paths_for_binary_or_pdb(
-        &self,
-        debug_name: &str,
-        debug_id: &DebugId,
-    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
-        if self.verbose {
-            eprintln!(
-                "Listing candidates for debug_name {} and debug ID {}",
-                debug_name, debug_id
-            );
-        }
-        let mut paths = vec![];
-
-        // Look up (debug_name, debug_id) in the map.
-        if let Some(lib) = self
-            .libs
-            .iter()
-            .find(|lib| lib.debug_name == debug_name && &lib.debug_id == debug_id)
-        {
-            let fixtures_dir = PathBuf::from("/Users/mstange/code/linux-perf-stuff/fixtures/x86_64");
-
-            if lib.dso_key == DsoKey::Kernel {
-                let mut p = fixtures_dir.clone();
-                p.push("kernel-symbols");
-                paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(p)));
-                let mut p = fixtures_dir.clone();
-                p.push("vmlinux-5.4.0-109-generic");
-                paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(p)));
-            }
-
-            if lib.dso_key == DsoKey::Vdso64 {
-                let mut p = fixtures_dir.clone();
-                p.push("vdso64-symbols");
-                paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(p)));
-                let mut p = fixtures_dir.clone();
-                p.push("vdso.so");
-                paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(p)));
-            }
-
-            let path = lib.path.clone();
-
-            // Also consider .so.dbg files in the same directory.
-            if debug_name.ends_with(".so") {
-                let debug_debug_name = format!("{}.dbg", debug_name);
-                if let Some(dir) = path.parent() {
-                    paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                        dir.join(debug_debug_name),
-                    )));
-                }
-            }
-
-            // Fall back to getting symbols from the binary itself.
-            paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                path.clone(),
-            )));
-
-            // Also from the fixtures directory.
-            let mut p = fixtures_dir;
-            p.push(path.file_name().unwrap());
-            paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(p)));
-        }
-
-        Ok(paths)
-    }
-
-    fn open_file(
-        &'h self,
-        location: &FileLocation,
-    ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>> {
-        Box::pin(self.open_file_impl(location.clone()))
-    }
+    let code_id = file.build_id().ok().flatten().map(CodeId::from_binary);
+    Some((debug_id, code_id, base_avma))
 }
