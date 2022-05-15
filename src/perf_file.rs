@@ -151,7 +151,7 @@ impl<'a, R: Read> PerfFileReader<'a, R> {
     ///  - This also works for DSOs which are not present on the file system at all;
     ///    specifically, the vDSO file is a bit of a pain to obtain. With the build ID you can
     ///    instead obtain it from, say,
-    ///    https://debuginfod.elfutils.org/buildid/0d82ee4bd7f9609c367095ba0bedf155b71cb058/executable
+    ///    <https://debuginfod.elfutils.org/buildid/0d82ee4bd7f9609c367095ba0bedf155b71cb058/executable>
     ///
     /// This method is a bit lossy. We discard the pid, because it seems to be always -1 in
     /// the files I've tested. We also discard any entries for which we fail to create a `DsoKey`.
