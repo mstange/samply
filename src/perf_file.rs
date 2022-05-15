@@ -12,11 +12,17 @@ pub enum Endianness {
     BigEndian,
 }
 
-pub struct PerfFile {
+pub struct PerfFileReader<'a, R: Read> {
+    reader: &'a mut R,
     endian: Endianness,
-    record_data_offset_and_size: (u64, u64),
-    perf_event_attrs: Vec<PerfEventAttr>,
     feature_sections: Vec<(FlagFeature, Vec<u8>)>,
+    read_offset: u64,
+    record_data_len: u64,
+    current_event_body: Vec<u8>,
+    parse_info: RecordParseInfo,
+    /// Sorted by time
+    remaining_pending_records: VecDeque<PendingRecord>,
+    buffers_for_recycling: VecDeque<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -25,21 +31,17 @@ pub struct DsoBuildId {
     pub build_id: Vec<u8>,
 }
 
-impl PerfFile {
-    pub fn parse<C>(cursor: &mut C) -> Result<Self, Error>
-    where
-        C: Read + Seek,
-    {
+impl<'a, C: Read + Seek> PerfFileReader<'a, C> {
+    pub fn parse_file(cursor: &'a mut C) -> Result<Self, Error> {
         let header = PerfHeader::parse(cursor)?;
         match header.endian {
-            Endianness::LittleEndian => Self::parse_impl::<C, LittleEndian>(cursor, header),
-            Endianness::BigEndian => Self::parse_impl::<C, BigEndian>(cursor, header),
+            Endianness::LittleEndian => Self::parse_file_impl::<LittleEndian>(cursor, header),
+            Endianness::BigEndian => Self::parse_file_impl::<BigEndian>(cursor, header),
         }
     }
 
-    fn parse_impl<C, T>(cursor: &mut C, header: PerfHeader) -> Result<Self, Error>
+    fn parse_file_impl<T>(cursor: &'a mut C, header: PerfHeader) -> Result<Self, Error>
     where
-        C: Read + Seek,
         T: ByteOrder,
     {
         // Read the section information for each flag, starting just after the data section.
@@ -84,22 +86,32 @@ impl PerfFile {
             perf_event_attrs.push(attr);
             offset += attr_size;
         }
-        // eprintln!("Got {} perf_event_attrs.", perf_event_attrs.len());
-        // for perf_event_attr in &perf_event_attrs {
-        //     eprintln!("flags: {:b}", perf_event_attr.flags);
-        //     if perf_event_attr.flags & ATTR_FLAG_BIT_ENABLE_ON_EXEC != 0 {
-        //         eprintln!("ATTR_FLAG_BIT_ENABLE_ON_EXEC is set");
-        //     }
-        // }
+
+        // Grab the first of the perf event attrs.
+        // TODO: What happens if there's more than one attr? How do we know which
+        // records belong to which event?
+        let attr = &perf_event_attrs[0];
+        let parse_info = RecordParseInfo::from_attr(attr);
+
+        // Move the cursor to the start of the data section so that we can start
+        // reading records from it.
+        cursor.seek(SeekFrom::Start(header.data_section.offset))?;
 
         Ok(Self {
-            record_data_offset_and_size: (header.data_section.offset, header.data_section.size),
-            perf_event_attrs,
-            feature_sections,
+            reader: cursor,
             endian: header.endian,
+            feature_sections,
+            read_offset: 0,
+            record_data_len: header.data_section.size,
+            parse_info,
+            remaining_pending_records: VecDeque::new(),
+            buffers_for_recycling: VecDeque::new(),
+            current_event_body: Vec::new(),
         })
     }
+}
 
+impl<'a, R: Read> PerfFileReader<'a, R> {
     pub fn endian(&self) -> Endianness {
         self.endian
     }
@@ -171,24 +183,6 @@ impl PerfFile {
         Ok(build_ids)
     }
 
-    pub fn records<'a, 'b: 'a, C: Read + Seek>(&'a self, cursor: &'b mut C) -> RecordIter<'a, C> {
-        let endian = self.endian;
-        let attr = &self.perf_event_attrs[0];
-        let parse_info = RecordParseInfo::from_attr(attr);
-        let (offset, record_data_len) = self.record_data_offset_and_size;
-        cursor.seek(SeekFrom::Start(offset)).unwrap();
-        RecordIter {
-            reader: cursor,
-            current_event_body: Vec::new(),
-            read_offset: 0,
-            record_data_len,
-            endian,
-            parse_info,
-            remaining_pending_records: VecDeque::new(),
-            buffers_for_recycling: VecDeque::new(),
-        }
-    }
-
     /// Only call this for features whose section is just a perf_header_string.
     fn feature_string(&self, feature: FlagFeature) -> Result<Option<&str>, Error> {
         self.feature_section(feature)
@@ -228,7 +222,7 @@ impl PerfFile {
         self.has_feature(FlagFeature::Stat)
     }
 
-    fn read_string<'a>(&self, s: &'a [u8]) -> Result<&'a str, Error> {
+    fn read_string<'s>(&self, s: &'s [u8]) -> Result<&'s str, Error> {
         if s.len() < 4 {
             return Err(Error::NotEnoughSpaceForStringLen);
         }
@@ -244,40 +238,12 @@ impl PerfFile {
         let s = std::str::from_utf8(&s[..actual_len]).map_err(|_| Error::StringUtf8)?;
         Ok(s)
     }
-}
 
-/// Emits records in the right order (sorted by time). It buffers records until it sees
-/// a FINISHED_ROUND record; then it sorts the buffered records.
-pub struct RecordIter<'a, R: Read> {
-    reader: &'a mut R,
-    read_offset: u64,
-    record_data_len: u64,
-    current_event_body: Vec<u8>,
-    endian: Endianness,
-    parse_info: RecordParseInfo,
-    /// Sorted by time
-    remaining_pending_records: VecDeque<PendingRecord>,
-    buffers_for_recycling: VecDeque<Vec<u8>>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct PendingRecord {
-    sort_key: RecordSortKey,
-    record_type: RecordType,
-    misc: u16,
-    buffer: Vec<u8>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct RecordSortKey {
-    timestamp: Option<u64>,
-    offset: u64,
-}
-
-impl<'a, R: Read> RecordIter<'a, R> {
     /// Emits records in the correct order (sorted by time).
-    #[allow(clippy::should_implement_trait)]
-    pub fn next(&mut self) -> Result<Option<ParsedRecord>, Error> {
+    ///
+    /// It buffers records until it sees a FINISHED_ROUND record; then it sorts the
+    /// buffered records and emits them one by one.
+    pub fn next_record(&mut self) -> Result<Option<ParsedRecord>, Error> {
         if self.remaining_pending_records.is_empty() {
             self.read_current_round()?;
         }
@@ -386,6 +352,20 @@ impl<'a, R: Read> RecordIter<'a, R> {
             raw_event.parse::<byteorder::BigEndian>(&self.parse_info)
         }?)
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PendingRecord {
+    sort_key: RecordSortKey,
+    record_type: RecordType,
+    misc: u16,
+    buffer: Vec<u8>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct RecordSortKey {
+    timestamp: Option<u64>,
+    offset: u64,
 }
 
 /// Old versions of perf did not write down the length of the build ID.

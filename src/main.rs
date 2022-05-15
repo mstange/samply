@@ -10,10 +10,10 @@ use linux_perf_event_reader::consts::{
     PERF_REG_X86_BP, PERF_REG_X86_IP, PERF_REG_X86_SP,
 };
 use linux_perf_event_reader::records::{
-    ParsedRecord, Mmap2Record, Mmap2FileId, MmapRecord, Regs, SampleRecord,
+    Mmap2FileId, Mmap2Record, MmapRecord, ParsedRecord, Regs, SampleRecord,
 };
 use object::{Object, ObjectSection, ObjectSegment};
-pub use perf_file::{DsoKey, PerfFile};
+pub use perf_file::{DsoKey, PerfFileReader};
 use profiler_get_symbols::{
     debug_id_for_object, AddressDebugInfo, CandidatePathInfo, DebugIdExt, FileAndPathHelper,
     FileAndPathHelperResult, FileLocation, FilePath, OptionallySendFuture, SymbolicationQuery,
@@ -21,7 +21,7 @@ use profiler_get_symbols::{
 };
 use std::collections::HashSet;
 use std::collections::{hash_map::Entry, HashMap};
-use std::io::Cursor;
+use std::io::Read;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::{fs::File, ops::Range, path::Path};
@@ -36,10 +36,8 @@ fn main() {
     }
     let path = args.next().unwrap();
 
-    let file = File::open(path).unwrap();
-    let mmap = unsafe { memmap2::MmapOptions::new().map(&file).unwrap() };
-    let data = &mmap[..];
-    let file = PerfFile::parse(&mut Cursor::new(data)).expect("Parsing failed");
+    let mut file = File::open(path).unwrap();
+    let file = PerfFileReader::parse_file(&mut file).expect("Parsing failed");
 
     if let Some(hostname) = file.hostname().unwrap() {
         println!("Hostname: {}", hostname);
@@ -84,14 +82,14 @@ fn main() {
     match file.arch().unwrap() {
         Some("x86_64") => {
             let mut cache = framehop::x86_64::CacheX86_64::new();
-            do_the_thing::<framehop::x86_64::UnwinderX86_64<Vec<u8>>, ConvertRegsX86_64>(
-                &file, data, &mut cache,
+            do_the_thing::<framehop::x86_64::UnwinderX86_64<Vec<u8>>, ConvertRegsX86_64, _>(
+                file, &mut cache,
             );
         }
         Some("aarch64") => {
             let mut cache = framehop::aarch64::CacheAarch64::new();
-            do_the_thing::<framehop::aarch64::UnwinderAarch64<Vec<u8>>, ConvertRegsAarch64>(
-                &file, data, &mut cache,
+            do_the_thing::<framehop::aarch64::UnwinderAarch64<Vec<u8>>, ConvertRegsAarch64, _>(
+                file, &mut cache,
             );
         }
         Some(other_arch) => {
@@ -133,10 +131,11 @@ impl ConvertRegs for ConvertRegsAarch64 {
     }
 }
 
-fn do_the_thing<U, C>(file: &PerfFile, data: &[u8], cache: &mut U::Cache)
+fn do_the_thing<U, C, R>(mut file: PerfFileReader<R>, cache: &mut U::Cache)
 where
     U: Unwinder<Module = Module<Vec<u8>>> + Default,
     C: ConvertRegs<UnwindRegs = U::UnwindRegs>,
+    R: Read,
 {
     let mut processes: HashMap<i32, Process<U>> = HashMap::new();
     let mut image_cache = ImageCache::new();
@@ -146,10 +145,8 @@ where
     let build_ids = file.build_ids().ok().unwrap_or_default();
     let little_endian = file.endian() == perf_file::Endianness::LittleEndian;
 
-    let mut cursor = Cursor::new(data);
-    let mut records = file.records(&mut cursor);
     let mut count = 0;
-    while let Ok(Some(record)) = records.next() {
+    while let Ok(Some(record)) = file.next_record() {
         count += 1;
         match record {
             ParsedRecord::Sample(e) => {
@@ -598,7 +595,7 @@ where
 
         if let Some(callchain) = e.callchain {
             let mut is_first_frame = true;
-            for i in 0..callchain.len(){
+            for i in 0..callchain.len() {
                 let address = callchain.get(i).unwrap();
                 if address >= PERF_CONTEXT_MAX {
                     // Ignore synthetic addresses like 0xffffffffffffff80.
