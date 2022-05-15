@@ -18,8 +18,8 @@ object = "0.28.3"
 profiler-get-symbols = "0.14.0"
 # profiler-get-symbols = { path = "../profiler-get-symbols/lib" }
 thiserror = "1.0.30"
-# linux-perf-data = "0.1.0"
-linux-perf-data = { path = "../linux-perf-data" }
+linux-perf-data = "0.1.0"
+# linux-perf-data = { path = "../linux-perf-data" }
 
 [profile.release]
 debug = true
