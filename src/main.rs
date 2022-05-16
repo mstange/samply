@@ -21,6 +21,7 @@ use object::{Object, ObjectSection, ObjectSegment};
 use profiler_get_symbols::{debug_id_for_object, DebugIdExt};
 use std::collections::HashMap;
 use std::io::{BufWriter, Read};
+use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 use std::{fs::File, ops::Range, path::Path};
 
@@ -31,21 +32,28 @@ fn main() {
         std::process::exit(1);
     }
     let path = args.next().unwrap();
+    let path = Path::new(&path)
+        .canonicalize()
+        .expect("Couldn't form absolute path");
 
-    let input_file = File::open(path).unwrap();
+    let input_file = File::open(&path).unwrap();
     let perf_file = PerfFileReader::parse_file(input_file).expect("Parsing failed");
 
     let profile = match perf_file.arch().unwrap() {
         Some("x86_64") => {
             let cache = framehop::x86_64::CacheX86_64::new();
             convert::<framehop::x86_64::UnwinderX86_64<Vec<u8>>, ConvertRegsX86_64, _>(
-                perf_file, cache,
+                perf_file,
+                path.parent(),
+                cache,
             )
         }
         Some("aarch64") => {
             let cache = framehop::aarch64::CacheAarch64::new();
             convert::<framehop::aarch64::UnwinderAarch64<Vec<u8>>, ConvertRegsAarch64, _>(
-                perf_file, cache,
+                perf_file,
+                path.parent(),
+                cache,
             )
         }
         Some(other_arch) => {
@@ -93,7 +101,11 @@ impl ConvertRegs for ConvertRegsAarch64 {
     }
 }
 
-fn convert<U, C, R>(mut file: PerfFileReader<R>, cache: U::Cache) -> Profile
+fn convert<U, C, R>(
+    mut file: PerfFileReader<R>,
+    extra_dir: Option<&Path>,
+    cache: U::Cache,
+) -> Profile
 where
     U: Unwinder<Module = Module<Vec<u8>>> + Default,
     C: ConvertRegs<UnwindRegs = U::UnwindRegs>,
@@ -116,6 +128,7 @@ where
         perf_version,
         little_endian,
         cache,
+        extra_dir,
     );
 
     while let Ok(Some(record)) = file.next_record() {
@@ -161,12 +174,14 @@ where
     have_product_name: bool,
     host: String,
     perf_version: String,
+    extra_binary_artifact_dir: Option<PathBuf>,
 }
 
 impl<U> Converter<U>
 where
     U: Unwinder<Module = Module<Vec<u8>>> + Default,
 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         product: &str,
         build_ids: HashMap<DsoKey, DsoBuildId>,
@@ -175,6 +190,7 @@ where
         perf_version: &str,
         little_endian: bool,
         cache: U::Cache,
+        extra_binary_artifact_dir: Option<&Path>,
     ) -> Self {
         Self {
             profile: Profile::new(
@@ -193,6 +209,7 @@ where
             have_product_name: false,
             host: host.to_string(),
             perf_version: perf_version.to_string(),
+            extra_binary_artifact_dir: extra_binary_artifact_dir.map(ToOwned::to_owned),
         }
     }
 
@@ -342,6 +359,7 @@ where
                 e.address,
                 e.length,
                 build_id,
+                self.extra_binary_artifact_dir.as_deref(),
             ) {
                 add_module_to_profile(&mut self.profile, process.profile_process, module);
             }
@@ -377,6 +395,7 @@ where
             e.address,
             e.length,
             build_id,
+            self.extra_binary_artifact_dir.as_deref(),
         ) {
             add_module_to_profile(&mut self.profile, process.profile_process, module);
         }
@@ -567,6 +586,7 @@ fn add_module_to_unwinder<U>(
     mapping_start_avma: u64,
     mapping_size: u64,
     build_id: Option<&[u8]>,
+    extra_binary_artifact_dir: Option<&Path>,
 ) -> Option<ProfileModule>
 where
     U: Unwinder<Module = Module<Vec<u8>>>,
@@ -577,15 +597,19 @@ where
     let file = match std::fs::File::open(objpath) {
         Ok(file) => file,
         Err(_) => {
-            let mut p =
-                Path::new("/Users/mstange/code/linux-perf-stuff/fixtures/x86_64").to_owned();
-            p.push(objpath.file_name().unwrap());
-            match std::fs::File::open(&p) {
-                Ok(file) => file,
-                Err(_) => {
-                    eprintln!("Could not open file {:?}", objpath);
-                    return None;
+            if let Some(extra_dir) = extra_binary_artifact_dir {
+                let mut p = extra_dir.to_owned();
+                p.push(objpath.file_name().unwrap());
+                match std::fs::File::open(&p) {
+                    Ok(file) => file,
+                    Err(_) => {
+                        eprintln!("Could not open file {:?}", objpath);
+                        return None;
+                    }
                 }
+            } else {
+                eprintln!("Could not open file {:?}", objpath);
+                return None;
             }
         }
     };
