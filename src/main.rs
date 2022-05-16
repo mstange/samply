@@ -214,7 +214,6 @@ where
 
             let path_slice = e.path.as_slice();
             let path_str = std::str::from_utf8(&path_slice).unwrap();
-            let path = Path::new(path_str);
             let base_address = start_addr;
             let address_range = start_addr..end_addr;
             // println!(
@@ -225,7 +224,7 @@ where
                 address_range,
                 base_address,
                 debug_id: debug_id.unwrap_or_default(),
-                path: path.to_string_lossy().to_string(),
+                path: path_str.to_string(),
                 code_id,
             });
         } else {
