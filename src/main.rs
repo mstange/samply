@@ -33,29 +33,35 @@ fn main() {
     }
     let path = args.next().unwrap();
 
-    let mut file = File::open(path).unwrap();
-    let file = PerfFileReader::parse_file(&mut file).expect("Parsing failed");
+    let input_file = File::open(path).unwrap();
+    let perf_file = PerfFileReader::parse_file(input_file).expect("Parsing failed");
 
-    match file.arch().unwrap() {
+    let profile = match perf_file.arch().unwrap() {
         Some("x86_64") => {
             let cache = framehop::x86_64::CacheX86_64::new();
-            do_the_thing::<framehop::x86_64::UnwinderX86_64<Vec<u8>>, ConvertRegsX86_64, _>(
-                file, cache,
-            );
+            convert::<framehop::x86_64::UnwinderX86_64<Vec<u8>>, ConvertRegsX86_64, _>(
+                perf_file, cache,
+            )
         }
         Some("aarch64") => {
             let cache = framehop::aarch64::CacheAarch64::new();
-            do_the_thing::<framehop::aarch64::UnwinderAarch64<Vec<u8>>, ConvertRegsAarch64, _>(
-                file, cache,
-            );
+            convert::<framehop::aarch64::UnwinderAarch64<Vec<u8>>, ConvertRegsAarch64, _>(
+                perf_file, cache,
+            )
         }
         Some(other_arch) => {
             eprintln!("Unrecognized arch {}", other_arch);
+            std::process::exit(1);
         }
         None => {
             eprintln!("Can't unwind because I don't know the arch");
+            std::process::exit(1);
         }
-    }
+    };
+
+    let output_file = File::create("profile-conv.json").unwrap();
+    let writer = BufWriter::new(output_file);
+    serde_json::to_writer(writer, &profile).expect("Couldn't write JSON");
 }
 
 trait ConvertRegs {
@@ -96,7 +102,7 @@ where
     profile: Profile,
     processes: Processes<U>,
     threads: Threads,
-    kernel_modules: Vec<GlobalModule>,
+    kernel_modules: Vec<ProfileModule>,
     first_sample_time: u64,
     build_ids: HashMap<DsoKey, DsoBuildId>,
     little_endian: bool,
@@ -168,7 +174,6 @@ where
     }
 
     pub fn handle_thread_name_update(&mut self, e: CommOrExecRecord) {
-        // println!("Comm: {:?}", e);
         let is_main = e.pid == e.tid;
         let process_handle = self
             .processes
@@ -200,8 +205,8 @@ where
         let build_id = self.build_ids.get(&dso_key).map(|db| &db.build_id[..]);
         if e.pid == -1 {
             let debug_id = build_id.map(|id| DebugId::from_identifier(id, self.little_endian));
-            self.kernel_modules.push(GlobalModule {
-                base_address: e.address,
+            self.kernel_modules.push(ProfileModule {
+                base_avma: e.address,
                 address_range: e.address..(e.address + e.length),
                 debug_id: debug_id.unwrap_or_default(),
                 path: std::str::from_utf8(&path).unwrap().to_string(),
@@ -211,14 +216,11 @@ where
             let process = self
                 .processes
                 .get_by_pid(e.pid, &mut self.profile, &self.kernel_modules);
-            process.add_module_for_mapping(
-                e.address,
-                e.length,
-                e.page_offset,
-                &path,
-                build_id,
-                &mut self.profile,
-            );
+            if let Some(module) =
+                process.add_module_for_mapping(e.address, e.length, e.page_offset, &path, build_id)
+            {
+                add_module_to_profile(&mut self.profile, process.profile_process, module);
+            }
         }
     }
 
@@ -244,14 +246,11 @@ where
         let process = self
             .processes
             .get_by_pid(e.pid, &mut self.profile, &self.kernel_modules);
-        process.add_module_for_mapping(
-            e.address,
-            e.length,
-            e.page_offset,
-            &path,
-            build_id,
-            &mut self.profile,
-        );
+        if let Some(module) =
+            process.add_module_for_mapping(e.address, e.length, e.page_offset, &path, build_id)
+        {
+            add_module_to_profile(&mut self.profile, process.profile_process, module);
+        }
     }
 
     pub fn handle_thread_start(&mut self, e: ForkOrExitRecord) {
@@ -304,7 +303,7 @@ where
         &mut self,
         pid: i32,
         profile: &mut Profile,
-        global_modules: &[GlobalModule],
+        global_modules: &[ProfileModule],
     ) -> &mut Process<U> {
         self.0.entry(pid).or_insert_with(|| {
             let name = format!("<{}>", pid);
@@ -314,16 +313,7 @@ where
                 Timestamp::from_millis_since_reference(0.0),
             );
             for module in global_modules.iter().cloned() {
-                profile.add_lib(
-                    handle,
-                    &module.path,
-                    module.code_id,
-                    &module.path,
-                    module.debug_id,
-                    None,
-                    module.base_address,
-                    module.address_range,
-                );
+                add_module_to_profile(profile, handle, module);
             }
             Process::new(handle)
         })
@@ -351,7 +341,7 @@ impl Threads {
     }
 }
 
-fn do_the_thing<U, C, R>(mut file: PerfFileReader<R>, cache: U::Cache)
+fn convert<U, C, R>(mut file: PerfFileReader<R>, cache: U::Cache) -> Profile
 where
     U: Unwinder<Module = Module<Vec<u8>>> + Default,
     C: ConvertRegs<UnwindRegs = U::UnwindRegs>,
@@ -364,27 +354,28 @@ where
     let little_endian = file.endian() == linux_perf_data::Endianness::LittleEndian;
 
     let product = "My profile";
-    let mut doer = Converter::<U>::new(product, build_ids, first_sample_time, little_endian, cache);
+    let mut converter =
+        Converter::<U>::new(product, build_ids, first_sample_time, little_endian, cache);
 
     while let Ok(Some(record)) = file.next_record() {
         match record {
             ParsedRecord::Sample(e) => {
-                doer.handle_sample::<C>(e);
+                converter.handle_sample::<C>(e);
             }
             ParsedRecord::Fork(e) => {
-                doer.handle_thread_start(e);
+                converter.handle_thread_start(e);
             }
             ParsedRecord::Comm(e) => {
-                doer.handle_thread_name_update(e);
+                converter.handle_thread_name_update(e);
             }
             ParsedRecord::Exit(e) => {
-                doer.handle_thread_end(e);
+                converter.handle_thread_end(e);
             }
             ParsedRecord::Mmap(e) => {
-                doer.handle_mmap(e);
+                converter.handle_mmap(e);
             }
             ParsedRecord::Mmap2(e) => {
-                doer.handle_mmap2(e);
+                converter.handle_mmap2(e);
             }
             ParsedRecord::Lost(_) => {}
             ParsedRecord::Throttle(_) => {}
@@ -395,16 +386,12 @@ where
         }
     }
 
-    let profile = doer.finish();
-
-    let file = File::create("profile-conv.json").unwrap();
-    let writer = BufWriter::new(file);
-    serde_json::to_writer(writer, &profile).expect("Couldn't write JSON");
+    converter.finish()
 }
 
 #[derive(Debug, Clone)]
-struct GlobalModule {
-    pub base_address: u64,
+struct ProfileModule {
+    pub base_avma: u64,
     pub address_range: Range<u64>,
     pub debug_id: DebugId,
     pub code_id: Option<CodeId>,
@@ -443,41 +430,16 @@ where
         page_offset: u64,
         path: &[u8],
         build_id: Option<&[u8]>,
-        profile: &mut Profile,
-    ) {
-        let end_addr = start_addr + size;
+    ) -> Option<ProfileModule> {
         let path_str = std::str::from_utf8(path).unwrap();
-        let path = Path::new(path_str);
-        let address_range = start_addr..end_addr;
-        let (debug_id, code_id, base_address) = match add_module_to_unwinder(
+        add_module_to_unwinder(
             &mut self.unwinder,
-            path,
+            Path::new(path_str),
             page_offset,
             start_addr,
             size,
             build_id,
-        ) {
-            Some(module_info) => module_info,
-            None => return,
-        };
-        // println!(
-        //     "0x{:016x}-0x{:016x} (base avma: 0x{:016x}) {:?} {:?}",
-        //     start_addr,
-        //     end_addr,
-        //     base_address,
-        //     build_id.as_deref().map(CodeId::from_binary),
-        //     path
-        // );
-        profile.add_lib(
-            self.profile_process,
-            path_str,
-            code_id,
-            path_str,
-            debug_id,
-            None,
-            base_address,
-            address_range,
-        );
+        )
     }
 
     /// Get the stack contained in this sample, and put it into `stack`.
@@ -564,14 +526,14 @@ pub enum StackFrame {
     TruncatedStackMarker,
 }
 
-pub fn add_module_to_unwinder<U>(
+fn add_module_to_unwinder<U>(
     unwinder: &mut U,
     objpath: &Path,
     mapping_start_file_offset: u64,
     mapping_start_avma: u64,
     mapping_size: u64,
     build_id: Option<&[u8]>,
-) -> Option<(DebugId, Option<CodeId>, u64)>
+) -> Option<ProfileModule>
 where
     U: Unwinder<Module = Module<Vec<u8>>>,
 {
@@ -690,8 +652,9 @@ where
     }
 
     let mapping_end_avma = mapping_start_avma + mapping_size;
+    let path_str = objpath.to_string_lossy().to_string();
     let module = Module::new(
-        objpath.to_string_lossy().to_string(),
+        path_str.clone(),
         mapping_start_avma..mapping_end_avma,
         base_avma,
         ModuleSvmaInfo {
@@ -711,5 +674,25 @@ where
 
     let debug_id = debug_id_for_object(&file)?;
     let code_id = file.build_id().ok().flatten().map(CodeId::from_binary);
-    Some((debug_id, code_id, base_avma))
+
+    Some(ProfileModule {
+        base_avma,
+        address_range: mapping_start_avma..mapping_end_avma,
+        debug_id,
+        code_id,
+        path: path_str,
+    })
+}
+
+fn add_module_to_profile(profile: &mut Profile, process: ProcessHandle, module: ProfileModule) {
+    profile.add_lib(
+        process,
+        &module.path,
+        module.code_id,
+        &module.path,
+        module.debug_id,
+        None,
+        module.base_avma,
+        module.address_range,
+    );
 }
