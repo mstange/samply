@@ -150,24 +150,17 @@ where
         let process = self
             .processes
             .get_by_pid(pid, &mut self.profile, &self.kernel_modules);
-        let processed_sample = match process.handle_sample::<C>(e, &mut self.cache) {
-            Some(s) => s,
-            None => return,
-        };
-
+        let mut stack = Vec::new();
+        process.get_sample_stack::<C>(&e, &mut self.cache, &mut stack);
         let thread =
             self.threads
                 .get_by_tid(tid, process.profile_process, is_main, &mut self.profile);
         let timestamp = self.convert_time(timestamp);
-        let frames = processed_sample
-            .stack
-            .into_iter()
-            .rev()
-            .filter_map(|frame| match frame {
-                StackFrame::InstructionPointer(addr) => Some(Frame::InstructionPointer(addr)),
-                StackFrame::ReturnAddress(addr) => Some(Frame::ReturnAddress(addr)),
-                StackFrame::TruncatedStackMarker => None,
-            });
+        let frames = stack.into_iter().rev().filter_map(|frame| match frame {
+            StackFrame::InstructionPointer(addr) => Some(Frame::InstructionPointer(addr)),
+            StackFrame::ReturnAddress(addr) => Some(Frame::ReturnAddress(addr)),
+            StackFrame::TruncatedStackMarker => None,
+        });
         self.profile
             .add_sample(thread, timestamp, frames, cpu_delta, 1);
     }
@@ -279,13 +272,13 @@ where
             .processes
             .get_by_pid(e.pid, &mut self.profile, &self.kernel_modules);
         let process_handle = process.profile_process;
-        if is_main {
-            self.profile.set_process_end_time(process_handle, end_time);
-        }
         let thread = self
             .threads
             .get_by_tid(e.tid, process_handle, is_main, &mut self.profile);
         self.profile.set_thread_end_time(thread, end_time);
+        if is_main {
+            self.profile.set_process_end_time(process_handle, end_time);
+        }
     }
 
     fn convert_time(&self, ktime_ns: u64) -> Timestamp {
@@ -539,12 +532,13 @@ where
         );
     }
 
-    pub fn handle_sample<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
+    pub fn get_sample_stack<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
         &mut self,
-        e: SampleRecord,
+        e: &SampleRecord,
         cache: &mut U::Cache,
-    ) -> Option<ProcessedSample> {
-        let mut stack = Vec::new();
+        stack: &mut Vec<StackFrame>,
+    ) {
+        stack.truncate(0);
 
         if let Some(callchain) = e.callchain {
             let mut is_first_frame = true;
@@ -566,9 +560,9 @@ where
             }
         }
 
-        if let (Some(regs), Some((user_stack, _))) = (e.user_regs, e.user_stack) {
+        if let (Some(regs), Some((user_stack, _))) = (&e.user_regs, e.user_stack) {
             let ustack_bytes = RawDataU64::from_raw_data::<LittleEndian>(user_stack);
-            let (pc, sp, regs) = C::convert_regs(&regs);
+            let (pc, sp, regs) = C::convert_regs(regs);
             let mut read_stack = |addr: u64| {
                 let offset = addr.checked_sub(sp).ok_or(())?;
                 let index = usize::try_from(offset / 8).map_err(|_| ())?;
@@ -601,22 +595,7 @@ where
                 // eprintln!("got frame: {:?}", frame);
             }
         }
-
-        Some(ProcessedSample {
-            timestamp: e.timestamp.unwrap(),
-            pid: e.pid.unwrap(),
-            tid: e.tid.unwrap(),
-            stack,
-        })
     }
-}
-
-#[derive(Clone, Debug)]
-pub struct ProcessedSample {
-    pub timestamp: u64,
-    pub pid: i32,
-    pub tid: i32,
-    pub stack: Vec<StackFrame>,
 }
 
 #[derive(Clone, Debug)]
