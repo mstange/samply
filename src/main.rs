@@ -119,7 +119,7 @@ where
     let host = file.hostname().unwrap().unwrap_or("<unknown host>");
     let perf_version = file.perf_version().unwrap().unwrap_or("<unknown host>");
 
-    let product = "My profile";
+    let product = "Converted perf profile";
     let mut converter = Converter::<U>::new(
         product,
         build_ids,
