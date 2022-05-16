@@ -483,7 +483,7 @@ where
             }
         }
 
-        if !self.have_product_name {
+        if !self.have_product_name && name != "perf-exec" {
             let product = format!(
                 "{} on {} (perf version {})",
                 name, self.host, self.perf_version
