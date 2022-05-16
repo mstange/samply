@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
-use std::ops::Deref;
+use std::ops::{Deref, Range};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 mod markers;
@@ -123,6 +123,59 @@ impl Serialize for CpuDelta {
     }
 }
 
+/// A library ("binary" / "module" / "DSO") which is loaded into a process.
+/// This can be the main executable file or a dynamic library, or any other
+/// mapping of executable memory.
+///
+/// Library information makes after-the-fact symbolication possible: The
+/// profile JSON contains raw code addresses, and then the symbols for these
+/// addresses get resolved later.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct LibraryInfo {
+    /// The "actual virtual memory address", in the address space of the process,
+    /// where this library's base address is located. The base address is the
+    /// address which "relative addresses" are relative to.
+    ///
+    /// For ELF binaries, the base address is equal to the "image bias", i.e. the
+    /// offset that is added to the virtual memory addresses as stated in the
+    /// library file (SVMAs, "stated virtual memory addresses"). In other words,
+    /// the base AVMA corresponds to SVMA zero.
+    ///
+    /// For mach-O binaries, the base address is the start of the `__TEXT` segment.
+    ///
+    /// For Windows binaries, the base address is the image load address.
+    pub base_avma: u64,
+    /// The address range that this mapping occupies in the virtual memory
+    /// address space of the process. AVMA = "actual virtual memory address"
+    pub avma_range: Range<u64>,
+    /// The name of this library that should be displayed in the profiler.
+    /// Usually this is the filename of the binary, but it could also be any other
+    /// name, such as "[kernel.kallsyms]" or "[vdso]".
+    pub name: String,
+    /// The debug name of this library which should be used when looking up symbols.
+    /// On Windows this is the filename of the PDB file, on other platforms it's
+    /// usually the same as the filename of the binary.
+    pub debug_name: String,
+    /// The absolute path to the binary file.
+    pub path: String,
+    /// The absolute path to the debug file. On Linux and macOS this is the same as
+    /// the path to the binary file. On Windows this is the path to the PDB file.
+    pub debug_path: String,
+    /// The debug ID of the library. This lets symbolication confirm that it's
+    /// getting symbols for the right file, and it can sometimes allow obtaining a
+    /// symbol file from a symbol server.
+    pub debug_id: DebugId,
+    /// The code ID of the library. This lets symbolication confirm that it's
+    /// getting symbols for the right file, and it can sometimes allow obtaining a
+    /// symbol file from a symbol server.
+    pub code_id: Option<CodeId>,
+    /// An optional string with the CPU arch of this library, for example "x86_64",
+    /// "arm64", or "arm64e". Historically, this was used on macOS to find the
+    /// correct sub-binary in a fat binary. But we now use the debug_id for that
+    /// purpose.
+    pub arch: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct ProcessHandle(usize);
 
@@ -211,26 +264,8 @@ impl Profile {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn add_lib(
-        &mut self,
-        process: ProcessHandle,
-        path: &str,
-        code_id: Option<CodeId>,
-        debug_path: &str,
-        debug_id: DebugId,
-        arch: Option<&str>,
-        base_address: u64,
-        address_range: std::ops::Range<u64>,
-    ) {
-        self.processes[process.0].add_lib(
-            path,
-            code_id,
-            debug_path,
-            debug_id,
-            arch,
-            base_address,
-            address_range,
-        );
+    pub fn add_lib(&mut self, process: ProcessHandle, library: LibraryInfo) {
+        self.processes[process.0].add_lib(library);
     }
 
     pub fn unload_lib(&mut self, process: ProcessHandle, base_address: u64) {
@@ -514,8 +549,8 @@ impl GlobalLibTable {
         })
     }
 
-    pub fn lib_name(&self, index: GlobalLibIndex) -> String {
-        self.libs[index.0].name()
+    pub fn lib_name(&self, index: GlobalLibIndex) -> &str {
+        &self.libs[index.0].name
     }
 }
 
@@ -551,28 +586,21 @@ impl Process {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn add_lib(
-        &mut self,
-        path: &str,
-        code_id: Option<CodeId>,
-        debug_path: &str,
-        debug_id: DebugId,
-        arch: Option<&str>,
-        base_address: u64,
-        address_range: std::ops::Range<u64>,
-    ) {
+    pub fn add_lib(&mut self, lib: LibraryInfo) {
         let lib_index = ProcessLibIndex(self.libs.len());
         self.libs.push(Lib {
-            path: path.to_owned(),
-            debug_path: debug_path.to_owned(),
-            arch: arch.map(|arch| arch.to_owned()),
-            debug_id,
-            code_id,
+            name: lib.name,
+            debug_name: lib.debug_name,
+            path: lib.path,
+            debug_path: lib.debug_path,
+            arch: lib.arch,
+            debug_id: lib.debug_id,
+            code_id: lib.code_id,
         });
 
         let insertion_index = match self
             .sorted_lib_ranges
-            .binary_search_by_key(&address_range.start, |r| r.start)
+            .binary_search_by_key(&lib.avma_range.start, |r| r.start)
         {
             Ok(i) => {
                 // We already have a library mapping at this address.
@@ -587,9 +615,9 @@ impl Process {
             insertion_index,
             ProcessLibRange {
                 lib_index,
-                base: base_address,
-                start: address_range.start,
-                end: address_range.end,
+                base: lib.base_avma,
+                start: lib.avma_range.start,
+                end: lib.avma_range.end,
             },
         );
     }
@@ -748,6 +776,8 @@ impl<'a> Serialize for SerializableProfileThread<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct Lib {
+    name: String,
+    debug_name: String,
     path: String,
     debug_path: String,
     arch: Option<String>,
@@ -755,30 +785,14 @@ struct Lib {
     code_id: Option<CodeId>,
 }
 
-impl Lib {
-    pub fn name(&self) -> String {
-        self.path.rsplit(&['/', '\\']).next().unwrap().to_string()
-    }
-
-    pub fn debug_name(&self) -> String {
-        self.debug_path
-            .rsplit(&['/', '\\'])
-            .next()
-            .unwrap()
-            .to_string()
-    }
-}
-
 impl<'a> Serialize for Lib {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let name = self.name();
-        let debug_name = self.debug_name();
         let breakpad_id = self.debug_id.breakpad().to_string();
         let code_id = self.code_id.as_ref().map(|cid| cid.to_string());
         let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("name", &name)?;
+        map.serialize_entry("name", &self.name)?;
         map.serialize_entry("path", &self.path)?;
-        map.serialize_entry("debugName", &debug_name)?;
+        map.serialize_entry("debugName", &self.debug_name)?;
         map.serialize_entry("debugPath", &self.debug_path)?;
         map.serialize_entry("breakpadId", &breakpad_id)?;
         map.serialize_entry("codeId", &code_id)?;
@@ -1021,7 +1035,7 @@ impl ResourceTable {
             let resource = ResourceIndex(resource_libs.len() as u32);
             let lib_name = global_libs.lib_name(lib_index);
             resource_libs.push(lib_index);
-            resource_names.push(thread_string_table.index_for_string(&lib_name));
+            resource_names.push(thread_string_table.index_for_string(lib_name));
             resource
         })
     }
@@ -1244,8 +1258,8 @@ mod test {
     use std::{str::FromStr, time::Duration};
 
     use crate::{
-        CpuDelta, Frame, MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema,
-        MarkerSchemaField, MarkerStaticField, MarkerTiming, Profile, ProfilerMarker,
+        CpuDelta, Frame, LibraryInfo, MarkerDynamicField, MarkerFieldFormat, MarkerLocation,
+        MarkerSchema, MarkerSchemaField, MarkerStaticField, MarkerTiming, Profile, ProfilerMarker,
         ReferenceTimestamp, TextMarker, Timestamp,
     };
 
@@ -1333,23 +1347,35 @@ mod test {
         );
         profile.add_lib(
             process,
-            "/usr/lib/x86_64-linux-gnu/libc.so.6",
-            Some(CodeId::from_str("f0fc29165cbe6088c0e1adf03b0048fbecbc003a").unwrap()),
-            "/usr/lib/x86_64-linux-gnu/libc.so.6",
-            DebugId::from_breakpad("1629FCF0BE5C8860C0E1ADF03B0048FB0").unwrap(),
-            None,
-            0x00007f76b7e5d000,
-            0x00007f76b7e85000..0x00007f76b8019000,
+            LibraryInfo {
+                name: "libc.so.6".to_string(),
+                debug_name: "libc.so.6".to_string(),
+                path: "/usr/lib/x86_64-linux-gnu/libc.so.6".to_string(),
+                code_id: Some(
+                    CodeId::from_str("f0fc29165cbe6088c0e1adf03b0048fbecbc003a").unwrap(),
+                ),
+                debug_path: "/usr/lib/x86_64-linux-gnu/libc.so.6".to_string(),
+                debug_id: DebugId::from_breakpad("1629FCF0BE5C8860C0E1ADF03B0048FB0").unwrap(),
+                arch: None,
+                base_avma: 0x00007f76b7e5d000,
+                avma_range: 0x00007f76b7e85000..0x00007f76b8019000,
+            },
         );
         profile.add_lib(
             process,
-            "/home/mstange/code/dump_syms/target/release/dump_syms",
-            Some(CodeId::from_str("510d0a5c19eadf8043f203b4525be9be3dcb9554").unwrap()),
-            "/home/mstange/code/dump_syms/target/release/dump_syms",
-            DebugId::from_breakpad("5C0A0D51EA1980DF43F203B4525BE9BE0").unwrap(),
-            None,
-            0x000055ba9eb4d000,
-            0x000055ba9ebf6000..0x000055ba9f07e000,
+            LibraryInfo {
+                name: "dump_syms".to_string(),
+                debug_name: "dump_syms".to_string(),
+                path: "/home/mstange/code/dump_syms/target/release/dump_syms".to_string(),
+                code_id: Some(
+                    CodeId::from_str("510d0a5c19eadf8043f203b4525be9be3dcb9554").unwrap(),
+                ),
+                debug_path: "/home/mstange/code/dump_syms/target/release/dump_syms".to_string(),
+                debug_id: DebugId::from_breakpad("5C0A0D51EA1980DF43F203B4525BE9BE0").unwrap(),
+                arch: None,
+                base_avma: 0x000055ba9eb4d000,
+                avma_range: 0x000055ba9ebf6000..0x000055ba9f07e000,
+            },
         );
         profile.add_sample(
             thread,
