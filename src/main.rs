@@ -20,7 +20,7 @@ use linux_perf_event_reader::RawDataU64;
 use object::{Object, ObjectSection, ObjectSegment};
 use profiler_get_symbols::{debug_id_for_object, DebugIdExt};
 use std::collections::HashMap;
-use std::io::{BufWriter, Read};
+use std::io::{BufReader, BufWriter, Read};
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 use std::{fs::File, ops::Range, path::Path};
@@ -37,7 +37,8 @@ fn main() {
         .expect("Couldn't form absolute path");
 
     let input_file = File::open(&path).unwrap();
-    let perf_file = PerfFileReader::parse_file(input_file).expect("Parsing failed");
+    let reader = BufReader::new(input_file);
+    let perf_file = PerfFileReader::parse_file(reader).expect("Parsing failed");
 
     let profile = match perf_file.arch().unwrap() {
         Some("x86_64") => {
