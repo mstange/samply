@@ -6,18 +6,17 @@ use framehop::{FrameAddress, Module, ModuleSvmaInfo, ModuleUnwindData, TextByteD
 use fxprof_processed_profile::{
     CpuDelta, Frame, ProcessHandle, Profile, ReferenceTimestamp, ThreadHandle, Timestamp,
 };
-use linux_perf_data::linux_perf_event_reader::records::{CommOrExecRecord, ForkOrExitRecord};
-use linux_perf_data::linux_perf_event_reader::RawDataU64;
-use linux_perf_data::{
-    linux_perf_event_reader, DsoBuildId, DsoKey, PerfFileReader, SampleTimeRange,
-};
+use linux_perf_data::linux_perf_event_reader;
+use linux_perf_data::{DsoBuildId, DsoKey, PerfFileReader, SampleTimeRange};
 use linux_perf_event_reader::consts::{
     PERF_CONTEXT_MAX, PERF_REG_ARM64_LR, PERF_REG_ARM64_PC, PERF_REG_ARM64_SP, PERF_REG_ARM64_X29,
     PERF_REG_X86_BP, PERF_REG_X86_IP, PERF_REG_X86_SP,
 };
 use linux_perf_event_reader::records::{
-    Mmap2FileId, Mmap2Record, MmapRecord, ParsedRecord, Regs, SampleRecord,
+    CommOrExecRecord, ForkOrExitRecord, Mmap2FileId, Mmap2Record, MmapRecord, ParsedRecord, Regs,
+    SampleRecord,
 };
+use linux_perf_event_reader::RawDataU64;
 use object::{Object, ObjectSection, ObjectSegment};
 use profiler_get_symbols::{debug_id_for_object, DebugIdExt};
 use std::collections::HashMap;
@@ -94,6 +93,49 @@ impl ConvertRegs for ConvertRegsAarch64 {
     }
 }
 
+fn convert<U, C, R>(mut file: PerfFileReader<R>, cache: U::Cache) -> Profile
+where
+    U: Unwinder<Module = Module<Vec<u8>>> + Default,
+    C: ConvertRegs<UnwindRegs = U::UnwindRegs>,
+    R: Read,
+{
+    let build_ids = file.build_ids().ok().unwrap_or_default();
+    let SampleTimeRange {
+        first_sample_time, ..
+    } = file.sample_time_range().unwrap().unwrap();
+    let little_endian = file.endian() == linux_perf_data::Endianness::LittleEndian;
+
+    let product = "My profile";
+    let mut converter =
+        Converter::<U>::new(product, build_ids, first_sample_time, little_endian, cache);
+
+    while let Ok(Some(record)) = file.next_record() {
+        match record {
+            ParsedRecord::Sample(e) => {
+                converter.handle_sample::<C>(e);
+            }
+            ParsedRecord::Fork(e) => {
+                converter.handle_thread_start(e);
+            }
+            ParsedRecord::Comm(e) => {
+                converter.handle_thread_name_update(e);
+            }
+            ParsedRecord::Exit(e) => {
+                converter.handle_thread_end(e);
+            }
+            ParsedRecord::Mmap(e) => {
+                converter.handle_mmap(e);
+            }
+            ParsedRecord::Mmap2(e) => {
+                converter.handle_mmap2(e);
+            }
+            _ => {}
+        }
+    }
+
+    converter.finish()
+}
+
 struct Converter<U>
 where
     U: Unwinder<Module = Module<Vec<u8>>> + Default,
@@ -158,7 +200,7 @@ where
             .get_by_pid(pid, &mut self.profile, &self.kernel_modules);
 
         let mut stack = Vec::new();
-        process.get_sample_stack::<C>(&e, &mut self.cache, &mut stack);
+        Self::get_sample_stack::<C>(&e, &process.unwinder, &mut self.cache, &mut stack);
 
         let thread =
             self.threads
@@ -171,6 +213,82 @@ where
         });
         self.profile
             .add_sample(thread, timestamp, frames, cpu_delta, 1);
+    }
+
+    /// Get the stack contained in this sample, and put it into `stack`.
+    ///
+    /// We can have both the kernel stack and the user stack, or just one of
+    /// them, or neither.
+    ///
+    /// If this sample has a kernel stack, it's always in `e.callchain`.
+    ///
+    /// If this sample has a user stack, its source depends on the method of
+    /// stackwalking that was requested during recording:
+    ///
+    ///  - With frame pointer unwinding (the default on x86, `perf record -g`,
+    ///    or more explicitly `perf record --call-graph fp`), stack unwinding
+    ///    happens in the kernel, and the user stack is appended to e.callchain.
+    ///    We can just get it from there.
+    ///  - With DWARF unwinding (`perf record --call-graph dwarf`), we need to
+    ///    do unwinding now, based on the register values in `e.user_regs` and
+    ///    and the raw stack bytes in `e.user_stack`.
+    fn get_sample_stack<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
+        e: &SampleRecord,
+        unwinder: &U,
+        cache: &mut U::Cache,
+        stack: &mut Vec<StackFrame>,
+    ) {
+        stack.truncate(0);
+
+        // Get the first fragment of the stack from e.callchain.
+        if let Some(callchain) = e.callchain {
+            let mut is_first_frame = true;
+            for i in 0..callchain.len() {
+                let address = callchain.get(i).unwrap();
+                if address >= PERF_CONTEXT_MAX {
+                    // Ignore synthetic addresses like 0xffffffffffffff80.
+                    continue;
+                }
+
+                let stack_frame = match is_first_frame {
+                    true => StackFrame::InstructionPointer(address),
+                    false => StackFrame::ReturnAddress(address),
+                };
+                stack.push(stack_frame);
+
+                is_first_frame = false;
+            }
+        }
+
+        // Append the user stack with the help of DWARF unwinding.
+        if let (Some(regs), Some((user_stack, _))) = (&e.user_regs, e.user_stack) {
+            let ustack_bytes = RawDataU64::from_raw_data::<LittleEndian>(user_stack);
+            let (pc, sp, regs) = C::convert_regs(regs);
+            let mut read_stack = |addr: u64| {
+                // ustack_bytes has the stack bytes starting from the current stack pointer.
+                let offset = addr.checked_sub(sp).ok_or(())?;
+                let index = usize::try_from(offset / 8).map_err(|_| ())?;
+                ustack_bytes.get(index).ok_or(())
+            };
+
+            // Unwind.
+            let mut frames = unwinder.iter_frames(pc, regs, cache, &mut read_stack);
+            loop {
+                let frame = match frames.next() {
+                    Ok(Some(frame)) => frame,
+                    Ok(None) => break,
+                    Err(_) => {
+                        stack.push(StackFrame::TruncatedStackMarker);
+                        break;
+                    }
+                };
+                let stack_frame = match frame {
+                    FrameAddress::InstructionPointer(addr) => StackFrame::InstructionPointer(addr),
+                    FrameAddress::ReturnAddress(addr) => StackFrame::ReturnAddress(addr.into()),
+                };
+                stack.push(stack_frame);
+            }
+        }
     }
 
     pub fn handle_thread_name_update(&mut self, e: CommOrExecRecord) {
@@ -216,9 +334,14 @@ where
             let process = self
                 .processes
                 .get_by_pid(e.pid, &mut self.profile, &self.kernel_modules);
-            if let Some(module) =
-                process.add_module_for_mapping(e.address, e.length, e.page_offset, &path, build_id)
-            {
+            if let Some(module) = add_module_to_unwinder(
+                &mut process.unwinder,
+                &path,
+                e.page_offset,
+                e.address,
+                e.length,
+                build_id,
+            ) {
                 add_module_to_profile(&mut self.profile, process.profile_process, module);
             }
         }
@@ -246,9 +369,14 @@ where
         let process = self
             .processes
             .get_by_pid(e.pid, &mut self.profile, &self.kernel_modules);
-        if let Some(module) =
-            process.add_module_for_mapping(e.address, e.length, e.page_offset, &path, build_id)
-        {
+        if let Some(module) = add_module_to_unwinder(
+            &mut process.unwinder,
+            &path,
+            e.page_offset,
+            e.address,
+            e.length,
+            build_id,
+        ) {
             add_module_to_profile(&mut self.profile, process.profile_process, module);
         }
     }
@@ -315,7 +443,10 @@ where
             for module in global_modules.iter().cloned() {
                 add_module_to_profile(profile, handle, module);
             }
-            Process::new(handle)
+            Process {
+                profile_process: handle,
+                unwinder: U::default(),
+            }
         })
     }
 }
@@ -341,54 +472,6 @@ impl Threads {
     }
 }
 
-fn convert<U, C, R>(mut file: PerfFileReader<R>, cache: U::Cache) -> Profile
-where
-    U: Unwinder<Module = Module<Vec<u8>>> + Default,
-    C: ConvertRegs<UnwindRegs = U::UnwindRegs>,
-    R: Read,
-{
-    let build_ids = file.build_ids().ok().unwrap_or_default();
-    let SampleTimeRange {
-        first_sample_time, ..
-    } = file.sample_time_range().unwrap().unwrap();
-    let little_endian = file.endian() == linux_perf_data::Endianness::LittleEndian;
-
-    let product = "My profile";
-    let mut converter =
-        Converter::<U>::new(product, build_ids, first_sample_time, little_endian, cache);
-
-    while let Ok(Some(record)) = file.next_record() {
-        match record {
-            ParsedRecord::Sample(e) => {
-                converter.handle_sample::<C>(e);
-            }
-            ParsedRecord::Fork(e) => {
-                converter.handle_thread_start(e);
-            }
-            ParsedRecord::Comm(e) => {
-                converter.handle_thread_name_update(e);
-            }
-            ParsedRecord::Exit(e) => {
-                converter.handle_thread_end(e);
-            }
-            ParsedRecord::Mmap(e) => {
-                converter.handle_mmap(e);
-            }
-            ParsedRecord::Mmap2(e) => {
-                converter.handle_mmap2(e);
-            }
-            ParsedRecord::Lost(_) => {}
-            ParsedRecord::Throttle(_) => {}
-            ParsedRecord::Unthrottle(_) => {}
-            ParsedRecord::ContextSwitch(_) => {}
-            ParsedRecord::Raw(_) => {}
-            ParsedRecord::ThreadMap(_) => {}
-        }
-    }
-
-    converter.finish()
-}
-
 #[derive(Debug, Clone)]
 struct ProfileModule {
     pub base_avma: u64,
@@ -399,124 +482,8 @@ struct ProfileModule {
 }
 
 struct Process<U> {
-    profile_process: ProcessHandle,
-    unwinder: U,
-}
-
-impl<U: Unwinder + Default> Process<U> {
-    pub fn new(profile_process: ProcessHandle) -> Self {
-        Self {
-            profile_process,
-            unwinder: U::default(),
-        }
-    }
-}
-
-impl<U> Process<U>
-where
-    U: Unwinder<Module = Module<Vec<u8>>>,
-{
-    /// Tell the unwinder and the profile about this module.
-    ///
-    /// The unwinder needs to know about it in case we need to do DWARF stack
-    /// unwinding - it needs to get the unwinding information from the binary.
-    /// The profile needs to know about this module so that it can assign
-    /// addresses in the stack to the right module and so that symbolication
-    /// knows where to get symbols for this module.
-    pub fn add_module_for_mapping(
-        &mut self,
-        start_addr: u64,
-        size: u64,
-        page_offset: u64,
-        path: &[u8],
-        build_id: Option<&[u8]>,
-    ) -> Option<ProfileModule> {
-        let path_str = std::str::from_utf8(path).unwrap();
-        add_module_to_unwinder(
-            &mut self.unwinder,
-            Path::new(path_str),
-            page_offset,
-            start_addr,
-            size,
-            build_id,
-        )
-    }
-
-    /// Get the stack contained in this sample, and put it into `stack`.
-    ///
-    /// We can have both the kernel stack and the user stack, or just one of
-    /// them, or neither.
-    ///
-    /// If this sample has a kernel stack, it's always in `e.callchain`.
-    ///
-    /// If this sample has a user stack, its source depends on the method of
-    /// stackwalking that was requested during recording:
-    ///
-    ///  - With frame pointer unwinding (the default on x86, `perf record -g`,
-    ///    or more explicitly `perf record --call-graph fp`), stack unwinding
-    ///    happens in the kernel, and the user stack is appended to e.callchain.
-    ///    We can just get it from there.
-    ///  - With DWARF unwinding (`perf record --call-graph dwarf`), we need to
-    ///    do unwinding now, based on the register values in `e.user_regs` and
-    ///    and the raw stack bytes in `e.user_stack`.
-    pub fn get_sample_stack<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
-        &mut self,
-        e: &SampleRecord,
-        cache: &mut U::Cache,
-        stack: &mut Vec<StackFrame>,
-    ) {
-        stack.truncate(0);
-
-        // Get the first fragment of the stack from e.callchain.
-        if let Some(callchain) = e.callchain {
-            let mut is_first_frame = true;
-            for i in 0..callchain.len() {
-                let address = callchain.get(i).unwrap();
-                if address >= PERF_CONTEXT_MAX {
-                    // Ignore synthetic addresses like 0xffffffffffffff80.
-                    continue;
-                }
-
-                let stack_frame = match is_first_frame {
-                    true => StackFrame::InstructionPointer(address),
-                    false => StackFrame::ReturnAddress(address),
-                };
-                stack.push(stack_frame);
-
-                is_first_frame = false;
-            }
-        }
-
-        // Append the user stack with the help of DWARF unwinding.
-        if let (Some(regs), Some((user_stack, _))) = (&e.user_regs, e.user_stack) {
-            let ustack_bytes = RawDataU64::from_raw_data::<LittleEndian>(user_stack);
-            let (pc, sp, regs) = C::convert_regs(regs);
-            let mut read_stack = |addr: u64| {
-                // ustack_bytes has the stack bytes starting from the current stack pointer.
-                let offset = addr.checked_sub(sp).ok_or(())?;
-                let index = usize::try_from(offset / 8).map_err(|_| ())?;
-                ustack_bytes.get(index).ok_or(())
-            };
-
-            // Unwind.
-            let mut frames = self.unwinder.iter_frames(pc, regs, cache, &mut read_stack);
-            loop {
-                let frame = match frames.next() {
-                    Ok(Some(frame)) => frame,
-                    Ok(None) => break,
-                    Err(_) => {
-                        stack.push(StackFrame::TruncatedStackMarker);
-                        break;
-                    }
-                };
-                let stack_frame = match frame {
-                    FrameAddress::InstructionPointer(addr) => StackFrame::InstructionPointer(addr),
-                    FrameAddress::ReturnAddress(addr) => StackFrame::ReturnAddress(addr.into()),
-                };
-                stack.push(stack_frame);
-            }
-        }
-    }
+    pub profile_process: ProcessHandle,
+    pub unwinder: U,
 }
 
 #[derive(Clone, Debug)]
@@ -526,9 +493,17 @@ pub enum StackFrame {
     TruncatedStackMarker,
 }
 
+/// Tell the unwinder about this module, and alsos create a ProfileModule
+/// so that the profile can be told about this module.
+///
+/// The unwinder needs to know about it in case we need to do DWARF stack
+/// unwinding - it needs to get the unwinding information from the binary.
+/// The profile needs to know about this module so that it can assign
+/// addresses in the stack to the right module and so that symbolication
+/// knows where to get symbols for this module.
 fn add_module_to_unwinder<U>(
     unwinder: &mut U,
-    objpath: &Path,
+    path_slice: &[u8],
     mapping_start_file_offset: u64,
     mapping_start_avma: u64,
     mapping_size: u64,
@@ -537,6 +512,9 @@ fn add_module_to_unwinder<U>(
 where
     U: Unwinder<Module = Module<Vec<u8>>>,
 {
+    let path = std::str::from_utf8(path_slice).unwrap();
+    let objpath = Path::new(path);
+
     let file = match std::fs::File::open(objpath) {
         Ok(file) => file,
         Err(_) => {
@@ -652,9 +630,8 @@ where
     }
 
     let mapping_end_avma = mapping_start_avma + mapping_size;
-    let path_str = objpath.to_string_lossy().to_string();
     let module = Module::new(
-        path_str.clone(),
+        path.to_string(),
         mapping_start_avma..mapping_end_avma,
         base_avma,
         ModuleSvmaInfo {
@@ -680,7 +657,7 @@ where
         address_range: mapping_start_avma..mapping_end_avma,
         debug_id,
         code_id,
-        path: path_str,
+        path: path.to_string(),
     })
 }
 
