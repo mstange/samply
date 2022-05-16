@@ -104,10 +104,19 @@ where
         first_sample_time, ..
     } = file.sample_time_range().unwrap().unwrap();
     let little_endian = file.endian() == linux_perf_data::Endianness::LittleEndian;
+    let host = file.hostname().unwrap().unwrap_or("<unknown host>");
+    let perf_version = file.perf_version().unwrap().unwrap_or("<unknown host>");
 
     let product = "My profile";
-    let mut converter =
-        Converter::<U>::new(product, build_ids, first_sample_time, little_endian, cache);
+    let mut converter = Converter::<U>::new(
+        product,
+        build_ids,
+        first_sample_time,
+        host,
+        perf_version,
+        little_endian,
+        cache,
+    );
 
     while let Ok(Some(record)) = file.next_record() {
         match record {
@@ -149,6 +158,9 @@ where
     current_sample_time: u64,
     build_ids: HashMap<DsoKey, DsoBuildId>,
     little_endian: bool,
+    have_product_name: bool,
+    host: String,
+    perf_version: String,
 }
 
 impl<U> Converter<U>
@@ -159,6 +171,8 @@ where
         product: &str,
         build_ids: HashMap<DsoKey, DsoBuildId>,
         first_sample_time: u64,
+        host: &str,
+        perf_version: &str,
         little_endian: bool,
         cache: U::Cache,
     ) -> Self {
@@ -176,6 +190,9 @@ where
             current_sample_time: first_sample_time,
             build_ids,
             little_endian,
+            have_product_name: false,
+            host: host.to_string(),
+            perf_version: perf_version.to_string(),
         }
     }
 
@@ -444,6 +461,15 @@ where
             if is_main {
                 self.profile.set_process_start_time(process_handle, time);
             }
+        }
+
+        if !self.have_product_name {
+            let product = format!(
+                "{} on {} (perf version {})",
+                name, self.host, self.perf_version
+            );
+            self.profile.set_product(&product);
+            self.have_product_name = true;
         }
     }
 
