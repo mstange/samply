@@ -8,7 +8,6 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
 use std::ops::Deref;
-use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 mod markers;
@@ -207,9 +206,9 @@ impl Profile {
     pub fn add_lib(
         &mut self,
         process: ProcessHandle,
-        path: &Path,
+        path: &str,
         code_id: Option<CodeId>,
-        debug_path: &Path,
+        debug_path: &str,
         debug_id: DebugId,
         arch: Option<&str>,
         base_address: u64,
@@ -546,9 +545,9 @@ impl Process {
     #[allow(clippy::too_many_arguments)]
     pub fn add_lib(
         &mut self,
-        path: &Path,
+        path: &str,
         code_id: Option<CodeId>,
-        debug_path: &Path,
+        debug_path: &str,
         debug_id: DebugId,
         arch: Option<&str>,
         base_address: u64,
@@ -741,8 +740,8 @@ impl<'a> Serialize for SerializableProfileThread<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct Lib {
-    path: PathBuf,
-    debug_path: PathBuf,
+    path: String,
+    debug_path: String,
     arch: Option<String>,
     debug_id: DebugId,
     code_id: Option<CodeId>,
@@ -750,16 +749,15 @@ struct Lib {
 
 impl Lib {
     pub fn name(&self) -> String {
-        let os_str = self.path.file_name().unwrap_or(self.path.as_os_str());
-        os_str.to_string_lossy().to_string()
+        self.path.rsplit(&['/', '\\']).next().unwrap().to_string()
     }
 
     pub fn debug_name(&self) -> String {
-        let os_str = self
-            .debug_path
-            .file_name()
-            .unwrap_or(self.debug_path.as_os_str());
-        os_str.to_string_lossy().to_string()
+        self.debug_path
+            .rsplit(&['/', '\\'])
+            .next()
+            .unwrap()
+            .to_string()
     }
 }
 
@@ -771,9 +769,9 @@ impl<'a> Serialize for Lib {
         let code_id = self.code_id.as_ref().map(|cid| cid.to_string());
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry("name", &name)?;
-        map.serialize_entry("path", &self.path.to_string_lossy())?;
+        map.serialize_entry("path", &self.path)?;
         map.serialize_entry("debugName", &debug_name)?;
-        map.serialize_entry("debugPath", &self.debug_path.to_string_lossy())?;
+        map.serialize_entry("debugPath", &self.debug_path)?;
         map.serialize_entry("breakpadId", &breakpad_id)?;
         map.serialize_entry("codeId", &code_id)?;
         map.serialize_entry("arch", &self.arch)?;
