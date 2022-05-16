@@ -190,61 +190,66 @@ where
             return;
         }
 
-        let dso_key = match DsoKey::detect(&e.path.as_slice(), e.cpu_mode) {
+        let path = e.path.as_slice();
+        let dso_key = match DsoKey::detect(&path, e.cpu_mode) {
             Some(dso_key) => dso_key,
             None => return,
         };
         let build_id = self.build_ids.get(&dso_key).map(|db| &db.build_id[..]);
         if e.pid == -1 {
-            // println!(
-            //     "kernel mmap: 0x{:016x}-0x{:016x} (page offset 0x{:016x}) {:?} ({})",
-            //     e.address,
-            //     e.address + e.length,
-            //     e.page_offset,
-            //     std::str::from_utf8(&e.path),
-            //     e.is_executable
-            // );
-
-            let debug_id =
-                build_id.map(|buildid| DebugId::from_identifier(buildid, self.little_endian));
-            let code_id = build_id.map(CodeId::from_binary);
-
-            let start_addr = e.address;
-            let end_addr = e.address + e.length;
-
-            let path_slice = e.path.as_slice();
-            let path_str = std::str::from_utf8(&path_slice).unwrap();
-            let base_address = start_addr;
-            let address_range = start_addr..end_addr;
-            // println!(
-            //     "0x{:016x}-0x{:016x} {:?} {:?}",
-            //     address_range.start, address_range.end, code_id, path
-            // );
+            let debug_id = build_id.map(|id| DebugId::from_identifier(id, self.little_endian));
             self.kernel_modules.push(GlobalModule {
-                address_range,
-                base_address,
+                base_address: e.address,
+                address_range: e.address..(e.address + e.length),
                 debug_id: debug_id.unwrap_or_default(),
-                path: path_str.to_string(),
-                code_id,
+                path: std::str::from_utf8(&path).unwrap().to_string(),
+                code_id: build_id.map(CodeId::from_binary),
             });
         } else {
             let process = self
                 .processes
                 .get_by_pid(e.pid, &mut self.profile, &self.kernel_modules);
-            process.handle_mmap(e, build_id, &mut self.profile);
+            process.add_module(
+                e.address,
+                e.length,
+                e.page_offset,
+                &path,
+                build_id,
+                &mut self.profile,
+            );
         }
     }
 
     pub fn handle_mmap2(&mut self, e: Mmap2Record) {
-        let dso_key = match DsoKey::detect(&e.path.as_slice(), e.cpu_mode) {
-            Some(dso_key) => dso_key,
-            None => return,
+        const PROT_EXEC: u32 = 0b100;
+        if e.protection & PROT_EXEC == 0 {
+            // Ignore non-executable mappings.
+            return;
+        }
+
+        let path = e.path.as_slice();
+        let build_id = match &e.file_id {
+            Mmap2FileId::BuildId(build_id) => Some(&build_id[..]),
+            Mmap2FileId::InodeAndVersion(_) => {
+                let dso_key = match DsoKey::detect(&path, e.cpu_mode) {
+                    Some(dso_key) => dso_key,
+                    None => return,
+                };
+                self.build_ids.get(&dso_key).map(|db| &db.build_id[..])
+            }
         };
-        let build_id = self.build_ids.get(&dso_key).map(|db| &db.build_id[..]);
+
         let process = self
             .processes
             .get_by_pid(e.pid, &mut self.profile, &self.kernel_modules);
-        process.handle_mmap2(e, build_id, &mut self.profile);
+        process.add_module(
+            e.address,
+            e.length,
+            e.page_offset,
+            &path,
+            build_id,
+            &mut self.profile,
+        );
     }
 
     pub fn handle_thread_start(&mut self, e: ForkOrExitRecord) {
@@ -422,91 +427,26 @@ impl<U> Process<U>
 where
     U: Unwinder<Module = Module<Vec<u8>>>,
 {
-    pub fn handle_mmap(&mut self, e: MmapRecord, build_id: Option<&[u8]>, profile: &mut Profile) {
-        // println!(
-        //     "raw1 ({}): 0x{:016x}-0x{:016x} {:?}",
-        //     self.pid,
-        //     e.address,
-        //     e.address + e.length,
-        //     std::str::from_utf8(&e.path)
-        // );
-
-        if !e.is_executable {
-            // Ignore non-executable mappings.
-            return;
-        }
-
-        let path_slice = e.path.as_slice();
-        let path_str = std::str::from_utf8(&path_slice).unwrap();
+    pub fn add_module(
+        &mut self,
+        start_addr: u64,
+        size: u64,
+        page_offset: u64,
+        path: &[u8],
+        build_id: Option<&[u8]>,
+        profile: &mut Profile,
+    ) {
+        let end_addr = start_addr + size;
+        let path_str = std::str::from_utf8(path).unwrap();
         let path = Path::new(path_str);
-        let start_addr = e.address;
-        let end_addr = e.address + e.length;
         let address_range = start_addr..end_addr;
-
         let (debug_id, code_id, base_address) = match add_module(
             &mut self.unwinder,
             path,
-            e.page_offset,
-            e.address,
-            e.length,
-            build_id,
-        ) {
-            Some(module_info) => module_info,
-            None => return,
-        };
-        println!(
-            "0x{:016x}-0x{:016x} {:?}",
+            page_offset,
             start_addr,
-            e.address + e.length,
-            path
-        );
-        profile.add_lib(
-            self.profile_process,
-            path_str,
-            code_id,
-            path_str,
-            debug_id,
-            None,
-            base_address,
-            address_range,
-        );
-    }
-
-    pub fn handle_mmap2(&mut self, e: Mmap2Record, build_id: Option<&[u8]>, profile: &mut Profile) {
-        // println!(
-        //     "raw2 ({}): 0x{:016x}-0x{:016x} (page offset 0x{:016x}) {:?}",
-        //     self.pid,
-        //     e.address,
-        //     e.address + e.length,
-        //     e.page_offset,
-        //     std::str::from_utf8(&e.path)
-        // );
-
-        if e.protection & PROT_EXEC == 0 {
-            // Ignore non-executable mappings.
-            return;
-        }
-
-        let build_id = match e.file_id {
-            Mmap2FileId::BuildId(build_id) => Some(build_id),
-            Mmap2FileId::InodeAndVersion(_) => build_id.map(Vec::from),
-        };
-
-        const PROT_EXEC: u32 = 0b100;
-        let start_addr = e.address;
-        let end_addr = e.address + e.length;
-
-        let path_slice = e.path.as_slice();
-        let path_str = std::str::from_utf8(&path_slice).unwrap();
-        let path = Path::new(path_str);
-        let address_range = start_addr..end_addr;
-        let (debug_id, code_id, base_address) = match add_module(
-            &mut self.unwinder,
-            path,
-            e.page_offset,
-            e.address,
-            e.length,
-            build_id.as_deref(),
+            size,
+            build_id,
         ) {
             Some(module_info) => module_info,
             None => return,
