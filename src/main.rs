@@ -146,6 +146,7 @@ where
     threads: Threads,
     kernel_modules: Vec<ProfileModule>,
     first_sample_time: u64,
+    current_sample_time: u64,
     build_ids: HashMap<DsoKey, DsoBuildId>,
     little_endian: bool,
 }
@@ -172,6 +173,7 @@ where
             threads: Threads(HashMap::new()),
             kernel_modules: Vec::new(),
             first_sample_time,
+            current_sample_time: first_sample_time,
             build_ids,
             little_endian,
         }
@@ -187,6 +189,7 @@ where
         let timestamp = e
             .timestamp
             .expect("Can't handle samples without timestamps");
+        self.current_sample_time = timestamp;
         let cpu_delta = if let Some(period) = e.period {
             // If the observed perf event is one of the clock time events, or cycles, then we should convert it to a CpuDelta.
             // TODO: Detect event type
@@ -291,25 +294,6 @@ where
         }
     }
 
-    pub fn handle_thread_name_update(&mut self, e: CommOrExecRecord) {
-        let is_main = e.pid == e.tid;
-        let process_handle = self
-            .processes
-            .get_by_pid(e.pid, &mut self.profile, &self.kernel_modules)
-            .profile_process;
-        // if e.is_execve {
-        //     self.profile.set_process_end_time(process, end_time)
-        let name = e.name.as_slice();
-        let name = String::from_utf8_lossy(&name);
-        if is_main {
-            self.profile.set_process_name(process_handle, &name);
-        }
-        let thread = self
-            .threads
-            .get_by_tid(e.tid, process_handle, is_main, &mut self.profile);
-        self.profile.set_thread_name(thread, &name);
-    }
-
     pub fn handle_mmap(&mut self, e: MmapRecord) {
         if !e.is_executable {
             return;
@@ -409,13 +393,62 @@ where
             .threads
             .get_by_tid(e.tid, process_handle, is_main, &mut self.profile);
         self.profile.set_thread_end_time(thread, end_time);
+        self.threads.0.remove(&e.tid);
         if is_main {
             self.profile.set_process_end_time(process_handle, end_time);
+            self.processes.0.remove(&e.pid);
+        }
+    }
+
+    pub fn handle_thread_name_update(&mut self, e: CommOrExecRecord) {
+        let is_main = e.pid == e.tid;
+        if e.is_execve {
+            // Mark the old thread / process as ended.
+            // Unfortunately the COMM records don't come with a timestamp, so we just take
+            // the last seen timestamp from the previosu sample.
+            // TODO: Verify that this is true for all COMM records and not just for the
+            // synthesized COMM records at the start of the profile.
+            let time = self.convert_time(self.current_sample_time);
+            if let Some(t) = self.threads.0.get(&e.tid) {
+                self.profile.set_thread_end_time(*t, time);
+                self.threads.0.remove(&e.tid);
+            }
+            if is_main {
+                if let Some(p) = self.processes.0.get(&e.pid) {
+                    self.profile.set_process_end_time(p.profile_process, time);
+                    self.processes.0.remove(&e.pid);
+                }
+            }
+        }
+
+        let process_handle = self
+            .processes
+            .get_by_pid(e.pid, &mut self.profile, &self.kernel_modules)
+            .profile_process;
+
+        let name = e.name.as_slice();
+        let name = String::from_utf8_lossy(&name);
+        let thread = self
+            .threads
+            .get_by_tid(e.tid, process_handle, is_main, &mut self.profile);
+
+        self.profile.set_thread_name(thread, &name);
+        if is_main {
+            self.profile.set_process_name(process_handle, &name);
+        }
+
+        if e.is_execve {
+            // Mark this as the start time of the new thread / process.
+            let time = self.convert_time(self.current_sample_time);
+            self.profile.set_thread_start_time(thread, time);
+            if is_main {
+                self.profile.set_process_start_time(process_handle, time);
+            }
         }
     }
 
     fn convert_time(&self, ktime_ns: u64) -> Timestamp {
-        Timestamp::from_nanos_since_reference(ktime_ns - self.first_sample_time)
+        Timestamp::from_nanos_since_reference(ktime_ns.saturating_sub(self.first_sample_time))
     }
 }
 
