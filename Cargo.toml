@@ -11,14 +11,12 @@ byteorder = "1.4.3"
 debugid = "0.8.0"
 framehop = "0.7.0"
 # framehop = { path = "../framehop" }
-futures = "0.3.21"
 memchr = "2.4.1"
 memmap2 = "0.5.3"
 object = "0.28.3"
 profiler-get-symbols = "0.14.0"
 # profiler-get-symbols = { path = "../profiler-get-symbols/lib" }
-thiserror = "1.0.30"
-fxprof-processed-profile = "0.1.0"
+fxprof-processed-profile = "0.2.0"
 linux-perf-data = "0.2.0"
 # linux-perf-data = { path = "../linux-perf-data" }
 serde_json = "1.0.81"

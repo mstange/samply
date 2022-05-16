@@ -266,10 +266,10 @@ where
             self.profile
                 .set_process_start_time(process_handle, start_time);
         }
-        // let thread = self
-        //     .threads
-        //     .get_by_tid(e.tid, process_handle, is_main, &mut self.profile);
-        // self.profile.set_thread_start_time(thread, start_time);
+        let thread = self
+            .threads
+            .get_by_tid(e.tid, process_handle, is_main, &mut self.profile);
+        self.profile.set_thread_start_time(thread, start_time);
     }
 
     pub fn handle_thread_end(&mut self, e: ForkOrExitRecord) {
@@ -315,22 +315,15 @@ where
                 Timestamp::from_millis_since_reference(0.0),
             );
             for module in global_modules.iter().cloned() {
-                let GlobalModule {
-                    base_address,
-                    address_range,
-                    debug_id,
-                    code_id,
-                    path,
-                } = module;
                 profile.add_lib(
                     handle,
-                    Path::new(&path),
-                    code_id,
-                    Path::new(&path),
-                    debug_id,
+                    &module.path,
+                    module.code_id,
+                    &module.path,
+                    module.debug_id,
                     None,
-                    base_address,
-                    address_range,
+                    module.base_address,
+                    module.address_range,
                 );
             }
             Process::new(handle)
@@ -477,9 +470,9 @@ where
         );
         profile.add_lib(
             self.profile_process,
-            path,
+            path_str,
             code_id,
-            path,
+            path_str,
             debug_id,
             None,
             base_address,
@@ -527,17 +520,18 @@ where
             None => return,
         };
         // println!(
-        //     "0x{:016x}-0x{:016x} {:?} {:?}",
+        //     "0x{:016x}-0x{:016x} (base avma: 0x{:016x}) {:?} {:?}",
         //     start_addr,
-        //     e.address + e.length,
+        //     end_addr,
+        //     base_address,
         //     build_id.as_deref().map(CodeId::from_binary),
         //     path
         // );
         profile.add_lib(
             self.profile_process,
-            path,
+            path_str,
             code_id,
-            path,
+            path_str,
             debug_id,
             None,
             base_address,
