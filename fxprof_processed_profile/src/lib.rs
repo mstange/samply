@@ -175,6 +175,14 @@ impl Profile {
         self.interval = interval;
     }
 
+    pub fn set_reference_timestamp(&mut self, reference_timestamp: ReferenceTimestamp) {
+        self.reference_timestamp = reference_timestamp;
+    }
+
+    pub fn set_product(&mut self, product: &str) {
+        self.product = product.to_string();
+    }
+
     pub fn add_process(&mut self, name: &str, pid: u32, start_time: Timestamp) -> ProcessHandle {
         let handle = ProcessHandle(self.processes.len());
         self.processes.push(Process {
