@@ -327,6 +327,12 @@ where
                 stack.push(stack_frame);
             }
         }
+
+        if stack.is_empty() {
+            if let Some(ip) = e.ip {
+                stack.push(StackFrame::InstructionPointer(ip));
+            }
+        }
     }
 
     pub fn handle_mmap(&mut self, e: MmapRecord) {
