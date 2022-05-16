@@ -262,6 +262,10 @@ impl Profile {
         self.threads[thread.0].name = Some(name.to_string());
     }
 
+    pub fn set_thread_start_time(&mut self, thread: ThreadHandle, start_time: Timestamp) {
+        self.threads[thread.0].start_time = start_time;
+    }
+
     pub fn set_thread_end_time(&mut self, thread: ThreadHandle, end_time: Timestamp) {
         self.threads[thread.0].end_time = Some(end_time);
     }
