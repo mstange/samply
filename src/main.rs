@@ -2,7 +2,7 @@ use byteorder::LittleEndian;
 use debugid::{CodeId, DebugId};
 use framehop::aarch64::UnwindRegsAarch64;
 use framehop::x86_64::UnwindRegsX86_64;
-use framehop::{Module, ModuleSvmaInfo, TextByteData, Unwinder};
+use framehop::{FrameAddress, Module, ModuleSvmaInfo, ModuleUnwindData, TextByteData, Unwinder};
 use fxprof_processed_profile::{
     CpuDelta, Frame, ProcessHandle, Profile, ReferenceTimestamp, ThreadHandle, Timestamp,
 };
@@ -150,8 +150,10 @@ where
         let process = self
             .processes
             .get_by_pid(pid, &mut self.profile, &self.kernel_modules);
+
         let mut stack = Vec::new();
         process.get_sample_stack::<C>(&e, &mut self.cache, &mut stack);
+
         let thread =
             self.threads
                 .get_by_tid(tid, process.profile_process, is_main, &mut self.profile);
@@ -209,7 +211,7 @@ where
             let process = self
                 .processes
                 .get_by_pid(e.pid, &mut self.profile, &self.kernel_modules);
-            process.add_module(
+            process.add_module_for_mapping(
                 e.address,
                 e.length,
                 e.page_offset,
@@ -242,7 +244,7 @@ where
         let process = self
             .processes
             .get_by_pid(e.pid, &mut self.profile, &self.kernel_modules);
-        process.add_module(
+        process.add_module_for_mapping(
             e.address,
             e.length,
             e.page_offset,
@@ -427,7 +429,14 @@ impl<U> Process<U>
 where
     U: Unwinder<Module = Module<Vec<u8>>>,
 {
-    pub fn add_module(
+    /// Tell the unwinder and the profile about this module.
+    ///
+    /// The unwinder needs to know about it in case we need to do DWARF stack
+    /// unwinding - it needs to get the unwinding information from the binary.
+    /// The profile needs to know about this module so that it can assign
+    /// addresses in the stack to the right module and so that symbolication
+    /// knows where to get symbols for this module.
+    pub fn add_module_for_mapping(
         &mut self,
         start_addr: u64,
         size: u64,
@@ -440,7 +449,7 @@ where
         let path_str = std::str::from_utf8(path).unwrap();
         let path = Path::new(path_str);
         let address_range = start_addr..end_addr;
-        let (debug_id, code_id, base_address) = match add_module(
+        let (debug_id, code_id, base_address) = match add_module_to_unwinder(
             &mut self.unwinder,
             path,
             page_offset,
@@ -471,6 +480,23 @@ where
         );
     }
 
+    /// Get the stack contained in this sample, and put it into `stack`.
+    ///
+    /// We can have both the kernel stack and the user stack, or just one of
+    /// them, or neither.
+    ///
+    /// If this sample has a kernel stack, it's always in `e.callchain`.
+    ///
+    /// If this sample has a user stack, its source depends on the method of
+    /// stackwalking that was requested during recording:
+    ///
+    ///  - With frame pointer unwinding (the default on x86, `perf record -g`,
+    ///    or more explicitly `perf record --call-graph fp`), stack unwinding
+    ///    happens in the kernel, and the user stack is appended to e.callchain.
+    ///    We can just get it from there.
+    ///  - With DWARF unwinding (`perf record --call-graph dwarf`), we need to
+    ///    do unwinding now, based on the register values in `e.user_regs` and
+    ///    and the raw stack bytes in `e.user_stack`.
     pub fn get_sample_stack<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
         &mut self,
         e: &SampleRecord,
@@ -479,6 +505,7 @@ where
     ) {
         stack.truncate(0);
 
+        // Get the first fragment of the stack from e.callchain.
         if let Some(callchain) = e.callchain {
             let mut is_first_frame = true;
             for i in 0..callchain.len() {
@@ -488,10 +515,9 @@ where
                     continue;
                 }
 
-                let stack_frame = if is_first_frame {
-                    StackFrame::InstructionPointer(address)
-                } else {
-                    StackFrame::ReturnAddress(address)
+                let stack_frame = match is_first_frame {
+                    true => StackFrame::InstructionPointer(address),
+                    false => StackFrame::ReturnAddress(address),
                 };
                 stack.push(stack_frame);
 
@@ -499,19 +525,18 @@ where
             }
         }
 
+        // Append the user stack with the help of DWARF unwinding.
         if let (Some(regs), Some((user_stack, _))) = (&e.user_regs, e.user_stack) {
             let ustack_bytes = RawDataU64::from_raw_data::<LittleEndian>(user_stack);
             let (pc, sp, regs) = C::convert_regs(regs);
             let mut read_stack = |addr: u64| {
+                // ustack_bytes has the stack bytes starting from the current stack pointer.
                 let offset = addr.checked_sub(sp).ok_or(())?;
                 let index = usize::try_from(offset / 8).map_err(|_| ())?;
-                if let Some(val) = ustack_bytes.get(index) {
-                    Ok(val)
-                } else {
-                    // eprintln!("Ran out of stack when trying to read at address 0x{:x}", addr);
-                    Err(())
-                }
+                ustack_bytes.get(index).ok_or(())
             };
+
+            // Unwind.
             let mut frames = self.unwinder.iter_frames(pc, regs, cache, &mut read_stack);
             loop {
                 let frame = match frames.next() {
@@ -523,15 +548,10 @@ where
                     }
                 };
                 let stack_frame = match frame {
-                    framehop::FrameAddress::InstructionPointer(addr) => {
-                        StackFrame::InstructionPointer(addr)
-                    }
-                    framehop::FrameAddress::ReturnAddress(addr) => {
-                        StackFrame::ReturnAddress(addr.into())
-                    }
+                    FrameAddress::InstructionPointer(addr) => StackFrame::InstructionPointer(addr),
+                    FrameAddress::ReturnAddress(addr) => StackFrame::ReturnAddress(addr.into()),
                 };
                 stack.push(stack_frame);
-                // eprintln!("got frame: {:?}", frame);
             }
         }
     }
@@ -544,7 +564,7 @@ pub enum StackFrame {
     TruncatedStackMarker,
 }
 
-pub fn add_module<U>(
+pub fn add_module_to_unwinder<U>(
     unwinder: &mut U,
     objpath: &Path,
     mapping_start_file_offset: u64,
@@ -635,10 +655,10 @@ where
         eh_frame_hdr.as_ref().and_then(section_data),
     ) {
         (Some(eh_frame), Some(eh_frame_hdr)) => {
-            framehop::ModuleUnwindData::EhFrameHdrAndEhFrame(eh_frame_hdr, eh_frame)
+            ModuleUnwindData::EhFrameHdrAndEhFrame(eh_frame_hdr, eh_frame)
         }
-        (Some(eh_frame), None) => framehop::ModuleUnwindData::EhFrame(eh_frame),
-        (None, _) => framehop::ModuleUnwindData::None,
+        (Some(eh_frame), None) => ModuleUnwindData::EhFrame(eh_frame),
+        (None, _) => ModuleUnwindData::None,
     };
 
     let text_data = if let Some(text_segment) = file
@@ -670,7 +690,7 @@ where
     }
 
     let mapping_end_avma = mapping_start_avma + mapping_size;
-    let module = framehop::Module::new(
+    let module = Module::new(
         objpath.to_string_lossy().to_string(),
         mapping_start_avma..mapping_end_avma,
         base_avma,
