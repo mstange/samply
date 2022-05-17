@@ -4,7 +4,8 @@ use framehop::aarch64::UnwindRegsAarch64;
 use framehop::x86_64::UnwindRegsX86_64;
 use framehop::{FrameAddress, Module, ModuleSvmaInfo, ModuleUnwindData, TextByteData, Unwinder};
 use fxprof_processed_profile::{
-    CpuDelta, Frame, ProcessHandle, Profile, ReferenceTimestamp, ThreadHandle, Timestamp,
+    CpuDelta, Frame, LibraryInfo, ProcessHandle, Profile, ReferenceTimestamp, ThreadHandle,
+    Timestamp,
 };
 use linux_perf_data::linux_perf_event_reader;
 use linux_perf_data::{DsoBuildId, DsoKey, PerfFileReader, SampleTimeRange};
@@ -19,6 +20,7 @@ use linux_perf_event_reader::records::{
 use linux_perf_event_reader::RawDataU64;
 use object::{Object, ObjectSection, ObjectSegment};
 use profiler_get_symbols::{debug_id_for_object, DebugIdExt};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::{BufReader, BufWriter, Read};
 use std::path::PathBuf;
@@ -167,7 +169,7 @@ where
     profile: Profile,
     processes: Processes<U>,
     threads: Threads,
-    kernel_modules: Vec<ProfileModule>,
+    kernel_modules: Vec<LibraryInfo>,
     first_sample_time: u64,
     current_sample_time: u64,
     build_ids: HashMap<DsoKey, DsoBuildId>,
@@ -340,26 +342,42 @@ where
             return;
         }
 
-        let path = e.path.as_slice();
+        let mut path = e.path.as_slice();
         let dso_key = match DsoKey::detect(&path, e.cpu_mode) {
             Some(dso_key) => dso_key,
             None => return,
         };
-        let build_id = self.build_ids.get(&dso_key).map(|db| &db.build_id[..]);
+        let mut build_id = None;
+        if let Some(dso_info) = self.build_ids.get(&dso_key) {
+            build_id = Some(&dso_info.build_id[..]);
+            // Overwrite the path from the mmap record with the path from the build ID info.
+            // These paths are usually the same, but in some cases the path from the build
+            // ID info can be "better". For example, sometimes the synthesized mmap event for
+            // the kernel vmlinux image usually has "[kernel.kallsyms]_text" whereas the
+            // build ID info might have the full path to a kernel debug file, e.g.
+            // "/usr/lib/debug/boot/vmlinux-4.16.0-1-amd64".
+            path = Cow::Borrowed(&dso_info.path);
+        }
+
         if e.pid == -1 {
             let debug_id = build_id.map(|id| DebugId::from_identifier(id, self.little_endian));
-            self.kernel_modules.push(ProfileModule {
+            let path = std::str::from_utf8(&path).unwrap().to_string();
+            self.kernel_modules.push(LibraryInfo {
                 base_avma: e.address,
-                address_range: e.address..(e.address + e.length),
+                avma_range: e.address..(e.address + e.length),
                 debug_id: debug_id.unwrap_or_default(),
-                path: std::str::from_utf8(&path).unwrap().to_string(),
+                path: path.clone(),
+                debug_path: path,
                 code_id: build_id.map(CodeId::from_binary),
+                name: dso_key.name().to_string(),
+                debug_name: dso_key.name().to_string(),
+                arch: None,
             });
         } else {
             let process = self
                 .processes
                 .get_by_pid(e.pid, &mut self.profile, &self.kernel_modules);
-            if let Some(module) = add_module_to_unwinder(
+            if let Some(lib) = add_module_to_unwinder(
                 &mut process.unwinder,
                 &path,
                 e.page_offset,
@@ -368,7 +386,7 @@ where
                 build_id,
                 self.extra_binary_artifact_dir.as_deref(),
             ) {
-                add_module_to_profile(&mut self.profile, process.profile_process, module);
+                self.profile.add_lib(process.profile_process, lib);
             }
         }
     }
@@ -395,7 +413,7 @@ where
         let process = self
             .processes
             .get_by_pid(e.pid, &mut self.profile, &self.kernel_modules);
-        if let Some(module) = add_module_to_unwinder(
+        if let Some(lib) = add_module_to_unwinder(
             &mut process.unwinder,
             &path,
             e.page_offset,
@@ -404,7 +422,7 @@ where
             build_id,
             self.extra_binary_artifact_dir.as_deref(),
         ) {
-            add_module_to_profile(&mut self.profile, process.profile_process, module);
+            self.profile.add_lib(process.profile_process, lib);
         }
     }
 
@@ -516,7 +534,7 @@ where
         &mut self,
         pid: i32,
         profile: &mut Profile,
-        global_modules: &[ProfileModule],
+        global_modules: &[LibraryInfo],
     ) -> &mut Process<U> {
         self.0.entry(pid).or_insert_with(|| {
             let name = format!("<{}>", pid);
@@ -526,7 +544,7 @@ where
                 Timestamp::from_millis_since_reference(0.0),
             );
             for module in global_modules.iter().cloned() {
-                add_module_to_profile(profile, handle, module);
+                profile.add_lib(handle, module);
             }
             Process {
                 profile_process: handle,
@@ -557,15 +575,6 @@ impl Threads {
     }
 }
 
-#[derive(Debug, Clone)]
-struct ProfileModule {
-    pub base_avma: u64,
-    pub address_range: Range<u64>,
-    pub debug_id: DebugId,
-    pub code_id: Option<CodeId>,
-    pub path: String,
-}
-
 struct Process<U> {
     pub profile_process: ProcessHandle,
     pub unwinder: U,
@@ -594,19 +603,20 @@ fn add_module_to_unwinder<U>(
     mapping_size: u64,
     build_id: Option<&[u8]>,
     extra_binary_artifact_dir: Option<&Path>,
-) -> Option<ProfileModule>
+) -> Option<LibraryInfo>
 where
     U: Unwinder<Module = Module<Vec<u8>>>,
 {
     let path = std::str::from_utf8(path_slice).unwrap();
     let objpath = Path::new(path);
+    let filename = objpath.file_name().unwrap();
 
     let file = match std::fs::File::open(objpath) {
         Ok(file) => file,
         Err(_) => {
             if let Some(extra_dir) = extra_binary_artifact_dir {
                 let mut p = extra_dir.to_owned();
-                p.push(objpath.file_name().unwrap());
+                p.push(filename);
                 match std::fs::File::open(&p) {
                     Ok(file) => file,
                     Err(_) => {
@@ -742,24 +752,16 @@ where
     let debug_id = debug_id_for_object(&file)?;
     let code_id = file.build_id().ok().flatten().map(CodeId::from_binary);
 
-    Some(ProfileModule {
+    let name = filename.to_string_lossy().to_string();
+    Some(LibraryInfo {
         base_avma,
-        address_range: mapping_start_avma..mapping_end_avma,
+        avma_range: mapping_start_avma..mapping_end_avma,
         debug_id,
         code_id,
         path: path.to_string(),
+        debug_path: path.to_string(),
+        debug_name: name.clone(),
+        name,
+        arch: None,
     })
-}
-
-fn add_module_to_profile(profile: &mut Profile, process: ProcessHandle, module: ProfileModule) {
-    profile.add_lib(
-        process,
-        &module.path,
-        module.code_id,
-        &module.path,
-        module.debug_id,
-        None,
-        module.base_avma,
-        module.address_range,
-    );
 }
