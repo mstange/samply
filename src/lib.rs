@@ -6,6 +6,7 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::{header, Body, Request, Response, Server};
 use hyper::{Method, StatusCode};
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
+use profiler_get_symbols::debugid::CodeId;
 use profiler_get_symbols::{
     self, debugid::DebugId, query_api, CandidatePathInfo, FileAndPathHelper,
     FileAndPathHelperResult, FileLocation, OptionallySendFuture,
@@ -60,7 +61,7 @@ pub async fn start_server(
     verbose: bool,
     open_in_browser: bool,
 ) {
-    let path_map = if let Some(profile_filename) = profile_filename {
+    let libinfo_map = if let Some(profile_filename) = profile_filename {
         // Read the profile.json file and parse it as JSON.
         // Build a map (debugName, breakpadID) -> debugPath from the information
         // in profile(\.processes\[\d+\])*(\.threads\[\d+\])?\.libs.
@@ -71,9 +72,9 @@ pub async fn start_server(
         if profile_filename.extension() == Some(&OsString::from("gz")) {
             let decoder = GzDecoder::new(reader);
             let reader = BufReader::new(decoder);
-            parse_path_map_from_profile(reader).expect("couldn't parse json")
+            parse_libinfo_map_from_profile(reader).expect("couldn't parse json")
         } else {
-            parse_path_map_from_profile(reader).expect("couldn't parse json")
+            parse_libinfo_map_from_profile(reader).expect("couldn't parse json")
         }
     } else {
         HashMap::new()
@@ -114,7 +115,7 @@ pub async fn start_server(
 
     let template_values = Arc::new(template_values);
 
-    let helper = Arc::new(Helper::with_path_map(path_map, symbol_path, verbose));
+    let helper = Arc::new(Helper::with_libinfo_map(libinfo_map, symbol_path, verbose));
     let new_service = make_service_fn(move |_conn| {
         let helper = helper.clone();
         let profile_filename = profile_filename.map(PathBuf::from);
@@ -155,13 +156,20 @@ pub async fn start_server(
     }
 }
 
-fn parse_path_map_from_profile(
+struct LibInfo {
+    pub path: Option<String>,
+    pub debug_path: Option<String>,
+    #[allow(unused)]
+    pub code_id: Option<CodeId>,
+}
+
+fn parse_libinfo_map_from_profile(
     reader: impl std::io::Read,
-) -> Result<HashMap<(String, DebugId), String>, std::io::Error> {
+) -> Result<HashMap<(String, DebugId), LibInfo>, std::io::Error> {
     let profile: ProfileJsonProcess = serde_json::from_reader(reader)?;
-    let mut path_map = HashMap::new();
-    add_to_path_map_recursive(&profile, &mut path_map);
-    Ok(path_map)
+    let mut libinfo_map = HashMap::new();
+    add_to_libinfo_map_recursive(&profile, &mut libinfo_map);
+    Ok(libinfo_map)
 }
 
 #[derive(Deserialize, Default, Clone, Debug, PartialEq, Eq)]
@@ -187,7 +195,9 @@ struct ProfileJsonThread {
 struct ProfileJsonLib {
     pub debug_name: Option<String>,
     pub debug_path: Option<String>,
+    pub path: Option<String>,
     pub breakpad_id: Option<String>,
+    pub code_id: Option<String>,
 }
 
 // Returns a base32 string for 24 random bytes.
@@ -410,52 +420,62 @@ fn substitute_template(template: &str, template_values: &HashMap<&'static str, S
 }
 
 struct Helper {
-    path_map: HashMap<(String, DebugId), String>,
+    libinfo_map: HashMap<(String, DebugId), LibInfo>,
     symbol_cache: SymbolCache,
     verbose: bool,
 }
 
-fn add_libs_to_path_map(
+fn add_libs_to_libinfo_map(
     libs: &[ProfileJsonLib],
-    path_map: &mut HashMap<(String, DebugId), String>,
+    libinfo_map: &mut HashMap<(String, DebugId), LibInfo>,
 ) {
     for lib in libs {
-        if let Some(((debug_name, debug_id), debug_path)) = path_map_entry_for_lib(lib) {
-            path_map.insert((debug_name, debug_id), debug_path);
+        if let Some(((debug_name, debug_id), libinfo)) = libinfo_map_entry_for_lib(lib) {
+            libinfo_map.insert((debug_name, debug_id), libinfo);
         }
     }
 }
 
-fn path_map_entry_for_lib(lib: &ProfileJsonLib) -> Option<((String, DebugId), String)> {
+fn libinfo_map_entry_for_lib(lib: &ProfileJsonLib) -> Option<((String, DebugId), LibInfo)> {
     let debug_name = lib.debug_name.clone()?;
     let breakpad_id = lib.breakpad_id.as_ref()?;
-    let debug_path = lib.debug_path.clone()?;
+    let debug_path = lib.debug_path.clone();
+    let path = lib.path.clone();
     let debug_id = DebugId::from_breakpad(breakpad_id).ok()?;
-    Some(((debug_name, debug_id), debug_path))
+    let code_id = lib
+        .code_id
+        .as_deref()
+        .and_then(|ci| CodeId::from_str(ci).ok());
+    let libinfo = LibInfo {
+        path,
+        debug_path,
+        code_id,
+    };
+    Some(((debug_name, debug_id), libinfo))
 }
 
-fn add_to_path_map_recursive(
+fn add_to_libinfo_map_recursive(
     profile: &ProfileJsonProcess,
-    path_map: &mut HashMap<(String, DebugId), String>,
+    libinfo_map: &mut HashMap<(String, DebugId), LibInfo>,
 ) {
-    add_libs_to_path_map(&profile.libs, path_map);
+    add_libs_to_libinfo_map(&profile.libs, libinfo_map);
     for thread in &profile.threads {
-        add_libs_to_path_map(&thread.libs, path_map);
+        add_libs_to_libinfo_map(&thread.libs, libinfo_map);
     }
     for process in &profile.processes {
-        add_to_path_map_recursive(process, path_map);
+        add_to_libinfo_map_recursive(process, libinfo_map);
     }
 }
 
 impl Helper {
-    pub fn with_path_map(
-        path_map: HashMap<(String, DebugId), String>,
+    pub fn with_libinfo_map(
+        libinfo_map: HashMap<(String, DebugId), LibInfo>,
         symbol_path: Vec<NtSymbolPathEntry>,
         verbose: bool,
     ) -> Self {
         let symbol_cache = SymbolCache::new(symbol_path, verbose);
         Helper {
-            path_map,
+            libinfo_map,
             symbol_cache,
             verbose,
         }
@@ -500,54 +520,69 @@ impl<'h> FileAndPathHelper<'h> for Helper {
         let mut paths = vec![];
 
         // Look up (debugName, breakpadId) in the path map.
-        if let Some(path) = self.path_map.get(&(debug_name.to_string(), *debug_id)) {
-            // First, see if we can find a dSYM file for the binary.
-            if let Ok(dsym_path) = moria_mac::locate_dsym(&path, debug_id.uuid()) {
-                paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                    dsym_path.clone(),
-                )));
-                paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                    dsym_path
-                        .join("Contents")
-                        .join("Resources")
-                        .join("DWARF")
-                        .join(debug_name),
-                )));
+        if let Some(libinfo) = self.libinfo_map.get(&(debug_name.to_string(), *debug_id)) {
+            if let Some(debug_path) = &libinfo.debug_path {
+                // First, see if we can find a dSYM file for the binary.
+                if let Ok(dsym_path) = moria_mac::locate_dsym(&debug_path, debug_id.uuid()) {
+                    paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
+                        dsym_path.clone(),
+                    )));
+                    paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
+                        dsym_path
+                            .join("Contents")
+                            .join("Resources")
+                            .join("DWARF")
+                            .join(debug_name),
+                    )));
+                }
+
+                // Also consider .so.dbg files in the same directory.
+                if debug_name.ends_with(".so") {
+                    let dbg_name = format!("{}.dbg", debug_name);
+                    let debug_path = PathBuf::from(debug_path);
+                    if let Some(dir) = debug_path.parent() {
+                        paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
+                            dir.join(dbg_name),
+                        )));
+                    }
+                }
             }
 
-            // Also consider .so.dbg files in the same directory.
-            if debug_name.ends_with(".so") {
-                let debug_debug_name = format!("{}.dbg", debug_name);
-                let path = PathBuf::from(path);
-                if let Some(dir) = path.parent() {
+            if libinfo.debug_path != libinfo.path {
+                if let Some(debug_path) = &libinfo.debug_path {
+                    // Get symbols from the debug file.
                     paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                        dir.join(debug_debug_name),
+                        debug_path.into(),
                     )));
                 }
             }
 
-            // Fall back to getting symbols from the binary itself.
-            paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                path.into(),
-            )));
+            if let Some(path) = &libinfo.path {
+                // Fall back to getting symbols from the binary itself.
+                paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
+                    path.into(),
+                )));
 
-            // For macOS system libraries, also consult the dyld shared cache.
-            if path.starts_with("/usr/") || path.starts_with("/System/") {
-                paths.push(CandidatePathInfo::InDyldCache {
-                    dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_arm64e")
+                // For macOS system libraries, also consult the dyld shared cache.
+                if path.starts_with("/usr/") || path.starts_with("/System/") {
+                    paths.push(CandidatePathInfo::InDyldCache {
+                        dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_arm64e")
+                            .to_path_buf(),
+                        dylib_path: path.clone(),
+                    });
+                    paths.push(CandidatePathInfo::InDyldCache {
+                        dyld_cache_path: Path::new(
+                            "/System/Library/dyld/dyld_shared_cache_x86_64h",
+                        )
                         .to_path_buf(),
-                    dylib_path: path.clone(),
-                });
-                paths.push(CandidatePathInfo::InDyldCache {
-                    dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_x86_64h")
-                        .to_path_buf(),
-                    dylib_path: path.clone(),
-                });
-                paths.push(CandidatePathInfo::InDyldCache {
-                    dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_x86_64")
-                        .to_path_buf(),
-                    dylib_path: path.clone(),
-                });
+                        dylib_path: path.clone(),
+                    });
+                    paths.push(CandidatePathInfo::InDyldCache {
+                        dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_x86_64")
+                            .to_path_buf(),
+                        dylib_path: path.clone(),
+                    });
+                }
             }
         }
 

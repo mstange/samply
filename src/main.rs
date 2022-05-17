@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 use structopt::StructOpt;
 
-use profiler_symbol_server::{start_server, PortSelection};
 use profiler_symbol_server::symsrv::get_symbol_path_from_environment;
+use profiler_symbol_server::{start_server, PortSelection};
 
 #[derive(Debug, StructOpt)]
 #[structopt(
