@@ -72,6 +72,7 @@ fn main() {
     let output_file = File::create("profile-conv.json").unwrap();
     let writer = BufWriter::new(output_file);
     serde_json::to_writer(writer, &profile).expect("Couldn't write JSON");
+    eprintln!("Saved converted profile to profile-conv.json");
 }
 
 trait ConvertRegs {
@@ -612,150 +613,169 @@ where
     let filename = objpath.file_name().unwrap();
 
     let file = match std::fs::File::open(objpath) {
-        Ok(file) => file,
+        Ok(file) => Some(file),
         Err(_) => {
             if let Some(extra_dir) = extra_binary_artifact_dir {
                 let mut p = extra_dir.to_owned();
                 p.push(filename);
                 match std::fs::File::open(&p) {
-                    Ok(file) => file,
+                    Ok(file) => Some(file),
                     Err(_) => {
-                        eprintln!("Could not open file {:?}", objpath);
-                        return None;
+                        if !path.starts_with('[') {
+                            eprintln!("Could not open file {:?}", objpath);
+                        }
+                        None
                     }
                 }
             } else {
-                eprintln!("Could not open file {:?}", objpath);
-                return None;
+                if !path.starts_with('[') {
+                    eprintln!("Could not open file {:?}", objpath);
+                }
+                None
             }
         }
     };
-    let mmap = unsafe { memmap2::MmapOptions::new().map(&file).ok()? };
 
-    fn section_data<'a>(section: &impl ObjectSection<'a>) -> Option<Vec<u8>> {
-        section.data().ok().map(|data| data.to_owned())
-    }
+    let mapping_end_avma = mapping_start_avma + mapping_size;
+    let avma_range = mapping_start_avma..mapping_end_avma;
 
-    let file = match object::File::parse(&mmap[..]) {
-        Ok(file) => file,
-        Err(_) => {
-            eprintln!("File {:?} has unrecognized format", objpath);
-            return None;
+    let code_id;
+    let debug_id;
+    let base_avma;
+
+    if let Some(file) = file {
+        let mmap = unsafe { memmap2::MmapOptions::new().map(&file).ok()? };
+
+        fn section_data<'a>(section: &impl ObjectSection<'a>) -> Option<Vec<u8>> {
+            section.data().ok().map(|data| data.to_owned())
         }
-    };
 
-    // Verify build ID.
-    if let Some(build_id) = build_id {
-        if let Ok(Some(file_build_id)) = file.build_id() {
-            if file_build_id != build_id {
-                let file_build_id = CodeId::from_binary(file_build_id);
-                let expected_build_id = CodeId::from_binary(build_id);
+        let file = match object::File::parse(&mmap[..]) {
+            Ok(file) => file,
+            Err(_) => {
+                eprintln!("File {:?} has unrecognized format", objpath);
+                return None;
+            }
+        };
+
+        // Verify build ID.
+        if let Some(build_id) = build_id {
+            if let Ok(Some(file_build_id)) = file.build_id() {
+                if file_build_id != build_id {
+                    let file_build_id = CodeId::from_binary(file_build_id);
+                    let expected_build_id = CodeId::from_binary(build_id);
+                    eprintln!(
+                        "File {:?} has non-matching build ID {} (expected {})",
+                        objpath, file_build_id, expected_build_id
+                    );
+                    return None;
+                }
+            } else {
                 eprintln!(
-                    "File {:?} has non-matching build ID {} (expected {})",
-                    objpath, file_build_id, expected_build_id
+                    "File {:?} does not contain a build ID, but we expected it to have one",
+                    objpath
                 );
                 return None;
             }
-        } else {
-            eprintln!(
-                "File {:?} does not contain a build ID, but we expected it to have one",
-                objpath
-            );
-            return None;
         }
-    }
 
-    // eprintln!("segments: {:?}", file.segments());
-    let mapping_end_file_offset = mapping_start_file_offset + mapping_size;
-    let mapped_segment = file.segments().find(|segment| {
-        let (segment_start_file_offset, segment_size) = segment.file_range();
-        let segment_end_file_offset = segment_start_file_offset + segment_size;
-        mapping_start_file_offset <= segment_start_file_offset
-            && segment_end_file_offset <= mapping_end_file_offset
-    })?;
+        // eprintln!("segments: {:?}", file.segments());
+        let mapping_end_file_offset = mapping_start_file_offset + mapping_size;
+        let mapped_segment = file.segments().find(|segment| {
+            let (segment_start_file_offset, segment_size) = segment.file_range();
+            let segment_end_file_offset = segment_start_file_offset + segment_size;
+            mapping_start_file_offset <= segment_start_file_offset
+                && segment_end_file_offset <= mapping_end_file_offset
+        })?;
 
-    let (segment_start_file_offset, _segment_size) = mapped_segment.file_range();
-    let segment_start_svma = mapped_segment.address();
-    let segment_start_avma =
-        mapping_start_avma + (segment_start_file_offset - mapping_start_file_offset);
+        let (segment_start_file_offset, _segment_size) = mapped_segment.file_range();
+        let segment_start_svma = mapped_segment.address();
+        let segment_start_avma =
+            mapping_start_avma + (segment_start_file_offset - mapping_start_file_offset);
 
-    // Compute the AVMA that maps to SVMA zero. This is also called the "bias" of the
-    // image. On ELF it is also the image load address.
-    let base_svma = 0;
-    let base_avma = segment_start_avma - segment_start_svma;
+        // Compute the AVMA that maps to SVMA zero. This is also called the "bias" of the
+        // image. On ELF it is also the image load address.
+        let base_svma = 0;
+        base_avma = segment_start_avma - segment_start_svma;
 
-    let text = file.section_by_name(".text");
-    let text_env = file.section_by_name("text_env");
-    let eh_frame = file.section_by_name(".eh_frame");
-    let got = file.section_by_name(".got");
-    let eh_frame_hdr = file.section_by_name(".eh_frame_hdr");
+        let text = file.section_by_name(".text");
+        let text_env = file.section_by_name("text_env");
+        let eh_frame = file.section_by_name(".eh_frame");
+        let got = file.section_by_name(".got");
+        let eh_frame_hdr = file.section_by_name(".eh_frame_hdr");
 
-    let unwind_data = match (
-        eh_frame.as_ref().and_then(section_data),
-        eh_frame_hdr.as_ref().and_then(section_data),
-    ) {
-        (Some(eh_frame), Some(eh_frame_hdr)) => {
-            ModuleUnwindData::EhFrameHdrAndEhFrame(eh_frame_hdr, eh_frame)
-        }
-        (Some(eh_frame), None) => ModuleUnwindData::EhFrame(eh_frame),
-        (None, _) => ModuleUnwindData::None,
-    };
+        let unwind_data = match (
+            eh_frame.as_ref().and_then(section_data),
+            eh_frame_hdr.as_ref().and_then(section_data),
+        ) {
+            (Some(eh_frame), Some(eh_frame_hdr)) => {
+                ModuleUnwindData::EhFrameHdrAndEhFrame(eh_frame_hdr, eh_frame)
+            }
+            (Some(eh_frame), None) => ModuleUnwindData::EhFrame(eh_frame),
+            (None, _) => ModuleUnwindData::None,
+        };
 
-    let text_data = if let Some(text_segment) = file
-        .segments()
-        .find(|segment| segment.name_bytes() == Ok(Some(b"__TEXT")))
-    {
-        let (start, size) = text_segment.file_range();
-        let address_range = base_avma + start..base_avma + start + size;
-        text_segment
-            .data()
-            .ok()
-            .map(|data| TextByteData::new(data.to_owned(), address_range))
-    } else if let Some(text_section) = &text {
-        if let Some((start, size)) = text_section.file_range() {
+        let text_data = if let Some(text_segment) = file
+            .segments()
+            .find(|segment| segment.name_bytes() == Ok(Some(b"__TEXT")))
+        {
+            let (start, size) = text_segment.file_range();
             let address_range = base_avma + start..base_avma + start + size;
-            text_section
+            text_segment
                 .data()
                 .ok()
                 .map(|data| TextByteData::new(data.to_owned(), address_range))
+        } else if let Some(text_section) = &text {
+            if let Some((start, size)) = text_section.file_range() {
+                let address_range = base_avma + start..base_avma + start + size;
+                text_section
+                    .data()
+                    .ok()
+                    .map(|data| TextByteData::new(data.to_owned(), address_range))
+            } else {
+                None
+            }
         } else {
             None
+        };
+
+        fn svma_range<'a>(section: &impl ObjectSection<'a>) -> Range<u64> {
+            section.address()..section.address() + section.size()
         }
+
+        let module = Module::new(
+            path.to_string(),
+            avma_range.clone(),
+            base_avma,
+            ModuleSvmaInfo {
+                base_svma,
+                text: text.as_ref().map(svma_range),
+                text_env: text_env.as_ref().map(svma_range),
+                stubs: None,
+                stub_helper: None,
+                eh_frame: eh_frame.as_ref().map(svma_range),
+                eh_frame_hdr: eh_frame_hdr.as_ref().map(svma_range),
+                got: got.as_ref().map(svma_range),
+            },
+            unwind_data,
+            text_data,
+        );
+        unwinder.add_module(module);
+
+        debug_id = debug_id_for_object(&file)?;
+        code_id = file.build_id().ok().flatten().map(CodeId::from_binary);
     } else {
-        None
-    };
-
-    fn svma_range<'a>(section: &impl ObjectSection<'a>) -> Range<u64> {
-        section.address()..section.address() + section.size()
+        base_avma = mapping_start_avma - mapping_start_file_offset;
+        debug_id = build_id
+            .map(|id| DebugId::from_identifier(id, true))
+            .unwrap_or_default();
+        code_id = build_id.map(CodeId::from_binary);
     }
-
-    let mapping_end_avma = mapping_start_avma + mapping_size;
-    let module = Module::new(
-        path.to_string(),
-        mapping_start_avma..mapping_end_avma,
-        base_avma,
-        ModuleSvmaInfo {
-            base_svma,
-            text: text.as_ref().map(svma_range),
-            text_env: text_env.as_ref().map(svma_range),
-            stubs: None,
-            stub_helper: None,
-            eh_frame: eh_frame.as_ref().map(svma_range),
-            eh_frame_hdr: eh_frame_hdr.as_ref().map(svma_range),
-            got: got.as_ref().map(svma_range),
-        },
-        unwind_data,
-        text_data,
-    );
-    unwinder.add_module(module);
-
-    let debug_id = debug_id_for_object(&file)?;
-    let code_id = file.build_id().ok().flatten().map(CodeId::from_binary);
 
     let name = filename.to_string_lossy().to_string();
     Some(LibraryInfo {
         base_avma,
-        avma_range: mapping_start_avma..mapping_end_avma,
+        avma_range,
         debug_id,
         code_id,
         path: path.to_string(),
