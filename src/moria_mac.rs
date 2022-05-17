@@ -9,10 +9,10 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 #[cfg(target_os = "macos")]
-use crate::moria_mac_spotlight::locate_dsym_using_spotlight;
+pub use crate::moria_mac_spotlight::locate_dsym_using_spotlight;
 
 #[cfg(not(target_os = "macos"))]
-fn locate_dsym_using_spotlight(_uuid: uuid::Uuid) -> Result<PathBuf, &'static str> {
+pub fn locate_dsym_using_spotlight(_uuid: uuid::Uuid) -> Result<PathBuf, &'static str> {
     Err("Could not locate dSYM")
 }
 
@@ -25,7 +25,7 @@ fn locate_dsym_using_spotlight(_uuid: uuid::Uuid) -> Result<PathBuf, &'static st
 ///
 /// * Parsed version of the object file which needs its debuginfo.
 /// * Path to the object file.
-fn locate_dsym_fastpath(path: &Path, uuid: Uuid) -> Option<PathBuf> {
+pub fn locate_dsym_fastpath(path: &Path, uuid: Uuid) -> Option<PathBuf> {
     // Canonicalize the path to make sure the fastpath also works when current working
     // dir is inside target/
     let path = path.canonicalize().ok()?;
@@ -91,16 +91,4 @@ fn try_match_dsym(dsym_dir: &Path, uuid: Uuid) -> Option<PathBuf> {
     } else {
         None
     }
-}
-
-/// Attempt to locate the Mach-O file contained within a dSYM bundle containing the debug
-/// symbols for the Mach-O file at `path` with UUID `uuid`.
-pub fn locate_dsym<T>(path: T, uuid: Uuid) -> Result<PathBuf, &'static str>
-where
-    T: AsRef<Path>,
-{
-    if let Some(dsym_path) = locate_dsym_fastpath(path.as_ref(), uuid) {
-        return Ok(dsym_path);
-    }
-    locate_dsym_using_spotlight(uuid)
 }
