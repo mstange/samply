@@ -23,6 +23,7 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::Arc;
+use symsrv::{FileContents, NtSymbolPathEntry, SymbolCache};
 use tokio::io::AsyncReadExt;
 
 mod moria_mac;
@@ -30,11 +31,7 @@ mod moria_mac;
 #[cfg(target_os = "macos")]
 mod moria_mac_spotlight;
 
-pub use symsrv::{
-    get_default_downstream_store, get_symbol_path_from_environment, parse_nt_symbol_path,
-    NtSymbolPathEntry,
-};
-use symsrv::{FileContents, SymbolCache};
+pub use symsrv;
 
 const BAD_CHARS: &AsciiSet = &CONTROLS.add(b':').add(b'/');
 

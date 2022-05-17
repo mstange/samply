@@ -1506,10 +1506,12 @@ dependencies = [
 [[package]]
 name = "symsrv"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d02353d295e283083cfdbd73311b5225c47a5c9ea7f80de17154e79dea26508f"
 dependencies = [
+ "bytes",
  "cab",
  "dirs",
- "hyper",
  "memmap2",
  "reqwest",
  "thiserror",
