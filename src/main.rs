@@ -122,6 +122,7 @@ where
     let little_endian = file.endian() == linux_perf_data::Endianness::LittleEndian;
     let host = file.hostname().unwrap().unwrap_or("<unknown host>");
     let perf_version = file.perf_version().unwrap().unwrap_or("<unknown host>");
+    let linux_version = file.perf_version().unwrap();
 
     let product = "Converted perf profile";
     let mut converter = Converter::<U>::new(
@@ -130,6 +131,7 @@ where
         first_sample_time,
         host,
         perf_version,
+        linux_version,
         little_endian,
         cache,
         extra_dir,
@@ -178,6 +180,7 @@ where
     have_product_name: bool,
     host: String,
     perf_version: String,
+    linux_version: Option<String>,
     extra_binary_artifact_dir: Option<PathBuf>,
 }
 
@@ -192,6 +195,7 @@ where
         first_sample_time: u64,
         host: &str,
         perf_version: &str,
+        linux_version: Option<&str>,
         little_endian: bool,
         cache: U::Cache,
         extra_binary_artifact_dir: Option<&Path>,
@@ -213,6 +217,7 @@ where
             have_product_name: false,
             host: host.to_string(),
             perf_version: perf_version.to_string(),
+            linux_version: linux_version.map(ToOwned::to_owned),
             extra_binary_artifact_dir: extra_binary_artifact_dir.map(ToOwned::to_owned),
         }
     }
@@ -363,12 +368,20 @@ where
         if e.pid == -1 {
             let debug_id = build_id.map(|id| DebugId::from_identifier(id, self.little_endian));
             let path = std::str::from_utf8(&path).unwrap().to_string();
+            let mut debug_path = path.clone();
+            if debug_path.starts_with("[kernel.kallsyms]") {
+                if let Some(linux_version) = self.linux_version.as_deref() {
+                    // Take a guess at the vmlinux debug file path.
+                    debug_path = format!("/usr/lib/debug/boot/vmlinux-{}", linux_version);
+                }
+            }
+
             self.kernel_modules.push(LibraryInfo {
                 base_avma: e.address,
                 avma_range: e.address..(e.address + e.length),
                 debug_id: debug_id.unwrap_or_default(),
-                path: path.clone(),
-                debug_path: path,
+                path,
+                debug_path,
                 code_id: build_id.map(CodeId::from_binary),
                 name: dso_key.name().to_string(),
                 debug_name: dso_key.name().to_string(),
