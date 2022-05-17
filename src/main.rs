@@ -272,12 +272,12 @@ where
     /// stackwalking that was requested during recording:
     ///
     ///  - With frame pointer unwinding (the default on x86, `perf record -g`,
-    ///    or more explicitly `perf record --call-graph fp`), stack unwinding
-    ///    happens in the kernel, and the user stack is appended to e.callchain.
-    ///    We can just get it from there.
-    ///  - With DWARF unwinding (`perf record --call-graph dwarf`), we need to
-    ///    do unwinding now, based on the register values in `e.user_regs` and
-    ///    and the raw stack bytes in `e.user_stack`.
+    ///    or more explicitly `perf record --call-graph fp`), the user stack
+    ///    is walked during sampling by the kernel and appended to e.callchain.
+    ///  - With DWARF unwinding (`perf record --call-graph dwarf`), the raw
+    ///    bytes on the stack are just copied into the perf.data file, and we
+    ///    need to do the unwinding now, based on the register values in
+    ///    `e.user_regs` and the raw stack bytes in `e.user_stack`.
     fn get_sample_stack<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
         e: &SampleRecord,
         unwinder: &U,
@@ -358,9 +358,9 @@ where
             build_id = Some(&dso_info.build_id[..]);
             // Overwrite the path from the mmap record with the path from the build ID info.
             // These paths are usually the same, but in some cases the path from the build
-            // ID info can be "better". For example, sometimes the synthesized mmap event for
-            // the kernel vmlinux image usually has "[kernel.kallsyms]_text" whereas the
-            // build ID info might have the full path to a kernel debug file, e.g.
+            // ID info can be "better". For example, the synthesized mmap event for the
+            // kernel vmlinux image usually has "[kernel.kallsyms]_text" whereas the build
+            // ID info might have the full path to a kernel debug file, e.g.
             // "/usr/lib/debug/boot/vmlinux-4.16.0-1-amd64".
             path = Cow::Borrowed(&dso_info.path);
         }
@@ -818,9 +818,15 @@ where
         debug_id = debug_id_for_object(&file)?;
         code_id = file.build_id().ok().flatten().map(CodeId::from_binary);
     } else {
+        // Without access to the binary file, make some guesses. We can't really
+        // know what the right base address is because we don't have the section
+        // information which lets us map between addresses and file offsets, but
+        // often svmas and file offsets are the same, so this is a reasonable guess.
         base_avma = mapping_start_avma - mapping_start_file_offset;
+
+        // If we have a build ID, convert it to a debug_id and a code_id.
         debug_id = build_id
-            .map(|id| DebugId::from_identifier(id, true))
+            .map(|id| DebugId::from_identifier(id, true)) // TODO: endian
             .unwrap_or_default();
         code_id = build_id.map(CodeId::from_binary);
     }
