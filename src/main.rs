@@ -667,8 +667,11 @@ where
 
         // Verify build ID.
         if let Some(build_id) = build_id {
-            if let Ok(Some(file_build_id)) = file.build_id() {
-                if file_build_id != build_id {
+            match file.build_id().ok().flatten() {
+                Some(file_build_id) if build_id == file_build_id => {
+                    // Build IDs match. Good.
+                }
+                Some(file_build_id) => {
                     let file_build_id = CodeId::from_binary(file_build_id);
                     let expected_build_id = CodeId::from_binary(build_id);
                     eprintln!(
@@ -677,16 +680,16 @@ where
                     );
                     return None;
                 }
-            } else {
-                eprintln!(
-                    "File {:?} does not contain a build ID, but we expected it to have one",
-                    objpath
-                );
-                return None;
+                None => {
+                    eprintln!(
+                        "File {:?} does not contain a build ID, but we expected it to have one",
+                        objpath
+                    );
+                    return None;
+                }
             }
         }
 
-        // eprintln!("segments: {:?}", file.segments());
         let mapping_end_file_offset = mapping_start_file_offset + mapping_size;
         let mapped_segment = file.segments().find(|segment| {
             let (segment_start_file_offset, segment_size) = segment.file_range();
