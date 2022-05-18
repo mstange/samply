@@ -601,6 +601,19 @@ pub enum StackFrame {
     TruncatedStackMarker,
 }
 
+fn open_file_with_fallback(
+    path: &Path,
+    extra_dir: Option<&Path>,
+) -> std::io::Result<std::fs::File> {
+    match (std::fs::File::open(path), extra_dir, path.file_name()) {
+        (Err(_), Some(extra_dir), Some(filename)) => {
+            let p: PathBuf = [extra_dir, Path::new(filename)].iter().collect();
+            std::fs::File::open(&p)
+        }
+        (result, _, _) => result,
+    }
+}
+
 /// Tell the unwinder about this module, and alsos create a ProfileModule
 /// so that the profile can be told about this module.
 ///
@@ -625,29 +638,10 @@ where
     let objpath = Path::new(path);
     let filename = objpath.file_name().unwrap();
 
-    let file = match std::fs::File::open(objpath) {
-        Ok(file) => Some(file),
-        Err(_) => {
-            if let Some(extra_dir) = extra_binary_artifact_dir {
-                let mut p = extra_dir.to_owned();
-                p.push(filename);
-                match std::fs::File::open(&p) {
-                    Ok(file) => Some(file),
-                    Err(_) => {
-                        if !path.starts_with('[') {
-                            eprintln!("Could not open file {:?}", objpath);
-                        }
-                        None
-                    }
-                }
-            } else {
-                if !path.starts_with('[') {
-                    eprintln!("Could not open file {:?}", objpath);
-                }
-                None
-            }
-        }
-    };
+    let file = open_file_with_fallback(objpath, extra_binary_artifact_dir).ok();
+    if file.is_none() && !path.starts_with('[') {
+        eprintln!("Could not open file {:?}", objpath);
+    }
 
     let mapping_end_avma = mapping_start_avma + mapping_size;
     let avma_range = mapping_start_avma..mapping_end_avma;
