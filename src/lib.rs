@@ -597,6 +597,10 @@ impl<'h> FileAndPathHelper<'h> for Helper {
                 )));
             }
         }
+
+        // Fake "debug link" support. We hardcode a "debug link name" of
+        // `{debug_name}.debug`.
+        // It would be better to get the actual debug link name from the binary.
         paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
             PathBuf::from(format!("/usr/bin/{}.debug", &debug_name)),
         )));
