@@ -1,6 +1,6 @@
 use debugid::DebugId;
 use object::read::ReadRef;
-use object::SymbolKind;
+use object::{SectionKind, SymbolKind};
 use std::borrow::Cow;
 use std::convert::TryFrom;
 use std::fmt::Debug;
@@ -484,16 +484,21 @@ where
         );
     }
 
-    // 5. End addresses from section ends
+    // 5. End addresses from text section ends
     // These entries serve to "terminate" the last function of each section,
     // so that addresses in the following section are not considered
     // to be part of the last function of that previous section.
-    entries.extend(object_file.sections().filter_map(|section| {
-        let vma_end_address = section.address().checked_add(section.size())?;
-        let end_address = vma_end_address.checked_sub(base_address)?;
-        let end_address = u32::try_from(end_address).ok()?;
-        Some((end_address, FullSymbolListEntry::EndAddress))
-    }));
+    entries.extend(
+        object_file
+            .sections()
+            .filter(|s| s.kind() == SectionKind::Text)
+            .filter_map(|section| {
+                let vma_end_address = section.address().checked_add(section.size())?;
+                let end_address = vma_end_address.checked_sub(base_address)?;
+                let end_address = u32::try_from(end_address).ok()?;
+                Some((end_address, FullSymbolListEntry::EndAddress))
+            }),
+    );
 
     // 6. End addresses for known functions ends
     // These addresses serve to "terminate" functions from function_start_addresses.
