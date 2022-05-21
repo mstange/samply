@@ -651,7 +651,13 @@ where
     let base_avma;
 
     if let Some(file) = file {
-        let mmap = unsafe { memmap2::MmapOptions::new().map(&file).ok()? };
+        let mmap = match unsafe { memmap2::MmapOptions::new().map(&file) } {
+            Ok(mmap) => mmap,
+            Err(err) => {
+                eprintln!("Could not mmap file {}: {:?}", path, err);
+                return None;
+            }
+        };
 
         fn section_data<'a>(section: &impl ObjectSection<'a>) -> Option<Vec<u8>> {
             section.data().ok().map(|data| data.to_owned())
