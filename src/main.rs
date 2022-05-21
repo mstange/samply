@@ -18,7 +18,7 @@ use linux_perf_event_reader::records::{
     SampleRecord,
 };
 use linux_perf_event_reader::RawDataU64;
-use object::{Object, ObjectSection, ObjectSegment};
+use object::{Object, ObjectSection, ObjectSegment, SectionKind};
 use profiler_get_symbols::{debug_id_for_object, DebugIdExt};
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -614,6 +614,51 @@ fn open_file_with_fallback(
     }
 }
 
+fn compute_image_bias<'data: 'file, 'file>(
+    file: &'file impl Object<'data, 'file>,
+    mapping_start_file_offset: u64,
+    mapping_start_avma: u64,
+    mapping_size: u64,
+) -> Option<u64> {
+    let mapping_end_file_offset = mapping_start_file_offset + mapping_size;
+
+    // Find one of the text sections in this mapping, to map file offsets to SVMAs.
+    // It would make more sense to ELF LOAD commands (which object exposes as
+    // segments), this does not work for the synthetic .so files created by
+    // `perf inject --jit` - they don't have LOAD commands.
+    let (section_start_file_offset, section_start_svma) = match file
+        .sections()
+        .filter(|s| s.kind() == SectionKind::Text)
+        .find_map(|s| match s.file_range() {
+            Some((section_start_file_offset, section_size)) => {
+                let section_end_file_offset = section_start_file_offset + section_size;
+                if mapping_start_file_offset <= section_start_file_offset
+                    && section_end_file_offset <= mapping_end_file_offset
+                {
+                    Some((section_start_file_offset, s.address()))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }) {
+        Some(section_info) => section_info,
+        None => {
+            println!(
+                "Could not find section covering file offset range 0x{:x}..0x{:x}",
+                mapping_start_file_offset, mapping_end_file_offset
+            );
+            return None;
+        }
+    };
+
+    let section_start_avma =
+        mapping_start_avma + (section_start_file_offset - mapping_start_file_offset);
+
+    // Compute the offset between AVMAs and SVMAs. This is the bias of the image.
+    Some(section_start_avma - section_start_svma)
+}
+
 /// Tell the unwinder about this module, and alsos create a ProfileModule
 /// so that the profile can be told about this module.
 ///
@@ -696,23 +741,15 @@ where
             }
         }
 
-        let mapping_end_file_offset = mapping_start_file_offset + mapping_size;
-        let mapped_segment = file.segments().find(|segment| {
-            let (segment_start_file_offset, segment_size) = segment.file_range();
-            let segment_end_file_offset = segment_start_file_offset + segment_size;
-            mapping_start_file_offset <= segment_start_file_offset
-                && segment_end_file_offset <= mapping_end_file_offset
-        })?;
-
-        let (segment_start_file_offset, _segment_size) = mapped_segment.file_range();
-        let segment_start_svma = mapped_segment.address();
-        let segment_start_avma =
-            mapping_start_avma + (segment_start_file_offset - mapping_start_file_offset);
-
         // Compute the AVMA that maps to SVMA zero. This is also called the "bias" of the
         // image. On ELF it is also the image load address.
         let base_svma = 0;
-        base_avma = segment_start_avma - segment_start_svma;
+        base_avma = compute_image_bias(
+            &file,
+            mapping_start_file_offset,
+            mapping_start_avma,
+            mapping_size,
+        )?;
 
         let text = file.section_by_name(".text");
         let text_env = file.section_by_name("text_env");
