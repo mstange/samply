@@ -10,9 +10,9 @@ use debugid::DebugId;
 use pdb::PDB;
 use pdb_addr2line::pdb;
 use regex::Regex;
-use uuid::Uuid;
 use std::borrow::Cow;
 use std::collections::HashMap;
+use uuid::Uuid;
 
 pub async fn get_symbolication_result_via_binary<'h, R>(
     file_kind: object::FileKind,
