@@ -623,9 +623,9 @@ fn compute_image_bias<'data: 'file, 'file>(
     let mapping_end_file_offset = mapping_start_file_offset + mapping_size;
 
     // Find one of the text sections in this mapping, to map file offsets to SVMAs.
-    // It would make more sense to ELF LOAD commands (which object exposes as
-    // segments), this does not work for the synthetic .so files created by
-    // `perf inject --jit` - they don't have LOAD commands.
+    // It would make more sense look for to ELF LOAD commands (which the `object`
+    // crate exposes as segments), but this does not work for the synthetic .so files
+    // created by `perf inject --jit` - those don't have LOAD commands.
     let (section_start_file_offset, section_start_svma) = match file
         .sections()
         .filter(|s| s.kind() == SectionKind::Text)
