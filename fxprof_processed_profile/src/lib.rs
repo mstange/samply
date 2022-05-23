@@ -264,7 +264,6 @@ impl Profile {
         self.processes[process.0].name = name.to_string();
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn add_lib(&mut self, process: ProcessHandle, library: LibraryInfo) {
         self.processes[process.0].add_lib(library);
     }
