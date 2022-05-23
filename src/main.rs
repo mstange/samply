@@ -122,7 +122,7 @@ where
     let little_endian = file.endian() == linux_perf_data::Endianness::LittleEndian;
     let host = file.hostname().unwrap().unwrap_or("<unknown host>");
     let perf_version = file.perf_version().unwrap().unwrap_or("<unknown host>");
-    let linux_version = file.perf_version().unwrap();
+    let linux_version = file.os_release().unwrap();
 
     let product = "Converted perf profile";
     let mut converter = Converter::<U>::new(
