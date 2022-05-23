@@ -362,60 +362,25 @@ impl Profile {
         thread: ThreadHandle,
         frames: impl Iterator<Item = Frame>,
     ) -> Option<usize> {
-        let process = self.threads[thread.0].process;
+        let thread = &mut self.threads[thread.0];
+        let process = &mut self.processes[thread.process.0];
         let mut prefix = None;
         for frame in frames {
             let internal_frame = match frame {
-                Frame::InstructionPointer(ip) => self.convert_address(process, ip),
-                Frame::ReturnAddress(ra) => self.convert_address(process, ra.saturating_sub(1)),
+                Frame::InstructionPointer(ip) => process.convert_address(&mut self.libs, ip),
+                Frame::ReturnAddress(ra) => {
+                    process.convert_address(&mut self.libs, ra.saturating_sub(1))
+                }
                 Frame::Label(string_index) => {
-                    let thread_string_index = self.convert_string_index(thread, string_index.0);
+                    let thread_string_index =
+                        thread.convert_string_index(&self.string_table, string_index.0);
                     InternalFrame::Label(thread_string_index)
                 }
             };
-            let frame_index = self.frame_index_for_frame(thread, internal_frame);
-            prefix = Some(
-                self.threads[thread.0]
-                    .stack_table
-                    .index_for_stack(prefix, frame_index),
-            );
+            let frame_index = thread.frame_index_for_frame(internal_frame, &self.libs);
+            prefix = Some(thread.stack_table.index_for_stack(prefix, frame_index));
         }
         prefix
-    }
-
-    fn convert_address(&mut self, process: ProcessHandle, address: u64) -> InternalFrame {
-        let ranges = &self.processes[process.0].sorted_lib_ranges[..];
-        let index = match ranges.binary_search_by_key(&address, |r| r.start) {
-            Err(0) => return InternalFrame::UnknownAddress(address),
-            Ok(exact_match) => exact_match,
-            Err(insertion_index) => {
-                let range_index = insertion_index - 1;
-                if address < ranges[range_index].end {
-                    range_index
-                } else {
-                    return InternalFrame::UnknownAddress(address);
-                }
-            }
-        };
-        let range = &ranges[index];
-        let process_lib = range.lib_index;
-        let relative_address = (address - range.base) as u32;
-        let lib_index = self.processes[process.0].convert_lib_index(process_lib, &mut self.libs);
-        InternalFrame::AddressInLib(relative_address, lib_index)
-    }
-
-    fn convert_string_index(
-        &mut self,
-        thread: ThreadHandle,
-        index: GlobalStringIndex,
-    ) -> ThreadInternalStringIndex {
-        self.threads[thread.0]
-            .string_table
-            .index_for_global_string(index, &self.string_table)
-    }
-
-    fn frame_index_for_frame(&mut self, thread: ThreadHandle, frame: InternalFrame) -> usize {
-        self.threads[thread.0].frame_index_for_frame(frame, &self.libs)
     }
 }
 
@@ -573,6 +538,31 @@ struct Process {
 }
 
 impl Process {
+    pub fn convert_address(
+        &mut self,
+        global_libs: &mut GlobalLibTable,
+        address: u64,
+    ) -> InternalFrame {
+        let ranges = &self.sorted_lib_ranges[..];
+        let index = match ranges.binary_search_by_key(&address, |r| r.start) {
+            Err(0) => return InternalFrame::UnknownAddress(address),
+            Ok(exact_match) => exact_match,
+            Err(insertion_index) => {
+                let range_index = insertion_index - 1;
+                if address < ranges[range_index].end {
+                    range_index
+                } else {
+                    return InternalFrame::UnknownAddress(address);
+                }
+            }
+        };
+        let range = &ranges[index];
+        let process_lib = range.lib_index;
+        let relative_address = (address - range.base) as u32;
+        let lib_index = self.convert_lib_index(process_lib, global_libs);
+        InternalFrame::AddressInLib(relative_address, lib_index)
+    }
+
     pub fn convert_lib_index(
         &mut self,
         process_lib: ProcessLibIndex,
@@ -654,6 +644,15 @@ struct Thread {
 }
 
 impl Thread {
+    fn convert_string_index(
+        &mut self,
+        global_table: &GlobalStringTable,
+        index: GlobalStringIndex,
+    ) -> ThreadInternalStringIndex {
+        self.string_table
+            .index_for_global_string(index, global_table)
+    }
+
     fn frame_index_for_frame(
         &mut self,
         frame: InternalFrame,
