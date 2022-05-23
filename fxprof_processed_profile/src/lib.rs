@@ -23,8 +23,9 @@ pub struct Profile {
     product: String,
     interval: Duration,
     libs: GlobalLibTable,
-    processes: Vec<Process>, // append-only for stable ProcessHandles
-    threads: Vec<Thread>,    // append-only for stable ThreadHandles
+    categories: Vec<Category>, // append-only for stable CategoryHandles
+    processes: Vec<Process>,   // append-only for stable ProcessHandles
+    threads: Vec<Thread>,      // append-only for stable ThreadHandles
     reference_timestamp: ReferenceTimestamp,
     string_table: GlobalStringTable,
     marker_schemas: FastHashMap<&'static str, MarkerSchema>,
@@ -201,6 +202,26 @@ struct ThreadInternalStringIndex(StringIndex);
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 struct StringIndex(u32);
 
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
+pub struct CategoryHandle(u16);
+
+impl CategoryHandle {
+    /// The "Other" category. All profiles have this category.
+    pub const OTHER: Self = CategoryHandle(0);
+}
+
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
+struct SubcategoryIndex(u8);
+
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
+pub struct CategoryPairHandle(CategoryHandle, Option<SubcategoryIndex>);
+
+impl From<CategoryHandle> for CategoryPairHandle {
+    fn from(category: CategoryHandle) -> Self {
+        CategoryPairHandle(category, None)
+    }
+}
+
 #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq)]
 pub enum Frame {
     /// A code address taken from the instruction pointer
@@ -209,6 +230,23 @@ pub enum Frame {
     ReturnAddress(u64),
     /// A string, containing an index returned by Profile::intern_string
     Label(StringHandle),
+}
+
+#[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq)]
+pub enum CategoryColor {
+    Transparent,
+    Purple,
+    Green,
+    Orange,
+    Yellow,
+    LightBlue,
+    Grey,
+    Blue,
+    Brown,
+    LightGreen,
+    Red,
+    LightRed,
+    DarkGray,
 }
 
 impl Profile {
@@ -222,6 +260,11 @@ impl Profile {
             processes: Vec::new(),
             string_table: GlobalStringTable::new(),
             marker_schemas: FastHashMap::default(),
+            categories: vec![Category {
+                name: "Other".to_string(),
+                color: CategoryColor::Grey,
+                subcategories: Vec::new(),
+            }],
         }
     }
 
@@ -235,6 +278,24 @@ impl Profile {
 
     pub fn set_product(&mut self, product: &str) {
         self.product = product.to_string();
+    }
+
+    pub fn add_category(&mut self, name: &str, color: CategoryColor) -> CategoryHandle {
+        let handle = CategoryHandle(self.categories.len() as u16);
+        self.categories.push(Category {
+            name: name.to_string(),
+            color,
+            subcategories: Vec::new(),
+        });
+        handle
+    }
+
+    pub fn add_subcategory(&mut self, category: CategoryHandle, name: &str) -> CategoryPairHandle {
+        let subcategories = &mut self.categories[category.0 as usize].subcategories;
+        use std::convert::TryFrom;
+        let subcategory_index = SubcategoryIndex(u8::try_from(subcategories.len()).unwrap());
+        subcategories.push(name.to_string());
+        CategoryPairHandle(category, Some(subcategory_index))
     }
 
     pub fn add_process(&mut self, name: &str, pid: u32, start_time: Timestamp) -> ProcessHandle {
@@ -320,7 +381,7 @@ impl Profile {
         &mut self,
         thread: ThreadHandle,
         timestamp: Timestamp,
-        frames: impl Iterator<Item = Frame>,
+        frames: impl Iterator<Item = (Frame, CategoryPairHandle)>,
         cpu_delta: CpuDelta,
         weight: i32,
     ) {
@@ -360,13 +421,13 @@ impl Profile {
     fn stack_index_for_frames(
         &mut self,
         thread: ThreadHandle,
-        frames: impl Iterator<Item = Frame>,
+        frames: impl Iterator<Item = (Frame, CategoryPairHandle)>,
     ) -> Option<usize> {
         let thread = &mut self.threads[thread.0];
         let process = &mut self.processes[thread.process.0];
         let mut prefix = None;
-        for frame in frames {
-            let internal_frame = match frame {
+        for (frame, category_pair) in frames {
+            let location = match frame {
                 Frame::InstructionPointer(ip) => process.convert_address(&mut self.libs, ip),
                 Frame::ReturnAddress(ra) => {
                     process.convert_address(&mut self.libs, ra.saturating_sub(1))
@@ -374,11 +435,19 @@ impl Profile {
                 Frame::Label(string_index) => {
                     let thread_string_index =
                         thread.convert_string_index(&self.string_table, string_index.0);
-                    InternalFrame::Label(thread_string_index)
+                    InternalFrameLocation::Label(thread_string_index)
                 }
             };
+            let internal_frame = InternalFrame {
+                location,
+                category_pair,
+            };
             let frame_index = thread.frame_index_for_frame(internal_frame, &self.libs);
-            prefix = Some(thread.stack_table.index_for_stack(prefix, frame_index));
+            prefix = Some(
+                thread
+                    .stack_table
+                    .index_for_stack(prefix, frame_index, category_pair),
+            );
         }
         prefix
     }
@@ -386,53 +455,89 @@ impl Profile {
 
 impl Serialize for Profile {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut marker_schemas: Vec<MarkerSchema> = self.marker_schemas.values().cloned().collect();
-        marker_schemas.sort_by_key(|schema| schema.type_name);
-
-        let meta = json!({
-            "categories": [
-                {
-                    "name": "Regular",
-                    "color": "blue",
-                    "subcategories": ["Other"],
-                },
-                {
-                    "name": "Other",
-                    "color": "grey",
-                    "subcategories": ["Other"],
-                }
-            ],
-            "debug": false,
-            "extensions": {
-                "length": 0,
-                "baseURL": [],
-                "id": [],
-                "name": [],
-            },
-            "interval": self.interval.as_secs_f64() * 1000.0,
-            "markerSchema": marker_schemas,
-            "preprocessedProfileVersion": 41,
-            "processType": 0,
-            "product": self.product,
-            "sampleUnits": {
-                "time": "ms",
-                "eventDelay": "ms",
-                "threadCPUDelta": "µs"
-            },
-            "startTime": self.reference_timestamp,
-            "symbolicated": false,
-            "pausedRanges": [],
-            "version": 24,
-        });
-
         let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("meta", &meta)?;
+        map.serialize_entry("meta", &SerializableProfileMeta(self))?;
         map.serialize_entry("libs", &self.libs)?;
         map.serialize_entry("threads", &SerializableProfileThreadsProperty(self))?;
         map.serialize_entry("pages", &[] as &[()])?;
         map.serialize_entry("profilerOverhead", &[] as &[()])?;
         map.serialize_entry("counters", &[] as &[()])?;
         map.end()
+    }
+}
+
+struct SerializableProfileMeta<'a>(&'a Profile);
+
+impl<'a> Serialize for SerializableProfileMeta<'a> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("categories", &self.0.categories)?;
+        map.serialize_entry("debug", &false)?;
+        map.serialize_entry(
+            "extensions",
+            &json!({
+                "length": 0,
+                "baseURL": [],
+                "id": [],
+                "name": [],
+            }),
+        )?;
+        map.serialize_entry("interval", &(self.0.interval.as_secs_f64() * 1000.0))?;
+        map.serialize_entry("preprocessedProfileVersion", &41)?;
+        map.serialize_entry("processType", &0)?;
+        map.serialize_entry("product", &self.0.product)?;
+        map.serialize_entry(
+            "sampleUnits",
+            &json!({
+                "time": "ms",
+                "eventDelay": "ms",
+                "threadCPUDelta": "µs",
+            }),
+        )?;
+        map.serialize_entry("startTime", &self.0.reference_timestamp)?;
+        map.serialize_entry("symbolicated", &false)?;
+        map.serialize_entry("pausedRanges", &[] as &[()])?;
+        map.serialize_entry("version", &24)?;
+
+        let mut marker_schemas: Vec<MarkerSchema> =
+            self.0.marker_schemas.values().cloned().collect();
+        marker_schemas.sort_by_key(|schema| schema.type_name);
+        map.serialize_entry("markerSchema", &marker_schemas)?;
+
+        map.end()
+    }
+}
+
+impl Serialize for Category {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut subcategories = self.subcategories.clone();
+        subcategories.push("Other".to_string());
+
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("name", &self.name)?;
+        map.serialize_entry("color", &self.color)?;
+        map.serialize_entry("subcategories", &subcategories)?;
+        map.end()
+    }
+}
+
+impl Serialize for CategoryColor {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            CategoryColor::Transparent => "transparent".serialize(serializer),
+            CategoryColor::Purple => "purple".serialize(serializer),
+            CategoryColor::Green => "green".serialize(serializer),
+            CategoryColor::Orange => "orange".serialize(serializer),
+            CategoryColor::Yellow => "yellow".serialize(serializer),
+            CategoryColor::LightBlue => "lightblue".serialize(serializer),
+            CategoryColor::Grey => "grey".serialize(serializer),
+            CategoryColor::Blue => "blue".serialize(serializer),
+            CategoryColor::Brown => "brown".serialize(serializer),
+            CategoryColor::LightGreen => "lightgreen".serialize(serializer),
+            CategoryColor::Red => "red".serialize(serializer),
+            CategoryColor::LightRed => "lightred".serialize(serializer),
+            CategoryColor::DarkGray => "darkgray".serialize(serializer),
+        }
     }
 }
 
@@ -485,7 +590,13 @@ impl<'a> Serialize for SerializableProfileThreadsProperty<'a> {
 }
 
 #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
-enum InternalFrame {
+struct InternalFrame {
+    location: InternalFrameLocation,
+    category_pair: CategoryPairHandle,
+}
+
+#[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
+enum InternalFrameLocation {
     UnknownAddress(u64),
     AddressInLib(u32, GlobalLibIndex),
     Label(ThreadInternalStringIndex),
@@ -526,6 +637,13 @@ impl Serialize for GlobalLibTable {
 }
 
 #[derive(Debug)]
+struct Category {
+    name: String,
+    color: CategoryColor,
+    subcategories: Vec<String>,
+}
+
+#[derive(Debug)]
 struct Process {
     pid: u32,
     name: String,
@@ -542,17 +660,17 @@ impl Process {
         &mut self,
         global_libs: &mut GlobalLibTable,
         address: u64,
-    ) -> InternalFrame {
+    ) -> InternalFrameLocation {
         let ranges = &self.sorted_lib_ranges[..];
         let index = match ranges.binary_search_by_key(&address, |r| r.start) {
-            Err(0) => return InternalFrame::UnknownAddress(address),
+            Err(0) => return InternalFrameLocation::UnknownAddress(address),
             Ok(exact_match) => exact_match,
             Err(insertion_index) => {
                 let range_index = insertion_index - 1;
                 if address < ranges[range_index].end {
                     range_index
                 } else {
-                    return InternalFrame::UnknownAddress(address);
+                    return InternalFrameLocation::UnknownAddress(address);
                 }
             }
         };
@@ -560,7 +678,7 @@ impl Process {
         let process_lib = range.lib_index;
         let relative_address = (address - range.base) as u32;
         let lib_index = self.convert_lib_index(process_lib, global_libs);
-        InternalFrame::AddressInLib(relative_address, lib_index)
+        InternalFrameLocation::AddressInLib(relative_address, lib_index)
     }
 
     pub fn convert_lib_index(
@@ -747,7 +865,9 @@ impl<'a> Serialize for SerializableProfileThread<'a> {
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry(
             "frameTable",
-            &thread.frame_table_and_func_table.as_frame_table(),
+            &thread
+                .frame_table_and_func_table
+                .as_frame_table(&self.0.categories),
         )?;
         map.serialize_entry(
             "funcTable",
@@ -765,7 +885,13 @@ impl<'a> Serialize for SerializableProfileThread<'a> {
         map.serialize_entry("registerTime", &thread_register_time)?;
         map.serialize_entry("resourceTable", &thread.resources)?;
         map.serialize_entry("samples", &thread.samples)?;
-        map.serialize_entry("stackTable", &thread.stack_table)?;
+        map.serialize_entry(
+            "stackTable",
+            &SerializableStackTable {
+                table: &thread.stack_table,
+                categories: &self.0.categories,
+            },
+        )?;
         map.serialize_entry("stringArray", &thread.string_table)?;
         map.serialize_entry("tid", &thread.tid)?;
         map.serialize_entry("unregisterTime", &thread_unregister_time)?;
@@ -804,6 +930,8 @@ impl<'a> Serialize for Lib {
 struct StackTable {
     stack_prefixes: Vec<Option<usize>>,
     stack_frames: Vec<usize>,
+    stack_categories: Vec<CategoryHandle>,
+    stack_subcategories: Vec<Subcategory>,
 
     // (parent stack, frame_index) -> stack index
     index: FastHashMap<(Option<usize>, usize), usize>,
@@ -814,13 +942,26 @@ impl StackTable {
         Default::default()
     }
 
-    pub fn index_for_stack(&mut self, prefix: Option<usize>, frame: usize) -> usize {
+    pub fn index_for_stack(
+        &mut self,
+        prefix: Option<usize>,
+        frame: usize,
+        category_pair: CategoryPairHandle,
+    ) -> usize {
         match self.index.get(&(prefix, frame)) {
             Some(stack) => *stack,
             None => {
+                let CategoryPairHandle(category, subcategory_index) = category_pair;
+                let subcategory = match subcategory_index {
+                    Some(index) => Subcategory::Normal(index),
+                    None => Subcategory::Other(category),
+                };
+
                 let stack = self.stack_prefixes.len();
                 self.stack_prefixes.push(prefix);
                 self.stack_frames.push(frame);
+                self.stack_categories.push(category);
+                self.stack_subcategories.push(subcategory);
                 self.index.insert((prefix, frame), stack);
                 stack
             }
@@ -828,15 +969,23 @@ impl StackTable {
     }
 }
 
-impl Serialize for StackTable {
+struct SerializableStackTable<'a> {
+    table: &'a StackTable,
+    categories: &'a [Category],
+}
+
+impl<'a> Serialize for SerializableStackTable<'a> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let len = self.stack_prefixes.len();
+        let len = self.table.stack_prefixes.len();
         let mut map = serializer.serialize_map(Some(3))?;
         map.serialize_entry("length", &len)?;
-        map.serialize_entry("prefix", &self.stack_prefixes)?;
-        map.serialize_entry("frame", &self.stack_frames)?;
-        map.serialize_entry("category", &SerializableSingleValueColumn(0, len))?;
-        map.serialize_entry("subcategory", &SerializableSingleValueColumn(0, len))?;
+        map.serialize_entry("prefix", &self.table.stack_prefixes)?;
+        map.serialize_entry("frame", &self.table.stack_frames)?;
+        map.serialize_entry("category", &self.table.stack_categories)?;
+        map.serialize_entry(
+            "subcategory",
+            &SerializableSubcategoryColumn(&self.table.stack_subcategories, self.categories),
+        )?;
         map.end()
     }
 }
@@ -845,6 +994,8 @@ impl Serialize for StackTable {
 struct FrameTableAndFuncTable {
     // We create one func for every frame.
     frame_addresses: Vec<Option<u32>>,
+    categories: Vec<CategoryHandle>,
+    subcategories: Vec<Subcategory>,
     func_names: Vec<ThreadInternalStringIndex>,
     func_resources: Vec<Option<ResourceIndex>>,
 
@@ -865,33 +1016,45 @@ impl FrameTableAndFuncTable {
         frame: InternalFrame,
     ) -> usize {
         let frame_addresses = &mut self.frame_addresses;
+        let categories = &mut self.categories;
+        let subcategories = &mut self.subcategories;
         let func_names = &mut self.func_names;
         let func_resources = &mut self.func_resources;
         *self.index.entry(frame.clone()).or_insert_with(|| {
             let frame_index = frame_addresses.len();
-            let (address, location_string_index, resource) = match frame {
-                InternalFrame::UnknownAddress(address) => {
+            let (address, location_string_index, resource) = match frame.location {
+                InternalFrameLocation::UnknownAddress(address) => {
                     let location_string = format!("0x{:x}", address);
                     let s = string_table.index_for_string(&location_string);
                     (None, s, None)
                 }
-                InternalFrame::AddressInLib(address, lib_index) => {
+                InternalFrameLocation::AddressInLib(address, lib_index) => {
                     let location_string = format!("0x{:x}", address);
                     let s = string_table.index_for_string(&location_string);
                     let res = resource_table.resource_for_lib(lib_index, global_libs, string_table);
                     (Some(address), s, Some(res))
                 }
-                InternalFrame::Label(string_index) => (None, string_index, None),
+                InternalFrameLocation::Label(string_index) => (None, string_index, None),
+            };
+            let CategoryPairHandle(category, subcategory_index) = frame.category_pair;
+            let subcategory = match subcategory_index {
+                Some(index) => Subcategory::Normal(index),
+                None => Subcategory::Other(category),
             };
             frame_addresses.push(address);
+            categories.push(category);
+            subcategories.push(subcategory);
             func_names.push(location_string_index);
             func_resources.push(resource);
             frame_index
         })
     }
 
-    pub fn as_frame_table(&self) -> SerializableFrameTable<'_> {
-        SerializableFrameTable(self)
+    pub fn as_frame_table<'a>(&'a self, categories: &'a [Category]) -> SerializableFrameTable<'a> {
+        SerializableFrameTable {
+            table: self,
+            categories,
+        }
     }
 
     pub fn as_func_table(&self) -> SerializableFuncTable<'_> {
@@ -899,17 +1062,23 @@ impl FrameTableAndFuncTable {
     }
 }
 
-struct SerializableFrameTable<'a>(&'a FrameTableAndFuncTable);
+struct SerializableFrameTable<'a> {
+    table: &'a FrameTableAndFuncTable,
+    categories: &'a [Category],
+}
 
 impl<'a> Serialize for SerializableFrameTable<'a> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let len = self.0.frame_addresses.len();
+        let len = self.table.frame_addresses.len();
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry("length", &len)?;
-        map.serialize_entry("address", &SerializableFrameTableAddressColumn(self.0))?;
-        map.serialize_entry("inlineDepth", &SerializableSingleValueColumn(0, len))?;
-        map.serialize_entry("category", &SerializableSingleValueColumn(0, len))?;
-        map.serialize_entry("subcategory", &SerializableSingleValueColumn(0, len))?;
+        map.serialize_entry("address", &SerializableFrameTableAddressColumn(self.table))?;
+        map.serialize_entry("inlineDepth", &SerializableSingleValueColumn(0u32, len))?;
+        map.serialize_entry("category", &self.table.categories)?;
+        map.serialize_entry(
+            "subcategory",
+            &SerializableSubcategoryColumn(&self.table.subcategories, self.categories),
+        )?;
         map.serialize_entry("func", &SerializableRange(len))?;
         map.serialize_entry("nativeSymbol", &SerializableSingleValueColumn((), len))?;
         map.serialize_entry("innerWindowID", &SerializableSingleValueColumn((), len))?;
@@ -918,6 +1087,38 @@ impl<'a> Serialize for SerializableFrameTable<'a> {
         map.serialize_entry("column", &SerializableSingleValueColumn((), len))?;
         map.serialize_entry("optimizations", &SerializableSingleValueColumn((), len))?;
         map.end()
+    }
+}
+
+impl Serialize for CategoryHandle {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.0.serialize(serializer)
+    }
+}
+
+#[derive(Debug, Clone)]
+enum Subcategory {
+    Normal(SubcategoryIndex),
+    Other(CategoryHandle),
+}
+
+struct SerializableSubcategoryColumn<'a>(&'a [Subcategory], &'a [Category]);
+
+impl<'a> Serialize for SerializableSubcategoryColumn<'a> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
+        for subcategory in self.0 {
+            match subcategory {
+                Subcategory::Normal(index) => seq.serialize_element(&index.0)?,
+                Subcategory::Other(category) => {
+                    // There is an implicit "Other" subcategory at the end of each category's
+                    // subcategory list.
+                    let subcategory_count = self.1[category.0 as usize].subcategories.len();
+                    seq.serialize_element(&subcategory_count)?
+                }
+            }
+        }
+        seq.end()
     }
 }
 
@@ -1257,9 +1458,9 @@ mod test {
     use std::{str::FromStr, time::Duration};
 
     use crate::{
-        CpuDelta, Frame, LibraryInfo, MarkerDynamicField, MarkerFieldFormat, MarkerLocation,
-        MarkerSchema, MarkerSchemaField, MarkerStaticField, MarkerTiming, Profile, ProfilerMarker,
-        ReferenceTimestamp, TextMarker, Timestamp,
+        CategoryColor, CpuDelta, Frame, LibraryInfo, MarkerDynamicField, MarkerFieldFormat,
+        MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerStaticField, MarkerTiming, Profile,
+        ProfilerMarker, ReferenceTimestamp, TextMarker, Timestamp,
     };
 
     #[test]
@@ -1376,6 +1577,7 @@ mod test {
                 avma_range: 0x000055ba9ebf6000..0x000055ba9f07e000,
             },
         );
+        let category = profile.add_category("Regular", CategoryColor::Blue);
         profile.add_sample(
             thread,
             Timestamp::from_millis_since_reference(1.0),
@@ -1397,7 +1599,8 @@ mod test {
                 } else {
                     Frame::ReturnAddress(addr)
                 }
-            }),
+            })
+            .map(|frame| (frame, category.into())),
             CpuDelta::ZERO,
             1,
         );
@@ -1422,7 +1625,8 @@ mod test {
                 } else {
                     Frame::ReturnAddress(addr)
                 }
-            }),
+            })
+            .map(|frame| (frame, category.into())),
             CpuDelta::ZERO,
             1,
         );
@@ -1447,7 +1651,8 @@ mod test {
                 } else {
                     Frame::ReturnAddress(addr)
                 }
-            }),
+            })
+            .map(|frame| (frame, category.into())),
             CpuDelta::ZERO,
             1,
         );
@@ -1471,8 +1676,7 @@ mod test {
                 Timestamp::from_millis_since_reference(2.0),
             ),
         );
-        // eprintln!("{:#?}", profile);
-        eprintln!("{}", serde_json::to_string_pretty(&profile).unwrap());
+        // eprintln!("{}", serde_json::to_string_pretty(&profile).unwrap());
         assert_json_eq!(
             profile,
             json!(
@@ -1480,15 +1684,15 @@ mod test {
                     "meta": {
                       "categories": [
                         {
-                          "color": "blue",
-                          "name": "Regular",
+                          "color": "grey",
+                          "name": "Other",
                           "subcategories": [
                             "Other"
                           ]
                         },
                         {
-                          "color": "grey",
-                          "name": "Other",
+                          "color": "blue",
+                          "name": "Regular",
                           "subcategories": [
                             "Other"
                           ]
@@ -1628,22 +1832,22 @@ mod test {
                             0
                           ],
                           "category": [
-                            0,
-                            0,
-                            0,
-                            0,
-                            0,
-                            0,
-                            0,
-                            0,
-                            0,
-                            0,
-                            0,
-                            0,
-                            0,
-                            0,
-                            0,
-                            0
+                            1,
+                            1,
+                            1,
+                            1,
+                            1,
+                            1,
+                            1,
+                            1,
+                            1,
+                            1,
+                            1,
+                            1,
+                            1,
+                            1,
+                            1,
+                            1
                           ],
                           "subcategory": [
                             0,
