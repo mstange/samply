@@ -4,10 +4,14 @@ use framehop::aarch64::UnwindRegsAarch64;
 use framehop::x86_64::UnwindRegsX86_64;
 use framehop::{FrameAddress, Module, ModuleSvmaInfo, ModuleUnwindData, TextByteData, Unwinder};
 use fxprof_processed_profile::{
-    CpuDelta, Frame, LibraryInfo, ProcessHandle, Profile, ReferenceTimestamp, ThreadHandle,
-    Timestamp,
+    CategoryColor, CategoryPairHandle, CpuDelta, Frame, LibraryInfo, ProcessHandle, Profile,
+    ReferenceTimestamp, ThreadHandle, Timestamp,
 };
-use linux_perf_data::linux_perf_event_reader;
+use linux_perf_data::linux_perf_event_reader::consts::{
+    PERF_CONTEXT_GUEST, PERF_CONTEXT_GUEST_KERNEL, PERF_CONTEXT_GUEST_USER, PERF_CONTEXT_KERNEL,
+    PERF_CONTEXT_USER,
+};
+use linux_perf_data::linux_perf_event_reader::{self, CpuMode};
 use linux_perf_data::{DsoBuildId, DsoKey, PerfFileReader, SampleTimeRange};
 use linux_perf_event_reader::consts::{
     PERF_CONTEXT_MAX, PERF_REG_ARM64_LR, PERF_REG_ARM64_PC, PERF_REG_ARM64_SP, PERF_REG_ARM64_X29,
@@ -138,7 +142,11 @@ where
     );
 
     while let Ok(Some(record)) = file.next_record() {
-        match record {
+        let parsed_record = match record.parse() {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        match parsed_record {
             ParsedRecord::Sample(e) => {
                 converter.handle_sample::<C>(e);
             }
@@ -146,7 +154,7 @@ where
                 converter.handle_thread_start(e);
             }
             ParsedRecord::Comm(e) => {
-                converter.handle_thread_name_update(e);
+                converter.handle_thread_name_update(e, record.timestamp());
             }
             ParsedRecord::Exit(e) => {
                 converter.handle_thread_end(e);
@@ -172,6 +180,8 @@ where
     profile: Profile,
     processes: Processes<U>,
     threads: Threads,
+    user_category: CategoryPairHandle,
+    kernel_category: CategoryPairHandle,
     kernel_modules: Vec<LibraryInfo>,
     first_sample_time: u64,
     current_sample_time: u64,
@@ -200,15 +210,20 @@ where
         cache: U::Cache,
         extra_binary_artifact_dir: Option<&Path>,
     ) -> Self {
+        let mut profile = Profile::new(
+            product,
+            ReferenceTimestamp::from_system_time(SystemTime::now()),
+            Duration::from_millis(1),
+        );
+        let user_category = profile.add_category("User", CategoryColor::Yellow).into();
+        let kernel_category = profile.add_category("Kernel", CategoryColor::Orange).into();
         Self {
-            profile: Profile::new(
-                product,
-                ReferenceTimestamp::from_system_time(SystemTime::now()),
-                Duration::from_millis(1),
-            ),
+            profile,
             cache,
             processes: Processes(HashMap::new()),
             threads: Threads(HashMap::new()),
+            user_category,
+            kernel_category,
             kernel_modules: Vec::new(),
             first_sample_time,
             current_sample_time: first_sample_time,
@@ -252,10 +267,19 @@ where
             self.threads
                 .get_by_tid(tid, process.profile_process, is_main, &mut self.profile);
         let timestamp = self.convert_time(timestamp);
-        let frames = stack.into_iter().rev().filter_map(|frame| match frame {
-            StackFrame::InstructionPointer(addr) => Some(Frame::InstructionPointer(addr)),
-            StackFrame::ReturnAddress(addr) => Some(Frame::ReturnAddress(addr)),
-            StackFrame::TruncatedStackMarker => None,
+        let frames = stack.into_iter().rev().filter_map(|frame| {
+            let (location, mode) = match frame {
+                StackFrame::InstructionPointer(addr, mode) => {
+                    (Frame::InstructionPointer(addr), mode)
+                }
+                StackFrame::ReturnAddress(addr, mode) => (Frame::ReturnAddress(addr), mode),
+                StackFrame::TruncatedStackMarker => return None,
+            };
+            let category = match mode {
+                StackMode::User => self.user_category,
+                StackMode::Kernel => self.kernel_category,
+            };
+            Some((location, category))
         });
         self.profile
             .add_sample(thread, timestamp, frames, cpu_delta, 1);
@@ -286,19 +310,35 @@ where
     ) {
         stack.truncate(0);
 
+        // CpuMode::from_misc(e.raw.misc)
+
         // Get the first fragment of the stack from e.callchain.
         if let Some(callchain) = e.callchain {
             let mut is_first_frame = true;
+            let mut mode = match e.cpu_mode {
+                CpuMode::User | CpuMode::GuestUser | CpuMode::Hypervisor | CpuMode::Unknown => {
+                    StackMode::User
+                }
+                CpuMode::Kernel | CpuMode::GuestKernel => StackMode::Kernel,
+            };
             for i in 0..callchain.len() {
                 let address = callchain.get(i).unwrap();
                 if address >= PERF_CONTEXT_MAX {
-                    // Ignore synthetic addresses like 0xffffffffffffff80.
+                    match address {
+                        PERF_CONTEXT_KERNEL | PERF_CONTEXT_GUEST_KERNEL => {
+                            mode = StackMode::Kernel;
+                        }
+                        PERF_CONTEXT_USER | PERF_CONTEXT_GUEST | PERF_CONTEXT_GUEST_USER => {
+                            mode = StackMode::User;
+                        }
+                        _ => {}
+                    }
                     continue;
                 }
 
                 let stack_frame = match is_first_frame {
-                    true => StackFrame::InstructionPointer(address),
-                    false => StackFrame::ReturnAddress(address),
+                    true => StackFrame::InstructionPointer(address, mode),
+                    false => StackFrame::ReturnAddress(address, mode),
                 };
                 stack.push(stack_frame);
 
@@ -329,8 +369,12 @@ where
                     }
                 };
                 let stack_frame = match frame {
-                    FrameAddress::InstructionPointer(addr) => StackFrame::InstructionPointer(addr),
-                    FrameAddress::ReturnAddress(addr) => StackFrame::ReturnAddress(addr.into()),
+                    FrameAddress::InstructionPointer(addr) => {
+                        StackFrame::InstructionPointer(addr, StackMode::User)
+                    }
+                    FrameAddress::ReturnAddress(addr) => {
+                        StackFrame::ReturnAddress(addr.into(), StackMode::User)
+                    }
                 };
                 stack.push(stack_frame);
             }
@@ -338,7 +382,16 @@ where
 
         if stack.is_empty() {
             if let Some(ip) = e.ip {
-                stack.push(StackFrame::InstructionPointer(ip));
+                stack.push(StackFrame::InstructionPointer(
+                    ip,
+                    match e.cpu_mode {
+                        CpuMode::User
+                        | CpuMode::GuestUser
+                        | CpuMode::Hypervisor
+                        | CpuMode::Unknown => StackMode::User,
+                        CpuMode::Kernel | CpuMode::GuestKernel => StackMode::Kernel,
+                    },
+                ));
             }
         }
     }
@@ -475,15 +528,17 @@ where
         }
     }
 
-    pub fn handle_thread_name_update(&mut self, e: CommOrExecRecord) {
+    pub fn handle_thread_name_update(&mut self, e: CommOrExecRecord, timestamp: Option<u64>) {
         let is_main = e.pid == e.tid;
         if e.is_execve {
             // Mark the old thread / process as ended.
-            // Unfortunately the COMM records don't come with a timestamp, so we just take
-            // the last seen timestamp from the previosu sample.
-            // TODO: Verify that this is true for all COMM records and not just for the
-            // synthesized COMM records at the start of the profile.
-            let time = self.convert_time(self.current_sample_time);
+            // If the COMM record doesn't have a timestamp, take the last seen
+            // timestamp from the previous sample.
+            let timestamp = match timestamp {
+                Some(0) | None => self.current_sample_time,
+                Some(ts) => ts,
+            };
+            let time = self.convert_time(timestamp);
             if let Some(t) = self.threads.0.get(&e.tid) {
                 self.profile.set_thread_end_time(*t, time);
                 self.threads.0.remove(&e.tid);
@@ -596,9 +651,15 @@ struct Process<U> {
 
 #[derive(Clone, Debug)]
 pub enum StackFrame {
-    InstructionPointer(u64),
-    ReturnAddress(u64),
+    InstructionPointer(u64, StackMode),
+    ReturnAddress(u64, StackMode),
     TruncatedStackMarker,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum StackMode {
+    User,
+    Kernel,
 }
 
 fn open_file_with_fallback(
