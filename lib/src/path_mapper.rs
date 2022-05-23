@@ -79,24 +79,27 @@ impl<'a, E: ExtraPathMapper> PathMapper<E> {
             None
         };
 
-        let file_path = if let BasePath::CanReferToLocalFiles(base) = &self.base_path {
-            let rel_or_abs = Path::new(raw_path);
-            if rel_or_abs.is_absolute() {
-                // raw_path is an absolute path, referring to a file on this machine.
-                let local = rel_or_abs.to_owned();
-                match mapped_path {
-                    Some(mapped) => FilePath::LocalMapped { local, mapped },
-                    None => FilePath::Local(local),
+        let file_path = match &self.base_path {
+            BasePath::CanReferToLocalFiles(base) => {
+                let rel_or_abs = Path::new(raw_path);
+                if rel_or_abs.is_absolute() {
+                    // raw_path is an absolute path, referring to a file on this machine.
+                    let local = rel_or_abs.to_owned();
+                    match mapped_path {
+                        Some(mapped) => FilePath::LocalMapped { local, mapped },
+                        None => FilePath::Local(local),
+                    }
+                } else {
+                    // raw_path is a relative path. Treat it as a "mapped" path, unless
+                    // we already have some other mapped path.
+                    let local = base.join(rel_or_abs);
+                    let mapped = mapped_path.unwrap_or_else(|| raw_path.to_owned());
+                    FilePath::LocalMapped { local, mapped }
                 }
-            } else {
-                // raw_path is a relative path. Treat it as a "mapped" path, unless
-                // we already have some other mapped path.
-                let local = base.join(rel_or_abs);
-                let mapped = mapped_path.unwrap_or_else(|| raw_path.to_owned());
-                FilePath::LocalMapped { local, mapped }
             }
-        } else {
-            FilePath::NonLocal(mapped_path.unwrap_or_else(|| raw_path.to_owned()))
+            BasePath::NoLocalSourceFileAccess => {
+                FilePath::NonLocal(mapped_path.unwrap_or_else(|| raw_path.to_owned()))
+            }
         };
 
         self.cache.insert(raw_path.into(), file_path.clone());
