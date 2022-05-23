@@ -1149,7 +1149,7 @@ dependencies = [
 
 [[package]]
 name = "profiler-symbol-server"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "core-foundation",
  "core-foundation-sys",
