@@ -172,7 +172,8 @@ pub struct LibraryInfo {
     /// An optional string with the CPU arch of this library, for example "x86_64",
     /// "arm64", or "arm64e". Historically, this was used on macOS to find the
     /// correct sub-binary in a fat binary. But we now use the debug_id for that
-    /// purpose.
+    /// purpose. But it could still be used to find the right dyld shared cache for
+    /// system libraries on macOS.
     pub arch: Option<String>,
 }
 
