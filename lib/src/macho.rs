@@ -5,7 +5,7 @@ use crate::dwarf::{
 use crate::error::{GetSymbolsError, Result};
 use crate::path_mapper::PathMapper;
 use crate::shared::{
-    get_symbolication_result_for_addresses_from_object, object_to_map, FileAndPathHelper,
+    get_symbolication_result_for_addresses_from_object, object_to_map, BasePath, FileAndPathHelper,
     FileContents, FileContentsWrapper, FileLocation, RangeReadRef, SymbolicationQuery,
     SymbolicationResult, SymbolicationResultKind,
 };
@@ -170,6 +170,7 @@ where
 }
 
 pub async fn get_symbolication_result<'a, 'b, 'h, R>(
+    base_path: &BasePath,
     file_contents: FileContentsWrapper<impl FileContents>,
     file_range: Option<(u64, u64)>,
     query: SymbolicationQuery<'a>,
@@ -215,7 +216,7 @@ where
     // the address that we need to look up in the current object.
 
     let addresses_in_root_object = make_address_pairs_for_root_object(addresses, &macho_file);
-    let mut path_mapper = PathMapper::new();
+    let mut path_mapper = PathMapper::new(base_path);
     let mut object_references = VecDeque::new();
     collect_debug_info_and_object_references(
         range,

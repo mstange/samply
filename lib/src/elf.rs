@@ -3,7 +3,7 @@ use crate::dwarf::{collect_dwarf_address_debug_data, make_address_pairs_for_root
 use crate::error::{GetSymbolsError, Result};
 use crate::path_mapper::PathMapper;
 use crate::shared::{
-    get_symbolication_result_for_addresses_from_object, object_to_map, FileContents,
+    get_symbolication_result_for_addresses_from_object, object_to_map, BasePath, FileContents,
     FileContentsWrapper, SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
 };
 use gimli::{CieOrFde, EhFrame, UnwindSection};
@@ -11,6 +11,7 @@ use object::{File, FileKind, Object, ObjectSection, ReadRef};
 use std::io::Cursor;
 
 pub fn get_symbolication_result<R>(
+    base_path: &BasePath,
     file_kind: FileKind,
     file_contents: FileContentsWrapper<impl FileContents>,
     query: SymbolicationQuery,
@@ -37,17 +38,23 @@ where
             if let Ok(()) = lzma_rs::xz_decompress(&mut cursor, &mut objdata) {
                 if let Ok(elf_file) = File::parse(&objdata[..]) {
                     let file_contents = FileContentsWrapper::new(&objdata[..]);
-                    return get_symbolication_result_impl(elf_file, &file_contents, query);
+                    return get_symbolication_result_impl(
+                        elf_file,
+                        base_path,
+                        &file_contents,
+                        query,
+                    );
                 }
             }
         }
     }
 
-    get_symbolication_result_impl(elf_file, &file_contents, query)
+    get_symbolication_result_impl(elf_file, base_path, &file_contents, query)
 }
 
 pub fn get_symbolication_result_impl<'data, R>(
     elf_file: File<'data, impl ReadRef<'data>>,
+    base_path: &BasePath,
     file_contents: &'data FileContentsWrapper<impl FileContents>,
     query: SymbolicationQuery,
 ) -> Result<R>
@@ -78,7 +85,7 @@ where
     };
 
     let addresses: Vec<_> = make_address_pairs_for_root_object(addresses, &elf_file);
-    let mut path_mapper = PathMapper::new();
+    let mut path_mapper = PathMapper::new(base_path);
     collect_dwarf_address_debug_data(
         file_contents.full_range(),
         &elf_file,

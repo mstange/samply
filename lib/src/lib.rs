@@ -269,28 +269,44 @@ where
     let file_contents = helper.open_file(file_location).await.map_err(|e| {
         GetSymbolsError::HelperErrorDuringOpenFile(file_location.to_string_lossy(), e)
     })?;
+    let base_path = file_location.to_base_path();
 
     let file_contents = FileContentsWrapper::new(file_contents);
 
     if let Ok(file_kind) = FileKind::parse(&file_contents) {
         match file_kind {
             FileKind::Elf32 | FileKind::Elf64 => {
-                elf::get_symbolication_result(file_kind, file_contents, query)
+                elf::get_symbolication_result(&base_path, file_kind, file_contents, query)
             }
             FileKind::MachOFat32 => {
                 let arches = FatHeader::parse_arch32(&file_contents)
                     .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
                 let range = macho::get_arch_range(&file_contents, arches, query.debug_id)?;
-                macho::get_symbolication_result(file_contents, Some(range), query, helper).await
+                macho::get_symbolication_result(
+                    &base_path,
+                    file_contents,
+                    Some(range),
+                    query,
+                    helper,
+                )
+                .await
             }
             FileKind::MachOFat64 => {
                 let arches = FatHeader::parse_arch64(&file_contents)
                     .map_err(|e| GetSymbolsError::ObjectParseError(file_kind, e))?;
                 let range = macho::get_arch_range(&file_contents, arches, query.debug_id)?;
-                macho::get_symbolication_result(file_contents, Some(range), query, helper).await
+                macho::get_symbolication_result(
+                    &base_path,
+                    file_contents,
+                    Some(range),
+                    query,
+                    helper,
+                )
+                .await
             }
             FileKind::MachO32 | FileKind::MachO64 => {
-                macho::get_symbolication_result(file_contents, None, query, helper).await
+                macho::get_symbolication_result(&base_path, file_contents, None, query, helper)
+                    .await
             }
             FileKind::Pe32 | FileKind::Pe64 => {
                 windows::get_symbolication_result_via_binary(
@@ -308,7 +324,7 @@ where
         }
     } else if let Ok(pdb) = PDB::open(&file_contents) {
         // This is a PDB file.
-        windows::get_symbolication_result(pdb, query)
+        windows::get_symbolication_result(&base_path, pdb, query)
     } else {
         Err(GetSymbolsError::InvalidInputError(
             "The file does not have a known format; PDB::open was not able to parse it and object::FileKind::parse was not able to detect the format.",

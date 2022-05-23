@@ -6,7 +6,7 @@ use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::future::Future;
 use std::ops::Range;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::{marker::PhantomData, ops::Deref};
 
 #[cfg(feature = "partial_read_stats")]
@@ -50,7 +50,16 @@ pub enum CandidatePathInfo {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FileLocation {
+    /// A path to a local file. Symbol files at local paths are allowed to refer
+    /// to source files on the local file system. Those source file references
+    /// will be returned as local `FilePath`s from the symbolication API.
     Path(PathBuf),
+
+    /// A special string that identifies some way of obtaining the file. The string
+    /// gets interpreted by the implementation of `FileAndPathHelper::open_file`.
+    /// Files from this location type cannot refer to source files on the local
+    /// file system; any source file references in them are returned as
+    /// `FilePath::NonLocal`.
     Custom(String),
 }
 
@@ -59,6 +68,16 @@ impl FileLocation {
         match self {
             FileLocation::Path(path) => path.to_string_lossy().to_string(),
             FileLocation::Custom(string) => string.clone(),
+        }
+    }
+
+    pub fn to_base_path(&self) -> BasePath {
+        match self {
+            FileLocation::Path(file_path) => {
+                let base_path = file_path.parent().unwrap_or(file_path);
+                BasePath::CanReferToLocalFiles(base_path.to_owned())
+            }
+            FileLocation::Custom(_) => BasePath::NoLocalSourceFileAccess,
         }
     }
 }
@@ -179,37 +198,89 @@ pub struct InlineStackFrame {
 }
 
 #[derive(Debug, Clone)]
+pub enum BasePath {
+    /// Indicates that the symbol file did not originate on this machine.
+    /// Any `FilePath`s created from this base path will be non-local.
+    NoLocalSourceFileAccess,
+
+    /// Indicates that the symbol file is a local file. Any `FilePath`
+    /// created from this base path will be local. If the symbol file
+    /// contains relative paths, those relative paths will be turned into
+    /// absolute local paths by appending them to this base path.
+    CanReferToLocalFiles(PathBuf),
+}
+
+#[derive(Debug, Clone)]
 pub enum FilePath {
-    Normal(String),
-    Mapped { raw: String, mapped: String },
+    /// A local symbol file refers to a local path. No path mapping was applied.
+    Local(PathBuf),
+
+    /// A local symbol file refers to a local path but also has a mapped variant
+    /// of that path which we prefer to return from the symbolication API.
+    ///
+    /// Examples:
+    ///
+    ///   - Local ELF file with DWARF info which refers to a path in a Rust
+    ///     dependency. We have a local source file with the dependency's code
+    ///     (whose location is in `local`) but in the API result we return a
+    ///     special path of the type cargo:...:...
+    ///   - Local pdb file with a srcsrv stream which maps local paths to github
+    ///     URLs. We have a local file at the raw path but in the API result we
+    ///     return a special path of the type git:...:...
+    ///   - Local ELF file with DWARF info which specifies a **relative** path,
+    ///     resolved relative to the location of that ELF file. We store the
+    ///     resolved absolute path in `local` and the relative path in `mapped`.
+    LocalMapped { local: PathBuf, mapped: String },
+
+    /// A non-local symbol file refers to a path which may or may not have been
+    /// mapped. If it was mapped, we discard the original raw path.
+    ///
+    /// Non-local symbol files aren't allowed to refer to files on this file
+    /// system, so we don't need to know the pre-mapping path.
+    ///
+    /// Examples:
+    ///
+    ///   - A pdb file was downloaded from a symbol server and refers to a source
+    ///     file with an absolute path which was valid on the original build
+    ///     machine where this pdb file was produced. We store that absolute
+    ///     path but we don't want to open a file at that path on this machine
+    ///     because the pdb file came from somewhere else.
+    ///   - Same as the previous example, but with a srcsrv stream which maps
+    ///     the absolute path to a github URL. We map the path to a special path
+    ///     of the type git:...:... and store only the mapped path.
+    NonLocal(String),
 }
 
 impl FilePath {
-    pub fn mapped_path(&self) -> &str {
+    pub fn mapped_path(&self) -> Cow<str> {
         match self {
-            FilePath::Normal(s) => s,
-            FilePath::Mapped { mapped, .. } => mapped,
+            FilePath::Local(local) => local.to_string_lossy(),
+            FilePath::LocalMapped { mapped, .. } => mapped.into(),
+            FilePath::NonLocal(s) => s.into(),
         }
     }
 
     pub fn into_mapped_path(self) -> String {
         match self {
-            FilePath::Normal(s) => s,
-            FilePath::Mapped { mapped, .. } => mapped,
+            FilePath::Local(local) => local.to_string_lossy().into(),
+            FilePath::LocalMapped { mapped, .. } => mapped,
+            FilePath::NonLocal(s) => s,
         }
     }
 
-    pub fn raw_path(&self) -> &str {
+    pub fn local_path(&self) -> Option<&Path> {
         match self {
-            FilePath::Normal(s) => s,
-            FilePath::Mapped { raw, .. } => raw,
+            FilePath::Local(local) => Some(local),
+            FilePath::LocalMapped { local, .. } => Some(local),
+            FilePath::NonLocal(_) => None,
         }
     }
 
-    pub fn into_raw_path(self) -> String {
+    pub fn into_local_path(self) -> Option<PathBuf> {
         match self {
-            FilePath::Normal(s) => s,
-            FilePath::Mapped { raw, .. } => raw,
+            FilePath::Local(local) => Some(local),
+            FilePath::LocalMapped { local, .. } => Some(local),
+            FilePath::NonLocal(_) => None,
         }
     }
 }

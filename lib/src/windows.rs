@@ -2,7 +2,7 @@ use crate::debugid_util::debug_id_for_object;
 use crate::error::{Context, GetSymbolsError, Result};
 use crate::path_mapper::{ExtraPathMapper, PathMapper};
 use crate::shared::{
-    get_symbolication_result_for_addresses_from_object, object_to_map, AddressDebugInfo,
+    get_symbolication_result_for_addresses_from_object, object_to_map, AddressDebugInfo, BasePath,
     FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation, InlineStackFrame,
     SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
 };
@@ -122,10 +122,11 @@ where
             GetSymbolsError::HelperErrorDuringOpenFile(file_location.to_string_lossy(), e)
         })?);
     let pdb = PDB::open(&file_contents)?;
-    get_symbolication_result(pdb, query)
+    get_symbolication_result(&file_location.to_base_path(), pdb, query)
 }
 
 pub fn get_symbolication_result<'a, 's, S, R>(
+    base_path: &BasePath,
     mut pdb: PDB<'s, S>,
     query: SymbolicationQuery<'a>,
 ) -> Result<R>
@@ -190,7 +191,7 @@ where
                 )?)),
                 None => None,
             };
-            let mut path_mapper = PathMapper::new_with_maybe_extra_mapper(path_mapper);
+            let mut path_mapper = PathMapper::new_with_maybe_extra_mapper(base_path, path_mapper);
             let mut map_path = |path: Cow<str>| path_mapper.map_path(&path);
 
             let mut symbolication_result = R::for_addresses(addresses);

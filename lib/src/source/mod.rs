@@ -1,5 +1,4 @@
 use std::ops::Deref;
-use std::path::Path;
 
 use crate::shared::{
     AddressDebugInfo, FileAndPathHelper, FileAndPathHelperError, FileContentsWrapper, FileLocation,
@@ -64,6 +63,9 @@ enum SourceError {
     #[error("The requested path is not present in the symbolication frames")]
     InvalidPath,
 
+    #[error("The symbol file came from a non-local origin, so we cannot treat file paths in it as local.")]
+    NonLocalSymbols,
+
     #[error("An error occurred when reading the file: {0}")]
     FileAndPathHelperError(#[from] FileAndPathHelperError),
 }
@@ -119,14 +121,18 @@ async fn query_api<'h>(
         .ok_or(SourceError::NoDebugInfo)?
         .into_iter()
         .filter_map(|frame| frame.file_path)
-        .find(|file_path| file_path.mapped_path() == requested_file)
+        .find(|file_path| *file_path.mapped_path() == *requested_file)
         .ok_or(SourceError::InvalidPath)?;
 
+    // One last verification step: Make sure that there's actually a local path for this
+    // source file. We will only have a local path if the path was referred to by a local
+    // symbol file.
+    let local_path = file_path
+        .into_local_path()
+        .ok_or(SourceError::NonLocalSymbols)?;
+
     // If we got here, it means that the file access is allowed. Read the file.
-    let raw_path = Path::new(file_path.raw_path());
-    let file_contents = helper
-        .open_file(&FileLocation::Path(raw_path.into()))
-        .await?;
+    let file_contents = helper.open_file(&FileLocation::Path(local_path)).await?;
     let file_contents = FileContentsWrapper::new(file_contents);
     let file_contents = file_contents.read_entire_data()?;
     let source = String::from_utf8_lossy(file_contents).to_string();
