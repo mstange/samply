@@ -748,7 +748,6 @@ where
 {
     let path = std::str::from_utf8(path_slice).unwrap();
     let objpath = Path::new(path);
-    let filename = objpath.file_name().unwrap();
 
     let file = open_file_with_fallback(objpath, extra_binary_artifact_dir).ok();
     if file.is_none() && !path.starts_with('[') {
@@ -898,7 +897,9 @@ where
         code_id = build_id.map(CodeId::from_binary);
     }
 
-    let name = filename.to_string_lossy().to_string();
+    let name = objpath
+        .file_name()
+        .map_or("<unknown>".into(), |f| f.to_string_lossy().to_string());
     Some(LibraryInfo {
         base_avma,
         avma_range,
