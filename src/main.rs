@@ -147,7 +147,7 @@ where
         extra_dir,
     );
 
-    while let Ok(Some(record)) = file.next_record() {
+    while let Ok(Some((_attr_index, record))) = file.next_record() {
         let parsed_record = match record.parse() {
             Ok(r) => r,
             Err(_) => continue,
