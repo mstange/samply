@@ -321,23 +321,12 @@ where
         // Get the first fragment of the stack from e.callchain.
         if let Some(callchain) = e.callchain {
             let mut is_first_frame = true;
-            let mut mode = match e.cpu_mode {
-                CpuMode::User | CpuMode::GuestUser | CpuMode::Hypervisor | CpuMode::Unknown => {
-                    StackMode::User
-                }
-                CpuMode::Kernel | CpuMode::GuestKernel => StackMode::Kernel,
-            };
+            let mut mode = StackMode::from(e.cpu_mode);
             for i in 0..callchain.len() {
                 let address = callchain.get(i).unwrap();
                 if address >= PERF_CONTEXT_MAX {
-                    match address {
-                        PERF_CONTEXT_KERNEL | PERF_CONTEXT_GUEST_KERNEL => {
-                            mode = StackMode::Kernel;
-                        }
-                        PERF_CONTEXT_USER | PERF_CONTEXT_GUEST | PERF_CONTEXT_GUEST_USER => {
-                            mode = StackMode::User;
-                        }
-                        _ => {}
+                    if let Some(new_mode) = StackMode::from_context_frame(address) {
+                        mode = new_mode;
                     }
                     continue;
                 }
@@ -388,16 +377,7 @@ where
 
         if stack.is_empty() {
             if let Some(ip) = e.ip {
-                stack.push(StackFrame::InstructionPointer(
-                    ip,
-                    match e.cpu_mode {
-                        CpuMode::User
-                        | CpuMode::GuestUser
-                        | CpuMode::Hypervisor
-                        | CpuMode::Unknown => StackMode::User,
-                        CpuMode::Kernel | CpuMode::GuestKernel => StackMode::Kernel,
-                    },
-                ));
+                stack.push(StackFrame::InstructionPointer(ip, e.cpu_mode.into()));
             }
         }
     }
@@ -666,6 +646,32 @@ pub enum StackFrame {
 pub enum StackMode {
     User,
     Kernel,
+}
+
+impl StackMode {
+    /// Detect stack mode from a "context frame".
+    ///
+    /// Context frames are present in sample callchains; they're u64 addresses
+    /// which are `>= PERF_CONTEXT_MAX`.
+    pub fn from_context_frame(frame: u64) -> Option<Self> {
+        match frame {
+            PERF_CONTEXT_KERNEL | PERF_CONTEXT_GUEST_KERNEL => Some(Self::Kernel),
+            PERF_CONTEXT_USER | PERF_CONTEXT_GUEST | PERF_CONTEXT_GUEST_USER => Some(Self::User),
+            _ => None,
+        }
+    }
+}
+
+impl From<CpuMode> for StackMode {
+    /// Convert CpuMode into StackMode.
+    fn from(cpu_mode: CpuMode) -> Self {
+        match cpu_mode {
+            CpuMode::User | CpuMode::GuestUser | CpuMode::Hypervisor | CpuMode::Unknown => {
+                Self::User
+            }
+            CpuMode::Kernel | CpuMode::GuestKernel => Self::Kernel,
+        }
+    }
 }
 
 fn open_file_with_fallback(
