@@ -64,8 +64,13 @@ fn main() {
             )
         }
         Some(other_arch) => {
-            eprintln!("Unrecognized arch {}", other_arch);
-            std::process::exit(1);
+            eprintln!("Unsupported arch {}", other_arch);
+            let cache = framehop::x86_64::CacheX86_64::new();
+            convert::<framehop::x86_64::UnwinderX86_64<Vec<u8>>, ConvertRegsX86_64, _>(
+                perf_file,
+                path.parent(),
+                cache,
+            )
         }
         None => {
             eprintln!("Can't unwind because I don't know the arch");
