@@ -12,7 +12,7 @@ use linux_perf_data::linux_perf_event_reader::consts::{
     PERF_CONTEXT_USER,
 };
 use linux_perf_data::linux_perf_event_reader::{self, CpuMode};
-use linux_perf_data::{DsoBuildId, DsoKey, PerfFileReader, SampleTimeRange};
+use linux_perf_data::{DsoBuildId, DsoKey, PerfFileReader};
 use linux_perf_event_reader::consts::{
     PERF_CONTEXT_MAX, PERF_REG_ARM64_LR, PERF_REG_ARM64_PC, PERF_REG_ARM64_SP, PERF_REG_ARM64_X29,
     PERF_REG_X86_BP, PERF_REG_X86_IP, PERF_REG_X86_SP,
@@ -120,9 +120,10 @@ where
     R: Read,
 {
     let build_ids = file.build_ids().ok().unwrap_or_default();
-    let SampleTimeRange {
-        first_sample_time, ..
-    } = file.sample_time_range().unwrap().unwrap();
+    let first_sample_time = file
+        .sample_time_range()
+        .unwrap()
+        .map_or(0, |r| r.first_sample_time);
     let little_endian = file.endian() == linux_perf_data::Endianness::LittleEndian;
     let host = file.hostname().unwrap().unwrap_or("<unknown host>");
     let perf_version = file.perf_version().unwrap().unwrap_or("<unknown host>");
