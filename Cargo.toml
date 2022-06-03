@@ -18,7 +18,7 @@ profiler-get-symbols = "0.14.0"
 # profiler-get-symbols = { path = "../profiler-get-symbols/lib" }
 fxprof-processed-profile = "0.4.0"
 # fxprof-processed-profile = { path = "../perfrecord/fxprof_processed_profile" }
-linux-perf-data = "0.4.0"
+linux-perf-data = "0.6.0"
 # linux-perf-data = { path = "../linux-perf-data" }
 serde_json = "1.0.81"
 
