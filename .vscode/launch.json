@@ -7,34 +7,34 @@
     {
       "type": "lldb",
       "request": "launch",
-      "name": "Debug executable 'linux-perf-stuff'",
+      "name": "Debug executable 'fxprof-perf-convert'",
       "cargo": {
         "args": [
           "build",
-          "--bin=linux-perf-stuff",
-          "--package=linux-perf-stuff"
+          "--bin=fxprof-perf-convert",
+          "--package=fxprof-perf-convert"
         ],
         "filter": {
-          "name": "linux-perf-stuff",
+          "name": "fxprof-perf-convert",
           "kind": "bin"
         }
       },
-      "args": ["fixtures/x86_64/perf.data"],
+      "args": ["fixtures/x86_64/rustup-perf.data"],
       "cwd": "${workspaceFolder}"
     },
     {
       "type": "lldb",
       "request": "launch",
-      "name": "Debug unit tests in executable 'linux-perf-stuff'",
+      "name": "Debug unit tests in executable 'fxprof-perf-convert'",
       "cargo": {
         "args": [
           "test",
           "--no-run",
-          "--bin=linux-perf-stuff",
-          "--package=linux-perf-stuff"
+          "--bin=fxprof-perf-convert",
+          "--package=fxprof-perf-convert"
         ],
         "filter": {
-          "name": "linux-perf-stuff",
+          "name": "fxprof-perf-convert",
           "kind": "bin"
         }
       },
