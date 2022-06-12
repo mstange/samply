@@ -401,6 +401,8 @@ where
                 &mut self.profile,
             );
         }
+        // Clear any saved off-CPU stack.
+        thread.off_cpu_stack = Vec::new();
 
         let cpu_delta = if self.have_context_switches {
             CpuDelta::from_nanos(
@@ -668,6 +670,8 @@ where
                         &mut self.profile,
                     );
                 }
+                // Clear the saved off-CPU stack.
+                thread.off_cpu_stack = Vec::new();
             }
             ContextSwitchRecord::Out { .. } => {
                 self.context_switch_handler
