@@ -382,12 +382,24 @@ where
         let thread_handle = thread.profile_thread;
 
         match thread.state {
+            ThreadState::On {
+                last_observed_on_timestamp,
+            } => {
+                // The last time we heard from this thread, it was already running.
+                // Accumulate the running time.
+                let on_duration = timestamp - last_observed_on_timestamp;
+                thread.on_cpu_duration_since_last_sample += on_duration;
+            }
             ThreadState::Off {
                 off_switch_timestamp,
             } => {
+                // The last time we heard from this thread, it was being context switched away from.
+                // We are processing a sample on it so we know it is running again. Treat this sample
+                // as a switch-in event.
                 let off_duration = timestamp - off_switch_timestamp;
                 thread.off_cpu_duration_since_last_off_cpu_sample += off_duration;
 
+                // We just added some off-cpu time, so we may want to emit an off-cpu sample.
                 add_off_cpu_sample_if_needed(
                     thread,
                     timestamp,
@@ -398,12 +410,10 @@ where
                     &mut self.profile,
                 );
             }
-            ThreadState::Unknown => {}
-            ThreadState::On {
-                last_observed_on_timestamp,
-            } => {
-                let on_duration = timestamp - last_observed_on_timestamp;
-                thread.on_cpu_duration_since_last_sample += on_duration;
+            ThreadState::Unknown => {
+                // This sample is the first time we've ever head from a thread.
+                // We don't know whether it was running or sleeping.
+                // Do nothing. The first sample will have a CPU delta of 0.
             }
         }
 
@@ -617,11 +627,22 @@ where
             .get_by_tid(tid, process_handle, is_main, &mut self.profile);
         match (&thread.state, e) {
             (ThreadState::Unknown, ContextSwitchRecord::In { .. }) => {
+                // This "switch-in" is the first time we've heard of the thread.
+                // It must have been sleeping at some stack, but we don't know in what stack,
+                // so it seems pointless to emit a sample for the sleep time. We also don't
+                // know what the reason for the "sleep" was: It could have been because the
+                // thread was blocked (most common) or because it was pre-empted.
+
+                // Just store the new state.
                 thread.state = ThreadState::On {
                     last_observed_on_timestamp: timestamp,
                 };
             }
             (ThreadState::Unknown, ContextSwitchRecord::Out { .. }) => {
+                // This "switch-out" is the first time we've heard of the thread. So it must
+                // have been running until just now, but we didn't get any samples from it.
+
+                // Just store the new state.
                 thread.state = ThreadState::Off {
                     off_switch_timestamp: timestamp,
                 };
@@ -632,10 +653,12 @@ where
                 },
                 ContextSwitchRecord::In { .. },
             ) => {
+                // The thread was sleeping and is now starting to run again.
+                // Accumulate the off-cpu time.
                 let off_duration = timestamp - off_switch_timestamp;
-
                 thread.off_cpu_duration_since_last_off_cpu_sample += off_duration;
 
+                // We just added some off-cpu time, so we may want to emit an off-cpu sample.
                 add_off_cpu_sample_if_needed(
                     thread,
                     timestamp,
@@ -656,6 +679,9 @@ where
                 },
                 ContextSwitchRecord::Out { .. },
             ) => {
+                // The thread was running and is now context-switched out.
+                // Accumulate the running time since we last saw it. This delta will be picked
+                // up by the next sample we emit.
                 let on_duration = timestamp - last_observed_on_timestamp;
                 thread.on_cpu_duration_since_last_sample += on_duration;
 
@@ -844,11 +870,15 @@ fn add_off_cpu_sample_if_needed(
     let final_sample_ts = timestamp - thread.off_cpu_duration_since_last_off_cpu_sample;
     let thread_handle = thread.profile_thread;
 
+    // This is the leftover accumulated thread running time which we haven't yet
+    // emitted in a sample.
+    let mut cpu_delta = CpuDelta::from_nanos(thread.on_cpu_duration_since_last_sample);
+
     if sample_count > 1 {
         // Add a sample at the beginning of the paused range.
+        // This "first sample" will carry any leftover accumulated running time ("cpu delta").
         let first_sample_ts = final_sample_ts - (sample_count - 1) * off_cpu_sampling_interval_ns;
 
-        let cpu_delta = CpuDelta::from_nanos(thread.on_cpu_duration_since_last_sample);
         let weight = if off_cpu_samples_should_have_weight {
             1
         } else {
@@ -860,16 +890,13 @@ fn add_off_cpu_sample_if_needed(
             first_sample_ts.saturating_sub(first_sample_time),
         );
         profile.add_sample(thread_handle, profile_timestamp, frames, cpu_delta, weight);
-        thread.on_cpu_duration_since_last_sample = 0;
-        if thread.last_sample_timestamp == Some(first_sample_ts) {
-            eprintln!("zero time elapsed since previous sample1");
-        }
         thread.last_sample_timestamp = Some(first_sample_ts);
 
+        // The "rest sample" emitted below will have a CPU delta of zero.
         sample_count -= 1;
+        cpu_delta = CpuDelta::from_nanos(0);
     }
 
-    let cpu_delta = CpuDelta::from_nanos(thread.on_cpu_duration_since_last_sample);
     let weight = if off_cpu_samples_should_have_weight {
         i32::try_from(sample_count).unwrap_or(0)
     } else {
@@ -881,9 +908,6 @@ fn add_off_cpu_sample_if_needed(
         Timestamp::from_nanos_since_reference(final_sample_ts.saturating_sub(first_sample_time));
     profile.add_sample(thread_handle, profile_timestamp, frames, cpu_delta, weight);
     thread.on_cpu_duration_since_last_sample = 0;
-    if thread.last_sample_timestamp == Some(final_sample_ts) {
-        eprintln!("zero time elapsed since previous sample2");
-    }
     thread.last_sample_timestamp = Some(final_sample_ts);
 }
 
