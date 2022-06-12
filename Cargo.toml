@@ -9,7 +9,7 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 byteorder = "1.4.3"
 debugid = "0.8.0"
-framehop = "0.7.0"
+framehop = "0.7.1"
 # framehop = { path = "../framehop" }
 memchr = "2.4.1"
 memmap2 = "0.5.3"
