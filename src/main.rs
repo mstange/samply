@@ -283,7 +283,7 @@ where
     perf_version: String,
     linux_version: Option<String>,
     extra_binary_artifact_dir: Option<PathBuf>,
-    sampling_is_time_based: Option<u64>,
+    off_cpu_samples_should_have_weight: bool,
     off_cpu_sampling_interval_ns: u64,
     have_time_based_cpu_deltas: bool,
 }
@@ -318,10 +318,11 @@ where
         );
         let user_category = profile.add_category("User", CategoryColor::Yellow).into();
         let kernel_category = profile.add_category("Kernel", CategoryColor::Orange).into();
-        let off_cpu_sampling_interval_ns = match &interpretation.sampling_is_time_based {
-            Some(interval_ns) => *interval_ns,
-            None => DEFAULT_OFF_CPU_SAMPLING_INTERVAL_NS,
-        };
+        let (off_cpu_sampling_interval_ns, off_cpu_samples_should_have_weight) =
+            match &interpretation.sampling_is_time_based {
+                Some(interval_ns) => (*interval_ns, true),
+                None => (DEFAULT_OFF_CPU_SAMPLING_INTERVAL_NS, false),
+            };
         Self {
             profile,
             cache,
@@ -341,7 +342,7 @@ where
             perf_version: perf_version.to_string(),
             linux_version: linux_version.map(ToOwned::to_owned),
             extra_binary_artifact_dir: extra_binary_artifact_dir.map(ToOwned::to_owned),
-            sampling_is_time_based: interpretation.sampling_is_time_based,
+            off_cpu_samples_should_have_weight,
             off_cpu_sampling_interval_ns,
             have_time_based_cpu_deltas: interpretation.have_time_based_cpu_deltas,
         }
@@ -392,7 +393,7 @@ where
                     timestamp,
                     self.off_cpu_sampling_interval_ns,
                     self.first_sample_time,
-                    self.sampling_is_time_based,
+                    self.off_cpu_samples_should_have_weight,
                     &self.stack_converter,
                     &mut self.profile,
                 );
@@ -640,7 +641,7 @@ where
                     timestamp,
                     self.off_cpu_sampling_interval_ns,
                     self.first_sample_time,
-                    self.sampling_is_time_based,
+                    self.off_cpu_samples_should_have_weight,
                     &self.stack_converter,
                     &mut self.profile,
                 );
@@ -825,7 +826,7 @@ fn add_off_cpu_sample_if_needed(
     timestamp: u64,
     off_cpu_sampling_interval_ns: u64,
     first_sample_time: u64,
-    sampling_is_time_based: Option<u64>,
+    off_cpu_samples_should_have_weight: bool,
     stack_converter: &StackConverter,
     profile: &mut Profile,
 ) {
@@ -848,9 +849,10 @@ fn add_off_cpu_sample_if_needed(
         let first_sample_ts = final_sample_ts - (sample_count - 1) * off_cpu_sampling_interval_ns;
 
         let cpu_delta = CpuDelta::from_nanos(thread.on_cpu_duration_since_last_sample);
-        let weight = match sampling_is_time_based {
-            Some(_) => 1,
-            None => 0,
+        let weight = if off_cpu_samples_should_have_weight {
+            1
+        } else {
+            0
         };
         let frames =
             stack_converter.convert_stack_no_kernel(thread.off_cpu_stack.as_deref().unwrap_or(&[]));
@@ -868,9 +870,10 @@ fn add_off_cpu_sample_if_needed(
     }
 
     let cpu_delta = CpuDelta::from_nanos(thread.on_cpu_duration_since_last_sample);
-    let weight = match sampling_is_time_based {
-        Some(_) => i32::try_from(sample_count).unwrap_or(0),
-        None => 0,
+    let weight = if off_cpu_samples_should_have_weight {
+        i32::try_from(sample_count).unwrap_or(0)
+    } else {
+        0
     };
     let frames =
         stack_converter.convert_stack_no_kernel(thread.off_cpu_stack.as_deref().unwrap_or(&[]));
