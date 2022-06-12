@@ -1,4 +1,7 @@
+mod context_switch;
+
 use byteorder::LittleEndian;
+use context_switch::{ContextSwitchHandler, OffCpuSampleGroup, ThreadContextSwitchData};
 use debugid::{CodeId, DebugId};
 use framehop::aarch64::UnwindRegsAarch64;
 use framehop::x86_64::UnwindRegsX86_64;
@@ -283,8 +286,8 @@ where
     perf_version: String,
     linux_version: Option<String>,
     extra_binary_artifact_dir: Option<PathBuf>,
-    off_cpu_samples_should_have_weight: bool,
-    off_cpu_sampling_interval_ns: u64,
+    context_switch_handler: ContextSwitchHandler,
+    off_cpu_weight_per_sample: i32,
     have_context_switches: bool,
 }
 
@@ -318,10 +321,10 @@ where
         );
         let user_category = profile.add_category("User", CategoryColor::Yellow).into();
         let kernel_category = profile.add_category("Kernel", CategoryColor::Orange).into();
-        let (off_cpu_sampling_interval_ns, off_cpu_samples_should_have_weight) =
+        let (off_cpu_sampling_interval_ns, off_cpu_weight_per_sample) =
             match &interpretation.sampling_is_time_based {
-                Some(interval_ns) => (*interval_ns, true),
-                None => (DEFAULT_OFF_CPU_SAMPLING_INTERVAL_NS, false),
+                Some(interval_ns) => (*interval_ns, 1),
+                None => (DEFAULT_OFF_CPU_SAMPLING_INTERVAL_NS, 0),
             };
         Self {
             profile,
@@ -342,8 +345,8 @@ where
             perf_version: perf_version.to_string(),
             linux_version: linux_version.map(ToOwned::to_owned),
             extra_binary_artifact_dir: extra_binary_artifact_dir.map(ToOwned::to_owned),
-            off_cpu_samples_should_have_weight,
-            off_cpu_sampling_interval_ns,
+            off_cpu_weight_per_sample,
+            context_switch_handler: ContextSwitchHandler::new(off_cpu_sampling_interval_ns),
             have_context_switches: interpretation.have_context_switches,
         }
     }
@@ -381,48 +384,29 @@ where
 
         let thread_handle = thread.profile_thread;
 
-        match thread.state {
-            ThreadState::On {
-                last_observed_on_timestamp,
-            } => {
-                // The last time we heard from this thread, it was already running.
-                // Accumulate the running time.
-                let on_duration = timestamp - last_observed_on_timestamp;
-                thread.on_cpu_duration_since_last_sample += on_duration;
-            }
-            ThreadState::Off {
-                off_switch_timestamp,
-            } => {
-                // The last time we heard from this thread, it was being context switched away from.
-                // We are processing a sample on it so we know it is running again. Treat this sample
-                // as a switch-in event.
-                let off_duration = timestamp - off_switch_timestamp;
-                thread.off_cpu_duration_since_last_off_cpu_sample += off_duration;
-
-                // We just added some off-cpu time, so we may want to emit an off-cpu sample.
-                add_off_cpu_sample_if_needed(
-                    thread,
-                    timestamp,
-                    self.off_cpu_sampling_interval_ns,
-                    &self.timestamp_converter,
-                    self.off_cpu_samples_should_have_weight,
-                    &self.stack_converter,
-                    &mut self.profile,
-                );
-            }
-            ThreadState::Unknown => {
-                // This sample is the first time we've ever head from a thread.
-                // We don't know whether it was running or sleeping.
-                // Do nothing. The first sample will have a CPU delta of 0.
-            }
+        let off_cpu_sample = self
+            .context_switch_handler
+            .handle_sample(timestamp, &mut thread.context_switch_data);
+        if let Some(off_cpu_sample) = off_cpu_sample {
+            let cpu_delta_ns = self
+                .context_switch_handler
+                .consume_cpu_delta(&mut thread.context_switch_data);
+            process_off_cpu_sample_group(
+                off_cpu_sample,
+                thread_handle,
+                cpu_delta_ns,
+                &self.timestamp_converter,
+                self.off_cpu_weight_per_sample,
+                &thread.off_cpu_stack,
+                &mut self.profile,
+            );
         }
 
-        thread.state = ThreadState::On {
-            last_observed_on_timestamp: timestamp,
-        };
-
         let cpu_delta = if self.have_context_switches {
-            CpuDelta::from_nanos(thread.on_cpu_duration_since_last_sample)
+            CpuDelta::from_nanos(
+                self.context_switch_handler
+                    .consume_cpu_delta(&mut thread.context_switch_data),
+            )
         } else if let Some(period) = e.period {
             // If the observed perf event is one of the clock time events, or cycles, then we should convert it to a CpuDelta.
             // TODO: Detect event type
@@ -434,7 +418,6 @@ where
         let frames = self.stack_converter.convert_stack(stack);
         self.profile
             .add_sample(thread_handle, profile_timestamp, frames, cpu_delta, 1);
-        thread.on_cpu_duration_since_last_sample = 0;
         thread.last_sample_timestamp = Some(timestamp);
     }
 
@@ -452,10 +435,15 @@ where
         let mut stack = Vec::new();
         Self::get_sample_stack::<C>(&e, &process.unwinder, &mut self.cache, &mut stack);
 
+        let stack = self
+            .stack_converter
+            .convert_stack_no_kernel(&stack)
+            .collect();
+
         let thread =
             self.threads
                 .get_by_tid(tid, process.profile_process, is_main, &mut self.profile);
-        thread.off_cpu_stack = Some(stack);
+        thread.off_cpu_stack = stack;
     }
 
     /// Get the stack contained in this sample, and put it into `stack`.
@@ -611,105 +599,6 @@ where
         }
     }
 
-    pub fn handle_context_switch(&mut self, e: ContextSwitchRecord, common: CommonData) {
-        let pid = common.pid.expect("Can't handle samples without pids");
-        let tid = common.tid.expect("Can't handle samples without tids");
-        let timestamp = common
-            .timestamp
-            .expect("Can't handle context switch without time");
-        let is_main = pid == tid;
-        let process = self
-            .processes
-            .get_by_pid(pid, &mut self.profile, &self.kernel_modules);
-        let process_handle = process.profile_process;
-        let thread = self
-            .threads
-            .get_by_tid(tid, process_handle, is_main, &mut self.profile);
-        match (&thread.state, e) {
-            (ThreadState::Unknown, ContextSwitchRecord::In { .. }) => {
-                // This "switch-in" is the first time we've heard of the thread.
-                // It must have been sleeping at some stack, but we don't know in what stack,
-                // so it seems pointless to emit a sample for the sleep time. We also don't
-                // know what the reason for the "sleep" was: It could have been because the
-                // thread was blocked (most common) or because it was pre-empted.
-
-                // Just store the new state.
-                thread.state = ThreadState::On {
-                    last_observed_on_timestamp: timestamp,
-                };
-            }
-            (ThreadState::Unknown, ContextSwitchRecord::Out { .. }) => {
-                // This "switch-out" is the first time we've heard of the thread. So it must
-                // have been running until just now, but we didn't get any samples from it.
-
-                // Just store the new state.
-                thread.state = ThreadState::Off {
-                    off_switch_timestamp: timestamp,
-                };
-            }
-            (
-                ThreadState::Off {
-                    off_switch_timestamp,
-                },
-                ContextSwitchRecord::In { .. },
-            ) => {
-                // The thread was sleeping and is now starting to run again.
-                // Accumulate the off-cpu time.
-                let off_duration = timestamp - off_switch_timestamp;
-                thread.off_cpu_duration_since_last_off_cpu_sample += off_duration;
-
-                // We just added some off-cpu time, so we may want to emit an off-cpu sample.
-                add_off_cpu_sample_if_needed(
-                    thread,
-                    timestamp,
-                    self.off_cpu_sampling_interval_ns,
-                    &self.timestamp_converter,
-                    self.off_cpu_samples_should_have_weight,
-                    &self.stack_converter,
-                    &mut self.profile,
-                );
-
-                thread.state = ThreadState::On {
-                    last_observed_on_timestamp: timestamp,
-                };
-            }
-            (
-                ThreadState::On {
-                    last_observed_on_timestamp,
-                },
-                ContextSwitchRecord::Out { .. },
-            ) => {
-                // The thread was running and is now context-switched out.
-                // Accumulate the running time since we last saw it. This delta will be picked
-                // up by the next sample we emit.
-                let on_duration = timestamp - last_observed_on_timestamp;
-                thread.on_cpu_duration_since_last_sample += on_duration;
-
-                thread.state = ThreadState::Off {
-                    off_switch_timestamp: timestamp,
-                };
-            }
-            (ThreadState::On { .. }, ContextSwitchRecord::In { .. }) => {
-                // We are already in the On state, most likely due to a Sample record which
-                // arrived just before the Switch-In record.
-                // This is quite normal. Thread switching is done by some kernel code which
-                // executes on the CPU, and this CPU work can get sampled before the CPU gets
-                // to the code that emits the Switch-In record.
-            }
-            (ThreadState::Off { .. }, ContextSwitchRecord::Out { .. }) => {
-                // We are already in the Off state but received another Switch-Out record.
-                // This is unexpected; Switch-Out records are the only records that can
-                // get us into the Off state and we do not expect two Switch-Out records
-                // without an in-between Switch-In record.
-                // However, in practice this case has been observed due to a duplicated
-                // Switch-Out record in the perf.data file: the record just appeared twice
-                // right after itself, same timestamp, same everything. I don't know if
-                // this duplication indicates a bug in the kernel or in the perf tool or
-                // maybe is not considered a bug at all.
-            }
-        }
-    }
-
     pub fn handle_mmap2(&mut self, e: Mmap2Record) {
         const PROT_EXEC: u32 = 0b100;
         if e.protection & PROT_EXEC == 0 {
@@ -742,6 +631,48 @@ where
             self.extra_binary_artifact_dir.as_deref(),
         ) {
             self.profile.add_lib(process.profile_process, lib);
+        }
+    }
+
+    pub fn handle_context_switch(&mut self, e: ContextSwitchRecord, common: CommonData) {
+        let pid = common.pid.expect("Can't handle samples without pids");
+        let tid = common.tid.expect("Can't handle samples without tids");
+        let timestamp = common
+            .timestamp
+            .expect("Can't handle context switch without time");
+        let is_main = pid == tid;
+        let process = self
+            .processes
+            .get_by_pid(pid, &mut self.profile, &self.kernel_modules);
+        let process_handle = process.profile_process;
+        let thread = self
+            .threads
+            .get_by_tid(tid, process_handle, is_main, &mut self.profile);
+
+        match e {
+            ContextSwitchRecord::In { .. } => {
+                let off_cpu_sample = self
+                    .context_switch_handler
+                    .handle_switch_in(timestamp, &mut thread.context_switch_data);
+                if let Some(off_cpu_sample) = off_cpu_sample {
+                    let cpu_delta_ns = self
+                        .context_switch_handler
+                        .consume_cpu_delta(&mut thread.context_switch_data);
+                    process_off_cpu_sample_group(
+                        off_cpu_sample,
+                        thread.profile_thread,
+                        cpu_delta_ns,
+                        &self.timestamp_converter,
+                        self.off_cpu_weight_per_sample,
+                        &thread.off_cpu_stack,
+                        &mut self.profile,
+                    );
+                }
+            }
+            ContextSwitchRecord::Out { .. } => {
+                self.context_switch_handler
+                    .handle_switch_out(timestamp, &mut thread.context_switch_data);
+            }
         }
     }
 
@@ -859,65 +790,37 @@ impl TimestampConverter {
     }
 }
 
-fn add_off_cpu_sample_if_needed(
-    thread: &mut Thread,
-    timestamp: u64,
-    off_cpu_sampling_interval_ns: u64,
+fn process_off_cpu_sample_group(
+    off_cpu_sample: OffCpuSampleGroup,
+    thread_handle: ThreadHandle,
+    cpu_delta_ns: u64,
     timestamp_converter: &TimestampConverter,
-    off_cpu_samples_should_have_weight: bool,
-    stack_converter: &StackConverter,
+    off_cpu_weight_per_sample: i32,
+    off_cpu_stack: &[(Frame, CategoryPairHandle)],
     profile: &mut Profile,
 ) {
-    if thread.off_cpu_duration_since_last_off_cpu_sample < off_cpu_sampling_interval_ns {
-        return;
-    }
+    let OffCpuSampleGroup {
+        begin_timestamp,
+        end_timestamp,
+        sample_count,
+    } = off_cpu_sample;
 
-    // Add an off-cpu sample.
-
-    let mut sample_count =
-        thread.off_cpu_duration_since_last_off_cpu_sample / off_cpu_sampling_interval_ns;
-
-    thread.off_cpu_duration_since_last_off_cpu_sample -=
-        sample_count * off_cpu_sampling_interval_ns;
-    let final_sample_ts = timestamp - thread.off_cpu_duration_since_last_off_cpu_sample;
-    let thread_handle = thread.profile_thread;
-
-    // This is the leftover accumulated thread running time which we haven't yet
-    // emitted in a sample.
-    let mut cpu_delta = CpuDelta::from_nanos(thread.on_cpu_duration_since_last_sample);
+    // Add a sample at the beginning of the paused range.
+    // This "first sample" will carry any leftover accumulated running time ("cpu delta").
+    let cpu_delta = CpuDelta::from_nanos(cpu_delta_ns);
+    let weight = off_cpu_weight_per_sample;
+    let frames = off_cpu_stack.iter().cloned();
+    let profile_timestamp = timestamp_converter.convert_time(begin_timestamp);
+    profile.add_sample(thread_handle, profile_timestamp, frames, cpu_delta, weight);
 
     if sample_count > 1 {
-        // Add a sample at the beginning of the paused range.
-        // This "first sample" will carry any leftover accumulated running time ("cpu delta").
-        let first_sample_ts = final_sample_ts - (sample_count - 1) * off_cpu_sampling_interval_ns;
-
-        let weight = if off_cpu_samples_should_have_weight {
-            1
-        } else {
-            0
-        };
-        let frames =
-            stack_converter.convert_stack_no_kernel(thread.off_cpu_stack.as_deref().unwrap_or(&[]));
-        let profile_timestamp = timestamp_converter.convert_time(first_sample_ts);
+        // Emit a "rest sample" with a CPU delta of zero covering the rest of the paused range.
+        let cpu_delta = CpuDelta::from_nanos(0);
+        let weight = i32::try_from(sample_count - 1).unwrap_or(0) * off_cpu_weight_per_sample;
+        let frames = off_cpu_stack.iter().cloned();
+        let profile_timestamp = timestamp_converter.convert_time(end_timestamp);
         profile.add_sample(thread_handle, profile_timestamp, frames, cpu_delta, weight);
-        thread.last_sample_timestamp = Some(first_sample_ts);
-
-        // The "rest sample" emitted below will have a CPU delta of zero.
-        sample_count -= 1;
-        cpu_delta = CpuDelta::from_nanos(0);
     }
-
-    let weight = if off_cpu_samples_should_have_weight {
-        i32::try_from(sample_count).unwrap_or(0)
-    } else {
-        0
-    };
-    let frames =
-        stack_converter.convert_stack_no_kernel(thread.off_cpu_stack.as_deref().unwrap_or(&[]));
-    let profile_timestamp = timestamp_converter.convert_time(final_sample_ts);
-    profile.add_sample(thread_handle, profile_timestamp, frames, cpu_delta, weight);
-    thread.on_cpu_duration_since_last_sample = 0;
-    thread.last_sample_timestamp = Some(final_sample_ts);
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1021,11 +924,9 @@ impl Threads {
             );
             Thread {
                 profile_thread,
+                context_switch_data: Default::default(),
                 last_sample_timestamp: None,
-                on_cpu_duration_since_last_sample: 0,
-                off_cpu_duration_since_last_off_cpu_sample: 0,
-                state: ThreadState::Unknown,
-                off_cpu_stack: None,
+                off_cpu_stack: Vec::new(),
             }
         })
     }
@@ -1033,17 +934,9 @@ impl Threads {
 
 struct Thread {
     profile_thread: ThreadHandle,
+    context_switch_data: ThreadContextSwitchData,
     last_sample_timestamp: Option<u64>,
-    state: ThreadState,
-    on_cpu_duration_since_last_sample: u64,
-    off_cpu_duration_since_last_off_cpu_sample: u64,
-    off_cpu_stack: Option<Vec<StackFrame>>,
-}
-
-enum ThreadState {
-    Unknown,
-    Off { off_switch_timestamp: u64 },
-    On { last_observed_on_timestamp: u64 },
+    off_cpu_stack: Vec<(Frame, CategoryPairHandle)>,
 }
 
 struct Process<U> {
