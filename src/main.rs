@@ -117,7 +117,7 @@ struct EventInterpretation {
     #[allow(unused)]
     main_event_name: String,
     sampling_is_time_based: Option<u64>,
-    have_time_based_cpu_deltas: bool,
+    have_context_switches: bool,
     sched_switch_attr_index: Option<usize>,
 }
 
@@ -149,7 +149,7 @@ impl EventInterpretation {
             }
             (_, SamplingPolicy::Period(_)) => None,
         };
-        let have_time_based_cpu_deltas = attrs[0].attr.flags.contains(AttrFlags::CONTEXT_SWITCH);
+        let have_context_switches = attrs[0].attr.flags.contains(AttrFlags::CONTEXT_SWITCH);
         let sched_switch_attr_index = attrs
             .iter()
             .position(|attr_desc| attr_desc.name.as_deref() == Some("sched:sched_switch"));
@@ -158,7 +158,7 @@ impl EventInterpretation {
             main_event_attr_index,
             main_event_name,
             sampling_is_time_based,
-            have_time_based_cpu_deltas,
+            have_context_switches,
             sched_switch_attr_index,
         }
     }
@@ -285,7 +285,7 @@ where
     extra_binary_artifact_dir: Option<PathBuf>,
     off_cpu_samples_should_have_weight: bool,
     off_cpu_sampling_interval_ns: u64,
-    have_time_based_cpu_deltas: bool,
+    have_context_switches: bool,
 }
 
 const DEFAULT_OFF_CPU_SAMPLING_INTERVAL_NS: u64 = 1_000_000; // 1ms
@@ -344,7 +344,7 @@ where
             extra_binary_artifact_dir: extra_binary_artifact_dir.map(ToOwned::to_owned),
             off_cpu_samples_should_have_weight,
             off_cpu_sampling_interval_ns,
-            have_time_based_cpu_deltas: interpretation.have_time_based_cpu_deltas,
+            have_context_switches: interpretation.have_context_switches,
         }
     }
 
@@ -421,7 +421,7 @@ where
             last_observed_on_timestamp: timestamp,
         };
 
-        let cpu_delta = if self.have_time_based_cpu_deltas {
+        let cpu_delta = if self.have_context_switches {
             CpuDelta::from_nanos(thread.on_cpu_duration_since_last_sample)
         } else if let Some(period) = e.period {
             // If the observed perf event is one of the clock time events, or cycles, then we should convert it to a CpuDelta.
