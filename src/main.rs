@@ -274,7 +274,7 @@ where
     threads: Threads,
     stack_converter: StackConverter,
     kernel_modules: Vec<LibraryInfo>,
-    first_sample_time: u64,
+    timestamp_converter: TimestampConverter,
     current_sample_time: u64,
     build_ids: HashMap<DsoKey, DsoInfo>,
     little_endian: bool,
@@ -333,7 +333,7 @@ where
                 kernel_category,
             },
             kernel_modules: Vec::new(),
-            first_sample_time,
+            timestamp_converter: TimestampConverter::with_reference_timestamp(first_sample_time),
             current_sample_time: first_sample_time,
             build_ids,
             little_endian,
@@ -360,7 +360,7 @@ where
             .expect("Can't handle samples without timestamps");
         self.current_sample_time = timestamp;
 
-        let profile_timestamp = self.convert_time(timestamp);
+        let profile_timestamp = self.timestamp_converter.convert_time(timestamp);
 
         let is_main = pid == tid;
         let process = self
@@ -404,7 +404,7 @@ where
                     thread,
                     timestamp,
                     self.off_cpu_sampling_interval_ns,
-                    self.first_sample_time,
+                    &self.timestamp_converter,
                     self.off_cpu_samples_should_have_weight,
                     &self.stack_converter,
                     &mut self.profile,
@@ -663,7 +663,7 @@ where
                     thread,
                     timestamp,
                     self.off_cpu_sampling_interval_ns,
-                    self.first_sample_time,
+                    &self.timestamp_converter,
                     self.off_cpu_samples_should_have_weight,
                     &self.stack_converter,
                     &mut self.profile,
@@ -747,7 +747,7 @@ where
 
     pub fn handle_thread_start(&mut self, e: ForkOrExitRecord) {
         let is_main = e.pid == e.tid;
-        let start_time = self.convert_time(e.timestamp);
+        let start_time = self.timestamp_converter.convert_time(e.timestamp);
         let process = self
             .processes
             .get_by_pid(e.pid, &mut self.profile, &self.kernel_modules);
@@ -766,7 +766,7 @@ where
 
     pub fn handle_thread_end(&mut self, e: ForkOrExitRecord) {
         let is_main = e.pid == e.tid;
-        let end_time = self.convert_time(e.timestamp);
+        let end_time = self.timestamp_converter.convert_time(e.timestamp);
         let process = self
             .processes
             .get_by_pid(e.pid, &mut self.profile, &self.kernel_modules);
@@ -793,7 +793,7 @@ where
                 Some(0) | None => self.current_sample_time,
                 Some(ts) => ts,
             };
-            let time = self.convert_time(timestamp);
+            let time = self.timestamp_converter.convert_time(timestamp);
             if let Some(t) = self.threads.0.get(&e.tid) {
                 self.profile.set_thread_end_time(t.profile_thread, time);
                 self.threads.0.remove(&e.tid);
@@ -825,7 +825,9 @@ where
 
         if e.is_execve {
             // Mark this as the start time of the new thread / process.
-            let time = self.convert_time(self.current_sample_time);
+            let time = self
+                .timestamp_converter
+                .convert_time(self.current_sample_time);
             self.profile.set_thread_start_time(thread_handle, time);
             if is_main {
                 self.profile.set_process_start_time(process_handle, time);
@@ -841,9 +843,19 @@ where
             self.have_product_name = true;
         }
     }
+}
 
-    fn convert_time(&self, ktime_ns: u64) -> Timestamp {
-        Timestamp::from_nanos_since_reference(ktime_ns.saturating_sub(self.first_sample_time))
+struct TimestampConverter {
+    reference_ns: u64,
+}
+
+impl TimestampConverter {
+    pub fn with_reference_timestamp(reference_ns: u64) -> Self {
+        Self { reference_ns }
+    }
+
+    pub fn convert_time(&self, ktime_ns: u64) -> Timestamp {
+        Timestamp::from_nanos_since_reference(ktime_ns.saturating_sub(self.reference_ns))
     }
 }
 
@@ -851,7 +863,7 @@ fn add_off_cpu_sample_if_needed(
     thread: &mut Thread,
     timestamp: u64,
     off_cpu_sampling_interval_ns: u64,
-    first_sample_time: u64,
+    timestamp_converter: &TimestampConverter,
     off_cpu_samples_should_have_weight: bool,
     stack_converter: &StackConverter,
     profile: &mut Profile,
@@ -886,9 +898,7 @@ fn add_off_cpu_sample_if_needed(
         };
         let frames =
             stack_converter.convert_stack_no_kernel(thread.off_cpu_stack.as_deref().unwrap_or(&[]));
-        let profile_timestamp = Timestamp::from_nanos_since_reference(
-            first_sample_ts.saturating_sub(first_sample_time),
-        );
+        let profile_timestamp = timestamp_converter.convert_time(first_sample_ts);
         profile.add_sample(thread_handle, profile_timestamp, frames, cpu_delta, weight);
         thread.last_sample_timestamp = Some(first_sample_ts);
 
@@ -904,8 +914,7 @@ fn add_off_cpu_sample_if_needed(
     };
     let frames =
         stack_converter.convert_stack_no_kernel(thread.off_cpu_stack.as_deref().unwrap_or(&[]));
-    let profile_timestamp =
-        Timestamp::from_nanos_since_reference(final_sample_ts.saturating_sub(first_sample_time));
+    let profile_timestamp = timestamp_converter.convert_time(final_sample_ts);
     profile.add_sample(thread_handle, profile_timestamp, frames, cpu_delta, weight);
     thread.on_cpu_duration_since_last_sample = 0;
     thread.last_sample_timestamp = Some(final_sample_ts);
