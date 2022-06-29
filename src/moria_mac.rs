@@ -53,15 +53,8 @@ pub fn locate_dsym_fastpath(path: &Path, uuid: Uuid) -> Option<PathBuf> {
 
     // Check every entry in <target_channel_dir>/deps and <target_channel_dir>/examples
     let deps_dir = target_channel_dir.join("deps");
-    if let Some(f) = try_match_dsym_in_dir(&deps_dir, uuid) {
-        return Some(f);
-    }
     let examples_dir = target_channel_dir.join("examples");
-    if let Some(f) = try_match_dsym_in_dir(&examples_dir, uuid) {
-        return Some(f);
-    }
-
-    None
+    try_match_dsym_in_dir(&deps_dir, uuid).or_else(|| try_match_dsym_in_dir(&examples_dir, uuid))
 }
 
 fn try_match_dsym_in_dir(dir: &Path, uuid: Uuid) -> Option<PathBuf> {
