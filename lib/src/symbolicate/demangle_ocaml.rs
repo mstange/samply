@@ -1,6 +1,6 @@
 pub fn demangle(name: &str) -> Option<String> {
     if let Some(name) = name.strip_prefix("caml") {
-        if name.chars().nth(0).map_or(false, |c| !c.is_uppercase()) {
+        if name.chars().next().map_or(false, |c| !c.is_uppercase()) {
             return None;
         }
 
@@ -9,7 +9,7 @@ pub fn demangle(name: &str) -> Option<String> {
 
         while let Some(c) = chars.next() {
             let rest = chars.as_str();
-            if c == '_' && rest.starts_with("_") {
+            if c == '_' && rest.starts_with('_') {
                 chars.next();
                 res.push('.');
             } else if c == '$' && rest.len() >= 2 {
@@ -26,7 +26,7 @@ pub fn demangle(name: &str) -> Option<String> {
         return Some(res);
     }
 
-    return None;
+    None
 }
 
 #[cfg(test)]
