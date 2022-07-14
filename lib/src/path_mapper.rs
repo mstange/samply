@@ -22,7 +22,7 @@ pub struct PathMapper<E: ExtraPathMapper> {
     cargo_dep_regex: Regex,
 }
 
-impl<'a, E: ExtraPathMapper> PathMapper<E> {
+impl<E: ExtraPathMapper> PathMapper<E> {
     pub fn new(base_path: &BasePath) -> Self {
         Self::new_with_maybe_extra_mapper(base_path, None)
     }
