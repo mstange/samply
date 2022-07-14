@@ -1,4 +1,4 @@
-Found 1286 symbols.
+Found 1292 symbols.
 1000 mozilla::xgetbv(unsigned int)
 1010 _GLOBAL__sub_I_SSE.cpp()
 1160 arena_t::SplitRun(arena_run_t*, unsigned long long, bool, bool)
@@ -1210,11 +1210,14 @@ ff10 Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, unsigned
 78684 _RTC_Terminate()
 786c0 __scrt_stub_for_acrt_initialize()
 786c4 __scrt_stub_for_is_c_termination_complete()
+786d0 unknown
 786e0 __security_check_cookie()
+78710 unknown
 78720 __chkstk()
 78780 __report_gsfailure(unsigned long long)
 78854 capture_previous_context(_CONTEXT*)
 788c8 __raise_securityfailure(_EXCEPTION_POINTERS* const)
+78900 unknown
 78910 _guard_dispatch_icall_nop()
 78912 __scrt_is_nonwritable_in_current_image$filt$0
 7892a `dllmain_crt_process_attach'::`1'::fin$0
@@ -1285,3 +1288,6 @@ ff10 Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, unsigned
 78d80 floor
 78d90 memmove
 78da0 ceil
+78da6 unknown
+78db2 unknown
+78dbe unknown
