@@ -217,7 +217,7 @@ mod test {
         ));
         assert!(result.is_ok());
         let result = result.unwrap();
-        assert_eq!(result.addr.len(), 1286);
+        assert_eq!(result.addr.len(), 1321);
         assert_eq!(result.addr[776], 0x31fc0);
         assert_eq!(
             std::str::from_utf8(
@@ -236,7 +236,7 @@ mod test {
         ));
         assert!(result.is_ok());
         let result = result.unwrap();
-        assert_eq!(result.addr.len(), 1074);
+        assert_eq!(result.addr.len(), 1080);
         assert_eq!(result.addr[454], 0x34670);
         assert_eq!(
             std::str::from_utf8(
@@ -288,7 +288,7 @@ mod test {
         ));
         assert!(result.is_ok());
         let result = result.unwrap();
-        assert_eq!(result.addr.len(), 1286);
+        assert_eq!(result.addr.len(), 1321);
         assert_eq!(result.addr[776], 0x31fc0);
         assert_eq!(
             std::str::from_utf8(
