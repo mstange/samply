@@ -1,3 +1,4 @@
+use crate::symbolicate::demangle_ocaml;
 use msvc_demangler::DemangleFlags;
 
 pub fn demangle_any(name: &str) -> String {
@@ -21,6 +22,10 @@ pub fn demangle_any(name: &str) -> String {
         if let Ok(demangled_string) = symbol.demangle(&options) {
             return demangled_string;
         }
+    }
+
+    if let Some(symbol) = demangle_ocaml::demangle(name) {
+        return symbol;
     }
 
     if name.starts_with('_') {
