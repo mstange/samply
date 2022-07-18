@@ -1,0 +1,28 @@
+name: Rust
+
+on: [push, pull_request]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Build samply-symbols
+      working-directory: samply-symbols
+      run: cargo build --verbose
+    - name: Test samply-symbols
+      working-directory: samply-symbols
+      run: cargo test --verbose
+
+    - name: Build samply-api
+      working-directory: samply-api
+      run: cargo build --verbose
+    - name: Test samply-api
+      working-directory: samply-api
+      run: cargo test --verbose

@@ -1,0 +1,1 @@
+{"results":[{"stacks":[[{"frame":0,"module_offset":"0x34674","module":"mozglue.dll","function":"mozilla::baseprofiler::profiler_get_profile(double, bool, bool)","function_offset":"0x4","function_size":"0x41d"}]],"found_modules":{"mozglue.dll/B3CC644ECC086E044C4C44205044422E1":true}}]}

@@ -1,0 +1,19 @@
+[package]
+name = "dump-table"
+version = "0.1.0"
+authors = ["Markus Stange <mstange@themasta.com>"]
+license = "MIT/Apache-2.0"
+edition = "2018"
+
+[features]
+default = []
+# default = ["chunked_caching"] # To simulate wasm file reading
+chunked_caching = []
+
+[dependencies]
+# samply-symbols = { path = "../../samply-symbols", features = ["partial_read_stats"] }
+samply-symbols = { path = "../../samply-symbols" }
+structopt = "0.3.14"
+memmap2 = "0.5.0"
+anyhow = "1.0.28"
+futures = "0.3.5"
