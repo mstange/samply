@@ -1,10 +1,6 @@
 name: Rust
 
-on:
-  push:
-    branches: [ "master" ]
-  pull_request:
-    branches: [ "master" ]
+on: [push, pull_request]
 
 env:
   CARGO_TERM_COLOR: always
@@ -16,7 +12,17 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
-    - name: Build
-      run: cargo build --workspace --verbose
-    - name: Run tests
-      run: cargo test --workspace --verbose
+
+    - name: Build samply-symbols
+      working-directory: samply-symbols
+      run: cargo build --verbose
+    - name: Test samply-symbols
+      working-directory: samply-symbols
+      run: cargo test --verbose
+
+    - name: Build samply-api
+      working-directory: samply-api
+      run: cargo build --verbose
+    - name: Test samply-api
+      working-directory: samply-api
+      run: cargo test --verbose

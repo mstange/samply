@@ -1,3 +1,4 @@
+use samply_api::samply_symbols;
 use serde::Serialize;
 use std::fmt::{self, Display};
 use wasm_bindgen::prelude::*;
@@ -8,8 +9,8 @@ pub struct GetSymbolsError {
     message: String,
 }
 
-impl From<profiler_get_symbols::GetSymbolsError> for GetSymbolsError {
-    fn from(err: profiler_get_symbols::GetSymbolsError) -> Self {
+impl From<samply_symbols::Error> for GetSymbolsError {
+    fn from(err: samply_symbols::Error) -> Self {
         Self {
             name: err.enum_as_string().to_string(),
             message: err.to_string(),

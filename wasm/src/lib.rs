@@ -5,8 +5,8 @@ use std::{future::Future, pin::Pin};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
-use profiler_get_symbols::{
-    debugid::DebugId, FileByteSource, FileContentsWithChunkedCaching, FileLocation,
+use samply_api::samply_symbols::{
+    self, debugid::DebugId, FileByteSource, FileContentsWithChunkedCaching, FileLocation,
 };
 
 pub use error::{GenericError, GetSymbolsError, JsValueError};
@@ -140,7 +140,7 @@ async fn query_api_impl(
     request_json: String,
     helper: FileAndPathHelper,
 ) -> Result<JsValue, JsValue> {
-    let response_json = profiler_get_symbols::query_api(&url, &request_json, &helper).await;
+    let response_json = samply_api::query_api(&url, &request_json, &helper).await;
     Ok(response_json.into())
 }
 
@@ -150,12 +150,9 @@ async fn get_compact_symbol_table_impl(
     helper: FileAndPathHelper,
 ) -> Result<JsValue, JsValue> {
     let debug_id = DebugId::from_breakpad(&breakpad_id).map_err(|_| {
-        GetSymbolsError::from(profiler_get_symbols::GetSymbolsError::InvalidBreakpadId(
-            breakpad_id,
-        ))
+        GetSymbolsError::from(samply_symbols::Error::InvalidBreakpadId(breakpad_id))
     })?;
-    let result =
-        profiler_get_symbols::get_compact_symbol_table(&debug_name, debug_id, &helper).await;
+    let result = samply_symbols::get_compact_symbol_table(&debug_name, debug_id, &helper).await;
     match result {
         Result::Ok(table) => Ok(js_sys::Array::of3(
             &js_sys::Uint32Array::from(&table.addr[..]),
@@ -204,7 +201,7 @@ impl FileByteSource for FileContentsWrapper {
         buffer: &mut Vec<u8>,
         offset: u64,
         size: usize,
-    ) -> profiler_get_symbols::FileAndPathHelperResult<()> {
+    ) -> samply_symbols::FileAndPathHelperResult<()> {
         // Make a buffer, wrap a Uint8Array around its bits, and call into JS to fill it.
         // This is implemented in such a way that it avoids zero-initialization and extra
         // copies of the contents.
@@ -227,17 +224,16 @@ impl Drop for FileContentsWrapper {
     }
 }
 
-impl<'h> profiler_get_symbols::FileAndPathHelper<'h> for FileAndPathHelper {
+impl<'h> samply_symbols::FileAndPathHelper<'h> for FileAndPathHelper {
     type F = FileContentsWithChunkedCaching<FileContentsWrapper>;
     type OpenFileFuture =
-        Pin<Box<dyn Future<Output = profiler_get_symbols::FileAndPathHelperResult<Self::F>> + 'h>>;
+        Pin<Box<dyn Future<Output = samply_symbols::FileAndPathHelperResult<Self::F>> + 'h>>;
 
     fn get_candidate_paths_for_binary_or_pdb(
         &self,
         debug_name: &str,
         debug_id: &DebugId,
-    ) -> profiler_get_symbols::FileAndPathHelperResult<Vec<profiler_get_symbols::CandidatePathInfo>>
-    {
+    ) -> samply_symbols::FileAndPathHelperResult<Vec<samply_symbols::CandidatePathInfo>> {
         get_candidate_paths_for_binary_or_pdb_impl(
             FileAndPathHelper::from((*self).clone()),
             debug_name.to_owned(),
@@ -248,8 +244,7 @@ impl<'h> profiler_get_symbols::FileAndPathHelper<'h> for FileAndPathHelper {
     fn open_file(
         &self,
         location: &FileLocation,
-    ) -> Pin<Box<dyn Future<Output = profiler_get_symbols::FileAndPathHelperResult<Self::F>> + 'h>>
-    {
+    ) -> Pin<Box<dyn Future<Output = samply_symbols::FileAndPathHelperResult<Self::F>> + 'h>> {
         let helper = FileAndPathHelper::from((*self).clone());
         let location = location.clone();
         let future = async move {
@@ -272,7 +267,7 @@ fn get_candidate_paths_for_binary_or_pdb_impl(
     helper: FileAndPathHelper,
     debug_name: String,
     debug_id: DebugId,
-) -> profiler_get_symbols::FileAndPathHelperResult<Vec<profiler_get_symbols::CandidatePathInfo>> {
+) -> samply_symbols::FileAndPathHelperResult<Vec<samply_symbols::CandidatePathInfo>> {
     let breakpad_id = debug_id.breakpad().to_string();
     let res = helper.getCandidatePathsForBinaryOrPdb(&debug_name, &breakpad_id);
     let value = res.map_err(JsValueError::from)?;
@@ -286,13 +281,13 @@ fn get_candidate_paths_for_binary_or_pdb_impl(
                 if let Some(offset) = remainder.find(':') {
                     let dyld_cache_path = &remainder[0..offset];
                     let dylib_path = &remainder[offset + 1..];
-                    return profiler_get_symbols::CandidatePathInfo::InDyldCache {
+                    return samply_symbols::CandidatePathInfo::InDyldCache {
                         dyld_cache_path: dyld_cache_path.into(),
                         dylib_path: dylib_path.into(),
                     };
                 }
             }
-            profiler_get_symbols::CandidatePathInfo::SingleFile(FileLocation::Path(s.into()))
+            samply_symbols::CandidatePathInfo::SingleFile(FileLocation::Path(s.into()))
         })
         .collect())
 }
