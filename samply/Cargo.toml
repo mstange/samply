@@ -21,7 +21,7 @@ samply-symbols = { version = "0.17", path = "../samply-symbols" }
 # fxprof-processed-profile = { path = "../fxprof-processed-profile" }
 fxprof-processed-profile = "0.1.0"
 # framehop = { path = "../../framehop" }
-framehop = "0.6.0"
+framehop = "0.7"
 
 uuid = "1.0.0"
 libc = "0.2.71"
