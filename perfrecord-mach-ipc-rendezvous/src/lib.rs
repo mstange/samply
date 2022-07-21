@@ -38,7 +38,7 @@ mod mach_sys;
 const SMALL_MESSAGE_SIZE: usize = 4096;
 
 /// A string to prepend to our bootstrap ports.
-static BOOTSTRAP_PREFIX: &'static str = "org.rust-lang.ipc-channel.";
+static BOOTSTRAP_PREFIX: &str = "org.rust-lang.ipc-channel.";
 
 pub const MACH_PORT_NULL: mach_port_t = 0;
 
@@ -325,6 +325,7 @@ impl OsIpcReceiver {
         Ok(())
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn recv_with_blocking_mode(
         &self,
         blocking_mode: BlockingMode,
@@ -337,12 +338,14 @@ impl OsIpcReceiver {
         })
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn recv(
         &self,
     ) -> Result<(Vec<u8>, Vec<OsOpaqueIpcChannel>, Vec<OsIpcSharedMemory>), MachError> {
         self.recv_with_blocking_mode(BlockingMode::Blocking)
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn try_recv(
         &self,
     ) -> Result<(Vec<u8>, Vec<OsOpaqueIpcChannel>, Vec<OsIpcSharedMemory>), MachError> {
@@ -389,7 +392,7 @@ impl<'a> SendData<'a> {
 
     fn inline_data(&self) -> &[u8] {
         match *self {
-            SendData::Inline(ref data) => data,
+            SendData::Inline(data) => data,
             SendData::OutOfLine(_) => &[],
         }
     }
@@ -442,7 +445,7 @@ impl Clone for OsIpcSender {
 impl OsIpcSender {
     fn from_name(port: mach_port_t) -> OsIpcSender {
         OsIpcSender {
-            port: port,
+            port,
             nosync_marker: PhantomData,
         }
     }
@@ -633,7 +636,7 @@ impl OsIpcReceiverSet {
     pub fn new() -> Result<OsIpcReceiverSet, MachError> {
         let port = mach_port_allocate(MACH_PORT_RIGHT_PORT_SET)?;
         Ok(OsIpcReceiverSet {
-            port: port,
+            port,
             ports: vec![],
         })
     }
@@ -829,10 +832,7 @@ pub struct OsIpcOneShotServer {
 
 impl Drop for OsIpcOneShotServer {
     fn drop(&mut self) {
-        drop(OsIpcReceiver::unregister_global_name(mem::replace(
-            &mut self.name,
-            String::new(),
-        )));
+        let _ = OsIpcReceiver::unregister_global_name(mem::take(&mut self.name));
     }
 }
 
@@ -842,13 +842,14 @@ impl OsIpcOneShotServer {
         let name = receiver.register_bootstrap_name()?;
         Ok((
             OsIpcOneShotServer {
-                receiver: receiver,
+                receiver,
                 name: name.clone(),
             },
             name,
         ))
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn accept(
         self,
     ) -> Result<
@@ -877,10 +878,7 @@ pub struct OsIpcMultiShotServer {
 
 impl Drop for OsIpcMultiShotServer {
     fn drop(&mut self) {
-        drop(OsIpcReceiver::unregister_global_name(mem::replace(
-            &mut self.name,
-            String::new(),
-        )));
+        let _ = OsIpcReceiver::unregister_global_name(mem::take(&mut self.name));
     }
 }
 
@@ -890,31 +888,21 @@ impl OsIpcMultiShotServer {
         let name = receiver.register_bootstrap_name()?;
         Ok((
             OsIpcMultiShotServer {
-                receiver: receiver,
+                receiver,
                 name: name.clone(),
             },
             name,
         ))
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn accept(
         &mut self,
         blocking_mode: BlockingMode,
-    ) -> Result<
-        (
-            Vec<u8>,
-            Vec<OsOpaqueIpcChannel>,
-            Vec<OsIpcSharedMemory>,
-        ),
-        MachError,
-    > {
+    ) -> Result<(Vec<u8>, Vec<OsOpaqueIpcChannel>, Vec<OsIpcSharedMemory>), MachError> {
         let (bytes, channels, shared_memory_regions) =
             self.receiver.recv_with_blocking_mode(blocking_mode)?;
-        Ok((
-            bytes,
-            channels,
-            shared_memory_regions,
-        ))
+        Ok((bytes, channels, shared_memory_regions))
     }
 }
 
@@ -990,10 +978,7 @@ impl Deref for OsIpcSharedMemory {
 
 impl OsIpcSharedMemory {
     unsafe fn from_raw_parts(ptr: *mut u8, length: usize) -> OsIpcSharedMemory {
-        OsIpcSharedMemory {
-            ptr: ptr,
-            length: length,
-        }
+        OsIpcSharedMemory { ptr, length }
     }
 
     pub fn from_byte(byte: u8, length: usize) -> OsIpcSharedMemory {
@@ -1030,8 +1015,8 @@ unsafe fn setup_receive_buffer(buffer: &mut [u8], port_name: mach_port_t) {
     (*message).msgh_size = buffer.len() as u32
 }
 
-pub unsafe fn mach_task_self() -> mach_port_t {
-    mach_task_self_
+pub fn mach_task_self() -> mach_port_t {
+    unsafe { mach_task_self_ }
 }
 
 #[repr(C)]
