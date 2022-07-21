@@ -44,3 +44,5 @@ xperf -on  latency -stackwalk profile -Buffering -Buffersize 1024 -MinBuffers 50
 xperf -flush -f [output file]
 xperf -stop
 ```
+
+NOTE: converting circular buffer profiles is not yet supported.
