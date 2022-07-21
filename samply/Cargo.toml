@@ -16,7 +16,7 @@ profiler-symbol-server = "0.12.0"
 
 profiler-get-symbols = "0.14.0"
 
-# fxprof-processed-profile = { path = "../fxprof_processed_profile" }
+# fxprof-processed-profile = { path = "../fxprof-processed-profile" }
 fxprof-processed-profile = "0.1.0"
 
 tokio = { version = "1.17.0", features = ["rt", "rt-multi-thread", "macros"] }
