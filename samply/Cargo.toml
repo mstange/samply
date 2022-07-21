@@ -10,6 +10,7 @@ readme = "README.md"
 
 [dependencies]
 
+tokio = { version = "1.17.0", features = ["rt", "rt-multi-thread", "macros"] }
 samply-server = { version = "0.14", path = "../samply-server" }
 structopt = "0.3.14"
 
@@ -22,7 +23,6 @@ fxprof-processed-profile = "0.1.0"
 # framehop = { path = "../../framehop" }
 framehop = "0.6.0"
 
-tokio = { version = "1.17.0", features = ["rt", "rt-multi-thread", "macros"] }
 uuid = "1.0.0"
 libc = "0.2.71"
 mach = "0.3.2"
