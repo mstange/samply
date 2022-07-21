@@ -1,9 +1,12 @@
-# perfrecord
+# samply
+
+(This project was formerly known as "perfrecord". The rename to "samply" is currently in progress and not fully completed.)
 
 This is a work in progress and not ready for public consumption.
 
-`perfrecord` is a macOS-only command line CPU profiler that displays the result
-in the [Firefox profiler](https://profiler.firefox.com/).
+`samply` is a command line CPU profiler which uses the [Firefox profiler](https://profiler.firefox.com/) as its UI.
+
+At the moment it only works on macOS, but Linux and Windows support is planned.
 
 Try it out now:
 
@@ -17,21 +20,21 @@ your default browser, loads the profile in it, and runs a local webserver so tha
 can symbolicate the profile and show source code and assembly code on demand.
 
 The captured data is similar to that of the "CPU Profiler" in Instruments.
-`perfrecord` is a sampling profiler that collects stack traces, per thread, at some sampling interval.
+`samply` is a sampling profiler that collects stack traces, per thread, at some sampling interval.
 In the future it should support sampling based on wall-clock time ("All thread states") and CPU time.
 
-`perfrecord` does not require sudo privileges for profiling (non-signed) processes that it launches itself.
+`samply` does not require sudo privileges for profiling (non-signed) processes that it launches itself.
 
 ## Other examples
 
-`perfrecord rustup check` generates [this profile](https://share.firefox.dev/2MfPzak).
+`samply rustup check` generates [this profile](https://share.firefox.dev/2MfPzak).
 
 Profiling system-provided command line tools is not straightforward because of system-integrity protection.
 Here's an example for profiling `sleep`:
 
 ```
 cat /bin/sleep > /tmp/sleep; chmod +x /tmp/sleep
-perfrecord /tmp/sleep 2
+samply /tmp/sleep 2
 ```
 
 It produces [this profile](https://share.firefox.dev/2ZRmN7H).
@@ -61,14 +64,14 @@ The last two could be overcome by using Instruments just as a way to capture dat
 
 There are two main challenges here:
 
- 1. Getting the `mach_task_self` of the launched child process into perfrecord.
+ 1. Getting the `mach_task_self` of the launched child process into samply.
  2. Obtaining stacks from the task.
 
 ### Getting the task
 
 We get the task by injecting a library into the launched process using `DYLD_INSERT_LIBRARIES`.
-The injected library establishes a mach connection to perfrecord during its module constructor,
-and sends its `mach_task_self()` up to the perfrecord process.
+The injected library establishes a mach connection to samply during its module constructor,
+and sends its `mach_task_self()` up to the samply process.
 This makes use of code from the [ipc-channel crate](https://github.com/servo/ipc-channel/)'s
 mach implementation.
 
@@ -78,7 +81,7 @@ entitelments to work around this restriction.
 
 ### Obtaining stacks
 
-Once perfrecord has the `mach_port_t` for the child task, it has complete control over it.
+Once samply has the `mach_port_t` for the child task, it has complete control over it.
 It can enumerate threads, pause them at will, and read process memory.
 
 We use these primitives to walk the stack and enumerate shared libraries.

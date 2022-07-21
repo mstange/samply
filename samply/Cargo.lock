@@ -1093,30 +1093,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4fd5641d01c8f18a23da7b6fe29298ff4b55afcccdf78973b24cf3175fee32e"
 
 [[package]]
-name = "perfrecord"
-version = "0.8.0"
-dependencies = [
- "crossbeam-channel",
- "flate2",
- "framehop",
- "fxprof-processed-profile",
- "libc",
- "mach",
- "memmap2",
- "object",
- "perfrecord-mach-ipc-rendezvous",
- "profiler-get-symbols",
- "profiler-symbol-server",
- "serde_json",
- "signal-hook",
- "structopt",
- "tempfile",
- "thiserror",
- "tokio",
- "uuid 1.0.0",
-]
-
-[[package]]
 name = "perfrecord-mach-ipc-rendezvous"
 version = "0.2.1"
 dependencies = [
@@ -1411,6 +1387,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "samply"
+version = "0.8.0"
+dependencies = [
+ "crossbeam-channel",
+ "flate2",
+ "framehop",
+ "fxprof-processed-profile",
+ "libc",
+ "mach",
+ "memmap2",
+ "object",
+ "perfrecord-mach-ipc-rendezvous",
+ "profiler-get-symbols",
+ "profiler-symbol-server",
+ "serde_json",
+ "signal-hook",
+ "structopt",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "uuid 1.0.0",
 ]
 
 [[package]]

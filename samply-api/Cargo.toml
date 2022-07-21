@@ -1,12 +1,11 @@
 [package]
 name = "samply-api"
 version = "0.16.1"
-authors = ["Markus Stange <mstange@themasta.com>"]
+authors = ["Markus Stange <mstange.moz@gmail.com>"]
 license = "MIT/Apache-2.0"
 edition = "2018"
 description = "Symbolication utilities for the Firefox profiler."
-homepage = "https://github.com/mstange/profiler-get-symbols/"
-repository = "https://github.com/mstange/profiler-get-symbols/"
+repository = "https://github.com/mstange/samply/"
 readme = "README.md"
 
 [features]

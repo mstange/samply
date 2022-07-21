@@ -31,18 +31,18 @@ use sampler::{Sampler, TaskInit};
 
 #[derive(Debug, StructOpt)]
 #[structopt(
-    name = "perfrecord",
+    name = "samply",
     about = r#"
-perfrecord is a sampling CPU profiler.
+samply is a sampling CPU profiler.
 Run a command, record a CPU profile of its execution, and open the profiler UI.
 
 EXAMPLES:
     # Default usage:
-    perfrecord ./yourcommand yourargs
+    samply ./yourcommand yourargs
 
     # Alternative usage: Save profile to file for later viewing, and then load it.
-    perfrecord --save-only -o prof.json ./yourcommand yourargs
-    perfrecord --load prof.json
+    samply --save-only -o prof.json ./yourcommand yourargs
+    samply --load prof.json
 "#
 )]
 struct Opt {

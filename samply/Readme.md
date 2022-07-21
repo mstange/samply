@@ -1,6 +1,6 @@
-# perfrecord
+# samply
 
-`perfrecord` is intended to become a command line CPU profiler for macOS.
+`samply` is intended to become a command line CPU profiler for macOS.
 It is a work in progress and not ready for public consumption.
 
 Try it out:
@@ -14,4 +14,4 @@ perfrecord -o prof.json ./yourcommand args
 perfrecord --launch prof.json
 ```
 
-See [the repo](https://github.com/mstange/perfrecord/) for more information.
+See [the repo](https://github.com/mstange/samply/) for more information.

@@ -5,7 +5,7 @@ edition = "2018"
 authors = ["Markus Stange <mstange.moz@gmail.com>"]
 license = "MIT/Apache-2.0"
 description = "Create profiles in the Gecko profile JSON format."
-repository = "https://github.com/mstange/perfrecord/"
+repository = "https://github.com/mstange/samply/"
 readme = "README.md"
 
 [dependencies]
