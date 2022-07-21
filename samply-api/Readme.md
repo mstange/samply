@@ -1,7 +1,7 @@
-# profiler-get-symbols
+# samply-api
 
-This is the "library" part of the [`profiler-get-symbols` workspace](https://github.com/mstange/profiler-get-symbols/).
-This crate exposes three functions: `get_compact_symbol_table`, `get_symbolication_result`
-and `query_api`. These functions allow various consumers to obtain symbol information.
+This crate implements a JSON API for profiler symbolication with the help of local symbol files. It exposes a single function `query_api`, and uses the `samply-symbols` crate for its implementation.
 
-Please check the [full repo](https://github.com/mstange/profiler-get-symbols/) for details.
+The API is documented in [API.md](../API.md).
+
+Just like the `samply-symbols` crate, this crate does not contain any direct file access. It is written in such a way that it can be compiled to WebAssembly, with all file access being mediated via a `FileAndPathHelper` trait.
