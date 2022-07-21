@@ -43,7 +43,7 @@ bitvec = { version = "1.0.0", optional = true }
 rangemap = "1.0.1"
 elsa = "1.4.0"
 memchr = { version = "2.4", default-features = false }
-regex = "1.5"
+regex = "1.6"
 srcsrv = "0.2.2"
 lzma-rs = "0.2.0"
 macho-unwind-info = "0.3.0"
