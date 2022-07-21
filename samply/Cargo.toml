@@ -18,8 +18,7 @@ structopt = "0.3.14"
 
 perfrecord-mach-ipc-rendezvous = { version = "0.2.1", path = "../perfrecord-mach-ipc-rendezvous" }
 samply-symbols = { version = "0.17", path = "../samply-symbols" }
-# fxprof-processed-profile = { path = "../fxprof-processed-profile" }
-fxprof-processed-profile = "0.1.0"
+fxprof-processed-profile = { version = "0.4", path = "../fxprof-processed-profile" }
 # framehop = { path = "../../framehop" }
 framehop = "0.7"
 

@@ -1,7 +1,7 @@
 use crossbeam_channel::Receiver;
-use fxprof_processed_profile::InstantTimestampMaker;
-use fxprof_processed_profile::Profile;
-use fxprof_processed_profile::ReferenceTimestamp;
+use fxprof_processed_profile::{
+    CategoryColor, CategoryPairHandle, InstantTimestampMaker, Profile, ReferenceTimestamp,
+};
 use mach::port::mach_port_t;
 
 use std::mem;
@@ -61,6 +61,9 @@ impl Sampler {
             self.interval,
         );
 
+        let default_category =
+            CategoryPairHandle::from(profile.add_category("Regular", CategoryColor::Blue));
+
         let root_task_init = match self.task_receiver.recv() {
             Ok(task_init) => task_init,
             Err(_) => {
@@ -76,6 +79,7 @@ impl Sampler {
             timestamp_maker.make_ts(root_task_init.start_time),
             &self.command_name,
             &mut profile,
+            default_category,
         )
         .expect("couldn't create root TaskProfiler");
 
@@ -97,6 +101,7 @@ impl Sampler {
                     timestamp_maker.make_ts(task_init.start_time),
                     &self.command_name,
                     &mut profile,
+                    default_category,
                 ) {
                     Ok(new_task) => new_task,
                     Err(_) => {
@@ -154,6 +159,7 @@ impl Sampler {
                         timestamp_maker.make_ts(task_init.start_time),
                         &self.command_name,
                         &mut profile,
+                        default_category,
                     )
                     .expect("couldn't create TaskProfiler");
                     live_other_tasks.push(new_task);

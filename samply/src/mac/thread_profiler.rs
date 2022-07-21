@@ -1,5 +1,7 @@
 use framehop::FrameAddress;
-use fxprof_processed_profile::{CpuDelta, Frame, Profile, ThreadHandle, Timestamp};
+use fxprof_processed_profile::{
+    CategoryPairHandle, CpuDelta, Frame, Profile, ThreadHandle, Timestamp,
+};
 use mach::mach_types::thread_act_t;
 use mach::port::mach_port_t;
 
@@ -26,6 +28,7 @@ pub struct ThreadProfiler {
     stack_memory: ForeignMemory,
     previous_sample_cpu_time_us: u64,
     ignored_errors: Vec<SamplingError>,
+    default_category: CategoryPairHandle,
 }
 
 impl ThreadProfiler {
@@ -34,6 +37,7 @@ impl ThreadProfiler {
         tid: u32,
         profile_thread: ThreadHandle,
         thread_act: thread_act_t,
+        default_category: CategoryPairHandle,
     ) -> Self {
         ThreadProfiler {
             thread_act,
@@ -45,6 +49,7 @@ impl ThreadProfiler {
             stack_memory: ForeignMemory::new(task),
             previous_sample_cpu_time_us: 0,
             ignored_errors: Vec::new(),
+            default_category,
         }
     }
 
@@ -110,8 +115,12 @@ impl ThreadProfiler {
                 .stack_scratch_space
                 .iter()
                 .map(|address| match address {
-                    FrameAddress::InstructionPointer(ip) => Frame::InstructionPointer(*ip),
-                    FrameAddress::ReturnAddress(ra) => Frame::ReturnAddress(u64::from(*ra)),
+                    FrameAddress::InstructionPointer(ip) => {
+                        (Frame::InstructionPointer(*ip), self.default_category)
+                    }
+                    FrameAddress::ReturnAddress(ra) => {
+                        (Frame::ReturnAddress(u64::from(*ra)), self.default_category)
+                    }
                 });
 
             profile.add_sample(self.profile_thread, now, frames, cpu_delta, 1);

@@ -3,7 +3,9 @@ use framehop::{
     UnwinderNative,
 };
 use fxprof_processed_profile::debugid::DebugId;
-use fxprof_processed_profile::{ProcessHandle, Profile, Timestamp};
+use fxprof_processed_profile::{
+    CategoryPairHandle, LibraryInfo, ProcessHandle, Profile, Timestamp,
+};
 use mach::mach_types::thread_act_port_array_t;
 use mach::mach_types::thread_act_t;
 use mach::message::mach_msg_type_number_t;
@@ -82,6 +84,7 @@ pub struct TaskProfiler {
     profile_process: ProcessHandle,
     ignored_errors: Vec<SamplingError>,
     unwinder: UnwinderNative<UnwindSectionBytes, MayAllocateDuringUnwind>,
+    default_category: CategoryPairHandle,
 }
 
 impl TaskProfiler {
@@ -91,6 +94,7 @@ impl TaskProfiler {
         start_time: Timestamp,
         command_name: &str,
         profile: &mut Profile,
+        default_category: CategoryPairHandle,
     ) -> Result<Self, SamplingError> {
         let thread_acts = get_thread_list(task)?;
         let profile_process = profile.add_process(command_name, pid, start_time);
@@ -100,7 +104,8 @@ impl TaskProfiler {
             let is_main = i == 0;
             if let Ok((tid, _is_libdispatch_thread)) = get_thread_id(thread_act) {
                 let profile_thread = profile.add_thread(profile_process, tid, start_time, is_main);
-                let thread = ThreadProfiler::new(task, tid, profile_thread, thread_act);
+                let thread =
+                    ThreadProfiler::new(task, tid, profile_thread, thread_act, default_category);
                 live_threads.insert(thread_act, thread);
             }
         }
@@ -115,6 +120,7 @@ impl TaskProfiler {
             executable_lib: None,
             ignored_errors: Vec::new(),
             unwinder: UnwinderNative::new(),
+            default_category,
         })
     }
 
@@ -173,16 +179,25 @@ impl TaskProfiler {
                             .to_string();
                         profile.set_process_name(self.profile_process, &self.command_name);
                     }
-                    profile.add_lib(
-                        self.profile_process,
-                        path,
-                        None,
-                        path,
-                        lib.debug_id.unwrap(),
-                        Some("x86_64"),
-                        lib.base_avma,
-                        lib.base_avma..(lib.base_avma + lib.vmsize),
-                    );
+
+                    if let Some(name) = path.file_name() {
+                        let name = name.to_string_lossy();
+                        let path = path.to_string_lossy();
+                        profile.add_lib(
+                            self.profile_process,
+                            LibraryInfo {
+                                base_avma: lib.base_avma,
+                                avma_range: lib.base_avma..(lib.base_avma + lib.vmsize),
+                                name: name.to_string(),
+                                debug_name: name.to_string(),
+                                path: path.to_string(),
+                                debug_path: path.to_string(),
+                                debug_id: lib.debug_id.unwrap(),
+                                code_id: None,
+                                arch: Some("x86_64".to_string()),
+                            },
+                        );
+                    }
                 }
                 Modification::Removed(lib) => {
                     profile.unload_lib(self.profile_process, lib.base_avma);
@@ -202,8 +217,13 @@ impl TaskProfiler {
                     if let Ok((tid, _is_libdispatch_thread)) = get_thread_id(thread_act) {
                         let profile_thread =
                             profile.add_thread(self.profile_process, tid, now, false);
-                        let thread =
-                            ThreadProfiler::new(self.task, tid, profile_thread, thread_act);
+                        let thread = ThreadProfiler::new(
+                            self.task,
+                            tid,
+                            profile_thread,
+                            thread_act,
+                            self.default_category,
+                        );
                         entry.insert(thread)
                     } else {
                         continue;
