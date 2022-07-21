@@ -1,5 +1,5 @@
 [package]
-name = "profiler-symbol-server"
+name = "samply-server"
 version = "0.13.0"
 authors = ["Markus Stange <mstange@themasta.com>"]
 edition = "2018"
