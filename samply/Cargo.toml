@@ -11,10 +11,8 @@ readme = "README.md"
 [dependencies]
 perfrecord-mach-ipc-rendezvous = { version = "0.2.1", path = "../perfrecord-mach-ipc-rendezvous" }
 
-# profiler-symbol-server = { path = "../../profiler-symbol-server" }
-profiler-symbol-server = "0.12.0"
-
-profiler-get-symbols = "0.14.0"
+samply-server = { version = "0.14", path = "../samply-server" }
+samply-symbols = { version = "0.17", path = "../samply-symbols" }
 
 # fxprof-processed-profile = { path = "../fxprof-processed-profile" }
 fxprof-processed-profile = "0.1.0"

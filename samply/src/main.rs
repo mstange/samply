@@ -1,5 +1,6 @@
 use crossbeam_channel::unbounded;
-use profiler_symbol_server::{get_symbol_path_from_environment, start_server, PortSelection};
+use samply_server::symsrv::get_symbol_path_from_environment;
+use samply_server::{start_server, PortSelection};
 use serde_json::to_writer;
 use std::fs::File;
 use std::io::BufWriter;

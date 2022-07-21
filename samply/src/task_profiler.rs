@@ -17,7 +17,7 @@ use mach::traps::mach_task_self;
 use mach::vm::mach_vm_deallocate;
 use mach::vm_types::{mach_vm_address_t, mach_vm_size_t};
 use object::{CompressedFileRange, CompressionFormat, Object, ObjectSection};
-use profiler_get_symbols::DebugIdExt;
+use samply_symbols::DebugIdExt;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::mem;
