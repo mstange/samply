@@ -3,10 +3,7 @@
 //! information.
 //! The API was designed for the Firefox profiler.
 //!
-//! The main entry point of this crate is the async `query_api` function, which accepts a
-//! JSON string with the query input. The JSON API matches the API of the [Mozilla
-//! symbolication server ("Tecken")](https://tecken.readthedocs.io/en/latest/symbolication.html).
-//! An alternative JSON-free API is available too, but it is not very ergonomic.
+//! The main entry point of this crate is the async `get_symbolication_result` function.
 //!
 //! # Design constraints
 //!
@@ -48,7 +45,7 @@
 //!
 //! # Example
 //!
-//! ```
+//! ```rust
 //! use samply_symbols::{
 //!     FileContents, FileAndPathHelper, FileAndPathHelperResult, OptionallySendFuture,
 //!     CandidatePathInfo, FileLocation, AddressDebugInfo, SymbolicationResult, SymbolicationResultKind, SymbolicationQuery
