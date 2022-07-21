@@ -6,12 +6,13 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::{header, Body, Request, Response, Server};
 use hyper::{Method, StatusCode};
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
-use profiler_get_symbols::debugid::CodeId;
-use profiler_get_symbols::{
-    self, debugid::DebugId, query_api, CandidatePathInfo, FileAndPathHelper,
-    FileAndPathHelperResult, FileLocation, OptionallySendFuture,
-};
 use rand::RngCore;
+use samply_api::debugid::{CodeId, DebugId};
+use samply_api::query_api;
+use samply_api::samply_symbols::{
+    CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
+    OptionallySendFuture,
+};
 use serde_derive::Deserialize;
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -502,7 +503,7 @@ impl Helper {
                 if self.verbose {
                     eprintln!("Trying to get file {:?} from symbol cache", path);
                 }
-                Ok(self.symbol_cache.get_pdb(Path::new(path)).await?)
+                Ok(self.symbol_cache.get_file(Path::new(path)).await?)
             }
         }
     }
