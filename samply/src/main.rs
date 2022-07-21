@@ -1,7 +1,7 @@
 use clap::{Args, Parser, Subcommand};
 use samply_server::PortSelection;
 
-use std::{ffi::OsString, path::PathBuf};
+use std::path::PathBuf;
 
 #[cfg(target_os = "macos")]
 mod mac;
@@ -81,11 +81,11 @@ struct RecordArgs {
 
     /// Profile the execution of this command.
     #[clap(required = true)]
-    command: OsString,
+    command: std::ffi::OsString,
 
     /// The arguments passed to the recorded command.
     #[clap(multiple_values = true, allow_hyphen_values = true)]
-    command_args: Vec<OsString>,
+    command_args: Vec<std::ffi::OsString>,
 }
 
 #[derive(Debug, Args)]
