@@ -10,7 +10,7 @@ readme = "README.md"
 
 [features]
 default = []
-send_futures = []
+send_futures = ["samply-symbols/send_futures"]
 
 [dependencies]
 samply-symbols = { version = "0.17.1", path = "../samply-symbols" }
