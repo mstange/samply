@@ -162,7 +162,13 @@ impl TaskProfiler {
                     let path = Path::new(&lib.file);
                     if self.executable_lib.is_none() && lib.is_executable {
                         self.executable_lib = Some(lib.clone());
-                        self.command_name = path.components().next_back().unwrap().as_os_str().to_string_lossy().to_string();
+                        self.command_name = path
+                            .components()
+                            .next_back()
+                            .unwrap()
+                            .as_os_str()
+                            .to_string_lossy()
+                            .to_string();
                         profile.set_process_name(self.profile_process, &self.command_name);
                     }
                     profile.add_lib(

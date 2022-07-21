@@ -1,0 +1,16 @@
+[package]
+name = "samply-mac-preload"
+version = "0.1.0"
+authors = ["Markus Stange <mstange@themasta.com>"]
+edition = "2018"
+license = "MIT OR Apache-2.0"
+
+[lib]
+crate_type = ["cdylib"]
+
+[profile.release]
+lto = true
+panic = 'abort'
+
+[dependencies]
+perfrecord-mach-ipc-rendezvous = { path = "../perfrecord-mach-ipc-rendezvous" }

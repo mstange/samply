@@ -13,7 +13,7 @@ pub struct TaskAccepter {
     _temp_dir: tempfile::TempDir,
 }
 
-static PRELOAD_LIB_CONTENTS: &[u8] = include_bytes!("../resources/libperfrecord_preload.dylib");
+static PRELOAD_LIB_CONTENTS: &[u8] = include_bytes!("../resources/libsamply_mac_preload.dylib");
 
 impl TaskAccepter {
     pub fn create_and_launch_root_task(
@@ -22,28 +22,28 @@ impl TaskAccepter {
     ) -> Result<(Self, Child), MachError> {
         let (server, server_name) = OsIpcMultiShotServer::new()?;
 
-        // Launch the child with DYLD_INSERT_LIBRARIES set to libperfrecord_preload.dylib.
+        // Launch the child with DYLD_INSERT_LIBRARIES set to libsamply_mac_preload.dylib.
 
-        // We would like to ship with libperfrecord_preload.dylib as a separate resource file.
-        // But this won't work with cargo install. So we write out libperfrecord_preload.dylib
+        // We would like to ship with libsamply_mac_preload.dylib as a separate resource file.
+        // But this won't work with cargo install. So we write out libsamply_mac_preload.dylib
         // to a temporary directory.
         let dir = tempdir().expect("Couldn't create temporary directory for preload-lib");
-        let preload_lib_path = dir.path().join("libperfrecord_preload.dylib");
+        let preload_lib_path = dir.path().join("libsamply_mac_preload.dylib");
         let mut file =
-            File::create(&preload_lib_path).expect("Couldn't create libperfrecord_preload.dylib");
+            File::create(&preload_lib_path).expect("Couldn't create libsamply_mac_preload.dylib");
         file.write_all(PRELOAD_LIB_CONTENTS)
-            .expect("Couldn't write libperfrecord_preload.dylib");
+            .expect("Couldn't write libsamply_mac_preload.dylib");
         mem::drop(file);
 
         // Take this process's environment variables and add DYLD_INSERT_LIBRARIES
-        // and PERFRECORD_BOOTSTRAP_SERVER_NAME.
+        // and SAMPLY_BOOTSTRAP_SERVER_NAME.
         let child_env = std::env::vars_os()
             .chain(std::iter::once((
                 "DYLD_INSERT_LIBRARIES".into(),
                 preload_lib_path.into(),
             )))
             .chain(std::iter::once((
-                "PERFRECORD_BOOTSTRAP_SERVER_NAME".into(),
+                "SAMPLY_BOOTSTRAP_SERVER_NAME".into(),
                 server_name.into(),
             )));
 
