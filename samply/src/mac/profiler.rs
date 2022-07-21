@@ -2,6 +2,7 @@ use crossbeam_channel::unbounded;
 use fxprof_processed_profile::Profile;
 use serde_json::to_writer;
 
+use std::ffi::OsString;
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::Path;
@@ -17,7 +18,8 @@ use crate::server::{start_server_main, ServerProps};
 
 pub fn start_recording(
     output_file: &Path,
-    args: &[String],
+    command_name: OsString,
+    command_args: &[OsString],
     time_limit: Option<Duration>,
     interval: Duration,
     server_props: Option<ServerProps>,
@@ -36,11 +38,8 @@ pub fn start_recording(
         }
     });
 
-    let command_name = args.first().unwrap().clone();
-    let args: Vec<&str> = args.iter().skip(1).map(std::ops::Deref::deref).collect();
-
     let (task_sender, task_receiver) = unbounded();
-    let command_name_copy = command_name.clone();
+    let command_name_copy = command_name.to_string_lossy().to_string();
     let sampler_thread = thread::spawn(move || {
         let sampler = Sampler::new(command_name_copy, task_receiver, interval, time_limit);
         let profile = sampler.run().expect("Sampler ran into an error");
@@ -59,7 +58,7 @@ pub fn start_recording(
     .expect("cannot register signal handler");
 
     let (mut task_accepter, mut root_child) =
-        TaskAccepter::create_and_launch_root_task(&command_name, &args)?;
+        TaskAccepter::create_and_launch_root_task(&command_name, command_args)?;
 
     let (accepter_sender, accepter_receiver) = unbounded();
     let accepter_thread = thread::spawn(move || loop {

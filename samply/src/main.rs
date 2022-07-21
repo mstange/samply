@@ -1,137 +1,154 @@
+use clap::{Args, Parser, Subcommand};
 use samply_server::PortSelection;
-use structopt::StructOpt;
 
-use std::path::PathBuf;
-use std::time::Duration;
+use std::{ffi::OsString, path::PathBuf};
 
 #[cfg(target_os = "macos")]
 mod mac;
+
+mod server;
 
 // To avoid warnings about unused declarations
 #[cfg(target_os = "macos")]
 pub use mac::{kernel_error, thread_act, thread_info};
 
-mod server;
-
 use server::{start_server_main, ServerProps};
 
-#[derive(Debug, StructOpt)]
-#[structopt(
+#[derive(Debug, Parser)]
+#[clap(
     name = "samply",
     about = r#"
 samply is a sampling CPU profiler.
 Run a command, record a CPU profile of its execution, and open the profiler UI.
+On non-macOS platforms, samply can only load existing profiles.
 
 EXAMPLES:
     # Default usage:
-    samply ./yourcommand yourargs
+    samply record ./yourcommand yourargs
 
     # Alternative usage: Save profile to file for later viewing, and then load it.
-    samply --save-only -o prof.json ./yourcommand yourargs
-    samply --load prof.json
+    samply record --save-only -o prof.json -- ./yourcommand yourargs
+    samply load prof.json
 "#
 )]
 struct Opt {
-    /// Do not open the profiler UI.
-    #[structopt(short, long = "no-open")]
-    no_open: bool,
+    #[clap(subcommand)]
+    action: Action,
+}
 
+#[derive(Debug, Subcommand)]
+enum Action {
+    /// Load a profile from a file and display it.
+    Load(LoadArgs),
+
+    #[cfg(target_os = "macos")]
+    /// Record a profile and display it.
+    Record(RecordArgs),
+}
+
+#[derive(Debug, Args)]
+struct LoadArgs {
+    /// Path to the file that should be loaded.
+    #[clap(parse(from_os_str))]
+    file: PathBuf,
+
+    #[clap(flatten)]
+    server_args: ServerArgs,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Debug, Args)]
+#[clap(trailing_var_arg = true)]
+struct RecordArgs {
     /// Do not run a local server after recording.
-    #[structopt(short, long = "save-only")]
+    #[clap(short, long)]
     save_only: bool,
 
-    /// Sampling frequency, in Hz
-    #[structopt(short, long, default_value = "1000")]
-    frequency: f64,
+    /// Sampling rate, in Hz
+    #[clap(short, long, default_value = "1000")]
+    rate: f64,
 
     /// Limit the recorded time to the specified number of seconds
-    #[structopt(short = "t", long = "time-limit")]
-    time_limit: Option<f64>,
+    #[clap(short, long)]
+    duration: Option<f64>,
+
+    /// Output filename.
+    #[clap(short, long, default_value = "profile.json", parse(from_os_str))]
+    output: PathBuf,
+
+    #[clap(flatten)]
+    server_args: ServerArgs,
+
+    /// Profile the execution of this command.
+    #[clap(required = true)]
+    command: OsString,
+
+    /// The arguments passed to the recorded command.
+    #[clap(multiple_values = true, allow_hyphen_values = true)]
+    command_args: Vec<OsString>,
+}
+
+#[derive(Debug, Args)]
+struct ServerArgs {
+    /// Do not open the profiler UI.
+    #[clap(short, long)]
+    no_open: bool,
 
     /// The port to use for the local web server
-    #[structopt(short, long, default_value = "3000+")]
+    #[clap(short, long, default_value = "3000+")]
     port: String,
 
     /// Print debugging output.
-    #[structopt(short, long)]
+    #[clap(short, long)]
     verbose: bool,
-
-    /// Save the collected profile to this file.
-    #[structopt(
-        short = "o",
-        long = "out",
-        default_value = "profile.json",
-        parse(from_os_str)
-    )]
-    output_file: PathBuf,
-
-    /// Profile the execution of this command. Ignored if --load is specified.
-    #[structopt(subcommand)]
-    rest: Option<Subcommands>,
-
-    /// Don't record. Instead, load the specified file in the profiler.
-    #[structopt(short = "l", long = "load", parse(from_os_str))]
-    load: Option<PathBuf>,
-}
-
-#[derive(Debug, PartialEq, StructOpt)]
-enum Subcommands {
-    #[structopt(external_subcommand)]
-    Command(Vec<String>),
 }
 
 fn main() {
     let opt = Opt::from_args();
-    if let Some(file) = opt.load.as_deref() {
-        start_server_main(file, opt.server_props());
-        return;
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        let server_props = if opt.save_only {
-            None
-        } else {
-            Some(opt.server_props())
-        };
-
-        let command = match opt.rest {
-            Some(Subcommands::Command(command)) if !command.is_empty() => command,
-            _ => {
-                eprintln!("Error: missing command\n");
-                Opt::clap().print_help().unwrap();
-                println!();
-                std::process::exit(1);
-            }
-        };
-
-        let time_limit = opt.time_limit.map(Duration::from_secs_f64);
-        if opt.frequency <= 0.0 {
-            eprintln!(
-                "Error: sampling frequency must be greater than zero, got {}",
-                opt.frequency
-            );
-            std::process::exit(1);
+    match opt.action {
+        Action::Load(load_args) => {
+            start_server_main(&load_args.file, load_args.server_args.server_props());
         }
-        let interval = Duration::from_secs_f64(1.0 / opt.frequency);
-        let exit_status = match mac::profiler::start_recording(
-            &opt.output_file,
-            &command,
-            time_limit,
-            interval,
-            server_props,
-        ) {
-            Ok(exit_status) => exit_status,
-            Err(err) => {
-                eprintln!("Encountered a mach error during profiling: {:?}", err);
+
+        #[cfg(target_os = "macos")]
+        Action::Record(record_args) => {
+            use std::time::Duration;
+
+            let server_props = if record_args.save_only {
+                None
+            } else {
+                Some(record_args.server_args.server_props())
+            };
+
+            let time_limit = record_args.duration.map(Duration::from_secs_f64);
+            if record_args.rate <= 0.0 {
+                eprintln!(
+                    "Error: sampling rate must be greater than zero, got {}",
+                    record_args.rate
+                );
                 std::process::exit(1);
             }
-        };
-        std::process::exit(exit_status.code().unwrap_or(0));
+            let interval = Duration::from_secs_f64(1.0 / record_args.rate);
+            let exit_status = match mac::profiler::start_recording(
+                &record_args.output,
+                record_args.command,
+                &record_args.command_args,
+                time_limit,
+                interval,
+                server_props,
+            ) {
+                Ok(exit_status) => exit_status,
+                Err(err) => {
+                    eprintln!("Encountered a mach error during profiling: {:?}", err);
+                    std::process::exit(1);
+                }
+            };
+            std::process::exit(exit_status.code().unwrap_or(0));
+        }
     }
 }
 
-impl Opt {
+impl ServerArgs {
     pub fn server_props(&self) -> ServerProps {
         let open_in_browser = !self.no_open;
         let port_selection = match PortSelection::try_from_str(&self.port) {

@@ -12,7 +12,7 @@ readme = "README.md"
 
 tokio = { version = "1.17.0", features = ["rt", "rt-multi-thread", "macros"] }
 samply-server = { version = "0.14", path = "../samply-server" }
-structopt = "0.3.14"
+clap = { version = "3.2", features = ["derive"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 

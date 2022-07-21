@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::fs::File;
 use std::io::Write;
 use std::mem;
@@ -16,10 +17,14 @@ pub struct TaskAccepter {
 static PRELOAD_LIB_CONTENTS: &[u8] = include_bytes!("../../resources/libsamply_mac_preload.dylib");
 
 impl TaskAccepter {
-    pub fn create_and_launch_root_task(
-        program: &str,
-        args: &[&str],
-    ) -> Result<(Self, Child), MachError> {
+    pub fn create_and_launch_root_task<I, S>(
+        program: S,
+        args: I,
+    ) -> Result<(Self, Child), MachError>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
         let (server, server_name) = OsIpcMultiShotServer::new()?;
 
         // Launch the child with DYLD_INSERT_LIBRARIES set to libsamply_mac_preload.dylib.
