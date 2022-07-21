@@ -1,15 +1,17 @@
-use crate::error::SamplingError;
-use crate::task_profiler::TaskProfiler;
 use crossbeam_channel::Receiver;
 use fxprof_processed_profile::InstantTimestampMaker;
 use fxprof_processed_profile::Profile;
 use fxprof_processed_profile::ReferenceTimestamp;
 use mach::port::mach_port_t;
+
 use std::mem;
 use std::path::Path;
 use std::thread;
 use std::time::SystemTime;
 use std::time::{Duration, Instant};
+
+use super::error::SamplingError;
+use super::task_profiler::TaskProfiler;
 
 #[derive(Debug, Clone)]
 pub struct TaskInit {

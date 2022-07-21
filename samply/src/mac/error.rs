@@ -1,5 +1,6 @@
-use crate::kernel_error::KernelError;
 use thiserror::Error;
+
+use super::kernel_error::KernelError;
 
 #[derive(Debug, Clone, Error)]
 pub enum SamplingError {

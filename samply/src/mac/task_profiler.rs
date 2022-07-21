@@ -1,7 +1,3 @@
-use crate::error::SamplingError;
-use crate::kernel_error::{IntoResult, KernelError};
-use crate::proc_maps::{DyldInfo, DyldInfoManager, Modification, StackwalkerRef, VmSubData};
-use crate::thread_profiler::{get_thread_id, ThreadProfiler};
 use framehop::{
     CacheNative, MayAllocateDuringUnwind, Module, ModuleUnwindData, TextByteData, Unwinder,
     UnwinderNative,
@@ -18,11 +14,17 @@ use mach::vm::mach_vm_deallocate;
 use mach::vm_types::{mach_vm_address_t, mach_vm_size_t};
 use object::{CompressedFileRange, CompressionFormat, Object, ObjectSection};
 use samply_symbols::DebugIdExt;
+
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::ops::Deref;
 use std::path::Path;
+
+use super::error::SamplingError;
+use super::kernel_error::{IntoResult, KernelError};
+use super::proc_maps::{DyldInfo, DyldInfoManager, Modification, StackwalkerRef, VmSubData};
+use super::thread_profiler::{get_thread_id, ThreadProfiler};
 
 pub enum UnwindSectionBytes {
     Remapped(VmSubData),

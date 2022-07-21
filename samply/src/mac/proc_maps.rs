@@ -1,3 +1,4 @@
+use dyld_bindings::{dyld_all_image_infos, dyld_image_info};
 use fxprof_processed_profile::debugid::DebugId;
 use mach::message::mach_msg_type_number_t;
 use mach::port::mach_port_t;
@@ -19,6 +20,7 @@ use object::macho::{
 };
 use object::read::macho::{MachHeader, Section, Segment};
 use object::LittleEndian;
+
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::mem;
@@ -37,11 +39,10 @@ use framehop::{FrameAddress, UnwindRegsNative};
 #[cfg(target_arch = "x86_64")]
 use mach::{structs::x86_thread_state64_t, thread_status::x86_THREAD_STATE64};
 
-use crate::dyld_bindings::{self};
-use crate::error::SamplingError;
-use crate::kernel_error::{self, IntoResult, KernelError};
-use crate::task_profiler::UnwindSectionBytes;
-use dyld_bindings::{dyld_all_image_infos, dyld_image_info};
+use super::dyld_bindings::{self};
+use super::error::SamplingError;
+use super::kernel_error::{self, IntoResult, KernelError};
+use super::task_profiler::UnwindSectionBytes;
 
 pub const TASK_DYLD_INFO_COUNT: mach_msg_type_number_t = 5;
 

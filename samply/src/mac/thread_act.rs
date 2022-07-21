@@ -3,7 +3,7 @@
 #![allow(non_camel_case_types)]
 #![allow(non_upper_case_globals)]
 
-use crate::thread_info::{policy_t, thread_info_t};
+use super::thread_info::{policy_t, thread_info_t};
 use mach::boolean::boolean_t;
 use mach::exception_types::{
     exception_behavior_array_t, exception_behavior_t, exception_flavor_array_t,

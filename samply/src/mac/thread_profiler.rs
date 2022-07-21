@@ -1,18 +1,20 @@
-use crate::error::SamplingError;
-use crate::kernel_error::{self, IntoResult, KernelError};
-use crate::proc_maps::{get_backtrace, ForeignMemory, StackwalkerRef};
-use crate::thread_act::thread_info;
-use crate::thread_info::time_value;
-use crate::thread_info::{
-    thread_basic_info_data_t, thread_extended_info_data_t, thread_identifier_info_data_t,
-    thread_info_t, THREAD_BASIC_INFO, THREAD_BASIC_INFO_COUNT, THREAD_EXTENDED_INFO,
-    THREAD_EXTENDED_INFO_COUNT, THREAD_IDENTIFIER_INFO, THREAD_IDENTIFIER_INFO_COUNT,
-};
 use framehop::FrameAddress;
 use fxprof_processed_profile::{CpuDelta, Frame, Profile, ThreadHandle, Timestamp};
 use mach::mach_types::thread_act_t;
 use mach::port::mach_port_t;
+
 use std::mem;
+
+use super::error::SamplingError;
+use super::kernel_error::{self, IntoResult, KernelError};
+use super::proc_maps::{get_backtrace, ForeignMemory, StackwalkerRef};
+use super::thread_act::thread_info;
+use super::thread_info::time_value;
+use super::thread_info::{
+    thread_basic_info_data_t, thread_extended_info_data_t, thread_identifier_info_data_t,
+    thread_info_t, THREAD_BASIC_INFO, THREAD_BASIC_INFO_COUNT, THREAD_EXTENDED_INFO,
+    THREAD_EXTENDED_INFO_COUNT, THREAD_IDENTIFIER_INFO, THREAD_IDENTIFIER_INFO_COUNT,
+};
 
 pub struct ThreadProfiler {
     thread_act: thread_act_t,
