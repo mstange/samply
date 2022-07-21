@@ -11,7 +11,7 @@ readme = "README.md"
 [dependencies.object]
 default-features = false
 features = ["std", "read_core", "macho", "unaligned"]
-version = "0.28.1"
+version = "0.29"
 
 [dependencies]
 hyper = { version = "0.14.18", features = ["full"] }
