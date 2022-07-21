@@ -2,7 +2,7 @@
 name = "samply-api"
 version = "0.16.1"
 authors = ["Markus Stange <mstange.moz@gmail.com>"]
-license = "MIT/Apache-2.0"
+license = "MIT OR Apache-2.0"
 edition = "2018"
 description = "JSON API for querying symbol information, uses samply-symbols."
 repository = "https://github.com/mstange/samply/"

@@ -6,7 +6,7 @@ homepage = "https://github.com/mstange/perfrecord/"
 repository = "https://github.com/mstange/perfrecord/"
 readme = "README.md"
 authors = ["The Servo Project Developers", "Markus Stange <mstange@themasta.com>"]
-license = "MIT/Apache-2.0"
+license = "MIT OR Apache-2.0"
 edition = "2018"
 
 [dependencies]

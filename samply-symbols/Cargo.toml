@@ -2,7 +2,7 @@
 name = "samply-symbols"
 version = "0.17.0"
 authors = ["Markus Stange <mstange.moz@gmail.com>"]
-license = "MIT/Apache-2.0"
+license = "MIT OR Apache-2.0"
 edition = "2018"
 description = "Symbolication utilities for the Firefox profiler."
 repository = "https://github.com/mstange/samply/"

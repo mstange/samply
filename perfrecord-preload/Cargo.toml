@@ -3,7 +3,7 @@ name = "perfrecord-preload"
 version = "0.1.0"
 authors = ["Markus Stange <mstange@themasta.com>"]
 edition = "2018"
-license = "MIT/Apache-2.0"
+license = "MIT OR Apache-2.0"
 
 [lib]
 crate_type = ["dylib"]

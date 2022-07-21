@@ -2,7 +2,7 @@
 name = "benchmarks"
 version = "0.1.0"
 authors = ["Markus Stange <mstange@themasta.com>"]
-license = "MIT/Apache-2.0"
+license = "MIT OR Apache-2.0"
 edition = "2018"
 
 [dependencies]
