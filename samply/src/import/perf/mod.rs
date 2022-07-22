@@ -23,66 +23,70 @@ use linux_perf_event_reader::{
     SampleRecord, SamplingPolicy, SoftwareCounterType,
 };
 use object::{Object, ObjectSection, ObjectSegment, SectionKind};
-use profiler_get_symbols::{debug_id_for_object, DebugIdExt};
+use samply_symbols::{debug_id_for_object, DebugIdExt};
+
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::io::{BufReader, BufWriter, Read};
+use std::convert::TryFrom;
+use std::io::{Read, Seek};
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
-use std::{fs::File, ops::Range, path::Path};
+use std::{ops::Range, path::Path};
 
-fn main() {
-    let mut args = std::env::args_os().skip(1);
-    if args.len() < 1 {
-        eprintln!("Usage: {} <path>", std::env::args().next().unwrap());
-        std::process::exit(1);
-    }
-    let path = args.next().unwrap();
-    let path = Path::new(&path)
-        .canonicalize()
-        .expect("Couldn't form absolute path");
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("I/O Error: {0}")]
+    Io(#[from] std::io::Error),
 
-    let input_file = File::open(&path).unwrap();
-    let reader = BufReader::new(input_file);
-    let perf_file = PerfFileReader::parse_file(reader).expect("Parsing failed");
+    #[error("Linux Perf error: {0}")]
+    LinuxPerf(#[from] linux_perf_data::Error),
+}
 
-    let profile = match perf_file.perf_file.arch().unwrap() {
-        Some("x86_64") => {
-            let cache = framehop::x86_64::CacheX86_64::new();
-            convert::<framehop::x86_64::UnwinderX86_64<Vec<u8>>, ConvertRegsX86_64, _>(
-                perf_file,
-                path.parent(),
-                cache,
-            )
-        }
+pub fn convert<C: Read + Seek>(cursor: C, extra_dir: Option<&Path>) -> Result<Profile, Error> {
+    let perf_file = PerfFileReader::parse_file(cursor)?;
+
+    let arch = perf_file.perf_file.arch().ok().flatten();
+
+    let profile = match arch {
         Some("aarch64") => {
             let cache = framehop::aarch64::CacheAarch64::new();
-            convert::<framehop::aarch64::UnwinderAarch64<Vec<u8>>, ConvertRegsAarch64, _>(
-                perf_file,
-                path.parent(),
-                cache,
+            convert_impl::<framehop::aarch64::UnwinderAarch64<Vec<u8>>, ConvertRegsAarch64, _>(
+                perf_file, extra_dir, cache,
             )
         }
-        Some(other_arch) => {
-            eprintln!("Unsupported arch {}", other_arch);
+        _ => {
+            if arch != Some("x86_64") {
+                eprintln!(
+                    "Unknown arch {}, dwarf-based unwinding may be incorrect.",
+                    arch.unwrap_or_default()
+                );
+            }
             let cache = framehop::x86_64::CacheX86_64::new();
-            convert::<framehop::x86_64::UnwinderX86_64<Vec<u8>>, ConvertRegsX86_64, _>(
-                perf_file,
-                path.parent(),
-                cache,
+            convert_impl::<framehop::x86_64::UnwinderX86_64<Vec<u8>>, ConvertRegsX86_64, _>(
+                perf_file, extra_dir, cache,
             )
-        }
-        None => {
-            eprintln!("Can't unwind because I don't know the arch");
-            std::process::exit(1);
         }
     };
-
-    let output_file = File::create("profile-conv.json").unwrap();
-    let writer = BufWriter::new(output_file);
-    serde_json::to_writer(writer, &profile).expect("Couldn't write JSON");
-    eprintln!("Saved converted profile to profile-conv.json");
+    Ok(profile)
 }
+
+// fn stuff() {
+//     let mut args = std::env::args_os().skip(1);
+//     if args.len() < 1 {
+//         eprintln!("Usage: {} <path>", std::env::args().next().unwrap());
+//         std::process::exit(1);
+//     }
+//     let path = args.next().unwrap();
+//     let path = Path::new(&path)
+//         .canonicalize()
+//         .expect("Couldn't form absolute path");
+//     let input_file = File::open(&path).unwrap();
+//     let reader = BufReader::new(input_file);
+//     let output_file = File::create("profile-conv.json").unwrap();
+//     let writer = BufWriter::new(output_file);
+//     serde_json::to_writer(writer, &profile).expect("Couldn't write JSON");
+//     eprintln!("Saved converted profile to profile-conv.json");
+// }
 
 trait ConvertRegs {
     type UnwindRegs;
@@ -167,7 +171,11 @@ impl EventInterpretation {
     }
 }
 
-fn convert<U, C, R>(file: PerfFileReader<R>, extra_dir: Option<&Path>, cache: U::Cache) -> Profile
+fn convert_impl<U, C, R>(
+    file: PerfFileReader<R>,
+    extra_dir: Option<&Path>,
+    cache: U::Cache,
+) -> Profile
 where
     U: Unwinder<Module = Module<Vec<u8>>> + Default,
     C: ConvertRegs<UnwindRegs = U::UnwindRegs>,

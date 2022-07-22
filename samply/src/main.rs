@@ -1,12 +1,16 @@
-use clap::{Args, Parser, Subcommand};
-use samply_server::PortSelection;
-
-use std::path::PathBuf;
-
 #[cfg(target_os = "macos")]
 mod mac;
 
+mod import;
 mod server;
+
+use clap::{Args, Parser, Subcommand};
+use samply_server::PortSelection;
+use tempfile::NamedTempFile;
+
+use std::fs::File;
+use std::io::{BufReader, BufWriter};
+use std::path::{Path, PathBuf};
 
 // To avoid warnings about unused declarations
 #[cfg(target_os = "macos")]
@@ -107,7 +111,19 @@ fn main() {
     let opt = Opt::from_args();
     match opt.action {
         Action::Load(load_args) => {
-            start_server_main(&load_args.file, load_args.server_args.server_props());
+            let input_file = match File::open(&load_args.file) {
+                Ok(file) => file,
+                Err(err) => {
+                    eprintln!("Could not open file {:?}: {}", load_args.file, err);
+                    std::process::exit(1)
+                }
+            };
+            let converted_temp_file = attempt_conversion(&load_args.file, &input_file);
+            let filename = match &converted_temp_file {
+                Some(temp_file) => temp_file.path(),
+                None => &load_args.file,
+            };
+            start_server_main(filename, load_args.server_args.server_props());
         }
 
         #[cfg(target_os = "macos")]
@@ -167,4 +183,16 @@ impl ServerArgs {
             open_in_browser,
         }
     }
+}
+
+fn attempt_conversion(filename: &Path, input_file: &File) -> Option<NamedTempFile> {
+    let path = Path::new(filename)
+        .canonicalize()
+        .expect("Couldn't form absolute path");
+    let reader = BufReader::new(input_file);
+    let output_file = tempfile::NamedTempFile::new().ok()?;
+    let profile = import::perf::convert(reader, path.parent()).ok()?;
+    let writer = BufWriter::new(output_file.as_file());
+    serde_json::to_writer(writer, &profile).ok()?;
+    Some(output_file)
 }
