@@ -46,3 +46,9 @@ xperf -stop
 ```
 
 NOTE: converting circular buffer profiles is not yet supported.
+
+### Unblocking stacks (Not yet suported)
+
+```
+xperf -on Latency+DISPATCHER -stackwalk Profile+CSwitch+ReadyThread
+```
