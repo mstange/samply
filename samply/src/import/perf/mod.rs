@@ -70,24 +70,6 @@ pub fn convert<C: Read + Seek>(cursor: C, extra_dir: Option<&Path>) -> Result<Pr
     Ok(profile)
 }
 
-// fn stuff() {
-//     let mut args = std::env::args_os().skip(1);
-//     if args.len() < 1 {
-//         eprintln!("Usage: {} <path>", std::env::args().next().unwrap());
-//         std::process::exit(1);
-//     }
-//     let path = args.next().unwrap();
-//     let path = Path::new(&path)
-//         .canonicalize()
-//         .expect("Couldn't form absolute path");
-//     let input_file = File::open(&path).unwrap();
-//     let reader = BufReader::new(input_file);
-//     let output_file = File::create("profile-conv.json").unwrap();
-//     let writer = BufWriter::new(output_file);
-//     serde_json::to_writer(writer, &profile).expect("Couldn't write JSON");
-//     eprintln!("Saved converted profile to profile-conv.json");
-// }
-
 trait ConvertRegs {
     type UnwindRegs;
     fn convert_regs(regs: &Regs) -> (u64, u64, Self::UnwindRegs);
