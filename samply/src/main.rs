@@ -2,6 +2,7 @@
 mod mac;
 
 mod import;
+mod linux_shared;
 mod server;
 
 use clap::{Args, Parser, Subcommand};
