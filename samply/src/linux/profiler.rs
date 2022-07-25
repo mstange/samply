@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use super::perf_event::EventSource;
 use super::perf_group::PerfGroup;
-use crate::linux_shared::{Converter, EventInterpretation};
+use crate::linux_shared::{ConvertRegs, Converter, EventInterpretation};
 use crate::server::{start_server_main, ServerProps};
 
 #[cfg(target_arch = "x86_64")]
@@ -84,8 +84,9 @@ fn run_profiler(
     };
     let stack_size = 32000;
     let event_source = EventSource::HwCpuCycles;
+    let regs_mask = ConvertRegsNative::regs_mask();
 
-    let perf = PerfGroup::open(pid, frequency, stack_size, event_source);
+    let perf = PerfGroup::open(pid, frequency, stack_size, event_source, regs_mask);
 
     let mut perf = match perf {
         Ok(perf) => perf,

@@ -70,6 +70,7 @@ pub struct PerfGroup {
     poll_fds: Vec<libc::pollfd>,
     frequency: u32,
     stack_size: u32,
+    regs_mask: u64,
     event_source: EventSource,
     initial_events: Vec<EventRecord<'static>>,
     stopped_processes: Vec<StoppedProcess>,
@@ -137,7 +138,7 @@ fn get_threads(pid: u32) -> Result<Vec<(u32, Option<Vec<u8>>)>, io::Error> {
 }
 
 impl PerfGroup {
-    pub fn new(frequency: u32, stack_size: u32, event_source: EventSource) -> Self {
+    pub fn new(frequency: u32, stack_size: u32, regs_mask: u64, event_source: EventSource) -> Self {
         PerfGroup {
             event_buffer: Vec::new(),
             members: Default::default(),
@@ -145,6 +146,7 @@ impl PerfGroup {
             frequency,
             stack_size,
             event_source,
+            regs_mask,
             initial_events: Vec::new(),
             stopped_processes: Vec::new(),
         }
@@ -155,8 +157,9 @@ impl PerfGroup {
         frequency: u32,
         stack_size: u32,
         event_source: EventSource,
+        regs_mask: u64,
     ) -> Result<Self, io::Error> {
-        let mut group = PerfGroup::new(frequency, stack_size, event_source);
+        let mut group = PerfGroup::new(frequency, stack_size, regs_mask, event_source);
         group.open_process(pid)?;
         Ok(group)
     }
@@ -166,8 +169,6 @@ impl PerfGroup {
         let mut perf_events = Vec::new();
         let threads = get_threads(pid)?;
 
-        // TODO: fix user regs (16715775)
-
         let cpu_count = num_cpus::get();
         for cpu in 0..cpu_count as u32 {
             let perf = Perf::build()
@@ -175,7 +176,7 @@ impl PerfGroup {
                 .only_cpu(cpu as _)
                 .frequency(self.frequency as u64)
                 .sample_user_stack(self.stack_size)
-                .sample_user_regs(16715775)
+                .sample_user_regs(self.regs_mask)
                 .sample_kernel()
                 .gather_context_switches()
                 .event_source(self.event_source)
@@ -193,7 +194,7 @@ impl PerfGroup {
                     .any_cpu()
                     .frequency(self.frequency as u64)
                     .sample_user_stack(self.stack_size)
-                    .sample_user_regs(16715775)
+                    .sample_user_regs(self.regs_mask)
                     .sample_kernel()
                     .event_source(self.event_source)
                     .start_disabled()
@@ -209,7 +210,7 @@ impl PerfGroup {
                         .only_cpu(cpu as _)
                         .frequency(self.frequency as u64)
                         .sample_user_stack(self.stack_size)
-                        .sample_user_regs(16715775)
+                        .sample_user_regs(self.regs_mask)
                         .sample_kernel()
                         .gather_context_switches()
                         .event_source(self.event_source)

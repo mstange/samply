@@ -35,6 +35,7 @@ use std::{ops::Range, path::Path};
 pub trait ConvertRegs {
     type UnwindRegs;
     fn convert_regs(regs: &Regs) -> (u64, u64, Self::UnwindRegs);
+    fn regs_mask() -> u64;
 }
 
 pub struct ConvertRegsX86_64;
@@ -46,6 +47,10 @@ impl ConvertRegs for ConvertRegsX86_64 {
         let bp = regs.get(PERF_REG_X86_BP).unwrap();
         let regs = UnwindRegsX86_64::new(ip, sp, bp);
         (ip, sp, regs)
+    }
+
+    fn regs_mask() -> u64 {
+        1 << PERF_REG_X86_IP | 1 << PERF_REG_X86_SP | 1 << PERF_REG_X86_BP
     }
 }
 
@@ -59,6 +64,13 @@ impl ConvertRegs for ConvertRegsAarch64 {
         let fp = regs.get(PERF_REG_ARM64_X29).unwrap();
         let regs = UnwindRegsAarch64::new(lr, sp, fp);
         (ip, sp, regs)
+    }
+
+    fn regs_mask() -> u64 {
+        1 << PERF_REG_ARM64_PC
+            | 1 << PERF_REG_ARM64_LR
+            | 1 << PERF_REG_ARM64_SP
+            | 1 << PERF_REG_ARM64_X29
     }
 }
 
