@@ -77,14 +77,11 @@ unsafe fn write_tail(pointer: *mut u8, value: u64) {
 
 #[derive(Debug)]
 pub struct Perf {
-    pid: u32,
     event_ref_state: Arc<Mutex<EventRefState>>,
     buffer: *mut u8,
     size: u64,
     fd: RawFd,
     position: u64,
-    sample_type: u64,
-    regs_count: usize,
     parse_info: RecordParseInfo,
 }
 
@@ -147,10 +144,7 @@ fn next_raw_event(
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum EventSource {
     HwCpuCycles,
-    HwRefCpuCycles,
     SwCpuClock,
-    SwPageFaults,
-    SwDummy,
 }
 
 #[derive(Clone, Debug)]
@@ -288,21 +282,9 @@ impl PerfBuilder {
                 attr.kind = PERF_TYPE_HARDWARE;
                 attr.config = PERF_COUNT_HW_CPU_CYCLES;
             }
-            EventSource::HwRefCpuCycles => {
-                attr.kind = PERF_TYPE_HARDWARE;
-                attr.config = PERF_COUNT_HW_REF_CPU_CYCLES;
-            }
             EventSource::SwCpuClock => {
                 attr.kind = PERF_TYPE_SOFTWARE;
                 attr.config = PERF_COUNT_SW_CPU_CLOCK;
-            }
-            EventSource::SwPageFaults => {
-                attr.kind = PERF_TYPE_SOFTWARE;
-                attr.config = PERF_COUNT_SW_PAGE_FAULTS;
-            }
-            EventSource::SwDummy => {
-                attr.kind = PERF_TYPE_SOFTWARE;
-                attr.config = PERF_COUNT_SW_DUMMY;
             }
         }
 
@@ -408,14 +390,11 @@ impl PerfBuilder {
 
         // debug!("Perf events open with fd={}", fd);
         let mut perf = Perf {
-            pid,
             event_ref_state: Arc::new(Mutex::new(EventRefState::new(buffer, size))),
             buffer,
             size,
             fd,
             position: 0,
-            sample_type: attr.sample_type,
-            regs_count: reg_mask.count_ones() as usize,
             parse_info,
         };
 
@@ -454,44 +433,10 @@ impl Perf {
         assert!(result != -1);
     }
 
-    pub fn disable(&mut self) {
-        unsafe {
-            libc::ioctl(self.fd, PERF_EVENT_IOC_DISABLE as _);
-        }
-    }
-
     #[inline]
     pub fn are_events_pending(&self) -> bool {
         let head = unsafe { read_head(self.buffer) };
         head != self.position
-    }
-
-    fn poll(&self, timeout: libc::c_int) -> libc::c_short {
-        let mut pollfd = libc::pollfd {
-            fd: self.fd(),
-            events: libc::POLLIN | libc::POLLHUP,
-            revents: 0,
-        };
-
-        let ok = unsafe { libc::poll(&mut pollfd as *mut _, 1, timeout) };
-        if ok == -1 {
-            let err = io::Error::last_os_error();
-            if err.kind() != io::ErrorKind::Interrupted {
-                panic!("poll failed: {}", err);
-            }
-        }
-
-        pollfd.revents as _
-    }
-
-    #[inline]
-    pub fn wait(&self) {
-        self.poll(1000);
-    }
-
-    #[inline]
-    pub fn is_closed(&self) -> bool {
-        self.poll(0) & libc::POLLHUP != 0
     }
 
     #[inline]
@@ -538,8 +483,6 @@ pub struct EventRef {
     buffer_size: usize,
     event_location: RawRecordLocation,
     mask: u32,
-    sample_type: u64,
-    regs_count: usize,
     state: Arc<Mutex<EventRefState>>,
     parse_info: RecordParseInfo,
 }
@@ -572,10 +515,10 @@ impl Drop for EventRef {
 }
 
 impl EventRef {
-    pub fn get<'a>(&'a self) -> RawEventRecord<'a> {
+    pub fn get(&self) -> RawEventRecord<'_> {
         let buffer = unsafe { slice::from_raw_parts(self.buffer.offset(4096), self.buffer_size) };
 
-        self.event_location.get(buffer, self.parse_info.clone())
+        self.event_location.get(buffer, self.parse_info)
     }
 }
 
@@ -638,18 +581,11 @@ impl<'a> Iterator for EventIter<'a> {
             buffer_size: self.perf.size as usize,
             event_location,
             mask: !(1 << (31 - self.index)),
-            sample_type: self.perf.sample_type,
-            regs_count: self.perf.regs_count,
             state: self.state.clone(),
-            parse_info: self.perf.parse_info.clone(),
+            parse_info: self.perf.parse_info,
         };
 
         self.index += 1;
         Some(event)
     }
-}
-
-pub fn read_string_lossy<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<String> {
-    let data = std::fs::read(path)?;
-    Ok(String::from_utf8_lossy(&data).into_owned())
 }

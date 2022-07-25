@@ -15,19 +15,7 @@ use super::perf_event::{EventSource, Perf};
 use super::proc_maps;
 
 pub struct EventRef {
-    pid: u32,
-    cpu: Option<u32>,
     inner: super::perf_event::EventRef,
-}
-
-impl EventRef {
-    pub fn cpu(&self) -> Option<u32> {
-        self.cpu
-    }
-
-    pub fn pid(&self) -> u32 {
-        self.pid
-    }
 }
 
 impl Deref for EventRef {
@@ -62,17 +50,13 @@ impl Drop for StoppedProcess {
 }
 
 struct Member {
-    pid: u32,
-    cpu: Option<u32>,
     perf: Perf,
     is_closed: Cell<bool>,
 }
 
 impl Member {
-    fn new(pid: u32, cpu: Option<u32>, perf: Perf) -> Self {
+    fn new(perf: Perf) -> Self {
         Member {
-            pid,
-            cpu,
             perf,
             is_closed: Cell::new(false),
         }
@@ -130,36 +114,35 @@ where
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn get_threads(pid: u32) -> Result<Vec<(u32, Option<Vec<u8>>)>, io::Error> {
     let mut output = Vec::new();
-    for entry in fs::read_dir(format!("/proc/{}/task", pid))? {
-        if let Ok(entry) = entry {
-            let tid: u32 = entry.file_name().to_string_lossy().parse().unwrap();
-            if tid == pid {
-                continue;
-            }
-
-            let mut name = None;
-            let comm_path = format!("/proc/{}/task/{}/comm", pid, tid);
-            if let Ok(mut fp) = File::open(&comm_path) {
-                let mut buffer = Vec::new();
-                if let Ok(_) = fp.read_to_end(&mut buffer) {
-                    let length = buffer
-                        .iter()
-                        .position(|&byte| byte == 0)
-                        .unwrap_or(buffer.len());
-                    buffer.truncate(length);
-
-                    if !buffer.is_empty() && buffer[buffer.len() - 1] == b'\n' {
-                        buffer.truncate(length - 1);
-                    }
-
-                    name = Some(buffer);
-                }
-            }
-
-            output.push((tid, name));
+    for entry in (fs::read_dir(format!("/proc/{}/task", pid))?).flatten() {
+        let tid: u32 = entry.file_name().to_string_lossy().parse().unwrap();
+        if tid == pid {
+            continue;
         }
+
+        let mut name = None;
+        let comm_path = format!("/proc/{}/task/{}/comm", pid, tid);
+        if let Ok(mut fp) = File::open(&comm_path) {
+            let mut buffer = Vec::new();
+            if fp.read_to_end(&mut buffer).is_ok() {
+                let length = buffer
+                    .iter()
+                    .position(|&byte| byte == 0)
+                    .unwrap_or(buffer.len());
+                buffer.truncate(length);
+
+                if !buffer.is_empty() && buffer[buffer.len() - 1] == b'\n' {
+                    buffer.truncate(length - 1);
+                }
+
+                name = Some(buffer);
+            }
+        }
+
+        output.push((tid, name));
     }
 
     Ok(output)
@@ -167,7 +150,7 @@ fn get_threads(pid: u32) -> Result<Vec<(u32, Option<Vec<u8>>)>, io::Error> {
 
 impl PerfGroup {
     pub fn new(frequency: u32, stack_size: u32, event_source: EventSource) -> Self {
-        let group = PerfGroup {
+        PerfGroup {
             event_buffer: Vec::new(),
             members: Default::default(),
             poll_fds: Vec::new(),
@@ -176,9 +159,7 @@ impl PerfGroup {
             event_source,
             initial_events: Vec::new(),
             stopped_processes: Vec::new(),
-        };
-
-        group
+        }
     }
 
     pub fn open(
@@ -253,8 +234,8 @@ impl PerfGroup {
             }
         }
 
-        for (cpu, perf) in perf_events {
-            self.members.insert(perf.fd(), Member::new(pid, cpu, perf));
+        for (_cpu, perf) in perf_events {
+            self.members.insert(perf.fd(), Member::new(perf));
         }
 
         let maps = read_string_lossy(&format!("/proc/{}/maps", pid))?;
@@ -358,13 +339,8 @@ impl PerfGroup {
                 continue;
             }
 
-            let pid = member.pid;
-            let cpu = member.cpu;
-            self.event_buffer.extend(perf.iter().map(|event| EventRef {
-                inner: event,
-                pid,
-                cpu,
-            }));
+            self.event_buffer
+                .extend(perf.iter().map(|event| EventRef { inner: event }));
         }
 
         for fd in fds_to_remove {
