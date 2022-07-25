@@ -62,12 +62,6 @@ impl ConvertRegs for ConvertRegsAarch64 {
     }
 }
 
-#[cfg(target_arch = "x86_64")]
-pub type ConvertRegsNative = ConvertRegsX86_64;
-
-#[cfg(target_arch = "aarch64")]
-pub type ConvertRegsNative = ConvertRegsAarch64;
-
 #[derive(Debug, Clone)]
 pub struct EventInterpretation {
     pub main_event_attr_index: usize,
