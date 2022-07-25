@@ -291,7 +291,6 @@ impl PerfBuilder {
         attr.sample_type = PERF_SAMPLE_IP
             | PERF_SAMPLE_TID
             | PERF_SAMPLE_TIME
-            | PERF_SAMPLE_CALLCHAIN
             | PERF_SAMPLE_CPU
             | PERF_SAMPLE_PERIOD;
 
@@ -313,7 +312,6 @@ impl PerfBuilder {
             | PERF_ATTR_FLAG_MMAP_DATA
             | PERF_ATTR_FLAG_COMM
             | PERF_ATTR_FLAG_FREQ
-            | PERF_ATTR_FLAG_EXCLUDE_CALLCHAIN_USER
             | PERF_ATTR_FLAG_TASK
             | PERF_ATTR_FLAG_SAMPLE_ID_ALL;
 
