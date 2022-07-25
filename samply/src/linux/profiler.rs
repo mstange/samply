@@ -42,7 +42,7 @@ pub fn start_recording(
     )
     .expect("cannot register signal handler");
 
-    let mut root_child = Command::new(command_name)
+    let mut root_child = Command::new(&command_name)
         .args(command_args)
         .spawn()
         .expect("launching child unsuccessful");
@@ -50,9 +50,12 @@ pub fn start_recording(
     let pid = root_child.id();
 
     let output_file_copy = output_file.to_owned();
+    let command_name_copy = command_name.to_string_lossy().to_string();
     let observer_thread = thread::spawn(move || {
+        let product = command_name_copy;
         // start profiling pid
-        run_profiler(&output_file_copy, time_limit, interval, pid).expect("run_profiler failed");
+        run_profiler(&output_file_copy, &product, time_limit, interval, pid)
+            .expect("run_profiler failed");
     });
 
     let exit_status = root_child.wait().expect("couldn't wait for child");
@@ -73,6 +76,7 @@ pub fn start_recording(
 
 fn run_profiler(
     output_filename: &Path,
+    product_name: &str,
     _time_limit: Option<Duration>,
     interval: Duration,
     pid: u32,
@@ -120,26 +124,22 @@ fn run_profiler(
     let first_sample_time = 0;
 
     let little_endian = cfg!(target_endian = "little");
-    let host = "<unknown host>";
-    let perf_version = "<not perf>";
-    let linux_version = "<unknown linux version>";
+    let machine_info = uname::uname().expect("uname failed");
     let interpretation = EventInterpretation {
         main_event_attr_index: 0,
-        main_event_name: "yo".to_string(),
+        main_event_name: "cycles".to_string(),
         sampling_is_time_based: Some(1_000_000_000 / 900),
         have_context_switches: true,
         sched_switch_attr_index: None,
     };
 
-    let product = "Converted perf profile";
     let mut converter =
         Converter::<framehop::UnwinderNative<Vec<u8>, framehop::MayAllocateDuringUnwind>>::new(
-            product,
+            product_name,
+            None,
             HashMap::new(),
+            Some(&machine_info.release),
             first_sample_time,
-            host,
-            perf_version,
-            Some(linux_version),
             little_endian,
             cache,
             None,

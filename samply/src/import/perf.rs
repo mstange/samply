@@ -68,11 +68,16 @@ where
         .unwrap()
         .map_or(0, |r| r.first_sample_time);
     let little_endian = perf_file.endian() == linux_perf_data::Endianness::LittleEndian;
-    let host = perf_file.hostname().unwrap().unwrap_or("<unknown host>");
+    let host = perf_file
+        .hostname()
+        .unwrap()
+        .unwrap_or("<unknown host>")
+        .to_owned();
     let perf_version = perf_file
         .perf_version()
         .unwrap()
-        .unwrap_or("<unknown version>");
+        .unwrap_or("<unknown version>")
+        .to_owned();
     let linux_version = perf_file.os_release().unwrap();
     let attributes = perf_file.event_attributes();
     for event_name in attributes.iter().filter_map(|attr| attr.name()) {
@@ -83,11 +88,12 @@ where
     let product = "Converted perf profile";
     let mut converter = Converter::<U>::new(
         product,
+        Some(Box::new(move |name| {
+            format!("{} on {} (perf version {})", name, host, perf_version)
+        })),
         build_ids,
-        first_sample_time,
-        host,
-        perf_version,
         linux_version,
+        first_sample_time,
         little_endian,
         cache,
         extra_dir,

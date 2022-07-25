@@ -142,8 +142,7 @@ where
     build_ids: HashMap<DsoKey, DsoInfo>,
     little_endian: bool,
     have_product_name: bool,
-    host: String,
-    perf_version: String,
+    delayed_product_name_generator: Option<Box<dyn FnOnce(&str) -> String>>,
     linux_version: Option<String>,
     extra_binary_artifact_dir: Option<PathBuf>,
     context_switch_handler: ContextSwitchHandler,
@@ -160,11 +159,10 @@ where
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         product: &str,
+        delayed_product_name_generator: Option<Box<dyn FnOnce(&str) -> String>>,
         build_ids: HashMap<DsoKey, DsoInfo>,
-        first_sample_time: u64,
-        host: &str,
-        perf_version: &str,
         linux_version: Option<&str>,
+        first_sample_time: u64,
         little_endian: bool,
         cache: U::Cache,
         extra_binary_artifact_dir: Option<&Path>,
@@ -200,9 +198,8 @@ where
             current_sample_time: first_sample_time,
             build_ids,
             little_endian,
-            have_product_name: false,
-            host: host.to_string(),
-            perf_version: perf_version.to_string(),
+            have_product_name: delayed_product_name_generator.is_none(),
+            delayed_product_name_generator,
             linux_version: linux_version.map(ToOwned::to_owned),
             extra_binary_artifact_dir: extra_binary_artifact_dir.map(ToOwned::to_owned),
             off_cpu_weight_per_sample,
@@ -629,11 +626,9 @@ where
             }
         }
 
-        if !self.have_product_name && name != "perf-exec" {
-            let product = format!(
-                "{} on {} (perf version {})",
-                name, self.host, self.perf_version
-            );
+        if self.delayed_product_name_generator.is_some() && name != "perf-exec" {
+            let generator = self.delayed_product_name_generator.take().unwrap();
+            let product = generator(&*name);
             self.profile.set_product(&product);
             self.have_product_name = true;
         }
