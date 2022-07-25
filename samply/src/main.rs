@@ -1,6 +1,9 @@
 #[cfg(target_os = "macos")]
 mod mac;
 
+#[cfg(target_os = "linux")]
+mod linux;
+
 mod import;
 mod linux_shared;
 mod server;
@@ -16,6 +19,11 @@ use std::path::{Path, PathBuf};
 // To avoid warnings about unused declarations
 #[cfg(target_os = "macos")]
 pub use mac::{kernel_error, thread_act, thread_info};
+
+#[cfg(target_os = "linux")]
+use linux::profiler;
+#[cfg(target_os = "macos")]
+use mac::profiler;
 
 use server::{start_server_main, ServerProps};
 
@@ -46,7 +54,7 @@ enum Action {
     /// Load a profile from a file and display it.
     Load(LoadArgs),
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     /// Record a profile and display it.
     Record(RecordArgs),
 }
@@ -61,7 +69,7 @@ struct LoadArgs {
     server_args: ServerArgs,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 #[derive(Debug, Args)]
 #[clap(trailing_var_arg = true)]
 struct RecordArgs {
@@ -127,7 +135,7 @@ fn main() {
             start_server_main(filename, load_args.server_args.server_props());
         }
 
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
         Action::Record(record_args) => {
             use std::time::Duration;
 
@@ -146,7 +154,7 @@ fn main() {
                 std::process::exit(1);
             }
             let interval = Duration::from_secs_f64(1.0 / record_args.rate);
-            let exit_status = match mac::profiler::start_recording(
+            let exit_status = match profiler::start_recording(
                 &record_args.output,
                 record_args.command,
                 &record_args.command_args,

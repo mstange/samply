@@ -1,0 +1,655 @@
+use std::cmp::max;
+use std::fmt;
+use std::io;
+use std::mem;
+use std::ops::Range;
+use std::os::unix::io::RawFd;
+use std::ptr;
+use std::slice;
+use std::sync::atomic::fence;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+
+use libc::{self, c_void, pid_t};
+use linux_perf_data::linux_perf_event_reader;
+use linux_perf_event_reader::{Endianness, RawData, RawEventRecord, RecordParseInfo, RecordType};
+use parking_lot::Mutex;
+
+use super::sys::*;
+
+#[derive(Debug)]
+#[repr(C)]
+struct PerfEventHeader {
+    kind: u32,
+    misc: u16,
+    size: u16,
+}
+
+#[derive(Clone, Debug)]
+enum SliceLocation {
+    Single(Range<usize>),
+    Split(Range<usize>, Range<usize>),
+}
+
+impl SliceLocation {
+    #[inline]
+    fn get<'a>(&self, buffer: &'a [u8]) -> RawData<'a> {
+        match *self {
+            SliceLocation::Single(ref range) => RawData::Single(&buffer[range.clone()]),
+            SliceLocation::Split(ref left, ref right) => {
+                RawData::Split(&buffer[left.clone()], &buffer[right.clone()])
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct RawRecordLocation {
+    kind: u32,
+    misc: u16,
+    data_location: SliceLocation,
+}
+
+impl RawRecordLocation {
+    #[inline]
+    fn get<'a>(&self, buffer: &'a [u8], parse_info: RecordParseInfo) -> RawEventRecord<'a> {
+        RawEventRecord {
+            record_type: RecordType(self.kind),
+            misc: self.misc,
+            data: self.data_location.get(buffer),
+            parse_info,
+        }
+    }
+}
+
+unsafe fn read_head(pointer: *const u8) -> u64 {
+    let page = &*(pointer as *const PerfEventMmapPage);
+    let head = ptr::read_volatile(&page.data_head);
+    fence(Ordering::Acquire);
+    head
+}
+
+unsafe fn write_tail(pointer: *mut u8, value: u64) {
+    let page = &mut *(pointer as *mut PerfEventMmapPage);
+    fence(Ordering::AcqRel);
+    ptr::write_volatile(&mut page.data_tail, value);
+}
+
+#[derive(Debug)]
+pub struct Perf {
+    pid: u32,
+    event_ref_state: Arc<Mutex<EventRefState>>,
+    buffer: *mut u8,
+    size: u64,
+    fd: RawFd,
+    position: u64,
+    sample_type: u64,
+    regs_count: usize,
+    parse_info: RecordParseInfo,
+}
+
+impl Drop for Perf {
+    fn drop(&mut self) {
+        unsafe {
+            libc::close(self.fd);
+        }
+    }
+}
+
+#[inline]
+unsafe fn get_buffer<'a>(buffer: *const u8, size: u64) -> &'a [u8] {
+    slice::from_raw_parts(buffer.offset(4096), size as usize)
+}
+
+fn next_raw_event(
+    buffer: *const u8,
+    size: u64,
+    position_cell: &mut u64,
+) -> Option<RawRecordLocation> {
+    let head = unsafe { read_head(buffer) };
+    if head == *position_cell {
+        return None;
+    }
+
+    let buffer = unsafe { get_buffer(buffer, size) };
+    let position = *position_cell;
+    let relative_position = position % size;
+    let event_position = relative_position as usize;
+    let event_data_position =
+        (relative_position + mem::size_of::<PerfEventHeader>() as u64) as usize;
+    let event_header = unsafe {
+        &*(&buffer[event_position..event_data_position] as *const _ as *const PerfEventHeader)
+    };
+    let next_event_position = event_position + event_header.size as usize;
+
+    let data_location = if next_event_position > size as usize {
+        let first = event_data_position..buffer.len();
+        let second = 0..next_event_position % size as usize;
+        SliceLocation::Split(first, second)
+    } else {
+        SliceLocation::Single(event_data_position..next_event_position)
+    };
+
+    let raw_event_location = RawRecordLocation {
+        kind: event_header.kind,
+        misc: event_header.misc,
+        data_location,
+    };
+
+    // trace!("Parsed raw event: {:?}", raw_event_location);
+
+    let next_position = position + event_header.size as u64;
+    *position_cell = next_position;
+
+    Some(raw_event_location)
+}
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum EventSource {
+    HwCpuCycles,
+    HwRefCpuCycles,
+    SwCpuClock,
+    SwPageFaults,
+    SwDummy,
+}
+
+#[derive(Clone, Debug)]
+pub struct PerfBuilder {
+    pid: u32,
+    cpu: Option<u32>,
+    frequency: u64,
+    stack_size: u32,
+    reg_mask: u64,
+    event_source: EventSource,
+    inherit: bool,
+    start_disabled: bool,
+    exclude_kernel: bool,
+    gather_context_switches: bool,
+}
+
+impl PerfBuilder {
+    pub fn pid(mut self, pid: u32) -> Self {
+        self.pid = pid;
+        self
+    }
+
+    pub fn only_cpu(mut self, cpu: u32) -> Self {
+        self.cpu = Some(cpu);
+        self
+    }
+
+    pub fn any_cpu(mut self) -> Self {
+        self.cpu = None;
+        self
+    }
+
+    pub fn frequency(mut self, frequency: u64) -> Self {
+        self.frequency = frequency;
+        self
+    }
+
+    pub fn sample_user_stack(mut self, stack_size: u32) -> Self {
+        self.stack_size = stack_size;
+        self
+    }
+
+    pub fn sample_user_regs(mut self, reg_mask: u64) -> Self {
+        self.reg_mask = reg_mask;
+        self
+    }
+
+    /// Turns on the kernel measurements. This requires the `/proc/sys/kernel/perf_event_paranoid` to be less than `2`.
+    pub fn sample_kernel(mut self) -> Self {
+        self.exclude_kernel = false;
+        self
+    }
+
+    pub fn event_source(mut self, event_source: EventSource) -> Self {
+        self.event_source = event_source;
+        self
+    }
+
+    pub fn inherit_to_children(mut self) -> Self {
+        self.inherit = true;
+        self
+    }
+
+    pub fn start_disabled(mut self) -> Self {
+        self.start_disabled = true;
+        self
+    }
+
+    pub fn gather_context_switches(mut self) -> Self {
+        self.gather_context_switches = true;
+        self
+    }
+
+    pub fn open(self) -> io::Result<Perf> {
+        let pid = self.pid;
+        let cpu = self.cpu.map(|cpu| cpu as i32).unwrap_or(-1);
+        let frequency = self.frequency;
+        let stack_size = self.stack_size;
+        let reg_mask = self.reg_mask;
+        let event_source = self.event_source;
+        let inherit = self.inherit;
+        let start_disabled = self.start_disabled;
+        let exclude_kernel = self.exclude_kernel;
+        let gather_context_switches = self.gather_context_switches;
+
+        // debug!(
+        //     "Opening perf events; pid={}, cpu={}, frequency={}, stack_size={}, reg_mask=0x{:016X}, event_source={:?}, inherit={}, start_disabled={}...",
+        //     pid,
+        //     cpu,
+        //     frequency,
+        //     stack_size,
+        //     reg_mask,
+        //     event_source,
+        //     inherit,
+        //     start_disabled
+        // );
+
+        let max_sample_rate = Perf::max_sample_rate();
+        if let Some(max_sample_rate) = max_sample_rate {
+            // debug!("Maximum sample rate: {}", max_sample_rate);
+            if frequency > max_sample_rate {
+                let message = format!( "frequency can be at most {} as configured in /proc/sys/kernel/perf_event_max_sample_rate", max_sample_rate );
+                return Err(io::Error::new(io::ErrorKind::InvalidInput, message));
+            }
+        }
+
+        if stack_size > 63 * 1024 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "sample_user_stack can be at most 63kb",
+            ));
+        }
+
+        // See `perf_mmap` in the Linux kernel.
+        if cpu == -1 && inherit {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "you can't inherit to children and run on all cpus at the same time",
+            ));
+        }
+
+        assert_eq!(mem::size_of::<PerfEventMmapPage>(), 1088);
+
+        if cfg!(target_arch = "x86_64") {
+            assert_eq!(PERF_EVENT_IOC_ENABLE, 9216);
+        } else if cfg!(target_arch = "mips64") {
+            assert_eq!(PERF_EVENT_IOC_ENABLE, 536880128);
+        }
+
+        let mut attr: PerfEventAttr = unsafe { mem::zeroed() };
+        attr.size = mem::size_of::<PerfEventAttr>() as u32;
+
+        match event_source {
+            EventSource::HwCpuCycles => {
+                attr.kind = PERF_TYPE_HARDWARE;
+                attr.config = PERF_COUNT_HW_CPU_CYCLES;
+            }
+            EventSource::HwRefCpuCycles => {
+                attr.kind = PERF_TYPE_HARDWARE;
+                attr.config = PERF_COUNT_HW_REF_CPU_CYCLES;
+            }
+            EventSource::SwCpuClock => {
+                attr.kind = PERF_TYPE_SOFTWARE;
+                attr.config = PERF_COUNT_SW_CPU_CLOCK;
+            }
+            EventSource::SwPageFaults => {
+                attr.kind = PERF_TYPE_SOFTWARE;
+                attr.config = PERF_COUNT_SW_PAGE_FAULTS;
+            }
+            EventSource::SwDummy => {
+                attr.kind = PERF_TYPE_SOFTWARE;
+                attr.config = PERF_COUNT_SW_DUMMY;
+            }
+        }
+
+        attr.sample_type = PERF_SAMPLE_IP
+            | PERF_SAMPLE_TID
+            | PERF_SAMPLE_TIME
+            | PERF_SAMPLE_CALLCHAIN
+            | PERF_SAMPLE_CPU
+            | PERF_SAMPLE_PERIOD;
+
+        if reg_mask != 0 {
+            attr.sample_type |= PERF_SAMPLE_REGS_USER;
+        }
+
+        if stack_size != 0 {
+            attr.sample_type |= PERF_SAMPLE_STACK_USER;
+        }
+
+        attr.sample_regs_user = reg_mask;
+        attr.sample_stack_user = stack_size;
+        attr.sample_period_or_freq = frequency;
+
+        attr.flags = PERF_ATTR_FLAG_DISABLED
+            | PERF_ATTR_FLAG_MMAP
+            | PERF_ATTR_FLAG_MMAP2
+            | PERF_ATTR_FLAG_MMAP_DATA
+            | PERF_ATTR_FLAG_COMM
+            | PERF_ATTR_FLAG_FREQ
+            | PERF_ATTR_FLAG_EXCLUDE_CALLCHAIN_USER
+            | PERF_ATTR_FLAG_TASK
+            | PERF_ATTR_FLAG_SAMPLE_ID_ALL;
+
+        if exclude_kernel {
+            attr.flags |= PERF_ATTR_FLAG_EXCLUDE_KERNEL;
+        }
+
+        if inherit {
+            attr.flags |= PERF_ATTR_FLAG_INHERIT;
+        }
+
+        if gather_context_switches {
+            attr.flags |= PERF_ATTR_FLAG_CONTEX_SWITCH;
+        }
+
+        let fd = sys_perf_event_open(&attr, pid as pid_t, cpu as _, -1, PERF_FLAG_FD_CLOEXEC);
+        if fd < 0 {
+            let err = io::Error::from_raw_os_error(-fd);
+            eprintln!(
+                "The perf_event_open syscall failed for PID {}: {}",
+                pid, err
+            );
+            if let Some(errcode) = err.raw_os_error() {
+                if errcode == libc::EINVAL {
+                    // info!("Your profiling frequency might be too high; try lowering it");
+                }
+            }
+
+            return Err(err);
+        }
+
+        const STACK_COUNT_PER_BUFFER: u32 = 32;
+        let required_space = max(stack_size, 4096) * STACK_COUNT_PER_BUFFER;
+        let page_size = 4096;
+        let n = (1..26)
+            .into_iter()
+            .find(|n| (1_u32 << n) * 4096_u32 >= required_space)
+            .expect("cannot find appropriate page count for given stack size");
+        let page_count: u32 = max(1 << n, 16);
+        // debug!(
+        //     "Allocating {} + 1 pages for the ring buffer for PID {} on CPU {}",
+        //     page_count, pid, cpu
+        // );
+
+        let full_size = (page_size * (page_count + 1)) as usize;
+
+        let buffer;
+        unsafe {
+            buffer = libc::mmap(
+                ptr::null_mut(),
+                full_size,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_SHARED,
+                fd,
+                0,
+            );
+            if buffer == libc::MAP_FAILED {
+                libc::close(fd);
+                return Err(io::Error::new(io::ErrorKind::Other, "mmap failed"));
+            }
+        }
+
+        let buffer = buffer as *mut u8;
+        let size = (page_size * page_count) as u64;
+
+        let attr_bytes_ptr = &attr as *const PerfEventAttr as *const u8;
+        let attr_bytes_len = mem::size_of::<PerfEventAttr>();
+        let attr_bytes = unsafe { slice::from_raw_parts(attr_bytes_ptr, attr_bytes_len) };
+        let attr2 = linux_perf_event_reader::PerfEventAttr::parse::<_, byteorder::NativeEndian>(
+            attr_bytes, None,
+        )
+        .unwrap();
+        let parse_info = RecordParseInfo::new(&attr2, Endianness::NATIVE);
+
+        // debug!("Perf events open with fd={}", fd);
+        let mut perf = Perf {
+            pid,
+            event_ref_state: Arc::new(Mutex::new(EventRefState::new(buffer, size))),
+            buffer,
+            size,
+            fd,
+            position: 0,
+            sample_type: attr.sample_type,
+            regs_count: reg_mask.count_ones() as usize,
+            parse_info,
+        };
+
+        if !start_disabled {
+            perf.enable();
+        }
+
+        Ok(perf)
+    }
+}
+
+impl Perf {
+    pub fn max_sample_rate() -> Option<u64> {
+        let data = std::fs::read_to_string("/proc/sys/kernel/perf_event_max_sample_rate").ok()?;
+        data.trim().parse::<u64>().ok()
+    }
+
+    pub fn build() -> PerfBuilder {
+        PerfBuilder {
+            pid: 0,
+            cpu: None,
+            frequency: 0,
+            stack_size: 0,
+            reg_mask: 0,
+            event_source: EventSource::SwCpuClock,
+            inherit: false,
+            start_disabled: false,
+            exclude_kernel: true,
+            gather_context_switches: false,
+        }
+    }
+
+    pub fn enable(&mut self) {
+        let result = unsafe { libc::ioctl(self.fd, PERF_EVENT_IOC_ENABLE as _) };
+
+        assert!(result != -1);
+    }
+
+    pub fn disable(&mut self) {
+        unsafe {
+            libc::ioctl(self.fd, PERF_EVENT_IOC_DISABLE as _);
+        }
+    }
+
+    #[inline]
+    pub fn are_events_pending(&self) -> bool {
+        let head = unsafe { read_head(self.buffer) };
+        head != self.position
+    }
+
+    fn poll(&self, timeout: libc::c_int) -> libc::c_short {
+        let mut pollfd = libc::pollfd {
+            fd: self.fd(),
+            events: libc::POLLIN | libc::POLLHUP,
+            revents: 0,
+        };
+
+        let ok = unsafe { libc::poll(&mut pollfd as *mut _, 1, timeout) };
+        if ok == -1 {
+            let err = io::Error::last_os_error();
+            if err.kind() != io::ErrorKind::Interrupted {
+                panic!("poll failed: {}", err);
+            }
+        }
+
+        pollfd.revents as _
+    }
+
+    #[inline]
+    pub fn wait(&self) {
+        self.poll(1000);
+    }
+
+    #[inline]
+    pub fn is_closed(&self) -> bool {
+        self.poll(0) & libc::POLLHUP != 0
+    }
+
+    #[inline]
+    pub fn fd(&self) -> RawFd {
+        self.fd
+    }
+
+    #[inline]
+    pub fn iter(&mut self) -> EventIter {
+        EventIter::new(self)
+    }
+}
+
+#[derive(Debug)]
+struct EventRefState {
+    buffer: *mut u8,
+    size: u64,
+    done: u32,
+    positions: [u64; 32],
+}
+
+impl EventRefState {
+    fn new(buffer: *mut u8, size: u64) -> Self {
+        EventRefState {
+            buffer,
+            size,
+            done: !0,
+            positions: [0; 32],
+        }
+    }
+}
+
+impl Drop for EventRefState {
+    fn drop(&mut self) {
+        unsafe {
+            libc::munmap(self.buffer as *mut c_void, (self.size + 4096) as _);
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct EventRef {
+    buffer: *mut u8,
+    buffer_size: usize,
+    event_location: RawRecordLocation,
+    mask: u32,
+    sample_type: u64,
+    regs_count: usize,
+    state: Arc<Mutex<EventRefState>>,
+    parse_info: RecordParseInfo,
+}
+
+impl fmt::Debug for EventRef {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        fmt.debug_map()
+            .entry(&"location", &self.event_location)
+            .entry(&"mask", &format!("{:032b}", self.mask))
+            .finish()
+    }
+}
+
+impl Drop for EventRef {
+    #[inline]
+    fn drop(&mut self) {
+        let mut state = self.state.lock();
+        let last_empty_spaces = state.done.leading_zeros();
+        state.done &= self.mask;
+        let empty_spaces = state.done.leading_zeros();
+
+        debug_assert!(empty_spaces >= last_empty_spaces);
+        if empty_spaces != last_empty_spaces {
+            let position = state.positions[empty_spaces as usize];
+            unsafe {
+                write_tail(self.buffer, position);
+            }
+        }
+    }
+}
+
+impl EventRef {
+    pub fn get<'a>(&'a self) -> RawEventRecord<'a> {
+        let buffer = unsafe { slice::from_raw_parts(self.buffer.offset(4096), self.buffer_size) };
+
+        self.event_location.get(buffer, self.parse_info.clone())
+    }
+}
+
+pub struct EventIter<'a> {
+    perf: &'a mut Perf,
+    index: usize,
+    locations: Vec<RawRecordLocation>,
+    state: Arc<Mutex<EventRefState>>,
+}
+
+impl<'a> EventIter<'a> {
+    #[inline]
+    fn new(perf: &'a mut Perf) -> Self {
+        let mut locations = Vec::with_capacity(32);
+
+        {
+            let state = Arc::get_mut(&mut perf.event_ref_state)
+                .expect("Perf::iter called while the previous iterator hasn't finished processing");
+            let state = state.get_mut();
+
+            for _ in 0..31 {
+                state.positions[locations.len()] = perf.position;
+                let raw_event_location =
+                    match next_raw_event(perf.buffer, perf.size, &mut perf.position) {
+                        Some(location) => location,
+                        None => break,
+                    };
+
+                locations.push(raw_event_location);
+            }
+
+            state.positions[locations.len()] = perf.position;
+            state.done = !0;
+        }
+
+        // trace!("Batched {} events for PID {}", count, perf.pid);
+
+        let state = perf.event_ref_state.clone();
+        EventIter {
+            perf,
+            index: 0,
+            locations,
+            state,
+        }
+    }
+}
+
+impl<'a> Iterator for EventIter<'a> {
+    type Item = EventRef;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index == self.locations.len() {
+            return None;
+        }
+
+        let event_location = self.locations[self.index].clone();
+        let event = EventRef {
+            buffer: self.perf.buffer,
+            buffer_size: self.perf.size as usize,
+            event_location,
+            mask: !(1 << (31 - self.index)),
+            sample_type: self.perf.sample_type,
+            regs_count: self.perf.regs_count,
+            state: self.state.clone(),
+            parse_info: self.perf.parse_info.clone(),
+        };
+
+        self.index += 1;
+        Some(event)
+    }
+}
+
+pub fn read_string_lossy<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<String> {
+    let data = std::fs::read(path)?;
+    Ok(String::from_utf8_lossy(&data).into_owned())
+}
