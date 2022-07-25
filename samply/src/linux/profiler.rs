@@ -14,14 +14,14 @@ use std::time::Duration;
 
 use super::perf_event::EventSource;
 use super::perf_group::PerfGroup;
-use crate::linux_shared::{ConvertRegsAarch64, ConvertRegsX86_64, Converter, EventInterpretation};
+use crate::linux_shared::{Converter, EventInterpretation};
 use crate::server::{start_server_main, ServerProps};
 
 #[cfg(target_arch = "x86_64")]
-pub type ConvertRegsNative = ConvertRegsX86_64;
+pub type ConvertRegsNative = crate::linux_shared::ConvertRegsX86_64;
 
 #[cfg(target_arch = "aarch64")]
-pub type ConvertRegsNative = ConvertRegsAarch64;
+pub type ConvertRegsNative = crate::linux_shared::ConvertRegsAarch64;
 
 pub fn start_recording(
     output_file: &Path,
