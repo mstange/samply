@@ -11,20 +11,8 @@ use std::ops::{Deref, DerefMut};
 use std::os::unix::io::RawFd;
 use std::vec;
 
-use super::perf_event::{EventSource, Perf};
+use super::perf_event::{EventRef, EventSource, Perf};
 use super::proc_maps;
-
-pub struct EventRef {
-    inner: super::perf_event::EventRef,
-}
-
-impl Deref for EventRef {
-    type Target = super::perf_event::EventRef;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
 
 struct StoppedProcess(u32);
 
@@ -339,8 +327,7 @@ impl PerfGroup {
                 continue;
             }
 
-            self.event_buffer
-                .extend(perf.iter().map(|event| EventRef { inner: event }));
+            self.event_buffer.extend(perf.iter());
         }
 
         for fd in fds_to_remove {
