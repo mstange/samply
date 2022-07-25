@@ -59,32 +59,31 @@ where
     R: SymbolicationResult,
     H: FileAndPathHelper<'h>,
 {
-    let root_contents = helper
-        .open_file(&FileLocation::Path(dyld_cache_path.to_path_buf()))
-        .await
-        .map_err(|e| {
-            Error::HelperErrorDuringOpenFile(dyld_cache_path.to_string_lossy().to_string(), e)
-        })?;
+    let get_file = |path| helper.open_file(&FileLocation::Path(path));
+
+    let root_contents = get_file(dyld_cache_path.into()).await.map_err(|e| {
+        Error::HelperErrorDuringOpenFile(dyld_cache_path.to_string_lossy().to_string(), e)
+    })?;
     let root_contents = FileContentsWrapper::new(root_contents);
 
     let dyld_cache_path = dyld_cache_path.to_string_lossy();
 
     let mut subcache_contents = Vec::new();
     for subcache_index in 1.. {
+        // Find the subcache at dyld_shared_cache_arm64e.1 or dyld_shared_cache_arm64e.01
         let subcache_path = format!("{}.{}", dyld_cache_path, subcache_index);
-        match helper
-            .open_file(&FileLocation::Path(subcache_path.into()))
-            .await
-        {
-            Ok(subcache) => subcache_contents.push(FileContentsWrapper::new(subcache)),
-            Err(_) => break,
+        let subcache_path2 = format!("{}.{:02}", dyld_cache_path, subcache_index);
+        let subcache = match get_file(subcache_path.into()).await {
+            Ok(subcache) => subcache,
+            Err(_) => match get_file(subcache_path2.into()).await {
+                Ok(subcache) => subcache,
+                Err(_) => break,
+            },
         };
+        subcache_contents.push(FileContentsWrapper::new(subcache));
     }
     let symbols_subcache_path = format!("{}.symbols", dyld_cache_path);
-    if let Ok(subcache) = helper
-        .open_file(&FileLocation::Path(symbols_subcache_path.into()))
-        .await
-    {
+    if let Ok(subcache) = get_file(symbols_subcache_path.into()).await {
         subcache_contents.push(FileContentsWrapper::new(subcache));
     };
 

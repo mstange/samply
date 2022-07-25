@@ -633,6 +633,16 @@ impl<'h> FileAndPathHelper<'h> for Helper {
             // For macOS system libraries, also consult the dyld shared cache.
             if path.starts_with("/usr/") || path.starts_with("/System/") {
                 paths.push(CandidatePathInfo::InDyldCache {
+                    dyld_cache_path: Path::new("/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_arm64e")
+                        .to_path_buf(),
+                    dylib_path: path.clone(),
+                });
+                paths.push(CandidatePathInfo::InDyldCache {
+                    dyld_cache_path: Path::new("/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_x86_64")
+                        .to_path_buf(),
+                    dylib_path: path.clone(),
+                });
+                paths.push(CandidatePathInfo::InDyldCache {
                     dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_arm64e")
                         .to_path_buf(),
                     dylib_path: path.clone(),
