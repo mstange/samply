@@ -16,3 +16,12 @@ NOTE: converting circular buffer profiles is not yet supported.
 ```
 xperf -on Latency+DISPATCHER -stackwalk Profile+CSwitch+ReadyThread
 ```
+
+
+### Looking up providers/events
+
+https://github.com/lallousx86/WinTools/tree/master/WEPExplorer is useful browser of this information
+
+### Tracing vsync
+`xperf -start "usersession" -on Microsoft-Windows-DxgKrnl:1:5`
+`xperf -stop "usersession" -d out.etl`
