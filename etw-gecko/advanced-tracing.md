@@ -22,6 +22,6 @@ xperf -on Latency+DISPATCHER -stackwalk Profile+CSwitch+ReadyThread
 
 https://github.com/lallousx86/WinTools/tree/master/WEPExplorer is useful browser of this information
 
-### Tracing vsync
-`xperf -start "usersession" -on Microsoft-Windows-DxgKrnl:1:5`
-`xperf -stop "usersession" -d out.etl`
+### Tracing with vsync
+`xperf -start "NT Kernel Logger" -on latency - stackwalk profile -start "usersession" -on Microsoft-Windows-DxgKrnl:1:1`
+`xperf -stop "NT Kernel Logger" -stop "usersession" -d out.etl`
