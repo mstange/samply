@@ -111,7 +111,6 @@ fn run_profiler(
                 }
             }
 
-            eprintln!("failed to start profiling: {}", error);
             return Err(());
         }
     };
