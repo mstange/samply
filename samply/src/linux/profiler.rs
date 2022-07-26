@@ -124,7 +124,7 @@ fn run_profiler(
     let first_sample_time = 0;
 
     let little_endian = cfg!(target_endian = "little");
-    let machine_info = uname::uname().expect("uname failed");
+    let machine_info = uname::uname().ok();
     let interpretation = EventInterpretation {
         main_event_attr_index: 0,
         main_event_name: "cycles".to_string(),
@@ -138,7 +138,7 @@ fn run_profiler(
             product_name,
             None,
             HashMap::new(),
-            Some(&machine_info.release),
+            machine_info.as_ref().map(|info| info.release.as_str()),
             first_sample_time,
             little_endian,
             cache,
