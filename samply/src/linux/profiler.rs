@@ -54,8 +54,7 @@ pub fn start_recording(
     let observer_thread = thread::spawn(move || {
         let product = command_name_copy;
         // start profiling pid
-        run_profiler(&output_file_copy, &product, time_limit, interval, pid)
-            .expect("run_profiler failed");
+        run_profiler(&output_file_copy, &product, time_limit, interval, pid);
     });
 
     let exit_status = root_child.wait().expect("couldn't wait for child");
@@ -80,12 +79,13 @@ fn run_profiler(
     _time_limit: Option<Duration>,
     interval: Duration,
     pid: u32,
-) -> Result<(), ()> {
-    let frequency = if interval.as_nanos() > 0 {
-        (1_000_000_000u128 / interval.as_nanos()) as u32
+) {
+    let interval_nanos = if interval.as_nanos() > 0 {
+        interval.as_nanos() as u64
     } else {
-        1000
+        1_000_000 // 1 million nano seconds = 1 milli second
     };
+    let frequency = (1_000_000_000 / interval_nanos) as u32;
     let stack_size = 32000;
     let event_source = EventSource::HwCpuCycles;
     let regs_mask = ConvertRegsNative::regs_mask();
@@ -100,22 +100,22 @@ fn run_profiler(
                 if let Ok(perf_event_paranoid) =
                     read_string_lossy("/proc/sys/kernel/perf_event_paranoid")
                 {
-                    let perf_event_paranoid = perf_event_paranoid.trim();
-                    if perf_event_paranoid == "2" {
-                        eprintln!( "The '/proc/sys/kernel/perf_event_paranoid' is set to '{}', which is probably why you can't start the profiling", perf_event_paranoid );
-                        eprintln!(
-                            "You can try lowering it before trying to start the profiling again:"
-                        );
+                    if perf_event_paranoid.trim() == "2" {
+                        eprintln!();
+                        eprintln!("'/proc/sys/kernel/perf_event_paranoid' is set to 2, which is probably why perf_event_open failed.");
+                        eprintln!("You can execute the following command and then try again:");
                         eprintln!("    echo '1' | sudo tee /proc/sys/kernel/perf_event_paranoid");
+                        eprintln!();
+                        eprintln!("This will allow non-root processes to observe perf events.");
                     }
                 }
             }
 
-            return Err(());
+            std::process::exit(1);
         }
     };
 
-    eprintln!("Enabling perf events...");
+    // eprintln!("Enabling perf events...");
     perf.enable();
 
     let cache = framehop::CacheNative::new();
@@ -127,7 +127,7 @@ fn run_profiler(
     let interpretation = EventInterpretation {
         main_event_attr_index: 0,
         main_event_name: "cycles".to_string(),
-        sampling_is_time_based: Some(1_000_000_000 / 900),
+        sampling_is_time_based: Some(interval_nanos),
         have_context_switches: true,
         sched_switch_attr_index: None,
     };
@@ -157,7 +157,7 @@ fn run_profiler(
         }
     }
 
-    eprintln!("Running...");
+    // eprintln!("Running...");
 
     let mut wait = false;
     let mut pending_lost_events = 0;
@@ -222,14 +222,14 @@ fn run_profiler(
             }
 
             if pending_lost_events > 0 {
-                println!("pending lost events: {}", pending_lost_events);
+                eprintln!("Pending lost events: {}", pending_lost_events);
                 pending_lost_events = 0;
             }
         }
     }
 
     if total_lost_events > 0 {
-        println!("Lost {} events!", total_lost_events);
+        eprintln!("Lost {} events!", total_lost_events);
     }
 
     let profile = converter.finish();
@@ -237,8 +237,6 @@ fn run_profiler(
     let output_file = File::create(output_filename).unwrap();
     let writer = BufWriter::new(output_file);
     serde_json::to_writer(writer, &profile).expect("Couldn't write JSON");
-
-    Ok(())
 }
 
 pub fn read_string_lossy<P: AsRef<Path>>(path: P) -> std::io::Result<String> {
