@@ -1,18 +1,18 @@
 # samply
 
-(This project was formerly known as "perfrecord". The rename to "samply" is currently in progress and not fully completed.)
+(This project was formerly known as "perfrecord".)
 
 This is a work in progress and not ready for public consumption.
 
 `samply` is a command line CPU profiler which uses the [Firefox profiler](https://profiler.firefox.com/) as its UI.
 
-At the moment it only works on macOS, but Linux and Windows support is planned.
+At the moment it works on macOS and Linux. Windows support is planned.
 
 Try it out now:
 
 ```
-% cargo install perfrecord
-% perfrecord ./your-command your-arguments
+% cargo install samply
+% samply record ./your-command your-arguments
 ```
 
 This collects a profile of the `./your-command your-arguments` command and saves it to a file. Then it opens
@@ -41,6 +41,8 @@ It produces [this profile](https://share.firefox.dev/2ZRmN7H).
 
 
 ## Why?
+
+(The below was written before Linux support was added. These sections need updating.)
 
 This is meant to be an alternative to the existing profilers on macOS:
 
