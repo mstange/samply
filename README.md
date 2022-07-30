@@ -27,18 +27,19 @@ In the future it should support sampling based on wall-clock time ("All thread s
 
 ## Other examples
 
-`samply rustup check` generates [this profile](https://share.firefox.dev/2MfPzak).
+`samply record rustup check` generates [this profile](https://share.firefox.dev/2MfPzak).
 
 Profiling system-provided command line tools is not straightforward because of system-integrity protection.
-Here's an example for profiling `sleep`:
+Here's an example for profiling `sleep` on an Intel machine:
 
 ```
 cat /bin/sleep > /tmp/sleep; chmod +x /tmp/sleep
-samply /tmp/sleep 2
+samply record /tmp/sleep 2
 ```
 
 It produces [this profile](https://share.firefox.dev/2ZRmN7H).
 
+Profiling system tools on Apple Silicon machines is harder because of stricter signing requirements.
 
 ## Why?
 
