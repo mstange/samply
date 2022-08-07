@@ -76,14 +76,14 @@ pub struct Struct_mach_port_status {
     pub mps_nsrequest: boolean_t,
     pub mps_flags: natural_t,
 }
-impl ::std::clone::Clone for Struct_mach_port_status {
+impl ::core::clone::Clone for Struct_mach_port_status {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_mach_port_status {
+impl ::core::default::Default for Struct_mach_port_status {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_port_status_t = Struct_mach_port_status;
@@ -92,14 +92,14 @@ pub type mach_port_status_t = Struct_mach_port_status;
 pub struct Struct_mach_port_limits {
     pub mpl_qlimit: mach_port_msgcount_t,
 }
-impl ::std::clone::Clone for Struct_mach_port_limits {
+impl ::core::clone::Clone for Struct_mach_port_limits {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_mach_port_limits {
+impl ::core::default::Default for Struct_mach_port_limits {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_port_limits_t = Struct_mach_port_limits;
@@ -112,14 +112,14 @@ pub struct Struct_mach_port_qos {
     pub _bindgen_bitfield_2_: boolean_t,
     pub len: natural_t,
 }
-impl ::std::clone::Clone for Struct_mach_port_qos {
+impl ::core::clone::Clone for Struct_mach_port_qos {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_mach_port_qos {
+impl ::core::default::Default for Struct_mach_port_qos {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_port_qos_t = Struct_mach_port_qos;
@@ -148,14 +148,14 @@ pub struct Struct_Unnamed1 {
     pub _bindgen_bitfield_1_: ::libc::c_uint,
     pub _bindgen_bitfield_2_: mach_msg_descriptor_type_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed1 {
+impl ::core::clone::Clone for Struct_Unnamed1 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed1 {
+impl ::core::default::Default for Struct_Unnamed1 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_msg_type_descriptor_t = Struct_Unnamed1;
@@ -168,14 +168,14 @@ pub struct Struct_Unnamed2 {
     pub disposition: u8,
     pub type_: u8,
 }
-impl ::std::clone::Clone for Struct_Unnamed2 {
+impl ::core::clone::Clone for Struct_Unnamed2 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed2 {
+impl ::core::default::Default for Struct_Unnamed2 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_msg_port_descriptor_t = Struct_Unnamed2;
@@ -189,14 +189,14 @@ pub struct Struct_Unnamed3 {
     pub _bindgen_bitfield_3_: ::libc::c_uint,
     pub _bindgen_bitfield_4_: mach_msg_descriptor_type_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed3 {
+impl ::core::clone::Clone for Struct_Unnamed3 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed3 {
+impl ::core::default::Default for Struct_Unnamed3 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_msg_ool_descriptor32_t = Struct_Unnamed3;
@@ -210,14 +210,14 @@ pub struct Struct_Unnamed4 {
     pub _bindgen_bitfield_4_: mach_msg_descriptor_type_t,
     pub size: mach_msg_size_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed4 {
+impl ::core::clone::Clone for Struct_Unnamed4 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed4 {
+impl ::core::default::Default for Struct_Unnamed4 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_msg_ool_descriptor64_t = Struct_Unnamed4;
@@ -231,14 +231,14 @@ pub struct Struct_Unnamed5 {
     pub type_: u8,
     pub size: mach_msg_size_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed5 {
+impl ::core::clone::Clone for Struct_Unnamed5 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed5 {
+impl ::core::default::Default for Struct_Unnamed5 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_msg_ool_descriptor_t = Struct_Unnamed5;
@@ -252,14 +252,14 @@ pub struct Struct_Unnamed6 {
     pub _bindgen_bitfield_3_: mach_msg_type_name_t,
     pub _bindgen_bitfield_4_: mach_msg_descriptor_type_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed6 {
+impl ::core::clone::Clone for Struct_Unnamed6 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed6 {
+impl ::core::default::Default for Struct_Unnamed6 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_msg_ool_ports_descriptor32_t = Struct_Unnamed6;
@@ -273,14 +273,14 @@ pub struct Struct_Unnamed7 {
     pub _bindgen_bitfield_4_: mach_msg_descriptor_type_t,
     pub count: mach_msg_size_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed7 {
+impl ::core::clone::Clone for Struct_Unnamed7 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed7 {
+impl ::core::default::Default for Struct_Unnamed7 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_msg_ool_ports_descriptor64_t = Struct_Unnamed7;
@@ -294,14 +294,14 @@ pub struct Struct_Unnamed8 {
     pub _bindgen_bitfield_4_: mach_msg_descriptor_type_t,
     pub count: mach_msg_size_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed8 {
+impl ::core::clone::Clone for Struct_Unnamed8 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed8 {
+impl ::core::default::Default for Struct_Unnamed8 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_msg_ool_ports_descriptor_t = Struct_Unnamed8;
@@ -312,30 +312,30 @@ pub struct Union_Unnamed9 {
 }
 impl Union_Unnamed9 {
     pub unsafe fn port(&mut self) -> *mut mach_msg_port_descriptor_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn out_of_line(&mut self) -> *mut mach_msg_ool_descriptor_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn ool_ports(&mut self) -> *mut mach_msg_ool_ports_descriptor_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn _type(&mut self) -> *mut mach_msg_type_descriptor_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
 }
-impl ::std::clone::Clone for Union_Unnamed9 {
+impl ::core::clone::Clone for Union_Unnamed9 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Union_Unnamed9 {
+impl ::core::default::Default for Union_Unnamed9 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_msg_descriptor_t = Union_Unnamed9;
@@ -344,14 +344,14 @@ pub type mach_msg_descriptor_t = Union_Unnamed9;
 pub struct Struct_Unnamed10 {
     pub msgh_descriptor_count: mach_msg_size_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed10 {
+impl ::core::clone::Clone for Struct_Unnamed10 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed10 {
+impl ::core::default::Default for Struct_Unnamed10 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_msg_body_t = Struct_Unnamed10;
@@ -365,14 +365,14 @@ pub struct Struct_Unnamed11 {
     pub msgh_reserved: mach_msg_size_t,
     pub msgh_id: mach_msg_id_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed11 {
+impl ::core::clone::Clone for Struct_Unnamed11 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed11 {
+impl ::core::default::Default for Struct_Unnamed11 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_msg_header_t = Struct_Unnamed11;
@@ -382,14 +382,14 @@ pub struct Struct_Unnamed12 {
     pub header: mach_msg_header_t,
     pub body: mach_msg_body_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed12 {
+impl ::core::clone::Clone for Struct_Unnamed12 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed12 {
+impl ::core::default::Default for Struct_Unnamed12 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_msg_base_t = Struct_Unnamed12;
@@ -401,14 +401,14 @@ pub struct Struct_Unnamed13 {
     pub msgh_trailer_type: mach_msg_trailer_type_t,
     pub msgh_trailer_size: mach_msg_trailer_size_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed13 {
+impl ::core::clone::Clone for Struct_Unnamed13 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed13 {
+impl ::core::default::Default for Struct_Unnamed13 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_msg_trailer_t = Struct_Unnamed13;
@@ -419,14 +419,14 @@ pub struct Struct_Unnamed14 {
     pub msgh_trailer_size: mach_msg_trailer_size_t,
     pub msgh_seqno: mach_port_seqno_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed14 {
+impl ::core::clone::Clone for Struct_Unnamed14 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed14 {
+impl ::core::default::Default for Struct_Unnamed14 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_msg_seqno_trailer_t = Struct_Unnamed14;
@@ -435,14 +435,14 @@ pub type mach_msg_seqno_trailer_t = Struct_Unnamed14;
 pub struct Struct_Unnamed15 {
     pub val: [::libc::c_uint; 2usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed15 {
+impl ::core::clone::Clone for Struct_Unnamed15 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed15 {
+impl ::core::default::Default for Struct_Unnamed15 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type security_token_t = Struct_Unnamed15;
@@ -454,14 +454,14 @@ pub struct Struct_Unnamed16 {
     pub msgh_seqno: mach_port_seqno_t,
     pub msgh_sender: security_token_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed16 {
+impl ::core::clone::Clone for Struct_Unnamed16 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed16 {
+impl ::core::default::Default for Struct_Unnamed16 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_msg_security_trailer_t = Struct_Unnamed16;
@@ -470,14 +470,14 @@ pub type mach_msg_security_trailer_t = Struct_Unnamed16;
 pub struct Struct_Unnamed17 {
     pub val: [::libc::c_uint; 8usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed17 {
+impl ::core::clone::Clone for Struct_Unnamed17 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed17 {
+impl ::core::default::Default for Struct_Unnamed17 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type audit_token_t = Struct_Unnamed17;
@@ -490,14 +490,14 @@ pub struct Struct_Unnamed18 {
     pub msgh_sender: security_token_t,
     pub msgh_audit: audit_token_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed18 {
+impl ::core::clone::Clone for Struct_Unnamed18 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed18 {
+impl ::core::default::Default for Struct_Unnamed18 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_msg_audit_trailer_t = Struct_Unnamed18;
@@ -511,14 +511,14 @@ pub struct Struct_Unnamed19 {
     pub msgh_audit: audit_token_t,
     pub msgh_context: mach_port_context_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed19 {
+impl ::core::clone::Clone for Struct_Unnamed19 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed19 {
+impl ::core::default::Default for Struct_Unnamed19 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_msg_context_trailer_t = Struct_Unnamed19;
@@ -527,14 +527,14 @@ pub type mach_msg_context_trailer_t = Struct_Unnamed19;
 pub struct Struct_Unnamed20 {
     pub sender: mach_port_name_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed20 {
+impl ::core::clone::Clone for Struct_Unnamed20 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed20 {
+impl ::core::default::Default for Struct_Unnamed20 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type msg_labels_t = Struct_Unnamed20;
@@ -550,14 +550,14 @@ pub struct Struct_Unnamed21 {
     pub msgh_ad: ::libc::c_int,
     pub msgh_labels: msg_labels_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed21 {
+impl ::core::clone::Clone for Struct_Unnamed21 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed21 {
+impl ::core::default::Default for Struct_Unnamed21 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_msg_mac_trailer_t = Struct_Unnamed21;
@@ -569,14 +569,14 @@ pub type mach_msg_options_t = integer_t;
 pub struct Struct_Unnamed22 {
     pub header: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed22 {
+impl ::core::clone::Clone for Struct_Unnamed22 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed22 {
+impl ::core::default::Default for Struct_Unnamed22 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_msg_empty_send_t = Struct_Unnamed22;
@@ -586,14 +586,14 @@ pub struct Struct_Unnamed23 {
     pub header: mach_msg_header_t,
     pub trailer: mach_msg_trailer_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed23 {
+impl ::core::clone::Clone for Struct_Unnamed23 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed23 {
+impl ::core::default::Default for Struct_Unnamed23 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_msg_empty_rcv_t = Struct_Unnamed23;
@@ -604,22 +604,22 @@ pub struct Union_Unnamed24 {
 }
 impl Union_Unnamed24 {
     pub unsafe fn send(&mut self) -> *mut mach_msg_empty_send_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn rcv(&mut self) -> *mut mach_msg_empty_rcv_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
 }
-impl ::std::clone::Clone for Union_Unnamed24 {
+impl ::core::clone::Clone for Union_Unnamed24 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Union_Unnamed24 {
+impl ::core::default::Default for Union_Unnamed24 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_msg_empty_t = Union_Unnamed24;
@@ -646,14 +646,14 @@ pub struct Struct_vm_statistics {
     pub purges: natural_t,
     pub speculative_count: natural_t,
 }
-impl ::std::clone::Clone for Struct_vm_statistics {
+impl ::core::clone::Clone for Struct_vm_statistics {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_vm_statistics {
+impl ::core::default::Default for Struct_vm_statistics {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type vm_statistics_t = *mut Struct_vm_statistics;
@@ -677,14 +677,14 @@ pub struct Struct_vm_statistics64 {
     pub purgeable_count: natural_t,
     pub speculative_count: natural_t,
 }
-impl ::std::clone::Clone for Struct_vm_statistics64 {
+impl ::core::clone::Clone for Struct_vm_statistics64 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_vm_statistics64 {
+impl ::core::default::Default for Struct_vm_statistics64 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type vm_statistics64_t = *mut Struct_vm_statistics64;
@@ -699,14 +699,14 @@ pub struct Struct_vm_extmod_statistics {
     pub thread_set_state_count: int64_t,
     pub thread_set_state_caller_count: int64_t,
 }
-impl ::std::clone::Clone for Struct_vm_extmod_statistics {
+impl ::core::clone::Clone for Struct_vm_extmod_statistics {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_vm_extmod_statistics {
+impl ::core::default::Default for Struct_vm_extmod_statistics {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type vm_extmod_statistics_t = *mut Struct_vm_extmod_statistics;
@@ -720,14 +720,14 @@ pub struct Struct_time_value {
     pub seconds: integer_t,
     pub microseconds: integer_t,
 }
-impl ::std::clone::Clone for Struct_time_value {
+impl ::core::clone::Clone for Struct_time_value {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_time_value {
+impl ::core::default::Default for Struct_time_value {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type time_value_t = Struct_time_value;
@@ -752,14 +752,14 @@ pub struct Struct_host_basic_info {
     pub logical_cpu_max: integer_t,
     pub max_mem: uint64_t,
 }
-impl ::std::clone::Clone for Struct_host_basic_info {
+impl ::core::clone::Clone for Struct_host_basic_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_host_basic_info {
+impl ::core::default::Default for Struct_host_basic_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type host_basic_info_data_t = Struct_host_basic_info;
@@ -770,14 +770,14 @@ pub struct Struct_host_sched_info {
     pub min_timeout: integer_t,
     pub min_quantum: integer_t,
 }
-impl ::std::clone::Clone for Struct_host_sched_info {
+impl ::core::clone::Clone for Struct_host_sched_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_host_sched_info {
+impl ::core::default::Default for Struct_host_sched_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type host_sched_info_data_t = Struct_host_sched_info;
@@ -791,14 +791,14 @@ pub struct Struct_kernel_resource_sizes {
     pub memory_region: natural_t,
     pub memory_object: natural_t,
 }
-impl ::std::clone::Clone for Struct_kernel_resource_sizes {
+impl ::core::clone::Clone for Struct_kernel_resource_sizes {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_kernel_resource_sizes {
+impl ::core::default::Default for Struct_kernel_resource_sizes {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type kernel_resource_sizes_data_t = Struct_kernel_resource_sizes;
@@ -815,14 +815,14 @@ pub struct Struct_host_priority_info {
     pub minimum_priority: integer_t,
     pub maximum_priority: integer_t,
 }
-impl ::std::clone::Clone for Struct_host_priority_info {
+impl ::core::clone::Clone for Struct_host_priority_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_host_priority_info {
+impl ::core::default::Default for Struct_host_priority_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type host_priority_info_data_t = Struct_host_priority_info;
@@ -833,14 +833,14 @@ pub struct Struct_host_load_info {
     pub avenrun: [integer_t; 3usize],
     pub mach_factor: [integer_t; 3usize],
 }
-impl ::std::clone::Clone for Struct_host_load_info {
+impl ::core::clone::Clone for Struct_host_load_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_host_load_info {
+impl ::core::default::Default for Struct_host_load_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type host_load_info_data_t = Struct_host_load_info;
@@ -850,14 +850,14 @@ pub type host_load_info_t = *mut Struct_host_load_info;
 pub struct Struct_host_cpu_load_info {
     pub cpu_ticks: [natural_t; 4usize],
 }
-impl ::std::clone::Clone for Struct_host_cpu_load_info {
+impl ::core::clone::Clone for Struct_host_cpu_load_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_host_cpu_load_info {
+impl ::core::default::Default for Struct_host_cpu_load_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type host_cpu_load_info_data_t = Struct_host_cpu_load_info;
@@ -885,14 +885,14 @@ pub struct Struct_memory_object_perf_info {
     pub cluster_size: memory_object_cluster_size_t,
     pub may_cache: boolean_t,
 }
-impl ::std::clone::Clone for Struct_memory_object_perf_info {
+impl ::core::clone::Clone for Struct_memory_object_perf_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_memory_object_perf_info {
+impl ::core::default::Default for Struct_memory_object_perf_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -903,14 +903,14 @@ pub struct Struct_memory_object_attr_info {
     pub may_cache_object: boolean_t,
     pub temporary: boolean_t,
 }
-impl ::std::clone::Clone for Struct_memory_object_attr_info {
+impl ::core::clone::Clone for Struct_memory_object_attr_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_memory_object_attr_info {
+impl ::core::default::Default for Struct_memory_object_attr_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -922,14 +922,14 @@ pub struct Struct_memory_object_behave_info {
     pub silent_overwrite: boolean_t,
     pub advisory_pageout: boolean_t,
 }
-impl ::std::clone::Clone for Struct_memory_object_behave_info {
+impl ::core::clone::Clone for Struct_memory_object_behave_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_memory_object_behave_info {
+impl ::core::default::Default for Struct_memory_object_behave_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type memory_object_behave_info_t = *mut Struct_memory_object_behave_info;
@@ -958,14 +958,14 @@ pub struct Struct___darwin_i386_thread_state {
     pub __fs: ::libc::c_uint,
     pub __gs: ::libc::c_uint,
 }
-impl ::std::clone::Clone for Struct___darwin_i386_thread_state {
+impl ::core::clone::Clone for Struct___darwin_i386_thread_state {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct___darwin_i386_thread_state {
+impl ::core::default::Default for Struct___darwin_i386_thread_state {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -973,14 +973,14 @@ impl ::std::default::Default for Struct___darwin_i386_thread_state {
 pub struct Struct___darwin_fp_control {
     pub _bindgen_bitfield_1_: ::libc::c_ushort,
 }
-impl ::std::clone::Clone for Struct___darwin_fp_control {
+impl ::core::clone::Clone for Struct___darwin_fp_control {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct___darwin_fp_control {
+impl ::core::default::Default for Struct___darwin_fp_control {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __darwin_fp_control_t = Struct___darwin_fp_control;
@@ -989,14 +989,14 @@ pub type __darwin_fp_control_t = Struct___darwin_fp_control;
 pub struct Struct___darwin_fp_status {
     pub _bindgen_bitfield_1_: ::libc::c_ushort,
 }
-impl ::std::clone::Clone for Struct___darwin_fp_status {
+impl ::core::clone::Clone for Struct___darwin_fp_status {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct___darwin_fp_status {
+impl ::core::default::Default for Struct___darwin_fp_status {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __darwin_fp_status_t = Struct___darwin_fp_status;
@@ -1006,14 +1006,14 @@ pub struct Struct___darwin_mmst_reg {
     pub __mmst_reg: [::libc::c_char; 10usize],
     pub __mmst_rsrv: [::libc::c_char; 6usize],
 }
-impl ::std::clone::Clone for Struct___darwin_mmst_reg {
+impl ::core::clone::Clone for Struct___darwin_mmst_reg {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct___darwin_mmst_reg {
+impl ::core::default::Default for Struct___darwin_mmst_reg {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -1021,14 +1021,14 @@ impl ::std::default::Default for Struct___darwin_mmst_reg {
 pub struct Struct___darwin_xmm_reg {
     pub __xmm_reg: [::libc::c_char; 16usize],
 }
-impl ::std::clone::Clone for Struct___darwin_xmm_reg {
+impl ::core::clone::Clone for Struct___darwin_xmm_reg {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct___darwin_xmm_reg {
+impl ::core::default::Default for Struct___darwin_xmm_reg {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -1067,14 +1067,14 @@ pub struct Struct___darwin_i386_float_state {
     pub __fpu_rsrv4: [::libc::c_char; 224usize],
     pub __fpu_reserved1: ::libc::c_int,
 }
-impl ::std::clone::Clone for Struct___darwin_i386_float_state {
+impl ::core::clone::Clone for Struct___darwin_i386_float_state {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct___darwin_i386_float_state {
+impl ::core::default::Default for Struct___darwin_i386_float_state {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -1122,14 +1122,14 @@ pub struct Struct___darwin_i386_avx_state {
     pub __fpu_ymmh6: Struct___darwin_xmm_reg,
     pub __fpu_ymmh7: Struct___darwin_xmm_reg,
 }
-impl ::std::clone::Clone for Struct___darwin_i386_avx_state {
+impl ::core::clone::Clone for Struct___darwin_i386_avx_state {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct___darwin_i386_avx_state {
+impl ::core::default::Default for Struct___darwin_i386_avx_state {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -1140,14 +1140,14 @@ pub struct Struct___darwin_i386_exception_state {
     pub __err: __uint32_t,
     pub __faultvaddr: __uint32_t,
 }
-impl ::std::clone::Clone for Struct___darwin_i386_exception_state {
+impl ::core::clone::Clone for Struct___darwin_i386_exception_state {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct___darwin_i386_exception_state {
+impl ::core::default::Default for Struct___darwin_i386_exception_state {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -1162,14 +1162,14 @@ pub struct Struct___darwin_x86_debug_state32 {
     pub __dr6: ::libc::c_uint,
     pub __dr7: ::libc::c_uint,
 }
-impl ::std::clone::Clone for Struct___darwin_x86_debug_state32 {
+impl ::core::clone::Clone for Struct___darwin_x86_debug_state32 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct___darwin_x86_debug_state32 {
+impl ::core::default::Default for Struct___darwin_x86_debug_state32 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -1197,14 +1197,14 @@ pub struct Struct___darwin_x86_thread_state64 {
     pub __fs: __uint64_t,
     pub __gs: __uint64_t,
 }
-impl ::std::clone::Clone for Struct___darwin_x86_thread_state64 {
+impl ::core::clone::Clone for Struct___darwin_x86_thread_state64 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct___darwin_x86_thread_state64 {
+impl ::core::default::Default for Struct___darwin_x86_thread_state64 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -1251,14 +1251,14 @@ pub struct Struct___darwin_x86_float_state64 {
     pub __fpu_rsrv4: [::libc::c_char; 96usize],
     pub __fpu_reserved1: ::libc::c_int,
 }
-impl ::std::clone::Clone for Struct___darwin_x86_float_state64 {
+impl ::core::clone::Clone for Struct___darwin_x86_float_state64 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct___darwin_x86_float_state64 {
+impl ::core::default::Default for Struct___darwin_x86_float_state64 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -1322,14 +1322,14 @@ pub struct Struct___darwin_x86_avx_state64 {
     pub __fpu_ymmh14: Struct___darwin_xmm_reg,
     pub __fpu_ymmh15: Struct___darwin_xmm_reg,
 }
-impl ::std::clone::Clone for Struct___darwin_x86_avx_state64 {
+impl ::core::clone::Clone for Struct___darwin_x86_avx_state64 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct___darwin_x86_avx_state64 {
+impl ::core::default::Default for Struct___darwin_x86_avx_state64 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -1340,14 +1340,14 @@ pub struct Struct___darwin_x86_exception_state64 {
     pub __err: __uint32_t,
     pub __faultvaddr: __uint64_t,
 }
-impl ::std::clone::Clone for Struct___darwin_x86_exception_state64 {
+impl ::core::clone::Clone for Struct___darwin_x86_exception_state64 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct___darwin_x86_exception_state64 {
+impl ::core::default::Default for Struct___darwin_x86_exception_state64 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -1362,14 +1362,14 @@ pub struct Struct___darwin_x86_debug_state64 {
     pub __dr6: __uint64_t,
     pub __dr7: __uint64_t,
 }
-impl ::std::clone::Clone for Struct___darwin_x86_debug_state64 {
+impl ::core::clone::Clone for Struct___darwin_x86_debug_state64 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct___darwin_x86_debug_state64 {
+impl ::core::default::Default for Struct___darwin_x86_debug_state64 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -1378,14 +1378,14 @@ pub struct Struct_x86_state_hdr {
     pub flavor: ::libc::c_int,
     pub count: ::libc::c_int,
 }
-impl ::std::clone::Clone for Struct_x86_state_hdr {
+impl ::core::clone::Clone for Struct_x86_state_hdr {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_x86_state_hdr {
+impl ::core::default::Default for Struct_x86_state_hdr {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type x86_state_hdr_t = Struct_x86_state_hdr;
@@ -1408,14 +1408,14 @@ pub struct Struct_x86_thread_state {
     pub tsh: x86_state_hdr_t,
     pub uts: Union_Unnamed25,
 }
-impl ::std::clone::Clone for Struct_x86_thread_state {
+impl ::core::clone::Clone for Struct_x86_thread_state {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_x86_thread_state {
+impl ::core::default::Default for Struct_x86_thread_state {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -1425,22 +1425,22 @@ pub struct Union_Unnamed25 {
 }
 impl Union_Unnamed25 {
     pub unsafe fn ts32(&mut self) -> *mut x86_thread_state32_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn ts64(&mut self) -> *mut x86_thread_state64_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
 }
-impl ::std::clone::Clone for Union_Unnamed25 {
+impl ::core::clone::Clone for Union_Unnamed25 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Union_Unnamed25 {
+impl ::core::default::Default for Union_Unnamed25 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -1449,14 +1449,14 @@ pub struct Struct_x86_float_state {
     pub fsh: x86_state_hdr_t,
     pub ufs: Union_Unnamed26,
 }
-impl ::std::clone::Clone for Struct_x86_float_state {
+impl ::core::clone::Clone for Struct_x86_float_state {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_x86_float_state {
+impl ::core::default::Default for Struct_x86_float_state {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -1466,22 +1466,22 @@ pub struct Union_Unnamed26 {
 }
 impl Union_Unnamed26 {
     pub unsafe fn fs32(&mut self) -> *mut x86_float_state32_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn fs64(&mut self) -> *mut x86_float_state64_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
 }
-impl ::std::clone::Clone for Union_Unnamed26 {
+impl ::core::clone::Clone for Union_Unnamed26 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Union_Unnamed26 {
+impl ::core::default::Default for Union_Unnamed26 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -1490,14 +1490,14 @@ pub struct Struct_x86_exception_state {
     pub esh: x86_state_hdr_t,
     pub ues: Union_Unnamed27,
 }
-impl ::std::clone::Clone for Struct_x86_exception_state {
+impl ::core::clone::Clone for Struct_x86_exception_state {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_x86_exception_state {
+impl ::core::default::Default for Struct_x86_exception_state {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -1507,22 +1507,22 @@ pub struct Union_Unnamed27 {
 }
 impl Union_Unnamed27 {
     pub unsafe fn es32(&mut self) -> *mut x86_exception_state32_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn es64(&mut self) -> *mut x86_exception_state64_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
 }
-impl ::std::clone::Clone for Union_Unnamed27 {
+impl ::core::clone::Clone for Union_Unnamed27 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Union_Unnamed27 {
+impl ::core::default::Default for Union_Unnamed27 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -1531,14 +1531,14 @@ pub struct Struct_x86_debug_state {
     pub dsh: x86_state_hdr_t,
     pub uds: Union_Unnamed28,
 }
-impl ::std::clone::Clone for Struct_x86_debug_state {
+impl ::core::clone::Clone for Struct_x86_debug_state {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_x86_debug_state {
+impl ::core::default::Default for Struct_x86_debug_state {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -1548,22 +1548,22 @@ pub struct Union_Unnamed28 {
 }
 impl Union_Unnamed28 {
     pub unsafe fn ds32(&mut self) -> *mut x86_debug_state32_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn ds64(&mut self) -> *mut x86_debug_state64_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
 }
-impl ::std::clone::Clone for Union_Unnamed28 {
+impl ::core::clone::Clone for Union_Unnamed28 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Union_Unnamed28 {
+impl ::core::default::Default for Union_Unnamed28 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -1572,14 +1572,14 @@ pub struct Struct_x86_avx_state {
     pub ash: x86_state_hdr_t,
     pub ufs: Union_Unnamed29,
 }
-impl ::std::clone::Clone for Struct_x86_avx_state {
+impl ::core::clone::Clone for Struct_x86_avx_state {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_x86_avx_state {
+impl ::core::default::Default for Struct_x86_avx_state {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -1589,22 +1589,22 @@ pub struct Union_Unnamed29 {
 }
 impl Union_Unnamed29 {
     pub unsafe fn as32(&mut self) -> *mut x86_avx_state32_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn as64(&mut self) -> *mut x86_avx_state64_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
 }
-impl ::std::clone::Clone for Union_Unnamed29 {
+impl ::core::clone::Clone for Union_Unnamed29 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Union_Unnamed29 {
+impl ::core::default::Default for Union_Unnamed29 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type x86_thread_state_t = Struct_x86_thread_state;
@@ -1622,14 +1622,14 @@ pub struct Struct_x86_seg_load_fault32 {
     pub cs: uint32_t,
     pub efl: uint32_t,
 }
-impl ::std::clone::Clone for Struct_x86_seg_load_fault32 {
+impl ::core::clone::Clone for Struct_x86_seg_load_fault32 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_x86_seg_load_fault32 {
+impl ::core::default::Default for Struct_x86_seg_load_fault32 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type thread_state_t = *mut natural_t;
@@ -1664,14 +1664,14 @@ pub struct Struct_processor_basic_info {
     pub slot_num: ::libc::c_int,
     pub is_master: boolean_t,
 }
-impl ::std::clone::Clone for Struct_processor_basic_info {
+impl ::core::clone::Clone for Struct_processor_basic_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_processor_basic_info {
+impl ::core::default::Default for Struct_processor_basic_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type processor_basic_info_data_t = Struct_processor_basic_info;
@@ -1681,14 +1681,14 @@ pub type processor_basic_info_t = *mut Struct_processor_basic_info;
 pub struct Struct_processor_cpu_load_info {
     pub cpu_ticks: [::libc::c_uint; 4usize],
 }
-impl ::std::clone::Clone for Struct_processor_cpu_load_info {
+impl ::core::clone::Clone for Struct_processor_cpu_load_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_processor_cpu_load_info {
+impl ::core::default::Default for Struct_processor_cpu_load_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type processor_cpu_load_info_data_t = Struct_processor_cpu_load_info;
@@ -1700,14 +1700,14 @@ pub struct Struct_processor_set_basic_info {
     pub processor_count: ::libc::c_int,
     pub default_policy: ::libc::c_int,
 }
-impl ::std::clone::Clone for Struct_processor_set_basic_info {
+impl ::core::clone::Clone for Struct_processor_set_basic_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_processor_set_basic_info {
+impl ::core::default::Default for Struct_processor_set_basic_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type processor_set_basic_info_data_t = Struct_processor_set_basic_info;
@@ -1720,14 +1720,14 @@ pub struct Struct_processor_set_load_info {
     pub load_average: integer_t,
     pub mach_factor: integer_t,
 }
-impl ::std::clone::Clone for Struct_processor_set_load_info {
+impl ::core::clone::Clone for Struct_processor_set_load_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_processor_set_load_info {
+impl ::core::default::Default for Struct_processor_set_load_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type processor_set_load_info_data_t = Struct_processor_set_load_info;
@@ -1741,14 +1741,14 @@ pub type policy_limit_t = *mut integer_t;
 pub struct Struct_policy_timeshare_base {
     pub base_priority: integer_t,
 }
-impl ::std::clone::Clone for Struct_policy_timeshare_base {
+impl ::core::clone::Clone for Struct_policy_timeshare_base {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_policy_timeshare_base {
+impl ::core::default::Default for Struct_policy_timeshare_base {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -1756,14 +1756,14 @@ impl ::std::default::Default for Struct_policy_timeshare_base {
 pub struct Struct_policy_timeshare_limit {
     pub max_priority: integer_t,
 }
-impl ::std::clone::Clone for Struct_policy_timeshare_limit {
+impl ::core::clone::Clone for Struct_policy_timeshare_limit {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_policy_timeshare_limit {
+impl ::core::default::Default for Struct_policy_timeshare_limit {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -1775,14 +1775,14 @@ pub struct Struct_policy_timeshare_info {
     pub depressed: boolean_t,
     pub depress_priority: integer_t,
 }
-impl ::std::clone::Clone for Struct_policy_timeshare_info {
+impl ::core::clone::Clone for Struct_policy_timeshare_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_policy_timeshare_info {
+impl ::core::default::Default for Struct_policy_timeshare_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type policy_timeshare_base_t = *mut Struct_policy_timeshare_base;
@@ -1797,14 +1797,14 @@ pub struct Struct_policy_rr_base {
     pub base_priority: integer_t,
     pub quantum: integer_t,
 }
-impl ::std::clone::Clone for Struct_policy_rr_base {
+impl ::core::clone::Clone for Struct_policy_rr_base {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_policy_rr_base {
+impl ::core::default::Default for Struct_policy_rr_base {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -1812,14 +1812,14 @@ impl ::std::default::Default for Struct_policy_rr_base {
 pub struct Struct_policy_rr_limit {
     pub max_priority: integer_t,
 }
-impl ::std::clone::Clone for Struct_policy_rr_limit {
+impl ::core::clone::Clone for Struct_policy_rr_limit {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_policy_rr_limit {
+impl ::core::default::Default for Struct_policy_rr_limit {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -1831,14 +1831,14 @@ pub struct Struct_policy_rr_info {
     pub depressed: boolean_t,
     pub depress_priority: integer_t,
 }
-impl ::std::clone::Clone for Struct_policy_rr_info {
+impl ::core::clone::Clone for Struct_policy_rr_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_policy_rr_info {
+impl ::core::default::Default for Struct_policy_rr_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type policy_rr_base_t = *mut Struct_policy_rr_base;
@@ -1852,14 +1852,14 @@ pub type policy_rr_info_data_t = Struct_policy_rr_info;
 pub struct Struct_policy_fifo_base {
     pub base_priority: integer_t,
 }
-impl ::std::clone::Clone for Struct_policy_fifo_base {
+impl ::core::clone::Clone for Struct_policy_fifo_base {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_policy_fifo_base {
+impl ::core::default::Default for Struct_policy_fifo_base {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -1867,14 +1867,14 @@ impl ::std::default::Default for Struct_policy_fifo_base {
 pub struct Struct_policy_fifo_limit {
     pub max_priority: integer_t,
 }
-impl ::std::clone::Clone for Struct_policy_fifo_limit {
+impl ::core::clone::Clone for Struct_policy_fifo_limit {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_policy_fifo_limit {
+impl ::core::default::Default for Struct_policy_fifo_limit {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -1885,14 +1885,14 @@ pub struct Struct_policy_fifo_info {
     pub depressed: boolean_t,
     pub depress_priority: integer_t,
 }
-impl ::std::clone::Clone for Struct_policy_fifo_info {
+impl ::core::clone::Clone for Struct_policy_fifo_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_policy_fifo_info {
+impl ::core::default::Default for Struct_policy_fifo_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type policy_fifo_base_t = *mut Struct_policy_fifo_base;
@@ -1908,14 +1908,14 @@ pub struct Struct_policy_bases {
     pub rr: policy_rr_base_data_t,
     pub fifo: policy_fifo_base_data_t,
 }
-impl ::std::clone::Clone for Struct_policy_bases {
+impl ::core::clone::Clone for Struct_policy_bases {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_policy_bases {
+impl ::core::default::Default for Struct_policy_bases {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -1925,14 +1925,14 @@ pub struct Struct_policy_limits {
     pub rr: policy_rr_limit_data_t,
     pub fifo: policy_fifo_limit_data_t,
 }
-impl ::std::clone::Clone for Struct_policy_limits {
+impl ::core::clone::Clone for Struct_policy_limits {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_policy_limits {
+impl ::core::default::Default for Struct_policy_limits {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -1942,14 +1942,14 @@ pub struct Struct_policy_infos {
     pub rr: policy_rr_info_data_t,
     pub fifo: policy_fifo_info_data_t,
 }
-impl ::std::clone::Clone for Struct_policy_infos {
+impl ::core::clone::Clone for Struct_policy_infos {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_policy_infos {
+impl ::core::default::Default for Struct_policy_infos {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type policy_base_data_t = Struct_policy_bases;
@@ -1968,14 +1968,14 @@ pub struct Struct_task_basic_info_32 {
     pub system_time: time_value_t,
     pub policy: policy_t,
 }
-impl ::std::clone::Clone for Struct_task_basic_info_32 {
+impl ::core::clone::Clone for Struct_task_basic_info_32 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_task_basic_info_32 {
+impl ::core::default::Default for Struct_task_basic_info_32 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type task_basic_info_32_data_t = Struct_task_basic_info_32;
@@ -1990,14 +1990,14 @@ pub struct Struct_task_basic_info_64 {
     pub system_time: time_value_t,
     pub policy: policy_t,
 }
-impl ::std::clone::Clone for Struct_task_basic_info_64 {
+impl ::core::clone::Clone for Struct_task_basic_info_64 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_task_basic_info_64 {
+impl ::core::default::Default for Struct_task_basic_info_64 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type task_basic_info_64_data_t = Struct_task_basic_info_64;
@@ -2012,14 +2012,14 @@ pub struct Struct_task_basic_info {
     pub system_time: time_value_t,
     pub policy: policy_t,
 }
-impl ::std::clone::Clone for Struct_task_basic_info {
+impl ::core::clone::Clone for Struct_task_basic_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_task_basic_info {
+impl ::core::default::Default for Struct_task_basic_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type task_basic_info_data_t = Struct_task_basic_info;
@@ -2036,14 +2036,14 @@ pub struct Struct_task_events_info {
     pub syscalls_unix: integer_t,
     pub csw: integer_t,
 }
-impl ::std::clone::Clone for Struct_task_events_info {
+impl ::core::clone::Clone for Struct_task_events_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_task_events_info {
+impl ::core::default::Default for Struct_task_events_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type task_events_info_data_t = Struct_task_events_info;
@@ -2054,14 +2054,14 @@ pub struct Struct_task_thread_times_info {
     pub user_time: time_value_t,
     pub system_time: time_value_t,
 }
-impl ::std::clone::Clone for Struct_task_thread_times_info {
+impl ::core::clone::Clone for Struct_task_thread_times_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_task_thread_times_info {
+impl ::core::default::Default for Struct_task_thread_times_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type task_thread_times_info_data_t = Struct_task_thread_times_info;
@@ -2074,14 +2074,14 @@ pub struct Struct_task_absolutetime_info {
     pub threads_user: uint64_t,
     pub threads_system: uint64_t,
 }
-impl ::std::clone::Clone for Struct_task_absolutetime_info {
+impl ::core::clone::Clone for Struct_task_absolutetime_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_task_absolutetime_info {
+impl ::core::default::Default for Struct_task_absolutetime_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type task_absolutetime_info_data_t = Struct_task_absolutetime_info;
@@ -2094,14 +2094,14 @@ pub struct Struct_task_kernelmemory_info {
     pub total_salloc: uint64_t,
     pub total_sfree: uint64_t,
 }
-impl ::std::clone::Clone for Struct_task_kernelmemory_info {
+impl ::core::clone::Clone for Struct_task_kernelmemory_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_task_kernelmemory_info {
+impl ::core::default::Default for Struct_task_kernelmemory_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type task_kernelmemory_info_data_t = Struct_task_kernelmemory_info;
@@ -2114,14 +2114,14 @@ pub struct Struct_task_affinity_tag_info {
     pub max: integer_t,
     pub task_count: integer_t,
 }
-impl ::std::clone::Clone for Struct_task_affinity_tag_info {
+impl ::core::clone::Clone for Struct_task_affinity_tag_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_task_affinity_tag_info {
+impl ::core::default::Default for Struct_task_affinity_tag_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type task_affinity_tag_info_data_t = Struct_task_affinity_tag_info;
@@ -2133,14 +2133,14 @@ pub struct Struct_task_dyld_info {
     pub all_image_info_size: mach_vm_size_t,
     pub all_image_info_format: integer_t,
 }
-impl ::std::clone::Clone for Struct_task_dyld_info {
+impl ::core::clone::Clone for Struct_task_dyld_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_task_dyld_info {
+impl ::core::default::Default for Struct_task_dyld_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type task_dyld_info_data_t = Struct_task_dyld_info;
@@ -2151,14 +2151,14 @@ pub struct Struct_task_extmod_info {
     pub task_uuid: [::libc::c_uchar; 16usize],
     pub extmod_statistics: vm_extmod_statistics_data_t,
 }
-impl ::std::clone::Clone for Struct_task_extmod_info {
+impl ::core::clone::Clone for Struct_task_extmod_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_task_extmod_info {
+impl ::core::default::Default for Struct_task_extmod_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type task_extmod_info_data_t = Struct_task_extmod_info;
@@ -2173,14 +2173,14 @@ pub struct Struct_task_power_info {
     pub task_timer_wakeups_bin_1: uint64_t,
     pub task_timer_wakeups_bin_2: uint64_t,
 }
-impl ::std::clone::Clone for Struct_task_power_info {
+impl ::core::clone::Clone for Struct_task_power_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_task_power_info {
+impl ::core::default::Default for Struct_task_power_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type task_power_info_data_t = Struct_task_power_info;
@@ -2196,14 +2196,14 @@ pub struct Struct_mach_task_basic_info {
     pub policy: policy_t,
     pub suspend_count: integer_t,
 }
-impl ::std::clone::Clone for Struct_mach_task_basic_info {
+impl ::core::clone::Clone for Struct_mach_task_basic_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_mach_task_basic_info {
+impl ::core::default::Default for Struct_mach_task_basic_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_task_basic_info_data_t = Struct_mach_task_basic_info;
@@ -2226,14 +2226,14 @@ pub type task_role_t = Enum_task_role;
 pub struct Struct_task_category_policy {
     pub role: task_role_t,
 }
-impl ::std::clone::Clone for Struct_task_category_policy {
+impl ::core::clone::Clone for Struct_task_category_policy {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_task_category_policy {
+impl ::core::default::Default for Struct_task_category_policy {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type task_category_policy_data_t = Struct_task_category_policy;
@@ -2254,14 +2254,14 @@ pub struct Struct_thread_basic_info {
     pub suspend_count: integer_t,
     pub sleep_time: integer_t,
 }
-impl ::std::clone::Clone for Struct_thread_basic_info {
+impl ::core::clone::Clone for Struct_thread_basic_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_thread_basic_info {
+impl ::core::default::Default for Struct_thread_basic_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type thread_basic_info_data_t = Struct_thread_basic_info;
@@ -2273,14 +2273,14 @@ pub struct Struct_thread_identifier_info {
     pub thread_handle: uint64_t,
     pub dispatch_qaddr: uint64_t,
 }
-impl ::std::clone::Clone for Struct_thread_identifier_info {
+impl ::core::clone::Clone for Struct_thread_identifier_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_thread_identifier_info {
+impl ::core::default::Default for Struct_thread_identifier_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type thread_identifier_info_data_t = Struct_thread_identifier_info;
@@ -2292,14 +2292,14 @@ pub type thread_policy_t = *mut integer_t;
 pub struct Struct_thread_standard_policy {
     pub no_data: natural_t,
 }
-impl ::std::clone::Clone for Struct_thread_standard_policy {
+impl ::core::clone::Clone for Struct_thread_standard_policy {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_thread_standard_policy {
+impl ::core::default::Default for Struct_thread_standard_policy {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type thread_standard_policy_data_t = Struct_thread_standard_policy;
@@ -2309,14 +2309,14 @@ pub type thread_standard_policy_t = *mut Struct_thread_standard_policy;
 pub struct Struct_thread_extended_policy {
     pub timeshare: boolean_t,
 }
-impl ::std::clone::Clone for Struct_thread_extended_policy {
+impl ::core::clone::Clone for Struct_thread_extended_policy {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_thread_extended_policy {
+impl ::core::default::Default for Struct_thread_extended_policy {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type thread_extended_policy_data_t = Struct_thread_extended_policy;
@@ -2329,14 +2329,14 @@ pub struct Struct_thread_time_constraint_policy {
     pub constraint: uint32_t,
     pub preemptible: boolean_t,
 }
-impl ::std::clone::Clone for Struct_thread_time_constraint_policy {
+impl ::core::clone::Clone for Struct_thread_time_constraint_policy {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_thread_time_constraint_policy {
+impl ::core::default::Default for Struct_thread_time_constraint_policy {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type thread_time_constraint_policy_data_t = Struct_thread_time_constraint_policy;
@@ -2346,14 +2346,14 @@ pub type thread_time_constraint_policy_t = *mut Struct_thread_time_constraint_po
 pub struct Struct_thread_precedence_policy {
     pub importance: integer_t,
 }
-impl ::std::clone::Clone for Struct_thread_precedence_policy {
+impl ::core::clone::Clone for Struct_thread_precedence_policy {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_thread_precedence_policy {
+impl ::core::default::Default for Struct_thread_precedence_policy {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type thread_precedence_policy_data_t = Struct_thread_precedence_policy;
@@ -2363,14 +2363,14 @@ pub type thread_precedence_policy_t = *mut Struct_thread_precedence_policy;
 pub struct Struct_thread_affinity_policy {
     pub affinity_tag: integer_t,
 }
-impl ::std::clone::Clone for Struct_thread_affinity_policy {
+impl ::core::clone::Clone for Struct_thread_affinity_policy {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_thread_affinity_policy {
+impl ::core::default::Default for Struct_thread_affinity_policy {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type thread_affinity_policy_data_t = Struct_thread_affinity_policy;
@@ -2380,14 +2380,14 @@ pub type thread_affinity_policy_t = *mut Struct_thread_affinity_policy;
 pub struct Struct_thread_background_policy {
     pub priority: integer_t,
 }
-impl ::std::clone::Clone for Struct_thread_background_policy {
+impl ::core::clone::Clone for Struct_thread_background_policy {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_thread_background_policy {
+impl ::core::default::Default for Struct_thread_background_policy {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type thread_background_policy_data_t = Struct_thread_background_policy;
@@ -2404,14 +2404,14 @@ pub struct Struct_mach_timespec {
     pub tv_sec: ::libc::c_uint,
     pub tv_nsec: clock_res_t,
 }
-impl ::std::clone::Clone for Struct_mach_timespec {
+impl ::core::clone::Clone for Struct_mach_timespec {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_mach_timespec {
+impl ::core::default::Default for Struct_mach_timespec {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_timespec_t = Struct_mach_timespec;
@@ -2439,14 +2439,14 @@ pub struct Struct_vm_region_basic_info_64 {
     pub behavior: vm_behavior_t,
     pub user_wired_count: ::libc::c_ushort,
 }
-impl ::std::clone::Clone for Struct_vm_region_basic_info_64 {
+impl ::core::clone::Clone for Struct_vm_region_basic_info_64 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_vm_region_basic_info_64 {
+impl ::core::default::Default for Struct_vm_region_basic_info_64 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type vm_region_basic_info_64_t = *mut Struct_vm_region_basic_info_64;
@@ -2463,14 +2463,14 @@ pub struct Struct_vm_region_basic_info {
     pub behavior: vm_behavior_t,
     pub user_wired_count: ::libc::c_ushort,
 }
-impl ::std::clone::Clone for Struct_vm_region_basic_info {
+impl ::core::clone::Clone for Struct_vm_region_basic_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_vm_region_basic_info {
+impl ::core::default::Default for Struct_vm_region_basic_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type vm_region_basic_info_t = *mut Struct_vm_region_basic_info;
@@ -2489,14 +2489,14 @@ pub struct Struct_vm_region_extended_info {
     pub external_pager: ::libc::c_uchar,
     pub share_mode: ::libc::c_uchar,
 }
-impl ::std::clone::Clone for Struct_vm_region_extended_info {
+impl ::core::clone::Clone for Struct_vm_region_extended_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_vm_region_extended_info {
+impl ::core::default::Default for Struct_vm_region_extended_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type vm_region_extended_info_t = *mut Struct_vm_region_extended_info;
@@ -2510,14 +2510,14 @@ pub struct Struct_vm_region_top_info {
     pub shared_pages_resident: ::libc::c_uint,
     pub share_mode: ::libc::c_uchar,
 }
-impl ::std::clone::Clone for Struct_vm_region_top_info {
+impl ::core::clone::Clone for Struct_vm_region_top_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_vm_region_top_info {
+impl ::core::default::Default for Struct_vm_region_top_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type vm_region_top_info_t = *mut Struct_vm_region_top_info;
@@ -2543,14 +2543,14 @@ pub struct Struct_vm_region_submap_info {
     pub object_id: vm32_object_id_t,
     pub user_wired_count: ::libc::c_ushort,
 }
-impl ::std::clone::Clone for Struct_vm_region_submap_info {
+impl ::core::clone::Clone for Struct_vm_region_submap_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_vm_region_submap_info {
+impl ::core::default::Default for Struct_vm_region_submap_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type vm_region_submap_info_t = *mut Struct_vm_region_submap_info;
@@ -2576,14 +2576,14 @@ pub struct Struct_vm_region_submap_info_64 {
     pub object_id: vm32_object_id_t,
     pub user_wired_count: ::libc::c_ushort,
 }
-impl ::std::clone::Clone for Struct_vm_region_submap_info_64 {
+impl ::core::clone::Clone for Struct_vm_region_submap_info_64 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_vm_region_submap_info_64 {
+impl ::core::default::Default for Struct_vm_region_submap_info_64 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type vm_region_submap_info_64_t = *mut Struct_vm_region_submap_info_64;
@@ -2605,14 +2605,14 @@ pub struct Struct_vm_region_submap_short_info_64 {
     pub object_id: vm32_object_id_t,
     pub user_wired_count: ::libc::c_ushort,
 }
-impl ::std::clone::Clone for Struct_vm_region_submap_short_info_64 {
+impl ::core::clone::Clone for Struct_vm_region_submap_short_info_64 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_vm_region_submap_short_info_64 {
+impl ::core::default::Default for Struct_vm_region_submap_short_info_64 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type vm_region_submap_short_info_64_t = *mut Struct_vm_region_submap_short_info_64;
@@ -2623,14 +2623,14 @@ pub struct Struct_mach_vm_read_entry {
     pub address: mach_vm_address_t,
     pub size: mach_vm_size_t,
 }
-impl ::std::clone::Clone for Struct_mach_vm_read_entry {
+impl ::core::clone::Clone for Struct_mach_vm_read_entry {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_mach_vm_read_entry {
+impl ::core::default::Default for Struct_mach_vm_read_entry {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -2639,14 +2639,14 @@ pub struct Struct_vm_read_entry {
     pub address: vm_address_t,
     pub size: vm_size_t,
 }
-impl ::std::clone::Clone for Struct_vm_read_entry {
+impl ::core::clone::Clone for Struct_vm_read_entry {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_vm_read_entry {
+impl ::core::default::Default for Struct_vm_read_entry {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_vm_read_entry_t = [Struct_mach_vm_read_entry; 256usize];
@@ -2664,14 +2664,14 @@ pub struct Struct_vm_page_info_basic {
     pub depth: ::libc::c_int,
     pub __pad: ::libc::c_int,
 }
-impl ::std::clone::Clone for Struct_vm_page_info_basic {
+impl ::core::clone::Clone for Struct_vm_page_info_basic {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_vm_page_info_basic {
+impl ::core::default::Default for Struct_vm_page_info_basic {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type vm_page_info_basic_t = *mut Struct_vm_page_info_basic;
@@ -2687,14 +2687,14 @@ pub struct Struct_kmod_reference {
     pub next: *mut Struct_kmod_reference,
     pub info: *mut Struct_kmod_info,
 }
-impl ::std::clone::Clone for Struct_kmod_reference {
+impl ::core::clone::Clone for Struct_kmod_reference {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_kmod_reference {
+impl ::core::default::Default for Struct_kmod_reference {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type kmod_reference_t = Struct_kmod_reference;
@@ -2711,17 +2711,17 @@ pub struct Struct_kmod_info {
     pub address: vm_address_t,
     pub size: vm_size_t,
     pub hdr_size: vm_size_t,
-    pub start: *mut ::std::option::Option<extern "C" fn() -> kern_return_t>,
-    pub stop: *mut ::std::option::Option<extern "C" fn() -> kern_return_t>,
+    pub start: *mut ::core::option::Option<extern "C" fn() -> kern_return_t>,
+    pub stop: *mut ::core::option::Option<extern "C" fn() -> kern_return_t>,
 }
-impl ::std::clone::Clone for Struct_kmod_info {
+impl ::core::clone::Clone for Struct_kmod_info {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_kmod_info {
+impl ::core::default::Default for Struct_kmod_info {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type kmod_info_t = Struct_kmod_info;
@@ -2741,14 +2741,14 @@ pub struct Struct_kmod_info_32_v1 {
     pub start_addr: uint32_t,
     pub stop_addr: uint32_t,
 }
-impl ::std::clone::Clone for Struct_kmod_info_32_v1 {
+impl ::core::clone::Clone for Struct_kmod_info_32_v1 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_kmod_info_32_v1 {
+impl ::core::default::Default for Struct_kmod_info_32_v1 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type kmod_info_32_v1_t = Struct_kmod_info_32_v1;
@@ -2768,14 +2768,14 @@ pub struct Struct_kmod_info_64_v1 {
     pub start_addr: uint64_t,
     pub stop_addr: uint64_t,
 }
-impl ::std::clone::Clone for Struct_kmod_info_64_v1 {
+impl ::core::clone::Clone for Struct_kmod_info_64_v1 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_kmod_info_64_v1 {
+impl ::core::default::Default for Struct_kmod_info_64_v1 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type kmod_info_64_v1_t = Struct_kmod_info_64_v1;
@@ -2856,14 +2856,14 @@ pub struct Struct_Unnamed30 {
     pub float_rep: ::libc::c_uchar,
     pub reserved2: ::libc::c_uchar,
 }
-impl ::std::clone::Clone for Struct_Unnamed30 {
+impl ::core::clone::Clone for Struct_Unnamed30 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed30 {
+impl ::core::default::Default for Struct_Unnamed30 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type NDR_record_t = Struct_Unnamed30;
@@ -2876,14 +2876,14 @@ pub struct Struct_Unnamed31 {
     pub not_port: mach_port_name_t,
     pub trailer: mach_msg_format_0_trailer_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed31 {
+impl ::core::clone::Clone for Struct_Unnamed31 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed31 {
+impl ::core::default::Default for Struct_Unnamed31 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_port_deleted_notification_t = Struct_Unnamed31;
@@ -2895,14 +2895,14 @@ pub struct Struct_Unnamed32 {
     pub not_port: mach_port_name_t,
     pub trailer: mach_msg_format_0_trailer_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed32 {
+impl ::core::clone::Clone for Struct_Unnamed32 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed32 {
+impl ::core::default::Default for Struct_Unnamed32 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_send_possible_notification_t = Struct_Unnamed32;
@@ -2914,14 +2914,14 @@ pub struct Struct_Unnamed33 {
     pub not_port: mach_msg_port_descriptor_t,
     pub trailer: mach_msg_format_0_trailer_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed33 {
+impl ::core::clone::Clone for Struct_Unnamed33 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed33 {
+impl ::core::default::Default for Struct_Unnamed33 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_port_destroyed_notification_t = Struct_Unnamed33;
@@ -2933,14 +2933,14 @@ pub struct Struct_Unnamed34 {
     pub not_count: mach_msg_type_number_t,
     pub trailer: mach_msg_format_0_trailer_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed34 {
+impl ::core::clone::Clone for Struct_Unnamed34 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed34 {
+impl ::core::default::Default for Struct_Unnamed34 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_no_senders_notification_t = Struct_Unnamed34;
@@ -2950,14 +2950,14 @@ pub struct Struct_Unnamed35 {
     pub not_header: mach_msg_header_t,
     pub trailer: mach_msg_format_0_trailer_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed35 {
+impl ::core::clone::Clone for Struct_Unnamed35 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed35 {
+impl ::core::default::Default for Struct_Unnamed35 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_send_once_notification_t = Struct_Unnamed35;
@@ -2969,24 +2969,24 @@ pub struct Struct_Unnamed36 {
     pub not_port: mach_port_name_t,
     pub trailer: mach_msg_format_0_trailer_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed36 {
+impl ::core::clone::Clone for Struct_Unnamed36 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed36 {
+impl ::core::default::Default for Struct_Unnamed36 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mach_dead_name_notification_t = Struct_Unnamed36;
-pub type mig_stub_routine_t = ::std::option::Option<
+pub type mig_stub_routine_t = ::core::option::Option<
     extern "C" fn(InHeadP: *mut mach_msg_header_t, OutHeadP: *mut mach_msg_header_t) -> (),
 >;
 pub type mig_routine_t = mig_stub_routine_t;
 pub type mig_server_routine_t =
-    ::std::option::Option<extern "C" fn(InHeadP: *mut mach_msg_header_t) -> mig_routine_t>;
-pub type mig_impl_routine_t = ::std::option::Option<extern "C" fn() -> kern_return_t>;
+    ::core::option::Option<extern "C" fn(InHeadP: *mut mach_msg_header_t) -> mig_routine_t>;
+pub type mig_impl_routine_t = ::core::option::Option<extern "C" fn() -> kern_return_t>;
 pub type routine_arg_descriptor = mach_msg_type_descriptor_t;
 pub type routine_arg_descriptor_t = *mut mach_msg_type_descriptor_t;
 pub type mig_routine_arg_descriptor_t = *mut mach_msg_type_descriptor_t;
@@ -3000,14 +3000,14 @@ pub struct Struct_routine_descriptor {
     pub arg_descr: routine_arg_descriptor_t,
     pub max_reply_msg: ::libc::c_uint,
 }
-impl ::std::clone::Clone for Struct_routine_descriptor {
+impl ::core::clone::Clone for Struct_routine_descriptor {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_routine_descriptor {
+impl ::core::default::Default for Struct_routine_descriptor {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type routine_descriptor_t = *mut Struct_routine_descriptor;
@@ -3023,14 +3023,14 @@ pub struct Struct_mig_subsystem {
     pub reserved: vm_address_t,
     pub routine: [mig_routine_descriptor; 1usize],
 }
-impl ::std::clone::Clone for Struct_mig_subsystem {
+impl ::core::clone::Clone for Struct_mig_subsystem {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_mig_subsystem {
+impl ::core::default::Default for Struct_mig_subsystem {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mig_subsystem_t = *mut Struct_mig_subsystem;
@@ -3039,16 +3039,16 @@ pub type mig_subsystem_t = *mut Struct_mig_subsystem;
 pub struct Struct_mig_symtab {
     pub ms_routine_name: *mut ::libc::c_char,
     pub ms_routine_number: ::libc::c_int,
-    pub ms_routine: ::std::option::Option<extern "C" fn() -> ()>,
+    pub ms_routine: ::core::option::Option<extern "C" fn() -> ()>,
 }
-impl ::std::clone::Clone for Struct_mig_symtab {
+impl ::core::clone::Clone for Struct_mig_symtab {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_mig_symtab {
+impl ::core::default::Default for Struct_mig_symtab {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mig_symtab_t = Struct_mig_symtab;
@@ -3059,14 +3059,14 @@ pub struct Struct_Unnamed37 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed37 {
+impl ::core::clone::Clone for Struct_Unnamed37 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed37 {
+impl ::core::default::Default for Struct_Unnamed37 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type mig_reply_error_t = Struct_Unnamed37;
@@ -3077,14 +3077,14 @@ pub struct Struct_Unnamed38 {
     pub NDR: NDR_record_t,
     pub new_time: mach_timespec_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed38 {
+impl ::core::clone::Clone for Struct_Unnamed38 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed38 {
+impl ::core::default::Default for Struct_Unnamed38 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__clock_set_time_t = Struct_Unnamed38;
@@ -3097,14 +3097,14 @@ pub struct Struct_Unnamed39 {
     pub clock_attrCnt: mach_msg_type_number_t,
     pub clock_attr: [::libc::c_int; 1usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed39 {
+impl ::core::clone::Clone for Struct_Unnamed39 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed39 {
+impl ::core::default::Default for Struct_Unnamed39 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__clock_set_attributes_t = Struct_Unnamed39;
@@ -3115,24 +3115,24 @@ pub struct Union___RequestUnion__clock_priv_subsystem {
 }
 impl Union___RequestUnion__clock_priv_subsystem {
     pub unsafe fn Request_clock_set_time(&mut self) -> *mut __Request__clock_set_time_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_clock_set_attributes(
         &mut self,
     ) -> *mut __Request__clock_set_attributes_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
 }
-impl ::std::clone::Clone for Union___RequestUnion__clock_priv_subsystem {
+impl ::core::clone::Clone for Union___RequestUnion__clock_priv_subsystem {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Union___RequestUnion__clock_priv_subsystem {
+impl ::core::default::Default for Union___RequestUnion__clock_priv_subsystem {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -3142,14 +3142,14 @@ pub struct Struct_Unnamed40 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed40 {
+impl ::core::clone::Clone for Struct_Unnamed40 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed40 {
+impl ::core::default::Default for Struct_Unnamed40 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__clock_set_time_t = Struct_Unnamed40;
@@ -3160,14 +3160,14 @@ pub struct Struct_Unnamed41 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed41 {
+impl ::core::clone::Clone for Struct_Unnamed41 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed41 {
+impl ::core::default::Default for Struct_Unnamed41 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__clock_set_attributes_t = Struct_Unnamed41;
@@ -3178,22 +3178,22 @@ pub struct Union___ReplyUnion__clock_priv_subsystem {
 }
 impl Union___ReplyUnion__clock_priv_subsystem {
     pub unsafe fn Reply_clock_set_time(&mut self) -> *mut __Reply__clock_set_time_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_clock_set_attributes(&mut self) -> *mut __Reply__clock_set_attributes_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
 }
-impl ::std::clone::Clone for Union___ReplyUnion__clock_priv_subsystem {
+impl ::core::clone::Clone for Union___ReplyUnion__clock_priv_subsystem {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Union___ReplyUnion__clock_priv_subsystem {
+impl ::core::default::Default for Union___ReplyUnion__clock_priv_subsystem {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -3201,14 +3201,14 @@ impl ::std::default::Default for Union___ReplyUnion__clock_priv_subsystem {
 pub struct Struct_Unnamed42 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed42 {
+impl ::core::clone::Clone for Struct_Unnamed42 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed42 {
+impl ::core::default::Default for Struct_Unnamed42 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__host_get_boot_info_t = Struct_Unnamed42;
@@ -3219,14 +3219,14 @@ pub struct Struct_Unnamed43 {
     pub NDR: NDR_record_t,
     pub options: ::libc::c_int,
 }
-impl ::std::clone::Clone for Struct_Unnamed43 {
+impl ::core::clone::Clone for Struct_Unnamed43 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed43 {
+impl ::core::default::Default for Struct_Unnamed43 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__host_reboot_t = Struct_Unnamed43;
@@ -3238,14 +3238,14 @@ pub struct Struct_Unnamed44 {
     pub flavor: host_flavor_t,
     pub host_info_outCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed44 {
+impl ::core::clone::Clone for Struct_Unnamed44 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed44 {
+impl ::core::default::Default for Struct_Unnamed44 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__host_priv_statistics_t = Struct_Unnamed44;
@@ -3258,14 +3258,14 @@ pub struct Struct_Unnamed45 {
     pub NDR: NDR_record_t,
     pub cluster_size: memory_object_cluster_size_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed45 {
+impl ::core::clone::Clone for Struct_Unnamed45 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed45 {
+impl ::core::default::Default for Struct_Unnamed45 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__host_default_memory_manager_t = Struct_Unnamed45;
@@ -3280,14 +3280,14 @@ pub struct Struct_Unnamed46 {
     pub size: vm_size_t,
     pub desired_access: vm_prot_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed46 {
+impl ::core::clone::Clone for Struct_Unnamed46 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed46 {
+impl ::core::default::Default for Struct_Unnamed46 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__vm_wire_t = Struct_Unnamed46;
@@ -3300,14 +3300,14 @@ pub struct Struct_Unnamed47 {
     pub NDR: NDR_record_t,
     pub wired: boolean_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed47 {
+impl ::core::clone::Clone for Struct_Unnamed47 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed47 {
+impl ::core::default::Default for Struct_Unnamed47 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__thread_wire_t = Struct_Unnamed47;
@@ -3322,14 +3322,14 @@ pub struct Struct_Unnamed48 {
     pub size: vm_size_t,
     pub flags: ::libc::c_int,
 }
-impl ::std::clone::Clone for Struct_Unnamed48 {
+impl ::core::clone::Clone for Struct_Unnamed48 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed48 {
+impl ::core::default::Default for Struct_Unnamed48 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__vm_allocate_cpm_t = Struct_Unnamed48;
@@ -3338,14 +3338,14 @@ pub type __Request__vm_allocate_cpm_t = Struct_Unnamed48;
 pub struct Struct_Unnamed49 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed49 {
+impl ::core::clone::Clone for Struct_Unnamed49 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed49 {
+impl ::core::default::Default for Struct_Unnamed49 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__host_processors_t = Struct_Unnamed49;
@@ -3356,14 +3356,14 @@ pub struct Struct_Unnamed50 {
     pub NDR: NDR_record_t,
     pub clock_id: clock_id_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed50 {
+impl ::core::clone::Clone for Struct_Unnamed50 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed50 {
+impl ::core::default::Default for Struct_Unnamed50 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__host_get_clock_control_t = Struct_Unnamed50;
@@ -3374,14 +3374,14 @@ pub struct Struct_Unnamed51 {
     pub NDR: NDR_record_t,
     pub info: vm_address_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed51 {
+impl ::core::clone::Clone for Struct_Unnamed51 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed51 {
+impl ::core::default::Default for Struct_Unnamed51 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__kmod_create_t = Struct_Unnamed51;
@@ -3392,14 +3392,14 @@ pub struct Struct_Unnamed52 {
     pub NDR: NDR_record_t,
     pub module: kmod_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed52 {
+impl ::core::clone::Clone for Struct_Unnamed52 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed52 {
+impl ::core::default::Default for Struct_Unnamed52 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__kmod_destroy_t = Struct_Unnamed52;
@@ -3414,14 +3414,14 @@ pub struct Struct_Unnamed53 {
     pub flavor: kmod_control_flavor_t,
     pub dataCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed53 {
+impl ::core::clone::Clone for Struct_Unnamed53 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed53 {
+impl ::core::default::Default for Struct_Unnamed53 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__kmod_control_t = Struct_Unnamed53;
@@ -3433,14 +3433,14 @@ pub struct Struct_Unnamed54 {
     pub node: ::libc::c_int,
     pub which: ::libc::c_int,
 }
-impl ::std::clone::Clone for Struct_Unnamed54 {
+impl ::core::clone::Clone for Struct_Unnamed54 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed54 {
+impl ::core::default::Default for Struct_Unnamed54 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__host_get_special_port_t = Struct_Unnamed54;
@@ -3453,14 +3453,14 @@ pub struct Struct_Unnamed55 {
     pub NDR: NDR_record_t,
     pub which: ::libc::c_int,
 }
-impl ::std::clone::Clone for Struct_Unnamed55 {
+impl ::core::clone::Clone for Struct_Unnamed55 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed55 {
+impl ::core::default::Default for Struct_Unnamed55 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__host_set_special_port_t = Struct_Unnamed55;
@@ -3475,14 +3475,14 @@ pub struct Struct_Unnamed56 {
     pub behavior: exception_behavior_t,
     pub new_flavor: thread_state_flavor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed56 {
+impl ::core::clone::Clone for Struct_Unnamed56 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed56 {
+impl ::core::default::Default for Struct_Unnamed56 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__host_set_exception_ports_t = Struct_Unnamed56;
@@ -3493,14 +3493,14 @@ pub struct Struct_Unnamed57 {
     pub NDR: NDR_record_t,
     pub exception_mask: exception_mask_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed57 {
+impl ::core::clone::Clone for Struct_Unnamed57 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed57 {
+impl ::core::default::Default for Struct_Unnamed57 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__host_get_exception_ports_t = Struct_Unnamed57;
@@ -3515,14 +3515,14 @@ pub struct Struct_Unnamed58 {
     pub behavior: exception_behavior_t,
     pub new_flavor: thread_state_flavor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed58 {
+impl ::core::clone::Clone for Struct_Unnamed58 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed58 {
+impl ::core::default::Default for Struct_Unnamed58 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__host_swap_exception_ports_t = Struct_Unnamed58;
@@ -3537,14 +3537,14 @@ pub struct Struct_Unnamed59 {
     pub size: mach_vm_size_t,
     pub desired_access: vm_prot_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed59 {
+impl ::core::clone::Clone for Struct_Unnamed59 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed59 {
+impl ::core::default::Default for Struct_Unnamed59 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_vm_wire_t = Struct_Unnamed59;
@@ -3553,14 +3553,14 @@ pub type __Request__mach_vm_wire_t = Struct_Unnamed59;
 pub struct Struct_Unnamed60 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed60 {
+impl ::core::clone::Clone for Struct_Unnamed60 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed60 {
+impl ::core::default::Default for Struct_Unnamed60 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__host_processor_sets_t = Struct_Unnamed60;
@@ -3571,14 +3571,14 @@ pub struct Struct_Unnamed61 {
     pub msgh_body: mach_msg_body_t,
     pub set_name: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed61 {
+impl ::core::clone::Clone for Struct_Unnamed61 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed61 {
+impl ::core::default::Default for Struct_Unnamed61 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__host_processor_set_priv_t = Struct_Unnamed61;
@@ -3589,14 +3589,14 @@ pub struct Struct_Unnamed62 {
     pub msgh_body: mach_msg_body_t,
     pub control_port: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed62 {
+impl ::core::clone::Clone for Struct_Unnamed62 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed62 {
+impl ::core::default::Default for Struct_Unnamed62 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__set_dp_control_port_t = Struct_Unnamed62;
@@ -3605,14 +3605,14 @@ pub type __Request__set_dp_control_port_t = Struct_Unnamed62;
 pub struct Struct_Unnamed63 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed63 {
+impl ::core::clone::Clone for Struct_Unnamed63 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed63 {
+impl ::core::default::Default for Struct_Unnamed63 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__get_dp_control_port_t = Struct_Unnamed63;
@@ -3623,14 +3623,14 @@ pub struct Struct_Unnamed64 {
     pub msgh_body: mach_msg_body_t,
     pub server: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed64 {
+impl ::core::clone::Clone for Struct_Unnamed64 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed64 {
+impl ::core::default::Default for Struct_Unnamed64 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__host_set_UNDServer_t = Struct_Unnamed64;
@@ -3639,14 +3639,14 @@ pub type __Request__host_set_UNDServer_t = Struct_Unnamed64;
 pub struct Struct_Unnamed65 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed65 {
+impl ::core::clone::Clone for Struct_Unnamed65 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed65 {
+impl ::core::default::Default for Struct_Unnamed65 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__host_get_UNDServer_t = Struct_Unnamed65;
@@ -3660,14 +3660,14 @@ pub struct Struct_Unnamed66 {
     pub user_log_flags: uint32_t,
     pub request_dataCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed66 {
+impl ::core::clone::Clone for Struct_Unnamed66 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed66 {
+impl ::core::default::Default for Struct_Unnamed66 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__kext_request_t = Struct_Unnamed66;
@@ -3678,132 +3678,132 @@ pub struct Union___RequestUnion__host_priv_subsystem {
 }
 impl Union___RequestUnion__host_priv_subsystem {
     pub unsafe fn Request_host_get_boot_info(&mut self) -> *mut __Request__host_get_boot_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_host_reboot(&mut self) -> *mut __Request__host_reboot_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_host_priv_statistics(
         &mut self,
     ) -> *mut __Request__host_priv_statistics_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_host_default_memory_manager(
         &mut self,
     ) -> *mut __Request__host_default_memory_manager_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_vm_wire(&mut self) -> *mut __Request__vm_wire_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_thread_wire(&mut self) -> *mut __Request__thread_wire_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_vm_allocate_cpm(&mut self) -> *mut __Request__vm_allocate_cpm_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_host_processors(&mut self) -> *mut __Request__host_processors_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_host_get_clock_control(
         &mut self,
     ) -> *mut __Request__host_get_clock_control_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_kmod_create(&mut self) -> *mut __Request__kmod_create_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_kmod_destroy(&mut self) -> *mut __Request__kmod_destroy_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_kmod_control(&mut self) -> *mut __Request__kmod_control_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_host_get_special_port(
         &mut self,
     ) -> *mut __Request__host_get_special_port_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_host_set_special_port(
         &mut self,
     ) -> *mut __Request__host_set_special_port_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_host_set_exception_ports(
         &mut self,
     ) -> *mut __Request__host_set_exception_ports_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_host_get_exception_ports(
         &mut self,
     ) -> *mut __Request__host_get_exception_ports_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_host_swap_exception_ports(
         &mut self,
     ) -> *mut __Request__host_swap_exception_ports_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_vm_wire(&mut self) -> *mut __Request__mach_vm_wire_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_host_processor_sets(&mut self) -> *mut __Request__host_processor_sets_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_host_processor_set_priv(
         &mut self,
     ) -> *mut __Request__host_processor_set_priv_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_set_dp_control_port(&mut self) -> *mut __Request__set_dp_control_port_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_get_dp_control_port(&mut self) -> *mut __Request__get_dp_control_port_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_host_set_UNDServer(&mut self) -> *mut __Request__host_set_UNDServer_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_host_get_UNDServer(&mut self) -> *mut __Request__host_get_UNDServer_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_kext_request(&mut self) -> *mut __Request__kext_request_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
 }
-impl ::std::clone::Clone for Union___RequestUnion__host_priv_subsystem {
+impl ::core::clone::Clone for Union___RequestUnion__host_priv_subsystem {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Union___RequestUnion__host_priv_subsystem {
+impl ::core::default::Default for Union___RequestUnion__host_priv_subsystem {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -3816,14 +3816,14 @@ pub struct Struct_Unnamed67 {
     pub boot_infoCnt: mach_msg_type_number_t,
     pub boot_info: [::libc::c_char; 4096usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed67 {
+impl ::core::clone::Clone for Struct_Unnamed67 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed67 {
+impl ::core::default::Default for Struct_Unnamed67 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__host_get_boot_info_t = Struct_Unnamed67;
@@ -3834,14 +3834,14 @@ pub struct Struct_Unnamed68 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed68 {
+impl ::core::clone::Clone for Struct_Unnamed68 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed68 {
+impl ::core::default::Default for Struct_Unnamed68 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__host_reboot_t = Struct_Unnamed68;
@@ -3854,14 +3854,14 @@ pub struct Struct_Unnamed69 {
     pub host_info_outCnt: mach_msg_type_number_t,
     pub host_info_out: [integer_t; 18usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed69 {
+impl ::core::clone::Clone for Struct_Unnamed69 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed69 {
+impl ::core::default::Default for Struct_Unnamed69 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__host_priv_statistics_t = Struct_Unnamed69;
@@ -3872,14 +3872,14 @@ pub struct Struct_Unnamed70 {
     pub msgh_body: mach_msg_body_t,
     pub default_manager: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed70 {
+impl ::core::clone::Clone for Struct_Unnamed70 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed70 {
+impl ::core::default::Default for Struct_Unnamed70 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__host_default_memory_manager_t = Struct_Unnamed70;
@@ -3890,14 +3890,14 @@ pub struct Struct_Unnamed71 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed71 {
+impl ::core::clone::Clone for Struct_Unnamed71 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed71 {
+impl ::core::default::Default for Struct_Unnamed71 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__vm_wire_t = Struct_Unnamed71;
@@ -3908,14 +3908,14 @@ pub struct Struct_Unnamed72 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed72 {
+impl ::core::clone::Clone for Struct_Unnamed72 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed72 {
+impl ::core::default::Default for Struct_Unnamed72 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__thread_wire_t = Struct_Unnamed72;
@@ -3927,14 +3927,14 @@ pub struct Struct_Unnamed73 {
     pub RetCode: kern_return_t,
     pub address: vm_address_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed73 {
+impl ::core::clone::Clone for Struct_Unnamed73 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed73 {
+impl ::core::default::Default for Struct_Unnamed73 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__vm_allocate_cpm_t = Struct_Unnamed73;
@@ -3947,14 +3947,14 @@ pub struct Struct_Unnamed74 {
     pub NDR: NDR_record_t,
     pub out_processor_listCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed74 {
+impl ::core::clone::Clone for Struct_Unnamed74 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed74 {
+impl ::core::default::Default for Struct_Unnamed74 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__host_processors_t = Struct_Unnamed74;
@@ -3965,14 +3965,14 @@ pub struct Struct_Unnamed75 {
     pub msgh_body: mach_msg_body_t,
     pub clock_ctrl: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed75 {
+impl ::core::clone::Clone for Struct_Unnamed75 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed75 {
+impl ::core::default::Default for Struct_Unnamed75 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__host_get_clock_control_t = Struct_Unnamed75;
@@ -3984,14 +3984,14 @@ pub struct Struct_Unnamed76 {
     pub RetCode: kern_return_t,
     pub module: kmod_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed76 {
+impl ::core::clone::Clone for Struct_Unnamed76 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed76 {
+impl ::core::default::Default for Struct_Unnamed76 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__kmod_create_t = Struct_Unnamed76;
@@ -4002,14 +4002,14 @@ pub struct Struct_Unnamed77 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed77 {
+impl ::core::clone::Clone for Struct_Unnamed77 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed77 {
+impl ::core::default::Default for Struct_Unnamed77 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__kmod_destroy_t = Struct_Unnamed77;
@@ -4022,14 +4022,14 @@ pub struct Struct_Unnamed78 {
     pub NDR: NDR_record_t,
     pub dataCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed78 {
+impl ::core::clone::Clone for Struct_Unnamed78 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed78 {
+impl ::core::default::Default for Struct_Unnamed78 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__kmod_control_t = Struct_Unnamed78;
@@ -4040,14 +4040,14 @@ pub struct Struct_Unnamed79 {
     pub msgh_body: mach_msg_body_t,
     pub port: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed79 {
+impl ::core::clone::Clone for Struct_Unnamed79 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed79 {
+impl ::core::default::Default for Struct_Unnamed79 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__host_get_special_port_t = Struct_Unnamed79;
@@ -4058,14 +4058,14 @@ pub struct Struct_Unnamed80 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed80 {
+impl ::core::clone::Clone for Struct_Unnamed80 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed80 {
+impl ::core::default::Default for Struct_Unnamed80 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__host_set_special_port_t = Struct_Unnamed80;
@@ -4076,14 +4076,14 @@ pub struct Struct_Unnamed81 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed81 {
+impl ::core::clone::Clone for Struct_Unnamed81 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed81 {
+impl ::core::default::Default for Struct_Unnamed81 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__host_set_exception_ports_t = Struct_Unnamed81;
@@ -4099,14 +4099,14 @@ pub struct Struct_Unnamed82 {
     pub old_behaviors: [exception_behavior_t; 32usize],
     pub old_flavors: [thread_state_flavor_t; 32usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed82 {
+impl ::core::clone::Clone for Struct_Unnamed82 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed82 {
+impl ::core::default::Default for Struct_Unnamed82 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__host_get_exception_ports_t = Struct_Unnamed82;
@@ -4122,14 +4122,14 @@ pub struct Struct_Unnamed83 {
     pub old_behaviors: [exception_behavior_t; 32usize],
     pub old_flavors: [thread_state_flavor_t; 32usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed83 {
+impl ::core::clone::Clone for Struct_Unnamed83 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed83 {
+impl ::core::default::Default for Struct_Unnamed83 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__host_swap_exception_ports_t = Struct_Unnamed83;
@@ -4140,14 +4140,14 @@ pub struct Struct_Unnamed84 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed84 {
+impl ::core::clone::Clone for Struct_Unnamed84 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed84 {
+impl ::core::default::Default for Struct_Unnamed84 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_vm_wire_t = Struct_Unnamed84;
@@ -4160,14 +4160,14 @@ pub struct Struct_Unnamed85 {
     pub NDR: NDR_record_t,
     pub processor_setsCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed85 {
+impl ::core::clone::Clone for Struct_Unnamed85 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed85 {
+impl ::core::default::Default for Struct_Unnamed85 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__host_processor_sets_t = Struct_Unnamed85;
@@ -4178,14 +4178,14 @@ pub struct Struct_Unnamed86 {
     pub msgh_body: mach_msg_body_t,
     pub set: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed86 {
+impl ::core::clone::Clone for Struct_Unnamed86 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed86 {
+impl ::core::default::Default for Struct_Unnamed86 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__host_processor_set_priv_t = Struct_Unnamed86;
@@ -4196,14 +4196,14 @@ pub struct Struct_Unnamed87 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed87 {
+impl ::core::clone::Clone for Struct_Unnamed87 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed87 {
+impl ::core::default::Default for Struct_Unnamed87 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__set_dp_control_port_t = Struct_Unnamed87;
@@ -4214,14 +4214,14 @@ pub struct Struct_Unnamed88 {
     pub msgh_body: mach_msg_body_t,
     pub contorl_port: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed88 {
+impl ::core::clone::Clone for Struct_Unnamed88 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed88 {
+impl ::core::default::Default for Struct_Unnamed88 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__get_dp_control_port_t = Struct_Unnamed88;
@@ -4232,14 +4232,14 @@ pub struct Struct_Unnamed89 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed89 {
+impl ::core::clone::Clone for Struct_Unnamed89 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed89 {
+impl ::core::default::Default for Struct_Unnamed89 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__host_set_UNDServer_t = Struct_Unnamed89;
@@ -4250,14 +4250,14 @@ pub struct Struct_Unnamed90 {
     pub msgh_body: mach_msg_body_t,
     pub server: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed90 {
+impl ::core::clone::Clone for Struct_Unnamed90 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed90 {
+impl ::core::default::Default for Struct_Unnamed90 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__host_get_UNDServer_t = Struct_Unnamed90;
@@ -4273,14 +4273,14 @@ pub struct Struct_Unnamed91 {
     pub log_dataCnt: mach_msg_type_number_t,
     pub op_result: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed91 {
+impl ::core::clone::Clone for Struct_Unnamed91 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed91 {
+impl ::core::default::Default for Struct_Unnamed91 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__kext_request_t = Struct_Unnamed91;
@@ -4291,126 +4291,126 @@ pub struct Union___ReplyUnion__host_priv_subsystem {
 }
 impl Union___ReplyUnion__host_priv_subsystem {
     pub unsafe fn Reply_host_get_boot_info(&mut self) -> *mut __Reply__host_get_boot_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_host_reboot(&mut self) -> *mut __Reply__host_reboot_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_host_priv_statistics(&mut self) -> *mut __Reply__host_priv_statistics_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_host_default_memory_manager(
         &mut self,
     ) -> *mut __Reply__host_default_memory_manager_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_vm_wire(&mut self) -> *mut __Reply__vm_wire_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_thread_wire(&mut self) -> *mut __Reply__thread_wire_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_vm_allocate_cpm(&mut self) -> *mut __Reply__vm_allocate_cpm_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_host_processors(&mut self) -> *mut __Reply__host_processors_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_host_get_clock_control(
         &mut self,
     ) -> *mut __Reply__host_get_clock_control_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_kmod_create(&mut self) -> *mut __Reply__kmod_create_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_kmod_destroy(&mut self) -> *mut __Reply__kmod_destroy_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_kmod_control(&mut self) -> *mut __Reply__kmod_control_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_host_get_special_port(&mut self) -> *mut __Reply__host_get_special_port_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_host_set_special_port(&mut self) -> *mut __Reply__host_set_special_port_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_host_set_exception_ports(
         &mut self,
     ) -> *mut __Reply__host_set_exception_ports_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_host_get_exception_ports(
         &mut self,
     ) -> *mut __Reply__host_get_exception_ports_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_host_swap_exception_ports(
         &mut self,
     ) -> *mut __Reply__host_swap_exception_ports_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_vm_wire(&mut self) -> *mut __Reply__mach_vm_wire_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_host_processor_sets(&mut self) -> *mut __Reply__host_processor_sets_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_host_processor_set_priv(
         &mut self,
     ) -> *mut __Reply__host_processor_set_priv_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_set_dp_control_port(&mut self) -> *mut __Reply__set_dp_control_port_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_get_dp_control_port(&mut self) -> *mut __Reply__get_dp_control_port_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_host_set_UNDServer(&mut self) -> *mut __Reply__host_set_UNDServer_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_host_get_UNDServer(&mut self) -> *mut __Reply__host_get_UNDServer_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_kext_request(&mut self) -> *mut __Reply__kext_request_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
 }
-impl ::std::clone::Clone for Union___ReplyUnion__host_priv_subsystem {
+impl ::core::clone::Clone for Union___ReplyUnion__host_priv_subsystem {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Union___ReplyUnion__host_priv_subsystem {
+impl ::core::default::Default for Union___ReplyUnion__host_priv_subsystem {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -4427,14 +4427,14 @@ pub struct Struct_Unnamed92 {
     pub ledgersCnt: mach_msg_type_number_t,
     pub inherit_memory: boolean_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed92 {
+impl ::core::clone::Clone for Struct_Unnamed92 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed92 {
+impl ::core::default::Default for Struct_Unnamed92 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__host_security_create_task_token_t = Struct_Unnamed92;
@@ -4449,14 +4449,14 @@ pub struct Struct_Unnamed93 {
     pub sec_token: security_token_t,
     pub audit_token: audit_token_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed93 {
+impl ::core::clone::Clone for Struct_Unnamed93 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed93 {
+impl ::core::default::Default for Struct_Unnamed93 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__host_security_set_task_token_t = Struct_Unnamed93;
@@ -4469,24 +4469,24 @@ impl Union___RequestUnion__host_security_subsystem {
     pub unsafe fn Request_host_security_create_task_token(
         &mut self,
     ) -> *mut __Request__host_security_create_task_token_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_host_security_set_task_token(
         &mut self,
     ) -> *mut __Request__host_security_set_task_token_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
 }
-impl ::std::clone::Clone for Union___RequestUnion__host_security_subsystem {
+impl ::core::clone::Clone for Union___RequestUnion__host_security_subsystem {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Union___RequestUnion__host_security_subsystem {
+impl ::core::default::Default for Union___RequestUnion__host_security_subsystem {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -4496,14 +4496,14 @@ pub struct Struct_Unnamed94 {
     pub msgh_body: mach_msg_body_t,
     pub child_task: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed94 {
+impl ::core::clone::Clone for Struct_Unnamed94 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed94 {
+impl ::core::default::Default for Struct_Unnamed94 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__host_security_create_task_token_t = Struct_Unnamed94;
@@ -4514,14 +4514,14 @@ pub struct Struct_Unnamed95 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed95 {
+impl ::core::clone::Clone for Struct_Unnamed95 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed95 {
+impl ::core::default::Default for Struct_Unnamed95 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__host_security_set_task_token_t = Struct_Unnamed95;
@@ -4534,24 +4534,24 @@ impl Union___ReplyUnion__host_security_subsystem {
     pub unsafe fn Reply_host_security_create_task_token(
         &mut self,
     ) -> *mut __Reply__host_security_create_task_token_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_host_security_set_task_token(
         &mut self,
     ) -> *mut __Reply__host_security_set_task_token_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
 }
-impl ::std::clone::Clone for Union___ReplyUnion__host_security_subsystem {
+impl ::core::clone::Clone for Union___ReplyUnion__host_security_subsystem {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Union___ReplyUnion__host_security_subsystem {
+impl ::core::default::Default for Union___ReplyUnion__host_security_subsystem {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -4561,14 +4561,14 @@ pub struct Struct_Unnamed96 {
     pub NDR: NDR_record_t,
     pub lock_id: ::libc::c_int,
 }
-impl ::std::clone::Clone for Struct_Unnamed96 {
+impl ::core::clone::Clone for Struct_Unnamed96 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed96 {
+impl ::core::default::Default for Struct_Unnamed96 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__lock_acquire_t = Struct_Unnamed96;
@@ -4579,14 +4579,14 @@ pub struct Struct_Unnamed97 {
     pub NDR: NDR_record_t,
     pub lock_id: ::libc::c_int,
 }
-impl ::std::clone::Clone for Struct_Unnamed97 {
+impl ::core::clone::Clone for Struct_Unnamed97 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed97 {
+impl ::core::default::Default for Struct_Unnamed97 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__lock_release_t = Struct_Unnamed97;
@@ -4597,14 +4597,14 @@ pub struct Struct_Unnamed98 {
     pub NDR: NDR_record_t,
     pub lock_id: ::libc::c_int,
 }
-impl ::std::clone::Clone for Struct_Unnamed98 {
+impl ::core::clone::Clone for Struct_Unnamed98 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed98 {
+impl ::core::default::Default for Struct_Unnamed98 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__lock_try_t = Struct_Unnamed98;
@@ -4615,14 +4615,14 @@ pub struct Struct_Unnamed99 {
     pub NDR: NDR_record_t,
     pub lock_id: ::libc::c_int,
 }
-impl ::std::clone::Clone for Struct_Unnamed99 {
+impl ::core::clone::Clone for Struct_Unnamed99 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed99 {
+impl ::core::default::Default for Struct_Unnamed99 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__lock_make_stable_t = Struct_Unnamed99;
@@ -4633,14 +4633,14 @@ pub struct Struct_Unnamed100 {
     pub NDR: NDR_record_t,
     pub lock_id: ::libc::c_int,
 }
-impl ::std::clone::Clone for Struct_Unnamed100 {
+impl ::core::clone::Clone for Struct_Unnamed100 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed100 {
+impl ::core::default::Default for Struct_Unnamed100 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__lock_handoff_t = Struct_Unnamed100;
@@ -4651,14 +4651,14 @@ pub struct Struct_Unnamed101 {
     pub NDR: NDR_record_t,
     pub lock_id: ::libc::c_int,
 }
-impl ::std::clone::Clone for Struct_Unnamed101 {
+impl ::core::clone::Clone for Struct_Unnamed101 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed101 {
+impl ::core::default::Default for Struct_Unnamed101 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__lock_handoff_accept_t = Struct_Unnamed101;
@@ -4669,38 +4669,38 @@ pub struct Union___RequestUnion__lock_set_subsystem {
 }
 impl Union___RequestUnion__lock_set_subsystem {
     pub unsafe fn Request_lock_acquire(&mut self) -> *mut __Request__lock_acquire_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_lock_release(&mut self) -> *mut __Request__lock_release_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_lock_try(&mut self) -> *mut __Request__lock_try_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_lock_make_stable(&mut self) -> *mut __Request__lock_make_stable_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_lock_handoff(&mut self) -> *mut __Request__lock_handoff_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_lock_handoff_accept(&mut self) -> *mut __Request__lock_handoff_accept_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
 }
-impl ::std::clone::Clone for Union___RequestUnion__lock_set_subsystem {
+impl ::core::clone::Clone for Union___RequestUnion__lock_set_subsystem {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Union___RequestUnion__lock_set_subsystem {
+impl ::core::default::Default for Union___RequestUnion__lock_set_subsystem {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -4710,14 +4710,14 @@ pub struct Struct_Unnamed102 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed102 {
+impl ::core::clone::Clone for Struct_Unnamed102 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed102 {
+impl ::core::default::Default for Struct_Unnamed102 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__lock_acquire_t = Struct_Unnamed102;
@@ -4728,14 +4728,14 @@ pub struct Struct_Unnamed103 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed103 {
+impl ::core::clone::Clone for Struct_Unnamed103 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed103 {
+impl ::core::default::Default for Struct_Unnamed103 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__lock_release_t = Struct_Unnamed103;
@@ -4746,14 +4746,14 @@ pub struct Struct_Unnamed104 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed104 {
+impl ::core::clone::Clone for Struct_Unnamed104 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed104 {
+impl ::core::default::Default for Struct_Unnamed104 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__lock_try_t = Struct_Unnamed104;
@@ -4764,14 +4764,14 @@ pub struct Struct_Unnamed105 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed105 {
+impl ::core::clone::Clone for Struct_Unnamed105 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed105 {
+impl ::core::default::Default for Struct_Unnamed105 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__lock_make_stable_t = Struct_Unnamed105;
@@ -4782,14 +4782,14 @@ pub struct Struct_Unnamed106 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed106 {
+impl ::core::clone::Clone for Struct_Unnamed106 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed106 {
+impl ::core::default::Default for Struct_Unnamed106 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__lock_handoff_t = Struct_Unnamed106;
@@ -4800,14 +4800,14 @@ pub struct Struct_Unnamed107 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed107 {
+impl ::core::clone::Clone for Struct_Unnamed107 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed107 {
+impl ::core::default::Default for Struct_Unnamed107 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__lock_handoff_accept_t = Struct_Unnamed107;
@@ -4818,38 +4818,38 @@ pub struct Union___ReplyUnion__lock_set_subsystem {
 }
 impl Union___ReplyUnion__lock_set_subsystem {
     pub unsafe fn Reply_lock_acquire(&mut self) -> *mut __Reply__lock_acquire_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_lock_release(&mut self) -> *mut __Reply__lock_release_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_lock_try(&mut self) -> *mut __Reply__lock_try_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_lock_make_stable(&mut self) -> *mut __Reply__lock_make_stable_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_lock_handoff(&mut self) -> *mut __Reply__lock_handoff_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_lock_handoff_accept(&mut self) -> *mut __Reply__lock_handoff_accept_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
 }
-impl ::std::clone::Clone for Union___ReplyUnion__lock_set_subsystem {
+impl ::core::clone::Clone for Union___ReplyUnion__lock_set_subsystem {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Union___ReplyUnion__lock_set_subsystem {
+impl ::core::default::Default for Union___ReplyUnion__lock_set_subsystem {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -4857,14 +4857,14 @@ impl ::std::default::Default for Union___ReplyUnion__lock_set_subsystem {
 pub struct Struct_Unnamed108 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed108 {
+impl ::core::clone::Clone for Struct_Unnamed108 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed108 {
+impl ::core::default::Default for Struct_Unnamed108 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__processor_start_t = Struct_Unnamed108;
@@ -4873,14 +4873,14 @@ pub type __Request__processor_start_t = Struct_Unnamed108;
 pub struct Struct_Unnamed109 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed109 {
+impl ::core::clone::Clone for Struct_Unnamed109 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed109 {
+impl ::core::default::Default for Struct_Unnamed109 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__processor_exit_t = Struct_Unnamed109;
@@ -4892,14 +4892,14 @@ pub struct Struct_Unnamed110 {
     pub flavor: processor_flavor_t,
     pub processor_info_outCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed110 {
+impl ::core::clone::Clone for Struct_Unnamed110 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed110 {
+impl ::core::default::Default for Struct_Unnamed110 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__processor_info_t = Struct_Unnamed110;
@@ -4911,14 +4911,14 @@ pub struct Struct_Unnamed111 {
     pub processor_cmdCnt: mach_msg_type_number_t,
     pub processor_cmd: [integer_t; 12usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed111 {
+impl ::core::clone::Clone for Struct_Unnamed111 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed111 {
+impl ::core::default::Default for Struct_Unnamed111 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__processor_control_t = Struct_Unnamed111;
@@ -4931,14 +4931,14 @@ pub struct Struct_Unnamed112 {
     pub NDR: NDR_record_t,
     pub wait: boolean_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed112 {
+impl ::core::clone::Clone for Struct_Unnamed112 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed112 {
+impl ::core::default::Default for Struct_Unnamed112 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__processor_assign_t = Struct_Unnamed112;
@@ -4947,14 +4947,14 @@ pub type __Request__processor_assign_t = Struct_Unnamed112;
 pub struct Struct_Unnamed113 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed113 {
+impl ::core::clone::Clone for Struct_Unnamed113 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed113 {
+impl ::core::default::Default for Struct_Unnamed113 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__processor_get_assignment_t = Struct_Unnamed113;
@@ -4965,40 +4965,40 @@ pub struct Union___RequestUnion__processor_subsystem {
 }
 impl Union___RequestUnion__processor_subsystem {
     pub unsafe fn Request_processor_start(&mut self) -> *mut __Request__processor_start_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_processor_exit(&mut self) -> *mut __Request__processor_exit_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_processor_info(&mut self) -> *mut __Request__processor_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_processor_control(&mut self) -> *mut __Request__processor_control_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_processor_assign(&mut self) -> *mut __Request__processor_assign_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_processor_get_assignment(
         &mut self,
     ) -> *mut __Request__processor_get_assignment_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
 }
-impl ::std::clone::Clone for Union___RequestUnion__processor_subsystem {
+impl ::core::clone::Clone for Union___RequestUnion__processor_subsystem {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Union___RequestUnion__processor_subsystem {
+impl ::core::default::Default for Union___RequestUnion__processor_subsystem {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -5008,14 +5008,14 @@ pub struct Struct_Unnamed114 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed114 {
+impl ::core::clone::Clone for Struct_Unnamed114 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed114 {
+impl ::core::default::Default for Struct_Unnamed114 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__processor_start_t = Struct_Unnamed114;
@@ -5026,14 +5026,14 @@ pub struct Struct_Unnamed115 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed115 {
+impl ::core::clone::Clone for Struct_Unnamed115 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed115 {
+impl ::core::default::Default for Struct_Unnamed115 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__processor_exit_t = Struct_Unnamed115;
@@ -5047,14 +5047,14 @@ pub struct Struct_Unnamed116 {
     pub processor_info_outCnt: mach_msg_type_number_t,
     pub processor_info_out: [integer_t; 12usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed116 {
+impl ::core::clone::Clone for Struct_Unnamed116 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed116 {
+impl ::core::default::Default for Struct_Unnamed116 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__processor_info_t = Struct_Unnamed116;
@@ -5065,14 +5065,14 @@ pub struct Struct_Unnamed117 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed117 {
+impl ::core::clone::Clone for Struct_Unnamed117 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed117 {
+impl ::core::default::Default for Struct_Unnamed117 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__processor_control_t = Struct_Unnamed117;
@@ -5083,14 +5083,14 @@ pub struct Struct_Unnamed118 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed118 {
+impl ::core::clone::Clone for Struct_Unnamed118 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed118 {
+impl ::core::default::Default for Struct_Unnamed118 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__processor_assign_t = Struct_Unnamed118;
@@ -5101,14 +5101,14 @@ pub struct Struct_Unnamed119 {
     pub msgh_body: mach_msg_body_t,
     pub assigned_set: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed119 {
+impl ::core::clone::Clone for Struct_Unnamed119 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed119 {
+impl ::core::default::Default for Struct_Unnamed119 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__processor_get_assignment_t = Struct_Unnamed119;
@@ -5119,40 +5119,40 @@ pub struct Union___ReplyUnion__processor_subsystem {
 }
 impl Union___ReplyUnion__processor_subsystem {
     pub unsafe fn Reply_processor_start(&mut self) -> *mut __Reply__processor_start_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_processor_exit(&mut self) -> *mut __Reply__processor_exit_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_processor_info(&mut self) -> *mut __Reply__processor_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_processor_control(&mut self) -> *mut __Reply__processor_control_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_processor_assign(&mut self) -> *mut __Reply__processor_assign_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_processor_get_assignment(
         &mut self,
     ) -> *mut __Reply__processor_get_assignment_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
 }
-impl ::std::clone::Clone for Union___ReplyUnion__processor_subsystem {
+impl ::core::clone::Clone for Union___ReplyUnion__processor_subsystem {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Union___ReplyUnion__processor_subsystem {
+impl ::core::default::Default for Union___ReplyUnion__processor_subsystem {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -5163,14 +5163,14 @@ pub struct Struct_Unnamed120 {
     pub flavor: processor_set_flavor_t,
     pub info_outCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed120 {
+impl ::core::clone::Clone for Struct_Unnamed120 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed120 {
+impl ::core::default::Default for Struct_Unnamed120 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__processor_set_statistics_t = Struct_Unnamed120;
@@ -5179,14 +5179,14 @@ pub type __Request__processor_set_statistics_t = Struct_Unnamed120;
 pub struct Struct_Unnamed121 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed121 {
+impl ::core::clone::Clone for Struct_Unnamed121 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed121 {
+impl ::core::default::Default for Struct_Unnamed121 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__processor_set_destroy_t = Struct_Unnamed121;
@@ -5198,14 +5198,14 @@ pub struct Struct_Unnamed122 {
     pub max_priority: ::libc::c_int,
     pub change_threads: boolean_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed122 {
+impl ::core::clone::Clone for Struct_Unnamed122 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed122 {
+impl ::core::default::Default for Struct_Unnamed122 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__processor_set_max_priority_t = Struct_Unnamed122;
@@ -5216,14 +5216,14 @@ pub struct Struct_Unnamed123 {
     pub NDR: NDR_record_t,
     pub policy: ::libc::c_int,
 }
-impl ::std::clone::Clone for Struct_Unnamed123 {
+impl ::core::clone::Clone for Struct_Unnamed123 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed123 {
+impl ::core::default::Default for Struct_Unnamed123 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__processor_set_policy_enable_t = Struct_Unnamed123;
@@ -5235,14 +5235,14 @@ pub struct Struct_Unnamed124 {
     pub policy: ::libc::c_int,
     pub change_threads: boolean_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed124 {
+impl ::core::clone::Clone for Struct_Unnamed124 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed124 {
+impl ::core::default::Default for Struct_Unnamed124 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__processor_set_policy_disable_t = Struct_Unnamed124;
@@ -5251,14 +5251,14 @@ pub type __Request__processor_set_policy_disable_t = Struct_Unnamed124;
 pub struct Struct_Unnamed125 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed125 {
+impl ::core::clone::Clone for Struct_Unnamed125 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed125 {
+impl ::core::default::Default for Struct_Unnamed125 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__processor_set_tasks_t = Struct_Unnamed125;
@@ -5267,14 +5267,14 @@ pub type __Request__processor_set_tasks_t = Struct_Unnamed125;
 pub struct Struct_Unnamed126 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed126 {
+impl ::core::clone::Clone for Struct_Unnamed126 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed126 {
+impl ::core::default::Default for Struct_Unnamed126 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__processor_set_threads_t = Struct_Unnamed126;
@@ -5288,14 +5288,14 @@ pub struct Struct_Unnamed127 {
     pub policy_info: [integer_t; 5usize],
     pub change: boolean_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed127 {
+impl ::core::clone::Clone for Struct_Unnamed127 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed127 {
+impl ::core::default::Default for Struct_Unnamed127 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__processor_set_policy_control_t = Struct_Unnamed127;
@@ -5304,14 +5304,14 @@ pub type __Request__processor_set_policy_control_t = Struct_Unnamed127;
 pub struct Struct_Unnamed128 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed128 {
+impl ::core::clone::Clone for Struct_Unnamed128 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed128 {
+impl ::core::default::Default for Struct_Unnamed128 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__processor_set_stack_usage_t = Struct_Unnamed128;
@@ -5323,14 +5323,14 @@ pub struct Struct_Unnamed129 {
     pub flavor: ::libc::c_int,
     pub info_outCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed129 {
+impl ::core::clone::Clone for Struct_Unnamed129 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed129 {
+impl ::core::default::Default for Struct_Unnamed129 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__processor_set_info_t = Struct_Unnamed129;
@@ -5343,68 +5343,68 @@ impl Union___RequestUnion__processor_set_subsystem {
     pub unsafe fn Request_processor_set_statistics(
         &mut self,
     ) -> *mut __Request__processor_set_statistics_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_processor_set_destroy(
         &mut self,
     ) -> *mut __Request__processor_set_destroy_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_processor_set_max_priority(
         &mut self,
     ) -> *mut __Request__processor_set_max_priority_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_processor_set_policy_enable(
         &mut self,
     ) -> *mut __Request__processor_set_policy_enable_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_processor_set_policy_disable(
         &mut self,
     ) -> *mut __Request__processor_set_policy_disable_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_processor_set_tasks(&mut self) -> *mut __Request__processor_set_tasks_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_processor_set_threads(
         &mut self,
     ) -> *mut __Request__processor_set_threads_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_processor_set_policy_control(
         &mut self,
     ) -> *mut __Request__processor_set_policy_control_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_processor_set_stack_usage(
         &mut self,
     ) -> *mut __Request__processor_set_stack_usage_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_processor_set_info(&mut self) -> *mut __Request__processor_set_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
 }
-impl ::std::clone::Clone for Union___RequestUnion__processor_set_subsystem {
+impl ::core::clone::Clone for Union___RequestUnion__processor_set_subsystem {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Union___RequestUnion__processor_set_subsystem {
+impl ::core::default::Default for Union___RequestUnion__processor_set_subsystem {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -5416,14 +5416,14 @@ pub struct Struct_Unnamed130 {
     pub info_outCnt: mach_msg_type_number_t,
     pub info_out: [integer_t; 5usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed130 {
+impl ::core::clone::Clone for Struct_Unnamed130 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed130 {
+impl ::core::default::Default for Struct_Unnamed130 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__processor_set_statistics_t = Struct_Unnamed130;
@@ -5434,14 +5434,14 @@ pub struct Struct_Unnamed131 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed131 {
+impl ::core::clone::Clone for Struct_Unnamed131 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed131 {
+impl ::core::default::Default for Struct_Unnamed131 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__processor_set_destroy_t = Struct_Unnamed131;
@@ -5452,14 +5452,14 @@ pub struct Struct_Unnamed132 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed132 {
+impl ::core::clone::Clone for Struct_Unnamed132 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed132 {
+impl ::core::default::Default for Struct_Unnamed132 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__processor_set_max_priority_t = Struct_Unnamed132;
@@ -5470,14 +5470,14 @@ pub struct Struct_Unnamed133 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed133 {
+impl ::core::clone::Clone for Struct_Unnamed133 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed133 {
+impl ::core::default::Default for Struct_Unnamed133 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__processor_set_policy_enable_t = Struct_Unnamed133;
@@ -5488,14 +5488,14 @@ pub struct Struct_Unnamed134 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed134 {
+impl ::core::clone::Clone for Struct_Unnamed134 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed134 {
+impl ::core::default::Default for Struct_Unnamed134 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__processor_set_policy_disable_t = Struct_Unnamed134;
@@ -5508,14 +5508,14 @@ pub struct Struct_Unnamed135 {
     pub NDR: NDR_record_t,
     pub task_listCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed135 {
+impl ::core::clone::Clone for Struct_Unnamed135 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed135 {
+impl ::core::default::Default for Struct_Unnamed135 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__processor_set_tasks_t = Struct_Unnamed135;
@@ -5528,14 +5528,14 @@ pub struct Struct_Unnamed136 {
     pub NDR: NDR_record_t,
     pub thread_listCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed136 {
+impl ::core::clone::Clone for Struct_Unnamed136 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed136 {
+impl ::core::default::Default for Struct_Unnamed136 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__processor_set_threads_t = Struct_Unnamed136;
@@ -5546,14 +5546,14 @@ pub struct Struct_Unnamed137 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed137 {
+impl ::core::clone::Clone for Struct_Unnamed137 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed137 {
+impl ::core::default::Default for Struct_Unnamed137 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__processor_set_policy_control_t = Struct_Unnamed137;
@@ -5569,14 +5569,14 @@ pub struct Struct_Unnamed138 {
     pub maxusage: vm_size_t,
     pub maxstack: vm_offset_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed138 {
+impl ::core::clone::Clone for Struct_Unnamed138 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed138 {
+impl ::core::default::Default for Struct_Unnamed138 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__processor_set_stack_usage_t = Struct_Unnamed138;
@@ -5590,14 +5590,14 @@ pub struct Struct_Unnamed139 {
     pub info_outCnt: mach_msg_type_number_t,
     pub info_out: [integer_t; 5usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed139 {
+impl ::core::clone::Clone for Struct_Unnamed139 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed139 {
+impl ::core::default::Default for Struct_Unnamed139 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__processor_set_info_t = Struct_Unnamed139;
@@ -5610,64 +5610,64 @@ impl Union___ReplyUnion__processor_set_subsystem {
     pub unsafe fn Reply_processor_set_statistics(
         &mut self,
     ) -> *mut __Reply__processor_set_statistics_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_processor_set_destroy(&mut self) -> *mut __Reply__processor_set_destroy_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_processor_set_max_priority(
         &mut self,
     ) -> *mut __Reply__processor_set_max_priority_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_processor_set_policy_enable(
         &mut self,
     ) -> *mut __Reply__processor_set_policy_enable_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_processor_set_policy_disable(
         &mut self,
     ) -> *mut __Reply__processor_set_policy_disable_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_processor_set_tasks(&mut self) -> *mut __Reply__processor_set_tasks_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_processor_set_threads(&mut self) -> *mut __Reply__processor_set_threads_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_processor_set_policy_control(
         &mut self,
     ) -> *mut __Reply__processor_set_policy_control_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_processor_set_stack_usage(
         &mut self,
     ) -> *mut __Reply__processor_set_stack_usage_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_processor_set_info(&mut self) -> *mut __Reply__processor_set_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
 }
-impl ::std::clone::Clone for Union___ReplyUnion__processor_set_subsystem {
+impl ::core::clone::Clone for Union___ReplyUnion__processor_set_subsystem {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Union___ReplyUnion__processor_set_subsystem {
+impl ::core::default::Default for Union___ReplyUnion__processor_set_subsystem {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type sync_policy_t = ::libc::c_int;
@@ -5681,14 +5681,14 @@ pub struct Struct_Unnamed140 {
     pub ledgersCnt: mach_msg_type_number_t,
     pub inherit_memory: boolean_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed140 {
+impl ::core::clone::Clone for Struct_Unnamed140 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed140 {
+impl ::core::default::Default for Struct_Unnamed140 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__task_create_t = Struct_Unnamed140;
@@ -5697,14 +5697,14 @@ pub type __Request__task_create_t = Struct_Unnamed140;
 pub struct Struct_Unnamed141 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed141 {
+impl ::core::clone::Clone for Struct_Unnamed141 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed141 {
+impl ::core::default::Default for Struct_Unnamed141 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__task_terminate_t = Struct_Unnamed141;
@@ -5713,14 +5713,14 @@ pub type __Request__task_terminate_t = Struct_Unnamed141;
 pub struct Struct_Unnamed142 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed142 {
+impl ::core::clone::Clone for Struct_Unnamed142 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed142 {
+impl ::core::default::Default for Struct_Unnamed142 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__task_threads_t = Struct_Unnamed142;
@@ -5733,14 +5733,14 @@ pub struct Struct_Unnamed143 {
     pub NDR: NDR_record_t,
     pub init_port_setCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed143 {
+impl ::core::clone::Clone for Struct_Unnamed143 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed143 {
+impl ::core::default::Default for Struct_Unnamed143 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_ports_register_t = Struct_Unnamed143;
@@ -5749,14 +5749,14 @@ pub type __Request__mach_ports_register_t = Struct_Unnamed143;
 pub struct Struct_Unnamed144 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed144 {
+impl ::core::clone::Clone for Struct_Unnamed144 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed144 {
+impl ::core::default::Default for Struct_Unnamed144 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_ports_lookup_t = Struct_Unnamed144;
@@ -5768,14 +5768,14 @@ pub struct Struct_Unnamed145 {
     pub flavor: task_flavor_t,
     pub task_info_outCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed145 {
+impl ::core::clone::Clone for Struct_Unnamed145 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed145 {
+impl ::core::default::Default for Struct_Unnamed145 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__task_info_t = Struct_Unnamed145;
@@ -5788,14 +5788,14 @@ pub struct Struct_Unnamed146 {
     pub task_info_inCnt: mach_msg_type_number_t,
     pub task_info_in: [integer_t; 32usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed146 {
+impl ::core::clone::Clone for Struct_Unnamed146 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed146 {
+impl ::core::default::Default for Struct_Unnamed146 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__task_set_info_t = Struct_Unnamed146;
@@ -5804,14 +5804,14 @@ pub type __Request__task_set_info_t = Struct_Unnamed146;
 pub struct Struct_Unnamed147 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed147 {
+impl ::core::clone::Clone for Struct_Unnamed147 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed147 {
+impl ::core::default::Default for Struct_Unnamed147 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__task_suspend_t = Struct_Unnamed147;
@@ -5820,14 +5820,14 @@ pub type __Request__task_suspend_t = Struct_Unnamed147;
 pub struct Struct_Unnamed148 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed148 {
+impl ::core::clone::Clone for Struct_Unnamed148 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed148 {
+impl ::core::default::Default for Struct_Unnamed148 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__task_resume_t = Struct_Unnamed148;
@@ -5838,14 +5838,14 @@ pub struct Struct_Unnamed149 {
     pub NDR: NDR_record_t,
     pub which_port: ::libc::c_int,
 }
-impl ::std::clone::Clone for Struct_Unnamed149 {
+impl ::core::clone::Clone for Struct_Unnamed149 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed149 {
+impl ::core::default::Default for Struct_Unnamed149 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__task_get_special_port_t = Struct_Unnamed149;
@@ -5858,14 +5858,14 @@ pub struct Struct_Unnamed150 {
     pub NDR: NDR_record_t,
     pub which_port: ::libc::c_int,
 }
-impl ::std::clone::Clone for Struct_Unnamed150 {
+impl ::core::clone::Clone for Struct_Unnamed150 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed150 {
+impl ::core::default::Default for Struct_Unnamed150 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__task_set_special_port_t = Struct_Unnamed150;
@@ -5874,14 +5874,14 @@ pub type __Request__task_set_special_port_t = Struct_Unnamed150;
 pub struct Struct_Unnamed151 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed151 {
+impl ::core::clone::Clone for Struct_Unnamed151 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed151 {
+impl ::core::default::Default for Struct_Unnamed151 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__thread_create_t = Struct_Unnamed151;
@@ -5894,14 +5894,14 @@ pub struct Struct_Unnamed152 {
     pub new_stateCnt: mach_msg_type_number_t,
     pub new_state: [natural_t; 224usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed152 {
+impl ::core::clone::Clone for Struct_Unnamed152 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed152 {
+impl ::core::default::Default for Struct_Unnamed152 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__thread_create_running_t = Struct_Unnamed152;
@@ -5916,14 +5916,14 @@ pub struct Struct_Unnamed153 {
     pub behavior: exception_behavior_t,
     pub new_flavor: thread_state_flavor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed153 {
+impl ::core::clone::Clone for Struct_Unnamed153 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed153 {
+impl ::core::default::Default for Struct_Unnamed153 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__task_set_exception_ports_t = Struct_Unnamed153;
@@ -5934,14 +5934,14 @@ pub struct Struct_Unnamed154 {
     pub NDR: NDR_record_t,
     pub exception_mask: exception_mask_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed154 {
+impl ::core::clone::Clone for Struct_Unnamed154 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed154 {
+impl ::core::default::Default for Struct_Unnamed154 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__task_get_exception_ports_t = Struct_Unnamed154;
@@ -5956,14 +5956,14 @@ pub struct Struct_Unnamed155 {
     pub behavior: exception_behavior_t,
     pub new_flavor: thread_state_flavor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed155 {
+impl ::core::clone::Clone for Struct_Unnamed155 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed155 {
+impl ::core::default::Default for Struct_Unnamed155 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__task_swap_exception_ports_t = Struct_Unnamed155;
@@ -5975,14 +5975,14 @@ pub struct Struct_Unnamed156 {
     pub n_ulocks: ::libc::c_int,
     pub policy: ::libc::c_int,
 }
-impl ::std::clone::Clone for Struct_Unnamed156 {
+impl ::core::clone::Clone for Struct_Unnamed156 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed156 {
+impl ::core::default::Default for Struct_Unnamed156 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__lock_set_create_t = Struct_Unnamed156;
@@ -5993,14 +5993,14 @@ pub struct Struct_Unnamed157 {
     pub msgh_body: mach_msg_body_t,
     pub lock_set: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed157 {
+impl ::core::clone::Clone for Struct_Unnamed157 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed157 {
+impl ::core::default::Default for Struct_Unnamed157 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__lock_set_destroy_t = Struct_Unnamed157;
@@ -6012,14 +6012,14 @@ pub struct Struct_Unnamed158 {
     pub policy: ::libc::c_int,
     pub value: ::libc::c_int,
 }
-impl ::std::clone::Clone for Struct_Unnamed158 {
+impl ::core::clone::Clone for Struct_Unnamed158 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed158 {
+impl ::core::default::Default for Struct_Unnamed158 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__semaphore_create_t = Struct_Unnamed158;
@@ -6030,14 +6030,14 @@ pub struct Struct_Unnamed159 {
     pub msgh_body: mach_msg_body_t,
     pub semaphore: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed159 {
+impl ::core::clone::Clone for Struct_Unnamed159 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed159 {
+impl ::core::default::Default for Struct_Unnamed159 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__semaphore_destroy_t = Struct_Unnamed159;
@@ -6050,14 +6050,14 @@ pub struct Struct_Unnamed160 {
     pub policy_infoCnt: mach_msg_type_number_t,
     pub policy_info: [integer_t; 16usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed160 {
+impl ::core::clone::Clone for Struct_Unnamed160 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed160 {
+impl ::core::default::Default for Struct_Unnamed160 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__task_policy_set_t = Struct_Unnamed160;
@@ -6070,14 +6070,14 @@ pub struct Struct_Unnamed161 {
     pub policy_infoCnt: mach_msg_type_number_t,
     pub get_default: boolean_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed161 {
+impl ::core::clone::Clone for Struct_Unnamed161 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed161 {
+impl ::core::default::Default for Struct_Unnamed161 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__task_policy_get_t = Struct_Unnamed161;
@@ -6088,14 +6088,14 @@ pub struct Struct_Unnamed162 {
     pub msgh_body: mach_msg_body_t,
     pub reply: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed162 {
+impl ::core::clone::Clone for Struct_Unnamed162 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed162 {
+impl ::core::default::Default for Struct_Unnamed162 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__task_sample_t = Struct_Unnamed162;
@@ -6110,14 +6110,14 @@ pub struct Struct_Unnamed163 {
     pub set_limit: boolean_t,
     pub change: boolean_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed163 {
+impl ::core::clone::Clone for Struct_Unnamed163 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed163 {
+impl ::core::default::Default for Struct_Unnamed163 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__task_policy_t = Struct_Unnamed163;
@@ -6129,14 +6129,14 @@ pub struct Struct_Unnamed164 {
     pub routine_entry_pt: vm_address_t,
     pub routine_number: ::libc::c_int,
 }
-impl ::std::clone::Clone for Struct_Unnamed164 {
+impl ::core::clone::Clone for Struct_Unnamed164 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed164 {
+impl ::core::default::Default for Struct_Unnamed164 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__task_set_emulation_t = Struct_Unnamed164;
@@ -6145,14 +6145,14 @@ pub type __Request__task_set_emulation_t = Struct_Unnamed164;
 pub struct Struct_Unnamed165 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed165 {
+impl ::core::clone::Clone for Struct_Unnamed165 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed165 {
+impl ::core::default::Default for Struct_Unnamed165 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__task_get_emulation_vector_t = Struct_Unnamed165;
@@ -6166,14 +6166,14 @@ pub struct Struct_Unnamed166 {
     pub vector_start: ::libc::c_int,
     pub emulation_vectorCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed166 {
+impl ::core::clone::Clone for Struct_Unnamed166 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed166 {
+impl ::core::default::Default for Struct_Unnamed166 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__task_set_emulation_vector_t = Struct_Unnamed166;
@@ -6185,14 +6185,14 @@ pub struct Struct_Unnamed167 {
     pub basepc: vm_address_t,
     pub boundspc: vm_address_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed167 {
+impl ::core::clone::Clone for Struct_Unnamed167 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed167 {
+impl ::core::default::Default for Struct_Unnamed167 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__task_set_ras_pc_t = Struct_Unnamed167;
@@ -6201,14 +6201,14 @@ pub type __Request__task_set_ras_pc_t = Struct_Unnamed167;
 pub struct Struct_Unnamed168 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed168 {
+impl ::core::clone::Clone for Struct_Unnamed168 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed168 {
+impl ::core::default::Default for Struct_Unnamed168 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__task_zone_info_t = Struct_Unnamed168;
@@ -6221,14 +6221,14 @@ pub struct Struct_Unnamed169 {
     pub NDR: NDR_record_t,
     pub assign_threads: boolean_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed169 {
+impl ::core::clone::Clone for Struct_Unnamed169 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed169 {
+impl ::core::default::Default for Struct_Unnamed169 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__task_assign_t = Struct_Unnamed169;
@@ -6239,14 +6239,14 @@ pub struct Struct_Unnamed170 {
     pub NDR: NDR_record_t,
     pub assign_threads: boolean_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed170 {
+impl ::core::clone::Clone for Struct_Unnamed170 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed170 {
+impl ::core::default::Default for Struct_Unnamed170 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__task_assign_default_t = Struct_Unnamed170;
@@ -6255,14 +6255,14 @@ pub type __Request__task_assign_default_t = Struct_Unnamed170;
 pub struct Struct_Unnamed171 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed171 {
+impl ::core::clone::Clone for Struct_Unnamed171 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed171 {
+impl ::core::default::Default for Struct_Unnamed171 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__task_get_assignment_t = Struct_Unnamed171;
@@ -6280,14 +6280,14 @@ pub struct Struct_Unnamed172 {
     pub limit: [integer_t; 1usize],
     pub change: boolean_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed172 {
+impl ::core::clone::Clone for Struct_Unnamed172 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed172 {
+impl ::core::default::Default for Struct_Unnamed172 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__task_set_policy_t = Struct_Unnamed172;
@@ -6299,14 +6299,14 @@ pub struct Struct_Unnamed173 {
     pub flavor: thread_state_flavor_t,
     pub old_stateCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed173 {
+impl ::core::clone::Clone for Struct_Unnamed173 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed173 {
+impl ::core::default::Default for Struct_Unnamed173 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__task_get_state_t = Struct_Unnamed173;
@@ -6319,14 +6319,14 @@ pub struct Struct_Unnamed174 {
     pub new_stateCnt: mach_msg_type_number_t,
     pub new_state: [natural_t; 224usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed174 {
+impl ::core::clone::Clone for Struct_Unnamed174 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed174 {
+impl ::core::default::Default for Struct_Unnamed174 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__task_set_state_t = Struct_Unnamed174;
@@ -6337,170 +6337,170 @@ pub struct Union___RequestUnion__task_subsystem {
 }
 impl Union___RequestUnion__task_subsystem {
     pub unsafe fn Request_task_create(&mut self) -> *mut __Request__task_create_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_task_terminate(&mut self) -> *mut __Request__task_terminate_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_task_threads(&mut self) -> *mut __Request__task_threads_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_ports_register(&mut self) -> *mut __Request__mach_ports_register_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_ports_lookup(&mut self) -> *mut __Request__mach_ports_lookup_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_task_info(&mut self) -> *mut __Request__task_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_task_set_info(&mut self) -> *mut __Request__task_set_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_task_suspend(&mut self) -> *mut __Request__task_suspend_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_task_resume(&mut self) -> *mut __Request__task_resume_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_task_get_special_port(
         &mut self,
     ) -> *mut __Request__task_get_special_port_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_task_set_special_port(
         &mut self,
     ) -> *mut __Request__task_set_special_port_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_thread_create(&mut self) -> *mut __Request__thread_create_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_thread_create_running(
         &mut self,
     ) -> *mut __Request__thread_create_running_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_task_set_exception_ports(
         &mut self,
     ) -> *mut __Request__task_set_exception_ports_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_task_get_exception_ports(
         &mut self,
     ) -> *mut __Request__task_get_exception_ports_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_task_swap_exception_ports(
         &mut self,
     ) -> *mut __Request__task_swap_exception_ports_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_lock_set_create(&mut self) -> *mut __Request__lock_set_create_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_lock_set_destroy(&mut self) -> *mut __Request__lock_set_destroy_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_semaphore_create(&mut self) -> *mut __Request__semaphore_create_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_semaphore_destroy(&mut self) -> *mut __Request__semaphore_destroy_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_task_policy_set(&mut self) -> *mut __Request__task_policy_set_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_task_policy_get(&mut self) -> *mut __Request__task_policy_get_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_task_sample(&mut self) -> *mut __Request__task_sample_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_task_policy(&mut self) -> *mut __Request__task_policy_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_task_set_emulation(&mut self) -> *mut __Request__task_set_emulation_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_task_get_emulation_vector(
         &mut self,
     ) -> *mut __Request__task_get_emulation_vector_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_task_set_emulation_vector(
         &mut self,
     ) -> *mut __Request__task_set_emulation_vector_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_task_set_ras_pc(&mut self) -> *mut __Request__task_set_ras_pc_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_task_zone_info(&mut self) -> *mut __Request__task_zone_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_task_assign(&mut self) -> *mut __Request__task_assign_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_task_assign_default(&mut self) -> *mut __Request__task_assign_default_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_task_get_assignment(&mut self) -> *mut __Request__task_get_assignment_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_task_set_policy(&mut self) -> *mut __Request__task_set_policy_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_task_get_state(&mut self) -> *mut __Request__task_get_state_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_task_set_state(&mut self) -> *mut __Request__task_set_state_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
 }
-impl ::std::clone::Clone for Union___RequestUnion__task_subsystem {
+impl ::core::clone::Clone for Union___RequestUnion__task_subsystem {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Union___RequestUnion__task_subsystem {
+impl ::core::default::Default for Union___RequestUnion__task_subsystem {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -6510,14 +6510,14 @@ pub struct Struct_Unnamed175 {
     pub msgh_body: mach_msg_body_t,
     pub child_task: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed175 {
+impl ::core::clone::Clone for Struct_Unnamed175 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed175 {
+impl ::core::default::Default for Struct_Unnamed175 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__task_create_t = Struct_Unnamed175;
@@ -6528,14 +6528,14 @@ pub struct Struct_Unnamed176 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed176 {
+impl ::core::clone::Clone for Struct_Unnamed176 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed176 {
+impl ::core::default::Default for Struct_Unnamed176 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__task_terminate_t = Struct_Unnamed176;
@@ -6548,14 +6548,14 @@ pub struct Struct_Unnamed177 {
     pub NDR: NDR_record_t,
     pub act_listCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed177 {
+impl ::core::clone::Clone for Struct_Unnamed177 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed177 {
+impl ::core::default::Default for Struct_Unnamed177 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__task_threads_t = Struct_Unnamed177;
@@ -6566,14 +6566,14 @@ pub struct Struct_Unnamed178 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed178 {
+impl ::core::clone::Clone for Struct_Unnamed178 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed178 {
+impl ::core::default::Default for Struct_Unnamed178 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_ports_register_t = Struct_Unnamed178;
@@ -6586,14 +6586,14 @@ pub struct Struct_Unnamed179 {
     pub NDR: NDR_record_t,
     pub init_port_setCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed179 {
+impl ::core::clone::Clone for Struct_Unnamed179 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed179 {
+impl ::core::default::Default for Struct_Unnamed179 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_ports_lookup_t = Struct_Unnamed179;
@@ -6606,14 +6606,14 @@ pub struct Struct_Unnamed180 {
     pub task_info_outCnt: mach_msg_type_number_t,
     pub task_info_out: [integer_t; 32usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed180 {
+impl ::core::clone::Clone for Struct_Unnamed180 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed180 {
+impl ::core::default::Default for Struct_Unnamed180 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__task_info_t = Struct_Unnamed180;
@@ -6624,14 +6624,14 @@ pub struct Struct_Unnamed181 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed181 {
+impl ::core::clone::Clone for Struct_Unnamed181 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed181 {
+impl ::core::default::Default for Struct_Unnamed181 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__task_set_info_t = Struct_Unnamed181;
@@ -6642,14 +6642,14 @@ pub struct Struct_Unnamed182 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed182 {
+impl ::core::clone::Clone for Struct_Unnamed182 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed182 {
+impl ::core::default::Default for Struct_Unnamed182 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__task_suspend_t = Struct_Unnamed182;
@@ -6660,14 +6660,14 @@ pub struct Struct_Unnamed183 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed183 {
+impl ::core::clone::Clone for Struct_Unnamed183 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed183 {
+impl ::core::default::Default for Struct_Unnamed183 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__task_resume_t = Struct_Unnamed183;
@@ -6678,14 +6678,14 @@ pub struct Struct_Unnamed184 {
     pub msgh_body: mach_msg_body_t,
     pub special_port: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed184 {
+impl ::core::clone::Clone for Struct_Unnamed184 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed184 {
+impl ::core::default::Default for Struct_Unnamed184 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__task_get_special_port_t = Struct_Unnamed184;
@@ -6696,14 +6696,14 @@ pub struct Struct_Unnamed185 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed185 {
+impl ::core::clone::Clone for Struct_Unnamed185 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed185 {
+impl ::core::default::Default for Struct_Unnamed185 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__task_set_special_port_t = Struct_Unnamed185;
@@ -6714,14 +6714,14 @@ pub struct Struct_Unnamed186 {
     pub msgh_body: mach_msg_body_t,
     pub child_act: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed186 {
+impl ::core::clone::Clone for Struct_Unnamed186 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed186 {
+impl ::core::default::Default for Struct_Unnamed186 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__thread_create_t = Struct_Unnamed186;
@@ -6732,14 +6732,14 @@ pub struct Struct_Unnamed187 {
     pub msgh_body: mach_msg_body_t,
     pub child_act: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed187 {
+impl ::core::clone::Clone for Struct_Unnamed187 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed187 {
+impl ::core::default::Default for Struct_Unnamed187 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__thread_create_running_t = Struct_Unnamed187;
@@ -6750,14 +6750,14 @@ pub struct Struct_Unnamed188 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed188 {
+impl ::core::clone::Clone for Struct_Unnamed188 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed188 {
+impl ::core::default::Default for Struct_Unnamed188 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__task_set_exception_ports_t = Struct_Unnamed188;
@@ -6773,14 +6773,14 @@ pub struct Struct_Unnamed189 {
     pub old_behaviors: [exception_behavior_t; 32usize],
     pub old_flavors: [thread_state_flavor_t; 32usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed189 {
+impl ::core::clone::Clone for Struct_Unnamed189 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed189 {
+impl ::core::default::Default for Struct_Unnamed189 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__task_get_exception_ports_t = Struct_Unnamed189;
@@ -6796,14 +6796,14 @@ pub struct Struct_Unnamed190 {
     pub old_behaviors: [exception_behavior_t; 32usize],
     pub old_flavors: [thread_state_flavor_t; 32usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed190 {
+impl ::core::clone::Clone for Struct_Unnamed190 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed190 {
+impl ::core::default::Default for Struct_Unnamed190 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__task_swap_exception_ports_t = Struct_Unnamed190;
@@ -6814,14 +6814,14 @@ pub struct Struct_Unnamed191 {
     pub msgh_body: mach_msg_body_t,
     pub new_lock_set: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed191 {
+impl ::core::clone::Clone for Struct_Unnamed191 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed191 {
+impl ::core::default::Default for Struct_Unnamed191 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__lock_set_create_t = Struct_Unnamed191;
@@ -6832,14 +6832,14 @@ pub struct Struct_Unnamed192 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed192 {
+impl ::core::clone::Clone for Struct_Unnamed192 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed192 {
+impl ::core::default::Default for Struct_Unnamed192 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__lock_set_destroy_t = Struct_Unnamed192;
@@ -6850,14 +6850,14 @@ pub struct Struct_Unnamed193 {
     pub msgh_body: mach_msg_body_t,
     pub semaphore: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed193 {
+impl ::core::clone::Clone for Struct_Unnamed193 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed193 {
+impl ::core::default::Default for Struct_Unnamed193 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__semaphore_create_t = Struct_Unnamed193;
@@ -6868,14 +6868,14 @@ pub struct Struct_Unnamed194 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed194 {
+impl ::core::clone::Clone for Struct_Unnamed194 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed194 {
+impl ::core::default::Default for Struct_Unnamed194 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__semaphore_destroy_t = Struct_Unnamed194;
@@ -6886,14 +6886,14 @@ pub struct Struct_Unnamed195 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed195 {
+impl ::core::clone::Clone for Struct_Unnamed195 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed195 {
+impl ::core::default::Default for Struct_Unnamed195 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__task_policy_set_t = Struct_Unnamed195;
@@ -6907,14 +6907,14 @@ pub struct Struct_Unnamed196 {
     pub policy_info: [integer_t; 16usize],
     pub get_default: boolean_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed196 {
+impl ::core::clone::Clone for Struct_Unnamed196 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed196 {
+impl ::core::default::Default for Struct_Unnamed196 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__task_policy_get_t = Struct_Unnamed196;
@@ -6925,14 +6925,14 @@ pub struct Struct_Unnamed197 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed197 {
+impl ::core::clone::Clone for Struct_Unnamed197 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed197 {
+impl ::core::default::Default for Struct_Unnamed197 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__task_sample_t = Struct_Unnamed197;
@@ -6943,14 +6943,14 @@ pub struct Struct_Unnamed198 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed198 {
+impl ::core::clone::Clone for Struct_Unnamed198 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed198 {
+impl ::core::default::Default for Struct_Unnamed198 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__task_policy_t = Struct_Unnamed198;
@@ -6961,14 +6961,14 @@ pub struct Struct_Unnamed199 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed199 {
+impl ::core::clone::Clone for Struct_Unnamed199 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed199 {
+impl ::core::default::Default for Struct_Unnamed199 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__task_set_emulation_t = Struct_Unnamed199;
@@ -6982,14 +6982,14 @@ pub struct Struct_Unnamed200 {
     pub vector_start: ::libc::c_int,
     pub emulation_vectorCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed200 {
+impl ::core::clone::Clone for Struct_Unnamed200 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed200 {
+impl ::core::default::Default for Struct_Unnamed200 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__task_get_emulation_vector_t = Struct_Unnamed200;
@@ -7000,14 +7000,14 @@ pub struct Struct_Unnamed201 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed201 {
+impl ::core::clone::Clone for Struct_Unnamed201 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed201 {
+impl ::core::default::Default for Struct_Unnamed201 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__task_set_emulation_vector_t = Struct_Unnamed201;
@@ -7018,14 +7018,14 @@ pub struct Struct_Unnamed202 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed202 {
+impl ::core::clone::Clone for Struct_Unnamed202 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed202 {
+impl ::core::default::Default for Struct_Unnamed202 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__task_set_ras_pc_t = Struct_Unnamed202;
@@ -7040,14 +7040,14 @@ pub struct Struct_Unnamed203 {
     pub namesCnt: mach_msg_type_number_t,
     pub infoCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed203 {
+impl ::core::clone::Clone for Struct_Unnamed203 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed203 {
+impl ::core::default::Default for Struct_Unnamed203 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__task_zone_info_t = Struct_Unnamed203;
@@ -7058,14 +7058,14 @@ pub struct Struct_Unnamed204 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed204 {
+impl ::core::clone::Clone for Struct_Unnamed204 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed204 {
+impl ::core::default::Default for Struct_Unnamed204 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__task_assign_t = Struct_Unnamed204;
@@ -7076,14 +7076,14 @@ pub struct Struct_Unnamed205 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed205 {
+impl ::core::clone::Clone for Struct_Unnamed205 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed205 {
+impl ::core::default::Default for Struct_Unnamed205 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__task_assign_default_t = Struct_Unnamed205;
@@ -7094,14 +7094,14 @@ pub struct Struct_Unnamed206 {
     pub msgh_body: mach_msg_body_t,
     pub assigned_set: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed206 {
+impl ::core::clone::Clone for Struct_Unnamed206 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed206 {
+impl ::core::default::Default for Struct_Unnamed206 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__task_get_assignment_t = Struct_Unnamed206;
@@ -7112,14 +7112,14 @@ pub struct Struct_Unnamed207 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed207 {
+impl ::core::clone::Clone for Struct_Unnamed207 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed207 {
+impl ::core::default::Default for Struct_Unnamed207 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__task_set_policy_t = Struct_Unnamed207;
@@ -7132,14 +7132,14 @@ pub struct Struct_Unnamed208 {
     pub old_stateCnt: mach_msg_type_number_t,
     pub old_state: [natural_t; 224usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed208 {
+impl ::core::clone::Clone for Struct_Unnamed208 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed208 {
+impl ::core::default::Default for Struct_Unnamed208 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__task_get_state_t = Struct_Unnamed208;
@@ -7150,14 +7150,14 @@ pub struct Struct_Unnamed209 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed209 {
+impl ::core::clone::Clone for Struct_Unnamed209 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed209 {
+impl ::core::default::Default for Struct_Unnamed209 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__task_set_state_t = Struct_Unnamed209;
@@ -7168,164 +7168,164 @@ pub struct Union___ReplyUnion__task_subsystem {
 }
 impl Union___ReplyUnion__task_subsystem {
     pub unsafe fn Reply_task_create(&mut self) -> *mut __Reply__task_create_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_task_terminate(&mut self) -> *mut __Reply__task_terminate_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_task_threads(&mut self) -> *mut __Reply__task_threads_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_ports_register(&mut self) -> *mut __Reply__mach_ports_register_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_ports_lookup(&mut self) -> *mut __Reply__mach_ports_lookup_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_task_info(&mut self) -> *mut __Reply__task_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_task_set_info(&mut self) -> *mut __Reply__task_set_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_task_suspend(&mut self) -> *mut __Reply__task_suspend_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_task_resume(&mut self) -> *mut __Reply__task_resume_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_task_get_special_port(&mut self) -> *mut __Reply__task_get_special_port_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_task_set_special_port(&mut self) -> *mut __Reply__task_set_special_port_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_thread_create(&mut self) -> *mut __Reply__thread_create_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_thread_create_running(&mut self) -> *mut __Reply__thread_create_running_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_task_set_exception_ports(
         &mut self,
     ) -> *mut __Reply__task_set_exception_ports_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_task_get_exception_ports(
         &mut self,
     ) -> *mut __Reply__task_get_exception_ports_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_task_swap_exception_ports(
         &mut self,
     ) -> *mut __Reply__task_swap_exception_ports_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_lock_set_create(&mut self) -> *mut __Reply__lock_set_create_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_lock_set_destroy(&mut self) -> *mut __Reply__lock_set_destroy_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_semaphore_create(&mut self) -> *mut __Reply__semaphore_create_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_semaphore_destroy(&mut self) -> *mut __Reply__semaphore_destroy_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_task_policy_set(&mut self) -> *mut __Reply__task_policy_set_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_task_policy_get(&mut self) -> *mut __Reply__task_policy_get_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_task_sample(&mut self) -> *mut __Reply__task_sample_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_task_policy(&mut self) -> *mut __Reply__task_policy_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_task_set_emulation(&mut self) -> *mut __Reply__task_set_emulation_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_task_get_emulation_vector(
         &mut self,
     ) -> *mut __Reply__task_get_emulation_vector_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_task_set_emulation_vector(
         &mut self,
     ) -> *mut __Reply__task_set_emulation_vector_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_task_set_ras_pc(&mut self) -> *mut __Reply__task_set_ras_pc_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_task_zone_info(&mut self) -> *mut __Reply__task_zone_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_task_assign(&mut self) -> *mut __Reply__task_assign_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_task_assign_default(&mut self) -> *mut __Reply__task_assign_default_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_task_get_assignment(&mut self) -> *mut __Reply__task_get_assignment_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_task_set_policy(&mut self) -> *mut __Reply__task_set_policy_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_task_get_state(&mut self) -> *mut __Reply__task_get_state_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_task_set_state(&mut self) -> *mut __Reply__task_set_state_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
 }
-impl ::std::clone::Clone for Union___ReplyUnion__task_subsystem {
+impl ::core::clone::Clone for Union___ReplyUnion__task_subsystem {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Union___ReplyUnion__task_subsystem {
+impl ::core::default::Default for Union___ReplyUnion__task_subsystem {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -7333,14 +7333,14 @@ impl ::std::default::Default for Union___ReplyUnion__task_subsystem {
 pub struct Struct_Unnamed210 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed210 {
+impl ::core::clone::Clone for Struct_Unnamed210 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed210 {
+impl ::core::default::Default for Struct_Unnamed210 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__thread_terminate_t = Struct_Unnamed210;
@@ -7352,14 +7352,14 @@ pub struct Struct_Unnamed211 {
     pub flavor: ::libc::c_int,
     pub old_stateCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed211 {
+impl ::core::clone::Clone for Struct_Unnamed211 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed211 {
+impl ::core::default::Default for Struct_Unnamed211 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__act_get_state_t = Struct_Unnamed211;
@@ -7372,14 +7372,14 @@ pub struct Struct_Unnamed212 {
     pub new_stateCnt: mach_msg_type_number_t,
     pub new_state: [natural_t; 224usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed212 {
+impl ::core::clone::Clone for Struct_Unnamed212 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed212 {
+impl ::core::default::Default for Struct_Unnamed212 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__act_set_state_t = Struct_Unnamed212;
@@ -7391,14 +7391,14 @@ pub struct Struct_Unnamed213 {
     pub flavor: thread_state_flavor_t,
     pub old_stateCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed213 {
+impl ::core::clone::Clone for Struct_Unnamed213 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed213 {
+impl ::core::default::Default for Struct_Unnamed213 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__thread_get_state_t = Struct_Unnamed213;
@@ -7411,14 +7411,14 @@ pub struct Struct_Unnamed214 {
     pub new_stateCnt: mach_msg_type_number_t,
     pub new_state: [natural_t; 224usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed214 {
+impl ::core::clone::Clone for Struct_Unnamed214 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed214 {
+impl ::core::default::Default for Struct_Unnamed214 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__thread_set_state_t = Struct_Unnamed214;
@@ -7427,14 +7427,14 @@ pub type __Request__thread_set_state_t = Struct_Unnamed214;
 pub struct Struct_Unnamed215 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed215 {
+impl ::core::clone::Clone for Struct_Unnamed215 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed215 {
+impl ::core::default::Default for Struct_Unnamed215 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__thread_suspend_t = Struct_Unnamed215;
@@ -7443,14 +7443,14 @@ pub type __Request__thread_suspend_t = Struct_Unnamed215;
 pub struct Struct_Unnamed216 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed216 {
+impl ::core::clone::Clone for Struct_Unnamed216 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed216 {
+impl ::core::default::Default for Struct_Unnamed216 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__thread_resume_t = Struct_Unnamed216;
@@ -7459,14 +7459,14 @@ pub type __Request__thread_resume_t = Struct_Unnamed216;
 pub struct Struct_Unnamed217 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed217 {
+impl ::core::clone::Clone for Struct_Unnamed217 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed217 {
+impl ::core::default::Default for Struct_Unnamed217 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__thread_abort_t = Struct_Unnamed217;
@@ -7475,14 +7475,14 @@ pub type __Request__thread_abort_t = Struct_Unnamed217;
 pub struct Struct_Unnamed218 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed218 {
+impl ::core::clone::Clone for Struct_Unnamed218 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed218 {
+impl ::core::default::Default for Struct_Unnamed218 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__thread_abort_safely_t = Struct_Unnamed218;
@@ -7491,14 +7491,14 @@ pub type __Request__thread_abort_safely_t = Struct_Unnamed218;
 pub struct Struct_Unnamed219 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed219 {
+impl ::core::clone::Clone for Struct_Unnamed219 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed219 {
+impl ::core::default::Default for Struct_Unnamed219 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__thread_depress_abort_t = Struct_Unnamed219;
@@ -7509,14 +7509,14 @@ pub struct Struct_Unnamed220 {
     pub NDR: NDR_record_t,
     pub which_port: ::libc::c_int,
 }
-impl ::std::clone::Clone for Struct_Unnamed220 {
+impl ::core::clone::Clone for Struct_Unnamed220 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed220 {
+impl ::core::default::Default for Struct_Unnamed220 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__thread_get_special_port_t = Struct_Unnamed220;
@@ -7529,14 +7529,14 @@ pub struct Struct_Unnamed221 {
     pub NDR: NDR_record_t,
     pub which_port: ::libc::c_int,
 }
-impl ::std::clone::Clone for Struct_Unnamed221 {
+impl ::core::clone::Clone for Struct_Unnamed221 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed221 {
+impl ::core::default::Default for Struct_Unnamed221 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__thread_set_special_port_t = Struct_Unnamed221;
@@ -7548,14 +7548,14 @@ pub struct Struct_Unnamed222 {
     pub flavor: thread_flavor_t,
     pub thread_info_outCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed222 {
+impl ::core::clone::Clone for Struct_Unnamed222 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed222 {
+impl ::core::default::Default for Struct_Unnamed222 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__thread_info_t = Struct_Unnamed222;
@@ -7570,14 +7570,14 @@ pub struct Struct_Unnamed223 {
     pub behavior: exception_behavior_t,
     pub new_flavor: thread_state_flavor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed223 {
+impl ::core::clone::Clone for Struct_Unnamed223 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed223 {
+impl ::core::default::Default for Struct_Unnamed223 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__thread_set_exception_ports_t = Struct_Unnamed223;
@@ -7588,14 +7588,14 @@ pub struct Struct_Unnamed224 {
     pub NDR: NDR_record_t,
     pub exception_mask: exception_mask_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed224 {
+impl ::core::clone::Clone for Struct_Unnamed224 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed224 {
+impl ::core::default::Default for Struct_Unnamed224 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__thread_get_exception_ports_t = Struct_Unnamed224;
@@ -7610,14 +7610,14 @@ pub struct Struct_Unnamed225 {
     pub behavior: exception_behavior_t,
     pub new_flavor: thread_state_flavor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed225 {
+impl ::core::clone::Clone for Struct_Unnamed225 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed225 {
+impl ::core::default::Default for Struct_Unnamed225 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__thread_swap_exception_ports_t = Struct_Unnamed225;
@@ -7631,14 +7631,14 @@ pub struct Struct_Unnamed226 {
     pub base: [integer_t; 5usize],
     pub set_limit: boolean_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed226 {
+impl ::core::clone::Clone for Struct_Unnamed226 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed226 {
+impl ::core::default::Default for Struct_Unnamed226 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__thread_policy_t = Struct_Unnamed226;
@@ -7651,14 +7651,14 @@ pub struct Struct_Unnamed227 {
     pub policy_infoCnt: mach_msg_type_number_t,
     pub policy_info: [integer_t; 16usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed227 {
+impl ::core::clone::Clone for Struct_Unnamed227 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed227 {
+impl ::core::default::Default for Struct_Unnamed227 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__thread_policy_set_t = Struct_Unnamed227;
@@ -7671,14 +7671,14 @@ pub struct Struct_Unnamed228 {
     pub policy_infoCnt: mach_msg_type_number_t,
     pub get_default: boolean_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed228 {
+impl ::core::clone::Clone for Struct_Unnamed228 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed228 {
+impl ::core::default::Default for Struct_Unnamed228 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__thread_policy_get_t = Struct_Unnamed228;
@@ -7689,14 +7689,14 @@ pub struct Struct_Unnamed229 {
     pub msgh_body: mach_msg_body_t,
     pub reply: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed229 {
+impl ::core::clone::Clone for Struct_Unnamed229 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed229 {
+impl ::core::default::Default for Struct_Unnamed229 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__thread_sample_t = Struct_Unnamed229;
@@ -7707,14 +7707,14 @@ pub struct Struct_Unnamed230 {
     pub NDR: NDR_record_t,
     pub trace_status: boolean_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed230 {
+impl ::core::clone::Clone for Struct_Unnamed230 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed230 {
+impl ::core::default::Default for Struct_Unnamed230 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__etap_trace_thread_t = Struct_Unnamed230;
@@ -7725,14 +7725,14 @@ pub struct Struct_Unnamed231 {
     pub msgh_body: mach_msg_body_t,
     pub new_set: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed231 {
+impl ::core::clone::Clone for Struct_Unnamed231 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed231 {
+impl ::core::default::Default for Struct_Unnamed231 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__thread_assign_t = Struct_Unnamed231;
@@ -7741,14 +7741,14 @@ pub type __Request__thread_assign_t = Struct_Unnamed231;
 pub struct Struct_Unnamed232 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed232 {
+impl ::core::clone::Clone for Struct_Unnamed232 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed232 {
+impl ::core::default::Default for Struct_Unnamed232 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__thread_assign_default_t = Struct_Unnamed232;
@@ -7757,14 +7757,14 @@ pub type __Request__thread_assign_default_t = Struct_Unnamed232;
 pub struct Struct_Unnamed233 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed233 {
+impl ::core::clone::Clone for Struct_Unnamed233 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed233 {
+impl ::core::default::Default for Struct_Unnamed233 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__thread_get_assignment_t = Struct_Unnamed233;
@@ -7781,14 +7781,14 @@ pub struct Struct_Unnamed234 {
     pub limitCnt: mach_msg_type_number_t,
     pub limit: [integer_t; 1usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed234 {
+impl ::core::clone::Clone for Struct_Unnamed234 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed234 {
+impl ::core::default::Default for Struct_Unnamed234 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__thread_set_policy_t = Struct_Unnamed234;
@@ -7799,130 +7799,130 @@ pub struct Union___RequestUnion__thread_act_subsystem {
 }
 impl Union___RequestUnion__thread_act_subsystem {
     pub unsafe fn Request_thread_terminate(&mut self) -> *mut __Request__thread_terminate_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_act_get_state(&mut self) -> *mut __Request__act_get_state_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_act_set_state(&mut self) -> *mut __Request__act_set_state_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_thread_get_state(&mut self) -> *mut __Request__thread_get_state_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_thread_set_state(&mut self) -> *mut __Request__thread_set_state_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_thread_suspend(&mut self) -> *mut __Request__thread_suspend_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_thread_resume(&mut self) -> *mut __Request__thread_resume_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_thread_abort(&mut self) -> *mut __Request__thread_abort_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_thread_abort_safely(&mut self) -> *mut __Request__thread_abort_safely_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_thread_depress_abort(
         &mut self,
     ) -> *mut __Request__thread_depress_abort_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_thread_get_special_port(
         &mut self,
     ) -> *mut __Request__thread_get_special_port_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_thread_set_special_port(
         &mut self,
     ) -> *mut __Request__thread_set_special_port_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_thread_info(&mut self) -> *mut __Request__thread_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_thread_set_exception_ports(
         &mut self,
     ) -> *mut __Request__thread_set_exception_ports_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_thread_get_exception_ports(
         &mut self,
     ) -> *mut __Request__thread_get_exception_ports_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_thread_swap_exception_ports(
         &mut self,
     ) -> *mut __Request__thread_swap_exception_ports_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_thread_policy(&mut self) -> *mut __Request__thread_policy_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_thread_policy_set(&mut self) -> *mut __Request__thread_policy_set_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_thread_policy_get(&mut self) -> *mut __Request__thread_policy_get_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_thread_sample(&mut self) -> *mut __Request__thread_sample_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_etap_trace_thread(&mut self) -> *mut __Request__etap_trace_thread_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_thread_assign(&mut self) -> *mut __Request__thread_assign_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_thread_assign_default(
         &mut self,
     ) -> *mut __Request__thread_assign_default_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_thread_get_assignment(
         &mut self,
     ) -> *mut __Request__thread_get_assignment_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_thread_set_policy(&mut self) -> *mut __Request__thread_set_policy_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
 }
-impl ::std::clone::Clone for Union___RequestUnion__thread_act_subsystem {
+impl ::core::clone::Clone for Union___RequestUnion__thread_act_subsystem {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Union___RequestUnion__thread_act_subsystem {
+impl ::core::default::Default for Union___RequestUnion__thread_act_subsystem {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -7932,14 +7932,14 @@ pub struct Struct_Unnamed235 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed235 {
+impl ::core::clone::Clone for Struct_Unnamed235 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed235 {
+impl ::core::default::Default for Struct_Unnamed235 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__thread_terminate_t = Struct_Unnamed235;
@@ -7952,14 +7952,14 @@ pub struct Struct_Unnamed236 {
     pub old_stateCnt: mach_msg_type_number_t,
     pub old_state: [natural_t; 224usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed236 {
+impl ::core::clone::Clone for Struct_Unnamed236 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed236 {
+impl ::core::default::Default for Struct_Unnamed236 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__act_get_state_t = Struct_Unnamed236;
@@ -7970,14 +7970,14 @@ pub struct Struct_Unnamed237 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed237 {
+impl ::core::clone::Clone for Struct_Unnamed237 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed237 {
+impl ::core::default::Default for Struct_Unnamed237 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__act_set_state_t = Struct_Unnamed237;
@@ -7990,14 +7990,14 @@ pub struct Struct_Unnamed238 {
     pub old_stateCnt: mach_msg_type_number_t,
     pub old_state: [natural_t; 224usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed238 {
+impl ::core::clone::Clone for Struct_Unnamed238 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed238 {
+impl ::core::default::Default for Struct_Unnamed238 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__thread_get_state_t = Struct_Unnamed238;
@@ -8008,14 +8008,14 @@ pub struct Struct_Unnamed239 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed239 {
+impl ::core::clone::Clone for Struct_Unnamed239 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed239 {
+impl ::core::default::Default for Struct_Unnamed239 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__thread_set_state_t = Struct_Unnamed239;
@@ -8026,14 +8026,14 @@ pub struct Struct_Unnamed240 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed240 {
+impl ::core::clone::Clone for Struct_Unnamed240 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed240 {
+impl ::core::default::Default for Struct_Unnamed240 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__thread_suspend_t = Struct_Unnamed240;
@@ -8044,14 +8044,14 @@ pub struct Struct_Unnamed241 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed241 {
+impl ::core::clone::Clone for Struct_Unnamed241 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed241 {
+impl ::core::default::Default for Struct_Unnamed241 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__thread_resume_t = Struct_Unnamed241;
@@ -8062,14 +8062,14 @@ pub struct Struct_Unnamed242 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed242 {
+impl ::core::clone::Clone for Struct_Unnamed242 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed242 {
+impl ::core::default::Default for Struct_Unnamed242 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__thread_abort_t = Struct_Unnamed242;
@@ -8080,14 +8080,14 @@ pub struct Struct_Unnamed243 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed243 {
+impl ::core::clone::Clone for Struct_Unnamed243 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed243 {
+impl ::core::default::Default for Struct_Unnamed243 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__thread_abort_safely_t = Struct_Unnamed243;
@@ -8098,14 +8098,14 @@ pub struct Struct_Unnamed244 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed244 {
+impl ::core::clone::Clone for Struct_Unnamed244 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed244 {
+impl ::core::default::Default for Struct_Unnamed244 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__thread_depress_abort_t = Struct_Unnamed244;
@@ -8116,14 +8116,14 @@ pub struct Struct_Unnamed245 {
     pub msgh_body: mach_msg_body_t,
     pub special_port: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed245 {
+impl ::core::clone::Clone for Struct_Unnamed245 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed245 {
+impl ::core::default::Default for Struct_Unnamed245 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__thread_get_special_port_t = Struct_Unnamed245;
@@ -8134,14 +8134,14 @@ pub struct Struct_Unnamed246 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed246 {
+impl ::core::clone::Clone for Struct_Unnamed246 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed246 {
+impl ::core::default::Default for Struct_Unnamed246 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__thread_set_special_port_t = Struct_Unnamed246;
@@ -8154,14 +8154,14 @@ pub struct Struct_Unnamed247 {
     pub thread_info_outCnt: mach_msg_type_number_t,
     pub thread_info_out: [integer_t; 12usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed247 {
+impl ::core::clone::Clone for Struct_Unnamed247 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed247 {
+impl ::core::default::Default for Struct_Unnamed247 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__thread_info_t = Struct_Unnamed247;
@@ -8172,14 +8172,14 @@ pub struct Struct_Unnamed248 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed248 {
+impl ::core::clone::Clone for Struct_Unnamed248 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed248 {
+impl ::core::default::Default for Struct_Unnamed248 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__thread_set_exception_ports_t = Struct_Unnamed248;
@@ -8195,14 +8195,14 @@ pub struct Struct_Unnamed249 {
     pub old_behaviors: [exception_behavior_t; 32usize],
     pub old_flavors: [thread_state_flavor_t; 32usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed249 {
+impl ::core::clone::Clone for Struct_Unnamed249 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed249 {
+impl ::core::default::Default for Struct_Unnamed249 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__thread_get_exception_ports_t = Struct_Unnamed249;
@@ -8218,14 +8218,14 @@ pub struct Struct_Unnamed250 {
     pub old_behaviors: [exception_behavior_t; 32usize],
     pub old_flavors: [thread_state_flavor_t; 32usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed250 {
+impl ::core::clone::Clone for Struct_Unnamed250 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed250 {
+impl ::core::default::Default for Struct_Unnamed250 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__thread_swap_exception_ports_t = Struct_Unnamed250;
@@ -8236,14 +8236,14 @@ pub struct Struct_Unnamed251 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed251 {
+impl ::core::clone::Clone for Struct_Unnamed251 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed251 {
+impl ::core::default::Default for Struct_Unnamed251 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__thread_policy_t = Struct_Unnamed251;
@@ -8254,14 +8254,14 @@ pub struct Struct_Unnamed252 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed252 {
+impl ::core::clone::Clone for Struct_Unnamed252 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed252 {
+impl ::core::default::Default for Struct_Unnamed252 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__thread_policy_set_t = Struct_Unnamed252;
@@ -8275,14 +8275,14 @@ pub struct Struct_Unnamed253 {
     pub policy_info: [integer_t; 16usize],
     pub get_default: boolean_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed253 {
+impl ::core::clone::Clone for Struct_Unnamed253 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed253 {
+impl ::core::default::Default for Struct_Unnamed253 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__thread_policy_get_t = Struct_Unnamed253;
@@ -8293,14 +8293,14 @@ pub struct Struct_Unnamed254 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed254 {
+impl ::core::clone::Clone for Struct_Unnamed254 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed254 {
+impl ::core::default::Default for Struct_Unnamed254 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__thread_sample_t = Struct_Unnamed254;
@@ -8311,14 +8311,14 @@ pub struct Struct_Unnamed255 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed255 {
+impl ::core::clone::Clone for Struct_Unnamed255 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed255 {
+impl ::core::default::Default for Struct_Unnamed255 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__etap_trace_thread_t = Struct_Unnamed255;
@@ -8329,14 +8329,14 @@ pub struct Struct_Unnamed256 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed256 {
+impl ::core::clone::Clone for Struct_Unnamed256 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed256 {
+impl ::core::default::Default for Struct_Unnamed256 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__thread_assign_t = Struct_Unnamed256;
@@ -8347,14 +8347,14 @@ pub struct Struct_Unnamed257 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed257 {
+impl ::core::clone::Clone for Struct_Unnamed257 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed257 {
+impl ::core::default::Default for Struct_Unnamed257 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__thread_assign_default_t = Struct_Unnamed257;
@@ -8365,14 +8365,14 @@ pub struct Struct_Unnamed258 {
     pub msgh_body: mach_msg_body_t,
     pub assigned_set: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed258 {
+impl ::core::clone::Clone for Struct_Unnamed258 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed258 {
+impl ::core::default::Default for Struct_Unnamed258 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__thread_get_assignment_t = Struct_Unnamed258;
@@ -8383,14 +8383,14 @@ pub struct Struct_Unnamed259 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed259 {
+impl ::core::clone::Clone for Struct_Unnamed259 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed259 {
+impl ::core::default::Default for Struct_Unnamed259 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__thread_set_policy_t = Struct_Unnamed259;
@@ -8401,124 +8401,124 @@ pub struct Union___ReplyUnion__thread_act_subsystem {
 }
 impl Union___ReplyUnion__thread_act_subsystem {
     pub unsafe fn Reply_thread_terminate(&mut self) -> *mut __Reply__thread_terminate_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_act_get_state(&mut self) -> *mut __Reply__act_get_state_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_act_set_state(&mut self) -> *mut __Reply__act_set_state_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_thread_get_state(&mut self) -> *mut __Reply__thread_get_state_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_thread_set_state(&mut self) -> *mut __Reply__thread_set_state_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_thread_suspend(&mut self) -> *mut __Reply__thread_suspend_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_thread_resume(&mut self) -> *mut __Reply__thread_resume_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_thread_abort(&mut self) -> *mut __Reply__thread_abort_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_thread_abort_safely(&mut self) -> *mut __Reply__thread_abort_safely_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_thread_depress_abort(&mut self) -> *mut __Reply__thread_depress_abort_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_thread_get_special_port(
         &mut self,
     ) -> *mut __Reply__thread_get_special_port_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_thread_set_special_port(
         &mut self,
     ) -> *mut __Reply__thread_set_special_port_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_thread_info(&mut self) -> *mut __Reply__thread_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_thread_set_exception_ports(
         &mut self,
     ) -> *mut __Reply__thread_set_exception_ports_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_thread_get_exception_ports(
         &mut self,
     ) -> *mut __Reply__thread_get_exception_ports_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_thread_swap_exception_ports(
         &mut self,
     ) -> *mut __Reply__thread_swap_exception_ports_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_thread_policy(&mut self) -> *mut __Reply__thread_policy_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_thread_policy_set(&mut self) -> *mut __Reply__thread_policy_set_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_thread_policy_get(&mut self) -> *mut __Reply__thread_policy_get_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_thread_sample(&mut self) -> *mut __Reply__thread_sample_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_etap_trace_thread(&mut self) -> *mut __Reply__etap_trace_thread_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_thread_assign(&mut self) -> *mut __Reply__thread_assign_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_thread_assign_default(&mut self) -> *mut __Reply__thread_assign_default_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_thread_get_assignment(&mut self) -> *mut __Reply__thread_get_assignment_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_thread_set_policy(&mut self) -> *mut __Reply__thread_set_policy_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
 }
-impl ::std::clone::Clone for Union___ReplyUnion__thread_act_subsystem {
+impl ::core::clone::Clone for Union___ReplyUnion__thread_act_subsystem {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Union___ReplyUnion__thread_act_subsystem {
+impl ::core::default::Default for Union___ReplyUnion__thread_act_subsystem {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -8530,14 +8530,14 @@ pub struct Struct_Unnamed260 {
     pub flavor: vm_region_flavor_t,
     pub infoCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed260 {
+impl ::core::clone::Clone for Struct_Unnamed260 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed260 {
+impl ::core::default::Default for Struct_Unnamed260 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__vm_region_t = Struct_Unnamed260;
@@ -8550,14 +8550,14 @@ pub struct Struct_Unnamed261 {
     pub size: vm_size_t,
     pub flags: ::libc::c_int,
 }
-impl ::std::clone::Clone for Struct_Unnamed261 {
+impl ::core::clone::Clone for Struct_Unnamed261 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed261 {
+impl ::core::default::Default for Struct_Unnamed261 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__vm_allocate_t = Struct_Unnamed261;
@@ -8569,14 +8569,14 @@ pub struct Struct_Unnamed262 {
     pub address: vm_address_t,
     pub size: vm_size_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed262 {
+impl ::core::clone::Clone for Struct_Unnamed262 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed262 {
+impl ::core::default::Default for Struct_Unnamed262 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__vm_deallocate_t = Struct_Unnamed262;
@@ -8590,14 +8590,14 @@ pub struct Struct_Unnamed263 {
     pub set_maximum: boolean_t,
     pub new_protection: vm_prot_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed263 {
+impl ::core::clone::Clone for Struct_Unnamed263 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed263 {
+impl ::core::default::Default for Struct_Unnamed263 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__vm_protect_t = Struct_Unnamed263;
@@ -8610,14 +8610,14 @@ pub struct Struct_Unnamed264 {
     pub size: vm_size_t,
     pub new_inheritance: vm_inherit_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed264 {
+impl ::core::clone::Clone for Struct_Unnamed264 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed264 {
+impl ::core::default::Default for Struct_Unnamed264 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__vm_inherit_t = Struct_Unnamed264;
@@ -8629,14 +8629,14 @@ pub struct Struct_Unnamed265 {
     pub address: vm_address_t,
     pub size: vm_size_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed265 {
+impl ::core::clone::Clone for Struct_Unnamed265 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed265 {
+impl ::core::default::Default for Struct_Unnamed265 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__vm_read_t = Struct_Unnamed265;
@@ -8648,14 +8648,14 @@ pub struct Struct_Unnamed266 {
     pub data_list: vm_read_entry_t,
     pub count: natural_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed266 {
+impl ::core::clone::Clone for Struct_Unnamed266 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed266 {
+impl ::core::default::Default for Struct_Unnamed266 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__vm_read_list_t = Struct_Unnamed266;
@@ -8669,14 +8669,14 @@ pub struct Struct_Unnamed267 {
     pub address: vm_address_t,
     pub dataCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed267 {
+impl ::core::clone::Clone for Struct_Unnamed267 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed267 {
+impl ::core::default::Default for Struct_Unnamed267 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__vm_write_t = Struct_Unnamed267;
@@ -8689,14 +8689,14 @@ pub struct Struct_Unnamed268 {
     pub size: vm_size_t,
     pub dest_address: vm_address_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed268 {
+impl ::core::clone::Clone for Struct_Unnamed268 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed268 {
+impl ::core::default::Default for Struct_Unnamed268 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__vm_copy_t = Struct_Unnamed268;
@@ -8709,14 +8709,14 @@ pub struct Struct_Unnamed269 {
     pub size: vm_size_t,
     pub data: vm_address_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed269 {
+impl ::core::clone::Clone for Struct_Unnamed269 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed269 {
+impl ::core::default::Default for Struct_Unnamed269 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__vm_read_overwrite_t = Struct_Unnamed269;
@@ -8729,14 +8729,14 @@ pub struct Struct_Unnamed270 {
     pub size: vm_size_t,
     pub sync_flags: vm_sync_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed270 {
+impl ::core::clone::Clone for Struct_Unnamed270 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed270 {
+impl ::core::default::Default for Struct_Unnamed270 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__vm_msync_t = Struct_Unnamed270;
@@ -8749,14 +8749,14 @@ pub struct Struct_Unnamed271 {
     pub size: vm_size_t,
     pub new_behavior: vm_behavior_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed271 {
+impl ::core::clone::Clone for Struct_Unnamed271 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed271 {
+impl ::core::default::Default for Struct_Unnamed271 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__vm_behavior_set_t = Struct_Unnamed271;
@@ -8777,14 +8777,14 @@ pub struct Struct_Unnamed272 {
     pub max_protection: vm_prot_t,
     pub inheritance: vm_inherit_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed272 {
+impl ::core::clone::Clone for Struct_Unnamed272 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed272 {
+impl ::core::default::Default for Struct_Unnamed272 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__vm_map_t = Struct_Unnamed272;
@@ -8798,14 +8798,14 @@ pub struct Struct_Unnamed273 {
     pub attribute: vm_machine_attribute_t,
     pub value: vm_machine_attribute_val_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed273 {
+impl ::core::clone::Clone for Struct_Unnamed273 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed273 {
+impl ::core::default::Default for Struct_Unnamed273 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__vm_machine_attribute_t = Struct_Unnamed273;
@@ -8824,14 +8824,14 @@ pub struct Struct_Unnamed274 {
     pub copy: boolean_t,
     pub inheritance: vm_inherit_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed274 {
+impl ::core::clone::Clone for Struct_Unnamed274 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed274 {
+impl ::core::default::Default for Struct_Unnamed274 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__vm_remap_t = Struct_Unnamed274;
@@ -8842,14 +8842,14 @@ pub struct Struct_Unnamed275 {
     pub NDR: NDR_record_t,
     pub must_wire: boolean_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed275 {
+impl ::core::clone::Clone for Struct_Unnamed275 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed275 {
+impl ::core::default::Default for Struct_Unnamed275 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__task_wire_t = Struct_Unnamed275;
@@ -8864,14 +8864,14 @@ pub struct Struct_Unnamed276 {
     pub offset: vm_offset_t,
     pub permission: vm_prot_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed276 {
+impl ::core::clone::Clone for Struct_Unnamed276 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed276 {
+impl ::core::default::Default for Struct_Unnamed276 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_make_memory_entry_t = Struct_Unnamed276;
@@ -8882,14 +8882,14 @@ pub struct Struct_Unnamed277 {
     pub NDR: NDR_record_t,
     pub offset: vm_offset_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed277 {
+impl ::core::clone::Clone for Struct_Unnamed277 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed277 {
+impl ::core::default::Default for Struct_Unnamed277 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__vm_map_page_query_t = Struct_Unnamed277;
@@ -8900,14 +8900,14 @@ pub struct Struct_Unnamed278 {
     pub NDR: NDR_record_t,
     pub address: vm_address_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed278 {
+impl ::core::clone::Clone for Struct_Unnamed278 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed278 {
+impl ::core::default::Default for Struct_Unnamed278 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_vm_region_info_t = Struct_Unnamed278;
@@ -8916,14 +8916,14 @@ pub type __Request__mach_vm_region_info_t = Struct_Unnamed278;
 pub struct Struct_Unnamed279 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed279 {
+impl ::core::clone::Clone for Struct_Unnamed279 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed279 {
+impl ::core::default::Default for Struct_Unnamed279 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__vm_mapped_pages_info_t = Struct_Unnamed279;
@@ -8936,14 +8936,14 @@ pub struct Struct_Unnamed280 {
     pub nesting_depth: natural_t,
     pub infoCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed280 {
+impl ::core::clone::Clone for Struct_Unnamed280 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed280 {
+impl ::core::default::Default for Struct_Unnamed280 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__vm_region_recurse_t = Struct_Unnamed280;
@@ -8956,14 +8956,14 @@ pub struct Struct_Unnamed281 {
     pub nesting_depth: natural_t,
     pub infoCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed281 {
+impl ::core::clone::Clone for Struct_Unnamed281 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed281 {
+impl ::core::default::Default for Struct_Unnamed281 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__vm_region_recurse_64_t = Struct_Unnamed281;
@@ -8974,14 +8974,14 @@ pub struct Struct_Unnamed282 {
     pub NDR: NDR_record_t,
     pub address: vm_address_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed282 {
+impl ::core::clone::Clone for Struct_Unnamed282 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed282 {
+impl ::core::default::Default for Struct_Unnamed282 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_vm_region_info_64_t = Struct_Unnamed282;
@@ -8994,14 +8994,14 @@ pub struct Struct_Unnamed283 {
     pub flavor: vm_region_flavor_t,
     pub infoCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed283 {
+impl ::core::clone::Clone for Struct_Unnamed283 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed283 {
+impl ::core::default::Default for Struct_Unnamed283 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__vm_region_64_t = Struct_Unnamed283;
@@ -9016,14 +9016,14 @@ pub struct Struct_Unnamed284 {
     pub offset: memory_object_offset_t,
     pub permission: vm_prot_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed284 {
+impl ::core::clone::Clone for Struct_Unnamed284 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed284 {
+impl ::core::default::Default for Struct_Unnamed284 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_make_memory_entry_64_t = Struct_Unnamed284;
@@ -9044,14 +9044,14 @@ pub struct Struct_Unnamed285 {
     pub max_protection: vm_prot_t,
     pub inheritance: vm_inherit_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed285 {
+impl ::core::clone::Clone for Struct_Unnamed285 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed285 {
+impl ::core::default::Default for Struct_Unnamed285 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__vm_map_64_t = Struct_Unnamed285;
@@ -9064,14 +9064,14 @@ pub struct Struct_Unnamed286 {
     pub control: vm_purgable_t,
     pub state: ::libc::c_int,
 }
-impl ::std::clone::Clone for Struct_Unnamed286 {
+impl ::core::clone::Clone for Struct_Unnamed286 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed286 {
+impl ::core::default::Default for Struct_Unnamed286 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__vm_purgable_control_t = Struct_Unnamed286;
@@ -9082,134 +9082,134 @@ pub struct Union___RequestUnion__vm_map_subsystem {
 }
 impl Union___RequestUnion__vm_map_subsystem {
     pub unsafe fn Request_vm_region(&mut self) -> *mut __Request__vm_region_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_vm_allocate(&mut self) -> *mut __Request__vm_allocate_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_vm_deallocate(&mut self) -> *mut __Request__vm_deallocate_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_vm_protect(&mut self) -> *mut __Request__vm_protect_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_vm_inherit(&mut self) -> *mut __Request__vm_inherit_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_vm_read(&mut self) -> *mut __Request__vm_read_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_vm_read_list(&mut self) -> *mut __Request__vm_read_list_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_vm_write(&mut self) -> *mut __Request__vm_write_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_vm_copy(&mut self) -> *mut __Request__vm_copy_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_vm_read_overwrite(&mut self) -> *mut __Request__vm_read_overwrite_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_vm_msync(&mut self) -> *mut __Request__vm_msync_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_vm_behavior_set(&mut self) -> *mut __Request__vm_behavior_set_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_vm_map(&mut self) -> *mut __Request__vm_map_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_vm_machine_attribute(
         &mut self,
     ) -> *mut __Request__vm_machine_attribute_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_vm_remap(&mut self) -> *mut __Request__vm_remap_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_task_wire(&mut self) -> *mut __Request__task_wire_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_make_memory_entry(
         &mut self,
     ) -> *mut __Request__mach_make_memory_entry_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_vm_map_page_query(&mut self) -> *mut __Request__vm_map_page_query_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_vm_region_info(&mut self) -> *mut __Request__mach_vm_region_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_vm_mapped_pages_info(
         &mut self,
     ) -> *mut __Request__vm_mapped_pages_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_vm_region_recurse(&mut self) -> *mut __Request__vm_region_recurse_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_vm_region_recurse_64(
         &mut self,
     ) -> *mut __Request__vm_region_recurse_64_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_vm_region_info_64(
         &mut self,
     ) -> *mut __Request__mach_vm_region_info_64_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_vm_region_64(&mut self) -> *mut __Request__vm_region_64_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_make_memory_entry_64(
         &mut self,
     ) -> *mut __Request__mach_make_memory_entry_64_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_vm_map_64(&mut self) -> *mut __Request__vm_map_64_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_vm_purgable_control(&mut self) -> *mut __Request__vm_purgable_control_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
 }
-impl ::std::clone::Clone for Union___RequestUnion__vm_map_subsystem {
+impl ::core::clone::Clone for Union___RequestUnion__vm_map_subsystem {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Union___RequestUnion__vm_map_subsystem {
+impl ::core::default::Default for Union___RequestUnion__vm_map_subsystem {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -9224,14 +9224,14 @@ pub struct Struct_Unnamed287 {
     pub infoCnt: mach_msg_type_number_t,
     pub info: [::libc::c_int; 10usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed287 {
+impl ::core::clone::Clone for Struct_Unnamed287 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed287 {
+impl ::core::default::Default for Struct_Unnamed287 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__vm_region_t = Struct_Unnamed287;
@@ -9243,14 +9243,14 @@ pub struct Struct_Unnamed288 {
     pub RetCode: kern_return_t,
     pub address: vm_address_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed288 {
+impl ::core::clone::Clone for Struct_Unnamed288 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed288 {
+impl ::core::default::Default for Struct_Unnamed288 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__vm_allocate_t = Struct_Unnamed288;
@@ -9261,14 +9261,14 @@ pub struct Struct_Unnamed289 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed289 {
+impl ::core::clone::Clone for Struct_Unnamed289 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed289 {
+impl ::core::default::Default for Struct_Unnamed289 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__vm_deallocate_t = Struct_Unnamed289;
@@ -9279,14 +9279,14 @@ pub struct Struct_Unnamed290 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed290 {
+impl ::core::clone::Clone for Struct_Unnamed290 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed290 {
+impl ::core::default::Default for Struct_Unnamed290 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__vm_protect_t = Struct_Unnamed290;
@@ -9297,14 +9297,14 @@ pub struct Struct_Unnamed291 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed291 {
+impl ::core::clone::Clone for Struct_Unnamed291 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed291 {
+impl ::core::default::Default for Struct_Unnamed291 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__vm_inherit_t = Struct_Unnamed291;
@@ -9317,14 +9317,14 @@ pub struct Struct_Unnamed292 {
     pub NDR: NDR_record_t,
     pub dataCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed292 {
+impl ::core::clone::Clone for Struct_Unnamed292 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed292 {
+impl ::core::default::Default for Struct_Unnamed292 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__vm_read_t = Struct_Unnamed292;
@@ -9336,14 +9336,14 @@ pub struct Struct_Unnamed293 {
     pub RetCode: kern_return_t,
     pub data_list: vm_read_entry_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed293 {
+impl ::core::clone::Clone for Struct_Unnamed293 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed293 {
+impl ::core::default::Default for Struct_Unnamed293 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__vm_read_list_t = Struct_Unnamed293;
@@ -9354,14 +9354,14 @@ pub struct Struct_Unnamed294 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed294 {
+impl ::core::clone::Clone for Struct_Unnamed294 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed294 {
+impl ::core::default::Default for Struct_Unnamed294 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__vm_write_t = Struct_Unnamed294;
@@ -9372,14 +9372,14 @@ pub struct Struct_Unnamed295 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed295 {
+impl ::core::clone::Clone for Struct_Unnamed295 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed295 {
+impl ::core::default::Default for Struct_Unnamed295 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__vm_copy_t = Struct_Unnamed295;
@@ -9391,14 +9391,14 @@ pub struct Struct_Unnamed296 {
     pub RetCode: kern_return_t,
     pub outsize: vm_size_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed296 {
+impl ::core::clone::Clone for Struct_Unnamed296 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed296 {
+impl ::core::default::Default for Struct_Unnamed296 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__vm_read_overwrite_t = Struct_Unnamed296;
@@ -9409,14 +9409,14 @@ pub struct Struct_Unnamed297 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed297 {
+impl ::core::clone::Clone for Struct_Unnamed297 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed297 {
+impl ::core::default::Default for Struct_Unnamed297 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__vm_msync_t = Struct_Unnamed297;
@@ -9427,14 +9427,14 @@ pub struct Struct_Unnamed298 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed298 {
+impl ::core::clone::Clone for Struct_Unnamed298 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed298 {
+impl ::core::default::Default for Struct_Unnamed298 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__vm_behavior_set_t = Struct_Unnamed298;
@@ -9446,14 +9446,14 @@ pub struct Struct_Unnamed299 {
     pub RetCode: kern_return_t,
     pub address: vm_address_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed299 {
+impl ::core::clone::Clone for Struct_Unnamed299 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed299 {
+impl ::core::default::Default for Struct_Unnamed299 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__vm_map_t = Struct_Unnamed299;
@@ -9465,14 +9465,14 @@ pub struct Struct_Unnamed300 {
     pub RetCode: kern_return_t,
     pub value: vm_machine_attribute_val_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed300 {
+impl ::core::clone::Clone for Struct_Unnamed300 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed300 {
+impl ::core::default::Default for Struct_Unnamed300 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__vm_machine_attribute_t = Struct_Unnamed300;
@@ -9486,14 +9486,14 @@ pub struct Struct_Unnamed301 {
     pub cur_protection: vm_prot_t,
     pub max_protection: vm_prot_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed301 {
+impl ::core::clone::Clone for Struct_Unnamed301 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed301 {
+impl ::core::default::Default for Struct_Unnamed301 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__vm_remap_t = Struct_Unnamed301;
@@ -9504,14 +9504,14 @@ pub struct Struct_Unnamed302 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed302 {
+impl ::core::clone::Clone for Struct_Unnamed302 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed302 {
+impl ::core::default::Default for Struct_Unnamed302 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__task_wire_t = Struct_Unnamed302;
@@ -9524,14 +9524,14 @@ pub struct Struct_Unnamed303 {
     pub NDR: NDR_record_t,
     pub size: vm_size_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed303 {
+impl ::core::clone::Clone for Struct_Unnamed303 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed303 {
+impl ::core::default::Default for Struct_Unnamed303 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_make_memory_entry_t = Struct_Unnamed303;
@@ -9544,14 +9544,14 @@ pub struct Struct_Unnamed304 {
     pub disposition: integer_t,
     pub ref_count: integer_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed304 {
+impl ::core::clone::Clone for Struct_Unnamed304 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed304 {
+impl ::core::default::Default for Struct_Unnamed304 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__vm_map_page_query_t = Struct_Unnamed304;
@@ -9564,14 +9564,14 @@ pub struct Struct_Unnamed306 {
     pub NDR: NDR_record_t,
     pub pagesCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed306 {
+impl ::core::clone::Clone for Struct_Unnamed306 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed306 {
+impl ::core::default::Default for Struct_Unnamed306 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__vm_mapped_pages_info_t = Struct_Unnamed306;
@@ -9587,14 +9587,14 @@ pub struct Struct_Unnamed307 {
     pub infoCnt: mach_msg_type_number_t,
     pub info: [::libc::c_int; 19usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed307 {
+impl ::core::clone::Clone for Struct_Unnamed307 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed307 {
+impl ::core::default::Default for Struct_Unnamed307 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__vm_region_recurse_t = Struct_Unnamed307;
@@ -9610,14 +9610,14 @@ pub struct Struct_Unnamed308 {
     pub infoCnt: mach_msg_type_number_t,
     pub info: [::libc::c_int; 19usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed308 {
+impl ::core::clone::Clone for Struct_Unnamed308 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed308 {
+impl ::core::default::Default for Struct_Unnamed308 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__vm_region_recurse_64_t = Struct_Unnamed308;
@@ -9633,14 +9633,14 @@ pub struct Struct_Unnamed310 {
     pub infoCnt: mach_msg_type_number_t,
     pub info: [::libc::c_int; 10usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed310 {
+impl ::core::clone::Clone for Struct_Unnamed310 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed310 {
+impl ::core::default::Default for Struct_Unnamed310 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__vm_region_64_t = Struct_Unnamed310;
@@ -9653,14 +9653,14 @@ pub struct Struct_Unnamed311 {
     pub NDR: NDR_record_t,
     pub size: memory_object_size_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed311 {
+impl ::core::clone::Clone for Struct_Unnamed311 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed311 {
+impl ::core::default::Default for Struct_Unnamed311 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_make_memory_entry_64_t = Struct_Unnamed311;
@@ -9672,14 +9672,14 @@ pub struct Struct_Unnamed312 {
     pub RetCode: kern_return_t,
     pub address: vm_address_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed312 {
+impl ::core::clone::Clone for Struct_Unnamed312 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed312 {
+impl ::core::default::Default for Struct_Unnamed312 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__vm_map_64_t = Struct_Unnamed312;
@@ -9691,14 +9691,14 @@ pub struct Struct_Unnamed313 {
     pub RetCode: kern_return_t,
     pub state: ::libc::c_int,
 }
-impl ::std::clone::Clone for Struct_Unnamed313 {
+impl ::core::clone::Clone for Struct_Unnamed313 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed313 {
+impl ::core::default::Default for Struct_Unnamed313 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__vm_purgable_control_t = Struct_Unnamed313;
@@ -9709,118 +9709,118 @@ pub struct Union___ReplyUnion__vm_map_subsystem {
 }
 impl Union___ReplyUnion__vm_map_subsystem {
     pub unsafe fn Reply_vm_region(&mut self) -> *mut __Reply__vm_region_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_vm_allocate(&mut self) -> *mut __Reply__vm_allocate_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_vm_deallocate(&mut self) -> *mut __Reply__vm_deallocate_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_vm_protect(&mut self) -> *mut __Reply__vm_protect_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_vm_inherit(&mut self) -> *mut __Reply__vm_inherit_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_vm_read(&mut self) -> *mut __Reply__vm_read_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_vm_read_list(&mut self) -> *mut __Reply__vm_read_list_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_vm_write(&mut self) -> *mut __Reply__vm_write_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_vm_copy(&mut self) -> *mut __Reply__vm_copy_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_vm_read_overwrite(&mut self) -> *mut __Reply__vm_read_overwrite_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_vm_msync(&mut self) -> *mut __Reply__vm_msync_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_vm_behavior_set(&mut self) -> *mut __Reply__vm_behavior_set_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_vm_map(&mut self) -> *mut __Reply__vm_map_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_vm_machine_attribute(&mut self) -> *mut __Reply__vm_machine_attribute_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_vm_remap(&mut self) -> *mut __Reply__vm_remap_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_task_wire(&mut self) -> *mut __Reply__task_wire_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_make_memory_entry(
         &mut self,
     ) -> *mut __Reply__mach_make_memory_entry_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_vm_map_page_query(&mut self) -> *mut __Reply__vm_map_page_query_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_vm_mapped_pages_info(&mut self) -> *mut __Reply__vm_mapped_pages_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_vm_region_recurse(&mut self) -> *mut __Reply__vm_region_recurse_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_vm_region_recurse_64(&mut self) -> *mut __Reply__vm_region_recurse_64_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_vm_region_64(&mut self) -> *mut __Reply__vm_region_64_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_make_memory_entry_64(
         &mut self,
     ) -> *mut __Reply__mach_make_memory_entry_64_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_vm_map_64(&mut self) -> *mut __Reply__vm_map_64_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_vm_purgable_control(&mut self) -> *mut __Reply__vm_purgable_control_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
 }
-impl ::std::clone::Clone for Union___ReplyUnion__vm_map_subsystem {
+impl ::core::clone::Clone for Union___ReplyUnion__vm_map_subsystem {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Union___ReplyUnion__vm_map_subsystem {
+impl ::core::default::Default for Union___ReplyUnion__vm_map_subsystem {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -9828,14 +9828,14 @@ impl ::std::default::Default for Union___ReplyUnion__vm_map_subsystem {
 pub struct Struct_Unnamed314 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed314 {
+impl ::core::clone::Clone for Struct_Unnamed314 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed314 {
+impl ::core::default::Default for Struct_Unnamed314 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_port_names_t = Struct_Unnamed314;
@@ -9846,14 +9846,14 @@ pub struct Struct_Unnamed315 {
     pub NDR: NDR_record_t,
     pub name: mach_port_name_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed315 {
+impl ::core::clone::Clone for Struct_Unnamed315 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed315 {
+impl ::core::default::Default for Struct_Unnamed315 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_port_type_t = Struct_Unnamed315;
@@ -9865,14 +9865,14 @@ pub struct Struct_Unnamed316 {
     pub old_name: mach_port_name_t,
     pub new_name: mach_port_name_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed316 {
+impl ::core::clone::Clone for Struct_Unnamed316 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed316 {
+impl ::core::default::Default for Struct_Unnamed316 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_port_rename_t = Struct_Unnamed316;
@@ -9884,14 +9884,14 @@ pub struct Struct_Unnamed317 {
     pub right: mach_port_right_t,
     pub name: mach_port_name_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed317 {
+impl ::core::clone::Clone for Struct_Unnamed317 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed317 {
+impl ::core::default::Default for Struct_Unnamed317 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_port_allocate_name_t = Struct_Unnamed317;
@@ -9902,14 +9902,14 @@ pub struct Struct_Unnamed318 {
     pub NDR: NDR_record_t,
     pub right: mach_port_right_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed318 {
+impl ::core::clone::Clone for Struct_Unnamed318 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed318 {
+impl ::core::default::Default for Struct_Unnamed318 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_port_allocate_t = Struct_Unnamed318;
@@ -9920,14 +9920,14 @@ pub struct Struct_Unnamed319 {
     pub NDR: NDR_record_t,
     pub name: mach_port_name_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed319 {
+impl ::core::clone::Clone for Struct_Unnamed319 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed319 {
+impl ::core::default::Default for Struct_Unnamed319 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_port_destroy_t = Struct_Unnamed319;
@@ -9938,14 +9938,14 @@ pub struct Struct_Unnamed320 {
     pub NDR: NDR_record_t,
     pub name: mach_port_name_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed320 {
+impl ::core::clone::Clone for Struct_Unnamed320 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed320 {
+impl ::core::default::Default for Struct_Unnamed320 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_port_deallocate_t = Struct_Unnamed320;
@@ -9957,14 +9957,14 @@ pub struct Struct_Unnamed321 {
     pub name: mach_port_name_t,
     pub right: mach_port_right_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed321 {
+impl ::core::clone::Clone for Struct_Unnamed321 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed321 {
+impl ::core::default::Default for Struct_Unnamed321 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_port_get_refs_t = Struct_Unnamed321;
@@ -9977,14 +9977,14 @@ pub struct Struct_Unnamed322 {
     pub right: mach_port_right_t,
     pub delta: mach_port_delta_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed322 {
+impl ::core::clone::Clone for Struct_Unnamed322 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed322 {
+impl ::core::default::Default for Struct_Unnamed322 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_port_mod_refs_t = Struct_Unnamed322;
@@ -9996,14 +9996,14 @@ pub struct Struct_Unnamed323 {
     pub name: mach_port_name_t,
     pub mscount: mach_port_mscount_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed323 {
+impl ::core::clone::Clone for Struct_Unnamed323 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed323 {
+impl ::core::default::Default for Struct_Unnamed323 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_port_set_mscount_t = Struct_Unnamed323;
@@ -10014,14 +10014,14 @@ pub struct Struct_Unnamed324 {
     pub NDR: NDR_record_t,
     pub name: mach_port_name_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed324 {
+impl ::core::clone::Clone for Struct_Unnamed324 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed324 {
+impl ::core::default::Default for Struct_Unnamed324 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_port_get_set_status_t = Struct_Unnamed324;
@@ -10033,14 +10033,14 @@ pub struct Struct_Unnamed325 {
     pub member: mach_port_name_t,
     pub after: mach_port_name_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed325 {
+impl ::core::clone::Clone for Struct_Unnamed325 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed325 {
+impl ::core::default::Default for Struct_Unnamed325 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_port_move_member_t = Struct_Unnamed325;
@@ -10055,14 +10055,14 @@ pub struct Struct_Unnamed326 {
     pub msgid: mach_msg_id_t,
     pub sync: mach_port_mscount_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed326 {
+impl ::core::clone::Clone for Struct_Unnamed326 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed326 {
+impl ::core::default::Default for Struct_Unnamed326 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_port_request_notification_t = Struct_Unnamed326;
@@ -10075,14 +10075,14 @@ pub struct Struct_Unnamed327 {
     pub NDR: NDR_record_t,
     pub name: mach_port_name_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed327 {
+impl ::core::clone::Clone for Struct_Unnamed327 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed327 {
+impl ::core::default::Default for Struct_Unnamed327 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_port_insert_right_t = Struct_Unnamed327;
@@ -10094,14 +10094,14 @@ pub struct Struct_Unnamed328 {
     pub name: mach_port_name_t,
     pub msgt_name: mach_msg_type_name_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed328 {
+impl ::core::clone::Clone for Struct_Unnamed328 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed328 {
+impl ::core::default::Default for Struct_Unnamed328 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_port_extract_right_t = Struct_Unnamed328;
@@ -10113,14 +10113,14 @@ pub struct Struct_Unnamed329 {
     pub name: mach_port_name_t,
     pub seqno: mach_port_seqno_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed329 {
+impl ::core::clone::Clone for Struct_Unnamed329 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed329 {
+impl ::core::default::Default for Struct_Unnamed329 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_port_set_seqno_t = Struct_Unnamed329;
@@ -10133,14 +10133,14 @@ pub struct Struct_Unnamed330 {
     pub flavor: mach_port_flavor_t,
     pub port_info_outCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed330 {
+impl ::core::clone::Clone for Struct_Unnamed330 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed330 {
+impl ::core::default::Default for Struct_Unnamed330 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_port_get_attributes_t = Struct_Unnamed330;
@@ -10154,14 +10154,14 @@ pub struct Struct_Unnamed331 {
     pub port_infoCnt: mach_msg_type_number_t,
     pub port_info: [integer_t; 10usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed331 {
+impl ::core::clone::Clone for Struct_Unnamed331 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed331 {
+impl ::core::default::Default for Struct_Unnamed331 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_port_set_attributes_t = Struct_Unnamed331;
@@ -10173,14 +10173,14 @@ pub struct Struct_Unnamed332 {
     pub right: mach_port_right_t,
     pub qos: mach_port_qos_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed332 {
+impl ::core::clone::Clone for Struct_Unnamed332 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed332 {
+impl ::core::default::Default for Struct_Unnamed332 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_port_allocate_qos_t = Struct_Unnamed332;
@@ -10195,14 +10195,14 @@ pub struct Struct_Unnamed333 {
     pub qos: mach_port_qos_t,
     pub name: mach_port_name_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed333 {
+impl ::core::clone::Clone for Struct_Unnamed333 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed333 {
+impl ::core::default::Default for Struct_Unnamed333 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_port_allocate_full_t = Struct_Unnamed333;
@@ -10213,14 +10213,14 @@ pub struct Struct_Unnamed334 {
     pub NDR: NDR_record_t,
     pub table_entries: ::libc::c_int,
 }
-impl ::std::clone::Clone for Struct_Unnamed334 {
+impl ::core::clone::Clone for Struct_Unnamed334 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed334 {
+impl ::core::default::Default for Struct_Unnamed334 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__task_set_port_space_t = Struct_Unnamed334;
@@ -10231,14 +10231,14 @@ pub struct Struct_Unnamed335 {
     pub NDR: NDR_record_t,
     pub name: mach_port_name_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed335 {
+impl ::core::clone::Clone for Struct_Unnamed335 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed335 {
+impl ::core::default::Default for Struct_Unnamed335 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_port_get_srights_t = Struct_Unnamed335;
@@ -10247,14 +10247,14 @@ pub type __Request__mach_port_get_srights_t = Struct_Unnamed335;
 pub struct Struct_Unnamed336 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed336 {
+impl ::core::clone::Clone for Struct_Unnamed336 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed336 {
+impl ::core::default::Default for Struct_Unnamed336 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_port_space_info_t = Struct_Unnamed336;
@@ -10265,14 +10265,14 @@ pub struct Struct_Unnamed337 {
     pub NDR: NDR_record_t,
     pub name: mach_port_name_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed337 {
+impl ::core::clone::Clone for Struct_Unnamed337 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed337 {
+impl ::core::default::Default for Struct_Unnamed337 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_port_dnrequest_info_t = Struct_Unnamed337;
@@ -10283,14 +10283,14 @@ pub struct Struct_Unnamed338 {
     pub NDR: NDR_record_t,
     pub name: mach_port_name_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed338 {
+impl ::core::clone::Clone for Struct_Unnamed338 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed338 {
+impl ::core::default::Default for Struct_Unnamed338 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_port_kernel_object_t = Struct_Unnamed338;
@@ -10302,14 +10302,14 @@ pub struct Struct_Unnamed339 {
     pub name: mach_port_name_t,
     pub pset: mach_port_name_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed339 {
+impl ::core::clone::Clone for Struct_Unnamed339 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed339 {
+impl ::core::default::Default for Struct_Unnamed339 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_port_insert_member_t = Struct_Unnamed339;
@@ -10321,14 +10321,14 @@ pub struct Struct_Unnamed340 {
     pub name: mach_port_name_t,
     pub pset: mach_port_name_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed340 {
+impl ::core::clone::Clone for Struct_Unnamed340 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed340 {
+impl ::core::default::Default for Struct_Unnamed340 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_port_extract_member_t = Struct_Unnamed340;
@@ -10339,14 +10339,14 @@ pub struct Struct_Unnamed341 {
     pub NDR: NDR_record_t,
     pub name: mach_port_name_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed341 {
+impl ::core::clone::Clone for Struct_Unnamed341 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed341 {
+impl ::core::default::Default for Struct_Unnamed341 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_port_get_context_t = Struct_Unnamed341;
@@ -10358,14 +10358,14 @@ pub struct Struct_Unnamed342 {
     pub name: mach_port_name_t,
     pub context: mach_port_context_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed342 {
+impl ::core::clone::Clone for Struct_Unnamed342 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed342 {
+impl ::core::default::Default for Struct_Unnamed342 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_port_set_context_t = Struct_Unnamed342;
@@ -10376,14 +10376,14 @@ pub struct Struct_Unnamed343 {
     pub NDR: NDR_record_t,
     pub name: mach_port_name_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed343 {
+impl ::core::clone::Clone for Struct_Unnamed343 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed343 {
+impl ::core::default::Default for Struct_Unnamed343 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_port_kobject_t = Struct_Unnamed343;
@@ -10394,174 +10394,174 @@ pub struct Union___RequestUnion__mach_port_subsystem {
 }
 impl Union___RequestUnion__mach_port_subsystem {
     pub unsafe fn Request_mach_port_names(&mut self) -> *mut __Request__mach_port_names_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_port_type(&mut self) -> *mut __Request__mach_port_type_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_port_rename(&mut self) -> *mut __Request__mach_port_rename_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_port_allocate_name(
         &mut self,
     ) -> *mut __Request__mach_port_allocate_name_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_port_allocate(&mut self) -> *mut __Request__mach_port_allocate_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_port_destroy(&mut self) -> *mut __Request__mach_port_destroy_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_port_deallocate(
         &mut self,
     ) -> *mut __Request__mach_port_deallocate_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_port_get_refs(&mut self) -> *mut __Request__mach_port_get_refs_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_port_mod_refs(&mut self) -> *mut __Request__mach_port_mod_refs_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_port_set_mscount(
         &mut self,
     ) -> *mut __Request__mach_port_set_mscount_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_port_get_set_status(
         &mut self,
     ) -> *mut __Request__mach_port_get_set_status_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_port_move_member(
         &mut self,
     ) -> *mut __Request__mach_port_move_member_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_port_request_notification(
         &mut self,
     ) -> *mut __Request__mach_port_request_notification_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_port_insert_right(
         &mut self,
     ) -> *mut __Request__mach_port_insert_right_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_port_extract_right(
         &mut self,
     ) -> *mut __Request__mach_port_extract_right_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_port_set_seqno(&mut self) -> *mut __Request__mach_port_set_seqno_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_port_get_attributes(
         &mut self,
     ) -> *mut __Request__mach_port_get_attributes_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_port_set_attributes(
         &mut self,
     ) -> *mut __Request__mach_port_set_attributes_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_port_allocate_qos(
         &mut self,
     ) -> *mut __Request__mach_port_allocate_qos_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_port_allocate_full(
         &mut self,
     ) -> *mut __Request__mach_port_allocate_full_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_task_set_port_space(&mut self) -> *mut __Request__task_set_port_space_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_port_get_srights(
         &mut self,
     ) -> *mut __Request__mach_port_get_srights_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_port_space_info(
         &mut self,
     ) -> *mut __Request__mach_port_space_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_port_dnrequest_info(
         &mut self,
     ) -> *mut __Request__mach_port_dnrequest_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_port_kernel_object(
         &mut self,
     ) -> *mut __Request__mach_port_kernel_object_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_port_insert_member(
         &mut self,
     ) -> *mut __Request__mach_port_insert_member_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_port_extract_member(
         &mut self,
     ) -> *mut __Request__mach_port_extract_member_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_port_get_context(
         &mut self,
     ) -> *mut __Request__mach_port_get_context_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_port_set_context(
         &mut self,
     ) -> *mut __Request__mach_port_set_context_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_port_kobject(&mut self) -> *mut __Request__mach_port_kobject_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
 }
-impl ::std::clone::Clone for Union___RequestUnion__mach_port_subsystem {
+impl ::core::clone::Clone for Union___RequestUnion__mach_port_subsystem {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Union___RequestUnion__mach_port_subsystem {
+impl ::core::default::Default for Union___RequestUnion__mach_port_subsystem {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -10575,14 +10575,14 @@ pub struct Struct_Unnamed344 {
     pub namesCnt: mach_msg_type_number_t,
     pub typesCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed344 {
+impl ::core::clone::Clone for Struct_Unnamed344 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed344 {
+impl ::core::default::Default for Struct_Unnamed344 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_port_names_t = Struct_Unnamed344;
@@ -10594,14 +10594,14 @@ pub struct Struct_Unnamed345 {
     pub RetCode: kern_return_t,
     pub ptype: mach_port_type_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed345 {
+impl ::core::clone::Clone for Struct_Unnamed345 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed345 {
+impl ::core::default::Default for Struct_Unnamed345 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_port_type_t = Struct_Unnamed345;
@@ -10612,14 +10612,14 @@ pub struct Struct_Unnamed346 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed346 {
+impl ::core::clone::Clone for Struct_Unnamed346 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed346 {
+impl ::core::default::Default for Struct_Unnamed346 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_port_rename_t = Struct_Unnamed346;
@@ -10630,14 +10630,14 @@ pub struct Struct_Unnamed347 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed347 {
+impl ::core::clone::Clone for Struct_Unnamed347 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed347 {
+impl ::core::default::Default for Struct_Unnamed347 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_port_allocate_name_t = Struct_Unnamed347;
@@ -10649,14 +10649,14 @@ pub struct Struct_Unnamed348 {
     pub RetCode: kern_return_t,
     pub name: mach_port_name_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed348 {
+impl ::core::clone::Clone for Struct_Unnamed348 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed348 {
+impl ::core::default::Default for Struct_Unnamed348 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_port_allocate_t = Struct_Unnamed348;
@@ -10667,14 +10667,14 @@ pub struct Struct_Unnamed349 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed349 {
+impl ::core::clone::Clone for Struct_Unnamed349 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed349 {
+impl ::core::default::Default for Struct_Unnamed349 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_port_destroy_t = Struct_Unnamed349;
@@ -10685,14 +10685,14 @@ pub struct Struct_Unnamed350 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed350 {
+impl ::core::clone::Clone for Struct_Unnamed350 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed350 {
+impl ::core::default::Default for Struct_Unnamed350 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_port_deallocate_t = Struct_Unnamed350;
@@ -10704,14 +10704,14 @@ pub struct Struct_Unnamed351 {
     pub RetCode: kern_return_t,
     pub refs: mach_port_urefs_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed351 {
+impl ::core::clone::Clone for Struct_Unnamed351 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed351 {
+impl ::core::default::Default for Struct_Unnamed351 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_port_get_refs_t = Struct_Unnamed351;
@@ -10722,14 +10722,14 @@ pub struct Struct_Unnamed352 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed352 {
+impl ::core::clone::Clone for Struct_Unnamed352 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed352 {
+impl ::core::default::Default for Struct_Unnamed352 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_port_mod_refs_t = Struct_Unnamed352;
@@ -10740,14 +10740,14 @@ pub struct Struct_Unnamed353 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed353 {
+impl ::core::clone::Clone for Struct_Unnamed353 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed353 {
+impl ::core::default::Default for Struct_Unnamed353 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_port_set_mscount_t = Struct_Unnamed353;
@@ -10760,14 +10760,14 @@ pub struct Struct_Unnamed354 {
     pub NDR: NDR_record_t,
     pub membersCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed354 {
+impl ::core::clone::Clone for Struct_Unnamed354 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed354 {
+impl ::core::default::Default for Struct_Unnamed354 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_port_get_set_status_t = Struct_Unnamed354;
@@ -10778,14 +10778,14 @@ pub struct Struct_Unnamed355 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed355 {
+impl ::core::clone::Clone for Struct_Unnamed355 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed355 {
+impl ::core::default::Default for Struct_Unnamed355 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_port_move_member_t = Struct_Unnamed355;
@@ -10796,14 +10796,14 @@ pub struct Struct_Unnamed356 {
     pub msgh_body: mach_msg_body_t,
     pub previous: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed356 {
+impl ::core::clone::Clone for Struct_Unnamed356 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed356 {
+impl ::core::default::Default for Struct_Unnamed356 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_port_request_notification_t = Struct_Unnamed356;
@@ -10814,14 +10814,14 @@ pub struct Struct_Unnamed357 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed357 {
+impl ::core::clone::Clone for Struct_Unnamed357 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed357 {
+impl ::core::default::Default for Struct_Unnamed357 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_port_insert_right_t = Struct_Unnamed357;
@@ -10832,14 +10832,14 @@ pub struct Struct_Unnamed358 {
     pub msgh_body: mach_msg_body_t,
     pub poly: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed358 {
+impl ::core::clone::Clone for Struct_Unnamed358 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed358 {
+impl ::core::default::Default for Struct_Unnamed358 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_port_extract_right_t = Struct_Unnamed358;
@@ -10850,14 +10850,14 @@ pub struct Struct_Unnamed359 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed359 {
+impl ::core::clone::Clone for Struct_Unnamed359 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed359 {
+impl ::core::default::Default for Struct_Unnamed359 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_port_set_seqno_t = Struct_Unnamed359;
@@ -10870,14 +10870,14 @@ pub struct Struct_Unnamed360 {
     pub port_info_outCnt: mach_msg_type_number_t,
     pub port_info_out: [integer_t; 10usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed360 {
+impl ::core::clone::Clone for Struct_Unnamed360 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed360 {
+impl ::core::default::Default for Struct_Unnamed360 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_port_get_attributes_t = Struct_Unnamed360;
@@ -10888,14 +10888,14 @@ pub struct Struct_Unnamed361 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed361 {
+impl ::core::clone::Clone for Struct_Unnamed361 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed361 {
+impl ::core::default::Default for Struct_Unnamed361 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_port_set_attributes_t = Struct_Unnamed361;
@@ -10908,14 +10908,14 @@ pub struct Struct_Unnamed362 {
     pub qos: mach_port_qos_t,
     pub name: mach_port_name_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed362 {
+impl ::core::clone::Clone for Struct_Unnamed362 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed362 {
+impl ::core::default::Default for Struct_Unnamed362 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_port_allocate_qos_t = Struct_Unnamed362;
@@ -10928,14 +10928,14 @@ pub struct Struct_Unnamed363 {
     pub qos: mach_port_qos_t,
     pub name: mach_port_name_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed363 {
+impl ::core::clone::Clone for Struct_Unnamed363 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed363 {
+impl ::core::default::Default for Struct_Unnamed363 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_port_allocate_full_t = Struct_Unnamed363;
@@ -10946,14 +10946,14 @@ pub struct Struct_Unnamed364 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed364 {
+impl ::core::clone::Clone for Struct_Unnamed364 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed364 {
+impl ::core::default::Default for Struct_Unnamed364 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__task_set_port_space_t = Struct_Unnamed364;
@@ -10965,14 +10965,14 @@ pub struct Struct_Unnamed365 {
     pub RetCode: kern_return_t,
     pub srights: mach_port_rights_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed365 {
+impl ::core::clone::Clone for Struct_Unnamed365 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed365 {
+impl ::core::default::Default for Struct_Unnamed365 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_port_get_srights_t = Struct_Unnamed365;
@@ -10985,14 +10985,14 @@ pub struct Struct_Unnamed367 {
     pub dnr_total: ::libc::c_uint,
     pub dnr_used: ::libc::c_uint,
 }
-impl ::std::clone::Clone for Struct_Unnamed367 {
+impl ::core::clone::Clone for Struct_Unnamed367 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed367 {
+impl ::core::default::Default for Struct_Unnamed367 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_port_dnrequest_info_t = Struct_Unnamed367;
@@ -11005,14 +11005,14 @@ pub struct Struct_Unnamed368 {
     pub object_type: ::libc::c_uint,
     pub object_addr: ::libc::c_uint,
 }
-impl ::std::clone::Clone for Struct_Unnamed368 {
+impl ::core::clone::Clone for Struct_Unnamed368 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed368 {
+impl ::core::default::Default for Struct_Unnamed368 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_port_kernel_object_t = Struct_Unnamed368;
@@ -11023,14 +11023,14 @@ pub struct Struct_Unnamed369 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed369 {
+impl ::core::clone::Clone for Struct_Unnamed369 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed369 {
+impl ::core::default::Default for Struct_Unnamed369 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_port_insert_member_t = Struct_Unnamed369;
@@ -11041,14 +11041,14 @@ pub struct Struct_Unnamed370 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed370 {
+impl ::core::clone::Clone for Struct_Unnamed370 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed370 {
+impl ::core::default::Default for Struct_Unnamed370 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_port_extract_member_t = Struct_Unnamed370;
@@ -11060,14 +11060,14 @@ pub struct Struct_Unnamed371 {
     pub RetCode: kern_return_t,
     pub context: mach_port_context_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed371 {
+impl ::core::clone::Clone for Struct_Unnamed371 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed371 {
+impl ::core::default::Default for Struct_Unnamed371 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_port_get_context_t = Struct_Unnamed371;
@@ -11078,14 +11078,14 @@ pub struct Struct_Unnamed372 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed372 {
+impl ::core::clone::Clone for Struct_Unnamed372 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed372 {
+impl ::core::default::Default for Struct_Unnamed372 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_port_set_context_t = Struct_Unnamed372;
@@ -11098,14 +11098,14 @@ pub struct Struct_Unnamed373 {
     pub object_type: natural_t,
     pub object_addr: mach_vm_address_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed373 {
+impl ::core::clone::Clone for Struct_Unnamed373 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed373 {
+impl ::core::default::Default for Struct_Unnamed373 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_port_kobject_t = Struct_Unnamed373;
@@ -11116,156 +11116,156 @@ pub struct Union___ReplyUnion__mach_port_subsystem {
 }
 impl Union___ReplyUnion__mach_port_subsystem {
     pub unsafe fn Reply_mach_port_names(&mut self) -> *mut __Reply__mach_port_names_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_port_type(&mut self) -> *mut __Reply__mach_port_type_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_port_rename(&mut self) -> *mut __Reply__mach_port_rename_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_port_allocate_name(
         &mut self,
     ) -> *mut __Reply__mach_port_allocate_name_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_port_allocate(&mut self) -> *mut __Reply__mach_port_allocate_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_port_destroy(&mut self) -> *mut __Reply__mach_port_destroy_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_port_deallocate(&mut self) -> *mut __Reply__mach_port_deallocate_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_port_get_refs(&mut self) -> *mut __Reply__mach_port_get_refs_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_port_mod_refs(&mut self) -> *mut __Reply__mach_port_mod_refs_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_port_set_mscount(&mut self) -> *mut __Reply__mach_port_set_mscount_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_port_get_set_status(
         &mut self,
     ) -> *mut __Reply__mach_port_get_set_status_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_port_move_member(&mut self) -> *mut __Reply__mach_port_move_member_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_port_request_notification(
         &mut self,
     ) -> *mut __Reply__mach_port_request_notification_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_port_insert_right(
         &mut self,
     ) -> *mut __Reply__mach_port_insert_right_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_port_extract_right(
         &mut self,
     ) -> *mut __Reply__mach_port_extract_right_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_port_set_seqno(&mut self) -> *mut __Reply__mach_port_set_seqno_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_port_get_attributes(
         &mut self,
     ) -> *mut __Reply__mach_port_get_attributes_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_port_set_attributes(
         &mut self,
     ) -> *mut __Reply__mach_port_set_attributes_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_port_allocate_qos(
         &mut self,
     ) -> *mut __Reply__mach_port_allocate_qos_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_port_allocate_full(
         &mut self,
     ) -> *mut __Reply__mach_port_allocate_full_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_task_set_port_space(&mut self) -> *mut __Reply__task_set_port_space_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_port_get_srights(&mut self) -> *mut __Reply__mach_port_get_srights_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_port_dnrequest_info(
         &mut self,
     ) -> *mut __Reply__mach_port_dnrequest_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_port_kernel_object(
         &mut self,
     ) -> *mut __Reply__mach_port_kernel_object_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_port_insert_member(
         &mut self,
     ) -> *mut __Reply__mach_port_insert_member_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_port_extract_member(
         &mut self,
     ) -> *mut __Reply__mach_port_extract_member_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_port_get_context(&mut self) -> *mut __Reply__mach_port_get_context_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_port_set_context(&mut self) -> *mut __Reply__mach_port_set_context_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_port_kobject(&mut self) -> *mut __Reply__mach_port_kobject_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
 }
-impl ::std::clone::Clone for Union___ReplyUnion__mach_port_subsystem {
+impl ::core::clone::Clone for Union___ReplyUnion__mach_port_subsystem {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Union___ReplyUnion__mach_port_subsystem {
+impl ::core::default::Default for Union___ReplyUnion__mach_port_subsystem {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -11276,14 +11276,14 @@ pub struct Struct_Unnamed374 {
     pub flavor: host_flavor_t,
     pub host_info_outCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed374 {
+impl ::core::clone::Clone for Struct_Unnamed374 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed374 {
+impl ::core::default::Default for Struct_Unnamed374 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__host_info_t = Struct_Unnamed374;
@@ -11292,14 +11292,14 @@ pub type __Request__host_info_t = Struct_Unnamed374;
 pub struct Struct_Unnamed375 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed375 {
+impl ::core::clone::Clone for Struct_Unnamed375 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed375 {
+impl ::core::default::Default for Struct_Unnamed375 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__host_kernel_version_t = Struct_Unnamed375;
@@ -11308,14 +11308,14 @@ pub type __Request__host_kernel_version_t = Struct_Unnamed375;
 pub struct Struct_Unnamed376 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed376 {
+impl ::core::clone::Clone for Struct_Unnamed376 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed376 {
+impl ::core::default::Default for Struct_Unnamed376 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request___host_page_size_t = Struct_Unnamed376;
@@ -11330,14 +11330,14 @@ pub struct Struct_Unnamed377 {
     pub size: vm_size_t,
     pub permission: vm_prot_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed377 {
+impl ::core::clone::Clone for Struct_Unnamed377 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed377 {
+impl ::core::default::Default for Struct_Unnamed377 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_memory_object_memory_entry_t = Struct_Unnamed377;
@@ -11348,14 +11348,14 @@ pub struct Struct_Unnamed378 {
     pub NDR: NDR_record_t,
     pub flavor: processor_flavor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed378 {
+impl ::core::clone::Clone for Struct_Unnamed378 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed378 {
+impl ::core::default::Default for Struct_Unnamed378 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__host_processor_info_t = Struct_Unnamed378;
@@ -11364,14 +11364,14 @@ pub type __Request__host_processor_info_t = Struct_Unnamed378;
 pub struct Struct_Unnamed379 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed379 {
+impl ::core::clone::Clone for Struct_Unnamed379 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed379 {
+impl ::core::default::Default for Struct_Unnamed379 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__host_get_io_master_t = Struct_Unnamed379;
@@ -11382,14 +11382,14 @@ pub struct Struct_Unnamed380 {
     pub NDR: NDR_record_t,
     pub clock_id: clock_id_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed380 {
+impl ::core::clone::Clone for Struct_Unnamed380 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed380 {
+impl ::core::default::Default for Struct_Unnamed380 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__host_get_clock_service_t = Struct_Unnamed380;
@@ -11398,14 +11398,14 @@ pub type __Request__host_get_clock_service_t = Struct_Unnamed380;
 pub struct Struct_Unnamed381 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed381 {
+impl ::core::clone::Clone for Struct_Unnamed381 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed381 {
+impl ::core::default::Default for Struct_Unnamed381 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__kmod_get_info_t = Struct_Unnamed381;
@@ -11414,14 +11414,14 @@ pub type __Request__kmod_get_info_t = Struct_Unnamed381;
 pub struct Struct_Unnamed382 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed382 {
+impl ::core::clone::Clone for Struct_Unnamed382 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed382 {
+impl ::core::default::Default for Struct_Unnamed382 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__host_zone_info_t = Struct_Unnamed382;
@@ -11430,14 +11430,14 @@ pub type __Request__host_zone_info_t = Struct_Unnamed382;
 pub struct Struct_Unnamed383 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed383 {
+impl ::core::clone::Clone for Struct_Unnamed383 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed383 {
+impl ::core::default::Default for Struct_Unnamed383 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__host_virtual_physical_table_info_t = Struct_Unnamed383;
@@ -11446,14 +11446,14 @@ pub type __Request__host_virtual_physical_table_info_t = Struct_Unnamed383;
 pub struct Struct_Unnamed384 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed384 {
+impl ::core::clone::Clone for Struct_Unnamed384 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed384 {
+impl ::core::default::Default for Struct_Unnamed384 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__processor_set_default_t = Struct_Unnamed384;
@@ -11462,14 +11462,14 @@ pub type __Request__processor_set_default_t = Struct_Unnamed384;
 pub struct Struct_Unnamed385 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed385 {
+impl ::core::clone::Clone for Struct_Unnamed385 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed385 {
+impl ::core::default::Default for Struct_Unnamed385 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__processor_set_create_t = Struct_Unnamed385;
@@ -11484,14 +11484,14 @@ pub struct Struct_Unnamed386 {
     pub size: memory_object_size_t,
     pub permission: vm_prot_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed386 {
+impl ::core::clone::Clone for Struct_Unnamed386 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed386 {
+impl ::core::default::Default for Struct_Unnamed386 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_memory_object_memory_entry_64_t = Struct_Unnamed386;
@@ -11503,14 +11503,14 @@ pub struct Struct_Unnamed387 {
     pub flavor: host_flavor_t,
     pub host_info_outCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed387 {
+impl ::core::clone::Clone for Struct_Unnamed387 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed387 {
+impl ::core::default::Default for Struct_Unnamed387 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__host_statistics_t = Struct_Unnamed387;
@@ -11523,14 +11523,14 @@ pub struct Struct_Unnamed388 {
     pub NDR: NDR_record_t,
     pub notify_type: host_flavor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed388 {
+impl ::core::clone::Clone for Struct_Unnamed388 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed388 {
+impl ::core::default::Default for Struct_Unnamed388 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__host_request_notification_t = Struct_Unnamed388;
@@ -11539,14 +11539,14 @@ pub type __Request__host_request_notification_t = Struct_Unnamed388;
 pub struct Struct_Unnamed389 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed389 {
+impl ::core::clone::Clone for Struct_Unnamed389 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed389 {
+impl ::core::default::Default for Struct_Unnamed389 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__host_lockgroup_info_t = Struct_Unnamed389;
@@ -11558,14 +11558,14 @@ pub struct Struct_Unnamed390 {
     pub flavor: host_flavor_t,
     pub host_info64_outCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed390 {
+impl ::core::clone::Clone for Struct_Unnamed390 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed390 {
+impl ::core::default::Default for Struct_Unnamed390 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__host_statistics64_t = Struct_Unnamed390;
@@ -11574,14 +11574,14 @@ pub type __Request__host_statistics64_t = Struct_Unnamed390;
 pub struct Struct_Unnamed391 {
     pub Head: mach_msg_header_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed391 {
+impl ::core::clone::Clone for Struct_Unnamed391 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed391 {
+impl ::core::default::Default for Struct_Unnamed391 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Request__mach_zone_info_t = Struct_Unnamed391;
@@ -11592,100 +11592,100 @@ pub struct Union___RequestUnion__mach_host_subsystem {
 }
 impl Union___RequestUnion__mach_host_subsystem {
     pub unsafe fn Request_host_info(&mut self) -> *mut __Request__host_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_host_kernel_version(&mut self) -> *mut __Request__host_kernel_version_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request__host_page_size(&mut self) -> *mut __Request___host_page_size_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_memory_object_memory_entry(
         &mut self,
     ) -> *mut __Request__mach_memory_object_memory_entry_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_host_processor_info(&mut self) -> *mut __Request__host_processor_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_host_get_io_master(&mut self) -> *mut __Request__host_get_io_master_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_host_get_clock_service(
         &mut self,
     ) -> *mut __Request__host_get_clock_service_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_kmod_get_info(&mut self) -> *mut __Request__kmod_get_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_host_zone_info(&mut self) -> *mut __Request__host_zone_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_host_virtual_physical_table_info(
         &mut self,
     ) -> *mut __Request__host_virtual_physical_table_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_processor_set_default(
         &mut self,
     ) -> *mut __Request__processor_set_default_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_processor_set_create(
         &mut self,
     ) -> *mut __Request__processor_set_create_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_memory_object_memory_entry_64(
         &mut self,
     ) -> *mut __Request__mach_memory_object_memory_entry_64_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_host_statistics(&mut self) -> *mut __Request__host_statistics_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_host_request_notification(
         &mut self,
     ) -> *mut __Request__host_request_notification_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_host_lockgroup_info(&mut self) -> *mut __Request__host_lockgroup_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_host_statistics64(&mut self) -> *mut __Request__host_statistics64_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Request_mach_zone_info(&mut self) -> *mut __Request__mach_zone_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
 }
-impl ::std::clone::Clone for Union___RequestUnion__mach_host_subsystem {
+impl ::core::clone::Clone for Union___RequestUnion__mach_host_subsystem {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Union___RequestUnion__mach_host_subsystem {
+impl ::core::default::Default for Union___RequestUnion__mach_host_subsystem {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -11697,14 +11697,14 @@ pub struct Struct_Unnamed392 {
     pub host_info_outCnt: mach_msg_type_number_t,
     pub host_info_out: [integer_t; 18usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed392 {
+impl ::core::clone::Clone for Struct_Unnamed392 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed392 {
+impl ::core::default::Default for Struct_Unnamed392 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__host_info_t = Struct_Unnamed392;
@@ -11718,14 +11718,14 @@ pub struct Struct_Unnamed393 {
     pub kernel_versionCnt: mach_msg_type_number_t,
     pub kernel_version: [::libc::c_char; 512usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed393 {
+impl ::core::clone::Clone for Struct_Unnamed393 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed393 {
+impl ::core::default::Default for Struct_Unnamed393 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__host_kernel_version_t = Struct_Unnamed393;
@@ -11737,14 +11737,14 @@ pub struct Struct_Unnamed394 {
     pub RetCode: kern_return_t,
     pub out_page_size: vm_size_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed394 {
+impl ::core::clone::Clone for Struct_Unnamed394 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed394 {
+impl ::core::default::Default for Struct_Unnamed394 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply___host_page_size_t = Struct_Unnamed394;
@@ -11755,14 +11755,14 @@ pub struct Struct_Unnamed395 {
     pub msgh_body: mach_msg_body_t,
     pub entry_handle: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed395 {
+impl ::core::clone::Clone for Struct_Unnamed395 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed395 {
+impl ::core::default::Default for Struct_Unnamed395 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_memory_object_memory_entry_t = Struct_Unnamed395;
@@ -11776,14 +11776,14 @@ pub struct Struct_Unnamed396 {
     pub out_processor_count: natural_t,
     pub out_processor_infoCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed396 {
+impl ::core::clone::Clone for Struct_Unnamed396 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed396 {
+impl ::core::default::Default for Struct_Unnamed396 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__host_processor_info_t = Struct_Unnamed396;
@@ -11794,14 +11794,14 @@ pub struct Struct_Unnamed397 {
     pub msgh_body: mach_msg_body_t,
     pub io_master: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed397 {
+impl ::core::clone::Clone for Struct_Unnamed397 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed397 {
+impl ::core::default::Default for Struct_Unnamed397 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__host_get_io_master_t = Struct_Unnamed397;
@@ -11812,14 +11812,14 @@ pub struct Struct_Unnamed398 {
     pub msgh_body: mach_msg_body_t,
     pub clock_serv: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed398 {
+impl ::core::clone::Clone for Struct_Unnamed398 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed398 {
+impl ::core::default::Default for Struct_Unnamed398 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__host_get_clock_service_t = Struct_Unnamed398;
@@ -11832,14 +11832,14 @@ pub struct Struct_Unnamed399 {
     pub NDR: NDR_record_t,
     pub modulesCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed399 {
+impl ::core::clone::Clone for Struct_Unnamed399 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed399 {
+impl ::core::default::Default for Struct_Unnamed399 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__kmod_get_info_t = Struct_Unnamed399;
@@ -11854,14 +11854,14 @@ pub struct Struct_Unnamed400 {
     pub namesCnt: mach_msg_type_number_t,
     pub infoCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed400 {
+impl ::core::clone::Clone for Struct_Unnamed400 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed400 {
+impl ::core::default::Default for Struct_Unnamed400 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__host_zone_info_t = Struct_Unnamed400;
@@ -11874,14 +11874,14 @@ pub struct Struct_Unnamed401 {
     pub NDR: NDR_record_t,
     pub infoCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed401 {
+impl ::core::clone::Clone for Struct_Unnamed401 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed401 {
+impl ::core::default::Default for Struct_Unnamed401 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__host_virtual_physical_table_info_t = Struct_Unnamed401;
@@ -11892,14 +11892,14 @@ pub struct Struct_Unnamed402 {
     pub msgh_body: mach_msg_body_t,
     pub default_set: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed402 {
+impl ::core::clone::Clone for Struct_Unnamed402 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed402 {
+impl ::core::default::Default for Struct_Unnamed402 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__processor_set_default_t = Struct_Unnamed402;
@@ -11911,14 +11911,14 @@ pub struct Struct_Unnamed403 {
     pub new_set: mach_msg_port_descriptor_t,
     pub new_name: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed403 {
+impl ::core::clone::Clone for Struct_Unnamed403 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed403 {
+impl ::core::default::Default for Struct_Unnamed403 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__processor_set_create_t = Struct_Unnamed403;
@@ -11929,14 +11929,14 @@ pub struct Struct_Unnamed404 {
     pub msgh_body: mach_msg_body_t,
     pub entry_handle: mach_msg_port_descriptor_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed404 {
+impl ::core::clone::Clone for Struct_Unnamed404 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed404 {
+impl ::core::default::Default for Struct_Unnamed404 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_memory_object_memory_entry_64_t = Struct_Unnamed404;
@@ -11949,14 +11949,14 @@ pub struct Struct_Unnamed405 {
     pub host_info_outCnt: mach_msg_type_number_t,
     pub host_info_out: [integer_t; 18usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed405 {
+impl ::core::clone::Clone for Struct_Unnamed405 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed405 {
+impl ::core::default::Default for Struct_Unnamed405 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__host_statistics_t = Struct_Unnamed405;
@@ -11967,14 +11967,14 @@ pub struct Struct_Unnamed406 {
     pub NDR: NDR_record_t,
     pub RetCode: kern_return_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed406 {
+impl ::core::clone::Clone for Struct_Unnamed406 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed406 {
+impl ::core::default::Default for Struct_Unnamed406 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__host_request_notification_t = Struct_Unnamed406;
@@ -11987,14 +11987,14 @@ pub struct Struct_Unnamed407 {
     pub NDR: NDR_record_t,
     pub lockgroup_infoCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed407 {
+impl ::core::clone::Clone for Struct_Unnamed407 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed407 {
+impl ::core::default::Default for Struct_Unnamed407 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__host_lockgroup_info_t = Struct_Unnamed407;
@@ -12007,14 +12007,14 @@ pub struct Struct_Unnamed408 {
     pub host_info64_outCnt: mach_msg_type_number_t,
     pub host_info64_out: [integer_t; 256usize],
 }
-impl ::std::clone::Clone for Struct_Unnamed408 {
+impl ::core::clone::Clone for Struct_Unnamed408 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed408 {
+impl ::core::default::Default for Struct_Unnamed408 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__host_statistics64_t = Struct_Unnamed408;
@@ -12029,14 +12029,14 @@ pub struct Struct_Unnamed409 {
     pub namesCnt: mach_msg_type_number_t,
     pub infoCnt: mach_msg_type_number_t,
 }
-impl ::std::clone::Clone for Struct_Unnamed409 {
+impl ::core::clone::Clone for Struct_Unnamed409 {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_Unnamed409 {
+impl ::core::default::Default for Struct_Unnamed409 {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type __Reply__mach_zone_info_t = Struct_Unnamed409;
@@ -12047,96 +12047,96 @@ pub struct Union___ReplyUnion__mach_host_subsystem {
 }
 impl Union___ReplyUnion__mach_host_subsystem {
     pub unsafe fn Reply_host_info(&mut self) -> *mut __Reply__host_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_host_kernel_version(&mut self) -> *mut __Reply__host_kernel_version_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply__host_page_size(&mut self) -> *mut __Reply___host_page_size_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_memory_object_memory_entry(
         &mut self,
     ) -> *mut __Reply__mach_memory_object_memory_entry_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_host_processor_info(&mut self) -> *mut __Reply__host_processor_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_host_get_io_master(&mut self) -> *mut __Reply__host_get_io_master_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_host_get_clock_service(
         &mut self,
     ) -> *mut __Reply__host_get_clock_service_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_kmod_get_info(&mut self) -> *mut __Reply__kmod_get_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_host_zone_info(&mut self) -> *mut __Reply__host_zone_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_host_virtual_physical_table_info(
         &mut self,
     ) -> *mut __Reply__host_virtual_physical_table_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_processor_set_default(&mut self) -> *mut __Reply__processor_set_default_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_processor_set_create(&mut self) -> *mut __Reply__processor_set_create_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_memory_object_memory_entry_64(
         &mut self,
     ) -> *mut __Reply__mach_memory_object_memory_entry_64_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_host_statistics(&mut self) -> *mut __Reply__host_statistics_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_host_request_notification(
         &mut self,
     ) -> *mut __Reply__host_request_notification_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_host_lockgroup_info(&mut self) -> *mut __Reply__host_lockgroup_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_host_statistics64(&mut self) -> *mut __Reply__host_statistics64_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
     pub unsafe fn Reply_mach_zone_info(&mut self) -> *mut __Reply__mach_zone_info_t {
-        let raw: *mut u8 = ::std::mem::transmute(&self._bindgen_data_);
-        ::std::mem::transmute(raw.offset(0))
+        let raw: *mut u8 = ::core::mem::transmute(&self._bindgen_data_);
+        ::core::mem::transmute(raw.offset(0))
     }
 }
-impl ::std::clone::Clone for Union___ReplyUnion__mach_host_subsystem {
+impl ::core::clone::Clone for Union___ReplyUnion__mach_host_subsystem {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Union___ReplyUnion__mach_host_subsystem {
+impl ::core::default::Default for Union___ReplyUnion__mach_host_subsystem {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type routine_arg_type = ::libc::c_uint;
@@ -12150,14 +12150,14 @@ pub struct Struct_rpc_routine_arg_descriptor {
     pub count: routine_arg_size,
     pub offset: routine_arg_offset,
 }
-impl ::std::clone::Clone for Struct_rpc_routine_arg_descriptor {
+impl ::core::clone::Clone for Struct_rpc_routine_arg_descriptor {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_rpc_routine_arg_descriptor {
+impl ::core::default::Default for Struct_rpc_routine_arg_descriptor {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type rpc_routine_arg_descriptor_t = *mut Struct_rpc_routine_arg_descriptor;
@@ -12171,14 +12171,14 @@ pub struct Struct_rpc_routine_descriptor {
     pub arg_descr: rpc_routine_arg_descriptor_t,
     pub max_reply_msg: ::libc::c_uint,
 }
-impl ::std::clone::Clone for Struct_rpc_routine_descriptor {
+impl ::core::clone::Clone for Struct_rpc_routine_descriptor {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_rpc_routine_descriptor {
+impl ::core::default::Default for Struct_rpc_routine_descriptor {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type rpc_routine_descriptor_t = *mut Struct_rpc_routine_descriptor;
@@ -12188,14 +12188,14 @@ pub struct Struct_rpc_signature {
     pub rd: Struct_rpc_routine_descriptor,
     pub rad: [Struct_rpc_routine_arg_descriptor; 1usize],
 }
-impl ::std::clone::Clone for Struct_rpc_signature {
+impl ::core::clone::Clone for Struct_rpc_signature {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_rpc_signature {
+impl ::core::default::Default for Struct_rpc_signature {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 #[repr(C)]
@@ -12209,19 +12209,19 @@ pub struct Struct_rpc_subsystem {
     pub routine: [Struct_rpc_routine_descriptor; 1usize],
     pub arg_descriptor: [Struct_rpc_routine_arg_descriptor; 1usize],
 }
-impl ::std::clone::Clone for Struct_rpc_subsystem {
+impl ::core::clone::Clone for Struct_rpc_subsystem {
     fn clone(&self) -> Self {
         *self
     }
 }
-impl ::std::default::Default for Struct_rpc_subsystem {
+impl ::core::default::Default for Struct_rpc_subsystem {
     fn default() -> Self {
-        unsafe { ::std::mem::zeroed() }
+        unsafe { ::core::mem::zeroed() }
     }
 }
 pub type rpc_subsystem_t = *mut Struct_rpc_subsystem;
 pub type mach_error_t = kern_return_t;
-pub type mach_error_fn_t = ::std::option::Option<extern "C" fn() -> mach_error_t>;
+pub type mach_error_fn_t = ::core::option::Option<extern "C" fn() -> mach_error_t>;
 extern "C" {
     pub static mut KERNEL_SECURITY_TOKEN: security_token_t;
     pub static mut KERNEL_AUDIT_TOKEN: audit_token_t;
@@ -13320,7 +13320,7 @@ extern "C" {
     pub fn mach_msg_receive(arg1: *mut mach_msg_header_t) -> mach_msg_return_t;
     pub fn mach_msg_send(arg1: *mut mach_msg_header_t) -> mach_msg_return_t;
     pub fn mach_msg_server_once(
-        arg1: ::std::option::Option<
+        arg1: ::core::option::Option<
             extern "C" fn(arg1: *mut mach_msg_header_t, arg2: *mut mach_msg_header_t) -> boolean_t,
         >,
         arg2: mach_msg_size_t,
@@ -13328,7 +13328,7 @@ extern "C" {
         arg4: mach_msg_options_t,
     ) -> mach_msg_return_t;
     pub fn mach_msg_server(
-        arg1: ::std::option::Option<
+        arg1: ::core::option::Option<
             extern "C" fn(arg1: *mut mach_msg_header_t, arg2: *mut mach_msg_header_t) -> boolean_t,
         >,
         arg2: mach_msg_size_t,

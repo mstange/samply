@@ -8,6 +8,9 @@ license = "MIT OR Apache-2.0"
 [lib]
 crate_type = ["cdylib"]
 
+[profile.dev]
+panic = "abort"
+
 [profile.release]
 lto = true
 panic = 'abort'

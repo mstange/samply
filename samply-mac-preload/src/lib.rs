@@ -1,3 +1,13 @@
+#![no_main]
+#![no_std]
+
+use core::panic::PanicInfo;
+
+#[panic_handler]
+fn panic(_panic: &PanicInfo<'_>) -> ! {
+    unsafe { libc::abort() }
+}
+
 mod mach_ipc;
 mod mach_sys;
 
@@ -33,7 +43,7 @@ fn set_up_samply_connection() -> Option<()> {
     // Send our task to the parent. Then the parent can control us completely.
     let p = mach_task_self();
     let c = OsIpcChannel::RawPort(p);
-    let pid = std::process::id();
+    let pid = unsafe { libc::getpid() };
     let mut message_bytes = [0; 11];
     message_bytes[0..7].copy_from_slice(b"My task");
     message_bytes[7..11].copy_from_slice(&pid.to_le_bytes());
