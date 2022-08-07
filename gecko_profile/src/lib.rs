@@ -414,7 +414,7 @@ struct Lib {
     end_address: u64,
 }
 
-impl<'a> Serialize for Lib {
+impl Serialize for Lib {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let name = self.path.file_name().map(|f| f.to_string_lossy());
         let debug_name = self.debug_path.file_name().map(|f| f.to_string_lossy());

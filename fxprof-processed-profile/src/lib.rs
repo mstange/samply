@@ -910,7 +910,7 @@ struct Lib {
     code_id: Option<CodeId>,
 }
 
-impl<'a> Serialize for Lib {
+impl Serialize for Lib {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let breakpad_id = self.debug_id.breakpad().to_string();
         let code_id = self.code_id.as_ref().map(|cid| cid.to_string());
