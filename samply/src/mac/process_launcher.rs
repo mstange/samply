@@ -5,6 +5,7 @@ use std::mem;
 use std::process::{Child, Command};
 use std::time::Duration;
 
+use flate2::write::GzDecoder;
 pub use perfrecord_mach_ipc_rendezvous::{mach_port_t, MachError, OsIpcSender};
 use perfrecord_mach_ipc_rendezvous::{BlockingMode, OsIpcMultiShotServer, MACH_PORT_NULL};
 use tempfile::tempdir;
@@ -14,7 +15,8 @@ pub struct TaskAccepter {
     _temp_dir: tempfile::TempDir,
 }
 
-static PRELOAD_LIB_CONTENTS: &[u8] = include_bytes!("../../resources/libsamply_mac_preload.dylib");
+static PRELOAD_LIB_CONTENTS: &[u8] =
+    include_bytes!("../../resources/libsamply_mac_preload.dylib.gz");
 
 impl TaskAccepter {
     pub fn create_and_launch_root_task<I, S>(
@@ -34,11 +36,15 @@ impl TaskAccepter {
         // to a temporary directory.
         let dir = tempdir().expect("Couldn't create temporary directory for preload-lib");
         let preload_lib_path = dir.path().join("libsamply_mac_preload.dylib");
-        let mut file =
+        let file =
             File::create(&preload_lib_path).expect("Couldn't create libsamply_mac_preload.dylib");
-        file.write_all(PRELOAD_LIB_CONTENTS)
-            .expect("Couldn't write libsamply_mac_preload.dylib");
-        mem::drop(file);
+        let mut decoder = GzDecoder::new(file);
+        decoder
+            .write_all(PRELOAD_LIB_CONTENTS)
+            .expect("Couldn't write libsamply_mac_preload.dylib (error during write_all)");
+        decoder
+            .finish()
+            .expect("Couldn't write libsamply_mac_preload.dylib (error during finish)");
 
         // Take this process's environment variables and add DYLD_INSERT_LIBRARIES
         // and SAMPLY_BOOTSTRAP_SERVER_NAME.
