@@ -66,19 +66,13 @@ where
             let map = object_to_map(&elf_file, Some(&function_starts));
             return Ok(R::from_full_map(map));
         }
-        SymbolicationResultKind::SymbolsForAddresses {
-            addresses,
-            with_debug_info,
-        } => {
+        SymbolicationResultKind::SymbolsForAddresses(addresses) => {
             let symbolication_result = get_symbolication_result_for_addresses_from_object(
                 addresses,
                 &elf_file,
                 Some(&function_starts),
                 Some(&function_ends),
             );
-            if !with_debug_info {
-                return Ok(symbolication_result);
-            }
             (addresses, symbolication_result)
         }
     };

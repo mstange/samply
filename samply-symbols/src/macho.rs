@@ -145,7 +145,7 @@ where
             let map = object_to_map(macho_file, function_starts.as_deref());
             Ok(R::from_full_map(map))
         }
-        SymbolicationResultKind::SymbolsForAddresses { addresses, .. } => {
+        SymbolicationResultKind::SymbolsForAddresses(addresses) => {
             Ok(get_symbolication_result_for_addresses_from_object(
                 addresses,
                 macho_file,
@@ -179,10 +179,7 @@ where
         get_symbolication_result_from_macho_object(&macho_file, macho_data, query.clone())?;
 
     let addresses = match query.result_kind {
-        SymbolicationResultKind::SymbolsForAddresses {
-            with_debug_info: true,
-            addresses,
-        } => addresses,
+        SymbolicationResultKind::SymbolsForAddresses(addresses) => addresses,
         _ => return Ok(symbolication_result),
     };
 

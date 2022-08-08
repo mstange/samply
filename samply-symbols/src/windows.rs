@@ -94,7 +94,7 @@ where
             let map = object_to_map(&pe, function_starts.as_deref());
             R::from_full_map(map)
         }
-        SymbolicationResultKind::SymbolsForAddresses { addresses, .. } => {
+        SymbolicationResultKind::SymbolsForAddresses(addresses) => {
             get_symbolication_result_for_addresses_from_object(
                 addresses,
                 &pe,
@@ -150,14 +150,10 @@ where
         return Err(Error::UnmatchedDebugId(file_debug_id, debug_id));
     }
 
-    let srcsrv_stream = if query.result_kind.wants_debug_info_for_addresses() {
-        match pdb.named_stream(b"srcsrv") {
-            Ok(stream) => Some(stream),
-            Err(pdb::Error::StreamNameNotFound | pdb::Error::StreamNotFound(_)) => None,
-            Err(e) => return Err(Error::PdbError("pdb.named_stream(srcsrv)", e)),
-        }
-    } else {
-        None
+    let srcsrv_stream = match pdb.named_stream(b"srcsrv") {
+        Ok(stream) => Some(stream),
+        Err(pdb::Error::StreamNameNotFound | pdb::Error::StreamNotFound(_)) => None,
+        Err(e) => return Err(Error::PdbError("pdb.named_stream(srcsrv)", e)),
     };
 
     let context_data = pdb_addr2line::ContextPdbData::try_from_pdb(pdb)
@@ -180,10 +176,7 @@ where
             let symbolication_result = R::from_full_map(symbol_map);
             Ok(symbolication_result)
         }
-        SymbolicationResultKind::SymbolsForAddresses {
-            addresses,
-            with_debug_info,
-        } => {
+        SymbolicationResultKind::SymbolsForAddresses(addresses) => {
             let path_mapper = match &srcsrv_stream {
                 Some(srcsrv_stream) => Some(SrcSrvPathMapper::new(srcsrv::SrcSrvStream::parse(
                     srcsrv_stream.as_slice(),
@@ -195,51 +188,36 @@ where
 
             let mut symbolication_result = R::for_addresses(addresses);
             for &address in addresses {
-                if with_debug_info {
-                    if let Some(function_frames) = context.find_frames(address)? {
-                        let symbol_address = function_frames.start_rva;
-                        let symbol_name = match &function_frames.frames.last().unwrap().function {
-                            Some(name) => demangle::demangle_any(name),
-                            None => "unknown".to_string(),
-                        };
-                        let function_size = function_frames
-                            .end_rva
-                            .map(|end_rva| end_rva - function_frames.start_rva);
-                        symbolication_result.add_address_symbol(
-                            address,
-                            symbol_address,
-                            symbol_name,
-                            function_size,
-                        );
-                        if has_debug_info(&function_frames) {
-                            let frames: Vec<_> = function_frames
-                                .frames
-                                .into_iter()
-                                .map(|frame| InlineStackFrame {
-                                    function: frame.function,
-                                    file_path: frame.file.map(&mut map_path),
-                                    line_number: frame.line,
-                                })
-                                .collect();
-                            if !frames.is_empty() {
-                                symbolication_result
-                                    .add_address_debug_info(address, AddressDebugInfo { frames });
-                            }
-                        }
-                    }
-                } else if let Some(func) = context.find_function(address)? {
-                    let symbol_address = func.start_rva;
-                    let symbol_name = match &func.name {
+                if let Some(function_frames) = context.find_frames(address)? {
+                    let symbol_address = function_frames.start_rva;
+                    let symbol_name = match &function_frames.frames.last().unwrap().function {
                         Some(name) => demangle::demangle_any(name),
                         None => "unknown".to_string(),
                     };
-                    let function_size = func.end_rva.map(|end_rva| end_rva - func.start_rva);
+                    let function_size = function_frames
+                        .end_rva
+                        .map(|end_rva| end_rva - function_frames.start_rva);
                     symbolication_result.add_address_symbol(
                         address,
                         symbol_address,
                         symbol_name,
                         function_size,
                     );
+                    if has_debug_info(&function_frames) {
+                        let frames: Vec<_> = function_frames
+                            .frames
+                            .into_iter()
+                            .map(|frame| InlineStackFrame {
+                                function: frame.function,
+                                file_path: frame.file.map(&mut map_path),
+                                line_number: frame.line,
+                            })
+                            .collect();
+                        if !frames.is_empty() {
+                            symbolication_result
+                                .add_address_debug_info(address, AddressDebugInfo { frames });
+                        }
+                    }
                 }
             }
 

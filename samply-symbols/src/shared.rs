@@ -290,21 +290,7 @@ impl FilePath {
 #[derive(Debug, Clone, Copy)]
 pub enum SymbolicationResultKind<'a> {
     AllSymbols,
-    SymbolsForAddresses {
-        addresses: &'a [u32],
-        with_debug_info: bool,
-    },
-}
-
-impl<'a> SymbolicationResultKind<'a> {
-    pub fn wants_debug_info_for_addresses(&self) -> bool {
-        match self {
-            Self::AllSymbols => false,
-            Self::SymbolsForAddresses {
-                with_debug_info, ..
-            } => *with_debug_info,
-        }
-    }
+    SymbolsForAddresses(&'a [u32]),
 }
 
 /// A trait which allows many "get_symbolication_result" functions to share code between

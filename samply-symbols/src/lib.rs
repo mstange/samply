@@ -61,10 +61,9 @@
 //!            SymbolicationQuery {
 //!                debug_name: "firefox.pdb",
 //!                debug_id: DebugId::from_breakpad("AA152DEB2D9B76084C4C44205044422E1").unwrap(),
-//!                result_kind: SymbolicationResultKind::SymbolsForAddresses {
-//!                    addresses: &[204776, 129423, 244290, 244219],
-//!                    with_debug_info: true,
-//!                },
+//!                result_kind: SymbolicationResultKind::SymbolsForAddresses(
+//!                    &[204776, 129423, 244290, 244219]
+//!                ),
 //!            },
 //!            &helper,
 //!        ).await;
