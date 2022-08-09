@@ -179,57 +179,6 @@ fn win64_local_v5_snapshot_1() {
 }
 
 #[test]
-fn win64_ci_v5_legacy_snapshot_1() {
-    compare_snapshot(
-        "/symbolicate/v5-legacy",
-        r#"{
-                "memoryMap": [
-                  [
-                    "firefox.pdb",
-                    "AA152DEB2D9B76084C4C44205044422E1"
-                  ]
-                ],
-                "stacks": [
-                  [
-                    [0, 204776],
-                    [0, 129423],
-                    [0, 244290],
-                    [0, 244219]
-                  ]
-                ]
-              }"#,
-        fixtures_dir().join("win64-ci"),
-        "api-v5-legacy-win64-ci-1.txt",
-        "output-api-v5-legacy-win64-ci-1.txt",
-    );
-}
-
-#[test]
-fn win64_ci_v5_legacy_snapshot_2() {
-    compare_snapshot(
-        "/symbolicate/v5-legacy",
-        r#"{
-                "memoryMap": [
-                  [
-                    "mozglue.pdb",
-                    "63C609072D3499F64C4C44205044422E1"
-                  ]
-                ],
-                "stacks": [
-                  [
-                    [0, 244290],
-                    [0, 244219],
-                    [0, 237799]
-                  ]
-                ]
-              }"#,
-        fixtures_dir().join("win64-ci"),
-        "api-v5-legacy-win64-ci-2.txt",
-        "output-api-v5-legacy-win64-ci-2.txt",
-    );
-}
-
-#[test]
 fn win64_ci_v5_snapshot() {
     compare_snapshot(
         "/symbolicate/v5",
@@ -259,31 +208,6 @@ fn win64_ci_v5_snapshot() {
         fixtures_dir().join("win64-ci"),
         "api-v5-win64-ci.txt",
         "output-api-v5-win64-ci.txt",
-    );
-}
-
-#[test]
-fn android32_v5_legacy_local() {
-    compare_snapshot(
-        "/symbolicate/v5-legacy",
-        r#"{
-                "memoryMap": [
-                  [
-                    "libmozglue.so",
-                    "0CE47B7C29F27CED55C41233B93EBA450"
-                  ]
-                ],
-                "stacks": [
-                  [
-                    [0, 247618],
-                    [0, 685896],
-                    [0, 686768]
-                  ]
-                ]
-              }"#,
-        fixtures_dir().join("android32-local"),
-        "api-v5-legacy-android32-local.txt",
-        "output-api-v5-legacy-android32-local.txt",
     );
 }
 

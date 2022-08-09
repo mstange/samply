@@ -105,10 +105,7 @@ async fn query_api<'h>(
         SymbolicationQuery {
             debug_name,
             debug_id: to_debug_id(debug_id)?,
-            result_kind: SymbolicationResultKind::SymbolsForAddresses {
-                addresses: &[*module_offset],
-                with_debug_info: true,
-            },
+            result_kind: SymbolicationResultKind::SymbolsForAddresses(&[*module_offset]),
         },
         helper,
     )

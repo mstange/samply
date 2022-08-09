@@ -14,9 +14,8 @@ use serde_json::json;
 pub async fn query_api_json<'h>(
     request_json: &str,
     helper: &'h impl FileAndPathHelper<'h>,
-    with_debug_info: bool,
 ) -> String {
-    match query_api_fallible_json(request_json, helper, with_debug_info).await {
+    match query_api_fallible_json(request_json, helper).await {
         Ok(response_json) => response_json,
         Err(err) => json!({ "error": err.to_string() }).to_string(),
     }
@@ -25,21 +24,18 @@ pub async fn query_api_json<'h>(
 pub async fn query_api_fallible_json<'h>(
     request_json: &str,
     helper: &'h impl FileAndPathHelper<'h>,
-    with_debug_info: bool,
 ) -> Result<String, Error> {
     let request: request_json::Request = serde_json::from_str(request_json)?;
-    let response = query_api(&request, helper, with_debug_info).await?;
+    let response = query_api(&request, helper).await?;
     Ok(serde_json::to_string(&response)?)
 }
 
 pub async fn query_api<'h>(
     request: &request_json::Request,
     helper: &'h impl FileAndPathHelper<'h>,
-    with_debug_info: bool,
 ) -> Result<response_json::Response, Error> {
     let requested_addresses = gather_requested_addresses(request)?;
-    let symbolicated_addresses =
-        symbolicate_requested_addresses(requested_addresses, helper, with_debug_info).await;
+    let symbolicated_addresses = symbolicate_requested_addresses(requested_addresses, helper).await;
     Ok(create_response(request, symbolicated_addresses))
 }
 
@@ -73,7 +69,6 @@ fn gather_requested_addresses(
 async fn symbolicate_requested_addresses<'h>(
     requested_addresses: HashMap<Lib, Vec<u32>>,
     helper: &'h impl FileAndPathHelper<'h>,
-    with_debug_info: bool,
 ) -> HashMap<Lib, Result<LookedUpAddresses, samply_symbols::Error>> {
     let mut symbolicated_addresses = HashMap::new();
     for (lib, mut addresses) in requested_addresses.into_iter() {
@@ -85,10 +80,7 @@ async fn symbolicate_requested_addresses<'h>(
                     SymbolicationQuery {
                         debug_name: &lib.debug_name,
                         debug_id,
-                        result_kind: SymbolicationResultKind::SymbolsForAddresses {
-                            addresses: &addresses,
-                            with_debug_info,
-                        },
+                        result_kind: SymbolicationResultKind::SymbolsForAddresses(&addresses),
                     },
                     helper,
                 )

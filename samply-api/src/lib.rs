@@ -103,8 +103,6 @@ pub(crate) fn to_debug_id(breakpad_id: &str) -> Result<DebugId, samply_symbols::
 /// The following "URLs" are supported:
 ///  - `/symbolicate/v5`: This API is documented at <https://tecken.readthedocs.io/en/latest/symbolication.html>.
 ///    The returned data has two extra fields: inlines (per address) and module_errors (per job).
-///  - `/symbolicate/v5-legacy`: Like v5, but lacking any data that comes from debug information,
-///    i.e. files, lines and inlines. This is faster.
 ///  - `/source/v1`: Experimental API. Symbolicates an address and lets you read one of the files in the
 ///    symbol information for that address.
 pub async fn query_api<'h>(
@@ -112,10 +110,8 @@ pub async fn query_api<'h>(
     request_json_data: &str,
     helper: &'h impl samply_symbols::FileAndPathHelper<'h>,
 ) -> String {
-    if request_url == "/symbolicate/v5-legacy" {
-        symbolicate::query_api_json(request_json_data, helper, false).await
-    } else if request_url == "/symbolicate/v5" {
-        symbolicate::query_api_json(request_json_data, helper, true).await
+    if request_url == "/symbolicate/v5" {
+        symbolicate::query_api_json(request_json_data, helper).await
     } else if request_url == "/source/v1" {
         source::query_api_json(request_json_data, helper).await
     } else {

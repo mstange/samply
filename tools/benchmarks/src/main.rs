@@ -64,15 +64,6 @@ fn main() -> anyhow::Result<()> {
         },
         Timing {
             platform: "win64",
-            action: "query-api v5-legacy",
-            duration: run_api_query_benchmark(
-                "/symbolicate/v5-legacy",
-                &fixtures_dir().join("requests").join("win64-ci-xul.json"),
-                big_fixtures_dir().join("win64-ci"),
-            )?,
-        },
-        Timing {
-            platform: "win64",
             action: "query-api v5",
             duration: run_api_query_benchmark(
                 "/symbolicate/v5",
@@ -88,15 +79,6 @@ fn main() -> anyhow::Result<()> {
                 Some("518A025063D22EEA4C4C44205044422E1".into()),
                 big_fixtures_dir().join("win64-local"),
             ),
-        },
-        Timing {
-            platform: "win64-local",
-            action: "query-api v5-legacy",
-            duration: run_api_query_benchmark(
-                "/symbolicate/v5-legacy",
-                &fixtures_dir().join("requests").join("win64-local-xul.json"),
-                big_fixtures_dir().join("win64-local"),
-            )?,
         },
         Timing {
             platform: "win64-local",
@@ -119,15 +101,6 @@ fn main() -> anyhow::Result<()> {
         },
         Timing {
             platform: "macos",
-            action: "query-api v5-legacy",
-            duration: run_api_query_benchmark(
-                "/symbolicate/v5-legacy",
-                &fixtures_dir().join("requests").join("macos-ci-xul.json"),
-                big_fixtures_dir().join("macos-ci"),
-            )?,
-        },
-        Timing {
-            platform: "macos",
             action: "query-api v5",
             duration: run_api_query_benchmark(
                 "/symbolicate/v5",
@@ -144,15 +117,6 @@ fn main() -> anyhow::Result<()> {
                 Some("D2139EE3190B37028A98D55519AA0B870".into()),
                 big_fixtures_dir().join("macos-local"),
             ),
-        },
-        Timing {
-            platform: "macos-local",
-            action: "query-api v5-legacy",
-            duration: run_api_query_benchmark(
-                "/symbolicate/v5-legacy",
-                &fixtures_dir().join("requests").join("macos-local-xul.json"),
-                big_fixtures_dir().join("macos-local"),
-            )?,
         },
         Timing {
             platform: "macos-local",
@@ -175,15 +139,6 @@ fn main() -> anyhow::Result<()> {
         },
         Timing {
             platform: "linux64",
-            action: "query-api v5-legacy",
-            duration: run_api_query_benchmark(
-                "/symbolicate/v5-legacy",
-                &fixtures_dir().join("requests").join("linux64-ci-xul.json"),
-                big_fixtures_dir().join("linux64-ci"),
-            )?,
-        },
-        Timing {
-            platform: "linux64",
             action: "query-api v5",
             duration: run_api_query_benchmark(
                 "/symbolicate/v5",
@@ -200,17 +155,6 @@ fn main() -> anyhow::Result<()> {
                 Some("CA89B171348FDEF3A6A365AC6CDF07BF0".into()),
                 big_fixtures_dir().join("android32-ci"),
             ),
-        },
-        Timing {
-            platform: "android32",
-            action: "query-api v5-legacy",
-            duration: run_api_query_benchmark(
-                "/symbolicate/v5-legacy",
-                &fixtures_dir()
-                    .join("requests")
-                    .join("android32-ci-xul.json"),
-                big_fixtures_dir().join("android32-ci"),
-            )?,
         },
         Timing {
             platform: "android32",
@@ -232,17 +176,6 @@ fn main() -> anyhow::Result<()> {
                 Some("B560E04259EBFBB96D6D6BB5D69F0DCE0".into()),
                 big_fixtures_dir().join("android64-ci"),
             ),
-        },
-        Timing {
-            platform: "android64",
-            action: "query-api v5-legacy",
-            duration: run_api_query_benchmark(
-                "/symbolicate/v5-legacy",
-                &fixtures_dir()
-                    .join("requests")
-                    .join("android64-ci-xul.json"),
-                big_fixtures_dir().join("android64-ci"),
-            )?,
         },
         Timing {
             platform: "android64",
