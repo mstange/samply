@@ -100,13 +100,21 @@ fn run_profiler(
                 if let Ok(perf_event_paranoid) =
                     read_string_lossy("/proc/sys/kernel/perf_event_paranoid")
                 {
-                    if perf_event_paranoid.trim() == "2" {
-                        eprintln!();
-                        eprintln!("'/proc/sys/kernel/perf_event_paranoid' is set to 2, which is probably why perf_event_open failed.");
-                        eprintln!("You can execute the following command and then try again:");
-                        eprintln!("    echo '1' | sudo tee /proc/sys/kernel/perf_event_paranoid");
-                        eprintln!();
-                        eprintln!("This will allow non-root processes to observe perf events.");
+                    if let Ok(level) = perf_event_paranoid.trim().parse::<u32>() {
+                        if level > 1 {
+                            eprintln!();
+                            eprintln!(
+                                "'/proc/sys/kernel/perf_event_paranoid' is currently set to {}.",
+                                level
+                            );
+                            eprintln!("In order for samply to work with a non-root user, this level needs");
+                            eprintln!("to be set to 1 or lower.");
+                            eprintln!("You can execute the following command and then try again:");
+                            eprintln!(
+                                "    echo '1' | sudo tee /proc/sys/kernel/perf_event_paranoid"
+                            );
+                            eprintln!();
+                        }
                     }
                 }
             }
