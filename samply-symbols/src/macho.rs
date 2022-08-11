@@ -5,9 +5,8 @@ use crate::dwarf::{
 use crate::error::Error;
 use crate::path_mapper::PathMapper;
 use crate::shared::{
-    get_symbolication_result_for_addresses_from_object, object_to_map, BasePath, FileAndPathHelper,
-    FileContents, FileContentsWrapper, FileLocation, RangeReadRef, SymbolicationQuery,
-    SymbolicationResult, SymbolicationResultKind,
+    BasePath, FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation, RangeReadRef,
+    SymbolMap, SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
 };
 use debugid::DebugId;
 use macho_unwind_info::UnwindInfo;
@@ -140,20 +139,28 @@ where
         }
     }
 
-    match query.result_kind {
-        SymbolicationResultKind::AllSymbols => {
-            let map = object_to_map(macho_file, function_starts.as_deref());
-            Ok(R::from_full_map(map))
-        }
-        SymbolicationResultKind::SymbolsForAddresses(addresses) => {
-            Ok(get_symbolication_result_for_addresses_from_object(
-                addresses,
-                macho_file,
-                function_starts.as_deref(),
-                None,
-            ))
+    let symbol_map = SymbolMap::new(macho_file, function_starts.as_deref(), None);
+
+    let addresses = match query.result_kind {
+        SymbolicationResultKind::AllSymbols => return Ok(R::from_full_map(symbol_map.to_map())),
+        SymbolicationResultKind::SymbolsForAddresses(addresses) => addresses,
+    };
+
+    let mut symbolication_result = R::for_addresses(addresses);
+    symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
+
+    for &address in addresses {
+        if let Some(symbol_info) = symbol_map.lookup_symbol(address) {
+            symbolication_result.add_address_symbol(
+                address,
+                symbol_info.address,
+                symbol_info.name,
+                symbol_info.size,
+            );
         }
     }
+
+    Ok(symbolication_result)
 }
 
 pub async fn get_symbolication_result<'a, 'b, 'h, R>(

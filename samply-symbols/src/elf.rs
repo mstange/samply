@@ -3,21 +3,22 @@ use crate::dwarf::{collect_dwarf_address_debug_data, make_address_pairs_for_root
 use crate::error::Error;
 use crate::path_mapper::PathMapper;
 use crate::shared::{
-    get_symbolication_result_for_addresses_from_object, object_to_map, BasePath, FileContents,
-    FileContentsWrapper, SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
+    BasePath, FileContents, FileContentsWrapper, SymbolMap, SymbolicationQuery,
+    SymbolicationResult, SymbolicationResultKind,
 };
 use gimli::{CieOrFde, EhFrame, UnwindSection};
 use object::{File, FileKind, Object, ObjectSection, ReadRef};
 use std::io::Cursor;
 
-pub fn get_symbolication_result<R>(
+pub fn get_symbolication_result<R, T>(
     base_path: &BasePath,
     file_kind: FileKind,
-    file_contents: FileContentsWrapper<impl FileContents>,
+    file_contents: FileContentsWrapper<T>,
     query: SymbolicationQuery,
 ) -> Result<R, Error>
 where
     R: SymbolicationResult,
+    T: FileContents,
 {
     let elf_file =
         File::parse(&file_contents).map_err(|e| Error::ObjectParseError(file_kind, e))?;
@@ -51,31 +52,38 @@ where
     get_symbolication_result_impl(elf_file, base_path, &file_contents, query)
 }
 
-pub fn get_symbolication_result_impl<'data, R>(
+pub fn get_symbolication_result_impl<'data, R, T>(
     elf_file: File<'data, impl ReadRef<'data>>,
     base_path: &BasePath,
-    file_contents: &'data FileContentsWrapper<impl FileContents>,
+    file_contents: &'data FileContentsWrapper<T>,
     query: SymbolicationQuery,
 ) -> Result<R, Error>
 where
     R: SymbolicationResult,
+    T: FileContents,
 {
     let (function_starts, function_ends) = function_start_and_end_addresses(&elf_file);
-    let (addresses, mut symbolication_result) = match query.result_kind {
+    let symbol_map = SymbolMap::new(&elf_file, Some(&function_starts), Some(&function_ends));
+    let addresses = match query.result_kind {
         SymbolicationResultKind::AllSymbols => {
-            let map = object_to_map(&elf_file, Some(&function_starts));
-            return Ok(R::from_full_map(map));
+            return Ok(R::from_full_map(symbol_map.to_map()));
         }
-        SymbolicationResultKind::SymbolsForAddresses(addresses) => {
-            let symbolication_result = get_symbolication_result_for_addresses_from_object(
-                addresses,
-                &elf_file,
-                Some(&function_starts),
-                Some(&function_ends),
-            );
-            (addresses, symbolication_result)
-        }
+        SymbolicationResultKind::SymbolsForAddresses(addresses) => addresses,
     };
+
+    let mut symbolication_result = R::for_addresses(addresses);
+    symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
+
+    for &address in addresses {
+        if let Some(symbol_info) = symbol_map.lookup_symbol(address) {
+            symbolication_result.add_address_symbol(
+                address,
+                symbol_info.address,
+                symbol_info.name,
+                symbol_info.size,
+            );
+        }
+    }
 
     let addresses: Vec<_> = make_address_pairs_for_root_object(addresses, &elf_file);
     let mut path_mapper = PathMapper::new(base_path);

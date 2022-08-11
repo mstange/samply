@@ -23,10 +23,7 @@ pub struct CompactSymbolTable {
 }
 
 impl SymbolicationResult for CompactSymbolTable {
-    fn from_full_map<T: Deref<Target = str>>(mut entries: Vec<(u32, T)>) -> Self {
-        entries.reverse();
-        entries.sort_by_key(|(address, _)| *address);
-        entries.dedup_by_key(|(address, _)| *address);
+    fn from_full_map<T: Deref<Target = str>>(entries: Vec<(u32, T)>) -> Self {
         let total_str_len = entries.iter().map(|(_, s)| s.len()).sum();
         let mut addr = Vec::with_capacity(entries.len());
         let mut index = Vec::with_capacity(entries.len() + 1);

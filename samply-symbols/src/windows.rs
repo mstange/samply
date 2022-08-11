@@ -3,9 +3,8 @@ use crate::demangle;
 use crate::error::{Context, Error};
 use crate::path_mapper::{ExtraPathMapper, PathMapper};
 use crate::shared::{
-    get_symbolication_result_for_addresses_from_object, object_to_map, AddressDebugInfo, BasePath,
-    FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation, InlineStackFrame,
-    SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
+    AddressDebugInfo, BasePath, FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation,
+    InlineStackFrame, SymbolMap, SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
 };
 use debugid::DebugId;
 use pdb::PDB;
@@ -88,21 +87,28 @@ where
         function_ends = Some(e);
     }
 
-    let r = match query.result_kind {
-        SymbolicationResultKind::AllSymbols => {
-            let map = object_to_map(&pe, function_starts.as_deref());
-            R::from_full_map(map)
-        }
-        SymbolicationResultKind::SymbolsForAddresses(addresses) => {
-            get_symbolication_result_for_addresses_from_object(
-                addresses,
-                &pe,
-                function_starts.as_deref(),
-                function_ends.as_deref(),
-            )
-        }
+    let symbol_map = SymbolMap::new(&pe, function_starts.as_deref(), function_ends.as_deref());
+
+    let addresses = match query.result_kind {
+        SymbolicationResultKind::AllSymbols => return Ok(R::from_full_map(symbol_map.to_map())),
+        SymbolicationResultKind::SymbolsForAddresses(addresses) => addresses,
     };
-    Ok(r)
+
+    let mut symbolication_result = R::for_addresses(addresses);
+    symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
+
+    for &address in addresses {
+        if let Some(symbol_info) = symbol_map.lookup_symbol(address) {
+            symbolication_result.add_address_symbol(
+                address,
+                symbol_info.address,
+                symbol_info.name,
+                symbol_info.size,
+            );
+        }
+    }
+
+    Ok(symbolication_result)
 }
 
 async fn try_get_symbolication_result_from_pdb_location<'h, R>(

@@ -7,6 +7,7 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::slice;
 use std::{marker::PhantomData, ops::Deref};
 
 #[cfg(feature = "partial_read_stats")]
@@ -407,59 +408,6 @@ pub fn relative_address_base<'data: 'file, 'file>(
     object_file.relative_address_base()
 }
 
-/// Return a Vec that contains address -> symbol name entries.
-/// The address is relative to the address of the __TEXT segment (if present).
-/// We discard the symbol "size"; the address is where the symbol starts.
-pub fn object_to_map<'a: 'b, 'b, T>(
-    object_file: &'b T,
-    function_start_addresses: Option<&[u32]>,
-) -> Vec<(u32, String)>
-where
-    T: object::Object<'a, 'b>,
-{
-    use object::ObjectSymbol;
-    let image_base = relative_address_base(object_file);
-
-    let mut map: Vec<(u32, String)> = Vec::new();
-
-    if let Some(function_start_addresses) = function_start_addresses {
-        // Begin with fallback function start addresses, with synthesized symbols of the form fun_abcdef.
-        // We add these first so that they'll act as the ultimate fallback.
-        // These synhesized symbols make it so that, for libraries which only contain symbols
-        // for a small subset of their functions, we will show placeholder function names
-        // rather than plain incorrect function names.
-        map.extend(
-            function_start_addresses
-                .iter()
-                .map(|address| (*address, format!("fun_{:x}", address))),
-        );
-    }
-
-    // Add any symbols found in this library.
-    map.extend(
-        object_file
-            .dynamic_symbols()
-            .chain(object_file.symbols())
-            .filter(|symbol| symbol.kind() == SymbolKind::Text)
-            .filter_map(|symbol| {
-                symbol
-                    .name()
-                    .ok()
-                    .map(|name| ((symbol.address() - image_base) as u32, name.to_string()))
-            }),
-    );
-
-    // For PE files, add the exports.
-    if let Ok(exports) = object_file.exports() {
-        for export in exports {
-            if let Ok(name) = std::str::from_utf8(export.name()) {
-                map.push(((export.address() - image_base) as u32, name.to_string()));
-            }
-        }
-    }
-    map
-}
-
 enum FullSymbolListEntry<'a, Symbol: object::ObjectSymbol<'a>> {
     Synthesized,
     Symbol(Symbol),
@@ -468,145 +416,201 @@ enum FullSymbolListEntry<'a, Symbol: object::ObjectSymbol<'a>> {
 }
 
 impl<'a, Symbol: object::ObjectSymbol<'a>> FullSymbolListEntry<'a, Symbol> {
-    fn name(&self, addr: u32) -> Result<Cow<str>, ()> {
+    fn name(&self, addr: u32) -> Result<Cow<'a, str>, ()> {
         match self {
             FullSymbolListEntry::Synthesized => Ok(format!("fun_{:x}", addr).into()),
-            FullSymbolListEntry::Symbol(symbol) => match symbol.name() {
-                Ok(name) => Ok(Cow::Borrowed(name)),
+            FullSymbolListEntry::Symbol(symbol) => match symbol.name_bytes() {
+                Ok(name) => Ok(String::from_utf8_lossy(name)),
                 Err(_) => Err(()),
             },
-            FullSymbolListEntry::Export(export) => match std::str::from_utf8(export.name()) {
-                Ok(name) => Ok(Cow::Borrowed(name)),
-                Err(_) => Err(()),
-            },
+            FullSymbolListEntry::Export(export) => Ok(String::from_utf8_lossy(export.name())),
             FullSymbolListEntry::EndAddress => Err(()),
         }
     }
 }
 
-/// Return a Vec that contains address -> symbol name entries.
-/// The address is relative to the address of the __TEXT segment (if present).
-/// We discard the symbol "size"; the address is where the symbol starts.
-pub fn get_symbolication_result_for_addresses_from_object<'a: 'b, 'b, T, R>(
-    addresses: &[u32],
-    object_file: &'b T,
-    function_start_addresses: Option<&[u32]>,
-    function_end_addresses: Option<&[u32]>,
-) -> R
-where
-    T: object::Object<'a, 'b>,
-    R: SymbolicationResult,
-{
-    let mut entries: Vec<_> = Vec::new();
+pub struct SymbolMap<'data, Symbol: object::ObjectSymbol<'data>> {
+    entries: Vec<(u32, FullSymbolListEntry<'data, Symbol>)>,
+}
 
-    let base_address = relative_address_base(object_file);
+impl<'data, Symbol: object::ObjectSymbol<'data>> SymbolMap<'data, Symbol> {
+    pub fn new<'file, T>(
+        object_file: &'file T,
+        function_start_addresses: Option<&[u32]>,
+        function_end_addresses: Option<&[u32]>,
+    ) -> Self
+    where
+        'data: 'file,
+        T: object::Object<'data, 'file, Symbol = Symbol>,
+    {
+        let mut entries: Vec<_> = Vec::new();
 
-    // Add entries in the order "best to worst".
+        let base_address = relative_address_base(object_file);
 
-    // 1. Normal symbols
-    // 2. Dynamic symbols (only used by ELF files, I think)
-    use object::{ObjectSection, ObjectSymbol};
-    entries.extend(
-        object_file
-            .symbols()
-            .chain(object_file.dynamic_symbols())
-            .filter(|symbol| symbol.kind() == SymbolKind::Text)
-            .map(|symbol| {
-                (
-                    (symbol.address() - base_address) as u32,
-                    FullSymbolListEntry::Symbol(symbol),
-                )
-            }),
-    );
+        // Add entries in the order "best to worst".
 
-    // 3. Exports (only used by exe / dll objects)
-    if let Ok(exports) = object_file.exports() {
-        for export in exports {
-            entries.push((
-                (export.address() - base_address) as u32,
-                FullSymbolListEntry::Export(export),
-            ));
+        // 1. Normal symbols
+        // 2. Dynamic symbols (only used by ELF files, I think)
+        use object::ObjectSection;
+        entries.extend(
+            object_file
+                .symbols()
+                .chain(object_file.dynamic_symbols())
+                .filter(|symbol| symbol.kind() == SymbolKind::Text)
+                .map(|symbol| {
+                    (
+                        (symbol.address() - base_address) as u32,
+                        FullSymbolListEntry::Symbol(symbol),
+                    )
+                }),
+        );
+
+        // 3. Exports (only used by exe / dll objects)
+        if let Ok(exports) = object_file.exports() {
+            for export in exports {
+                entries.push((
+                    (export.address() - base_address) as u32,
+                    FullSymbolListEntry::Export(export),
+                ));
+            }
         }
-    }
 
-    // 4. Placeholder symbols based on function start addresses
-    if let Some(function_start_addresses) = function_start_addresses {
-        // Use function start addresses with synthesized symbols of the form fun_abcdef
-        // as the ultimate fallback.
-        // These synhesized symbols make it so that, for libraries which only contain symbols
-        // for a small subset of their functions, we will show placeholder function names
-        // rather than plain incorrect function names.
+        // 4. Placeholder symbols based on function start addresses
+        if let Some(function_start_addresses) = function_start_addresses {
+            // Use function start addresses with synthesized symbols of the form fun_abcdef
+            // as the ultimate fallback.
+            // These synhesized symbols make it so that, for libraries which only contain symbols
+            // for a small subset of their functions, we will show placeholder function names
+            // rather than plain incorrect function names.
+            entries.extend(
+                function_start_addresses
+                    .iter()
+                    .map(|address| (*address, FullSymbolListEntry::Synthesized)),
+            );
+        }
+
+        // 5. End addresses from text section ends
+        // These entries serve to "terminate" the last function of each section,
+        // so that addresses in the following section are not considered
+        // to be part of the last function of that previous section.
         entries.extend(
-            function_start_addresses
-                .iter()
-                .map(|address| (*address, FullSymbolListEntry::Synthesized)),
+            object_file
+                .sections()
+                .filter(|s| s.kind() == SectionKind::Text)
+                .filter_map(|section| {
+                    let vma_end_address = section.address().checked_add(section.size())?;
+                    let end_address = vma_end_address.checked_sub(base_address)?;
+                    let end_address = u32::try_from(end_address).ok()?;
+                    Some((end_address, FullSymbolListEntry::EndAddress))
+                }),
         );
+
+        // 6. End addresses for known functions ends
+        // These addresses serve to "terminate" functions from function_start_addresses.
+        // They come from .eh_frame or .pdata info, which has the function size.
+        if let Some(function_end_addresses) = function_end_addresses {
+            entries.extend(
+                function_end_addresses
+                    .iter()
+                    .map(|address| (*address, FullSymbolListEntry::EndAddress)),
+            );
+        }
+
+        // Done.
+        // Now that all entries are added, sort and de-duplicate so that we only
+        // have one entry per address.
+        // If multiple entries for the same address are present, only the first
+        // entry for that address is kept. (That's also why we use a stable sort
+        // here.)
+        // We have added entries in the order best to worst, so we keep the "best"
+        // symbol for each address.
+        entries.sort_by_key(|(address, _)| *address);
+        entries.dedup_by_key(|(address, _)| *address);
+
+        Self { entries }
     }
 
-    // 5. End addresses from text section ends
-    // These entries serve to "terminate" the last function of each section,
-    // so that addresses in the following section are not considered
-    // to be part of the last function of that previous section.
-    entries.extend(
-        object_file
-            .sections()
-            .filter(|s| s.kind() == SectionKind::Text)
-            .filter_map(|section| {
-                let vma_end_address = section.address().checked_add(section.size())?;
-                let end_address = vma_end_address.checked_sub(base_address)?;
-                let end_address = u32::try_from(end_address).ok()?;
-                Some((end_address, FullSymbolListEntry::EndAddress))
-            }),
-    );
-
-    // 6. End addresses for known functions ends
-    // These addresses serve to "terminate" functions from function_start_addresses.
-    // They come from .eh_frame or .pdata info, which has the function size.
-    if let Some(function_end_addresses) = function_end_addresses {
-        entries.extend(
-            function_end_addresses
-                .iter()
-                .map(|address| (*address, FullSymbolListEntry::EndAddress)),
-        );
+    pub fn symbol_count(&self) -> usize {
+        self.entries
+            .iter()
+            .filter(|&(_, entry)| {
+                matches!(
+                    entry,
+                    FullSymbolListEntry::Symbol(_) | FullSymbolListEntry::Export(_)
+                )
+            })
+            .count()
     }
 
-    // Done.
-    // Now that all entries are added, sort and de-duplicate so that we only
-    // have one entry per address.
-    // If multiple entries for the same address are present, only the first
-    // entry for that address is kept. (That's also why we use a stable sort
-    // here.)
-    // We have added entries in the order best to worst, so we keep the "best"
-    // symbol for each address.
-    entries.sort_by_key(|(address, _)| *address);
-    entries.dedup_by_key(|(address, _)| *address);
-
-    let mut symbolication_result = R::for_addresses(addresses);
-    symbolication_result.set_total_symbol_count(entries.len() as u32);
-
-    for &address in addresses {
-        let index = match entries.binary_search_by_key(&address, |&(addr, _)| addr) {
-            Err(0) => continue,
+    pub fn lookup_symbol(&self, address: u32) -> Option<SymbolInfo> {
+        let index = match self
+            .entries
+            .binary_search_by_key(&address, |&(addr, _)| addr)
+        {
+            Err(0) => return None,
             Ok(i) => i,
             Err(i) => i - 1,
         };
-        let (start_addr, entry) = &entries[index];
-        let next_entry = entries.get(index + 1);
-        // Add the symbol.
+        let (start_addr, entry) = &self.entries[index];
+        let next_entry = self.entries.get(index + 1);
         // If the found entry is an EndAddress entry, this means that `address` falls
         // in the dead space between known functions, and we consider it to be not found.
+        // In that case, entry.name returns Err().
         if let (Ok(name), Some((end_addr, _))) = (entry.name(*start_addr), next_entry) {
             let function_size = end_addr - *start_addr;
             let name = demangle::demangle_any(&name);
-            symbolication_result.add_address_symbol(
-                address,
-                *start_addr,
+            Some(SymbolInfo {
+                address: *start_addr,
+                size: Some(function_size),
                 name,
-                Some(function_size),
-            );
+            })
+        } else {
+            None
         }
     }
-    symbolication_result
+
+    pub fn iter_symbols(&self) -> SymbolMapIter<'data, '_, Symbol> {
+        SymbolMapIter {
+            inner: self.entries.iter(),
+        }
+    }
+
+    pub fn to_map(&self) -> Vec<(u32, String)> {
+        self.iter_symbols()
+            .map(|(address, name)| (address, name.to_string()))
+            .collect()
+    }
+}
+
+pub struct SymbolMapIter<'data, 'map, Symbol: object::ObjectSymbol<'data>> {
+    inner: slice::Iter<'map, (u32, FullSymbolListEntry<'data, Symbol>)>,
+}
+
+impl<'data, 'map, Symbol: object::ObjectSymbol<'data>> Iterator
+    for SymbolMapIter<'data, 'map, Symbol>
+{
+    type Item = (u32, Cow<'data, str>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let &(address, ref symbol) = self.inner.next()?;
+            let name = match symbol.name(address) {
+                Ok(name) => name,
+                Err(_) => continue,
+            };
+            return Some((address, name));
+        }
+    }
+}
+
+/// The symbol for a function.
+pub struct SymbolInfo {
+    /// The function's address. This is a relative address.
+    pub address: u32,
+    /// The function size, in bytes. May have been approximated from neighboring symbols.
+    pub size: Option<u32>,
+    /// The function name, demangled.
+    pub name: String,
 }
 
 /// Implementation for slices.
