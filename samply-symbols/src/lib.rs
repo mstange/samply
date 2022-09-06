@@ -205,12 +205,11 @@ pub use crate::compact_symbol_table::CompactSymbolTable;
 pub use crate::debugid_util::{debug_id_for_object, DebugIdExt};
 pub use crate::error::Error;
 pub use crate::external_file::{load_external_file, ExternalFileSymbolMap};
-use crate::shared::FileContentsWrapper;
 pub use crate::shared::{
-    AddressDebugInfo, CandidatePathInfo, ExternalFileAddressInFileRef, ExternalFileAddressRef,
-    ExternalFileRef, FileAndPathHelper, FileAndPathHelperError, FileAndPathHelperResult,
-    FileContents, FileLocation, FilePath, FramesLookupResult, InlineStackFrame,
-    OptionallySendFuture,
+    relative_address_base, AddressDebugInfo, CandidatePathInfo, ExternalFileAddressInFileRef,
+    ExternalFileAddressRef, ExternalFileRef, FileAndPathHelper, FileAndPathHelperError,
+    FileAndPathHelperResult, FileContents, FileContentsWrapper, FileLocation, FilePath,
+    FramesLookupResult, InlineStackFrame, OptionallySendFuture,
 };
 pub use crate::symbol_map::SymbolMap;
 

@@ -104,8 +104,10 @@ use samply_symbols::{FileAndPathHelper, SymbolManager};
 use debugid::DebugId;
 use serde_json::json;
 use source::SourceApi;
+use asm::AsmApi;
 use symbolicate::SymbolicateApi;
 
+mod asm;
 mod error;
 mod source;
 mod symbolicate;
@@ -139,6 +141,8 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> Api<'a, 'h, H> {
     ///    The returned data has two extra fields: inlines (per address) and module_errors (per job).
     ///  - `/source/v1`: Experimental API. Symbolicates an address and lets you read one of the files in the
     ///    symbol information for that address.
+    ///  - `/asm/v1`: Experimental API. Symbolicates an address and lets you read one of the files in the
+    ///    symbol information for that address.
     pub async fn query_api(self, request_url: &str, request_json_data: &str) -> String {
         if request_url == "/symbolicate/v5" {
             let symbolicate_api = SymbolicateApi::new(self.symbol_manager);
@@ -146,6 +150,9 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> Api<'a, 'h, H> {
         } else if request_url == "/source/v1" {
             let source_api = SourceApi::new(self.symbol_manager);
             source_api.query_api_json(request_json_data).await
+        } else if request_url == "/asm/v1" {
+            let asm_api = AsmApi::new(self.symbol_manager);
+            asm_api.query_api_json(request_json_data).await
         } else {
             json!({ "error": format!("Unrecognized URL {}", request_url) }).to_string()
         }
