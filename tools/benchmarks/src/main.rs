@@ -13,8 +13,8 @@ use tempfile::tempdir;
 fn main() -> anyhow::Result<()> {
     prepare(
         big_fixtures_dir().join("win64-ci").join("xul.pdb"),
-        "https://symbols.mozilla.org/xul.pdb/4C8C9680FAECFDC64C4C44205044422E1/xul.pd_",
-        FileType::CabArchive,
+        "https://storage.googleapis.com/profiler-get-symbols-fixtures/win64-ci-xul.pdb.gz",
+        FileType::Gzip,
     )?;
     prepare(
         big_fixtures_dir().join("win64-local").join("xul.pdb"),
@@ -23,7 +23,7 @@ fn main() -> anyhow::Result<()> {
     )?;
     prepare(
         big_fixtures_dir().join("macos-ci").join("XUL.dSYM"),
-        "https://symbols.mozilla.org/XUL/D2139EE3190B37028A98D55519AA0B870/XUL.dSYM.tar.bz2",
+        "https://storage.googleapis.com/profiler-get-symbols-fixtures/macos-ci-XUL.dSYM.tar.bz2",
         FileType::TarBz2,
     )?;
     prepare(
@@ -40,14 +40,14 @@ fn main() -> anyhow::Result<()> {
         big_fixtures_dir()
             .join("android32-ci")
             .join("libxul.so.dbg"),
-        "https://symbols.mozilla.org/libxul.so/CA89B171348FDEF3A6A365AC6CDF07BF0/libxul.so.dbg.gz",
+            "https://storage.googleapis.com/profiler-get-symbols-fixtures/android32-ci-libxul.so.dbg.gz",
         FileType::Gzip,
     )?;
     prepare(
         big_fixtures_dir()
             .join("android64-ci")
             .join("libxul.so.dbg"),
-        "https://symbols.mozilla.org/libxul.so/B560E04259EBFBB96D6D6BB5D69F0DCE0/libxul.so.dbg.gz",
+            "https://storage.googleapis.com/profiler-get-symbols-fixtures/android64-ci-libxul.so.dbg.gz",
         FileType::Gzip,
     )?;
 
@@ -269,6 +269,7 @@ fn big_fixtures_dir() -> PathBuf {
 }
 
 enum FileType {
+    #[allow(unused)]
     CabArchive,
     Gzip,
     TarBz2,
