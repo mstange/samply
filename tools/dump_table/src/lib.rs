@@ -1,8 +1,8 @@
 pub use samply_symbols::debugid;
 use samply_symbols::debugid::DebugId;
 use samply_symbols::{
-    self, CandidatePathInfo, CompactSymbolTable, FileAndPathHelper, FileAndPathHelperResult,
-    FileLocation, GetSymbolsError, OptionallySendFuture,
+    self, CandidatePathInfo, CompactSymbolTable, Error, FileAndPathHelper, FileAndPathHelperResult,
+    FileLocation, OptionallySendFuture,
 };
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -38,9 +38,7 @@ async fn get_symbols_retry_id(
             match result {
                 Ok(table) => return Ok(table),
                 Err(err) => match err {
-                    GetSymbolsError::UnmatchedDebugId(expected, supplied)
-                        if supplied == DebugId::nil() =>
-                    {
+                    Error::UnmatchedDebugId(expected, supplied) if supplied == DebugId::nil() => {
                         eprintln!("Using debug ID: {}", expected.breakpad());
                         expected
                     }
