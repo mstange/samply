@@ -104,17 +104,35 @@ where
         .image_data_and_offset()
         .map_err(Error::MachOHeaderParseError)?;
     let macho_data = MachOData::new(data, header_offset, object.is_64());
-    get_symbolication_result_from_macho_object(&object, macho_data, query)
+    let symbol_map = get_symbol_map_from_macho_object(&object, macho_data, query.clone())?;
+
+    let addresses = match query.result_kind {
+        SymbolicationResultKind::AllSymbols => return Ok(R::from_full_map(symbol_map.to_map())),
+        SymbolicationResultKind::SymbolsForAddresses(addresses) => addresses,
+    };
+
+    let mut symbolication_result = R::for_addresses(addresses);
+    symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
+
+    for &address in addresses {
+        if let Some(symbol_info) = symbol_map.lookup_symbol(address) {
+            symbolication_result.add_address_symbol(
+                address,
+                symbol_info.address,
+                symbol_info.name,
+                symbol_info.size,
+            );
+        }
+    }
+
+    Ok(symbolication_result)
 }
 
-pub fn get_symbolication_result_from_macho_object<'a, 'data, R, RR: ReadRef<'data>>(
-    macho_file: &File<'data, RR>,
+pub fn get_symbol_map_from_macho_object<'a, 'data: 'file, 'file, RR: ReadRef<'data>>(
+    macho_file: &'file File<'data, RR>,
     macho_data: MachOData<'data, RR>,
     query: SymbolicationQuery<'a>,
-) -> Result<R, Error>
-where
-    R: SymbolicationResult,
-{
+) -> Result<SymbolMap<'data, <File<'data, RR> as Object<'data, 'file>>::Symbol>, Error> {
     let file_debug_id = match debug_id_for_object(macho_file) {
         Some(debug_id) => debug_id,
         None => return Err(Error::InvalidInputError("Missing mach-o uuid")),
@@ -139,28 +157,7 @@ where
         }
     }
 
-    let symbol_map = SymbolMap::new(macho_file, function_starts.as_deref(), None);
-
-    let addresses = match query.result_kind {
-        SymbolicationResultKind::AllSymbols => return Ok(R::from_full_map(symbol_map.to_map())),
-        SymbolicationResultKind::SymbolsForAddresses(addresses) => addresses,
-    };
-
-    let mut symbolication_result = R::for_addresses(addresses);
-    symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
-
-    for &address in addresses {
-        if let Some(symbol_info) = symbol_map.lookup_symbol(address) {
-            symbolication_result.add_address_symbol(
-                address,
-                symbol_info.address,
-                symbol_info.name,
-                symbol_info.size,
-            );
-        }
-    }
-
-    Ok(symbolication_result)
+    Ok(SymbolMap::new(macho_file, function_starts.as_deref(), None))
 }
 
 pub async fn get_symbolication_result<'a, 'b, 'h, R>(
@@ -182,13 +179,26 @@ where
     let macho_file = File::parse(range).map_err(Error::MachOHeaderParseError)?;
 
     let macho_data = MachOData::new(range, 0, macho_file.is_64());
-    let mut symbolication_result =
-        get_symbolication_result_from_macho_object(&macho_file, macho_data, query.clone())?;
+    let symbol_map = get_symbol_map_from_macho_object(&macho_file, macho_data, query.clone())?;
 
     let addresses = match query.result_kind {
+        SymbolicationResultKind::AllSymbols => return Ok(R::from_full_map(symbol_map.to_map())),
         SymbolicationResultKind::SymbolsForAddresses(addresses) => addresses,
-        _ => return Ok(symbolication_result),
     };
+
+    let mut symbolication_result = R::for_addresses(addresses);
+    symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
+
+    for &address in addresses {
+        if let Some(symbol_info) = symbol_map.lookup_symbol(address) {
+            symbolication_result.add_address_symbol(
+                address,
+                symbol_info.address,
+                symbol_info.name,
+                symbol_info.size,
+            );
+        }
+    }
 
     // We need to gather debug info for the supplied addresses.
     // On macOS, debug info can either be in this macho_file, or it can be in
@@ -217,10 +227,6 @@ where
         &mut object_references,
         &mut path_mapper,
     );
-
-    // We are now done with the "root object" and can discard its data.
-    drop(macho_file);
-    drop(file_contents);
 
     // Collect the debug info from the external references.
     traverse_object_references_and_collect_debug_info(
