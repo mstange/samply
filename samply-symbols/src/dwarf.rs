@@ -149,7 +149,7 @@ impl<'data, T: ReadRef<'data>> SectionDataNoCopy<'data, T> {
         fn try_get_section_data<'data, 'file, O, T>(
             data: RangeReadRef<'data, T>,
             file: &'file O,
-            section_name: &'static str,
+            section_id: SectionId,
         ) -> Option<SingleSectionData<'data, T>>
         where
             'data: 'file,
@@ -157,6 +157,7 @@ impl<'data, T: ReadRef<'data>> SectionDataNoCopy<'data, T> {
             T: ReadRef<'data>,
         {
             use object::ObjectSection;
+            let section_name = section_id.name();
             let (section, used_manual_zdebug_path) =
                 if let Some(section) = file.section_by_name(section_name) {
                     (section, false)
@@ -216,28 +217,27 @@ impl<'data, T: ReadRef<'data>> SectionDataNoCopy<'data, T> {
         fn get_section_data<'data, 'file, O, T>(
             data: RangeReadRef<'data, T>,
             file: &'file O,
-            section_name: &'static str,
+            section_id: SectionId,
         ) -> SingleSectionData<'data, T>
         where
             'data: 'file,
             O: object::Object<'data, 'file>,
             T: ReadRef<'data>,
         {
-            try_get_section_data(data, file, section_name)
+            try_get_section_data(data, file, section_id)
                 .unwrap_or_else(|| SingleSectionData::View(data.make_subrange(0, 0), 0))
         }
 
-        let debug_abbrev_data = get_section_data(data, file, SectionId::DebugAbbrev.name());
-        let debug_addr_data = get_section_data(data, file, SectionId::DebugAddr.name());
-        let debug_aranges_data = get_section_data(data, file, SectionId::DebugAranges.name());
-        let debug_info_data = get_section_data(data, file, SectionId::DebugInfo.name());
-        let debug_line_data = get_section_data(data, file, SectionId::DebugLine.name());
-        let debug_line_str_data = get_section_data(data, file, SectionId::DebugLineStr.name());
-        let debug_ranges_data = get_section_data(data, file, SectionId::DebugRanges.name());
-        let debug_rnglists_data = get_section_data(data, file, SectionId::DebugRngLists.name());
-        let debug_str_data = get_section_data(data, file, SectionId::DebugStr.name());
-        let debug_str_offsets_data =
-            get_section_data(data, file, SectionId::DebugStrOffsets.name());
+        let debug_abbrev_data = get_section_data(data, file, SectionId::DebugAbbrev);
+        let debug_addr_data = get_section_data(data, file, SectionId::DebugAddr);
+        let debug_aranges_data = get_section_data(data, file, SectionId::DebugAranges);
+        let debug_info_data = get_section_data(data, file, SectionId::DebugInfo);
+        let debug_line_data = get_section_data(data, file, SectionId::DebugLine);
+        let debug_line_str_data = get_section_data(data, file, SectionId::DebugLineStr);
+        let debug_ranges_data = get_section_data(data, file, SectionId::DebugRanges);
+        let debug_rnglists_data = get_section_data(data, file, SectionId::DebugRngLists);
+        let debug_str_data = get_section_data(data, file, SectionId::DebugStr);
+        let debug_str_offsets_data = get_section_data(data, file, SectionId::DebugStrOffsets);
         let default_section_data = SingleSectionData::View(data.make_subrange(0, 0), 0);
 
         Self {
