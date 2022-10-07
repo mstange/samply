@@ -83,7 +83,7 @@ pub fn collect_dwarf_address_debug_data<'data: 'file, 'file, O, R>(
     }
 }
 
-fn convert_stack_frame<R: gimli::Reader>(
+pub fn convert_stack_frame<R: gimli::Reader>(
     frame: addr2line::Frame<R>,
     path_mapper: &mut PathMapper<()>,
 ) -> InlineStackFrame {

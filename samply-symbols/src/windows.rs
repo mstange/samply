@@ -87,7 +87,14 @@ where
         function_ends = Some(e);
     }
 
-    let symbol_map = SymbolMap::new(&pe, function_starts.as_deref(), function_ends.as_deref());
+    let path_mapper = PathMapper::new(&file_location.to_base_path());
+    let symbol_map = SymbolMap::new(
+        &pe,
+        &file_contents,
+        path_mapper,
+        function_starts.as_deref(),
+        function_ends.as_deref(),
+    );
 
     let addresses = match query.result_kind {
         SymbolicationResultKind::AllSymbols => return Ok(R::from_full_map(symbol_map.to_map())),
@@ -96,14 +103,15 @@ where
 
     let mut symbolication_result = R::for_addresses(addresses);
     symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
+    let uplooker = symbol_map.make_uplooker();
 
     for &address in addresses {
-        if let Some(symbol_info) = symbol_map.lookup_symbol(address) {
+        if let Some(address_info) = uplooker.lookup(address) {
             symbolication_result.add_address_symbol(
                 address,
-                symbol_info.address,
-                symbol_info.name,
-                symbol_info.size,
+                address_info.symbol.address,
+                address_info.symbol.name,
+                address_info.symbol.size,
             );
         }
     }

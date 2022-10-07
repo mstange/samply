@@ -65,6 +65,7 @@ where
     })?;
     let root_contents = FileContentsWrapper::new(root_contents);
 
+    let base_path = FileLocation::Path(dyld_cache_path.to_owned()).to_base_path();
     let dyld_cache_path = dyld_cache_path.to_string_lossy();
 
     let mut subcache_contents = Vec::new();
@@ -104,7 +105,8 @@ where
         .image_data_and_offset()
         .map_err(Error::MachOHeaderParseError)?;
     let macho_data = MachOData::new(data, header_offset, object.is_64());
-    let symbol_map = get_symbol_map_from_macho_object(&object, macho_data, query.clone())?;
+    let symbol_map =
+        get_symbol_map_from_macho_object(&object, data, macho_data, &base_path, query.clone())?;
 
     let addresses = match query.result_kind {
         SymbolicationResultKind::AllSymbols => return Ok(R::from_full_map(symbol_map.to_map())),
@@ -113,14 +115,15 @@ where
 
     let mut symbolication_result = R::for_addresses(addresses);
     symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
+    let uplooker = symbol_map.make_uplooker();
 
     for &address in addresses {
-        if let Some(symbol_info) = symbol_map.lookup_symbol(address) {
+        if let Some(address_info) = uplooker.lookup(address) {
             symbolication_result.add_address_symbol(
                 address,
-                symbol_info.address,
-                symbol_info.name,
-                symbol_info.size,
+                address_info.symbol.address,
+                address_info.symbol.name,
+                address_info.symbol.size,
             );
         }
     }
@@ -130,9 +133,11 @@ where
 
 pub fn get_symbol_map_from_macho_object<'a, 'data: 'file, 'file, RR: ReadRef<'data>>(
     macho_file: &'file File<'data, RR>,
+    file_data: RR,
     macho_data: MachOData<'data, RR>,
+    base_path: &BasePath,
     query: SymbolicationQuery<'a>,
-) -> Result<SymbolMap<'data, <File<'data, RR> as Object<'data, 'file>>::Symbol>, Error> {
+) -> Result<SymbolMap<'data, <File<'data, RR> as Object<'data, 'file>>::Symbol, RR>, Error> {
     let file_debug_id = match debug_id_for_object(macho_file) {
         Some(debug_id) => debug_id,
         None => return Err(Error::InvalidInputError("Missing mach-o uuid")),
@@ -157,7 +162,14 @@ pub fn get_symbol_map_from_macho_object<'a, 'data: 'file, 'file, RR: ReadRef<'da
         }
     }
 
-    Ok(SymbolMap::new(macho_file, function_starts.as_deref(), None))
+    let path_mapper = PathMapper::new(base_path);
+    Ok(SymbolMap::new(
+        macho_file,
+        file_data,
+        path_mapper,
+        function_starts.as_deref(),
+        None,
+    ))
 }
 
 pub async fn get_symbolication_result<'a, 'b, 'h, R>(
@@ -179,7 +191,8 @@ where
     let macho_file = File::parse(range).map_err(Error::MachOHeaderParseError)?;
 
     let macho_data = MachOData::new(range, 0, macho_file.is_64());
-    let symbol_map = get_symbol_map_from_macho_object(&macho_file, macho_data, query.clone())?;
+    let symbol_map =
+        get_symbol_map_from_macho_object(&macho_file, range, macho_data, base_path, query.clone())?;
 
     let addresses = match query.result_kind {
         SymbolicationResultKind::AllSymbols => return Ok(R::from_full_map(symbol_map.to_map())),
@@ -188,14 +201,15 @@ where
 
     let mut symbolication_result = R::for_addresses(addresses);
     symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
+    let uplooker = symbol_map.make_uplooker();
 
     for &address in addresses {
-        if let Some(symbol_info) = symbol_map.lookup_symbol(address) {
+        if let Some(address_info) = uplooker.lookup(address) {
             symbolication_result.add_address_symbol(
                 address,
-                symbol_info.address,
-                symbol_info.name,
-                symbol_info.size,
+                address_info.symbol.address,
+                address_info.symbol.name,
+                address_info.symbol.size,
             );
         }
     }

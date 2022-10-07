@@ -2,6 +2,7 @@ use debugid::DebugId;
 use object::read::ReadRef;
 use object::{SectionKind, SymbolKind};
 use std::borrow::Cow;
+use std::cell::RefCell;
 use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::future::Future;
@@ -16,6 +17,8 @@ use bitvec::{bitvec, prelude::BitVec};
 use std::cell::RefCell;
 
 use crate::demangle;
+use crate::dwarf::{convert_stack_frame, SectionDataNoCopy};
+use crate::path_mapper::PathMapper;
 
 pub type FileAndPathHelperError = Box<dyn std::error::Error + Send + Sync + 'static>;
 pub type FileAndPathHelperResult<T> = std::result::Result<T, FileAndPathHelperError>;
@@ -429,13 +432,17 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> FullSymbolListEntry<'a, Symbol> {
     }
 }
 
-pub struct SymbolMap<'data, Symbol: object::ObjectSymbol<'data>> {
+pub struct SymbolMap<'data, Symbol: object::ObjectSymbol<'data>, R: ReadRef<'data>> {
     entries: Vec<(u32, FullSymbolListEntry<'data, Symbol>)>,
+    path_mapper: RefCell<PathMapper<()>>,
+    section_data: SectionDataNoCopy<'data, R>,
 }
 
-impl<'data, Symbol: object::ObjectSymbol<'data>> SymbolMap<'data, Symbol> {
+impl<'data, Symbol: object::ObjectSymbol<'data>, R: ReadRef<'data>> SymbolMap<'data, Symbol, R> {
     pub fn new<'file, T>(
         object_file: &'file T,
+        data: R,
+        path_mapper: PathMapper<()>,
         function_start_addresses: Option<&[u32]>,
         function_end_addresses: Option<&[u32]>,
     ) -> Self
@@ -527,7 +534,16 @@ impl<'data, Symbol: object::ObjectSymbol<'data>> SymbolMap<'data, Symbol> {
         entries.sort_by_key(|(address, _)| *address);
         entries.dedup_by_key(|(address, _)| *address);
 
-        Self { entries }
+        let section_data = SectionDataNoCopy::from_object(
+            RangeReadRef::new(data, 0, data.len().unwrap()),
+            object_file,
+        );
+
+        Self {
+            entries,
+            path_mapper: RefCell::new(path_mapper),
+            section_data,
+        }
     }
 
     pub fn symbol_count(&self) -> usize {
@@ -542,7 +558,45 @@ impl<'data, Symbol: object::ObjectSymbol<'data>> SymbolMap<'data, Symbol> {
             .count()
     }
 
-    pub fn lookup_symbol(&self, address: u32) -> Option<SymbolInfo> {
+    pub fn make_uplooker(&self) -> Uplooker<'_, 'data, Symbol> {
+        let context = self.section_data.make_addr2line_context().ok();
+        let uplooker = Uplooker::new(context, &self.path_mapper, self.entries.as_slice());
+        uplooker
+    }
+
+    pub fn iter_symbols(&self) -> SymbolMapIter<'data, '_, Symbol> {
+        SymbolMapIter {
+            inner: self.entries.iter(),
+        }
+    }
+
+    pub fn to_map(&self) -> Vec<(u32, String)> {
+        self.iter_symbols()
+            .map(|(address, name)| (address, name.to_string()))
+            .collect()
+    }
+}
+
+pub struct Uplooker<'a, 'data, Symbol: object::ObjectSymbol<'data>> {
+    context: Option<addr2line::Context<gimli::EndianSlice<'a, gimli::RunTimeEndian>>>,
+    path_mapper: &'a RefCell<PathMapper<()>>,
+    entries: &'a [(u32, FullSymbolListEntry<'data, Symbol>)],
+}
+
+impl<'a, 'data, Symbol: object::ObjectSymbol<'data>> Uplooker<'a, 'data, Symbol> {
+    fn new(
+        context: Option<addr2line::Context<gimli::EndianSlice<'a, gimli::RunTimeEndian>>>,
+        path_mapper: &'a RefCell<PathMapper<()>>,
+        entries: &'a [(u32, FullSymbolListEntry<'data, Symbol>)],
+    ) -> Self {
+        Self {
+            context,
+            path_mapper,
+            entries,
+        }
+    }
+
+    pub fn lookup(&self, address: u32) -> Option<AddressInfo> {
         let index = match self
             .entries
             .binary_search_by_key(&address, |&(addr, _)| addr)
@@ -558,27 +612,33 @@ impl<'data, Symbol: object::ObjectSymbol<'data>> SymbolMap<'data, Symbol> {
         // In that case, entry.name returns Err().
         if let (Ok(name), Some((end_addr, _))) = (entry.name(*start_addr), next_entry) {
             let function_size = end_addr - *start_addr;
+
+            use addr2line::fallible_iterator::FallibleIterator;
+            let mut path_mapper = self.path_mapper.borrow_mut();
+            let frames = self
+                .context
+                .as_ref()
+                .and_then(|context| context.find_frames(address as u64).ok())
+                .and_then(|frame_iter| {
+                    frame_iter
+                        .map(|f| Ok(convert_stack_frame(f, &mut *path_mapper)))
+                        .collect::<Vec<InlineStackFrame>>()
+                        .ok()
+                })
+                .filter(|frames| !frames.is_empty());
+
             let name = demangle::demangle_any(&name);
-            Some(SymbolInfo {
-                address: *start_addr,
-                size: Some(function_size),
-                name,
+            Some(AddressInfo {
+                symbol: SymbolInfo {
+                    address: *start_addr,
+                    size: Some(function_size),
+                    name,
+                },
+                frames,
             })
         } else {
             None
         }
-    }
-
-    pub fn iter_symbols(&self) -> SymbolMapIter<'data, '_, Symbol> {
-        SymbolMapIter {
-            inner: self.entries.iter(),
-        }
-    }
-
-    pub fn to_map(&self) -> Vec<(u32, String)> {
-        self.iter_symbols()
-            .map(|(address, name)| (address, name.to_string()))
-            .collect()
     }
 }
 
@@ -611,6 +671,14 @@ pub struct SymbolInfo {
     pub size: Option<u32>,
     /// The function name, demangled.
     pub name: String,
+}
+
+/// The lookup result for an address.
+pub struct AddressInfo {
+    /// Information about the symbol which contains the looked up address.
+    pub symbol: SymbolInfo,
+    /// Information about the frames at the looked up address, from the debug info.
+    pub frames: Option<Vec<InlineStackFrame>>,
 }
 
 /// Implementation for slices.

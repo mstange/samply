@@ -1,11 +1,11 @@
 use crate::debugid_util::debug_id_for_object;
-use crate::dwarf::{collect_dwarf_address_debug_data, make_address_pairs_for_root_object};
 use crate::error::Error;
 use crate::path_mapper::PathMapper;
 use crate::shared::{
     BasePath, FileContents, FileContentsWrapper, SymbolMap, SymbolicationQuery,
     SymbolicationResult, SymbolicationResultKind,
 };
+use crate::AddressDebugInfo;
 use gimli::{CieOrFde, EhFrame, UnwindSection};
 use object::{File, FileKind, Object, ObjectSection, ReadRef};
 use std::io::Cursor;
@@ -63,7 +63,14 @@ where
     T: FileContents,
 {
     let (function_starts, function_ends) = function_start_and_end_addresses(&elf_file);
-    let symbol_map = SymbolMap::new(&elf_file, Some(&function_starts), Some(&function_ends));
+    let path_mapper = PathMapper::new(base_path);
+    let symbol_map = SymbolMap::new(
+        &elf_file,
+        file_contents,
+        path_mapper,
+        Some(&function_starts),
+        Some(&function_ends),
+    );
     let addresses = match query.result_kind {
         SymbolicationResultKind::AllSymbols => {
             return Ok(R::from_full_map(symbol_map.to_map()));
@@ -74,26 +81,22 @@ where
     let mut symbolication_result = R::for_addresses(addresses);
     symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
 
+    let uplooker = symbol_map.make_uplooker();
+
     for &address in addresses {
-        if let Some(symbol_info) = symbol_map.lookup_symbol(address) {
+        if let Some(address_info) = uplooker.lookup(address) {
             symbolication_result.add_address_symbol(
                 address,
-                symbol_info.address,
-                symbol_info.name,
-                symbol_info.size,
+                address_info.symbol.address,
+                address_info.symbol.name,
+                address_info.symbol.size,
             );
+            if let Some(frames) = address_info.frames {
+                symbolication_result.add_address_debug_info(address, AddressDebugInfo { frames });
+            }
         }
     }
 
-    let addresses: Vec<_> = make_address_pairs_for_root_object(addresses, &elf_file);
-    let mut path_mapper = PathMapper::new(base_path);
-    collect_dwarf_address_debug_data(
-        file_contents.full_range(),
-        &elf_file,
-        &addresses,
-        &mut symbolication_result,
-        &mut path_mapper,
-    );
     Ok(symbolication_result)
 }
 
