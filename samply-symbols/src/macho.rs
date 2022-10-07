@@ -416,10 +416,8 @@ fn collect_debug_info_and_object_references<'data: 'file, 'file, 'a, O, R>(
 {
     let object_map = macho_file.object_map();
     let objects = object_map.objects();
-    let mut object_map_symbols: Vec<_> = object_map.symbols().to_owned();
-    object_map_symbols.sort_by_key(|symbol| symbol.address());
     let (external_funs_by_object, internal_addresses) =
-        match_funs_to_addresses(&object_map_symbols, addresses);
+        match_funs_to_addresses(object_map.symbols(), addresses);
     collect_dwarf_address_debug_data(
         file_data,
         macho_file,
