@@ -13,7 +13,7 @@ use macho_unwind_info::UnwindInfo;
 use object::macho::{self, LinkeditDataCommand, MachHeader32, MachHeader64};
 use object::read::macho::{FatArch, LoadCommandIterator, MachHeader};
 use object::read::{archive::ArchiveFile, File, Object, ObjectSection, ObjectSymbol};
-use object::{Endianness, ObjectMapEntry, ReadRef};
+use object::{Endianness, ObjectMap, ReadRef};
 use std::collections::{HashMap, VecDeque};
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
@@ -417,7 +417,7 @@ fn collect_debug_info_and_object_references<'data: 'file, 'file, 'a, O, R>(
     let object_map = macho_file.object_map();
     let objects = object_map.objects();
     let (external_funs_by_object, internal_addresses) =
-        match_funs_to_addresses(object_map.symbols(), addresses);
+        match_funs_to_addresses(&object_map, addresses);
     collect_dwarf_address_debug_data(
         file_data,
         macho_file,
@@ -464,68 +464,42 @@ struct AddressWithOffset {
 }
 
 /// Assign each address to a function in an object.
-/// function_symbols must be sorted by function.address().
-/// addresses must be sorted by vmaddr_in_this_object.
-/// This function is implemented as a linear single pass over both slices.
 /// Also returns a sorted Vec of AddressPairs for addresses that were not found
 /// in an external object.
 fn match_funs_to_addresses<'a>(
-    function_symbols: &[ObjectMapEntry<'a>],
+    object_map: &ObjectMap<'a>,
     addresses: &[AddressPair],
 ) -> (HashMap<usize, FunctionsWithAddresses>, Vec<AddressPair>) {
-    let mut external_funs_by_object: HashMap<usize, FunctionsWithAddresses> = HashMap::new();
+    let mut addresses_by_fun = HashMap::new();
     let mut internal_addresses = Vec::new();
-    let mut addr_iter = addresses.iter();
-    let mut cur_addr = addr_iter.next();
-    let mut fun_iter = function_symbols.iter();
-    let mut cur_fun = fun_iter.next();
-    let mut cur_fun_addresses = Vec::new();
 
-    let mut flush_cur_fun = |object_index, fun_name, addresses: Vec<AddressWithOffset>| {
-        if !addresses.is_empty() {
-            external_funs_by_object
-                .entry(object_index)
-                .or_insert_with(FunctionsWithAddresses::new)
-                .insert(fun_name, addresses);
-        }
-    };
-
-    while let (Some(address_pair), Some(fun)) = (cur_addr, cur_fun) {
-        let original_relative_address = address_pair.original_relative_address;
+    for address_pair in addresses {
         let vmaddr_in_this_object = address_pair.vmaddr_in_this_object;
-        if fun.address() > vmaddr_in_this_object {
-            internal_addresses.push(address_pair.clone());
-            // Advance cur_addr.
-            cur_addr = addr_iter.next();
-            continue;
+        match object_map.get(vmaddr_in_this_object) {
+            Some(entry) => {
+                let original_relative_address = address_pair.original_relative_address;
+                let offset_from_function_start = (vmaddr_in_this_object - entry.address()) as u32;
+
+                addresses_by_fun
+                    .entry(*entry)
+                    .or_insert_with(Vec::new)
+                    .push(AddressWithOffset {
+                        original_relative_address,
+                        offset_from_function_start,
+                    });
+            }
+            None => {
+                internal_addresses.push(address_pair.clone());
+            }
         }
-        if vmaddr_in_this_object >= fun.address() + fun.size() {
-            // Advance cur_fun.
-            flush_cur_fun(fun.object_index(), fun.name(), cur_fun_addresses);
-            cur_fun = fun_iter.next();
-            cur_fun_addresses = Vec::new();
-            continue;
-        }
-        // Now the following is true:
-        // fun.address() <= vmaddr_in_this_object && vmaddr_in_this_object < fun.address() + fun.size()
-        let offset_from_function_start = (vmaddr_in_this_object - fun.address()) as u32;
-        cur_fun_addresses.push(AddressWithOffset {
-            original_relative_address,
-            offset_from_function_start,
-        });
-        // Advance cur_addr.
-        cur_addr = addr_iter.next();
     }
 
-    // Flush addresses for the final function.
-    if let Some(fun) = cur_fun {
-        flush_cur_fun(fun.object_index(), fun.name(), cur_fun_addresses);
-    }
-
-    // Consume remaining addresses.
-    while let Some(address_pair) = cur_addr {
-        internal_addresses.push(address_pair.clone());
-        cur_addr = addr_iter.next();
+    let mut external_funs_by_object: HashMap<usize, FunctionsWithAddresses> = HashMap::new();
+    for (entry, addresses) in addresses_by_fun {
+        external_funs_by_object
+            .entry(entry.object_index())
+            .or_insert_with(FunctionsWithAddresses::new)
+            .insert(entry.name(), addresses);
     }
 
     (external_funs_by_object, internal_addresses)
