@@ -1,22 +1,22 @@
 use crate::debugid_util::debug_id_for_object;
-use crate::dwarf::{
-    collect_dwarf_address_debug_data, make_address_pairs_for_root_object, AddressPair,
-};
+use crate::dwarf::{get_frames, SectionDataNoCopy};
 use crate::error::Error;
 use crate::path_mapper::PathMapper;
 use crate::shared::{
-    BasePath, FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation, RangeReadRef,
-    SymbolMap, SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
+    relative_address_base, BasePath, FileAndPathHelper, FileContents, FileContentsWrapper,
+    FileLocation, RangeReadRef, SymbolMap, SymbolicationQuery, SymbolicationResult,
+    SymbolicationResultKind,
 };
+use crate::AddressDebugInfo;
 use debugid::DebugId;
 use macho_unwind_info::UnwindInfo;
 use object::macho::{self, LinkeditDataCommand, MachHeader32, MachHeader64};
 use object::read::macho::{FatArch, LoadCommandIterator, MachHeader};
 use object::read::{archive::ArchiveFile, File, Object, ObjectSection, ObjectSymbol};
-use object::{Endianness, ObjectMap, ReadRef};
-use std::collections::{HashMap, VecDeque};
+use object::{Endianness, ReadRef};
+use std::collections::HashMap;
 use std::marker::PhantomData;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Returns the (offset, size) in the fat binary file for the object that matches
 // breakpad_id, if found.
@@ -172,15 +172,17 @@ pub fn get_symbol_map_from_macho_object<'a, 'data: 'file, 'file, RR: ReadRef<'da
     ))
 }
 
-pub async fn get_symbolication_result<'a, 'b, 'h, R>(
+pub async fn get_symbolication_result<'a, 'b, 'h, F, H, R>(
     base_path: &BasePath,
-    file_contents: FileContentsWrapper<impl FileContents>,
+    file_contents: FileContentsWrapper<F>,
     file_range: Option<(u64, u64)>,
     query: SymbolicationQuery<'a>,
-    helper: &'h impl FileAndPathHelper<'h>,
+    helper: &'h H,
 ) -> Result<R, Error>
 where
+    F: FileContents,
     R: SymbolicationResult,
+    H: FileAndPathHelper<'h, F = F>,
 {
     let file_contents_ref = &file_contents;
     let range = match file_range {
@@ -203,17 +205,6 @@ where
     symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
     let uplooker = symbol_map.make_uplooker();
 
-    for &address in addresses {
-        if let Some(address_info) = uplooker.lookup(address) {
-            symbolication_result.add_address_symbol(
-                address,
-                address_info.symbol.address,
-                address_info.symbol.name,
-                address_info.symbol.size,
-            );
-        }
-    }
-
     // We need to gather debug info for the supplied addresses.
     // On macOS, debug info can either be in this macho_file, or it can be in
     // other files ("external objects").
@@ -226,285 +217,164 @@ where
 
     // The original addresses which our caller wants to look up are relative to
     // the "root object". In the external objects they'll be at a different address.
-    // To correctly associate the found information with the original address,
-    // we need to track an AddressPair, which has both the original address and
-    // the address that we need to look up in the current object.
 
-    let addresses_in_root_object = make_address_pairs_for_root_object(addresses, &macho_file);
+    let image_base = relative_address_base(&macho_file);
     let mut path_mapper = PathMapper::new(base_path);
-    let mut object_references = VecDeque::new();
-    collect_debug_info_and_object_references(
-        range,
-        &macho_file,
-        &addresses_in_root_object,
-        &mut symbolication_result,
-        &mut object_references,
-        &mut path_mapper,
-    );
 
-    // Collect the debug info from the external references.
-    traverse_object_references_and_collect_debug_info(
-        object_references,
-        &mut symbolication_result,
-        helper,
-        &mut path_mapper,
-    )
-    .await?;
+    let object_map = macho_file.object_map();
+
+    let mut current_object: Option<ExternalFile<F>> = None;
+
+    for &address in addresses {
+        if let Some(address_info) = uplooker.lookup(address) {
+            symbolication_result.add_address_symbol(
+                address,
+                address_info.symbol.address,
+                address_info.symbol.name,
+                address_info.symbol.size,
+            );
+            let vmaddr = image_base + address as u64;
+            let frames = match object_map.get(vmaddr) {
+                Some(entry) => {
+                    let external_object_name = entry.object(&object_map);
+                    let external_object_name = std::str::from_utf8(external_object_name).unwrap();
+                    let offset_from_function_start = (vmaddr - entry.address()) as u32;
+                    let (file_name, name_in_archive) = match external_object_name.find('(') {
+                        Some(index) => {
+                            // This is an "archive" reference of the form
+                            // "/Users/mstange/code/obj-m-opt/toolkit/library/build/../../../js/src/build/libjs_static.a(Unified_cpp_js_src13.o)"
+                            let (path, paren_rest) = external_object_name.split_at(index);
+                            let name_in_archive =
+                                paren_rest.trim_start_matches('(').trim_end_matches(')');
+                            (path, Some(name_in_archive))
+                        }
+                        None => {
+                            // This is a reference to a regular object file. Example:
+                            // "/Users/mstange/code/obj-m-opt/toolkit/library/build/../../components/sessionstore/Unified_cpp_sessionstore0.o"
+                            (external_object_name, None)
+                        }
+                    };
+                    let external_object = match &current_object {
+                        Some(external_object) if external_object.name == file_name => {
+                            external_object
+                        }
+                        _ => {
+                            let file_contents = match helper
+                                .open_file(&FileLocation::Path(file_name.into()))
+                                .await
+                            {
+                                Ok(file) => FileContentsWrapper::new(file),
+                                Err(_) => continue,
+                            };
+
+                            let archive_members_by_name: HashMap<Vec<u8>, (u64, u64)> =
+                                match ArchiveFile::parse(&file_contents) {
+                                    Ok(archive) => archive
+                                        .members()
+                                        .filter_map(|member| match member {
+                                            Ok(member) => Some((
+                                                member.name().to_owned(),
+                                                member.file_range(),
+                                            )),
+                                            Err(_) => None,
+                                        })
+                                        .collect(),
+                                    Err(_) => HashMap::new(),
+                                };
+                            current_object = Some(ExternalFile {
+                                name: file_name,
+                                file_contents,
+                                archive_members_by_name,
+                            });
+                            current_object.as_ref().unwrap()
+                        }
+                    };
+                    if let Ok(stuff) = external_object.make_stuff(name_in_archive) {
+                        let fun_name = entry.name();
+                        if let Some(fun_address) = stuff.symbol_addresses.get(fun_name) {
+                            let address_in_external_object =
+                                fun_address + offset_from_function_start as u64;
+                            let uplooker = stuff.make_uplooker();
+                            get_frames(
+                                address_in_external_object,
+                                uplooker.context.as_ref(),
+                                &mut path_mapper,
+                            )
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                }
+                None => address_info.frames,
+            };
+            if let Some(frames) = frames {
+                symbolication_result.add_address_debug_info(address, AddressDebugInfo { frames });
+            }
+        }
+    }
 
     Ok(symbolication_result)
 }
 
-async fn traverse_object_references_and_collect_debug_info<'h>(
-    object_references: VecDeque<ObjectReference>,
-    symbolication_result: &mut impl SymbolicationResult,
-    helper: &'h impl FileAndPathHelper<'h>,
-    path_mapper: &mut PathMapper<()>,
-) -> Result<(), Error> {
-    // Do a breadth-first-traversal of the external debug info reference tree.
-    // We do this using a while loop and a VecDeque rather than recursion, because
-    // async functions can't easily recurse.
-    let mut remaining_object_references = object_references;
-    while let Some(obj_ref) = remaining_object_references.pop_front() {
-        let path = obj_ref.path().to_owned();
-        let file_contents = match helper.open_file(&FileLocation::Path(path)).await {
-            Ok(data) => FileContentsWrapper::new(data),
-            Err(_) => {
-                // We probably couldn't find the file, but that's fine.
-                // It would be good to collect this error somewhere.
-                continue;
+struct ExternalFileStuff<'extobjdata, R: ReadRef<'extobjdata>> {
+    section_data: SectionDataNoCopy<'extobjdata, R>,
+    symbol_addresses: HashMap<&'extobjdata [u8], u64>,
+}
+
+impl<'extobjdata, R: ReadRef<'extobjdata>> ExternalFileStuff<'extobjdata, R> {
+    pub fn make_uplooker(&self) -> ExternalObjectUplooker<'_> {
+        let context = self.section_data.make_addr2line_context().ok();
+        ExternalObjectUplooker { context }
+    }
+}
+
+struct ExternalObjectUplooker<'a> {
+    context: Option<addr2line::Context<gimli::EndianSlice<'a, gimli::RunTimeEndian>>>,
+}
+
+struct ExternalFile<'data, F: FileContents> {
+    name: &'data str,
+    file_contents: FileContentsWrapper<F>,
+    archive_members_by_name: HashMap<Vec<u8>, (u64, u64)>,
+}
+
+impl<'data, F: FileContents> ExternalFile<'data, F> {
+    pub fn make_stuff<'s>(
+        &'s self,
+        name_in_archive: Option<&str>,
+    ) -> Result<ExternalFileStuff<'s, RangeReadRef<&'s FileContentsWrapper<F>>>, Error> {
+        let data = &self.file_contents;
+        let data = match name_in_archive {
+            Some(name_in_archive) => {
+                let (start, size) = self
+                    .archive_members_by_name
+                    .get(name_in_archive.as_bytes())
+                    .ok_or_else(|| Error::FileNotInArchive(name_in_archive.to_owned()))?;
+                RangeReadRef::new(data, *start, *size)
             }
+            None => RangeReadRef::new(data, 0, data.len()),
         };
-
-        for (data, functions) in obj_ref.into_objects(&file_contents)?.into_iter() {
-            let macho_file = File::parse(data).map_err(Error::MachOHeaderParseError)?;
-            let addresses_in_this_object = translate_addresses_to_object(&macho_file, functions);
-            collect_debug_info_and_object_references(
-                data,
-                &macho_file,
-                &addresses_in_this_object,
-                symbolication_result,
-                &mut remaining_object_references,
-                path_mapper,
-            );
-        }
-    }
-
-    Ok(())
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct FunctionsWithAddresses {
-    /// Keys are byte strings of the function name.
-    /// Values are the addresses under that function.
-    map: HashMap<Vec<u8>, Vec<AddressWithOffset>>,
-}
-
-impl FunctionsWithAddresses {
-    pub fn new() -> Self {
-        Self {
-            map: HashMap::new(),
-        }
-    }
-
-    pub fn insert(&mut self, symbol_name: &[u8], addresses: Vec<AddressWithOffset>) {
-        self.map.insert(symbol_name.to_owned(), addresses);
-    }
-
-    pub fn get_and_remove_addresses_for_function(
-        &mut self,
-        symbol_name: &str,
-    ) -> Option<Vec<AddressWithOffset>> {
-        self.map.remove(symbol_name.as_bytes())
+        let object_file = File::parse(data).map_err(Error::MachOHeaderParseError)?;
+        let section_data = SectionDataNoCopy::from_object(
+            RangeReadRef::new(data, 0, data.len().unwrap()),
+            &object_file,
+        );
+        let symbol_addresses = object_file
+            .symbols()
+            .filter_map(|symbol| {
+                let name = symbol.name_bytes().ok()?;
+                let address = symbol.address();
+                Some((name, address))
+            })
+            .collect();
+        Ok(ExternalFileStuff {
+            section_data,
+            symbol_addresses,
+        })
     }
 }
-
-fn translate_addresses_to_object<'data: 'file, 'file, O>(
-    macho_file: &'file O,
-    mut functions: FunctionsWithAddresses,
-) -> Vec<AddressPair>
-where
-    O: Object<'data, 'file>,
-{
-    let mut addresses_in_this_object = Vec::new();
-    for symbol in macho_file.symbols() {
-        if let Ok(symbol_name) = symbol.name() {
-            if let Some(addresses) = functions.get_and_remove_addresses_for_function(symbol_name) {
-                for AddressWithOffset {
-                    original_relative_address,
-                    offset_from_function_start,
-                } in addresses
-                {
-                    let vmaddr_in_this_object =
-                        symbol.address() + offset_from_function_start as u64;
-                    addresses_in_this_object.push(AddressPair {
-                        original_relative_address,
-                        vmaddr_in_this_object,
-                    });
-                }
-            }
-        }
-    }
-    addresses_in_this_object.sort_by_key(|ap| ap.vmaddr_in_this_object);
-    addresses_in_this_object
-}
-
-enum ObjectReference {
-    Regular {
-        path: PathBuf,
-        functions: FunctionsWithAddresses,
-    },
-    Archive {
-        path: PathBuf,
-        archive_info: HashMap<String, FunctionsWithAddresses>,
-    },
-}
-
-impl ObjectReference {
-    fn path(&self) -> &Path {
-        match self {
-            ObjectReference::Regular { path, .. } => path,
-            ObjectReference::Archive { path, .. } => path,
-        }
-    }
-
-    fn into_objects<'a, 'b, R: ReadRef<'b>>(
-        self,
-        data: R,
-    ) -> Result<Vec<(RangeReadRef<'b, R>, FunctionsWithAddresses)>, Error> {
-        match self {
-            ObjectReference::Regular { functions, .. } => Ok(vec![(
-                RangeReadRef::new(data, 0, data.len().unwrap_or(0)),
-                functions,
-            )]),
-            ObjectReference::Archive {
-                path, archive_info, ..
-            } => {
-                let archive = ArchiveFile::parse(data)
-                    .map_err(|x| Error::ArchiveParseError(path.clone(), Box::new(x)))?;
-                let archive_members_by_name: HashMap<Vec<u8>, (u64, u64)> = archive
-                    .members()
-                    .filter_map(|member| match member {
-                        Ok(member) => Some((member.name().to_owned(), member.file_range())),
-                        Err(_) => None,
-                    })
-                    .collect();
-                let v: Vec<_> = archive_info
-                    .into_iter()
-                    .filter_map(|(name_in_archive, functions)| {
-                        archive_members_by_name
-                            .get(name_in_archive.as_bytes())
-                            .map(|&(start, size)| (RangeReadRef::new(data, start, size), functions))
-                    })
-                    .collect();
-                Ok(v)
-            }
-        }
-    }
-}
-
-/// addresses must be sorted by vmaddr_in_this_object
-fn collect_debug_info_and_object_references<'data: 'file, 'file, 'a, O, R>(
-    file_data: RangeReadRef<'data, impl ReadRef<'data>>,
-    macho_file: &'file O,
-    addresses: &[AddressPair],
-    symbolication_result: &mut R,
-    remaining_object_references: &mut VecDeque<ObjectReference>,
-    path_mapper: &mut PathMapper<()>,
-) where
-    O: Object<'data, 'file>,
-    R: SymbolicationResult,
-{
-    let object_map = macho_file.object_map();
-    let objects = object_map.objects();
-    let (external_funs_by_object, internal_addresses) =
-        match_funs_to_addresses(&object_map, addresses);
-    collect_dwarf_address_debug_data(
-        file_data,
-        macho_file,
-        &internal_addresses,
-        symbolication_result,
-        path_mapper,
-    );
-
-    let mut archives = HashMap::new();
-
-    for (object_index, functions) in external_funs_by_object.into_iter() {
-        let object_name = std::str::from_utf8(objects[object_index]).unwrap();
-        match object_name.find('(') {
-            Some(index) => {
-                // This is an "archive" reference of the form
-                // "/Users/mstange/code/obj-m-opt/toolkit/library/build/../../../js/src/build/libjs_static.a(Unified_cpp_js_src13.o)"
-                let (path, paren_rest) = object_name.split_at(index);
-                let path: PathBuf = path.into();
-                let name_in_archive = paren_rest
-                    .trim_start_matches('(')
-                    .trim_end_matches(')')
-                    .to_string();
-                let archive_info = archives.entry(path).or_insert_with(HashMap::new);
-                archive_info.insert(name_in_archive, functions);
-            }
-            None => {
-                // This is a reference to a regular object file. Example:
-                // "/Users/mstange/code/obj-m-opt/toolkit/library/build/../../components/sessionstore/Unified_cpp_sessionstore0.o"
-                let path: PathBuf = object_name.into();
-                remaining_object_references.push_back(ObjectReference::Regular { path, functions });
-            }
-        }
-    }
-
-    for (path, archive_info) in archives.into_iter() {
-        remaining_object_references.push_back(ObjectReference::Archive { path, archive_info });
-    }
-}
-
-#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
-struct AddressWithOffset {
-    original_relative_address: u32,
-    offset_from_function_start: u32,
-}
-
-/// Assign each address to a function in an object.
-/// Also returns a sorted Vec of AddressPairs for addresses that were not found
-/// in an external object.
-fn match_funs_to_addresses<'a>(
-    object_map: &ObjectMap<'a>,
-    addresses: &[AddressPair],
-) -> (HashMap<usize, FunctionsWithAddresses>, Vec<AddressPair>) {
-    let mut addresses_by_fun = HashMap::new();
-    let mut internal_addresses = Vec::new();
-
-    for address_pair in addresses {
-        let vmaddr_in_this_object = address_pair.vmaddr_in_this_object;
-        match object_map.get(vmaddr_in_this_object) {
-            Some(entry) => {
-                let original_relative_address = address_pair.original_relative_address;
-                let offset_from_function_start = (vmaddr_in_this_object - entry.address()) as u32;
-
-                addresses_by_fun
-                    .entry(*entry)
-                    .or_insert_with(Vec::new)
-                    .push(AddressWithOffset {
-                        original_relative_address,
-                        offset_from_function_start,
-                    });
-            }
-            None => {
-                internal_addresses.push(address_pair.clone());
-            }
-        }
-    }
-
-    let mut external_funs_by_object: HashMap<usize, FunctionsWithAddresses> = HashMap::new();
-    for (entry, addresses) in addresses_by_fun {
-        external_funs_by_object
-            .entry(entry.object_index())
-            .or_insert_with(FunctionsWithAddresses::new)
-            .insert(entry.name(), addresses);
-    }
-
-    (external_funs_by_object, internal_addresses)
-}
-
 pub struct MachOData<'data, R: ReadRef<'data>> {
     data: R,
     header_offset: u64,

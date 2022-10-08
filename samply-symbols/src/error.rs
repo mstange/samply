@@ -73,6 +73,9 @@ pub enum Error {
     #[error("Could not parse archive file at {0}, ArchiveFile::parse returned error: {1}.")]
     ArchiveParseError(PathBuf, #[source] Box<dyn std::error::Error + Send + Sync>),
 
+    #[error("Could not find file {0} in the archive file.")]
+    FileNotInArchive(String),
+
     #[error("Error while getting function info from PDB: {0}")]
     PdbAddr2lineError(
         #[from]
@@ -143,6 +146,7 @@ impl Error {
             Error::NoDebugInfoInPeBinary(_) => "NoDebugInfoInPeBinary",
             Error::PdbPathDidntEndWithNul(_) => "PdbPathDidntEndWithNul",
             Error::ArchiveParseError(_, _) => "ArchiveParseError",
+            Error::FileNotInArchive(_) => "FileNotInArchive",
             Error::PdbAddr2lineError(_) => "PdbAddr2lineError",
             Error::SrcSrvParseError(_) => "SrcSrvParseError",
             Error::SrcSrvEvalError(_) => "SrcSrvEvalError",

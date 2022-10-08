@@ -1,8 +1,6 @@
 use crate::demangle;
 use crate::path_mapper::PathMapper;
-use crate::shared::{
-    relative_address_base, AddressDebugInfo, InlineStackFrame, RangeReadRef, SymbolicationResult,
-};
+use crate::shared::{InlineStackFrame, RangeReadRef};
 use addr2line::{
     fallible_iterator,
     gimli::{self, EndianSlice, Reader, ReaderOffsetId, RunTimeEndian},
@@ -13,74 +11,20 @@ use object::read::ReadRef;
 use object::CompressionFormat;
 use std::{borrow::Cow, cmp::min, marker::PhantomData, str};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct AddressPair {
-    /// A "relative" address, meaningful in the final linked module / library / executable
-    /// which we're trying to symbolicate. These addresses are relative to that image's
-    /// "relative address base" whose definition depends on the image type.
-    /// See `relative_address_base` for more information.
-    pub original_relative_address: u32,
-
-    /// An address that is meaningful in the current object and in the space that
-    /// symbol addresses and DWARF debug info addresses in this object are expressed in.
-    pub vmaddr_in_this_object: u64,
-}
-
-pub fn make_address_pairs_for_root_object<'data: 'file, 'file, O>(
-    addresses: &[u32],
-    object_file: &'file O,
-) -> Vec<AddressPair>
-where
-    O: object::Object<'data, 'file>,
-{
-    // Make an AddressPair for every address.
-    let image_base = relative_address_base(object_file);
-
-    addresses
-        .iter()
-        .map(|a| AddressPair {
-            original_relative_address: *a,
-            vmaddr_in_this_object: image_base + *a as u64,
-        })
-        .collect()
-}
-
-pub fn collect_dwarf_address_debug_data<'data: 'file, 'file, O, R>(
-    data: RangeReadRef<'data, impl ReadRef<'data>>,
-    object: &'file O,
-    addresses: &[AddressPair],
-    symbolication_result: &mut R,
+pub fn get_frames<R: Reader>(
+    address: u64,
+    context: Option<&addr2line::Context<R>>,
     path_mapper: &mut PathMapper<()>,
-) where
-    O: object::Object<'data, 'file>,
-    R: SymbolicationResult,
-{
-    if addresses.is_empty() {
-        return;
-    }
-
-    let section_data = SectionDataNoCopy::from_object(data, object);
-    if let Ok(context) = section_data.make_addr2line_context() {
-        for AddressPair {
-            original_relative_address,
-            vmaddr_in_this_object,
-        } in addresses
-        {
-            if let Ok(frame_iter) = context.find_frames(*vmaddr_in_this_object as u64) {
-                let frames: std::result::Result<Vec<_>, _> = frame_iter
-                    .map(|f| Ok(convert_stack_frame(f, path_mapper)))
-                    .collect();
-                if let Ok(frames) = frames {
-                    if !frames.is_empty() {
-                        symbolication_result.add_address_debug_info(
-                            *original_relative_address,
-                            AddressDebugInfo { frames },
-                        );
-                    }
-                }
-            }
-        }
-    }
+) -> Option<Vec<InlineStackFrame>> {
+    context
+        .and_then(|context| context.find_frames(address).ok())
+        .and_then(|frame_iter| {
+            frame_iter
+                .map(|f| Ok(convert_stack_frame(f, &mut *path_mapper)))
+                .collect::<Vec<InlineStackFrame>>()
+                .ok()
+        })
+        .filter(|frames| !frames.is_empty())
 }
 
 pub fn convert_stack_frame<R: gimli::Reader>(

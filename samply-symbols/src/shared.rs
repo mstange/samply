@@ -17,7 +17,7 @@ use bitvec::{bitvec, prelude::BitVec};
 use std::cell::RefCell;
 
 use crate::demangle;
-use crate::dwarf::{convert_stack_frame, SectionDataNoCopy};
+use crate::dwarf::{get_frames, SectionDataNoCopy};
 use crate::path_mapper::PathMapper;
 
 pub type FileAndPathHelperError = Box<dyn std::error::Error + Send + Sync + 'static>;
@@ -613,19 +613,9 @@ impl<'a, 'data, Symbol: object::ObjectSymbol<'data>> Uplooker<'a, 'data, Symbol>
         if let (Ok(name), Some((end_addr, _))) = (entry.name(*start_addr), next_entry) {
             let function_size = end_addr - *start_addr;
 
-            use addr2line::fallible_iterator::FallibleIterator;
             let mut path_mapper = self.path_mapper.borrow_mut();
-            let frames = self
-                .context
-                .as_ref()
-                .and_then(|context| context.find_frames(address as u64).ok())
-                .and_then(|frame_iter| {
-                    frame_iter
-                        .map(|f| Ok(convert_stack_frame(f, &mut *path_mapper)))
-                        .collect::<Vec<InlineStackFrame>>()
-                        .ok()
-                })
-                .filter(|frames| !frames.is_empty());
+            // TODO: add image base address
+            let frames = get_frames(address as u64, self.context.as_ref(), &mut *path_mapper);
 
             let name = demangle::demangle_any(&name);
             Some(AddressInfo {
