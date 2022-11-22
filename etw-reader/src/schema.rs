@@ -429,16 +429,3 @@ impl<'a> PartialEq for TypedEvent<'a> {
 }
 
 impl<'a> Eq for TypedEvent<'a> {}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    fn test_getters() {
-        todo!()
-    }
-
-    fn test_schema_key() {
-        todo!()
-    }
-}
