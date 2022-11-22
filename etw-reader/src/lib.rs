@@ -6,7 +6,7 @@ extern crate bitflags;
 #[macro_use]
 extern crate num_derive;
 
-use windows::Win32::Foundation::{GetLastError, MAX_PATH, PWSTR};
+use windows::Win32::{Foundation::{GetLastError, MAX_PATH, PWSTR}, System::Diagnostics::Etw::EVENT_TRACE_FLAG};
 use crate::{parser::{Parser, ParserError, TryParse}, schema::SchemaLocator, tdh_types::{PropertyDesc, PrimitiveDesc, TdhInType}, traits::EncodeUtf16};
 
 #[macro_use]
@@ -129,7 +129,7 @@ impl TraceInfo {
         self.properties.LogFileMode =
         Etw::EVENT_TRACE_REAL_TIME_MODE | Etw::EVENT_TRACE_NO_PER_PROCESSOR_BUFFERING;
 
-        self.properties.EnableFlags = 0;
+        self.properties.EnableFlags = EVENT_TRACE_FLAG(0);
 
         //self.properties.LoggerNameOffset = offset_of!(TraceInfo, log_file_name) as u32;
         //self.trace_name[..trace_name.len()].copy_from_slice(trace_name.as_bytes())
@@ -272,7 +272,7 @@ pub fn start_trace<F: FnMut(&EventRecord)>(mut callback: F)  {
 
     let session_handle = unsafe { Etw::OpenTraceW(&mut *trace) };
     if session_handle == INVALID_TRACE_HANDLE {
-        println!("{} {:?}", unsafe { GetLastError() }, windows::core::Error::from_win32());
+        println!("{} {:?}", unsafe { GetLastError().0 }, windows::core::Error::from_win32());
 
         panic!("Invalid handle");
     }
