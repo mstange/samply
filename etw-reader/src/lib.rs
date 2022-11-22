@@ -6,7 +6,7 @@ extern crate bitflags;
 #[macro_use]
 extern crate num_derive;
 
-use windows::{Win32::{Foundation::{GetLastError, MAX_PATH}, System::Diagnostics::Etw::{EVENT_TRACE_FLAG, CONTROLTRACE_HANDLE}}, core::{PWSTR, HSTRING}, w};
+use windows::{Win32::{Foundation::{GetLastError, MAX_PATH}, System::Diagnostics::Etw::{EVENT_TRACE_FLAG, CONTROLTRACE_HANDLE}}, core::{PWSTR, HSTRING}, h};
 use crate::{parser::{Parser, ParserError, TryParse}, schema::SchemaLocator, tdh_types::{PropertyDesc, PrimitiveDesc, TdhInType}, traits::EncodeUtf16};
 
 #[macro_use]
@@ -225,7 +225,7 @@ pub fn start_trace<F: FnMut(&EventRecord)>(mut callback: F)  {
     let guid_str = "DB6F6DDB-AC77-4E88-8253-819DF9BBF140";
     let mut video_blt_guid = GUID::from(guid_str);//GUID::from("DB6F6DDB-AC77-4E88-8253-819DF9BBF140");
 
-    let session_name = w!("aaaaaa");
+    let session_name = h!("aaaaaa");
 
     let mut info = TraceInfo::default();
     info.fill(&session_name.to_string());
