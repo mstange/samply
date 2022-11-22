@@ -9,7 +9,7 @@ fn main() {
         let s = schema_locator.event_schema(e);
         if let Ok(s) = s {
             let name = format!("{} {:?}/{}", s.name(), e.EventHeader.ProviderId, e.EventHeader.EventDescriptor.Opcode);
-            if let Some(count) = event_counts.get_mut(name) {
+            if let Some(count) = event_counts.get_mut(&name) {
                 *count += 1;
             } else {
                 event_counts.insert(name, 1);

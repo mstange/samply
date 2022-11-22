@@ -1,9 +1,9 @@
-use windows::Win32::{
+use windows::{Win32::{
     Security,
-    Foundation::{PSTR, PSID},
+    Foundation::PSID,
     System::Memory::LocalFree,
 
-};
+}, core::PSTR};
 //use crate::traits::*;
 use std::str::Utf8Error;
 
@@ -32,11 +32,11 @@ impl From<Utf8Error> for SddlNativeError {
 
 pub(crate) type SddlResult<T> = Result<T, SddlNativeError>;
 
-pub fn convert_sid_to_string(sid: isize) -> SddlResult<String> {
+pub fn convert_sid_to_string(sid: *const u8) -> SddlResult<String> {
     
-    let mut tmp = PSTR::default();
+    let mut tmp = PSTR::null();
     unsafe {
-        if !Security::Authorization::ConvertSidToStringSidA(PSID(sid), &mut tmp).as_bool() {
+        if !Security::Authorization::ConvertSidToStringSidA(PSID(sid as *const _ as *mut _), &mut tmp).as_bool() {
             return Err(SddlNativeError::IoError(std::io::Error::last_os_error()));
         }
 
@@ -57,7 +57,7 @@ mod test {
     #[test]
     fn test_convert_string_to_sid() {
         let sid: Vec<u8> = vec![1, 2, 0, 0, 0, 0, 0, 5, 0x20, 0, 0, 0, 0x20, 2, 0, 0];
-        if let Ok(string_sid) = convert_sid_to_string(sid.as_ptr() as isize) {
+        if let Ok(string_sid) = convert_sid_to_string(sid.as_ptr()) {
             assert_eq!(string_sid, "S-1-5-32-544");
         }
     }

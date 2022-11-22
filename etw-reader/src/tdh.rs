@@ -26,9 +26,8 @@ pub fn schema_from_tdh(event: &Etw::EVENT_RECORD) -> TdhNativeResult<TraceEventI
     unsafe {
         if Etw::TdhGetEventInformation(
             event,
-            0,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
+            None,
+            None,
             &mut buffer_size,
         ) != ERROR_INSUFFICIENT_BUFFER.0
         {
@@ -38,9 +37,8 @@ pub fn schema_from_tdh(event: &Etw::EVENT_RECORD) -> TdhNativeResult<TraceEventI
         let mut buffer = TraceEventInfoRaw::alloc(buffer_size);
         if Etw::TdhGetEventInformation(
             event,
-            0,
-            std::ptr::null_mut(),
-            buffer.info_as_ptr() as *mut _,
+            None,
+            Some(buffer.info_as_ptr() as *mut _),
             &mut buffer_size,
         ) != 0
         {
@@ -62,10 +60,8 @@ pub(crate) fn property_size(event: &EventRecord, name: &str) -> TdhNativeResult<
     unsafe {
         let status = Etw::TdhGetPropertySize(
             event.deref(),
-            0,
-            std::ptr::null_mut(),
-            1,
-            &mut desc,
+            None,
+            &[desc],
             &mut property_size,
         );
         if status != 0 {

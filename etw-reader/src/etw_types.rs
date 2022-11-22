@@ -5,8 +5,7 @@ use crate::{tdh_types::PropertyMapInfo};
 use crate::schema::EventSchema;
 use crate::utils;
 use crate::tdh_types::Property;
-use windows::core::GUID;
-use windows::Win32::Foundation::PWSTR;
+use windows::core::{GUID, PCWSTR};
 
 #[repr(transparent)]
 pub struct EventRecord(Etw::EVENT_RECORD);
@@ -156,16 +155,16 @@ impl TraceEventInfoRaw {
                 event.EventHeader.ProviderId = self.provider_guid();
                 let mut buffer_size = 0;
 
-                let map_name = PWSTR(self.info[curr_prop.Anonymous1.nonStructType.MapNameOffset as usize..].as_ptr() as *mut u16);
+                let map_name = PCWSTR(self.info[curr_prop.Anonymous1.nonStructType.MapNameOffset as usize..].as_ptr() as *mut u16);
                 use windows::Win32::Foundation::ERROR_INSUFFICIENT_BUFFER;
                 // println!("map_name {}", utils::parse_unk_size_null_utf16_string(&self.info[curr_prop.Anonymous1.nonStructType.MapNameOffset as usize..]));
 
-                if Etw::TdhGetEventMapInformation(&event, map_name, std::ptr::null_mut(), &mut buffer_size) != ERROR_INSUFFICIENT_BUFFER.0 {
+                if Etw::TdhGetEventMapInformation(&event, map_name, None, &mut buffer_size) != ERROR_INSUFFICIENT_BUFFER.0 {
                     panic!("expected this to fail");
                 }
                 
                 let mut buffer = vec![0; buffer_size as usize];
-                if Etw::TdhGetEventMapInformation(&event, map_name, buffer.as_mut_ptr() as *mut _, &mut buffer_size) != 0 {
+                if Etw::TdhGetEventMapInformation(&event, map_name, Some(buffer.as_mut_ptr() as *mut _), &mut buffer_size) != 0 {
                     panic!();
                 }
 

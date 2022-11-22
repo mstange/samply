@@ -6,7 +6,7 @@ extern crate bitflags;
 #[macro_use]
 extern crate num_derive;
 
-use windows::Win32::{Foundation::{GetLastError, MAX_PATH, PWSTR}, System::Diagnostics::Etw::EVENT_TRACE_FLAG};
+use windows::{Win32::{Foundation::{GetLastError, MAX_PATH}, System::Diagnostics::Etw::{EVENT_TRACE_FLAG, CONTROLTRACE_HANDLE}}, core::{PWSTR, HSTRING}, w};
 use crate::{parser::{Parser, ParserError, TryParse}, schema::SchemaLocator, tdh_types::{PropertyDesc, PrimitiveDesc, TdhInType}, traits::EncodeUtf16};
 
 #[macro_use]
@@ -14,7 +14,6 @@ extern crate memoffset;
 
 use etw_types::EventRecord;
 use tdh_types::{Property, TdhOutType};
-use windows::core::{IntoParam, Param};
 use std::{borrow::Cow, collections::HashMap, hash::BuildHasherDefault, path::Path};
 use windows::Win32::System::Diagnostics::Etw;
 use fxhash::FxHasher;
@@ -72,17 +71,17 @@ pub fn open_trace<F: FnMut(&EventRecord)>(path: &Path, mut callback: F)  {
     let mut log_file = EventTraceLogfile::default();
 
     #[cfg(windows)]
-    let path: Param<PWSTR> = path.as_os_str().into_param();
+    let path = HSTRING::from(path.as_os_str());
     #[cfg(not(windows))]
-    let path: Param<PWSTR> = panic!();
-    log_file.0.LogFileName = unsafe { path.abi() };
+    let path: HSTRING = panic!();
+    log_file.0.LogFileName = unsafe { PWSTR(path.as_wide().as_ptr() as *mut _) };
     log_file.0.Anonymous1.ProcessTraceMode = Etw::PROCESS_TRACE_MODE_EVENT_RECORD | Etw::PROCESS_TRACE_MODE_RAW_TIMESTAMP;
     let mut cb: &mut dyn FnMut(&EventRecord) = &mut callback;
     log_file.0.Context = unsafe { std::mem::transmute(&mut cb) };
     log_file.0.Anonymous2.EventRecordCallback = Some(trace_callback_thunk);
 
     let session_handle = unsafe { Etw::OpenTraceW(&mut *log_file) };
-    unsafe { Etw::ProcessTrace(&session_handle, 1, std::ptr::null_mut(), std::ptr::null_mut()) };
+    unsafe { Etw::ProcessTrace(&[session_handle], None, None) };
 }
 
 /// Complete Trace Properties struct
@@ -226,24 +225,22 @@ pub fn start_trace<F: FnMut(&EventRecord)>(mut callback: F)  {
     let guid_str = "DB6F6DDB-AC77-4E88-8253-819DF9BBF140";
     let mut video_blt_guid = GUID::from(guid_str);//GUID::from("DB6F6DDB-AC77-4E88-8253-819DF9BBF140");
 
-    let session_name = "aaaaaa".to_owned();
+    let session_name = w!("aaaaaa");
 
     let mut info = TraceInfo::default();
-    info.fill(&session_name);
+    info.fill(&session_name.to_string());
 
-    let session_name_pwstr: Param<PWSTR> = session_name.into_param();
-
-    let mut handle = 0;
+    let mut handle = CONTROLTRACE_HANDLE(0);
 
     unsafe {
-        let status = Etw::ControlTraceW(0, session_name_pwstr.abi(), &info.properties as *const _ as *mut _, Etw::EVENT_TRACE_CONTROL_STOP);
-        println!("ControlTrace = {}", status);
-        let status = Etw::StartTraceW(&mut handle, session_name_pwstr.abi(), &info.properties as *const _ as *mut _);
-        println!("StartTrace = {} handle {}", status, handle);
+        let status = Etw::ControlTraceW(None, session_name, &info.properties as *const _ as *mut _, Etw::EVENT_TRACE_CONTROL_STOP);
+        println!("ControlTrace = {:?}", status);
+        let status = Etw::StartTraceW(&mut handle, session_name, &info.properties as *const _ as *mut _);
+        println!("StartTrace = {:?} handle {:?}", status, handle);
         info.trace_name = [0; 260];
 
-        let status = Etw::ControlTraceW(handle, session_name_pwstr.abi(), &mut info.properties, Etw::EVENT_TRACE_CONTROL_QUERY);
-        println!("ControlTrace = {} {} {:?} {:?}", status, info.properties.BufferSize, info.properties.LoggerThreadId, info.trace_name);
+        let status = Etw::ControlTraceW(handle, session_name, &mut info.properties, Etw::EVENT_TRACE_CONTROL_QUERY);
+        println!("ControlTrace = {:?} {} {:?} {:?}", status, info.properties.BufferSize, info.properties.LoggerThreadId, info.trace_name);
     }
 
     let prov = Provider::new().by_guid(guid_str);
@@ -260,25 +257,25 @@ pub fn start_trace<F: FnMut(&EventRecord)>(mut callback: F)  {
         prov.any,
         prov.all,
         0,
-        &mut *parameters,
+        Some(&*parameters),
     ); }
     
     let mut trace = EventTraceLogfile::default();
-    trace.0.LoggerName = unsafe { session_name_pwstr.abi() };
+    trace.0.LoggerName = unsafe { PWSTR(session_name.as_ptr() as *mut _ ) };
     trace.0.Anonymous1.ProcessTraceMode = Etw::PROCESS_TRACE_MODE_REAL_TIME | Etw::PROCESS_TRACE_MODE_EVENT_RECORD;
     let mut cb: &mut dyn FnMut(&EventRecord) = &mut callback;
     trace.0.Context = unsafe { std::mem::transmute(&mut cb) };
     trace.0.Anonymous2.EventRecordCallback = Some(trace_callback_thunk);
 
     let session_handle = unsafe { Etw::OpenTraceW(&mut *trace) };
-    if session_handle == INVALID_TRACE_HANDLE {
+    if session_handle.0 == INVALID_TRACE_HANDLE {
         println!("{} {:?}", unsafe { GetLastError().0 }, windows::core::Error::from_win32());
 
         panic!("Invalid handle");
     }
-    println!("OpenTrace {}", session_handle);
-    let status = unsafe { Etw::ProcessTrace(&session_handle, 1, std::ptr::null_mut(), std::ptr::null_mut()) };
-    println!("status: {}", status);
+    println!("OpenTrace {:?}", session_handle);
+    let status = unsafe { Etw::ProcessTrace(&[session_handle], None, None) };
+    println!("status: {:?}", status);
 }
 
 pub fn write_property(output: &mut dyn std::fmt::Write, parser: &mut Parser, property: &Property) {
