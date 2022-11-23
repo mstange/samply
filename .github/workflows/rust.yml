@@ -19,3 +19,8 @@ jobs:
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose --lib
+    - name: Run xperf
+      run: xperf -on latency -stackwalk profile
+    - name: Stop xperf
+      run: xperf -d out.etl
+    - run: cargo run --example event-types out.etl
