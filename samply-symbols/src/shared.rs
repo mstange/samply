@@ -2,13 +2,13 @@ use debugid::DebugId;
 use object::read::ReadRef;
 use object::{SectionKind, SymbolKind};
 use std::borrow::Cow;
-use std::cell::RefCell;
 use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::future::Future;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::slice;
+use std::sync::Mutex;
 use std::{marker::PhantomData, ops::Deref};
 
 #[cfg(feature = "partial_read_stats")]
@@ -434,8 +434,17 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> FullSymbolListEntry<'a, Symbol> {
 
 pub struct SymbolMap<'data, Symbol: object::ObjectSymbol<'data>, R: ReadRef<'data>> {
     entries: Vec<(u32, FullSymbolListEntry<'data, Symbol>)>,
-    path_mapper: RefCell<PathMapper<()>>,
+    path_mapper: Mutex<PathMapper<()>>,
     section_data: SectionDataNoCopy<'data, R>,
+}
+
+#[test]
+fn test_symbolmap_is_send() {
+    fn assert_is_send<T: Send>() {}
+    #[allow(unused)]
+    fn wrapper<'data, R: ReadRef<'data> + Send>() {
+        assert_is_send::<SymbolMap<<object::read::File as object::Object>::Symbol, R>>();
+    }
 }
 
 impl<'data, Symbol: object::ObjectSymbol<'data>, R: ReadRef<'data>> SymbolMap<'data, Symbol, R> {
@@ -541,7 +550,7 @@ impl<'data, Symbol: object::ObjectSymbol<'data>, R: ReadRef<'data>> SymbolMap<'d
 
         Self {
             entries,
-            path_mapper: RefCell::new(path_mapper),
+            path_mapper: Mutex::new(path_mapper),
             section_data,
         }
     }
@@ -579,14 +588,23 @@ impl<'data, Symbol: object::ObjectSymbol<'data>, R: ReadRef<'data>> SymbolMap<'d
 
 pub struct Uplooker<'a, 'data, Symbol: object::ObjectSymbol<'data>> {
     context: Option<addr2line::Context<gimli::EndianSlice<'a, gimli::RunTimeEndian>>>,
-    path_mapper: &'a RefCell<PathMapper<()>>,
+    path_mapper: &'a Mutex<PathMapper<()>>,
     entries: &'a [(u32, FullSymbolListEntry<'data, Symbol>)],
+}
+
+#[test]
+fn test_uplooker_is_send() {
+    fn assert_is_send<T: Send>() {}
+    #[allow(unused)]
+    fn wrapper<'data, R: ReadRef<'data> + Send + Sync>() {
+        assert_is_send::<Uplooker<<object::read::File<R> as object::Object>::Symbol>>();
+    }
 }
 
 impl<'a, 'data, Symbol: object::ObjectSymbol<'data>> Uplooker<'a, 'data, Symbol> {
     fn new(
         context: Option<addr2line::Context<gimli::EndianSlice<'a, gimli::RunTimeEndian>>>,
-        path_mapper: &'a RefCell<PathMapper<()>>,
+        path_mapper: &'a Mutex<PathMapper<()>>,
         entries: &'a [(u32, FullSymbolListEntry<'data, Symbol>)],
     ) -> Self {
         Self {
@@ -613,9 +631,9 @@ impl<'a, 'data, Symbol: object::ObjectSymbol<'data>> Uplooker<'a, 'data, Symbol>
         if let (Ok(name), Some((end_addr, _))) = (entry.name(*start_addr), next_entry) {
             let function_size = end_addr - *start_addr;
 
-            let mut path_mapper = self.path_mapper.borrow_mut();
+            let mut path_mapper = self.path_mapper.lock().unwrap();
             // TODO: add image base address
-            let frames = get_frames(address as u64, self.context.as_ref(), &mut *path_mapper);
+            let frames = get_frames(address as u64, self.context.as_ref(), &mut path_mapper);
 
             let name = demangle::demangle_any(&name);
             Some(AddressInfo {
@@ -899,6 +917,17 @@ impl<'data, T: FileContents> ReadRef<'data> for &'data FileContentsWrapper<T> {
         self.read_bytes_at_until(range, delimiter).map_err(|_| {
             // Note: We're discarding the error from the FileContents method here.
         })
+    }
+}
+
+#[test]
+fn test_filecontents_readref_is_send_and_sync() {
+    fn assert_is_send<T: Send>() {}
+    fn assert_is_sync<T: Sync>() {}
+    #[allow(unused)]
+    fn wrapper<T: FileContents + Sync>() {
+        assert_is_send::<&FileContentsWrapper<T>>();
+        assert_is_sync::<&FileContentsWrapper<T>>();
     }
 }
 

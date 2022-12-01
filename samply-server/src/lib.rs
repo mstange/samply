@@ -37,6 +37,14 @@ pub use symsrv;
 
 const BAD_CHARS: &AsciiSet = &CONTROLS.add(b':').add(b'/');
 
+#[test]
+fn test_is_send_and_sync() {
+    fn assert_is_send<T: Send>() {}
+    fn assert_is_sync<T: Sync>() {}
+    assert_is_send::<FileContents>();
+    assert_is_sync::<FileContents>();
+}
+
 #[derive(Clone, Debug)]
 pub enum PortSelection {
     OnePort(u16),

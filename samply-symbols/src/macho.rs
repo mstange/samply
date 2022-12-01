@@ -225,6 +225,8 @@ where
 
     let mut current_object: Option<ExternalFile<F>> = None;
 
+    let mut external_addresses = Vec::new();
+
     for &address in addresses {
         if let Some(address_info) = uplooker.lookup(address) {
             symbolication_result.add_address_symbol(
@@ -233,89 +235,116 @@ where
                 address_info.symbol.name,
                 address_info.symbol.size,
             );
-            let vmaddr = image_base + address as u64;
-            let frames = match object_map.get(vmaddr) {
-                Some(entry) => {
-                    let external_object_name = entry.object(&object_map);
-                    let external_object_name = std::str::from_utf8(external_object_name).unwrap();
-                    let offset_from_function_start = (vmaddr - entry.address()) as u32;
-                    let (file_name, name_in_archive) = match external_object_name.find('(') {
-                        Some(index) => {
-                            // This is an "archive" reference of the form
-                            // "/Users/mstange/code/obj-m-opt/toolkit/library/build/../../../js/src/build/libjs_static.a(Unified_cpp_js_src13.o)"
-                            let (path, paren_rest) = external_object_name.split_at(index);
-                            let name_in_archive =
-                                paren_rest.trim_start_matches('(').trim_end_matches(')');
-                            (path, Some(name_in_archive))
-                        }
-                        None => {
-                            // This is a reference to a regular object file. Example:
-                            // "/Users/mstange/code/obj-m-opt/toolkit/library/build/../../components/sessionstore/Unified_cpp_sessionstore0.o"
-                            (external_object_name, None)
-                        }
-                    };
-                    let external_object = match &current_object {
-                        Some(external_object) if external_object.name == file_name => {
-                            external_object
-                        }
-                        _ => {
-                            let file_contents = match helper
-                                .open_file(&FileLocation::Path(file_name.into()))
-                                .await
-                            {
-                                Ok(file) => FileContentsWrapper::new(file),
-                                Err(_) => continue,
-                            };
+            if let Some(frames) = address_info.frames {
+                symbolication_result.add_address_debug_info(address, AddressDebugInfo { frames });
+            } else {
+                external_addresses.push(address);
+            }
+        }
+    }
 
-                            let archive_members_by_name: HashMap<Vec<u8>, (u64, u64)> =
-                                match ArchiveFile::parse(&file_contents) {
-                                    Ok(archive) => archive
-                                        .members()
-                                        .filter_map(|member| match member {
-                                            Ok(member) => Some((
-                                                member.name().to_owned(),
-                                                member.file_range(),
-                                            )),
-                                            Err(_) => None,
-                                        })
-                                        .collect(),
-                                    Err(_) => HashMap::new(),
-                                };
-                            current_object = Some(ExternalFile {
-                                name: file_name,
-                                file_contents,
-                                archive_members_by_name,
-                            });
-                            current_object.as_ref().unwrap()
-                        }
+    for address in external_addresses {
+        let vmaddr = image_base + u64::from(address);
+        if let Some(entry) = object_map.get(vmaddr) {
+            let external_object_name = entry.object(&object_map);
+            let external_object_name = std::str::from_utf8(external_object_name).unwrap();
+            let offset_from_function_start = (vmaddr - entry.address()) as u32;
+            let (file_name, name_in_archive) = match external_object_name.find('(') {
+                Some(index) => {
+                    // This is an "archive" reference of the form
+                    // "/Users/mstange/code/obj-m-opt/toolkit/library/build/../../../js/src/build/libjs_static.a(Unified_cpp_js_src13.o)"
+                    let (path, paren_rest) = external_object_name.split_at(index);
+                    let name_in_archive = paren_rest.trim_start_matches('(').trim_end_matches(')');
+                    (path, Some(name_in_archive))
+                }
+                None => {
+                    // This is a reference to a regular object file. Example:
+                    // "/Users/mstange/code/obj-m-opt/toolkit/library/build/../../components/sessionstore/Unified_cpp_sessionstore0.o"
+                    (external_object_name, None)
+                }
+            };
+            let external_object = match &current_object {
+                Some(external_object) if external_object.name == file_name => external_object,
+                _ => {
+                    let file_contents = match helper
+                        .open_file(&FileLocation::Path(file_name.into()))
+                        .await
+                    {
+                        Ok(file) => FileContentsWrapper::new(file),
+                        Err(_) => continue,
                     };
-                    if let Ok(stuff) = external_object.make_stuff(name_in_archive) {
-                        let fun_name = entry.name();
-                        if let Some(fun_address) = stuff.symbol_addresses.get(fun_name) {
-                            let address_in_external_object =
-                                fun_address + offset_from_function_start as u64;
-                            let uplooker = stuff.make_uplooker();
-                            get_frames(
-                                address_in_external_object,
-                                uplooker.context.as_ref(),
-                                &mut path_mapper,
-                            )
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
+
+                    let archive_members_by_name: HashMap<Vec<u8>, (u64, u64)> =
+                        match ArchiveFile::parse(&file_contents) {
+                            Ok(archive) => archive
+                                .members()
+                                .filter_map(|member| match member {
+                                    Ok(member) => {
+                                        Some((member.name().to_owned(), member.file_range()))
+                                    }
+                                    Err(_) => None,
+                                })
+                                .collect(),
+                            Err(_) => HashMap::new(),
+                        };
+                    current_object = Some(ExternalFile {
+                        name: file_name,
+                        file_contents,
+                        archive_members_by_name,
+                    });
+                    current_object.as_ref().unwrap()
+                }
+            };
+            if let Ok(stuff) = external_object.make_stuff(name_in_archive) {
+                let fun_name = entry.name();
+                if let Some(fun_address) = stuff.symbol_addresses.get(fun_name) {
+                    let address_in_external_object =
+                        fun_address + offset_from_function_start as u64;
+                    let uplooker = stuff.make_uplooker();
+                    let frames = get_frames(
+                        address_in_external_object,
+                        uplooker.context.as_ref(),
+                        &mut path_mapper,
+                    );
+                    if let Some(frames) = frames {
+                        symbolication_result
+                            .add_address_debug_info(address, AddressDebugInfo { frames });
                     }
                 }
-                None => address_info.frames,
-            };
-            if let Some(frames) = frames {
-                symbolication_result.add_address_debug_info(address, AddressDebugInfo { frames });
             }
         }
     }
 
     Ok(symbolication_result)
+}
+
+// Disabled due to "higher-ranked lifetime error"
+#[cfg(any())]
+#[test]
+fn test_future_send() {
+    fn assert_is_send<T: Send>(_f: T) {}
+    fn wrapper<'a, 'b, F, H, R>(
+        base_path: &BasePath,
+        file_contents: FileContentsWrapper<F>,
+        file_range: Option<(u64, u64)>,
+        query: SymbolicationQuery<'a>,
+        helper: &'static H,
+    ) where
+        F: FileContents + Send + Sync,
+        H: FileAndPathHelper<'static, F = F>,
+        R: SymbolicationResult + Send,
+        <H as FileAndPathHelper<'static>>::OpenFileFuture: Send,
+        H: Sync,
+    {
+        let f = get_symbolication_result::<F, H, R>(
+            base_path,
+            file_contents,
+            file_range,
+            query,
+            helper,
+        );
+        assert_is_send(f);
+    }
 }
 
 struct ExternalFileStuff<'extobjdata, R: ReadRef<'extobjdata>> {
