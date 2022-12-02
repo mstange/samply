@@ -3,8 +3,8 @@ use crate::dwarf::{get_frames, try_get_section_data, SingleSectionData};
 use crate::error::Error;
 use crate::path_mapper::PathMapper;
 use crate::shared::{
-    relative_address_base, BasePath, FileAndPathHelper, FileContents, FileContentsWrapper,
-    FileLocation, RangeReadRef, SymbolMap, SymbolicationQuery, SymbolicationResult,
+    BasePath, FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation,
+    FramesLookupResult, RangeReadRef, SymbolMap, SymbolicationQuery, SymbolicationResult,
     SymbolicationResultKind,
 };
 use crate::{AddressDebugInfo, InlineStackFrame};
@@ -220,10 +220,7 @@ where
     // The original addresses which our caller wants to look up are relative to
     // the "root object". In the external objects they'll be at a different address.
 
-    let image_base = relative_address_base(&macho_file);
     let mut path_mapper = PathMapper::new(base_path);
-
-    let object_map = macho_file.object_map();
 
     let mut external_addresses = Vec::new();
 
@@ -235,58 +232,43 @@ where
                 address_info.symbol.name,
                 address_info.symbol.size,
             );
-            if let Some(frames) = address_info.frames {
-                symbolication_result.add_address_debug_info(address, AddressDebugInfo { frames });
-            } else {
-                external_addresses.push(address);
+            match address_info.frames {
+                FramesLookupResult::Available(frames) => symbolication_result
+                    .add_address_debug_info(address, AddressDebugInfo { frames }),
+                FramesLookupResult::External(external_file_ref, external_file_address) => {
+                    external_addresses.push((address, external_file_ref, external_file_address));
+                }
+                FramesLookupResult::Unavailable => {}
             }
         }
     }
 
     let mut current_external_file: Option<ExternalFile<F>> = None;
 
-    for address in external_addresses {
-        let vmaddr = image_base + u64::from(address);
-        if let Some(entry) = object_map.get(vmaddr) {
-            let external_file_name = entry.object(&object_map);
-            let external_file_name = std::str::from_utf8(external_file_name).unwrap();
-            let offset_from_function_start = (vmaddr - entry.address()) as u32;
-            let (file_name, name_in_archive) = match external_file_name.find('(') {
-                Some(index) => {
-                    // This is an "archive" reference of the form
-                    // "/Users/mstange/code/obj-m-opt/toolkit/library/build/../../../js/src/build/libjs_static.a(Unified_cpp_js_src13.o)"
-                    let (path, paren_rest) = external_file_name.split_at(index);
-                    let name_in_archive = paren_rest.trim_start_matches('(').trim_end_matches(')');
-                    (path, Some(name_in_archive))
-                }
-                None => {
-                    // This is a reference to a regular object file. Example:
-                    // "/Users/mstange/code/obj-m-opt/toolkit/library/build/../../components/sessionstore/Unified_cpp_sessionstore0.o"
-                    (external_file_name, None)
-                }
-            };
-            if current_external_file.is_none()
-                || current_external_file.as_ref().unwrap().name != file_name
+    for (address, external_file_ref, external_file_address) in external_addresses {
+        if current_external_file.is_none()
+            || current_external_file.as_ref().unwrap().name != external_file_ref.file_name
+        {
+            let file = match helper
+                .open_file(&FileLocation::Path(
+                    external_file_ref.file_name.as_str().into(),
+                ))
+                .await
             {
-                let file = match helper
-                    .open_file(&FileLocation::Path(file_name.into()))
-                    .await
-                {
-                    Ok(file) => file,
-                    Err(_) => continue,
-                };
-                current_external_file = Some(ExternalFile::new(file_name, file));
-            }
-            let external_file = current_external_file.as_ref().unwrap();
-            let uplooker = external_file.make_uplooker();
-            if let Some(frames) = uplooker.lookup_address(
-                name_in_archive,
-                entry.name(),
-                offset_from_function_start,
-                &mut path_mapper,
-            ) {
-                symbolication_result.add_address_debug_info(address, AddressDebugInfo { frames });
-            }
+                Ok(file) => file,
+                Err(_) => continue,
+            };
+            current_external_file = Some(ExternalFile::new(&external_file_ref.file_name, file));
+        }
+        let external_file = current_external_file.as_ref().unwrap();
+        let uplooker = external_file.make_uplooker();
+        if let Some(frames) = uplooker.lookup_address(
+            external_file_address.name_in_archive.as_deref(),
+            &external_file_address.symbol_name,
+            external_file_address.offset_from_symbol,
+            &mut path_mapper,
+        ) {
+            symbolication_result.add_address_debug_info(address, AddressDebugInfo { frames });
         }
     }
 
@@ -340,12 +322,12 @@ impl<'a> ExternalObjectUplooker<'a> {
     }
 }
 
-struct ExternalFileUplooker<'data, 'a, F: FileContents> {
-    external_file: &'a ExternalFile<'data, F>,
+struct ExternalFileUplooker<'a, F: FileContents> {
+    external_file: &'a ExternalFile<F>,
     object_uplookers: FrozenMap<String, Box<ExternalObjectUplooker<'a>>>,
 }
 
-impl<'data, 'a, F: FileContents> ExternalFileUplooker<'data, 'a, F> {
+impl<'a, F: FileContents> ExternalFileUplooker<'a, F> {
     pub fn lookup_address(
         &self,
         member_name: Option<&str>,
@@ -366,16 +348,16 @@ impl<'data, 'a, F: FileContents> ExternalFileUplooker<'data, 'a, F> {
     }
 }
 
-struct ExternalFile<'data, F: FileContents> {
-    name: &'data str,
+struct ExternalFile<F: FileContents> {
+    name: String,
     file_contents: FileContentsWrapper<F>,
     /// name in bytes -> (start, size) in file_contents
     archive_members_by_name: HashMap<Vec<u8>, (u64, u64)>,
     uncompressed_section_data: FrozenVec<Vec<u8>>,
 }
 
-impl<'data, F: FileContents> ExternalFile<'data, F> {
-    pub fn new(file_name: &'data str, file: F) -> Self {
+impl<F: FileContents> ExternalFile<F> {
+    pub fn new(file_name: &str, file: F) -> Self {
         let file_contents = FileContentsWrapper::new(file);
         let archive_members_by_name: HashMap<Vec<u8>, (u64, u64)> =
             match ArchiveFile::parse(&file_contents) {
@@ -389,7 +371,7 @@ impl<'data, F: FileContents> ExternalFile<'data, F> {
                 Err(_) => HashMap::new(),
             };
         Self {
-            name: file_name,
+            name: file_name.to_owned(),
             file_contents,
             archive_members_by_name,
             uncompressed_section_data: FrozenVec::new(),
@@ -490,7 +472,7 @@ impl<'data, F: FileContents> ExternalFile<'data, F> {
         Ok(uplooker)
     }
 
-    pub fn make_uplooker(&self) -> ExternalFileUplooker<'data, '_, F> {
+    pub fn make_uplooker(&self) -> ExternalFileUplooker<'_, F> {
         ExternalFileUplooker {
             external_file: self,
             object_uplookers: FrozenMap::new(),

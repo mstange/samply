@@ -2,7 +2,7 @@ use crate::debugid_util::debug_id_for_object;
 use crate::error::Error;
 use crate::path_mapper::PathMapper;
 use crate::shared::{
-    BasePath, FileContents, FileContentsWrapper, SymbolMap, SymbolicationQuery,
+    BasePath, FileContents, FileContentsWrapper, FramesLookupResult, SymbolMap, SymbolicationQuery,
     SymbolicationResult, SymbolicationResultKind,
 };
 use crate::AddressDebugInfo;
@@ -91,7 +91,7 @@ where
                 address_info.symbol.name,
                 address_info.symbol.size,
             );
-            if let Some(frames) = address_info.frames {
+            if let FramesLookupResult::Available(frames) = address_info.frames {
                 symbolication_result.add_address_debug_info(address, AddressDebugInfo { frames });
             }
         }

@@ -1,6 +1,6 @@
 use debugid::DebugId;
 use object::read::ReadRef;
-use object::{SectionKind, SymbolKind};
+use object::{ObjectMap, SectionKind, SymbolKind};
 use std::borrow::Cow;
 use std::convert::TryFrom;
 use std::fmt::Debug;
@@ -436,6 +436,8 @@ pub struct SymbolMap<'data, Symbol: object::ObjectSymbol<'data>, R: ReadRef<'dat
     entries: Vec<(u32, FullSymbolListEntry<'data, Symbol>)>,
     path_mapper: Mutex<PathMapper<()>>,
     section_data: SectionDataNoCopy<'data, R>,
+    object_map: ObjectMap<'data>,
+    image_base_address: u64,
 }
 
 #[test]
@@ -552,6 +554,8 @@ impl<'data, Symbol: object::ObjectSymbol<'data>, R: ReadRef<'data>> SymbolMap<'d
             entries,
             path_mapper: Mutex::new(path_mapper),
             section_data,
+            object_map: object_file.object_map(),
+            image_base_address: base_address,
         }
     }
 
@@ -569,7 +573,13 @@ impl<'data, Symbol: object::ObjectSymbol<'data>, R: ReadRef<'data>> SymbolMap<'d
 
     pub fn make_uplooker(&self) -> Uplooker<'_, 'data, Symbol> {
         let context = self.section_data.make_addr2line_context().ok();
-        let uplooker = Uplooker::new(context, &self.path_mapper, self.entries.as_slice());
+        let uplooker = Uplooker::new(
+            context,
+            &self.path_mapper,
+            self.entries.as_slice(),
+            &self.object_map,
+            self.image_base_address,
+        );
         uplooker
     }
 
@@ -590,6 +600,8 @@ pub struct Uplooker<'a, 'data, Symbol: object::ObjectSymbol<'data>> {
     context: Option<addr2line::Context<gimli::EndianSlice<'a, gimli::RunTimeEndian>>>,
     path_mapper: &'a Mutex<PathMapper<()>>,
     entries: &'a [(u32, FullSymbolListEntry<'data, Symbol>)],
+    object_map: &'a ObjectMap<'data>,
+    image_base_address: u64,
 }
 
 #[test]
@@ -606,11 +618,15 @@ impl<'a, 'data, Symbol: object::ObjectSymbol<'data>> Uplooker<'a, 'data, Symbol>
         context: Option<addr2line::Context<gimli::EndianSlice<'a, gimli::RunTimeEndian>>>,
         path_mapper: &'a Mutex<PathMapper<()>>,
         entries: &'a [(u32, FullSymbolListEntry<'data, Symbol>)],
+        object_map: &'a ObjectMap<'data>,
+        image_base_address: u64,
     ) -> Self {
         Self {
             context,
             path_mapper,
             entries,
+            object_map,
+            image_base_address,
         }
     }
 
@@ -632,8 +648,45 @@ impl<'a, 'data, Symbol: object::ObjectSymbol<'data>> Uplooker<'a, 'data, Symbol>
             let function_size = end_addr - *start_addr;
 
             let mut path_mapper = self.path_mapper.lock().unwrap();
-            // TODO: add image base address
-            let frames = get_frames(address as u64, self.context.as_ref(), &mut path_mapper);
+
+            let vmaddr = self.image_base_address + u64::from(address);
+            let frames = match get_frames(vmaddr, self.context.as_ref(), &mut path_mapper) {
+                Some(frames) => FramesLookupResult::Available(frames),
+                None => {
+                    if let Some(entry) = self.object_map.get(vmaddr) {
+                        let external_file_name = entry.object(self.object_map);
+                        let external_file_name = std::str::from_utf8(external_file_name).unwrap();
+                        let offset_from_symbol = (vmaddr - entry.address()) as u32;
+                        let (file_name, name_in_archive) = match external_file_name.find('(') {
+                            Some(index) => {
+                                // This is an "archive" reference of the form
+                                // "/Users/mstange/code/obj-m-opt/toolkit/library/build/../../../js/src/build/libjs_static.a(Unified_cpp_js_src13.o)"
+                                let (path, paren_rest) = external_file_name.split_at(index);
+                                let name_in_archive =
+                                    paren_rest.trim_start_matches('(').trim_end_matches(')');
+                                (path, Some(name_in_archive))
+                            }
+                            None => {
+                                // This is a reference to a regular object file. Example:
+                                // "/Users/mstange/code/obj-m-opt/toolkit/library/build/../../components/sessionstore/Unified_cpp_sessionstore0.o"
+                                (external_file_name, None)
+                            }
+                        };
+                        FramesLookupResult::External(
+                            ExternalFileRef {
+                                file_name: file_name.to_owned(),
+                            },
+                            ExternalFileAddressRef {
+                                name_in_archive: name_in_archive.map(ToOwned::to_owned),
+                                symbol_name: entry.name().to_owned(),
+                                offset_from_symbol,
+                            },
+                        )
+                    } else {
+                        FramesLookupResult::Unavailable
+                    }
+                }
+            };
 
             let name = demangle::demangle_any(&name);
             Some(AddressInfo {
@@ -686,7 +739,23 @@ pub struct AddressInfo {
     /// Information about the symbol which contains the looked up address.
     pub symbol: SymbolInfo,
     /// Information about the frames at the looked up address, from the debug info.
-    pub frames: Option<Vec<InlineStackFrame>>,
+    pub frames: FramesLookupResult,
+}
+
+pub enum FramesLookupResult {
+    Available(Vec<InlineStackFrame>),
+    External(ExternalFileRef, ExternalFileAddressRef),
+    Unavailable,
+}
+
+pub struct ExternalFileRef {
+    pub file_name: String,
+}
+
+pub struct ExternalFileAddressRef {
+    pub name_in_archive: Option<String>,
+    pub symbol_name: Vec<u8>,
+    pub offset_from_symbol: u32,
 }
 
 /// Implementation for slices.
