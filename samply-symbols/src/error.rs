@@ -96,6 +96,9 @@ pub enum Error {
         #[source]
         srcsrv::EvalError,
     ),
+
+    #[error("Could not create addr2line Context: {0}")]
+    Addr2lineContextCreationError(#[source] gimli::Error),
 }
 
 pub trait Context<T> {
@@ -150,6 +153,7 @@ impl Error {
             Error::PdbAddr2lineError(_) => "PdbAddr2lineError",
             Error::SrcSrvParseError(_) => "SrcSrvParseError",
             Error::SrcSrvEvalError(_) => "SrcSrvEvalError",
+            Error::Addr2lineContextCreationError(_) => "Addr2lineContextCreationError",
         }
     }
 }

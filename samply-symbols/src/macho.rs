@@ -1,5 +1,5 @@
 use crate::debugid_util::debug_id_for_object;
-use crate::dwarf::{get_frames, SectionDataNoCopy};
+use crate::dwarf::{get_frames, try_get_section_data, SingleSectionData};
 use crate::error::Error;
 use crate::path_mapper::PathMapper;
 use crate::shared::{
@@ -9,6 +9,8 @@ use crate::shared::{
 };
 use crate::AddressDebugInfo;
 use debugid::DebugId;
+use elsa::FrozenVec;
+use gimli::{EndianSlice, RunTimeEndian, SectionId};
 use macho_unwind_info::UnwindInfo;
 use object::macho::{self, LinkeditDataCommand, MachHeader32, MachHeader64};
 use object::read::macho::{FatArch, LoadCommandIterator, MachHeader};
@@ -291,16 +293,17 @@ where
                         name: file_name,
                         file_contents,
                         archive_members_by_name,
+                        uncompressed_section_data: FrozenVec::new(),
                     });
                     current_object.as_ref().unwrap()
                 }
             };
-            if let Ok(stuff) = external_object.make_stuff(name_in_archive) {
+            if let Ok((uplooker, symbol_addresses)) = external_object.make_uplooker(name_in_archive)
+            {
                 let fun_name = entry.name();
-                if let Some(fun_address) = stuff.symbol_addresses.get(fun_name) {
+                if let Some(fun_address) = symbol_addresses.get(fun_name) {
                     let address_in_external_object =
                         fun_address + offset_from_function_start as u64;
-                    let uplooker = stuff.make_uplooker();
                     let frames = get_frames(
                         address_in_external_object,
                         uplooker.context.as_ref(),
@@ -347,18 +350,6 @@ fn test_future_send() {
     }
 }
 
-struct ExternalFileStuff<'extobjdata, R: ReadRef<'extobjdata>> {
-    section_data: SectionDataNoCopy<'extobjdata, R>,
-    symbol_addresses: HashMap<&'extobjdata [u8], u64>,
-}
-
-impl<'extobjdata, R: ReadRef<'extobjdata>> ExternalFileStuff<'extobjdata, R> {
-    pub fn make_uplooker(&self) -> ExternalObjectUplooker<'_> {
-        let context = self.section_data.make_addr2line_context().ok();
-        ExternalObjectUplooker { context }
-    }
-}
-
 struct ExternalObjectUplooker<'a> {
     context: Option<addr2line::Context<gimli::EndianSlice<'a, gimli::RunTimeEndian>>>,
 }
@@ -366,14 +357,44 @@ struct ExternalObjectUplooker<'a> {
 struct ExternalFile<'data, F: FileContents> {
     name: &'data str,
     file_contents: FileContentsWrapper<F>,
+    /// name in bytes -> (start, size) in file_contents
     archive_members_by_name: HashMap<Vec<u8>, (u64, u64)>,
+    uncompressed_section_data: FrozenVec<Vec<u8>>,
 }
 
 impl<'data, F: FileContents> ExternalFile<'data, F> {
-    pub fn make_stuff<'s>(
+    fn sect<'s, R>(
+        &'s self,
+        data: RangeReadRef<'s, R>,
+        obj: &File<'s, RangeReadRef<'s, R>>,
+        section_id: SectionId,
+        endian: RunTimeEndian,
+    ) -> EndianSlice<'s, RunTimeEndian>
+    where
+        R: ReadRef<'s>,
+    {
+        let slice: &[u8] = match try_get_section_data(data, obj, section_id) {
+            Some(SingleSectionData::Owned(section_data)) => {
+                self.uncompressed_section_data.push_get(section_data)
+            }
+            Some(SingleSectionData::View(section_data, size)) => {
+                section_data.read_bytes_at(0, size).unwrap_or(&[])
+            }
+            None => &[],
+        };
+        EndianSlice::new(slice, endian)
+    }
+
+    fn get_archive_member<'s>(
         &'s self,
         name_in_archive: Option<&str>,
-    ) -> Result<ExternalFileStuff<'s, RangeReadRef<&'s FileContentsWrapper<F>>>, Error> {
+    ) -> Result<
+        (
+            RangeReadRef<'s, &'s FileContentsWrapper<F>>,
+            File<'s, RangeReadRef<'s, &'s FileContentsWrapper<F>>>,
+        ),
+        Error,
+    > {
         let data = &self.file_contents;
         let data = match name_in_archive {
             Some(name_in_archive) => {
@@ -386,10 +407,45 @@ impl<'data, F: FileContents> ExternalFile<'data, F> {
             None => RangeReadRef::new(data, 0, data.len()),
         };
         let object_file = File::parse(data).map_err(Error::MachOHeaderParseError)?;
-        let section_data = SectionDataNoCopy::from_object(
-            RangeReadRef::new(data, 0, data.len().unwrap()),
-            &object_file,
-        );
+        Ok((data, object_file))
+    }
+
+    fn make_addr2line_context<'s, R: ReadRef<'s>>(
+        &'s self,
+        data: RangeReadRef<'s, R>,
+        obj: &File<'s, RangeReadRef<'s, R>>,
+    ) -> Result<addr2line::Context<EndianSlice<'s, RunTimeEndian>>, Error> {
+        let e = if obj.is_little_endian() {
+            gimli::RunTimeEndian::Little
+        } else {
+            gimli::RunTimeEndian::Big
+        };
+        let context = addr2line::Context::from_sections(
+            self.sect(data, obj, SectionId::DebugAbbrev, e).into(),
+            self.sect(data, obj, SectionId::DebugAddr, e).into(),
+            self.sect(data, obj, SectionId::DebugAranges, e).into(),
+            self.sect(data, obj, SectionId::DebugInfo, e).into(),
+            self.sect(data, obj, SectionId::DebugLine, e).into(),
+            self.sect(data, obj, SectionId::DebugLineStr, e).into(),
+            self.sect(data, obj, SectionId::DebugRanges, e).into(),
+            self.sect(data, obj, SectionId::DebugRngLists, e).into(),
+            self.sect(data, obj, SectionId::DebugStr, e).into(),
+            self.sect(data, obj, SectionId::DebugStrOffsets, e).into(),
+            EndianSlice::new(&[], e),
+        )
+        .map_err(Error::Addr2lineContextCreationError)?;
+        Ok(context)
+    }
+
+    pub fn make_uplooker<'s>(
+        &'s self,
+        name_in_archive: Option<&str>,
+    ) -> Result<(ExternalObjectUplooker<'s>, HashMap<&'s [u8], u64>), Error> {
+        let (data, object_file) = self.get_archive_member(name_in_archive)?;
+        let context = self.make_addr2line_context(data, &object_file);
+        let uplooker = ExternalObjectUplooker {
+            context: context.ok(),
+        };
         let symbol_addresses = object_file
             .symbols()
             .filter_map(|symbol| {
@@ -398,10 +454,7 @@ impl<'data, F: FileContents> ExternalFile<'data, F> {
                 Some((name, address))
             })
             .collect();
-        Ok(ExternalFileStuff {
-            section_data,
-            symbol_addresses,
-        })
+        Ok((uplooker, symbol_addresses))
     }
 }
 pub struct MachOData<'data, R: ReadRef<'data>> {
