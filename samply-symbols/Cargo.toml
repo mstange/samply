@@ -49,6 +49,7 @@ lzma-rs = "0.2.0"
 macho-unwind-info = "0.3.0"
 debugid = "0.8.0"
 flate2 = "1"
+yoke = { version = "0.6.2", features = ["derive"] }
 
 [dev-dependencies]
 memmap2 = "0.5.0"

@@ -93,7 +93,7 @@ impl FileLocation {
 /// access - all access to the file system is via this trait, and its associated
 /// trait `FileContents`.
 pub trait FileAndPathHelper<'h> {
-    type F: FileContents;
+    type F: FileContents + 'static;
     type OpenFileFuture: OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h;
 
     /// Given a "debug name" and a "breakpad ID", return a list of file paths

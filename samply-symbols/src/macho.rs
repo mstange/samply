@@ -19,6 +19,7 @@ use object::{Endianness, ReadRef};
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::path::Path;
+use yoke::{Yoke, Yokeable};
 
 /// Returns the (offset, size) in the fat binary file for the object that matches
 // breakpad_id, if found.
@@ -182,7 +183,7 @@ pub async fn get_symbolication_result<'a, 'b, 'h, F, H, R>(
     helper: &'h H,
 ) -> Result<R, Error>
 where
-    F: FileContents,
+    F: FileContents + 'static,
     R: SymbolicationResult,
     H: FileAndPathHelper<'h, F = F>,
 {
@@ -243,11 +244,11 @@ where
         }
     }
 
-    let mut current_external_file: Option<ExternalFile<F>> = None;
+    let mut current_external_file: Option<ExternalFileWithUplooker<F>> = None;
 
     for (address, external_file_ref, external_file_address) in external_addresses {
         if current_external_file.is_none()
-            || current_external_file.as_ref().unwrap().name != external_file_ref.file_name
+            || current_external_file.as_ref().unwrap().name() != external_file_ref.file_name
         {
             let file = match helper
                 .open_file(&FileLocation::Path(
@@ -258,11 +259,13 @@ where
                 Ok(file) => file,
                 Err(_) => continue,
             };
-            current_external_file = Some(ExternalFile::new(&external_file_ref.file_name, file));
+            current_external_file = Some(ExternalFileWithUplooker::new(
+                &external_file_ref.file_name,
+                file,
+            ));
         }
         let external_file = current_external_file.as_ref().unwrap();
-        let uplooker = external_file.make_uplooker();
-        if let Some(frames) = uplooker.lookup_address(
+        if let Some(frames) = external_file.lookup_address(
             external_file_address.name_in_archive.as_deref(),
             &external_file_address.symbol_name,
             external_file_address.offset_from_symbol,
@@ -322,13 +325,13 @@ impl<'a> ExternalObjectUplooker<'a> {
     }
 }
 
-struct ExternalFileUplooker<'a, F: FileContents> {
-    external_file: &'a ExternalFile<F>,
+struct ExternalFileUplooker<'a> {
+    external_file: &'a dyn ExternalFileTrait,
     object_uplookers: FrozenMap<String, Box<ExternalObjectUplooker<'a>>>,
 }
 
-impl<'a, F: FileContents> ExternalFileUplooker<'a, F> {
-    pub fn lookup_address(
+impl<'a> ExternalFileUplooker<'a> {
+    fn lookup_address_impl(
         &self,
         member_name: Option<&str>,
         symbol_name: &[u8],
@@ -354,6 +357,92 @@ struct ExternalFile<F: FileContents> {
     /// name in bytes -> (start, size) in file_contents
     archive_members_by_name: HashMap<Vec<u8>, (u64, u64)>,
     uncompressed_section_data: FrozenVec<Vec<u8>>,
+}
+
+trait ExternalFileTrait {
+    fn make_type_erased_uplooker(&self) -> Box<dyn ExternalFileUplookerTrait + '_>;
+    fn make_object_uplooker<'s>(
+        &'s self,
+        name_in_archive: Option<&str>,
+    ) -> Result<ExternalObjectUplooker<'s>, Error>;
+    fn name(&self) -> &str;
+}
+
+trait ExternalFileUplookerTrait {
+    fn lookup_address(
+        &self,
+        member_name: Option<&str>,
+        symbol_name: &[u8],
+        offset_from_symbol: u32,
+        path_mapper: &mut PathMapper<()>,
+    ) -> Option<Vec<InlineStackFrame>>;
+}
+
+impl<'a> ExternalFileUplookerTrait for ExternalFileUplooker<'a> {
+    fn lookup_address(
+        &self,
+        member_name: Option<&str>,
+        symbol_name: &[u8],
+        offset_from_symbol: u32,
+        path_mapper: &mut PathMapper<()>,
+    ) -> Option<Vec<InlineStackFrame>> {
+        self.lookup_address_impl(member_name, symbol_name, offset_from_symbol, path_mapper)
+    }
+}
+
+struct ExternalFileWithUplooker<F: FileContents>(
+    Yoke<ExternalFileUplookerTypeErased<'static>, Box<ExternalFile<F>>>,
+);
+
+impl<F: FileContents> ExternalFileWithUplooker<F> {
+    pub fn new(file_name: &str, file: F) -> Self {
+        let external_file = Box::new(ExternalFile::new(file_name, file));
+        let inner =
+            Yoke::<ExternalFileUplookerTypeErased<'static>, Box<ExternalFile<F>>>::attach_to_cart(
+                external_file,
+                |external_file| {
+                    let uplooker = external_file.make_type_erased_uplooker();
+                    ExternalFileUplookerTypeErased(uplooker)
+                },
+            );
+        Self(inner)
+    }
+
+    pub fn name(&self) -> &str {
+        self.0.backing_cart().name()
+    }
+
+    pub fn lookup_address(
+        &self,
+        member_name: Option<&str>,
+        symbol_name: &[u8],
+        offset_from_symbol: u32,
+        path_mapper: &mut PathMapper<()>,
+    ) -> Option<Vec<InlineStackFrame>> {
+        self.0
+            .get()
+            .0
+            .lookup_address(member_name, symbol_name, offset_from_symbol, path_mapper)
+    }
+}
+
+#[derive(Yokeable)]
+struct ExternalFileUplookerTypeErased<'a>(Box<dyn ExternalFileUplookerTrait + 'a>);
+
+impl<F: FileContents> ExternalFileTrait for ExternalFile<F> {
+    fn make_type_erased_uplooker(&self) -> Box<dyn ExternalFileUplookerTrait + '_> {
+        let uplooker = self.make_uplooker();
+        Box::new(uplooker)
+    }
+    fn make_object_uplooker<'s>(
+        &'s self,
+        name_in_archive: Option<&str>,
+    ) -> Result<ExternalObjectUplooker<'s>, Error> {
+        self.make_object_uplooker_impl(name_in_archive)
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
 }
 
 impl<F: FileContents> ExternalFile<F> {
@@ -451,7 +540,7 @@ impl<F: FileContents> ExternalFile<F> {
         Ok(context)
     }
 
-    pub fn make_object_uplooker<'s>(
+    pub fn make_object_uplooker_impl<'s>(
         &'s self,
         name_in_archive: Option<&str>,
     ) -> Result<ExternalObjectUplooker<'s>, Error> {
@@ -472,7 +561,7 @@ impl<F: FileContents> ExternalFile<F> {
         Ok(uplooker)
     }
 
-    pub fn make_uplooker(&self) -> ExternalFileUplooker<'_, F> {
+    pub fn make_uplooker(&self) -> ExternalFileUplooker<'_> {
         ExternalFileUplooker {
             external_file: self,
             object_uplookers: FrozenMap::new(),
