@@ -80,7 +80,7 @@
 //! impl<'h> FileAndPathHelper<'h> for ExampleHelper {
 //!     type F = Vec<u8>;
 //!     type OpenFileFuture =
-//!         std::pin::Pin<Box<dyn std::future::Future<Output = FileAndPathHelperResult<Self::F>> + 'h>>;
+//!         std::pin::Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>>;
 //!
 //!     fn get_candidate_paths_for_binary_or_pdb(
 //!         &self,
@@ -93,7 +93,7 @@
 //!     fn open_file(
 //!         &'h self,
 //!         location: &FileLocation,
-//!     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = FileAndPathHelperResult<Self::F>> + 'h>> {
+//!     ) -> std::pin::Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>> {
 //!         async fn read_file_impl(path: std::path::PathBuf) -> FileAndPathHelperResult<Vec<u8>> {
 //!             Ok(std::fs::read(&path)?)
 //!         }

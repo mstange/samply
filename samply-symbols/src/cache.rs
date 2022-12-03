@@ -1,14 +1,33 @@
-use std::{cell::RefCell, collections::HashMap, convert::TryInto, ops::Range};
+use std::{
+    collections::HashMap,
+    convert::TryInto,
+    ops::Range,
+    sync::{atomic::AtomicUsize, Mutex},
+};
 
 use crate::chunked_read_buffer_manager::{ChunkedReadBufferManager, RangeLocation, RangeSourcing};
 
-use elsa::FrozenVec;
+use elsa::sync::FrozenVec;
 
 use crate::{FileAndPathHelperResult, FileContents};
 
 const CHUNK_SIZE: u64 = 32 * 1024;
 
+#[cfg(not(feature = "send_futures"))]
 pub trait FileByteSource {
+    /// Read `size` bytes at offset `offset` and append them to `buffer`.
+    /// If successful, `buffer` must have had its len increased exactly by `size`,
+    /// otherwise the caller may panic.
+    fn read_bytes_into(
+        &self,
+        buffer: &mut Vec<u8>,
+        offset: u64,
+        size: usize,
+    ) -> FileAndPathHelperResult<()>;
+}
+
+#[cfg(feature = "send_futures")]
+pub trait FileByteSource: Send + Sync {
     /// Read `size` bytes at offset `offset` and append them to `buffer`.
     /// If successful, `buffer` must have had its len increased exactly by `size`,
     /// otherwise the caller may panic.
@@ -23,9 +42,10 @@ pub trait FileByteSource {
 pub struct FileContentsWithChunkedCaching<S: FileByteSource> {
     source: S,
     file_len: u64,
-    buffer_manager: RefCell<ChunkedReadBufferManager<CHUNK_SIZE>>,
-    string_cache: RefCell<HashMap<(u64, u8), RangeLocation>>,
+    buffer_manager: Mutex<ChunkedReadBufferManager<CHUNK_SIZE>>,
+    string_cache: Mutex<HashMap<(u64, u8), RangeLocation>>,
     buffers: FrozenVec<Box<[u8]>>,
+    buffer_count: AtomicUsize,
 }
 
 impl<S: FileByteSource> FileContentsWithChunkedCaching<S> {
@@ -34,21 +54,22 @@ impl<S: FileByteSource> FileContentsWithChunkedCaching<S> {
             source,
             buffers: FrozenVec::new(),
             file_len,
-            buffer_manager: RefCell::new(ChunkedReadBufferManager::new_with_size(file_len)),
-            string_cache: RefCell::new(HashMap::new()),
+            buffer_manager: Mutex::new(ChunkedReadBufferManager::new_with_size(file_len)),
+            string_cache: Mutex::new(HashMap::new()),
+            buffer_count: AtomicUsize::new(0),
         }
     }
 
     #[inline]
     fn slice_from_location(&self, location: &RangeLocation) -> &[u8] {
-        let buffer = &self.buffers[location.buffer_handle];
+        let buffer = &self.buffers.get(location.buffer_handle).unwrap();
         &buffer[location.offset_from_start..][..location.size]
     }
 
     /// Must be called with a valid, non-empty range which does not exceed file_len.
     #[inline]
     fn get_range_location(&self, range: Range<u64>) -> FileAndPathHelperResult<RangeLocation> {
-        let mut buffer_manager = self.buffer_manager.borrow_mut();
+        let mut buffer_manager = self.buffer_manager.lock().unwrap();
         let read_range = match buffer_manager.determine_range_sourcing(range.clone()) {
             RangeSourcing::InExistingBuffer(l) => return Ok(l),
             RangeSourcing::NeedToReadNewBuffer(read_range) => read_range,
@@ -62,7 +83,9 @@ impl<S: FileByteSource> FileContentsWithChunkedCaching<S> {
             .read_bytes_into(&mut buffer, read_range.start, read_len)?;
         assert!(buffer.len() == read_len);
 
-        let buffer_handle = self.buffers.len();
+        let buffer_handle = self
+            .buffer_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         self.buffers.push(buffer.into_boxed_slice());
         buffer_manager.insert_buffer_range(read_range.clone(), buffer_handle);
 
@@ -124,7 +147,7 @@ impl<S: FileByteSource> FileContents for FileContentsWithChunkedCaching<S> {
             )));
         }
 
-        let mut string_cache = self.string_cache.borrow_mut();
+        let mut string_cache = self.string_cache.lock().unwrap();
         if let Some(location) = string_cache.get(&(range.start, delimiter)) {
             return Ok(self.slice_from_location(location));
         }

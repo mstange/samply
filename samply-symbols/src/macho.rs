@@ -9,7 +9,7 @@ use crate::shared::{
 };
 use crate::{AddressDebugInfo, InlineStackFrame};
 use debugid::DebugId;
-use elsa::{FrozenMap, FrozenVec};
+use elsa::sync::FrozenVec;
 use gimli::{EndianSlice, RunTimeEndian, SectionId};
 use macho_unwind_info::UnwindInfo;
 use object::macho::{self, LinkeditDataCommand, MachHeader32, MachHeader64};
@@ -19,6 +19,7 @@ use object::{Endianness, ReadRef};
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::path::Path;
+use std::sync::Mutex;
 use yoke::{Yoke, Yokeable};
 
 /// Returns the (offset, size) in the fat binary file for the object that matches
@@ -325,12 +326,12 @@ impl<'a> ExternalObjectUplooker<'a> {
     }
 }
 
-struct ExternalFileUplooker<'a> {
-    external_file: &'a dyn ExternalFileTrait,
-    object_uplookers: FrozenMap<String, Box<ExternalObjectUplooker<'a>>>,
+struct ExternalFileUplooker<'a, F: FileContents> {
+    external_file: &'a ExternalFile<F>,
+    object_uplookers: Mutex<HashMap<String, ExternalObjectUplooker<'a>>>,
 }
 
-impl<'a> ExternalFileUplooker<'a> {
+impl<'a, F: FileContents> ExternalFileUplooker<'a, F> {
     fn lookup_address_impl(
         &self,
         member_name: Option<&str>,
@@ -339,15 +340,16 @@ impl<'a> ExternalFileUplooker<'a> {
         path_mapper: &mut PathMapper<()>,
     ) -> Option<Vec<InlineStackFrame>> {
         let member_key = member_name.unwrap_or("");
-        let object_uplooker = match self.object_uplookers.get(member_key) {
-            Some(uplooker) => uplooker,
+        let mut uplookers = self.object_uplookers.lock().unwrap();
+        match uplookers.get(member_key) {
+            Some(uplooker) => uplooker.lookup_address(symbol_name, offset_from_symbol, path_mapper),
             None => {
                 let uplooker = self.external_file.make_object_uplooker(member_name).ok()?;
-                self.object_uplookers
-                    .insert(member_key.to_string(), Box::new(uplooker))
+                let res = uplooker.lookup_address(symbol_name, offset_from_symbol, path_mapper);
+                uplookers.insert(member_key.to_string(), uplooker);
+                res
             }
-        };
-        object_uplooker.lookup_address(symbol_name, offset_from_symbol, path_mapper)
+        }
     }
 }
 
@@ -360,7 +362,11 @@ struct ExternalFile<F: FileContents> {
 }
 
 trait ExternalFileTrait {
+    #[cfg(feature = "send_futures")]
+    fn make_type_erased_uplooker(&self) -> Box<dyn ExternalFileUplookerTrait + '_ + Send + Sync>;
+    #[cfg(not(feature = "send_futures"))]
     fn make_type_erased_uplooker(&self) -> Box<dyn ExternalFileUplookerTrait + '_>;
+
     fn make_object_uplooker<'s>(
         &'s self,
         name_in_archive: Option<&str>,
@@ -378,7 +384,7 @@ trait ExternalFileUplookerTrait {
     ) -> Option<Vec<InlineStackFrame>>;
 }
 
-impl<'a> ExternalFileUplookerTrait for ExternalFileUplooker<'a> {
+impl<'a, F: FileContents> ExternalFileUplookerTrait for ExternalFileUplooker<'a, F> {
     fn lookup_address(
         &self,
         member_name: Option<&str>,
@@ -426,13 +432,22 @@ impl<F: FileContents> ExternalFileWithUplooker<F> {
     }
 }
 
+#[cfg(feature = "send_futures")]
+#[derive(Yokeable)]
+struct ExternalFileUplookerTypeErased<'a>(Box<dyn ExternalFileUplookerTrait + 'a + Send + Sync>);
+
+#[cfg(not(feature = "send_futures"))]
 #[derive(Yokeable)]
 struct ExternalFileUplookerTypeErased<'a>(Box<dyn ExternalFileUplookerTrait + 'a>);
 
 impl<F: FileContents> ExternalFileTrait for ExternalFile<F> {
+    #[cfg(feature = "send_futures")]
+    fn make_type_erased_uplooker(&self) -> Box<dyn ExternalFileUplookerTrait + '_ + Send + Sync> {
+        Box::new(self.make_uplooker())
+    }
+    #[cfg(not(feature = "send_futures"))]
     fn make_type_erased_uplooker(&self) -> Box<dyn ExternalFileUplookerTrait + '_> {
-        let uplooker = self.make_uplooker();
-        Box::new(uplooker)
+        Box::new(self.make_uplooker())
     }
     fn make_object_uplooker<'s>(
         &'s self,
@@ -561,10 +576,10 @@ impl<F: FileContents> ExternalFile<F> {
         Ok(uplooker)
     }
 
-    pub fn make_uplooker(&self) -> ExternalFileUplooker<'_> {
+    pub fn make_uplooker(&self) -> ExternalFileUplooker<'_, F> {
         ExternalFileUplooker {
             external_file: self,
-            object_uplookers: FrozenMap::new(),
+            object_uplookers: Mutex::new(HashMap::new()),
         }
     }
 }
