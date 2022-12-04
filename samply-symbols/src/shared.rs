@@ -17,7 +17,7 @@ use bitvec::{bitvec, prelude::BitVec};
 use std::cell::RefCell;
 
 use crate::demangle;
-use crate::dwarf::{get_frames, SectionDataNoCopy};
+use crate::dwarf::{get_frames, Addr2lineContextData};
 use crate::path_mapper::PathMapper;
 
 pub type FileAndPathHelperError = Box<dyn std::error::Error + Send + Sync + 'static>;
@@ -468,11 +468,11 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> FullSymbolListEntry<'a, Symbol> {
     }
 }
 
-pub struct SymbolMap<'data, Symbol: object::ObjectSymbol<'data>, R: ReadRef<'data>> {
+pub struct SymbolMap<'data, Symbol: object::ObjectSymbol<'data>> {
     entries: Vec<(u32, FullSymbolListEntry<'data, Symbol>)>,
     path_mapper: Mutex<PathMapper<()>>,
-    section_data: SectionDataNoCopy<'data, R>,
     object_map: ObjectMap<'data>,
+    context: Option<addr2line::Context<gimli::EndianSlice<'data, gimli::RunTimeEndian>>>,
     image_base_address: u64,
 }
 
@@ -480,22 +480,24 @@ pub struct SymbolMap<'data, Symbol: object::ObjectSymbol<'data>, R: ReadRef<'dat
 fn test_symbolmap_is_send() {
     fn assert_is_send<T: Send>() {}
     #[allow(unused)]
-    fn wrapper<'data, R: ReadRef<'data> + Send>() {
-        assert_is_send::<SymbolMap<<object::read::File as object::Object>::Symbol, R>>();
+    fn wrapper<'a, R: ReadRef<'a> + Send + Sync>() {
+        assert_is_send::<SymbolMap<<object::read::File<'a, R> as object::Object>::Symbol>>();
     }
 }
 
-impl<'data, Symbol: object::ObjectSymbol<'data>, R: ReadRef<'data>> SymbolMap<'data, Symbol, R> {
-    pub fn new<'file, T>(
-        object_file: &'file T,
+impl<'data, Symbol: object::ObjectSymbol<'data>> SymbolMap<'data, Symbol> {
+    pub fn new<'file, O, R>(
+        object_file: &'file O,
         data: R,
         path_mapper: PathMapper<()>,
         function_start_addresses: Option<&[u32]>,
         function_end_addresses: Option<&[u32]>,
+        addr2line_context_data: &'data Addr2lineContextData,
     ) -> Self
     where
         'data: 'file,
-        T: object::Object<'data, 'file, Symbol = Symbol>,
+        O: object::Object<'data, 'file, Symbol = Symbol>,
+        R: ReadRef<'data>,
     {
         let mut entries: Vec<_> = Vec::new();
 
@@ -581,16 +583,13 @@ impl<'data, Symbol: object::ObjectSymbol<'data>, R: ReadRef<'data>> SymbolMap<'d
         entries.sort_by_key(|(address, _)| *address);
         entries.dedup_by_key(|(address, _)| *address);
 
-        let section_data = SectionDataNoCopy::from_object(
-            RangeReadRef::new(data, 0, data.len().unwrap()),
-            object_file,
-        );
+        let context = addr2line_context_data.make_context(data, object_file).ok();
 
         Self {
             entries,
             path_mapper: Mutex::new(path_mapper),
-            section_data,
             object_map: object_file.object_map(),
+            context,
             image_base_address: base_address,
         }
     }
@@ -607,18 +606,6 @@ impl<'data, Symbol: object::ObjectSymbol<'data>, R: ReadRef<'data>> SymbolMap<'d
             .count()
     }
 
-    pub fn make_uplooker(&self) -> Uplooker<'_, 'data, Symbol> {
-        let context = self.section_data.make_addr2line_context().ok();
-        let uplooker = Uplooker::new(
-            context,
-            &self.path_mapper,
-            self.entries.as_slice(),
-            &self.object_map,
-            self.image_base_address,
-        );
-        uplooker
-    }
-
     pub fn iter_symbols(&self) -> SymbolMapIter<'data, '_, Symbol> {
         SymbolMapIter {
             inner: self.entries.iter(),
@@ -629,41 +616,6 @@ impl<'data, Symbol: object::ObjectSymbol<'data>, R: ReadRef<'data>> SymbolMap<'d
         self.iter_symbols()
             .map(|(address, name)| (address, name.to_string()))
             .collect()
-    }
-}
-
-pub struct Uplooker<'a, 'data, Symbol: object::ObjectSymbol<'data>> {
-    context: Option<addr2line::Context<gimli::EndianSlice<'a, gimli::RunTimeEndian>>>,
-    path_mapper: &'a Mutex<PathMapper<()>>,
-    entries: &'a [(u32, FullSymbolListEntry<'data, Symbol>)],
-    object_map: &'a ObjectMap<'data>,
-    image_base_address: u64,
-}
-
-#[test]
-fn test_uplooker_is_send() {
-    fn assert_is_send<T: Send>() {}
-    #[allow(unused)]
-    fn wrapper<'data, R: ReadRef<'data> + Send + Sync>() {
-        assert_is_send::<Uplooker<<object::read::File<R> as object::Object>::Symbol>>();
-    }
-}
-
-impl<'a, 'data, Symbol: object::ObjectSymbol<'data>> Uplooker<'a, 'data, Symbol> {
-    fn new(
-        context: Option<addr2line::Context<gimli::EndianSlice<'a, gimli::RunTimeEndian>>>,
-        path_mapper: &'a Mutex<PathMapper<()>>,
-        entries: &'a [(u32, FullSymbolListEntry<'data, Symbol>)],
-        object_map: &'a ObjectMap<'data>,
-        image_base_address: u64,
-    ) -> Self {
-        Self {
-            context,
-            path_mapper,
-            entries,
-            object_map,
-            image_base_address,
-        }
     }
 
     pub fn lookup(&self, address: u32) -> Option<AddressInfo> {
@@ -690,7 +642,7 @@ impl<'a, 'data, Symbol: object::ObjectSymbol<'data>> Uplooker<'a, 'data, Symbol>
                 Some(frames) => FramesLookupResult::Available(frames),
                 None => {
                     if let Some(entry) = self.object_map.get(vmaddr) {
-                        let external_file_name = entry.object(self.object_map);
+                        let external_file_name = entry.object(&self.object_map);
                         let external_file_name = std::str::from_utf8(external_file_name).unwrap();
                         let offset_from_symbol = (vmaddr - entry.address()) as u32;
                         let (file_name, name_in_archive) = match external_file_name.find('(') {

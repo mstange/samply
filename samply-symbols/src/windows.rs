@@ -1,5 +1,6 @@
 use crate::debugid_util::debug_id_for_object;
 use crate::demangle;
+use crate::dwarf::Addr2lineContextData;
 use crate::error::{Context, Error};
 use crate::path_mapper::{ExtraPathMapper, PathMapper};
 use crate::shared::{
@@ -88,12 +89,14 @@ where
     }
 
     let path_mapper = PathMapper::new(&file_location.to_base_path());
+    let addr2line_context_data = Addr2lineContextData::new();
     let symbol_map = SymbolMap::new(
         &pe,
         &file_contents,
         path_mapper,
         function_starts.as_deref(),
         function_ends.as_deref(),
+        &addr2line_context_data,
     );
 
     let addresses = match query.result_kind {
@@ -103,10 +106,9 @@ where
 
     let mut symbolication_result = R::for_addresses(addresses);
     symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
-    let uplooker = symbol_map.make_uplooker();
 
     for &address in addresses {
-        if let Some(address_info) = uplooker.lookup(address) {
+        if let Some(address_info) = symbol_map.lookup(address) {
             symbolication_result.add_address_symbol(
                 address,
                 address_info.symbol.address,

@@ -1,15 +1,15 @@
-use crate::demangle;
+use std::marker::PhantomData;
+
 use crate::path_mapper::PathMapper;
-use crate::shared::{InlineStackFrame, RangeReadRef};
-use addr2line::{
-    fallible_iterator,
-    gimli::{self, EndianSlice, Reader, ReaderOffsetId, RunTimeEndian},
-};
+use crate::shared::InlineStackFrame;
+use crate::{demangle, Error};
+use addr2line::fallible_iterator;
+use addr2line::gimli;
+use elsa::sync::FrozenVec;
 use fallible_iterator::FallibleIterator;
-use gimli::SectionId;
+use gimli::{EndianSlice, Reader, RunTimeEndian, SectionId};
 use object::read::ReadRef;
 use object::{CompressedFileRange, CompressionFormat};
-use std::{borrow::Cow, cmp::min, marker::PhantomData, str};
 
 pub fn get_frames<R: Reader>(
     address: u64,
@@ -54,12 +54,17 @@ pub fn convert_stack_frame<R: gimli::Reader>(
 }
 
 pub enum SingleSectionData<'data, T: ReadRef<'data>> {
-    View(RangeReadRef<'data, T>, u64),
+    View {
+        data: T,
+        offset: u64,
+        size: u64,
+        _phantom: PhantomData<&'data ()>,
+    },
     Owned(Vec<u8>),
 }
 
 pub fn try_get_section_data<'data, 'file, O, T>(
-    data: RangeReadRef<'data, T>,
+    data: T,
     file: &'file O,
     section_id: SectionId,
 ) -> Option<SingleSectionData<'data, T>>
@@ -110,10 +115,12 @@ where
     }
 
     match file_range.format {
-        CompressionFormat::None => Some(SingleSectionData::View(
-            data.make_subrange(file_range.offset, file_range.uncompressed_size),
-            file_range.uncompressed_size,
-        )),
+        CompressionFormat::None => Some(SingleSectionData::View {
+            data,
+            offset: file_range.offset,
+            size: file_range.uncompressed_size,
+            _phantom: PhantomData,
+        }),
         CompressionFormat::Zlib => {
             let compressed_bytes = data
                 .read_bytes_at(file_range.offset, file_range.compressed_size)
@@ -140,336 +147,72 @@ where
 /// by default, saving 1.5 seconds on libxul. (For comparison, dumping all symbols
 /// from libxul takes 200ms in total.)
 /// See addr2line::Context::new for details.
-pub struct SectionDataNoCopy<'data, T: ReadRef<'data>> {
-    endian: gimli::RunTimeEndian,
-    debug_abbrev_data: SingleSectionData<'data, T>,
-    debug_addr_data: SingleSectionData<'data, T>,
-    debug_aranges_data: SingleSectionData<'data, T>,
-    debug_info_data: SingleSectionData<'data, T>,
-    debug_line_data: SingleSectionData<'data, T>,
-    debug_line_str_data: SingleSectionData<'data, T>,
-    debug_ranges_data: SingleSectionData<'data, T>,
-    debug_rnglists_data: SingleSectionData<'data, T>,
-    debug_str_data: SingleSectionData<'data, T>,
-    debug_str_offsets_data: SingleSectionData<'data, T>,
-    default_section_data: SingleSectionData<'data, T>,
+pub struct Addr2lineContextData {
+    uncompressed_section_data: FrozenVec<Vec<u8>>,
 }
 
-impl<'data, T: ReadRef<'data>> SectionDataNoCopy<'data, T> {
-    pub fn from_object<'file, O>(data: RangeReadRef<'data, T>, file: &'file O) -> Self
+impl Addr2lineContextData {
+    pub fn new() -> Self {
+        Self {
+            uncompressed_section_data: FrozenVec::new(),
+        }
+    }
+
+    fn sect<'s, 'data, 'file, O, R>(
+        &'s self,
+        data: R,
+        obj: &'file O,
+        section_id: SectionId,
+        endian: RunTimeEndian,
+    ) -> EndianSlice<'s, RunTimeEndian>
     where
         'data: 'file,
+        'data: 's,
         O: object::Object<'data, 'file>,
+        R: ReadRef<'data>,
     {
-        let endian = if file.is_little_endian() {
+        let slice: &[u8] = match try_get_section_data(data, obj, section_id) {
+            Some(SingleSectionData::Owned(section_data)) => {
+                self.uncompressed_section_data.push_get(section_data)
+            }
+            Some(SingleSectionData::View {
+                data, offset, size, ..
+            }) => data.read_bytes_at(offset, size).unwrap_or(&[]),
+            None => &[],
+        };
+        EndianSlice::new(slice, endian)
+    }
+
+    pub fn make_context<'data, 'file, 's, O, R>(
+        &'s self,
+        data: R,
+        obj: &'file O,
+    ) -> Result<addr2line::Context<EndianSlice<'s, RunTimeEndian>>, Error>
+    where
+        'data: 'file,
+        'data: 's,
+        O: object::Object<'data, 'file>,
+        R: ReadRef<'data>,
+    {
+        let e = if obj.is_little_endian() {
             gimli::RunTimeEndian::Little
         } else {
             gimli::RunTimeEndian::Big
         };
-
-        fn get_section_data<'data, 'file, O, T>(
-            data: RangeReadRef<'data, T>,
-            file: &'file O,
-            section_id: SectionId,
-        ) -> SingleSectionData<'data, T>
-        where
-            'data: 'file,
-            O: object::Object<'data, 'file>,
-            T: ReadRef<'data>,
-        {
-            try_get_section_data(data, file, section_id)
-                .unwrap_or_else(|| SingleSectionData::View(data.make_subrange(0, 0), 0))
-        }
-
-        let debug_abbrev_data = get_section_data(data, file, SectionId::DebugAbbrev);
-        let debug_addr_data = get_section_data(data, file, SectionId::DebugAddr);
-        let debug_aranges_data = get_section_data(data, file, SectionId::DebugAranges);
-        let debug_info_data = get_section_data(data, file, SectionId::DebugInfo);
-        let debug_line_data = get_section_data(data, file, SectionId::DebugLine);
-        let debug_line_str_data = get_section_data(data, file, SectionId::DebugLineStr);
-        let debug_ranges_data = get_section_data(data, file, SectionId::DebugRanges);
-        let debug_rnglists_data = get_section_data(data, file, SectionId::DebugRngLists);
-        let debug_str_data = get_section_data(data, file, SectionId::DebugStr);
-        let debug_str_offsets_data = get_section_data(data, file, SectionId::DebugStrOffsets);
-        let default_section_data = SingleSectionData::View(data.make_subrange(0, 0), 0);
-
-        Self {
-            endian,
-            debug_abbrev_data,
-            debug_addr_data,
-            debug_aranges_data,
-            debug_info_data,
-            debug_line_data,
-            debug_line_str_data,
-            debug_ranges_data,
-            debug_rnglists_data,
-            debug_str_data,
-            debug_str_offsets_data,
-            default_section_data,
-        }
-    }
-
-    /// Create an addr2line::Context around fully-read section data buffers.
-    /// The EndianSlice that wraps the section data refers to either a buffer
-    /// from read_bytes_at (for uncompressed sections), or to data from a Cow
-    /// in the SingleSectionData::Owned variant.
-    /// Either way, this means that the entire section data has been read upfront,
-    /// and nothing is being read lazily during DWARF parsing.
-    pub fn make_addr2line_context<'a>(
-        &'a self,
-    ) -> std::result::Result<addr2line::Context<EndianSlice<'a, RunTimeEndian>>, gimli::read::Error>
-    where
-        'data: 'a,
-    {
-        let endian = self.endian;
-        fn get<'a, 'data: 'a, T: ReadRef<'data>>(
-            data: &'a SingleSectionData<'data, T>,
-            endian: gimli::RunTimeEndian,
-        ) -> EndianSlice<'a, RunTimeEndian> {
-            let buffer = match data {
-                SingleSectionData::View(readref, size) => readref.read_bytes_at(0, *size).unwrap(),
-                SingleSectionData::Owned(v) => &v[..],
-            };
-            EndianSlice::new(buffer, endian)
-        }
-
-        addr2line::Context::from_sections(
-            get(&self.debug_abbrev_data, endian).into(),
-            get(&self.debug_addr_data, endian).into(),
-            get(&self.debug_aranges_data, endian).into(),
-            get(&self.debug_info_data, endian).into(),
-            get(&self.debug_line_data, endian).into(),
-            get(&self.debug_line_str_data, endian).into(),
-            get(&self.debug_ranges_data, endian).into(),
-            get(&self.debug_rnglists_data, endian).into(),
-            get(&self.debug_str_data, endian).into(),
-            get(&self.debug_str_offsets_data, endian).into(),
-            get(&self.default_section_data, endian),
+        let context = addr2line::Context::from_sections(
+            self.sect(data, obj, SectionId::DebugAbbrev, e).into(),
+            self.sect(data, obj, SectionId::DebugAddr, e).into(),
+            self.sect(data, obj, SectionId::DebugAranges, e).into(),
+            self.sect(data, obj, SectionId::DebugInfo, e).into(),
+            self.sect(data, obj, SectionId::DebugLine, e).into(),
+            self.sect(data, obj, SectionId::DebugLineStr, e).into(),
+            self.sect(data, obj, SectionId::DebugRanges, e).into(),
+            self.sect(data, obj, SectionId::DebugRngLists, e).into(),
+            self.sect(data, obj, SectionId::DebugStr, e).into(),
+            self.sect(data, obj, SectionId::DebugStrOffsets, e).into(),
+            EndianSlice::new(&[], e),
         )
-    }
-
-    /// Create an addr2line::Context where the section data is read lazily, by
-    /// wrapping the original ReadRef that this SectionDataNoCopy object was
-    /// created from.
-    /// In theory this allows skipping parts of the section data. However, in
-    /// pracice, at least in the benchmarks in this repo we end up reading most
-    /// of the section data anyway, and we also read it in very small increments
-    /// and we touch many parts of it multiple times. So this probably requires
-    /// a bit more work before it becomes competitive with the simple
-    /// implementation that reads everything upfront.
-    /// Returns None if any of the sections was compressed.
-    #[allow(unused)]
-    pub fn make_addr2line_context_partial_reads(
-        &self,
-    ) -> Option<
-        std::result::Result<addr2line::Context<EndianRangeReadRef<'data, T>>, gimli::read::Error>,
-    > {
-        let endian = self.endian;
-        fn get<'a, 'data: 'a, T: ReadRef<'data>>(
-            data: &'a SingleSectionData<'data, T>,
-            endian: gimli::RunTimeEndian,
-        ) -> Option<EndianRangeReadRef<'data, T>> {
-            match data {
-                SingleSectionData::View(range_data, _) => {
-                    Some(EndianRangeReadRef::new(*range_data, endian))
-                }
-                SingleSectionData::Owned(_) => None,
-            }
-        }
-
-        Some(addr2line::Context::from_sections(
-            get(&self.debug_abbrev_data, endian)?.into(),
-            get(&self.debug_addr_data, endian)?.into(),
-            get(&self.debug_aranges_data, endian)?.into(),
-            get(&self.debug_info_data, endian)?.into(),
-            get(&self.debug_line_data, endian)?.into(),
-            get(&self.debug_line_str_data, endian)?.into(),
-            get(&self.debug_ranges_data, endian)?.into(),
-            get(&self.debug_rnglists_data, endian)?.into(),
-            get(&self.debug_str_data, endian)?.into(),
-            get(&self.debug_str_offsets_data, endian)?.into(),
-            get(&self.default_section_data, endian)?,
-        ))
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct EndianRangeReadRef<'data, T: ReadRef<'data>> {
-    original_readref: T,
-    range_start: u64,
-    range_size: u64,
-    endian: RunTimeEndian,
-    _phantom_data: PhantomData<&'data ()>,
-}
-
-impl<'data, T: ReadRef<'data>> EndianRangeReadRef<'data, T> {
-    pub fn new(range: RangeReadRef<'data, T>, endian: RunTimeEndian) -> Self {
-        Self {
-            original_readref: range.original_readref(),
-            range_start: range.range_start(),
-            range_size: range.range_size(),
-            endian,
-            _phantom_data: PhantomData,
-        }
-    }
-}
-
-impl<'data, T: ReadRef<'data>> std::fmt::Debug for EndianRangeReadRef<'data, T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "EndianRangeReadRef(at {}, {} bytes)",
-            self.range_start, self.range_size
-        )
-    }
-}
-
-impl<'data, T: ReadRef<'data>> Reader for EndianRangeReadRef<'data, T> {
-    type Endian = RunTimeEndian;
-    type Offset = usize;
-
-    #[inline]
-    fn endian(&self) -> RunTimeEndian {
-        self.endian
-    }
-
-    #[inline]
-    fn len(&self) -> usize {
-        self.range_size as usize
-    }
-
-    #[inline]
-    fn is_empty(&self) -> bool {
-        self.range_size == 0
-    }
-
-    #[inline]
-    fn empty(&mut self) {
-        self.range_size = 0;
-    }
-
-    #[inline]
-    fn truncate(&mut self, len: usize) -> gimli::Result<()> {
-        if self.range_size < len as u64 {
-            Err(gimli::Error::UnexpectedEof(self.offset_id()))
-        } else {
-            self.range_size = len as u64;
-            Ok(())
-        }
-    }
-
-    #[inline]
-    fn offset_from(&self, base: &Self) -> usize {
-        (self.range_start - base.range_start) as usize
-    }
-
-    #[inline]
-    fn offset_id(&self) -> ReaderOffsetId {
-        ReaderOffsetId(self.range_start)
-    }
-
-    #[inline]
-    fn lookup_offset_id(&self, id: ReaderOffsetId) -> Option<Self::Offset> {
-        let id = id.0;
-        let self_id = self.range_start;
-        let self_len = self.range_size;
-        if id >= self_id && id <= self_id + self_len {
-            Some((id - self_id) as usize)
-        } else {
-            None
-        }
-    }
-
-    #[inline]
-    fn find(&self, byte: u8) -> gimli::Result<usize> {
-        // Read 4096-byte slices until the value is found.
-        // TODO: Maybe make sure that chunks are aligned with 4096 chunks in the
-        // original space?
-        let start = self.range_start;
-        let end = self.range_start + self.range_size;
-        let mut chunk_start = start;
-        while chunk_start < end {
-            let chunk_size = min(4096, end - chunk_start);
-            let read_chunk = self
-                .original_readref
-                .read_bytes_at(chunk_start, chunk_size)
-                .map_err(|_| gimli::Error::Io)?;
-            if let Some(pos) = read_chunk.iter().position(|b| *b == byte) {
-                return Ok((chunk_start - start) as usize + pos);
-            }
-            chunk_start += chunk_size;
-        }
-        Err(gimli::Error::UnexpectedEof(self.offset_id()))
-    }
-
-    #[inline]
-    fn skip(&mut self, len: usize) -> gimli::Result<()> {
-        if self.range_size < len as u64 {
-            Err(gimli::Error::UnexpectedEof(self.offset_id()))
-        } else {
-            self.range_start += len as u64;
-            self.range_size -= len as u64;
-            Ok(())
-        }
-    }
-
-    #[inline]
-    fn split(&mut self, len: usize) -> gimli::Result<Self> {
-        if self.range_size < len as u64 {
-            return Err(gimli::Error::UnexpectedEof(self.offset_id()));
-        }
-        let mut copy = *self;
-        self.range_start += len as u64;
-        self.range_size -= len as u64;
-        copy.range_size = len as u64;
-        Ok(copy)
-    }
-
-    #[inline]
-    fn to_slice(&self) -> gimli::Result<Cow<[u8]>> {
-        match self
-            .original_readref
-            .read_bytes_at(self.range_start, self.range_size)
-        {
-            Ok(slice) => Ok(slice.into()),
-            Err(()) => Err(gimli::Error::Io),
-        }
-    }
-
-    #[inline]
-    fn to_string(&self) -> gimli::Result<Cow<str>> {
-        let slice = self
-            .original_readref
-            .read_bytes_at(self.range_start, self.range_size)
-            .map_err(|_| gimli::Error::Io)?;
-        match str::from_utf8(slice) {
-            Ok(s) => Ok(s.into()),
-            _ => Err(gimli::Error::BadUtf8),
-        }
-    }
-
-    #[inline]
-    fn to_string_lossy(&self) -> gimli::Result<Cow<str>> {
-        let slice = self
-            .original_readref
-            .read_bytes_at(self.range_start, self.range_size)
-            .map_err(|_| gimli::Error::Io)?;
-        Ok(String::from_utf8_lossy(slice))
-    }
-
-    #[inline]
-    fn read_slice(&mut self, buf: &mut [u8]) -> gimli::Result<()> {
-        let size = buf.len() as u64;
-        if self.range_size < size {
-            return Err(gimli::Error::UnexpectedEof(self.offset_id()));
-        }
-        let slice = self
-            .original_readref
-            .read_bytes_at(self.range_start, size)
-            .map_err(|_| gimli::Error::Io)?;
-        buf.clone_from_slice(slice);
-        self.range_start += size;
-        self.range_size -= size;
-        Ok(())
+        .map_err(Error::Addr2lineContextCreationError)?;
+        Ok(context)
     }
 }

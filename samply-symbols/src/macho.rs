@@ -1,5 +1,5 @@
 use crate::debugid_util::debug_id_for_object;
-use crate::dwarf::{get_frames, try_get_section_data, SingleSectionData};
+use crate::dwarf::{get_frames, Addr2lineContextData};
 use crate::error::Error;
 use crate::path_mapper::PathMapper;
 use crate::shared::{
@@ -9,8 +9,6 @@ use crate::shared::{
 };
 use crate::{AddressDebugInfo, InlineStackFrame};
 use debugid::DebugId;
-use elsa::sync::FrozenVec;
-use gimli::{EndianSlice, RunTimeEndian, SectionId};
 use macho_unwind_info::UnwindInfo;
 use object::macho::{self, LinkeditDataCommand, MachHeader32, MachHeader64};
 use object::read::macho::{FatArch, LoadCommandIterator, MachHeader};
@@ -109,8 +107,15 @@ where
         .image_data_and_offset()
         .map_err(Error::MachOHeaderParseError)?;
     let macho_data = MachOData::new(data, header_offset, object.is_64());
-    let symbol_map =
-        get_symbol_map_from_macho_object(&object, data, macho_data, &base_path, query.clone())?;
+    let addr2line_context_data = Addr2lineContextData::new();
+    let symbol_map = get_symbol_map_from_macho_object(
+        &object,
+        data,
+        macho_data,
+        &base_path,
+        query.clone(),
+        &addr2line_context_data,
+    )?;
 
     let addresses = match query.result_kind {
         SymbolicationResultKind::AllSymbols => return Ok(R::from_full_map(symbol_map.to_map())),
@@ -119,10 +124,9 @@ where
 
     let mut symbolication_result = R::for_addresses(addresses);
     symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
-    let uplooker = symbol_map.make_uplooker();
 
     for &address in addresses {
-        if let Some(address_info) = uplooker.lookup(address) {
+        if let Some(address_info) = symbol_map.lookup(address) {
             symbolication_result.add_address_symbol(
                 address,
                 address_info.symbol.address,
@@ -135,13 +139,14 @@ where
     Ok(symbolication_result)
 }
 
-pub fn get_symbol_map_from_macho_object<'a, 'data: 'file, 'file, RR: ReadRef<'data>>(
-    macho_file: &'file File<'data, RR>,
-    file_data: RR,
-    macho_data: MachOData<'data, RR>,
+pub fn get_symbol_map_from_macho_object<'a, 'data, R: ReadRef<'data>>(
+    macho_file: &'data File<'data, R>,
+    file_data: R,
+    macho_data: MachOData<'data, R>,
     base_path: &BasePath,
     query: SymbolicationQuery<'a>,
-) -> Result<SymbolMap<'data, <File<'data, RR> as Object<'data, 'file>>::Symbol, RR>, Error> {
+    addr2line_context_data: &'data Addr2lineContextData,
+) -> Result<SymbolMap<'data, <File<'data, R> as Object<'data, 'data>>::Symbol>, Error> {
     let file_debug_id = match debug_id_for_object(macho_file) {
         Some(debug_id) => debug_id,
         None => return Err(Error::InvalidInputError("Missing mach-o uuid")),
@@ -173,6 +178,7 @@ pub fn get_symbol_map_from_macho_object<'a, 'data: 'file, 'file, RR: ReadRef<'da
         path_mapper,
         function_starts.as_deref(),
         None,
+        addr2line_context_data,
     ))
 }
 
@@ -197,8 +203,15 @@ where
     let macho_file = File::parse(range).map_err(Error::MachOHeaderParseError)?;
 
     let macho_data = MachOData::new(range, 0, macho_file.is_64());
-    let symbol_map =
-        get_symbol_map_from_macho_object(&macho_file, range, macho_data, base_path, query.clone())?;
+    let addr2line_context_data = Addr2lineContextData::new();
+    let symbol_map = get_symbol_map_from_macho_object(
+        &macho_file,
+        range,
+        macho_data,
+        base_path,
+        query.clone(),
+        &addr2line_context_data,
+    )?;
 
     let addresses = match query.result_kind {
         SymbolicationResultKind::AllSymbols => return Ok(R::from_full_map(symbol_map.to_map())),
@@ -207,7 +220,6 @@ where
 
     let mut symbolication_result = R::for_addresses(addresses);
     symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
-    let uplooker = symbol_map.make_uplooker();
 
     // We need to gather debug info for the supplied addresses.
     // On macOS, debug info can either be in this macho_file, or it can be in
@@ -227,7 +239,7 @@ where
     let mut external_addresses = Vec::new();
 
     for &address in addresses {
-        if let Some(address_info) = uplooker.lookup(address) {
+        if let Some(address_info) = symbol_map.lookup(address) {
             symbolication_result.add_address_symbol(
                 address,
                 address_info.symbol.address,
@@ -358,7 +370,7 @@ struct ExternalFile<F: FileContents> {
     file_contents: FileContentsWrapper<F>,
     /// name in bytes -> (start, size) in file_contents
     archive_members_by_name: HashMap<Vec<u8>, (u64, u64)>,
-    uncompressed_section_data: FrozenVec<Vec<u8>>,
+    addr2line_context_data: Addr2lineContextData,
 }
 
 trait ExternalFileTrait {
@@ -478,29 +490,8 @@ impl<F: FileContents> ExternalFile<F> {
             name: file_name.to_owned(),
             file_contents,
             archive_members_by_name,
-            uncompressed_section_data: FrozenVec::new(),
+            addr2line_context_data: Addr2lineContextData::new(),
         }
-    }
-    fn sect<'s, R>(
-        &'s self,
-        data: RangeReadRef<'s, R>,
-        obj: &File<'s, RangeReadRef<'s, R>>,
-        section_id: SectionId,
-        endian: RunTimeEndian,
-    ) -> EndianSlice<'s, RunTimeEndian>
-    where
-        R: ReadRef<'s>,
-    {
-        let slice: &[u8] = match try_get_section_data(data, obj, section_id) {
-            Some(SingleSectionData::Owned(section_data)) => {
-                self.uncompressed_section_data.push_get(section_data)
-            }
-            Some(SingleSectionData::View(section_data, size)) => {
-                section_data.read_bytes_at(0, size).unwrap_or(&[])
-            }
-            None => &[],
-        };
-        EndianSlice::new(slice, endian)
     }
 
     fn get_archive_member<'s>(
@@ -528,39 +519,12 @@ impl<F: FileContents> ExternalFile<F> {
         Ok((data, object_file))
     }
 
-    fn make_addr2line_context<'s, R: ReadRef<'s>>(
-        &'s self,
-        data: RangeReadRef<'s, R>,
-        obj: &File<'s, RangeReadRef<'s, R>>,
-    ) -> Result<addr2line::Context<EndianSlice<'s, RunTimeEndian>>, Error> {
-        let e = if obj.is_little_endian() {
-            gimli::RunTimeEndian::Little
-        } else {
-            gimli::RunTimeEndian::Big
-        };
-        let context = addr2line::Context::from_sections(
-            self.sect(data, obj, SectionId::DebugAbbrev, e).into(),
-            self.sect(data, obj, SectionId::DebugAddr, e).into(),
-            self.sect(data, obj, SectionId::DebugAranges, e).into(),
-            self.sect(data, obj, SectionId::DebugInfo, e).into(),
-            self.sect(data, obj, SectionId::DebugLine, e).into(),
-            self.sect(data, obj, SectionId::DebugLineStr, e).into(),
-            self.sect(data, obj, SectionId::DebugRanges, e).into(),
-            self.sect(data, obj, SectionId::DebugRngLists, e).into(),
-            self.sect(data, obj, SectionId::DebugStr, e).into(),
-            self.sect(data, obj, SectionId::DebugStrOffsets, e).into(),
-            EndianSlice::new(&[], e),
-        )
-        .map_err(Error::Addr2lineContextCreationError)?;
-        Ok(context)
-    }
-
     pub fn make_object_uplooker_impl<'s>(
         &'s self,
         name_in_archive: Option<&str>,
     ) -> Result<ExternalObjectUplooker<'s>, Error> {
         let (data, object_file) = self.get_archive_member(name_in_archive)?;
-        let context = self.make_addr2line_context(data, &object_file);
+        let context = self.addr2line_context_data.make_context(data, &object_file);
         let symbol_addresses = object_file
             .symbols()
             .filter_map(|symbol| {

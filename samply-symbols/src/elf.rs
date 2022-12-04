@@ -1,4 +1,5 @@
 use crate::debugid_util::debug_id_for_object;
+use crate::dwarf::Addr2lineContextData;
 use crate::error::Error;
 use crate::path_mapper::PathMapper;
 use crate::shared::{
@@ -7,7 +8,7 @@ use crate::shared::{
 };
 use crate::AddressDebugInfo;
 use gimli::{CieOrFde, EhFrame, UnwindSection};
-use object::{File, FileKind, Object, ObjectSection, ReadRef};
+use object::{File, FileKind, Object, ObjectSection};
 use std::io::Cursor;
 
 pub fn get_symbolication_result<R, T>(
@@ -36,8 +37,8 @@ where
             let mut cursor = Cursor::new(data);
             let mut objdata = Vec::new();
             if let Ok(()) = lzma_rs::xz_decompress(&mut cursor, &mut objdata) {
-                if let Ok(elf_file) = File::parse(&objdata[..]) {
-                    let file_contents = FileContentsWrapper::new(&objdata[..]);
+                let file_contents = FileContentsWrapper::new(&objdata[..]);
+                if let Ok(elf_file) = File::parse(&file_contents) {
                     return get_symbolication_result_impl(
                         elf_file,
                         base_path,
@@ -53,7 +54,7 @@ where
 }
 
 pub fn get_symbolication_result_impl<'data, R, T>(
-    elf_file: File<'data, impl ReadRef<'data>>,
+    elf_file: File<'data, &'data FileContentsWrapper<T>>,
     base_path: &BasePath,
     file_contents: &'data FileContentsWrapper<T>,
     query: SymbolicationQuery,
@@ -64,12 +65,14 @@ where
 {
     let (function_starts, function_ends) = function_start_and_end_addresses(&elf_file);
     let path_mapper = PathMapper::new(base_path);
+    let addr2line_context_data = Addr2lineContextData::new();
     let symbol_map = SymbolMap::new(
         &elf_file,
-        file_contents,
+        file_contents.full_range(),
         path_mapper,
         Some(&function_starts),
         Some(&function_ends),
+        &addr2line_context_data,
     );
     let addresses = match query.result_kind {
         SymbolicationResultKind::AllSymbols => {
@@ -81,10 +84,8 @@ where
     let mut symbolication_result = R::for_addresses(addresses);
     symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
 
-    let uplooker = symbol_map.make_uplooker();
-
     for &address in addresses {
-        if let Some(address_info) = uplooker.lookup(address) {
+        if let Some(address_info) = symbol_map.lookup(address) {
             symbolication_result.add_address_symbol(
                 address,
                 address_info.symbol.address,
@@ -155,7 +156,7 @@ where
         Err(_) => return (Vec::new(), Vec::new()),
     };
 
-    let mut eh_frame = EhFrame::new(&*eh_frame_data, endian);
+    let mut eh_frame = EhFrame::new(&eh_frame_data, endian);
     eh_frame.set_address_size(address_size);
     let mut cur_cie = None;
     let mut entries_iter = eh_frame.entries(&bases);
