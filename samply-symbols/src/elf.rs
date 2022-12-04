@@ -10,6 +10,7 @@ use crate::AddressDebugInfo;
 use gimli::{CieOrFde, EhFrame, UnwindSection};
 use object::{File, FileKind, Object, ObjectSection};
 use std::io::Cursor;
+use yoke::{Yoke, Yokeable};
 
 pub fn get_symbolication_result<R, T>(
     base_path: &BasePath,
@@ -19,7 +20,7 @@ pub fn get_symbolication_result<R, T>(
 ) -> Result<R, Error>
 where
     R: SymbolicationResult,
-    T: FileContents,
+    T: FileContents + 'static,
 {
     let elf_file =
         File::parse(&file_contents).map_err(|e| Error::ObjectParseError(file_kind, e))?;
@@ -37,11 +38,10 @@ where
             let mut cursor = Cursor::new(data);
             let mut objdata = Vec::new();
             if let Ok(()) = lzma_rs::xz_decompress(&mut cursor, &mut objdata) {
-                let file_contents = FileContentsWrapper::new(&objdata[..]);
                 if let Ok(res) = get_symbolication_result_impl(
                     base_path,
                     file_kind,
-                    file_contents,
+                    FileContentsWrapper::new(objdata),
                     query.clone(),
                 ) {
                     return Ok(res);
@@ -53,6 +53,38 @@ where
     get_symbolication_result_impl(base_path, file_kind, file_contents, query)
 }
 
+struct ElfSymbolMapData<T>
+where
+    T: FileContents,
+{
+    file_data: FileContentsWrapper<T>,
+    addr2line_context_data: Addr2lineContextData,
+}
+
+impl<T: FileContents> ElfSymbolMapData<T> {
+    pub fn new(file_data: FileContentsWrapper<T>) -> Self {
+        Self {
+            file_data,
+            addr2line_context_data: Addr2lineContextData::new(),
+        }
+    }
+
+    pub fn make_elf_object(&self, file_kind: FileKind) -> Result<ElfObject<'_, T>, Error> {
+        let elf_file =
+            File::parse(&self.file_data).map_err(|e| Error::ObjectParseError(file_kind, e))?;
+        Ok(ElfObject {
+            object: elf_file,
+            symbol_map_data: self,
+        })
+    }
+}
+
+#[derive(Yokeable)]
+struct ElfObject<'data, T: FileContents> {
+    object: File<'data, &'data FileContentsWrapper<T>>,
+    symbol_map_data: &'data ElfSymbolMapData<T>,
+}
+
 pub fn get_symbolication_result_impl<R, T>(
     base_path: &BasePath,
     file_kind: FileKind,
@@ -61,20 +93,22 @@ pub fn get_symbolication_result_impl<R, T>(
 ) -> Result<R, Error>
 where
     R: SymbolicationResult,
-    T: FileContents,
+    T: FileContents + 'static,
 {
-    let elf_file =
-        File::parse(&file_contents).map_err(|e| Error::ObjectParseError(file_kind, e))?;
-    let (function_starts, function_ends) = function_start_and_end_addresses(&elf_file);
-    let path_mapper = PathMapper::new(base_path);
-    let addr2line_context_data = Addr2lineContextData::new();
+    let owner = ElfSymbolMapData::new(file_contents);
+    let owner_with_elf_object =
+        Yoke::<ElfObject<T>, _>::try_attach_to_cart(Box::new(owner), |owner| {
+            owner.make_elf_object(file_kind)
+        })?;
+    let elf_object = owner_with_elf_object.get();
+    let (function_starts, function_ends) = function_start_and_end_addresses(&elf_object.object);
     let symbol_map = SymbolMap::new(
-        &elf_file,
-        &file_contents,
-        path_mapper,
+        &elf_object.object,
+        &elf_object.symbol_map_data.file_data,
+        PathMapper::new(base_path),
         Some(&function_starts),
         Some(&function_ends),
-        &addr2line_context_data,
+        &elf_object.symbol_map_data.addr2line_context_data,
     );
     let addresses = match query.result_kind {
         SymbolicationResultKind::AllSymbols => {
