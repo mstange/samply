@@ -3,9 +3,9 @@ use crate::dwarf::{get_frames, Addr2lineContextData};
 use crate::error::Error;
 use crate::path_mapper::PathMapper;
 use crate::shared::{
-    BasePath, FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation,
-    FramesLookupResult, RangeReadRef, SymbolMap, SymbolicationQuery, SymbolicationResult,
-    SymbolicationResultKind,
+    BasePath, ExternalFileAddressRef, ExternalFileRef, FileAndPathHelper, FileContents,
+    FileContentsWrapper, FileLocation, FramesLookupResult, RangeReadRef, SymbolMap,
+    SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
 };
 use crate::{AddressDebugInfo, InlineStackFrame};
 use debugid::DebugId;
@@ -266,32 +266,39 @@ where
         if current_external_file.is_none()
             || current_external_file.as_ref().unwrap().name() != external_file_ref.file_name
         {
-            let file = match helper
-                .open_file(&FileLocation::Path(
-                    external_file_ref.file_name.as_str().into(),
-                ))
-                .await
-            {
-                Ok(file) => file,
+            current_external_file = match get_external_file(helper, &external_file_ref).await {
+                Ok(external_file) => Some(external_file),
                 Err(_) => continue,
             };
-            current_external_file = Some(ExternalFileWithUplooker::new(
-                &external_file_ref.file_name,
-                file,
-            ));
         }
         let external_file = current_external_file.as_ref().unwrap();
-        if let Some(frames) = external_file.lookup_address(
-            external_file_address.name_in_archive.as_deref(),
-            &external_file_address.symbol_name,
-            external_file_address.offset_from_symbol,
-            &mut path_mapper,
-        ) {
+        if let Some(frames) = external_file.lookup_address(&external_file_address, &mut path_mapper)
+        {
             symbolication_result.add_address_debug_info(address, AddressDebugInfo { frames });
         }
     }
 
     Ok(symbolication_result)
+}
+
+async fn get_external_file<'h, H, F>(
+    helper: &'h H,
+    external_file_ref: &ExternalFileRef,
+) -> Result<ExternalFileWithUplooker<F>, Error>
+where
+    F: FileContents + 'static,
+    H: FileAndPathHelper<'h, F = F>,
+{
+    let file = helper
+        .open_file(&FileLocation::Path(
+            external_file_ref.file_name.as_str().into(),
+        ))
+        .await
+        .map_err(|e| Error::HelperErrorDuringOpenFile(external_file_ref.file_name.clone(), e))?;
+    Ok(ExternalFileWithUplooker::new(
+        &external_file_ref.file_name,
+        file,
+    ))
 }
 
 // Disabled due to "higher-ranked lifetime error"
@@ -346,28 +353,6 @@ struct ExternalFileUplooker<'a, F: FileContents> {
     object_uplookers: Mutex<HashMap<String, ExternalObjectUplooker<'a>>>,
 }
 
-impl<'a, F: FileContents> ExternalFileUplooker<'a, F> {
-    fn lookup_address_impl(
-        &self,
-        member_name: Option<&str>,
-        symbol_name: &[u8],
-        offset_from_symbol: u32,
-        path_mapper: &mut PathMapper<()>,
-    ) -> Option<Vec<InlineStackFrame>> {
-        let member_key = member_name.unwrap_or("");
-        let mut uplookers = self.object_uplookers.lock().unwrap();
-        match uplookers.get(member_key) {
-            Some(uplooker) => uplooker.lookup_address(symbol_name, offset_from_symbol, path_mapper),
-            None => {
-                let uplooker = self.external_file.make_object_uplooker(member_name).ok()?;
-                let res = uplooker.lookup_address(symbol_name, offset_from_symbol, path_mapper);
-                uplookers.insert(member_key.to_string(), uplooker);
-                res
-            }
-        }
-    }
-}
-
 struct ExternalFile<F: FileContents> {
     name: String,
     file_contents: FileContentsWrapper<F>,
@@ -392,9 +377,7 @@ trait ExternalFileTrait {
 trait ExternalFileUplookerTrait {
     fn lookup_address(
         &self,
-        member_name: Option<&str>,
-        symbol_name: &[u8],
-        offset_from_symbol: u32,
+        external_file_address: &ExternalFileAddressRef,
         path_mapper: &mut PathMapper<()>,
     ) -> Option<Vec<InlineStackFrame>>;
 }
@@ -402,12 +385,34 @@ trait ExternalFileUplookerTrait {
 impl<'a, F: FileContents> ExternalFileUplookerTrait for ExternalFileUplooker<'a, F> {
     fn lookup_address(
         &self,
-        member_name: Option<&str>,
-        symbol_name: &[u8],
-        offset_from_symbol: u32,
+        external_file_address: &ExternalFileAddressRef,
         path_mapper: &mut PathMapper<()>,
     ) -> Option<Vec<InlineStackFrame>> {
-        self.lookup_address_impl(member_name, symbol_name, offset_from_symbol, path_mapper)
+        let member_key = external_file_address
+            .name_in_archive
+            .as_deref()
+            .unwrap_or("");
+        let mut uplookers = self.object_uplookers.lock().unwrap();
+        match uplookers.get(member_key) {
+            Some(uplooker) => uplooker.lookup_address(
+                &external_file_address.symbol_name,
+                external_file_address.offset_from_symbol,
+                path_mapper,
+            ),
+            None => {
+                let uplooker = self
+                    .external_file
+                    .make_object_uplooker(external_file_address.name_in_archive.as_deref())
+                    .ok()?;
+                let res = uplooker.lookup_address(
+                    &external_file_address.symbol_name,
+                    external_file_address.offset_from_symbol,
+                    path_mapper,
+                );
+                uplookers.insert(member_key.to_string(), uplooker);
+                res
+            }
+        }
     }
 }
 
@@ -435,15 +440,13 @@ impl<F: FileContents> ExternalFileWithUplooker<F> {
 
     pub fn lookup_address(
         &self,
-        member_name: Option<&str>,
-        symbol_name: &[u8],
-        offset_from_symbol: u32,
+        external_file_address: &ExternalFileAddressRef,
         path_mapper: &mut PathMapper<()>,
     ) -> Option<Vec<InlineStackFrame>> {
         self.0
             .get()
             .0
-            .lookup_address(member_name, symbol_name, offset_from_symbol, path_mapper)
+            .lookup_address(external_file_address, path_mapper)
     }
 }
 
