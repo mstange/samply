@@ -470,6 +470,8 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> FullSymbolListEntry<'a, Symbol> {
 }
 
 pub trait SymbolMapTrait {
+    fn debug_id(&self) -> DebugId;
+
     fn symbol_count(&self) -> usize;
 
     fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_>;
@@ -483,6 +485,10 @@ pub trait SymbolMapTrait {
 pub struct SymbolMapTypeErased<'data>(pub Box<dyn SymbolMapTrait + 'data>);
 
 impl<'data> SymbolMapTypeErased<'data> {
+    pub fn debug_id(&self) -> debugid::DebugId {
+        self.0.debug_id()
+    }
+
     pub fn symbol_count(&self) -> usize {
         self.0.symbol_count()
     }
@@ -500,8 +506,34 @@ impl<'data> SymbolMapTypeErased<'data> {
     }
 }
 
+pub struct SymbolMapTypeErasedOwned(pub Box<dyn SymbolMapTrait>);
+
+impl SymbolMapTypeErasedOwned {
+    pub fn debug_id(&self) -> debugid::DebugId {
+        self.0.debug_id()
+    }
+
+    pub fn symbol_count(&self) -> usize {
+        self.0.symbol_count()
+    }
+
+    #[allow(unused)]
+    pub fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {
+        self.0.iter_symbols()
+    }
+
+    pub fn to_map(&self) -> Vec<(u32, String)> {
+        self.0.to_map()
+    }
+
+    pub fn lookup(&self, address: u32) -> Option<AddressInfo> {
+        self.0.lookup(address)
+    }
+}
+
 pub struct SymbolMap<'data, Symbol: object::ObjectSymbol<'data>> {
     entries: Vec<(u32, FullSymbolListEntry<'data, Symbol>)>,
+    debug_id: DebugId,
     path_mapper: Mutex<PathMapper<()>>,
     object_map: ObjectMap<'data>,
     context: Option<addr2line::Context<gimli::EndianSlice<'data, gimli::RunTimeEndian>>>,
@@ -521,6 +553,7 @@ impl<'data, Symbol: object::ObjectSymbol<'data>> SymbolMap<'data, Symbol> {
     pub fn new<'file, O, R>(
         object_file: &'file O,
         data: R,
+        debug_id: DebugId,
         path_mapper: PathMapper<()>,
         function_start_addresses: Option<&[u32]>,
         function_end_addresses: Option<&[u32]>,
@@ -619,6 +652,7 @@ impl<'data, Symbol: object::ObjectSymbol<'data>> SymbolMap<'data, Symbol> {
 
         Self {
             entries,
+            debug_id,
             path_mapper: Mutex::new(path_mapper),
             object_map: object_file.object_map(),
             context,
@@ -628,6 +662,10 @@ impl<'data, Symbol: object::ObjectSymbol<'data>> SymbolMap<'data, Symbol> {
 }
 
 impl<'data, Symbol: object::ObjectSymbol<'data>> SymbolMapTrait for SymbolMap<'data, Symbol> {
+    fn debug_id(&self) -> DebugId {
+        self.debug_id
+    }
+
     fn symbol_count(&self) -> usize {
         self.entries
             .iter()

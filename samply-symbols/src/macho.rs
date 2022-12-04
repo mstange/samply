@@ -176,6 +176,7 @@ pub fn get_symbol_map_from_macho_object<'a, 'data, R: ReadRef<'data>>(
     Ok(SymbolMap::new(
         macho_file,
         file_data,
+        file_debug_id,
         path_mapper,
         function_starts.as_deref(),
         None,

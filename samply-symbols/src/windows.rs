@@ -93,6 +93,7 @@ where
     let symbol_map = SymbolMap::new(
         &pe,
         &file_contents,
+        file_debug_id,
         path_mapper,
         function_starts.as_deref(),
         function_ends.as_deref(),

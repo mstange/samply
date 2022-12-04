@@ -3,55 +3,50 @@ use crate::dwarf::Addr2lineContextData;
 use crate::error::Error;
 use crate::path_mapper::PathMapper;
 use crate::shared::{
-    BasePath, FileContents, FileContentsWrapper, FramesLookupResult, SymbolMap,
-    SymbolMapTypeErased, SymbolicationQuery, SymbolicationResult, SymbolicationResultKind, SymbolMapTrait, AddressInfo,
+    AddressInfo, BasePath, FileContents, FileContentsWrapper, SymbolMap, SymbolMapTrait,
+    SymbolMapTypeErased, SymbolMapTypeErasedOwned,
 };
-use crate::AddressDebugInfo;
 use gimli::{CieOrFde, EhFrame, UnwindSection};
-use object::{File, FileKind, Object, ObjectSection};
+use object::{File, FileKind, Object, ObjectSection, ReadRef};
 use std::borrow::Cow;
 use std::io::Cursor;
 use yoke::{Yoke, Yokeable};
 
-pub fn get_symbolication_result<R, T>(
-    base_path: &BasePath,
-    file_kind: FileKind,
+pub fn get_symbol_map<T>(
     file_contents: FileContentsWrapper<T>,
-    query: SymbolicationQuery,
-) -> Result<R, Error>
+    file_kind: FileKind,
+    base_path: &BasePath,
+) -> Result<SymbolMapTypeErasedOwned, Error>
 where
-    R: SymbolicationResult,
     T: FileContents + 'static,
 {
     let elf_file =
         File::parse(&file_contents).map_err(|e| Error::ObjectParseError(file_kind, e))?;
 
-    let elf_debug_id = debug_id_for_object(&elf_file)
-        .ok_or(Error::InvalidInputError("debug ID cannot be read"))?;
-    let SymbolicationQuery { debug_id, .. } = query;
-    if elf_debug_id != debug_id {
-        return Err(Error::UnmatchedDebugId(elf_debug_id, debug_id));
-    }
-
     // If this file has a .gnu_debugdata section, use the uncompressed object from that section instead.
-    if let Some(debugdata) = elf_file.section_by_name(".gnu_debugdata") {
-        if let Ok(data) = debugdata.data() {
-            let mut cursor = Cursor::new(data);
-            let mut objdata = Vec::new();
-            if let Ok(()) = lzma_rs::xz_decompress(&mut cursor, &mut objdata) {
-                if let Ok(res) = get_symbolication_result_impl(
-                    base_path,
-                    file_kind,
-                    FileContentsWrapper::new(objdata),
-                    query.clone(),
-                ) {
-                    return Ok(res);
-                }
-            }
-        }
+    if let Some(symbol_map) =
+        try_get_symbol_map_from_mini_debug_info(&elf_file, file_kind, base_path)
+    {
+        return Ok(symbol_map);
     }
 
-    get_symbolication_result_impl(base_path, file_kind, file_contents, query)
+    let symbol_map = ElfSymbolMap::parse(file_contents, file_kind, base_path)?;
+    Ok(SymbolMapTypeErasedOwned(Box::new(symbol_map)))
+}
+
+fn try_get_symbol_map_from_mini_debug_info<'data, R: ReadRef<'data>>(
+    elf_file: &File<'data, R>,
+    file_kind: FileKind,
+    base_path: &BasePath,
+) -> Option<SymbolMapTypeErasedOwned> {
+    let debugdata = elf_file.section_by_name(".gnu_debugdata")?;
+    let data = debugdata.data().ok()?;
+    let mut cursor = Cursor::new(data);
+    let mut objdata = Vec::new();
+    lzma_rs::xz_decompress(&mut cursor, &mut objdata).ok()?;
+    let file_contents = FileContentsWrapper::new(objdata);
+    let symbol_map = ElfSymbolMap::parse(file_contents, file_kind, base_path).ok()?;
+    Some(SymbolMapTypeErasedOwned(Box::new(symbol_map)))
 }
 
 struct ElfSymbolMapData<T>
@@ -95,9 +90,13 @@ impl<'data, T: FileContents + 'static> ElfObject<'data, T> {
         'data: 'file,
     {
         let (function_starts, function_ends) = function_start_and_end_addresses(&self.object);
+        let debug_id = debug_id_for_object(&self.object)
+            .ok_or(Error::InvalidInputError("debug ID cannot be read"))?;
+
         let symbol_map = SymbolMap::new(
             &self.object,
             &self.symbol_map_data.file_data,
+            debug_id,
             PathMapper::new(base_path),
             Some(&function_starts),
             Some(&function_ends),
@@ -140,6 +139,10 @@ impl<T: FileContents + 'static> ElfSymbolMap<T> {
 }
 
 impl<T: FileContents + 'static> SymbolMapTrait for ElfSymbolMap<T> {
+    fn debug_id(&self) -> debugid::DebugId {
+        self.0.get().debug_id()
+    }
+
     fn symbol_count(&self) -> usize {
         self.0.get().symbol_count()
     }
@@ -155,44 +158,6 @@ impl<T: FileContents + 'static> SymbolMapTrait for ElfSymbolMap<T> {
     fn lookup(&self, address: u32) -> Option<AddressInfo> {
         self.0.get().lookup(address)
     }
-}
-
-pub fn get_symbolication_result_impl<R, T>(
-    base_path: &BasePath,
-    file_kind: FileKind,
-    file_contents: FileContentsWrapper<T>,
-    query: SymbolicationQuery,
-) -> Result<R, Error>
-where
-    R: SymbolicationResult,
-    T: FileContents + 'static,
-{
-    let symbol_map = ElfSymbolMap::parse(file_contents, file_kind, base_path)?;
-    let addresses = match query.result_kind {
-        SymbolicationResultKind::AllSymbols => {
-            return Ok(R::from_full_map(symbol_map.to_map()));
-        }
-        SymbolicationResultKind::SymbolsForAddresses(addresses) => addresses,
-    };
-
-    let mut symbolication_result = R::for_addresses(addresses);
-    symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
-
-    for &address in addresses {
-        if let Some(address_info) = symbol_map.lookup(address) {
-            symbolication_result.add_address_symbol(
-                address,
-                address_info.symbol.address,
-                address_info.symbol.name,
-                address_info.symbol.size,
-            );
-            if let FramesLookupResult::Available(frames) = address_info.frames {
-                symbolication_result.add_address_debug_info(address, AddressDebugInfo { frames });
-            }
-        }
-    }
-
-    Ok(symbolication_result)
 }
 
 /// Get a list of function addresses as u32 relative addresses.

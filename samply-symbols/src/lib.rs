@@ -153,6 +153,7 @@ pub use pdb_addr2line::pdb;
 use debugid::DebugId;
 use object::{macho::FatHeader, read::FileKind};
 use pdb::PDB;
+use shared::{FramesLookupResult, SymbolMapTypeErasedOwned};
 
 mod cache;
 mod chunked_read_buffer_manager;
@@ -267,43 +268,51 @@ where
 
     let file_contents = FileContentsWrapper::new(file_contents);
 
-    if let Ok(file_kind) = FileKind::parse(&file_contents) {
+    let symbol_map: SymbolMapTypeErasedOwned = if let Ok(file_kind) =
+        FileKind::parse(&file_contents)
+    {
         match file_kind {
             FileKind::Elf32 | FileKind::Elf64 => {
-                elf::get_symbolication_result(&base_path, file_kind, file_contents, query)
+                elf::get_symbol_map(file_contents, file_kind, &base_path)?
             }
             FileKind::MachOFat32 => {
                 let arches = FatHeader::parse_arch32(&file_contents)
                     .map_err(|e| Error::ObjectParseError(file_kind, e))?;
                 let range = macho::get_arch_range(&file_contents, arches, query.debug_id)?;
-                macho::get_symbolication_result(
+                return macho::get_symbolication_result(
                     &base_path,
                     file_contents,
                     Some(range),
                     query,
                     helper,
                 )
-                .await
+                .await;
             }
             FileKind::MachOFat64 => {
                 let arches = FatHeader::parse_arch64(&file_contents)
                     .map_err(|e| Error::ObjectParseError(file_kind, e))?;
                 let range = macho::get_arch_range(&file_contents, arches, query.debug_id)?;
-                macho::get_symbolication_result(
+                return macho::get_symbolication_result(
                     &base_path,
                     file_contents,
                     Some(range),
                     query,
                     helper,
                 )
-                .await
+                .await;
             }
             FileKind::MachO32 | FileKind::MachO64 => {
-                macho::get_symbolication_result(&base_path, file_contents, None, query, helper)
-                    .await
+                return macho::get_symbolication_result(
+                    &base_path,
+                    file_contents,
+                    None,
+                    query,
+                    helper,
+                )
+                .await
             }
             FileKind::Pe32 | FileKind::Pe64 => {
-                windows::get_symbolication_result_via_binary(
+                return windows::get_symbolication_result_via_binary(
                     file_kind,
                     file_contents,
                     query,
@@ -312,16 +321,51 @@ where
                 )
                 .await
             }
-            _ => Err(Error::InvalidInputError(
-                "Input was Archive, Coff or Wasm format, which are unsupported for now",
-            )),
+            _ => {
+                return Err(Error::InvalidInputError(
+                    "Input was Archive, Coff or Wasm format, which are unsupported for now",
+                ))
+            }
         }
     } else if let Ok(pdb) = PDB::open(&file_contents) {
         // This is a PDB file.
-        windows::get_symbolication_result(&base_path, pdb, query)
+        return windows::get_symbolication_result(&base_path, pdb, query);
     } else {
-        Err(Error::InvalidInputError(
+        return Err(Error::InvalidInputError(
             "The file does not have a known format; PDB::open was not able to parse it and object::FileKind::parse was not able to detect the format.",
-        ))
+        ));
+    };
+
+    if symbol_map.debug_id() != query.debug_id {
+        return Err(Error::UnmatchedDebugId(
+            symbol_map.debug_id(),
+            query.debug_id,
+        ));
     }
+
+    let addresses = match query.result_kind {
+        SymbolicationResultKind::AllSymbols => {
+            return Ok(R::from_full_map(symbol_map.to_map()));
+        }
+        SymbolicationResultKind::SymbolsForAddresses(addresses) => addresses,
+    };
+
+    let mut symbolication_result = R::for_addresses(addresses);
+    symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
+
+    for &address in addresses {
+        if let Some(address_info) = symbol_map.lookup(address) {
+            symbolication_result.add_address_symbol(
+                address,
+                address_info.symbol.address,
+                address_info.symbol.name,
+                address_info.symbol.size,
+            );
+            if let FramesLookupResult::Available(frames) = address_info.frames {
+                symbolication_result.add_address_debug_info(address, AddressDebugInfo { frames });
+            }
+        }
+    }
+
+    Ok(symbolication_result)
 }
