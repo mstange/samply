@@ -3,17 +3,19 @@ use crate::dwarf::{get_frames, Addr2lineContextData};
 use crate::error::Error;
 use crate::path_mapper::PathMapper;
 use crate::shared::{
-    BasePath, ExternalFileAddressRef, ExternalFileRef, FileAndPathHelper, FileContents,
-    FileContentsWrapper, FileLocation, FramesLookupResult, RangeReadRef, SymbolMap,
-    SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
+    AddressInfo, BasePath, ExternalFileAddressRef, ExternalFileRef, FileAndPathHelper,
+    FileContents, FileContentsWrapper, FileLocation, RangeReadRef, SymbolMap, SymbolMapTrait,
+    SymbolMapTypeErased, SymbolMapTypeErasedOwned, SymbolicationQuery, SymbolicationResult,
+    SymbolicationResultKind,
 };
-use crate::{AddressDebugInfo, InlineStackFrame};
+use crate::InlineStackFrame;
 use debugid::DebugId;
 use macho_unwind_info::UnwindInfo;
 use object::macho::{self, LinkeditDataCommand, MachHeader32, MachHeader64};
 use object::read::macho::{FatArch, LoadCommandIterator, MachHeader};
 use object::read::{archive::ArchiveFile, File, Object, ObjectSection, ObjectSymbol};
 use object::{Endianness, ReadRef};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::path::Path;
@@ -117,7 +119,6 @@ where
         &addr2line_context_data,
     )?;
 
-    use crate::shared::SymbolMapTrait;
     let addresses = match query.result_kind {
         SymbolicationResultKind::AllSymbols => return Ok(R::from_full_map(symbol_map.to_map())),
         SymbolicationResultKind::SymbolsForAddresses(addresses) => addresses,
@@ -140,7 +141,7 @@ where
     Ok(symbolication_result)
 }
 
-pub fn get_symbol_map_from_macho_object<'a, 'data, R: ReadRef<'data>>(
+fn get_symbol_map_from_macho_object<'a, 'data, R: ReadRef<'data>>(
     macho_file: &'data File<'data, R>,
     file_data: R,
     macho_data: MachOData<'data, R>,
@@ -184,104 +185,163 @@ pub fn get_symbol_map_from_macho_object<'a, 'data, R: ReadRef<'data>>(
     ))
 }
 
-pub async fn get_symbolication_result<'a, 'b, 'h, F, H, R>(
+pub fn get_symbol_map<F: FileContents + 'static>(
     base_path: &BasePath,
     file_contents: FileContentsWrapper<F>,
     file_range: Option<(u64, u64)>,
-    query: SymbolicationQuery<'a>,
-    helper: &'h H,
-) -> Result<R, Error>
-where
-    F: FileContents + 'static,
-    R: SymbolicationResult,
-    H: FileAndPathHelper<'h, F = F>,
-{
-    let file_contents_ref = &file_contents;
-    let range = match file_range {
-        Some((start, size)) => file_contents_ref.range(start, size),
-        None => file_contents_ref.full_range(),
-    };
-
-    let macho_file = File::parse(range).map_err(Error::MachOHeaderParseError)?;
-
-    let macho_data = MachOData::new(range, 0, macho_file.is_64());
-    let addr2line_context_data = Addr2lineContextData::new();
-    let symbol_map = get_symbol_map_from_macho_object(
-        &macho_file,
-        range,
-        macho_data,
-        base_path,
-        query.clone(),
-        &addr2line_context_data,
-    )?;
-
-    use crate::shared::SymbolMapTrait;
-    let addresses = match query.result_kind {
-        SymbolicationResultKind::AllSymbols => return Ok(R::from_full_map(symbol_map.to_map())),
-        SymbolicationResultKind::SymbolsForAddresses(addresses) => addresses,
-    };
-
-    let mut symbolication_result = R::for_addresses(addresses);
-    symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
-
-    // We need to gather debug info for the supplied addresses.
-    // On macOS, debug info can either be in this macho_file, or it can be in
-    // other files ("external objects").
-    // The following code is written in a way that handles a mixture of the two;
-    // it gathers what debug info it can find in the current object, and also
-    // makes a list of external object references. Then it reads those external objects
-    // and keeps gathering more data until it has it all.
-    // In theory, external objects can reference other external objects. The code
-    // below handles such nesting, but it's unclear if this can happen in practice.
-
-    // The original addresses which our caller wants to look up are relative to
-    // the "root object". In the external objects they'll be at a different address.
-
-    let mut path_mapper = PathMapper::new(base_path);
-
-    let mut external_addresses = Vec::new();
-
-    for &address in addresses {
-        if let Some(address_info) = symbol_map.lookup(address) {
-            symbolication_result.add_address_symbol(
-                address,
-                address_info.symbol.address,
-                address_info.symbol.name,
-                address_info.symbol.size,
-            );
-            match address_info.frames {
-                FramesLookupResult::Available(frames) => symbolication_result
-                    .add_address_debug_info(address, AddressDebugInfo { frames }),
-                FramesLookupResult::External(external_file_ref, external_file_address) => {
-                    external_addresses.push((address, external_file_ref, external_file_address));
-                }
-                FramesLookupResult::Unavailable => {}
-            }
-        }
-    }
-
-    let mut current_external_file: Option<ExternalFileWithUplooker<F>> = None;
-
-    for (address, external_file_ref, external_file_address) in external_addresses {
-        if current_external_file.is_none()
-            || current_external_file.as_ref().unwrap().name() != external_file_ref.file_name
-        {
-            current_external_file = match get_external_file(helper, &external_file_ref).await {
-                Ok(external_file) => Some(external_file),
-                Err(_) => continue,
-            };
-        }
-        let external_file = current_external_file.as_ref().unwrap();
-        if let Some(frames) = external_file.lookup_address(&external_file_address, &mut path_mapper)
-        {
-            symbolication_result.add_address_debug_info(address, AddressDebugInfo { frames });
-        }
-    }
-
-    Ok(symbolication_result)
+) -> Result<SymbolMapTypeErasedOwned, Error> {
+    let symbol_map = MachSymbolMap::parse(file_contents, file_range, base_path)?;
+    Ok(SymbolMapTypeErasedOwned(Box::new(symbol_map)))
 }
 
-async fn get_external_file<'h, H, F>(
+struct MachSymbolMapData<T>
+where
+    T: FileContents,
+{
+    file_data: FileContentsWrapper<T>,
+    file_range: Option<(u64, u64)>,
+    addr2line_context_data: Addr2lineContextData,
+}
+
+impl<T: FileContents> MachSymbolMapData<T> {
+    pub fn new(file_data: FileContentsWrapper<T>, file_range: Option<(u64, u64)>) -> Self {
+        Self {
+            file_data,
+            file_range,
+            addr2line_context_data: Addr2lineContextData::new(),
+        }
+    }
+
+    pub fn make_mach_object(&self) -> Result<MachObject<'_, T>, Error> {
+        let file_contents_ref = &self.file_data;
+        let range = match &self.file_range {
+            Some((start, size)) => file_contents_ref.range(*start, *size),
+            None => file_contents_ref.full_range(),
+        };
+
+        let macho_file = File::parse(range).map_err(Error::MachOHeaderParseError)?;
+        let macho_data = MachOData::new(range, 0, macho_file.is_64());
+        Ok(MachObject {
+            object: macho_file,
+            macho_data,
+            symbol_map_data: self,
+        })
+    }
+}
+
+#[derive(Yokeable)]
+struct MachObject<'data, T: FileContents> {
+    object: File<'data, RangeReadRef<'data, &'data FileContentsWrapper<T>>>,
+    symbol_map_data: &'data MachSymbolMapData<T>,
+    macho_data: MachOData<'data, RangeReadRef<'data, &'data FileContentsWrapper<T>>>,
+}
+
+impl<'data, T: FileContents + 'static> MachObject<'data, T> {
+    pub fn make_symbol_map<'file>(
+        &'file self,
+        base_path: &BasePath,
+    ) -> Result<SymbolMapTypeErased<'file>, Error>
+    where
+        'data: 'file,
+    {
+        let function_starts = function_start_addresses(&self.object, &self.macho_data);
+        let debug_id = debug_id_for_object(&self.object)
+            .ok_or(Error::InvalidInputError("debug ID cannot be read"))?;
+
+        let symbol_map = SymbolMap::new(
+            &self.object,
+            &self.symbol_map_data.file_data,
+            debug_id,
+            PathMapper::new(base_path),
+            function_starts.as_deref(),
+            None,
+            &self.symbol_map_data.addr2line_context_data,
+        );
+        let symbol_map = SymbolMapTypeErased(Box::new(symbol_map));
+        Ok(symbol_map)
+    }
+}
+
+struct MachSymbolMapDataWithElfObject<T: FileContents + 'static>(
+    Yoke<MachObject<'static, T>, Box<MachSymbolMapData<T>>>,
+);
+
+pub struct MachSymbolMap<T: FileContents + 'static>(
+    Yoke<SymbolMapTypeErased<'static>, Box<MachSymbolMapDataWithElfObject<T>>>,
+);
+
+impl<T: FileContents + 'static> MachSymbolMap<T> {
+    pub fn parse(
+        file_contents: FileContentsWrapper<T>,
+        file_range: Option<(u64, u64)>,
+        base_path: &BasePath,
+    ) -> Result<Self, Error> {
+        let owner = MachSymbolMapData::new(file_contents, file_range);
+        let owner_with_elf_object = MachSymbolMapDataWithElfObject(
+            Yoke::<MachObject<T>, _>::try_attach_to_cart(Box::new(owner), |owner| {
+                owner.make_mach_object()
+            })?,
+        );
+        let owner_with_symbol_map = Yoke::<SymbolMapTypeErased, _>::try_attach_to_cart(
+            Box::new(owner_with_elf_object),
+            |owner_with_elf_object| {
+                let elf_object = owner_with_elf_object.0.get();
+                elf_object.make_symbol_map(base_path)
+            },
+        )?;
+        Ok(MachSymbolMap(owner_with_symbol_map))
+    }
+}
+
+impl<T: FileContents + 'static> SymbolMapTrait for MachSymbolMap<T> {
+    fn debug_id(&self) -> debugid::DebugId {
+        self.0.get().debug_id()
+    }
+
+    fn symbol_count(&self) -> usize {
+        self.0.get().symbol_count()
+    }
+
+    fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {
+        self.0.get().iter_symbols()
+    }
+
+    fn to_map(&self) -> Vec<(u32, String)> {
+        self.0.get().to_map()
+    }
+
+    fn lookup(&self, address: u32) -> Option<AddressInfo> {
+        self.0.get().lookup(address)
+    }
+}
+
+/// Get a list of function addresses as u32 relative addresses.
+pub fn function_start_addresses<'data: 'file, 'file, T, R: ReadRef<'data>>(
+    object_file: &'file T,
+    macho_data: &'file MachOData<'data, R>,
+) -> Option<Vec<u32>>
+where
+    T: object::Object<'data, 'file>,
+{
+    // Get function start addresses from LC_FUNCTION_STARTS
+    let mut function_starts = macho_data.get_function_starts().ok()?;
+
+    // and from __unwind_info.
+    if let Some(unwind_info) = object_file
+        .section_by_name_bytes(b"__unwind_info")
+        .and_then(|s| s.data().ok())
+        .and_then(|d| UnwindInfo::parse(d).ok())
+    {
+        let function_starts = function_starts.get_or_insert_with(Vec::new);
+        let mut iter = unwind_info.functions();
+        while let Ok(Some(function)) = iter.next() {
+            function_starts.push(function.start_address);
+        }
+    }
+    function_starts
+}
+
+pub async fn get_external_file<'h, H, F>(
     helper: &'h H,
     external_file_ref: &ExternalFileRef,
 ) -> Result<ExternalFileWithUplooker<F>, Error>
@@ -416,7 +476,7 @@ impl<'a, F: FileContents> ExternalFileUplookerTrait for ExternalFileUplooker<'a,
     }
 }
 
-struct ExternalFileWithUplooker<F: FileContents>(
+pub struct ExternalFileWithUplooker<F: FileContents>(
     Yoke<ExternalFileUplookerTypeErased<'static>, Box<ExternalFile<F>>>,
 );
 

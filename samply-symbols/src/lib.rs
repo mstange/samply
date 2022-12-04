@@ -147,7 +147,9 @@
 //! ```
 
 pub use debugid;
+use macho::{get_external_file, ExternalFileWithUplooker};
 pub use object;
+use path_mapper::PathMapper;
 pub use pdb_addr2line::pdb;
 
 use debugid::DebugId;
@@ -279,37 +281,16 @@ where
                 let arches = FatHeader::parse_arch32(&file_contents)
                     .map_err(|e| Error::ObjectParseError(file_kind, e))?;
                 let range = macho::get_arch_range(&file_contents, arches, query.debug_id)?;
-                return macho::get_symbolication_result(
-                    &base_path,
-                    file_contents,
-                    Some(range),
-                    query,
-                    helper,
-                )
-                .await;
+                macho::get_symbol_map(&base_path, file_contents, Some(range))?
             }
             FileKind::MachOFat64 => {
                 let arches = FatHeader::parse_arch64(&file_contents)
                     .map_err(|e| Error::ObjectParseError(file_kind, e))?;
                 let range = macho::get_arch_range(&file_contents, arches, query.debug_id)?;
-                return macho::get_symbolication_result(
-                    &base_path,
-                    file_contents,
-                    Some(range),
-                    query,
-                    helper,
-                )
-                .await;
+                macho::get_symbol_map(&base_path, file_contents, Some(range))?
             }
             FileKind::MachO32 | FileKind::MachO64 => {
-                return macho::get_symbolication_result(
-                    &base_path,
-                    file_contents,
-                    None,
-                    query,
-                    helper,
-                )
-                .await
+                macho::get_symbol_map(&base_path, file_contents, None)?
             }
             FileKind::Pe32 | FileKind::Pe64 => {
                 return windows::get_symbolication_result_via_binary(
@@ -353,6 +334,10 @@ where
     let mut symbolication_result = R::for_addresses(addresses);
     symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
 
+    let mut path_mapper = PathMapper::new(&base_path);
+
+    let mut external_addresses = Vec::new();
+
     for &address in addresses {
         if let Some(address_info) = symbol_map.lookup(address) {
             symbolication_result.add_address_symbol(
@@ -361,9 +346,32 @@ where
                 address_info.symbol.name,
                 address_info.symbol.size,
             );
-            if let FramesLookupResult::Available(frames) = address_info.frames {
-                symbolication_result.add_address_debug_info(address, AddressDebugInfo { frames });
+            match address_info.frames {
+                FramesLookupResult::Available(frames) => symbolication_result
+                    .add_address_debug_info(address, AddressDebugInfo { frames }),
+                FramesLookupResult::External(external_file_ref, external_file_address) => {
+                    external_addresses.push((address, external_file_ref, external_file_address));
+                }
+                FramesLookupResult::Unavailable => {}
             }
+        }
+    }
+
+    let mut current_external_file: Option<ExternalFileWithUplooker<H::F>> = None;
+
+    for (address, external_file_ref, external_file_address) in external_addresses {
+        if current_external_file.is_none()
+            || current_external_file.as_ref().unwrap().name() != external_file_ref.file_name
+        {
+            current_external_file = match get_external_file(helper, &external_file_ref).await {
+                Ok(external_file) => Some(external_file),
+                Err(_) => continue,
+            };
+        }
+        let external_file = current_external_file.as_ref().unwrap();
+        if let Some(frames) = external_file.lookup_address(&external_file_address, &mut path_mapper)
+        {
+            symbolication_result.add_address_debug_info(address, AddressDebugInfo { frames });
         }
     }
 
