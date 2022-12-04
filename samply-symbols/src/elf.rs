@@ -38,37 +38,39 @@ where
             let mut objdata = Vec::new();
             if let Ok(()) = lzma_rs::xz_decompress(&mut cursor, &mut objdata) {
                 let file_contents = FileContentsWrapper::new(&objdata[..]);
-                if let Ok(elf_file) = File::parse(&file_contents) {
-                    return get_symbolication_result_impl(
-                        elf_file,
-                        base_path,
-                        &file_contents,
-                        query,
-                    );
+                if let Ok(res) = get_symbolication_result_impl(
+                    base_path,
+                    file_kind,
+                    file_contents,
+                    query.clone(),
+                ) {
+                    return Ok(res);
                 }
             }
         }
     }
 
-    get_symbolication_result_impl(elf_file, base_path, &file_contents, query)
+    get_symbolication_result_impl(base_path, file_kind, file_contents, query)
 }
 
-pub fn get_symbolication_result_impl<'data, R, T>(
-    elf_file: File<'data, &'data FileContentsWrapper<T>>,
+pub fn get_symbolication_result_impl<R, T>(
     base_path: &BasePath,
-    file_contents: &'data FileContentsWrapper<T>,
+    file_kind: FileKind,
+    file_contents: FileContentsWrapper<T>,
     query: SymbolicationQuery,
 ) -> Result<R, Error>
 where
     R: SymbolicationResult,
     T: FileContents,
 {
+    let elf_file =
+        File::parse(&file_contents).map_err(|e| Error::ObjectParseError(file_kind, e))?;
     let (function_starts, function_ends) = function_start_and_end_addresses(&elf_file);
     let path_mapper = PathMapper::new(base_path);
     let addr2line_context_data = Addr2lineContextData::new();
     let symbol_map = SymbolMap::new(
         &elf_file,
-        file_contents.full_range(),
+        &file_contents,
         path_mapper,
         Some(&function_starts),
         Some(&function_ends),
