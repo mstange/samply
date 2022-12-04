@@ -3,12 +3,13 @@ use crate::dwarf::Addr2lineContextData;
 use crate::error::Error;
 use crate::path_mapper::PathMapper;
 use crate::shared::{
-    BasePath, FileContents, FileContentsWrapper, FramesLookupResult, SymbolMap, SymbolicationQuery,
-    SymbolicationResult, SymbolicationResultKind,
+    BasePath, FileContents, FileContentsWrapper, FramesLookupResult, SymbolMap,
+    SymbolMapTypeErased, SymbolicationQuery, SymbolicationResult, SymbolicationResultKind, SymbolMapTrait, AddressInfo,
 };
 use crate::AddressDebugInfo;
 use gimli::{CieOrFde, EhFrame, UnwindSection};
 use object::{File, FileKind, Object, ObjectSection};
+use std::borrow::Cow;
 use std::io::Cursor;
 use yoke::{Yoke, Yokeable};
 
@@ -85,6 +86,77 @@ struct ElfObject<'data, T: FileContents> {
     symbol_map_data: &'data ElfSymbolMapData<T>,
 }
 
+impl<'data, T: FileContents + 'static> ElfObject<'data, T> {
+    pub fn make_symbol_map<'file>(
+        &'file self,
+        base_path: &BasePath,
+    ) -> Result<SymbolMapTypeErased<'file>, Error>
+    where
+        'data: 'file,
+    {
+        let (function_starts, function_ends) = function_start_and_end_addresses(&self.object);
+        let symbol_map = SymbolMap::new(
+            &self.object,
+            &self.symbol_map_data.file_data,
+            PathMapper::new(base_path),
+            Some(&function_starts),
+            Some(&function_ends),
+            &self.symbol_map_data.addr2line_context_data,
+        );
+        let symbol_map = SymbolMapTypeErased(Box::new(symbol_map));
+        Ok(symbol_map)
+    }
+}
+
+struct ElfSymbolMapDataWithElfObject<T: FileContents + 'static>(
+    Yoke<ElfObject<'static, T>, Box<ElfSymbolMapData<T>>>,
+);
+
+pub struct ElfSymbolMap<T: FileContents + 'static>(
+    Yoke<SymbolMapTypeErased<'static>, Box<ElfSymbolMapDataWithElfObject<T>>>,
+);
+
+impl<T: FileContents + 'static> ElfSymbolMap<T> {
+    pub fn parse(
+        file_contents: FileContentsWrapper<T>,
+        file_kind: FileKind,
+        base_path: &BasePath,
+    ) -> Result<Self, Error> {
+        let owner = ElfSymbolMapData::new(file_contents);
+        let owner_with_elf_object = ElfSymbolMapDataWithElfObject(
+            Yoke::<ElfObject<T>, _>::try_attach_to_cart(Box::new(owner), |owner| {
+                owner.make_elf_object(file_kind)
+            })?,
+        );
+        let owner_with_symbol_map = Yoke::<SymbolMapTypeErased, _>::try_attach_to_cart(
+            Box::new(owner_with_elf_object),
+            |owner_with_elf_object| {
+                let elf_object = owner_with_elf_object.0.get();
+                elf_object.make_symbol_map(base_path)
+            },
+        )?;
+        Ok(ElfSymbolMap(owner_with_symbol_map))
+    }
+}
+
+impl<T: FileContents + 'static> SymbolMapTrait for ElfSymbolMap<T> {
+    fn symbol_count(&self) -> usize {
+        self.0.get().symbol_count()
+    }
+
+    fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {
+        self.0.get().iter_symbols()
+    }
+
+    fn to_map(&self) -> Vec<(u32, String)> {
+        self.0.get().to_map()
+    }
+
+    fn lookup(&self, address: u32) -> Option<AddressInfo> {
+        self.0.get().lookup(address)
+    }
+}
+
 pub fn get_symbolication_result_impl<R, T>(
     base_path: &BasePath,
     file_kind: FileKind,
@@ -95,22 +167,7 @@ where
     R: SymbolicationResult,
     T: FileContents + 'static,
 {
-    let owner = ElfSymbolMapData::new(file_contents);
-    let owner_with_elf_object =
-        Yoke::<ElfObject<T>, _>::try_attach_to_cart(Box::new(owner), |owner| {
-            owner.make_elf_object(file_kind)
-        })?;
-    let elf_object = owner_with_elf_object.get();
-    let (function_starts, function_ends) = function_start_and_end_addresses(&elf_object.object);
-    use crate::shared::SymbolMapTrait;
-    let symbol_map = SymbolMap::new(
-        &elf_object.object,
-        &elf_object.symbol_map_data.file_data,
-        PathMapper::new(base_path),
-        Some(&function_starts),
-        Some(&function_ends),
-        &elf_object.symbol_map_data.addr2line_context_data,
-    );
+    let symbol_map = ElfSymbolMap::parse(file_contents, file_kind, base_path)?;
     let addresses = match query.result_kind {
         SymbolicationResultKind::AllSymbols => {
             return Ok(R::from_full_map(symbol_map.to_map()));

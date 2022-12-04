@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::slice;
 use std::sync::Mutex;
 use std::{marker::PhantomData, ops::Deref};
+use yoke::Yokeable;
 
 #[cfg(feature = "partial_read_stats")]
 use bitvec::{bitvec, prelude::BitVec};
@@ -468,14 +469,35 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> FullSymbolListEntry<'a, Symbol> {
     }
 }
 
-pub trait SymbolMapTrait<'data> {
+pub trait SymbolMapTrait {
     fn symbol_count(&self) -> usize;
 
-    fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'data, str>)> + '_>;
+    fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_>;
 
     fn to_map(&self) -> Vec<(u32, String)>;
 
     fn lookup(&self, address: u32) -> Option<AddressInfo>;
+}
+
+#[derive(Yokeable)]
+pub struct SymbolMapTypeErased<'data>(pub Box<dyn SymbolMapTrait + 'data>);
+
+impl<'data> SymbolMapTypeErased<'data> {
+    pub fn symbol_count(&self) -> usize {
+        self.0.symbol_count()
+    }
+
+    pub fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {
+        self.0.iter_symbols()
+    }
+
+    pub fn to_map(&self) -> Vec<(u32, String)> {
+        self.0.to_map()
+    }
+
+    pub fn lookup(&self, address: u32) -> Option<AddressInfo> {
+        self.0.lookup(address)
+    }
 }
 
 pub struct SymbolMap<'data, Symbol: object::ObjectSymbol<'data>> {
@@ -605,9 +627,7 @@ impl<'data, Symbol: object::ObjectSymbol<'data>> SymbolMap<'data, Symbol> {
     }
 }
 
-impl<'data, Symbol: object::ObjectSymbol<'data>> SymbolMapTrait<'data>
-    for SymbolMap<'data, Symbol>
-{
+impl<'data, Symbol: object::ObjectSymbol<'data>> SymbolMapTrait for SymbolMap<'data, Symbol> {
     fn symbol_count(&self) -> usize {
         self.entries
             .iter()
@@ -620,7 +640,7 @@ impl<'data, Symbol: object::ObjectSymbol<'data>> SymbolMapTrait<'data>
             .count()
     }
 
-    fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'data, str>)> + '_> {
+    fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {
         Box::new(SymbolMapIter {
             inner: self.entries.iter(),
         })
@@ -712,7 +732,7 @@ pub struct SymbolMapIter<'data, 'map, Symbol: object::ObjectSymbol<'data>> {
 impl<'data, 'map, Symbol: object::ObjectSymbol<'data>> Iterator
     for SymbolMapIter<'data, 'map, Symbol>
 {
-    type Item = (u32, Cow<'data, str>);
+    type Item = (u32, Cow<'map, str>);
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
