@@ -468,6 +468,16 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> FullSymbolListEntry<'a, Symbol> {
     }
 }
 
+pub trait SymbolMapTrait<'data> {
+    fn symbol_count(&self) -> usize;
+
+    fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'data, str>)> + '_>;
+
+    fn to_map(&self) -> Vec<(u32, String)>;
+
+    fn lookup(&self, address: u32) -> Option<AddressInfo>;
+}
+
 pub struct SymbolMap<'data, Symbol: object::ObjectSymbol<'data>> {
     entries: Vec<(u32, FullSymbolListEntry<'data, Symbol>)>,
     path_mapper: Mutex<PathMapper<()>>,
@@ -593,8 +603,12 @@ impl<'data, Symbol: object::ObjectSymbol<'data>> SymbolMap<'data, Symbol> {
             image_base_address: base_address,
         }
     }
+}
 
-    pub fn symbol_count(&self) -> usize {
+impl<'data, Symbol: object::ObjectSymbol<'data>> SymbolMapTrait<'data>
+    for SymbolMap<'data, Symbol>
+{
+    fn symbol_count(&self) -> usize {
         self.entries
             .iter()
             .filter(|&(_, entry)| {
@@ -606,19 +620,19 @@ impl<'data, Symbol: object::ObjectSymbol<'data>> SymbolMap<'data, Symbol> {
             .count()
     }
 
-    pub fn iter_symbols(&self) -> SymbolMapIter<'data, '_, Symbol> {
-        SymbolMapIter {
+    fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'data, str>)> + '_> {
+        Box::new(SymbolMapIter {
             inner: self.entries.iter(),
-        }
+        })
     }
 
-    pub fn to_map(&self) -> Vec<(u32, String)> {
+    fn to_map(&self) -> Vec<(u32, String)> {
         self.iter_symbols()
             .map(|(address, name)| (address, name.to_string()))
             .collect()
     }
 
-    pub fn lookup(&self, address: u32) -> Option<AddressInfo> {
+    fn lookup(&self, address: u32) -> Option<AddressInfo> {
         let index = match self
             .entries
             .binary_search_by_key(&address, |&(addr, _)| addr)

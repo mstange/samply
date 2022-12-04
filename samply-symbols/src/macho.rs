@@ -117,6 +117,7 @@ where
         &addr2line_context_data,
     )?;
 
+    use crate::shared::SymbolMapTrait;
     let addresses = match query.result_kind {
         SymbolicationResultKind::AllSymbols => return Ok(R::from_full_map(symbol_map.to_map())),
         SymbolicationResultKind::SymbolsForAddresses(addresses) => addresses,
@@ -213,6 +214,7 @@ where
         &addr2line_context_data,
     )?;
 
+    use crate::shared::SymbolMapTrait;
     let addresses = match query.result_kind {
         SymbolicationResultKind::AllSymbols => return Ok(R::from_full_map(symbol_map.to_map())),
         SymbolicationResultKind::SymbolsForAddresses(addresses) => addresses,

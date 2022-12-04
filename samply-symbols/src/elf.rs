@@ -102,6 +102,7 @@ where
         })?;
     let elf_object = owner_with_elf_object.get();
     let (function_starts, function_ends) = function_start_and_end_addresses(&elf_object.object);
+    use crate::shared::SymbolMapTrait;
     let symbol_map = SymbolMap::new(
         &elf_object.object,
         &elf_object.symbol_map_data.file_data,
