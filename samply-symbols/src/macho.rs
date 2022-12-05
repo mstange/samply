@@ -65,6 +65,12 @@ where
     let symbol_map =
         get_symbol_map_for_dyld_cache::<H>(dyld_cache_path, dylib_path, helper).await?;
 
+    if symbol_map.debug_id() != query.debug_id {
+        return Err(Error::UnmatchedDebugId(
+            symbol_map.debug_id(),
+            query.debug_id,
+        ));
+    }
     let addresses = match query.result_kind {
         SymbolicationResultKind::AllSymbols => return Ok(R::from_full_map(symbol_map.to_map())),
         SymbolicationResultKind::SymbolsForAddresses(addresses) => addresses,
