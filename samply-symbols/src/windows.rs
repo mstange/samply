@@ -137,19 +137,23 @@ where
             .await
             .map_err(|e| Error::HelperErrorDuringOpenFile(file_location.to_string_lossy(), e))?,
     );
-    let pdb = PDB::open(&file_contents)?;
-    get_symbolication_result(&file_location.to_base_path(), pdb, query)
+    get_symbolication_result_from_pdb(&file_location.to_base_path(), file_contents, query)
 }
 
-pub fn get_symbolication_result<'a, 's, S, R>(
+pub fn is_pdb_file<F: FileContents>(file: &FileContentsWrapper<F>) -> bool {
+    PDB::open(file).is_ok()
+}
+
+pub fn get_symbolication_result_from_pdb<R, F>(
     base_path: &BasePath,
-    mut pdb: PDB<'s, S>,
-    query: SymbolicationQuery<'a>,
+    file_contents: FileContentsWrapper<F>,
+    query: SymbolicationQuery,
 ) -> Result<R, Error>
 where
     R: SymbolicationResult,
-    S: pdb::Source<'s> + 's,
+    F: FileContents + 'static,
 {
+    let mut pdb = PDB::open(&file_contents)?;
     // Check against the expected debug_id.
     let info = pdb.pdb_information().context("pdb_information")?;
     let dbi = pdb.debug_information()?;

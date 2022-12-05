@@ -154,7 +154,6 @@ pub use pdb_addr2line::pdb;
 
 use debugid::DebugId;
 use object::{macho::FatHeader, read::FileKind};
-use pdb::PDB;
 use shared::{FramesLookupResult, SymbolMapTypeErasedOwned};
 
 mod cache;
@@ -308,9 +307,8 @@ where
                 ))
             }
         }
-    } else if let Ok(pdb) = PDB::open(&file_contents) {
-        // This is a PDB file.
-        return windows::get_symbolication_result(&base_path, pdb, query);
+    } else if windows::is_pdb_file(&file_contents) {
+        return windows::get_symbolication_result_from_pdb(&base_path, file_contents, query);
     } else {
         return Err(Error::InvalidInputError(
             "The file does not have a known format; PDB::open was not able to parse it and object::FileKind::parse was not able to detect the format.",
