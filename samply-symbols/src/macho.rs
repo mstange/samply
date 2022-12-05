@@ -18,7 +18,7 @@ use object::{Endianness, ReadRef};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::marker::PhantomData;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use yoke::{Yoke, Yokeable};
 
@@ -62,62 +62,8 @@ where
     R: SymbolicationResult,
     H: FileAndPathHelper<'h>,
 {
-    let get_file = |path| helper.open_file(&FileLocation::Path(path));
-
-    let root_contents = get_file(dyld_cache_path.into()).await.map_err(|e| {
-        Error::HelperErrorDuringOpenFile(dyld_cache_path.to_string_lossy().to_string(), e)
-    })?;
-    let root_contents = FileContentsWrapper::new(root_contents);
-
-    let base_path = FileLocation::Path(dyld_cache_path.to_owned()).to_base_path();
-    let dyld_cache_path = dyld_cache_path.to_string_lossy();
-
-    let mut subcache_contents = Vec::new();
-    for subcache_index in 1.. {
-        // Find the subcache at dyld_shared_cache_arm64e.1 or dyld_shared_cache_arm64e.01
-        let subcache_path = format!("{}.{}", dyld_cache_path, subcache_index);
-        let subcache_path2 = format!("{}.{:02}", dyld_cache_path, subcache_index);
-        let subcache = match get_file(subcache_path.into()).await {
-            Ok(subcache) => subcache,
-            Err(_) => match get_file(subcache_path2.into()).await {
-                Ok(subcache) => subcache,
-                Err(_) => break,
-            },
-        };
-        subcache_contents.push(FileContentsWrapper::new(subcache));
-    }
-    let symbols_subcache_path = format!("{}.symbols", dyld_cache_path);
-    if let Ok(subcache) = get_file(symbols_subcache_path.into()).await {
-        subcache_contents.push(FileContentsWrapper::new(subcache));
-    };
-
-    let subcache_contents_refs: Vec<&FileContentsWrapper<H::F>> =
-        subcache_contents.iter().collect();
-    let cache = object::read::macho::DyldCache::<Endianness, _>::parse(
-        &root_contents,
-        &subcache_contents_refs,
-    )
-    .map_err(Error::DyldCacheParseError)?;
-    let image = match cache.images().find(|image| image.path() == Ok(dylib_path)) {
-        Some(image) => image,
-        None => return Err(Error::NoMatchingDyldCacheImagePath(dylib_path.to_string())),
-    };
-
-    let object = image.parse_object().map_err(Error::MachOHeaderParseError)?;
-
-    let (data, header_offset) = image
-        .image_data_and_offset()
-        .map_err(Error::MachOHeaderParseError)?;
-    let macho_data = MachOData::new(data, header_offset, object.is_64());
-    let addr2line_context_data = Addr2lineContextData::new();
-    let symbol_map = get_symbol_map_from_macho_object(
-        &object,
-        data,
-        macho_data,
-        &base_path,
-        query.clone(),
-        &addr2line_context_data,
-    )?;
+    let symbol_map =
+        get_symbol_map_for_dyld_cache::<H>(dyld_cache_path, dylib_path, helper).await?;
 
     let addresses = match query.result_kind {
         SymbolicationResultKind::AllSymbols => return Ok(R::from_full_map(symbol_map.to_map())),
@@ -141,48 +87,103 @@ where
     Ok(symbolication_result)
 }
 
-fn get_symbol_map_from_macho_object<'a, 'data, R: ReadRef<'data>>(
-    macho_file: &'data File<'data, R>,
-    file_data: R,
-    macho_data: MachOData<'data, R>,
-    base_path: &BasePath,
-    query: SymbolicationQuery<'a>,
-    addr2line_context_data: &'data Addr2lineContextData,
-) -> Result<SymbolMap<'data, <File<'data, R> as Object<'data, 'data>>::Symbol>, Error> {
-    let file_debug_id = match debug_id_for_object(macho_file) {
-        Some(debug_id) => debug_id,
-        None => return Err(Error::InvalidInputError("Missing mach-o uuid")),
-    };
-    if file_debug_id != query.debug_id {
-        return Err(Error::UnmatchedDebugId(file_debug_id, query.debug_id));
+pub async fn get_symbol_map_for_dyld_cache<'h, H>(
+    dyld_cache_path: &Path,
+    dylib_path: &str,
+    helper: &'h H,
+) -> Result<SymbolMapTypeErasedOwned, Error>
+where
+    H: FileAndPathHelper<'h>,
+{
+    let get_file = |path| helper.open_file(&FileLocation::Path(path));
+
+    let root_contents = get_file(dyld_cache_path.into()).await.map_err(|e| {
+        Error::HelperErrorDuringOpenFile(dyld_cache_path.to_string_lossy().to_string(), e)
+    })?;
+    let root_contents = FileContentsWrapper::new(root_contents);
+
+    let dyld_cache_path = dyld_cache_path.to_string_lossy();
+
+    let mut subcache_contents = Vec::new();
+    for subcache_index in 1.. {
+        // Find the subcache at dyld_shared_cache_arm64e.1 or dyld_shared_cache_arm64e.01
+        let subcache_path = format!("{}.{}", dyld_cache_path, subcache_index);
+        let subcache_path2 = format!("{}.{:02}", dyld_cache_path, subcache_index);
+        let subcache = match get_file(subcache_path.into()).await {
+            Ok(subcache) => subcache,
+            Err(_) => match get_file(subcache_path2.into()).await {
+                Ok(subcache) => subcache,
+                Err(_) => break,
+            },
+        };
+        subcache_contents.push(FileContentsWrapper::new(subcache));
     }
+    let symbols_subcache_path = format!("{}.symbols", dyld_cache_path);
+    if let Ok(subcache) = get_file(symbols_subcache_path.into()).await {
+        subcache_contents.push(FileContentsWrapper::new(subcache));
+    };
 
-    // Get function start addresses from LC_FUNCTION_STARTS
-    let mut function_starts = macho_data.get_function_starts()?;
+    let symbol_map = DyldCacheSymbolMap::parse(root_contents, subcache_contents, dylib_path)?;
+    Ok(SymbolMapTypeErasedOwned(Box::new(symbol_map)))
+}
 
-    // and from __unwind_info.
-    if let Some(unwind_info) = macho_file
-        .section_by_name_bytes(b"__unwind_info")
-        .and_then(|s| s.data().ok())
-        .and_then(|d| UnwindInfo::parse(d).ok())
-    {
-        let function_starts = function_starts.get_or_insert_with(Vec::new);
-        let mut iter = unwind_info.functions();
-        while let Ok(Some(function)) = iter.next() {
-            function_starts.push(function.start_address);
+struct DyldCacheSymbolMapData<T>
+where
+    T: FileContents,
+{
+    root_file_data: FileContentsWrapper<T>,
+    subcache_file_data: Vec<FileContentsWrapper<T>>,
+    dylib_path: String,
+    addr2line_context_data: Addr2lineContextData,
+}
+
+impl<T: FileContents> DyldCacheSymbolMapData<T> {
+    pub fn new(
+        root_file_data: FileContentsWrapper<T>,
+        subcache_file_data: Vec<FileContentsWrapper<T>>,
+        dylib_path: &str,
+    ) -> Self {
+        Self {
+            root_file_data,
+            subcache_file_data,
+            dylib_path: dylib_path.to_string(),
+            addr2line_context_data: Addr2lineContextData::new(),
         }
     }
 
-    let path_mapper = PathMapper::new(base_path);
-    Ok(SymbolMap::new(
-        macho_file,
-        file_data,
-        file_debug_id,
-        path_mapper,
-        function_starts.as_deref(),
-        None,
-        addr2line_context_data,
-    ))
+    pub fn make_mach_object(&self) -> Result<MachObject<'_, T>, Error> {
+        let subcache_contents_refs: Vec<_> = self
+            .subcache_file_data
+            .iter()
+            .map(FileContentsWrapper::full_range)
+            .collect();
+        let cache = object::read::macho::DyldCache::<Endianness, _>::parse(
+            self.root_file_data.full_range(),
+            &subcache_contents_refs,
+        )
+        .map_err(Error::DyldCacheParseError)?;
+        let image = match cache
+            .images()
+            .find(|image| image.path() == Ok(&self.dylib_path))
+        {
+            Some(image) => image,
+            None => return Err(Error::NoMatchingDyldCacheImagePath(self.dylib_path.clone())),
+        };
+
+        let object = image.parse_object().map_err(Error::MachOHeaderParseError)?;
+
+        let (data, header_offset) = image
+            .image_data_and_offset()
+            .map_err(Error::MachOHeaderParseError)?;
+        let macho_data = MachOData::new(data, header_offset, object.is_64());
+
+        Ok(MachObject {
+            object,
+            macho_data,
+            file_data_for_addr2line_context: self.root_file_data.full_range(),
+            addr2line_context_data: &self.addr2line_context_data,
+        })
+    }
 }
 
 pub fn get_symbol_map<F: FileContents + 'static>(
@@ -224,7 +225,8 @@ impl<T: FileContents> MachSymbolMapData<T> {
         Ok(MachObject {
             object: macho_file,
             macho_data,
-            symbol_map_data: self,
+            file_data_for_addr2line_context: range,
+            addr2line_context_data: &self.addr2line_context_data,
         })
     }
 }
@@ -232,8 +234,9 @@ impl<T: FileContents> MachSymbolMapData<T> {
 #[derive(Yokeable)]
 struct MachObject<'data, T: FileContents> {
     object: File<'data, RangeReadRef<'data, &'data FileContentsWrapper<T>>>,
-    symbol_map_data: &'data MachSymbolMapData<T>,
     macho_data: MachOData<'data, RangeReadRef<'data, &'data FileContentsWrapper<T>>>,
+    file_data_for_addr2line_context: RangeReadRef<'data, &'data FileContentsWrapper<T>>,
+    addr2line_context_data: &'data Addr2lineContextData,
 }
 
 impl<'data, T: FileContents + 'static> MachObject<'data, T> {
@@ -250,24 +253,24 @@ impl<'data, T: FileContents + 'static> MachObject<'data, T> {
 
         let symbol_map = SymbolMap::new(
             &self.object,
-            &self.symbol_map_data.file_data,
+            self.file_data_for_addr2line_context,
             debug_id,
             PathMapper::new(base_path),
             function_starts.as_deref(),
             None,
-            &self.symbol_map_data.addr2line_context_data,
+            self.addr2line_context_data,
         );
         let symbol_map = SymbolMapTypeErased(Box::new(symbol_map));
         Ok(symbol_map)
     }
 }
 
-struct MachSymbolMapDataWithElfObject<T: FileContents + 'static>(
+struct MachSymbolMapDataWithMachObject<T: FileContents + 'static>(
     Yoke<MachObject<'static, T>, Box<MachSymbolMapData<T>>>,
 );
 
 pub struct MachSymbolMap<T: FileContents + 'static>(
-    Yoke<SymbolMapTypeErased<'static>, Box<MachSymbolMapDataWithElfObject<T>>>,
+    Yoke<SymbolMapTypeErased<'static>, Box<MachSymbolMapDataWithMachObject<T>>>,
 );
 
 impl<T: FileContents + 'static> MachSymbolMap<T> {
@@ -277,7 +280,7 @@ impl<T: FileContents + 'static> MachSymbolMap<T> {
         base_path: &BasePath,
     ) -> Result<Self, Error> {
         let owner = MachSymbolMapData::new(file_contents, file_range);
-        let owner_with_elf_object = MachSymbolMapDataWithElfObject(
+        let owner_with_elf_object = MachSymbolMapDataWithMachObject(
             Yoke::<MachObject<T>, _>::try_attach_to_cart(Box::new(owner), |owner| {
                 owner.make_mach_object()
             })?,
@@ -294,6 +297,60 @@ impl<T: FileContents + 'static> MachSymbolMap<T> {
 }
 
 impl<T: FileContents + 'static> SymbolMapTrait for MachSymbolMap<T> {
+    fn debug_id(&self) -> debugid::DebugId {
+        self.0.get().debug_id()
+    }
+
+    fn symbol_count(&self) -> usize {
+        self.0.get().symbol_count()
+    }
+
+    fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {
+        self.0.get().iter_symbols()
+    }
+
+    fn to_map(&self) -> Vec<(u32, String)> {
+        self.0.get().to_map()
+    }
+
+    fn lookup(&self, address: u32) -> Option<AddressInfo> {
+        self.0.get().lookup(address)
+    }
+}
+
+struct DyldCacheSymbolMapDataWithMachObject<T: FileContents + 'static>(
+    Yoke<MachObject<'static, T>, Box<DyldCacheSymbolMapData<T>>>,
+);
+
+pub struct DyldCacheSymbolMap<T: FileContents + 'static>(
+    Yoke<SymbolMapTypeErased<'static>, Box<DyldCacheSymbolMapDataWithMachObject<T>>>,
+);
+
+impl<T: FileContents + 'static> DyldCacheSymbolMap<T> {
+    pub fn parse(
+        root_file_data: FileContentsWrapper<T>,
+        subcache_file_data: Vec<FileContentsWrapper<T>>,
+        dylib_path: &str,
+    ) -> Result<Self, Error> {
+        let base_path = BasePath::CanReferToLocalFiles(PathBuf::from(dylib_path));
+        let owner = DyldCacheSymbolMapData::new(root_file_data, subcache_file_data, dylib_path);
+        let owner_with_elf_object = DyldCacheSymbolMapDataWithMachObject(
+            Yoke::<MachObject<T>, _>::try_attach_to_cart(Box::new(owner), |owner| {
+                owner.make_mach_object()
+            })?,
+        );
+        let owner_with_symbol_map = Yoke::<SymbolMapTypeErased, _>::try_attach_to_cart(
+            Box::new(owner_with_elf_object),
+            |owner_with_elf_object| {
+                let elf_object = owner_with_elf_object.0.get();
+                elf_object.make_symbol_map(&base_path)
+            },
+        )?;
+        Ok(DyldCacheSymbolMap(owner_with_symbol_map))
+    }
+}
+
+impl<T: FileContents + 'static> SymbolMapTrait for DyldCacheSymbolMap<T> {
     fn debug_id(&self) -> debugid::DebugId {
         self.0.get().debug_id()
     }
