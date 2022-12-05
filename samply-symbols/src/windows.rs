@@ -4,8 +4,10 @@ use crate::dwarf::Addr2lineContextData;
 use crate::error::{Context, Error};
 use crate::path_mapper::{ExtraPathMapper, PathMapper};
 use crate::shared::{
-    AddressDebugInfo, BasePath, FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation,
-    InlineStackFrame, SymbolMap, SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
+    AddressInfo, BasePath, FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation,
+    FramesLookupResult, InlineStackFrame, SymbolInfo, SymbolMap, SymbolMapTrait,
+    SymbolMapTypeErased, SymbolMapTypeErasedOwned, SymbolicationQuery, SymbolicationResult,
+    SymbolicationResultKind,
 };
 use debugid::DebugId;
 use pdb::PDB;
@@ -13,6 +15,9 @@ use pdb_addr2line::pdb;
 use regex::Regex;
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::ops::Deref;
+use std::sync::Mutex;
+use yoke::{Yoke, Yokeable};
 
 pub async fn get_symbolication_result_via_binary<'h, R>(
     file_kind: object::FileKind,
@@ -100,7 +105,6 @@ where
         &addr2line_context_data,
     );
 
-    use crate::shared::SymbolMapTrait;
     let addresses = match query.result_kind {
         SymbolicationResultKind::AllSymbols => return Ok(R::from_full_map(symbol_map.to_map())),
         SymbolicationResultKind::SymbolsForAddresses(addresses) => addresses,
@@ -144,6 +148,250 @@ pub fn is_pdb_file<F: FileContents>(file: &FileContentsWrapper<F>) -> bool {
     PDB::open(file).is_ok()
 }
 
+struct PdbObject<'data, FC: FileContents + 'static> {
+    context_data: pdb_addr2line::ContextPdbData<'data, 'data, &'data FileContentsWrapper<FC>>,
+    debug_id: DebugId,
+    srcsrv_stream: Option<Box<dyn Deref<Target = [u8]> + 'data>>,
+}
+
+trait PdbObjectTrait {
+    fn make_symbol_map<'s>(
+        &'s self,
+        base_path: &BasePath,
+    ) -> Result<Box<dyn SymbolMapTrait + 's>, Error>;
+}
+
+#[derive(Yokeable)]
+struct PdbObjectTypeErased<'data>(Box<dyn PdbObjectTrait + 'data>);
+
+impl<'data, FC: FileContents + 'static> PdbObjectTrait for PdbObject<'data, FC> {
+    fn make_symbol_map<'object>(
+        &'object self,
+        base_path: &BasePath,
+    ) -> Result<Box<dyn SymbolMapTrait + 'object>, Error> {
+        let context = self.make_context()?;
+
+        let path_mapper = match &self.srcsrv_stream {
+            Some(srcsrv_stream) => Some(SrcSrvPathMapper::new(srcsrv::SrcSrvStream::parse(
+                srcsrv_stream.deref(),
+            )?)),
+            None => None,
+        };
+        let path_mapper = PathMapper::new_with_maybe_extra_mapper(base_path, path_mapper);
+
+        let symbol_map = PdbSymbolMapDep {
+            context,
+            debug_id: self.debug_id,
+            path_mapper: Mutex::new(path_mapper),
+        };
+        Ok(Box::new(symbol_map))
+    }
+}
+
+impl<'data, FC: FileContents + 'static> PdbObject<'data, FC> {
+    fn make_context<'object>(
+        &'object self,
+    ) -> Result<Box<dyn PdbAddr2lineContextTrait + 'object>, Error> {
+        let context = self.context_data.make_context().context("make_context()")?;
+        Ok(Box::new(context))
+    }
+}
+
+trait PdbAddr2lineContextTrait {
+    fn find_frames(
+        &self,
+        probe: u32,
+    ) -> Result<Option<pdb_addr2line::FunctionFrames>, pdb_addr2line::Error>;
+    fn function_count(&self) -> usize;
+    fn functions(&self) -> Box<dyn Iterator<Item = pdb_addr2line::Function> + '_>;
+}
+
+impl<'a, 's> PdbAddr2lineContextTrait for pdb_addr2line::Context<'a, 's> {
+    fn find_frames(
+        &self,
+        probe: u32,
+    ) -> Result<Option<pdb_addr2line::FunctionFrames>, pdb_addr2line::Error> {
+        self.find_frames(probe)
+    }
+
+    fn function_count(&self) -> usize {
+        self.function_count()
+    }
+
+    fn functions(&self) -> Box<dyn Iterator<Item = pdb_addr2line::Function> + '_> {
+        Box::new(self.functions())
+    }
+}
+
+struct PdbSymbolMapDep<'object> {
+    context: Box<dyn PdbAddr2lineContextTrait + 'object>,
+    debug_id: DebugId,
+    path_mapper: Mutex<PathMapper<SrcSrvPathMapper<'object>>>,
+}
+
+impl<'object> SymbolMapTrait for PdbSymbolMapDep<'object> {
+    fn debug_id(&self) -> DebugId {
+        self.debug_id
+    }
+
+    fn symbol_count(&self) -> usize {
+        self.context.function_count() as usize
+    }
+
+    fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {
+        let iter = self.context.functions().map(|f| {
+            let start_rva = f.start_rva;
+            (
+                start_rva,
+                Cow::Owned(f.name.unwrap_or_else(|| format!("fun_{:x}", start_rva))),
+            )
+        });
+        Box::new(iter)
+    }
+
+    fn to_map(&self) -> Vec<(u32, String)> {
+        self.context
+            .functions()
+            .map(|func| {
+                let symbol_name = match func.name {
+                    Some(name) => name,
+                    None => "unknown".to_string(),
+                };
+                (func.start_rva, symbol_name)
+            })
+            .collect()
+    }
+
+    fn lookup(&self, address: u32) -> Option<AddressInfo> {
+        let function_frames = self.context.find_frames(address).ok()??;
+        let symbol_address = function_frames.start_rva;
+        let symbol_name = match &function_frames.frames.last().unwrap().function {
+            Some(name) => demangle::demangle_any(name),
+            None => "unknown".to_string(),
+        };
+        let function_size = function_frames
+            .end_rva
+            .map(|end_rva| end_rva - function_frames.start_rva);
+
+        let symbol = SymbolInfo {
+            address: symbol_address,
+            size: function_size,
+            name: symbol_name,
+        };
+        let frames = if has_debug_info(&function_frames) {
+            let mut path_mapper = self.path_mapper.lock().unwrap();
+            let mut map_path = |path: Cow<str>| path_mapper.map_path(&path);
+            let frames: Vec<_> = function_frames
+                .frames
+                .into_iter()
+                .map(|frame| InlineStackFrame {
+                    function: frame.function,
+                    file_path: frame.file.map(&mut map_path),
+                    line_number: frame.line,
+                })
+                .collect();
+            FramesLookupResult::Available(frames)
+        } else {
+            FramesLookupResult::Unavailable
+        };
+
+        Some(AddressInfo { symbol, frames })
+    }
+}
+
+struct PdbDataWithObject<F: FileContents + 'static>(
+    Yoke<PdbObjectTypeErased<'static>, Box<FileContentsWrapper<F>>>,
+);
+
+fn box_stream<'data, T>(stream: T) -> Box<dyn Deref<Target = [u8]> + 'data>
+where
+    T: Deref<Target = [u8]> + 'data,
+{
+    Box::new(stream)
+}
+
+struct PdbSymbolMap<F: FileContents + 'static>(
+    Yoke<SymbolMapTypeErased<'static>, Box<PdbDataWithObject<F>>>,
+);
+
+impl<F: FileContents + 'static> PdbSymbolMap<F> {
+    pub fn parse(
+        file_contents: FileContentsWrapper<F>,
+        base_path: &BasePath,
+    ) -> Result<Self, Error> {
+        let data_with_object = PdbDataWithObject(Yoke::try_attach_to_cart(
+            Box::new(file_contents),
+            |file_contents| -> Result<_, Error> {
+                let mut pdb = PDB::open(file_contents)?;
+                let info = pdb.pdb_information().context("pdb_information")?;
+                let dbi = pdb.debug_information()?;
+                let age = dbi.age().unwrap_or(info.age);
+                let debug_id = DebugId::from_parts(info.guid, age);
+
+                let srcsrv_stream = match pdb.named_stream(b"srcsrv") {
+                    Ok(stream) => Some(box_stream(stream)),
+                    Err(pdb::Error::StreamNameNotFound | pdb::Error::StreamNotFound(_)) => None,
+                    Err(e) => return Err(Error::PdbError("pdb.named_stream(srcsrv)", e)),
+                };
+
+                let context_data = pdb_addr2line::ContextPdbData::try_from_pdb(pdb)
+                    .context("ContextConstructionData::try_from_pdb")?;
+
+                Ok(PdbObjectTypeErased(Box::new(PdbObject {
+                    context_data,
+                    debug_id,
+                    srcsrv_stream,
+                })))
+            },
+        )?);
+
+        let data_with_symbol_map =
+            Yoke::<SymbolMapTypeErased<'static>, Box<PdbDataWithObject<F>>>::try_attach_to_cart(
+                Box::new(data_with_object),
+                |data_with_object| -> Result<_, Error> {
+                    Ok(SymbolMapTypeErased(
+                        data_with_object.0.get().0.make_symbol_map(base_path)?,
+                    ))
+                },
+            )?;
+
+        Ok(PdbSymbolMap(data_with_symbol_map))
+    }
+}
+
+impl<T: FileContents + 'static> SymbolMapTrait for PdbSymbolMap<T> {
+    fn debug_id(&self) -> debugid::DebugId {
+        self.0.get().debug_id()
+    }
+
+    fn symbol_count(&self) -> usize {
+        self.0.get().symbol_count()
+    }
+
+    fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {
+        self.0.get().iter_symbols()
+    }
+
+    fn to_map(&self) -> Vec<(u32, String)> {
+        self.0.get().to_map()
+    }
+
+    fn lookup(&self, address: u32) -> Option<AddressInfo> {
+        self.0.get().lookup(address)
+    }
+}
+
+pub fn get_symbol_map_for_pdb<F>(
+    file_contents: FileContentsWrapper<F>,
+    base_path: &BasePath,
+) -> Result<SymbolMapTypeErasedOwned, Error>
+where
+    F: FileContents + 'static,
+{
+    let symbol_map = PdbSymbolMap::parse(file_contents, base_path)?;
+    Ok(SymbolMapTypeErasedOwned(Box::new(symbol_map)))
+}
+
 pub fn get_symbolication_result_from_pdb<R, F>(
     base_path: &BasePath,
     file_contents: FileContentsWrapper<F>,
@@ -153,95 +401,35 @@ where
     R: SymbolicationResult,
     F: FileContents + 'static,
 {
-    let mut pdb = PDB::open(&file_contents)?;
-    // Check against the expected debug_id.
-    let info = pdb.pdb_information().context("pdb_information")?;
-    let dbi = pdb.debug_information()?;
-    let age = dbi.age().unwrap_or(info.age);
-    let file_debug_id = DebugId::from_parts(info.guid, age);
+    let symbol_map = get_symbol_map_for_pdb(file_contents, base_path)?;
 
-    let SymbolicationQuery { debug_id, .. } = query;
-
-    if file_debug_id != debug_id {
-        return Err(Error::UnmatchedDebugId(file_debug_id, debug_id));
+    if symbol_map.debug_id() != query.debug_id {
+        return Err(Error::UnmatchedDebugId(
+            symbol_map.debug_id(),
+            query.debug_id,
+        ));
     }
 
-    let srcsrv_stream = match pdb.named_stream(b"srcsrv") {
-        Ok(stream) => Some(stream),
-        Err(pdb::Error::StreamNameNotFound | pdb::Error::StreamNotFound(_)) => None,
-        Err(e) => return Err(Error::PdbError("pdb.named_stream(srcsrv)", e)),
+    let addresses = match query.result_kind {
+        SymbolicationResultKind::AllSymbols => return Ok(R::from_full_map(symbol_map.to_map())),
+        SymbolicationResultKind::SymbolsForAddresses(addresses) => addresses,
     };
 
-    let context_data = pdb_addr2line::ContextPdbData::try_from_pdb(pdb)
-        .context("ContextConstructionData::try_from_pdb")?;
-    let context = context_data.make_context().context("make_context()")?;
+    let mut symbolication_result = R::for_addresses(addresses);
+    symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
 
-    match query.result_kind {
-        SymbolicationResultKind::AllSymbols => {
-            // Gather the symbols into a map.
-            let symbol_map = context
-                .functions()
-                .map(|func| {
-                    let symbol_name = match func.name {
-                        Some(name) => name,
-                        None => "unknown".to_string(),
-                    };
-                    (func.start_rva, Cow::from(symbol_name))
-                })
-                .collect();
-            let symbolication_result = R::from_full_map(symbol_map);
-            Ok(symbolication_result)
-        }
-        SymbolicationResultKind::SymbolsForAddresses(addresses) => {
-            let path_mapper = match &srcsrv_stream {
-                Some(srcsrv_stream) => Some(SrcSrvPathMapper::new(srcsrv::SrcSrvStream::parse(
-                    srcsrv_stream.as_slice(),
-                )?)),
-                None => None,
-            };
-            let mut path_mapper = PathMapper::new_with_maybe_extra_mapper(base_path, path_mapper);
-            let mut map_path = |path: Cow<str>| path_mapper.map_path(&path);
-
-            let mut symbolication_result = R::for_addresses(addresses);
-            for &address in addresses {
-                if let Some(function_frames) = context.find_frames(address)? {
-                    let symbol_address = function_frames.start_rva;
-                    let symbol_name = match &function_frames.frames.last().unwrap().function {
-                        Some(name) => demangle::demangle_any(name),
-                        None => "unknown".to_string(),
-                    };
-                    let function_size = function_frames
-                        .end_rva
-                        .map(|end_rva| end_rva - function_frames.start_rva);
-                    symbolication_result.add_address_symbol(
-                        address,
-                        symbol_address,
-                        symbol_name,
-                        function_size,
-                    );
-                    if has_debug_info(&function_frames) {
-                        let frames: Vec<_> = function_frames
-                            .frames
-                            .into_iter()
-                            .map(|frame| InlineStackFrame {
-                                function: frame.function,
-                                file_path: frame.file.map(&mut map_path),
-                                line_number: frame.line,
-                            })
-                            .collect();
-                        if !frames.is_empty() {
-                            symbolication_result
-                                .add_address_debug_info(address, AddressDebugInfo { frames });
-                        }
-                    }
-                }
-            }
-
-            symbolication_result.set_total_symbol_count(context.function_count() as u32);
-
-            Ok(symbolication_result)
+    for &address in addresses {
+        if let Some(address_info) = symbol_map.lookup(address) {
+            symbolication_result.add_address_symbol(
+                address,
+                address_info.symbol.address,
+                address_info.symbol.name,
+                address_info.symbol.size,
+            );
         }
     }
+
+    Ok(symbolication_result)
 }
 
 /// Map raw file paths to special "permalink" paths, using the srcsrv stream.
