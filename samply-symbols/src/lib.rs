@@ -166,6 +166,7 @@ mod error;
 mod macho;
 mod path_mapper;
 mod shared;
+mod symbol_map_object;
 mod windows;
 
 pub use crate::cache::{FileByteSource, FileContentsWithChunkedCaching};
@@ -353,16 +354,16 @@ where
                 let arches = FatHeader::parse_arch32(&file_contents)
                     .map_err(|e| Error::ObjectParseError(file_kind, e))?;
                 let range = macho::get_arch_range(&file_contents, arches, debug_id)?;
-                macho::get_symbol_map(&base_path, file_contents, Some(range))?
+                macho::get_symbol_map_for_fat_archive_member(&base_path, file_contents, range)?
             }
             FileKind::MachOFat64 => {
                 let arches = FatHeader::parse_arch64(&file_contents)
                     .map_err(|e| Error::ObjectParseError(file_kind, e))?;
                 let range = macho::get_arch_range(&file_contents, arches, debug_id)?;
-                macho::get_symbol_map(&base_path, file_contents, Some(range))?
+                macho::get_symbol_map_for_fat_archive_member(&base_path, file_contents, range)?
             }
             FileKind::MachO32 | FileKind::MachO64 => {
-                macho::get_symbol_map(&base_path, file_contents, None)?
+                macho::get_symbol_map(&base_path, file_contents)?
             }
             FileKind::Pe32 | FileKind::Pe64 => {
                 match windows::get_symbol_map_for_pdb_corresponding_to_binary(
