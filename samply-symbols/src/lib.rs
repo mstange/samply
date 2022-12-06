@@ -153,7 +153,6 @@ pub use pdb_addr2line::pdb;
 
 use debugid::DebugId;
 use object::{macho::FatHeader, read::FileKind};
-use shared::{FramesLookupResult, SymbolMapTypeErasedOwned};
 
 mod cache;
 mod chunked_read_buffer_manager;
@@ -175,8 +174,9 @@ pub use crate::error::Error;
 use crate::shared::FileContentsWrapper;
 pub use crate::shared::{
     AddressDebugInfo, CandidatePathInfo, FileAndPathHelper, FileAndPathHelperError,
-    FileAndPathHelperResult, FileContents, FileLocation, FilePath, InlineStackFrame,
-    OptionallySendFuture, SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
+    FileAndPathHelperResult, FileContents, FileLocation, FilePath, FramesLookupResult,
+    InlineStackFrame, OptionallySendFuture, SymbolMapTypeErasedOwned, SymbolicationQuery,
+    SymbolicationResult, SymbolicationResultKind,
 };
 pub use debugid_util::{debug_id_for_object, DebugIdExt};
 
@@ -211,8 +211,74 @@ pub async fn get_symbolication_result<'h, R>(
 where
     R: SymbolicationResult,
 {
-    let symbol_map = get_symbol_map(query.debug_name, query.debug_id, helper).await?;
-    compute_symbolication_result_from_symbol_map(symbol_map, query.result_kind, helper).await
+    let addresses = match query.result_kind {
+        SymbolicationResultKind::AllSymbols => {
+            let symbol_map = get_symbol_map(query.debug_name, query.debug_id, helper).await?;
+            return Ok(R::from_full_map(symbol_map.to_map()));
+        }
+        SymbolicationResultKind::SymbolsForAddresses(addresses) => addresses,
+    };
+
+    let mut symbolication_result = R::for_addresses(addresses);
+    let mut external_addresses = Vec::new();
+
+    // Do the synchronous work first, and keep the symbol_map in a scope without
+    // any other await calls so that the Rust compiler can see that the symbol
+    // map does not exist across any await calls. This makes it so that the
+    // future defined by this async function is Send even if the symbol map is
+    // not Send.
+    {
+        let symbol_map = get_symbol_map(query.debug_name, query.debug_id, helper).await?;
+
+        symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
+
+        for &address in addresses {
+            if let Some(address_info) = symbol_map.lookup(address) {
+                symbolication_result.add_address_symbol(
+                    address,
+                    address_info.symbol.address,
+                    address_info.symbol.name,
+                    address_info.symbol.size,
+                );
+                match address_info.frames {
+                    FramesLookupResult::Available(frames) => symbolication_result
+                        .add_address_debug_info(address, AddressDebugInfo { frames }),
+                    FramesLookupResult::External(external_file_ref, external_file_address) => {
+                        external_addresses.push((
+                            address,
+                            external_file_ref,
+                            external_file_address,
+                        ));
+                    }
+                    FramesLookupResult::Unavailable => {}
+                }
+            }
+        }
+    }
+
+    // Look up any addresses whose debug info is in an external file.
+    // We cache the most recent external file.
+    // If our addresses are sorted, they usually happen to be grouped by external
+    // file, so in practice we don't do much (if any) repeated reading of the same
+    // external file.
+    let mut current_external_file: Option<ExternalFileWithUplooker<_>> = None;
+
+    for (address, external_file_ref, external_file_address) in external_addresses {
+        if current_external_file.is_none()
+            || current_external_file.as_ref().unwrap().name() != external_file_ref.file_name
+        {
+            current_external_file = match get_external_file(helper, &external_file_ref).await {
+                Ok(external_file) => Some(external_file),
+                Err(_) => continue,
+            };
+        }
+        let external_file = current_external_file.as_ref().unwrap();
+        if let Some(frames) = external_file.lookup_address(&external_file_address) {
+            symbolication_result.add_address_debug_info(address, AddressDebugInfo { frames });
+        }
+    }
+
+    Ok(symbolication_result)
 }
 
 /// Get a symbols for the given `(debug_name, debug_id)` pair.
@@ -327,63 +393,70 @@ where
     Ok(symbol_map)
 }
 
-async fn compute_symbolication_result_from_symbol_map<'h, H, R>(
-    symbol_map: SymbolMapTypeErasedOwned,
-    result_kind: SymbolicationResultKind<'_>,
-    helper: &'h H,
-) -> Result<R, Error>
-where
-    R: SymbolicationResult,
-    H: FileAndPathHelper<'h>,
-{
-    let addresses = match result_kind {
-        SymbolicationResultKind::AllSymbols => {
-            return Ok(R::from_full_map(symbol_map.to_map()));
-        }
-        SymbolicationResultKind::SymbolsForAddresses(addresses) => addresses,
+#[cfg(all(test, feature = "send_futures"))]
+mod test {
+    use crate::debugid::DebugId;
+    use crate::{
+        AddressDebugInfo, CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult,
+        FileLocation, OptionallySendFuture, SymbolicationQuery, SymbolicationResult,
     };
 
-    let mut symbolication_result = R::for_addresses(addresses);
-    symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
+    #[allow(unused)]
+    fn test_send() {
+        struct TestSendHelper;
 
-    let mut external_addresses = Vec::new();
-
-    for &address in addresses {
-        if let Some(address_info) = symbol_map.lookup(address) {
-            symbolication_result.add_address_symbol(
-                address,
-                address_info.symbol.address,
-                address_info.symbol.name,
-                address_info.symbol.size,
-            );
-            match address_info.frames {
-                FramesLookupResult::Available(frames) => symbolication_result
-                    .add_address_debug_info(address, AddressDebugInfo { frames }),
-                FramesLookupResult::External(external_file_ref, external_file_address) => {
-                    external_addresses.push((address, external_file_ref, external_file_address));
-                }
-                FramesLookupResult::Unavailable => {}
+        impl<'h> FileAndPathHelper<'h> for TestSendHelper {
+            type F = Vec<u8>;
+            type OpenFileFuture = std::pin::Pin<
+                Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>,
+            >;
+            fn get_candidate_paths_for_binary_or_pdb(
+                &self,
+                debug_name: &str,
+                _debug_id: &DebugId,
+            ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
+                panic!()
+            }
+            fn open_file(
+                &'h self,
+                location: &FileLocation,
+            ) -> std::pin::Pin<
+                Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>,
+            > {
+                panic!()
             }
         }
-    }
-    drop(symbol_map);
 
-    let mut current_external_file: Option<ExternalFileWithUplooker<H::F>> = None;
+        #[derive(Debug, Default)]
+        struct TestSendSymbolicationResult;
 
-    for (address, external_file_ref, external_file_address) in external_addresses {
-        if current_external_file.is_none()
-            || current_external_file.as_ref().unwrap().name() != external_file_ref.file_name
-        {
-            current_external_file = match get_external_file(helper, &external_file_ref).await {
-                Ok(external_file) => Some(external_file),
-                Err(_) => continue,
-            };
+        impl SymbolicationResult for TestSendSymbolicationResult {
+            fn from_full_map<S>(_map: Vec<(u32, S)>) -> Self
+            where
+                S: std::ops::Deref<Target = str>,
+            {
+                panic!()
+            }
+            fn for_addresses(_addresses: &[u32]) -> Self {
+                panic!()
+            }
+            fn add_address_symbol(
+                &mut self,
+                _address: u32,
+                _symbol_address: u32,
+                _symbol_name: String,
+                _function_size: Option<u32>,
+            ) {
+            }
+            fn add_address_debug_info(&mut self, address: u32, info: AddressDebugInfo) {}
+            fn set_total_symbol_count(&mut self, _total_symbol_count: u32) {}
         }
-        let external_file = current_external_file.as_ref().unwrap();
-        if let Some(frames) = external_file.lookup_address(&external_file_address) {
-            symbolication_result.add_address_debug_info(address, AddressDebugInfo { frames });
-        }
-    }
 
-    Ok(symbolication_result)
+        let helper = TestSendHelper;
+        let query: SymbolicationQuery = panic!();
+        let f = crate::get_symbolication_result::<TestSendSymbolicationResult>(query, &helper);
+
+        fn assert_send<T: Send>(_x: T) {}
+        assert_send(f);
+    }
 }
