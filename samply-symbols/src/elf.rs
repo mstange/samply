@@ -1,8 +1,9 @@
 use crate::error::Error;
-use crate::shared::{BasePath, FileContents, FileContentsWrapper, SymbolMapTypeErasedOwned};
-use crate::symbol_map_object::{
-    FunctionAddressesComputer, GenericSymbolMap, ObjectData, ObjectWrapperTrait, SymbolDataTrait,
+use crate::shared::{BasePath, FileContents, FileContentsWrapper};
+use crate::symbol_map::{
+    GenericSymbolMap, ObjectWrapperTrait, SymbolDataTrait, SymbolMapTypeErasedOwned,
 };
+use crate::symbol_map_object::{FunctionAddressesComputer, ObjectData};
 use gimli::{CieOrFde, EhFrame, UnwindSection};
 use object::{File, FileKind, Object, ObjectSection, ReadRef};
 use std::io::Cursor;

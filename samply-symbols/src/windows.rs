@@ -4,12 +4,13 @@ use crate::error::{Context, Error};
 use crate::path_mapper::{ExtraPathMapper, PathMapper};
 use crate::shared::{
     AddressInfo, BasePath, FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation,
-    FramesLookupResult, InlineStackFrame, SymbolInfo, SymbolMapTrait, SymbolMapTypeErased,
+    FramesLookupResult, InlineStackFrame, SymbolInfo,
+};
+use crate::symbol_map::{
+    GenericSymbolMap, ObjectWrapperTrait, SymbolDataTrait, SymbolMapTrait, SymbolMapTypeErased,
     SymbolMapTypeErasedOwned,
 };
-use crate::symbol_map_object::{
-    FunctionAddressesComputer, GenericSymbolMap, ObjectData, ObjectWrapperTrait, SymbolDataTrait,
-};
+use crate::symbol_map_object::{FunctionAddressesComputer, ObjectData};
 use debugid::DebugId;
 use object::{File, FileKind};
 use pdb::PDB;

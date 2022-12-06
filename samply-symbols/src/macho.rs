@@ -4,11 +4,12 @@ use crate::error::Error;
 use crate::path_mapper::PathMapper;
 use crate::shared::{
     BasePath, ExternalFileAddressRef, ExternalFileRef, FileAndPathHelper, FileContents,
-    FileContentsWrapper, FileLocation, RangeReadRef, SymbolMapTypeErasedOwned,
+    FileContentsWrapper, FileLocation, RangeReadRef,
 };
-use crate::symbol_map_object::{
-    FunctionAddressesComputer, GenericSymbolMap, ObjectData, ObjectWrapperTrait, SymbolDataTrait,
+use crate::symbol_map::{
+    GenericSymbolMap, ObjectWrapperTrait, SymbolDataTrait, SymbolMapTypeErasedOwned,
 };
+use crate::symbol_map_object::{FunctionAddressesComputer, ObjectData};
 use crate::InlineStackFrame;
 use debugid::DebugId;
 use macho_unwind_info::UnwindInfo;

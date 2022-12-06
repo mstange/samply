@@ -166,6 +166,7 @@ mod error;
 mod macho;
 mod path_mapper;
 mod shared;
+mod symbol_map;
 mod symbol_map_object;
 mod windows;
 
@@ -176,9 +177,10 @@ use crate::shared::FileContentsWrapper;
 pub use crate::shared::{
     AddressDebugInfo, CandidatePathInfo, FileAndPathHelper, FileAndPathHelperError,
     FileAndPathHelperResult, FileContents, FileLocation, FilePath, FramesLookupResult,
-    InlineStackFrame, OptionallySendFuture, SymbolMapTypeErasedOwned, SymbolicationQuery,
-    SymbolicationResult, SymbolicationResultKind,
+    InlineStackFrame, OptionallySendFuture, SymbolicationQuery, SymbolicationResult,
+    SymbolicationResultKind,
 };
+pub use crate::symbol_map::SymbolMapTypeErasedOwned;
 pub use debugid_util::{debug_id_for_object, DebugIdExt};
 
 /// Returns a symbol table in `CompactSymbolTable` format for the requested binary.
