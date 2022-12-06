@@ -29,21 +29,16 @@ pub struct ObjectData<'data, R: ReadRef<'data>, FAC: FunctionAddressesComputer<'
     object: File<'data, R>,
     function_addresses_computer: FAC,
     file_data: R,
-    addr2line_context_data: &'data Addr2lineContextData,
+    addr2line_context_data: Addr2lineContextData,
 }
 
 impl<'data, R: ReadRef<'data>, FAC: FunctionAddressesComputer<'data>> ObjectData<'data, R, FAC> {
-    pub fn new(
-        object: File<'data, R>,
-        function_addresses_computer: FAC,
-        file_data: R,
-        addr2line_context_data: &'data Addr2lineContextData,
-    ) -> Self {
+    pub fn new(object: File<'data, R>, function_addresses_computer: FAC, file_data: R) -> Self {
         Self {
             object,
             function_addresses_computer,
             file_data,
-            addr2line_context_data,
+            addr2line_context_data: Addr2lineContextData::new(),
         }
     }
 }
@@ -78,7 +73,7 @@ impl<'data, R: ReadRef<'data>, FAC: FunctionAddressesComputer<'data>> ObjectWrap
             PathMapper::new(base_path),
             function_starts.as_deref(),
             function_ends.as_deref(),
-            self.addr2line_context_data,
+            &self.addr2line_context_data,
         );
         let symbol_map = SymbolMapTypeErased(Box::new(symbol_map));
         Ok(symbol_map)

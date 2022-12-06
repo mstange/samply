@@ -101,7 +101,6 @@ where
     root_file_data: FileContentsWrapper<T>,
     subcache_file_data: Vec<FileContentsWrapper<T>>,
     dylib_path: String,
-    addr2line_context_data: Addr2lineContextData,
 }
 
 impl<T: FileContents + 'static> DyldCacheSymbolMapData<T> {
@@ -114,7 +113,6 @@ impl<T: FileContents + 'static> DyldCacheSymbolMapData<T> {
             root_file_data,
             subcache_file_data,
             dylib_path: dylib_path.to_string(),
-            addr2line_context_data: Addr2lineContextData::new(),
         }
     }
 }
@@ -143,12 +141,7 @@ impl<T: FileContents + 'static> SymbolDataTrait for DyldCacheSymbolMapData<T> {
         let macho_data = MachOData::new(data, header_offset, object.is_64());
         let function_addresses_computer = MachOFunctionAddressesComputer { macho_data };
 
-        let object = ObjectData::new(
-            object,
-            function_addresses_computer,
-            &self.root_file_data,
-            &self.addr2line_context_data,
-        );
+        let object = ObjectData::new(object, function_addresses_computer, &self.root_file_data);
 
         Ok(Box::new(object))
     }
@@ -178,15 +171,11 @@ where
     T: FileContents,
 {
     file_data: FileContentsWrapper<T>,
-    addr2line_context_data: Addr2lineContextData,
 }
 
 impl<T: FileContents> MachSymbolMapData<T> {
     pub fn new(file_data: FileContentsWrapper<T>) -> Self {
-        Self {
-            file_data,
-            addr2line_context_data: Addr2lineContextData::new(),
-        }
+        Self { file_data }
     }
 }
 
@@ -195,12 +184,7 @@ impl<T: FileContents + 'static> SymbolDataTrait for MachSymbolMapData<T> {
         let macho_file = File::parse(&self.file_data).map_err(Error::MachOHeaderParseError)?;
         let macho_data = MachOData::new(&self.file_data, 0, macho_file.is_64());
         let function_addresses_computer = MachOFunctionAddressesComputer { macho_data };
-        let object = ObjectData::new(
-            macho_file,
-            function_addresses_computer,
-            &self.file_data,
-            &self.addr2line_context_data,
-        );
+        let object = ObjectData::new(macho_file, function_addresses_computer, &self.file_data);
         Ok(Box::new(object))
     }
 }
@@ -211,7 +195,6 @@ where
 {
     file_data: FileContentsWrapper<T>,
     file_range: (u64, u64),
-    addr2line_context_data: Addr2lineContextData,
 }
 
 impl<T: FileContents> MachFatArchiveSymbolMapData<T> {
@@ -219,7 +202,6 @@ impl<T: FileContents> MachFatArchiveSymbolMapData<T> {
         Self {
             file_data,
             file_range,
-            addr2line_context_data: Addr2lineContextData::new(),
         }
     }
 }
@@ -232,12 +214,7 @@ impl<T: FileContents + 'static> SymbolDataTrait for MachFatArchiveSymbolMapData<
         let macho_file = File::parse(range_data).map_err(Error::MachOHeaderParseError)?;
         let macho_data = MachOData::new(range_data, 0, macho_file.is_64());
         let function_addresses_computer = MachOFunctionAddressesComputer { macho_data };
-        let object = ObjectData::new(
-            macho_file,
-            function_addresses_computer,
-            range_data,
-            &self.addr2line_context_data,
-        );
+        let object = ObjectData::new(macho_file, function_addresses_computer, range_data);
         Ok(Box::new(object))
     }
 }

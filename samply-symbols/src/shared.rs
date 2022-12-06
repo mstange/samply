@@ -531,12 +531,15 @@ impl SymbolMapTypeErasedOwned {
     }
 }
 
-pub struct SymbolMap<'data, Symbol: object::ObjectSymbol<'data>> {
+pub struct SymbolMap<'data, 'file, Symbol: object::ObjectSymbol<'data>>
+where
+    'data: 'file,
+{
     entries: Vec<(u32, FullSymbolListEntry<'data, Symbol>)>,
     debug_id: DebugId,
     path_mapper: Mutex<PathMapper<()>>,
     object_map: ObjectMap<'data>,
-    context: Option<addr2line::Context<gimli::EndianSlice<'data, gimli::RunTimeEndian>>>,
+    context: Option<addr2line::Context<gimli::EndianSlice<'file, gimli::RunTimeEndian>>>,
     image_base_address: u64,
 }
 
@@ -549,15 +552,18 @@ fn test_symbolmap_is_send() {
     }
 }
 
-impl<'data, Symbol: object::ObjectSymbol<'data>> SymbolMap<'data, Symbol> {
-    pub fn new<'file, O, R>(
+impl<'data, 'file, Symbol: object::ObjectSymbol<'data>> SymbolMap<'data, 'file, Symbol>
+where
+    'data: 'file,
+{
+    pub fn new<O, R>(
         object_file: &'file O,
         data: R,
         debug_id: DebugId,
         path_mapper: PathMapper<()>,
         function_start_addresses: Option<&[u32]>,
         function_end_addresses: Option<&[u32]>,
-        addr2line_context_data: &'data Addr2lineContextData,
+        addr2line_context_data: &'file Addr2lineContextData,
     ) -> Self
     where
         'data: 'file,
@@ -661,7 +667,11 @@ impl<'data, Symbol: object::ObjectSymbol<'data>> SymbolMap<'data, Symbol> {
     }
 }
 
-impl<'data, Symbol: object::ObjectSymbol<'data>> SymbolMapTrait for SymbolMap<'data, Symbol> {
+impl<'data, 'file, Symbol: object::ObjectSymbol<'data>> SymbolMapTrait
+    for SymbolMap<'data, 'file, Symbol>
+where
+    'data: 'file,
+{
     fn debug_id(&self) -> DebugId {
         self.debug_id
     }

@@ -158,16 +158,17 @@ impl Addr2lineContextData {
         }
     }
 
-    fn sect<'s, 'data, 'file, O, R>(
-        &'s self,
+    fn sect<'data, 'ctxdata, 'file, O, R>(
+        &'ctxdata self,
         data: R,
         obj: &'file O,
         section_id: SectionId,
         endian: RunTimeEndian,
-    ) -> EndianSlice<'s, RunTimeEndian>
+    ) -> EndianSlice<'ctxdata, RunTimeEndian>
     where
         'data: 'file,
-        'data: 's,
+        'data: 'ctxdata,
+        'ctxdata: 'file,
         O: object::Object<'data, 'file>,
         R: ReadRef<'data>,
     {
@@ -183,14 +184,15 @@ impl Addr2lineContextData {
         EndianSlice::new(slice, endian)
     }
 
-    pub fn make_context<'data, 'file, 's, O, R>(
-        &'s self,
+    pub fn make_context<'data, 'ctxdata, 'file, O, R>(
+        &'ctxdata self,
         data: R,
         obj: &'file O,
-    ) -> Result<addr2line::Context<EndianSlice<'s, RunTimeEndian>>, Error>
+    ) -> Result<addr2line::Context<EndianSlice<'ctxdata, RunTimeEndian>>, Error>
     where
         'data: 'file,
-        'data: 's,
+        'data: 'ctxdata,
+        'ctxdata: 'file,
         O: object::Object<'data, 'file>,
         R: ReadRef<'data>,
     {
