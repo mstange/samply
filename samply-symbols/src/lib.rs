@@ -292,14 +292,17 @@ where
                 macho::get_symbol_map(&base_path, file_contents, None)?
             }
             FileKind::Pe32 | FileKind::Pe64 => {
-                return windows::get_symbolication_result_via_binary(
+                match windows::get_symbol_map_for_pdb_corresponding_to_binary(
                     file_kind,
-                    file_contents,
-                    query,
+                    &file_contents,
                     file_location,
                     helper,
                 )
                 .await
+                {
+                    Ok(symbol_map) => symbol_map,
+                    Err(_) => windows::get_symbol_map_for_pe(file_contents, file_kind, &base_path)?,
+                }
             }
             _ => {
                 return Err(Error::InvalidInputError(
@@ -308,7 +311,7 @@ where
             }
         }
     } else if windows::is_pdb_file(&file_contents) {
-        return windows::get_symbolication_result_from_pdb(&base_path, file_contents, query);
+        windows::get_symbol_map_for_pdb(file_contents, &base_path)?
     } else {
         return Err(Error::InvalidInputError(
             "The file does not have a known format; PDB::open was not able to parse it and object::FileKind::parse was not able to detect the format.",

@@ -64,11 +64,17 @@ pub enum Error {
     #[error("No candidate path for binary, for {0} {1}")]
     NoCandidatePathForBinary(String, DebugId),
 
+    #[error("No associated PDB file with the right debug ID was found for the PE (Windows) binary at path {0}")]
+    NoMatchingPdbForBinary(String),
+
     #[error("The PE (Windows) binary at path {0} did not contain information about an associated PDB file")]
     NoDebugInfoInPeBinary(String),
 
-    #[error("In the PE (Windows) binary at path {0}, the embedded path to the PDB file did not end with a nul byte.")]
-    PdbPathDidntEndWithNul(String),
+    #[error("In the PE (Windows) binary at path {0}, the embedded path to the PDB file was not valid utf-8.")]
+    PdbPathNotUtf8(String),
+
+    #[error("In the PE (Windows) binary, the embedded path to the PDB file did not end with a file name: {0}")]
+    PdbPathWithoutFilename(String),
 
     #[error("Could not parse archive file at {0}, ArchiveFile::parse returned error: {1}.")]
     ArchiveParseError(PathBuf, #[source] Box<dyn std::error::Error + Send + Sync>),
@@ -147,7 +153,9 @@ impl Error {
             Error::HelperErrorDuringFileReading(_, _) => "HelperErrorDuringFileReading",
             Error::NoCandidatePathForBinary(_, _) => "NoCandidatePathForBinary",
             Error::NoDebugInfoInPeBinary(_) => "NoDebugInfoInPeBinary",
-            Error::PdbPathDidntEndWithNul(_) => "PdbPathDidntEndWithNul",
+            Error::NoMatchingPdbForBinary(_) => "NoMatchingPdbForBinary",
+            Error::PdbPathNotUtf8(_) => "PdbPathNotUtf8",
+            Error::PdbPathWithoutFilename(_) => "PdbPathWithoutFilename",
             Error::ArchiveParseError(_, _) => "ArchiveParseError",
             Error::FileNotInArchive(_) => "FileNotInArchive",
             Error::PdbAddr2lineError(_) => "PdbAddr2lineError",

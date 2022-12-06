@@ -6,37 +6,30 @@ use crate::path_mapper::{ExtraPathMapper, PathMapper};
 use crate::shared::{
     AddressInfo, BasePath, FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation,
     FramesLookupResult, InlineStackFrame, SymbolInfo, SymbolMap, SymbolMapTrait,
-    SymbolMapTypeErased, SymbolMapTypeErasedOwned, SymbolicationQuery, SymbolicationResult,
-    SymbolicationResultKind,
+    SymbolMapTypeErased, SymbolMapTypeErasedOwned,
 };
 use debugid::DebugId;
+use object::{File, FileKind};
 use pdb::PDB;
 use pdb_addr2line::pdb;
 use regex::Regex;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ops::Deref;
+use std::path::PathBuf;
 use std::sync::Mutex;
 use yoke::{Yoke, Yokeable};
 
-pub async fn get_symbolication_result_via_binary<'h, R>(
-    file_kind: object::FileKind,
-    file_contents: FileContentsWrapper<impl FileContents>,
-    query: SymbolicationQuery<'_>,
+pub async fn get_symbol_map_for_pdb_corresponding_to_binary<'h>(
+    file_kind: FileKind,
+    file_contents: &FileContentsWrapper<impl FileContents + 'static>,
     file_location: &FileLocation,
     helper: &'h impl FileAndPathHelper<'h>,
-) -> Result<R, Error>
-where
-    R: SymbolicationResult,
-{
-    let SymbolicationQuery {
-        debug_name,
-        debug_id,
-        ..
-    } = query.clone();
-    use object::{Object, ObjectSection};
+) -> Result<SymbolMapTypeErasedOwned, Error> {
+    use object::Object;
     let pe =
-        object::File::parse(&file_contents).map_err(|e| Error::ObjectParseError(file_kind, e))?;
+        object::File::parse(file_contents).map_err(|e| Error::ObjectParseError(file_kind, e))?;
+
     let info = match pe.pdb_info() {
         Ok(Some(info)) => info,
         _ => {
@@ -45,103 +38,183 @@ where
             ))
         }
     };
+    let binary_debug_id = debug_id_for_object(&pe).expect("we checked pdb_info above");
 
-    // We could check the binary's signature here against debug_id, but we don't really
-    // care whether we have the right binary. As long as we find a PDB file with the right
-    // signature, that's all we need, and we'll happily accept correct PDB files even when
-    // we found them via incorrect binaries.
-
-    let pdb_path =
-        std::ffi::CString::new(info.path()).expect("info.path() should have stripped the nul byte");
+    let pdb_path_str = std::str::from_utf8(info.path())
+        .map_err(|_| Error::PdbPathNotUtf8(file_location.to_string_lossy()))?;
+    let pdb_path = PathBuf::from(pdb_path_str);
+    let debug_name = pdb_path
+        .file_name()
+        .ok_or_else(|| Error::PdbPathWithoutFilename(pdb_path_str.to_string()))?;
+    let debug_name = debug_name.to_str().expect("we checked utf-8 above");
+    let pdb_path_cstr = std::ffi::CString::new(pdb_path_str)
+        .expect("shouldn't have internal nul bytes if the rest succeeded");
 
     let candidate_paths_for_pdb = helper
-        .get_candidate_paths_for_pdb(debug_name, &debug_id, &pdb_path, file_location)
+        .get_candidate_paths_for_pdb(debug_name, &binary_debug_id, &pdb_path_cstr, file_location)
         .map_err(|e| {
-            Error::HelperErrorDuringGetCandidatePathsForPdb(debug_name.to_string(), debug_id, e)
+            Error::HelperErrorDuringGetCandidatePathsForPdb(
+                debug_name.to_string(),
+                binary_debug_id,
+                e,
+            )
         })?;
 
     for pdb_location in candidate_paths_for_pdb {
         if &pdb_location == file_location {
             continue;
         }
-        if let Ok(table) =
-            try_get_symbolication_result_from_pdb_location(query.clone(), &pdb_location, helper)
-                .await
-        {
-            return Ok(table);
+
+        if let Ok(pdb_file) = helper.open_file(&pdb_location).await {
+            if let Ok(symbol_map) = get_symbol_map_for_pdb(
+                FileContentsWrapper::new(pdb_file),
+                &pdb_location.to_base_path(),
+            ) {
+                if symbol_map.debug_id() == binary_debug_id {
+                    return Ok(symbol_map);
+                }
+            }
         }
     }
 
-    // Fallback: If no PDB file is present, make a symbol table with just the exports.
-    // Now it's time to check the debug ID!
-
-    let file_debug_id = debug_id_for_object(&pe).expect("we checked pdb_info above");
-
-    if debug_id != file_debug_id {
-        return Err(Error::UnmatchedDebugId(file_debug_id, debug_id));
-    }
-
-    // Get function start and end addresses from the function list in .pdata.
-    let mut function_starts = None;
-    let mut function_ends = None;
-    if let Some(pdata) = pe
-        .section_by_name_bytes(b".pdata")
-        .and_then(|s| s.data().ok())
-    {
-        let (s, e) = function_start_and_end_addresses(pdata);
-        function_starts = Some(s);
-        function_ends = Some(e);
-    }
-
-    let path_mapper = PathMapper::new(&file_location.to_base_path());
-    let addr2line_context_data = Addr2lineContextData::new();
-    let symbol_map = SymbolMap::new(
-        &pe,
-        &file_contents,
-        file_debug_id,
-        path_mapper,
-        function_starts.as_deref(),
-        function_ends.as_deref(),
-        &addr2line_context_data,
-    );
-
-    let addresses = match query.result_kind {
-        SymbolicationResultKind::AllSymbols => return Ok(R::from_full_map(symbol_map.to_map())),
-        SymbolicationResultKind::SymbolsForAddresses(addresses) => addresses,
-    };
-
-    let mut symbolication_result = R::for_addresses(addresses);
-    symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
-
-    for &address in addresses {
-        if let Some(address_info) = symbol_map.lookup(address) {
-            symbolication_result.add_address_symbol(
-                address,
-                address_info.symbol.address,
-                address_info.symbol.name,
-                address_info.symbol.size,
-            );
-        }
-    }
-
-    Ok(symbolication_result)
+    Err(Error::NoMatchingPdbForBinary(
+        file_location.to_string_lossy(),
+    ))
 }
 
-async fn try_get_symbolication_result_from_pdb_location<'h, R>(
-    query: SymbolicationQuery<'_>,
-    file_location: &FileLocation,
-    helper: &'h impl FileAndPathHelper<'h>,
-) -> Result<R, Error>
+pub fn get_symbol_map_for_pe<F>(
+    file_contents: FileContentsWrapper<F>,
+    file_kind: FileKind,
+    base_path: &BasePath,
+) -> Result<SymbolMapTypeErasedOwned, Error>
 where
-    R: SymbolicationResult,
+    F: FileContents + 'static,
 {
-    let file_contents = FileContentsWrapper::new(
-        helper
-            .open_file(file_location)
-            .await
-            .map_err(|e| Error::HelperErrorDuringOpenFile(file_location.to_string_lossy(), e))?,
-    );
-    get_symbolication_result_from_pdb(&file_location.to_base_path(), file_contents, query)
+    let symbol_map = PeSymbolMap::parse(file_contents, file_kind, base_path)?;
+    Ok(SymbolMapTypeErasedOwned(Box::new(symbol_map)))
+}
+
+struct PeSymbolMapData<T>
+where
+    T: FileContents,
+{
+    file_data: FileContentsWrapper<T>,
+    addr2line_context_data: Addr2lineContextData,
+}
+
+impl<T: FileContents> PeSymbolMapData<T> {
+    pub fn new(file_data: FileContentsWrapper<T>) -> Self {
+        Self {
+            file_data,
+            addr2line_context_data: Addr2lineContextData::new(),
+        }
+    }
+
+    pub fn make_elf_object(&self, file_kind: FileKind) -> Result<PeObject<'_, T>, Error> {
+        let elf_file =
+            File::parse(&self.file_data).map_err(|e| Error::ObjectParseError(file_kind, e))?;
+        Ok(PeObject {
+            object: elf_file,
+            symbol_map_data: self,
+        })
+    }
+}
+
+#[derive(Yokeable)]
+struct PeObject<'data, T: FileContents> {
+    object: File<'data, &'data FileContentsWrapper<T>>,
+    symbol_map_data: &'data PeSymbolMapData<T>,
+}
+
+impl<'data, T: FileContents + 'static> PeObject<'data, T> {
+    pub fn make_symbol_map<'file>(
+        &'file self,
+        base_path: &BasePath,
+    ) -> Result<SymbolMapTypeErased<'file>, Error>
+    where
+        'data: 'file,
+    {
+        use object::{Object, ObjectSection};
+        // Get function start and end addresses from the function list in .pdata.
+        let mut function_starts = None;
+        let mut function_ends = None;
+        if let Some(pdata) = self
+            .object
+            .section_by_name_bytes(b".pdata")
+            .and_then(|s| s.data().ok())
+        {
+            let (s, e) = function_start_and_end_addresses(pdata);
+            function_starts = Some(s);
+            function_ends = Some(e);
+        }
+        let debug_id = debug_id_for_object(&self.object)
+            .ok_or(Error::InvalidInputError("debug ID cannot be read"))?;
+
+        let symbol_map = SymbolMap::new(
+            &self.object,
+            &self.symbol_map_data.file_data,
+            debug_id,
+            PathMapper::new(base_path),
+            function_starts.as_deref(),
+            function_ends.as_deref(),
+            &self.symbol_map_data.addr2line_context_data,
+        );
+        let symbol_map = SymbolMapTypeErased(Box::new(symbol_map));
+        Ok(symbol_map)
+    }
+}
+
+struct PeSymbolMapDataWithElfObject<T: FileContents + 'static>(
+    Yoke<PeObject<'static, T>, Box<PeSymbolMapData<T>>>,
+);
+
+pub struct PeSymbolMap<T: FileContents + 'static>(
+    Yoke<SymbolMapTypeErased<'static>, Box<PeSymbolMapDataWithElfObject<T>>>,
+);
+
+impl<T: FileContents + 'static> PeSymbolMap<T> {
+    pub fn parse(
+        file_contents: FileContentsWrapper<T>,
+        file_kind: FileKind,
+        base_path: &BasePath,
+    ) -> Result<Self, Error> {
+        let owner = PeSymbolMapData::new(file_contents);
+        let owner_with_elf_object = PeSymbolMapDataWithElfObject(
+            Yoke::<PeObject<T>, _>::try_attach_to_cart(Box::new(owner), |owner| {
+                owner.make_elf_object(file_kind)
+            })?,
+        );
+        let owner_with_symbol_map = Yoke::<SymbolMapTypeErased, _>::try_attach_to_cart(
+            Box::new(owner_with_elf_object),
+            |owner_with_elf_object| {
+                let elf_object = owner_with_elf_object.0.get();
+                elf_object.make_symbol_map(base_path)
+            },
+        )?;
+        Ok(PeSymbolMap(owner_with_symbol_map))
+    }
+}
+
+impl<T: FileContents + 'static> SymbolMapTrait for PeSymbolMap<T> {
+    fn debug_id(&self) -> debugid::DebugId {
+        self.0.get().debug_id()
+    }
+
+    fn symbol_count(&self) -> usize {
+        self.0.get().symbol_count()
+    }
+
+    fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {
+        self.0.get().iter_symbols()
+    }
+
+    fn to_map(&self) -> Vec<(u32, String)> {
+        self.0.get().to_map()
+    }
+
+    fn lookup(&self, address: u32) -> Option<AddressInfo> {
+        self.0.get().lookup(address)
+    }
 }
 
 pub fn is_pdb_file<F: FileContents>(file: &FileContentsWrapper<F>) -> bool {
@@ -390,46 +463,6 @@ where
 {
     let symbol_map = PdbSymbolMap::parse(file_contents, base_path)?;
     Ok(SymbolMapTypeErasedOwned(Box::new(symbol_map)))
-}
-
-pub fn get_symbolication_result_from_pdb<R, F>(
-    base_path: &BasePath,
-    file_contents: FileContentsWrapper<F>,
-    query: SymbolicationQuery,
-) -> Result<R, Error>
-where
-    R: SymbolicationResult,
-    F: FileContents + 'static,
-{
-    let symbol_map = get_symbol_map_for_pdb(file_contents, base_path)?;
-
-    if symbol_map.debug_id() != query.debug_id {
-        return Err(Error::UnmatchedDebugId(
-            symbol_map.debug_id(),
-            query.debug_id,
-        ));
-    }
-
-    let addresses = match query.result_kind {
-        SymbolicationResultKind::AllSymbols => return Ok(R::from_full_map(symbol_map.to_map())),
-        SymbolicationResultKind::SymbolsForAddresses(addresses) => addresses,
-    };
-
-    let mut symbolication_result = R::for_addresses(addresses);
-    symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
-
-    for &address in addresses {
-        if let Some(address_info) = symbol_map.lookup(address) {
-            symbolication_result.add_address_symbol(
-                address,
-                address_info.symbol.address,
-                address_info.symbol.name,
-                address_info.symbol.size,
-            );
-        }
-    }
-
-    Ok(symbolication_result)
 }
 
 /// Map raw file paths to special "permalink" paths, using the srcsrv stream.
