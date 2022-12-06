@@ -1,12 +1,14 @@
 use crate::debugid_util::debug_id_for_object;
 use crate::demangle;
-use crate::dwarf::Addr2lineContextData;
 use crate::error::{Context, Error};
 use crate::path_mapper::{ExtraPathMapper, PathMapper};
 use crate::shared::{
     AddressInfo, BasePath, FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation,
-    FramesLookupResult, InlineStackFrame, SymbolInfo, SymbolMap, SymbolMapTrait,
-    SymbolMapTypeErased, SymbolMapTypeErasedOwned,
+    FramesLookupResult, InlineStackFrame, SymbolInfo, SymbolMapTrait, SymbolMapTypeErased,
+    SymbolMapTypeErasedOwned,
+};
+use crate::symbol_map_object::{
+    FunctionAddressesComputer, GenericSymbolMap, ObjectData, ObjectWrapperTrait, SymbolDataTrait,
 };
 use debugid::DebugId;
 use object::{File, FileKind};
@@ -90,7 +92,8 @@ pub fn get_symbol_map_for_pe<F>(
 where
     F: FileContents + 'static,
 {
-    let symbol_map = PeSymbolMap::parse(file_contents, file_kind, base_path)?;
+    let owner = PeSymbolMapData::new(file_contents, file_kind);
+    let symbol_map = GenericSymbolMap::new(owner, base_path)?;
     Ok(SymbolMapTypeErasedOwned(Box::new(symbol_map)))
 }
 
@@ -99,121 +102,50 @@ where
     T: FileContents,
 {
     file_data: FileContentsWrapper<T>,
-    addr2line_context_data: Addr2lineContextData,
+    file_kind: FileKind,
 }
 
 impl<T: FileContents> PeSymbolMapData<T> {
-    pub fn new(file_data: FileContentsWrapper<T>) -> Self {
+    pub fn new(file_data: FileContentsWrapper<T>, file_kind: FileKind) -> Self {
         Self {
             file_data,
-            addr2line_context_data: Addr2lineContextData::new(),
+            file_kind,
         }
     }
+}
 
-    pub fn make_elf_object(&self, file_kind: FileKind) -> Result<PeObject<'_, T>, Error> {
-        let elf_file =
-            File::parse(&self.file_data).map_err(|e| Error::ObjectParseError(file_kind, e))?;
-        Ok(PeObject {
-            object: elf_file,
-            symbol_map_data: self,
-        })
+impl<T: FileContents + 'static> SymbolDataTrait for PeSymbolMapData<T> {
+    fn make_object_wrapper(&self) -> Result<Box<dyn ObjectWrapperTrait + '_>, Error> {
+        let object =
+            File::parse(&self.file_data).map_err(|e| Error::ObjectParseError(self.file_kind, e))?;
+        let object = ObjectData::new(object, PeFunctionAddressesComputer, &self.file_data);
+
+        Ok(Box::new(object))
     }
 }
 
-#[derive(Yokeable)]
-struct PeObject<'data, T: FileContents> {
-    object: File<'data, &'data FileContentsWrapper<T>>,
-    symbol_map_data: &'data PeSymbolMapData<T>,
-}
+struct PeFunctionAddressesComputer;
 
-impl<'data, T: FileContents + 'static> PeObject<'data, T> {
-    pub fn make_symbol_map<'file>(
+impl<'data> FunctionAddressesComputer<'data> for PeFunctionAddressesComputer {
+    fn compute_function_addresses<'file, O>(
         &'file self,
-        base_path: &BasePath,
-    ) -> Result<SymbolMapTypeErased<'file>, Error>
+        object_file: &'file O,
+    ) -> (Option<Vec<u32>>, Option<Vec<u32>>)
     where
         'data: 'file,
+        O: object::Object<'data, 'file>,
     {
-        use object::{Object, ObjectSection};
         // Get function start and end addresses from the function list in .pdata.
-        let mut function_starts = None;
-        let mut function_ends = None;
-        if let Some(pdata) = self
-            .object
+        use object::ObjectSection;
+        if let Some(pdata) = object_file
             .section_by_name_bytes(b".pdata")
             .and_then(|s| s.data().ok())
         {
             let (s, e) = function_start_and_end_addresses(pdata);
-            function_starts = Some(s);
-            function_ends = Some(e);
+            (Some(s), Some(e))
+        } else {
+            (None, None)
         }
-        let debug_id = debug_id_for_object(&self.object)
-            .ok_or(Error::InvalidInputError("debug ID cannot be read"))?;
-
-        let symbol_map = SymbolMap::new(
-            &self.object,
-            &self.symbol_map_data.file_data,
-            debug_id,
-            PathMapper::new(base_path),
-            function_starts.as_deref(),
-            function_ends.as_deref(),
-            &self.symbol_map_data.addr2line_context_data,
-        );
-        let symbol_map = SymbolMapTypeErased(Box::new(symbol_map));
-        Ok(symbol_map)
-    }
-}
-
-struct PeSymbolMapDataWithElfObject<T: FileContents + 'static>(
-    Yoke<PeObject<'static, T>, Box<PeSymbolMapData<T>>>,
-);
-
-pub struct PeSymbolMap<T: FileContents + 'static>(
-    Yoke<SymbolMapTypeErased<'static>, Box<PeSymbolMapDataWithElfObject<T>>>,
-);
-
-impl<T: FileContents + 'static> PeSymbolMap<T> {
-    pub fn parse(
-        file_contents: FileContentsWrapper<T>,
-        file_kind: FileKind,
-        base_path: &BasePath,
-    ) -> Result<Self, Error> {
-        let owner = PeSymbolMapData::new(file_contents);
-        let owner_with_elf_object = PeSymbolMapDataWithElfObject(
-            Yoke::<PeObject<T>, _>::try_attach_to_cart(Box::new(owner), |owner| {
-                owner.make_elf_object(file_kind)
-            })?,
-        );
-        let owner_with_symbol_map = Yoke::<SymbolMapTypeErased, _>::try_attach_to_cart(
-            Box::new(owner_with_elf_object),
-            |owner_with_elf_object| {
-                let elf_object = owner_with_elf_object.0.get();
-                elf_object.make_symbol_map(base_path)
-            },
-        )?;
-        Ok(PeSymbolMap(owner_with_symbol_map))
-    }
-}
-
-impl<T: FileContents + 'static> SymbolMapTrait for PeSymbolMap<T> {
-    fn debug_id(&self) -> debugid::DebugId {
-        self.0.get().debug_id()
-    }
-
-    fn symbol_count(&self) -> usize {
-        self.0.get().symbol_count()
-    }
-
-    fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {
-        self.0.get().iter_symbols()
-    }
-
-    fn to_map(&self) -> Vec<(u32, String)> {
-        self.0.get().to_map()
-    }
-
-    fn lookup(&self, address: u32) -> Option<AddressInfo> {
-        self.0.get().lookup(address)
     }
 }
 
