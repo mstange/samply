@@ -211,12 +211,25 @@ pub async fn get_symbolication_result<'h, R>(
 where
     R: SymbolicationResult,
 {
+    let symbol_map = get_symbol_map(query.debug_name, query.debug_id, helper).await?;
+    compute_symbolication_result_from_symbol_map(symbol_map, query.result_kind, helper).await
+}
+
+/// Get a symbols for the given `(debug_name, debug_id)` pair.
+///
+/// This consults the helper to list candidate files, and then picks a file with the
+/// matching debug ID.
+pub async fn get_symbol_map<'h>(
+    debug_name: &str,
+    debug_id: DebugId,
+    helper: &'h impl FileAndPathHelper<'h>,
+) -> Result<SymbolMapTypeErasedOwned, Error> {
     let candidate_paths_for_binary = helper
-        .get_candidate_paths_for_binary_or_pdb(query.debug_name, &query.debug_id)
+        .get_candidate_paths_for_binary_or_pdb(debug_name, &debug_id)
         .map_err(|e| {
             Error::HelperErrorDuringGetCandidatePathsForBinaryOrPdb(
-                query.debug_name.to_string(),
-                query.debug_id,
+                debug_name.to_string(),
+                debug_id,
                 e,
             )
         })?;
@@ -225,7 +238,7 @@ where
     for candidate_info in candidate_paths_for_binary {
         let symbol_map = match candidate_info {
             CandidatePathInfo::SingleFile(file_location) => {
-                get_symbol_map_from_path(&file_location, query.debug_id, helper).await
+                get_symbol_map_from_path(&file_location, debug_id, helper).await
             }
             CandidatePathInfo::InDyldCache {
                 dyld_cache_path,
@@ -233,22 +246,18 @@ where
             } => macho::get_symbol_map_for_dyld_cache(&dyld_cache_path, &dylib_path, helper).await,
         };
 
-        let result = match symbol_map {
+        match symbol_map {
+            Ok(symbol_map) if symbol_map.debug_id() == debug_id => return Ok(symbol_map),
             Ok(symbol_map) => {
-                compute_symbolication_result_from_symbol_map(symbol_map, query.clone(), helper)
-                    .await
+                last_err = Some(Error::UnmatchedDebugId(symbol_map.debug_id(), debug_id));
             }
-            Err(e) => Err(e),
-        };
-
-        match result {
-            Ok(result) => return Ok(result),
-            Err(err) => last_err = Some(err),
-        };
+            Err(e) => {
+                last_err = Some(e);
+            }
+        }
     }
-    Err(last_err.unwrap_or_else(|| {
-        Error::NoCandidatePathForBinary(query.debug_name.to_string(), query.debug_id)
-    }))
+    Err(last_err
+        .unwrap_or_else(|| Error::NoCandidatePathForBinary(debug_name.to_string(), debug_id)))
 }
 
 async fn get_symbol_map_from_path<'h, H>(
@@ -320,21 +329,14 @@ where
 
 async fn compute_symbolication_result_from_symbol_map<'h, H, R>(
     symbol_map: SymbolMapTypeErasedOwned,
-    query: SymbolicationQuery<'_>,
+    result_kind: SymbolicationResultKind<'_>,
     helper: &'h H,
 ) -> Result<R, Error>
 where
     R: SymbolicationResult,
     H: FileAndPathHelper<'h>,
 {
-    if symbol_map.debug_id() != query.debug_id {
-        return Err(Error::UnmatchedDebugId(
-            symbol_map.debug_id(),
-            query.debug_id,
-        ));
-    }
-
-    let addresses = match query.result_kind {
+    let addresses = match result_kind {
         SymbolicationResultKind::AllSymbols => {
             return Ok(R::from_full_map(symbol_map.to_map()));
         }
