@@ -8,44 +8,27 @@ use crate::{
     Error,
 };
 
-pub trait SymbolDataTrait {
-    fn make_object_wrapper(&self) -> Result<Box<dyn ObjectWrapperTrait + '_>, Error>;
-}
+pub struct SymbolMap(pub(crate) Box<dyn SymbolMapTrait>);
 
-pub trait ObjectWrapperTrait {
-    fn make_symbol_map<'object>(
-        &'object self,
-        base_path: &BasePath,
-    ) -> Result<SymbolMapTypeErased<'object>, Error>;
-}
+impl SymbolMap {
+    pub fn debug_id(&self) -> debugid::DebugId {
+        self.0.debug_id()
+    }
 
-#[derive(Yokeable)]
-pub struct ObjectWrapperTypeErased<'data>(Box<dyn ObjectWrapperTrait + 'data>);
+    pub fn symbol_count(&self) -> usize {
+        self.0.symbol_count()
+    }
 
-struct SymbolMapDataWithObject<SMD: SymbolDataTrait>(
-    Yoke<ObjectWrapperTypeErased<'static>, Box<SMD>>,
-);
+    pub fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {
+        self.0.iter_symbols()
+    }
 
-pub struct GenericSymbolMap<SMD: SymbolDataTrait>(
-    Yoke<SymbolMapTypeErased<'static>, Box<SymbolMapDataWithObject<SMD>>>,
-);
+    pub fn to_map(&self) -> Vec<(u32, String)> {
+        self.0.to_map()
+    }
 
-impl<SMD: SymbolDataTrait> GenericSymbolMap<SMD> {
-    pub fn new(owner: SMD, base_path: &BasePath) -> Result<Self, Error> {
-        let owner_with_object = SymbolMapDataWithObject(
-            Yoke::<ObjectWrapperTypeErased<'static>, _>::try_attach_to_cart(
-                Box::new(owner),
-                |owner| owner.make_object_wrapper().map(ObjectWrapperTypeErased),
-            )?,
-        );
-        let owner_with_symbol_map = Yoke::<SymbolMapTypeErased, _>::try_attach_to_cart(
-            Box::new(owner_with_object),
-            |owner_with_object| {
-                let object = owner_with_object.0.get();
-                object.0.make_symbol_map(base_path)
-            },
-        )?;
-        Ok(GenericSymbolMap(owner_with_symbol_map))
+    pub fn lookup(&self, address: u32) -> Option<AddressInfo> {
+        self.0.lookup(address)
     }
 }
 
@@ -61,74 +44,72 @@ pub trait SymbolMapTrait {
     fn lookup(&self, address: u32) -> Option<AddressInfo>;
 }
 
+pub trait SymbolMapDataOuterTrait {
+    fn make_symbol_map_data_mid(&self) -> Result<Box<dyn SymbolMapDataMidTrait + '_>, Error>;
+}
+
+pub trait SymbolMapDataMidTrait {
+    fn make_symbol_map_inner<'object>(
+        &'object self,
+        base_path: &BasePath,
+    ) -> Result<SymbolMapInnerWrapper<'object>, Error>;
+}
+
 #[derive(Yokeable)]
-pub struct SymbolMapTypeErased<'data>(pub Box<dyn SymbolMapTrait + 'data>);
+pub struct SymbolMapDataMidWrapper<'data>(Box<dyn SymbolMapDataMidTrait + 'data>);
 
-impl<'data> SymbolMapTypeErased<'data> {
-    pub fn debug_id(&self) -> debugid::DebugId {
-        self.0.debug_id()
-    }
+struct SymbolMapDataOuterAndMid<SMDO: SymbolMapDataOuterTrait>(
+    Yoke<SymbolMapDataMidWrapper<'static>, Box<SMDO>>,
+);
 
-    pub fn symbol_count(&self) -> usize {
-        self.0.symbol_count()
-    }
+pub struct GenericSymbolMap<SMDO: SymbolMapDataOuterTrait>(
+    Yoke<SymbolMapInnerWrapper<'static>, Box<SymbolMapDataOuterAndMid<SMDO>>>,
+);
 
-    pub fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {
-        self.0.iter_symbols()
-    }
-
-    pub fn to_map(&self) -> Vec<(u32, String)> {
-        self.0.to_map()
-    }
-
-    pub fn lookup(&self, address: u32) -> Option<AddressInfo> {
-        self.0.lookup(address)
-    }
-}
-
-pub struct SymbolMapTypeErasedOwned(pub Box<dyn SymbolMapTrait>);
-
-impl SymbolMapTypeErasedOwned {
-    pub fn debug_id(&self) -> debugid::DebugId {
-        self.0.debug_id()
-    }
-
-    pub fn symbol_count(&self) -> usize {
-        self.0.symbol_count()
-    }
-
-    #[allow(unused)]
-    pub fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {
-        self.0.iter_symbols()
-    }
-
-    pub fn to_map(&self) -> Vec<(u32, String)> {
-        self.0.to_map()
-    }
-
-    pub fn lookup(&self, address: u32) -> Option<AddressInfo> {
-        self.0.lookup(address)
+impl<SMDO: SymbolMapDataOuterTrait> GenericSymbolMap<SMDO> {
+    pub fn new(outer: SMDO, base_path: &BasePath) -> Result<Self, Error> {
+        let outer_and_mid = SymbolMapDataOuterAndMid(
+            Yoke::<SymbolMapDataMidWrapper<'static>, _>::try_attach_to_cart(
+                Box::new(outer),
+                |outer| {
+                    outer
+                        .make_symbol_map_data_mid()
+                        .map(SymbolMapDataMidWrapper)
+                },
+            )?,
+        );
+        let outer_and_mid_and_inner = Yoke::<SymbolMapInnerWrapper, _>::try_attach_to_cart(
+            Box::new(outer_and_mid),
+            |outer_and_mid| {
+                let mid = outer_and_mid.0.get();
+                mid.0.make_symbol_map_inner(base_path)
+            },
+        )?;
+        Ok(GenericSymbolMap(outer_and_mid_and_inner))
     }
 }
 
-impl<SMD: SymbolDataTrait> SymbolMapTrait for GenericSymbolMap<SMD> {
+#[derive(Yokeable)]
+pub struct SymbolMapInnerWrapper<'data>(pub Box<dyn SymbolMapTrait + 'data>);
+
+impl<SMDO: SymbolMapDataOuterTrait> SymbolMapTrait for GenericSymbolMap<SMDO> {
     fn debug_id(&self) -> debugid::DebugId {
-        self.0.get().debug_id()
+        self.0.get().0.debug_id()
     }
 
     fn symbol_count(&self) -> usize {
-        self.0.get().symbol_count()
+        self.0.get().0.symbol_count()
     }
 
     fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {
-        self.0.get().iter_symbols()
+        self.0.get().0.iter_symbols()
     }
 
     fn to_map(&self) -> Vec<(u32, String)> {
-        self.0.get().to_map()
+        self.0.get().0.to_map()
     }
 
     fn lookup(&self, address: u32) -> Option<AddressInfo> {
-        self.0.get().lookup(address)
+        self.0.get().0.lookup(address)
     }
 }

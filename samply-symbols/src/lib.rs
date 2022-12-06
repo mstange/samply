@@ -174,7 +174,7 @@ pub use crate::cache::{FileByteSource, FileContentsWithChunkedCaching};
 pub use crate::compact_symbol_table::CompactSymbolTable;
 pub use crate::debugid_util::{debug_id_for_object, DebugIdExt};
 pub use crate::error::Error;
-pub use crate::external_file::{get_external_file, ExternalFileWithUplooker};
+pub use crate::external_file::{get_external_file, ExternalFileSymbolMap};
 use crate::shared::FileContentsWrapper;
 pub use crate::shared::{
     AddressDebugInfo, CandidatePathInfo, FileAndPathHelper, FileAndPathHelperError,
@@ -182,7 +182,7 @@ pub use crate::shared::{
     InlineStackFrame, OptionallySendFuture, SymbolicationQuery, SymbolicationResult,
     SymbolicationResultKind,
 };
-pub use crate::symbol_map::SymbolMapTypeErasedOwned;
+pub use crate::symbol_map::SymbolMap;
 
 /// Returns a symbol table in `CompactSymbolTable` format for the requested binary.
 /// `FileAndPathHelper` must be implemented by the caller, to provide file access.
@@ -265,7 +265,7 @@ where
     // If our addresses are sorted, they usually happen to be grouped by external
     // file, so in practice we don't do much (if any) repeated reading of the same
     // external file.
-    let mut current_external_file: Option<ExternalFileWithUplooker<_>> = None;
+    let mut current_external_file: Option<ExternalFileSymbolMap<_>> = None;
 
     for (address, external_file_ref, external_file_address) in external_addresses {
         if current_external_file.is_none()
@@ -293,7 +293,7 @@ pub async fn get_symbol_map<'h>(
     debug_name: &str,
     debug_id: DebugId,
     helper: &'h impl FileAndPathHelper<'h>,
-) -> Result<SymbolMapTypeErasedOwned, Error> {
+) -> Result<SymbolMap, Error> {
     let candidate_paths_for_binary = helper
         .get_candidate_paths_for_binary_or_pdb(debug_name, &debug_id)
         .map_err(|e| {
@@ -334,7 +334,7 @@ async fn get_symbol_map_from_path<'h, H>(
     file_location: &FileLocation,
     debug_id: DebugId,
     helper: &'h H,
-) -> Result<SymbolMapTypeErasedOwned, Error>
+) -> Result<SymbolMap, Error>
 where
     H: FileAndPathHelper<'h>,
 {
@@ -346,9 +346,7 @@ where
 
     let file_contents = FileContentsWrapper::new(file_contents);
 
-    let symbol_map: SymbolMapTypeErasedOwned = if let Ok(file_kind) =
-        FileKind::parse(&file_contents)
-    {
+    let symbol_map: SymbolMap = if let Ok(file_kind) = FileKind::parse(&file_contents) {
         match file_kind {
             FileKind::Elf32 | FileKind::Elf64 => {
                 elf::get_symbol_map(file_contents, file_kind, &base_path)?

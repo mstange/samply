@@ -2,9 +2,9 @@ use crate::debugid_util::debug_id_for_object;
 use crate::error::Error;
 use crate::shared::{BasePath, FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation};
 use crate::symbol_map::{
-    GenericSymbolMap, ObjectWrapperTrait, SymbolDataTrait, SymbolMapTypeErasedOwned,
+    GenericSymbolMap, SymbolMap, SymbolMapDataMidTrait, SymbolMapDataOuterTrait,
 };
-use crate::symbol_map_object::{FunctionAddressesComputer, ObjectData};
+use crate::symbol_map_object::{FunctionAddressesComputer, ObjectSymbolMapDataMid};
 use debugid::DebugId;
 use macho_unwind_info::UnwindInfo;
 use object::macho::{self, LinkeditDataCommand, MachHeader32, MachHeader64};
@@ -48,7 +48,7 @@ pub async fn get_symbol_map_for_dyld_cache<'h, H>(
     dyld_cache_path: &Path,
     dylib_path: &str,
     helper: &'h H,
-) -> Result<SymbolMapTypeErasedOwned, Error>
+) -> Result<SymbolMap, Error>
 where
     H: FileAndPathHelper<'h>,
 {
@@ -83,7 +83,7 @@ where
     let base_path = BasePath::CanReferToLocalFiles(PathBuf::from(dylib_path));
     let owner = DyldCacheSymbolMapData::new(root_contents, subcache_contents, dylib_path);
     let symbol_map = GenericSymbolMap::new(owner, &base_path)?;
-    Ok(SymbolMapTypeErasedOwned(Box::new(symbol_map)))
+    Ok(SymbolMap(Box::new(symbol_map)))
 }
 
 struct DyldCacheSymbolMapData<T>
@@ -109,8 +109,8 @@ impl<T: FileContents + 'static> DyldCacheSymbolMapData<T> {
     }
 }
 
-impl<T: FileContents + 'static> SymbolDataTrait for DyldCacheSymbolMapData<T> {
-    fn make_object_wrapper(&self) -> Result<Box<dyn ObjectWrapperTrait + '_>, Error> {
+impl<T: FileContents + 'static> SymbolMapDataOuterTrait for DyldCacheSymbolMapData<T> {
+    fn make_symbol_map_data_mid(&self) -> Result<Box<dyn SymbolMapDataMidTrait + '_>, Error> {
         let subcache_contents_refs: Vec<_> = self.subcache_file_data.iter().collect();
         let cache = object::read::macho::DyldCache::<Endianness, _>::parse(
             &self.root_file_data,
@@ -133,7 +133,8 @@ impl<T: FileContents + 'static> SymbolDataTrait for DyldCacheSymbolMapData<T> {
         let macho_data = MachOData::new(data, header_offset, object.is_64());
         let function_addresses_computer = MachOFunctionAddressesComputer { macho_data };
 
-        let object = ObjectData::new(object, function_addresses_computer, &self.root_file_data);
+        let object =
+            ObjectSymbolMapDataMid::new(object, function_addresses_computer, &self.root_file_data);
 
         Ok(Box::new(object))
     }
@@ -142,20 +143,20 @@ impl<T: FileContents + 'static> SymbolDataTrait for DyldCacheSymbolMapData<T> {
 pub fn get_symbol_map<F: FileContents + 'static>(
     base_path: &BasePath,
     file_contents: FileContentsWrapper<F>,
-) -> Result<SymbolMapTypeErasedOwned, Error> {
+) -> Result<SymbolMap, Error> {
     let owner = MachSymbolMapData::new(file_contents);
     let symbol_map = GenericSymbolMap::new(owner, base_path)?;
-    Ok(SymbolMapTypeErasedOwned(Box::new(symbol_map)))
+    Ok(SymbolMap(Box::new(symbol_map)))
 }
 
 pub fn get_symbol_map_for_fat_archive_member<F: FileContents + 'static>(
     base_path: &BasePath,
     file_contents: FileContentsWrapper<F>,
     file_range: (u64, u64),
-) -> Result<SymbolMapTypeErasedOwned, Error> {
+) -> Result<SymbolMap, Error> {
     let owner = MachFatArchiveSymbolMapData::new(file_contents, file_range);
     let symbol_map = GenericSymbolMap::new(owner, base_path)?;
-    Ok(SymbolMapTypeErasedOwned(Box::new(symbol_map)))
+    Ok(SymbolMap(Box::new(symbol_map)))
 }
 
 struct MachSymbolMapData<T>
@@ -171,12 +172,13 @@ impl<T: FileContents> MachSymbolMapData<T> {
     }
 }
 
-impl<T: FileContents + 'static> SymbolDataTrait for MachSymbolMapData<T> {
-    fn make_object_wrapper(&self) -> Result<Box<dyn ObjectWrapperTrait + '_>, Error> {
+impl<T: FileContents + 'static> SymbolMapDataOuterTrait for MachSymbolMapData<T> {
+    fn make_symbol_map_data_mid(&self) -> Result<Box<dyn SymbolMapDataMidTrait + '_>, Error> {
         let macho_file = File::parse(&self.file_data).map_err(Error::MachOHeaderParseError)?;
         let macho_data = MachOData::new(&self.file_data, 0, macho_file.is_64());
         let function_addresses_computer = MachOFunctionAddressesComputer { macho_data };
-        let object = ObjectData::new(macho_file, function_addresses_computer, &self.file_data);
+        let object =
+            ObjectSymbolMapDataMid::new(macho_file, function_addresses_computer, &self.file_data);
         Ok(Box::new(object))
     }
 }
@@ -198,15 +200,16 @@ impl<T: FileContents> MachFatArchiveSymbolMapData<T> {
     }
 }
 
-impl<T: FileContents + 'static> SymbolDataTrait for MachFatArchiveSymbolMapData<T> {
-    fn make_object_wrapper(&self) -> Result<Box<dyn ObjectWrapperTrait + '_>, Error> {
+impl<T: FileContents + 'static> SymbolMapDataOuterTrait for MachFatArchiveSymbolMapData<T> {
+    fn make_symbol_map_data_mid(&self) -> Result<Box<dyn SymbolMapDataMidTrait + '_>, Error> {
         let file_contents_ref = &self.file_data;
         let (start, size) = self.file_range;
         let range_data = file_contents_ref.range(start, size);
         let macho_file = File::parse(range_data).map_err(Error::MachOHeaderParseError)?;
         let macho_data = MachOData::new(range_data, 0, macho_file.is_64());
         let function_addresses_computer = MachOFunctionAddressesComputer { macho_data };
-        let object = ObjectData::new(macho_file, function_addresses_computer, range_data);
+        let object =
+            ObjectSymbolMapDataMid::new(macho_file, function_addresses_computer, range_data);
         Ok(Box::new(object))
     }
 }

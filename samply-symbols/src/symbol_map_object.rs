@@ -12,7 +12,7 @@ use crate::{
         relative_address_base, AddressInfo, BasePath, ExternalFileAddressRef, ExternalFileRef,
         SymbolInfo,
     },
-    symbol_map::{ObjectWrapperTrait, SymbolMapTrait, SymbolMapTypeErased},
+    symbol_map::{SymbolMapDataMidTrait, SymbolMapInnerWrapper, SymbolMapTrait},
     Error, FramesLookupResult,
 };
 
@@ -26,14 +26,16 @@ pub trait FunctionAddressesComputer<'data> {
         O: object::Object<'data, 'file>;
 }
 
-pub struct ObjectData<'data, R: ReadRef<'data>, FAC: FunctionAddressesComputer<'data>> {
+pub struct ObjectSymbolMapDataMid<'data, R: ReadRef<'data>, FAC: FunctionAddressesComputer<'data>> {
     object: File<'data, R>,
     function_addresses_computer: FAC,
     file_data: R,
     addr2line_context_data: Addr2lineContextData,
 }
 
-impl<'data, R: ReadRef<'data>, FAC: FunctionAddressesComputer<'data>> ObjectData<'data, R, FAC> {
+impl<'data, R: ReadRef<'data>, FAC: FunctionAddressesComputer<'data>>
+    ObjectSymbolMapDataMid<'data, R, FAC>
+{
     pub fn new(object: File<'data, R>, function_addresses_computer: FAC, file_data: R) -> Self {
         Self {
             object,
@@ -44,20 +46,20 @@ impl<'data, R: ReadRef<'data>, FAC: FunctionAddressesComputer<'data>> ObjectData
     }
 }
 
-impl<'data, R: ReadRef<'data>, FAC: FunctionAddressesComputer<'data>> ObjectWrapperTrait
-    for ObjectData<'data, R, FAC>
+impl<'data, R: ReadRef<'data>, FAC: FunctionAddressesComputer<'data>> SymbolMapDataMidTrait
+    for ObjectSymbolMapDataMid<'data, R, FAC>
 {
-    fn make_symbol_map<'file>(
+    fn make_symbol_map_inner<'file>(
         &'file self,
         base_path: &BasePath,
-    ) -> Result<SymbolMapTypeErased<'file>, Error> {
+    ) -> Result<SymbolMapInnerWrapper<'file>, Error> {
         let (function_starts, function_ends) = self
             .function_addresses_computer
             .compute_function_addresses(&self.object);
         let debug_id = debug_id_for_object(&self.object)
             .ok_or(Error::InvalidInputError("debug ID cannot be read"))?;
 
-        let symbol_map = SymbolMap::new(
+        let symbol_map = ObjectSymbolMapInner::new(
             &self.object,
             self.file_data,
             debug_id,
@@ -66,7 +68,7 @@ impl<'data, R: ReadRef<'data>, FAC: FunctionAddressesComputer<'data>> ObjectWrap
             function_ends.as_deref(),
             &self.addr2line_context_data,
         );
-        let symbol_map = SymbolMapTypeErased(Box::new(symbol_map));
+        let symbol_map = SymbolMapInnerWrapper(Box::new(symbol_map));
         Ok(symbol_map)
     }
 }
@@ -92,7 +94,7 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> FullSymbolListEntry<'a, Symbol> {
     }
 }
 
-pub struct SymbolMap<'data, 'file, Symbol: object::ObjectSymbol<'data>>
+pub struct ObjectSymbolMapInner<'data, 'file, Symbol: object::ObjectSymbol<'data>>
 where
     'data: 'file,
 {
@@ -109,11 +111,12 @@ fn test_symbolmap_is_send() {
     fn assert_is_send<T: Send>() {}
     #[allow(unused)]
     fn wrapper<'a, R: ReadRef<'a> + Send + Sync>() {
-        assert_is_send::<SymbolMap<<object::read::File<'a, R> as object::Object>::Symbol>>();
+        assert_is_send::<ObjectSymbolMapInner<<object::read::File<'a, R> as object::Object>::Symbol>>(
+        );
     }
 }
 
-impl<'data, 'file, Symbol: object::ObjectSymbol<'data>> SymbolMap<'data, 'file, Symbol>
+impl<'data, 'file, Symbol: object::ObjectSymbol<'data>> ObjectSymbolMapInner<'data, 'file, Symbol>
 where
     'data: 'file,
 {
@@ -229,7 +232,7 @@ where
 }
 
 impl<'data, 'file, Symbol: object::ObjectSymbol<'data>> SymbolMapTrait
-    for SymbolMap<'data, 'file, Symbol>
+    for ObjectSymbolMapInner<'data, 'file, Symbol>
 where
     'data: 'file,
 {

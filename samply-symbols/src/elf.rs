@@ -1,9 +1,9 @@
 use crate::error::Error;
 use crate::shared::{BasePath, FileContents, FileContentsWrapper};
 use crate::symbol_map::{
-    GenericSymbolMap, ObjectWrapperTrait, SymbolDataTrait, SymbolMapTypeErasedOwned,
+    GenericSymbolMap, SymbolMap, SymbolMapDataMidTrait, SymbolMapDataOuterTrait,
 };
-use crate::symbol_map_object::{FunctionAddressesComputer, ObjectData};
+use crate::symbol_map_object::{FunctionAddressesComputer, ObjectSymbolMapDataMid};
 use gimli::{CieOrFde, EhFrame, UnwindSection};
 use object::{File, FileKind, Object, ObjectSection, ReadRef};
 use std::io::Cursor;
@@ -12,7 +12,7 @@ pub fn get_symbol_map<T>(
     file_contents: FileContentsWrapper<T>,
     file_kind: FileKind,
     base_path: &BasePath,
-) -> Result<SymbolMapTypeErasedOwned, Error>
+) -> Result<SymbolMap, Error>
 where
     T: FileContents + 'static,
 {
@@ -28,14 +28,14 @@ where
 
     let owner = ElfSymbolMapData::new(file_contents, file_kind);
     let symbol_map = GenericSymbolMap::new(owner, base_path)?;
-    Ok(SymbolMapTypeErasedOwned(Box::new(symbol_map)))
+    Ok(SymbolMap(Box::new(symbol_map)))
 }
 
 fn try_get_symbol_map_from_mini_debug_info<'data, R: ReadRef<'data>>(
     elf_file: &File<'data, R>,
     file_kind: FileKind,
     base_path: &BasePath,
-) -> Option<SymbolMapTypeErasedOwned> {
+) -> Option<SymbolMap> {
     let debugdata = elf_file.section_by_name(".gnu_debugdata")?;
     let data = debugdata.data().ok()?;
     let mut cursor = Cursor::new(data);
@@ -44,7 +44,7 @@ fn try_get_symbol_map_from_mini_debug_info<'data, R: ReadRef<'data>>(
     let file_contents = FileContentsWrapper::new(objdata);
     let owner = ElfSymbolMapData::new(file_contents, file_kind);
     let symbol_map = GenericSymbolMap::new(owner, base_path).ok()?;
-    Some(SymbolMapTypeErasedOwned(Box::new(symbol_map)))
+    Some(SymbolMap(Box::new(symbol_map)))
 }
 
 struct ElfSymbolMapData<T>
@@ -64,11 +64,12 @@ impl<T: FileContents> ElfSymbolMapData<T> {
     }
 }
 
-impl<T: FileContents + 'static> SymbolDataTrait for ElfSymbolMapData<T> {
-    fn make_object_wrapper(&self) -> Result<Box<dyn ObjectWrapperTrait + '_>, Error> {
+impl<T: FileContents + 'static> SymbolMapDataOuterTrait for ElfSymbolMapData<T> {
+    fn make_symbol_map_data_mid(&self) -> Result<Box<dyn SymbolMapDataMidTrait + '_>, Error> {
         let object =
             File::parse(&self.file_data).map_err(|e| Error::ObjectParseError(self.file_kind, e))?;
-        let object = ObjectData::new(object, ElfFunctionAddressesComputer, &self.file_data);
+        let object =
+            ObjectSymbolMapDataMid::new(object, ElfFunctionAddressesComputer, &self.file_data);
 
         Ok(Box::new(object))
     }

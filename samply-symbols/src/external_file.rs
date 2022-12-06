@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::PathBuf, sync::Mutex};
 
-use object::{read::archive::ArchiveFile, File};
+use object::{read::archive::ArchiveFile, File, ReadRef};
 use yoke::{Yoke, Yokeable};
 
 use crate::{
@@ -15,7 +15,7 @@ use crate::{
 pub async fn get_external_file<'h, H, F>(
     helper: &'h H,
     external_file_ref: &ExternalFileRef,
-) -> Result<ExternalFileWithUplooker<F>, Error>
+) -> Result<ExternalFileSymbolMap<F>, Error>
 where
     F: FileContents + 'static,
     H: FileAndPathHelper<'h, F = F>,
@@ -26,7 +26,7 @@ where
         ))
         .await
         .map_err(|e| Error::HelperErrorDuringOpenFile(external_file_ref.file_name.clone(), e))?;
-    Ok(ExternalFileWithUplooker::new(
+    Ok(ExternalFileSymbolMap::new(
         &external_file_ref.file_name,
         file,
     ))
@@ -61,12 +61,12 @@ fn test_future_send() {
     }
 }
 
-struct ExternalObjectUplooker<'a> {
+struct ExternalFileMemberContext<'a> {
     context: Option<addr2line::Context<gimli::EndianSlice<'a, gimli::RunTimeEndian>>>,
     symbol_addresses: HashMap<&'a [u8], u64>,
 }
 
-impl<'a> ExternalObjectUplooker<'a> {
+impl<'a> ExternalFileMemberContext<'a> {
     pub fn lookup_address(
         &self,
         symbol_name: &[u8],
@@ -79,42 +79,34 @@ impl<'a> ExternalObjectUplooker<'a> {
     }
 }
 
-struct ExternalFileUplooker<'a, F: FileContents> {
-    external_file: &'a ExternalFile<F>,
-    object_uplookers: Mutex<HashMap<String, ExternalObjectUplooker<'a>>>,
+struct ExternalFileContext<'a, F: FileContents> {
+    external_file: &'a ExternalFileData<F>,
+    member_contexts: Mutex<HashMap<String, ExternalFileMemberContext<'a>>>,
     path_mapper: Mutex<PathMapper<()>>,
 }
 
-struct ExternalFile<F: FileContents> {
-    name: String,
-    file_contents: FileContentsWrapper<F>,
-    base_path: BasePath,
-    /// name in bytes -> (start, size) in file_contents
-    archive_members_by_name: HashMap<Vec<u8>, (u64, u64)>,
-    addr2line_context_data: Addr2lineContextData,
-}
-
-trait ExternalFileTrait {
+trait ExternalFileDataOuterTrait {
     #[cfg(feature = "send_futures")]
-    fn make_type_erased_uplooker(&self) -> Box<dyn ExternalFileUplookerTrait + '_ + Send + Sync>;
+    fn make_type_erased_file_context(&self)
+        -> Box<dyn ExternalFileContextTrait + '_ + Send + Sync>;
     #[cfg(not(feature = "send_futures"))]
-    fn make_type_erased_uplooker(&self) -> Box<dyn ExternalFileUplookerTrait + '_>;
+    fn make_type_erased_file_context(&self) -> Box<dyn ExternalFileContextTrait + '_>;
 
-    fn make_object_uplooker<'s>(
+    fn make_member_context<'s>(
         &'s self,
         name_in_archive: Option<&str>,
-    ) -> Result<ExternalObjectUplooker<'s>, Error>;
+    ) -> Result<ExternalFileMemberContext<'s>, Error>;
     fn name(&self) -> &str;
 }
 
-trait ExternalFileUplookerTrait {
+trait ExternalFileContextTrait {
     fn lookup_address(
         &self,
         external_file_address: &ExternalFileAddressRef,
     ) -> Option<Vec<InlineStackFrame>>;
 }
 
-impl<'a, F: FileContents> ExternalFileUplookerTrait for ExternalFileUplooker<'a, F> {
+impl<'a, F: FileContents> ExternalFileContextTrait for ExternalFileContext<'a, F> {
     fn lookup_address(
         &self,
         external_file_address: &ExternalFileAddressRef,
@@ -123,44 +115,44 @@ impl<'a, F: FileContents> ExternalFileUplookerTrait for ExternalFileUplooker<'a,
             .name_in_archive
             .as_deref()
             .unwrap_or("");
-        let mut uplookers = self.object_uplookers.lock().unwrap();
+        let mut member_contexts = self.member_contexts.lock().unwrap();
         let mut path_mapper = self.path_mapper.lock().unwrap();
-        match uplookers.get(member_key) {
-            Some(uplooker) => uplooker.lookup_address(
+        match member_contexts.get(member_key) {
+            Some(member_context) => member_context.lookup_address(
                 &external_file_address.symbol_name,
                 external_file_address.offset_from_symbol,
                 &mut path_mapper,
             ),
             None => {
-                let uplooker = self
+                let member_context = self
                     .external_file
-                    .make_object_uplooker(external_file_address.name_in_archive.as_deref())
+                    .make_member_context(external_file_address.name_in_archive.as_deref())
                     .ok()?;
-                let res = uplooker.lookup_address(
+                let res = member_context.lookup_address(
                     &external_file_address.symbol_name,
                     external_file_address.offset_from_symbol,
                     &mut path_mapper,
                 );
-                uplookers.insert(member_key.to_string(), uplooker);
+                member_contexts.insert(member_key.to_string(), member_context);
                 res
             }
         }
     }
 }
 
-pub struct ExternalFileWithUplooker<F: FileContents>(
-    Yoke<ExternalFileUplookerTypeErased<'static>, Box<ExternalFile<F>>>,
+pub struct ExternalFileSymbolMap<F: FileContents>(
+    Yoke<ExternalFileContextWrapper<'static>, Box<ExternalFileData<F>>>,
 );
 
-impl<F: FileContents> ExternalFileWithUplooker<F> {
+impl<F: FileContents> ExternalFileSymbolMap<F> {
     pub fn new(file_name: &str, file: F) -> Self {
-        let external_file = Box::new(ExternalFile::new(file_name, file));
+        let external_file = Box::new(ExternalFileData::new(file_name, file));
         let inner =
-            Yoke::<ExternalFileUplookerTypeErased<'static>, Box<ExternalFile<F>>>::attach_to_cart(
+            Yoke::<ExternalFileContextWrapper<'static>, Box<ExternalFileData<F>>>::attach_to_cart(
                 external_file,
                 |external_file| {
-                    let uplooker = external_file.make_type_erased_uplooker();
-                    ExternalFileUplookerTypeErased(uplooker)
+                    let uplooker = external_file.make_type_erased_file_context();
+                    ExternalFileContextWrapper(uplooker)
                 },
             );
         Self(inner)
@@ -180,33 +172,64 @@ impl<F: FileContents> ExternalFileWithUplooker<F> {
 
 #[cfg(feature = "send_futures")]
 #[derive(Yokeable)]
-struct ExternalFileUplookerTypeErased<'a>(Box<dyn ExternalFileUplookerTrait + 'a + Send + Sync>);
+struct ExternalFileContextWrapper<'a>(Box<dyn ExternalFileContextTrait + 'a + Send + Sync>);
 
 #[cfg(not(feature = "send_futures"))]
 #[derive(Yokeable)]
-struct ExternalFileUplookerTypeErased<'a>(Box<dyn ExternalFileUplookerTrait + 'a>);
+struct ExternalFileContextWrapper<'a>(Box<dyn ExternalFileContextTrait + 'a>);
 
-impl<F: FileContents> ExternalFileTrait for ExternalFile<F> {
+impl<F: FileContents> ExternalFileDataOuterTrait for ExternalFileData<F> {
     #[cfg(feature = "send_futures")]
-    fn make_type_erased_uplooker(&self) -> Box<dyn ExternalFileUplookerTrait + '_ + Send + Sync> {
-        Box::new(self.make_uplooker())
+    fn make_type_erased_file_context(
+        &self,
+    ) -> Box<dyn ExternalFileContextTrait + '_ + Send + Sync> {
+        Box::new(self.make_file_context())
     }
     #[cfg(not(feature = "send_futures"))]
-    fn make_type_erased_uplooker(&self) -> Box<dyn ExternalFileUplookerTrait + '_> {
-        Box::new(self.make_uplooker())
+    fn make_type_erased_file_context(&self) -> Box<dyn ExternalFileContextTrait + '_> {
+        Box::new(self.make_file_context())
     }
-    fn make_object_uplooker<'s>(
+    fn make_member_context<'s>(
         &'s self,
         name_in_archive: Option<&str>,
-    ) -> Result<ExternalObjectUplooker<'s>, Error> {
-        self.make_object_uplooker_impl(name_in_archive)
+    ) -> Result<ExternalFileMemberContext<'s>, Error> {
+        use object::{Object, ObjectSymbol};
+        let ArchiveMemberObject { data, object_file } = self.get_archive_member(name_in_archive)?;
+        let context = self.addr2line_context_data.make_context(data, &object_file);
+        let symbol_addresses = object_file
+            .symbols()
+            .filter_map(|symbol| {
+                let name = symbol.name_bytes().ok()?;
+                let address = symbol.address();
+                Some((name, address))
+            })
+            .collect();
+        let uplooker = ExternalFileMemberContext {
+            context: context.ok(),
+            symbol_addresses,
+        };
+        Ok(uplooker)
     }
     fn name(&self) -> &str {
         &self.name
     }
 }
 
-impl<F: FileContents> ExternalFile<F> {
+struct ArchiveMemberObject<'a, R: ReadRef<'a>> {
+    data: R,
+    object_file: object::read::File<'a, R>,
+}
+
+struct ExternalFileData<F: FileContents> {
+    name: String,
+    file_contents: FileContentsWrapper<F>,
+    base_path: BasePath,
+    /// name in bytes -> (start, size) in file_contents
+    archive_members_by_name: HashMap<Vec<u8>, (u64, u64)>,
+    addr2line_context_data: Addr2lineContextData,
+}
+
+impl<F: FileContents> ExternalFileData<F> {
     pub fn new(file_name: &str, file: F) -> Self {
         let base_path = BasePath::CanReferToLocalFiles(PathBuf::from(file_name));
         let file_contents = FileContentsWrapper::new(file);
@@ -233,13 +256,7 @@ impl<F: FileContents> ExternalFile<F> {
     fn get_archive_member<'s>(
         &'s self,
         name_in_archive: Option<&str>,
-    ) -> Result<
-        (
-            RangeReadRef<'s, &'s FileContentsWrapper<F>>,
-            File<'s, RangeReadRef<'s, &'s FileContentsWrapper<F>>>,
-        ),
-        Error,
-    > {
+    ) -> Result<ArchiveMemberObject<'s, RangeReadRef<&'s FileContentsWrapper<F>>>, Error> {
         let data = &self.file_contents;
         let data = match name_in_archive {
             Some(name_in_archive) => {
@@ -252,36 +269,14 @@ impl<F: FileContents> ExternalFile<F> {
             None => RangeReadRef::new(data, 0, data.len()),
         };
         let object_file = File::parse(data).map_err(Error::MachOHeaderParseError)?;
-        Ok((data, object_file))
+        Ok(ArchiveMemberObject { data, object_file })
     }
 
-    pub fn make_object_uplooker_impl<'s>(
-        &'s self,
-        name_in_archive: Option<&str>,
-    ) -> Result<ExternalObjectUplooker<'s>, Error> {
-        use object::{Object, ObjectSymbol};
-        let (data, object_file) = self.get_archive_member(name_in_archive)?;
-        let context = self.addr2line_context_data.make_context(data, &object_file);
-        let symbol_addresses = object_file
-            .symbols()
-            .filter_map(|symbol| {
-                let name = symbol.name_bytes().ok()?;
-                let address = symbol.address();
-                Some((name, address))
-            })
-            .collect();
-        let uplooker = ExternalObjectUplooker {
-            context: context.ok(),
-            symbol_addresses,
-        };
-        Ok(uplooker)
-    }
-
-    pub fn make_uplooker(&self) -> ExternalFileUplooker<'_, F> {
+    pub fn make_file_context(&self) -> ExternalFileContext<'_, F> {
         let path_mapper = PathMapper::new(&self.base_path);
-        ExternalFileUplooker {
+        ExternalFileContext {
             external_file: self,
-            object_uplookers: Mutex::new(HashMap::new()),
+            member_contexts: Mutex::new(HashMap::new()),
             path_mapper: Mutex::new(path_mapper),
         }
     }

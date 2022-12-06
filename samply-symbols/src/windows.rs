@@ -7,10 +7,10 @@ use crate::shared::{
     FramesLookupResult, InlineStackFrame, SymbolInfo,
 };
 use crate::symbol_map::{
-    GenericSymbolMap, ObjectWrapperTrait, SymbolDataTrait, SymbolMapTrait, SymbolMapTypeErased,
-    SymbolMapTypeErasedOwned,
+    GenericSymbolMap, SymbolMap, SymbolMapDataMidTrait, SymbolMapDataOuterTrait,
+    SymbolMapInnerWrapper, SymbolMapTrait,
 };
-use crate::symbol_map_object::{FunctionAddressesComputer, ObjectData};
+use crate::symbol_map_object::{FunctionAddressesComputer, ObjectSymbolMapDataMid};
 use debugid::DebugId;
 use object::{File, FileKind};
 use pdb::PDB;
@@ -27,7 +27,7 @@ pub async fn get_symbol_map_for_pdb_corresponding_to_binary<'h>(
     file_contents: &FileContentsWrapper<impl FileContents + 'static>,
     file_location: &FileLocation,
     helper: &'h impl FileAndPathHelper<'h>,
-) -> Result<SymbolMapTypeErasedOwned, Error> {
+) -> Result<SymbolMap, Error> {
     use object::Object;
     let pe =
         object::File::parse(file_contents).map_err(|e| Error::ObjectParseError(file_kind, e))?;
@@ -88,13 +88,13 @@ pub fn get_symbol_map_for_pe<F>(
     file_contents: FileContentsWrapper<F>,
     file_kind: FileKind,
     base_path: &BasePath,
-) -> Result<SymbolMapTypeErasedOwned, Error>
+) -> Result<SymbolMap, Error>
 where
     F: FileContents + 'static,
 {
     let owner = PeSymbolMapData::new(file_contents, file_kind);
     let symbol_map = GenericSymbolMap::new(owner, base_path)?;
-    Ok(SymbolMapTypeErasedOwned(Box::new(symbol_map)))
+    Ok(SymbolMap(Box::new(symbol_map)))
 }
 
 struct PeSymbolMapData<T>
@@ -114,11 +114,12 @@ impl<T: FileContents> PeSymbolMapData<T> {
     }
 }
 
-impl<T: FileContents + 'static> SymbolDataTrait for PeSymbolMapData<T> {
-    fn make_object_wrapper(&self) -> Result<Box<dyn ObjectWrapperTrait + '_>, Error> {
+impl<T: FileContents + 'static> SymbolMapDataOuterTrait for PeSymbolMapData<T> {
+    fn make_symbol_map_data_mid(&self) -> Result<Box<dyn SymbolMapDataMidTrait + '_>, Error> {
         let object =
             File::parse(&self.file_data).map_err(|e| Error::ObjectParseError(self.file_kind, e))?;
-        let object = ObjectData::new(object, PeFunctionAddressesComputer, &self.file_data);
+        let object =
+            ObjectSymbolMapDataMid::new(object, PeFunctionAddressesComputer, &self.file_data);
 
         Ok(Box::new(object))
     }
@@ -159,11 +160,11 @@ struct PdbObject<'data, FC: FileContents + 'static> {
     srcsrv_stream: Option<Box<dyn Deref<Target = [u8]> + 'data>>,
 }
 
-impl<'data, FC: FileContents + 'static> ObjectWrapperTrait for PdbObject<'data, FC> {
-    fn make_symbol_map<'object>(
+impl<'data, FC: FileContents + 'static> SymbolMapDataMidTrait for PdbObject<'data, FC> {
+    fn make_symbol_map_inner<'object>(
         &'object self,
         base_path: &BasePath,
-    ) -> Result<SymbolMapTypeErased<'object>, Error> {
+    ) -> Result<SymbolMapInnerWrapper<'object>, Error> {
         let context = self.make_context()?;
 
         let path_mapper = match &self.srcsrv_stream {
@@ -174,12 +175,12 @@ impl<'data, FC: FileContents + 'static> ObjectWrapperTrait for PdbObject<'data, 
         };
         let path_mapper = PathMapper::new_with_maybe_extra_mapper(base_path, path_mapper);
 
-        let symbol_map = PdbSymbolMapDep {
+        let symbol_map = PdbSymbolMapInner {
             context,
             debug_id: self.debug_id,
             path_mapper: Mutex::new(path_mapper),
         };
-        Ok(SymbolMapTypeErased(Box::new(symbol_map)))
+        Ok(SymbolMapInnerWrapper(Box::new(symbol_map)))
     }
 }
 
@@ -218,13 +219,13 @@ impl<'a, 's> PdbAddr2lineContextTrait for pdb_addr2line::Context<'a, 's> {
     }
 }
 
-struct PdbSymbolMapDep<'object> {
+struct PdbSymbolMapInner<'object> {
     context: Box<dyn PdbAddr2lineContextTrait + 'object>,
     debug_id: DebugId,
     path_mapper: Mutex<PathMapper<SrcSrvPathMapper<'object>>>,
 }
 
-impl<'object> SymbolMapTrait for PdbSymbolMapDep<'object> {
+impl<'object> SymbolMapTrait for PdbSymbolMapInner<'object> {
     fn debug_id(&self) -> DebugId {
         self.debug_id
     }
@@ -303,8 +304,8 @@ where
 
 struct PdbSymbolData<T: FileContents + 'static>(FileContentsWrapper<T>);
 
-impl<T: FileContents + 'static> SymbolDataTrait for PdbSymbolData<T> {
-    fn make_object_wrapper(&self) -> Result<Box<dyn ObjectWrapperTrait + '_>, Error> {
+impl<T: FileContents + 'static> SymbolMapDataOuterTrait for PdbSymbolData<T> {
+    fn make_symbol_map_data_mid(&self) -> Result<Box<dyn SymbolMapDataMidTrait + '_>, Error> {
         let mut pdb = PDB::open(&self.0)?;
         let info = pdb.pdb_information().context("pdb_information")?;
         let dbi = pdb.debug_information()?;
@@ -331,12 +332,12 @@ impl<T: FileContents + 'static> SymbolDataTrait for PdbSymbolData<T> {
 pub fn get_symbol_map_for_pdb<F>(
     file_contents: FileContentsWrapper<F>,
     base_path: &BasePath,
-) -> Result<SymbolMapTypeErasedOwned, Error>
+) -> Result<SymbolMap, Error>
 where
     F: FileContents + 'static,
 {
     let symbol_map = GenericSymbolMap::new(PdbSymbolData(file_contents), base_path)?;
-    Ok(SymbolMapTypeErasedOwned(Box::new(symbol_map)))
+    Ok(SymbolMap(Box::new(symbol_map)))
 }
 
 /// Map raw file paths to special "permalink" paths, using the srcsrv stream.
