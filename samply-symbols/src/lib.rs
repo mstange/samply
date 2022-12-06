@@ -149,7 +149,6 @@
 pub use debugid;
 use macho::{get_external_file, ExternalFileWithUplooker};
 pub use object;
-use path_mapper::PathMapper;
 pub use pdb_addr2line::pdb;
 
 use debugid::DebugId;
@@ -224,22 +223,22 @@ where
 
     let mut last_err = None;
     for candidate_info in candidate_paths_for_binary {
-        let result = match candidate_info {
+        let symbol_map = match candidate_info {
             CandidatePathInfo::SingleFile(file_location) => {
-                try_get_symbolication_result_from_path(query.clone(), &file_location, helper).await
+                get_symbol_map_from_path(&file_location, query.debug_id, helper).await
             }
             CandidatePathInfo::InDyldCache {
                 dyld_cache_path,
                 dylib_path,
-            } => {
-                macho::try_get_symbolication_result_from_dyld_shared_cache(
-                    query.clone(),
-                    &dyld_cache_path,
-                    &dylib_path,
-                    helper,
-                )
-                .await
+            } => macho::get_symbol_map_for_dyld_cache(&dyld_cache_path, &dylib_path, helper).await,
+        };
+
+        let result = match symbol_map {
+            Ok(symbol_map) => {
+                compute_symbolication_result_from_symbol_map(symbol_map, query.clone(), helper)
+                    .await
             }
+            Err(e) => Err(e),
         };
 
         match result {
@@ -252,13 +251,12 @@ where
     }))
 }
 
-async fn try_get_symbolication_result_from_path<'h, R, H>(
-    query: SymbolicationQuery<'_>,
+async fn get_symbol_map_from_path<'h, H>(
     file_location: &FileLocation,
+    debug_id: DebugId,
     helper: &'h H,
-) -> Result<R, Error>
+) -> Result<SymbolMapTypeErasedOwned, Error>
 where
-    R: SymbolicationResult,
     H: FileAndPathHelper<'h>,
 {
     let file_contents = helper
@@ -279,13 +277,13 @@ where
             FileKind::MachOFat32 => {
                 let arches = FatHeader::parse_arch32(&file_contents)
                     .map_err(|e| Error::ObjectParseError(file_kind, e))?;
-                let range = macho::get_arch_range(&file_contents, arches, query.debug_id)?;
+                let range = macho::get_arch_range(&file_contents, arches, debug_id)?;
                 macho::get_symbol_map(&base_path, file_contents, Some(range))?
             }
             FileKind::MachOFat64 => {
                 let arches = FatHeader::parse_arch64(&file_contents)
                     .map_err(|e| Error::ObjectParseError(file_kind, e))?;
-                let range = macho::get_arch_range(&file_contents, arches, query.debug_id)?;
+                let range = macho::get_arch_range(&file_contents, arches, debug_id)?;
                 macho::get_symbol_map(&base_path, file_contents, Some(range))?
             }
             FileKind::MachO32 | FileKind::MachO64 => {
@@ -317,7 +315,18 @@ where
             "The file does not have a known format; PDB::open was not able to parse it and object::FileKind::parse was not able to detect the format.",
         ));
     };
+    Ok(symbol_map)
+}
 
+async fn compute_symbolication_result_from_symbol_map<'h, H, R>(
+    symbol_map: SymbolMapTypeErasedOwned,
+    query: SymbolicationQuery<'_>,
+    helper: &'h H,
+) -> Result<R, Error>
+where
+    R: SymbolicationResult,
+    H: FileAndPathHelper<'h>,
+{
     if symbol_map.debug_id() != query.debug_id {
         return Err(Error::UnmatchedDebugId(
             symbol_map.debug_id(),
@@ -334,8 +343,6 @@ where
 
     let mut symbolication_result = R::for_addresses(addresses);
     symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
-
-    let mut path_mapper = PathMapper::new(&base_path);
 
     let mut external_addresses = Vec::new();
 
@@ -357,6 +364,7 @@ where
             }
         }
     }
+    drop(symbol_map);
 
     let mut current_external_file: Option<ExternalFileWithUplooker<H::F>> = None;
 
@@ -370,8 +378,7 @@ where
             };
         }
         let external_file = current_external_file.as_ref().unwrap();
-        if let Some(frames) = external_file.lookup_address(&external_file_address, &mut path_mapper)
-        {
+        if let Some(frames) = external_file.lookup_address(&external_file_address) {
             symbolication_result.add_address_debug_info(address, AddressDebugInfo { frames });
         }
     }

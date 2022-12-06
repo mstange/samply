@@ -5,8 +5,7 @@ use crate::path_mapper::PathMapper;
 use crate::shared::{
     AddressInfo, BasePath, ExternalFileAddressRef, ExternalFileRef, FileAndPathHelper,
     FileContents, FileContentsWrapper, FileLocation, RangeReadRef, SymbolMap, SymbolMapTrait,
-    SymbolMapTypeErased, SymbolMapTypeErasedOwned, SymbolicationQuery, SymbolicationResult,
-    SymbolicationResultKind,
+    SymbolMapTypeErased, SymbolMapTypeErasedOwned,
 };
 use crate::InlineStackFrame;
 use debugid::DebugId;
@@ -50,47 +49,6 @@ pub fn get_arch_range(
         }
     }
     Err(Error::NoMatchMultiArch(debug_ids, errors))
-}
-
-pub async fn try_get_symbolication_result_from_dyld_shared_cache<'h, R, H>(
-    query: SymbolicationQuery<'_>,
-    dyld_cache_path: &Path,
-    dylib_path: &str,
-    helper: &'h H,
-) -> Result<R, Error>
-where
-    R: SymbolicationResult,
-    H: FileAndPathHelper<'h>,
-{
-    let symbol_map =
-        get_symbol_map_for_dyld_cache::<H>(dyld_cache_path, dylib_path, helper).await?;
-
-    if symbol_map.debug_id() != query.debug_id {
-        return Err(Error::UnmatchedDebugId(
-            symbol_map.debug_id(),
-            query.debug_id,
-        ));
-    }
-    let addresses = match query.result_kind {
-        SymbolicationResultKind::AllSymbols => return Ok(R::from_full_map(symbol_map.to_map())),
-        SymbolicationResultKind::SymbolsForAddresses(addresses) => addresses,
-    };
-
-    let mut symbolication_result = R::for_addresses(addresses);
-    symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
-
-    for &address in addresses {
-        if let Some(address_info) = symbol_map.lookup(address) {
-            symbolication_result.add_address_symbol(
-                address,
-                address_info.symbol.address,
-                address_info.symbol.name,
-                address_info.symbol.size,
-            );
-        }
-    }
-
-    Ok(symbolication_result)
 }
 
 pub async fn get_symbol_map_for_dyld_cache<'h, H>(
@@ -474,11 +432,13 @@ impl<'a> ExternalObjectUplooker<'a> {
 struct ExternalFileUplooker<'a, F: FileContents> {
     external_file: &'a ExternalFile<F>,
     object_uplookers: Mutex<HashMap<String, ExternalObjectUplooker<'a>>>,
+    path_mapper: Mutex<PathMapper<()>>,
 }
 
 struct ExternalFile<F: FileContents> {
     name: String,
     file_contents: FileContentsWrapper<F>,
+    base_path: BasePath,
     /// name in bytes -> (start, size) in file_contents
     archive_members_by_name: HashMap<Vec<u8>, (u64, u64)>,
     addr2line_context_data: Addr2lineContextData,
@@ -501,7 +461,6 @@ trait ExternalFileUplookerTrait {
     fn lookup_address(
         &self,
         external_file_address: &ExternalFileAddressRef,
-        path_mapper: &mut PathMapper<()>,
     ) -> Option<Vec<InlineStackFrame>>;
 }
 
@@ -509,18 +468,18 @@ impl<'a, F: FileContents> ExternalFileUplookerTrait for ExternalFileUplooker<'a,
     fn lookup_address(
         &self,
         external_file_address: &ExternalFileAddressRef,
-        path_mapper: &mut PathMapper<()>,
     ) -> Option<Vec<InlineStackFrame>> {
         let member_key = external_file_address
             .name_in_archive
             .as_deref()
             .unwrap_or("");
         let mut uplookers = self.object_uplookers.lock().unwrap();
+        let mut path_mapper = self.path_mapper.lock().unwrap();
         match uplookers.get(member_key) {
             Some(uplooker) => uplooker.lookup_address(
                 &external_file_address.symbol_name,
                 external_file_address.offset_from_symbol,
-                path_mapper,
+                &mut path_mapper,
             ),
             None => {
                 let uplooker = self
@@ -530,7 +489,7 @@ impl<'a, F: FileContents> ExternalFileUplookerTrait for ExternalFileUplooker<'a,
                 let res = uplooker.lookup_address(
                     &external_file_address.symbol_name,
                     external_file_address.offset_from_symbol,
-                    path_mapper,
+                    &mut path_mapper,
                 );
                 uplookers.insert(member_key.to_string(), uplooker);
                 res
@@ -564,12 +523,8 @@ impl<F: FileContents> ExternalFileWithUplooker<F> {
     pub fn lookup_address(
         &self,
         external_file_address: &ExternalFileAddressRef,
-        path_mapper: &mut PathMapper<()>,
     ) -> Option<Vec<InlineStackFrame>> {
-        self.0
-            .get()
-            .0
-            .lookup_address(external_file_address, path_mapper)
+        self.0.get().0.lookup_address(external_file_address)
     }
 }
 
@@ -603,6 +558,7 @@ impl<F: FileContents> ExternalFileTrait for ExternalFile<F> {
 
 impl<F: FileContents> ExternalFile<F> {
     pub fn new(file_name: &str, file: F) -> Self {
+        let base_path = BasePath::CanReferToLocalFiles(PathBuf::from(file_name));
         let file_contents = FileContentsWrapper::new(file);
         let archive_members_by_name: HashMap<Vec<u8>, (u64, u64)> =
             match ArchiveFile::parse(&file_contents) {
@@ -618,6 +574,7 @@ impl<F: FileContents> ExternalFile<F> {
         Self {
             name: file_name.to_owned(),
             file_contents,
+            base_path,
             archive_members_by_name,
             addr2line_context_data: Addr2lineContextData::new(),
         }
@@ -670,9 +627,11 @@ impl<F: FileContents> ExternalFile<F> {
     }
 
     pub fn make_uplooker(&self) -> ExternalFileUplooker<'_, F> {
+        let path_mapper = PathMapper::new(&self.base_path);
         ExternalFileUplooker {
             external_file: self,
             object_uplookers: Mutex::new(HashMap::new()),
+            path_mapper: Mutex::new(path_mapper),
         }
     }
 }
