@@ -220,32 +220,6 @@ impl<T: FileContents + 'static> SymbolDataTrait for MachFatArchiveSymbolMapData<
     }
 }
 
-/// Get a list of function addresses as u32 relative addresses.
-pub fn function_start_addresses<'data: 'file, 'file, T, R: ReadRef<'data>>(
-    object_file: &'file T,
-    macho_data: &'file MachOData<'data, R>,
-) -> Option<Vec<u32>>
-where
-    T: object::Object<'data, 'file>,
-{
-    // Get function start addresses from LC_FUNCTION_STARTS
-    let mut function_starts = macho_data.get_function_starts().ok()?;
-
-    // and from __unwind_info.
-    if let Some(unwind_info) = object_file
-        .section_by_name_bytes(b"__unwind_info")
-        .and_then(|s| s.data().ok())
-        .and_then(|d| UnwindInfo::parse(d).ok())
-    {
-        let function_starts = function_starts.get_or_insert_with(Vec::new);
-        let mut iter = unwind_info.functions();
-        while let Ok(Some(function)) = iter.next() {
-            function_starts.push(function.start_address);
-        }
-    }
-    function_starts
-}
-
 pub async fn get_external_file<'h, H, F>(
     helper: &'h H,
     external_file_ref: &ExternalFileRef,
@@ -535,10 +509,23 @@ impl<'data, R: ReadRef<'data>> FunctionAddressesComputer<'data>
         'data: 'file,
         O: object::Object<'data, 'file>,
     {
-        (
-            function_start_addresses(object_file, &self.macho_data),
-            None,
-        )
+        // Get function start addresses from LC_FUNCTION_STARTS
+        let mut function_starts = self.macho_data.get_function_starts().ok().flatten();
+
+        // and from __unwind_info.
+        if let Some(unwind_info) = object_file
+            .section_by_name_bytes(b"__unwind_info")
+            .and_then(|s| s.data().ok())
+            .and_then(|d| UnwindInfo::parse(d).ok())
+        {
+            let function_starts = function_starts.get_or_insert_with(Vec::new);
+            let mut iter = unwind_info.functions();
+            while let Ok(Some(function)) = iter.next() {
+                function_starts.push(function.start_address);
+            }
+        }
+
+        (function_starts, None)
     }
 }
 
