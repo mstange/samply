@@ -147,7 +147,6 @@
 //! ```
 
 pub use debugid;
-use macho::{get_external_file, ExternalFileWithUplooker};
 pub use object;
 pub use pdb_addr2line::pdb;
 
@@ -163,6 +162,7 @@ mod demangle_ocaml;
 mod dwarf;
 mod elf;
 mod error;
+mod external_file;
 mod macho;
 mod path_mapper;
 mod shared;
@@ -181,7 +181,8 @@ pub use crate::shared::{
     SymbolicationResultKind,
 };
 pub use crate::symbol_map::SymbolMapTypeErasedOwned;
-pub use debugid_util::{debug_id_for_object, DebugIdExt};
+pub use crate::debugid_util::{debug_id_for_object, DebugIdExt};
+pub use crate::external_file::{get_external_file, ExternalFileWithUplooker};
 
 /// Returns a symbol table in `CompactSymbolTable` format for the requested binary.
 /// `FileAndPathHelper` must be implemented by the caller, to provide file access.
