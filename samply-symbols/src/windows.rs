@@ -21,7 +21,6 @@ use std::collections::HashMap;
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use yoke::{Yoke, Yokeable};
 
 pub async fn get_symbol_map_for_pdb_corresponding_to_binary<'h>(
     file_kind: FileKind,
@@ -160,21 +159,11 @@ struct PdbObject<'data, FC: FileContents + 'static> {
     srcsrv_stream: Option<Box<dyn Deref<Target = [u8]> + 'data>>,
 }
 
-trait PdbObjectTrait {
-    fn make_symbol_map<'s>(
-        &'s self,
-        base_path: &BasePath,
-    ) -> Result<Box<dyn SymbolMapTrait + 's>, Error>;
-}
-
-#[derive(Yokeable)]
-struct PdbObjectTypeErased<'data>(Box<dyn PdbObjectTrait + 'data>);
-
-impl<'data, FC: FileContents + 'static> PdbObjectTrait for PdbObject<'data, FC> {
+impl<'data, FC: FileContents + 'static> ObjectWrapperTrait for PdbObject<'data, FC> {
     fn make_symbol_map<'object>(
         &'object self,
         base_path: &BasePath,
-    ) -> Result<Box<dyn SymbolMapTrait + 'object>, Error> {
+    ) -> Result<SymbolMapTypeErased<'object>, Error> {
         let context = self.make_context()?;
 
         let path_mapper = match &self.srcsrv_stream {
@@ -190,7 +179,7 @@ impl<'data, FC: FileContents + 'static> PdbObjectTrait for PdbObject<'data, FC> 
             debug_id: self.debug_id,
             path_mapper: Mutex::new(path_mapper),
         };
-        Ok(Box::new(symbol_map))
+        Ok(SymbolMapTypeErased(Box::new(symbol_map)))
     }
 }
 
@@ -305,10 +294,6 @@ impl<'object> SymbolMapTrait for PdbSymbolMapDep<'object> {
     }
 }
 
-struct PdbDataWithObject<F: FileContents + 'static>(
-    Yoke<PdbObjectTypeErased<'static>, Box<FileContentsWrapper<F>>>,
-);
-
 fn box_stream<'data, T>(stream: T) -> Box<dyn Deref<Target = [u8]> + 'data>
 where
     T: Deref<Target = [u8]> + 'data,
@@ -316,74 +301,30 @@ where
     Box::new(stream)
 }
 
-struct PdbSymbolMap<F: FileContents + 'static>(
-    Yoke<SymbolMapTypeErased<'static>, Box<PdbDataWithObject<F>>>,
-);
+struct PdbSymbolData<T: FileContents + 'static>(FileContentsWrapper<T>);
 
-impl<F: FileContents + 'static> PdbSymbolMap<F> {
-    pub fn parse(
-        file_contents: FileContentsWrapper<F>,
-        base_path: &BasePath,
-    ) -> Result<Self, Error> {
-        let data_with_object = PdbDataWithObject(Yoke::try_attach_to_cart(
-            Box::new(file_contents),
-            |file_contents| -> Result<_, Error> {
-                let mut pdb = PDB::open(file_contents)?;
-                let info = pdb.pdb_information().context("pdb_information")?;
-                let dbi = pdb.debug_information()?;
-                let age = dbi.age().unwrap_or(info.age);
-                let debug_id = DebugId::from_parts(info.guid, age);
+impl<T: FileContents + 'static> SymbolDataTrait for PdbSymbolData<T> {
+    fn make_object_wrapper(&self) -> Result<Box<dyn ObjectWrapperTrait + '_>, Error> {
+        let mut pdb = PDB::open(&self.0)?;
+        let info = pdb.pdb_information().context("pdb_information")?;
+        let dbi = pdb.debug_information()?;
+        let age = dbi.age().unwrap_or(info.age);
+        let debug_id = DebugId::from_parts(info.guid, age);
 
-                let srcsrv_stream = match pdb.named_stream(b"srcsrv") {
-                    Ok(stream) => Some(box_stream(stream)),
-                    Err(pdb::Error::StreamNameNotFound | pdb::Error::StreamNotFound(_)) => None,
-                    Err(e) => return Err(Error::PdbError("pdb.named_stream(srcsrv)", e)),
-                };
+        let srcsrv_stream = match pdb.named_stream(b"srcsrv") {
+            Ok(stream) => Some(box_stream(stream)),
+            Err(pdb::Error::StreamNameNotFound | pdb::Error::StreamNotFound(_)) => None,
+            Err(e) => return Err(Error::PdbError("pdb.named_stream(srcsrv)", e)),
+        };
 
-                let context_data = pdb_addr2line::ContextPdbData::try_from_pdb(pdb)
-                    .context("ContextConstructionData::try_from_pdb")?;
+        let context_data = pdb_addr2line::ContextPdbData::try_from_pdb(pdb)
+            .context("ContextConstructionData::try_from_pdb")?;
 
-                Ok(PdbObjectTypeErased(Box::new(PdbObject {
-                    context_data,
-                    debug_id,
-                    srcsrv_stream,
-                })))
-            },
-        )?);
-
-        let data_with_symbol_map =
-            Yoke::<SymbolMapTypeErased<'static>, Box<PdbDataWithObject<F>>>::try_attach_to_cart(
-                Box::new(data_with_object),
-                |data_with_object| -> Result<_, Error> {
-                    Ok(SymbolMapTypeErased(
-                        data_with_object.0.get().0.make_symbol_map(base_path)?,
-                    ))
-                },
-            )?;
-
-        Ok(PdbSymbolMap(data_with_symbol_map))
-    }
-}
-
-impl<T: FileContents + 'static> SymbolMapTrait for PdbSymbolMap<T> {
-    fn debug_id(&self) -> debugid::DebugId {
-        self.0.get().debug_id()
-    }
-
-    fn symbol_count(&self) -> usize {
-        self.0.get().symbol_count()
-    }
-
-    fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {
-        self.0.get().iter_symbols()
-    }
-
-    fn to_map(&self) -> Vec<(u32, String)> {
-        self.0.get().to_map()
-    }
-
-    fn lookup(&self, address: u32) -> Option<AddressInfo> {
-        self.0.get().lookup(address)
+        Ok(Box::new(PdbObject {
+            context_data,
+            debug_id,
+            srcsrv_stream,
+        }))
     }
 }
 
@@ -394,7 +335,7 @@ pub fn get_symbol_map_for_pdb<F>(
 where
     F: FileContents + 'static,
 {
-    let symbol_map = PdbSymbolMap::parse(file_contents, base_path)?;
+    let symbol_map = GenericSymbolMap::new(PdbSymbolData(file_contents), base_path)?;
     Ok(SymbolMapTypeErasedOwned(Box::new(symbol_map)))
 }
 
