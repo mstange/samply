@@ -172,7 +172,9 @@ mod windows;
 
 pub use crate::cache::{FileByteSource, FileContentsWithChunkedCaching};
 pub use crate::compact_symbol_table::CompactSymbolTable;
+pub use crate::debugid_util::{debug_id_for_object, DebugIdExt};
 pub use crate::error::Error;
+pub use crate::external_file::{get_external_file, ExternalFileWithUplooker};
 use crate::shared::FileContentsWrapper;
 pub use crate::shared::{
     AddressDebugInfo, CandidatePathInfo, FileAndPathHelper, FileAndPathHelperError,
@@ -181,8 +183,6 @@ pub use crate::shared::{
     SymbolicationResultKind,
 };
 pub use crate::symbol_map::SymbolMapTypeErasedOwned;
-pub use crate::debugid_util::{debug_id_for_object, DebugIdExt};
-pub use crate::external_file::{get_external_file, ExternalFileWithUplooker};
 
 /// Returns a symbol table in `CompactSymbolTable` format for the requested binary.
 /// `FileAndPathHelper` must be implemented by the caller, to provide file access.

@@ -1,10 +1,16 @@
-use std::{collections::HashMap, sync::Mutex, path::PathBuf};
+use std::{collections::HashMap, path::PathBuf, sync::Mutex};
 
 use object::{read::archive::ArchiveFile, File};
 use yoke::{Yoke, Yokeable};
 
-use crate::{shared::{ExternalFileRef, FileContentsWrapper, BasePath, ExternalFileAddressRef, RangeReadRef}, Error, FileContents, FileAndPathHelper, FileLocation, path_mapper::PathMapper, InlineStackFrame, dwarf::{get_frames, Addr2lineContextData}};
-
+use crate::{
+    dwarf::{get_frames, Addr2lineContextData},
+    path_mapper::PathMapper,
+    shared::{
+        BasePath, ExternalFileAddressRef, ExternalFileRef, FileContentsWrapper, RangeReadRef,
+    },
+    Error, FileAndPathHelper, FileContents, FileLocation, InlineStackFrame,
+};
 
 pub async fn get_external_file<'h, H, F>(
     helper: &'h H,
