@@ -1,6 +1,5 @@
-use samply_symbols::{AddressDebugInfo, InlineStackFrame, SymbolicationResult};
+use samply_symbols::{AddressDebugInfo, InlineStackFrame};
 use std::collections::BTreeMap;
-use std::ops::Deref;
 
 pub struct AddressResult {
     pub symbol_address: u32,
@@ -16,19 +15,15 @@ pub struct LookedUpAddresses {
     pub symbol_count: u32,
 }
 
-impl SymbolicationResult for LookedUpAddresses {
-    fn from_full_map<T: Deref<Target = str>>(_symbols: Vec<(u32, T)>) -> Self {
-        panic!("Should not be called")
-    }
-
-    fn for_addresses(addresses: &[u32]) -> Self {
+impl LookedUpAddresses {
+    pub fn for_addresses(addresses: &[u32]) -> Self {
         LookedUpAddresses {
             address_results: addresses.iter().map(|&addr| (addr, None)).collect(),
             symbol_count: 0,
         }
     }
 
-    fn add_address_symbol(
+    pub fn add_address_symbol(
         &mut self,
         address: u32,
         symbol_address: u32,
@@ -43,7 +38,7 @@ impl SymbolicationResult for LookedUpAddresses {
         });
     }
 
-    fn add_address_debug_info(&mut self, address: u32, info: AddressDebugInfo) {
+    pub fn add_address_debug_info(&mut self, address: u32, info: AddressDebugInfo) {
         let outer_function_name = info.frames.last().and_then(|f| f.function.as_deref());
         let entry = self.address_results.get_mut(&address).unwrap();
 
@@ -71,7 +66,7 @@ impl SymbolicationResult for LookedUpAddresses {
         }
     }
 
-    fn set_total_symbol_count(&mut self, total_symbol_count: u32) {
+    pub fn set_total_symbol_count(&mut self, total_symbol_count: u32) {
         self.symbol_count = total_symbol_count;
     }
 }
