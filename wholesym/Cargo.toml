@@ -1,0 +1,24 @@
+[package]
+name = "wholesym"
+version = "0.1.0"
+authors = ["Markus Stange <mstange.moz@gmail.com>"]
+edition = "2021"
+description = "A complete solution for fetching symbol files and resolving code addresses to symbols and debuginfo."
+readme = "README.md"
+homepage = "https://github.com/mstange/samply/tree/main/wholesym"
+repository = "https://github.com/mstange/samply"
+license = "MIT OR Apache-2.0"
+keywords = ["symbols", "profiling", "addr2line", "debuginfo"]
+
+[dependencies]
+debugid = "0.8.0"
+samply-api = { version = "0.18.0", path = "../samply-api", features = ["send_futures"] }
+symsrv = "0.2.0"
+yoke = { version = "0.6.2", features = ["derive"] }
+libc = "0.2.71"
+uuid = "1"
+
+# Needed for moria_mac_spotlight, to find dSYM files
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation-sys = "0.8.2"
+core-foundation = "0.9.1"

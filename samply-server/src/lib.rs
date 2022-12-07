@@ -7,38 +7,29 @@ use hyper::{header, Body, Request, Response, Server};
 use hyper::{Method, StatusCode};
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use rand::RngCore;
-use samply_api::debugid::{CodeId, DebugId};
-use samply_api::samply_symbols::{
-    CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
-    OptionallySendFuture, Symbolicator,
-};
-use samply_api::Api;
 use serde_derive::Deserialize;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::ffi::{OsStr, OsString};
-use std::fs::File;
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
-use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::Arc;
-use symsrv::{FileContents, NtSymbolPathEntry, SymbolCache};
+use symsrv::NtSymbolPathEntry;
 use tokio::io::AsyncReadExt;
-
-mod moria_mac;
-
-#[cfg(target_os = "macos")]
-mod moria_mac_spotlight;
+use wholesym::debugid::{CodeId, DebugId};
+use wholesym::{LibraryInfo, Symbolicator, SymbolicatorConfig};
 
 pub use symsrv;
+pub use wholesym::samply_symbols;
 
 const BAD_CHARS: &AsciiSet = &CONTROLS.add(b':').add(b'/');
 
 #[test]
 fn test_is_send_and_sync() {
+    use symsrv::FileContents;
     fn assert_is_send<T: Send>() {}
     fn assert_is_sync<T: Sync>() {}
     assert_is_send::<FileContents>();
@@ -124,9 +115,16 @@ pub async fn start_server(
 
     let template_values = Arc::new(template_values);
 
-    let helper = Arc::new(Helper::with_libinfo_map(libinfo_map, symbol_path, verbose));
+    let mut config = SymbolicatorConfig::new()
+        .verbose(verbose)
+        .with_nt_symbol_path(symbol_path);
+    for lib_info in libinfo_map.into_values() {
+        config = config.with_known_lib(lib_info);
+    }
+    let symbolicator = Symbolicator::with_config(config);
+    let symbolicator = Arc::new(symbolicator);
     let new_service = make_service_fn(move |_conn| {
-        let helper = helper.clone();
+        let symbolicator = symbolicator.clone();
         let profile_filename = profile_filename.map(PathBuf::from);
         let template_values = template_values.clone();
         let path_prefix = path_prefix.clone();
@@ -135,7 +133,7 @@ pub async fn start_server(
                 symbolication_service(
                     req,
                     template_values.clone(),
-                    helper.clone(),
+                    symbolicator.clone(),
                     profile_filename.clone(),
                     path_prefix.clone(),
                 )
@@ -165,17 +163,9 @@ pub async fn start_server(
     }
 }
 
-#[derive(Debug, Clone, Default)]
-struct LibInfo {
-    pub path: Option<String>,
-    pub debug_path: Option<String>,
-    #[allow(unused)]
-    pub code_id: Option<CodeId>,
-}
-
 fn parse_libinfo_map_from_profile(
     reader: impl std::io::Read,
-) -> Result<HashMap<(String, DebugId), LibInfo>, std::io::Error> {
+) -> Result<HashMap<(String, DebugId), LibraryInfo>, std::io::Error> {
     let profile: ProfileJsonProcess = serde_json::from_reader(reader)?;
     let mut libinfo_map = HashMap::new();
     add_to_libinfo_map_recursive(&profile, &mut libinfo_map);
@@ -289,7 +279,7 @@ const TEMPLATE_WITHOUT_PROFILE: &str = r#"
 async fn symbolication_service(
     req: Request<Body>,
     template_values: Arc<HashMap<&'static str, String>>,
-    helper: Arc<Helper>,
+    symbolicator: Arc<Symbolicator>,
     profile_filename: Option<PathBuf>,
     path_prefix: String,
 ) -> Result<Response<Body>, hyper::Error> {
@@ -409,9 +399,7 @@ async fn symbolication_service(
             // Await the full body to be concatenated into a single `Bytes`...
             let full_body = hyper::body::to_bytes(req.into_body()).await?;
             let full_body = String::from_utf8(full_body.to_vec()).expect("invalid utf-8");
-            let symbolicator = Symbolicator::with_helper(&*helper);
-            let api = Api::new(&symbolicator);
-            let response_json = api.query_api(&path, &full_body).await;
+            let response_json = symbolicator.query_json_api(&path, &full_body).await;
 
             *response.body_mut() = response_json.into();
         }
@@ -431,24 +419,18 @@ fn substitute_template(template: &str, template_values: &HashMap<&'static str, S
     s
 }
 
-struct Helper {
-    libinfo_map: HashMap<(String, DebugId), LibInfo>,
-    symbol_cache: SymbolCache,
-    verbose: bool,
-}
-
 fn add_libs_to_libinfo_map(
     libs: &[ProfileJsonLib],
-    libinfo_map: &mut HashMap<(String, DebugId), LibInfo>,
+    libinfo_map: &mut HashMap<(String, DebugId), LibraryInfo>,
 ) {
     for lib in libs {
-        if let Some(((debug_name, debug_id), libinfo)) = libinfo_map_entry_for_lib(lib) {
-            libinfo_map.insert((debug_name, debug_id), libinfo);
+        if let Some(lib_info) = libinfo_map_entry_for_lib(lib) {
+            libinfo_map.insert((lib_info.debug_name.clone(), lib_info.debug_id), lib_info);
         }
     }
 }
 
-fn libinfo_map_entry_for_lib(lib: &ProfileJsonLib) -> Option<((String, DebugId), LibInfo)> {
+fn libinfo_map_entry_for_lib(lib: &ProfileJsonLib) -> Option<LibraryInfo> {
     let debug_name = lib.debug_name.clone()?;
     let breakpad_id = lib.breakpad_id.as_ref()?;
     let debug_path = lib.debug_path.clone();
@@ -458,17 +440,19 @@ fn libinfo_map_entry_for_lib(lib: &ProfileJsonLib) -> Option<((String, DebugId),
         .code_id
         .as_deref()
         .and_then(|ci| CodeId::from_str(ci).ok());
-    let libinfo = LibInfo {
+    let lib_info = LibraryInfo {
+        debug_id,
+        debug_name,
         path,
         debug_path,
         code_id,
     };
-    Some(((debug_name, debug_id), libinfo))
+    Some(lib_info)
 }
 
 fn add_to_libinfo_map_recursive(
     profile: &ProfileJsonProcess,
-    libinfo_map: &mut HashMap<(String, DebugId), LibInfo>,
+    libinfo_map: &mut HashMap<(String, DebugId), LibraryInfo>,
 ) {
     add_libs_to_libinfo_map(&profile.libs, libinfo_map);
     for thread in &profile.threads {
@@ -476,208 +460,6 @@ fn add_to_libinfo_map_recursive(
     }
     for process in &profile.processes {
         add_to_libinfo_map_recursive(process, libinfo_map);
-    }
-}
-
-impl Helper {
-    pub fn with_libinfo_map(
-        libinfo_map: HashMap<(String, DebugId), LibInfo>,
-        symbol_path: Vec<NtSymbolPathEntry>,
-        verbose: bool,
-    ) -> Self {
-        let symbol_cache = SymbolCache::new(symbol_path, verbose);
-        Helper {
-            libinfo_map,
-            symbol_cache,
-            verbose,
-        }
-    }
-
-    async fn open_file_impl(
-        &self,
-        location: FileLocation,
-    ) -> FileAndPathHelperResult<FileContents> {
-        match location {
-            FileLocation::Path(path) => {
-                if self.verbose {
-                    eprintln!("Opening file {:?}", path.to_string_lossy());
-                }
-                let file = File::open(&path)?;
-                Ok(FileContents::Mmap(unsafe {
-                    memmap2::MmapOptions::new().map(&file)?
-                }))
-            }
-            FileLocation::Custom(custom) => {
-                assert!(custom.starts_with("symbolserver:"));
-                let path = custom.trim_start_matches("symbolserver:");
-                if self.verbose {
-                    eprintln!("Trying to get file {:?} from symbol cache", path);
-                }
-                Ok(self.symbol_cache.get_file(Path::new(path)).await?)
-            }
-        }
-    }
-}
-
-impl<'h> FileAndPathHelper<'h> for Helper {
-    type F = FileContents;
-    type OpenFileFuture =
-        Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>>;
-
-    fn get_candidate_paths_for_binary_or_pdb(
-        &self,
-        debug_name: &str,
-        debug_id: &DebugId,
-    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
-        let mut paths = vec![];
-
-        // Look up (debugName, breakpadId) in the path map.
-        let libinfo = self
-            .libinfo_map
-            .get(&(debug_name.to_string(), *debug_id))
-            .cloned()
-            .unwrap_or_default();
-
-        let mut got_dsym = false;
-
-        if let Some(debug_path) = &libinfo.debug_path {
-            // First, see if we can find a dSYM file for the binary.
-            if let Some(dsym_path) =
-                moria_mac::locate_dsym_fastpath(Path::new(debug_path), debug_id.uuid())
-            {
-                got_dsym = true;
-                paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                    dsym_path.clone(),
-                )));
-                paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                    dsym_path
-                        .join("Contents")
-                        .join("Resources")
-                        .join("DWARF")
-                        .join(debug_name),
-                )));
-            }
-
-            // Also consider .so.dbg files in the same directory.
-            if debug_name.ends_with(".so") {
-                let dbg_name = format!("{}.dbg", debug_name);
-                let debug_path = PathBuf::from(debug_path);
-                if let Some(dir) = debug_path.parent() {
-                    paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                        dir.join(dbg_name),
-                    )));
-                }
-            }
-        }
-
-        if libinfo.debug_path != libinfo.path {
-            if let Some(debug_path) = &libinfo.debug_path {
-                // Get symbols from the debug file.
-                paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                    debug_path.into(),
-                )));
-            }
-        }
-
-        if !got_dsym {
-            // Try a little harder to find a dSYM, just from the UUID. We can do this
-            // even if we don't have an entry for this library in the libinfo map.
-            if let Ok(dsym_path) = moria_mac::locate_dsym_using_spotlight(debug_id.uuid()) {
-                paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                    dsym_path.clone(),
-                )));
-                paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                    dsym_path
-                        .join("Contents")
-                        .join("Resources")
-                        .join("DWARF")
-                        .join(debug_name),
-                )));
-            }
-        }
-
-        // Find debuginfo in /usr/lib/debug/.build-id/ etc.
-        // <https://sourceware.org/gdb/onlinedocs/gdb/Separate-Debug-Files.html>
-        if let Some(code_id) = &libinfo.code_id {
-            let code_id = code_id.as_str();
-            if code_id.len() > 2 {
-                let (two_chars, rest) = code_id.split_at(2);
-                let path = format!("/usr/lib/debug/.build-id/{}/{}.debug", two_chars, rest);
-                paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                    PathBuf::from(path),
-                )));
-            }
-        }
-
-        // Fake "debug link" support. We hardcode a "debug link name" of
-        // `{debug_name}.debug`.
-        // It would be better to get the actual debug link name from the binary.
-        paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-            PathBuf::from(format!("/usr/bin/{}.debug", &debug_name)),
-        )));
-        paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-            PathBuf::from(format!("/usr/bin/.debug/{}.debug", &debug_name)),
-        )));
-        paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-            PathBuf::from(format!("/usr/lib/debug/usr/bin/{}.debug", &debug_name)),
-        )));
-
-        if debug_name.ends_with(".pdb") {
-            // We might find this pdb file with the help of a symbol server.
-            // Construct a custom string to identify this pdb.
-            let custom = format!(
-                "symbolserver:{}/{}/{}",
-                debug_name,
-                debug_id.breakpad(),
-                debug_name
-            );
-            paths.push(CandidatePathInfo::SingleFile(FileLocation::Custom(custom)));
-        }
-
-        if let Some(path) = &libinfo.path {
-            // Fall back to getting symbols from the binary itself.
-            paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                path.into(),
-            )));
-
-            // For macOS system libraries, also consult the dyld shared cache.
-            if path.starts_with("/usr/") || path.starts_with("/System/") {
-                paths.push(CandidatePathInfo::InDyldCache {
-                    dyld_cache_path: Path::new("/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_arm64e")
-                        .to_path_buf(),
-                    dylib_path: path.clone(),
-                });
-                paths.push(CandidatePathInfo::InDyldCache {
-                    dyld_cache_path: Path::new("/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_x86_64")
-                        .to_path_buf(),
-                    dylib_path: path.clone(),
-                });
-                paths.push(CandidatePathInfo::InDyldCache {
-                    dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_arm64e")
-                        .to_path_buf(),
-                    dylib_path: path.clone(),
-                });
-                paths.push(CandidatePathInfo::InDyldCache {
-                    dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_x86_64h")
-                        .to_path_buf(),
-                    dylib_path: path.clone(),
-                });
-                paths.push(CandidatePathInfo::InDyldCache {
-                    dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_x86_64")
-                        .to_path_buf(),
-                    dylib_path: path.clone(),
-                });
-            }
-        }
-
-        Ok(paths)
-    }
-
-    fn open_file(
-        &'h self,
-        location: &FileLocation,
-    ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>> {
-        Box::pin(self.open_file_impl(location.clone()))
     }
 }
 

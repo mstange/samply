@@ -20,6 +20,7 @@ use object::macho::{
 };
 use object::read::macho::{MachHeader, Section, Segment};
 use object::LittleEndian;
+use samply_server::samply_symbols::object;
 
 use std::cmp::Ordering;
 use std::collections::HashMap;

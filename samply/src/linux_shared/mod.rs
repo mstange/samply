@@ -23,6 +23,7 @@ use linux_perf_event_reader::{
     SamplingPolicy, SoftwareCounterType,
 };
 use object::{Object, ObjectSection, ObjectSegment, SectionKind};
+use samply_server::samply_symbols::{self, object};
 use samply_symbols::{debug_id_for_object, DebugIdExt};
 
 use std::borrow::Cow;

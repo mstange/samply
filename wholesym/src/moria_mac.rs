@@ -4,6 +4,8 @@
 #![warn(clippy::all)]
 
 use object::Object;
+use samply_api::samply_symbols;
+use samply_symbols::object;
 use std::fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
