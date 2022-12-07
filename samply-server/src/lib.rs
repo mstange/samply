@@ -312,7 +312,7 @@ async fn symbolication_service(
                         false => TEMPLATE_WITHOUT_PROFILE,
                     };
                     *response.body_mut() =
-                        Body::from(substitute_template(template, &*template_values));
+                        Body::from(substitute_template(template, &template_values));
                 }
                 _ => {
                     *response.status_mut() = StatusCode::NOT_FOUND;

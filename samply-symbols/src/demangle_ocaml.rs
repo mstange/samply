@@ -35,7 +35,7 @@ mod test {
 
     #[test]
     fn demangle_ocaml() {
-        assert!(demangle("main") == None);
+        assert!(demangle("main").is_none());
         assert!(demangle("camlStdlib__array__map_154") == Some("Stdlib.array.map_154".to_string()));
         assert!(
             demangle("camlStdlib__anon_fn$5bstdlib$2eml$3a334$2c0$2d$2d54$5d_1453")
