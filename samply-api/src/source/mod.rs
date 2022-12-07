@@ -1,53 +1,11 @@
-use std::ops::Deref;
-
 use crate::to_debug_id;
 use samply_symbols::{
-    AddressDebugInfo, FileAndPathHelper, FileAndPathHelperError, FileContents, FileLocation,
-    InlineStackFrame, SymbolicationQuery, SymbolicationResult, SymbolicationResultKind,
+    FileAndPathHelper, FileAndPathHelperError, FileContents, FileLocation, FramesLookupResult,
 };
 use serde_json::json;
 
 mod request_json;
 mod response_json;
-
-pub struct FramesForSingleAddress {
-    pub address: u32,
-    pub frames: Option<Vec<InlineStackFrame>>,
-}
-
-impl SymbolicationResult for FramesForSingleAddress {
-    fn from_full_map<T: Deref<Target = str>>(_symbols: Vec<(u32, T)>) -> Self {
-        panic!("Should not be called")
-    }
-
-    fn for_addresses(addresses: &[u32]) -> Self {
-        assert!(
-            addresses.len() == 1,
-            "Should only be used with a single address"
-        );
-        FramesForSingleAddress {
-            address: addresses[0],
-            frames: None,
-        }
-    }
-
-    fn add_address_symbol(
-        &mut self,
-        address: u32,
-        _symbol_address: u32,
-        _symbol_name: String,
-        _function_size: Option<u32>,
-    ) {
-        assert!(address == self.address, "Unexpected address");
-    }
-
-    fn add_address_debug_info(&mut self, address: u32, info: AddressDebugInfo) {
-        assert!(address == self.address, "Unexpected address");
-        self.frames = Some(info.frames);
-    }
-
-    fn set_total_symbol_count(&mut self, _total_symbol_count: u32) {}
-}
 
 #[derive(thiserror::Error, Debug)]
 enum SourceError {
@@ -99,23 +57,32 @@ async fn query_api<'h>(
         module_offset,
         file: requested_file,
     } = &request;
+    let debug_id = to_debug_id(debug_id)?;
 
     // Look up the address to see which file paths we are allowed to read.
-    let symbol_result: FramesForSingleAddress = samply_symbols::get_symbolication_result(
-        SymbolicationQuery {
-            debug_name,
-            debug_id: to_debug_id(debug_id)?,
-            result_kind: SymbolicationResultKind::SymbolsForAddresses(&[*module_offset]),
-        },
-        helper,
-    )
-    .await?;
+    let frames = {
+        let symbol_map = samply_symbols::get_symbol_map(debug_name, debug_id, helper).await?;
+        match symbol_map.lookup(*module_offset) {
+            Some(address_info) => address_info.frames,
+            None => FramesLookupResult::Unavailable,
+        }
+    };
+    let frames = match frames {
+        FramesLookupResult::Available(frames) => frames,
+        FramesLookupResult::External(external_file_ref, external_file_address) => {
+            let external_file =
+                samply_symbols::get_external_file(helper, &external_file_ref).await?;
+            match external_file.lookup(&external_file_address) {
+                Some(frames) => frames,
+                None => return Err(SourceError::NoDebugInfo),
+            }
+        }
+        FramesLookupResult::Unavailable => return Err(SourceError::NoDebugInfo),
+    };
 
     // Find the FilePath whose mapped path matches the requested file. This gives us the raw path.
     // This is where we check that the requested file path is permissible.
-    let file_path = symbol_result
-        .frames
-        .ok_or(SourceError::NoDebugInfo)?
+    let file_path = frames
         .into_iter()
         .filter_map(|frame| frame.file_path)
         .find(|file_path| *file_path.mapped_path() == *requested_file)
