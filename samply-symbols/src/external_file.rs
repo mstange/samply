@@ -32,35 +32,6 @@ where
     ))
 }
 
-// Disabled due to "higher-ranked lifetime error"
-#[cfg(any())]
-#[test]
-fn test_future_send() {
-    fn assert_is_send<T: Send>(_f: T) {}
-    fn wrapper<'a, 'b, F, H, R>(
-        base_path: &BasePath,
-        file_contents: FileContentsWrapper<F>,
-        file_range: Option<(u64, u64)>,
-        query: SymbolicationQuery<'a>,
-        helper: &'static H,
-    ) where
-        F: FileContents + Send + Sync,
-        H: FileAndPathHelper<'static, F = F>,
-        R: SymbolicationResult + Send,
-        <H as FileAndPathHelper<'static>>::OpenFileFuture: Send,
-        H: Sync,
-    {
-        let f = get_symbolication_result::<F, H, R>(
-            base_path,
-            file_contents,
-            file_range,
-            query,
-            helper,
-        );
-        assert_is_send(f);
-    }
-}
-
 struct ExternalFileMemberContext<'a> {
     context: Option<addr2line::Context<gimli::EndianSlice<'a, gimli::RunTimeEndian>>>,
     symbol_addresses: HashMap<&'a [u8], u64>,

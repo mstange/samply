@@ -319,63 +319,7 @@ impl FilePath {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum SymbolicationResultKind<'a> {
-    AllSymbols,
-    SymbolsForAddresses(&'a [u32]),
-}
-
-/// A trait which allows many "get_symbolication_result" functions to share code between
-/// the implementation that constructs a full symbol table and the implementation that
-/// constructs a JSON response with data per looked-up address.
-pub trait SymbolicationResult {
-    /// Create a `SymbolicationResult` object based on a full symbol map.
-    /// Only called if `result_kind` is `SymbolicationResultKind::AllSymbols`.
-    fn from_full_map<S>(map: Vec<(u32, S)>) -> Self
-    where
-        S: Deref<Target = str>;
-
-    /// Create a `SymbolicationResult` object based on a set of addresses.
-    /// Only called if `result_kind` is `SymbolicationResultKind::SymbolsForAddresses`.
-    /// The data for each address will be supplied by subsequent calls to `add_address_symbol`
-    /// and potentially `add_address_debug_info`.
-    fn for_addresses(addresses: &[u32]) -> Self;
-
-    /// Called to supply the symbol name for a symbol.
-    /// Only called if `result_kind` is `SymbolicationResultKind::SymbolsForAddresses`, and
-    /// only on objects constructed by a call to `for_addresses`.
-    /// `address` is the address that the consumer wants to look up, and may fall anywhere
-    /// inside a function. `symbol_address` is the closest (<= address) symbol address.
-    fn add_address_symbol(
-        &mut self,
-        address: u32,
-        symbol_address: u32,
-        symbol_name: String,
-        function_size: Option<u32>,
-    );
-
-    /// Called to supply debug info for the address.
-    /// Only called if `result_kind` is `SymbolicationResultKind::SymbolsForAddresses { with_debug_info: true }`.
-    fn add_address_debug_info(&mut self, address: u32, info: AddressDebugInfo);
-
-    /// Supplies the total number of symbols in this binary.
-    /// Only called if `result_kind` is `SymbolicationResultKind::SymbolsForAddresses`, and
-    /// only on objects constructed by a call to `for_addresses`.
-    fn set_total_symbol_count(&mut self, total_symbol_count: u32);
-}
-
-/// A struct that wraps a number of parameters for various "get_symbolication_result" functions.
-#[derive(Clone)]
-pub struct SymbolicationQuery<'a> {
-    /// The debug name of the binary whose symbols need to be looked up.
-    pub debug_name: &'a str,
-    /// The debug ID of the binary whose symbols need to be looked up.
-    pub debug_id: DebugId,
-    /// The kind of data which this query wants have returned.
-    pub result_kind: SymbolicationResultKind<'a>,
-}
-
-/// In the symbolication query, the requested addresses are in "relative address" form.
+/// In calls to SymbolMap::lookup, the requested addresses are in "relative address" form.
 /// This is in contrast to the u64 "vmaddr" form which is used by section
 /// addresses, symbol addresses and DWARF pc offset information.
 ///
