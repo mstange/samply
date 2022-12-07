@@ -163,7 +163,6 @@ pub use pdb_addr2line::pdb;
 
 use debugid::DebugId;
 use object::{macho::FatHeader, read::FileKind};
-use shared::{ExternalFileAddressRef, ExternalFileRef};
 
 mod cache;
 mod chunked_read_buffer_manager;
@@ -191,7 +190,7 @@ use crate::shared::FileContentsWrapper;
 pub use crate::shared::{
     AddressDebugInfo, CandidatePathInfo, FileAndPathHelper, FileAndPathHelperError,
     FileAndPathHelperResult, FileContents, FileLocation, FilePath, FramesLookupResult,
-    InlineStackFrame, OptionallySendFuture,
+    InlineStackFrame, OptionallySendFuture, ExternalFileRef, ExternalFileAddressRef
 };
 pub use crate::symbol_map::SymbolMap;
 
