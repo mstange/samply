@@ -95,10 +95,10 @@ async fn run_query() {
                         );
                     }
                 }
-                FramesLookupResult::External(ext_file, ext_file_addr) => {
+                FramesLookupResult::External(ext_address) => {
                     // Debug info is located in a different file.
                     if let Some(frames) =
-                        symbol_manager.lookup_external(&ext_file, &ext_file_addr).await
+                        symbol_manager.lookup_external(&ext_address).await
                     {
                         println!("Debug info:");
                         for frame in frames {

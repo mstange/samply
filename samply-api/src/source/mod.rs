@@ -77,12 +77,8 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SourceApi<'a, 'h, H> {
         };
         let frames = match frames {
             FramesLookupResult::Available(frames) => frames,
-            FramesLookupResult::External(external_file_ref, external_file_address) => {
-                match self
-                    .symbol_manager
-                    .lookup_external(&external_file_ref, &external_file_address)
-                    .await
-                {
+            FramesLookupResult::External(address) => {
+                match self.symbol_manager.lookup_external(&address).await {
                     Some(frames) => frames,
                     None => return Err(SourceError::NoDebugInfo),
                 }

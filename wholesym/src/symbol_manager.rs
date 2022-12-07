@@ -2,10 +2,12 @@ use std::{future::Future, pin::Pin};
 
 use debugid::DebugId;
 use samply_api::{
-    samply_symbols::{self, ExternalFileSymbolMap},
+    samply_symbols::{
+        self, Error, ExternalFileAddressRef, ExternalFileRef, ExternalFileSymbolMap,
+        InlineStackFrame, SymbolMap,
+    },
     Api,
 };
-use samply_symbols::{Error, ExternalFileAddressRef, ExternalFileRef, InlineStackFrame, SymbolMap};
 use yoke::{Yoke, Yokeable};
 
 use crate::{helper::Helper, LibraryInfo, SymbolManagerConfig};
@@ -54,13 +56,12 @@ impl SymbolManager {
     /// for the same external file are fast.
     pub async fn lookup_external(
         &self,
-        external_file_ref: &ExternalFileRef,
-        external_file_address: &ExternalFileAddressRef,
+        address: &ExternalFileAddressRef,
     ) -> Option<Vec<InlineStackFrame>> {
         self.helper_with_symbol_manager
             .get()
             .0
-            .lookup_external(external_file_ref, external_file_address)
+            .lookup_external(address)
             .await
     }
 
@@ -117,8 +118,7 @@ trait SymbolManagerTrait {
 
     fn lookup_external<'a>(
         &'a self,
-        external_file_ref: &'a ExternalFileRef,
-        external_file_address: &'a ExternalFileAddressRef,
+        address: &'a ExternalFileAddressRef,
     ) -> Pin<Box<dyn Future<Output = Option<Vec<InlineStackFrame>>> + 'a + Send>>;
 
     fn load_external_file<'a>(
@@ -149,13 +149,9 @@ impl<'h> SymbolManagerTrait for SymbolManagerWrapper<'h> {
 
     fn lookup_external<'a>(
         &'a self,
-        external_file_ref: &'a ExternalFileRef,
-        external_file_address: &'a ExternalFileAddressRef,
+        address: &'a ExternalFileAddressRef,
     ) -> Pin<Box<dyn Future<Output = Option<Vec<InlineStackFrame>>> + 'a + Send>> {
-        Box::pin(
-            self.0
-                .lookup_external(external_file_ref, external_file_address),
-        )
+        Box::pin(self.0.lookup_external(address))
     }
 
     fn load_external_file<'a>(

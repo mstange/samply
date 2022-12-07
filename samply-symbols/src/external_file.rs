@@ -7,7 +7,7 @@ use crate::{
     dwarf::{get_frames, Addr2lineContextData},
     path_mapper::PathMapper,
     shared::{
-        BasePath, ExternalFileAddressRef, ExternalFileRef, FileContentsWrapper, RangeReadRef,
+        BasePath, ExternalFileAddressInFileRef, ExternalFileRef, FileContentsWrapper, RangeReadRef,
     },
     Error, FileAndPathHelper, FileContents, FileLocation, InlineStackFrame,
 };
@@ -70,14 +70,14 @@ trait ExternalFileDataOuterTrait {
 trait ExternalFileContextTrait {
     fn lookup(
         &self,
-        external_file_address: &ExternalFileAddressRef,
+        external_file_address: &ExternalFileAddressInFileRef,
     ) -> Option<Vec<InlineStackFrame>>;
 }
 
 impl<'a, F: FileContents> ExternalFileContextTrait for ExternalFileContext<'a, F> {
     fn lookup(
         &self,
-        external_file_address: &ExternalFileAddressRef,
+        external_file_address: &ExternalFileAddressInFileRef,
     ) -> Option<Vec<InlineStackFrame>> {
         let member_key = external_file_address
             .name_in_archive
@@ -117,7 +117,7 @@ trait ExternalFileSymbolMapTrait {
     fn is_same_file(&self, external_file_ref: &ExternalFileRef) -> bool;
     fn lookup(
         &self,
-        external_file_address: &ExternalFileAddressRef,
+        external_file_address: &ExternalFileAddressInFileRef,
     ) -> Option<Vec<InlineStackFrame>>;
 }
 
@@ -147,7 +147,7 @@ impl<F: FileContents + 'static> ExternalFileSymbolMapTrait for ExternalFileSymbo
 
     fn lookup(
         &self,
-        external_file_address: &ExternalFileAddressRef,
+        external_file_address: &ExternalFileAddressInFileRef,
     ) -> Option<Vec<InlineStackFrame>> {
         self.0.get().0.lookup(external_file_address)
     }
@@ -168,7 +168,7 @@ impl ExternalFileSymbolMap {
     }
     pub fn lookup(
         &self,
-        external_file_address: &ExternalFileAddressRef,
+        external_file_address: &ExternalFileAddressInFileRef,
     ) -> Option<Vec<InlineStackFrame>> {
         self.0.lookup(external_file_address)
     }

@@ -403,15 +403,23 @@ pub struct AddressInfo {
 
 pub enum FramesLookupResult {
     Available(Vec<InlineStackFrame>),
-    External(ExternalFileRef, ExternalFileAddressRef),
+    External(ExternalFileAddressRef),
     Unavailable,
 }
 
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ExternalFileAddressRef {
+    pub file_ref: ExternalFileRef,
+    pub address_in_file: ExternalFileAddressInFileRef,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ExternalFileRef {
     pub file_name: String,
 }
 
-pub struct ExternalFileAddressRef {
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ExternalFileAddressInFileRef {
     pub name_in_archive: Option<String>,
     pub symbol_name: Vec<u8>,
     pub offset_from_symbol: u32,

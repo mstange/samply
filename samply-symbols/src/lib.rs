@@ -93,10 +93,10 @@
 //!                         );
 //!                     }
 //!                 }
-//!                 FramesLookupResult::External(ext_file, ext_file_addr) => {
+//!                 FramesLookupResult::External(ext_address) => {
 //!                     // Debug info is located in a different file.
 //!                     if let Some(frames) =
-//!                         symbol_manager.lookup_external(&ext_file, &ext_file_addr).await
+//!                         symbol_manager.lookup_external(&ext_address).await
 //!                     {
 //!                         println!("Debug info:");
 //!                         for frame in frames {
@@ -188,9 +188,10 @@ pub use crate::error::Error;
 pub use crate::external_file::{load_external_file, ExternalFileSymbolMap};
 use crate::shared::FileContentsWrapper;
 pub use crate::shared::{
-    AddressDebugInfo, CandidatePathInfo, ExternalFileAddressRef, ExternalFileRef,
-    FileAndPathHelper, FileAndPathHelperError, FileAndPathHelperResult, FileContents, FileLocation,
-    FilePath, FramesLookupResult, InlineStackFrame, OptionallySendFuture,
+    AddressDebugInfo, CandidatePathInfo, ExternalFileAddressInFileRef, ExternalFileAddressRef,
+    ExternalFileRef, FileAndPathHelper, FileAndPathHelperError, FileAndPathHelperResult,
+    FileContents, FileLocation, FilePath, FramesLookupResult, InlineStackFrame,
+    OptionallySendFuture,
 };
 pub use crate::symbol_map::SymbolMap;
 
@@ -291,21 +292,20 @@ where
     /// for the same external file are fast.
     pub async fn lookup_external(
         &self,
-        external_file_ref: &ExternalFileRef,
-        external_file_address: &ExternalFileAddressRef,
+        address: &ExternalFileAddressRef,
     ) -> Option<Vec<InlineStackFrame>> {
         {
             let cached_external_file = self.cached_external_file.lock().ok()?;
             match &*cached_external_file {
-                Some(external_file) if external_file.is_same_file(external_file_ref) => {
-                    return external_file.lookup(external_file_address);
+                Some(external_file) if external_file.is_same_file(&address.file_ref) => {
+                    return external_file.lookup(&address.address_in_file);
                 }
                 _ => {}
             }
         }
 
-        let external_file = self.load_external_file(external_file_ref).await.ok()?;
-        let lookup_result = external_file.lookup(external_file_address);
+        let external_file = self.load_external_file(&address.file_ref).await.ok()?;
+        let lookup_result = external_file.lookup(&address.address_in_file);
 
         if let Ok(mut guard) = self.cached_external_file.lock() {
             *guard = Some(external_file);

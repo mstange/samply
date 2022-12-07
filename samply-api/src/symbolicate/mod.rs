@@ -98,12 +98,8 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SymbolicateApi<'a, 'h, H> {
                     match address_info.frames {
                         FramesLookupResult::Available(frames) => symbolication_result
                             .add_address_debug_info(address, AddressDebugInfo { frames }),
-                        FramesLookupResult::External(external_file_ref, external_file_address) => {
-                            external_addresses.push((
-                                address,
-                                external_file_ref,
-                                external_file_address,
-                            ));
+                        FramesLookupResult::External(ext_address) => {
+                            external_addresses.push((address, ext_address));
                         }
                         FramesLookupResult::Unavailable => {}
                     }
@@ -117,12 +113,8 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SymbolicateApi<'a, 'h, H> {
         // file, so in practice we don't do much (if any) repeated reading of the same
         // external file.
 
-        for (address, external_file_ref, external_file_address) in external_addresses {
-            if let Some(frames) = self
-                .symbol_manager
-                .lookup_external(&external_file_ref, &external_file_address)
-                .await
-            {
+        for (address, ext_address) in external_addresses {
+            if let Some(frames) = self.symbol_manager.lookup_external(&ext_address).await {
                 symbolication_result.add_address_debug_info(address, AddressDebugInfo { frames });
             }
         }

@@ -4,13 +4,14 @@ use std::{borrow::Cow, slice, sync::Mutex};
 use debugid::DebugId;
 use object::{File, ObjectMap, ReadRef, SectionKind, SymbolKind};
 
+use crate::ExternalFileAddressRef;
 use crate::{
     debug_id_for_object, demangle,
     dwarf::{get_frames, Addr2lineContextData},
     path_mapper::PathMapper,
     shared::{
-        relative_address_base, AddressInfo, BasePath, ExternalFileAddressRef, ExternalFileRef,
-        SymbolInfo,
+        relative_address_base, AddressInfo, BasePath, ExternalFileAddressInFileRef,
+        ExternalFileRef, SymbolInfo,
     },
     symbol_map::{SymbolMapDataMidTrait, SymbolMapInnerWrapper, SymbolMapTrait},
     Error, FramesLookupResult,
@@ -306,16 +307,16 @@ where
                                 (external_file_name, None)
                             }
                         };
-                        FramesLookupResult::External(
-                            ExternalFileRef {
+                        FramesLookupResult::External(ExternalFileAddressRef {
+                            file_ref: ExternalFileRef {
                                 file_name: file_name.to_owned(),
                             },
-                            ExternalFileAddressRef {
+                            address_in_file: ExternalFileAddressInFileRef {
                                 name_in_archive: name_in_archive.map(ToOwned::to_owned),
                                 symbol_name: entry.name().to_owned(),
                                 offset_from_symbol,
                             },
-                        )
+                        })
                     } else {
                         FramesLookupResult::Unavailable
                     }
