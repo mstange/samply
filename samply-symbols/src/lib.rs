@@ -191,15 +191,8 @@ pub async fn get_compact_symbol_table<'h>(
     debug_id: DebugId,
     helper: &'h impl FileAndPathHelper<'h>,
 ) -> Result<CompactSymbolTable, Error> {
-    get_symbolication_result(
-        SymbolicationQuery {
-            debug_name,
-            debug_id,
-            result_kind: SymbolicationResultKind::AllSymbols,
-        },
-        helper,
-    )
-    .await
+    let symbol_map = get_symbol_map(debug_name, debug_id, helper).await?;
+    Ok(CompactSymbolTable::from_full_map(symbol_map.to_map()))
 }
 
 /// A generic method which is used in the implementation of both `get_compact_symbol_table`

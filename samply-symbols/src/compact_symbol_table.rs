@@ -1,4 +1,3 @@
-use super::shared::{AddressDebugInfo, SymbolicationResult};
 use std::ops::Deref;
 
 /// A "compact" representation of a symbol table.
@@ -22,8 +21,8 @@ pub struct CompactSymbolTable {
     pub buffer: Vec<u8>,
 }
 
-impl SymbolicationResult for CompactSymbolTable {
-    fn from_full_map<T: Deref<Target = str>>(entries: Vec<(u32, T)>) -> Self {
+impl CompactSymbolTable {
+    pub fn from_full_map<T: Deref<Target = str>>(entries: Vec<(u32, T)>) -> Self {
         let total_str_len = entries.iter().map(|(_, s)| s.len()).sum();
         let mut addr = Vec::with_capacity(entries.len());
         let mut index = Vec::with_capacity(entries.len() + 1);
@@ -40,24 +39,4 @@ impl SymbolicationResult for CompactSymbolTable {
             buffer,
         }
     }
-
-    fn for_addresses(_addresses: &[u32]) -> Self {
-        panic!("Should not be called")
-    }
-
-    fn add_address_symbol(
-        &mut self,
-        _address: u32,
-        _symbol_address: u32,
-        _symbol_name: String,
-        _function_size: Option<u32>,
-    ) {
-        panic!("Should not be called")
-    }
-
-    fn add_address_debug_info(&mut self, _address: u32, _info: AddressDebugInfo) {
-        panic!("Should not be called")
-    }
-
-    fn set_total_symbol_count(&mut self, _total_symbol_count: u32) {}
 }
