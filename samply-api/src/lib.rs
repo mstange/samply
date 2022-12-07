@@ -99,6 +99,7 @@ pub(crate) fn to_debug_id(breakpad_id: &str) -> Result<DebugId, samply_symbols::
         .map_err(|_| samply_symbols::Error::InvalidBreakpadId(breakpad_id.to_string()))
 }
 
+#[derive(Clone, Copy)]
 pub struct Api<'a, 'h: 'a, H: FileAndPathHelper<'h>> {
     symbolicator: &'a Symbolicator<'h, H>,
 }
@@ -122,7 +123,7 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> Api<'a, 'h, H> {
     ///    The returned data has two extra fields: inlines (per address) and module_errors (per job).
     ///  - `/source/v1`: Experimental API. Symbolicates an address and lets you read one of the files in the
     ///    symbol information for that address.
-    pub async fn query_api(&self, request_url: &str, request_json_data: &str) -> String {
+    pub async fn query_api(self, request_url: &str, request_json_data: &str) -> String {
         if request_url == "/symbolicate/v5" {
             let symbolicate_api = SymbolicateApi::new(self.symbolicator);
             symbolicate_api.query_api_json(request_json_data).await
