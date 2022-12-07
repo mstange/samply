@@ -238,7 +238,7 @@ where
         for candidate_info in candidate_paths_for_binary {
             let symbol_map = match candidate_info {
                 CandidatePathInfo::SingleFile(file_location) => {
-                    self.get_symbol_map_from_path(&file_location, debug_id)
+                    self.load_symbol_map_from_path(&file_location, debug_id)
                         .await
                 }
                 CandidatePathInfo::InDyldCache {
@@ -324,7 +324,7 @@ where
         Ok(CompactSymbolTable::from_full_map(symbol_map.to_map()))
     }
 
-    async fn get_symbol_map_from_path(
+    async fn load_symbol_map_from_path(
         &self,
         file_location: &FileLocation,
         debug_id: DebugId,
