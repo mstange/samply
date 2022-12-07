@@ -295,24 +295,23 @@ where
         external_file_ref: &ExternalFileRef,
         external_file_address: &ExternalFileAddressRef,
     ) -> Option<Vec<InlineStackFrame>> {
-        let cached_external_file = {
-            let mut guard = self.cached_external_file.lock().ok()?;
-            guard.take()
-        };
-
-        match cached_external_file {
-            Some(external_file) if external_file.is_same_file(external_file_ref) => {
-                external_file.lookup(external_file_address)
-            }
-            _ => {
-                let external_file = self.get_external_file(external_file_ref).await.ok()?;
-                let lookup_result = external_file.lookup(external_file_address);
-                if let Ok(mut guard) = self.cached_external_file.lock() {
-                    *guard = Some(external_file);
+        {
+            let cached_external_file = self.cached_external_file.lock().ok()?;
+            match &*cached_external_file {
+                Some(external_file) if external_file.is_same_file(external_file_ref) => {
+                    return external_file.lookup(external_file_address);
                 }
-                lookup_result
+                _ => {}
             }
         }
+
+        let external_file = self.get_external_file(external_file_ref).await.ok()?;
+        let lookup_result = external_file.lookup(external_file_address);
+
+        if let Ok(mut guard) = self.cached_external_file.lock() {
+            *guard = Some(external_file);
+        }
+        lookup_result
     }
 
     /// Returns a symbol table in `CompactSymbolTable` format for the requested binary.
