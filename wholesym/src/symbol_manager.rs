@@ -8,7 +8,7 @@ use samply_api::{
 use samply_symbols::{Error, ExternalFileAddressRef, ExternalFileRef, InlineStackFrame, SymbolMap};
 use yoke::{Yoke, Yokeable};
 
-use crate::{helper::Helper, SymbolManagerConfig};
+use crate::{helper::Helper, LibraryInfo, SymbolManagerConfig};
 
 pub struct SymbolManager {
     helper_with_symbol_manager: Yoke<SymbolManagerWrapperTypeErased<'static>, Box<Helper>>,
@@ -25,6 +25,11 @@ impl SymbolManager {
         Self {
             helper_with_symbol_manager,
         }
+    }
+
+    pub fn add_known_lib(&mut self, lib_info: LibraryInfo) {
+        self.helper_with_symbol_manager
+            .with_mut(|manager| manager.0.add_known_lib(lib_info));
     }
 
     /// Obtain a symbol map for the given `debug_name` and `debug_id`.
@@ -103,6 +108,7 @@ impl SymbolManager {
 struct SymbolManagerWrapperTypeErased<'h>(Box<dyn SymbolManagerTrait + 'h + Send + Sync>);
 
 trait SymbolManagerTrait {
+    fn add_known_lib(&mut self, lib_info: LibraryInfo);
     fn get_symbol_map<'a>(
         &'a self,
         debug_name: &'a str,
@@ -130,6 +136,9 @@ trait SymbolManagerTrait {
 struct SymbolManagerWrapper<'h>(samply_symbols::SymbolManager<'h, Helper>);
 
 impl<'h> SymbolManagerTrait for SymbolManagerWrapper<'h> {
+    fn add_known_lib(&mut self, lib_info: LibraryInfo) {
+        self.0.helper().add_known_lib(lib_info);
+    }
     fn get_symbol_map<'a>(
         &'a self,
         debug_name: &'a str,

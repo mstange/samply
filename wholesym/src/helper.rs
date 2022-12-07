@@ -7,15 +7,18 @@ use samply_symbols::{
 use symsrv::{memmap2, FileContents, SymbolCache};
 
 use std::{
+    collections::HashMap,
     fs::File,
     path::{Path, PathBuf},
     pin::Pin,
+    sync::Mutex,
 };
 
-use crate::config::SymbolManagerConfig;
+use crate::{config::SymbolManagerConfig, LibraryInfo};
 
 pub struct Helper {
     symbol_cache: Option<SymbolCache>,
+    known_libs: Mutex<HashMap<(String, DebugId), LibraryInfo>>,
     config: SymbolManagerConfig,
 }
 
@@ -27,8 +30,14 @@ impl Helper {
         };
         Self {
             symbol_cache,
+            known_libs: Mutex::new(HashMap::new()),
             config,
         }
+    }
+
+    pub fn add_known_lib(&self, lib_info: LibraryInfo) {
+        let mut known_libs = self.known_libs.lock().unwrap();
+        known_libs.insert((lib_info.debug_name.clone(), lib_info.debug_id), lib_info);
     }
 
     async fn open_file_impl(
@@ -75,9 +84,8 @@ impl<'h> FileAndPathHelper<'h> for Helper {
         let mut paths = vec![];
 
         // Look up (debugName, breakpadId) in the path map.
-        let libinfo = self
-            .config
-            .known_libs
+        let known_libs = self.known_libs.lock().unwrap();
+        let libinfo = known_libs
             .get(&(debug_name.to_string(), *debug_id))
             .cloned()
             .unwrap_or_default();

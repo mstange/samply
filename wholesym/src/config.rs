@@ -1,5 +1,4 @@
 use debugid::{CodeId, DebugId};
-use std::collections::HashMap;
 use symsrv::NtSymbolPathEntry;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -13,7 +12,6 @@ pub struct LibraryInfo {
 
 #[derive(Debug, Clone, Default)]
 pub struct SymbolManagerConfig {
-    pub(crate) known_libs: HashMap<(String, DebugId), LibraryInfo>,
     pub(crate) verbose: bool,
     pub(crate) nt_symbol_path: Option<Vec<NtSymbolPathEntry>>,
 }
@@ -25,12 +23,6 @@ impl SymbolManagerConfig {
 
     pub fn verbose(mut self, verbose: bool) -> Self {
         self.verbose = verbose;
-        self
-    }
-
-    pub fn with_known_lib(mut self, lib_info: LibraryInfo) -> Self {
-        self.known_libs
-            .insert((lib_info.debug_name.clone(), lib_info.debug_id), lib_info);
         self
     }
 

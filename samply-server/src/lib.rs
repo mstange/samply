@@ -115,13 +115,13 @@ pub async fn start_server(
 
     let template_values = Arc::new(template_values);
 
-    let mut config = SymbolManagerConfig::new()
+    let config = SymbolManagerConfig::new()
         .verbose(verbose)
         .with_nt_symbol_path(symbol_path);
+    let mut symbol_manager = SymbolManager::with_config(config);
     for lib_info in libinfo_map.into_values() {
-        config = config.with_known_lib(lib_info);
+        symbol_manager.add_known_lib(lib_info);
     }
-    let symbol_manager = SymbolManager::with_config(config);
     let symbol_manager = Arc::new(symbol_manager);
     let new_service = make_service_fn(move |_conn| {
         let symbol_manager = symbol_manager.clone();
