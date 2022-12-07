@@ -8,7 +8,7 @@ use gimli::{CieOrFde, EhFrame, UnwindSection};
 use object::{File, FileKind, Object, ObjectSection, ReadRef};
 use std::io::Cursor;
 
-pub fn get_symbol_map<T>(
+pub fn get_symbol_map_for_elf<T>(
     file_contents: FileContentsWrapper<T>,
     file_kind: FileKind,
     base_path: &BasePath,

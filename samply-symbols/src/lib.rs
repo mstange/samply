@@ -340,7 +340,7 @@ where
         if let Ok(file_kind) = FileKind::parse(&file_contents) {
             match file_kind {
                 FileKind::Elf32 | FileKind::Elf64 => {
-                    elf::get_symbol_map(file_contents, file_kind, &base_path)
+                    elf::get_symbol_map_for_elf(file_contents, file_kind, &base_path)
                 }
                 FileKind::MachOFat32 => {
                     let arches = FatHeader::parse_arch32(&file_contents)
@@ -355,7 +355,7 @@ where
                     macho::get_symbol_map_for_fat_archive_member(&base_path, file_contents, range)
                 }
                 FileKind::MachO32 | FileKind::MachO64 => {
-                    macho::get_symbol_map(&base_path, file_contents)
+                    macho::get_symbol_map_for_macho(&base_path, file_contents)
                 }
                 FileKind::Pe32 | FileKind::Pe64 => {
                     match windows::get_symbol_map_for_pdb_corresponding_to_binary(

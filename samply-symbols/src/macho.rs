@@ -140,7 +140,7 @@ impl<T: FileContents + 'static> SymbolMapDataOuterTrait for DyldCacheSymbolMapDa
     }
 }
 
-pub fn get_symbol_map<F: FileContents + 'static>(
+pub fn get_symbol_map_for_macho<F: FileContents + 'static>(
     base_path: &BasePath,
     file_contents: FileContentsWrapper<F>,
 ) -> Result<SymbolMap, Error> {
