@@ -1,7 +1,10 @@
 use std::{future::Future, pin::Pin};
 
 use debugid::DebugId;
-use samply_api::{samply_symbols, Api};
+use samply_api::{
+    samply_symbols::{self, ExternalFileSymbolMap},
+    Api,
+};
 use samply_symbols::{Error, ExternalFileAddressRef, ExternalFileRef, InlineStackFrame, SymbolMap};
 use yoke::{Yoke, Yokeable};
 
@@ -56,6 +59,28 @@ impl Symbolicator {
             .await
     }
 
+    /// Load and return an external file which may contain additional debug info.
+    ///
+    /// This is used on macOS: When linking multiple `.o` files together into a library or
+    /// an executable, the linker does not copy the dwarf sections into the linked output.
+    /// Instead, it stores the paths to those original `.o` files, using OSO stabs entries.
+    ///
+    /// A `SymbolMap` for such a linked file will not find debug info, and will return
+    /// `FramesLookupResult::External` from the lookups. Then the address needs to be
+    /// looked up in the external file.
+    ///
+    /// Also see `Symbolicator::lookup_external`.
+    pub async fn get_external_file(
+        &self,
+        external_file_ref: &ExternalFileRef,
+    ) -> Result<ExternalFileSymbolMap, Error> {
+        self.helper_with_symbolicator
+            .get()
+            .0
+            .get_external_file(external_file_ref)
+            .await
+    }
+
     /// Run a symbolication query with the "Tecken" JSON API.
     ///
     /// In the future, this will be a feature on this crate and not enabled by default.
@@ -90,6 +115,11 @@ trait SymbolicatorTrait {
         external_file_address: &'a ExternalFileAddressRef,
     ) -> Pin<Box<dyn Future<Output = Option<Vec<InlineStackFrame>>> + 'a + Send>>;
 
+    fn get_external_file<'a>(
+        &'a self,
+        external_file_ref: &'a ExternalFileRef,
+    ) -> Pin<Box<dyn Future<Output = Result<ExternalFileSymbolMap, Error>> + 'a + Send>>;
+
     fn query_json_api<'a>(
         &'a self,
         path: &'a str,
@@ -117,6 +147,13 @@ impl<'h> SymbolicatorTrait for SymbolicatorWrapper<'h> {
             self.0
                 .lookup_external(external_file_ref, external_file_address),
         )
+    }
+
+    fn get_external_file<'a>(
+        &'a self,
+        external_file_ref: &'a ExternalFileRef,
+    ) -> Pin<Box<dyn Future<Output = Result<ExternalFileSymbolMap, Error>> + 'a + Send>> {
+        Box::pin(self.0.get_external_file(external_file_ref))
     }
 
     fn query_json_api<'a>(
