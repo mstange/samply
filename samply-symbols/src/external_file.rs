@@ -12,7 +12,7 @@ use crate::{
     Error, FileAndPathHelper, FileContents, FileLocation, InlineStackFrame,
 };
 
-pub async fn get_external_file<'h, H>(
+pub async fn load_external_file<'h, H>(
     helper: &'h H,
     external_file_ref: &ExternalFileRef,
 ) -> Result<ExternalFileSymbolMap, Error>

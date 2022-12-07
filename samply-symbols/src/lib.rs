@@ -61,7 +61,7 @@
 //!     let symbol_manager = SymbolManager::with_helper(&helper);
 //!
 //!     let symbol_map = match symbol_manager
-//!         .get_symbol_map(
+//!         .load_symbol_map(
 //!             "firefox.pdb",
 //!             DebugId::from_breakpad("AA152DEB2D9B76084C4C44205044422E1").unwrap(),
 //!         )
@@ -185,7 +185,7 @@ pub use crate::cache::{FileByteSource, FileContentsWithChunkedCaching};
 pub use crate::compact_symbol_table::CompactSymbolTable;
 pub use crate::debugid_util::{debug_id_for_object, DebugIdExt};
 pub use crate::error::Error;
-pub use crate::external_file::{get_external_file, ExternalFileSymbolMap};
+pub use crate::external_file::{load_external_file, ExternalFileSymbolMap};
 use crate::shared::FileContentsWrapper;
 pub use crate::shared::{
     AddressDebugInfo, CandidatePathInfo, ExternalFileAddressRef, ExternalFileRef,
@@ -218,7 +218,7 @@ where
     }
 
     /// Obtain a symbol map for the given `debug_name` and `debug_id`.
-    pub async fn get_symbol_map(
+    pub async fn load_symbol_map(
         &self,
         debug_name: &str,
         debug_id: DebugId,
@@ -275,11 +275,11 @@ where
     /// looked up in the external file.
     ///
     /// Also see `SymbolManager::lookup_external`.
-    pub async fn get_external_file(
+    pub async fn load_external_file(
         &self,
         external_file_ref: &ExternalFileRef,
     ) -> Result<ExternalFileSymbolMap, Error> {
-        external_file::get_external_file(self.helper, external_file_ref).await
+        external_file::load_external_file(self.helper, external_file_ref).await
     }
 
     /// Resolve a debug info lookup for which `SymbolMap::lookup` returned a
@@ -304,7 +304,7 @@ where
             }
         }
 
-        let external_file = self.get_external_file(external_file_ref).await.ok()?;
+        let external_file = self.load_external_file(external_file_ref).await.ok()?;
         let lookup_result = external_file.lookup(external_file_address);
 
         if let Ok(mut guard) = self.cached_external_file.lock() {
@@ -315,12 +315,12 @@ where
 
     /// Returns a symbol table in `CompactSymbolTable` format for the requested binary.
     /// `FileAndPathHelper` must be implemented by the caller, to provide file access.
-    pub async fn get_compact_symbol_table(
+    pub async fn load_compact_symbol_table(
         &self,
         debug_name: &str,
         debug_id: DebugId,
     ) -> Result<CompactSymbolTable, Error> {
-        let symbol_map = self.get_symbol_map(debug_name, debug_id).await?;
+        let symbol_map = self.load_symbol_map(debug_name, debug_id).await?;
         Ok(CompactSymbolTable::from_full_map(symbol_map.to_map()))
     }
 

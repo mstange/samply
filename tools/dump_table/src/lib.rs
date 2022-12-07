@@ -31,11 +31,11 @@ async fn get_symbols_retry_id(
     let debug_id = match debug_id {
         Some(debug_id) => debug_id,
         None => {
-            // No debug ID was specified. get_compact_symbol_table always wants one, so we call it twice:
+            // No debug ID was specified. load_compact_symbol_table always wants one, so we call it twice:
             // First, with a bogus debug ID (DebugId::nil()), and then again with the debug ID that
             // it expected.
             let result = symbol_manager
-                .get_compact_symbol_table(debug_name, DebugId::nil())
+                .load_compact_symbol_table(debug_name, DebugId::nil())
                 .await;
             match result {
                 Ok(table) => return Ok(table),
@@ -50,7 +50,7 @@ async fn get_symbols_retry_id(
         }
     };
     Ok(symbol_manager
-        .get_compact_symbol_table(debug_name, debug_id)
+        .load_compact_symbol_table(debug_name, debug_id)
         .await?)
 }
 

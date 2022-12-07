@@ -63,7 +63,7 @@ async fn run_query() {
     let symbol_manager = SymbolManager::with_helper(&helper);
 
     let symbol_map = match symbol_manager
-        .get_symbol_map(
+        .load_symbol_map(
             "firefox.pdb",
             DebugId::from_breakpad("AA152DEB2D9B76084C4C44205044422E1").unwrap(),
         )

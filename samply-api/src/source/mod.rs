@@ -68,7 +68,7 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SourceApi<'a, 'h, H> {
         let frames = {
             let symbol_map = self
                 .symbol_manager
-                .get_symbol_map(debug_name, debug_id)
+                .load_symbol_map(debug_name, debug_id)
                 .await?;
             match symbol_map.lookup(*module_offset) {
                 Some(address_info) => address_info.frames,

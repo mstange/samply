@@ -33,7 +33,7 @@ impl SymbolManager {
     }
 
     /// Obtain a symbol map for the given `debug_name` and `debug_id`.
-    pub async fn get_symbol_map(
+    pub async fn load_symbol_map(
         &self,
         debug_name: &str,
         debug_id: DebugId,
@@ -41,7 +41,7 @@ impl SymbolManager {
         self.helper_with_symbol_manager
             .get()
             .0
-            .get_symbol_map(debug_name, debug_id)
+            .load_symbol_map(debug_name, debug_id)
             .await
     }
 
@@ -75,14 +75,14 @@ impl SymbolManager {
     /// looked up in the external file.
     ///
     /// Also see `SymbolManager::lookup_external`.
-    pub async fn get_external_file(
+    pub async fn load_external_file(
         &self,
         external_file_ref: &ExternalFileRef,
     ) -> Result<ExternalFileSymbolMap, Error> {
         self.helper_with_symbol_manager
             .get()
             .0
-            .get_external_file(external_file_ref)
+            .load_external_file(external_file_ref)
             .await
     }
 
@@ -109,7 +109,7 @@ struct SymbolManagerWrapperTypeErased<'h>(Box<dyn SymbolManagerTrait + 'h + Send
 
 trait SymbolManagerTrait {
     fn add_known_lib(&mut self, lib_info: LibraryInfo);
-    fn get_symbol_map<'a>(
+    fn load_symbol_map<'a>(
         &'a self,
         debug_name: &'a str,
         debug_id: DebugId,
@@ -121,7 +121,7 @@ trait SymbolManagerTrait {
         external_file_address: &'a ExternalFileAddressRef,
     ) -> Pin<Box<dyn Future<Output = Option<Vec<InlineStackFrame>>> + 'a + Send>>;
 
-    fn get_external_file<'a>(
+    fn load_external_file<'a>(
         &'a self,
         external_file_ref: &'a ExternalFileRef,
     ) -> Pin<Box<dyn Future<Output = Result<ExternalFileSymbolMap, Error>> + 'a + Send>>;
@@ -139,12 +139,12 @@ impl<'h> SymbolManagerTrait for SymbolManagerWrapper<'h> {
     fn add_known_lib(&mut self, lib_info: LibraryInfo) {
         self.0.helper().add_known_lib(lib_info);
     }
-    fn get_symbol_map<'a>(
+    fn load_symbol_map<'a>(
         &'a self,
         debug_name: &'a str,
         debug_id: DebugId,
     ) -> Pin<Box<dyn Future<Output = Result<SymbolMap, Error>> + 'a + Send>> {
-        Box::pin(self.0.get_symbol_map(debug_name, debug_id))
+        Box::pin(self.0.load_symbol_map(debug_name, debug_id))
     }
 
     fn lookup_external<'a>(
@@ -158,11 +158,11 @@ impl<'h> SymbolManagerTrait for SymbolManagerWrapper<'h> {
         )
     }
 
-    fn get_external_file<'a>(
+    fn load_external_file<'a>(
         &'a self,
         external_file_ref: &'a ExternalFileRef,
     ) -> Pin<Box<dyn Future<Output = Result<ExternalFileSymbolMap, Error>> + 'a + Send>> {
-        Box::pin(self.0.get_external_file(external_file_ref))
+        Box::pin(self.0.load_external_file(external_file_ref))
     }
 
     fn query_json_api<'a>(

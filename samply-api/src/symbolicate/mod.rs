@@ -82,7 +82,7 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SymbolicateApi<'a, 'h, H> {
         {
             let symbol_map = self
                 .symbol_manager
-                .get_symbol_map(&lib.debug_name, debug_id)
+                .load_symbol_map(&lib.debug_name, debug_id)
                 .await?;
 
             symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
