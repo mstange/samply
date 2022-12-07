@@ -16,7 +16,7 @@ trait.
 ```rust
 use samply_api::samply_symbols::{
     FileContents, FileAndPathHelper, FileAndPathHelperResult, OptionallySendFuture,
-    CandidatePathInfo, FileLocation
+    CandidatePathInfo, FileLocation, Symbolicator,
 };
 use samply_api::samply_symbols::debugid::DebugId;
 
@@ -25,7 +25,10 @@ async fn run_query() -> String {
     let helper = ExampleHelper {
         artifact_directory: this_dir.join("..").join("fixtures").join("win64-ci")
     };
-    samply_api::query_api(
+    let symbolicator = Symbolicator::with_helper(&helper);
+    let api = samply_api::Api::new(&symbolicator);
+
+    api.query_api(
         "/symbolicate/v5",
         r#"{
             "memoryMap": [
@@ -43,7 +46,6 @@ async fn run_query() -> String {
               ]
             ]
           }"#,
-        &helper,
     ).await
 }
 

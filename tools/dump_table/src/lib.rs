@@ -2,7 +2,7 @@ pub use samply_symbols::debugid;
 use samply_symbols::debugid::DebugId;
 use samply_symbols::{
     self, CandidatePathInfo, CompactSymbolTable, Error, FileAndPathHelper, FileAndPathHelperResult,
-    FileLocation, OptionallySendFuture,
+    FileLocation, OptionallySendFuture, Symbolicator,
 };
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -27,14 +27,16 @@ async fn get_symbols_retry_id(
     debug_id: Option<DebugId>,
     helper: &Helper,
 ) -> anyhow::Result<CompactSymbolTable> {
+    let symbolicator = Symbolicator::with_helper(helper);
     let debug_id = match debug_id {
         Some(debug_id) => debug_id,
         None => {
             // No debug ID was specified. get_compact_symbol_table always wants one, so we call it twice:
             // First, with a bogus debug ID (DebugId::nil()), and then again with the debug ID that
             // it expected.
-            let result =
-                samply_symbols::get_compact_symbol_table(debug_name, DebugId::nil(), helper).await;
+            let result = symbolicator
+                .get_compact_symbol_table(debug_name, DebugId::nil())
+                .await;
             match result {
                 Ok(table) => return Ok(table),
                 Err(err) => match err {
@@ -47,7 +49,9 @@ async fn get_symbols_retry_id(
             }
         }
     };
-    Ok(samply_symbols::get_compact_symbol_table(debug_name, debug_id, helper).await?)
+    Ok(symbolicator
+        .get_compact_symbol_table(debug_name, debug_id)
+        .await?)
 }
 
 pub fn dump_table(w: &mut impl Write, table: CompactSymbolTable, full: bool) -> anyhow::Result<()> {

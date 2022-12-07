@@ -111,11 +111,11 @@ impl<'a, F: FileContents> ExternalFileContextTrait for ExternalFileContext<'a, F
     }
 }
 
-pub struct ExternalFileSymbolMap<F: FileContents>(
+pub struct ExternalFileSymbolMap<F: FileContents + 'static>(
     Yoke<ExternalFileContextWrapper<'static>, Box<ExternalFileData<F>>>,
 );
 
-impl<F: FileContents> ExternalFileSymbolMap<F> {
+impl<F: FileContents + 'static> ExternalFileSymbolMap<F> {
     pub fn new(file_name: &str, file: F) -> Self {
         let external_file = Box::new(ExternalFileData::new(file_name, file));
         let inner =
@@ -131,6 +131,10 @@ impl<F: FileContents> ExternalFileSymbolMap<F> {
 
     pub fn name(&self) -> &str {
         self.0.backing_cart().name()
+    }
+
+    pub fn is_same_file(&self, external_file_ref: &ExternalFileRef) -> bool {
+        self.name() == external_file_ref.file_name
     }
 
     pub fn lookup(

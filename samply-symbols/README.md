@@ -5,7 +5,7 @@ It maps raw code addresses to symbol strings, and, if available, file name + lin
 information.
 The API was designed for the Firefox profiler.
 
-The main entry point of this crate is the async `get_symbolication_result` function.
+The main entry point of this crate is the `Symbolicator` struct and its async `get_symbol_map` method.
 
 # Design constraints
 
@@ -48,31 +48,73 @@ For debug data we support both DWARF debug data (inside mach-o and ELF binaries)
 # Example
 
 ```rust
-use samply_symbols::{
-    FileContents, FileAndPathHelper, FileAndPathHelperResult, OptionallySendFuture,
-    CandidatePathInfo, FileLocation, AddressDebugInfo, SymbolicationResult, SymbolicationResultKind, SymbolicationQuery
-};
 use samply_symbols::debugid::DebugId;
+use samply_symbols::{
+    CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
+    FramesLookupResult, OptionallySendFuture, Symbolicator,
+};
 
-async fn run_query() -> String {
+async fn run_query() {
     let this_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let helper = ExampleHelper {
-        artifact_directory: this_dir.join("..").join("fixtures").join("win64-ci")
+        artifact_directory: this_dir.join("..").join("fixtures").join("win64-ci"),
     };
-    let r: Result<ExampleSymbolicationResult, _> = samply_symbols::get_symbolication_result(
-            SymbolicationQuery {
-                debug_name: "firefox.pdb",
-                debug_id: DebugId::from_breakpad("AA152DEB2D9B76084C4C44205044422E1").unwrap(),
-                result_kind: SymbolicationResultKind::SymbolsForAddresses {
-                    addresses: &[204776, 129423, 244290, 244219],
-                    with_debug_info: true,
-                },
-            },
-            &helper,
-        ).await;
-    match r {
-        Ok(res) => format!("{:?}", res),
-        Err(err) => format!("Error: {}", err),
+
+    let symbolicator = Symbolicator::with_helper(&helper);
+
+    let symbol_map = match symbolicator
+        .get_symbol_map(
+            "firefox.pdb",
+            DebugId::from_breakpad("AA152DEB2D9B76084C4C44205044422E1").unwrap(),
+        )
+        .await
+    {
+        Ok(symbol_map) => symbol_map,
+        Err(e) => {
+            println!("Error while loading the symbol map: {:?}", e);
+            return;
+        }
+    };
+
+    // Look up the symbol for an address.
+    let lookup_result = symbol_map.lookup(0x1f98f);
+
+    match lookup_result {
+        Some(address_info) => {
+            // Print the symbol name for this address:
+            println!("0x1f98f: {}", address_info.symbol.name);
+
+            // See if we have debug info (file name + line, and inlined frames):
+            match address_info.frames {
+                FramesLookupResult::Available(frames) => {
+                    println!("Debug info:");
+                    for frame in frames {
+                        println!(
+                            " - {:?} ({:?}:{:?})",
+                            frame.function, frame.file_path, frame.line_number
+                        );
+                    }
+                }
+                FramesLookupResult::External(ext_file, ext_file_addr) => {
+                    // Debug info is located in a different file.
+                    if let Some(frames) =
+                        symbolicator.lookup_external(&ext_file, &ext_file_addr).await
+                    {
+                        println!("Debug info:");
+                        for frame in frames {
+                            println!(
+                                " - {:?} ({:?}:{:?})",
+                                frame.function, frame.file_path, frame.line_number
+                            );
+                        }
+                    }
+                }
+                FramesLookupResult::Unavailable => {}
+            }
+        }
+        None => {
+            println!("No symbol was found for address 0x1f98f.")
+        }
     }
 }
 
@@ -82,21 +124,26 @@ struct ExampleHelper {
 
 impl<'h> FileAndPathHelper<'h> for ExampleHelper {
     type F = Vec<u8>;
-    type OpenFileFuture =
-        std::pin::Pin<Box<dyn std::future::Future<Output = FileAndPathHelperResult<Self::F>> + 'h>>;
+    type OpenFileFuture = std::pin::Pin<
+        Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>,
+    >;
 
     fn get_candidate_paths_for_binary_or_pdb(
         &self,
         debug_name: &str,
         _debug_id: &DebugId,
     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
-        Ok(vec![CandidatePathInfo::SingleFile(FileLocation::Path(self.artifact_directory.join(debug_name)))])
+        Ok(vec![CandidatePathInfo::SingleFile(FileLocation::Path(
+            self.artifact_directory.join(debug_name),
+        ))])
     }
 
     fn open_file(
         &'h self,
         location: &FileLocation,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = FileAndPathHelperResult<Self::F>> + 'h>> {
+    ) -> std::pin::Pin<
+        Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>,
+    > {
         async fn read_file_impl(path: std::path::PathBuf) -> FileAndPathHelperResult<Vec<u8>> {
             Ok(std::fs::read(&path)?)
         }
@@ -105,46 +152,7 @@ impl<'h> FileAndPathHelper<'h> for ExampleHelper {
             FileLocation::Path(path) => path.clone(),
             FileLocation::Custom(_) => panic!("Unexpected FileLocation::Custom"),
         };
-        Box::pin(read_file_impl(path.to_path_buf()))
-    }
-}
-
-#[derive(Debug, Default)]
-struct ExampleSymbolicationResult {
-    /// For each address, the symbol name and the (optional) debug info.
-    map: std::collections::HashMap<u32, (String, Option<AddressDebugInfo>)>,
-}
-
-impl SymbolicationResult for ExampleSymbolicationResult {
-    fn from_full_map<S>(_map: Vec<(u32, S)>) -> Self
-    where
-        S: std::ops::Deref<Target = str>,
-    {
-        panic!("Should not be called")
-    }
-
-    fn for_addresses(_addresses: &[u32]) -> Self {
-        Default::default()
-    }
-
-    fn add_address_symbol(
-        &mut self,
-        address: u32,
-        _symbol_address: u32,
-        symbol_name: String,
-        _function_size: Option<u32>,
-    ) {
-        self.map.insert(address, (symbol_name, None));
-    }
-
-    fn add_address_debug_info(&mut self, address: u32, info: AddressDebugInfo) {
-        if let Some(entry) = self.map.get_mut(&address) {
-            entry.1 = Some(info);
-        }
-    }
-
-    fn set_total_symbol_count(&mut self, _total_symbol_count: u32) {
-        // ignored
+        Box::pin(read_file_impl(path))
     }
 }
 ```

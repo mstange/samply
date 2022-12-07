@@ -1,8 +1,6 @@
 use crate::error::Error;
 use crate::to_debug_id;
-use samply_symbols::{
-    AddressDebugInfo, ExternalFileSymbolMap, FileAndPathHelper, FramesLookupResult,
-};
+use samply_symbols::{AddressDebugInfo, FileAndPathHelper, FramesLookupResult, Symbolicator};
 use std::collections::HashMap;
 
 pub mod looked_up_addresses;
@@ -13,32 +11,124 @@ use looked_up_addresses::{AddressResults, LookedUpAddresses};
 use request_json::Lib;
 use serde_json::json;
 
-pub async fn query_api_json<'h>(
-    request_json: &str,
-    helper: &'h impl FileAndPathHelper<'h>,
-) -> String {
-    match query_api_fallible_json(request_json, helper).await {
-        Ok(response_json) => response_json,
-        Err(err) => json!({ "error": err.to_string() }).to_string(),
+pub struct SymbolicateApi<'a, 'h: 'a, H: FileAndPathHelper<'h>> {
+    symbolicator: &'a Symbolicator<'h, H>,
+}
+
+impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SymbolicateApi<'a, 'h, H> {
+    /// Create an [`Api`] instance which uses the provided [`Symbolicator`].
+    pub fn new(symbolicator: &'a Symbolicator<'h, H>) -> Self {
+        Self { symbolicator }
     }
-}
 
-pub async fn query_api_fallible_json<'h>(
-    request_json: &str,
-    helper: &'h impl FileAndPathHelper<'h>,
-) -> Result<String, Error> {
-    let request: request_json::Request = serde_json::from_str(request_json)?;
-    let response = query_api(&request, helper).await?;
-    Ok(serde_json::to_string(&response)?)
-}
+    pub async fn query_api_json(&self, request_json: &str) -> String {
+        match self.query_api_fallible_json(request_json).await {
+            Ok(response_json) => response_json,
+            Err(err) => json!({ "error": err.to_string() }).to_string(),
+        }
+    }
 
-pub async fn query_api<'h>(
-    request: &request_json::Request,
-    helper: &'h impl FileAndPathHelper<'h>,
-) -> Result<response_json::Response, Error> {
-    let requested_addresses = gather_requested_addresses(request)?;
-    let symbolicated_addresses = symbolicate_requested_addresses(requested_addresses, helper).await;
-    Ok(create_response(request, symbolicated_addresses))
+    pub async fn query_api_fallible_json(&self, request_json: &str) -> Result<String, Error> {
+        let request: request_json::Request = serde_json::from_str(request_json)?;
+        let response = self.query_api(&request).await?;
+        Ok(serde_json::to_string(&response)?)
+    }
+
+    pub async fn query_api(
+        &self,
+        request: &request_json::Request,
+    ) -> Result<response_json::Response, Error> {
+        let requested_addresses = gather_requested_addresses(request)?;
+        let symbolicated_addresses = self
+            .symbolicate_requested_addresses(requested_addresses)
+            .await;
+        Ok(create_response(request, symbolicated_addresses))
+    }
+
+    async fn symbolicate_requested_addresses(
+        &self,
+        requested_addresses: HashMap<Lib, Vec<u32>>,
+    ) -> HashMap<Lib, Result<LookedUpAddresses, samply_symbols::Error>> {
+        let mut symbolicated_addresses = HashMap::new();
+        for (lib, addresses) in requested_addresses.into_iter() {
+            let address_results = self
+                .symbolicate_requested_addresses_for_lib(&lib, addresses)
+                .await;
+            symbolicated_addresses.insert(lib, address_results);
+        }
+        symbolicated_addresses
+    }
+
+    async fn symbolicate_requested_addresses_for_lib(
+        &self,
+        lib: &Lib,
+        mut addresses: Vec<u32>,
+    ) -> Result<LookedUpAddresses, samply_symbols::Error> {
+        // Sort the addresses before the lookup, to have a higher chance of hitting
+        // the same external file for subsequent addresses.
+        addresses.sort_unstable();
+        addresses.dedup();
+
+        let debug_id = to_debug_id(&lib.breakpad_id)?;
+
+        let mut symbolication_result = LookedUpAddresses::for_addresses(&addresses);
+        let mut external_addresses = Vec::new();
+
+        // Do the synchronous work first, and keep the symbol_map in a scope without
+        // any other await calls so that the Rust compiler can see that the symbol
+        // map does not exist across any await calls. This makes it so that the
+        // future defined by this async function is Send even if the symbol map is
+        // not Send.
+        {
+            let symbol_map = self
+                .symbolicator
+                .get_symbol_map(&lib.debug_name, debug_id)
+                .await?;
+
+            symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
+
+            for &address in &addresses {
+                if let Some(address_info) = symbol_map.lookup(address) {
+                    symbolication_result.add_address_symbol(
+                        address,
+                        address_info.symbol.address,
+                        address_info.symbol.name,
+                        address_info.symbol.size,
+                    );
+                    match address_info.frames {
+                        FramesLookupResult::Available(frames) => symbolication_result
+                            .add_address_debug_info(address, AddressDebugInfo { frames }),
+                        FramesLookupResult::External(external_file_ref, external_file_address) => {
+                            external_addresses.push((
+                                address,
+                                external_file_ref,
+                                external_file_address,
+                            ));
+                        }
+                        FramesLookupResult::Unavailable => {}
+                    }
+                }
+            }
+        }
+
+        // Look up any addresses whose debug info is in an external file.
+        // The symbolicator caches the most recent external file.
+        // Since our addresses are sorted, they usually happen to be grouped by external
+        // file, so in practice we don't do much (if any) repeated reading of the same
+        // external file.
+
+        for (address, external_file_ref, external_file_address) in external_addresses {
+            if let Some(frames) = self
+                .symbolicator
+                .lookup_external(&external_file_ref, &external_file_address)
+                .await
+            {
+                symbolication_result.add_address_debug_info(address, AddressDebugInfo { frames });
+            }
+        }
+
+        Ok(symbolication_result)
+    }
 }
 
 fn gather_requested_addresses(
@@ -66,94 +156,6 @@ fn gather_requested_addresses(
         }
     }
     Ok(requested_addresses)
-}
-
-async fn symbolicate_requested_addresses<'h>(
-    requested_addresses: HashMap<Lib, Vec<u32>>,
-    helper: &'h impl FileAndPathHelper<'h>,
-) -> HashMap<Lib, Result<LookedUpAddresses, samply_symbols::Error>> {
-    let mut symbolicated_addresses = HashMap::new();
-    for (lib, addresses) in requested_addresses.into_iter() {
-        let address_results =
-            symbolicate_requested_addresses_for_lib(&lib, addresses, helper).await;
-        symbolicated_addresses.insert(lib, address_results);
-    }
-    symbolicated_addresses
-}
-
-async fn symbolicate_requested_addresses_for_lib<'h>(
-    lib: &Lib,
-    mut addresses: Vec<u32>,
-    helper: &'h impl FileAndPathHelper<'h>,
-) -> Result<LookedUpAddresses, samply_symbols::Error> {
-    // Sort the addresses before the lookup, to have a higher chance of hitting
-    // the same external file for subsequent addresses.
-    addresses.sort_unstable();
-    addresses.dedup();
-
-    let debug_id = to_debug_id(&lib.breakpad_id)?;
-
-    let mut symbolication_result = LookedUpAddresses::for_addresses(&addresses);
-    let mut external_addresses = Vec::new();
-
-    // Do the synchronous work first, and keep the symbol_map in a scope without
-    // any other await calls so that the Rust compiler can see that the symbol
-    // map does not exist across any await calls. This makes it so that the
-    // future defined by this async function is Send even if the symbol map is
-    // not Send.
-    {
-        let symbol_map = samply_symbols::get_symbol_map(&lib.debug_name, debug_id, helper).await?;
-
-        symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
-
-        for &address in &addresses {
-            if let Some(address_info) = symbol_map.lookup(address) {
-                symbolication_result.add_address_symbol(
-                    address,
-                    address_info.symbol.address,
-                    address_info.symbol.name,
-                    address_info.symbol.size,
-                );
-                match address_info.frames {
-                    FramesLookupResult::Available(frames) => symbolication_result
-                        .add_address_debug_info(address, AddressDebugInfo { frames }),
-                    FramesLookupResult::External(external_file_ref, external_file_address) => {
-                        external_addresses.push((
-                            address,
-                            external_file_ref,
-                            external_file_address,
-                        ));
-                    }
-                    FramesLookupResult::Unavailable => {}
-                }
-            }
-        }
-    }
-
-    // Look up any addresses whose debug info is in an external file.
-    // We cache the most recent external file.
-    // Since our addresses are sorted, they usually happen to be grouped by external
-    // file, so in practice we don't do much (if any) repeated reading of the same
-    // external file.
-    let mut current_external_file: Option<ExternalFileSymbolMap<_>> = None;
-
-    for (address, external_file_ref, external_file_address) in external_addresses {
-        if current_external_file.is_none()
-            || current_external_file.as_ref().unwrap().name() != external_file_ref.file_name
-        {
-            current_external_file =
-                match samply_symbols::get_external_file(helper, &external_file_ref).await {
-                    Ok(external_file) => Some(external_file),
-                    Err(_) => continue,
-                };
-        }
-        let external_file = current_external_file.as_ref().unwrap();
-        if let Some(frames) = external_file.lookup(&external_file_address) {
-            symbolication_result.add_address_debug_info(address, AddressDebugInfo { frames });
-        }
-    }
-
-    Ok(symbolication_result)
 }
 
 fn create_response(

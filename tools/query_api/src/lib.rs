@@ -1,15 +1,18 @@
 use futures::Future;
 pub use samply_api::debugid::DebugId;
 use samply_api::samply_symbols::{
-    CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
+    CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation, Symbolicator,
 };
+use samply_api::Api;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 
 pub async fn query_api(request_url: &str, request_json: &str, symbol_directory: PathBuf) -> String {
     let helper = Helper { symbol_directory };
-    samply_api::query_api(request_url, request_json, &helper).await
+    let symbolicator = Symbolicator::with_helper(&helper);
+    let api = Api::new(&symbolicator);
+    api.query_api(request_url, request_json).await
 }
 struct Helper {
     symbol_directory: PathBuf,

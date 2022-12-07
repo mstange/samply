@@ -8,11 +8,11 @@ use hyper::{Method, StatusCode};
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use rand::RngCore;
 use samply_api::debugid::{CodeId, DebugId};
-use samply_api::query_api;
 use samply_api::samply_symbols::{
     CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
-    OptionallySendFuture,
+    OptionallySendFuture, Symbolicator,
 };
+use samply_api::Api;
 use serde_derive::Deserialize;
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -409,7 +409,9 @@ async fn symbolication_service(
             // Await the full body to be concatenated into a single `Bytes`...
             let full_body = hyper::body::to_bytes(req.into_body()).await?;
             let full_body = String::from_utf8(full_body.to_vec()).expect("invalid utf-8");
-            let response_json = query_api(&path, &full_body, &*helper).await;
+            let symbolicator = Symbolicator::with_helper(&*helper);
+            let api = Api::new(&symbolicator);
+            let response_json = api.query_api(&path, &full_body).await;
 
             *response.body_mut() = response_json.into();
         }

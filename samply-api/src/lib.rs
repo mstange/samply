@@ -2,17 +2,19 @@
 //! local symbol files. It exposes a single function `query_api`, and uses the
 //! `samply-symbols` crate for its implementation.
 //!
+//! The API is documented in [API.md](../API.md).
+//!
 //! Just like the `samply-symbols` crate, this crate does not contain any direct
 //! file access. It is written in such a way that it can be compiled to
 //! WebAssembly, with all file access being mediated via a `FileAndPathHelper`
 //! trait.
 //!
-//! # Example
+//! ## Example
 //!
 //! ```rust
 //! use samply_api::samply_symbols::{
 //!     FileContents, FileAndPathHelper, FileAndPathHelperResult, OptionallySendFuture,
-//!     CandidatePathInfo, FileLocation
+//!     CandidatePathInfo, FileLocation, Symbolicator,
 //! };
 //! use samply_api::samply_symbols::debugid::DebugId;
 //!
@@ -21,7 +23,10 @@
 //!     let helper = ExampleHelper {
 //!         artifact_directory: this_dir.join("..").join("fixtures").join("win64-ci")
 //!     };
-//!     samply_api::query_api(
+//!     let symbolicator = Symbolicator::with_helper(&helper);
+//!     let api = samply_api::Api::new(&symbolicator);
+//!
+//!     api.query_api(
 //!         "/symbolicate/v5",
 //!         r#"{
 //!             "memoryMap": [
@@ -39,7 +44,6 @@
 //!               ]
 //!             ]
 //!           }"#,
-//!         &helper,
 //!     ).await
 //! }
 //!
@@ -79,9 +83,12 @@
 
 pub use samply_symbols;
 pub use samply_symbols::debugid;
+use samply_symbols::{FileAndPathHelper, Symbolicator};
 
 use debugid::DebugId;
 use serde_json::json;
+use source::SourceApi;
+use symbolicate::SymbolicateApi;
 
 mod error;
 mod source;
@@ -92,30 +99,39 @@ pub(crate) fn to_debug_id(breakpad_id: &str) -> Result<DebugId, samply_symbols::
         .map_err(|_| samply_symbols::Error::InvalidBreakpadId(breakpad_id.to_string()))
 }
 
-/// This is the main API of this crate.
-/// It implements the "Tecken" JSON API, which is also used by the Mozilla symbol server.
-/// It's intended to be used as a drop-in "local symbol server" which gathers its data
-/// directly from file artifacts produced during compilation (rather than consulting
-/// e.g. a database).
-/// The caller needs to implement the `FileAndPathHelper` trait to provide file system access.
-/// The return value is a JSON string.
-///
-/// The following "URLs" are supported:
-///  - `/symbolicate/v5`: This API is documented at <https://tecken.readthedocs.io/en/latest/symbolication.html>.
-///    The returned data has two extra fields: inlines (per address) and module_errors (per job).
-///  - `/source/v1`: Experimental API. Symbolicates an address and lets you read one of the files in the
-///    symbol information for that address.
-pub async fn query_api<'h>(
-    request_url: &str,
-    request_json_data: &str,
-    helper: &'h impl samply_symbols::FileAndPathHelper<'h>,
-) -> String {
-    if request_url == "/symbolicate/v5" {
-        symbolicate::query_api_json(request_json_data, helper).await
-    } else if request_url == "/source/v1" {
-        source::query_api_json(request_json_data, helper).await
-    } else {
-        json!({ "error": format!("Unrecognized URL {}", request_url) }).to_string()
+pub struct Api<'a, 'h: 'a, H: FileAndPathHelper<'h>> {
+    symbolicator: &'a Symbolicator<'h, H>,
+}
+
+impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> Api<'a, 'h, H> {
+    /// Create a [`Api`] instance which uses the provided [`Symbolicator`].
+    pub fn new(symbolicator: &'a Symbolicator<'h, H>) -> Self {
+        Self { symbolicator }
+    }
+
+    /// This is the main API of this crate.
+    /// It implements the "Tecken" JSON API, which is also used by the Mozilla symbol server.
+    /// It's intended to be used as a drop-in "local symbol server" which gathers its data
+    /// directly from file artifacts produced during compilation (rather than consulting
+    /// e.g. a database).
+    /// The caller needs to implement the `FileAndPathHelper` trait to provide file system access.
+    /// The return value is a JSON string.
+    ///
+    /// The following "URLs" are supported:
+    ///  - `/symbolicate/v5`: This API is documented at <https://tecken.readthedocs.io/en/latest/symbolication.html>.
+    ///    The returned data has two extra fields: inlines (per address) and module_errors (per job).
+    ///  - `/source/v1`: Experimental API. Symbolicates an address and lets you read one of the files in the
+    ///    symbol information for that address.
+    pub async fn query_api(&self, request_url: &str, request_json_data: &str) -> String {
+        if request_url == "/symbolicate/v5" {
+            let symbolicate_api = SymbolicateApi::new(self.symbolicator);
+            symbolicate_api.query_api_json(request_json_data).await
+        } else if request_url == "/source/v1" {
+            let source_api = SourceApi::new(self.symbolicator);
+            source_api.query_api_json(request_json_data).await
+        } else {
+            json!({ "error": format!("Unrecognized URL {}", request_url) }).to_string()
+        }
     }
 }
 
