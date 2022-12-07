@@ -44,7 +44,7 @@ pub fn get_arch_range(
     Err(Error::NoMatchMultiArch(debug_ids, errors))
 }
 
-pub async fn get_symbol_map_for_dyld_cache<'h, H>(
+pub async fn load_symbol_map_for_dyld_cache<'h, H>(
     dyld_cache_path: &Path,
     dylib_path: &str,
     helper: &'h H,

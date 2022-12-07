@@ -246,8 +246,12 @@ where
                     dyld_cache_path,
                     dylib_path,
                 } => {
-                    macho::get_symbol_map_for_dyld_cache(&dyld_cache_path, &dylib_path, self.helper)
-                        .await
+                    macho::load_symbol_map_for_dyld_cache(
+                        &dyld_cache_path,
+                        &dylib_path,
+                        self.helper,
+                    )
+                    .await
                 }
             };
 
