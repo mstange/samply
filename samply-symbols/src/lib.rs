@@ -277,7 +277,7 @@ where
             };
         }
         let external_file = current_external_file.as_ref().unwrap();
-        if let Some(frames) = external_file.lookup_address(&external_file_address) {
+        if let Some(frames) = external_file.lookup(&external_file_address) {
             symbolication_result.add_address_debug_info(address, AddressDebugInfo { frames });
         }
     }

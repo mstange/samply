@@ -67,7 +67,7 @@ struct ExternalFileMemberContext<'a> {
 }
 
 impl<'a> ExternalFileMemberContext<'a> {
-    pub fn lookup_address(
+    pub fn lookup(
         &self,
         symbol_name: &[u8],
         offset_from_symbol: u32,
@@ -100,14 +100,14 @@ trait ExternalFileDataOuterTrait {
 }
 
 trait ExternalFileContextTrait {
-    fn lookup_address(
+    fn lookup(
         &self,
         external_file_address: &ExternalFileAddressRef,
     ) -> Option<Vec<InlineStackFrame>>;
 }
 
 impl<'a, F: FileContents> ExternalFileContextTrait for ExternalFileContext<'a, F> {
-    fn lookup_address(
+    fn lookup(
         &self,
         external_file_address: &ExternalFileAddressRef,
     ) -> Option<Vec<InlineStackFrame>> {
@@ -118,7 +118,7 @@ impl<'a, F: FileContents> ExternalFileContextTrait for ExternalFileContext<'a, F
         let mut member_contexts = self.member_contexts.lock().unwrap();
         let mut path_mapper = self.path_mapper.lock().unwrap();
         match member_contexts.get(member_key) {
-            Some(member_context) => member_context.lookup_address(
+            Some(member_context) => member_context.lookup(
                 &external_file_address.symbol_name,
                 external_file_address.offset_from_symbol,
                 &mut path_mapper,
@@ -128,7 +128,7 @@ impl<'a, F: FileContents> ExternalFileContextTrait for ExternalFileContext<'a, F
                     .external_file
                     .make_member_context(external_file_address.name_in_archive.as_deref())
                     .ok()?;
-                let res = member_context.lookup_address(
+                let res = member_context.lookup(
                     &external_file_address.symbol_name,
                     external_file_address.offset_from_symbol,
                     &mut path_mapper,
@@ -162,11 +162,11 @@ impl<F: FileContents> ExternalFileSymbolMap<F> {
         self.0.backing_cart().name()
     }
 
-    pub fn lookup_address(
+    pub fn lookup(
         &self,
         external_file_address: &ExternalFileAddressRef,
     ) -> Option<Vec<InlineStackFrame>> {
-        self.0.get().0.lookup_address(external_file_address)
+        self.0.get().0.lookup(external_file_address)
     }
 }
 
