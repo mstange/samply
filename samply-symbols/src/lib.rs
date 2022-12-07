@@ -188,9 +188,9 @@ pub use crate::error::Error;
 pub use crate::external_file::{get_external_file, ExternalFileSymbolMap};
 use crate::shared::FileContentsWrapper;
 pub use crate::shared::{
-    AddressDebugInfo, CandidatePathInfo, FileAndPathHelper, FileAndPathHelperError,
-    FileAndPathHelperResult, FileContents, FileLocation, FilePath, FramesLookupResult,
-    InlineStackFrame, OptionallySendFuture, ExternalFileRef, ExternalFileAddressRef
+    AddressDebugInfo, CandidatePathInfo, ExternalFileAddressRef, ExternalFileRef,
+    FileAndPathHelper, FileAndPathHelperError, FileAndPathHelperResult, FileContents, FileLocation,
+    FilePath, FramesLookupResult, InlineStackFrame, OptionallySendFuture,
 };
 pub use crate::symbol_map::SymbolMap;
 

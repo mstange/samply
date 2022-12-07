@@ -1,4 +1,8 @@
-use std::{collections::HashMap, path::PathBuf, sync::Mutex};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::Mutex,
+};
 
 use object::{read::archive::ArchiveFile, File, ReadRef};
 use yoke::{Yoke, Yokeable};
@@ -206,7 +210,9 @@ struct ExternalFileData<F: FileContents> {
 
 impl<F: FileContents> ExternalFileData<F> {
     pub fn new(file_name: &str, file: F) -> Self {
-        let base_path = BasePath::CanReferToLocalFiles(PathBuf::from(file_name));
+        let file_path = &Path::new(file_name);
+        let base_path = file_path.parent().unwrap_or(file_path);
+        let base_path = BasePath::CanReferToLocalFiles(base_path.to_owned());
         let file_contents = FileContentsWrapper::new(file);
         let archive_members_by_name: HashMap<Vec<u8>, (u64, u64)> =
             match ArchiveFile::parse(&file_contents) {
