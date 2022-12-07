@@ -16,7 +16,7 @@ pub struct SymbolicateApi<'a, 'h: 'a, H: FileAndPathHelper<'h>> {
 }
 
 impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SymbolicateApi<'a, 'h, H> {
-    /// Create an [`Api`] instance which uses the provided [`Symbolicator`].
+    /// Create a [`SymbolicateApi`] instance which uses the provided [`Symbolicator`].
     pub fn new(symbolicator: &'a Symbolicator<'h, H>) -> Self {
         Self { symbolicator }
     }
