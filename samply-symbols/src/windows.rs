@@ -22,7 +22,7 @@ use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-pub async fn get_symbol_map_for_pdb_corresponding_to_binary<'h>(
+pub async fn load_symbol_map_for_pdb_corresponding_to_binary<'h>(
     file_kind: FileKind,
     file_contents: &FileContentsWrapper<impl FileContents + 'static>,
     file_location: &FileLocation,

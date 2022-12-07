@@ -358,7 +358,7 @@ where
                     macho::get_symbol_map_for_macho(&base_path, file_contents)
                 }
                 FileKind::Pe32 | FileKind::Pe64 => {
-                    match windows::get_symbol_map_for_pdb_corresponding_to_binary(
+                    match windows::load_symbol_map_for_pdb_corresponding_to_binary(
                         file_kind,
                         &file_contents,
                         file_location,
