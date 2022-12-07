@@ -20,7 +20,7 @@ use std::sync::Arc;
 use symsrv::NtSymbolPathEntry;
 use tokio::io::AsyncReadExt;
 use wholesym::debugid::{CodeId, DebugId};
-use wholesym::{LibraryInfo, Symbolicator, SymbolicatorConfig};
+use wholesym::{LibraryInfo, SymbolManager, SymbolManagerConfig};
 
 pub use symsrv;
 pub use wholesym::samply_symbols;
@@ -115,16 +115,16 @@ pub async fn start_server(
 
     let template_values = Arc::new(template_values);
 
-    let mut config = SymbolicatorConfig::new()
+    let mut config = SymbolManagerConfig::new()
         .verbose(verbose)
         .with_nt_symbol_path(symbol_path);
     for lib_info in libinfo_map.into_values() {
         config = config.with_known_lib(lib_info);
     }
-    let symbolicator = Symbolicator::with_config(config);
-    let symbolicator = Arc::new(symbolicator);
+    let symbol_manager = SymbolManager::with_config(config);
+    let symbol_manager = Arc::new(symbol_manager);
     let new_service = make_service_fn(move |_conn| {
-        let symbolicator = symbolicator.clone();
+        let symbol_manager = symbol_manager.clone();
         let profile_filename = profile_filename.map(PathBuf::from);
         let template_values = template_values.clone();
         let path_prefix = path_prefix.clone();
@@ -133,7 +133,7 @@ pub async fn start_server(
                 symbolication_service(
                     req,
                     template_values.clone(),
-                    symbolicator.clone(),
+                    symbol_manager.clone(),
                     profile_filename.clone(),
                     path_prefix.clone(),
                 )
@@ -279,7 +279,7 @@ const TEMPLATE_WITHOUT_PROFILE: &str = r#"
 async fn symbolication_service(
     req: Request<Body>,
     template_values: Arc<HashMap<&'static str, String>>,
-    symbolicator: Arc<Symbolicator>,
+    symbol_manager: Arc<SymbolManager>,
     profile_filename: Option<PathBuf>,
     path_prefix: String,
 ) -> Result<Response<Body>, hyper::Error> {
@@ -399,7 +399,7 @@ async fn symbolication_service(
             // Await the full body to be concatenated into a single `Bytes`...
             let full_body = hyper::body::to_bytes(req.into_body()).await?;
             let full_body = String::from_utf8(full_body.to_vec()).expect("invalid utf-8");
-            let response_json = symbolicator.query_json_api(&path, &full_body).await;
+            let response_json = symbol_manager.query_json_api(&path, &full_body).await;
 
             *response.body_mut() = response_json.into();
         }

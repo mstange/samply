@@ -8,22 +8,22 @@ use samply_api::{
 use samply_symbols::{Error, ExternalFileAddressRef, ExternalFileRef, InlineStackFrame, SymbolMap};
 use yoke::{Yoke, Yokeable};
 
-use crate::{helper::Helper, SymbolicatorConfig};
+use crate::{helper::Helper, SymbolManagerConfig};
 
-pub struct Symbolicator {
-    helper_with_symbolicator: Yoke<SymbolicatorWrapperTypeErased<'static>, Box<Helper>>,
+pub struct SymbolManager {
+    helper_with_symbol_manager: Yoke<SymbolManagerWrapperTypeErased<'static>, Box<Helper>>,
 }
 
-impl Symbolicator {
-    /// Create a new `Symbolicator` with the given config.
-    pub fn with_config(config: SymbolicatorConfig) -> Self {
+impl SymbolManager {
+    /// Create a new `SymbolManager` with the given config.
+    pub fn with_config(config: SymbolManagerConfig) -> Self {
         let helper = Helper::with_config(config);
-        let helper_with_symbolicator = Yoke::attach_to_cart(Box::new(helper), |helper| {
-            let symbolicator = samply_symbols::Symbolicator::with_helper(helper);
-            SymbolicatorWrapperTypeErased(Box::new(SymbolicatorWrapper(symbolicator)))
+        let helper_with_symbol_manager = Yoke::attach_to_cart(Box::new(helper), |helper| {
+            let symbol_manager = samply_symbols::SymbolManager::with_helper(helper);
+            SymbolManagerWrapperTypeErased(Box::new(SymbolManagerWrapper(symbol_manager)))
         });
         Self {
-            helper_with_symbolicator,
+            helper_with_symbol_manager,
         }
     }
 
@@ -33,7 +33,7 @@ impl Symbolicator {
         debug_name: &str,
         debug_id: DebugId,
     ) -> Result<SymbolMap, Error> {
-        self.helper_with_symbolicator
+        self.helper_with_symbol_manager
             .get()
             .0
             .get_symbol_map(debug_name, debug_id)
@@ -52,7 +52,7 @@ impl Symbolicator {
         external_file_ref: &ExternalFileRef,
         external_file_address: &ExternalFileAddressRef,
     ) -> Option<Vec<InlineStackFrame>> {
-        self.helper_with_symbolicator
+        self.helper_with_symbol_manager
             .get()
             .0
             .lookup_external(external_file_ref, external_file_address)
@@ -69,12 +69,12 @@ impl Symbolicator {
     /// `FramesLookupResult::External` from the lookups. Then the address needs to be
     /// looked up in the external file.
     ///
-    /// Also see `Symbolicator::lookup_external`.
+    /// Also see `SymbolManager::lookup_external`.
     pub async fn get_external_file(
         &self,
         external_file_ref: &ExternalFileRef,
     ) -> Result<ExternalFileSymbolMap, Error> {
-        self.helper_with_symbolicator
+        self.helper_with_symbol_manager
             .get()
             .0
             .get_external_file(external_file_ref)
@@ -85,7 +85,7 @@ impl Symbolicator {
     ///
     /// In the future, this will be a feature on this crate and not enabled by default.
     pub async fn query_json_api(&self, path: &str, request_json: &str) -> String {
-        self.helper_with_symbolicator
+        self.helper_with_symbol_manager
             .get()
             .0
             .query_json_api(path, request_json)
@@ -94,15 +94,15 @@ impl Symbolicator {
 }
 
 // Do a trait dance to create a covariant wrapper.
-// This is necessary because samply_symbols::Symbolicator has a generic parameter
+// This is necessary because samply_symbols::SymbolManager has a generic parameter
 // `H: FileAndPathHelper<'h>` - the lifetime is named in the trait. And *that's*
 // only necessary because FileAndPathHelper's OpenFileFuture needs a lifetime
 // parameter. Starting with Rust 1.65, OpenFileFuture could use GATs for the lifetime
 // parameter, but we're keeping a lower MSRV for now. Maybe we can revisit this mid-2023.
 #[derive(Yokeable)]
-struct SymbolicatorWrapperTypeErased<'h>(Box<dyn SymbolicatorTrait + 'h + Send + Sync>);
+struct SymbolManagerWrapperTypeErased<'h>(Box<dyn SymbolManagerTrait + 'h + Send + Sync>);
 
-trait SymbolicatorTrait {
+trait SymbolManagerTrait {
     fn get_symbol_map<'a>(
         &'a self,
         debug_name: &'a str,
@@ -127,9 +127,9 @@ trait SymbolicatorTrait {
     ) -> Pin<Box<dyn Future<Output = String> + 'a + Send>>;
 }
 
-struct SymbolicatorWrapper<'h>(samply_symbols::Symbolicator<'h, Helper>);
+struct SymbolManagerWrapper<'h>(samply_symbols::SymbolManager<'h, Helper>);
 
-impl<'h> SymbolicatorTrait for SymbolicatorWrapper<'h> {
+impl<'h> SymbolManagerTrait for SymbolManagerWrapper<'h> {
     fn get_symbol_map<'a>(
         &'a self,
         debug_name: &'a str,

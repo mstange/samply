@@ -3,7 +3,7 @@
 //! information.
 //! The API was designed for the Firefox profiler.
 //!
-//! The main entry point of this crate is the `Symbolicator` struct and its async `get_symbol_map` method.
+//! The main entry point of this crate is the `SymbolManager` struct and its async `get_symbol_map` method.
 //!
 //! # Design constraints
 //!
@@ -49,7 +49,7 @@
 //! use samply_symbols::debugid::DebugId;
 //! use samply_symbols::{
 //!     CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
-//!     FramesLookupResult, OptionallySendFuture, Symbolicator,
+//!     FramesLookupResult, OptionallySendFuture, SymbolManager,
 //! };
 //!
 //! async fn run_query() {
@@ -58,9 +58,9 @@
 //!         artifact_directory: this_dir.join("..").join("fixtures").join("win64-ci"),
 //!     };
 //!
-//!     let symbolicator = Symbolicator::with_helper(&helper);
+//!     let symbol_manager = SymbolManager::with_helper(&helper);
 //!
-//!     let symbol_map = match symbolicator
+//!     let symbol_map = match symbol_manager
 //!         .get_symbol_map(
 //!             "firefox.pdb",
 //!             DebugId::from_breakpad("AA152DEB2D9B76084C4C44205044422E1").unwrap(),
@@ -96,7 +96,7 @@
 //!                 FramesLookupResult::External(ext_file, ext_file_addr) => {
 //!                     // Debug info is located in a different file.
 //!                     if let Some(frames) =
-//!                         symbolicator.lookup_external(&ext_file, &ext_file_addr).await
+//!                         symbol_manager.lookup_external(&ext_file, &ext_file_addr).await
 //!                     {
 //!                         println!("Debug info:");
 //!                         for frame in frames {
@@ -194,17 +194,17 @@ pub use crate::shared::{
 };
 pub use crate::symbol_map::SymbolMap;
 
-pub struct Symbolicator<'h, H: FileAndPathHelper<'h>> {
+pub struct SymbolManager<'h, H: FileAndPathHelper<'h>> {
     helper: &'h H,
     cached_external_file: Mutex<Option<ExternalFileSymbolMap>>,
 }
 
-impl<'h, H, F> Symbolicator<'h, H>
+impl<'h, H, F> SymbolManager<'h, H>
 where
     H: FileAndPathHelper<'h, F = F>,
     F: FileContents + 'static,
 {
-    // Create a new `Symbolicator`.
+    // Create a new `SymbolManager`.
     pub fn with_helper(helper: &'h H) -> Self {
         Self {
             helper,
@@ -274,7 +274,7 @@ where
     /// `FramesLookupResult::External` from the lookups. Then the address needs to be
     /// looked up in the external file.
     ///
-    /// Also see `Symbolicator::lookup_external`.
+    /// Also see `SymbolManager::lookup_external`.
     pub async fn get_external_file(
         &self,
         external_file_ref: &ExternalFileRef,

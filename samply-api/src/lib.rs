@@ -14,7 +14,7 @@
 //! ```rust
 //! use samply_api::samply_symbols::{
 //!     FileContents, FileAndPathHelper, FileAndPathHelperResult, OptionallySendFuture,
-//!     CandidatePathInfo, FileLocation, Symbolicator,
+//!     CandidatePathInfo, FileLocation, SymbolManager,
 //! };
 //! use samply_api::samply_symbols::debugid::DebugId;
 //!
@@ -23,8 +23,8 @@
 //!     let helper = ExampleHelper {
 //!         artifact_directory: this_dir.join("..").join("fixtures").join("win64-ci")
 //!     };
-//!     let symbolicator = Symbolicator::with_helper(&helper);
-//!     let api = samply_api::Api::new(&symbolicator);
+//!     let symbol_manager = SymbolManager::with_helper(&helper);
+//!     let api = samply_api::Api::new(&symbol_manager);
 //!
 //!     api.query_api(
 //!         "/symbolicate/v5",
@@ -83,7 +83,7 @@
 
 pub use samply_symbols;
 pub use samply_symbols::debugid;
-use samply_symbols::{FileAndPathHelper, Symbolicator};
+use samply_symbols::{FileAndPathHelper, SymbolManager};
 
 use debugid::DebugId;
 use serde_json::json;
@@ -101,13 +101,13 @@ pub(crate) fn to_debug_id(breakpad_id: &str) -> Result<DebugId, samply_symbols::
 
 #[derive(Clone, Copy)]
 pub struct Api<'a, 'h: 'a, H: FileAndPathHelper<'h>> {
-    symbolicator: &'a Symbolicator<'h, H>,
+    symbol_manager: &'a SymbolManager<'h, H>,
 }
 
 impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> Api<'a, 'h, H> {
-    /// Create a [`Api`] instance which uses the provided [`Symbolicator`].
-    pub fn new(symbolicator: &'a Symbolicator<'h, H>) -> Self {
-        Self { symbolicator }
+    /// Create a [`Api`] instance which uses the provided [`SymbolManager`].
+    pub fn new(symbol_manager: &'a SymbolManager<'h, H>) -> Self {
+        Self { symbol_manager }
     }
 
     /// This is the main API of this crate.
@@ -125,10 +125,10 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> Api<'a, 'h, H> {
     ///    symbol information for that address.
     pub async fn query_api(self, request_url: &str, request_json_data: &str) -> String {
         if request_url == "/symbolicate/v5" {
-            let symbolicate_api = SymbolicateApi::new(self.symbolicator);
+            let symbolicate_api = SymbolicateApi::new(self.symbol_manager);
             symbolicate_api.query_api_json(request_json_data).await
         } else if request_url == "/source/v1" {
-            let source_api = SourceApi::new(self.symbolicator);
+            let source_api = SourceApi::new(self.symbol_manager);
             source_api.query_api_json(request_json_data).await
         } else {
             json!({ "error": format!("Unrecognized URL {}", request_url) }).to_string()

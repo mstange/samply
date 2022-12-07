@@ -12,13 +12,13 @@ pub struct LibraryInfo {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct SymbolicatorConfig {
+pub struct SymbolManagerConfig {
     pub(crate) known_libs: HashMap<(String, DebugId), LibraryInfo>,
     pub(crate) verbose: bool,
     pub(crate) nt_symbol_path: Option<Vec<NtSymbolPathEntry>>,
 }
 
-impl SymbolicatorConfig {
+impl SymbolManagerConfig {
     pub fn new() -> Self {
         Self::default()
     }

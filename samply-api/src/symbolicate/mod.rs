@@ -1,6 +1,6 @@
 use crate::error::Error;
 use crate::to_debug_id;
-use samply_symbols::{AddressDebugInfo, FileAndPathHelper, FramesLookupResult, Symbolicator};
+use samply_symbols::{AddressDebugInfo, FileAndPathHelper, FramesLookupResult, SymbolManager};
 use std::collections::HashMap;
 
 pub mod looked_up_addresses;
@@ -12,13 +12,13 @@ use request_json::Lib;
 use serde_json::json;
 
 pub struct SymbolicateApi<'a, 'h: 'a, H: FileAndPathHelper<'h>> {
-    symbolicator: &'a Symbolicator<'h, H>,
+    symbol_manager: &'a SymbolManager<'h, H>,
 }
 
 impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SymbolicateApi<'a, 'h, H> {
-    /// Create a [`SymbolicateApi`] instance which uses the provided [`Symbolicator`].
-    pub fn new(symbolicator: &'a Symbolicator<'h, H>) -> Self {
-        Self { symbolicator }
+    /// Create a [`SymbolicateApi`] instance which uses the provided [`SymbolManager`].
+    pub fn new(symbol_manager: &'a SymbolManager<'h, H>) -> Self {
+        Self { symbol_manager }
     }
 
     pub async fn query_api_json(&self, request_json: &str) -> String {
@@ -81,7 +81,7 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SymbolicateApi<'a, 'h, H> {
         // not Send.
         {
             let symbol_map = self
-                .symbolicator
+                .symbol_manager
                 .get_symbol_map(&lib.debug_name, debug_id)
                 .await?;
 
@@ -112,14 +112,14 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SymbolicateApi<'a, 'h, H> {
         }
 
         // Look up any addresses whose debug info is in an external file.
-        // The symbolicator caches the most recent external file.
+        // The symbol_manager caches the most recent external file.
         // Since our addresses are sorted, they usually happen to be grouped by external
         // file, so in practice we don't do much (if any) repeated reading of the same
         // external file.
 
         for (address, external_file_ref, external_file_address) in external_addresses {
             if let Some(frames) = self
-                .symbolicator
+                .symbol_manager
                 .lookup_external(&external_file_ref, &external_file_address)
                 .await
             {

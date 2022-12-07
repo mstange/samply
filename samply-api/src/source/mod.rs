@@ -1,7 +1,7 @@
 use crate::to_debug_id;
 use samply_symbols::{
     FileAndPathHelper, FileAndPathHelperError, FileContents, FileLocation, FramesLookupResult,
-    Symbolicator,
+    SymbolManager,
 };
 use serde_json::json;
 
@@ -30,13 +30,13 @@ enum SourceError {
 }
 
 pub struct SourceApi<'a, 'h: 'a, H: FileAndPathHelper<'h>> {
-    symbolicator: &'a Symbolicator<'h, H>,
+    symbol_manager: &'a SymbolManager<'h, H>,
 }
 
 impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SourceApi<'a, 'h, H> {
-    /// Create a [`SourceApi`] instance which uses the provided [`Symbolicator`].
-    pub fn new(symbolicator: &'a Symbolicator<'h, H>) -> Self {
-        Self { symbolicator }
+    /// Create a [`SourceApi`] instance which uses the provided [`SymbolManager`].
+    pub fn new(symbol_manager: &'a SymbolManager<'h, H>) -> Self {
+        Self { symbol_manager }
     }
 
     pub async fn query_api_json(&self, request_json: &str) -> String {
@@ -67,7 +67,7 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SourceApi<'a, 'h, H> {
         // Look up the address to see which file paths we are allowed to read.
         let frames = {
             let symbol_map = self
-                .symbolicator
+                .symbol_manager
                 .get_symbol_map(debug_name, debug_id)
                 .await?;
             match symbol_map.lookup(*module_offset) {
@@ -79,7 +79,7 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SourceApi<'a, 'h, H> {
             FramesLookupResult::Available(frames) => frames,
             FramesLookupResult::External(external_file_ref, external_file_address) => {
                 match self
-                    .symbolicator
+                    .symbol_manager
                     .lookup_external(&external_file_ref, &external_file_address)
                     .await
                 {
@@ -106,7 +106,7 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SourceApi<'a, 'h, H> {
             .ok_or(SourceError::NonLocalSymbols)?;
 
         // If we got here, it means that the file access is allowed. Read the file.
-        let helper = self.symbolicator.helper();
+        let helper = self.symbol_manager.helper();
         let file_contents = helper.open_file(&FileLocation::Path(local_path)).await?;
         let file_contents = file_contents.read_bytes_at(0, file_contents.len())?;
         let source = String::from_utf8_lossy(file_contents).to_string();

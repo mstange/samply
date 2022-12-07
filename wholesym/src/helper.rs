@@ -12,15 +12,15 @@ use std::{
     pin::Pin,
 };
 
-use crate::config::SymbolicatorConfig;
+use crate::config::SymbolManagerConfig;
 
 pub struct Helper {
     symbol_cache: Option<SymbolCache>,
-    config: SymbolicatorConfig,
+    config: SymbolManagerConfig,
 }
 
 impl Helper {
-    pub fn with_config(config: SymbolicatorConfig) -> Self {
+    pub fn with_config(config: SymbolManagerConfig) -> Self {
         let symbol_cache = match config.nt_symbol_path.clone() {
             Some(nt_symbol_path) => Some(SymbolCache::new(nt_symbol_path, config.verbose)),
             None => None,

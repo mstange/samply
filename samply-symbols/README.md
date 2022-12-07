@@ -5,7 +5,7 @@ It maps raw code addresses to symbol strings, and, if available, file name + lin
 information.
 The API was designed for the Firefox profiler.
 
-The main entry point of this crate is the `Symbolicator` struct and its async `get_symbol_map` method.
+The main entry point of this crate is the `SymbolManager` struct and its async `get_symbol_map` method.
 
 # Design constraints
 
@@ -51,7 +51,7 @@ For debug data we support both DWARF debug data (inside mach-o and ELF binaries)
 use samply_symbols::debugid::DebugId;
 use samply_symbols::{
     CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
-    FramesLookupResult, OptionallySendFuture, Symbolicator,
+    FramesLookupResult, OptionallySendFuture, SymbolManager,
 };
 
 async fn run_query() {
@@ -60,9 +60,9 @@ async fn run_query() {
         artifact_directory: this_dir.join("..").join("fixtures").join("win64-ci"),
     };
 
-    let symbolicator = Symbolicator::with_helper(&helper);
+    let symbol_manager = SymbolManager::with_helper(&helper);
 
-    let symbol_map = match symbolicator
+    let symbol_map = match symbol_manager
         .get_symbol_map(
             "firefox.pdb",
             DebugId::from_breakpad("AA152DEB2D9B76084C4C44205044422E1").unwrap(),
@@ -98,7 +98,7 @@ async fn run_query() {
                 FramesLookupResult::External(ext_file, ext_file_addr) => {
                     // Debug info is located in a different file.
                     if let Some(frames) =
-                        symbolicator.lookup_external(&ext_file, &ext_file_addr).await
+                        symbol_manager.lookup_external(&ext_file, &ext_file_addr).await
                     {
                         println!("Debug info:");
                         for frame in frames {
