@@ -196,7 +196,7 @@ pub use crate::symbol_map::SymbolMap;
 
 pub struct Symbolicator<'h, H: FileAndPathHelper<'h>> {
     helper: &'h H,
-    cached_external_file: Mutex<Option<ExternalFileSymbolMap<H::F>>>,
+    cached_external_file: Mutex<Option<ExternalFileSymbolMap>>,
 }
 
 impl<'h, H, F> Symbolicator<'h, H>
@@ -278,7 +278,7 @@ where
     pub async fn get_external_file(
         &self,
         external_file_ref: &ExternalFileRef,
-    ) -> Result<ExternalFileSymbolMap<F>, Error> {
+    ) -> Result<ExternalFileSymbolMap, Error> {
         external_file::get_external_file(self.helper, external_file_ref).await
     }
 

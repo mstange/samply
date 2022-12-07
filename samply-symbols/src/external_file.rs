@@ -1,8 +1,4 @@
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-    sync::Mutex,
-};
+use std::{collections::HashMap, path::Path, sync::Mutex};
 
 use object::{read::archive::ArchiveFile, File, ReadRef};
 use yoke::{Yoke, Yokeable};
@@ -16,13 +12,12 @@ use crate::{
     Error, FileAndPathHelper, FileContents, FileLocation, InlineStackFrame,
 };
 
-pub async fn get_external_file<'h, H, F>(
+pub async fn get_external_file<'h, H>(
     helper: &'h H,
     external_file_ref: &ExternalFileRef,
-) -> Result<ExternalFileSymbolMap<F>, Error>
+) -> Result<ExternalFileSymbolMap, Error>
 where
-    F: FileContents + 'static,
-    H: FileAndPathHelper<'h, F = F>,
+    H: FileAndPathHelper<'h>,
 {
     let file = helper
         .open_file(&FileLocation::Path(
@@ -30,10 +25,8 @@ where
         ))
         .await
         .map_err(|e| Error::HelperErrorDuringOpenFile(external_file_ref.file_name.clone(), e))?;
-    Ok(ExternalFileSymbolMap::new(
-        &external_file_ref.file_name,
-        file,
-    ))
+    let symbol_map = ExternalFileSymbolMapImpl::new(&external_file_ref.file_name, file);
+    Ok(ExternalFileSymbolMap(Box::new(symbol_map)))
 }
 
 struct ExternalFileMemberContext<'a> {
@@ -115,11 +108,20 @@ impl<'a, F: FileContents> ExternalFileContextTrait for ExternalFileContext<'a, F
     }
 }
 
-pub struct ExternalFileSymbolMap<F: FileContents + 'static>(
+struct ExternalFileSymbolMapImpl<F: FileContents + 'static>(
     Yoke<ExternalFileContextWrapper<'static>, Box<ExternalFileData<F>>>,
 );
 
-impl<F: FileContents + 'static> ExternalFileSymbolMap<F> {
+trait ExternalFileSymbolMapTrait {
+    fn name(&self) -> &str;
+    fn is_same_file(&self, external_file_ref: &ExternalFileRef) -> bool;
+    fn lookup(
+        &self,
+        external_file_address: &ExternalFileAddressRef,
+    ) -> Option<Vec<InlineStackFrame>>;
+}
+
+impl<F: FileContents + 'static> ExternalFileSymbolMapImpl<F> {
     pub fn new(file_name: &str, file: F) -> Self {
         let external_file = Box::new(ExternalFileData::new(file_name, file));
         let inner =
@@ -132,20 +134,43 @@ impl<F: FileContents + 'static> ExternalFileSymbolMap<F> {
             );
         Self(inner)
     }
+}
 
-    pub fn name(&self) -> &str {
+impl<F: FileContents + 'static> ExternalFileSymbolMapTrait for ExternalFileSymbolMapImpl<F> {
+    fn name(&self) -> &str {
         self.0.backing_cart().name()
     }
 
-    pub fn is_same_file(&self, external_file_ref: &ExternalFileRef) -> bool {
+    fn is_same_file(&self, external_file_ref: &ExternalFileRef) -> bool {
         self.name() == external_file_ref.file_name
     }
 
-    pub fn lookup(
+    fn lookup(
         &self,
         external_file_address: &ExternalFileAddressRef,
     ) -> Option<Vec<InlineStackFrame>> {
         self.0.get().0.lookup(external_file_address)
+    }
+}
+
+#[cfg(feature = "send_futures")]
+pub struct ExternalFileSymbolMap(Box<dyn ExternalFileSymbolMapTrait + Send + Sync>);
+
+#[cfg(not(feature = "send_futures"))]
+pub struct ExternalFileSymbolMap(Box<dyn ExternalFileSymbolMapTrait>);
+
+impl ExternalFileSymbolMap {
+    pub fn name(&self) -> &str {
+        self.0.name()
+    }
+    pub fn is_same_file(&self, external_file_ref: &ExternalFileRef) -> bool {
+        self.0.is_same_file(external_file_ref)
+    }
+    pub fn lookup(
+        &self,
+        external_file_address: &ExternalFileAddressRef,
+    ) -> Option<Vec<InlineStackFrame>> {
+        self.0.lookup(external_file_address)
     }
 }
 
