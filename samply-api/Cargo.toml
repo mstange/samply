@@ -18,9 +18,9 @@ thiserror = "1.0.26"
 serde = { version = "1.0.126", features = ["derive"] }
 serde_json = "1.0.64"
 serde_tuple = "0.5.0"
-yaxpeax-arch = "0.2.7"
-yaxpeax-x86 = "1.1.4"
-yaxpeax-arm = "0.2.3"
+yaxpeax-arch = { version = "0.2.7", default-features = false }
+yaxpeax-x86 = { version = "1.1.4", default-features = false, features = ["std", "fmt"] }
+yaxpeax-arm = { version = "0.2.3", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 memmap2 = "0.5.0"
