@@ -30,7 +30,7 @@ nix-base32 = "0.1.1"
 serde_derive = "1.0.137"
 serde = "1.0.137"
 symsrv = "0.2.0"
-wholesym = { path = "../wholesym" }
+wholesym = { version = "0.1.0", path = "../wholesym" }
 
 # Needed for moria_mac_spotlight, to find dSYM files
 [target.'cfg(target_os = "macos")'.dependencies]
