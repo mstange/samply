@@ -128,6 +128,8 @@ impl EventInterpretation {
     }
 }
 
+pub type BoxedProductNameGenerator = Box<dyn FnOnce(&str) -> String>;
+
 pub struct Converter<U>
 where
     U: Unwinder<Module = Module<Vec<u8>>> + Default,
@@ -143,7 +145,7 @@ where
     build_ids: HashMap<DsoKey, DsoInfo>,
     little_endian: bool,
     have_product_name: bool,
-    delayed_product_name_generator: Option<Box<dyn FnOnce(&str) -> String>>,
+    delayed_product_name_generator: Option<BoxedProductNameGenerator>,
     linux_version: Option<String>,
     extra_binary_artifact_dir: Option<PathBuf>,
     context_switch_handler: ContextSwitchHandler,
@@ -160,7 +162,7 @@ where
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         product: &str,
-        delayed_product_name_generator: Option<Box<dyn FnOnce(&str) -> String>>,
+        delayed_product_name_generator: Option<BoxedProductNameGenerator>,
         build_ids: HashMap<DsoKey, DsoInfo>,
         linux_version: Option<&str>,
         first_sample_time: u64,
@@ -629,7 +631,7 @@ where
 
         if self.delayed_product_name_generator.is_some() && name != "perf-exec" {
             let generator = self.delayed_product_name_generator.take().unwrap();
-            let product = generator(&*name);
+            let product = generator(&name);
             self.profile.set_product(&product);
             self.have_product_name = true;
         }

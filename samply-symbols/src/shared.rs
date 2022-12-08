@@ -552,6 +552,11 @@ impl<T: FileContents> FileContentsWrapper<T> {
     }
 
     #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    #[inline]
     pub fn read_bytes_at(&self, offset: u64, size: u64) -> FileAndPathHelperResult<&[u8]> {
         #[cfg(feature = "partial_read_stats")]
         self.partial_read_stats

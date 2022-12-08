@@ -626,14 +626,14 @@ impl VmData {
         size: u64,
     ) -> kernel_error::Result<Self> {
         let mut data: *mut u8 = ptr::null_mut();
-        let mut data_size: usize = 0;
+        let mut data_size: u32 = 0;
         unsafe {
             mach_vm_read(
                 task,
                 original_address,
                 size,
-                mem::transmute(&mut data),
-                mem::transmute(&mut data_size),
+                &mut data as *mut *mut u8 as *mut usize,
+                &mut data_size as *mut u32,
             )
         }
         .into_result()?;
@@ -641,7 +641,7 @@ impl VmData {
         Ok(Self {
             address_range: original_address..(original_address + data_size as u64),
             data,
-            data_size,
+            data_size: data_size as usize,
         })
     }
 
@@ -665,15 +665,15 @@ impl VmData {
         unsafe {
             mach_vm_remap(
                 mach_task_self(),
-                mem::transmute(&mut data),
+                &mut data as *mut *mut u8 as *mut u64,
                 size,
                 0,
                 1, /* anywhere: true */
                 task,
                 original_address,
                 0,
-                mem::transmute(&mut cur_protection),
-                mem::transmute(&mut max_protection),
+                &mut cur_protection as *mut i32,
+                &mut max_protection as *mut i32,
                 VM_INHERIT_SHARE,
             )
         }
