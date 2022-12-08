@@ -24,7 +24,7 @@ pub struct StackFrame {
     /// index of this StackFrame in its parent Stack
     pub frame: u32,
 
-    #[serde(serialize_with = "as_hex_string")]
+    #[serde(serialize_with = "crate::hex::as_hex_string")]
     pub module_offset: u32,
 
     pub module: String,
@@ -37,12 +37,12 @@ pub struct StackFrame {
 pub struct Symbol {
     pub function: String,
 
-    #[serde(serialize_with = "as_hex_string")]
+    #[serde(serialize_with = "crate::hex::as_hex_string")]
     pub function_offset: u32,
 
     #[serde(
         skip_serializing_if = "Option::is_none",
-        serialize_with = "as_optional_hex_string"
+        serialize_with = "crate::hex::as_optional_hex_string"
     )]
     pub function_size: Option<u32>,
 
@@ -94,28 +94,6 @@ impl From<&samply_symbols::Error> for Error {
             filename: None,
             line: None,
         }
-    }
-}
-
-fn as_hex_string<S, T>(field: &T, serializer: S) -> std::result::Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-    T: std::fmt::LowerHex,
-{
-    serializer.collect_str(&format_args!("0x{:x}", field))
-}
-
-fn as_optional_hex_string<S, T>(
-    field: &Option<T>,
-    serializer: S,
-) -> std::result::Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-    T: std::fmt::LowerHex,
-{
-    match field {
-        Some(field) => serializer.collect_str(&format_args!("0x{:x}", field)),
-        None => serializer.serialize_none(),
     }
 }
 

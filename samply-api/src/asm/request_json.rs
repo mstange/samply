@@ -1,4 +1,3 @@
-use crate::hex::HexPfxLowerU32;
 use serde::Deserialize;
 
 #[derive(Deserialize, Debug)]
@@ -12,11 +11,13 @@ pub struct Request {
     /// The start address where the disassembly should start,
     /// as a "0x"-prefixed hex string, interpreted as a
     /// library-relative offset in bytes.
-    pub start_address: HexPfxLowerU32,
+    #[serde(deserialize_with = "crate::hex::from_prefixed_hex_str")]
+    pub start_address: u32,
 
     /// The length, in bytes, of the machine code that should be disassembled,
     /// as a "0x"-prefixed hex string.
-    pub size: HexPfxLowerU32,
+    #[serde(deserialize_with = "crate::hex::from_prefixed_hex_str")]
+    pub size: u32,
 }
 
 #[cfg(test)]
@@ -36,7 +37,7 @@ mod test {
         }"#;
 
         let r: Request = serde_json::from_str(data)?;
-        assert_eq!(u32::from(r.start_address), 30426946);
+        assert_eq!(r.start_address, 30426946);
         Ok(())
     }
 }

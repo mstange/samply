@@ -1,7 +1,5 @@
 use serde::Deserialize;
 
-use crate::hex::HexPfxLowerU32;
-
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Request {
@@ -17,7 +15,8 @@ pub struct Request {
     /// library-relative offset in bytes.
     /// This address is symbolicated, and any of the files referenced in
     /// the symbolication results is eligible to be requested.
-    pub module_offset: HexPfxLowerU32,
+    #[serde(deserialize_with = "crate::hex::from_prefixed_hex_str")]
+    pub module_offset: u32,
 
     /// The full path of the requested file, must match exactly what
     /// /symbolicate/v5 returned in its response json for the give
@@ -43,7 +42,7 @@ mod test {
 
         let r: Request = serde_json::from_str(data)?;
         println!("{r:?}");
-        assert_eq!(u32::from(r.module_offset), 30426946);
+        assert_eq!(r.module_offset, 30426946);
         Ok(())
     }
 }

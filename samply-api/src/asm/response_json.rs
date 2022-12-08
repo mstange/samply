@@ -1,18 +1,18 @@
 use serde::Serialize;
 use serde_tuple::*;
 
-use crate::hex::HexPfxLowerU32;
-
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Response {
     /// The start address where the return assembly code is located,
     /// as a "0x"-prefixed hex string, interpreted as a
     /// library-relative offset in bytes.
-    pub start_address: HexPfxLowerU32,
+    #[serde(serialize_with = "crate::hex::as_hex_string")]
+    pub start_address: u32,
 
     /// The length, in bytes, of the disassembled machine code.
-    pub size: HexPfxLowerU32,
+    #[serde(serialize_with = "crate::hex::as_hex_string")]
+    pub size: u32,
 
     /// The disassembled instructions.
     pub instructions: Vec<DecodedInstruction>,
@@ -35,8 +35,8 @@ mod test {
     #[test]
     fn serialize_correctly() -> Result<()> {
         let response = Response {
-            start_address: 0x1234.into(),
-            size: 0x3.into(),
+            start_address: 0x1234,
+            size: 0x3,
             instructions: vec![
                 DecodedInstruction {
                     offset: 0,
