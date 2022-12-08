@@ -12,7 +12,7 @@ readme = "README.md"
 
 fxprof-processed-profile = { version = "0.4", path = "../fxprof-processed-profile" }
 # framehop = { path = "../../framehop" }
-framehop = "0.7"
+framehop = "0.7.2"
 # linux-perf-data = { path = "../../linux-perf-data" }
 linux-perf-data = "0.7.0"
 
@@ -36,7 +36,7 @@ nix-base32 = "0.1.1"
 serde_derive = "1.0.137"
 serde = "1.0.137"
 symsrv = "0.2.0"
-wholesym = { version = "0.1.0", path = "../wholesym" }
+wholesym = { version = "0.1.1", path = "../wholesym" }
 
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 
