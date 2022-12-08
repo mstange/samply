@@ -11,11 +11,9 @@ readme = "README.md"
 [dependencies]
 hyper = { version = "0.14.18", features = ["full"] }
 tokio = { version = "1.17.0", features = ["rt", "fs", "rt-multi-thread", "macros"]  }
-futures = "0.3"
 memmap2 = "0.5.0"
 serde_json = "1.0.53"
 uuid = "1.0.0"
-structopt = "0.3.14"
 percent-encoding = "2.1.0"
 libc = "0.2.71"
 flate2 = "1.0"
