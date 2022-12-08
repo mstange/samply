@@ -96,8 +96,8 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> AsmApi<'a, 'h, H> {
         let object = binary_image.make_object();
 
         let query = Query {
-            start_address: *start_address,
-            size: *size,
+            start_address: (*start_address).into(),
+            size: (*size).into(),
         };
 
         do_stuff_with_object(&object, &query)
@@ -168,8 +168,8 @@ fn do_stuff_with_object<'data: 'file, 'file>(
     let reader = yaxpeax_arch::U8Reader::new(bytes);
     let (instructions, len) = decode_arch(reader, architecture, query.size)?;
     Ok(response_json::Response {
-        start_address: relative_start_address,
-        size: len,
+        start_address: relative_start_address.into(),
+        size: len.into(),
         instructions,
     })
 }
