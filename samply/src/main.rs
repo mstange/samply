@@ -9,7 +9,6 @@ mod linux_shared;
 mod server;
 
 use clap::{Args, Parser, Subcommand};
-use samply_server::PortSelection;
 use tempfile::NamedTempFile;
 
 use std::fs::File;
@@ -25,7 +24,7 @@ use linux::profiler;
 #[cfg(target_os = "macos")]
 use mac::profiler;
 
-use server::{start_server_main, ServerProps};
+use server::{start_server_main, PortSelection, ServerProps};
 
 #[derive(Debug, Parser)]
 #[command(

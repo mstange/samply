@@ -15,8 +15,8 @@ use mach::traps::mach_task_self;
 use mach::vm::mach_vm_deallocate;
 use mach::vm_types::{mach_vm_address_t, mach_vm_size_t};
 use object::{CompressedFileRange, CompressionFormat, Object, ObjectSection};
-use samply_server::samply_symbols;
 use samply_symbols::{object, DebugIdExt};
+use wholesym::samply_symbols;
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
