@@ -46,7 +46,7 @@
 //! # Example
 //!
 //! ```rust
-//! use samply_symbols::debugid::DebugId;
+//! use samply_symbols::debugid::{CodeId, DebugId};
 //! use samply_symbols::{
 //!     CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
 //!     FramesLookupResult, OptionallySendFuture, SymbolManager,
@@ -126,14 +126,30 @@
 //!         Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>,
 //!     >;
 //!
-//!     fn get_candidate_paths_for_binary_or_pdb(
+//!     fn get_candidate_paths_for_debug_file(
 //!         &self,
 //!         debug_name: &str,
-//!         _debug_id: &DebugId,
+//!         _debug_id: DebugId,
 //!     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
 //!         Ok(vec![CandidatePathInfo::SingleFile(FileLocation::Path(
 //!             self.artifact_directory.join(debug_name),
 //!         ))])
+//!     }
+//!
+//!     fn get_candidate_paths_for_binary(
+//!         &self,
+//!         _debug_name: Option<&str>,
+//!         _debug_id: Option<DebugId>,
+//!         name: Option<&str>,
+//!         _code_id: Option<&CodeId>,
+//!     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
+//!         if let Some(name) = name {
+//!             Ok(vec![CandidatePathInfo::SingleFile(FileLocation::Path(
+//!                 self.artifact_directory.join(name),
+//!             ))])
+//!         } else {
+//!             Ok(vec![])
+//!         }
 //!     }
 //!
 //!     fn open_file(
@@ -157,13 +173,15 @@
 
 use std::sync::Mutex;
 
+use binary_image::BinaryImageInner;
 pub use debugid;
 pub use object;
 pub use pdb_addr2line::pdb;
 
-use debugid::DebugId;
+use debugid::{CodeId, DebugId};
 use object::{macho::FatHeader, read::FileKind};
 
+mod binary_image;
 mod cache;
 mod chunked_read_buffer_manager;
 mod compact_symbol_table;
@@ -181,6 +199,7 @@ mod symbol_map;
 mod symbol_map_object;
 mod windows;
 
+pub use crate::binary_image::BinaryImage;
 pub use crate::cache::{FileByteSource, FileContentsWithChunkedCaching};
 pub use crate::compact_symbol_table::CompactSymbolTable;
 pub use crate::debugid_util::{debug_id_for_object, DebugIdExt};
@@ -226,9 +245,9 @@ where
     ) -> Result<SymbolMap, Error> {
         let candidate_paths_for_binary = self
             .helper
-            .get_candidate_paths_for_binary_or_pdb(debug_name, &debug_id)
+            .get_candidate_paths_for_debug_file(debug_name, debug_id)
             .map_err(|e| {
-                Error::HelperErrorDuringGetCandidatePathsForBinaryOrPdb(
+                Error::HelperErrorDuringGetCandidatePathsForDebugFile(
                     debug_name.to_string(),
                     debug_id,
                     e,
@@ -265,8 +284,9 @@ where
                 }
             }
         }
-        Err(last_err
-            .unwrap_or_else(|| Error::NoCandidatePathForBinary(debug_name.to_string(), debug_id)))
+        Err(last_err.unwrap_or_else(|| {
+            Error::NoCandidatePathForBinary(Some(debug_name.to_string()), Some(debug_id))
+        }))
     }
 
     /// Load and return an external file which may contain additional debug info.
@@ -315,6 +335,74 @@ where
             *guard = Some(external_file);
         }
         lookup_result
+    }
+
+    /// Returns the file data of the binary for the given `debug_name` and `debug_id`.
+    ///
+    /// This does a quick parse of the file to check that the `debug_id` matches, if it's given.
+    pub async fn load_binary(
+        &self,
+        debug_name: Option<&str>,
+        debug_id: Option<DebugId>,
+        name: Option<&str>,
+        code_id: Option<&CodeId>,
+    ) -> Result<BinaryImage<F>, Error> {
+        // Require at least one pair of Some()s.
+        match (debug_name, debug_id, name, code_id) {
+            (Some(_), Some(_), _, _) => {}
+            (_, _, Some(_), Some(_)) => {}
+            _ => {
+                return Err(Error::NotEnoughInformationToIdentifyBinary);
+            }
+        }
+
+        let candidate_paths_for_binary = self
+            .helper
+            .get_candidate_paths_for_binary(debug_name, debug_id, name, code_id)
+            .map_err(|e| Error::HelperErrorDuringGetCandidatePathsForBinary(e))?;
+
+        let mut last_err = None;
+        for candidate_info in candidate_paths_for_binary {
+            let image = match candidate_info {
+                CandidatePathInfo::SingleFile(file_location) => {
+                    self.load_binary_from_path(&file_location, debug_id).await
+                }
+                CandidatePathInfo::InDyldCache {
+                    dyld_cache_path,
+                    dylib_path,
+                } => {
+                    macho::load_file_data_for_dyld_cache(&dyld_cache_path, &dylib_path, self.helper)
+                        .await
+                        .map(BinaryImageInner::MemberOfDyldSharedCache)
+                        .and_then(|binary| BinaryImage::new(binary, FileKind::DyldCache))
+                }
+            };
+
+            match image {
+                Ok(image) => {
+                    let e = if let Some(expected_debug_id) = debug_id {
+                        if image.debug_id() == Some(expected_debug_id) {
+                            return Ok(image);
+                        }
+                        Error::UnmatchedDebugIdOptional(debug_id.unwrap(), image.debug_id())
+                    } else if let Some(_expected_code_id) = code_id.as_ref() {
+                        // TODO Check code_id
+                        return Ok(image);
+                    } else {
+                        panic!(
+                            "We checked earlier that we have at least one of debug_id / code_id."
+                        )
+                    };
+                    last_err = Some(e);
+                }
+                Err(e) => {
+                    last_err = Some(e);
+                }
+            }
+        }
+        Err(last_err.unwrap_or_else(|| {
+            Error::NoCandidatePathForBinary(debug_name.map(ToString::to_string), debug_id)
+        }))
     }
 
     /// Returns a symbol table in `CompactSymbolTable` format for the requested binary.
@@ -387,5 +475,52 @@ where
             "The file does not have a known format; PDB::open was not able to parse it and object::FileKind::parse was not able to detect the format.",
         ))
         }
+    }
+
+    async fn load_binary_from_path(
+        &self,
+        file_location: &FileLocation,
+        debug_id: Option<DebugId>,
+    ) -> Result<BinaryImage<F>, Error> {
+        let file_contents =
+            self.helper.open_file(file_location).await.map_err(|e| {
+                Error::HelperErrorDuringOpenFile(file_location.to_string_lossy(), e)
+            })?;
+
+        let file_contents = FileContentsWrapper::new(file_contents);
+
+        let file_kind = FileKind::parse(&file_contents)
+            .map_err(|_| Error::InvalidInputError("Unrecognized file"))?;
+        let inner = match file_kind {
+            FileKind::Elf32
+            | FileKind::Elf64
+            | FileKind::MachO32
+            | FileKind::MachO64
+            | FileKind::Pe32
+            | FileKind::Pe64 => BinaryImageInner::Normal(file_contents),
+            FileKind::MachOFat32 | FileKind::MachOFat64 => {
+                let debug_id = match debug_id {
+                    Some(debug_id) => debug_id,
+                    None => return Err(Error::NoDisambiguatorForFatArchive),
+                };
+                let (offset, size) = if file_kind == FileKind::MachOFat64 {
+                    let arches = FatHeader::parse_arch64(&file_contents)
+                        .map_err(|e| Error::ObjectParseError(file_kind, e))?;
+                    macho::get_arch_range(&file_contents, arches, debug_id)?
+                } else {
+                    let arches = FatHeader::parse_arch32(&file_contents)
+                        .map_err(|e| Error::ObjectParseError(file_kind, e))?;
+                    macho::get_arch_range(&file_contents, arches, debug_id)?
+                };
+                let data = macho::MachOFatArchiveMemberData::new(file_contents, offset, size);
+                BinaryImageInner::MemberOfFatArchive(data)
+            }
+            _ => {
+                return Err(Error::InvalidInputError(
+                    "Input was Archive, Coff or Wasm format, which are unsupported for now",
+                ))
+            }
+        };
+        BinaryImage::new(inner, file_kind)
     }
 }

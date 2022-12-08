@@ -6,8 +6,9 @@ pub struct LibraryInfo {
     pub debug_name: String,
     pub debug_id: DebugId,
     pub debug_path: Option<String>,
-    pub path: Option<String>,
+    pub name: Option<String>,
     pub code_id: Option<CodeId>,
+    pub path: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]

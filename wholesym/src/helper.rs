@@ -1,4 +1,4 @@
-use debugid::DebugId;
+use debugid::{CodeId, DebugId};
 use samply_api::samply_symbols;
 use samply_symbols::{
     CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
@@ -76,17 +76,17 @@ impl<'h> FileAndPathHelper<'h> for Helper {
     type OpenFileFuture =
         Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>>;
 
-    fn get_candidate_paths_for_binary_or_pdb(
+    fn get_candidate_paths_for_debug_file(
         &self,
         debug_name: &str,
-        debug_id: &DebugId,
+        debug_id: DebugId,
     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
         let mut paths = vec![];
 
         // Look up (debugName, breakpadId) in the path map.
         let known_libs = self.known_libs.lock().unwrap();
         let libinfo = known_libs
-            .get(&(debug_name.to_string(), *debug_id))
+            .get(&(debug_name.to_string(), debug_id))
             .cloned()
             .unwrap_or_default();
 
@@ -192,6 +192,86 @@ impl<'h> FileAndPathHelper<'h> for Helper {
                 path.into(),
             )));
 
+            // For macOS system libraries, also consult the dyld shared cache.
+            if path.starts_with("/usr/") || path.starts_with("/System/") {
+                paths.push(CandidatePathInfo::InDyldCache {
+                    dyld_cache_path: Path::new("/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_arm64e")
+                        .to_path_buf(),
+                    dylib_path: path.clone(),
+                });
+                paths.push(CandidatePathInfo::InDyldCache {
+                    dyld_cache_path: Path::new("/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_x86_64")
+                        .to_path_buf(),
+                    dylib_path: path.clone(),
+                });
+                paths.push(CandidatePathInfo::InDyldCache {
+                    dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_arm64e")
+                        .to_path_buf(),
+                    dylib_path: path.clone(),
+                });
+                paths.push(CandidatePathInfo::InDyldCache {
+                    dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_x86_64h")
+                        .to_path_buf(),
+                    dylib_path: path.clone(),
+                });
+                paths.push(CandidatePathInfo::InDyldCache {
+                    dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_x86_64")
+                        .to_path_buf(),
+                    dylib_path: path.clone(),
+                });
+            }
+        }
+
+        Ok(paths)
+    }
+
+    fn get_candidate_paths_for_binary(
+        &self,
+        debug_name: Option<&str>,
+        debug_id: Option<DebugId>,
+        name: Option<&str>,
+        code_id: Option<&CodeId>,
+    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
+        let mut paths = vec![];
+
+        let mut name = name.map(ToString::to_string);
+        let mut code_id = code_id.cloned();
+        let mut binary_path = None;
+
+        // Look up (debugName, breakpadId) in the path map.
+        if let (Some(debug_name), Some(debug_id)) = (debug_name, debug_id) {
+            let known_libs = self.known_libs.lock().unwrap();
+            if let Some(lib_info) = known_libs.get(&(debug_name.to_string(), debug_id)) {
+                if name.is_none() && lib_info.name.is_some() {
+                    name = lib_info.name.clone();
+                }
+                if code_id.is_none() && lib_info.code_id.is_some() {
+                    code_id = lib_info.code_id.clone();
+                }
+                if binary_path.is_none() && lib_info.path.is_some() {
+                    binary_path = lib_info.path.clone();
+                }
+            }
+        }
+
+        // Begin with the binary itself.
+        if let Some(path) = binary_path.as_ref() {
+            paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
+                path.into(),
+            )));
+        }
+
+        if let (Some(_symbol_cache), Some(name), Some(code_id)) =
+            (self.symbol_cache.as_ref(), name, code_id)
+        {
+            // We might find this exe / dll file with the help of a symbol server.
+            // Construct a custom string to identify this file.
+            // TODO: Adjust case for case-sensitive symbol servers.
+            let custom = format!("symbolserver:{}/{}/{}", name, code_id, name);
+            paths.push(CandidatePathInfo::SingleFile(FileLocation::Custom(custom)));
+        }
+
+        if let Some(path) = binary_path.as_ref() {
             // For macOS system libraries, also consult the dyld shared cache.
             if path.starts_with("/usr/") || path.starts_with("/System/") {
                 paths.push(CandidatePathInfo::InDyldCache {

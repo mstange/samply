@@ -1,4 +1,4 @@
-use debugid::DebugId;
+use debugid::{CodeId, DebugId};
 use object::read::ReadRef;
 use std::borrow::Cow;
 use std::fmt::Debug;
@@ -108,10 +108,19 @@ pub trait FileAndPathHelper<'h> {
     ///    plus one digit of "pdbAge". On non-Windows, this is the binary's UUID
     ///    (ELF id or mach-o UUID) plus a "0" digit at the end (replacing the pdbAge).
     ///
-    fn get_candidate_paths_for_binary_or_pdb(
+    fn get_candidate_paths_for_debug_file(
         &self,
         debug_name: &str,
-        debug_id: &DebugId,
+        debug_id: DebugId,
+    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>>;
+
+    /// TODO
+    fn get_candidate_paths_for_binary(
+        &self,
+        debug_name: Option<&str>,
+        debug_id: Option<DebugId>,
+        name: Option<&str>,
+        code_id: Option<&CodeId>,
     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>>;
 
     /// This method can usually be ignored and does not need to be implemented; its default
@@ -120,7 +129,7 @@ pub trait FileAndPathHelper<'h> {
     /// This is called in the following case: Let's say you're trying to look up symbols
     /// for "example.pdb". The implementer of this trait might not know the location of
     /// a suitable "example.pdb", but they might know the location of a relevant "example.exe".
-    /// They can return the path to the "example.exe" from `get_candidate_paths_for_binary_or_pdb`.
+    /// They can return the path to the "example.exe" from `get_candidate_paths_for_debug_file`.
     /// Symbolication will look at the exe file, and find a PDB reference inside it, with an
     /// absolute path to a PDB file. Then this method will be called, allowing the trait
     /// implementer to add more PDB candidate paths based on the PDB path from the exe.

@@ -9,8 +9,19 @@ pub enum Error {
     #[error("Unmatched breakpad_id: Expected {0}, but received {1}")]
     UnmatchedDebugId(DebugId, DebugId),
 
+    #[error("Unmatched breakpad_id: Expected {0}, but received {1:?}")]
+    UnmatchedDebugIdOptional(DebugId, Option<DebugId>),
+
     #[error("Invalid breakpad ID {0}")]
     InvalidBreakpadId(String),
+
+    #[error("Not enough information was supplied to identify the requested binary.")]
+    NotEnoughInformationToIdentifyBinary,
+
+    #[error(
+        "Got fat archive but no debug ID was supplied to disambiguate between archive members"
+    )]
+    NoDisambiguatorForFatArchive,
 
     #[error("No match in multi-arch binary, available UUIDs: {}, errors: {}", .0.iter().map(|di| di.breakpad().to_string()).collect::<Vec<String>>().join(", "), .1.iter().map(|e| format!("{}", e)).collect::<Vec<String>>().join(", "))]
     NoMatchMultiArch(Vec<DebugId>, Vec<Error>),
@@ -39,14 +50,15 @@ pub enum Error {
     #[error("MachOHeader parsing error: {0}")]
     MachOHeaderParseError(#[source] object::read::Error),
 
-    #[error(
-        "get_candidate_paths_for_binary_or_pdb helper callback for {0} {1} returned error: {2}"
-    )]
-    HelperErrorDuringGetCandidatePathsForBinaryOrPdb(
+    #[error("get_candidate_paths_for_debug_file helper callback for {0} {1} returned error: {2}")]
+    HelperErrorDuringGetCandidatePathsForDebugFile(
         String,
         DebugId,
         #[source] Box<dyn std::error::Error + Send + Sync>,
     ),
+
+    #[error("get_candidate_paths_for_binary helper callback for returned error: {0}")]
+    HelperErrorDuringGetCandidatePathsForBinary(#[source] Box<dyn std::error::Error + Send + Sync>),
 
     #[error("get_candidate_paths_for_pdb helper callback for {0} {1} returned error: {2}")]
     HelperErrorDuringGetCandidatePathsForPdb(
@@ -61,8 +73,8 @@ pub enum Error {
     #[error("FileContents read_bytes_at for file {0} returned error: {1}")]
     HelperErrorDuringFileReading(String, #[source] Box<dyn std::error::Error + Send + Sync>),
 
-    #[error("No candidate path for binary, for {0} {1}")]
-    NoCandidatePathForBinary(String, DebugId),
+    #[error("No candidate path for binary, for {0:?} {1:?}")]
+    NoCandidatePathForBinary(Option<String>, Option<DebugId>),
 
     #[error("No associated PDB file with the right debug ID was found for the PE (Windows) binary at path {0}")]
     NoMatchingPdbForBinary(String),
@@ -133,6 +145,9 @@ impl Error {
     pub fn enum_as_string(&self) -> &'static str {
         match self {
             Error::UnmatchedDebugId(_, _) => "UnmatchedDebugId",
+            Error::NoDisambiguatorForFatArchive => "NoDisambiguatorForFatArchive",
+            Error::NotEnoughInformationToIdentifyBinary => "NotEnoughInformationToIdentifyBinary",
+            Error::UnmatchedDebugIdOptional(_, _) => "UnmatchedDebugIdOptional",
             Error::InvalidBreakpadId(_) => "InvalidBreakpadId",
             Error::NoMatchMultiArch(_, _) => "NoMatchMultiArch",
             Error::NoLuckMacOsSystemLibrary(_) => "NoLuckMacOsSystemLibrary",
@@ -143,8 +158,11 @@ impl Error {
             Error::NoMatchingDyldCacheImagePath(_) => "NoMatchingDyldCacheImagePath",
             Error::ObjectParseError(_, _) => "ObjectParseError",
             Error::MachOHeaderParseError(_) => "MachOHeaderParseError",
-            Error::HelperErrorDuringGetCandidatePathsForBinaryOrPdb(_, _, _) => {
-                "HelperErrorDuringGetCandidatePathsForBinaryOrPdb"
+            Error::HelperErrorDuringGetCandidatePathsForDebugFile(_, _, _) => {
+                "HelperErrorDuringGetCandidatePathsForDebugFile"
+            }
+            Error::HelperErrorDuringGetCandidatePathsForBinary(_) => {
+                "HelperErrorDuringGetCandidatePathsForBinary"
             }
             Error::HelperErrorDuringGetCandidatePathsForPdb(_, _, _) => {
                 "HelperErrorDuringGetCandidatePathsForPdb"

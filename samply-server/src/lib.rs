@@ -195,6 +195,7 @@ struct ProfileJsonThread {
 struct ProfileJsonLib {
     pub debug_name: Option<String>,
     pub debug_path: Option<String>,
+    pub name: Option<String>,
     pub path: Option<String>,
     pub breakpad_id: Option<String>,
     pub code_id: Option<String>,
@@ -434,6 +435,7 @@ fn libinfo_map_entry_for_lib(lib: &ProfileJsonLib) -> Option<LibraryInfo> {
     let debug_name = lib.debug_name.clone()?;
     let breakpad_id = lib.breakpad_id.as_ref()?;
     let debug_path = lib.debug_path.clone();
+    let name = lib.name.clone();
     let path = lib.path.clone();
     let debug_id = DebugId::from_breakpad(breakpad_id).ok()?;
     let code_id = lib
@@ -443,9 +445,10 @@ fn libinfo_map_entry_for_lib(lib: &ProfileJsonLib) -> Option<LibraryInfo> {
     let lib_info = LibraryInfo {
         debug_id,
         debug_name,
-        path,
         debug_path,
+        name,
         code_id,
+        path,
     };
     Some(lib_info)
 }

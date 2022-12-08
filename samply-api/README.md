@@ -18,7 +18,7 @@ use samply_api::samply_symbols::{
     FileContents, FileAndPathHelper, FileAndPathHelperResult, OptionallySendFuture,
     CandidatePathInfo, FileLocation, SymbolManager,
 };
-use samply_api::samply_symbols::debugid::DebugId;
+use samply_api::samply_symbols::debugid::{CodeId, DebugId};
 
 async fn run_query() -> String {
     let this_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -58,12 +58,28 @@ impl<'h> FileAndPathHelper<'h> for ExampleHelper {
     type OpenFileFuture =
         std::pin::Pin<Box<dyn std::future::Future<Output = FileAndPathHelperResult<Self::F>> + 'h>>;
 
-    fn get_candidate_paths_for_binary_or_pdb(
+    fn get_candidate_paths_for_debug_file(
         &self,
         debug_name: &str,
-        _debug_id: &DebugId,
+        _debug_id: DebugId,
     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
         Ok(vec![CandidatePathInfo::SingleFile(FileLocation::Path(self.artifact_directory.join(debug_name)))])
+    }
+
+    fn get_candidate_paths_for_binary(
+        &self,
+        _debug_name: Option<&str>,
+        _debug_id: Option<DebugId>,
+        name: Option<&str>,
+        _code_id: Option<&CodeId>,
+    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
+        if let Some(name) = name {
+            Ok(vec![CandidatePathInfo::SingleFile(FileLocation::Path(
+                self.artifact_directory.join(name),
+            ))])
+        } else {
+            Ok(vec![])
+        }
     }
 
     fn open_file(
