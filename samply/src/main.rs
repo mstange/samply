@@ -71,7 +71,6 @@ struct LoadArgs {
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 #[derive(Debug, Args)]
-#[command(trailing_var_arg = true)]
 struct RecordArgs {
     /// Do not run a local server after recording.
     #[arg(short, long)]
@@ -93,12 +92,8 @@ struct RecordArgs {
     server_args: ServerArgs,
 
     /// Profile the execution of this command.
-    #[arg(required = true)]
-    command: std::ffi::OsString,
-
-    /// The arguments passed to the recorded command.
-    #[arg(allow_hyphen_values = true)]
-    command_args: Vec<std::ffi::OsString>,
+    #[arg(required = true, allow_hyphen_values = true, trailing_var_arg = true)]
+    command: Vec<std::ffi::OsString>,
 }
 
 #[derive(Debug, Args)]
@@ -156,8 +151,8 @@ fn main() {
             let interval = Duration::from_secs_f64(1.0 / record_args.rate);
             let exit_status = match profiler::start_recording(
                 &record_args.output,
-                record_args.command,
-                &record_args.command_args,
+                record_args.command[0].clone(),
+                &record_args.command[1..],
                 time_limit,
                 interval,
                 server_props,
@@ -209,5 +204,22 @@ fn attempt_conversion(filename: &Path, input_file: &File) -> Option<NamedTempFil
 #[test]
 fn verify_cli() {
     use clap::CommandFactory;
-    Opt::command().debug_assert()
+    Opt::command().debug_assert();
+
+    let opt = Opt::parse_from(["samply", "record", "rustup", "show"]);
+    assert!(
+        matches!(opt.action, Action::Record(record_args) if record_args.command == ["rustup", "show"])
+    );
+
+    let opt = Opt::parse_from(["samply", "record", "rustup", "--no-open"]);
+    assert!(
+        matches!(opt.action, Action::Record(record_args) if record_args.command == ["rustup", "--no-open"]),
+        "Arguments of the form --arg should be considered part of the command even if they match samply options."
+    );
+
+    let opt = Opt::parse_from(["samply", "record", "--no-open", "rustup"]);
+    assert!(
+        matches!(opt.action, Action::Record(record_args) if record_args.command == ["rustup"] && record_args.server_args.no_open),
+        "Arguments which come before the command name should be treated as samply arguments."
+    );
 }
