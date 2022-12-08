@@ -28,12 +28,13 @@ use mac::profiler;
 use server::{start_server_main, ServerProps};
 
 #[derive(Debug, Parser)]
-#[clap(
+#[command(
     name = "samply",
     about = r#"
 samply is a sampling CPU profiler.
 Run a command, record a CPU profile of its execution, and open the profiler UI.
-On non-macOS platforms, samply can only load existing profiles.
+Recording is currently supported on Linux and macOS.
+On other platforms, samply can only load existing profiles.
 
 EXAMPLES:
     # Default usage:
@@ -45,7 +46,7 @@ EXAMPLES:
 "#
 )]
 struct Opt {
-    #[clap(subcommand)]
+    #[command(subcommand)]
     action: Action,
 }
 
@@ -62,62 +63,61 @@ enum Action {
 #[derive(Debug, Args)]
 struct LoadArgs {
     /// Path to the file that should be loaded.
-    #[clap(parse(from_os_str))]
     file: PathBuf,
 
-    #[clap(flatten)]
+    #[command(flatten)]
     server_args: ServerArgs,
 }
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 #[derive(Debug, Args)]
-#[clap(trailing_var_arg = true)]
+#[command(trailing_var_arg = true)]
 struct RecordArgs {
     /// Do not run a local server after recording.
-    #[clap(short, long)]
+    #[arg(short, long)]
     save_only: bool,
 
     /// Sampling rate, in Hz
-    #[clap(short, long, default_value = "1000")]
+    #[arg(short, long, default_value = "1000")]
     rate: f64,
 
     /// Limit the recorded time to the specified number of seconds
-    #[clap(short, long)]
+    #[arg(short, long)]
     duration: Option<f64>,
 
     /// Output filename.
-    #[clap(short, long, default_value = "profile.json", parse(from_os_str))]
+    #[arg(short, long, default_value = "profile.json")]
     output: PathBuf,
 
-    #[clap(flatten)]
+    #[command(flatten)]
     server_args: ServerArgs,
 
     /// Profile the execution of this command.
-    #[clap(required = true)]
+    #[arg(required = true)]
     command: std::ffi::OsString,
 
     /// The arguments passed to the recorded command.
-    #[clap(multiple_values = true, allow_hyphen_values = true)]
+    #[arg(allow_hyphen_values = true)]
     command_args: Vec<std::ffi::OsString>,
 }
 
 #[derive(Debug, Args)]
 struct ServerArgs {
     /// Do not open the profiler UI.
-    #[clap(short, long)]
+    #[arg(short, long)]
     no_open: bool,
 
     /// The port to use for the local web server
-    #[clap(short, long, default_value = "3000+")]
+    #[arg(short, long, default_value = "3000+")]
     port: String,
 
     /// Print debugging output.
-    #[clap(short, long)]
+    #[arg(short, long)]
     verbose: bool,
 }
 
 fn main() {
-    let opt = Opt::from_args();
+    let opt = Opt::parse();
     match opt.action {
         Action::Load(load_args) => {
             let input_file = match File::open(&load_args.file) {
@@ -204,4 +204,10 @@ fn attempt_conversion(filename: &Path, input_file: &File) -> Option<NamedTempFil
     let writer = BufWriter::new(output_file.as_file());
     serde_json::to_writer(writer, &profile).ok()?;
     Some(output_file)
+}
+
+#[test]
+fn verify_cli() {
+    use clap::CommandFactory;
+    Opt::command().debug_assert()
 }
