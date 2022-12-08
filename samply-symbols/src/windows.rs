@@ -45,43 +45,22 @@ pub async fn load_symbol_map_for_pdb_corresponding_to_binary<'h>(
     let pdb_path_str = std::str::from_utf8(info.path())
         .map_err(|_| Error::PdbPathNotUtf8(file_location.to_string_lossy()))?;
     let pdb_path = PathBuf::from(pdb_path_str);
-    let debug_name = pdb_path
-        .file_name()
-        .ok_or_else(|| Error::PdbPathWithoutFilename(pdb_path_str.to_string()))?;
-    let debug_name = debug_name.to_str().expect("we checked utf-8 above");
-    let pdb_path_cstr = std::ffi::CString::new(pdb_path_str)
-        .expect("shouldn't have internal nul bytes if the rest succeeded");
-
-    let candidate_paths_for_pdb = helper
-        .get_candidate_paths_for_pdb(debug_name, &binary_debug_id, &pdb_path_cstr, file_location)
-        .map_err(|e| {
-            Error::HelperErrorDuringGetCandidatePathsForPdb(
-                debug_name.to_string(),
-                binary_debug_id,
-                e,
-            )
-        })?;
-
-    for pdb_location in candidate_paths_for_pdb {
-        if &pdb_location == file_location {
-            continue;
-        }
-
-        if let Ok(pdb_file) = helper.open_file(&pdb_location).await {
-            if let Ok(symbol_map) = get_symbol_map_for_pdb(
-                FileContentsWrapper::new(pdb_file),
-                &pdb_location.to_base_path(),
-            ) {
-                if symbol_map.debug_id() == binary_debug_id {
-                    return Ok(symbol_map);
-                }
-            }
-        }
+    let pdb_location = FileLocation::Path(pdb_path);
+    let pdb_file = helper
+        .open_file(&pdb_location)
+        .await
+        .map_err(|e| Error::HelperErrorDuringOpenFile(pdb_path_str.to_string(), e))?;
+    let symbol_map = get_symbol_map_for_pdb(
+        FileContentsWrapper::new(pdb_file),
+        &pdb_location.to_base_path(),
+    )?;
+    if symbol_map.debug_id() != binary_debug_id {
+        return Err(Error::UnmatchedDebugId(
+            binary_debug_id,
+            symbol_map.debug_id(),
+        ));
     }
-
-    Err(Error::NoMatchingPdbForBinary(
-        file_location.to_string_lossy(),
-    ))
+    Ok(symbol_map)
 }
 
 pub fn get_symbol_map_for_pe<F>(

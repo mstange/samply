@@ -60,13 +60,6 @@ pub enum Error {
     #[error("get_candidate_paths_for_binary helper callback for returned error: {0}")]
     HelperErrorDuringGetCandidatePathsForBinary(#[source] Box<dyn std::error::Error + Send + Sync>),
 
-    #[error("get_candidate_paths_for_pdb helper callback for {0} {1} returned error: {2}")]
-    HelperErrorDuringGetCandidatePathsForPdb(
-        String,
-        DebugId,
-        #[source] Box<dyn std::error::Error + Send + Sync>,
-    ),
-
     #[error("open_file helper callback for file {0} returned error: {1}")]
     HelperErrorDuringOpenFile(String, #[source] Box<dyn std::error::Error + Send + Sync>),
 
@@ -163,9 +156,6 @@ impl Error {
             }
             Error::HelperErrorDuringGetCandidatePathsForBinary(_) => {
                 "HelperErrorDuringGetCandidatePathsForBinary"
-            }
-            Error::HelperErrorDuringGetCandidatePathsForPdb(_, _, _) => {
-                "HelperErrorDuringGetCandidatePathsForPdb"
             }
             Error::HelperErrorDuringOpenFile(_, _) => "HelperErrorDuringOpenFile",
             Error::HelperErrorDuringFileReading(_, _) => "HelperErrorDuringFileReading",

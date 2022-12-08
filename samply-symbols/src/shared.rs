@@ -123,30 +123,6 @@ pub trait FileAndPathHelper<'h> {
         code_id: Option<&CodeId>,
     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>>;
 
-    /// This method can usually be ignored and does not need to be implemented; its default
-    /// implementation is usually what you want.
-    ///
-    /// This is called in the following case: Let's say you're trying to look up symbols
-    /// for "example.pdb". The implementer of this trait might not know the location of
-    /// a suitable "example.pdb", but they might know the location of a relevant "example.exe".
-    /// They can return the path to the "example.exe" from `get_candidate_paths_for_debug_file`.
-    /// Symbolication will look at the exe file, and find a PDB reference inside it, with an
-    /// absolute path to a PDB file. Then this method will be called, allowing the trait
-    /// implementer to add more PDB candidate paths based on the PDB path from the exe.
-    ///
-    /// I'm actually not sure when that ability would ever be useful. Maybe this method
-    /// should just be removed again.
-    fn get_candidate_paths_for_pdb(
-        &self,
-        _debug_name: &str,
-        _debug_id: &DebugId,
-        pdb_path_as_stored_in_binary: &std::ffi::CStr,
-        _binary_file_location: &FileLocation,
-    ) -> FileAndPathHelperResult<Vec<FileLocation>> {
-        let s = std::str::from_utf8(pdb_path_as_stored_in_binary.to_bytes())?;
-        Ok(vec![FileLocation::Path(s.into())])
-    }
-
     /// This method is the entry point for file access during symbolication.
     /// The implementer needs to return an object which implements the `FileContents` trait.
     /// This method is asynchronous, but once it returns, the file data needs to be
