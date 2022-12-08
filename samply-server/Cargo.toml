@@ -8,11 +8,6 @@ description = "A local webserver that lets the Firefox profiler obtain symbol in
 repository = "https://github.com/mstange/samply/"
 readme = "README.md"
 
-[dependencies.object]
-default-features = false
-features = ["std", "read_core", "macho", "unaligned"]
-version = "0.29"
-
 [dependencies]
 hyper = { version = "0.14.18", features = ["full"] }
 tokio = { version = "1.17.0", features = ["rt", "fs", "rt-multi-thread", "macros"]  }
@@ -31,11 +26,6 @@ serde_derive = "1.0.137"
 serde = "1.0.137"
 symsrv = "0.2.0"
 wholesym = { version = "0.1.0", path = "../wholesym" }
-
-# Needed for moria_mac_spotlight, to find dSYM files
-[target.'cfg(target_os = "macos")'.dependencies]
-core-foundation-sys = "0.8.2"
-core-foundation = "0.9.1"
 
 [profile.release]
 debug = true
