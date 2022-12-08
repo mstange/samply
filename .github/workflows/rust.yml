@@ -26,3 +26,19 @@ jobs:
     - name: Test samply-api
       working-directory: samply-api
       run: cargo test --verbose
+
+    - name: Build wholesym
+      working-directory: samply-api
+      run: cargo build --verbose
+
+    - name: Check tools/benchmarks
+      working-directory: tools/benchmarks
+      run: cargo check --verbose
+
+    - name: Check tools/dump_table
+      working-directory: tools/dump_table
+      run: cargo check --verbose
+
+    - name: Check tools/query_api
+      working-directory: tools/query_api
+      run: cargo check --verbose
