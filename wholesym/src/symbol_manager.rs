@@ -1,13 +1,11 @@
 use std::{future::Future, pin::Pin};
 
 use debugid::DebugId;
-use samply_api::{
-    samply_symbols::{
-        self, Error, ExternalFileAddressRef, ExternalFileRef, ExternalFileSymbolMap,
-        InlineStackFrame, SymbolMap,
-    },
-    Api,
+use samply_api::samply_symbols::{
+    self, Error, ExternalFileAddressRef, ExternalFileRef, ExternalFileSymbolMap, InlineStackFrame,
+    SymbolMap,
 };
+use samply_api::Api;
 use yoke::{Yoke, Yokeable};
 
 use crate::{helper::Helper, LibraryInfo, SymbolManagerConfig};
