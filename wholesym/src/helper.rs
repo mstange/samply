@@ -1,4 +1,3 @@
-use bytes::Bytes;
 use debugid::{CodeId, DebugId};
 use samply_api::samply_symbols;
 use samply_symbols::{
@@ -10,7 +9,6 @@ use symsrv::{memmap2, FileContents, SymbolCache};
 use std::{
     collections::HashMap,
     fs::File,
-    io::Cursor,
     path::{Path, PathBuf},
     pin::Pin,
     sync::Mutex,
@@ -81,38 +79,49 @@ impl Helper {
 
     async fn get_bp_sym_file(&self, rel_path: &str) -> FileAndPathHelperResult<FileContents> {
         for (server_base_url, cache_dir) in &self.config.breakpad_servers {
-            let url = format!("{}/{}", server_base_url, rel_path);
-            // TODO: Save the file to disk without materializing it entirely into memory
-            if let Some(sym_file_bytes) = self.get_bytes_from_url(&url).await {
-                let dest_path = cache_dir.join(rel_path);
-                if let Some(dir) = dest_path.parent() {
-                    tokio::fs::create_dir_all(dir).await?;
-                }
-                let mut cursor = Cursor::new(sym_file_bytes);
-                if self.config.verbose {
-                    eprintln!("Saving bytes to {:?}.", dest_path);
-                }
-                let mut file = tokio::fs::File::create(&dest_path).await?;
-                tokio::io::copy(&mut cursor, &mut file).await?;
-                drop(file);
-                if self.config.verbose {
-                    eprintln!("Opening file {:?}", dest_path.to_string_lossy());
-                }
-                let file = File::open(&dest_path)?;
-                return Ok(FileContents::Mmap(unsafe {
-                    memmap2::MmapOptions::new().map(&file)?
-                }));
+            if let Ok(file) = self
+                .get_bp_sym_file_from_server(rel_path, server_base_url, cache_dir)
+                .await
+            {
+                return Ok(file);
             }
         }
         Err("No breakpad sym file on server".into())
     }
 
-    async fn get_bytes_from_url(&self, url: &str) -> Option<Bytes> {
+    async fn get_bp_sym_file_from_server(
+        &self,
+        rel_path: &str,
+        server_base_url: &str,
+        cache_dir: &Path,
+    ) -> FileAndPathHelperResult<FileContents> {
+        let url = format!("{}/{}", server_base_url, rel_path);
         if self.config.verbose {
             eprintln!("Downloading {}...", url);
         }
-        let response = reqwest::get(url).await.ok()?.error_for_status().ok()?;
-        response.bytes().await.ok()
+        let sym_file_response = reqwest::get(&url).await?.error_for_status()?;
+        let mut stream = sym_file_response.bytes_stream();
+        let dest_path = cache_dir.join(rel_path);
+        if let Some(dir) = dest_path.parent() {
+            tokio::fs::create_dir_all(dir).await?;
+        }
+        if self.config.verbose {
+            eprintln!("Saving bytes to {:?}.", dest_path);
+        }
+        let file = tokio::fs::File::create(&dest_path).await?;
+        let mut writer = tokio::io::BufWriter::new(file);
+        use futures_util::StreamExt;
+        while let Some(item) = stream.next().await {
+            tokio::io::copy(&mut item?.as_ref(), &mut writer).await?;
+        }
+        drop(writer);
+        if self.config.verbose {
+            eprintln!("Opening file {:?}", dest_path.to_string_lossy());
+        }
+        let file = File::open(&dest_path)?;
+        Ok(FileContents::Mmap(unsafe {
+            memmap2::MmapOptions::new().map(&file)?
+        }))
     }
 }
 
