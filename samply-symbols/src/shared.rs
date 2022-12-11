@@ -606,6 +606,9 @@ impl<T: FileContents> FileContentsWrapper<T> {
         Ok(bytes)
     }
 
+    /// Append `size` bytes to `buffer`, starting to read at `offset` in the file.
+    /// If successful, `buffer` must have had its len increased exactly by `size`,
+    /// otherwise the caller may panic.
     pub fn read_bytes_into(
         &self,
         buffer: &mut Vec<u8>,
