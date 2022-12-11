@@ -182,6 +182,7 @@ use debugid::{CodeId, DebugId};
 use object::{macho::FatHeader, read::FileKind};
 
 mod binary_image;
+mod breakpad;
 mod cache;
 mod chunked_read_buffer_manager;
 mod compact_symbol_table;
@@ -469,6 +470,8 @@ where
             }
         } else if windows::is_pdb_file(&file_contents) {
             windows::get_symbol_map_for_pdb(file_contents, &base_path)
+        } else if breakpad::is_breakpad_file(&file_contents) {
+            breakpad::get_symbol_map_for_breakpad_sym(file_contents)
         } else {
             Err(Error::InvalidInputError(
             "The file does not have a known format; PDB::open was not able to parse it and object::FileKind::parse was not able to detect the format.",

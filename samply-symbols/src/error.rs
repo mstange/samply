@@ -3,6 +3,8 @@ use pdb_addr2line::pdb::Error as PdbError;
 use std::path::PathBuf;
 use thiserror::Error;
 
+use crate::breakpad::BreakpadParseError;
+
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum Error {
@@ -11,6 +13,12 @@ pub enum Error {
 
     #[error("Unmatched breakpad_id: Expected {0}, but received {1:?}")]
     UnmatchedDebugIdOptional(DebugId, Option<DebugId>),
+
+    #[error("The Breakpad sym file was malformed, causing a parsing error: {0}")]
+    BreakpadParsing(#[from] BreakpadParseError),
+
+    #[error("Invalid index {0} for file or inline_origin in breakpad sym file")]
+    InvalidFileOrInlineOriginIndexInBreakpadFile(u32),
 
     #[error("Invalid breakpad ID {0}")]
     InvalidBreakpadId(String),
@@ -139,7 +147,11 @@ impl Error {
         match self {
             Error::UnmatchedDebugId(_, _) => "UnmatchedDebugId",
             Error::NoDisambiguatorForFatArchive => "NoDisambiguatorForFatArchive",
+            Error::BreakpadParsing(_) => "BreakpadParsing",
             Error::NotEnoughInformationToIdentifyBinary => "NotEnoughInformationToIdentifyBinary",
+            Error::InvalidFileOrInlineOriginIndexInBreakpadFile(_) => {
+                "InvalidFileOrInlineOriginIndexInBreakpadFile"
+            }
             Error::UnmatchedDebugIdOptional(_, _) => "UnmatchedDebugIdOptional",
             Error::InvalidBreakpadId(_) => "InvalidBreakpadId",
             Error::NoMatchMultiArch(_, _) => "NoMatchMultiArch",

@@ -25,7 +25,7 @@ impl<'h> FileAndPathHelper<'h> for Helper {
     fn get_candidate_paths_for_debug_file(
         &self,
         debug_name: &str,
-        _debug_id: DebugId,
+        debug_id: DebugId,
     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
         let mut paths = vec![];
 
@@ -48,6 +48,14 @@ impl<'h> FileAndPathHelper<'h> for Helper {
                     .join(debug_name),
             )));
         }
+
+        // And Breakpad .sym files
+        paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
+            self.symbol_directory
+                .join(debug_name)
+                .join(debug_id.breakpad().to_string())
+                .join(&format!("{}.sym", debug_name.trim_end_matches(".pdb"))),
+        )));
 
         // Finally, the file itself.
         paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
