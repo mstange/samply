@@ -387,8 +387,29 @@ pub struct AddressInfo {
 }
 
 pub enum FramesLookupResult {
+    /// Debug info for this address was found in the symbol map.
+    ///
+    /// This Vec contains the file name and line number of the address.
+    /// If the compiler inlined a function call at this address, then this Vec
+    /// also contains the function name of the inlined function, along with the
+    /// file and line information inside that function.
+    ///
+    /// The Vec begins with the callee-most ("innermost") inlinee, followed by
+    /// its caller, and so on. The last element is always the outer function.
     Available(Vec<InlineStackFrame>),
+
+    /// Debug info for this address was not found in the symbol map, but can
+    /// potentially be found in a different file, with the help of
+    /// `SymbolManager::lookup_external`.
+    ///
+    /// This case can currently only be hit on macOS: On macOS, linking multiple
+    /// `.o` files together into a library or an executable does not copy the
+    /// DWARF information into the linked output. Instead, the linker stores the
+    /// paths to those original `.o` files, using 'OSO' stabs entries, and debug
+    /// info must be obtained from those original files.
     External(ExternalFileAddressRef),
+
+    /// No debug info is available.
     Unavailable,
 }
 
