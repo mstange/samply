@@ -17,6 +17,14 @@ symsrv = "0.2.0"
 yoke = { version = "0.6.2", features = ["derive"] }
 libc = "0.2.71"
 uuid = "1"
+reqwest = { version = "0.11.10", default-features = false, features = [
+    "rustls-tls",
+    "gzip",
+    "brotli",
+    "deflate"
+] }
+bytes = "1.1.0"
+tokio = { version = "1.17.0", features = ["fs"] }
 
 # Needed for moria_mac_spotlight, to find dSYM files
 [target.'cfg(target_os = "macos")'.dependencies]

@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use debugid::{CodeId, DebugId};
 use samply_api::samply_symbols;
 use samply_symbols::{
@@ -9,6 +10,7 @@ use symsrv::{memmap2, FileContents, SymbolCache};
 use std::{
     collections::HashMap,
     fs::File,
+    io::Cursor,
     path::{Path, PathBuf},
     pin::Pin,
     sync::Mutex,
@@ -24,7 +26,7 @@ pub struct Helper {
 
 impl Helper {
     pub fn with_config(config: SymbolManagerConfig) -> Self {
-        let symbol_cache = match config.nt_symbol_path.clone() {
+        let symbol_cache = match config.effective_nt_symbol_path() {
             Some(nt_symbol_path) => Some(SymbolCache::new(nt_symbol_path, config.verbose)),
             None => None,
         };
@@ -55,19 +57,62 @@ impl Helper {
                 }))
             }
             FileLocation::Custom(custom) => {
-                assert!(custom.starts_with("symbolserver:"));
-                let path = custom.trim_start_matches("symbolserver:");
-                if self.config.verbose {
-                    eprintln!("Trying to get file {:?} from symbol cache", path);
+                if let Some(path) = custom.strip_prefix("winsymbolserver:") {
+                    if self.config.verbose {
+                        eprintln!("Trying to get file {:?} from symbol cache", path);
+                    }
+                    Ok(self
+                        .symbol_cache
+                        .as_ref()
+                        .unwrap()
+                        .get_file(Path::new(path))
+                        .await?)
+                } else if let Some(path) = custom.strip_prefix("bpsymbolserver:") {
+                    if self.config.verbose {
+                        eprintln!("Trying to get file {:?} from breakpad symbol server", path);
+                    }
+                    self.get_bp_sym_file(path).await
+                } else {
+                    panic!("Unexpected custom path: {}", custom);
                 }
-                Ok(self
-                    .symbol_cache
-                    .as_ref()
-                    .unwrap()
-                    .get_file(Path::new(path))
-                    .await?)
             }
         }
+    }
+
+    async fn get_bp_sym_file(&self, rel_path: &str) -> FileAndPathHelperResult<FileContents> {
+        for (server_base_url, cache_dir) in &self.config.breakpad_servers {
+            let url = format!("{}/{}", server_base_url, rel_path);
+            // TODO: Save the file to disk without materializing it entirely into memory
+            if let Some(sym_file_bytes) = self.get_bytes_from_url(&url).await {
+                let dest_path = cache_dir.join(rel_path);
+                if let Some(dir) = dest_path.parent() {
+                    tokio::fs::create_dir_all(dir).await?;
+                }
+                let mut cursor = Cursor::new(sym_file_bytes);
+                if self.config.verbose {
+                    eprintln!("Saving bytes to {:?}.", dest_path);
+                }
+                let mut file = tokio::fs::File::create(&dest_path).await?;
+                tokio::io::copy(&mut cursor, &mut file).await?;
+                drop(file);
+                if self.config.verbose {
+                    eprintln!("Opening file {:?}", dest_path.to_string_lossy());
+                }
+                let file = File::open(&dest_path)?;
+                return Ok(FileContents::Mmap(unsafe {
+                    memmap2::MmapOptions::new().map(&file)?
+                }));
+            }
+        }
+        Err("No breakpad sym file on server".into())
+    }
+
+    async fn get_bytes_from_url(&self, url: &str) -> Option<Bytes> {
+        if self.config.verbose {
+            eprintln!("Downloading {}...", url);
+        }
+        let response = reqwest::get(url).await.ok()?.error_for_status().ok()?;
+        response.bytes().await.ok()
     }
 }
 
@@ -174,14 +219,43 @@ impl<'h> FileAndPathHelper<'h> for Helper {
             PathBuf::from(format!("/usr/lib/debug/usr/bin/{}.debug", &debug_name)),
         )));
 
+        // Search breakpad symbol directories.
+        for dir in &self.config.breakpad_directories_readonly {
+            let bp_path = dir
+                .join(debug_name)
+                .join(debug_id.breakpad().to_string())
+                .join(&format!("{}.sym", debug_name.trim_end_matches(".pdb")));
+            paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(bp_path)));
+        }
+
+        for (_url, dir) in &self.config.breakpad_servers {
+            let bp_path = dir
+                .join(debug_name)
+                .join(debug_id.breakpad().to_string())
+                .join(&format!("{}.sym", debug_name.trim_end_matches(".pdb")));
+            paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(bp_path)));
+        }
+
         if debug_name.ends_with(".pdb") && self.symbol_cache.is_some() {
             // We might find this pdb file with the help of a symbol server.
             // Construct a custom string to identify this pdb.
             let custom = format!(
-                "symbolserver:{}/{}/{}",
+                "winsymbolserver:{}/{}/{}",
                 debug_name,
                 debug_id.breakpad(),
                 debug_name
+            );
+            paths.push(CandidatePathInfo::SingleFile(FileLocation::Custom(custom)));
+        }
+
+        if !self.config.breakpad_servers.is_empty() {
+            // We might find a .sym file on a symbol server.
+            // Construct a custom string to identify this file.
+            let custom = format!(
+                "bpsymbolserver:{}/{}/{}.sym",
+                debug_name,
+                debug_id.breakpad(),
+                debug_name.trim_end_matches(".pdb")
             );
             paths.push(CandidatePathInfo::SingleFile(FileLocation::Custom(custom)));
         }
@@ -267,7 +341,7 @@ impl<'h> FileAndPathHelper<'h> for Helper {
             // We might find this exe / dll file with the help of a symbol server.
             // Construct a custom string to identify this file.
             // TODO: Adjust case for case-sensitive symbol servers.
-            let custom = format!("symbolserver:{}/{}/{}", name, code_id, name);
+            let custom = format!("winsymbolserver:{}/{}/{}", name, code_id, name);
             paths.push(CandidatePathInfo::SingleFile(FileLocation::Custom(custom)));
         }
 

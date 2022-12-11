@@ -8,8 +8,6 @@ use hyper::{Method, StatusCode};
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use rand::RngCore;
 use serde_derive::Deserialize;
-use symsrv::get_symbol_path_from_environment;
-use symsrv::NtSymbolPathEntry;
 use tokio::io::AsyncReadExt;
 use wholesym::debugid::{CodeId, DebugId};
 use wholesym::{LibraryInfo, SymbolManager, SymbolManagerConfig};
@@ -36,7 +34,6 @@ pub async fn start_server_main(file: &Path, props: ServerProps) {
     start_server(
         Some(file),
         props.port_selection,
-        get_symbol_path_from_environment("srv**https://msdl.microsoft.com/download/symbols"),
         props.verbose,
         props.open_in_browser,
     )
@@ -72,10 +69,9 @@ impl PortSelection {
     }
 }
 
-pub async fn start_server(
+async fn start_server(
     profile_filename: Option<&Path>,
     port_selection: PortSelection,
-    symbol_path: Vec<NtSymbolPathEntry>,
     verbose: bool,
     open_in_browser: bool,
 ) {
@@ -135,7 +131,10 @@ pub async fn start_server(
 
     let config = SymbolManagerConfig::new()
         .verbose(verbose)
-        .with_nt_symbol_path(symbol_path);
+        .respect_nt_symbol_path(true)
+        .nt_symbol_path_fallback("srv**https://msdl.microsoft.com/download/symbols");
+    // TODO: Read breakpad symbol server config from some kind of config file, and call breakpad_symbols_server
+
     let mut symbol_manager = SymbolManager::with_config(config);
     for lib_info in libinfo_map.into_values() {
         symbol_manager.add_known_lib(lib_info);
