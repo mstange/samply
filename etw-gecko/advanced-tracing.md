@@ -25,3 +25,7 @@ https://github.com/lallousx86/WinTools/tree/master/WEPExplorer is useful browser
 ### Tracing with vsync
 `xperf -start "NT Kernel Logger" -on latency - stackwalk profile -start "usersession" -on Microsoft-Windows-DxgKrnl:1:1`
 `xperf -stop "NT Kernel Logger" -stop "usersession" -d out.etl`
+
+### Stacks on page faults:
+e.g. `xperf -on latency+ALL_FAULTS -stackwalk PagefaultDemandZero`
+`latency` seems to be needed to get process information.
