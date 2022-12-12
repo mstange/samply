@@ -62,6 +62,8 @@ fn main() {
     let mut pargs = pico_args::Arguments::from_env();
     let merge_threads = pargs.contains("--merge-threads");
     let include_idle = pargs.contains("--idle");
+    let demand_zero_faults = pargs.contains("--demand-zero-faults");
+
 
     let trace_file: String = pargs.free_from_str().unwrap();
 
@@ -197,7 +199,9 @@ fn main() {
 
                     let thread_id: u32 = parser.parse("StackThread");
                     let process_id: u32 = parser.parse("StackProcess");
+
                     if !process_targets.contains(&process_id) {
+                        // eprintln!("not watching");
                         return;
                     }
                     
@@ -227,11 +231,11 @@ fn main() {
                     // Only add callstacks if this stack is associated with a SampleProf event
                     if let Some(last) = thread.last_sample_timestamp {
                         if timestamp as i64 != last {
-                            //eprintln!("");
+                            // eprintln!("doesn't match last");
                             return
                         }
                     } else {
-                        //eprintln!("");
+                        // eprintln!("not last");
                         return
                     }
                     //eprintln!(" sample");
@@ -322,6 +326,37 @@ fn main() {
                     // assert!(thread.running_since_time.is_some(), "thread {} not running @ {} on {}", thread_id, e.EventHeader.TimeStamp, unsafe { e.BufferContext.Anonymous.ProcessorIndex });
                     thread.last_sample_timestamp = Some(e.EventHeader.TimeStamp);
                 }
+                "MSNT_SystemTrace/PageFault/DemandZeroFault" => {
+                    if !demand_zero_faults { return }
+
+                    let thread_id: u32 = s.thread_id();
+                    //println!("sample {}", thread_id);
+                    sample_count += 1;
+
+                    let thread = match threads.entry(thread_id) {
+                        Entry::Occupied(e) => e.into_mut(),
+                        Entry::Vacant(_) => {
+                            if include_idle && merge_threads {
+                                let mut frames = Vec::new();
+                                let thread_name = match thread_id {
+                                    0 => "Idle",
+                                    _ => "Other"
+                                };
+                                let timestamp = e.EventHeader.TimeStamp as u64;
+                                let timestamp = profile_start_instant + Duration::from_nanos(to_nanos(timestamp - start_time));
+
+                                frames.push(gecko_profile::Frame::Label(global_thread.intern_string(&thread_name)));
+                                global_thread.add_sample(timestamp, frames.into_iter(), Duration::ZERO);
+                            }
+                            dropped_sample_count += 1;
+                            // We don't know what process this will before so just drop it for now
+                            return;
+                        }
+                    };
+                    // assert!(thread.running_since_time.is_some(), "thread {} not running @ {} on {}", thread_id, e.EventHeader.TimeStamp, unsafe { e.BufferContext.Anonymous.ProcessorIndex });
+                    thread.last_sample_timestamp = Some(e.EventHeader.TimeStamp);
+                }
+
                 "KernelTraceControl/ImageID/" => {
 
                     let process_id = s.process_id();
