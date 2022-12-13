@@ -216,6 +216,7 @@ struct ProfileJsonLib {
     pub path: Option<String>,
     pub breakpad_id: Option<String>,
     pub code_id: Option<String>,
+    pub arch: Option<String>,
 }
 
 // Returns a base32 string for 24 random bytes.
@@ -443,7 +444,10 @@ fn add_libs_to_libinfo_map(
 ) {
     for lib in libs {
         if let Some(lib_info) = libinfo_map_entry_for_lib(lib) {
-            libinfo_map.insert((lib_info.debug_name.clone(), lib_info.debug_id), lib_info);
+            // If libinfo_map_entry_for_lib returns Some(), debug_name and debug_id are guaranteed to be Some().
+            let debug_name = lib_info.debug_name.clone().unwrap();
+            let debug_id = lib_info.debug_id.unwrap();
+            libinfo_map.insert((debug_name, debug_id), lib_info);
         }
     }
 }
@@ -459,13 +463,15 @@ fn libinfo_map_entry_for_lib(lib: &ProfileJsonLib) -> Option<LibraryInfo> {
         .code_id
         .as_deref()
         .and_then(|ci| CodeId::from_str(ci).ok());
+    let arch = lib.arch.clone();
     let lib_info = LibraryInfo {
-        debug_id,
-        debug_name,
+        debug_id: Some(debug_id),
+        debug_name: Some(debug_name),
         debug_path,
         name,
         code_id,
         path,
+        arch,
     };
     Some(lib_info)
 }

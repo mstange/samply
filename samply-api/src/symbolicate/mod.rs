@@ -1,6 +1,8 @@
 use crate::error::Error;
 use crate::to_debug_id;
-use samply_symbols::{AddressDebugInfo, FileAndPathHelper, FramesLookupResult, SymbolManager};
+use samply_symbols::{
+    AddressDebugInfo, FileAndPathHelper, FramesLookupResult, LibraryInfo, SymbolManager,
+};
 use std::collections::HashMap;
 
 pub mod looked_up_addresses;
@@ -80,10 +82,12 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SymbolicateApi<'a, 'h, H> {
         // future defined by this async function is Send even if the symbol map is
         // not Send.
         {
-            let symbol_map = self
-                .symbol_manager
-                .load_symbol_map(&lib.debug_name, debug_id)
-                .await?;
+            let info = LibraryInfo {
+                debug_name: Some(lib.debug_name.to_string()),
+                debug_id: Some(debug_id),
+                ..Default::default()
+            };
+            let symbol_map = self.symbol_manager.load_symbol_map(&info).await?;
 
             symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
 

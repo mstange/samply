@@ -1,11 +1,13 @@
 use crate::debugid_util::debug_id_for_object;
 use crate::error::Error;
-use crate::shared::{BasePath, FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation};
+use crate::shared::{
+    BasePath, FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation, RangeReadRef,
+};
 use crate::symbol_map::{
     GenericSymbolMap, SymbolMap, SymbolMapDataMidTrait, SymbolMapDataOuterTrait,
 };
 use crate::symbol_map_object::{FunctionAddressesComputer, ObjectSymbolMapDataMid};
-use debugid::DebugId;
+use crate::MultiArchDisambiguator;
 use macho_unwind_info::UnwindInfo;
 use object::macho::{self, LinkeditDataCommand, MachHeader32, MachHeader64};
 use object::read::macho::{FatArch, LoadCommandIterator, MachHeader};
@@ -14,34 +16,68 @@ use object::{Endianness, ReadRef};
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 
+/// Converts a cpu type/subtype pair into the architecture name.
+///
+/// For example, this converts `CPU_TYPE_ARM64, CPU_SUBTYPE_ARM64E` to `Some("arm64e")`.
+fn macho_arch_name_for_cpu_type(cputype: u32, cpusubtype: u32) -> Option<&'static str> {
+    use object::macho::*;
+    let s = match (cputype, cpusubtype) {
+        (CPU_TYPE_X86, _) => "i386",
+        (CPU_TYPE_X86_64, CPU_SUBTYPE_X86_64_H) => "x86_64h",
+        (CPU_TYPE_X86_64, _) => "x86_64",
+        (CPU_TYPE_ARM64, CPU_SUBTYPE_ARM64E) => "arm64e",
+        (CPU_TYPE_ARM64, CPU_SUBTYPE_ARM64_V8) => "arm64v8",
+        (CPU_TYPE_ARM64, _) => "arm64",
+        (CPU_TYPE_ARM64_32, CPU_SUBTYPE_ARM64_32_V8) => "arm64_32v8",
+        (CPU_TYPE_ARM64_32, _) => "arm64_32",
+        (CPU_TYPE_ARM, CPU_SUBTYPE_ARM_V5TEJ) => "armv5",
+        (CPU_TYPE_ARM, CPU_SUBTYPE_ARM_V6) => "armv6",
+        (CPU_TYPE_ARM, CPU_SUBTYPE_ARM_V6M) => "armv6m",
+        (CPU_TYPE_ARM, CPU_SUBTYPE_ARM_V7) => "armv7",
+        (CPU_TYPE_ARM, CPU_SUBTYPE_ARM_V7F) => "armv7f",
+        (CPU_TYPE_ARM, CPU_SUBTYPE_ARM_V7S) => "armv7s",
+        (CPU_TYPE_ARM, CPU_SUBTYPE_ARM_V7K) => "armv7k",
+        (CPU_TYPE_ARM, CPU_SUBTYPE_ARM_V7M) => "armv7m",
+        (CPU_TYPE_ARM, CPU_SUBTYPE_ARM_V7EM) => "armv7em",
+        (CPU_TYPE_ARM, _) => "arm",
+        (CPU_TYPE_POWERPC, CPU_SUBTYPE_POWERPC_ALL) => "ppc",
+        (CPU_TYPE_POWERPC64, CPU_SUBTYPE_POWERPC_ALL) => "ppc64",
+        _ => return None,
+    };
+    Some(s)
+}
+
 /// Returns the (offset, size) in the fat binary file for the object that matches
 // breakpad_id, if found.
 pub fn get_arch_range(
     file_contents: &FileContentsWrapper<impl FileContents>,
     arches: &[impl FatArch],
-    debug_id: DebugId,
+    disambiguator: MultiArchDisambiguator,
 ) -> Result<(u64, u64), Error> {
-    let mut debug_ids = Vec::new();
-    let mut errors = Vec::new();
+    let mut members = Vec::new();
 
     for fat_arch in arches {
-        let range = fat_arch.file_range();
-        let (start, size) = range;
+        let (cputype, cpusubtype) = (fat_arch.cputype(), fat_arch.cpusubtype());
+        let arch = macho_arch_name_for_cpu_type(cputype, cpusubtype);
+        let (start, size) = fat_arch.file_range();
         let file =
             File::parse(file_contents.range(start, size)).map_err(Error::MachOHeaderParseError)?;
-        match debug_id_for_object(&file) {
-            Some(di) => {
-                if di == debug_id {
-                    return Ok(range);
-                }
-                debug_ids.push(di);
+        let debug_id = debug_id_for_object(&file);
+        match disambiguator {
+            MultiArchDisambiguator::Arch(expected_arch) if arch == Some(&expected_arch) => {
+                return Ok(fat_arch.file_range())
             }
-            None => {
-                errors.push(Error::InvalidInputError("Missing mach-O UUID"));
+            MultiArchDisambiguator::DebugId(expected_debug_id)
+                if debug_id == Some(expected_debug_id) =>
+            {
+                return Ok(fat_arch.file_range())
+            }
+            _ => {
+                members.push((arch, cputype, cpusubtype, debug_id));
             }
         }
     }
-    Err(Error::NoMatchMultiArch(debug_ids, errors))
+    Err(Error::NoMatchMultiArch(members))
 }
 
 pub async fn load_file_data_for_dyld_cache<'h, H, F>(
@@ -217,12 +253,16 @@ impl<T: FileContents> MachOFatArchiveMemberData<T> {
             range_size,
         }
     }
+
+    pub fn data(&self) -> RangeReadRef<&'_ FileContentsWrapper<T>> {
+        let file_contents_ref = &self.file_data;
+        file_contents_ref.range(self.start_offset, self.range_size)
+    }
 }
 
 impl<T: FileContents + 'static> SymbolMapDataOuterTrait for MachOFatArchiveMemberData<T> {
     fn make_symbol_map_data_mid(&self) -> Result<Box<dyn SymbolMapDataMidTrait + '_>, Error> {
-        let file_contents_ref = &self.file_data;
-        let range_data = file_contents_ref.range(self.start_offset, self.range_size);
+        let range_data = self.data();
         let macho_file = File::parse(range_data).map_err(Error::MachOHeaderParseError)?;
         let macho_data = MachOData::new(range_data, 0, macho_file.is_64());
         let function_addresses_computer = MachOFunctionAddressesComputer { macho_data };

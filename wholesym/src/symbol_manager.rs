@@ -1,14 +1,16 @@
+use std::path::Path;
 use std::{future::Future, pin::Pin};
 
 use debugid::DebugId;
 use samply_api::samply_symbols::{
     self, Error, ExternalFileAddressRef, ExternalFileRef, ExternalFileSymbolMap, InlineStackFrame,
-    SymbolMap,
+    LibraryInfo, MultiArchDisambiguator, SymbolMap,
 };
 use samply_api::Api;
 use yoke::{Yoke, Yokeable};
 
-use crate::{helper::Helper, LibraryInfo, SymbolManagerConfig};
+use crate::helper::FileReadOnlyHelper;
+use crate::{helper::Helper, SymbolManagerConfig};
 
 pub struct SymbolManager {
     helper_with_symbol_manager: Yoke<SymbolManagerWrapperTypeErased<'static>, Box<Helper>>,
@@ -27,6 +29,27 @@ impl SymbolManager {
         }
     }
 
+    pub async fn library_info_for_binary_at_path(
+        path: &Path,
+        disambiguator: Option<MultiArchDisambiguator>,
+    ) -> Result<LibraryInfo, Error> {
+        let helper = FileReadOnlyHelper;
+        let symbol_manager = samply_symbols::SymbolManager::with_helper(&helper);
+        let binary = symbol_manager
+            .load_binary_at_path(path, disambiguator)
+            .await?;
+        let info = LibraryInfo {
+            debug_name: binary.debug_name().map(ToOwned::to_owned),
+            debug_id: binary.debug_id(),
+            debug_path: binary.debug_path().map(ToOwned::to_owned),
+            name: binary.name().map(ToOwned::to_owned),
+            code_id: binary.code_id(),
+            path: binary.path().map(ToOwned::to_owned),
+            arch: binary.arch().map(ToOwned::to_owned),
+        };
+        Ok(info)
+    }
+
     pub fn add_known_lib(&mut self, lib_info: LibraryInfo) {
         self.helper_with_symbol_manager
             .with_mut(|manager| manager.0.add_known_lib(lib_info));
@@ -42,6 +65,19 @@ impl SymbolManager {
             .get()
             .0
             .load_symbol_map(debug_name, debug_id)
+            .await
+    }
+
+    /// Obtain a symbol map for the given `debug_name` and `debug_id`.
+    pub async fn load_symbol_map_for_binary_at_path(
+        &self,
+        path: &Path,
+        disambiguator: Option<MultiArchDisambiguator>,
+    ) -> Result<SymbolMap, Error> {
+        self.helper_with_symbol_manager
+            .get()
+            .0
+            .load_symbol_map_for_binary_at_path(path, disambiguator)
             .await
     }
 
@@ -108,10 +144,23 @@ struct SymbolManagerWrapperTypeErased<'h>(Box<dyn SymbolManagerTrait + 'h + Send
 
 trait SymbolManagerTrait {
     fn add_known_lib(&mut self, lib_info: LibraryInfo);
+
+    fn library_info_for_binary_at_path<'a>(
+        &'a self,
+        path: &'a Path,
+        disambiguator: Option<MultiArchDisambiguator>,
+    ) -> Pin<Box<dyn Future<Output = Result<LibraryInfo, Error>> + 'a + Send>>;
+
     fn load_symbol_map<'a>(
         &'a self,
         debug_name: &'a str,
         debug_id: DebugId,
+    ) -> Pin<Box<dyn Future<Output = Result<SymbolMap, Error>> + 'a + Send>>;
+
+    fn load_symbol_map_for_binary_at_path<'a>(
+        &'a self,
+        path: &'a Path,
+        disambiguator: Option<MultiArchDisambiguator>,
     ) -> Pin<Box<dyn Future<Output = Result<SymbolMap, Error>> + 'a + Send>>;
 
     fn lookup_external<'a>(
@@ -133,16 +182,65 @@ trait SymbolManagerTrait {
 
 struct SymbolManagerWrapper<'h>(samply_symbols::SymbolManager<'h, Helper>);
 
+impl<'h> SymbolManagerWrapper<'h> {
+    async fn library_info_for_binary_at_path_impl(
+        &self,
+        path: &Path,
+        disambiguator: Option<MultiArchDisambiguator>,
+    ) -> Result<LibraryInfo, Error> {
+        let binary = self.0.load_binary_at_path(path, disambiguator).await?;
+        let info = LibraryInfo {
+            debug_name: binary.debug_name().map(ToOwned::to_owned),
+            debug_id: binary.debug_id(),
+            debug_path: binary.debug_path().map(ToOwned::to_owned),
+            name: binary.name().map(ToOwned::to_owned),
+            code_id: binary.code_id(),
+            path: binary.path().map(ToOwned::to_owned),
+            arch: binary.arch().map(ToOwned::to_owned),
+        };
+        Ok(info)
+    }
+
+    async fn load_symbol_map(&self, info: LibraryInfo) -> Result<SymbolMap, Error> {
+        self.0.load_symbol_map(&info).await
+    }
+}
+
 impl<'h> SymbolManagerTrait for SymbolManagerWrapper<'h> {
     fn add_known_lib(&mut self, lib_info: LibraryInfo) {
         self.0.helper().add_known_lib(lib_info);
     }
+
+    fn library_info_for_binary_at_path<'a>(
+        &'a self,
+        path: &'a Path,
+        disambiguator: Option<MultiArchDisambiguator>,
+    ) -> Pin<Box<dyn Future<Output = Result<LibraryInfo, Error>> + 'a + Send>> {
+        Box::pin(self.library_info_for_binary_at_path_impl(path, disambiguator))
+    }
+
     fn load_symbol_map<'a>(
         &'a self,
         debug_name: &'a str,
         debug_id: DebugId,
     ) -> Pin<Box<dyn Future<Output = Result<SymbolMap, Error>> + 'a + Send>> {
-        Box::pin(self.0.load_symbol_map(debug_name, debug_id))
+        let info = LibraryInfo {
+            debug_name: Some(debug_name.to_string()),
+            debug_id: Some(debug_id),
+            ..Default::default()
+        };
+        Box::pin(self.load_symbol_map(info))
+    }
+
+    fn load_symbol_map_for_binary_at_path<'a>(
+        &'a self,
+        path: &'a Path,
+        disambiguator: Option<MultiArchDisambiguator>,
+    ) -> Pin<Box<dyn Future<Output = Result<SymbolMap, Error>> + 'a + Send>> {
+        Box::pin(
+            self.0
+                .load_symbol_map_for_binary_at_path(path, disambiguator),
+        )
     }
 
     fn lookup_external<'a>(

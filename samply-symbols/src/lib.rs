@@ -49,7 +49,7 @@
 //! use samply_symbols::debugid::{CodeId, DebugId};
 //! use samply_symbols::{
 //!     CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
-//!     FramesLookupResult, OptionallySendFuture, SymbolManager,
+//!     FramesLookupResult, LibraryInfo, OptionallySendFuture, SymbolManager,
 //! };
 //!
 //! async fn run_query() {
@@ -60,13 +60,12 @@
 //!
 //!     let symbol_manager = SymbolManager::with_helper(&helper);
 //!
-//!     let symbol_map = match symbol_manager
-//!         .load_symbol_map(
-//!             "firefox.pdb",
-//!             DebugId::from_breakpad("AA152DEB2D9B76084C4C44205044422E1").unwrap(),
-//!         )
-//!         .await
-//!     {
+//!     let library_info = LibraryInfo {
+//!         debug_name: Some("firefox.pdb".to_string()),
+//!         debug_id: DebugId::from_breakpad("AA152DEB2D9B76084C4C44205044422E1").ok(),
+//!         ..Default::default()
+//!     };
+//!     let symbol_map = match symbol_manager.load_symbol_map(&library_info).await {
 //!         Ok(symbol_map) => symbol_map,
 //!         Err(e) => {
 //!             println!("Error while loading the symbol map: {:?}", e);
@@ -128,22 +127,22 @@
 //!
 //!     fn get_candidate_paths_for_debug_file(
 //!         &self,
-//!         debug_name: &str,
-//!         _debug_id: DebugId,
+//!         library_info: &LibraryInfo,
 //!     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
-//!         Ok(vec![CandidatePathInfo::SingleFile(FileLocation::Path(
-//!             self.artifact_directory.join(debug_name),
-//!         ))])
+//!         if let Some(debug_name) = library_info.debug_name.as_deref() {
+//!             Ok(vec![CandidatePathInfo::SingleFile(FileLocation::Path(
+//!                 self.artifact_directory.join(debug_name),
+//!             ))])
+//!         } else {
+//!             Ok(vec![])
+//!         }
 //!     }
 //!
 //!     fn get_candidate_paths_for_binary(
 //!         &self,
-//!         _debug_name: Option<&str>,
-//!         _debug_id: Option<DebugId>,
-//!         name: Option<&str>,
-//!         _code_id: Option<&CodeId>,
+//!         library_info: &LibraryInfo,
 //!     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
-//!         if let Some(name) = name {
+//!         if let Some(name) = library_info.name.as_deref() {
 //!             Ok(vec![CandidatePathInfo::SingleFile(FileLocation::Path(
 //!                 self.artifact_directory.join(name),
 //!             ))])
@@ -171,6 +170,7 @@
 //! }
 //! ```
 
+use std::path::Path;
 use std::sync::Mutex;
 
 use binary_image::BinaryImageInner;
@@ -210,7 +210,8 @@ pub use crate::shared::{
     relative_address_base, AddressDebugInfo, AddressInfo, CandidatePathInfo,
     ExternalFileAddressInFileRef, ExternalFileAddressRef, ExternalFileRef, FileAndPathHelper,
     FileAndPathHelperError, FileAndPathHelperResult, FileContents, FileContentsWrapper,
-    FileLocation, FilePath, FramesLookupResult, InlineStackFrame, OptionallySendFuture, SymbolInfo,
+    FileLocation, FilePath, FramesLookupResult, InlineStackFrame, LibraryInfo,
+    MultiArchDisambiguator, OptionallySendFuture, SymbolInfo,
 };
 pub use crate::symbol_map::SymbolMap;
 
@@ -237,29 +238,30 @@ where
         self.helper
     }
 
-    /// Obtain a symbol map for the given `debug_name` and `debug_id`.
-    pub async fn load_symbol_map(
-        &self,
-        debug_name: &str,
-        debug_id: DebugId,
-    ) -> Result<SymbolMap, Error> {
+    /// Obtain a symbol map for the library, given the (partial) `LibraryInfo`.
+    /// At least the debug_id has to be given.
+    pub async fn load_symbol_map(&self, library_info: &LibraryInfo) -> Result<SymbolMap, Error> {
+        let debug_id = match library_info.debug_id {
+            Some(debug_id) => debug_id,
+            None => return Err(Error::NotEnoughInformationToIdentifySymbolMap),
+        };
+
         let candidate_paths_for_binary = self
             .helper
-            .get_candidate_paths_for_debug_file(debug_name, debug_id)
+            .get_candidate_paths_for_debug_file(library_info)
             .map_err(|e| {
-                Error::HelperErrorDuringGetCandidatePathsForDebugFile(
-                    debug_name.to_string(),
-                    debug_id,
-                    e,
-                )
+                Error::HelperErrorDuringGetCandidatePathsForDebugFile(library_info.clone(), e)
             })?;
 
         let mut last_err = None;
         for candidate_info in candidate_paths_for_binary {
             let symbol_map = match candidate_info {
                 CandidatePathInfo::SingleFile(file_location) => {
-                    self.load_symbol_map_from_path(&file_location, debug_id)
-                        .await
+                    self.load_symbol_map_from_path(
+                        &file_location,
+                        MultiArchDisambiguator::DebugId(debug_id),
+                    )
+                    .await
                 }
                 CandidatePathInfo::InDyldCache {
                     dyld_cache_path,
@@ -284,9 +286,21 @@ where
                 }
             }
         }
-        Err(last_err.unwrap_or_else(|| {
-            Error::NoCandidatePathForBinary(Some(debug_name.to_string()), Some(debug_id))
-        }))
+        Err(last_err.unwrap_or_else(|| Error::NoCandidatePathForDebugFile(library_info.clone())))
+    }
+
+    pub async fn load_symbol_map_for_binary_at_path(
+        &self,
+        path: &Path,
+        multi_arch_disambiguator: Option<MultiArchDisambiguator>,
+    ) -> Result<SymbolMap, Error> {
+        let library_info = {
+            let binary = self
+                .load_binary_at_path(path, multi_arch_disambiguator)
+                .await?;
+            binary.library_info()
+        };
+        self.load_symbol_map(&library_info).await
     }
 
     /// Load and return an external file which may contain additional debug info.
@@ -347,36 +361,49 @@ where
         name: Option<&str>,
         code_id: Option<&CodeId>,
     ) -> Result<BinaryImage<F>, Error> {
-        // Require at least one pair of Some()s.
-        match (debug_name, debug_id, name, code_id) {
-            (Some(_), Some(_), _, _) => {}
-            (_, _, Some(_), Some(_)) => {}
-            _ => {
-                return Err(Error::NotEnoughInformationToIdentifyBinary);
-            }
+        // Require at least either the code ID or a (debug_name, debug_id) pair.
+        if code_id.is_none() && (debug_name.is_none() || debug_id.is_none()) {
+            return Err(Error::NotEnoughInformationToIdentifyBinary);
         }
+
+        let library_info = LibraryInfo {
+            debug_name: debug_name.map(ToString::to_string),
+            debug_id,
+            name: name.map(ToString::to_string),
+            code_id: code_id.cloned(),
+            ..Default::default()
+        };
 
         let candidate_paths_for_binary = self
             .helper
-            .get_candidate_paths_for_binary(debug_name, debug_id, name, code_id)
+            .get_candidate_paths_for_binary(&library_info)
             .map_err(|e| Error::HelperErrorDuringGetCandidatePathsForBinary(e))?;
 
         let mut last_err = None;
         for candidate_info in candidate_paths_for_binary {
-            let image = match candidate_info {
-                CandidatePathInfo::SingleFile(file_location) => {
-                    self.load_binary_from_path(&file_location, debug_id).await
-                }
-                CandidatePathInfo::InDyldCache {
-                    dyld_cache_path,
-                    dylib_path,
-                } => {
-                    macho::load_file_data_for_dyld_cache(&dyld_cache_path, &dylib_path, self.helper)
+            let image =
+                match candidate_info {
+                    CandidatePathInfo::SingleFile(file_location) => {
+                        self.load_binary_at_location(
+                            &file_location,
+                            debug_id.map(MultiArchDisambiguator::DebugId),
+                        )
                         .await
-                        .map(BinaryImageInner::MemberOfDyldSharedCache)
-                        .and_then(|binary| BinaryImage::new(binary, FileKind::DyldCache))
-                }
-            };
+                    }
+                    CandidatePathInfo::InDyldCache {
+                        dyld_cache_path,
+                        dylib_path,
+                    } => macho::load_file_data_for_dyld_cache(
+                        &dyld_cache_path,
+                        &dylib_path,
+                        self.helper,
+                    )
+                    .await
+                    .map(BinaryImageInner::MemberOfDyldSharedCache)
+                    .and_then(|binary| {
+                        BinaryImage::new(binary, Some(Path::new(&dylib_path)), FileKind::DyldCache)
+                    }),
+                };
 
             match image {
                 Ok(image) => {
@@ -384,10 +411,12 @@ where
                         if image.debug_id() == Some(expected_debug_id) {
                             return Ok(image);
                         }
-                        Error::UnmatchedDebugIdOptional(debug_id.unwrap(), image.debug_id())
-                    } else if let Some(_expected_code_id) = code_id.as_ref() {
-                        // TODO Check code_id
-                        return Ok(image);
+                        Error::UnmatchedDebugIdOptional(expected_debug_id, image.debug_id())
+                    } else if let Some(expected_code_id) = code_id {
+                        if image.code_id().as_ref() == Some(expected_code_id) {
+                            return Ok(image);
+                        }
+                        Error::UnmatchedCodeId(expected_code_id.clone(), image.code_id())
                     } else {
                         panic!(
                             "We checked earlier that we have at least one of debug_id / code_id."
@@ -405,6 +434,18 @@ where
         }))
     }
 
+    /// Returns the file data of the binary for the given `debug_name` and `debug_id`.
+    ///
+    /// This does a quick parse of the file to check that the `debug_id` matches, if it's given.
+    pub async fn load_binary_at_path(
+        &self,
+        path: &Path,
+        multi_arch_disambiguator: Option<MultiArchDisambiguator>,
+    ) -> Result<BinaryImage<F>, Error> {
+        self.load_binary_at_location(&FileLocation::Path(path.into()), multi_arch_disambiguator)
+            .await
+    }
+
     /// Returns a symbol table in `CompactSymbolTable` format for the requested binary.
     /// `FileAndPathHelper` must be implemented by the caller, to provide file access.
     pub async fn load_compact_symbol_table(
@@ -412,14 +453,19 @@ where
         debug_name: &str,
         debug_id: DebugId,
     ) -> Result<CompactSymbolTable, Error> {
-        let symbol_map = self.load_symbol_map(debug_name, debug_id).await?;
+        let library_info = LibraryInfo {
+            debug_name: Some(debug_name.to_string()),
+            debug_id: Some(debug_id),
+            ..Default::default()
+        };
+        let symbol_map = self.load_symbol_map(&library_info).await?;
         Ok(CompactSymbolTable::from_full_map(symbol_map.to_map()))
     }
 
     async fn load_symbol_map_from_path(
         &self,
         file_location: &FileLocation,
-        debug_id: DebugId,
+        multi_arch_disambiguator: MultiArchDisambiguator,
     ) -> Result<SymbolMap, Error> {
         let file_contents =
             self.helper.open_file(file_location).await.map_err(|e| {
@@ -437,13 +483,15 @@ where
                 FileKind::MachOFat32 => {
                     let arches = FatHeader::parse_arch32(&file_contents)
                         .map_err(|e| Error::ObjectParseError(file_kind, e))?;
-                    let range = macho::get_arch_range(&file_contents, arches, debug_id)?;
+                    let range =
+                        macho::get_arch_range(&file_contents, arches, multi_arch_disambiguator)?;
                     macho::get_symbol_map_for_fat_archive_member(&base_path, file_contents, range)
                 }
                 FileKind::MachOFat64 => {
                     let arches = FatHeader::parse_arch64(&file_contents)
                         .map_err(|e| Error::ObjectParseError(file_kind, e))?;
-                    let range = macho::get_arch_range(&file_contents, arches, debug_id)?;
+                    let range =
+                        macho::get_arch_range(&file_contents, arches, multi_arch_disambiguator)?;
                     macho::get_symbol_map_for_fat_archive_member(&base_path, file_contents, range)
                 }
                 FileKind::MachO32 | FileKind::MachO64 => {
@@ -479,10 +527,10 @@ where
         }
     }
 
-    async fn load_binary_from_path(
+    async fn load_binary_at_location(
         &self,
         file_location: &FileLocation,
-        debug_id: Option<DebugId>,
+        multi_arch_disambiguator: Option<MultiArchDisambiguator>,
     ) -> Result<BinaryImage<F>, Error> {
         let file_contents =
             self.helper.open_file(file_location).await.map_err(|e| {
@@ -501,18 +549,18 @@ where
             | FileKind::Pe32
             | FileKind::Pe64 => BinaryImageInner::Normal(file_contents),
             FileKind::MachOFat32 | FileKind::MachOFat64 => {
-                let debug_id = match debug_id {
-                    Some(debug_id) => debug_id,
+                let multi_arch_disambiguator = match multi_arch_disambiguator {
+                    Some(multi_arch_disambiguator) => multi_arch_disambiguator,
                     None => return Err(Error::NoDisambiguatorForFatArchive),
                 };
                 let (offset, size) = if file_kind == FileKind::MachOFat64 {
                     let arches = FatHeader::parse_arch64(&file_contents)
                         .map_err(|e| Error::ObjectParseError(file_kind, e))?;
-                    macho::get_arch_range(&file_contents, arches, debug_id)?
+                    macho::get_arch_range(&file_contents, arches, multi_arch_disambiguator)?
                 } else {
                     let arches = FatHeader::parse_arch32(&file_contents)
                         .map_err(|e| Error::ObjectParseError(file_kind, e))?;
-                    macho::get_arch_range(&file_contents, arches, debug_id)?
+                    macho::get_arch_range(&file_contents, arches, multi_arch_disambiguator)?
                 };
                 let data = macho::MachOFatArchiveMemberData::new(file_contents, offset, size);
                 BinaryImageInner::MemberOfFatArchive(data)
@@ -523,6 +571,10 @@ where
                 ))
             }
         };
-        BinaryImage::new(inner, file_kind)
+        let path = match file_location {
+            FileLocation::Path(p) => Some(p.as_path()),
+            FileLocation::Custom(_) => None,
+        };
+        BinaryImage::new(inner, path, file_kind)
     }
 }

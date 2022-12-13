@@ -1,9 +1,9 @@
-use debugid::DebugId;
+use debugid::{CodeId, DebugId};
 use pdb_addr2line::pdb::Error as PdbError;
 use std::path::PathBuf;
 use thiserror::Error;
 
-use crate::breakpad::BreakpadParseError;
+use crate::{breakpad::BreakpadParseError, LibraryInfo};
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -13,6 +13,9 @@ pub enum Error {
 
     #[error("Unmatched breakpad_id: Expected {0}, but received {1:?}")]
     UnmatchedDebugIdOptional(DebugId, Option<DebugId>),
+
+    #[error("Unmatched CodeId: Expected {0}, but received {1:?}")]
+    UnmatchedCodeId(CodeId, Option<CodeId>),
 
     #[error("The Breakpad sym file was malformed, causing a parsing error: {0}")]
     BreakpadParsing(#[from] BreakpadParseError),
@@ -26,15 +29,18 @@ pub enum Error {
     #[error("Not enough information was supplied to identify the requested binary.")]
     NotEnoughInformationToIdentifyBinary,
 
+    #[error("Not enough information was supplied to identify the requested symbol map. The debug ID is required.")]
+    NotEnoughInformationToIdentifySymbolMap,
+
     #[error(
         "Got fat archive but no debug ID was supplied to disambiguate between archive members"
     )]
     NoDisambiguatorForFatArchive,
 
-    #[error("No match in multi-arch binary, available UUIDs: {}, errors: {}", .0.iter().map(|di| di.breakpad().to_string()).collect::<Vec<String>>().join(", "), .1.iter().map(|e| format!("{}", e)).collect::<Vec<String>>().join(", "))]
-    NoMatchMultiArch(Vec<DebugId>, Vec<Error>),
+    #[error("No match in multi-arch binary, available UUIDs: {}", format_multiarch_members(.0))]
+    NoMatchMultiArch(Vec<(Option<&'static str>, u32, u32, Option<DebugId>)>),
 
-    #[error("Couldn't get symbols from system library, errors: {}", .0.iter().map(|e| format!("{}", e)).collect::<Vec<String>>().join(", "))]
+    #[error("Couldn't get symbols from system library, errors: {}", format_errors(.0))]
     NoLuckMacOsSystemLibrary(Vec<Error>),
 
     #[error("PDB error: {1} ({0})")]
@@ -58,10 +64,9 @@ pub enum Error {
     #[error("MachOHeader parsing error: {0}")]
     MachOHeaderParseError(#[source] object::read::Error),
 
-    #[error("get_candidate_paths_for_debug_file helper callback for {0} {1} returned error: {2}")]
+    #[error("get_candidate_paths_for_debug_file helper callback for {0:?} returned error: {1}")]
     HelperErrorDuringGetCandidatePathsForDebugFile(
-        String,
-        DebugId,
+        LibraryInfo,
         #[source] Box<dyn std::error::Error + Send + Sync>,
     ),
 
@@ -76,6 +81,9 @@ pub enum Error {
 
     #[error("No candidate path for binary, for {0:?} {1:?}")]
     NoCandidatePathForBinary(Option<String>, Option<DebugId>),
+
+    #[error("No candidate path for binary, for {0:?}")]
+    NoCandidatePathForDebugFile(LibraryInfo),
 
     #[error("No associated PDB file with the right debug ID was found for the PE (Windows) binary at path {0}")]
     NoMatchingPdbForBinary(String),
@@ -120,6 +128,31 @@ pub enum Error {
     Addr2lineContextCreationError(#[source] gimli::Error),
 }
 
+fn format_errors(errors: &[Error]) -> String {
+    errors
+        .iter()
+        .map(|e| format!("{}", e))
+        .collect::<Vec<String>>()
+        .join(", ")
+}
+
+fn format_multiarch_members(
+    members: &[(Option<&'static str>, u32, u32, Option<DebugId>)],
+) -> String {
+    members
+        .iter()
+        .map(|(arch_name, cputype, cpusubtype, debug_id)| {
+            let debug_id_string = debug_id.map(|di| di.breakpad().to_string());
+            format!(
+                "{} ({} {cputype}/{cpusubtype})",
+                debug_id_string.as_deref().unwrap_or("<no debug ID>"),
+                arch_name.unwrap_or("<unrecognized arch>"),
+            )
+        })
+        .collect::<Vec<String>>()
+        .join(", ")
+}
+
 pub trait Context<T> {
     fn context(self, context_description: &'static str) -> Result<T, Error>;
 }
@@ -149,12 +182,16 @@ impl Error {
             Error::NoDisambiguatorForFatArchive => "NoDisambiguatorForFatArchive",
             Error::BreakpadParsing(_) => "BreakpadParsing",
             Error::NotEnoughInformationToIdentifyBinary => "NotEnoughInformationToIdentifyBinary",
+            Error::NotEnoughInformationToIdentifySymbolMap => {
+                "NotEnoughInformationToIdentifySymbolMap"
+            }
             Error::InvalidFileOrInlineOriginIndexInBreakpadFile(_) => {
                 "InvalidFileOrInlineOriginIndexInBreakpadFile"
             }
             Error::UnmatchedDebugIdOptional(_, _) => "UnmatchedDebugIdOptional",
+            Error::UnmatchedCodeId(_, _) => "UnmatchedCodeId",
             Error::InvalidBreakpadId(_) => "InvalidBreakpadId",
-            Error::NoMatchMultiArch(_, _) => "NoMatchMultiArch",
+            Error::NoMatchMultiArch(_) => "NoMatchMultiArch",
             Error::NoLuckMacOsSystemLibrary(_) => "NoLuckMacOsSystemLibrary",
             Error::PdbError(_, _) => "PdbError",
             Error::PdbAddr2lineErrorWithContext(_, _) => "PdbAddr2lineErrorWithContext",
@@ -163,7 +200,7 @@ impl Error {
             Error::NoMatchingDyldCacheImagePath(_) => "NoMatchingDyldCacheImagePath",
             Error::ObjectParseError(_, _) => "ObjectParseError",
             Error::MachOHeaderParseError(_) => "MachOHeaderParseError",
-            Error::HelperErrorDuringGetCandidatePathsForDebugFile(_, _, _) => {
+            Error::HelperErrorDuringGetCandidatePathsForDebugFile(_, _) => {
                 "HelperErrorDuringGetCandidatePathsForDebugFile"
             }
             Error::HelperErrorDuringGetCandidatePathsForBinary(_) => {
@@ -171,6 +208,7 @@ impl Error {
             }
             Error::HelperErrorDuringOpenFile(_, _) => "HelperErrorDuringOpenFile",
             Error::HelperErrorDuringFileReading(_, _) => "HelperErrorDuringFileReading",
+            Error::NoCandidatePathForDebugFile(_) => "NoCandidatePathForDebugFile",
             Error::NoCandidatePathForBinary(_, _) => "NoCandidatePathForBinary",
             Error::NoDebugInfoInPeBinary(_) => "NoDebugInfoInPeBinary",
             Error::NoMatchingPdbForBinary(_) => "NoMatchingPdbForBinary",

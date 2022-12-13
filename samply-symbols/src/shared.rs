@@ -46,6 +46,21 @@ pub enum CandidatePathInfo {
     },
 }
 
+/// In case the loaded binary contains multiple architectures, this specifies
+/// how to resolve the ambiguity. This is only needed on macOS.
+pub enum MultiArchDisambiguator {
+    /// Disambiguate by CPU architecture.
+    ///
+    /// This string is a mach-O string for what mach-O calls the "CPU type" and "CPU subtype".
+    /// Examples are `x86_64`, `x86_64h`, `arm64`, `arm64e`.
+    ///
+    /// These strings are returned by the mach function `macho_arch_name_for_cpu_type`.
+    Arch(String),
+
+    /// Disambiguate by `DebugId`.
+    DebugId(DebugId),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FileLocation {
     /// A path to a local file. Symbol files at local paths are allowed to refer
@@ -80,6 +95,48 @@ impl FileLocation {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct LibraryInfo {
+    pub debug_name: Option<String>,
+    pub debug_id: Option<DebugId>,
+    pub debug_path: Option<String>,
+    pub name: Option<String>,
+    pub code_id: Option<CodeId>,
+    pub path: Option<String>,
+    pub arch: Option<String>,
+}
+
+impl LibraryInfo {
+    /// Fill all `None` fields on this object with the corresponding fields from `other`.
+    ///
+    /// This should only be called if some minimal matching has been established, for
+    /// example if the `code_id` matches or if the combination pair `debug_name, debug_id`
+    /// matches.
+    pub fn absorb(&mut self, other: &LibraryInfo) {
+        if self.debug_name.is_none() && other.debug_name.is_some() {
+            self.debug_name = other.debug_name.clone();
+        }
+        if self.debug_id.is_none() && other.debug_id.is_some() {
+            self.debug_id = other.debug_id;
+        }
+        if self.debug_path.is_none() && other.debug_path.is_some() {
+            self.debug_path = other.debug_path.clone();
+        }
+        if self.name.is_none() && other.name.is_some() {
+            self.name = other.name.clone();
+        }
+        if self.code_id.is_none() && other.code_id.is_some() {
+            self.code_id = other.code_id.clone();
+        }
+        if self.path.is_none() && other.path.is_some() {
+            self.path = other.path.clone();
+        }
+        if self.arch.is_none() && other.arch.is_some() {
+            self.arch = other.arch.clone();
+        }
+    }
+}
+
 /// This is the trait that consumers need to implement so that they can call
 /// the main entry points of this crate. This crate contains no direct file
 /// access - all access to the file system is via this trait, and its associated
@@ -110,17 +167,13 @@ pub trait FileAndPathHelper<'h> {
     ///
     fn get_candidate_paths_for_debug_file(
         &self,
-        debug_name: &str,
-        debug_id: DebugId,
+        info: &LibraryInfo,
     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>>;
 
     /// TODO
     fn get_candidate_paths_for_binary(
         &self,
-        debug_name: Option<&str>,
-        debug_id: Option<DebugId>,
-        name: Option<&str>,
-        code_id: Option<&CodeId>,
+        info: &LibraryInfo,
     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>>;
 
     /// This method is the entry point for file access during symbolication.

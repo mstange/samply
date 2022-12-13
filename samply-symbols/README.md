@@ -51,7 +51,7 @@ For debug data we support both DWARF debug data (inside mach-o and ELF binaries)
 use samply_symbols::debugid::{CodeId, DebugId};
 use samply_symbols::{
     CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
-    FramesLookupResult, OptionallySendFuture, SymbolManager,
+    FramesLookupResult, LibraryInfo, OptionallySendFuture, SymbolManager,
 };
 
 async fn run_query() {
@@ -62,13 +62,12 @@ async fn run_query() {
 
     let symbol_manager = SymbolManager::with_helper(&helper);
 
-    let symbol_map = match symbol_manager
-        .load_symbol_map(
-            "firefox.pdb",
-            DebugId::from_breakpad("AA152DEB2D9B76084C4C44205044422E1").unwrap(),
-        )
-        .await
-    {
+    let library_info = LibraryInfo {
+        debug_name: Some("firefox.pdb".to_string()),
+        debug_id: DebugId::from_breakpad("AA152DEB2D9B76084C4C44205044422E1").ok(),
+        ..Default::default()
+    };
+    let symbol_map = match symbol_manager.load_symbol_map(&library_info).await {
         Ok(symbol_map) => symbol_map,
         Err(e) => {
             println!("Error while loading the symbol map: {:?}", e);
@@ -130,22 +129,22 @@ impl<'h> FileAndPathHelper<'h> for ExampleHelper {
 
     fn get_candidate_paths_for_debug_file(
         &self,
-        debug_name: &str,
-        _debug_id: DebugId,
+        library_info: &LibraryInfo,
     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
-        Ok(vec![CandidatePathInfo::SingleFile(FileLocation::Path(
-            self.artifact_directory.join(debug_name),
-        ))])
+        if let Some(debug_name) = library_info.debug_name.as_deref() {
+            Ok(vec![CandidatePathInfo::SingleFile(FileLocation::Path(
+                self.artifact_directory.join(debug_name),
+            ))])
+        } else {
+            Ok(vec![])
+        }
     }
 
     fn get_candidate_paths_for_binary(
         &self,
-        _debug_name: Option<&str>,
-        _debug_id: Option<DebugId>,
-        name: Option<&str>,
-        _code_id: Option<&CodeId>,
+        library_info: &LibraryInfo,
     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
-        if let Some(name) = name {
+        if let Some(name) = library_info.name.as_deref() {
             Ok(vec![CandidatePathInfo::SingleFile(FileLocation::Path(
                 self.artifact_directory.join(name),
             ))])

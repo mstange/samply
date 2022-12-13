@@ -1,7 +1,7 @@
 use crate::to_debug_id;
 use samply_symbols::{
     FileAndPathHelper, FileAndPathHelperError, FileContents, FileLocation, FramesLookupResult,
-    SymbolManager,
+    LibraryInfo, SymbolManager,
 };
 use serde_json::json;
 
@@ -66,10 +66,12 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SourceApi<'a, 'h, H> {
 
         // Look up the address to see which file paths we are allowed to read.
         let frames = {
-            let symbol_map = self
-                .symbol_manager
-                .load_symbol_map(debug_name, debug_id)
-                .await?;
+            let info = LibraryInfo {
+                debug_name: Some(debug_name.to_string()),
+                debug_id: Some(debug_id),
+                ..Default::default()
+            };
+            let symbol_map = self.symbol_manager.load_symbol_map(&info).await?;
             match symbol_map.lookup(*module_offset) {
                 Some(address_info) => address_info.frames,
                 None => FramesLookupResult::Unavailable,

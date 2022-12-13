@@ -1,17 +1,6 @@
 use std::path::PathBuf;
 
-use debugid::{CodeId, DebugId};
 use symsrv::{parse_nt_symbol_path, NtSymbolPathEntry};
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct LibraryInfo {
-    pub debug_name: String,
-    pub debug_id: DebugId,
-    pub debug_path: Option<String>,
-    pub name: Option<String>,
-    pub code_id: Option<CodeId>,
-    pub path: Option<String>,
-}
 
 #[derive(Debug, Clone, Default)]
 pub struct SymbolManagerConfig {

@@ -1,5 +1,5 @@
 use debugid::{CodeId, DebugId};
-use samply_api::samply_symbols;
+use samply_api::samply_symbols::{self, LibraryInfo};
 use samply_symbols::{
     CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
     OptionallySendFuture,
@@ -11,15 +11,71 @@ use std::{
     fs::File,
     path::{Path, PathBuf},
     pin::Pin,
-    sync::Mutex,
+    sync::{Arc, Mutex},
 };
 
-use crate::{config::SymbolManagerConfig, LibraryInfo};
+use crate::config::SymbolManagerConfig;
+
+/// A simple helper which only exists to let samply_symbols::SymbolManager open
+/// local files for the binary_at_path functions.
+pub struct FileReadOnlyHelper;
+
+impl FileReadOnlyHelper {
+    async fn open_file_impl(
+        &self,
+        location: FileLocation,
+    ) -> FileAndPathHelperResult<FileContents> {
+        match location {
+            FileLocation::Path(path) => {
+                let file = File::open(&path)?;
+                Ok(FileContents::Mmap(unsafe {
+                    memmap2::MmapOptions::new().map(&file)?
+                }))
+            }
+            FileLocation::Custom(_) => {
+                panic!("FileLocation::Custom should not be hit in FileReadOnlyHelper");
+            }
+        }
+    }
+}
+
+impl<'h> FileAndPathHelper<'h> for FileReadOnlyHelper {
+    type F = FileContents;
+    type OpenFileFuture =
+        Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>>;
+
+    fn get_candidate_paths_for_debug_file(
+        &self,
+        _library_info: &LibraryInfo,
+    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
+        panic!("Should not be called");
+    }
+
+    fn get_candidate_paths_for_binary(
+        &self,
+        _library_info: &LibraryInfo,
+    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
+        panic!("Should not be called");
+    }
+
+    fn open_file(
+        &'h self,
+        location: &FileLocation,
+    ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>> {
+        Box::pin(self.open_file_impl(location.clone()))
+    }
+}
 
 pub struct Helper {
     symbol_cache: Option<SymbolCache>,
-    known_libs: Mutex<HashMap<(String, DebugId), LibraryInfo>>,
+    known_libs: Mutex<KnownLibs>,
     config: SymbolManagerConfig,
+}
+
+#[derive(Debug, Clone, Default)]
+struct KnownLibs {
+    by_debug: HashMap<(String, DebugId), Arc<LibraryInfo>>,
+    by_code: HashMap<(Option<String>, CodeId), Arc<LibraryInfo>>,
 }
 
 impl Helper {
@@ -30,14 +86,23 @@ impl Helper {
         };
         Self {
             symbol_cache,
-            known_libs: Mutex::new(HashMap::new()),
+            known_libs: Mutex::new(Default::default()),
             config,
         }
     }
 
     pub fn add_known_lib(&self, lib_info: LibraryInfo) {
         let mut known_libs = self.known_libs.lock().unwrap();
-        known_libs.insert((lib_info.debug_name.clone(), lib_info.debug_id), lib_info);
+        let lib_info = Arc::new(lib_info);
+        if let (Some(debug_name), Some(debug_id)) = (lib_info.debug_name.clone(), lib_info.debug_id)
+        {
+            known_libs
+                .by_debug
+                .insert((debug_name, debug_id), lib_info.clone());
+        }
+        if let (name, Some(code_id)) = (lib_info.name.clone(), lib_info.code_id.clone()) {
+            known_libs.by_code.insert((name, code_id), lib_info.clone());
+        }
     }
 
     async fn open_file_impl(
@@ -123,6 +188,24 @@ impl Helper {
             memmap2::MmapOptions::new().map(&file)?
         }))
     }
+
+    fn fill_in_library_info_details(&self, info: &mut LibraryInfo) {
+        let known_libs = self.known_libs.lock().unwrap();
+
+        // Look up (debugName, breakpadId) in the known libs.
+        if let (Some(debug_name), Some(debug_id)) = (&info.debug_name, info.debug_id) {
+            if let Some(known_info) = known_libs.by_debug.get(&(debug_name.to_string(), debug_id)) {
+                info.absorb(known_info);
+            }
+        }
+
+        // If all we have is the ELF build ID, maybe we have some paths in the known libs.
+        if let Some(code_id) = info.code_id.clone() {
+            if let Some(known_info) = known_libs.by_code.get(&(info.name.clone(), code_id)) {
+                info.absorb(known_info);
+            }
+        }
+    }
 }
 
 impl<'h> FileAndPathHelper<'h> for Helper {
@@ -132,53 +215,45 @@ impl<'h> FileAndPathHelper<'h> for Helper {
 
     fn get_candidate_paths_for_debug_file(
         &self,
-        debug_name: &str,
-        debug_id: DebugId,
+        library_info: &LibraryInfo,
     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
         let mut paths = vec![];
 
-        // Look up (debugName, breakpadId) in the path map.
-        let known_libs = self.known_libs.lock().unwrap();
-        let libinfo = known_libs
-            .get(&(debug_name.to_string(), debug_id))
-            .cloned()
-            .unwrap_or_default();
+        let mut info = library_info.clone();
+        self.fill_in_library_info_details(&mut info);
 
         let mut got_dsym = false;
 
-        if let Some(debug_path) = &libinfo.debug_path {
-            // First, see if we can find a dSYM file for the binary.
-            if let Some(dsym_path) =
-                crate::moria_mac::locate_dsym_fastpath(Path::new(debug_path), debug_id.uuid())
-            {
-                got_dsym = true;
-                paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                    dsym_path.clone(),
-                )));
-                paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                    dsym_path
-                        .join("Contents")
-                        .join("Resources")
-                        .join("DWARF")
-                        .join(debug_name),
-                )));
-            }
-
-            // Also consider .so.dbg files in the same directory.
-            if debug_name.ends_with(".so") {
-                let dbg_name = format!("{}.dbg", debug_name);
-                let debug_path = PathBuf::from(debug_path);
-                if let Some(dir) = debug_path.parent() {
+        if let (Some(debug_path), Some(debug_name)) = (&info.debug_path, &info.debug_name) {
+            if let Some(debug_id) = info.debug_id {
+                // First, see if we can find a dSYM file for the binary.
+                if let Some(dsym_path) =
+                    crate::moria_mac::locate_dsym_fastpath(Path::new(debug_path), debug_id.uuid())
+                {
+                    got_dsym = true;
                     paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                        dir.join(dbg_name),
+                        dsym_path.clone(),
+                    )));
+                    paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
+                        dsym_path
+                            .join("Contents")
+                            .join("Resources")
+                            .join("DWARF")
+                            .join(debug_name),
                     )));
                 }
             }
-        }
 
-        if libinfo.debug_path != libinfo.path {
-            if let Some(debug_path) = &libinfo.debug_path {
-                // Get symbols from the debug file.
+            // Also consider .so.dbg files in the same directory.
+            if debug_path.ends_with(".so") {
+                let so_dbg_path = format!("{}.dbg", debug_path);
+                paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
+                    PathBuf::from(so_dbg_path),
+                )));
+            }
+
+            if debug_path.ends_with(".pdb") {
+                // Get symbols from the pdb file.
                 paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
                     debug_path.into(),
                 )));
@@ -186,25 +261,31 @@ impl<'h> FileAndPathHelper<'h> for Helper {
         }
 
         if !got_dsym {
-            // Try a little harder to find a dSYM, just from the UUID. We can do this
-            // even if we don't have an entry for this library in the libinfo map.
-            if let Ok(dsym_path) = crate::moria_mac::locate_dsym_using_spotlight(debug_id.uuid()) {
-                paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                    dsym_path.clone(),
-                )));
-                paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                    dsym_path
-                        .join("Contents")
-                        .join("Resources")
-                        .join("DWARF")
-                        .join(debug_name),
-                )));
+            if let Some(debug_id) = info.debug_id {
+                // Try a little harder to find a dSYM, just from the UUID. We can do this
+                // even if we don't have an entry for this library in the libinfo map.
+                if let Ok(dsym_path) =
+                    crate::moria_mac::locate_dsym_using_spotlight(debug_id.uuid())
+                {
+                    paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
+                        dsym_path.clone(),
+                    )));
+                    if let Some(dsym_file_name) = dsym_path.file_name().and_then(|s| s.to_str()) {
+                        paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
+                            dsym_path
+                                .join("Contents")
+                                .join("Resources")
+                                .join("DWARF")
+                                .join(dsym_file_name.trim_end_matches(".dSYM")),
+                        )));
+                    }
+                }
             }
         }
 
         // Find debuginfo in /usr/lib/debug/.build-id/ etc.
         // <https://sourceware.org/gdb/onlinedocs/gdb/Separate-Debug-Files.html>
-        if let Some(code_id) = &libinfo.code_id {
+        if let Some(code_id) = &info.code_id {
             let code_id = code_id.as_str();
             if code_id.len() > 2 {
                 let (two_chars, rest) = code_id.split_at(2);
@@ -215,61 +296,65 @@ impl<'h> FileAndPathHelper<'h> for Helper {
             }
         }
 
-        // Fake "debug link" support. We hardcode a "debug link name" of
-        // `{debug_name}.debug`.
-        // It would be better to get the actual debug link name from the binary.
-        paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-            PathBuf::from(format!("/usr/bin/{}.debug", &debug_name)),
-        )));
-        paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-            PathBuf::from(format!("/usr/bin/.debug/{}.debug", &debug_name)),
-        )));
-        paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-            PathBuf::from(format!("/usr/lib/debug/usr/bin/{}.debug", &debug_name)),
-        )));
+        if let Some(debug_name) = &info.debug_name {
+            // Fake "debug link" support. We hardcode a "debug link name" of
+            // `{debug_name}.debug`.
+            // It would be better to get the actual debug link name from the binary.
+            paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
+                PathBuf::from(format!("/usr/bin/{}.debug", &debug_name)),
+            )));
+            paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
+                PathBuf::from(format!("/usr/bin/.debug/{}.debug", &debug_name)),
+            )));
+            paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
+                PathBuf::from(format!("/usr/lib/debug/usr/bin/{}.debug", &debug_name)),
+            )));
 
-        // Search breakpad symbol directories.
-        for dir in &self.config.breakpad_directories_readonly {
-            let bp_path = dir
-                .join(debug_name)
-                .join(debug_id.breakpad().to_string())
-                .join(&format!("{}.sym", debug_name.trim_end_matches(".pdb")));
-            paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(bp_path)));
+            if let Some(debug_id) = info.debug_id {
+                // Search breakpad symbol directories.
+                for dir in &self.config.breakpad_directories_readonly {
+                    let bp_path = dir
+                        .join(debug_name)
+                        .join(debug_id.breakpad().to_string())
+                        .join(&format!("{}.sym", debug_name.trim_end_matches(".pdb")));
+                    paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(bp_path)));
+                }
+
+                for (_url, dir) in &self.config.breakpad_servers {
+                    let bp_path = dir
+                        .join(debug_name)
+                        .join(debug_id.breakpad().to_string())
+                        .join(&format!("{}.sym", debug_name.trim_end_matches(".pdb")));
+                    paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(bp_path)));
+                }
+
+                if debug_name.ends_with(".pdb") && self.symbol_cache.is_some() {
+                    // We might find this pdb file with the help of a symbol server.
+                    // Construct a custom string to identify this pdb.
+                    let custom = format!(
+                        "winsymbolserver:{}/{}/{}",
+                        debug_name,
+                        debug_id.breakpad(),
+                        debug_name
+                    );
+                    paths.push(CandidatePathInfo::SingleFile(FileLocation::Custom(custom)));
+                }
+
+                if !self.config.breakpad_servers.is_empty() {
+                    // We might find a .sym file on a symbol server.
+                    // Construct a custom string to identify this file.
+                    let custom = format!(
+                        "bpsymbolserver:{}/{}/{}.sym",
+                        debug_name,
+                        debug_id.breakpad(),
+                        debug_name.trim_end_matches(".pdb")
+                    );
+                    paths.push(CandidatePathInfo::SingleFile(FileLocation::Custom(custom)));
+                }
+            }
         }
 
-        for (_url, dir) in &self.config.breakpad_servers {
-            let bp_path = dir
-                .join(debug_name)
-                .join(debug_id.breakpad().to_string())
-                .join(&format!("{}.sym", debug_name.trim_end_matches(".pdb")));
-            paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(bp_path)));
-        }
-
-        if debug_name.ends_with(".pdb") && self.symbol_cache.is_some() {
-            // We might find this pdb file with the help of a symbol server.
-            // Construct a custom string to identify this pdb.
-            let custom = format!(
-                "winsymbolserver:{}/{}/{}",
-                debug_name,
-                debug_id.breakpad(),
-                debug_name
-            );
-            paths.push(CandidatePathInfo::SingleFile(FileLocation::Custom(custom)));
-        }
-
-        if !self.config.breakpad_servers.is_empty() {
-            // We might find a .sym file on a symbol server.
-            // Construct a custom string to identify this file.
-            let custom = format!(
-                "bpsymbolserver:{}/{}/{}.sym",
-                debug_name,
-                debug_id.breakpad(),
-                debug_name.trim_end_matches(".pdb")
-            );
-            paths.push(CandidatePathInfo::SingleFile(FileLocation::Custom(custom)));
-        }
-
-        if let Some(path) = &libinfo.path {
+        if let Some(path) = &info.path {
             // Fall back to getting symbols from the binary itself.
             paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
                 path.into(),
@@ -310,42 +395,22 @@ impl<'h> FileAndPathHelper<'h> for Helper {
 
     fn get_candidate_paths_for_binary(
         &self,
-        debug_name: Option<&str>,
-        debug_id: Option<DebugId>,
-        name: Option<&str>,
-        code_id: Option<&CodeId>,
+        library_info: &LibraryInfo,
     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
+        let mut info = library_info.clone();
+        self.fill_in_library_info_details(&mut info);
+
         let mut paths = vec![];
 
-        let mut name = name.map(ToString::to_string);
-        let mut code_id = code_id.cloned();
-        let mut binary_path = None;
-
-        // Look up (debugName, breakpadId) in the path map.
-        if let (Some(debug_name), Some(debug_id)) = (debug_name, debug_id) {
-            let known_libs = self.known_libs.lock().unwrap();
-            if let Some(lib_info) = known_libs.get(&(debug_name.to_string(), debug_id)) {
-                if name.is_none() && lib_info.name.is_some() {
-                    name = lib_info.name.clone();
-                }
-                if code_id.is_none() && lib_info.code_id.is_some() {
-                    code_id = lib_info.code_id.clone();
-                }
-                if binary_path.is_none() && lib_info.path.is_some() {
-                    binary_path = lib_info.path.clone();
-                }
-            }
-        }
-
         // Begin with the binary itself.
-        if let Some(path) = binary_path.as_ref() {
+        if let Some(path) = &info.path {
             paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
                 path.into(),
             )));
         }
 
         if let (Some(_symbol_cache), Some(name), Some(code_id)) =
-            (self.symbol_cache.as_ref(), name, code_id)
+            (&self.symbol_cache, &info.name, &info.code_id)
         {
             // We might find this exe / dll file with the help of a symbol server.
             // Construct a custom string to identify this file.
@@ -354,7 +419,7 @@ impl<'h> FileAndPathHelper<'h> for Helper {
             paths.push(CandidatePathInfo::SingleFile(FileLocation::Custom(custom)));
         }
 
-        if let Some(path) = binary_path.as_ref() {
+        if let Some(path) = &info.path {
             // For macOS system libraries, also consult the dyld shared cache.
             if path.starts_with("/usr/") || path.starts_with("/System/") {
                 paths.push(CandidatePathInfo::InDyldCache {
