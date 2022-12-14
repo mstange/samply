@@ -137,7 +137,7 @@ async fn start_server(
 
     let mut symbol_manager = SymbolManager::with_config(config);
     for lib_info in libinfo_map.into_values() {
-        symbol_manager.add_known_lib(lib_info);
+        symbol_manager.add_known_library(lib_info);
     }
     let symbol_manager = Arc::new(symbol_manager);
     let new_service = make_service_fn(move |_conn| {
