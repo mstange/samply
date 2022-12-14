@@ -6,7 +6,7 @@ use symsrv::{parse_nt_symbol_path, NtSymbolPathEntry};
 pub struct SymbolManagerConfig {
     pub(crate) verbose: bool,
     pub(crate) respect_nt_symbol_path: bool,
-    pub(crate) nt_symbol_path_fallback: Option<String>,
+    pub(crate) default_nt_symbol_path: Option<String>,
     pub(crate) breakpad_directories_readonly: Vec<PathBuf>,
     pub(crate) breakpad_servers: Vec<(String, PathBuf)>,
     pub(crate) windows_servers: Vec<(String, PathBuf)>,
@@ -29,12 +29,13 @@ impl SymbolManagerConfig {
         self
     }
 
-    /// Set a fallback path which is used if `respect_nt_symbol_path` is false or if
-    /// the `_NT_SYMBOL_PATH` environment variable is not set.
+    /// Set a fallback value for the Windows symbol path which is used
+    /// if `respect_nt_symbol_path` is false or if the `_NT_SYMBOL_PATH`
+    /// environment variable is not set.
     ///
     /// Example: `"srv**https://msdl.microsoft.com/download/symbols"`
-    pub fn nt_symbol_path_fallback(mut self, fallback_env_val: impl Into<String>) -> Self {
-        self.nt_symbol_path_fallback = Some(fallback_env_val.into());
+    pub fn default_nt_symbol_path(mut self, default_env_val: impl Into<String>) -> Self {
+        self.default_nt_symbol_path = Some(default_env_val.into());
         self
     }
 
@@ -46,11 +47,9 @@ impl SymbolManagerConfig {
         } else {
             None
         };
-        let mut path = match (respected_env_value, &self.nt_symbol_path_fallback) {
+        let mut path = match (respected_env_value, &self.default_nt_symbol_path) {
             (Some(env_var), _) => Some(parse_nt_symbol_path(&env_var, default_downstream_store)),
-            (None, Some(fallback)) => {
-                Some(parse_nt_symbol_path(fallback, default_downstream_store))
-            }
+            (None, Some(default)) => Some(parse_nt_symbol_path(default, default_downstream_store)),
             (None, None) => None,
         };
         for (base_url, cache_dir) in &self.windows_servers {

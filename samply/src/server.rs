@@ -132,7 +132,7 @@ async fn start_server(
     let config = SymbolManagerConfig::new()
         .verbose(verbose)
         .respect_nt_symbol_path(true)
-        .nt_symbol_path_fallback("srv**https://msdl.microsoft.com/download/symbols");
+        .default_nt_symbol_path("srv**https://msdl.microsoft.com/download/symbols");
     // TODO: Read breakpad symbol server config from some kind of config file, and call breakpad_symbols_server
 
     let mut symbol_manager = SymbolManager::with_config(config);
