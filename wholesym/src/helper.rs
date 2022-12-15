@@ -1,10 +1,11 @@
-use debugid::{CodeId, DebugId};
-use samply_api::samply_symbols::{self, LibraryInfo};
+use debugid::DebugId;
+use samply_api::samply_symbols::{self, ElfBuildId, LibraryInfo, PeCodeId};
 use samply_symbols::{
-    CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
+    CandidatePathInfo, CodeId, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
     OptionallySendFuture,
 };
 use symsrv::{memmap2, FileContents, SymbolCache};
+use uuid::Uuid;
 
 use std::{
     collections::HashMap,
@@ -75,7 +76,9 @@ pub struct Helper {
 #[derive(Debug, Clone, Default)]
 struct KnownLibs {
     by_debug: HashMap<(String, DebugId), Arc<LibraryInfo>>,
-    by_code: HashMap<(Option<String>, CodeId), Arc<LibraryInfo>>,
+    by_pe: HashMap<(String, PeCodeId), Arc<LibraryInfo>>,
+    by_elf_build_id: HashMap<ElfBuildId, Arc<LibraryInfo>>,
+    by_mach_uuid: HashMap<Uuid, Arc<LibraryInfo>>,
 }
 
 impl Helper {
@@ -100,8 +103,20 @@ impl Helper {
                 .by_debug
                 .insert((debug_name, debug_id), lib_info.clone());
         }
-        if let (name, Some(code_id)) = (lib_info.name.clone(), lib_info.code_id.clone()) {
-            known_libs.by_code.insert((name, code_id), lib_info.clone());
+        match (lib_info.code_id.as_ref(), lib_info.name.as_deref()) {
+            (Some(CodeId::PeCodeId(pe_code_id)), Some(name)) => {
+                let pe_key = (name.to_string(), pe_code_id.clone());
+                known_libs.by_pe.insert(pe_key, lib_info.clone());
+            }
+            (Some(CodeId::ElfBuildId(elf_build_id)), _) => {
+                known_libs
+                    .by_elf_build_id
+                    .insert(elf_build_id.clone(), lib_info.clone());
+            }
+            (Some(CodeId::MachoUuid(uuid)), _) => {
+                known_libs.by_mach_uuid.insert(*uuid, lib_info.clone());
+            }
+            _ => {}
         }
     }
 
@@ -200,10 +215,19 @@ impl Helper {
         }
 
         // If all we have is the ELF build ID, maybe we have some paths in the known libs.
-        if let Some(code_id) = info.code_id.clone() {
-            if let Some(known_info) = known_libs.by_code.get(&(info.name.clone(), code_id)) {
-                info.absorb(known_info);
+        let known_info = match (info.code_id.as_ref(), info.name.as_deref()) {
+            (Some(CodeId::PeCodeId(pe_code_id)), Some(name)) => {
+                let pe_key = (name.to_string(), pe_code_id.clone());
+                known_libs.by_pe.get(&pe_key)
             }
+            (Some(CodeId::ElfBuildId(elf_build_id)), _) => {
+                known_libs.by_elf_build_id.get(elf_build_id)
+            }
+            (Some(CodeId::MachoUuid(uuid)), _) => known_libs.by_mach_uuid.get(uuid),
+            _ => None,
+        };
+        if let Some(known_info) = known_info {
+            info.absorb(known_info);
         }
     }
 }
@@ -285,10 +309,10 @@ impl<'h> FileAndPathHelper<'h> for Helper {
 
         // Find debuginfo in /usr/lib/debug/.build-id/ etc.
         // <https://sourceware.org/gdb/onlinedocs/gdb/Separate-Debug-Files.html>
-        if let Some(code_id) = &info.code_id {
-            let code_id = code_id.as_str();
-            if code_id.len() > 2 {
-                let (two_chars, rest) = code_id.split_at(2);
+        if let Some(CodeId::ElfBuildId(build_id)) = &info.code_id {
+            let build_id = build_id.to_string();
+            if build_id.len() > 2 {
+                let (two_chars, rest) = build_id.split_at(2);
                 let path = format!("/usr/lib/debug/.build-id/{}/{}.debug", two_chars, rest);
                 paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
                     PathBuf::from(path),
@@ -409,12 +433,11 @@ impl<'h> FileAndPathHelper<'h> for Helper {
             )));
         }
 
-        if let (Some(_symbol_cache), Some(name), Some(code_id)) =
+        if let (Some(_symbol_cache), Some(name), Some(CodeId::PeCodeId(code_id))) =
             (&self.symbol_cache, &info.name, &info.code_id)
         {
             // We might find this exe / dll file with the help of a symbol server.
             // Construct a custom string to identify this file.
-            // TODO: Adjust case for case-sensitive symbol servers.
             let custom = format!("winsymbolserver:{}/{}/{}", name, code_id, name);
             paths.push(CandidatePathInfo::SingleFile(FileLocation::Custom(custom)));
         }

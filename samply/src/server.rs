@@ -9,8 +9,8 @@ use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use rand::RngCore;
 use serde_derive::Deserialize;
 use tokio::io::AsyncReadExt;
-use wholesym::debugid::{CodeId, DebugId};
-use wholesym::{LibraryInfo, SymbolManager, SymbolManagerConfig};
+use wholesym::debugid::DebugId;
+use wholesym::{CodeId, LibraryInfo, SymbolManager, SymbolManagerConfig};
 
 use std::collections::HashMap;
 use std::convert::Infallible;

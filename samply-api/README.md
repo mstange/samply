@@ -15,10 +15,10 @@ trait.
 
 ```rust
 use samply_api::samply_symbols::{
-    FileContents, FileAndPathHelper, FileAndPathHelperResult, OptionallySendFuture,
+    FileContents, FileAndPathHelper, FileAndPathHelperResult, LibraryInfo, OptionallySendFuture,
     CandidatePathInfo, FileLocation, SymbolManager,
 };
-use samply_api::samply_symbols::debugid::{CodeId, DebugId};
+use samply_api::samply_symbols::debugid::DebugId;
 
 async fn run_query() -> String {
     let this_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -60,20 +60,22 @@ impl<'h> FileAndPathHelper<'h> for ExampleHelper {
 
     fn get_candidate_paths_for_debug_file(
         &self,
-        debug_name: &str,
-        _debug_id: DebugId,
+        library_info: &LibraryInfo,
     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
-        Ok(vec![CandidatePathInfo::SingleFile(FileLocation::Path(self.artifact_directory.join(debug_name)))])
+        if let Some(debug_name) = library_info.debug_name.as_deref() {
+            Ok(vec![CandidatePathInfo::SingleFile(FileLocation::Path(
+                self.artifact_directory.join(debug_name),
+            ))])
+        } else {
+            Ok(vec![])
+        }
     }
 
     fn get_candidate_paths_for_binary(
         &self,
-        _debug_name: Option<&str>,
-        _debug_id: Option<DebugId>,
-        name: Option<&str>,
-        _code_id: Option<&CodeId>,
+        library_info: &LibraryInfo,
     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
-        if let Some(name) = name {
+        if let Some(name) = library_info.name.as_deref() {
             Ok(vec![CandidatePathInfo::SingleFile(FileLocation::Path(
                 self.artifact_directory.join(name),
             ))])

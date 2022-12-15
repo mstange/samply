@@ -1,10 +1,10 @@
-use debugid::{CodeId, DebugId};
+use debugid::DebugId;
 use object::FileKind;
 use pdb_addr2line::pdb::Error as PdbError;
 use std::path::PathBuf;
 use thiserror::Error;
 
-use crate::{breakpad::BreakpadParseError, LibraryInfo};
+use crate::{breakpad::BreakpadParseError, CodeId, LibraryInfo};
 
 #[derive(Error, Debug)]
 #[non_exhaustive]

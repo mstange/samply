@@ -1,7 +1,9 @@
-use debugid::{CodeId, DebugId};
+use debugid::DebugId;
 use object::{Object, ObjectSection, SectionKind};
 use std::convert::TryInto;
 use uuid::Uuid;
+
+use crate::shared::{CodeId, ElfBuildId};
 
 pub trait DebugIdExt {
     /// Creates a DebugId from some identifier. The identifier could be
@@ -109,12 +111,12 @@ pub fn code_id_for_object<'data: 'file, 'file>(
 ) -> Option<CodeId> {
     // ELF
     if let Ok(Some(build_id)) = obj.build_id() {
-        return Some(CodeId::from_binary(build_id));
+        return Some(CodeId::ElfBuildId(ElfBuildId::from_bytes(build_id)));
     }
 
     // mach-O
     if let Ok(Some(uuid)) = obj.mach_uuid() {
-        return Some(CodeId::from_binary(&uuid));
+        return Some(CodeId::MachoUuid(Uuid::from_bytes(uuid)));
     }
 
     None

@@ -1,7 +1,9 @@
+use std::str::FromStr;
+
 use samply_symbols::{
-    debugid::{CodeId, DebugId},
+    debugid::DebugId,
     object::{self, Architecture, CompressionFormat, Object},
-    relative_address_base, FileAndPathHelper, SymbolManager,
+    relative_address_base, CodeId, FileAndPathHelper, SymbolManager,
 };
 use serde_json::json;
 use yaxpeax_arch::{Arch, DecodeError, U8Reader};
@@ -81,7 +83,9 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> AsmApi<'a, 'h, H> {
         let debug_id = debug_id
             .as_deref()
             .and_then(|debug_id| DebugId::from_breakpad(debug_id).ok());
-        let code_id = code_id.clone().map(CodeId::new);
+        let code_id = code_id
+            .as_deref()
+            .and_then(|code_id| CodeId::from_str(code_id).ok());
 
         let binary_image = self
             .symbol_manager

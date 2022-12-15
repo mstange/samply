@@ -48,7 +48,7 @@ For debug data we support both DWARF debug data (inside mach-o and ELF binaries)
 # Example
 
 ```rust
-use samply_symbols::debugid::{CodeId, DebugId};
+use samply_symbols::debugid::DebugId;
 use samply_symbols::{
     CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
     FramesLookupResult, LibraryInfo, OptionallySendFuture, SymbolManager,

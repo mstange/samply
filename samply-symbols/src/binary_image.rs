@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use debugid::{CodeId, DebugId};
+use debugid::DebugId;
 use object::{
     read::pe::{ImageNtHeaders, ImageOptionalHeader, PeFile, PeFile32, PeFile64},
     Endianness, FileKind, Object, ReadRef,
@@ -10,8 +10,8 @@ use crate::{
     debug_id_for_object,
     debugid_util::code_id_for_object,
     macho::{DyldCacheFileData, MachOFatArchiveMemberData},
-    shared::{FileContentsWrapper, LibraryInfo, RangeReadRef},
-    Error, FileContents,
+    shared::{FileContentsWrapper, LibraryInfo, PeCodeId, RangeReadRef},
+    CodeId, Error, FileContents,
 };
 
 pub struct BinaryImage<F: FileContents + 'static> {
@@ -188,8 +188,11 @@ fn pe_info<'a, Pe: ImageNtHeaders, R: ReadRef<'a>>(pe: &PeFile<'a, Pe, R>) -> Pe
         .file_header()
         .time_date_stamp
         .get(object::LittleEndian);
-    let size_of_image = header.optional_header().size_of_image();
-    let code_id = CodeId::new(format!("{:08X}{:x}", timestamp, size_of_image));
+    let image_size = header.optional_header().size_of_image();
+    let code_id = CodeId::PeCodeId(PeCodeId {
+        timestamp,
+        image_size,
+    });
 
     let pdb_path: Option<PathBuf> = match pe.pdb_info() {
         Ok(Some(pdb_info)) => {

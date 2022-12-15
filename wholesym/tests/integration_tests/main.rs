@@ -1,6 +1,8 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, str::FromStr};
 
-use debugid::{CodeId, DebugId};
+use debugid::DebugId;
+
+use wholesym::CodeId;
 
 fn fixtures_dir() -> PathBuf {
     let this_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -17,7 +19,7 @@ fn successful_dll() {
     .unwrap();
 
     assert_eq!(info.name, Some("mozglue.dll".into()));
-    assert_eq!(info.code_id, Some(CodeId::new("5eba814695000".into())));
+    assert_eq!(info.code_id, CodeId::from_str("5eba814695000").ok());
     assert_eq!(info.debug_name, Some("mozglue.pdb".into()));
     assert_eq!(
         info.debug_id,

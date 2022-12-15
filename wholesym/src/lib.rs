@@ -10,8 +10,8 @@ mod symbol_manager;
 pub use config::SymbolManagerConfig;
 pub use samply_api::samply_symbols;
 pub use samply_api::samply_symbols::{
-    AddressInfo, Error, ExternalFileAddressInFileRef, ExternalFileAddressRef, ExternalFileRef,
-    ExternalFileSymbolMap, FilePath, FramesLookupResult, InlineStackFrame, LibraryInfo,
-    MultiArchDisambiguator, SymbolInfo, SymbolMap,
+    AddressInfo, CodeId, ElfBuildId, Error, ExternalFileAddressInFileRef, ExternalFileAddressRef,
+    ExternalFileRef, ExternalFileSymbolMap, FilePath, FramesLookupResult, InlineStackFrame,
+    LibraryInfo, MultiArchDisambiguator, PeCodeId, SymbolInfo, SymbolMap,
 };
 pub use symbol_manager::SymbolManager;

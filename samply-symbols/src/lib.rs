@@ -46,7 +46,7 @@
 //! # Example
 //!
 //! ```rust
-//! use samply_symbols::debugid::{CodeId, DebugId};
+//! use samply_symbols::debugid::DebugId;
 //! use samply_symbols::{
 //!     CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
 //!     FramesLookupResult, LibraryInfo, OptionallySendFuture, SymbolManager,
@@ -178,7 +178,7 @@ pub use debugid;
 pub use object;
 pub use pdb_addr2line::pdb;
 
-use debugid::{CodeId, DebugId};
+use debugid::DebugId;
 use object::{macho::FatHeader, read::FileKind};
 
 mod binary_image;
@@ -207,11 +207,11 @@ pub use crate::debugid_util::{debug_id_for_object, DebugIdExt};
 pub use crate::error::Error;
 pub use crate::external_file::{load_external_file, ExternalFileSymbolMap};
 pub use crate::shared::{
-    relative_address_base, AddressDebugInfo, AddressInfo, CandidatePathInfo,
+    relative_address_base, AddressDebugInfo, AddressInfo, CandidatePathInfo, CodeId, ElfBuildId,
     ExternalFileAddressInFileRef, ExternalFileAddressRef, ExternalFileRef, FileAndPathHelper,
     FileAndPathHelperError, FileAndPathHelperResult, FileContents, FileContentsWrapper,
     FileLocation, FilePath, FramesLookupResult, InlineStackFrame, LibraryInfo,
-    MultiArchDisambiguator, OptionallySendFuture, SymbolInfo,
+    MultiArchDisambiguator, OptionallySendFuture, PeCodeId, SymbolInfo,
 };
 pub use crate::symbol_map::SymbolMap;
 

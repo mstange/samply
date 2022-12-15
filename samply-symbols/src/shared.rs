@@ -1,4 +1,4 @@
-use debugid::{CodeId, DebugId};
+use debugid::DebugId;
 use object::read::ReadRef;
 use object::FileFlags;
 use std::borrow::Cow;
@@ -6,7 +6,9 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::{marker::PhantomData, ops::Deref};
+use uuid::Uuid;
 
 #[cfg(feature = "partial_read_stats")]
 use bitvec::{bitvec, prelude::BitVec};
@@ -93,6 +95,127 @@ impl FileLocation {
             }
             FileLocation::Custom(_) => BasePath::NoLocalSourceFileAccess,
         }
+    }
+}
+
+/// THIS IS NOT [`debugid::CodeId`].
+///
+/// This is an enum which tells you which type of CodeId it is, because all
+/// types need to be treated rather differently.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum CodeId {
+    /// On Windows, the code ID needs to be combined with the binary name, and
+    /// the pair (name, code_id) lets you obtain binaries from symbol servers.
+    /// The code ID is distinct from the debug_id (= pdb GUID + age). If you
+    /// have a binary file, you can get both the code ID and the debug ID from
+    /// it. If you only have a PDB file, you can usually not get the code ID of
+    /// the corresponding binary from it.
+    PeCodeId(PeCodeId),
+
+    /// On macOS / iOS, the UUID is shared between both the binary file and
+    /// the debug file (dSYM), and it can be used to find dSYMs using Spotlight.
+    /// The debug ID and the code ID contain the same information; the debug ID
+    /// is literally just the UUID plus a zero at the end.
+    MachoUuid(Uuid),
+
+    /// On Linux, the ELF build ID is strictly superior to the debug ID, because
+    /// it is usually a superset of information: The build ID is usually 20 bytes
+    /// (40 hex chars), whereas the debug ID is truncated to 16 bytes (32 hex chars)
+    /// and byte-swapped depending on the endianness of the binary.
+    ///
+    /// The ELF build ID is shared between the binary file and the debug info file.
+    /// With debuginfod you can obtain binaries and debug info files from a server
+    /// based on just the build ID (no binary name needed).
+    ElfBuildId(ElfBuildId),
+}
+
+impl FromStr for CodeId {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.len() <= 17 {
+            // 8 bytes timestamp + 1 to 8 bytes of image size
+            Ok(CodeId::PeCodeId(PeCodeId::from_str(s)?))
+        } else if s.len() == 32 {
+            // mach-O UUID
+            Ok(CodeId::MachoUuid(Uuid::from_str(s).map_err(|_| ())?))
+        } else if s.len() >= 34 {
+            // ELF build ID. These are usually 40 hex characters (= 20 bytes).
+            Ok(CodeId::ElfBuildId(ElfBuildId::from_str(s)?))
+        } else {
+            Err(())
+        }
+    }
+}
+
+impl std::fmt::Display for CodeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CodeId::PeCodeId(pe) => std::fmt::Display::fmt(pe, f),
+            CodeId::MachoUuid(uuid) => f.write_fmt(format_args!("{:X}", uuid.simple())),
+            CodeId::ElfBuildId(elf) => std::fmt::Display::fmt(elf, f),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct PeCodeId {
+    pub timestamp: u32,
+    pub image_size: u32,
+}
+
+impl FromStr for PeCodeId {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.len() < 9 || s.len() > 16 {
+            return Err(());
+        }
+        let timestamp = u32::from_str_radix(&s[..8], 16).map_err(|_| ())?;
+        let image_size = u32::from_str_radix(&s[8..], 16).map_err(|_| ())?;
+        Ok(Self {
+            timestamp,
+            image_size,
+        })
+    }
+}
+
+impl std::fmt::Display for PeCodeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("{:08X}{:x}", self.timestamp, self.image_size))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ElfBuildId(pub Vec<u8>);
+
+impl ElfBuildId {
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        Self(bytes.to_owned())
+    }
+}
+
+impl FromStr for ElfBuildId {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let byte_count = s.len() / 2;
+        let mut bytes = Vec::with_capacity(byte_count);
+        for i in 0..byte_count {
+            let hex_byte = &s[i * 2..i * 2 + 2];
+            let b = u8::from_str_radix(hex_byte, 16).map_err(|_| ())?;
+            bytes.push(b);
+        }
+        Ok(Self(bytes))
+    }
+}
+
+impl std::fmt::Display for ElfBuildId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for byte in &self.0 {
+            f.write_fmt(format_args!("{byte:02x}"))?;
+        }
+        Ok(())
     }
 }
 
