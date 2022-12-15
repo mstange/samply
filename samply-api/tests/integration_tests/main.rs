@@ -1,12 +1,11 @@
 use assert_json_diff::assert_json_eq;
 use futures::Future;
-use samply_api::debugid::CodeId;
 pub use samply_api::debugid::DebugId;
 use samply_api::samply_symbols::{
     CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
 };
 use samply_api::Api;
-use samply_symbols::SymbolManager;
+use samply_symbols::{LibraryInfo, SymbolManager};
 
 use std::fs::File;
 use std::io::{Read, Write};
@@ -29,12 +28,16 @@ impl<'h> FileAndPathHelper<'h> for Helper {
 
     fn get_candidate_paths_for_debug_file(
         &self,
-        debug_name: &str,
-        _debug_id: DebugId,
+        library_info: &LibraryInfo,
     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
+        let debug_name = match library_info.debug_name.as_deref() {
+            Some(debug_name) => debug_name,
+            None => return Ok(Vec::new()),
+        };
+
         let mut paths = vec![];
 
-        // Also consider .so.dbg files in the symbol directory.
+        // Check .so.dbg files in the symbol directory.
         if debug_name.ends_with(".so") {
             let debug_debug_name = format!("{}.dbg", debug_name);
             paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
@@ -119,42 +122,40 @@ impl<'h> FileAndPathHelper<'h> for Helper {
 
     fn get_candidate_paths_for_binary(
         &self,
-        _debug_name: Option<&str>,
-        _debug_id: Option<DebugId>,
-        name: Option<&str>,
-        _code_id: Option<&CodeId>,
+        library_info: &LibraryInfo,
     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
+        let name = match library_info.name.as_deref() {
+            Some(name) => name,
+            None => return Ok(Vec::new()),
+        };
+
         let mut paths = vec![];
 
-        if let Some(name) = name {
-            // Start with the file itself.
-            paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                self.symbol_directory.join(name),
-            )));
+        // Start with the file itself.
+        paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
+            self.symbol_directory.join(name),
+        )));
 
-            // For macOS system libraries, also consult the dyld shared cache.
-            if self.symbol_directory.starts_with("/usr/")
-                || self.symbol_directory.starts_with("/System/")
-            {
-                if let Some(dylib_path) = self.symbol_directory.join(name).to_str() {
-                    paths.push(CandidatePathInfo::InDyldCache {
-                        dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_arm64e")
-                            .to_path_buf(),
-                        dylib_path: dylib_path.to_string(),
-                    });
-                    paths.push(CandidatePathInfo::InDyldCache {
-                        dyld_cache_path: Path::new(
-                            "/System/Library/dyld/dyld_shared_cache_x86_64h",
-                        )
+        // For macOS system libraries, also consult the dyld shared cache.
+        if self.symbol_directory.starts_with("/usr/")
+            || self.symbol_directory.starts_with("/System/")
+        {
+            if let Some(dylib_path) = self.symbol_directory.join(name).to_str() {
+                paths.push(CandidatePathInfo::InDyldCache {
+                    dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_arm64e")
                         .to_path_buf(),
-                        dylib_path: dylib_path.to_string(),
-                    });
-                    paths.push(CandidatePathInfo::InDyldCache {
-                        dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_x86_64")
-                            .to_path_buf(),
-                        dylib_path: dylib_path.to_string(),
-                    });
-                }
+                    dylib_path: dylib_path.to_string(),
+                });
+                paths.push(CandidatePathInfo::InDyldCache {
+                    dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_x86_64h")
+                        .to_path_buf(),
+                    dylib_path: dylib_path.to_string(),
+                });
+                paths.push(CandidatePathInfo::InDyldCache {
+                    dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_x86_64")
+                        .to_path_buf(),
+                    dylib_path: dylib_path.to_string(),
+                });
             }
         }
 

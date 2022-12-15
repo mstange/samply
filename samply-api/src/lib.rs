@@ -14,7 +14,7 @@
 //! ```rust
 //! use samply_api::samply_symbols::{
 //!     FileContents, FileAndPathHelper, FileAndPathHelperResult, OptionallySendFuture,
-//!     CandidatePathInfo, FileLocation, SymbolManager,
+//!     CandidatePathInfo, FileLocation, LibraryInfo, SymbolManager,
 //! };
 //! use samply_api::samply_symbols::debugid::{CodeId, DebugId};
 //!
@@ -58,20 +58,22 @@
 //!
 //!     fn get_candidate_paths_for_debug_file(
 //!         &self,
-//!         debug_name: &str,
-//!         _debug_id: DebugId,
+//!         library_info: &LibraryInfo,
 //!     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
-//!         Ok(vec![CandidatePathInfo::SingleFile(FileLocation::Path(self.artifact_directory.join(debug_name)))])
+//!         if let Some(debug_name) = library_info.debug_name.as_deref() {
+//!             Ok(vec![CandidatePathInfo::SingleFile(FileLocation::Path(
+//!                 self.artifact_directory.join(debug_name),
+//!             ))])
+//!         } else {
+//!             Ok(vec![])
+//!         }
 //!     }
 //!
 //!     fn get_candidate_paths_for_binary(
 //!         &self,
-//!         _debug_name: Option<&str>,
-//!         _debug_id: Option<DebugId>,
-//!         name: Option<&str>,
-//!         _code_id: Option<&CodeId>,
+//!         library_info: &LibraryInfo,
 //!     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
-//!         if let Some(name) = name {
+//!         if let Some(name) = library_info.name.as_deref() {
 //!             Ok(vec![CandidatePathInfo::SingleFile(FileLocation::Path(
 //!                 self.artifact_directory.join(name),
 //!             ))])
