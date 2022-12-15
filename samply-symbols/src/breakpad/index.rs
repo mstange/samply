@@ -53,6 +53,25 @@ impl BreakpadPublicSymbol {
     }
 }
 
+/// Returns the first line, excluding trailing `\r*\n`.
+///
+/// Advances the input to just after `\n`.
+fn read_line_and_advance<'a>(input: &mut &'a [u8]) -> &'a [u8] {
+    let mut line = if let Some(line_break) = memchr(b'\n', input) {
+        let line = &input[..line_break];
+        *input = &input[(line_break + 1)..];
+        line
+    } else {
+        let line = *input;
+        *input = &[];
+        line
+    };
+    while line.last() == Some(&b'\r') {
+        line = &line[..(line.len() - 1)];
+    }
+    line
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BreakpadFuncSymbol {
     /// The file offset at which there is the string `FUNC ` at the start of the line
@@ -66,37 +85,18 @@ impl BreakpadFuncSymbol {
         &self,
         mut input: &'a [u8],
     ) -> Result<BreakpadFuncSymbolInfo<'a>, BreakpadParseError> {
-        let mut first_line = if let Some(first_line_break) = memchr(b'\n', input) {
-            let first_line = &input[..first_line_break];
-            input = &input[(first_line_break + 1)..];
-            first_line
-        } else {
-            input
-        };
-        while first_line.last() == Some(&b'\r') {
-            first_line = &first_line[..(first_line.len() - 1)];
-        }
+        let first_line = read_line_and_advance(&mut input);
         let (_rest, (_address, size, name)) =
             func_line(first_line).map_err(|_| BreakpadParseError::ParsingFunc)?;
         let mut inlinees = Vec::new();
         let mut lines = Vec::new();
         while !input.is_empty() {
-            let mut line = if let Some(line_break) = memchr(b'\n', input) {
-                let line = &input[..line_break];
-                input = &input[(line_break + 1)..];
-                line
-            } else {
-                input
-            };
-            while line.last() == Some(&b'\r') {
-                line = &line[..(line.len() - 1)];
-            }
-
+            let line = read_line_and_advance(&mut input);
             if line.starts_with(b"INLINE ") {
                 let (_rest, new_inlinees) =
                     inline_line(line).map_err(|_| BreakpadParseError::ParsingInline)?;
                 inlinees.extend(new_inlinees);
-            } else if let Ok((_rest, line_data)) = func_line_data(input) {
+            } else if let Ok((_rest, line_data)) = func_line_data(line) {
                 lines.push(line_data);
             }
         }
@@ -647,6 +647,39 @@ mod test {
         assert_eq!(
             index.debug_id,
             DebugId::from_breakpad("39CA3106713C8D0FFEE4605AFA2526670").unwrap()
+        );
+    }
+
+    #[test]
+    fn func_parsing() {
+        let block =
+            b"JUNK\nFUNC 1130 28 0 main\n1130 f 24 0\n113f 7 25 0\n1146 9 26 0\n114f 9 27 0\nJUNK";
+        let func = BreakpadFuncSymbol {
+            file_offset: "JUNK\n".len() as u64,
+            block_length: (block.len() - "JUNK\n".len() - "\nJUNK".len()) as u32,
+        };
+        let input = &block[func.file_offset as usize..][..func.block_length as usize];
+        let func = func.parse(input).unwrap();
+        assert_eq!(func.name, "main");
+        assert_eq!(func.size, 0x28);
+        assert_eq!(func.lines.len(), 4);
+        assert_eq!(
+            func.lines[0],
+            SourceLine {
+                address: 0x1130,
+                size: 0xf,
+                file: 0,
+                line: 24,
+            }
+        );
+        assert_eq!(
+            func.lines[3],
+            SourceLine {
+                address: 0x114f,
+                size: 0x9,
+                file: 0,
+                line: 27,
+            }
         );
     }
 }
