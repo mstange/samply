@@ -16,15 +16,17 @@ pub fn get_frames<R: Reader>(
     context: Option<&addr2line::Context<R>>,
     path_mapper: &mut PathMapper<()>,
 ) -> Option<Vec<InlineStackFrame>> {
-    context
-        .and_then(|context| context.find_frames(address).ok())
-        .and_then(|frame_iter| {
-            frame_iter
-                .map(|f| Ok(convert_stack_frame(f, &mut *path_mapper)))
-                .collect::<Vec<InlineStackFrame>>()
-                .ok()
-        })
-        .filter(|frames| !frames.is_empty())
+    let frame_iter = context?.find_frames(address).ok()?;
+    let frames: Vec<_> = frame_iter
+        .map(|f| Ok(convert_stack_frame(f, &mut *path_mapper)))
+        .collect()
+        .ok()?;
+
+    if frames.is_empty() {
+        None
+    } else {
+        Some(frames)
+    }
 }
 
 pub fn convert_stack_frame<R: gimli::Reader>(
