@@ -262,7 +262,7 @@ pub struct AddressDebugInfo {
     pub frames: Vec<InlineStackFrame>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InlineStackFrame {
     pub function: Option<String>,
     pub file_path: Option<FilePath>, // maybe PathBuf?
@@ -282,7 +282,7 @@ pub enum BasePath {
     CanReferToLocalFiles(PathBuf),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FilePath {
     /// A local symbol file refers to a local path. No path mapping was applied.
     Local(PathBuf),
@@ -422,6 +422,7 @@ pub fn relative_address_base<'data: 'file, 'file>(
 }
 
 /// The symbol for a function.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SymbolInfo {
     /// The function's address. This is a relative address.
     pub address: u32,
@@ -432,6 +433,7 @@ pub struct SymbolInfo {
 }
 
 /// The lookup result for an address.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AddressInfo {
     /// Information about the symbol which contains the looked up address.
     pub symbol: SymbolInfo,
@@ -439,6 +441,7 @@ pub struct AddressInfo {
     pub frames: FramesLookupResult,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FramesLookupResult {
     /// Debug info for this address was found in the symbol map.
     ///
