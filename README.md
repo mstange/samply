@@ -1,96 +1,76 @@
 # samply
 
-(This project was formerly known as "perfrecord".)
+samply is a command line CPU profiler which uses the [Firefox profiler](https://profiler.firefox.com/) as its UI.
 
-This is a work in progress and not ready for public consumption.
+At the moment it runs on macOS and Linux. Windows support is planned. samply is still under development and far from finished, but works quite well already.
 
-`samply` is a command line CPU profiler which uses the [Firefox profiler](https://profiler.firefox.com/) as its UI.
-
-At the moment it works on macOS and Linux. Windows support is planned.
-
-Try it out now:
+Give it a try:
 
 ```
 % cargo install samply
 % samply record ./your-command your-arguments
 ```
 
-This collects a profile of the `./your-command your-arguments` command and saves it to a file. Then it opens
-your default browser, loads the profile in it, and runs a local webserver so that profiler.firefox.com
-can symbolicate the profile and show source code and assembly code on demand.
+This spawns `./your-command your-arguments` in a subprocess and records a profile of its execution. When the command finishes, samply opens
+[profiler.firefox.com](https://profiler.firefox.com/) in your default browser, loads the recorded profile in it, and starts a local webserver which serves symbol information and source code.
 
-The captured data is similar to that of the "CPU Profiler" in Instruments.
-`samply` is a sampling profiler that collects stack traces, per thread, at some sampling interval.
-In the future it should support sampling based on wall-clock time ("All thread states") and CPU time.
+Then you can inspect the profile. And you can upload it.
 
-`samply` does not require sudo privileges for profiling (non-signed) processes that it launches itself.
+Here's an example: https://share.firefox.dev/3j3PJoK
 
-## Other examples
-
-`samply record rustup check` generates [this profile](https://share.firefox.dev/2MfPzak).
-
-Profiling system-provided command line tools is not straightforward because of system-integrity protection.
-Here's an example for profiling `sleep` on an Intel machine:
+This is a profile of [dump_syms](https://github.com/mozilla/dump_syms), running on macOS, recorded as follows:
 
 ```
-cat /bin/sleep > /tmp/sleep; chmod +x /tmp/sleep
-samply record /tmp/sleep 2
+samply record ./dump_syms ~/mold-opt-libxul.so > /dev/null
 ```
 
-It produces [this profile](https://share.firefox.dev/2ZRmN7H).
+You can see which functions were running for how long. You can see flame graphs and timelines. You can double-click functions in the call tree to open the source view, and see which lines of code were sampled how many times.
 
-Profiling system tools on Apple Silicon machines is harder because of stricter signing requirements.
+All data is kept locally (on disk and in RAM) until you choose to upload your profile.
 
-## Why?
+samply is a sampling profiler and collects stack traces, per thread, at some sampling interval (the default 1000Hz, i.e. 1ms). On macOS, both on- and off-cpu samples are collected (so you can see under which stack you were blocking on a lock, for example). On Linux, only on-cpu samples are collected at the moment.
 
-(The below was written before Linux support was added. These sections need updating.)
+## Examples
 
-This is meant to be an alternative to the existing profilers on macOS:
+Here's a profile from `samply record rustup check`: https://share.firefox.dev/3hteKZZ
 
- - Instruments
- - the `sample` command line tool
- - the dtrace scripts that people use to create flame graphs on macOS.
+I'll add some Linux examples when I get a chance.
 
-It is meant to overcome the following shortcomings:
+## Turn on debug info for full stacks
 
- - `sample` and the dtrace `@[ustack()] = count();` script do not capture sample timestamps. They only capture aggregates. This makes it impossible to see the sequence of execution.
- - The Instruments command line tool does not allow specifying the sampling interval or to capture all-thread-states (wall-clock time-based) profiles. This means that you often have to initiate profiling from the UI, which can be cumbersome.
- - Instruments is not open source.
- - Instruments only profiles a single process (or all processes system-wide). It would be nice to have a profiler that can follow the process subtree of a command.
- - Instruments is unusably slow when loading profiles of large binaries. For example, profiling a local Firefox build with debug information hangs the Instruments UI for ten minutes (!).
- - Instruments has bugs, lots of them.
- - It misses some features, such as certain call tree transforms, or Rust demangling.
+If you profile Rust code, make sure to profile a binary which was compiled **in release mode** and **with debug info**. This will give you inline stacks and a working source code view.
 
-The last two could be overcome by using Instruments just as a way to capture data, and then loading the .trace bundles in our own tool.
+The best way is the following:
 
-## How does it work?
+ 1. Create a global cargo profile called `profiling`, see below how.
+ 2. Compile with `cargo build --profile profiling`.
+ 3. Record with `samply record ./target/profiling/yourrustprogram`.
 
-There are two main challenges here:
+To create the `profiling` cargo profile, create a text file at `~/.cargo/config.toml` with the following content:
 
- 1. Getting the `mach_task_self` of the launched child process into samply.
- 2. Obtaining stacks from the task.
+```toml
+[profile.profiling]
+inherits = "release"
+debug = true
+```
 
-### Getting the task
+Similar advice applies to other compiled languages. For C++, you'll want to make sure the `-g` flag is included in the compiler invocation.
 
-We get the task by injecting a library into the launched process using `DYLD_INSERT_LIBRARIES`.
-The injected library establishes a mach connection to samply during its module constructor,
-and sends its `mach_task_self()` up to the samply process.
-This makes use of code from the [ipc-channel crate](https://github.com/servo/ipc-channel/)'s
-mach implementation.
+## Known issues
 
-We can only get the task of binaries that are not signed or have entitlements.
-Similar tools require you to use Xcode to create a build that has task_for_pid
-entitelments to work around this restriction.
+On macOS, samply cannot profile system commands, such as the `sleep` command or system `python`. This is because system executables are signed in such a way that they block the `DYLD_INSERT_LIBRARIES` environment variable, which breaks samply's ability to siphon out the `mach_port` of the process.
 
-### Obtaining stacks
+But you can profile any binaries that you've compiled yourself, or which are unsigned or locally-signed (such as anything installed by `cargo install` or by [Homebrew](brew.sh)).
 
-Once samply has the `mach_port_t` for the child task, it has complete control over it.
-It can enumerate threads, pause them at will, and read process memory.
+## License
 
-We use these primitives to walk the stack and enumerate shared libraries.
+Licensed under either of
 
-Stack unwinding uses the [`framehop` crate](https://github.com/mstange/framehop/), which
-emits high quality stacks on both x86_64 and arm64. It supports Apple's compact unwind
-info format and DWARF CFI, and has heuristics for function prologues and epilogues. As
-a result, stacks should always be available, even for binaries that were compiled without
-frame pointers.
+  * Apache License, Version 2.0 ([`LICENSE-APACHE`](./LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
+  * MIT license ([`LICENSE-MIT`](./LICENSE-MIT) or http://opensource.org/licenses/MIT)
+
+at your option.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
+dual licensed as above, without any additional terms or conditions.
