@@ -1,5 +1,6 @@
 use debugid::{CodeId, DebugId};
 use object::read::ReadRef;
+use object::FileFlags;
 use std::borrow::Cow;
 use std::fmt::Debug;
 use std::future::Future;
@@ -367,15 +368,13 @@ impl FilePath {
 ///
 ///  - For Windows binaries, the base address is the "image base address".
 ///  - For mach-O binaries, the base address is the vmaddr of the __TEXT segment.
-///  - For kernel ELF binaries ("vmlinux"), we define the base address as the
-///    vmaddr of the .text section. This may not have a precedent, but it's an
-///    address which is readily available in the Linux `perf` case which motivated
-///    this special treatment.
-///  - For other ELF binaries, the base address is zero.
+///  - For ELF binaries, the base address is the vmaddr of the *first* segment,
+///    i.e. the vmaddr of the first "LOAD" ELF command.
 ///
 /// In many cases, this base address is simply zero:
 ///
-///  - Non-kernel ELF images are treated as having a base address of zero.
+///  - ELF images of dynamic libraries (i.e. not executables) usually have a
+///    base address of zero.
 ///  - Stand-alone mach-O dylibs usually have a base address of zero because their
 ///    __TEXT segment is at address zero.
 ///  - In PDBs, "RVAs" are relative addresses which are already relative to the
@@ -388,8 +387,11 @@ impl FilePath {
 ///    address 0x100000000.
 ///  - mach-O libraries in the dyld shared cache have a __TEXT segment at some
 ///    non-zero address in the cache.
-///  - The .text section of a vmlinux image can be at a very high address such
-///    as 0xffffffff81000000.
+///  - ELF executables can have non-zero base addresses, e.g. 0x200000 or 0x400000.
+///  - Kernel ELF binaries ("vmlinux") have a large base address such as
+///    0xffffffff81000000. Moreover, the base address seems to coincide with the
+///    vmaddr of the .text section, which is readily-available in perf.data files
+///    (in a synthetic mapping called "[kernel.kallsyms]_text").
 pub fn relative_address_base<'data: 'file, 'file>(
     object_file: &'file impl object::Object<'data, 'file>,
 ) -> u64 {
@@ -403,17 +405,11 @@ pub fn relative_address_base<'data: 'file, 'file>(
         return text_segment.address();
     }
 
-    use object::ObjectSection;
-    if let Some(text_section) = object_file.section_by_name_bytes(b".text") {
-        // Detect kernel images.
-        // TODO: There is probably a better way to detect this.
-        if text_section.address() >= 0xffffffff80000000 {
-            // This is a kernel image (vmlinux). Relative addresses are relative to the
-            // text section.
-            // (This decision is up for discussion. I chose this option because perf.data
-            // has synthetic MMAP events for a "[kernel.kallsyms]_text" image, so this
-            // choice makes things simple and allows relative addresses to fit in a u32.)
-            return text_section.address();
+    if let FileFlags::Elf { .. } = object_file.flags() {
+        // This is an ELF image. "Relative addresses" are relative to the
+        // vmaddr of the first segment (the first LOAD command).
+        if let Some(first_segment) = object_file.segments().next() {
+            return first_segment.address();
         }
     }
 

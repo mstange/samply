@@ -399,6 +399,31 @@ fn fat_arch_2() {
 }
 
 #[test]
+fn linux_nonzero_base_address() {
+    let helper = Helper {
+        symbol_directory: fixtures_dir().join("linux64-ci"),
+    };
+    let symbol_manager = SymbolManager::with_helper(&helper);
+    let symbol_map =
+        futures::executor::block_on(symbol_manager.load_symbol_map_for_binary_at_path(
+            &fixtures_dir().join("linux64-ci").join("firefox"),
+            None,
+        ))
+        .unwrap();
+    assert_eq!(
+        symbol_map.debug_id(),
+        DebugId::from_breakpad("83CA53B0E8272691CEFCD79178D33D5C0").unwrap()
+    );
+    assert_eq!(symbol_map.lookup(0x1700), None);
+    assert_eq!(symbol_map.lookup(0x18a0).unwrap().symbol.name, "start");
+    assert_eq!(symbol_map.lookup(0x19ea).unwrap().symbol.name, "main");
+    assert_eq!(
+        symbol_map.lookup(0x1a60).unwrap().symbol.name,
+        "_libc_csu_init"
+    );
+}
+
+#[test]
 fn compare_snapshot() {
     let table = futures::executor::block_on(crate::get_table(
         "mozglue.pdb",

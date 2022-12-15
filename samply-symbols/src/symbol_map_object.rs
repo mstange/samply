@@ -149,11 +149,11 @@ where
                 .symbols()
                 .chain(object_file.dynamic_symbols())
                 .filter(|symbol| symbol.kind() == SymbolKind::Text)
-                .map(|symbol| {
-                    (
-                        (symbol.address() - base_address) as u32,
+                .filter_map(|symbol| {
+                    Some((
+                        u32::try_from(symbol.address().checked_sub(base_address)?).ok()?,
                         FullSymbolListEntry::Symbol(symbol),
-                    )
+                    ))
                 }),
         );
 
