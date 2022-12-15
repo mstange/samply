@@ -13,14 +13,17 @@ pub fn demangle_any(name: &str) -> String {
             | DemangleFlags::HUG_TYPE;
         return msvc_demangler::demangle(name, flags).unwrap_or_else(|_| name.to_string());
     }
+
     if let Ok(demangled_symbol) = rustc_demangle::try_demangle(name) {
         return format!("{:#}", demangled_symbol);
     }
 
-    let options = cpp_demangle::DemangleOptions::default().no_return_type();
-    if let Ok(symbol) = cpp_demangle::Symbol::new(name) {
-        if let Ok(demangled_string) = symbol.demangle(&options) {
-            return demangled_string;
+    if name.starts_with('_') {
+        let options = cpp_demangle::DemangleOptions::default().no_return_type();
+        if let Ok(symbol) = cpp_demangle::Symbol::new(name) {
+            if let Ok(demangled_string) = symbol.demangle(&options) {
+                return demangled_string;
+            }
         }
     }
 
