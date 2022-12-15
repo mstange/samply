@@ -41,12 +41,14 @@ fn main() -> anyhow::Result<()> {
         Err(err) => err,
     };
     match err.downcast::<Error>() {
-        Ok(Error::NoMatchMultiArch(uuids, _)) if !has_breakpad_id => {
+        Ok(Error::NoMatchMultiArch(members)) if !has_breakpad_id => {
             // There's no one breakpad ID. We need the user to specify which one they want.
             // Print out all potential breakpad IDs so that the user can pick.
             eprintln!("This is a multi-arch container. Please specify one of the following breakpadIDs to pick a symbol table:");
-            for id in uuids {
-                println!(" - {}", id.breakpad());
+            for (_arch, _, _, debug_id) in members {
+                if let Some(debug_id) = debug_id {
+                    println!(" - {}", debug_id.breakpad());
+                }
             }
             Ok(())
         }
