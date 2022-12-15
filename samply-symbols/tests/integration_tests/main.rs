@@ -424,7 +424,28 @@ fn linux_nonzero_base_address() {
 }
 
 #[test]
-fn linux_low_address() {
+fn example_linux() {
+    let helper = Helper {
+        symbol_directory: fixtures_dir().join("other"),
+    };
+    let symbol_manager = SymbolManager::with_helper(&helper);
+    let symbol_map =
+        futures::executor::block_on(symbol_manager.load_symbol_map_for_binary_at_path(
+            &fixtures_dir().join("other").join("example-linux"),
+            None,
+        ))
+        .unwrap();
+    assert_eq!(
+        symbol_map.debug_id(),
+        DebugId::from_breakpad("BE4E976C325246EE9D6B7847A670B2A90").unwrap()
+    );
+    assert_eq!(&symbol_map.lookup(0x1156).unwrap().symbol.name, "main");
+    assert_eq!(symbol_map.lookup(0x1158), None, "Gap between main and f");
+    assert_eq!(&symbol_map.lookup(0x1160).unwrap().symbol.name, "f");
+}
+
+#[test]
+fn example_linux_fallback() {
     let helper = Helper {
         symbol_directory: fixtures_dir().join("other"),
     };

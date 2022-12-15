@@ -197,7 +197,29 @@ where
                 }),
         );
 
-        // 6. End addresses for known functions ends
+        // 6. End addresses for sized symbols
+        // These addresses serve to "terminate" functions symbols.
+        entries.extend(
+            object_file
+                .symbols()
+                .filter(|symbol| {
+                    symbol.kind() == SymbolKind::Text && symbol.address() != 0 && symbol.size() != 0
+                })
+                .filter_map(|symbol| {
+                    Some((
+                        u32::try_from(
+                            symbol
+                                .address()
+                                .checked_add(symbol.size())?
+                                .checked_sub(base_address)?,
+                        )
+                        .ok()?,
+                        FullSymbolListEntry::EndAddress,
+                    ))
+                }),
+        );
+
+        // 7. End addresses for known functions ends
         // These addresses serve to "terminate" functions from function_start_addresses.
         // They come from .eh_frame or .pdata info, which has the function size.
         if let Some(function_end_addresses) = function_end_addresses {
