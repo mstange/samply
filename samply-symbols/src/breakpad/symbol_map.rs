@@ -325,3 +325,16 @@ impl<'a, T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'a, T> {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn overeager_demangle() {
+        let sym = b"MODULE Linux x86_64 BE4E976C325246EE9D6B7847A670B2A90 example-linux\nFILE 0 filename\nFUNC 1160 45 0 f\n1160 c 16 0";
+        let fc = FileContentsWrapper::new(&sym[..]);
+        let symbol_map = get_symbol_map_for_breakpad_sym(fc).unwrap();
+        assert_eq!(symbol_map.lookup(0x1160).unwrap().symbol.name, "f");
+    }
+}
