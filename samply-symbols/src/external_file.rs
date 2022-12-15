@@ -1,15 +1,16 @@
 use std::{collections::HashMap, path::Path, sync::Mutex};
 
-use object::{read::archive::ArchiveFile, File, ReadRef};
+use object::{macho::FatHeader, read::archive::ArchiveFile, File, FileKind, ReadRef};
 use yoke::{Yoke, Yokeable};
 
 use crate::{
     dwarf::{get_frames, Addr2lineContextData},
+    macho,
     path_mapper::PathMapper,
     shared::{
         BasePath, ExternalFileAddressInFileRef, ExternalFileRef, FileContentsWrapper, RangeReadRef,
     },
-    Error, FileAndPathHelper, FileContents, FileLocation, InlineStackFrame,
+    Error, FileAndPathHelper, FileContents, FileLocation, InlineStackFrame, MultiArchDisambiguator,
 };
 
 pub async fn load_external_file<'h, H>(
@@ -25,7 +26,11 @@ where
         ))
         .await
         .map_err(|e| Error::HelperErrorDuringOpenFile(external_file_ref.file_name.clone(), e))?;
-    let symbol_map = ExternalFileSymbolMapImpl::new(&external_file_ref.file_name, file);
+    let symbol_map = ExternalFileSymbolMapImpl::new(
+        &external_file_ref.file_name,
+        file,
+        external_file_ref.arch.as_deref(),
+    )?;
     Ok(ExternalFileSymbolMap(Box::new(symbol_map)))
 }
 
@@ -122,8 +127,8 @@ trait ExternalFileSymbolMapTrait {
 }
 
 impl<F: FileContents + 'static> ExternalFileSymbolMapImpl<F> {
-    pub fn new(file_name: &str, file: F) -> Self {
-        let external_file = Box::new(ExternalFileData::new(file_name, file));
+    pub fn new(file_name: &str, file: F, arch: Option<&str>) -> Result<Self, Error> {
+        let external_file = Box::new(ExternalFileData::new(file_name, file, arch)?);
         let inner =
             Yoke::<ExternalFileContextWrapper<'static>, Box<ExternalFileData<F>>>::attach_to_cart(
                 external_file,
@@ -132,7 +137,7 @@ impl<F: FileContents + 'static> ExternalFileSymbolMapImpl<F> {
                     ExternalFileContextWrapper(uplooker)
                 },
             );
-        Self(inner)
+        Ok(Self(inner))
     }
 }
 
@@ -230,33 +235,58 @@ struct ExternalFileData<F: FileContents> {
     base_path: BasePath,
     /// name in bytes -> (start, size) in file_contents
     archive_members_by_name: HashMap<Vec<u8>, (u64, u64)>,
+    fat_archive_range: Option<(u64, u64)>,
     addr2line_context_data: Addr2lineContextData,
 }
 
 impl<F: FileContents> ExternalFileData<F> {
-    pub fn new(file_name: &str, file: F) -> Self {
+    pub fn new(file_name: &str, file: F, arch: Option<&str>) -> Result<Self, Error> {
         let file_path = &Path::new(file_name);
         let base_path = file_path.parent().unwrap_or(file_path);
         let base_path = BasePath::CanReferToLocalFiles(base_path.to_owned());
+        let mut archive_members_by_name: HashMap<Vec<u8>, (u64, u64)> = HashMap::new();
         let file_contents = FileContentsWrapper::new(file);
-        let archive_members_by_name: HashMap<Vec<u8>, (u64, u64)> =
-            match ArchiveFile::parse(&file_contents) {
-                Ok(archive) => archive
-                    .members()
-                    .filter_map(|member| match member {
-                        Ok(member) => Some((member.name().to_owned(), member.file_range())),
-                        Err(_) => None,
-                    })
-                    .collect(),
-                Err(_) => HashMap::new(),
-            };
-        Self {
+        let mut fat_archive_range = None;
+        let file_kind = FileKind::parse(&file_contents)
+            .map_err(|_| Error::CouldNotDetermineExternalFileFileKind)?;
+        match file_kind {
+            FileKind::Archive => {
+                if let Ok(archive) = ArchiveFile::parse(&file_contents) {
+                    for member in archive.members().flatten() {
+                        archive_members_by_name
+                            .insert(member.name().to_owned(), member.file_range());
+                    }
+                }
+            }
+            FileKind::MachO32 | FileKind::MachO64 => {
+                // Good
+            }
+            FileKind::MachOFat32 | FileKind::MachOFat64 => {
+                let arch = arch.ok_or(Error::NoDisambiguatorForFatArchive)?.to_string();
+                let disambiguator = MultiArchDisambiguator::Arch(arch);
+                let (offset, size) = if file_kind == FileKind::MachOFat64 {
+                    let arches = FatHeader::parse_arch64(&file_contents)
+                        .map_err(|e| Error::ObjectParseError(file_kind, e))?;
+                    macho::get_arch_range(&file_contents, arches, disambiguator)?
+                } else {
+                    let arches = FatHeader::parse_arch32(&file_contents)
+                        .map_err(|e| Error::ObjectParseError(file_kind, e))?;
+                    macho::get_arch_range(&file_contents, arches, disambiguator)?
+                };
+                fat_archive_range = Some((offset, size));
+            }
+            _ => {
+                return Err(Error::UnexpectedExternalFileFileKind(file_kind));
+            }
+        }
+        Ok(Self {
             name: file_name.to_owned(),
             file_contents,
             base_path,
             archive_members_by_name,
+            fat_archive_range,
             addr2line_context_data: Addr2lineContextData::new(),
-        }
+        })
     }
 
     fn get_archive_member<'s>(
@@ -264,15 +294,16 @@ impl<F: FileContents> ExternalFileData<F> {
         name_in_archive: Option<&str>,
     ) -> Result<ArchiveMemberObject<'s, RangeReadRef<&'s FileContentsWrapper<F>>>, Error> {
         let data = &self.file_contents;
-        let data = match name_in_archive {
-            Some(name_in_archive) => {
+        let data = match (name_in_archive, self.fat_archive_range) {
+            (Some(name_in_archive), _) => {
                 let (start, size) = self
                     .archive_members_by_name
                     .get(name_in_archive.as_bytes())
                     .ok_or_else(|| Error::FileNotInArchive(name_in_archive.to_owned()))?;
                 RangeReadRef::new(data, *start, *size)
             }
-            None => RangeReadRef::new(data, 0, data.len()),
+            (None, Some((offset, size))) => RangeReadRef::new(data, offset, size),
+            (None, None) => RangeReadRef::new(data, 0, data.len()),
         };
         let object_file = File::parse(data).map_err(Error::MachOHeaderParseError)?;
         Ok(ArchiveMemberObject { data, object_file })

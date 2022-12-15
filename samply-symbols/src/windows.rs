@@ -98,7 +98,7 @@ impl<T: FileContents + 'static> SymbolMapDataOuterTrait for PeSymbolMapData<T> {
         let object =
             File::parse(&self.file_data).map_err(|e| Error::ObjectParseError(self.file_kind, e))?;
         let object =
-            ObjectSymbolMapDataMid::new(object, PeFunctionAddressesComputer, &self.file_data);
+            ObjectSymbolMapDataMid::new(object, PeFunctionAddressesComputer, &self.file_data, None);
 
         Ok(Box::new(object))
     }

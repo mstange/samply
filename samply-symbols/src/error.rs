@@ -1,4 +1,5 @@
 use debugid::{CodeId, DebugId};
+use object::FileKind;
 use pdb_addr2line::pdb::Error as PdbError;
 use std::path::PathBuf;
 use thiserror::Error;
@@ -28,6 +29,12 @@ pub enum Error {
 
     #[error("Not enough information was supplied to identify the requested binary.")]
     NotEnoughInformationToIdentifyBinary,
+
+    #[error("Could not determine the FileKind of the external file.")]
+    CouldNotDetermineExternalFileFileKind,
+
+    #[error("External file has an unexpected FileKind: {0:?}")]
+    UnexpectedExternalFileFileKind(FileKind),
 
     #[error("Not enough information was supplied to identify the requested symbol map. The debug ID is required.")]
     NotEnoughInformationToIdentifySymbolMap,
@@ -191,6 +198,8 @@ impl Error {
             Error::UnmatchedDebugIdOptional(_, _) => "UnmatchedDebugIdOptional",
             Error::UnmatchedCodeId(_, _) => "UnmatchedCodeId",
             Error::InvalidBreakpadId(_) => "InvalidBreakpadId",
+            Error::CouldNotDetermineExternalFileFileKind => "CouldNotDetermineExternalFileFileKind",
+            Error::UnexpectedExternalFileFileKind(_) => "UnexpectedExternalFileFileKind",
             Error::NoMatchMultiArch(_) => "NoMatchMultiArch",
             Error::NoLuckMacOsSystemLibrary(_) => "NoLuckMacOsSystemLibrary",
             Error::PdbError(_, _) => "PdbError",

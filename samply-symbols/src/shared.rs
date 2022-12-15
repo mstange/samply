@@ -474,6 +474,7 @@ pub struct ExternalFileAddressRef {
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ExternalFileRef {
     pub file_name: String,
+    pub arch: Option<String>,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]

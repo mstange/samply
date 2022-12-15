@@ -32,17 +32,24 @@ pub struct ObjectSymbolMapDataMid<'data, R: ReadRef<'data>, FAC: FunctionAddress
     function_addresses_computer: FAC,
     file_data: R,
     addr2line_context_data: Addr2lineContextData,
+    arch: Option<&'static str>,
 }
 
 impl<'data, R: ReadRef<'data>, FAC: FunctionAddressesComputer<'data>>
     ObjectSymbolMapDataMid<'data, R, FAC>
 {
-    pub fn new(object: File<'data, R>, function_addresses_computer: FAC, file_data: R) -> Self {
+    pub fn new(
+        object: File<'data, R>,
+        function_addresses_computer: FAC,
+        file_data: R,
+        arch: Option<&'static str>,
+    ) -> Self {
         Self {
             object,
             function_addresses_computer,
             file_data,
             addr2line_context_data: Addr2lineContextData::new(),
+            arch,
         }
     }
 }
@@ -67,6 +74,7 @@ impl<'data, R: ReadRef<'data>, FAC: FunctionAddressesComputer<'data>> SymbolMapD
             PathMapper::new(base_path),
             function_starts.as_deref(),
             function_ends.as_deref(),
+            self.arch,
             &self.addr2line_context_data,
         );
         let symbol_map = SymbolMapInnerWrapper(Box::new(symbol_map));
@@ -101,6 +109,7 @@ where
 {
     entries: Vec<(u32, FullSymbolListEntry<'data, Symbol>)>,
     debug_id: DebugId,
+    arch: Option<&'static str>,
     path_mapper: Mutex<PathMapper<()>>,
     object_map: ObjectMap<'data>,
     context: Option<addr2line::Context<gimli::EndianSlice<'file, gimli::RunTimeEndian>>>,
@@ -121,6 +130,7 @@ impl<'data, 'file, Symbol: object::ObjectSymbol<'data>> ObjectSymbolMapInner<'da
 where
     'data: 'file,
 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new<O, R>(
         object_file: &'file O,
         data: R,
@@ -128,6 +138,7 @@ where
         path_mapper: PathMapper<()>,
         function_start_addresses: Option<&[u32]>,
         function_end_addresses: Option<&[u32]>,
+        arch: Option<&'static str>,
         addr2line_context_data: &'file Addr2lineContextData,
     ) -> Self
     where
@@ -249,6 +260,7 @@ where
             path_mapper: Mutex::new(path_mapper),
             object_map: object_file.object_map(),
             context,
+            arch,
             image_base_address: base_address,
         }
     }
@@ -332,6 +344,7 @@ where
                         FramesLookupResult::External(ExternalFileAddressRef {
                             file_ref: ExternalFileRef {
                                 file_name: file_name.to_owned(),
+                                arch: self.arch.map(ToOwned::to_owned),
                             },
                             address_in_file: ExternalFileAddressInFileRef {
                                 name_in_archive: name_in_archive.map(ToOwned::to_owned),

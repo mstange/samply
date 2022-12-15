@@ -183,10 +183,15 @@ impl<T: FileContents + 'static> SymbolMapDataOuterTrait for DyldCacheFileData<T>
             .image_data_and_offset()
             .map_err(Error::MachOHeaderParseError)?;
         let macho_data = MachOData::new(data, header_offset, object.is_64());
+        let arch = macho_data.get_arch();
         let function_addresses_computer = MachOFunctionAddressesComputer { macho_data };
 
-        let object =
-            ObjectSymbolMapDataMid::new(object, function_addresses_computer, &self.root_file_data);
+        let object = ObjectSymbolMapDataMid::new(
+            object,
+            function_addresses_computer,
+            &self.root_file_data,
+            arch,
+        );
 
         Ok(Box::new(object))
     }
@@ -229,9 +234,14 @@ impl<T: FileContents + 'static> SymbolMapDataOuterTrait for MachSymbolMapData<T>
     fn make_symbol_map_data_mid(&self) -> Result<Box<dyn SymbolMapDataMidTrait + '_>, Error> {
         let macho_file = File::parse(&self.file_data).map_err(Error::MachOHeaderParseError)?;
         let macho_data = MachOData::new(&self.file_data, 0, macho_file.is_64());
+        let arch = macho_data.get_arch();
         let function_addresses_computer = MachOFunctionAddressesComputer { macho_data };
-        let object =
-            ObjectSymbolMapDataMid::new(macho_file, function_addresses_computer, &self.file_data);
+        let object = ObjectSymbolMapDataMid::new(
+            macho_file,
+            function_addresses_computer,
+            &self.file_data,
+            arch,
+        );
         Ok(Box::new(object))
     }
 }
@@ -265,9 +275,10 @@ impl<T: FileContents + 'static> SymbolMapDataOuterTrait for MachOFatArchiveMembe
         let range_data = self.data();
         let macho_file = File::parse(range_data).map_err(Error::MachOHeaderParseError)?;
         let macho_data = MachOData::new(range_data, 0, macho_file.is_64());
+        let arch = macho_data.get_arch();
         let function_addresses_computer = MachOFunctionAddressesComputer { macho_data };
         let object =
-            ObjectSymbolMapDataMid::new(macho_file, function_addresses_computer, range_data);
+            ObjectSymbolMapDataMid::new(macho_file, function_addresses_computer, range_data, arch);
         Ok(Box::new(object))
     }
 }
@@ -356,6 +367,20 @@ impl<'data, R: ReadRef<'data>> MachOData<'data, R> {
         }
 
         Ok(Some(function_starts))
+    }
+
+    pub fn get_arch(&self) -> Option<&'static str> {
+        if self.is_64 {
+            self.get_arch_impl::<MachHeader64<Endianness>>()
+        } else {
+            self.get_arch_impl::<MachHeader32<Endianness>>()
+        }
+    }
+
+    fn get_arch_impl<M: MachHeader>(&self) -> Option<&'static str> {
+        let header = M::parse(self.data, self.header_offset).ok()?;
+        let endian = header.endian().ok()?;
+        macho_arch_name_for_cpu_type(header.cputype(endian), header.cpusubtype(endian))
     }
 
     fn load_command_iter<M: MachHeader>(

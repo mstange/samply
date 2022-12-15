@@ -68,8 +68,12 @@ impl<T: FileContents + 'static> SymbolMapDataOuterTrait for ElfSymbolMapData<T> 
     fn make_symbol_map_data_mid(&self) -> Result<Box<dyn SymbolMapDataMidTrait + '_>, Error> {
         let object =
             File::parse(&self.file_data).map_err(|e| Error::ObjectParseError(self.file_kind, e))?;
-        let object =
-            ObjectSymbolMapDataMid::new(object, ElfFunctionAddressesComputer, &self.file_data);
+        let object = ObjectSymbolMapDataMid::new(
+            object,
+            ElfFunctionAddressesComputer,
+            &self.file_data,
+            None,
+        );
 
         Ok(Box::new(object))
     }
