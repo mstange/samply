@@ -148,7 +148,7 @@ where
             object_file
                 .symbols()
                 .chain(object_file.dynamic_symbols())
-                .filter(|symbol| symbol.kind() == SymbolKind::Text)
+                .filter(|symbol| symbol.kind() == SymbolKind::Text && symbol.address() != 0)
                 .filter_map(|symbol| {
                     Some((
                         u32::try_from(symbol.address().checked_sub(base_address)?).ok()?,

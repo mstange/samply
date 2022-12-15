@@ -424,6 +424,26 @@ fn linux_nonzero_base_address() {
 }
 
 #[test]
+fn linux_low_address() {
+    let helper = Helper {
+        symbol_directory: fixtures_dir().join("other"),
+    };
+    let symbol_manager = SymbolManager::with_helper(&helper);
+    let symbol_map =
+        futures::executor::block_on(symbol_manager.load_symbol_map_for_binary_at_path(
+            &fixtures_dir().join("other").join("example-linux-fallback"),
+            None,
+        ))
+        .unwrap();
+    assert_eq!(
+        symbol_map.debug_id(),
+        DebugId::from_breakpad("8BA453B7838CDDC62F00004885C074020").unwrap()
+    );
+    // no _stack_chk_fail@@GLIBC_2.4 please
+    assert_eq!(symbol_map.lookup(0x6), None);
+}
+
+#[test]
 fn compare_snapshot() {
     let table = futures::executor::block_on(crate::get_table(
         "mozglue.pdb",
