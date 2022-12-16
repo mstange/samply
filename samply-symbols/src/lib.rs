@@ -185,7 +185,6 @@ pub use debugid;
 pub use object;
 pub use pdb_addr2line::pdb;
 
-use debugid::DebugId;
 use object::read::FileKind;
 
 mod binary_image;
@@ -396,35 +395,28 @@ where
         Ok(image)
     }
 
-    /// Returns the file data of the binary for the given `debug_name` and `debug_id`.
+    /// Returns the binary for the given (partial) [`LibraryInfo`].
     ///
-    /// This does a quick parse of the file to check that the `debug_id` matches, if it's given.
+    /// This consults the helper to get candidate paths to the binary.
     pub async fn load_binary(
         &self,
-        debug_name: Option<&str>,
-        debug_id: Option<DebugId>,
-        name: Option<&str>,
-        code_id: Option<&CodeId>,
+        info: &LibraryInfo,
     ) -> Result<BinaryImage<F>, Error> {
         // Require at least either the code ID or a (debug_name, debug_id) pair.
-        if code_id.is_none() && (debug_name.is_none() || debug_id.is_none()) {
+        if info.code_id.is_none() && (info.debug_name.is_none() || info.debug_id.is_none()) {
             return Err(Error::NotEnoughInformationToIdentifyBinary);
         }
 
-        let library_info = LibraryInfo {
-            debug_name: debug_name.map(ToString::to_string),
-            debug_id,
-            name: name.map(ToString::to_string),
-            code_id: code_id.cloned(),
-            ..Default::default()
-        };
-
         let candidate_paths_for_binary = self
             .helper
-            .get_candidate_paths_for_binary(&library_info)
+            .get_candidate_paths_for_binary(info)
             .map_err(|e| Error::HelperErrorDuringGetCandidatePathsForBinary(e))?;
 
-        let disambiguator = debug_id.map(MultiArchDisambiguator::DebugId);
+        let disambiguator = match (&info.debug_id, &info.arch) {
+            (Some(debug_id), _) => Some(MultiArchDisambiguator::DebugId(*debug_id)),
+            (None, Some(arch)) => Some(MultiArchDisambiguator::Arch(arch.clone())),
+            (None, None) => None,
+        };
 
         let mut last_err = None;
         for candidate_info in candidate_paths_for_binary {
@@ -434,12 +426,12 @@ where
 
             match image {
                 Ok(image) => {
-                    let e = if let Some(expected_debug_id) = debug_id {
+                    let e = if let Some(expected_debug_id) = info.debug_id {
                         if image.debug_id() == Some(expected_debug_id) {
                             return Ok(image);
                         }
                         Error::UnmatchedDebugIdOptional(expected_debug_id, image.debug_id())
-                    } else if let Some(expected_code_id) = code_id {
+                    } else if let Some(expected_code_id) = info.code_id.as_ref() {
                         if image.code_id().as_ref() == Some(expected_code_id) {
                             return Ok(image);
                         }
@@ -457,7 +449,7 @@ where
             }
         }
         Err(last_err.unwrap_or_else(|| {
-            Error::NoCandidatePathForBinary(debug_name.map(ToString::to_string), debug_id)
+            Error::NoCandidatePathForBinary(info.debug_name.clone(), info.debug_id)
         }))
     }
 
