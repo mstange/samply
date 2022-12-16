@@ -2,7 +2,7 @@ use samply_symbols::{debugid::DebugId, Error};
 use std::path::{Path, PathBuf};
 use structopt::StructOpt;
 
-use dump_table::{dump_table, get_table};
+use dump_table::{dump_table, get_table_for_binary};
 
 #[derive(Debug, StructOpt)]
 #[structopt(
@@ -52,7 +52,7 @@ async fn main_impl(
     let debug_id = breakpad_id
         .as_deref()
         .and_then(|debug_id| DebugId::from_breakpad(debug_id).ok());
-    let table = get_table(binary_path, debug_id).await?;
+    let table = get_table_for_binary(binary_path, debug_id).await?;
     dump_table(&mut std::io::stdout(), table, full).unwrap();
     Ok(())
 }

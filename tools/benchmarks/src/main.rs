@@ -1,5 +1,5 @@
 use bzip2::read::BzDecoder;
-use dump_table::get_table;
+use dump_table::get_table_for_debug_name_and_id;
 use flate2::read::GzDecoder;
 use query_api::{query_api, DebugId};
 use std::collections::HashSet;
@@ -114,7 +114,7 @@ fn main() -> anyhow::Result<()> {
             action: "dump-table",
             duration: run_dump_table_benchmark(
                 "XUL",
-                Some("D2139EE3190B37028A98D55519AA0B870".into()),
+                Some("8A1F954DAA533D219943F2FBC8E6FA2E0".into()),
                 big_fixtures_dir().join("macos-local"),
             ),
         },
@@ -244,8 +244,12 @@ fn run_dump_table_benchmark(
         debug_name, breakpad_id, symbol_directory
     );
     let start = Instant::now();
-    let _result =
-        futures::executor::block_on(get_table(debug_name, debug_id, symbol_directory.clone()));
+    let _result = futures::executor::block_on(get_table_for_debug_name_and_id(
+        debug_name,
+        debug_id,
+        symbol_directory.clone(),
+    ))
+    .unwrap();
     let duration = start.elapsed();
     eprintln!(
         "Finished dump_table benchmark for {}, {:?}, {:?}.",

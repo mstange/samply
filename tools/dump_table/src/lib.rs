@@ -12,7 +12,7 @@ use std::pin::Pin;
 #[cfg(feature = "chunked_caching")]
 use samply_symbols::{FileByteSource, FileContents};
 
-pub async fn get_table(
+pub async fn get_table_for_binary(
     binary_path: &Path,
     debug_id: Option<DebugId>,
 ) -> Result<CompactSymbolTable, Error> {
@@ -26,6 +26,22 @@ pub async fn get_table(
             debug_id.map(MultiArchDisambiguator::DebugId),
         )
         .await?;
+    Ok(CompactSymbolTable::from_symbol_map(&symbol_map))
+}
+
+pub async fn get_table_for_debug_name_and_id(
+    debug_name: &str,
+    debug_id: Option<DebugId>,
+    symbol_directory: PathBuf,
+) -> Result<CompactSymbolTable, Error> {
+    let helper = Helper { symbol_directory };
+    let symbol_manager = SymbolManager::with_helper(&helper);
+    let info = LibraryInfo {
+        debug_name: Some(debug_name.to_string()),
+        debug_id,
+        ..Default::default()
+    };
+    let symbol_map = symbol_manager.load_symbol_map(&info).await?;
     Ok(CompactSymbolTable::from_symbol_map(&symbol_map))
 }
 
