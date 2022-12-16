@@ -1,10 +1,9 @@
 #![no_main]
 #![no_std]
 
-use core::panic::PanicInfo;
-
+#[cfg(not(test))]
 #[panic_handler]
-fn panic(_panic: &PanicInfo<'_>) -> ! {
+fn panic(_panic: &core::panic::PanicInfo<'_>) -> ! {
     unsafe { libc::abort() }
 }
 
