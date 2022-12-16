@@ -1,4 +1,3 @@
-use crate::debugid_util::debug_id_for_object;
 use crate::error::Error;
 use crate::shared::{
     BasePath, FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation, RangeReadRef,
@@ -8,13 +7,15 @@ use crate::symbol_map::{
 };
 use crate::symbol_map_object::{FunctionAddressesComputer, ObjectSymbolMapDataMid};
 use crate::MultiArchDisambiguator;
+use debugid::DebugId;
 use macho_unwind_info::UnwindInfo;
-use object::macho::{self, LinkeditDataCommand, MachHeader32, MachHeader64};
+use object::macho::{self, FatHeader, LinkeditDataCommand, MachHeader32, MachHeader64};
 use object::read::macho::{FatArch, LoadCommandIterator, MachHeader};
 use object::read::{File, Object, ObjectSection};
-use object::{Endianness, ReadRef};
+use object::{Endianness, FileKind, ReadRef};
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
+use uuid::Uuid;
 
 /// Converts a cpu type/subtype pair into the architecture name.
 ///
@@ -48,36 +49,97 @@ fn macho_arch_name_for_cpu_type(cputype: u32, cpusubtype: u32) -> Option<&'stati
 }
 
 /// Returns the (offset, size) in the fat binary file for the object that matches
-// breakpad_id, if found.
-pub fn get_arch_range(
+/// `disambiguator`, if found.
+///
+/// If `disambiguator` is `None`, this will always return [`Error::NoDisambiguatorForFatArchive`].
+pub fn get_fat_archive_member_range(
     file_contents: &FileContentsWrapper<impl FileContents>,
-    arches: &[impl FatArch],
-    disambiguator: MultiArchDisambiguator,
+    archive_kind: FileKind,
+    disambiguator: Option<MultiArchDisambiguator>,
 ) -> Result<(u64, u64), Error> {
+    let members = get_fat_archive_members(file_contents, archive_kind)?;
+
+    if members.is_empty() {
+        return Err(Error::EmptyFatArchive);
+    }
+    if members.len() == 1 {
+        return Ok(members[0].offset_and_size);
+    }
+
+    let disambiguator = match disambiguator {
+        Some(disambiguator) => disambiguator,
+        None => return Err(Error::NoDisambiguatorForFatArchive(members)),
+    };
+
+    match members
+        .iter()
+        .find(|m| m.matches_disambiguator(&disambiguator))
+    {
+        Some(m) => Ok(m.offset_and_size),
+        None => Err(Error::NoMatchMultiArch(members)),
+    }
+}
+
+pub fn get_fat_archive_members_impl<FC: FileContents, FA: FatArch>(
+    file_contents: &FileContentsWrapper<FC>,
+    arches: &[FA],
+) -> Result<Vec<FatArchiveMember>, Error> {
     let mut members = Vec::new();
 
     for fat_arch in arches {
         let (cputype, cpusubtype) = (fat_arch.cputype(), fat_arch.cpusubtype());
-        let arch = macho_arch_name_for_cpu_type(cputype, cpusubtype);
+        let arch = macho_arch_name_for_cpu_type(cputype, cpusubtype).map(ToString::to_string);
         let (start, size) = fat_arch.file_range();
         let file =
             File::parse(file_contents.range(start, size)).map_err(Error::MachOHeaderParseError)?;
-        let debug_id = debug_id_for_object(&file);
+        let uuid = file.mach_uuid().ok().flatten().map(Uuid::from_bytes);
+        members.push(FatArchiveMember {
+            offset_and_size: (start, size),
+            cputype,
+            cpusubtype,
+            arch,
+            uuid,
+        });
+    }
+
+    Ok(members)
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct FatArchiveMember {
+    pub offset_and_size: (u64, u64),
+    pub cputype: u32,
+    pub cpusubtype: u32,
+    pub arch: Option<String>,
+    pub uuid: Option<Uuid>,
+}
+
+impl FatArchiveMember {
+    pub fn matches_disambiguator(&self, disambiguator: &MultiArchDisambiguator) -> bool {
         match disambiguator {
-            MultiArchDisambiguator::Arch(expected_arch) if arch == Some(&expected_arch) => {
-                return Ok(fat_arch.file_range())
+            MultiArchDisambiguator::Arch(expected_arch) => {
+                self.arch.as_deref() == Some(expected_arch)
             }
-            MultiArchDisambiguator::DebugId(expected_debug_id)
-                if debug_id == Some(expected_debug_id) =>
-            {
-                return Ok(fat_arch.file_range())
-            }
-            _ => {
-                members.push((arch, cputype, cpusubtype, debug_id));
+            MultiArchDisambiguator::DebugId(expected_debug_id) => {
+                self.uuid.map(DebugId::from_uuid) == Some(*expected_debug_id)
             }
         }
     }
-    Err(Error::NoMatchMultiArch(members))
+}
+
+pub fn get_fat_archive_members(
+    file_contents: &FileContentsWrapper<impl FileContents>,
+    archive_kind: FileKind,
+) -> Result<Vec<FatArchiveMember>, Error> {
+    if archive_kind == FileKind::MachOFat64 {
+        let arches = FatHeader::parse_arch64(file_contents)
+            .map_err(|e| Error::ObjectParseError(archive_kind, e))?;
+        get_fat_archive_members_impl(file_contents, arches)
+    } else {
+        let arches = FatHeader::parse_arch32(file_contents)
+            .map_err(|e| Error::ObjectParseError(archive_kind, e))?;
+        get_fat_archive_members_impl(file_contents, arches)
+    }
 }
 
 pub async fn load_file_data_for_dyld_cache<'h, H, F>(

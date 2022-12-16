@@ -1,5 +1,5 @@
 use samply_symbols::{debugid::DebugId, Error};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use structopt::StructOpt;
 
 use dump_table::{dump_table, get_table};
@@ -10,13 +10,9 @@ use dump_table::{dump_table, get_table};
     about = "Get the symbol table for a debugName + breakpadId identifier."
 )]
 struct Opt {
-    /// filename (just the filename, no path)
+    /// binary path (just the filename, no path)
     #[structopt()]
-    debug_name: String,
-
-    /// Path to a directory that contains binaries and debug archives
-    #[structopt()]
-    symbol_directory: PathBuf,
+    binary_path: PathBuf,
 
     /// Breakpad ID of the binary
     #[structopt()]
@@ -29,43 +25,34 @@ struct Opt {
 
 fn main() -> anyhow::Result<()> {
     let opt = Opt::from_args();
-    let has_breakpad_id = opt.breakpad_id.is_some();
-    let result = futures::executor::block_on(main_impl(
-        &opt.debug_name,
-        opt.breakpad_id,
-        opt.symbol_directory,
-        opt.full,
-    ));
-    let err = match result {
+    let result =
+        futures::executor::block_on(main_impl(&opt.binary_path, opt.breakpad_id, opt.full));
+    match result {
         Ok(()) => return Ok(()),
-        Err(err) => err,
-    };
-    match err.downcast::<Error>() {
-        Ok(Error::NoMatchMultiArch(members)) if !has_breakpad_id => {
+        Err(Error::NoDisambiguatorForFatArchive(members)) => {
             // There's no one breakpad ID. We need the user to specify which one they want.
             // Print out all potential breakpad IDs so that the user can pick.
             eprintln!("This is a multi-arch container. Please specify one of the following breakpadIDs to pick a symbol table:");
-            for (_arch, _, _, debug_id) in members {
-                if let Some(debug_id) = debug_id {
-                    println!(" - {}", debug_id.breakpad());
+            for m in members {
+                if let Some(uuid) = m.uuid {
+                    println!(" - {}", DebugId::from_uuid(uuid).breakpad());
                 }
             }
             Ok(())
         }
-        Ok(err) => Err(err.into()),
-        Err(err) => Err(err),
+        Err(err) => Err(err.into()),
     }
 }
 
 async fn main_impl(
-    debug_name: &str,
+    binary_path: &Path,
     breakpad_id: Option<String>,
-    symbol_directory: PathBuf,
     full: bool,
-) -> anyhow::Result<()> {
+) -> Result<(), Error> {
     let debug_id = breakpad_id
         .as_deref()
         .and_then(|debug_id| DebugId::from_breakpad(debug_id).ok());
-    let table = get_table(debug_name, debug_id, symbol_directory).await?;
-    dump_table(&mut std::io::stdout(), table, full)
+    let table = get_table(binary_path, debug_id).await?;
+    dump_table(&mut std::io::stdout(), table, full).unwrap();
+    Ok(())
 }

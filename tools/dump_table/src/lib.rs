@@ -2,7 +2,7 @@ pub use samply_symbols::debugid;
 use samply_symbols::debugid::DebugId;
 use samply_symbols::{
     self, CandidatePathInfo, CompactSymbolTable, Error, FileAndPathHelper, FileAndPathHelperResult,
-    FileLocation, LibraryInfo, OptionallySendFuture, SymbolManager,
+    FileLocation, LibraryInfo, MultiArchDisambiguator, OptionallySendFuture, SymbolManager,
 };
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -13,45 +13,20 @@ use std::pin::Pin;
 use samply_symbols::{FileByteSource, FileContents};
 
 pub async fn get_table(
-    debug_name: &str,
+    binary_path: &Path,
     debug_id: Option<DebugId>,
-    symbol_directory: PathBuf,
-) -> anyhow::Result<CompactSymbolTable> {
-    let helper = Helper { symbol_directory };
-    let table = get_symbols_retry_id(debug_name, debug_id, &helper).await?;
-    Ok(table)
-}
-
-async fn get_symbols_retry_id(
-    debug_name: &str,
-    debug_id: Option<DebugId>,
-    helper: &Helper,
-) -> anyhow::Result<CompactSymbolTable> {
-    let symbol_manager = SymbolManager::with_helper(helper);
-    let debug_id = match debug_id {
-        Some(debug_id) => debug_id,
-        None => {
-            // No debug ID was specified. load_compact_symbol_table always wants one, so we call it twice:
-            // First, with a bogus debug ID (DebugId::nil()), and then again with the debug ID that
-            // it expected.
-            let result = symbol_manager
-                .load_compact_symbol_table(debug_name, DebugId::nil())
-                .await;
-            match result {
-                Ok(table) => return Ok(table),
-                Err(err) => match err {
-                    Error::UnmatchedDebugId(expected, supplied) if supplied == DebugId::nil() => {
-                        eprintln!("Using debug ID: {}", expected.breakpad());
-                        expected
-                    }
-                    err => return Err(err.into()),
-                },
-            }
-        }
+) -> Result<CompactSymbolTable, Error> {
+    let helper = Helper {
+        symbol_directory: binary_path.parent().unwrap().to_path_buf(),
     };
-    Ok(symbol_manager
-        .load_compact_symbol_table(debug_name, debug_id)
-        .await?)
+    let symbol_manager = SymbolManager::with_helper(&helper);
+    let symbol_map = symbol_manager
+        .load_symbol_map_for_binary_at_path(
+            binary_path,
+            debug_id.map(MultiArchDisambiguator::DebugId),
+        )
+        .await?;
+    Ok(CompactSymbolTable::from_full_map(symbol_map.to_map()))
 }
 
 pub fn dump_table(w: &mut impl Write, table: CompactSymbolTable, full: bool) -> anyhow::Result<()> {

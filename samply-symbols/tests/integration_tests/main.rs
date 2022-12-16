@@ -1,7 +1,7 @@
 use samply_symbols::debugid::DebugId;
 use samply_symbols::{
     self, CandidatePathInfo, CompactSymbolTable, Error, FileAndPathHelper, FileAndPathHelperResult,
-    FileLocation, LibraryInfo, OptionallySendFuture, SymbolManager,
+    FileLocation, LibraryInfo, MultiArchDisambiguator, OptionallySendFuture, SymbolManager,
 };
 use std::fs::File;
 use std::io::{BufWriter, Read, Write};
@@ -9,45 +9,25 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 
 pub async fn get_table(
-    debug_name: &str,
+    symbol_file_path: &Path,
     debug_id: Option<DebugId>,
-    symbol_directory: PathBuf,
 ) -> anyhow::Result<CompactSymbolTable> {
-    let helper = Helper { symbol_directory };
-    let symbol_manager = SymbolManager::with_helper(&helper);
-    let table = get_symbols_retry_id(debug_name, debug_id, &symbol_manager).await?;
-    Ok(table)
-}
-
-async fn get_symbols_retry_id(
-    debug_name: &str,
-    debug_id: Option<DebugId>,
-    symbol_manager: &SymbolManager<'_, Helper>,
-) -> anyhow::Result<CompactSymbolTable> {
-    let debug_id = match debug_id {
-        Some(debug_id) => debug_id,
-        None => {
-            // No debug ID was specified. load_compact_symbol_table always wants one, so we call it twice:
-            // First, with a bogus debug ID (DebugId::nil()), and then again with the debug ID that
-            // it expected.
-            let result = symbol_manager
-                .load_compact_symbol_table(debug_name, DebugId::nil())
-                .await;
-            match result {
-                Ok(table) => return Ok(table),
-                Err(err) => match err {
-                    Error::UnmatchedDebugId(expected, supplied) if supplied == DebugId::nil() => {
-                        eprintln!("Using debug ID: {}", expected.breakpad());
-                        expected
-                    }
-                    err => return Err(err.into()),
-                },
-            }
-        }
+    let helper = Helper {
+        symbol_directory: symbol_file_path.parent().unwrap().to_path_buf(),
     };
-    Ok(symbol_manager
-        .load_compact_symbol_table(debug_name, debug_id)
-        .await?)
+    let symbol_manager = SymbolManager::with_helper(&helper);
+    let symbol_map = symbol_manager
+        .load_symbol_map_from_path(
+            symbol_file_path,
+            debug_id.map(MultiArchDisambiguator::DebugId),
+        )
+        .await?;
+    if let Some(expected_debug_id) = debug_id {
+        if symbol_map.debug_id() != expected_debug_id {
+            return Err(Error::UnmatchedDebugId(symbol_map.debug_id(), expected_debug_id).into());
+        }
+    }
+    Ok(CompactSymbolTable::from_full_map(symbol_map.to_map()))
 }
 
 pub fn dump_table(w: &mut impl Write, table: CompactSymbolTable, full: bool) -> anyhow::Result<()> {
@@ -218,12 +198,10 @@ fn fixtures_dir() -> PathBuf {
 #[test]
 fn successful_pdb() {
     let result = futures::executor::block_on(crate::get_table(
-        "firefox.pdb",
+        &fixtures_dir().join("win64-ci").join("firefox.pdb"),
         DebugId::from_breakpad("AA152DEB2D9B76084C4C44205044422E1").ok(),
-        fixtures_dir().join("win64-ci"),
-    ));
-    assert!(result.is_ok());
-    let result = result.unwrap();
+    ))
+    .unwrap();
     assert_eq!(result.addr.len(), 1321);
     assert_eq!(result.addr[776], 0x31fc0);
     assert_eq!(
@@ -237,9 +215,8 @@ fn successful_pdb() {
 #[test]
 fn successful_pdb2() {
     let result = futures::executor::block_on(crate::get_table(
-        "mozglue.pdb",
+        &fixtures_dir().join("win64-local").join("mozglue.pdb"),
         DebugId::from_breakpad("B3CC644ECC086E044C4C44205044422E1").ok(),
-        fixtures_dir().join("win64-local"),
     ));
     assert!(result.is_ok());
     let result = result.unwrap();
@@ -257,9 +234,8 @@ fn successful_dll() {
     // in the previous PDB test. The difference is that this test is looking at the
     // exports in the DLL rather than the symbols in the PDB.
     let result = futures::executor::block_on(crate::get_table(
-        "mozglue.dll",
+        &fixtures_dir().join("win64-local").join("mozglue.dll"),
         DebugId::from_breakpad("B3CC644ECC086E044C4C44205044422E1").ok(),
-        fixtures_dir().join("win64-local"),
     ));
     assert!(result.is_ok());
     let result = result.unwrap();
@@ -285,9 +261,8 @@ fn successful_dll() {
 #[test]
 fn successful_pdb_unspecified_id() {
     let result = futures::executor::block_on(crate::get_table(
-        "firefox.pdb",
+        &fixtures_dir().join("win64-ci").join("firefox.pdb"),
         None,
-        fixtures_dir().join("win64-ci"),
     ));
     assert!(result.is_ok());
     let result = result.unwrap();
@@ -304,9 +279,8 @@ fn successful_pdb_unspecified_id() {
 #[test]
 fn unsuccessful_pdb_wrong_id() {
     let result = futures::executor::block_on(crate::get_table(
-        "firefox.pdb",
+        &fixtures_dir().join("win64-ci").join("firefox.pdb"),
         DebugId::from_breakpad("AA152DEBFFFFFFFFFFFFFFFFF044422E1").ok(),
-        fixtures_dir().join("win64-ci"),
     ));
     assert!(result.is_err());
     let err = match result {
@@ -335,9 +309,8 @@ fn unsuccessful_pdb_wrong_id() {
 #[test]
 fn unspecified_id_fat_arch() {
     let result = futures::executor::block_on(crate::get_table(
-        "firefox",
+        &fixtures_dir().join("macos-ci").join("firefox"),
         None,
-        fixtures_dir().join("macos-ci"),
     ));
     assert!(result.is_err());
     let err = match result {
@@ -349,10 +322,11 @@ fn unspecified_id_fat_arch() {
         Err(_) => panic!("wrong error type"),
     };
     match err {
-        Error::NoMatchMultiArch(members) => {
+        Error::NoDisambiguatorForFatArchive(members) => {
             let member_ids: Vec<DebugId> = members
                 .iter()
-                .filter_map(|(_, _, _, debug_id)| *debug_id)
+                .filter_map(|m| m.uuid)
+                .map(DebugId::from_uuid)
                 .collect();
             assert_eq!(member_ids.len(), 2);
             assert!(member_ids
@@ -367,9 +341,8 @@ fn unspecified_id_fat_arch() {
 #[test]
 fn fat_arch_1() {
     let result = futures::executor::block_on(crate::get_table(
-        "firefox",
+        &fixtures_dir().join("macos-ci").join("firefox"),
         DebugId::from_breakpad("B993FABD8143361AB199F7DE9DF7E4360").ok(),
-        fixtures_dir().join("macos-ci"),
     ));
     assert!(result.is_ok());
     let result = result.unwrap();
@@ -384,9 +357,8 @@ fn fat_arch_1() {
 #[test]
 fn fat_arch_2() {
     let result = futures::executor::block_on(crate::get_table(
-        "firefox",
+        &fixtures_dir().join("macos-ci").join("firefox"),
         DebugId::from_breakpad("8E7B0ED0B04F3FCCA05E139E5250BA720").ok(),
-        fixtures_dir().join("macos-ci"),
     ));
     assert!(result.is_ok());
     let result = result.unwrap();
@@ -467,9 +439,8 @@ fn example_linux_fallback() {
 #[test]
 fn compare_snapshot() {
     let table = futures::executor::block_on(crate::get_table(
-        "mozglue.pdb",
+        &fixtures_dir().join("win64-ci").join("mozglue.pdb"),
         DebugId::from_breakpad("63C609072D3499F64C4C44205044422E1").ok(),
-        fixtures_dir().join("win64-ci"),
     ))
     .unwrap();
     let mut output: Vec<u8> = Vec::new();

@@ -179,7 +179,7 @@ pub use object;
 pub use pdb_addr2line::pdb;
 
 use debugid::DebugId;
-use object::{macho::FatHeader, read::FileKind};
+use object::read::FileKind;
 
 mod binary_image;
 mod breakpad;
@@ -206,6 +206,7 @@ pub use crate::compact_symbol_table::CompactSymbolTable;
 pub use crate::debugid_util::{debug_id_for_object, DebugIdExt};
 pub use crate::error::Error;
 pub use crate::external_file::{load_external_file, ExternalFileSymbolMap};
+pub use crate::macho::FatArchiveMember;
 pub use crate::shared::{
     relative_address_base, AddressDebugInfo, AddressInfo, CandidatePathInfo, CodeId, ElfBuildId,
     ExternalFileAddressInFileRef, ExternalFileAddressRef, ExternalFileRef, FileAndPathHelper,
@@ -257,9 +258,9 @@ where
         for candidate_info in candidate_paths_for_binary {
             let symbol_map = match candidate_info {
                 CandidatePathInfo::SingleFile(file_location) => {
-                    self.load_symbol_map_from_path(
+                    self.load_symbol_map_from_location(
                         &file_location,
-                        MultiArchDisambiguator::DebugId(debug_id),
+                        Some(MultiArchDisambiguator::DebugId(debug_id)),
                     )
                     .await
                 }
@@ -446,26 +447,22 @@ where
             .await
     }
 
-    /// Returns a symbol table in `CompactSymbolTable` format for the requested binary.
-    /// `FileAndPathHelper` must be implemented by the caller, to provide file access.
-    pub async fn load_compact_symbol_table(
+    pub async fn load_symbol_map_from_path(
         &self,
-        debug_name: &str,
-        debug_id: DebugId,
-    ) -> Result<CompactSymbolTable, Error> {
-        let library_info = LibraryInfo {
-            debug_name: Some(debug_name.to_string()),
-            debug_id: Some(debug_id),
-            ..Default::default()
-        };
-        let symbol_map = self.load_symbol_map(&library_info).await?;
-        Ok(CompactSymbolTable::from_full_map(symbol_map.to_map()))
+        symbol_file_path: &Path,
+        multi_arch_disambiguator: Option<MultiArchDisambiguator>,
+    ) -> Result<SymbolMap, Error> {
+        self.load_symbol_map_from_location(
+            &FileLocation::Path(symbol_file_path.to_path_buf()),
+            multi_arch_disambiguator,
+        )
+        .await
     }
 
-    async fn load_symbol_map_from_path(
+    async fn load_symbol_map_from_location(
         &self,
         file_location: &FileLocation,
-        multi_arch_disambiguator: MultiArchDisambiguator,
+        multi_arch_disambiguator: Option<MultiArchDisambiguator>,
     ) -> Result<SymbolMap, Error> {
         let file_contents =
             self.helper.open_file(file_location).await.map_err(|e| {
@@ -480,18 +477,12 @@ where
                 FileKind::Elf32 | FileKind::Elf64 => {
                     elf::get_symbol_map_for_elf(file_contents, file_kind, &base_path)
                 }
-                FileKind::MachOFat32 => {
-                    let arches = FatHeader::parse_arch32(&file_contents)
-                        .map_err(|e| Error::ObjectParseError(file_kind, e))?;
-                    let range =
-                        macho::get_arch_range(&file_contents, arches, multi_arch_disambiguator)?;
-                    macho::get_symbol_map_for_fat_archive_member(&base_path, file_contents, range)
-                }
-                FileKind::MachOFat64 => {
-                    let arches = FatHeader::parse_arch64(&file_contents)
-                        .map_err(|e| Error::ObjectParseError(file_kind, e))?;
-                    let range =
-                        macho::get_arch_range(&file_contents, arches, multi_arch_disambiguator)?;
+                FileKind::MachOFat32 | FileKind::MachOFat64 => {
+                    let range = macho::get_fat_archive_member_range(
+                        &file_contents,
+                        file_kind,
+                        multi_arch_disambiguator,
+                    )?;
                     macho::get_symbol_map_for_fat_archive_member(&base_path, file_contents, range)
                 }
                 FileKind::MachO32 | FileKind::MachO64 => {
@@ -549,19 +540,11 @@ where
             | FileKind::Pe32
             | FileKind::Pe64 => BinaryImageInner::Normal(file_contents),
             FileKind::MachOFat32 | FileKind::MachOFat64 => {
-                let multi_arch_disambiguator = match multi_arch_disambiguator {
-                    Some(multi_arch_disambiguator) => multi_arch_disambiguator,
-                    None => return Err(Error::NoDisambiguatorForFatArchive),
-                };
-                let (offset, size) = if file_kind == FileKind::MachOFat64 {
-                    let arches = FatHeader::parse_arch64(&file_contents)
-                        .map_err(|e| Error::ObjectParseError(file_kind, e))?;
-                    macho::get_arch_range(&file_contents, arches, multi_arch_disambiguator)?
-                } else {
-                    let arches = FatHeader::parse_arch32(&file_contents)
-                        .map_err(|e| Error::ObjectParseError(file_kind, e))?;
-                    macho::get_arch_range(&file_contents, arches, multi_arch_disambiguator)?
-                };
+                let (offset, size) = macho::get_fat_archive_member_range(
+                    &file_contents,
+                    file_kind,
+                    multi_arch_disambiguator,
+                )?;
                 let data = macho::MachOFatArchiveMemberData::new(file_contents, offset, size);
                 BinaryImageInner::MemberOfFatArchive(data)
             }

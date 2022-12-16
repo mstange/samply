@@ -4,7 +4,7 @@ use pdb_addr2line::pdb::Error as PdbError;
 use std::path::PathBuf;
 use thiserror::Error;
 
-use crate::{breakpad::BreakpadParseError, CodeId, LibraryInfo};
+use crate::{breakpad::BreakpadParseError, CodeId, FatArchiveMember, LibraryInfo};
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -40,12 +40,15 @@ pub enum Error {
     NotEnoughInformationToIdentifySymbolMap,
 
     #[error(
-        "Got fat archive but no debug ID was supplied to disambiguate between archive members"
+        "No disambiguator supplied for universal binary, available images: {}", format_multiarch_members(.0)
     )]
-    NoDisambiguatorForFatArchive,
+    NoDisambiguatorForFatArchive(Vec<FatArchiveMember>),
+
+    #[error("The universal binary (fat archive) was empty")]
+    EmptyFatArchive,
 
     #[error("No match in multi-arch binary, available UUIDs: {}", format_multiarch_members(.0))]
-    NoMatchMultiArch(Vec<(Option<&'static str>, u32, u32, Option<DebugId>)>),
+    NoMatchMultiArch(Vec<FatArchiveMember>),
 
     #[error("Couldn't get symbols from system library, errors: {}", format_errors(.0))]
     NoLuckMacOsSystemLibrary(Vec<Error>),
@@ -143,17 +146,19 @@ fn format_errors(errors: &[Error]) -> String {
         .join(", ")
 }
 
-fn format_multiarch_members(
-    members: &[(Option<&'static str>, u32, u32, Option<DebugId>)],
-) -> String {
+fn format_multiarch_members(members: &[FatArchiveMember]) -> String {
     members
         .iter()
-        .map(|(arch_name, cputype, cpusubtype, debug_id)| {
-            let debug_id_string = debug_id.map(|di| di.breakpad().to_string());
+        .map(|member| {
+            let uuid_string = member
+                .uuid
+                .map(|uuid| DebugId::from_uuid(uuid).breakpad().to_string());
             format!(
-                "{} ({} {cputype}/{cpusubtype})",
-                debug_id_string.as_deref().unwrap_or("<no debug ID>"),
-                arch_name.unwrap_or("<unrecognized arch>"),
+                "{} ({} {:08x}/{:08x})",
+                uuid_string.as_deref().unwrap_or("<no debug ID>"),
+                member.arch.as_deref().unwrap_or("<unrecognized arch>"),
+                member.cputype,
+                member.cpusubtype
             )
         })
         .collect::<Vec<String>>()
@@ -186,7 +191,7 @@ impl Error {
     pub fn enum_as_string(&self) -> &'static str {
         match self {
             Error::UnmatchedDebugId(_, _) => "UnmatchedDebugId",
-            Error::NoDisambiguatorForFatArchive => "NoDisambiguatorForFatArchive",
+            Error::NoDisambiguatorForFatArchive(_) => "NoDisambiguatorForFatArchive",
             Error::BreakpadParsing(_) => "BreakpadParsing",
             Error::NotEnoughInformationToIdentifyBinary => "NotEnoughInformationToIdentifyBinary",
             Error::NotEnoughInformationToIdentifySymbolMap => {
@@ -198,6 +203,7 @@ impl Error {
             Error::UnmatchedDebugIdOptional(_, _) => "UnmatchedDebugIdOptional",
             Error::UnmatchedCodeId(_, _) => "UnmatchedCodeId",
             Error::InvalidBreakpadId(_) => "InvalidBreakpadId",
+            Error::EmptyFatArchive => "EmptyFatArchive",
             Error::CouldNotDetermineExternalFileFileKind => "CouldNotDetermineExternalFileFileKind",
             Error::UnexpectedExternalFileFileKind(_) => "UnexpectedExternalFileFileKind",
             Error::NoMatchMultiArch(_) => "NoMatchMultiArch",

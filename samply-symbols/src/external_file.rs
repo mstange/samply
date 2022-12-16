@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::Path, sync::Mutex};
 
-use object::{macho::FatHeader, read::archive::ArchiveFile, File, FileKind, ReadRef};
+use object::{read::archive::ArchiveFile, File, FileKind, ReadRef};
 use yoke::{Yoke, Yokeable};
 
 use crate::{
@@ -262,17 +262,9 @@ impl<F: FileContents> ExternalFileData<F> {
                 // Good
             }
             FileKind::MachOFat32 | FileKind::MachOFat64 => {
-                let arch = arch.ok_or(Error::NoDisambiguatorForFatArchive)?.to_string();
-                let disambiguator = MultiArchDisambiguator::Arch(arch);
-                let (offset, size) = if file_kind == FileKind::MachOFat64 {
-                    let arches = FatHeader::parse_arch64(&file_contents)
-                        .map_err(|e| Error::ObjectParseError(file_kind, e))?;
-                    macho::get_arch_range(&file_contents, arches, disambiguator)?
-                } else {
-                    let arches = FatHeader::parse_arch32(&file_contents)
-                        .map_err(|e| Error::ObjectParseError(file_kind, e))?;
-                    macho::get_arch_range(&file_contents, arches, disambiguator)?
-                };
+                let disambiguator = arch.map(|arch| MultiArchDisambiguator::Arch(arch.to_string()));
+                let (offset, size) =
+                    macho::get_fat_archive_member_range(&file_contents, file_kind, disambiguator)?;
                 fat_archive_range = Some((offset, size));
             }
             _ => {
