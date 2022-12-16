@@ -48,10 +48,6 @@ impl<T: FileContents> SymbolMapTrait for BreakpadSymbolMap<T> {
         self.0.get().0.iter_symbols()
     }
 
-    fn to_map(&self) -> Vec<(u32, String)> {
-        self.0.get().0.to_map()
-    }
-
     fn lookup(&self, address: u32) -> Option<AddressInfo> {
         self.0.get().0.lookup(address)
     }
@@ -234,14 +230,6 @@ impl<'a, T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'a, T> {
             Some((address, Cow::Borrowed(name)))
         });
         Box::new(iter)
-    }
-
-    fn to_map(&self) -> Vec<(u32, String)> {
-        let mut r = Vec::with_capacity(self.symbol_count());
-        for (address, name) in self.iter_symbols() {
-            r.push((address, name.into_owned()));
-        }
-        r
     }
 
     fn lookup(&self, address: u32) -> Option<AddressInfo> {

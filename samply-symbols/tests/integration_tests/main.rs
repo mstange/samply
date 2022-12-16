@@ -27,7 +27,7 @@ pub async fn get_table(
             return Err(Error::UnmatchedDebugId(symbol_map.debug_id(), expected_debug_id).into());
         }
     }
-    Ok(CompactSymbolTable::from_full_map(symbol_map.to_map()))
+    Ok(CompactSymbolTable::from_symbol_map(&symbol_map))
 }
 
 pub fn dump_table(w: &mut impl Write, table: CompactSymbolTable, full: bool) -> anyhow::Result<()> {

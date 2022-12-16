@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use crate::SymbolMap;
 
 /// A "compact" representation of a symbol table.
 /// This is a legacy concept used by the Firefox profiler and kept for
@@ -22,12 +22,12 @@ pub struct CompactSymbolTable {
 }
 
 impl CompactSymbolTable {
-    pub fn from_full_map<T: Deref<Target = str>>(entries: Vec<(u32, T)>) -> Self {
-        let total_str_len = entries.iter().map(|(_, s)| s.len()).sum();
-        let mut addr = Vec::with_capacity(entries.len());
-        let mut index = Vec::with_capacity(entries.len() + 1);
+    pub fn from_symbol_map(map: &SymbolMap) -> Self {
+        let total_str_len = map.iter_symbols().map(|(_, s)| s.len()).sum();
+        let mut addr = Vec::with_capacity(map.symbol_count());
+        let mut index = Vec::with_capacity(map.symbol_count() + 1);
         let mut buffer = Vec::with_capacity(total_str_len);
-        for (address, name) in entries {
+        for (address, name) in map.iter_symbols() {
             addr.push(address);
             index.push(buffer.len() as u32);
             buffer.extend_from_slice(name.as_bytes());

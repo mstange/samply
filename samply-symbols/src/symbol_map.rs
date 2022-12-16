@@ -23,10 +23,6 @@ impl SymbolMap {
         self.0.iter_symbols()
     }
 
-    pub fn to_map(&self) -> Vec<(u32, String)> {
-        self.0.to_map()
-    }
-
     pub fn lookup(&self, address: u32) -> Option<AddressInfo> {
         self.0.lookup(address)
     }
@@ -38,8 +34,6 @@ pub trait SymbolMapTrait {
     fn symbol_count(&self) -> usize;
 
     fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_>;
-
-    fn to_map(&self) -> Vec<(u32, String)>;
 
     fn lookup(&self, address: u32) -> Option<AddressInfo>;
 }
@@ -103,10 +97,6 @@ impl<SMDO: SymbolMapDataOuterTrait> SymbolMapTrait for GenericSymbolMap<SMDO> {
 
     fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {
         self.0.get().0.iter_symbols()
-    }
-
-    fn to_map(&self) -> Vec<(u32, String)> {
-        self.0.get().0.to_map()
     }
 
     fn lookup(&self, address: u32) -> Option<AddressInfo> {

@@ -293,12 +293,6 @@ where
         })
     }
 
-    fn to_map(&self) -> Vec<(u32, String)> {
-        self.iter_symbols()
-            .map(|(address, name)| (address, name.to_string()))
-            .collect()
-    }
-
     fn lookup(&self, address: u32) -> Option<AddressInfo> {
         let index = match self
             .entries

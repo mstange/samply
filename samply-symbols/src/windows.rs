@@ -224,19 +224,6 @@ impl<'object> SymbolMapTrait for PdbSymbolMapInner<'object> {
         Box::new(iter)
     }
 
-    fn to_map(&self) -> Vec<(u32, String)> {
-        self.context
-            .functions()
-            .map(|func| {
-                let symbol_name = match func.name {
-                    Some(name) => name,
-                    None => "unknown".to_string(),
-                };
-                (func.start_rva, symbol_name)
-            })
-            .collect()
-    }
-
     fn lookup(&self, address: u32) -> Option<AddressInfo> {
         let function_frames = self.context.find_frames(address).ok()??;
         let symbol_address = function_frames.start_rva;
