@@ -458,7 +458,7 @@ fn example_linux_fallback() {
         .unwrap();
     assert_eq!(
         symbol_map.debug_id(),
-        DebugId::from_breakpad("8BA453B7838CDDC62F00004885C074020").unwrap()
+        DebugId::from_breakpad("C3FC2519F439E42A970B693775586AA80").unwrap()
     );
     // no _stack_chk_fail@@GLIBC_2.4 please
     assert_eq!(symbol_map.lookup(0x6), None);
