@@ -302,19 +302,6 @@ where
         Err(last_err.unwrap_or_else(|| Error::NoCandidatePathForDebugFile(library_info.clone())))
     }
 
-    pub async fn load_symbol_map_for_binary_at_path(
-        &self,
-        path: &Path,
-        multi_arch_disambiguator: Option<MultiArchDisambiguator>,
-    ) -> Result<SymbolMap, Error> {
-        let binary_image = self
-            .load_binary_at_path(path, multi_arch_disambiguator)
-            .await?;
-        let library_info = binary_image.library_info();
-        drop(binary_image);
-        self.load_symbol_map(&library_info).await
-    }
-
     /// Load and return an external file which may contain additional debug info.
     ///
     /// This is used on macOS: When linking multiple `.o` files together into a library or
@@ -398,10 +385,7 @@ where
     /// Returns the binary for the given (partial) [`LibraryInfo`].
     ///
     /// This consults the helper to get candidate paths to the binary.
-    pub async fn load_binary(
-        &self,
-        info: &LibraryInfo,
-    ) -> Result<BinaryImage<F>, Error> {
+    pub async fn load_binary(&self, info: &LibraryInfo) -> Result<BinaryImage<F>, Error> {
         // Require at least either the code ID or a (debug_name, debug_id) pair.
         if info.code_id.is_none() && (info.debug_name.is_none() || info.debug_id.is_none()) {
             return Err(Error::NotEnoughInformationToIdentifyBinary);

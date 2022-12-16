@@ -360,12 +360,11 @@ fn linux_nonzero_base_address() {
         symbol_directory: fixtures_dir().join("linux64-ci"),
     };
     let symbol_manager = SymbolManager::with_helper(&helper);
-    let symbol_map =
-        futures::executor::block_on(symbol_manager.load_symbol_map_for_binary_at_path(
-            &fixtures_dir().join("linux64-ci").join("firefox"),
-            None,
-        ))
-        .unwrap();
+    let symbol_map = futures::executor::block_on(
+        symbol_manager
+            .load_symbol_map_from_path(&fixtures_dir().join("linux64-ci").join("firefox"), None),
+    )
+    .unwrap();
     assert_eq!(
         symbol_map.debug_id(),
         DebugId::from_breakpad("83CA53B0E8272691CEFCD79178D33D5C0").unwrap()
@@ -385,12 +384,11 @@ fn example_linux() {
         symbol_directory: fixtures_dir().join("other"),
     };
     let symbol_manager = SymbolManager::with_helper(&helper);
-    let symbol_map =
-        futures::executor::block_on(symbol_manager.load_symbol_map_for_binary_at_path(
-            &fixtures_dir().join("other").join("example-linux"),
-            None,
-        ))
-        .unwrap();
+    let symbol_map = futures::executor::block_on(
+        symbol_manager
+            .load_symbol_map_from_path(&fixtures_dir().join("other").join("example-linux"), None),
+    )
+    .unwrap();
     assert_eq!(
         symbol_map.debug_id(),
         DebugId::from_breakpad("BE4E976C325246EE9D6B7847A670B2A90").unwrap()
@@ -406,12 +404,11 @@ fn example_linux_fallback() {
         symbol_directory: fixtures_dir().join("other"),
     };
     let symbol_manager = SymbolManager::with_helper(&helper);
-    let symbol_map =
-        futures::executor::block_on(symbol_manager.load_symbol_map_for_binary_at_path(
-            &fixtures_dir().join("other").join("example-linux-fallback"),
-            None,
-        ))
-        .unwrap();
+    let symbol_map = futures::executor::block_on(symbol_manager.load_symbol_map_from_path(
+        &fixtures_dir().join("other").join("example-linux-fallback"),
+        None,
+    ))
+    .unwrap();
     assert_eq!(
         symbol_map.debug_id(),
         DebugId::from_breakpad("C3FC2519F439E42A970B693775586AA80").unwrap()

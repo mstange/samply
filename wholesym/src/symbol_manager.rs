@@ -208,16 +208,18 @@ impl<'h> SymbolManagerWrapper<'h> {
         disambiguator: Option<MultiArchDisambiguator>,
     ) -> Result<LibraryInfo, Error> {
         let binary = self.0.load_binary_at_path(path, disambiguator).await?;
-        let info = LibraryInfo {
-            debug_name: binary.debug_name().map(ToOwned::to_owned),
-            debug_id: binary.debug_id(),
-            debug_path: binary.debug_path().map(ToOwned::to_owned),
-            name: binary.name().map(ToOwned::to_owned),
-            code_id: binary.code_id(),
-            path: binary.path().map(ToOwned::to_owned),
-            arch: binary.arch().map(ToOwned::to_owned),
-        };
-        Ok(info)
+        Ok(binary.library_info())
+    }
+
+    async fn load_symbol_map_for_binary_at_path_impl(
+        &self,
+        path: &Path,
+        multi_arch_disambiguator: Option<MultiArchDisambiguator>,
+    ) -> Result<SymbolMap, Error> {
+        let library_info = self
+            .library_info_for_binary_at_path_impl(path, multi_arch_disambiguator)
+            .await?;
+        self.load_symbol_map(library_info).await
     }
 
     async fn load_symbol_map(&self, info: LibraryInfo) -> Result<SymbolMap, Error> {
@@ -256,10 +258,7 @@ impl<'h> SymbolManagerTrait for SymbolManagerWrapper<'h> {
         path: &'a Path,
         disambiguator: Option<MultiArchDisambiguator>,
     ) -> Pin<Box<dyn Future<Output = Result<SymbolMap, Error>> + 'a + Send>> {
-        Box::pin(
-            self.0
-                .load_symbol_map_for_binary_at_path(path, disambiguator),
-        )
+        Box::pin(self.load_symbol_map_for_binary_at_path_impl(path, disambiguator))
     }
 
     fn lookup_external<'a>(
