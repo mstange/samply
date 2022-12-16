@@ -97,8 +97,15 @@ impl<T: FileContents + 'static> SymbolMapDataOuterTrait for PeSymbolMapData<T> {
     fn make_symbol_map_data_mid(&self) -> Result<Box<dyn SymbolMapDataMidTrait + '_>, Error> {
         let object =
             File::parse(&self.file_data).map_err(|e| Error::ObjectParseError(self.file_kind, e))?;
-        let object =
-            ObjectSymbolMapDataMid::new(object, PeFunctionAddressesComputer, &self.file_data, None);
+        let debug_id = debug_id_for_object(&object)
+            .ok_or(Error::InvalidInputError("debug ID cannot be read"))?;
+        let object = ObjectSymbolMapDataMid::new(
+            object,
+            PeFunctionAddressesComputer,
+            &self.file_data,
+            None,
+            debug_id,
+        );
 
         Ok(Box::new(object))
     }

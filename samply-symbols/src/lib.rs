@@ -544,7 +544,8 @@ where
         if let Ok(file_kind) = FileKind::parse(&file_contents) {
             match file_kind {
                 FileKind::Elf32 | FileKind::Elf64 => {
-                    elf::get_symbol_map_for_elf(file_contents, file_kind, &base_path)
+                    elf::load_symbol_map_for_elf(file_contents, file_kind, &base_path, self.helper)
+                        .await
                 }
                 FileKind::MachOFat32 | FileKind::MachOFat64 => {
                     let range = macho::get_fat_archive_member_range(

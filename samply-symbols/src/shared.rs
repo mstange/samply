@@ -307,6 +307,14 @@ pub trait FileAndPathHelper<'h> {
         arch: Option<&str>,
     ) -> FileAndPathHelperResult<Vec<PathBuf>>;
 
+    /// TODO
+    fn get_candidate_paths_for_gnu_debug_link_dest(
+        &self,
+        _debug_link_name: &str,
+    ) -> FileAndPathHelperResult<Vec<PathBuf>> {
+        Ok(Vec::new())
+    }
+
     /// This method is the entry point for file access during symbolication.
     /// The implementer needs to return an object which implements the `FileContents` trait.
     /// This method is asynchronous, but once it returns, the file data needs to be

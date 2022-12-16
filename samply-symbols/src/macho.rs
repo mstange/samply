@@ -6,7 +6,7 @@ use crate::symbol_map::{
     GenericSymbolMap, SymbolMap, SymbolMapDataMidTrait, SymbolMapDataOuterTrait,
 };
 use crate::symbol_map_object::{FunctionAddressesComputer, ObjectSymbolMapDataMid};
-use crate::MultiArchDisambiguator;
+use crate::{debug_id_for_object, MultiArchDisambiguator};
 use debugid::DebugId;
 use macho_unwind_info::UnwindInfo;
 use object::macho::{self, FatHeader, LinkeditDataCommand, MachHeader32, MachHeader64};
@@ -247,12 +247,14 @@ impl<T: FileContents + 'static> SymbolMapDataOuterTrait for DyldCacheFileData<T>
         let macho_data = MachOData::new(data, header_offset, object.is_64());
         let arch = macho_data.get_arch();
         let function_addresses_computer = MachOFunctionAddressesComputer { macho_data };
-
+        let debug_id = debug_id_for_object(&object)
+            .ok_or(Error::InvalidInputError("debug ID cannot be read"))?;
         let object = ObjectSymbolMapDataMid::new(
             object,
             function_addresses_computer,
             &self.root_file_data,
             arch,
+            debug_id,
         );
 
         Ok(Box::new(object))
@@ -298,11 +300,14 @@ impl<T: FileContents + 'static> SymbolMapDataOuterTrait for MachSymbolMapData<T>
         let macho_data = MachOData::new(&self.file_data, 0, macho_file.is_64());
         let arch = macho_data.get_arch();
         let function_addresses_computer = MachOFunctionAddressesComputer { macho_data };
+        let debug_id = debug_id_for_object(&macho_file)
+            .ok_or(Error::InvalidInputError("debug ID cannot be read"))?;
         let object = ObjectSymbolMapDataMid::new(
             macho_file,
             function_addresses_computer,
             &self.file_data,
             arch,
+            debug_id,
         );
         Ok(Box::new(object))
     }
@@ -339,8 +344,15 @@ impl<T: FileContents + 'static> SymbolMapDataOuterTrait for MachOFatArchiveMembe
         let macho_data = MachOData::new(range_data, 0, macho_file.is_64());
         let arch = macho_data.get_arch();
         let function_addresses_computer = MachOFunctionAddressesComputer { macho_data };
-        let object =
-            ObjectSymbolMapDataMid::new(macho_file, function_addresses_computer, range_data, arch);
+        let debug_id = debug_id_for_object(&macho_file)
+            .ok_or(Error::InvalidInputError("debug ID cannot be read"))?;
+        let object = ObjectSymbolMapDataMid::new(
+            macho_file,
+            function_addresses_computer,
+            range_data,
+            arch,
+            debug_id,
+        );
         Ok(Box::new(object))
     }
 }

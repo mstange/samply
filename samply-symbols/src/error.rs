@@ -53,6 +53,9 @@ pub enum Error {
     #[error("Couldn't get symbols from system library, errors: {}", format_errors(.0))]
     NoLuckMacOsSystemLibrary(Vec<Error>),
 
+    #[error("CRC mismatch on file found via GNU debug link, got {0}, expected {1}")]
+    DebugLinkCrcMismatch(u32, u32),
+
     #[error("PDB error: {1} ({0})")]
     PdbError(&'static str, PdbError),
 
@@ -204,6 +207,7 @@ impl Error {
                 "InvalidFileOrInlineOriginIndexInBreakpadFile"
             }
             Error::UnmatchedDebugIdOptional(_, _) => "UnmatchedDebugIdOptional",
+            Error::DebugLinkCrcMismatch(_, _) => "DebugLinkCrcMismatch",
             Error::UnmatchedCodeId(_, _) => "UnmatchedCodeId",
             Error::InvalidBreakpadId(_) => "InvalidBreakpadId",
             Error::EmptyFatArchive => "EmptyFatArchive",

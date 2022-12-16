@@ -327,61 +327,46 @@ impl<'h> FileAndPathHelper<'h> for Helper {
             }
         }
 
-        if let Some(debug_name) = &info.debug_name {
-            // Fake "debug link" support. We hardcode a "debug link name" of
-            // `{debug_name}.debug`.
-            // It would be better to get the actual debug link name from the binary.
-            paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                PathBuf::from(format!("/usr/bin/{}.debug", &debug_name)),
-            )));
-            paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                PathBuf::from(format!("/usr/bin/.debug/{}.debug", &debug_name)),
-            )));
-            paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                PathBuf::from(format!("/usr/lib/debug/usr/bin/{}.debug", &debug_name)),
-            )));
+        if let (Some(debug_name), Some(debug_id)) = (&info.debug_name, info.debug_id) {
+            // Search breakpad symbol directories.
+            for dir in &self.config.breakpad_directories_readonly {
+                let bp_path = dir
+                    .join(debug_name)
+                    .join(debug_id.breakpad().to_string())
+                    .join(format!("{}.sym", debug_name.trim_end_matches(".pdb")));
+                paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(bp_path)));
+            }
 
-            if let Some(debug_id) = info.debug_id {
-                // Search breakpad symbol directories.
-                for dir in &self.config.breakpad_directories_readonly {
-                    let bp_path = dir
-                        .join(debug_name)
-                        .join(debug_id.breakpad().to_string())
-                        .join(format!("{}.sym", debug_name.trim_end_matches(".pdb")));
-                    paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(bp_path)));
-                }
+            for (_url, dir) in &self.config.breakpad_servers {
+                let bp_path = dir
+                    .join(debug_name)
+                    .join(debug_id.breakpad().to_string())
+                    .join(format!("{}.sym", debug_name.trim_end_matches(".pdb")));
+                paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(bp_path)));
+            }
 
-                for (_url, dir) in &self.config.breakpad_servers {
-                    let bp_path = dir
-                        .join(debug_name)
-                        .join(debug_id.breakpad().to_string())
-                        .join(format!("{}.sym", debug_name.trim_end_matches(".pdb")));
-                    paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(bp_path)));
-                }
+            if debug_name.ends_with(".pdb") && self.symbol_cache.is_some() {
+                // We might find this pdb file with the help of a symbol server.
+                // Construct a custom string to identify this pdb.
+                let custom = format!(
+                    "winsymbolserver:{}/{}/{}",
+                    debug_name,
+                    debug_id.breakpad(),
+                    debug_name
+                );
+                paths.push(CandidatePathInfo::SingleFile(FileLocation::Custom(custom)));
+            }
 
-                if debug_name.ends_with(".pdb") && self.symbol_cache.is_some() {
-                    // We might find this pdb file with the help of a symbol server.
-                    // Construct a custom string to identify this pdb.
-                    let custom = format!(
-                        "winsymbolserver:{}/{}/{}",
-                        debug_name,
-                        debug_id.breakpad(),
-                        debug_name
-                    );
-                    paths.push(CandidatePathInfo::SingleFile(FileLocation::Custom(custom)));
-                }
-
-                if !self.config.breakpad_servers.is_empty() {
-                    // We might find a .sym file on a symbol server.
-                    // Construct a custom string to identify this file.
-                    let custom = format!(
-                        "bpsymbolserver:{}/{}/{}.sym",
-                        debug_name,
-                        debug_id.breakpad(),
-                        debug_name.trim_end_matches(".pdb")
-                    );
-                    paths.push(CandidatePathInfo::SingleFile(FileLocation::Custom(custom)));
-                }
+            if !self.config.breakpad_servers.is_empty() {
+                // We might find a .sym file on a symbol server.
+                // Construct a custom string to identify this file.
+                let custom = format!(
+                    "bpsymbolserver:{}/{}/{}.sym",
+                    debug_name,
+                    debug_id.breakpad(),
+                    debug_name.trim_end_matches(".pdb")
+                );
+                paths.push(CandidatePathInfo::SingleFile(FileLocation::Custom(custom)));
             }
         }
 
@@ -403,6 +388,18 @@ impl<'h> FileAndPathHelper<'h> for Helper {
         }
 
         Ok(paths)
+    }
+
+    fn get_candidate_paths_for_gnu_debug_link_dest(
+        &self,
+        debug_link_name: &str,
+    ) -> FileAndPathHelperResult<Vec<PathBuf>> {
+        // https://www-zeuthen.desy.de/unix/unixguide/infohtml/gdb/Separate-Debug-Files.html
+        Ok(vec![
+            PathBuf::from(format!("/usr/bin/{}.debug", &debug_link_name)),
+            PathBuf::from(format!("/usr/bin/.debug/{}.debug", &debug_link_name)),
+            PathBuf::from(format!("/usr/lib/debug/usr/bin/{}.debug", &debug_link_name)),
+        ])
     }
 
     fn get_candidate_paths_for_binary(

@@ -6,7 +6,7 @@ use object::{File, ObjectMap, ReadRef, SectionKind, SymbolKind};
 
 use crate::ExternalFileAddressRef;
 use crate::{
-    debug_id_for_object, demangle,
+    demangle,
     dwarf::{get_frames, Addr2lineContextData},
     path_mapper::PathMapper,
     shared::{
@@ -33,6 +33,7 @@ pub struct ObjectSymbolMapDataMid<'data, R: ReadRef<'data>, FAC: FunctionAddress
     file_data: R,
     addr2line_context_data: Addr2lineContextData,
     arch: Option<&'static str>,
+    debug_id: DebugId,
 }
 
 impl<'data, R: ReadRef<'data>, FAC: FunctionAddressesComputer<'data>>
@@ -43,6 +44,7 @@ impl<'data, R: ReadRef<'data>, FAC: FunctionAddressesComputer<'data>>
         function_addresses_computer: FAC,
         file_data: R,
         arch: Option<&'static str>,
+        debug_id: DebugId,
     ) -> Self {
         Self {
             object,
@@ -50,6 +52,7 @@ impl<'data, R: ReadRef<'data>, FAC: FunctionAddressesComputer<'data>>
             file_data,
             addr2line_context_data: Addr2lineContextData::new(),
             arch,
+            debug_id,
         }
     }
 }
@@ -64,13 +67,11 @@ impl<'data, R: ReadRef<'data>, FAC: FunctionAddressesComputer<'data>> SymbolMapD
         let (function_starts, function_ends) = self
             .function_addresses_computer
             .compute_function_addresses(&self.object);
-        let debug_id = debug_id_for_object(&self.object)
-            .ok_or(Error::InvalidInputError("debug ID cannot be read"))?;
 
         let symbol_map = ObjectSymbolMapInner::new(
             &self.object,
             self.file_data,
-            debug_id,
+            self.debug_id,
             PathMapper::new(base_path),
             function_starts.as_deref(),
             function_ends.as_deref(),
