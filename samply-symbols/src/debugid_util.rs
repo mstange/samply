@@ -1,5 +1,5 @@
 use debugid::DebugId;
-use object::{Object, ObjectSection, SectionKind};
+use object::{Object, ObjectSection};
 use std::convert::TryInto;
 use uuid::Uuid;
 
@@ -86,11 +86,8 @@ pub fn debug_id_for_object<'data: 'file, 'file>(
     }
 
     // We were not able to locate a build ID, so fall back to creating a synthetic
-    // identifier from a hash of the first page of the "text" (program code) section.
-    if let Some(section) = obj
-        .sections()
-        .find(|section| section.kind() == SectionKind::Text)
-    {
+    // identifier from a hash of the first page of the ".text" (program code) section.
+    if let Some(section) = obj.section_by_name(".text") {
         let data_len = section.size().min(4096);
         if let Ok(Some(first_page_data)) = section.data_range(section.address(), data_len) {
             return Some(DebugId::from_text_first_page(
