@@ -28,7 +28,7 @@ impl FileReadOnlyHelper {
     ) -> FileAndPathHelperResult<FileContents> {
         match location {
             FileLocation::Path(path) => {
-                let file = File::open(&path)?;
+                let file = File::open(path)?;
                 Ok(FileContents::Mmap(unsafe {
                     memmap2::MmapOptions::new().map(&file)?
                 }))
@@ -340,7 +340,7 @@ impl<'h> FileAndPathHelper<'h> for Helper {
                     let bp_path = dir
                         .join(debug_name)
                         .join(debug_id.breakpad().to_string())
-                        .join(&format!("{}.sym", debug_name.trim_end_matches(".pdb")));
+                        .join(format!("{}.sym", debug_name.trim_end_matches(".pdb")));
                     paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(bp_path)));
                 }
 
@@ -348,7 +348,7 @@ impl<'h> FileAndPathHelper<'h> for Helper {
                     let bp_path = dir
                         .join(debug_name)
                         .join(debug_id.breakpad().to_string())
-                        .join(&format!("{}.sym", debug_name.trim_end_matches(".pdb")));
+                        .join(format!("{}.sym", debug_name.trim_end_matches(".pdb")));
                     paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(bp_path)));
                 }
 

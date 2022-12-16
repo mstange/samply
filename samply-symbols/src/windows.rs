@@ -210,7 +210,7 @@ impl<'object> SymbolMapTrait for PdbSymbolMapInner<'object> {
     }
 
     fn symbol_count(&self) -> usize {
-        self.context.function_count() as usize
+        self.context.function_count()
     }
 
     fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {

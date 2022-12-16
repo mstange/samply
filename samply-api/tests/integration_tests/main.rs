@@ -49,7 +49,7 @@ impl<'h> FileAndPathHelper<'h> for Helper {
         if !debug_name.ends_with(".pdb") {
             paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
                 self.symbol_directory
-                    .join(&format!("{}.dSYM", debug_name))
+                    .join(format!("{}.dSYM", debug_name))
                     .join("Contents")
                     .join("Resources")
                     .join("DWARF")

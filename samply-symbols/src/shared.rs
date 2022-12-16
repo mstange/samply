@@ -828,7 +828,7 @@ impl<T: FileContents> Debug for FileContentsWrapper<T> {
 impl<'data, T: FileContents> ReadRef<'data> for &'data FileContentsWrapper<T> {
     #[inline]
     fn len(self) -> Result<u64, ()> {
-        Ok(self.len() as u64)
+        Ok(self.len())
     }
 
     #[inline]

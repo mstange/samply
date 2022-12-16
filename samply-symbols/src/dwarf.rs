@@ -51,7 +51,7 @@ pub fn convert_stack_frame<R: gimli::Reader>(
     InlineStackFrame {
         function,
         file_path,
-        line_number: frame.location.and_then(|l| l.line).map(|l| l as u32),
+        line_number: frame.location.and_then(|l| l.line),
     }
 }
 

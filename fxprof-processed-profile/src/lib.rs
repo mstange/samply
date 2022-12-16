@@ -1154,7 +1154,7 @@ impl Serialize for GlobalLibIndex {
 
 impl Serialize for ResourceIndex {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_u32(self.0 as u32)
+        serializer.serialize_u32(self.0)
     }
 }
 

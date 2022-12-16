@@ -850,7 +850,7 @@ fn open_file_with_fallback(
     match (std::fs::File::open(path), extra_dir, path.file_name()) {
         (Err(_), Some(extra_dir), Some(filename)) => {
             let p: PathBuf = [extra_dir, Path::new(filename)].iter().collect();
-            std::fs::File::open(&p)
+            std::fs::File::open(p)
         }
         (result, _, _) => result,
     }
