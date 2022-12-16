@@ -137,6 +137,13 @@ impl<'h> FileAndPathHelper<'h> for Helper {
         Ok(paths)
     }
 
+    fn get_dyld_shared_cache_paths(
+        &self,
+        _arch: Option<&str>,
+    ) -> FileAndPathHelperResult<Vec<PathBuf>> {
+        Ok(vec![])
+    }
+
     fn open_file(
         &'h self,
         location: &FileLocation,

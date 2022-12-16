@@ -228,4 +228,11 @@ impl<'h> FileAndPathHelper<'h> for Helper {
         };
         Box::pin(open_file_impl(path))
     }
+
+    fn get_dyld_shared_cache_paths(
+        &self,
+        _arch: Option<&str>,
+    ) -> FileAndPathHelperResult<Vec<PathBuf>> {
+        Ok(vec![])
+    }
 }

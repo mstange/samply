@@ -83,6 +83,9 @@ pub enum Error {
     #[error("get_candidate_paths_for_binary helper callback for returned error: {0}")]
     HelperErrorDuringGetCandidatePathsForBinary(#[source] Box<dyn std::error::Error + Send + Sync>),
 
+    #[error("get_dyld_shared_cache_paths helper callback returned error: {0}")]
+    HelperErrorDuringGetDyldSharedCachePaths(#[source] Box<dyn std::error::Error + Send + Sync>),
+
     #[error("open_file helper callback for file {0} returned error: {1}")]
     HelperErrorDuringOpenFile(String, #[source] Box<dyn std::error::Error + Send + Sync>),
 
@@ -220,6 +223,9 @@ impl Error {
             }
             Error::HelperErrorDuringGetCandidatePathsForBinary(_) => {
                 "HelperErrorDuringGetCandidatePathsForBinary"
+            }
+            Error::HelperErrorDuringGetDyldSharedCachePaths(_) => {
+                "HelperErrorDuringGetDyldSharedCachePaths"
             }
             Error::HelperErrorDuringOpenFile(_, _) => "HelperErrorDuringOpenFile",
             Error::HelperErrorDuringFileReading(_, _) => "HelperErrorDuringFileReading",

@@ -65,6 +65,13 @@ impl<'h> FileAndPathHelper<'h> for FileReadOnlyHelper {
     ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>> {
         Box::pin(self.open_file_impl(location.clone()))
     }
+
+    fn get_dyld_shared_cache_paths(
+        &self,
+        arch: Option<&str>,
+    ) -> FileAndPathHelperResult<Vec<PathBuf>> {
+        Ok(get_dyld_shared_cache_paths(arch))
+    }
 }
 
 pub struct Helper {
@@ -386,31 +393,12 @@ impl<'h> FileAndPathHelper<'h> for Helper {
 
             // For macOS system libraries, also consult the dyld shared cache.
             if path.starts_with("/usr/") || path.starts_with("/System/") {
-                paths.push(CandidatePathInfo::InDyldCache {
-                    dyld_cache_path: Path::new("/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_arm64e")
-                        .to_path_buf(),
-                    dylib_path: path.clone(),
-                });
-                paths.push(CandidatePathInfo::InDyldCache {
-                    dyld_cache_path: Path::new("/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_x86_64")
-                        .to_path_buf(),
-                    dylib_path: path.clone(),
-                });
-                paths.push(CandidatePathInfo::InDyldCache {
-                    dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_arm64e")
-                        .to_path_buf(),
-                    dylib_path: path.clone(),
-                });
-                paths.push(CandidatePathInfo::InDyldCache {
-                    dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_x86_64h")
-                        .to_path_buf(),
-                    dylib_path: path.clone(),
-                });
-                paths.push(CandidatePathInfo::InDyldCache {
-                    dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_x86_64")
-                        .to_path_buf(),
-                    dylib_path: path.clone(),
-                });
+                for dyld_cache_path in get_dyld_shared_cache_paths(info.arch.as_deref()) {
+                    paths.push(CandidatePathInfo::InDyldCache {
+                        dyld_cache_path,
+                        dylib_path: path.clone(),
+                    });
+                }
             }
         }
 
@@ -445,35 +433,23 @@ impl<'h> FileAndPathHelper<'h> for Helper {
         if let Some(path) = &info.path {
             // For macOS system libraries, also consult the dyld shared cache.
             if path.starts_with("/usr/") || path.starts_with("/System/") {
-                paths.push(CandidatePathInfo::InDyldCache {
-                    dyld_cache_path: Path::new("/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_arm64e")
-                        .to_path_buf(),
-                    dylib_path: path.clone(),
-                });
-                paths.push(CandidatePathInfo::InDyldCache {
-                    dyld_cache_path: Path::new("/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_x86_64")
-                        .to_path_buf(),
-                    dylib_path: path.clone(),
-                });
-                paths.push(CandidatePathInfo::InDyldCache {
-                    dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_arm64e")
-                        .to_path_buf(),
-                    dylib_path: path.clone(),
-                });
-                paths.push(CandidatePathInfo::InDyldCache {
-                    dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_x86_64h")
-                        .to_path_buf(),
-                    dylib_path: path.clone(),
-                });
-                paths.push(CandidatePathInfo::InDyldCache {
-                    dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_x86_64")
-                        .to_path_buf(),
-                    dylib_path: path.clone(),
-                });
+                for dyld_cache_path in get_dyld_shared_cache_paths(info.arch.as_deref()) {
+                    paths.push(CandidatePathInfo::InDyldCache {
+                        dyld_cache_path,
+                        dylib_path: path.clone(),
+                    });
+                }
             }
         }
 
         Ok(paths)
+    }
+
+    fn get_dyld_shared_cache_paths(
+        &self,
+        arch: Option<&str>,
+    ) -> FileAndPathHelperResult<Vec<PathBuf>> {
+        Ok(get_dyld_shared_cache_paths(arch))
     }
 
     fn open_file(
@@ -481,5 +457,27 @@ impl<'h> FileAndPathHelper<'h> for Helper {
         location: &FileLocation,
     ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>> {
         Box::pin(self.open_file_impl(location.clone()))
+    }
+}
+
+fn get_dyld_shared_cache_paths(arch: Option<&str>) -> Vec<PathBuf> {
+    if let Some(arch) = arch {
+        vec![
+            format!(
+                "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_{arch}"
+            )
+            .into(),
+            format!("/System/Library/dyld/dyld_shared_cache_{arch}").into(),
+        ]
+    } else {
+        vec![
+            "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_arm64e"
+                .into(),
+            "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_x86_64"
+                .into(),
+            "/System/Library/dyld/dyld_shared_cache_arm64e".into(),
+            "/System/Library/dyld/dyld_shared_cache_x86_64h".into(),
+            "/System/Library/dyld/dyld_shared_cache_x86_64".into(),
+        ]
     }
 }

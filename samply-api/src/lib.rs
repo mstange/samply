@@ -82,6 +82,13 @@
 //!         }
 //!     }
 //!
+//!    fn get_dyld_shared_cache_paths(
+//!        &self,
+//!        _arch: Option<&str>,
+//!    ) -> FileAndPathHelperResult<Vec<std::path::PathBuf>> {
+//!        Ok(vec![])
+//!    }
+//!
 //!     fn open_file(
 //!         &'h self,
 //!         location: &FileLocation,

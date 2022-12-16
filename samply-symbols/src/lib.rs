@@ -151,6 +151,13 @@
 //!         }
 //!     }
 //!
+//!    fn get_dyld_shared_cache_paths(
+//!        &self,
+//!        _arch: Option<&str>,
+//!    ) -> FileAndPathHelperResult<Vec<std::path::PathBuf>> {
+//!        Ok(vec![])
+//!    }
+//!
 //!     fn open_file(
 //!         &'h self,
 //!         location: &FileLocation,
@@ -239,6 +246,26 @@ where
         self.helper
     }
 
+    async fn load_symbol_map_at_candidate_path(
+        &self,
+        candidate_path: &CandidatePathInfo,
+        multi_arch_disambiguator: Option<MultiArchDisambiguator>,
+    ) -> Result<SymbolMap, Error> {
+        match candidate_path {
+            CandidatePathInfo::SingleFile(file_location) => {
+                self.load_symbol_map_from_location(file_location, multi_arch_disambiguator)
+                    .await
+            }
+            CandidatePathInfo::InDyldCache {
+                dyld_cache_path,
+                dylib_path,
+            } => {
+                macho::load_symbol_map_for_dyld_cache(dyld_cache_path, dylib_path, self.helper)
+                    .await
+            }
+        }
+    }
+
     /// Obtain a symbol map for the library, given the (partial) `LibraryInfo`.
     /// At least the debug_id has to be given.
     pub async fn load_symbol_map(&self, library_info: &LibraryInfo) -> Result<SymbolMap, Error> {
@@ -247,7 +274,7 @@ where
             None => return Err(Error::NotEnoughInformationToIdentifySymbolMap),
         };
 
-        let candidate_paths_for_binary = self
+        let candidate_paths = self
             .helper
             .get_candidate_paths_for_debug_file(library_info)
             .map_err(|e| {
@@ -255,27 +282,13 @@ where
             })?;
 
         let mut last_err = None;
-        for candidate_info in candidate_paths_for_binary {
-            let symbol_map = match candidate_info {
-                CandidatePathInfo::SingleFile(file_location) => {
-                    self.load_symbol_map_from_location(
-                        &file_location,
-                        Some(MultiArchDisambiguator::DebugId(debug_id)),
-                    )
-                    .await
-                }
-                CandidatePathInfo::InDyldCache {
-                    dyld_cache_path,
-                    dylib_path,
-                } => {
-                    macho::load_symbol_map_for_dyld_cache(
-                        &dyld_cache_path,
-                        &dylib_path,
-                        self.helper,
-                    )
-                    .await
-                }
-            };
+        for candidate_info in candidate_paths {
+            let symbol_map = self
+                .load_symbol_map_at_candidate_path(
+                    &candidate_info,
+                    Some(MultiArchDisambiguator::DebugId(debug_id)),
+                )
+                .await;
 
             match symbol_map {
                 Ok(symbol_map) if symbol_map.debug_id() == debug_id => return Ok(symbol_map),
@@ -295,12 +308,11 @@ where
         path: &Path,
         multi_arch_disambiguator: Option<MultiArchDisambiguator>,
     ) -> Result<SymbolMap, Error> {
-        let library_info = {
-            let binary = self
-                .load_binary_at_path(path, multi_arch_disambiguator)
-                .await?;
-            binary.library_info()
-        };
+        let binary_image = self
+            .load_binary_at_path(path, multi_arch_disambiguator)
+            .await?;
+        let library_info = binary_image.library_info();
+        drop(binary_image);
         self.load_symbol_map(&library_info).await
     }
 
@@ -352,6 +364,38 @@ where
         lookup_result
     }
 
+    async fn load_binary_from_candidate_path(
+        &self,
+        candidate_path: &CandidatePathInfo,
+        multi_arch_disambiguator: Option<MultiArchDisambiguator>,
+    ) -> Result<BinaryImage<F>, Error> {
+        match candidate_path {
+            CandidatePathInfo::SingleFile(file_location) => {
+                self.load_binary_at_location(file_location, multi_arch_disambiguator)
+                    .await
+            }
+            CandidatePathInfo::InDyldCache {
+                dyld_cache_path,
+                dylib_path,
+            } => {
+                self.load_binary_from_dyld_cache(dyld_cache_path, dylib_path)
+                    .await
+            }
+        }
+    }
+
+    async fn load_binary_from_dyld_cache(
+        &self,
+        dyld_cache_path: &Path,
+        dylib_path: &str,
+    ) -> Result<BinaryImage<F>, Error> {
+        let file_data =
+            macho::load_file_data_for_dyld_cache(dyld_cache_path, dylib_path, self.helper).await?;
+        let inner = BinaryImageInner::MemberOfDyldSharedCache(file_data);
+        let image = BinaryImage::new(inner, Some(Path::new(&dylib_path)), FileKind::DyldCache)?;
+        Ok(image)
+    }
+
     /// Returns the file data of the binary for the given `debug_name` and `debug_id`.
     ///
     /// This does a quick parse of the file to check that the `debug_id` matches, if it's given.
@@ -380,31 +424,13 @@ where
             .get_candidate_paths_for_binary(&library_info)
             .map_err(|e| Error::HelperErrorDuringGetCandidatePathsForBinary(e))?;
 
+        let disambiguator = debug_id.map(MultiArchDisambiguator::DebugId);
+
         let mut last_err = None;
         for candidate_info in candidate_paths_for_binary {
-            let image =
-                match candidate_info {
-                    CandidatePathInfo::SingleFile(file_location) => {
-                        self.load_binary_at_location(
-                            &file_location,
-                            debug_id.map(MultiArchDisambiguator::DebugId),
-                        )
-                        .await
-                    }
-                    CandidatePathInfo::InDyldCache {
-                        dyld_cache_path,
-                        dylib_path,
-                    } => macho::load_file_data_for_dyld_cache(
-                        &dyld_cache_path,
-                        &dylib_path,
-                        self.helper,
-                    )
-                    .await
-                    .map(BinaryImageInner::MemberOfDyldSharedCache)
-                    .and_then(|binary| {
-                        BinaryImage::new(binary, Some(Path::new(&dylib_path)), FileKind::DyldCache)
-                    }),
-                };
+            let image = self
+                .load_binary_from_candidate_path(&candidate_info, disambiguator.clone())
+                .await;
 
             match image {
                 Ok(image) => {
@@ -435,28 +461,95 @@ where
         }))
     }
 
-    /// Returns the file data of the binary for the given `debug_name` and `debug_id`.
-    ///
-    /// This does a quick parse of the file to check that the `debug_id` matches, if it's given.
+    /// Returns the file data of the binary at the given path. This also consults the
+    /// dyld shared cache if the file does not exist.
     pub async fn load_binary_at_path(
         &self,
         path: &Path,
         multi_arch_disambiguator: Option<MultiArchDisambiguator>,
     ) -> Result<BinaryImage<F>, Error> {
-        self.load_binary_at_location(&FileLocation::Path(path.into()), multi_arch_disambiguator)
+        let might_be_in_dyld_shared_cache =
+            path.starts_with("/usr/") || path.starts_with("/System/");
+
+        let mut err = match self
+            .load_binary_at_location(
+                &FileLocation::Path(path.into()),
+                multi_arch_disambiguator.clone(),
+            )
             .await
+        {
+            Ok(binary) => return Ok(binary),
+            Err(e @ Error::HelperErrorDuringOpenFile(_, _)) if might_be_in_dyld_shared_cache => e,
+            Err(e) => return Err(e),
+        };
+
+        // The file at the given path could not be opened, so it probably doesn't exist.
+        // Check the dyld cache.
+
+        let arch = match &multi_arch_disambiguator {
+            Some(MultiArchDisambiguator::Arch(arch)) => Some(arch.as_str()),
+            _ => None,
+        };
+        let dyld_shared_cache_paths = self
+            .helper
+            .get_dyld_shared_cache_paths(arch)
+            .map_err(Error::HelperErrorDuringGetDyldSharedCachePaths)?;
+
+        let dylib_path = path.to_string_lossy();
+        for dyld_cache_path in dyld_shared_cache_paths {
+            match self
+                .load_binary_from_dyld_cache(&dyld_cache_path, &dylib_path)
+                .await
+            {
+                Ok(binary) => return Ok(binary),
+                Err(e) => err = e,
+            }
+        }
+        Err(err)
     }
 
     pub async fn load_symbol_map_from_path(
         &self,
-        symbol_file_path: &Path,
+        path: &Path,
         multi_arch_disambiguator: Option<MultiArchDisambiguator>,
     ) -> Result<SymbolMap, Error> {
-        self.load_symbol_map_from_location(
-            &FileLocation::Path(symbol_file_path.to_path_buf()),
-            multi_arch_disambiguator,
-        )
-        .await
+        let might_be_in_dyld_shared_cache =
+            path.starts_with("/usr/") || path.starts_with("/System/");
+
+        let mut err = match self
+            .load_symbol_map_from_location(
+                &FileLocation::Path(path.into()),
+                multi_arch_disambiguator.clone(),
+            )
+            .await
+        {
+            Ok(symbol_map) => return Ok(symbol_map),
+            Err(e @ Error::HelperErrorDuringOpenFile(_, _)) if might_be_in_dyld_shared_cache => e,
+            Err(e) => return Err(e),
+        };
+
+        // The file at the given path could not be opened, so it probably doesn't exist.
+        // Check the dyld cache.
+
+        let arch = match &multi_arch_disambiguator {
+            Some(MultiArchDisambiguator::Arch(arch)) => Some(arch.as_str()),
+            _ => None,
+        };
+        let dyld_shared_cache_paths = self
+            .helper
+            .get_dyld_shared_cache_paths(arch)
+            .map_err(Error::HelperErrorDuringGetDyldSharedCachePaths)?;
+
+        let dylib_path = path.to_string_lossy();
+        for dyld_cache_path in dyld_shared_cache_paths {
+            match macho::load_symbol_map_for_dyld_cache(&dyld_cache_path, &dylib_path, self.helper)
+                .await
+            {
+                Ok(symbol_map) => return Ok(symbol_map),
+                Err(e) => err = e,
+            }
+        }
+        Err(err)
     }
 
     async fn load_symbol_map_from_location(

@@ -103,29 +103,6 @@ impl<'h> FileAndPathHelper<'h> for Helper {
             self.symbol_directory.join(debug_name),
         )));
 
-        // For macOS system libraries, also consult the dyld shared cache.
-        if self.symbol_directory.starts_with("/usr/")
-            || self.symbol_directory.starts_with("/System/")
-        {
-            if let Some(dylib_path) = self.symbol_directory.join(debug_name).to_str() {
-                paths.push(CandidatePathInfo::InDyldCache {
-                    dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_arm64e")
-                        .to_path_buf(),
-                    dylib_path: dylib_path.to_string(),
-                });
-                paths.push(CandidatePathInfo::InDyldCache {
-                    dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_x86_64h")
-                        .to_path_buf(),
-                    dylib_path: dylib_path.to_string(),
-                });
-                paths.push(CandidatePathInfo::InDyldCache {
-                    dyld_cache_path: Path::new("/System/Library/dyld/dyld_shared_cache_x86_64")
-                        .to_path_buf(),
-                    dylib_path: dylib_path.to_string(),
-                });
-            }
-        }
-
         Ok(paths)
     }
 
@@ -187,6 +164,13 @@ impl<'h> FileAndPathHelper<'h> for Helper {
         }
 
         Ok(paths)
+    }
+
+    fn get_dyld_shared_cache_paths(
+        &self,
+        _arch: Option<&str>,
+    ) -> FileAndPathHelperResult<Vec<PathBuf>> {
+        Ok(vec![])
     }
 }
 

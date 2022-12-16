@@ -51,6 +51,7 @@ pub enum CandidatePathInfo {
 
 /// In case the loaded binary contains multiple architectures, this specifies
 /// how to resolve the ambiguity. This is only needed on macOS.
+#[derive(Debug, Clone)]
 pub enum MultiArchDisambiguator {
     /// Disambiguate by CPU architecture.
     ///
@@ -299,6 +300,12 @@ pub trait FileAndPathHelper<'h> {
         &self,
         info: &LibraryInfo,
     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>>;
+
+    /// TODO
+    fn get_dyld_shared_cache_paths(
+        &self,
+        arch: Option<&str>,
+    ) -> FileAndPathHelperResult<Vec<PathBuf>>;
 
     /// This method is the entry point for file access during symbolication.
     /// The implementer needs to return an object which implements the `FileContents` trait.
