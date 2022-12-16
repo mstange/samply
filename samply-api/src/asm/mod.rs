@@ -37,12 +37,6 @@ enum AsmError {
     UnrecognizedArch(Architecture),
 }
 
-#[derive(Clone, Debug, Default)]
-struct Query {
-    start_address: u32,
-    size: u32,
-}
-
 pub struct AsmApi<'a, 'h: 'a, H: FileAndPathHelper<'h>> {
     symbol_manager: &'a SymbolManager<'h, H>,
 }
@@ -100,20 +94,15 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> AsmApi<'a, 'h, H> {
             .load_binary(&library_info)
             .await
             .map_err(AsmError::LoadBinaryError)?;
-        let object = binary_image.make_object();
 
-        let query = Query {
-            start_address: *start_address,
-            size: *size,
-        };
-
-        do_stuff_with_object(&object, &query)
+        compute_response(&binary_image.make_object(), *start_address, *size)
     }
 }
 
-fn do_stuff_with_object<'data: 'file, 'file>(
+fn compute_response<'data: 'file, 'file>(
     object: &'file impl Object<'data, 'file>,
-    query: &Query,
+    start_address: u32,
+    size: u32,
 ) -> Result<response_json::Response, AsmError> {
     // Align the start address, for architectures with instruction alignment.
     // For example, on ARM, you might be looking for the instructions of a
@@ -124,9 +113,9 @@ fn do_stuff_with_object<'data: 'file, 'file>(
     // with the thumb decoder.
     let architecture = object.architecture();
     let relative_start_address = match architecture {
-        Architecture::Aarch64 => query.start_address & !0b11,
-        Architecture::Arm => query.start_address & !0b1,
-        _ => query.start_address,
+        Architecture::Aarch64 => start_address & !0b11,
+        Architecture::Arm => start_address & !0b1,
+        _ => start_address,
     };
 
     // Translate start_address from a "relative address" into an
@@ -165,7 +154,7 @@ fn do_stuff_with_object<'data: 'file, 'file>(
     // address is beyond the requested range.
     const MAX_INSTR_LEN: u64 = 15; // TODO: Get the correct max length for this arch
     let max_read_len = section_address_range.end - start_address;
-    let read_len = (u64::from(query.size) + MAX_INSTR_LEN).min(max_read_len);
+    let read_len = (u64::from(size) + MAX_INSTR_LEN).min(max_read_len);
 
     // Now read the instruction bytes from the file.
     let bytes = section
@@ -173,7 +162,7 @@ fn do_stuff_with_object<'data: 'file, 'file>(
         .ok_or(AsmError::ByteRangeNotInSection)?;
 
     let reader = yaxpeax_arch::U8Reader::new(bytes);
-    let (instructions, len) = decode_arch(reader, architecture, query.size)?;
+    let (instructions, len) = decode_arch(reader, architecture, size)?;
     Ok(response_json::Response {
         start_address: relative_start_address,
         size: len,
