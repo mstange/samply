@@ -105,7 +105,7 @@ pub fn channel() -> Result<(OsIpcSender, OsIpcReceiver), MachError> {
     Ok((sender, receiver))
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Eq, Debug)]
 pub struct OsIpcReceiver {
     port: Cell<mach_port_t>,
 }
@@ -175,7 +175,7 @@ impl OsIpcReceiver {
                 mach_task_self(),
                 port,
                 MACH_PORT_LIMITS_INFO,
-                mem::transmute(&limits),
+                &limits as *const mach_sys::Struct_mach_port_limits as *mut i32,
                 1,
             )
         };
@@ -282,7 +282,7 @@ impl OsIpcReceiver {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Eq, Debug)]
 pub struct OsIpcSender {
     port: mach_port_t,
     // Make sure this is `!Sync`, to match `crossbeam_channel::Sender`; and to discourage sharing
@@ -437,7 +437,7 @@ impl OsIpcChannel {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Eq, Debug)]
 pub struct OsOpaqueIpcChannel {
     port: mach_port_t,
 }
@@ -450,7 +450,7 @@ impl Drop for OsOpaqueIpcChannel {
 }
 
 unsafe fn setup_receive_buffer(buffer: &mut [u8], port_name: mach_port_t) {
-    let message: *mut mach_msg_header_t = mem::transmute(&buffer[0]);
+    let message = &buffer[0] as *const u8 as *mut mach_msg_header_t;
     (*message).msgh_local_port = port_name;
     (*message).msgh_size = buffer.len().try_into().unwrap_or(u32::MAX)
 }
@@ -483,7 +483,7 @@ impl Message {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KernelError {
     Success,
     NoSpace,
@@ -512,7 +512,7 @@ impl From<kern_return_t> for KernelError {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MachError {
     Success,
     Kernel(KernelError),
