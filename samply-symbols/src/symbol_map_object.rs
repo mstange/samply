@@ -29,8 +29,10 @@ pub trait FunctionAddressesComputer<'data> {
 
 pub struct ObjectSymbolMapDataMid<'data, R: ReadRef<'data>, FAC: FunctionAddressesComputer<'data>> {
     object: File<'data, R>,
+    supplementary_object: Option<File<'data, R>>,
     function_addresses_computer: FAC,
     file_data: R,
+    supplementary_file_data: Option<R>,
     addr2line_context_data: Addr2lineContextData,
     arch: Option<&'static str>,
     debug_id: DebugId,
@@ -41,15 +43,19 @@ impl<'data, R: ReadRef<'data>, FAC: FunctionAddressesComputer<'data>>
 {
     pub fn new(
         object: File<'data, R>,
+        supplementary_object: Option<File<'data, R>>,
         function_addresses_computer: FAC,
         file_data: R,
+        supplementary_file_data: Option<R>,
         arch: Option<&'static str>,
         debug_id: DebugId,
     ) -> Self {
         Self {
             object,
+            supplementary_object,
             function_addresses_computer,
             file_data,
+            supplementary_file_data,
             addr2line_context_data: Addr2lineContextData::new(),
             arch,
             debug_id,
@@ -70,7 +76,9 @@ impl<'data, R: ReadRef<'data>, FAC: FunctionAddressesComputer<'data>> SymbolMapD
 
         let symbol_map = ObjectSymbolMapInner::new(
             &self.object,
+            self.supplementary_object.as_ref(),
             self.file_data,
+            self.supplementary_file_data,
             self.debug_id,
             PathMapper::new(base_path),
             function_starts.as_deref(),
@@ -134,7 +142,9 @@ where
     #[allow(clippy::too_many_arguments)]
     pub fn new<O, R>(
         object_file: &'file O,
+        sup_object_file: Option<&'file O>,
         data: R,
+        sup_data: Option<R>,
         debug_id: DebugId,
         path_mapper: PathMapper<()>,
         function_start_addresses: Option<&[u32]>,
@@ -253,7 +263,9 @@ where
         entries.sort_by_key(|(address, _)| *address);
         entries.dedup_by_key(|(address, _)| *address);
 
-        let context = addr2line_context_data.make_context(data, object_file).ok();
+        let context = addr2line_context_data
+            .make_context(data, object_file, sup_data, sup_object_file)
+            .ok();
 
         Self {
             entries,

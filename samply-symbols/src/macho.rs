@@ -251,8 +251,10 @@ impl<T: FileContents + 'static> SymbolMapDataOuterTrait for DyldCacheFileData<T>
             .ok_or(Error::InvalidInputError("debug ID cannot be read"))?;
         let object = ObjectSymbolMapDataMid::new(
             object,
+            None,
             function_addresses_computer,
             &self.root_file_data,
+            None,
             arch,
             debug_id,
         );
@@ -304,8 +306,10 @@ impl<T: FileContents + 'static> SymbolMapDataOuterTrait for MachSymbolMapData<T>
             .ok_or(Error::InvalidInputError("debug ID cannot be read"))?;
         let object = ObjectSymbolMapDataMid::new(
             macho_file,
+            None,
             function_addresses_computer,
             &self.file_data,
+            None,
             arch,
             debug_id,
         );
@@ -348,8 +352,10 @@ impl<T: FileContents + 'static> SymbolMapDataOuterTrait for MachOFatArchiveMembe
             .ok_or(Error::InvalidInputError("debug ID cannot be read"))?;
         let object = ObjectSymbolMapDataMid::new(
             macho_file,
+            None,
             function_addresses_computer,
             range_data,
+            None,
             arch,
             debug_id,
         );

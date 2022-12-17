@@ -101,8 +101,10 @@ impl<T: FileContents + 'static> SymbolMapDataOuterTrait for PeSymbolMapData<T> {
             .ok_or(Error::InvalidInputError("debug ID cannot be read"))?;
         let object = ObjectSymbolMapDataMid::new(
             object,
+            None,
             PeFunctionAddressesComputer,
             &self.file_data,
+            None,
             None,
             debug_id,
         );

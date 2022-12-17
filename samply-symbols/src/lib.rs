@@ -218,7 +218,7 @@ pub use crate::shared::{
     ExternalFileAddressInFileRef, ExternalFileAddressRef, ExternalFileRef, FileAndPathHelper,
     FileAndPathHelperError, FileAndPathHelperResult, FileContents, FileContentsWrapper,
     FileLocation, FilePath, FramesLookupResult, InlineStackFrame, LibraryInfo,
-    MultiArchDisambiguator, OptionallySendFuture, PeCodeId, SymbolInfo,
+    MultiArchDisambiguator, OptionallySendFuture, PeCodeId, SymbolInfo, BasePath,
 };
 pub use crate::symbol_map::SymbolMap;
 

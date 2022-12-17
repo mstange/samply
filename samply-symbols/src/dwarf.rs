@@ -190,6 +190,8 @@ impl Addr2lineContextData {
         &'ctxdata self,
         data: R,
         obj: &'file O,
+        sup_data: Option<R>,
+        sup_obj: Option<&'file O>,
     ) -> Result<addr2line::Context<EndianSlice<'ctxdata, RunTimeEndian>>, Error>
     where
         'data: 'file,
@@ -203,20 +205,15 @@ impl Addr2lineContextData {
         } else {
             gimli::RunTimeEndian::Big
         };
-        let context = addr2line::Context::from_sections(
-            self.sect(data, obj, SectionId::DebugAbbrev, e).into(),
-            self.sect(data, obj, SectionId::DebugAddr, e).into(),
-            self.sect(data, obj, SectionId::DebugAranges, e).into(),
-            self.sect(data, obj, SectionId::DebugInfo, e).into(),
-            self.sect(data, obj, SectionId::DebugLine, e).into(),
-            self.sect(data, obj, SectionId::DebugLineStr, e).into(),
-            self.sect(data, obj, SectionId::DebugRanges, e).into(),
-            self.sect(data, obj, SectionId::DebugRngLists, e).into(),
-            self.sect(data, obj, SectionId::DebugStr, e).into(),
-            self.sect(data, obj, SectionId::DebugStrOffsets, e).into(),
-            EndianSlice::new(&[], e),
-        )
-        .map_err(Error::Addr2lineContextCreationError)?;
+        let mut dwarf = gimli::Dwarf::load(|s| Ok(self.sect(data, obj, s, e)))
+            .map_err(Error::Addr2lineContextCreationError)?;
+        if let (Some(sup_obj), Some(sup_data)) = (sup_obj, sup_data) {
+            dwarf
+                .load_sup(|s| Ok(self.sect(sup_data, sup_obj, s, e)))
+                .map_err(Error::Addr2lineContextCreationError)?;
+        }
+        let context =
+            addr2line::Context::from_dwarf(dwarf).map_err(Error::Addr2lineContextCreationError)?;
         Ok(context)
     }
 }

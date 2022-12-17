@@ -4,7 +4,7 @@ use crate::symbol_map::{
     GenericSymbolMap, SymbolMap, SymbolMapDataMidTrait, SymbolMapDataOuterTrait,
 };
 use crate::symbol_map_object::{FunctionAddressesComputer, ObjectSymbolMapDataMid};
-use crate::{debug_id_for_object, FileAndPathHelper, FileLocation};
+use crate::{debug_id_for_object, ElfBuildId, FileAndPathHelper, FileLocation};
 use debugid::DebugId;
 use gimli::{CieOrFde, EhFrame, UnwindSection};
 use object::{File, FileKind, Object, ObjectSection, ReadRef};
@@ -19,7 +19,7 @@ pub async fn load_symbol_map_for_elf<'h, T, H>(
 ) -> Result<SymbolMap, Error>
 where
     T: FileContents + 'static,
-    H: FileAndPathHelper<'h>,
+    H: FileAndPathHelper<'h, F = T>,
 {
     let elf_file =
         File::parse(&file_contents).map_err(|e| Error::ObjectParseError(file_kind, e))?;
@@ -30,6 +30,14 @@ where
         return Ok(symbol_map);
     }
 
+    if let Some(supplementary_file) =
+        try_to_load_supplementary_file(&elf_file, base_path, helper).await
+    {
+        let owner = ElfSymbolMapData::new(file_contents, Some(supplementary_file), file_kind, None);
+        let symbol_map = GenericSymbolMap::new(owner, base_path)?;
+        return Ok(SymbolMap(Box::new(symbol_map)));
+    }
+
     // If this file has a .gnu_debugdata section, use the uncompressed object from that section instead.
     if let Some(symbol_map) =
         try_get_symbol_map_from_mini_debug_info(&elf_file, file_kind, base_path)
@@ -37,7 +45,7 @@ where
         return Ok(symbol_map);
     }
 
-    let owner = ElfSymbolMapData::new(file_contents, file_kind, None);
+    let owner = ElfSymbolMapData::new(file_contents, None, file_kind, None);
     let symbol_map = GenericSymbolMap::new(owner, base_path)?;
     Ok(SymbolMap(Box::new(symbol_map)))
 }
@@ -98,7 +106,7 @@ where
     }
 
     let base_path = file_location.to_base_path();
-    let owner = ElfSymbolMapData::new(file_contents, file_kind, Some(debug_id));
+    let owner = ElfSymbolMapData::new(file_contents, None, file_kind, Some(debug_id));
     let symbol_map = GenericSymbolMap::new(owner, &base_path)?;
     Ok(SymbolMap(Box::new(symbol_map)))
 }
@@ -194,14 +202,46 @@ fn compute_debug_link_crc_of_file_contents<T: FileContents>(
     while offset < len {
         let chunk_len = CHUNK_SIZE.min(len - offset);
         data.read_bytes_into(&mut buffer, offset, chunk_len as usize)
-            .map_err(|e| {
-                Error::HelperErrorDuringFileReading("DebugLinkForCrc".to_string(), e)
-            })?;
+            .map_err(|e| Error::HelperErrorDuringFileReading("DebugLinkForCrc".to_string(), e))?;
         computer.consume(&buffer);
         buffer.clear();
         offset += CHUNK_SIZE;
     }
     Ok(computer.0)
+}
+
+async fn try_to_load_supplementary_file<'h, 'data, H, F, R>(
+    elf_file: &File<'data, R>,
+    base_path: &BasePath,
+    helper: &'h H,
+) -> Option<FileContentsWrapper<F>>
+where
+    H: FileAndPathHelper<'h, F = F>,
+    R: ReadRef<'data>,
+    F: FileContents + 'static,
+{
+    let (path, supplementary_build_id) = {
+        let (path, build_id) = elf_file.gnu_debugaltlink().ok().flatten()?;
+        let supplementary_build_id = ElfBuildId(build_id.to_owned());
+        let path = std::str::from_utf8(path).ok()?.to_string();
+        (path, supplementary_build_id)
+    };
+    let candidate_paths = helper
+        .get_candidate_paths_for_supplementary_debug_file(base_path, &path, &supplementary_build_id)
+        .ok()?;
+
+    for candidate_path in candidate_paths {
+        if let Ok(file_contents) = helper.open_file(&candidate_path).await {
+            let file_contents = FileContentsWrapper::new(file_contents);
+            if let Ok(elf_file) = File::parse(&file_contents) {
+                if elf_file.build_id().ok().flatten() == Some(&supplementary_build_id.0) {
+                    return Some(file_contents);
+                }
+            }
+        }
+    }
+
+    None
 }
 
 fn try_get_symbol_map_from_mini_debug_info<'data, R: ReadRef<'data>>(
@@ -215,7 +255,7 @@ fn try_get_symbol_map_from_mini_debug_info<'data, R: ReadRef<'data>>(
     let mut objdata = Vec::new();
     lzma_rs::xz_decompress(&mut cursor, &mut objdata).ok()?;
     let file_contents = FileContentsWrapper::new(objdata);
-    let owner = ElfSymbolMapData::new(file_contents, file_kind, None);
+    let owner = ElfSymbolMapData::new(file_contents, None, file_kind, None);
     let symbol_map = GenericSymbolMap::new(owner, base_path).ok()?;
     Some(SymbolMap(Box::new(symbol_map)))
 }
@@ -225,6 +265,7 @@ where
     T: FileContents,
 {
     file_data: FileContentsWrapper<T>,
+    supplementary_file_data: Option<FileContentsWrapper<T>>,
     file_kind: FileKind,
     override_debug_id: Option<DebugId>,
 }
@@ -232,11 +273,13 @@ where
 impl<T: FileContents> ElfSymbolMapData<T> {
     pub fn new(
         file_data: FileContentsWrapper<T>,
+        supplementary_file_data: Option<FileContentsWrapper<T>>,
         file_kind: FileKind,
         override_debug_id: Option<DebugId>,
     ) -> Self {
         Self {
             file_data,
+            supplementary_file_data,
             file_kind,
             override_debug_id,
         }
@@ -247,6 +290,13 @@ impl<T: FileContents + 'static> SymbolMapDataOuterTrait for ElfSymbolMapData<T> 
     fn make_symbol_map_data_mid(&self) -> Result<Box<dyn SymbolMapDataMidTrait + '_>, Error> {
         let object =
             File::parse(&self.file_data).map_err(|e| Error::ObjectParseError(self.file_kind, e))?;
+        let supplementary_object = match self.supplementary_file_data.as_ref() {
+            Some(supplementary_file_data) => Some(
+                File::parse(supplementary_file_data)
+                    .map_err(|e| Error::ObjectParseError(self.file_kind, e))?,
+            ),
+            None => None,
+        };
         let debug_id = if let Some(debug_id) = self.override_debug_id {
             debug_id
         } else {
@@ -255,8 +305,10 @@ impl<T: FileContents + 'static> SymbolMapDataOuterTrait for ElfSymbolMapData<T> 
         };
         let object = ObjectSymbolMapDataMid::new(
             object,
+            supplementary_object,
             ElfFunctionAddressesComputer,
             &self.file_data,
+            self.supplementary_file_data.as_ref(),
             None,
             debug_id,
         );

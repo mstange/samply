@@ -1,5 +1,5 @@
 use debugid::DebugId;
-use samply_api::samply_symbols::{self, ElfBuildId, LibraryInfo, PeCodeId};
+use samply_api::samply_symbols::{self, BasePath, ElfBuildId, LibraryInfo, PeCodeId};
 use samply_symbols::{
     CandidatePathInfo, CodeId, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
     OptionallySendFuture,
@@ -454,6 +454,37 @@ impl<'h> FileAndPathHelper<'h> for Helper {
         location: &FileLocation,
     ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>> {
         Box::pin(self.open_file_impl(location.clone()))
+    }
+
+    fn get_candidate_paths_for_supplementary_debug_file(
+        &self,
+        original_file_path: &BasePath,
+        sup_file_path: &str,
+        sup_file_build_id: &ElfBuildId,
+    ) -> FileAndPathHelperResult<Vec<FileLocation>> {
+        let mut paths = Vec::new();
+
+        match original_file_path {
+            BasePath::CanReferToLocalFiles(parent_dir) => {
+                // TODO: Test if this actually works
+                if sup_file_path.starts_with('/') {
+                    paths.push(FileLocation::Path(PathBuf::from(sup_file_path)));
+                } else {
+                    let sup_file_path = Path::new(sup_file_path);
+                    paths.push(FileLocation::Path(parent_dir.join(sup_file_path)));
+                }
+            }
+            BasePath::NoLocalSourceFileAccess => {}
+        }
+
+        let build_id = sup_file_build_id.to_string();
+        if build_id.len() > 2 {
+            let (two_chars, rest) = build_id.split_at(2);
+            let path = format!("/usr/lib/debug/.build-id/{}/{}.debug", two_chars, rest);
+            paths.push(FileLocation::Path(PathBuf::from(path)));
+        }
+
+        Ok(paths)
     }
 }
 

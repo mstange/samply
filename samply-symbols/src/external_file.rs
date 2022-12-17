@@ -204,7 +204,9 @@ impl<F: FileContents> ExternalFileDataOuterTrait for ExternalFileData<F> {
     ) -> Result<ExternalFileMemberContext<'s>, Error> {
         use object::{Object, ObjectSymbol};
         let ArchiveMemberObject { data, object_file } = self.get_archive_member(name_in_archive)?;
-        let context = self.addr2line_context_data.make_context(data, &object_file);
+        let context = self
+            .addr2line_context_data
+            .make_context(data, &object_file, None, None);
         let symbol_addresses = object_file
             .symbols()
             .filter_map(|symbol| {
