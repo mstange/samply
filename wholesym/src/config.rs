@@ -1,10 +1,11 @@
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
 use symsrv::{parse_nt_symbol_path, NtSymbolPathEntry};
 
 #[derive(Debug, Clone, Default)]
 pub struct SymbolManagerConfig {
     pub(crate) verbose: bool,
+    pub(crate) redirect_paths: HashMap<PathBuf, PathBuf>,
     pub(crate) respect_nt_symbol_path: bool,
     pub(crate) default_nt_symbol_path: Option<String>,
     pub(crate) breakpad_directories_readonly: Vec<PathBuf>,
@@ -19,6 +20,15 @@ impl SymbolManagerConfig {
 
     pub fn verbose(mut self, verbose: bool) -> Self {
         self.verbose = verbose;
+        self
+    }
+
+    /// For use in tests. Add a path which, when opened, opens a file at a different path instead.
+    ///
+    /// This can be used to test debug files which refer to other files on the file system with
+    /// absolute paths, by redirecting those absolute paths to a path in the test fixtures directory.
+    pub fn redirect_path_for_testing(mut self, redirect_path: PathBuf, dest_path: PathBuf) -> Self {
+        self.redirect_paths.insert(redirect_path, dest_path);
         self
     }
 

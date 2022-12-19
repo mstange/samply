@@ -136,7 +136,8 @@ impl Helper {
                 if self.config.verbose {
                     eprintln!("Opening file {:?}", path.to_string_lossy());
                 }
-                let file = File::open(&path)?;
+                let path = self.config.redirect_paths.get(&path).unwrap_or(&path);
+                let file = File::open(path)?;
                 Ok(FileContents::Mmap(unsafe {
                     memmap2::MmapOptions::new().map(&file)?
                 }))
