@@ -20,12 +20,12 @@ pub async fn get_table_for_binary(
         symbol_directory: binary_path.parent().unwrap().to_path_buf(),
     };
     let symbol_manager = SymbolManager::with_helper(&helper);
-    let symbol_map = symbol_manager
-        .load_symbol_map_for_binary_at_path(
-            binary_path,
-            debug_id.map(MultiArchDisambiguator::DebugId),
-        )
+    let binary = symbol_manager
+        .load_binary_at_path(binary_path, debug_id.map(MultiArchDisambiguator::DebugId))
         .await?;
+    let info = binary.library_info();
+    drop(binary);
+    let symbol_map = symbol_manager.load_symbol_map(&info).await?;
     Ok(CompactSymbolTable::from_symbol_map(&symbol_map))
 }
 
