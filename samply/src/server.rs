@@ -129,10 +129,14 @@ async fn start_server(
 
     let template_values = Arc::new(template_values);
 
-    let config = SymbolManagerConfig::new()
+    let mut config = SymbolManagerConfig::new()
         .verbose(verbose)
         .respect_nt_symbol_path(true)
-        .default_nt_symbol_path("srv**https://msdl.microsoft.com/download/symbols");
+        .default_nt_symbol_path("srv**https://msdl.microsoft.com/download/symbols")
+        .use_debuginfod(true);
+    if let Some(home_dir) = dirs::home_dir() {
+        config = config.debuginfod_cache_dir_if_not_installed(home_dir.join("sym"));
+    }
     // TODO: Read breakpad symbol server config from some kind of config file, and call breakpad_symbols_server
 
     let mut symbol_manager = SymbolManager::with_config(config);

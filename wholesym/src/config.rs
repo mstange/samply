@@ -11,6 +11,9 @@ pub struct SymbolManagerConfig {
     pub(crate) breakpad_directories_readonly: Vec<PathBuf>,
     pub(crate) breakpad_servers: Vec<(String, PathBuf)>,
     pub(crate) windows_servers: Vec<(String, PathBuf)>,
+    pub(crate) use_debuginfod: bool,
+    pub(crate) debuginfod_cache_dir_if_not_installed: Option<PathBuf>,
+    pub(crate) debuginfod_servers: Vec<(String, PathBuf)>,
 }
 
 impl SymbolManagerConfig {
@@ -104,6 +107,34 @@ impl SymbolManagerConfig {
         cache_dir: impl Into<PathBuf>,
     ) -> Self {
         self.windows_servers
+            .push((base_url.into(), cache_dir.into()));
+        self
+    }
+
+    /// Whether debuginfod should be used, i.e. whether the `DEBUGINFOD_URLS` environment variable should be respected.
+    ///
+    /// If debuginfod is not installed, this will only work if you specify a custom cache directory with `debuginfod_cache_dir_if_not_installed`.
+    pub fn use_debuginfod(mut self, flag: bool) -> Self {
+        self.use_debuginfod = flag;
+        self
+    }
+
+    /// If `use_debuginfod` is set, and debuginfod is not installed (e.g. on non-Linux), use this directory as a cache directory.
+    pub fn debuginfod_cache_dir_if_not_installed(mut self, cache_dir: impl Into<PathBuf>) -> Self {
+        self.debuginfod_cache_dir_if_not_installed = Some(cache_dir.into());
+        self
+    }
+
+    /// Add a server to search for ELF debuginfo and executable files, along with a local cache directory.
+    /// These servers are consulted independently of `use_debuginfod`.
+    ///
+    /// This method can be called multiple times; the servers and caches will be tried in the order of those calls.
+    pub fn extra_debuginfod_server(
+        mut self,
+        base_url: impl Into<String>,
+        cache_dir: impl Into<PathBuf>,
+    ) -> Self {
+        self.debuginfod_servers
             .push((base_url.into(), cache_dir.into()));
         self
     }

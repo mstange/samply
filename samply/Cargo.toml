@@ -37,6 +37,7 @@ serde_derive = "1.0.137"
 serde = "1.0.137"
 symsrv = "0.2.0"
 wholesym = { version = "0.1.1", path = "../wholesym" }
+dirs = "4.0.0"
 
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 

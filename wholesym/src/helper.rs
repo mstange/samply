@@ -15,7 +15,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::config::SymbolManagerConfig;
+use crate::{config::SymbolManagerConfig, debuginfod::DebuginfodSymbolCache};
 
 /// A simple helper which only exists to let samply_symbols::SymbolManager open
 /// local files for the binary_at_path functions.
@@ -75,7 +75,8 @@ impl<'h> FileAndPathHelper<'h> for FileReadOnlyHelper {
 }
 
 pub struct Helper {
-    symbol_cache: Option<SymbolCache>,
+    win_symbol_cache: Option<SymbolCache>,
+    debuginfod_symbol_cache: Option<DebuginfodSymbolCache>,
     known_libs: Mutex<KnownLibs>,
     config: SymbolManagerConfig,
 }
@@ -90,12 +91,22 @@ struct KnownLibs {
 
 impl Helper {
     pub fn with_config(config: SymbolManagerConfig) -> Self {
-        let symbol_cache = match config.effective_nt_symbol_path() {
+        let win_symbol_cache = match config.effective_nt_symbol_path() {
             Some(nt_symbol_path) => Some(SymbolCache::new(nt_symbol_path, config.verbose)),
             None => None,
         };
+        let debuginfod_symbol_cache = if config.use_debuginfod {
+            Some(DebuginfodSymbolCache::new(
+                config.debuginfod_cache_dir_if_not_installed.clone(),
+                config.debuginfod_servers.clone(),
+                config.verbose,
+            ))
+        } else {
+            None
+        };
         Self {
-            symbol_cache,
+            win_symbol_cache,
+            debuginfod_symbol_cache,
             known_libs: Mutex::new(Default::default()),
             config,
         }
@@ -148,7 +159,7 @@ impl Helper {
                         eprintln!("Trying to get file {:?} from symbol cache", path);
                     }
                     Ok(self
-                        .symbol_cache
+                        .win_symbol_cache
                         .as_ref()
                         .unwrap()
                         .get_file(Path::new(path))
@@ -158,6 +169,20 @@ impl Helper {
                         eprintln!("Trying to get file {:?} from breakpad symbol server", path);
                     }
                     self.get_bp_sym_file(path).await
+                } else if let Some(buildid) = custom.strip_prefix("debuginfod-debuginfo:") {
+                    self.debuginfod_symbol_cache
+                        .as_ref()
+                        .unwrap()
+                        .get_file(buildid, "debuginfo")
+                        .await
+                        .ok_or_else(|| "Debuginfod could not find debuginfo".into())
+                } else if let Some(buildid) = custom.strip_prefix("debuginfod-executable:") {
+                    self.debuginfod_symbol_cache
+                        .as_ref()
+                        .unwrap()
+                        .get_file(buildid, "executable")
+                        .await
+                        .ok_or_else(|| "Debuginfod could not find executable".into())
                 } else {
                     panic!("Unexpected custom path: {}", custom);
                 }
@@ -346,7 +371,7 @@ impl<'h> FileAndPathHelper<'h> for Helper {
                 paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(bp_path)));
             }
 
-            if debug_name.ends_with(".pdb") && self.symbol_cache.is_some() {
+            if debug_name.ends_with(".pdb") && self.win_symbol_cache.is_some() {
                 // We might find this pdb file with the help of a symbol server.
                 // Construct a custom string to identify this pdb.
                 let custom = format!(
@@ -369,6 +394,14 @@ impl<'h> FileAndPathHelper<'h> for Helper {
                 );
                 paths.push(CandidatePathInfo::SingleFile(FileLocation::Custom(custom)));
             }
+        }
+
+        if let (Some(_debuginfod_symbol_cache), Some(CodeId::ElfBuildId(build_id))) =
+            (self.debuginfod_symbol_cache.as_ref(), &info.code_id)
+        {
+            paths.push(CandidatePathInfo::SingleFile(FileLocation::Custom(
+                format!("debuginfod-debuginfo:{build_id}"),
+            )));
         }
 
         if let Some(path) = &info.path {
@@ -420,12 +453,20 @@ impl<'h> FileAndPathHelper<'h> for Helper {
         }
 
         if let (Some(_symbol_cache), Some(name), Some(CodeId::PeCodeId(code_id))) =
-            (&self.symbol_cache, &info.name, &info.code_id)
+            (&self.win_symbol_cache, &info.name, &info.code_id)
         {
             // We might find this exe / dll file with the help of a symbol server.
             // Construct a custom string to identify this file.
             let custom = format!("winsymbolserver:{}/{}/{}", name, code_id, name);
             paths.push(CandidatePathInfo::SingleFile(FileLocation::Custom(custom)));
+        }
+
+        if let (Some(_debuginfod_symbol_cache), Some(CodeId::ElfBuildId(build_id))) =
+            (self.debuginfod_symbol_cache.as_ref(), &info.code_id)
+        {
+            paths.push(CandidatePathInfo::SingleFile(FileLocation::Custom(
+                format!("debuginfod-executable:{build_id}"),
+            )));
         }
 
         if let Some(path) = &info.path {
@@ -483,6 +524,10 @@ impl<'h> FileAndPathHelper<'h> for Helper {
             let (two_chars, rest) = build_id.split_at(2);
             let path = format!("/usr/lib/debug/.build-id/{}/{}.debug", two_chars, rest);
             paths.push(FileLocation::Path(PathBuf::from(path)));
+
+            paths.push(FileLocation::Custom(format!(
+                "debuginfod-debuginfo:{build_id}"
+            )));
         }
 
         Ok(paths)
