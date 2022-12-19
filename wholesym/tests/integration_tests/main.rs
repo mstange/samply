@@ -10,7 +10,7 @@ fn fixtures_dir() -> PathBuf {
 }
 
 #[test]
-fn successful_dll() {
+fn dll() {
     // Compute the LibraryInfo for mozglue.dll.
     let dll_path = fixtures_dir().join("win64-ci").join("mozglue.dll");
     let info = futures::executor::block_on(
@@ -28,6 +28,32 @@ fn successful_dll() {
     assert_eq!(
         info.debug_path,
         Some("/builds/worker/workspace/obj-build/mozglue/build/mozglue.pdb".into())
+    );
+    assert_eq!(info.arch, None);
+}
+
+#[test]
+fn exe() {
+    // Compute the LibraryInfo for firefox.exe.
+    let exe_path = fixtures_dir().join("win64-local").join("firefox.exe");
+    let info = futures::executor::block_on(
+        wholesym::SymbolManager::library_info_for_binary_at_path(&exe_path, None),
+    )
+    .unwrap();
+
+    assert_eq!(info.name, Some("firefox.exe".into()));
+    assert_eq!(
+        info.code_id,
+        Some(CodeId::from_str("5EBAD356a1000").unwrap())
+    );
+    assert_eq!(info.debug_name, Some("firefox.pdb".into()));
+    assert_eq!(
+        info.debug_id,
+        Some(DebugId::from_breakpad("8A913DE821D9DE764C4C44205044422E1").unwrap())
+    );
+    assert_eq!(
+        info.debug_path,
+        Some("c:\\mozilla-source\\obj-m-opt\\browser\\app\\firefox.pdb".into())
     );
     assert_eq!(info.arch, None);
 }

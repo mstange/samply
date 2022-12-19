@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use debugid::DebugId;
 use object::{
@@ -194,17 +194,15 @@ fn pe_info<'a, Pe: ImageNtHeaders, R: ReadRef<'a>>(pe: &PeFile<'a, Pe, R>) -> Pe
         image_size,
     });
 
-    let pdb_path: Option<PathBuf> = match pe.pdb_info() {
-        Ok(Some(pdb_info)) => {
-            let pdb_path = std::str::from_utf8(pdb_info.path()).ok();
-            pdb_path.map(Into::into)
-        }
-        _ => None,
-    };
-    let pdb_name = pdb_path
-        .as_deref()
-        .and_then(|p| Some(p.file_name()?.to_str()?.to_owned()));
-    let pdb_path = pdb_path.and_then(|p| Some(p.to_str()?.to_owned()));
+    let pdb_path: Option<String> = pe.pdb_info().ok().and_then(|pdb_info| {
+        let pdb_path = std::str::from_utf8(pdb_info?.path()).ok()?;
+        Some(pdb_path.to_string())
+    });
+
+    let pdb_name = pdb_path.as_deref().and_then(|pdb_path| {
+        let (_base, file_name) = pdb_path.rsplit_once(['/', '\\'])?;
+        Some(file_name.to_string())
+    });
 
     PeInfo {
         code_id,
