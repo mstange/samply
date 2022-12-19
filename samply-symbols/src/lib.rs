@@ -214,11 +214,11 @@ pub use crate::error::Error;
 pub use crate::external_file::{load_external_file, ExternalFileSymbolMap};
 pub use crate::macho::FatArchiveMember;
 pub use crate::shared::{
-    relative_address_base, AddressDebugInfo, AddressInfo, CandidatePathInfo, CodeId, ElfBuildId,
-    ExternalFileAddressInFileRef, ExternalFileAddressRef, ExternalFileRef, FileAndPathHelper,
-    FileAndPathHelperError, FileAndPathHelperResult, FileContents, FileContentsWrapper,
-    FileLocation, FilePath, FramesLookupResult, InlineStackFrame, LibraryInfo,
-    MultiArchDisambiguator, OptionallySendFuture, PeCodeId, SymbolInfo, BasePath,
+    relative_address_base, AddressDebugInfo, AddressInfo, BasePath, CandidatePathInfo, CodeId,
+    ElfBuildId, ExternalFileAddressInFileRef, ExternalFileAddressRef, ExternalFileRef,
+    FileAndPathHelper, FileAndPathHelperError, FileAndPathHelperResult, FileContents,
+    FileContentsWrapper, FileLocation, FilePath, FramesLookupResult, InlineStackFrame, LibraryInfo,
+    MultiArchDisambiguator, OptionallySendFuture, PeCodeId, SymbolInfo,
 };
 pub use crate::symbol_map::SymbolMap;
 
