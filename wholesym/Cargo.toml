@@ -1,6 +1,6 @@
 [package]
 name = "wholesym"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["Markus Stange <mstange.moz@gmail.com>"]
 edition = "2021"
 description = "A complete solution for fetching symbol files and resolving code addresses to symbols and debuginfo."
