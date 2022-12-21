@@ -31,3 +31,6 @@ e.g. `xperf -on latency+ALL_FAULTS -stackwalk PagefaultDemandZero`
 `latency` seems to be needed to get process information.
 Add in calls to VirtualAlloc/VirtualFree
 `xperf -on latency+ALL_FAULTS+VIRT_ALLOC -stackwalk PagefaultDemandZero`
+
+### Jscript
+Add `Microsoft-JScript:0x3` to Extra user mode providers
