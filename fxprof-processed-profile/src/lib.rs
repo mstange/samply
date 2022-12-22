@@ -188,7 +188,7 @@ pub struct ThreadHandle(usize);
 struct ProcessLibIndex(usize);
 
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub struct GlobalLibIndex(usize);
+struct GlobalLibIndex(usize);
 
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 struct GlobalStringIndex(StringIndex);
