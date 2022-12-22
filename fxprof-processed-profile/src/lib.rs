@@ -693,7 +693,6 @@ impl Process {
             .or_insert_with(|| global_libs.index_for_lib(libs[process_lib.0].clone()))
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn add_lib(&mut self, lib: LibraryInfo) {
         let lib_index = ProcessLibIndex(self.libs.len());
         self.libs.push(Lib {
