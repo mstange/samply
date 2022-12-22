@@ -406,10 +406,13 @@ async fn symbolication_service(
                     if data_len == 0 {
                         break;
                     }
-                    sender
+                    let send_result = sender
                         .send_data(Bytes::copy_from_slice(&contents[..data_len]))
-                        .await
-                        .expect("couldn't send data");
+                        .await;
+                    if send_result.is_err() {
+                        // The other side may have closed the channel. Stop sending.
+                        break;
+                    }
                 }
             });
         }
