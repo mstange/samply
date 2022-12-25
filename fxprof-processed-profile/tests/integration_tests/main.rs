@@ -9,6 +9,8 @@ use fxprof_processed_profile::{
     ProfilerMarker, ReferenceTimestamp, TextMarker, Timestamp,
 };
 
+// TODO: Add tests for CategoryPairHandle, ProcessHandle, ThreadHandle
+
 #[test]
 fn it_works() {
     struct CustomMarker {

@@ -1,5 +1,5 @@
 use serde::ser::{Serialize, Serializer};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct Timestamp {
@@ -29,5 +29,26 @@ impl Serialize for Timestamp {
         // In the profile JSON, timestamps are currently expressed as float milliseconds
         // since profile.meta.startTime.
         serializer.serialize_f64((self.nanos as f64) / 1_000_000.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
+pub struct InstantTimestampMaker {
+    reference_instant: Instant,
+}
+
+impl From<Instant> for InstantTimestampMaker {
+    fn from(instant: Instant) -> Self {
+        Self {
+            reference_instant: instant,
+        }
+    }
+}
+
+impl InstantTimestampMaker {
+    pub fn make_ts(&self, instant: Instant) -> Timestamp {
+        Timestamp::from_duration_since_reference(
+            instant.saturating_duration_since(self.reference_instant),
+        )
     }
 }
