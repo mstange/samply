@@ -335,7 +335,7 @@ fn it_works() {
                     }
                   ],
                   "pausedRanges": [],
-                  "preprocessedProfileVersion": 41,
+                  "preprocessedProfileVersion": 42,
                   "processType": 0,
                   "product": "test",
                   "sampleUnits": {
@@ -738,6 +738,7 @@ fn it_works() {
                     "name": "GeckoMain",
                     "nativeSymbols": {
                       "address": [],
+                      "functionSize": [],
                       "length": 0,
                       "libIndex": [],
                       "name": []

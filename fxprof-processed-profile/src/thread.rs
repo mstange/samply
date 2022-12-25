@@ -174,6 +174,7 @@ impl Thread {
         let native_symbols = json!({
             "length": 0,
             "address": [],
+            "functionSize": [],
             "libIndex": [],
             "name": [],
         });
