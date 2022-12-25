@@ -7,9 +7,11 @@ use crate::lib_info::Lib;
 use crate::library_info::LibraryInfo;
 use crate::Timestamp;
 
+/// A thread. Can be created with [`Profile::add_thread`](crate::Profile::add_thread).
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct ThreadHandle(pub(crate) usize);
 
+/// The index of a library within a process.
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct ProcessLibIndex(usize);
 

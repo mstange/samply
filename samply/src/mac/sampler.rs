@@ -58,7 +58,7 @@ impl Sampler {
         let mut profile = Profile::new(
             &self.command_name,
             ReferenceTimestamp::from_system_time(reference_system_time),
-            self.interval,
+            self.interval.into(),
         );
 
         let default_category =

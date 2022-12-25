@@ -8,7 +8,7 @@ use framehop::x86_64::UnwindRegsX86_64;
 use framehop::{FrameAddress, Module, ModuleSvmaInfo, ModuleUnwindData, TextByteData, Unwinder};
 use fxprof_processed_profile::{
     CategoryColor, CategoryPairHandle, CpuDelta, Frame, LibraryInfo, ProcessHandle, Profile,
-    ReferenceTimestamp, ThreadHandle, Timestamp,
+    ReferenceTimestamp, SamplingInterval, ThreadHandle, Timestamp,
 };
 use linux_perf_data::linux_perf_event_reader;
 use linux_perf_data::{AttributeDescription, DsoInfo, DsoKey};
@@ -30,7 +30,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::path::PathBuf;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 use std::{ops::Range, path::Path};
 
 pub trait ConvertRegs {
@@ -172,8 +172,8 @@ where
         interpretation: EventInterpretation,
     ) -> Self {
         let interval = match interpretation.sampling_is_time_based {
-            Some(nanos) => Duration::from_nanos(nanos),
-            None => Duration::from_millis(1),
+            Some(nanos) => SamplingInterval::from_nanos(nanos),
+            None => SamplingInterval::from_millis(1),
         };
         let mut profile = Profile::new(
             product,

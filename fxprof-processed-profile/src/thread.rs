@@ -18,6 +18,7 @@ use crate::string_table::{GlobalStringIndex, GlobalStringTable};
 use crate::thread_string_table::ThreadStringTable;
 use crate::{MarkerTiming, ProfilerMarker, Timestamp};
 
+/// A process. Can be created with [`Profile::add_process`](crate::Profile::add_process).
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct ProcessHandle(pub(crate) usize);
 

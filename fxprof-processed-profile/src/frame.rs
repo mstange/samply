@@ -1,5 +1,6 @@
 use crate::profile::StringHandle;
 
+/// A single stack frame.
 #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq)]
 pub enum Frame {
     /// A code address taken from the instruction pointer

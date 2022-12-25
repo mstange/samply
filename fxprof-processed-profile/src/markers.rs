@@ -3,17 +3,71 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use super::timestamp::Timestamp;
 
+/// Specifies timestamps for a marker.
 #[derive(Debug, Clone)]
 pub enum MarkerTiming {
+    /// Instant markers describe a single point in time.
     Instant(Timestamp),
+    /// Interval markers describe a time interval with a start and end timestamp.
     Interval(Timestamp, Timestamp),
+    /// A marker for just the start of an actual marker. Can be paired with an
+    /// `IntervalEnd` marker of the same name; if no end marker is supplied, this
+    /// creates a marker that extends to the end of the profile.
+    ///
+    /// This can be used for long-running markers for pieces of activity that may
+    /// not have completed by the time the profile is captured.
     IntervalStart(Timestamp),
+    /// A marker for just the end of an actual marker. Can be paired with an
+    /// `IntervalStart` marker of the same name; if no start marker is supplied,
+    /// this creates a marker which started before the beginning of the profile.
+    ///
+    /// This can be used to mark pieces of activity which started before profiling
+    /// began.
     IntervalEnd(Timestamp),
 }
+
+/// The trait that all markers implement.
+///
+///
+/// ```
+/// use fxprof_processed_profile::{ProfilerMarker, MarkerLocation, MarkerFieldFormat, MarkerSchema, MarkerDynamicField, MarkerSchemaField};
+/// use serde_json::json;
+///
+/// /// An example marker type with some text content.
+/// #[derive(Debug, Clone)]
+/// pub struct TextMarker(pub String);
+///
+/// impl ProfilerMarker for TextMarker {
+///     const MARKER_TYPE_NAME: &'static str = "Text";
+///
+///     fn json_marker_data(&self) -> serde_json::Value {
+///         json!({
+///             "type": Self::MARKER_TYPE_NAME,
+///             "name": self.0
+///         })
+///     }
+///
+///     fn schema() -> MarkerSchema {
+///         MarkerSchema {
+///             type_name: Self::MARKER_TYPE_NAME,
+///             locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
+///             chart_label: Some("{marker.data.name}"),
+///             tooltip_label: None,
+///             table_label: Some("{marker.name} - {marker.data.name}"),
+///             fields: vec![MarkerSchemaField::Dynamic(MarkerDynamicField {
+///                 key: "name",
+///                 label: "Details",
+///                 format: MarkerFieldFormat::String,
+///                 searchable: None,
+///             })],
+///         }
+///     }
+/// }
+/// ```
 
 pub trait ProfilerMarker {
     /// The name of the marker type.
@@ -28,9 +82,11 @@ pub trait ProfilerMarker {
     fn json_marker_data(&self) -> Value;
 }
 
+/// Describes a marker type.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MarkerSchema {
+    /// The name of this marker type.
     #[serde(rename = "name")]
     pub type_name: &'static str,
 
@@ -47,10 +103,16 @@ pub struct MarkerSchema {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub table_label: Option<&'static str>,
 
+    /// The marker fields. These can be specified on each marker.
     #[serde(rename = "data")]
     pub fields: Vec<MarkerSchemaField>,
 }
 
+/// The location of markers with this type.
+///
+/// Markers can be shown in different parts of the Firefox Profiler UI.
+///
+/// Multiple [`MarkerLocation`]s can be specified for a single marker type.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum MarkerLocation {
@@ -71,6 +133,7 @@ pub enum MarkerLocation {
     StackChart,
 }
 
+/// The description of a marker field in the marker type's schema.
 #[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
 pub enum MarkerSchemaField {
@@ -84,25 +147,32 @@ pub enum MarkerSchemaField {
     Dynamic(MarkerDynamicField),
 }
 
+/// The field description of a marker field which has the same key and value on all markers with this schema.
 #[derive(Debug, Clone, Serialize)]
 pub struct MarkerStaticField {
     pub label: &'static str,
     pub value: &'static str,
 }
 
+/// The field description of a marker field which can have a different value for each marker.
 #[derive(Debug, Clone, Serialize)]
 pub struct MarkerDynamicField {
+    /// The field key.
     pub key: &'static str,
 
+    /// The user-visible label of this field.
     #[serde(skip_serializing_if = "str::is_empty")]
     pub label: &'static str,
 
+    /// The format of this field.
     pub format: MarkerFieldFormat,
 
+    /// Whether this field's value should be matched against search terms.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub searchable: Option<bool>,
 }
 
+/// The field format of a marker field.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum MarkerFieldFormat {
@@ -153,65 +223,4 @@ pub enum MarkerFieldFormat {
     // Do not use it for time information.
     // "Label: 52.23, 0.0054, 123,456.78"
     Decimal,
-}
-
-/// The simplest possible example marker type. It contains no information
-/// beyond the name string that's passed to ThreadBuilder::add_marker.
-#[derive(Debug, Clone)]
-pub struct TracingMarker();
-
-impl ProfilerMarker for TracingMarker {
-    const MARKER_TYPE_NAME: &'static str = "tracing";
-
-    fn json_marker_data(&self) -> Value {
-        json!({
-            "type": Self::MARKER_TYPE_NAME,
-        })
-    }
-
-    fn schema() -> MarkerSchema {
-        MarkerSchema {
-            type_name: Self::MARKER_TYPE_NAME,
-            locations: vec![
-                MarkerLocation::MarkerChart,
-                MarkerLocation::MarkerTable,
-                MarkerLocation::TimelineOverview,
-            ],
-            chart_label: None,
-            tooltip_label: None,
-            table_label: None,
-            fields: vec![],
-        }
-    }
-}
-
-/// An example marker type with some text content.
-#[derive(Debug, Clone)]
-pub struct TextMarker(pub String);
-
-impl ProfilerMarker for TextMarker {
-    const MARKER_TYPE_NAME: &'static str = "Text";
-
-    fn json_marker_data(&self) -> Value {
-        json!({
-            "type": Self::MARKER_TYPE_NAME,
-            "name": self.0
-        })
-    }
-
-    fn schema() -> MarkerSchema {
-        MarkerSchema {
-            type_name: Self::MARKER_TYPE_NAME,
-            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
-            chart_label: Some("{marker.data.name}"),
-            tooltip_label: None,
-            table_label: Some("{marker.name} - {marker.data.name}"),
-            fields: vec![MarkerSchemaField::Dynamic(MarkerDynamicField {
-                key: "name",
-                label: "Details",
-                format: MarkerFieldFormat::String,
-                searchable: None,
-            })],
-        }
-    }
 }

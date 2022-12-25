@@ -6,10 +6,41 @@ use std::{str::FromStr, time::Duration};
 use fxprof_processed_profile::{
     CategoryColor, CpuDelta, Frame, LibraryInfo, MarkerDynamicField, MarkerFieldFormat,
     MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerStaticField, MarkerTiming, Profile,
-    ProfilerMarker, ReferenceTimestamp, TextMarker, Timestamp,
+    ProfilerMarker, ReferenceTimestamp, SamplingInterval, Timestamp,
 };
 
 // TODO: Add tests for CategoryPairHandle, ProcessHandle, ThreadHandle
+
+/// An example marker type with some text content.
+#[derive(Debug, Clone)]
+pub struct TextMarker(pub String);
+
+impl ProfilerMarker for TextMarker {
+    const MARKER_TYPE_NAME: &'static str = "Text";
+
+    fn json_marker_data(&self) -> serde_json::Value {
+        json!({
+            "type": Self::MARKER_TYPE_NAME,
+            "name": self.0
+        })
+    }
+
+    fn schema() -> MarkerSchema {
+        MarkerSchema {
+            type_name: Self::MARKER_TYPE_NAME,
+            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
+            chart_label: Some("{marker.data.name}"),
+            tooltip_label: None,
+            table_label: Some("{marker.name} - {marker.data.name}"),
+            fields: vec![MarkerSchemaField::Dynamic(MarkerDynamicField {
+                key: "name",
+                label: "Details",
+                format: MarkerFieldFormat::String,
+                searchable: None,
+            })],
+        }
+    }
+}
 
 #[test]
 fn it_works() {
@@ -76,7 +107,7 @@ fn it_works() {
     let mut profile = Profile::new(
         "test",
         ReferenceTimestamp::from_millis_since_unix_epoch(1636162232627.0),
-        Duration::from_millis(1),
+        SamplingInterval::from_millis(1),
     );
     let process = profile.add_process("test", 123, Timestamp::from_millis_since_reference(0.0));
     let thread = profile.add_thread(
@@ -200,6 +231,7 @@ fn it_works() {
         CpuDelta::ZERO,
         1,
     );
+
     profile.add_marker(
         thread,
         "Experimental",

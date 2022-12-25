@@ -2,8 +2,11 @@ use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 
 use super::category_color::CategoryColor;
 
+/// A profiling category, can be set on stack frames and markers as part of a [`CategoryPairHandle`].
+///
+/// Categories can be created with [`Profile::add_category`](crate::Profile::add_category).
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub struct CategoryHandle(pub u16);
+pub struct CategoryHandle(pub(crate) u16);
 
 impl CategoryHandle {
     /// The "Other" category. All profiles have this category.
@@ -16,11 +19,21 @@ impl Serialize for CategoryHandle {
     }
 }
 
+/// A profiling subcategory, can be set on stack frames and markers as part of a [`CategoryPairHandle`].
+///
+/// Subategories can be created with [`Profile::add_subcategory`](crate::Profile::add_subcategory).
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct SubcategoryIndex(pub u8);
 
+/// A profiling category pair, consisting of a category and an optional subcategory. Can be set on stack frames and markers.
+///
+/// Category pairs can be created with [`Profile::add_subcategory`](crate::Profile::add_subcategory)
+/// and from a [`CategoryHandle`].
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub struct CategoryPairHandle(pub CategoryHandle, pub Option<SubcategoryIndex>);
+pub struct CategoryPairHandle(
+    pub(crate) CategoryHandle,
+    pub(crate) Option<SubcategoryIndex>,
+);
 
 impl From<CategoryHandle> for CategoryPairHandle {
     fn from(category: CategoryHandle) -> Self {
@@ -28,6 +41,7 @@ impl From<CategoryHandle> for CategoryPairHandle {
     }
 }
 
+/// The information about a category.
 #[derive(Debug)]
 pub struct Category {
     pub name: String,
@@ -36,6 +50,7 @@ pub struct Category {
 }
 
 impl Category {
+    /// Add a subcategory to this category.
     pub fn add_subcategory(&mut self, subcategory_name: String) -> SubcategoryIndex {
         use std::convert::TryFrom;
         let subcategory_index = SubcategoryIndex(u8::try_from(self.subcategories.len()).unwrap());

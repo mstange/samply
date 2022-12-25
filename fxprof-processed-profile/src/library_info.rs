@@ -28,7 +28,7 @@ pub struct LibraryInfo {
     pub avma_range: Range<u64>,
     /// The name of this library that should be displayed in the profiler.
     /// Usually this is the filename of the binary, but it could also be any other
-    /// name, such as "[kernel.kallsyms]" or "[vdso]".
+    /// name, such as "\[kernel.kallsyms\]" or "\[vdso\]".
     pub name: String,
     /// The debug name of this library which should be used when looking up symbols.
     /// On Windows this is the filename of the PDB file, on other platforms it's

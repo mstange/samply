@@ -1,5 +1,8 @@
 use serde::ser::{Serialize, Serializer};
 
+/// The type used for sample and marker timestamps.
+///
+/// Timestamps in the profile are stored in reference to the profile's [`ReferencTimestamp`](crate::ReferenceTimestamp).
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct Timestamp {
     nanos: u64,

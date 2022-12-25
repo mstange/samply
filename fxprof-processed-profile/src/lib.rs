@@ -1,3 +1,35 @@
+//! This crate allows you to create a profile that can be loaded into
+//! the [Firefox Profiler](https://profiler.firefox.com/).
+//!
+//! Specifically, this uses the ["Processed profile format"](https://github.com/firefox-devtools/profiler/blob/main/docs-developer/processed-profile-format.md).
+//!
+//! Use [`Profile::new`] to create a new [`Profile`] object. Then add all the
+//! information into it. To convert it to JSON, use [`serde_json`], for
+//! example [`serde_json::to_writer`] or [`serde_json::to_string`].
+//!
+//! ## Example
+//!
+//! ```
+//! use fxprof_processed_profile::{Profile, CategoryHandle, CpuDelta, Frame, SamplingInterval, Timestamp};
+//! use std::time::SystemTime;
+//!
+//! # fn write_profile(output_file: std::fs::File) -> Result<(), Box<dyn std::error::Error>> {
+//! let mut profile = Profile::new("My app", SystemTime::now().into(), SamplingInterval::from_millis(1));
+//! let process = profile.add_process("App process", 54132, Timestamp::from_millis_since_reference(0.0));
+//! let thread = profile.add_thread(process, 54132000, Timestamp::from_millis_since_reference(0.0), true);
+//! profile.set_thread_name(thread, "Main thread");
+//! let stack = vec![
+//!     (Frame::Label(profile.intern_string("Root node")), CategoryHandle::OTHER.into()),
+//!     (Frame::Label(profile.intern_string("First callee")), CategoryHandle::OTHER.into())
+//! ];
+//! profile.add_sample(thread, Timestamp::from_millis_since_reference(0.0), stack.into_iter(), CpuDelta::ZERO, 1);
+//!
+//! let writer = std::io::BufWriter::new(output_file);
+//! serde_json::to_writer(writer, &profile)?;
+//! # Ok(())
+//! # }
+//! ```
+
 pub use debugid;
 
 mod category;
@@ -23,14 +55,14 @@ mod thread;
 mod thread_string_table;
 mod timestamp;
 
-pub use category::CategoryPairHandle;
+pub use category::{CategoryHandle, CategoryPairHandle};
 pub use category_color::CategoryColor;
 pub use cpu_delta::CpuDelta;
 pub use frame::Frame;
 pub use library_info::LibraryInfo;
 pub use markers::*;
 pub use process::ThreadHandle;
-pub use profile::Profile;
+pub use profile::{Profile, SamplingInterval, StringHandle};
 pub use reference_timestamp::ReferenceTimestamp;
 pub use thread::ProcessHandle;
 pub use timestamp::*;
