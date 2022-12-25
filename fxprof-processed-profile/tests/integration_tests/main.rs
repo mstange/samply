@@ -335,7 +335,7 @@ fn it_works() {
                     }
                   ],
                   "pausedRanges": [],
-                  "preprocessedProfileVersion": 42,
+                  "preprocessedProfileVersion": 44,
                   "processType": 0,
                   "product": "test",
                   "sampleUnits": {
