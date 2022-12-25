@@ -1,6 +1,6 @@
 use crossbeam_channel::Receiver;
 use fxprof_processed_profile::{
-    CategoryColor, CategoryPairHandle, InstantTimestampMaker, Profile, ReferenceTimestamp,
+    CategoryColor, CategoryPairHandle, Profile, ReferenceTimestamp, Timestamp,
 };
 use mach::port::mach_port_t;
 
@@ -53,7 +53,7 @@ impl Sampler {
     pub fn run(self) -> Result<Profile, SamplingError> {
         let reference_instant = Instant::now();
         let reference_system_time = SystemTime::now();
-        let timestamp_maker = InstantTimestampMaker::from(reference_instant);
+        let timestamp_maker = InstantTimestampMaker::new(reference_instant);
 
         let mut profile = Profile::new(
             &self.command_name,
@@ -191,4 +191,27 @@ fn sleep_and_save_overshoot(duration: Duration, overshoot: &mut Duration) {
         .duration_since(before_sleep)
         .checked_sub(duration)
         .unwrap_or_else(|| Duration::from_nanos(0));
+}
+
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
+struct InstantTimestampMaker {
+    reference_instant: Instant,
+}
+
+impl InstantTimestampMaker {
+    fn new(instant: Instant) -> Self {
+        Self {
+            reference_instant: instant,
+        }
+    }
+}
+
+impl InstantTimestampMaker {
+    pub fn make_ts(&self, instant: Instant) -> Timestamp {
+        Timestamp::from_nanos_since_reference(
+            instant
+                .saturating_duration_since(self.reference_instant)
+                .as_nanos() as u64,
+        )
+    }
 }

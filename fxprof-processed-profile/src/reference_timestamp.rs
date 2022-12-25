@@ -22,6 +22,12 @@ impl ReferenceTimestamp {
     }
 }
 
+impl From<SystemTime> for ReferenceTimestamp {
+    fn from(system_time: SystemTime) -> Self {
+        Self::from_system_time(system_time)
+    }
+}
+
 impl Serialize for ReferenceTimestamp {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         self.ms_since_unix_epoch.serialize(serializer)
