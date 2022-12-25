@@ -361,6 +361,9 @@ impl<'a> Serialize for SerializableProfileMeta<'a> {
         map.serialize_entry("symbolicated", &false)?;
         map.serialize_entry("pausedRanges", &[] as &[()])?;
         map.serialize_entry("version", &24)?;
+        map.serialize_entry("usesOnlyOneStackType", &true)?;
+        map.serialize_entry("doesNotUseFrameImplementation", &true)?;
+        map.serialize_entry("sourceCodeIsNotOnSearchfox", &true)?;
 
         let mut marker_schemas: Vec<MarkerSchema> =
             self.0.marker_schemas.values().cloned().collect();

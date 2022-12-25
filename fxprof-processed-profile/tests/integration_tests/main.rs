@@ -345,7 +345,10 @@ fn it_works() {
                   },
                   "startTime": 1636162232627.0,
                   "symbolicated": false,
-                  "version": 24
+                  "version": 24,
+                  "usesOnlyOneStackType": true,
+                  "doesNotUseFrameImplementation": true,
+                  "sourceCodeIsNotOnSearchfox": true
                 },
                 "libs": [
                   {
