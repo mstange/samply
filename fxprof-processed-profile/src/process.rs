@@ -133,6 +133,7 @@ impl Process {
             arch: lib.arch,
             debug_id: lib.debug_id,
             code_id: lib.code_id,
+            symbol_table: lib.symbol_table,
         });
 
         let insertion_index = match self

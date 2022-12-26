@@ -1,13 +1,15 @@
 use assert_json_diff::assert_json_eq;
 use debugid::{CodeId, DebugId};
 use serde_json::json;
-use std::{str::FromStr, time::Duration};
 
 use fxprof_processed_profile::{
     CategoryColor, CpuDelta, Frame, LibraryInfo, MarkerDynamicField, MarkerFieldFormat,
     MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerStaticField, MarkerTiming, Profile,
-    ProfilerMarker, ReferenceTimestamp, SamplingInterval, Timestamp,
+    ProfilerMarker, ReferenceTimestamp, SamplingInterval, Symbol, SymbolTable, Timestamp,
 };
+
+use std::sync::Arc;
+use std::{str::FromStr, time::Duration};
 
 // TODO: Add tests for CategoryPairHandle, ProcessHandle, ThreadHandle
 
@@ -136,7 +138,23 @@ fn it_works() {
             arch: None,
             base_avma: 0x00007f76b7e5d000,
             avma_range: 0x00007f76b7e85000..0x00007f76b8019000,
-            symbol_table: None,
+            symbol_table: Some(Arc::new(SymbolTable::new(vec![
+                Symbol {
+                    address: 1700001,
+                    size: Some(180),
+                    name: "libc_symbol_1".to_string(),
+                },
+                Symbol {
+                    address: 674226,
+                    size: Some(44),
+                    name: "libc_symbol_3".to_string(),
+                },
+                Symbol {
+                    address: 172156,
+                    size: Some(20),
+                    name: "libc_symbol_2".to_string(),
+                },
+            ]))),
         },
     );
     profile.add_lib(
@@ -473,6 +491,8 @@ fn it_works() {
                         null,
                         null,
                         null,
+                        0,
+                        1,
                         null,
                         null,
                         null,
@@ -480,9 +500,7 @@ fn it_works() {
                         null,
                         null,
                         null,
-                        null,
-                        null,
-                        null
+                        2
                       ],
                       "innerWindowID": [
                         null,
@@ -579,12 +597,12 @@ fn it_works() {
                       "length": 16,
                       "name": [
                         0,
-                        1,
+                        2,
                         3,
                         4,
                         5,
                         6,
-                        7,
+                        8,
                         9,
                         10,
                         11,
@@ -742,11 +760,11 @@ fn it_works() {
                     },
                     "name": "GeckoMain",
                     "nativeSymbols": {
-                      "address": [],
-                      "functionSize": [],
-                      "length": 0,
-                      "libIndex": [],
-                      "name": []
+                      "address": [1700001, 172156, 674226],
+                      "functionSize": [Some(180), Some(20), Some(44)],
+                      "length": 3,
+                      "libIndex": [1, 1, 1],
+                      "name": [8, 9, 17]
                     },
                     "pausedRanges": [],
                     "pid": 123,
@@ -762,8 +780,8 @@ fn it_works() {
                         1
                       ],
                       "name": [
-                        2,
-                        8
+                        1,
+                        7
                       ],
                       "host": [
                         null,
@@ -879,15 +897,15 @@ fn it_works() {
                     },
                     "stringArray": [
                       "0x7ffdb4824837",
-                      "0xc2704",
                       "dump_syms",
+                      "0xc2704",
                       "0xde777",
                       "0x145418",
                       "0x23eb61",
                       "0x256d7e",
-                      "0x19f0e7",
                       "libc.so.6",
-                      "0x2a07c",
+                      "libc_symbol_1",
+                      "libc_symbol_2",
                       "0x106992",
                       "0xdd2d6",
                       "0xef3ce",
@@ -895,7 +913,7 @@ fn it_works() {
                       "0x1571b8",
                       "0xb40e2",
                       "0x2778f4",
-                      "0xa49c6",
+                      "libc_symbol_3",
                       "Experimental",
                       "CustomName"
                     ],

@@ -28,7 +28,7 @@ impl ResourceTable {
         let resource_names = &mut self.resource_names;
         *self.lib_to_resource.entry(lib_index).or_insert_with(|| {
             let resource = ResourceIndex(resource_libs.len() as u32);
-            let lib_name = global_libs.lib_name(lib_index);
+            let lib_name = &global_libs.get_lib(lib_index).unwrap().name;
             resource_libs.push(lib_index);
             resource_names.push(thread_string_table.index_for_string(lib_name));
             resource

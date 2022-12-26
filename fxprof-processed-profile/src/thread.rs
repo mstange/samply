@@ -1,8 +1,6 @@
 use std::cmp::Ordering;
 
-use serde::ser::SerializeMap;
-use serde::Serializer;
-use serde_json::json;
+use serde::ser::{SerializeMap, Serializer};
 
 use crate::category::{Category, CategoryPairHandle};
 use crate::cpu_delta::CpuDelta;
@@ -10,6 +8,7 @@ use crate::frame_table::{FrameTable, InternalFrame};
 use crate::func_table::FuncTable;
 use crate::global_lib_table::GlobalLibTable;
 use crate::marker_table::MarkerTable;
+use crate::native_symbols::NativeSymbols;
 use crate::resource_table::ResourceTable;
 use crate::sample_table::SampleTable;
 use crate::stack_table::StackTable;
@@ -35,6 +34,7 @@ pub struct Thread {
     samples: SampleTable,
     markers: MarkerTable,
     resources: ResourceTable,
+    native_symbols: NativeSymbols,
     string_table: ThreadStringTable,
     last_sample_stack: Option<usize>,
     last_sample_was_zero_cpu: bool,
@@ -55,6 +55,7 @@ impl Thread {
             samples: SampleTable::new(),
             markers: MarkerTable::new(),
             resources: ResourceTable::new(),
+            native_symbols: NativeSymbols::new(),
             string_table: ThreadStringTable::new(),
             last_sample_stack: None,
             last_sample_was_zero_cpu: false,
@@ -94,6 +95,7 @@ impl Thread {
             &mut self.string_table,
             &mut self.resources,
             &mut self.func_table,
+            &mut self.native_symbols,
             global_libs,
             frame,
         )
@@ -173,20 +175,12 @@ impl Thread {
         let thread_register_time = self.start_time;
         let thread_unregister_time = self.end_time;
 
-        let native_symbols = json!({
-            "length": 0,
-            "address": [],
-            "functionSize": [],
-            "libIndex": [],
-            "name": [],
-        });
-
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry("frameTable", &self.frame_table.as_serializable(categories))?;
         map.serialize_entry("funcTable", &self.func_table)?;
         map.serialize_entry("markers", &self.markers)?;
         map.serialize_entry("name", &thread_name)?;
-        map.serialize_entry("nativeSymbols", &native_symbols)?;
+        map.serialize_entry("nativeSymbols", &self.native_symbols)?;
         map.serialize_entry("pausedRanges", &[] as &[()])?;
         map.serialize_entry("pid", &pid)?;
         map.serialize_entry("processName", process_name)?;

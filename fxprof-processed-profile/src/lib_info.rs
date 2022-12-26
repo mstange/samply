@@ -1,5 +1,9 @@
+use std::sync::Arc;
+
 use debugid::{CodeId, DebugId};
 use serde::ser::{Serialize, SerializeMap, Serializer};
+
+use crate::library_info::SymbolTable;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Lib {
@@ -10,6 +14,7 @@ pub struct Lib {
     pub arch: Option<String>,
     pub debug_id: DebugId,
     pub code_id: Option<CodeId>,
+    pub symbol_table: Option<Arc<SymbolTable>>,
 }
 
 impl Serialize for Lib {

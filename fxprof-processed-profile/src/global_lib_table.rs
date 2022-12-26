@@ -26,8 +26,8 @@ impl GlobalLibTable {
         })
     }
 
-    pub fn lib_name(&self, index: GlobalLibIndex) -> &str {
-        &self.libs[index.0].name
+    pub fn get_lib(&self, index: GlobalLibIndex) -> Option<&Lib> {
+        self.libs.get(index.0)
     }
 }
 

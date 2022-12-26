@@ -6,6 +6,7 @@ use crate::category::{
 use crate::fast_hash_map::FastHashMap;
 use crate::func_table::{FuncIndex, FuncTable};
 use crate::global_lib_table::{GlobalLibIndex, GlobalLibTable};
+use crate::native_symbols::{NativeSymbolIndex, NativeSymbols};
 use crate::resource_table::ResourceTable;
 use crate::serialization_helpers::SerializableSingleValueColumn;
 use crate::thread_string_table::{ThreadInternalStringIndex, ThreadStringTable};
@@ -16,6 +17,7 @@ pub struct FrameTable {
     categories: Vec<CategoryHandle>,
     subcategories: Vec<Subcategory>,
     funcs: Vec<FuncIndex>,
+    native_symbols: Vec<Option<NativeSymbolIndex>>,
     internal_frame_to_frame_index: FastHashMap<InternalFrame, usize>,
 }
 
@@ -29,11 +31,13 @@ impl FrameTable {
         string_table: &mut ThreadStringTable,
         resource_table: &mut ResourceTable,
         func_table: &mut FuncTable,
+        native_symbol_table: &mut NativeSymbols,
         global_libs: &GlobalLibTable,
         frame: InternalFrame,
     ) -> usize {
         let addresses = &mut self.addresses;
         let funcs = &mut self.funcs;
+        let native_symbols = &mut self.native_symbols;
         let categories = &mut self.categories;
         let subcategories = &mut self.subcategories;
         *self
@@ -41,20 +45,40 @@ impl FrameTable {
             .entry(frame.clone())
             .or_insert_with(|| {
                 let frame_index = addresses.len();
-                let (address, location_string_index, resource) = match frame.location {
+                let (address, location_string_index, native_symbol, resource) = match frame.location
+                {
                     InternalFrameLocation::UnknownAddress(address) => {
                         let location_string = format!("0x{:x}", address);
                         let s = string_table.index_for_string(&location_string);
-                        (None, s, None)
+                        (None, s, None, None)
                     }
                     InternalFrameLocation::AddressInLib(address, lib_index) => {
-                        let location_string = format!("0x{:x}", address);
-                        let s = string_table.index_for_string(&location_string);
                         let res =
                             resource_table.resource_for_lib(lib_index, global_libs, string_table);
-                        (Some(address), s, Some(res))
+                        let lib = global_libs.get_lib(lib_index).unwrap();
+                        let native_symbol_and_name =
+                            lib.symbol_table.as_deref().and_then(|symbol_table| {
+                                let symbol = symbol_table.lookup(address)?;
+                                Some(
+                                    native_symbol_table.symbol_index_and_string_index_for_symbol(
+                                        lib_index,
+                                        symbol,
+                                        string_table,
+                                    ),
+                                )
+                            });
+                        let (native_symbol, s) = match native_symbol_and_name {
+                            Some((native_symbol, name_string_index)) => {
+                                (Some(native_symbol), name_string_index)
+                            }
+                            None => {
+                                let location_string = format!("0x{:x}", address);
+                                (None, string_table.index_for_string(&location_string))
+                            }
+                        };
+                        (Some(address), s, native_symbol, Some(res))
                     }
-                    InternalFrameLocation::Label(string_index) => (None, string_index, None),
+                    InternalFrameLocation::Label(string_index) => (None, string_index, None, None),
                 };
                 let func_index = func_table.index_for_func(location_string_index, resource);
                 let CategoryPairHandle(category, subcategory_index) = frame.category_pair;
@@ -66,6 +90,7 @@ impl FrameTable {
                 categories.push(category);
                 subcategories.push(subcategory);
                 funcs.push(func_index);
+                native_symbols.push(native_symbol);
                 frame_index
             })
     }
@@ -99,7 +124,7 @@ impl<'a> Serialize for SerializableFrameTable<'a> {
             &SerializableSubcategoryColumn(&self.table.subcategories, self.categories),
         )?;
         map.serialize_entry("func", &self.table.funcs)?;
-        map.serialize_entry("nativeSymbol", &SerializableSingleValueColumn((), len))?;
+        map.serialize_entry("nativeSymbol", &self.table.native_symbols)?;
         map.serialize_entry("innerWindowID", &SerializableSingleValueColumn((), len))?;
         map.serialize_entry("implementation", &SerializableSingleValueColumn((), len))?;
         map.serialize_entry("line", &SerializableSingleValueColumn((), len))?;
