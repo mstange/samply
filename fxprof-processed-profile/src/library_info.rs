@@ -14,10 +14,8 @@ pub struct LibraryInfo {
     /// where this library's base address is located. The base address is the
     /// address which "relative addresses" are relative to.
     ///
-    /// For ELF binaries, the base address is equal to the "image bias", i.e. the
-    /// offset that is added to the virtual memory addresses as stated in the
-    /// library file (SVMAs, "stated virtual memory addresses"). In other words,
-    /// the base AVMA corresponds to SVMA zero.
+    /// For ELF binaries, the base address is AVMA of the first segment, i.e. of
+    /// the mapping created by the first ELF `LOAD` command.
     ///
     /// For mach-O binaries, the base address is the start of the `__TEXT` segment.
     ///
