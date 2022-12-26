@@ -857,7 +857,7 @@ fn open_file_with_fallback(
     }
 }
 
-fn compute_image_bias<'data: 'file, 'file>(
+fn compute_base_avma<'data: 'file, 'file>(
     file: &'file impl Object<'data, 'file>,
     mapping_start_file_offset: u64,
     mapping_start_avma: u64,
@@ -899,7 +899,15 @@ fn compute_image_bias<'data: 'file, 'file>(
         mapping_start_avma + (section_start_file_offset - mapping_start_file_offset);
 
     // Compute the offset between AVMAs and SVMAs. This is the bias of the image.
-    Some(section_start_avma - section_start_svma)
+    let bias = section_start_avma - section_start_svma;
+
+    let base_svma = match file.segments().next() {
+        Some(first_segment) => first_segment.address(),
+        None => 0,
+    };
+    let base_avma = base_svma + bias;
+
+    Some(base_avma)
 }
 
 /// Tell the unwinder about this module, and alsos create a ProfileModule
@@ -983,10 +991,8 @@ where
             }
         }
 
-        // Compute the AVMA that maps to SVMA zero. This is also called the "bias" of the
-        // image. On ELF it is also the image load address.
         let base_svma = 0;
-        base_avma = compute_image_bias(
+        base_avma = compute_base_avma(
             &file,
             mapping_start_file_offset,
             mapping_start_avma,
