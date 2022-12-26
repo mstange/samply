@@ -6,16 +6,15 @@ use serde_json::json;
 
 use crate::category::{Category, CategoryPairHandle};
 use crate::cpu_delta::CpuDelta;
-use crate::frame_and_func_table::{
-    FrameTableAndFuncTable, InternalFrame, ThreadInternalStringIndex,
-};
+use crate::frame_table::{FrameTable, InternalFrame};
+use crate::func_table::FuncTable;
 use crate::global_lib_table::GlobalLibTable;
 use crate::marker_table::MarkerTable;
 use crate::resource_table::ResourceTable;
 use crate::sample_table::SampleTable;
 use crate::stack_table::StackTable;
 use crate::string_table::{GlobalStringIndex, GlobalStringTable};
-use crate::thread_string_table::ThreadStringTable;
+use crate::thread_string_table::{ThreadInternalStringIndex, ThreadStringTable};
 use crate::{MarkerTiming, ProfilerMarker, Timestamp};
 
 /// A process. Can be created with [`Profile::add_process`](crate::Profile::add_process).
@@ -31,7 +30,8 @@ pub struct Thread {
     end_time: Option<Timestamp>,
     is_main: bool,
     stack_table: StackTable,
-    frame_table_and_func_table: FrameTableAndFuncTable,
+    frame_table: FrameTable,
+    func_table: FuncTable,
     samples: SampleTable,
     markers: MarkerTable,
     resources: ResourceTable,
@@ -50,7 +50,8 @@ impl Thread {
             end_time: None,
             is_main,
             stack_table: StackTable::new(),
-            frame_table_and_func_table: FrameTableAndFuncTable::new(),
+            frame_table: FrameTable::new(),
+            func_table: FuncTable::new(),
             samples: SampleTable::new(),
             markers: MarkerTable::new(),
             resources: ResourceTable::new(),
@@ -89,9 +90,10 @@ impl Thread {
         frame: InternalFrame,
         global_libs: &GlobalLibTable,
     ) -> usize {
-        self.frame_table_and_func_table.index_for_frame(
+        self.frame_table.index_for_frame(
             &mut self.string_table,
             &mut self.resources,
+            &mut self.func_table,
             global_libs,
             frame,
         )
@@ -180,14 +182,8 @@ impl Thread {
         });
 
         let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry(
-            "frameTable",
-            &self.frame_table_and_func_table.as_frame_table(categories),
-        )?;
-        map.serialize_entry(
-            "funcTable",
-            &self.frame_table_and_func_table.as_func_table(),
-        )?;
+        map.serialize_entry("frameTable", &self.frame_table.as_serializable(categories))?;
+        map.serialize_entry("funcTable", &self.func_table)?;
         map.serialize_entry("markers", &self.markers)?;
         map.serialize_entry("name", &thread_name)?;
         map.serialize_entry("nativeSymbols", &native_symbols)?;

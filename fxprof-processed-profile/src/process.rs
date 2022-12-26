@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 
 use crate::fast_hash_map::FastHashMap;
-use crate::frame_and_func_table::InternalFrameLocation;
+use crate::frame_table::InternalFrameLocation;
 use crate::global_lib_table::{GlobalLibIndex, GlobalLibTable};
 use crate::lib_info::Lib;
 use crate::library_info::LibraryInfo;

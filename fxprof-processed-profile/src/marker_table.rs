@@ -1,10 +1,10 @@
 use serde::ser::{Serialize, SerializeMap, Serializer};
 use serde_json::Value;
 
-use crate::frame_and_func_table::ThreadInternalStringIndex;
 use crate::serialization_helpers::{
     SerializableOptionalTimestampColumn, SerializableSingleValueColumn,
 };
+use crate::thread_string_table::ThreadInternalStringIndex;
 use crate::{MarkerTiming, Timestamp};
 
 #[derive(Debug, Clone, Default)]

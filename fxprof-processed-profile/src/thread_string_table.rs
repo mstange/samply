@@ -1,8 +1,16 @@
 use serde::ser::{Serialize, Serializer};
 
-use crate::frame_and_func_table::ThreadInternalStringIndex;
-use crate::string_table::{GlobalStringIndex, GlobalStringTable};
+use crate::string_table::{GlobalStringIndex, GlobalStringTable, StringIndex};
 use crate::{fast_hash_map::FastHashMap, string_table::StringTable};
+
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
+pub struct ThreadInternalStringIndex(pub StringIndex);
+
+impl Serialize for ThreadInternalStringIndex {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.0.serialize(serializer)
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct ThreadStringTable {

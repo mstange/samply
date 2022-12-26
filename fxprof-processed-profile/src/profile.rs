@@ -8,7 +8,7 @@ use crate::category_color::CategoryColor;
 use crate::cpu_delta::CpuDelta;
 use crate::fast_hash_map::FastHashMap;
 use crate::frame::Frame;
-use crate::frame_and_func_table::{InternalFrame, InternalFrameLocation};
+use crate::frame_table::{InternalFrame, InternalFrameLocation};
 use crate::global_lib_table::GlobalLibTable;
 use crate::library_info::LibraryInfo;
 use crate::process::{Process, ThreadHandle};

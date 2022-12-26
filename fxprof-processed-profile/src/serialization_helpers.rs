@@ -2,14 +2,6 @@ use serde::ser::{Serialize, SerializeSeq, Serializer};
 
 use crate::Timestamp;
 
-pub struct SerializableRange(pub usize);
-
-impl Serialize for SerializableRange {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.collect_seq(0..self.0)
-    }
-}
-
 pub struct SerializableSingleValueColumn<T: Serialize>(pub T, pub usize);
 
 impl<T: Serialize> Serialize for SerializableSingleValueColumn<T> {

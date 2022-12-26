@@ -1,9 +1,9 @@
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
 use crate::fast_hash_map::FastHashMap;
-use crate::frame_and_func_table::ThreadInternalStringIndex;
 use crate::global_lib_table::{GlobalLibIndex, GlobalLibTable};
 use crate::serialization_helpers::SerializableSingleValueColumn;
+use crate::thread_string_table::ThreadInternalStringIndex;
 use crate::thread_string_table::ThreadStringTable;
 
 #[derive(Debug, Clone, Default)]
@@ -12,9 +12,6 @@ pub struct ResourceTable {
     resource_names: Vec<ThreadInternalStringIndex>,
     lib_to_resource: FastHashMap<GlobalLibIndex, ResourceIndex>,
 }
-
-#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub struct ResourceIndex(u32);
 
 impl ResourceTable {
     pub fn new() -> Self {
@@ -55,6 +52,9 @@ impl Serialize for ResourceTable {
         map.end()
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
+pub struct ResourceIndex(u32);
 
 impl Serialize for ResourceIndex {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
