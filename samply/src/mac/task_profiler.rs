@@ -196,6 +196,7 @@ impl TaskProfiler {
                                 debug_id: lib.debug_id.unwrap(),
                                 code_id: None,
                                 arch: Some("x86_64".to_string()),
+                                symbol_table: None,
                             },
                         );
                     }

@@ -442,6 +442,7 @@ where
                 name: dso_key.name().to_string(),
                 debug_name: dso_key.name().to_string(),
                 arch: None,
+                symbol_table: None,
             });
         } else {
             let process = self
@@ -1085,5 +1086,6 @@ where
         debug_name: name.clone(),
         name,
         arch: None,
+        symbol_table: None,
     })
 }

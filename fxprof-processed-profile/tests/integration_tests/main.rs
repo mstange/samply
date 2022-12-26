@@ -136,6 +136,7 @@ fn it_works() {
             arch: None,
             base_avma: 0x00007f76b7e5d000,
             avma_range: 0x00007f76b7e85000..0x00007f76b8019000,
+            symbol_table: None,
         },
     );
     profile.add_lib(
@@ -150,6 +151,7 @@ fn it_works() {
             arch: None,
             base_avma: 0x000055ba9eb4d000,
             avma_range: 0x000055ba9ebf6000..0x000055ba9f07e000,
+            symbol_table: None,
         },
     );
     let category = profile.add_category("Regular", CategoryColor::Blue);

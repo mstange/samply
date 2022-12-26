@@ -1,5 +1,5 @@
 use debugid::{CodeId, DebugId};
-use std::ops::Range;
+use std::{ops::Range, sync::Arc};
 
 /// A library ("binary" / "module" / "DSO") which is loaded into a process.
 /// This can be the main executable file or a dynamic library, or any other
@@ -53,4 +53,45 @@ pub struct LibraryInfo {
     /// purpose. But it could still be used to find the right dyld shared cache for
     /// system libraries on macOS.
     pub arch: Option<String>,
+
+    pub symbol_table: Option<Arc<SymbolTable>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SymbolTable {
+    symbols: Vec<Symbol>,
+}
+
+impl SymbolTable {
+    pub fn new(mut symbols: Vec<Symbol>) -> Self {
+        symbols.sort();
+        symbols.dedup_by_key(|symbol| symbol.address);
+        Self { symbols }
+    }
+
+    pub fn lookup(&self, address: u32) -> Option<&Symbol> {
+        let index = match self
+            .symbols
+            .binary_search_by_key(&address, |symbol| symbol.address)
+        {
+            Ok(i) => i,
+            Err(0) => return None,
+            Err(next_i) => next_i - 1,
+        };
+        let symbol = &self.symbols[index];
+        match symbol.size {
+            Some(size) if address < symbol.address.saturating_add(size) => Some(symbol),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Symbol {
+    /// The symbol's address, as a "relative address", i.e. relative to the library's base address.
+    pub address: u32,
+    /// The symbol's size, if known. This is often just set based on the address of the next symbol.
+    pub size: Option<u32>,
+    /// The symbol name.
+    pub name: String,
 }
