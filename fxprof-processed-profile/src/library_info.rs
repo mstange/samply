@@ -51,22 +51,41 @@ pub struct LibraryInfo {
     /// purpose. But it could still be used to find the right dyld shared cache for
     /// system libraries on macOS.
     pub arch: Option<String>,
-
+    /// An optional symbol table, for "pre-symbolicating" stack frames.
+    ///
+    /// Usually, symbolication is something that should happen asynchronously,
+    /// because it can be very slow, so the regular way to use the profiler is to
+    /// store only frame addresses and no symbols in the profile JSON, and perform
+    /// symbolication only once the profile is loaded in the Firefox Profiler UI.
+    ///
+    /// However, sometimes symbols are only available during recording and are not
+    /// easily accessible afterwards. One such example the symbol table of the
+    /// Linux kernel: Users with root privileges can access the symbol table of the
+    /// currently-running kernel via `/proc/kallsyms`, but we don't want to have
+    /// to run the local symbol server with root privileges. So it's easier to
+    /// resolve kernel symbols when generating the profile JSON.
+    ///
+    /// This way of symbolicating does not support file names, line numbers, or
+    /// inline frames. It is intended for relatively "small" symbol tables for which
+    /// an address lookup is fast.
     pub symbol_table: Option<Arc<SymbolTable>>,
 }
 
+/// A symbol table which contains a list of [`Symbol`]s, used in [`LibraryInfo`].
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SymbolTable {
     symbols: Vec<Symbol>,
 }
 
 impl SymbolTable {
+    /// Create a [`SymbolTable`] from a list of [`Symbol`]s.
     pub fn new(mut symbols: Vec<Symbol>) -> Self {
         symbols.sort();
         symbols.dedup_by_key(|symbol| symbol.address);
         Self { symbols }
     }
 
+    /// Look up the symbol for an address. This address is relative to the library's base address.
     pub fn lookup(&self, address: u32) -> Option<&Symbol> {
         let index = match self
             .symbols
@@ -84,6 +103,7 @@ impl SymbolTable {
     }
 }
 
+/// A single symbol from a [`SymbolTable`].
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Symbol {
     /// The symbol's address, as a "relative address", i.e. relative to the library's base address.
