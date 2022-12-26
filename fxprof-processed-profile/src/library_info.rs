@@ -98,7 +98,8 @@ impl SymbolTable {
         let symbol = &self.symbols[index];
         match symbol.size {
             Some(size) if address < symbol.address.saturating_add(size) => Some(symbol),
-            _ => None,
+            Some(_size) => None,
+            None => Some(symbol),
         }
     }
 }

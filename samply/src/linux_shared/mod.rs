@@ -1,4 +1,5 @@
 mod context_switch;
+mod kernel_symbols;
 
 use byteorder::LittleEndian;
 use context_switch::{ContextSwitchHandler, OffCpuSampleGroup, ThreadContextSwitchData};
@@ -32,6 +33,8 @@ use std::convert::TryFrom;
 use std::path::PathBuf;
 use std::time::SystemTime;
 use std::{ops::Range, path::Path};
+
+use self::kernel_symbols::KernelSymbols;
 
 pub trait ConvertRegs {
     type UnwindRegs;
@@ -151,6 +154,7 @@ where
     context_switch_handler: ContextSwitchHandler,
     off_cpu_weight_per_sample: i32,
     have_context_switches: bool,
+    kernel_symbols: Option<KernelSymbols>,
 }
 
 const DEFAULT_OFF_CPU_SAMPLING_INTERVAL_NS: u64 = 1_000_000; // 1ms
@@ -208,6 +212,7 @@ where
             off_cpu_weight_per_sample,
             context_switch_handler: ContextSwitchHandler::new(off_cpu_sampling_interval_ns),
             have_context_switches: interpretation.have_context_switches,
+            kernel_symbols: KernelSymbols::new_for_running_kernel(),
         }
     }
 
@@ -422,6 +427,14 @@ where
         }
 
         if e.pid == -1 {
+            let kernel_build_id;
+            match (build_id, self.kernel_symbols.as_ref()) {
+                (None, Some(kernel_symbols)) if kernel_symbols.base_avma == e.address => {
+                    kernel_build_id = kernel_symbols.build_id.clone();
+                    build_id = Some(&kernel_build_id);
+                }
+                _ => {}
+            }
             let debug_id = build_id.map(|id| DebugId::from_identifier(id, self.little_endian));
             let path = std::str::from_utf8(&path).unwrap().to_string();
             let mut debug_path = path.clone();
@@ -429,6 +442,17 @@ where
                 if let Some(linux_version) = self.linux_version.as_deref() {
                     // Take a guess at the vmlinux debug file path.
                     debug_path = format!("/usr/lib/debug/boot/vmlinux-{}", linux_version);
+                }
+            }
+            let mut symbol_table = None;
+            if dso_key.name().starts_with("[kernel.kallsyms]") {
+                match (build_id, self.kernel_symbols.as_ref()) {
+                    (Some(build_id), Some(kernel_symbols))
+                        if build_id == kernel_symbols.build_id && kernel_symbols.base_avma != 0 =>
+                    {
+                        symbol_table = Some(kernel_symbols.symbol_table.clone());
+                    }
+                    _ => {}
                 }
             }
 
@@ -442,7 +466,7 @@ where
                 name: dso_key.name().to_string(),
                 debug_name: dso_key.name().to_string(),
                 arch: None,
-                symbol_table: None,
+                symbol_table,
             });
         } else {
             let process = self
