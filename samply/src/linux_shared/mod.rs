@@ -631,17 +631,22 @@ where
         build_id: Option<&[u8]>,
         path: &[u8],
     ) -> LibraryInfo {
-        let running_kernel_build_id;
-        let build_id: Option<&[u8]> = match (build_id, self.kernel_symbols.as_ref()) {
-            (None, Some(kernel_symbols)) if kernel_symbols.base_avma == base_address => {
-                running_kernel_build_id = kernel_symbols.build_id.clone();
-                Some(&running_kernel_build_id)
-            }
-            _ => build_id,
-        };
-        let debug_id = build_id.map(|id| DebugId::from_identifier(id, self.little_endian));
-
         let path = std::str::from_utf8(path).unwrap().to_string();
+        let build_id: Option<Vec<u8>> = match (build_id, self.kernel_symbols.as_ref()) {
+            (None, Some(kernel_symbols)) if kernel_symbols.base_avma == base_address => {
+                Some(kernel_symbols.build_id.clone())
+            }
+            (None, _) => kernel_module_build_id(
+                &dso_key,
+                Path::new(&path),
+                self.extra_binary_artifact_dir.as_deref(),
+            ),
+            (Some(build_id), _) => Some(build_id.to_owned()),
+        };
+        let debug_id = build_id
+            .as_deref()
+            .map(|id| DebugId::from_identifier(id, self.little_endian));
+
         let debug_path = match self.linux_version.as_deref() {
             Some(linux_version) if path.starts_with("[kernel.kallsyms]") => {
                 // Take a guess at the vmlinux debug file path.
@@ -649,9 +654,9 @@ where
             }
             _ => path.clone(),
         };
-        let symbol_table = match (&dso_key, build_id, self.kernel_symbols.as_ref()) {
+        let symbol_table = match (&dso_key, &build_id, self.kernel_symbols.as_ref()) {
             (DsoKey::Kernel, Some(build_id), Some(kernel_symbols))
-                if build_id == kernel_symbols.build_id && kernel_symbols.base_avma != 0 =>
+                if build_id == &kernel_symbols.build_id && kernel_symbols.base_avma != 0 =>
             {
                 Some(kernel_symbols.symbol_table.clone())
             }
@@ -664,7 +669,7 @@ where
             debug_id: debug_id.unwrap_or_default(),
             path,
             debug_path,
-            code_id: build_id.map(CodeId::from_binary),
+            code_id: build_id.map(|build_id| CodeId::from_binary(&build_id)),
             name: dso_key.name().to_string(),
             debug_name: dso_key.name().to_string(),
             arch: None,
@@ -1128,4 +1133,19 @@ where
         arch: None,
         symbol_table: None,
     })
+}
+
+fn kernel_module_build_id(
+    dso_key: &DsoKey,
+    path: &Path,
+    extra_binary_artifact_dir: Option<&Path>,
+) -> Option<Vec<u8>> {
+    dbg!((dso_key, path));
+    let file = open_file_with_fallback(path, extra_binary_artifact_dir).ok()?;
+    let mmap = unsafe { memmap2::MmapOptions::new().map(&file) }.ok()?;
+    let obj = object::File::parse(&mmap[..]).ok()?;
+    match obj.build_id() {
+        Ok(Some(build_id)) => Some(build_id.to_owned()),
+        _ => None,
+    }
 }
