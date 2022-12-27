@@ -636,11 +636,9 @@ where
             (None, Some(kernel_symbols)) if kernel_symbols.base_avma == base_address => {
                 Some(kernel_symbols.build_id.clone())
             }
-            (None, _) => kernel_module_build_id(
-                &dso_key,
-                Path::new(&path),
-                self.extra_binary_artifact_dir.as_deref(),
-            ),
+            (None, _) => {
+                kernel_module_build_id(Path::new(&path), self.extra_binary_artifact_dir.as_deref())
+            }
             (Some(build_id), _) => Some(build_id.to_owned()),
         };
         let debug_id = build_id
@@ -1136,11 +1134,9 @@ where
 }
 
 fn kernel_module_build_id(
-    dso_key: &DsoKey,
     path: &Path,
     extra_binary_artifact_dir: Option<&Path>,
 ) -> Option<Vec<u8>> {
-    dbg!((dso_key, path));
     let file = open_file_with_fallback(path, extra_binary_artifact_dir).ok()?;
     let mmap = unsafe { memmap2::MmapOptions::new().map(&file) }.ok()?;
     let obj = object::File::parse(&mmap[..]).ok()?;
