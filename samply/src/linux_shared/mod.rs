@@ -427,47 +427,8 @@ where
         }
 
         if e.pid == -1 {
-            let kernel_build_id;
-            match (build_id, self.kernel_symbols.as_ref()) {
-                (None, Some(kernel_symbols)) if kernel_symbols.base_avma == e.address => {
-                    kernel_build_id = kernel_symbols.build_id.clone();
-                    build_id = Some(&kernel_build_id);
-                }
-                _ => {}
-            }
-            let debug_id = build_id.map(|id| DebugId::from_identifier(id, self.little_endian));
-            let path = std::str::from_utf8(&path).unwrap().to_string();
-            let mut debug_path = path.clone();
-            if debug_path.starts_with("[kernel.kallsyms]") {
-                if let Some(linux_version) = self.linux_version.as_deref() {
-                    // Take a guess at the vmlinux debug file path.
-                    debug_path = format!("/usr/lib/debug/boot/vmlinux-{}", linux_version);
-                }
-            }
-            let mut symbol_table = None;
-            if dso_key.name().starts_with("[kernel.kallsyms]") {
-                match (build_id, self.kernel_symbols.as_ref()) {
-                    (Some(build_id), Some(kernel_symbols))
-                        if build_id == kernel_symbols.build_id && kernel_symbols.base_avma != 0 =>
-                    {
-                        symbol_table = Some(kernel_symbols.symbol_table.clone());
-                    }
-                    _ => {}
-                }
-            }
-
-            self.kernel_modules.push(LibraryInfo {
-                base_avma: e.address,
-                avma_range: e.address..(e.address + e.length),
-                debug_id: debug_id.unwrap_or_default(),
-                path,
-                debug_path,
-                code_id: build_id.map(CodeId::from_binary),
-                name: dso_key.name().to_string(),
-                debug_name: dso_key.name().to_string(),
-                arch: None,
-                symbol_table,
-            });
+            let lib = self.kernel_lib(e.address, e.length, dso_key, build_id, &path);
+            self.kernel_modules.push(lib);
         } else {
             let process = self
                 .processes
@@ -659,6 +620,55 @@ where
             let product = generator(&name);
             self.profile.set_product(&product);
             self.have_product_name = true;
+        }
+    }
+
+    fn kernel_lib(
+        &self,
+        base_address: u64,
+        len: u64,
+        dso_key: DsoKey,
+        build_id: Option<&[u8]>,
+        path: &[u8],
+    ) -> LibraryInfo {
+        let running_kernel_build_id;
+        let build_id: Option<&[u8]> = match (build_id, self.kernel_symbols.as_ref()) {
+            (None, Some(kernel_symbols)) if kernel_symbols.base_avma == base_address => {
+                running_kernel_build_id = kernel_symbols.build_id.clone();
+                Some(&running_kernel_build_id)
+            }
+            _ => build_id,
+        };
+        let debug_id = build_id.map(|id| DebugId::from_identifier(id, self.little_endian));
+
+        let path = std::str::from_utf8(path).unwrap().to_string();
+        let debug_path = match self.linux_version.as_deref() {
+            Some(linux_version) if path.starts_with("[kernel.kallsyms]") => {
+                // Take a guess at the vmlinux debug file path.
+                format!("/usr/lib/debug/boot/vmlinux-{}", linux_version)
+            }
+            _ => path.clone(),
+        };
+        let symbol_table = match (&dso_key, build_id, self.kernel_symbols.as_ref()) {
+            (DsoKey::Kernel, Some(build_id), Some(kernel_symbols))
+                if build_id == kernel_symbols.build_id && kernel_symbols.base_avma != 0 =>
+            {
+                Some(kernel_symbols.symbol_table.clone())
+            }
+            _ => None,
+        };
+
+        LibraryInfo {
+            base_avma: base_address,
+            avma_range: base_address..(base_address + len),
+            debug_id: debug_id.unwrap_or_default(),
+            path,
+            debug_path,
+            code_id: build_id.map(CodeId::from_binary),
+            name: dso_key.name().to_string(),
+            debug_name: dso_key.name().to_string(),
+            arch: None,
+            symbol_table,
         }
     }
 }
