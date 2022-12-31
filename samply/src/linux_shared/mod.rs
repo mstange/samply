@@ -992,7 +992,7 @@ where
         };
 
         fn section_data<'a>(section: &impl ObjectSection<'a>) -> Option<Vec<u8>> {
-            section.data().ok().map(|data| data.to_owned())
+            section.uncompressed_data().ok().map(|data| data.to_vec())
         }
 
         let file = match object::File::parse(&mmap[..]) {
