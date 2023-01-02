@@ -1,11 +1,9 @@
 use debugid::DebugId;
 use object::read::ReadRef;
 use object::FileFlags;
-use std::borrow::Cow;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::future::Future;
 use std::ops::Range;
-use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::{marker::PhantomData, ops::Deref};
 use uuid::Uuid;
@@ -41,10 +39,10 @@ pub trait OptionallySendFuture: Future + Send {}
 #[cfg(feature = "send_futures")]
 impl<T> OptionallySendFuture for T where T: Future + Send {}
 
-pub enum CandidatePathInfo {
-    SingleFile(FileLocation),
+pub enum CandidatePathInfo<FL: FileLocation> {
+    SingleFile(FL),
     InDyldCache {
-        dyld_cache_path: PathBuf,
+        dyld_cache_path: FL,
         dylib_path: String,
     },
 }
@@ -63,40 +61,6 @@ pub enum MultiArchDisambiguator {
 
     /// Disambiguate by `DebugId`.
     DebugId(DebugId),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum FileLocation {
-    /// A path to a local file. Symbol files at local paths are allowed to refer
-    /// to source files on the local file system. Those source file references
-    /// will be returned as local `FilePath`s from the symbolication API.
-    Path(PathBuf),
-
-    /// A special string that identifies some way of obtaining the file. The string
-    /// gets interpreted by the implementation of `FileAndPathHelper::open_file`.
-    /// Files from this location type cannot refer to source files on the local
-    /// file system; any source file references in them are returned as
-    /// `FilePath::NonLocal`.
-    Custom(String),
-}
-
-impl FileLocation {
-    pub fn to_string_lossy(&self) -> String {
-        match self {
-            FileLocation::Path(path) => path.to_string_lossy().to_string(),
-            FileLocation::Custom(string) => string.clone(),
-        }
-    }
-
-    pub fn to_base_path(&self) -> BasePath {
-        match self {
-            FileLocation::Path(file_path) => {
-                let base_path = file_path.parent().unwrap_or(file_path);
-                BasePath::CanReferToLocalFiles(base_path.to_owned())
-            }
-            FileLocation::Custom(_) => BasePath::NoLocalSourceFileAccess,
-        }
-    }
 }
 
 /// THIS IS NOT [`debugid::CodeId`].
@@ -268,6 +232,7 @@ impl LibraryInfo {
 /// trait `FileContents`.
 pub trait FileAndPathHelper<'h> {
     type F: FileContents + 'static;
+    type FL: FileLocation + 'static;
 
     type OpenFileFuture: OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h;
 
@@ -276,7 +241,7 @@ pub trait FileAndPathHelper<'h> {
     /// requested binary (executable or library).
     ///
     /// The symbolication methods will try these paths one by one, calling
-    /// `open_file` for each until it succeeds and finds a file whose contents
+    /// `load_file` for each until it succeeds and finds a file whose contents
     /// match the breakpad ID. Any remaining paths are discarded.
     ///
     /// # Arguments
@@ -293,35 +258,35 @@ pub trait FileAndPathHelper<'h> {
     fn get_candidate_paths_for_debug_file(
         &self,
         info: &LibraryInfo,
-    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>>;
+    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo<Self::FL>>>;
 
     /// TODO
     fn get_candidate_paths_for_binary(
         &self,
         info: &LibraryInfo,
-    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>>;
+    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo<Self::FL>>>;
 
     /// TODO
     fn get_dyld_shared_cache_paths(
         &self,
         arch: Option<&str>,
-    ) -> FileAndPathHelperResult<Vec<PathBuf>>;
+    ) -> FileAndPathHelperResult<Vec<Self::FL>>;
 
     /// TODO
     fn get_candidate_paths_for_gnu_debug_link_dest(
         &self,
         _debug_link_name: &str,
-    ) -> FileAndPathHelperResult<Vec<PathBuf>> {
+    ) -> FileAndPathHelperResult<Vec<Self::FL>> {
         Ok(Vec::new())
     }
 
     /// TODO
     fn get_candidate_paths_for_supplementary_debug_file(
         &self,
-        _original_file_path: &BasePath,
+        _original_file_path: &Self::FL,
         _supplementary_file_path: &str,
         _supplementary_file_build_id: &ElfBuildId,
-    ) -> FileAndPathHelperResult<Vec<FileLocation>> {
+    ) -> FileAndPathHelperResult<Vec<Self::FL>> {
         Ok(Vec::new())
     }
 
@@ -331,7 +296,7 @@ pub trait FileAndPathHelper<'h> {
     /// available synchronously because the `FileContents` methods are synchronous.
     /// If there is no file at the requested path, an error should be returned (or in any
     /// other error case).
-    fn open_file(&'h self, location: &FileLocation) -> Self::OpenFileFuture;
+    fn load_file(&'h self, location: Self::FL) -> Self::OpenFileFuture;
 }
 
 /// Provides synchronous access to the raw bytes of a file.
@@ -418,17 +383,35 @@ pub struct InlineStackFrame {
     pub line_number: Option<u32>,
 }
 
-#[derive(Debug, Clone)]
-pub enum BasePath {
-    /// Indicates that the symbol file did not originate on this machine.
-    /// Any `FilePath`s created from this base path will be non-local.
-    NoLocalSourceFileAccess,
+pub trait FileLocation: Clone + Display {
+    /// Called on a Dyld shared cache location to create a location for a subcache.
+    /// Subcaches are separate files with filenames such as `dyld_shared_cache_arm64e.01`.
+    ///
+    /// The suffix begins with a period.
+    fn location_for_dyld_subcache(&self, suffix: &str) -> Option<Self>;
 
-    /// Indicates that the symbol file is a local file. Any `FilePath`
-    /// created from this base path will be local. If the symbol file
-    /// contains relative paths, those relative paths will be turned into
-    /// absolute local paths by appending them to this base path.
-    CanReferToLocalFiles(PathBuf),
+    /// Called on the location of a debug file in order to create a location for an
+    /// external object file, based on an absolute path found in the "object map" of
+    /// the original file.
+    fn location_for_external_object_file(&self, object_file: &str) -> Option<Self>;
+
+    /// Callod on the location of a PE binary in order to create a location for
+    /// a corresponding PDB file, based on an absolute PDB path found in the binary.
+    fn location_for_pdb_from_binary(&self, pdb_path_in_binary: &str) -> Option<Self>;
+
+    /// Called on the location of a debug file in order to create a location for
+    /// a source file. `source_file_path` is the path to the source file as written
+    /// down in the debug file. This is usually an absolute path.
+    ///
+    /// Only one case with a relative path has been observed to date: In this case the
+    /// "debug file" was a synthetic .so file which was generated by `perf inject --jit`
+    /// based on a JITDUMP file which included relative paths. You could argue
+    /// that the application which emitted relative paths into the JITDUMP file was
+    /// creating bad data and should have written out absolute paths. However, the `perf`
+    /// infrastructure worked fine on this file, because the relative paths happened to
+    /// be relative to the working directory, and because perf / objdump were resolving
+    /// those relative paths relative to the current working directory.
+    fn location_for_source_file(&self, source_file_path: &str) -> Option<Self>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -444,7 +427,7 @@ pub struct FilePath {
     /// infrastructure worked fine on this file, because the relative paths happened to
     /// be relative to the working directory, and because perf / objdump were resolving
     /// those relative paths relative to the current working directory.
-    path: PathBuf,
+    path: String,
 
     /// A mapped variant of the path which we prefer to return from the symbolication API.
     ///
@@ -459,7 +442,7 @@ pub struct FilePath {
 }
 
 impl FilePath {
-    pub fn new(path: PathBuf, mapped_path: Option<String>) -> Self {
+    pub fn new(path: String, mapped_path: Option<String>) -> Self {
         Self { path, mapped_path }
     }
 
@@ -472,17 +455,14 @@ impl FilePath {
         } else {
             None
         };
-        Self {
-            path: path.into(),
-            mapped_path,
-        }
+        Self { path, mapped_path }
     }
 
-    pub fn file_path(&self) -> &Path {
+    pub fn file_path(&self) -> &str {
         &self.path
     }
 
-    pub fn into_file_path(self) -> PathBuf {
+    pub fn into_file_path(self) -> String {
         self.path
     }
 
@@ -494,17 +474,17 @@ impl FilePath {
         self.mapped_path
     }
 
-    pub fn mapped_path_or_path(&self) -> Cow<str> {
+    pub fn mapped_path_or_path(&self) -> &str {
         match &self.mapped_path {
-            Some(mapped_path) => Cow::Borrowed(mapped_path),
-            None => self.path.to_string_lossy(),
+            Some(mapped_path) => mapped_path,
+            None => &self.path,
         }
     }
 
     pub fn into_mapped_path_or_path(self) -> String {
         match self.mapped_path {
             Some(mapped_path) => mapped_path,
-            None => self.path.to_string_lossy().into_owned(),
+            None => self.path.clone(),
         }
     }
 }

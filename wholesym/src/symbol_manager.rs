@@ -1,16 +1,37 @@
+use std::borrow::Cow;
 use std::path::Path;
 use std::{future::Future, pin::Pin};
 
 use debugid::DebugId;
 use samply_api::samply_symbols::{
-    self, Error, ExternalFileAddressRef, ExternalFileRef, ExternalFileSymbolMap, InlineStackFrame,
-    LibraryInfo, MultiArchDisambiguator, SymbolMap,
+    self, AddressInfo, Error, ExternalFileAddressRef, ExternalFileRef, ExternalFileSymbolMap,
+    InlineStackFrame, LibraryInfo, MultiArchDisambiguator,
 };
 use samply_api::Api;
 use yoke::{Yoke, Yokeable};
 
-use crate::helper::FileReadOnlyHelper;
-use crate::{helper::Helper, SymbolManagerConfig};
+use crate::config::SymbolManagerConfig;
+use crate::helper::{FileReadOnlyHelper, Helper, WholesymFileLocation};
+
+pub struct SymbolMap(samply_api::samply_symbols::SymbolMap<WholesymFileLocation>);
+
+impl SymbolMap {
+    pub fn debug_id(&self) -> debugid::DebugId {
+        self.0.debug_id()
+    }
+
+    pub fn symbol_count(&self) -> usize {
+        self.0.symbol_count()
+    }
+
+    pub fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {
+        self.0.iter_symbols()
+    }
+
+    pub fn lookup(&self, address: u32) -> Option<AddressInfo> {
+        self.0.lookup(address)
+    }
+}
 
 pub struct SymbolManager {
     helper_with_symbol_manager: Yoke<SymbolManagerWrapperTypeErased<'static>, Box<Helper>>,
@@ -64,11 +85,34 @@ impl SymbolManager {
         path: &Path,
         disambiguator: Option<MultiArchDisambiguator>,
     ) -> Result<LibraryInfo, Error> {
+        let might_be_in_dyld_shared_cache =
+            path.starts_with("/usr/") || path.starts_with("/System/");
+
         let helper = FileReadOnlyHelper;
         let symbol_manager = samply_symbols::SymbolManager::with_helper(&helper);
-        let binary = symbol_manager
-            .load_binary_at_path(path, disambiguator)
-            .await?;
+        let name = path
+            .file_name()
+            .and_then(|name| Some(name.to_str()?.to_owned()));
+        let path_str = path.to_str().map(ToOwned::to_owned);
+        let binary_res = symbol_manager
+            .load_binary_at_location(
+                WholesymFileLocation::LocalFile(path.to_owned()),
+                name,
+                path_str,
+                disambiguator.clone(),
+            )
+            .await;
+        let binary = match binary_res {
+            Ok(binary) => binary,
+            Err(Error::HelperErrorDuringOpenFile(_, _)) if might_be_in_dyld_shared_cache => {
+                // The file at the given path could not be opened, so it probably doesn't exist.
+                // Check the dyld cache.
+                symbol_manager
+                    .load_binary_for_dyld_cache_image(&path.to_string_lossy(), disambiguator)
+                    .await?
+            }
+            Err(e) => return Err(e),
+        };
         Ok(binary.library_info())
     }
 
@@ -117,12 +161,13 @@ impl SymbolManager {
     /// achieve a very good hit rate.
     pub async fn lookup_external(
         &self,
+        symbol_map: &SymbolMap,
         address: &ExternalFileAddressRef,
     ) -> Option<Vec<InlineStackFrame>> {
         self.helper_with_symbol_manager
             .get()
             .0
-            .lookup_external(address)
+            .lookup_external(symbol_map, address)
             .await
     }
 
@@ -131,12 +176,13 @@ impl SymbolManager {
     /// and can be used if more control over caching is desired.
     pub async fn load_external_file(
         &self,
+        symbol_map: &SymbolMap,
         external_file_ref: &ExternalFileRef,
     ) -> Result<ExternalFileSymbolMap, Error> {
         self.helper_with_symbol_manager
             .get()
             .0
-            .load_external_file(external_file_ref)
+            .load_external_file(symbol_map, external_file_ref)
             .await
     }
 
@@ -164,12 +210,6 @@ struct SymbolManagerWrapperTypeErased<'h>(Box<dyn SymbolManagerTrait + 'h + Send
 trait SymbolManagerTrait {
     fn add_known_lib(&mut self, lib_info: LibraryInfo);
 
-    fn library_info_for_binary_at_path<'a>(
-        &'a self,
-        path: &'a Path,
-        disambiguator: Option<MultiArchDisambiguator>,
-    ) -> Pin<Box<dyn Future<Output = Result<LibraryInfo, Error>> + 'a + Send>>;
-
     fn load_symbol_map<'a>(
         &'a self,
         debug_name: &'a str,
@@ -184,11 +224,13 @@ trait SymbolManagerTrait {
 
     fn lookup_external<'a>(
         &'a self,
+        symbol_map: &'a SymbolMap,
         address: &'a ExternalFileAddressRef,
     ) -> Pin<Box<dyn Future<Output = Option<Vec<InlineStackFrame>>> + 'a + Send>>;
 
     fn load_external_file<'a>(
         &'a self,
+        symbol_map: &'a SymbolMap,
         external_file_ref: &'a ExternalFileRef,
     ) -> Pin<Box<dyn Future<Output = Result<ExternalFileSymbolMap, Error>> + 'a + Send>>;
 
@@ -202,42 +244,24 @@ trait SymbolManagerTrait {
 struct SymbolManagerWrapper<'h>(samply_symbols::SymbolManager<'h, Helper>);
 
 impl<'h> SymbolManagerWrapper<'h> {
-    async fn library_info_for_binary_at_path_impl(
-        &self,
-        path: &Path,
-        disambiguator: Option<MultiArchDisambiguator>,
-    ) -> Result<LibraryInfo, Error> {
-        let binary = self.0.load_binary_at_path(path, disambiguator).await?;
-        Ok(binary.library_info())
-    }
-
     async fn load_symbol_map_for_binary_at_path_impl(
         &self,
         path: &Path,
         multi_arch_disambiguator: Option<MultiArchDisambiguator>,
     ) -> Result<SymbolMap, Error> {
-        let library_info = self
-            .library_info_for_binary_at_path_impl(path, multi_arch_disambiguator)
-            .await?;
+        let library_info =
+            SymbolManager::library_info_for_binary_at_path(path, multi_arch_disambiguator).await?;
         self.load_symbol_map(library_info).await
     }
 
     async fn load_symbol_map(&self, info: LibraryInfo) -> Result<SymbolMap, Error> {
-        self.0.load_symbol_map(&info).await
+        Ok(SymbolMap(self.0.load_symbol_map(&info).await?))
     }
 }
 
 impl<'h> SymbolManagerTrait for SymbolManagerWrapper<'h> {
     fn add_known_lib(&mut self, lib_info: LibraryInfo) {
         self.0.helper().add_known_lib(lib_info);
-    }
-
-    fn library_info_for_binary_at_path<'a>(
-        &'a self,
-        path: &'a Path,
-        disambiguator: Option<MultiArchDisambiguator>,
-    ) -> Pin<Box<dyn Future<Output = Result<LibraryInfo, Error>> + 'a + Send>> {
-        Box::pin(self.library_info_for_binary_at_path_impl(path, disambiguator))
     }
 
     fn load_symbol_map<'a>(
@@ -263,16 +287,24 @@ impl<'h> SymbolManagerTrait for SymbolManagerWrapper<'h> {
 
     fn lookup_external<'a>(
         &'a self,
+        symbol_map: &'a SymbolMap,
         address: &'a ExternalFileAddressRef,
     ) -> Pin<Box<dyn Future<Output = Option<Vec<InlineStackFrame>>> + 'a + Send>> {
-        Box::pin(self.0.lookup_external(address))
+        Box::pin(
+            self.0
+                .lookup_external(symbol_map.0.debug_file_location(), address),
+        )
     }
 
     fn load_external_file<'a>(
         &'a self,
+        symbol_map: &'a SymbolMap,
         external_file_ref: &'a ExternalFileRef,
     ) -> Pin<Box<dyn Future<Output = Result<ExternalFileSymbolMap, Error>> + 'a + Send>> {
-        Box::pin(self.0.load_external_file(external_file_ref))
+        Box::pin(
+            self.0
+                .load_external_file(symbol_map.0.debug_file_location(), external_file_ref),
+        )
     }
 
     fn query_json_api<'a>(

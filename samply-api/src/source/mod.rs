@@ -1,9 +1,6 @@
-use std::path::{Path, PathBuf};
-
 use crate::to_debug_id;
 use samply_symbols::{
-    BasePath, FileAndPathHelper, FileAndPathHelperError, FileContents, FileLocation,
-    FramesLookupResult, LibraryInfo, SymbolManager,
+    FileAndPathHelper, FileAndPathHelperError, FramesLookupResult, LibraryInfo, SymbolManager,
 };
 use serde_json::json;
 
@@ -23,9 +20,6 @@ enum SourceError {
 
     #[error("The requested path is not present in the symbolication frames")]
     InvalidPath,
-
-    #[error("The symbol file came from a non-local origin, so we cannot treat file paths in it as local.")]
-    NonLocalSymbols,
 
     #[error("An error occurred when reading the file: {0}")]
     FileAndPathHelperError(#[from] FileAndPathHelperError),
@@ -67,24 +61,29 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SourceApi<'a, 'h, H> {
         let debug_id = to_debug_id(debug_id)?;
 
         // Look up the address to see which file paths we are allowed to read.
-        let (base_path, frames) = {
+        let (debug_file_location, frames) = {
             let info = LibraryInfo {
                 debug_name: Some(debug_name.to_string()),
                 debug_id: Some(debug_id),
                 ..Default::default()
             };
             let symbol_map = self.symbol_manager.load_symbol_map(&info).await?;
-            let base_path = symbol_map.base_path().clone();
+            let debug_file_location = symbol_map.debug_file_location().clone();
             let frames = match symbol_map.lookup(*module_offset) {
                 Some(address_info) => address_info.frames,
                 None => FramesLookupResult::Unavailable,
             };
-            (base_path, frames)
+            (debug_file_location, frames)
         };
+
         let frames = match frames {
             FramesLookupResult::Available(frames) => frames,
             FramesLookupResult::External(address) => {
-                match self.symbol_manager.lookup_external(&address).await {
+                match self
+                    .symbol_manager
+                    .lookup_external(&debug_file_location, &address)
+                    .await
+                {
                     Some(frames) => frames,
                     None => return Err(SourceError::NoDebugInfo),
                 }
@@ -94,26 +93,17 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SourceApi<'a, 'h, H> {
 
         // Find the FilePath whose mapped path matches the requested file. This gives us the raw path.
         // This is where we check that the requested file path is permissible.
-        let file_path = frames
+        let source_file_path = frames
             .into_iter()
             .filter_map(|frame| frame.file_path)
             .find(|file_path| *file_path.mapped_path_or_path() == *requested_file)
-            .ok_or(SourceError::InvalidPath)?
-            .into_file_path();
-
-        // One last verification step: Make sure that there's actually a local path for this
-        // source file. We will only have a local path if the path was referred to by a local
-        // symbol file.
-        let local_path = match base_path {
-            BasePath::CanReferToLocalFiles(base_path) => make_abs_path(&base_path, &file_path),
-            BasePath::NoLocalSourceFileAccess => return Err(SourceError::NonLocalSymbols),
-        };
+            .ok_or(SourceError::InvalidPath)?;
 
         // If we got here, it means that the file access is allowed. Read the file.
-        let helper = self.symbol_manager.helper();
-        let file_contents = helper.open_file(&FileLocation::Path(local_path)).await?;
-        let file_contents = file_contents.read_bytes_at(0, file_contents.len())?;
-        let source = String::from_utf8_lossy(file_contents).to_string();
+        let source = self
+            .symbol_manager
+            .load_source_file(&debug_file_location, source_file_path.file_path())
+            .await?;
 
         Ok(response_json::Response {
             symbols_last_modified: None,
@@ -121,13 +111,5 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SourceApi<'a, 'h, H> {
             file: requested_file.to_string(),
             source,
         })
-    }
-}
-
-fn make_abs_path(base: &Path, rel_or_abs: &Path) -> PathBuf {
-    if rel_or_abs.is_absolute() {
-        rel_or_abs.to_owned()
-    } else {
-        base.join(rel_or_abs)
     }
 }

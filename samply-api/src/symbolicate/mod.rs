@@ -75,6 +75,7 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SymbolicateApi<'a, 'h, H> {
 
         let mut symbolication_result = LookedUpAddresses::for_addresses(&addresses);
         let mut external_addresses = Vec::new();
+        let debug_file_location;
 
         // Do the synchronous work first, and keep the symbol_map in a scope without
         // any other await calls so that the Rust compiler can see that the symbol
@@ -88,6 +89,7 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SymbolicateApi<'a, 'h, H> {
                 ..Default::default()
             };
             let symbol_map = self.symbol_manager.load_symbol_map(&info).await?;
+            debug_file_location = symbol_map.debug_file_location().clone();
 
             symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
 
@@ -118,7 +120,11 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SymbolicateApi<'a, 'h, H> {
         // external file.
 
         for (address, ext_address) in external_addresses {
-            if let Some(frames) = self.symbol_manager.lookup_external(&ext_address).await {
+            if let Some(frames) = self
+                .symbol_manager
+                .lookup_external(&debug_file_location, &ext_address)
+                .await
+            {
                 symbolication_result.add_address_debug_info(address, AddressDebugInfo { frames });
             }
         }

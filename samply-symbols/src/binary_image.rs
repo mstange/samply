@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use debugid::DebugId;
 use object::{
     read::pe::{ImageNtHeaders, ImageOptionalHeader, PeFile, PeFile32, PeFile64},
@@ -23,15 +21,11 @@ pub struct BinaryImage<F: FileContents + 'static> {
 impl<F: FileContents + 'static> BinaryImage<F> {
     pub(crate) fn new(
         inner: BinaryImageInner<F>,
-        path: Option<&Path>,
+        name: Option<String>,
+        path: Option<String>,
         file_kind: FileKind,
     ) -> Result<Self, Error> {
         let obj_and_data = inner.make_object_and_data(file_kind)?;
-        let path = path.map(|p| p.canonicalize().ok().unwrap_or_else(|| p.into()));
-        let name = path
-            .as_deref()
-            .and_then(|p| Some(p.file_name()?.to_str()?.to_owned()));
-        let path = path.and_then(|p| Some(p.to_str()?.to_owned()));
         let debug_id = debug_id_for_object(&obj_and_data.obj);
         let (code_id, debug_path, debug_name) = if let FileKind::Pe32 | FileKind::Pe64 = file_kind {
             if let Ok(pe) = PeFile64::parse(obj_and_data.data) {

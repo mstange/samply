@@ -10,8 +10,8 @@ use crate::{
     dwarf::{get_frames, Addr2lineContextData},
     path_mapper::PathMapper,
     shared::{
-        relative_address_base, AddressInfo, BasePath, ExternalFileAddressInFileRef,
-        ExternalFileRef, SymbolInfo,
+        relative_address_base, AddressInfo, ExternalFileAddressInFileRef, ExternalFileRef,
+        SymbolInfo,
     },
     symbol_map::{SymbolMapDataMidTrait, SymbolMapInnerWrapper, SymbolMapTrait},
     Error, FramesLookupResult,
@@ -66,10 +66,7 @@ impl<'data, R: ReadRef<'data>, FAC: FunctionAddressesComputer<'data>>
 impl<'data, R: ReadRef<'data>, FAC: FunctionAddressesComputer<'data>> SymbolMapDataMidTrait
     for ObjectSymbolMapDataMid<'data, R, FAC>
 {
-    fn make_symbol_map_inner<'file>(
-        &'file self,
-        base_path: &BasePath,
-    ) -> Result<SymbolMapInnerWrapper<'file>, Error> {
+    fn make_symbol_map_inner(&self) -> Result<SymbolMapInnerWrapper<'_>, Error> {
         let (function_starts, function_ends) = self
             .function_addresses_computer
             .compute_function_addresses(&self.object);
@@ -80,7 +77,6 @@ impl<'data, R: ReadRef<'data>, FAC: FunctionAddressesComputer<'data>> SymbolMapD
             self.file_data,
             self.supplementary_file_data,
             self.debug_id,
-            base_path.clone(),
             function_starts.as_deref(),
             function_ends.as_deref(),
             self.arch,
@@ -119,7 +115,6 @@ where
     entries: Vec<(u32, FullSymbolListEntry<'data, Symbol>)>,
     debug_id: DebugId,
     arch: Option<&'static str>,
-    base_path: BasePath,
     path_mapper: Mutex<PathMapper<()>>,
     object_map: ObjectMap<'data>,
     context: Option<addr2line::Context<gimli::EndianSlice<'file, gimli::RunTimeEndian>>>,
@@ -147,7 +142,6 @@ where
         data: R,
         sup_data: Option<R>,
         debug_id: DebugId,
-        base_path: BasePath,
         function_start_addresses: Option<&[u32]>,
         function_end_addresses: Option<&[u32]>,
         arch: Option<&'static str>,
@@ -273,7 +267,6 @@ where
         Self {
             entries,
             debug_id,
-            base_path,
             path_mapper,
             object_map: object_file.object_map(),
             context,
@@ -288,10 +281,6 @@ impl<'data, 'file, Symbol: object::ObjectSymbol<'data>> SymbolMapTrait
 where
     'data: 'file,
 {
-    fn base_path(&self) -> &BasePath {
-        &self.base_path
-    }
-
     fn debug_id(&self) -> DebugId {
         self.debug_id
     }

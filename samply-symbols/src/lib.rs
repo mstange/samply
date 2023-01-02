@@ -95,7 +95,7 @@
 //!                 FramesLookupResult::External(ext_address) => {
 //!                     // Debug info is located in a different file.
 //!                     if let Some(frames) =
-//!                         symbol_manager.lookup_external(&ext_address).await
+//!                         symbol_manager.lookup_external(&symbol_map.debug_file_location(), &ext_address).await
 //!                     {
 //!                         println!("Debug info:");
 //!                         for frame in frames {
@@ -121,6 +121,7 @@
 //!
 //! impl<'h> FileAndPathHelper<'h> for ExampleHelper {
 //!     type F = Vec<u8>;
+//!     type FL = ExampleFileLocation;
 //!     type OpenFileFuture = std::pin::Pin<
 //!         Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>,
 //!     >;
@@ -128,9 +129,9 @@
 //!     fn get_candidate_paths_for_debug_file(
 //!         &self,
 //!         library_info: &LibraryInfo,
-//!     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
+//!     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo<ExampleFileLocation>>> {
 //!         if let Some(debug_name) = library_info.debug_name.as_deref() {
-//!             Ok(vec![CandidatePathInfo::SingleFile(FileLocation::Path(
+//!             Ok(vec![CandidatePathInfo::SingleFile(ExampleFileLocation(
 //!                 self.artifact_directory.join(debug_name),
 //!             ))])
 //!         } else {
@@ -141,9 +142,9 @@
 //!     fn get_candidate_paths_for_binary(
 //!         &self,
 //!         library_info: &LibraryInfo,
-//!     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
+//!     ) -> FileAndPathHelperResult<Vec<CandidatePathInfo<ExampleFileLocation>>> {
 //!         if let Some(name) = library_info.name.as_deref() {
-//!             Ok(vec![CandidatePathInfo::SingleFile(FileLocation::Path(
+//!             Ok(vec![CandidatePathInfo::SingleFile(ExampleFileLocation(
 //!                 self.artifact_directory.join(name),
 //!             ))])
 //!         } else {
@@ -154,30 +155,54 @@
 //!    fn get_dyld_shared_cache_paths(
 //!        &self,
 //!        _arch: Option<&str>,
-//!    ) -> FileAndPathHelperResult<Vec<std::path::PathBuf>> {
+//!    ) -> FileAndPathHelperResult<Vec<ExampleFileLocation>> {
 //!        Ok(vec![])
 //!    }
 //!
-//!     fn open_file(
+//!     fn load_file(
 //!         &'h self,
-//!         location: &FileLocation,
+//!         location: ExampleFileLocation,
 //!     ) -> std::pin::Pin<
 //!         Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>,
 //!     > {
-//!         async fn read_file_impl(path: std::path::PathBuf) -> FileAndPathHelperResult<Vec<u8>> {
+//!         async fn load_file_impl(path: std::path::PathBuf) -> FileAndPathHelperResult<Vec<u8>> {
 //!             Ok(std::fs::read(&path)?)
 //!         }
 //!
-//!         let path = match location {
-//!             FileLocation::Path(path) => path.clone(),
-//!             FileLocation::Custom(_) => panic!("Unexpected FileLocation::Custom"),
-//!         };
-//!         Box::pin(read_file_impl(path))
+//!         Box::pin(load_file_impl(location.0))
+//!     }
+//! }
+//!
+//! #[derive(Clone, Debug)]
+//! struct ExampleFileLocation(std::path::PathBuf);
+//!
+//! impl std::fmt::Display for ExampleFileLocation {
+//!     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//!         self.0.to_string_lossy().fmt(f)
+//!     }
+//! }
+//!
+//! impl FileLocation for ExampleFileLocation {
+//!     fn location_for_dyld_subcache(&self, suffix: &str) -> Option<Self> {
+//!         let mut filename = self.0.file_name().unwrap().to_owned();
+//!         filename.push(suffix);
+//!         Some(Self(self.0.with_file_name(filename)))
+//!     }
+//!
+//!     fn location_for_external_object_file(&self, object_file: &str) -> Option<Self> {
+//!         Some(Self(object_file.into()))
+//!     }
+//!
+//!     fn location_for_pdb_from_binary(&self, pdb_path_in_binary: &str) -> Option<Self> {
+//!         Some(Self(pdb_path_in_binary.into()))
+//!     }
+//!
+//!     fn location_for_source_file(&self, source_file_path: &str) -> Option<Self> {
+//!         Some(Self(source_file_path.into()))
 //!     }
 //! }
 //! ```
 
-use std::path::Path;
 use std::sync::Mutex;
 
 use binary_image::BinaryImageInner;
@@ -214,10 +239,10 @@ pub use crate::error::Error;
 pub use crate::external_file::{load_external_file, ExternalFileSymbolMap};
 pub use crate::macho::FatArchiveMember;
 pub use crate::shared::{
-    relative_address_base, AddressDebugInfo, AddressInfo, BasePath, CandidatePathInfo, CodeId,
-    ElfBuildId, ExternalFileAddressInFileRef, ExternalFileAddressRef, ExternalFileRef,
-    FileAndPathHelper, FileAndPathHelperError, FileAndPathHelperResult, FileContents,
-    FileContentsWrapper, FileLocation, FilePath, FramesLookupResult, InlineStackFrame, LibraryInfo,
+    relative_address_base, AddressDebugInfo, AddressInfo, CandidatePathInfo, CodeId, ElfBuildId,
+    ExternalFileAddressInFileRef, ExternalFileAddressRef, ExternalFileRef, FileAndPathHelper,
+    FileAndPathHelperError, FileAndPathHelperResult, FileContents, FileContentsWrapper,
+    FileLocation, FilePath, FramesLookupResult, InlineStackFrame, LibraryInfo,
     MultiArchDisambiguator, OptionallySendFuture, PeCodeId, SymbolInfo,
 };
 pub use crate::symbol_map::SymbolMap;
@@ -227,10 +252,11 @@ pub struct SymbolManager<'h, H: FileAndPathHelper<'h>> {
     cached_external_file: Mutex<Option<ExternalFileSymbolMap>>,
 }
 
-impl<'h, H, F> SymbolManager<'h, H>
+impl<'h, H, F, FL> SymbolManager<'h, H>
 where
-    H: FileAndPathHelper<'h, F = F>,
+    H: FileAndPathHelper<'h, F = F, FL = FL>,
     F: FileContents + 'static,
+    FL: FileLocation,
 {
     // Create a new `SymbolManager`.
     pub fn with_helper(helper: &'h H) -> Self {
@@ -245,29 +271,33 @@ where
         self.helper
     }
 
-    async fn load_symbol_map_at_candidate_path(
+    pub async fn load_source_file(
         &self,
-        candidate_path: &CandidatePathInfo,
-        multi_arch_disambiguator: Option<MultiArchDisambiguator>,
-    ) -> Result<SymbolMap, Error> {
-        match candidate_path {
-            CandidatePathInfo::SingleFile(file_location) => {
-                self.load_symbol_map_from_location(file_location, multi_arch_disambiguator)
-                    .await
-            }
-            CandidatePathInfo::InDyldCache {
-                dyld_cache_path,
-                dylib_path,
-            } => {
-                macho::load_symbol_map_for_dyld_cache(dyld_cache_path, dylib_path, self.helper)
-                    .await
-            }
-        }
+        debug_file_location: &H::FL,
+        source_file_path: &str,
+    ) -> Result<String, Error> {
+        let source_file_location = debug_file_location
+            .location_for_source_file(source_file_path)
+            .ok_or(Error::FileLocationRefusedSourceFileLocation)?;
+        let file_contents = self
+            .helper
+            .load_file(source_file_location.clone())
+            .await
+            .map_err(|e| Error::HelperErrorDuringOpenFile(source_file_location.to_string(), e))?;
+        let file_contents = file_contents
+            .read_bytes_at(0, file_contents.len())
+            .map_err(|e| {
+                Error::HelperErrorDuringFileReading(source_file_location.to_string(), e)
+            })?;
+        Ok(String::from_utf8_lossy(file_contents).to_string())
     }
 
     /// Obtain a symbol map for the library, given the (partial) `LibraryInfo`.
     /// At least the debug_id has to be given.
-    pub async fn load_symbol_map(&self, library_info: &LibraryInfo) -> Result<SymbolMap, Error> {
+    pub async fn load_symbol_map(
+        &self,
+        library_info: &LibraryInfo,
+    ) -> Result<SymbolMap<FL>, Error> {
         let debug_id = match library_info.debug_id {
             Some(debug_id) => debug_id,
             None => return Err(Error::NotEnoughInformationToIdentifySymbolMap),
@@ -282,12 +312,22 @@ where
 
         let mut last_err = None;
         for candidate_info in candidate_paths {
-            let symbol_map = self
-                .load_symbol_map_at_candidate_path(
-                    &candidate_info,
-                    Some(MultiArchDisambiguator::DebugId(debug_id)),
-                )
-                .await;
+            let symbol_map = match candidate_info {
+                CandidatePathInfo::SingleFile(file_location) => {
+                    self.load_symbol_map_from_location(
+                        file_location,
+                        Some(MultiArchDisambiguator::DebugId(debug_id)),
+                    )
+                    .await
+                }
+                CandidatePathInfo::InDyldCache {
+                    dyld_cache_path,
+                    dylib_path,
+                } => {
+                    macho::load_symbol_map_for_dyld_cache(dyld_cache_path, dylib_path, self.helper)
+                        .await
+                }
+            };
 
             match symbol_map {
                 Ok(symbol_map) if symbol_map.debug_id() == debug_id => return Ok(symbol_map),
@@ -315,9 +355,10 @@ where
     /// Also see `SymbolManager::lookup_external`.
     pub async fn load_external_file(
         &self,
+        debug_file_location: &H::FL,
         external_file_ref: &ExternalFileRef,
     ) -> Result<ExternalFileSymbolMap, Error> {
-        external_file::load_external_file(self.helper, external_file_ref).await
+        external_file::load_external_file(self.helper, debug_file_location, external_file_ref).await
     }
 
     /// Resolve a debug info lookup for which `SymbolMap::lookup` returned a
@@ -329,6 +370,7 @@ where
     /// for the same external file are fast.
     pub async fn lookup_external(
         &self,
+        debug_file_location: &H::FL,
         address: &ExternalFileAddressRef,
     ) -> Option<Vec<InlineStackFrame>> {
         {
@@ -341,7 +383,10 @@ where
             }
         }
 
-        let external_file = self.load_external_file(&address.file_ref).await.ok()?;
+        let external_file = self
+            .load_external_file(debug_file_location, &address.file_ref)
+            .await
+            .ok()?;
         let lookup_result = external_file.lookup(&address.address_in_file);
 
         if let Ok(mut guard) = self.cached_external_file.lock() {
@@ -350,36 +395,12 @@ where
         lookup_result
     }
 
-    async fn load_binary_from_candidate_path(
-        &self,
-        candidate_path: &CandidatePathInfo,
-        multi_arch_disambiguator: Option<MultiArchDisambiguator>,
-    ) -> Result<BinaryImage<F>, Error> {
-        match candidate_path {
-            CandidatePathInfo::SingleFile(file_location) => {
-                self.load_binary_at_location(file_location, multi_arch_disambiguator)
-                    .await
-            }
-            CandidatePathInfo::InDyldCache {
-                dyld_cache_path,
-                dylib_path,
-            } => {
-                self.load_binary_from_dyld_cache(dyld_cache_path, dylib_path)
-                    .await
-            }
-        }
-    }
-
     async fn load_binary_from_dyld_cache(
         &self,
-        dyld_cache_path: &Path,
-        dylib_path: &str,
+        dyld_cache_path: FL,
+        dylib_path: String,
     ) -> Result<BinaryImage<F>, Error> {
-        let file_data =
-            macho::load_file_data_for_dyld_cache(dyld_cache_path, dylib_path, self.helper).await?;
-        let inner = BinaryImageInner::MemberOfDyldSharedCache(file_data);
-        let image = BinaryImage::new(inner, Some(Path::new(&dylib_path)), FileKind::DyldCache)?;
-        Ok(image)
+        macho::load_binary_from_dyld_cache(dyld_cache_path, dylib_path, self.helper).await
     }
 
     /// Returns the binary for the given (partial) [`LibraryInfo`].
@@ -404,9 +425,24 @@ where
 
         let mut last_err = None;
         for candidate_info in candidate_paths_for_binary {
-            let image = self
-                .load_binary_from_candidate_path(&candidate_info, disambiguator.clone())
-                .await;
+            let image = match candidate_info {
+                CandidatePathInfo::SingleFile(file_location) => {
+                    self.load_binary_at_location(
+                        file_location,
+                        info.name.clone(),
+                        None,
+                        disambiguator.clone(),
+                    )
+                    .await
+                }
+                CandidatePathInfo::InDyldCache {
+                    dyld_cache_path,
+                    dylib_path,
+                } => {
+                    self.load_binary_from_dyld_cache(dyld_cache_path, dylib_path)
+                        .await
+                }
+            };
 
             match image {
                 Ok(image) => {
@@ -437,31 +473,11 @@ where
         }))
     }
 
-    /// Returns the file data of the binary at the given path. This also consults the
-    /// dyld shared cache if the file does not exist.
-    pub async fn load_binary_at_path(
+    pub async fn load_binary_for_dyld_cache_image(
         &self,
-        path: &Path,
+        dylib_path: &str,
         multi_arch_disambiguator: Option<MultiArchDisambiguator>,
     ) -> Result<BinaryImage<F>, Error> {
-        let might_be_in_dyld_shared_cache =
-            path.starts_with("/usr/") || path.starts_with("/System/");
-
-        let mut err = match self
-            .load_binary_at_location(
-                &FileLocation::Path(path.into()),
-                multi_arch_disambiguator.clone(),
-            )
-            .await
-        {
-            Ok(binary) => return Ok(binary),
-            Err(e @ Error::HelperErrorDuringOpenFile(_, _)) if might_be_in_dyld_shared_cache => e,
-            Err(e) => return Err(e),
-        };
-
-        // The file at the given path could not be opened, so it probably doesn't exist.
-        // Check the dyld cache.
-
         let arch = match &multi_arch_disambiguator {
             Some(MultiArchDisambiguator::Arch(arch)) => Some(arch.as_str()),
             _ => None,
@@ -471,42 +487,33 @@ where
             .get_dyld_shared_cache_paths(arch)
             .map_err(Error::HelperErrorDuringGetDyldSharedCachePaths)?;
 
-        let dylib_path = path.to_string_lossy();
+        let mut err = None;
         for dyld_cache_path in dyld_shared_cache_paths {
-            match self
-                .load_binary_from_dyld_cache(&dyld_cache_path, &dylib_path)
-                .await
-            {
-                Ok(binary) => return Ok(binary),
-                Err(e) => err = e,
+            let binary_res = self
+                .load_binary_from_dyld_cache(dyld_cache_path, dylib_path.to_owned())
+                .await;
+            match (&multi_arch_disambiguator, binary_res) {
+                (Some(MultiArchDisambiguator::DebugId(expected_debug_id)), Ok(binary)) => {
+                    if binary.debug_id().as_ref() == Some(expected_debug_id) {
+                        return Ok(binary);
+                    }
+                    err = Some(Error::UnmatchedDebugIdOptional(
+                        *expected_debug_id,
+                        binary.debug_id(),
+                    ));
+                }
+                (_, Ok(binary)) => return Ok(binary),
+                (_, Err(e)) => err = Some(e),
             }
         }
-        Err(err)
+        Err(err.unwrap_or(Error::NoCandidatePathForDyldCache))
     }
 
-    pub async fn load_symbol_map_from_path(
+    pub async fn load_symbol_map_for_dyld_cache_image(
         &self,
-        path: &Path,
+        dylib_path: &str,
         multi_arch_disambiguator: Option<MultiArchDisambiguator>,
-    ) -> Result<SymbolMap, Error> {
-        let might_be_in_dyld_shared_cache =
-            path.starts_with("/usr/") || path.starts_with("/System/");
-
-        let mut err = match self
-            .load_symbol_map_from_location(
-                &FileLocation::Path(path.into()),
-                multi_arch_disambiguator.clone(),
-            )
-            .await
-        {
-            Ok(symbol_map) => return Ok(symbol_map),
-            Err(e @ Error::HelperErrorDuringOpenFile(_, _)) if might_be_in_dyld_shared_cache => e,
-            Err(e) => return Err(e),
-        };
-
-        // The file at the given path could not be opened, so it probably doesn't exist.
-        // Check the dyld cache.
-
+    ) -> Result<SymbolMap<FL>, Error> {
         let arch = match &multi_arch_disambiguator {
             Some(MultiArchDisambiguator::Arch(arch)) => Some(arch.as_str()),
             _ => None,
@@ -516,36 +523,54 @@ where
             .get_dyld_shared_cache_paths(arch)
             .map_err(Error::HelperErrorDuringGetDyldSharedCachePaths)?;
 
-        let dylib_path = path.to_string_lossy();
+        let mut err = None;
         for dyld_cache_path in dyld_shared_cache_paths {
-            match macho::load_symbol_map_for_dyld_cache(&dyld_cache_path, &dylib_path, self.helper)
-                .await
-            {
-                Ok(symbol_map) => return Ok(symbol_map),
-                Err(e) => err = e,
+            let symbol_map_res = macho::load_symbol_map_for_dyld_cache(
+                dyld_cache_path,
+                dylib_path.to_owned(),
+                self.helper,
+            )
+            .await;
+            match (&multi_arch_disambiguator, symbol_map_res) {
+                (Some(MultiArchDisambiguator::DebugId(expected_debug_id)), Ok(symbol_map)) => {
+                    if &symbol_map.debug_id() == expected_debug_id {
+                        return Ok(symbol_map);
+                    }
+                    err = Some(Error::UnmatchedDebugId(
+                        symbol_map.debug_id(),
+                        *expected_debug_id,
+                    ));
+                }
+                (_, Ok(symbol_map)) => return Ok(symbol_map),
+                (_, Err(e)) => err = Some(e),
             }
         }
-        Err(err)
+        Err(err.unwrap_or(Error::NoCandidatePathForDyldCache))
     }
 
-    async fn load_symbol_map_from_location(
+    pub async fn load_symbol_map_from_location(
         &self,
-        file_location: &FileLocation,
+        file_location: FL,
         multi_arch_disambiguator: Option<MultiArchDisambiguator>,
-    ) -> Result<SymbolMap, Error> {
-        let file_contents =
-            self.helper.open_file(file_location).await.map_err(|e| {
-                Error::HelperErrorDuringOpenFile(file_location.to_string_lossy(), e)
-            })?;
-        let base_path = file_location.to_base_path();
+    ) -> Result<SymbolMap<FL>, Error> {
+        let file_contents = self
+            .helper
+            .load_file(file_location.clone())
+            .await
+            .map_err(|e| Error::HelperErrorDuringOpenFile(file_location.to_string(), e))?;
 
         let file_contents = FileContentsWrapper::new(file_contents);
 
         if let Ok(file_kind) = FileKind::parse(&file_contents) {
             match file_kind {
                 FileKind::Elf32 | FileKind::Elf64 => {
-                    elf::load_symbol_map_for_elf(file_contents, file_kind, &base_path, self.helper)
-                        .await
+                    elf::load_symbol_map_for_elf(
+                        file_location,
+                        file_contents,
+                        file_kind,
+                        self.helper,
+                    )
+                    .await
                 }
                 FileKind::MachOFat32 | FileKind::MachOFat64 => {
                     let range = macho::get_fat_archive_member_range(
@@ -553,23 +578,27 @@ where
                         file_kind,
                         multi_arch_disambiguator,
                     )?;
-                    macho::get_symbol_map_for_fat_archive_member(&base_path, file_contents, range)
+                    macho::get_symbol_map_for_fat_archive_member(
+                        file_location,
+                        file_contents,
+                        range,
+                    )
                 }
                 FileKind::MachO32 | FileKind::MachO64 => {
-                    macho::get_symbol_map_for_macho(&base_path, file_contents)
+                    macho::get_symbol_map_for_macho(file_location, file_contents)
                 }
                 FileKind::Pe32 | FileKind::Pe64 => {
                     match windows::load_symbol_map_for_pdb_corresponding_to_binary(
                         file_kind,
                         &file_contents,
-                        file_location,
+                        file_location.clone(),
                         self.helper,
                     )
                     .await
                     {
                         Ok(symbol_map) => Ok(symbol_map),
                         Err(_) => {
-                            windows::get_symbol_map_for_pe(file_contents, file_kind, &base_path)
+                            windows::get_symbol_map_for_pe(file_contents, file_kind, file_location)
                         }
                     }
                 }
@@ -578,9 +607,9 @@ where
                 )),
             }
         } else if windows::is_pdb_file(&file_contents) {
-            windows::get_symbol_map_for_pdb(file_contents, &base_path)
+            windows::get_symbol_map_for_pdb(file_contents, file_location)
         } else if breakpad::is_breakpad_file(&file_contents) {
-            breakpad::get_symbol_map_for_breakpad_sym(file_contents, base_path)
+            breakpad::get_symbol_map_for_breakpad_sym(file_contents, file_location)
         } else {
             Err(Error::InvalidInputError(
             "The file does not have a known format; PDB::open was not able to parse it and object::FileKind::parse was not able to detect the format.",
@@ -588,15 +617,18 @@ where
         }
     }
 
-    async fn load_binary_at_location(
+    pub async fn load_binary_at_location(
         &self,
-        file_location: &FileLocation,
+        file_location: H::FL,
+        name: Option<String>,
+        path: Option<String>,
         multi_arch_disambiguator: Option<MultiArchDisambiguator>,
     ) -> Result<BinaryImage<F>, Error> {
-        let file_contents =
-            self.helper.open_file(file_location).await.map_err(|e| {
-                Error::HelperErrorDuringOpenFile(file_location.to_string_lossy(), e)
-            })?;
+        let file_contents = self
+            .helper
+            .load_file(file_location.clone())
+            .await
+            .map_err(|e| Error::HelperErrorDuringOpenFile(file_location.to_string(), e))?;
 
         let file_contents = FileContentsWrapper::new(file_contents);
 
@@ -624,10 +656,6 @@ where
                 ))
             }
         };
-        let path = match file_location {
-            FileLocation::Path(p) => Some(p.as_path()),
-            FileLocation::Custom(_) => None,
-        };
-        BinaryImage::new(inner, path, file_kind)
+        BinaryImage::new(inner, name, path, file_kind)
     }
 }

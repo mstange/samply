@@ -1,5 +1,5 @@
 use debugid::DebugId;
-use samply_api::samply_symbols::{self, BasePath, ElfBuildId, LibraryInfo, PeCodeId};
+use samply_api::samply_symbols::{self, ElfBuildId, LibraryInfo, PeCodeId};
 use samply_symbols::{
     CandidatePathInfo, CodeId, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
     OptionallySendFuture,
@@ -17,24 +17,95 @@ use std::{
 
 use crate::{config::SymbolManagerConfig, debuginfod::DebuginfodSymbolCache};
 
+#[derive(Debug, Clone)]
+pub enum WholesymFileLocation {
+    LocalFile(PathBuf),
+    SymsrvFile(String),
+    BreakpadSymbolServerFile(String),
+    DebuginfodDebugFile(ElfBuildId),
+    DebuginfodExecutable(ElfBuildId),
+}
+
+impl FileLocation for WholesymFileLocation {
+    fn location_for_dyld_subcache(&self, suffix: &str) -> Option<Self> {
+        // Dyld shared caches are only loaded from local files.
+        match self {
+            Self::LocalFile(cache_path) => {
+                let mut filename = cache_path.file_name().unwrap().to_owned();
+                filename.push(suffix);
+                Some(Self::LocalFile(cache_path.with_file_name(filename)))
+            }
+            _ => None,
+        }
+    }
+
+    fn location_for_external_object_file(&self, object_file: &str) -> Option<Self> {
+        // External object files are referred to by absolute file path, so we only
+        // load them if those paths were found in a local file.
+        match self {
+            Self::LocalFile(_) => Some(Self::LocalFile(object_file.into())),
+            _ => None,
+        }
+    }
+
+    fn location_for_pdb_from_binary(&self, pdb_path_in_binary: &str) -> Option<Self> {
+        // We only respect absolute paths to PDB files if those paths were found in a local binary.
+        match self {
+            Self::LocalFile(_) => Some(Self::LocalFile(pdb_path_in_binary.into())),
+            _ => None,
+        }
+    }
+
+    fn location_for_source_file(&self, source_file_path: &str) -> Option<Self> {
+        match self {
+            Self::LocalFile(debug_file_path) => {
+                let source_file_path = Path::new(source_file_path);
+                if source_file_path.is_absolute() {
+                    Some(Self::LocalFile(source_file_path.to_owned()))
+                } else {
+                    // Resolve relative paths with respect to the location of the debug file.
+                    debug_file_path
+                        .parent()
+                        .map(|base_path| Self::LocalFile(base_path.join(source_file_path)))
+                }
+            }
+            Self::DebuginfodDebugFile(_build_id) | Self::DebuginfodExecutable(_build_id) => {
+                // TODO: load source file via debuginfod
+                None
+            }
+            _ => {
+                // We don't have local source files for debug files from symbol servers.
+                // Ignore the absolute path in the downloaded file.
+                None
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for WholesymFileLocation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("{:?}", self))
+    }
+}
+
 /// A simple helper which only exists to let samply_symbols::SymbolManager open
-/// local files for the binary_at_path functions.
+/// local binary files for the binary_at_path functions.
 pub struct FileReadOnlyHelper;
 
 impl FileReadOnlyHelper {
-    async fn open_file_impl(
+    async fn load_file_impl(
         &self,
-        location: FileLocation,
+        location: WholesymFileLocation,
     ) -> FileAndPathHelperResult<FileContents> {
         match location {
-            FileLocation::Path(path) => {
+            WholesymFileLocation::LocalFile(path) => {
                 let file = File::open(path)?;
                 Ok(FileContents::Mmap(unsafe {
                     memmap2::MmapOptions::new().map(&file)?
                 }))
             }
-            FileLocation::Custom(_) => {
-                panic!("FileLocation::Custom should not be hit in FileReadOnlyHelper");
+            _ => {
+                panic!("FileReadOnlyHelper should only be used for local files");
             }
         }
     }
@@ -42,34 +113,35 @@ impl FileReadOnlyHelper {
 
 impl<'h> FileAndPathHelper<'h> for FileReadOnlyHelper {
     type F = FileContents;
+    type FL = WholesymFileLocation;
     type OpenFileFuture =
         Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>>;
 
     fn get_candidate_paths_for_debug_file(
         &self,
         _library_info: &LibraryInfo,
-    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
+    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo<WholesymFileLocation>>> {
         panic!("Should not be called");
     }
 
     fn get_candidate_paths_for_binary(
         &self,
         _library_info: &LibraryInfo,
-    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
+    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo<WholesymFileLocation>>> {
         panic!("Should not be called");
     }
 
-    fn open_file(
+    fn load_file(
         &'h self,
-        location: &FileLocation,
+        location: WholesymFileLocation,
     ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>> {
-        Box::pin(self.open_file_impl(location.clone()))
+        Box::pin(self.load_file_impl(location))
     }
 
     fn get_dyld_shared_cache_paths(
         &self,
         arch: Option<&str>,
-    ) -> FileAndPathHelperResult<Vec<PathBuf>> {
+    ) -> FileAndPathHelperResult<Vec<WholesymFileLocation>> {
         Ok(get_dyld_shared_cache_paths(arch))
     }
 }
@@ -138,12 +210,12 @@ impl Helper {
         }
     }
 
-    async fn open_file_impl(
+    async fn load_file_impl(
         &self,
-        location: FileLocation,
+        location: WholesymFileLocation,
     ) -> FileAndPathHelperResult<FileContents> {
         match location {
-            FileLocation::Path(path) => {
+            WholesymFileLocation::LocalFile(path) => {
                 if self.config.verbose {
                     eprintln!("Opening file {:?}", path.to_string_lossy());
                 }
@@ -153,40 +225,37 @@ impl Helper {
                     memmap2::MmapOptions::new().map(&file)?
                 }))
             }
-            FileLocation::Custom(custom) => {
-                if let Some(path) = custom.strip_prefix("winsymbolserver:") {
-                    if self.config.verbose {
-                        eprintln!("Trying to get file {:?} from symbol cache", path);
-                    }
-                    Ok(self
-                        .win_symbol_cache
-                        .as_ref()
-                        .unwrap()
-                        .get_file(Path::new(path))
-                        .await?)
-                } else if let Some(path) = custom.strip_prefix("bpsymbolserver:") {
-                    if self.config.verbose {
-                        eprintln!("Trying to get file {:?} from breakpad symbol server", path);
-                    }
-                    self.get_bp_sym_file(path).await
-                } else if let Some(buildid) = custom.strip_prefix("debuginfod-debuginfo:") {
-                    self.debuginfod_symbol_cache
-                        .as_ref()
-                        .unwrap()
-                        .get_file(buildid, "debuginfo")
-                        .await
-                        .ok_or_else(|| "Debuginfod could not find debuginfo".into())
-                } else if let Some(buildid) = custom.strip_prefix("debuginfod-executable:") {
-                    self.debuginfod_symbol_cache
-                        .as_ref()
-                        .unwrap()
-                        .get_file(buildid, "executable")
-                        .await
-                        .ok_or_else(|| "Debuginfod could not find executable".into())
-                } else {
-                    panic!("Unexpected custom path: {}", custom);
+            WholesymFileLocation::SymsrvFile(path) => {
+                if self.config.verbose {
+                    eprintln!("Trying to get file {:?} from symbol cache", path);
                 }
+                Ok(self
+                    .win_symbol_cache
+                    .as_ref()
+                    .unwrap()
+                    .get_file(Path::new(&path))
+                    .await?)
             }
+            WholesymFileLocation::BreakpadSymbolServerFile(path) => {
+                if self.config.verbose {
+                    eprintln!("Trying to get file {:?} from breakpad symbol server", path);
+                }
+                self.get_bp_sym_file(&path).await
+            }
+            WholesymFileLocation::DebuginfodDebugFile(build_id) => self
+                .debuginfod_symbol_cache
+                .as_ref()
+                .unwrap()
+                .get_file(&build_id.to_string(), "debuginfo")
+                .await
+                .ok_or_else(|| "Debuginfod could not find debuginfo".into()),
+            WholesymFileLocation::DebuginfodExecutable(build_id) => self
+                .debuginfod_symbol_cache
+                .as_ref()
+                .unwrap()
+                .get_file(&build_id.to_string(), "debuginfo")
+                .await
+                .ok_or_else(|| "Debuginfod could not find debuginfo".into()),
         }
     }
 
@@ -267,13 +336,14 @@ impl Helper {
 
 impl<'h> FileAndPathHelper<'h> for Helper {
     type F = FileContents;
+    type FL = WholesymFileLocation;
     type OpenFileFuture =
         Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>>;
 
     fn get_candidate_paths_for_debug_file(
         &self,
         library_info: &LibraryInfo,
-    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
+    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo<WholesymFileLocation>>> {
         let mut paths = vec![];
 
         let mut info = library_info.clone();
@@ -288,32 +358,34 @@ impl<'h> FileAndPathHelper<'h> for Helper {
                     crate::moria_mac::locate_dsym_fastpath(Path::new(debug_path), debug_id.uuid())
                 {
                     got_dsym = true;
-                    paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                        dsym_path.clone(),
-                    )));
-                    paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                        dsym_path
-                            .join("Contents")
-                            .join("Resources")
-                            .join("DWARF")
-                            .join(debug_name),
-                    )));
+                    paths.push(CandidatePathInfo::SingleFile(
+                        WholesymFileLocation::LocalFile(dsym_path.clone()),
+                    ));
+                    paths.push(CandidatePathInfo::SingleFile(
+                        WholesymFileLocation::LocalFile(
+                            dsym_path
+                                .join("Contents")
+                                .join("Resources")
+                                .join("DWARF")
+                                .join(debug_name),
+                        ),
+                    ));
                 }
             }
 
             // Also consider .so.dbg files in the same directory.
             if debug_path.ends_with(".so") {
                 let so_dbg_path = format!("{}.dbg", debug_path);
-                paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                    PathBuf::from(so_dbg_path),
-                )));
+                paths.push(CandidatePathInfo::SingleFile(
+                    WholesymFileLocation::LocalFile(PathBuf::from(so_dbg_path)),
+                ));
             }
 
             if debug_path.ends_with(".pdb") {
                 // Get symbols from the pdb file.
-                paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                    debug_path.into(),
-                )));
+                paths.push(CandidatePathInfo::SingleFile(
+                    WholesymFileLocation::LocalFile(debug_path.into()),
+                ));
             }
         }
 
@@ -324,17 +396,19 @@ impl<'h> FileAndPathHelper<'h> for Helper {
                 if let Ok(dsym_path) =
                     crate::moria_mac::locate_dsym_using_spotlight(debug_id.uuid())
                 {
-                    paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                        dsym_path.clone(),
-                    )));
+                    paths.push(CandidatePathInfo::SingleFile(
+                        WholesymFileLocation::LocalFile(dsym_path.clone()),
+                    ));
                     if let Some(dsym_file_name) = dsym_path.file_name().and_then(|s| s.to_str()) {
-                        paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                            dsym_path
-                                .join("Contents")
-                                .join("Resources")
-                                .join("DWARF")
-                                .join(dsym_file_name.trim_end_matches(".dSYM")),
-                        )));
+                        paths.push(CandidatePathInfo::SingleFile(
+                            WholesymFileLocation::LocalFile(
+                                dsym_path
+                                    .join("Contents")
+                                    .join("Resources")
+                                    .join("DWARF")
+                                    .join(dsym_file_name.trim_end_matches(".dSYM")),
+                            ),
+                        ));
                     }
                 }
             }
@@ -347,9 +421,9 @@ impl<'h> FileAndPathHelper<'h> for Helper {
             if build_id.len() > 2 {
                 let (two_chars, rest) = build_id.split_at(2);
                 let path = format!("/usr/lib/debug/.build-id/{}/{}.debug", two_chars, rest);
-                paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                    PathBuf::from(path),
-                )));
+                paths.push(CandidatePathInfo::SingleFile(
+                    WholesymFileLocation::LocalFile(PathBuf::from(path)),
+                ));
             }
         }
 
@@ -360,7 +434,9 @@ impl<'h> FileAndPathHelper<'h> for Helper {
                     .join(debug_name)
                     .join(debug_id.breakpad().to_string())
                     .join(format!("{}.sym", debug_name.trim_end_matches(".pdb")));
-                paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(bp_path)));
+                paths.push(CandidatePathInfo::SingleFile(
+                    WholesymFileLocation::LocalFile(bp_path),
+                ));
             }
 
             for (_url, dir) in &self.config.breakpad_servers {
@@ -368,47 +444,49 @@ impl<'h> FileAndPathHelper<'h> for Helper {
                     .join(debug_name)
                     .join(debug_id.breakpad().to_string())
                     .join(format!("{}.sym", debug_name.trim_end_matches(".pdb")));
-                paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(bp_path)));
+                paths.push(CandidatePathInfo::SingleFile(
+                    WholesymFileLocation::LocalFile(bp_path),
+                ));
             }
 
             if debug_name.ends_with(".pdb") && self.win_symbol_cache.is_some() {
                 // We might find this pdb file with the help of a symbol server.
-                // Construct a custom string to identify this pdb.
-                let custom = format!(
-                    "winsymbolserver:{}/{}/{}",
-                    debug_name,
-                    debug_id.breakpad(),
-                    debug_name
-                );
-                paths.push(CandidatePathInfo::SingleFile(FileLocation::Custom(custom)));
+                paths.push(CandidatePathInfo::SingleFile(
+                    WholesymFileLocation::SymsrvFile(format!(
+                        "{}/{}/{}",
+                        debug_name,
+                        debug_id.breakpad(),
+                        debug_name
+                    )),
+                ));
             }
 
             if !self.config.breakpad_servers.is_empty() {
                 // We might find a .sym file on a symbol server.
-                // Construct a custom string to identify this file.
-                let custom = format!(
-                    "bpsymbolserver:{}/{}/{}.sym",
-                    debug_name,
-                    debug_id.breakpad(),
-                    debug_name.trim_end_matches(".pdb")
-                );
-                paths.push(CandidatePathInfo::SingleFile(FileLocation::Custom(custom)));
+                paths.push(CandidatePathInfo::SingleFile(
+                    WholesymFileLocation::BreakpadSymbolServerFile(format!(
+                        "{}/{}/{}.sym",
+                        debug_name,
+                        debug_id.breakpad(),
+                        debug_name.trim_end_matches(".pdb")
+                    )),
+                ));
             }
         }
 
         if let (Some(_debuginfod_symbol_cache), Some(CodeId::ElfBuildId(build_id))) =
             (self.debuginfod_symbol_cache.as_ref(), &info.code_id)
         {
-            paths.push(CandidatePathInfo::SingleFile(FileLocation::Custom(
-                format!("debuginfod-debuginfo:{build_id}"),
-            )));
+            paths.push(CandidatePathInfo::SingleFile(
+                WholesymFileLocation::DebuginfodDebugFile(build_id.to_owned()),
+            ));
         }
 
         if let Some(path) = &info.path {
             // Fall back to getting symbols from the binary itself.
-            paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                path.into(),
-            )));
+            paths.push(CandidatePathInfo::SingleFile(
+                WholesymFileLocation::LocalFile(path.into()),
+            ));
 
             // For macOS system libraries, also consult the dyld shared cache.
             if path.starts_with("/usr/") || path.starts_with("/System/") {
@@ -427,19 +505,28 @@ impl<'h> FileAndPathHelper<'h> for Helper {
     fn get_candidate_paths_for_gnu_debug_link_dest(
         &self,
         debug_link_name: &str,
-    ) -> FileAndPathHelperResult<Vec<PathBuf>> {
+    ) -> FileAndPathHelperResult<Vec<WholesymFileLocation>> {
         // https://www-zeuthen.desy.de/unix/unixguide/infohtml/gdb/Separate-Debug-Files.html
         Ok(vec![
-            PathBuf::from(format!("/usr/bin/{}.debug", &debug_link_name)),
-            PathBuf::from(format!("/usr/bin/.debug/{}.debug", &debug_link_name)),
-            PathBuf::from(format!("/usr/lib/debug/usr/bin/{}.debug", &debug_link_name)),
+            WholesymFileLocation::LocalFile(PathBuf::from(format!(
+                "/usr/bin/{}.debug",
+                &debug_link_name
+            ))),
+            WholesymFileLocation::LocalFile(PathBuf::from(format!(
+                "/usr/bin/.debug/{}.debug",
+                &debug_link_name
+            ))),
+            WholesymFileLocation::LocalFile(PathBuf::from(format!(
+                "/usr/lib/debug/usr/bin/{}.debug",
+                &debug_link_name
+            ))),
         ])
     }
 
     fn get_candidate_paths_for_binary(
         &self,
         library_info: &LibraryInfo,
-    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
+    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo<WholesymFileLocation>>> {
         let mut info = library_info.clone();
         self.fill_in_library_info_details(&mut info);
 
@@ -447,26 +534,26 @@ impl<'h> FileAndPathHelper<'h> for Helper {
 
         // Begin with the binary itself.
         if let Some(path) = &info.path {
-            paths.push(CandidatePathInfo::SingleFile(FileLocation::Path(
-                path.into(),
-            )));
+            paths.push(CandidatePathInfo::SingleFile(
+                WholesymFileLocation::LocalFile(path.into()),
+            ));
         }
 
         if let (Some(_symbol_cache), Some(name), Some(CodeId::PeCodeId(code_id))) =
             (&self.win_symbol_cache, &info.name, &info.code_id)
         {
             // We might find this exe / dll file with the help of a symbol server.
-            // Construct a custom string to identify this file.
-            let custom = format!("winsymbolserver:{}/{}/{}", name, code_id, name);
-            paths.push(CandidatePathInfo::SingleFile(FileLocation::Custom(custom)));
+            paths.push(CandidatePathInfo::SingleFile(
+                WholesymFileLocation::SymsrvFile(format!("{}/{}/{}", name, code_id, name)),
+            ));
         }
 
         if let (Some(_debuginfod_symbol_cache), Some(CodeId::ElfBuildId(build_id))) =
             (self.debuginfod_symbol_cache.as_ref(), &info.code_id)
         {
-            paths.push(CandidatePathInfo::SingleFile(FileLocation::Custom(
-                format!("debuginfod-executable:{build_id}"),
-            )));
+            paths.push(CandidatePathInfo::SingleFile(
+                WholesymFileLocation::DebuginfodExecutable(build_id.to_owned()),
+            ));
         }
 
         if let Some(path) = &info.path {
@@ -487,71 +574,84 @@ impl<'h> FileAndPathHelper<'h> for Helper {
     fn get_dyld_shared_cache_paths(
         &self,
         arch: Option<&str>,
-    ) -> FileAndPathHelperResult<Vec<PathBuf>> {
+    ) -> FileAndPathHelperResult<Vec<WholesymFileLocation>> {
         Ok(get_dyld_shared_cache_paths(arch))
     }
 
-    fn open_file(
+    fn load_file(
         &'h self,
-        location: &FileLocation,
+        location: WholesymFileLocation,
     ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>> {
-        Box::pin(self.open_file_impl(location.clone()))
+        Box::pin(self.load_file_impl(location))
     }
 
     fn get_candidate_paths_for_supplementary_debug_file(
         &self,
-        original_file_path: &BasePath,
+        original_file_path: &WholesymFileLocation,
         sup_file_path: &str,
         sup_file_build_id: &ElfBuildId,
-    ) -> FileAndPathHelperResult<Vec<FileLocation>> {
+    ) -> FileAndPathHelperResult<Vec<WholesymFileLocation>> {
         let mut paths = Vec::new();
 
-        match original_file_path {
-            BasePath::CanReferToLocalFiles(parent_dir) => {
-                // TODO: Test if this actually works
-                if sup_file_path.starts_with('/') {
-                    paths.push(FileLocation::Path(PathBuf::from(sup_file_path)));
-                } else {
-                    let sup_file_path = Path::new(sup_file_path);
-                    paths.push(FileLocation::Path(parent_dir.join(sup_file_path)));
-                }
+        if let WholesymFileLocation::LocalFile(original_file_path) = original_file_path {
+            if sup_file_path.starts_with('/') {
+                paths.push(WholesymFileLocation::LocalFile(PathBuf::from(
+                    sup_file_path,
+                )));
+            } else if let Some(parent_dir) = original_file_path.parent() {
+                let sup_file_path = parent_dir.join(Path::new(sup_file_path));
+                paths.push(WholesymFileLocation::LocalFile(sup_file_path));
             }
-            BasePath::NoLocalSourceFileAccess => {}
+        } else {
+            // If the original debug file was non-local, don't check local files for
+            // the supplementary debug file. The supplementary paths which are stored
+            // in the downloaded file will usually refer to a path on the original build
+            // machine, not on this machine.
         }
 
         let build_id = sup_file_build_id.to_string();
         if build_id.len() > 2 {
             let (two_chars, rest) = build_id.split_at(2);
             let path = format!("/usr/lib/debug/.build-id/{}/{}.debug", two_chars, rest);
-            paths.push(FileLocation::Path(PathBuf::from(path)));
+            paths.push(WholesymFileLocation::LocalFile(PathBuf::from(path)));
 
-            paths.push(FileLocation::Custom(format!(
-                "debuginfod-debuginfo:{build_id}"
-            )));
+            paths.push(WholesymFileLocation::DebuginfodDebugFile(
+                sup_file_build_id.to_owned(),
+            ));
         }
 
         Ok(paths)
     }
 }
 
-fn get_dyld_shared_cache_paths(arch: Option<&str>) -> Vec<PathBuf> {
+fn get_dyld_shared_cache_paths(arch: Option<&str>) -> Vec<WholesymFileLocation> {
     if let Some(arch) = arch {
         vec![
-            format!(
+            WholesymFileLocation::LocalFile(
+                format!(
                 "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_{arch}"
             )
-            .into(),
-            format!("/System/Library/dyld/dyld_shared_cache_{arch}").into(),
+                .into(),
+            ),
+            WholesymFileLocation::LocalFile(
+                format!("/System/Library/dyld/dyld_shared_cache_{arch}").into(),
+            ),
         ]
     } else {
         vec![
-            "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_arm64e"
-                .into(),
-            "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_x86_64"
-                .into(),
-            "/System/Library/dyld/dyld_shared_cache_arm64e".into(),
-            "/System/Library/dyld/dyld_shared_cache_x86_64h".into(),
-            "/System/Library/dyld/dyld_shared_cache_x86_64".into(),
+            WholesymFileLocation::LocalFile(
+                "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_arm64e"
+                    .into(),
+            ),
+            WholesymFileLocation::LocalFile(
+                "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_x86_64"
+                    .into(),
+            ),
+            WholesymFileLocation::LocalFile("/System/Library/dyld/dyld_shared_cache_arm64e".into()),
+            WholesymFileLocation::LocalFile(
+                "/System/Library/dyld/dyld_shared_cache_x86_64h".into(),
+            ),
+            WholesymFileLocation::LocalFile("/System/Library/dyld/dyld_shared_cache_x86_64".into()),
         ]
     }
 }

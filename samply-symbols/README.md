@@ -97,7 +97,7 @@ async fn run_query() {
                 FramesLookupResult::External(ext_address) => {
                     // Debug info is located in a different file.
                     if let Some(frames) =
-                        symbol_manager.lookup_external(&ext_address).await
+                        symbol_manager.lookup_external(&symbol_map.debug_file_location(), &ext_address).await
                     {
                         println!("Debug info:");
                         for frame in frames {
@@ -123,6 +123,7 @@ struct ExampleHelper {
 
 impl<'h> FileAndPathHelper<'h> for ExampleHelper {
     type F = Vec<u8>;
+    type FL = ExampleFileLocation;
     type OpenFileFuture = std::pin::Pin<
         Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>,
     >;
@@ -130,9 +131,9 @@ impl<'h> FileAndPathHelper<'h> for ExampleHelper {
     fn get_candidate_paths_for_debug_file(
         &self,
         library_info: &LibraryInfo,
-    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
+    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo<ExampleFileLocation>>> {
         if let Some(debug_name) = library_info.debug_name.as_deref() {
-            Ok(vec![CandidatePathInfo::SingleFile(FileLocation::Path(
+            Ok(vec![CandidatePathInfo::SingleFile(ExampleFileLocation(
                 self.artifact_directory.join(debug_name),
             ))])
         } else {
@@ -143,9 +144,9 @@ impl<'h> FileAndPathHelper<'h> for ExampleHelper {
     fn get_candidate_paths_for_binary(
         &self,
         library_info: &LibraryInfo,
-    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo>> {
+    ) -> FileAndPathHelperResult<Vec<CandidatePathInfo<ExampleFileLocation>>> {
         if let Some(name) = library_info.name.as_deref() {
-            Ok(vec![CandidatePathInfo::SingleFile(FileLocation::Path(
+            Ok(vec![CandidatePathInfo::SingleFile(ExampleFileLocation(
                 self.artifact_directory.join(name),
             ))])
         } else {
@@ -153,28 +154,53 @@ impl<'h> FileAndPathHelper<'h> for ExampleHelper {
         }
     }
 
-    fn get_dyld_shared_cache_paths(
-        &self,
-        _arch: Option<&str>,
-    ) -> FileAndPathHelperResult<Vec<std::path::PathBuf>> {
-        Ok(vec![])
-    }
+   fn get_dyld_shared_cache_paths(
+       &self,
+       _arch: Option<&str>,
+   ) -> FileAndPathHelperResult<Vec<ExampleFileLocation>> {
+       Ok(vec![])
+   }
 
-    fn open_file(
+    fn load_file(
         &'h self,
-        location: &FileLocation,
+        location: ExampleFileLocation,
     ) -> std::pin::Pin<
         Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>,
     > {
-        async fn read_file_impl(path: std::path::PathBuf) -> FileAndPathHelperResult<Vec<u8>> {
+        async fn load_file_impl(path: std::path::PathBuf) -> FileAndPathHelperResult<Vec<u8>> {
             Ok(std::fs::read(&path)?)
         }
 
-        let path = match location {
-            FileLocation::Path(path) => path.clone(),
-            FileLocation::Custom(_) => panic!("Unexpected FileLocation::Custom"),
-        };
-        Box::pin(read_file_impl(path))
+        Box::pin(load_file_impl(location.0))
+    }
+}
+
+#[derive(Clone, Debug)]
+struct ExampleFileLocation(std::path::PathBuf);
+
+impl std::fmt::Display for ExampleFileLocation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.to_string_lossy().fmt(f)
+    }
+}
+
+impl FileLocation for ExampleFileLocation {
+    fn location_for_dyld_subcache(&self, suffix: &str) -> Option<Self> {
+        let mut filename = self.0.file_name().unwrap().to_owned();
+        filename.push(suffix);
+        Some(Self(self.0.with_file_name(filename)))
+    }
+
+    fn location_for_external_object_file(&self, object_file: &str) -> Option<Self> {
+        Some(Self(object_file.into()))
+    }
+
+    fn location_for_pdb_from_binary(&self, pdb_path_in_binary: &str) -> Option<Self> {
+        Some(Self(pdb_path_in_binary.into()))
+    }
+
+    fn location_for_source_file(&self, source_file_path: &str) -> Option<Self> {
+        Some(Self(source_file_path.into()))
     }
 }
 ```

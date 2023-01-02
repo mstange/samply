@@ -13,15 +13,18 @@ use crate::{
 
 pub async fn load_external_file<'h, H>(
     helper: &'h H,
+    original_file_location: &H::FL,
     external_file_ref: &ExternalFileRef,
 ) -> Result<ExternalFileSymbolMap, Error>
 where
     H: FileAndPathHelper<'h>,
 {
     let file = helper
-        .open_file(&FileLocation::Path(
-            external_file_ref.file_name.as_str().into(),
-        ))
+        .load_file(
+            original_file_location
+                .location_for_external_object_file(&external_file_ref.file_name)
+                .ok_or(Error::FileLocationRefusedExternalObjectLocation)?,
+        )
         .await
         .map_err(|e| Error::HelperErrorDuringOpenFile(external_file_ref.file_name.clone(), e))?;
     let symbol_map = ExternalFileSymbolMapImpl::new(

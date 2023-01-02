@@ -3,38 +3,43 @@ use std::borrow::Cow;
 use debugid::DebugId;
 use yoke::{Yoke, Yokeable};
 
-use crate::{
-    shared::{AddressInfo, BasePath},
-    Error,
-};
+use crate::{shared::AddressInfo, Error, FileLocation};
 
-pub struct SymbolMap(pub(crate) Box<dyn SymbolMapTrait>);
+pub struct SymbolMap<FL: FileLocation> {
+    debug_file_location: FL,
+    pub(crate) inner: Box<dyn SymbolMapTrait>,
+}
 
-impl SymbolMap {
-    pub fn base_path(&self) -> &BasePath {
-        self.0.base_path()
+impl<FL: FileLocation> SymbolMap<FL> {
+    pub(crate) fn new(debug_file_location: FL, inner: Box<dyn SymbolMapTrait>) -> Self {
+        Self {
+            debug_file_location,
+            inner,
+        }
+    }
+
+    pub fn debug_file_location(&self) -> &FL {
+        &self.debug_file_location
     }
 
     pub fn debug_id(&self) -> debugid::DebugId {
-        self.0.debug_id()
+        self.inner.debug_id()
     }
 
     pub fn symbol_count(&self) -> usize {
-        self.0.symbol_count()
+        self.inner.symbol_count()
     }
 
     pub fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {
-        self.0.iter_symbols()
+        self.inner.iter_symbols()
     }
 
     pub fn lookup(&self, address: u32) -> Option<AddressInfo> {
-        self.0.lookup(address)
+        self.inner.lookup(address)
     }
 }
 
 pub trait SymbolMapTrait {
-    fn base_path(&self) -> &BasePath;
-
     fn debug_id(&self) -> DebugId;
 
     fn symbol_count(&self) -> usize;
@@ -49,10 +54,7 @@ pub trait SymbolMapDataOuterTrait {
 }
 
 pub trait SymbolMapDataMidTrait {
-    fn make_symbol_map_inner<'object>(
-        &'object self,
-        base_path: &BasePath,
-    ) -> Result<SymbolMapInnerWrapper<'object>, Error>;
+    fn make_symbol_map_inner(&self) -> Result<SymbolMapInnerWrapper<'_>, Error>;
 }
 
 #[derive(Yokeable)]
@@ -67,7 +69,7 @@ pub struct GenericSymbolMap<SMDO: SymbolMapDataOuterTrait>(
 );
 
 impl<SMDO: SymbolMapDataOuterTrait> GenericSymbolMap<SMDO> {
-    pub fn new(outer: SMDO, base_path: &BasePath) -> Result<Self, Error> {
+    pub fn new(outer: SMDO) -> Result<Self, Error> {
         let outer_and_mid = SymbolMapDataOuterAndMid(
             Yoke::<SymbolMapDataMidWrapper<'static>, _>::try_attach_to_cart(
                 Box::new(outer),
@@ -82,7 +84,7 @@ impl<SMDO: SymbolMapDataOuterTrait> GenericSymbolMap<SMDO> {
             Box::new(outer_and_mid),
             |outer_and_mid| {
                 let mid = outer_and_mid.0.get();
-                mid.0.make_symbol_map_inner(base_path)
+                mid.0.make_symbol_map_inner()
             },
         )?;
         Ok(GenericSymbolMap(outer_and_mid_and_inner))
@@ -95,10 +97,6 @@ pub struct SymbolMapInnerWrapper<'data>(pub Box<dyn SymbolMapTrait + 'data>);
 impl<SMDO: SymbolMapDataOuterTrait> SymbolMapTrait for GenericSymbolMap<SMDO> {
     fn debug_id(&self) -> debugid::DebugId {
         self.0.get().0.debug_id()
-    }
-
-    fn base_path(&self) -> &BasePath {
-        self.0.get().0.base_path()
     }
 
     fn symbol_count(&self) -> usize {

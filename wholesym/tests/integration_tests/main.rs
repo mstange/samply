@@ -97,11 +97,11 @@ fn dwz_symbolication() {
 
     // Check information coming from the debug info found via build ID:
     assert_eq!(
-        frames[0].file_path.as_ref().unwrap().mapped_path(),
+        frames[0].file_path.as_ref().unwrap().file_path(),
         "./src/ls.c"
     );
     assert_eq!(
-        frames[1].file_path.as_ref().unwrap().mapped_path(),
+        frames[1].file_path.as_ref().unwrap().file_path(),
         "./src/ls.c"
     );
 

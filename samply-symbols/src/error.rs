@@ -39,6 +39,20 @@ pub enum Error {
     #[error("Not enough information was supplied to identify the requested symbol map. The debug ID is required.")]
     NotEnoughInformationToIdentifySymbolMap,
 
+    #[error("The FileLocation for the debug file does not support loading dyld subcache files.")]
+    FileLocationRefusedSubcacheLocation,
+
+    #[error("The FileLocation for the debug file does not support loading external objects.")]
+    FileLocationRefusedExternalObjectLocation,
+
+    #[error(
+        "The FileLocation for the binary file does not allow following the PDB path found in it."
+    )]
+    FileLocationRefusedPdbLocation,
+
+    #[error("The FileLocation for the debug file does not support loading source files.")]
+    FileLocationRefusedSourceFileLocation,
+
     #[error(
         "No disambiguator supplied for universal binary, available images: {}", format_multiarch_members(.0)
     )]
@@ -97,6 +111,9 @@ pub enum Error {
 
     #[error("No candidate path for binary, for {0:?} {1:?}")]
     NoCandidatePathForBinary(Option<String>, Option<DebugId>),
+
+    #[error("No candidate path for dyld shared cache")]
+    NoCandidatePathForDyldCache,
 
     #[error("No candidate path for binary, for {0:?}")]
     NoCandidatePathForDebugFile(LibraryInfo),
@@ -212,6 +229,12 @@ impl Error {
             Error::InvalidBreakpadId(_) => "InvalidBreakpadId",
             Error::EmptyFatArchive => "EmptyFatArchive",
             Error::CouldNotDetermineExternalFileFileKind => "CouldNotDetermineExternalFileFileKind",
+            Error::FileLocationRefusedSubcacheLocation => "FileLocationRefusedSubcacheLocation",
+            Error::FileLocationRefusedExternalObjectLocation => {
+                "FileLocationRefusedExternalObjectLocation"
+            }
+            Error::FileLocationRefusedPdbLocation => "FileLocationRefusedPdbLocation",
+            Error::FileLocationRefusedSourceFileLocation => "FileLocationRefusedSourceFileLocation",
             Error::UnexpectedExternalFileFileKind(_) => "UnexpectedExternalFileFileKind",
             Error::NoMatchMultiArch(_) => "NoMatchMultiArch",
             Error::NoLuckMacOsSystemLibrary(_) => "NoLuckMacOsSystemLibrary",
@@ -235,6 +258,7 @@ impl Error {
             Error::HelperErrorDuringFileReading(_, _) => "HelperErrorDuringFileReading",
             Error::NoCandidatePathForDebugFile(_) => "NoCandidatePathForDebugFile",
             Error::NoCandidatePathForBinary(_, _) => "NoCandidatePathForBinary",
+            Error::NoCandidatePathForDyldCache => "NoCandidatePathForDyldCache",
             Error::NoDebugInfoInPeBinary(_) => "NoDebugInfoInPeBinary",
             Error::NoMatchingPdbForBinary(_) => "NoMatchingPdbForBinary",
             Error::PdbPathNotUtf8(_) => "PdbPathNotUtf8",

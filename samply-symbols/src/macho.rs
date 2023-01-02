@@ -1,12 +1,11 @@
+use crate::binary_image::BinaryImageInner;
 use crate::error::Error;
-use crate::shared::{
-    BasePath, FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation, RangeReadRef,
-};
+use crate::shared::{FileAndPathHelper, FileContents, FileContentsWrapper, RangeReadRef};
 use crate::symbol_map::{
     GenericSymbolMap, SymbolMap, SymbolMapDataMidTrait, SymbolMapDataOuterTrait,
 };
 use crate::symbol_map_object::{FunctionAddressesComputer, ObjectSymbolMapDataMid};
-use crate::{debug_id_for_object, MultiArchDisambiguator};
+use crate::{debug_id_for_object, BinaryImage, FileLocation, MultiArchDisambiguator};
 use debugid::DebugId;
 use macho_unwind_info::UnwindInfo;
 use object::macho::{self, FatHeader, LinkeditDataCommand, MachHeader32, MachHeader64};
@@ -14,7 +13,6 @@ use object::read::macho::{FatArch, LoadCommandIterator, MachHeader};
 use object::read::{File, Object, ObjectSection};
 use object::{Endianness, FileKind, ReadRef};
 use std::marker::PhantomData;
-use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 /// Converts a cpu type/subtype pair into the architecture name.
@@ -142,40 +140,72 @@ pub fn get_fat_archive_members(
     }
 }
 
-pub async fn load_file_data_for_dyld_cache<'h, H, F>(
-    dyld_cache_path: &Path,
-    dylib_path: &str,
+struct DyldCacheLoader<'a, 'h, H>
+where
+    H: FileAndPathHelper<'h>,
+{
+    helper: &'h H,
+    dyld_cache_path: &'a H::FL,
+}
+
+impl<'a, 'h, H, F> DyldCacheLoader<'a, 'h, H>
+where
+    H: FileAndPathHelper<'h, F = F>,
+{
+    pub fn new(helper: &'h H, dyld_cache_path: &'a H::FL) -> Self {
+        Self {
+            helper,
+            dyld_cache_path,
+        }
+    }
+
+    pub async fn load_cache(&self) -> Result<F, Error> {
+        self.helper
+            .load_file(self.dyld_cache_path.clone())
+            .await
+            .map_err(|e| Error::HelperErrorDuringOpenFile(self.dyld_cache_path.to_string(), e))
+    }
+
+    pub async fn load_subcache(&self, suffix: &str) -> Result<F, Error> {
+        let subcache_location = self
+            .dyld_cache_path
+            .location_for_dyld_subcache(suffix)
+            .ok_or(Error::FileLocationRefusedSubcacheLocation)?;
+        self.helper
+            .load_file(subcache_location)
+            .await
+            .map_err(|e| Error::HelperErrorDuringOpenFile(self.dyld_cache_path.to_string(), e))
+    }
+}
+
+async fn load_file_data_for_dyld_cache<'h, H, F>(
+    dyld_cache_path: H::FL,
+    dylib_path: String,
     helper: &'h H,
 ) -> Result<DyldCacheFileData<F>, Error>
 where
     H: FileAndPathHelper<'h, F = F>,
     F: FileContents + 'static,
 {
-    let get_file = |path| helper.open_file(&FileLocation::Path(path));
-
-    let root_contents = get_file(dyld_cache_path.into()).await.map_err(|e| {
-        Error::HelperErrorDuringOpenFile(dyld_cache_path.to_string_lossy().to_string(), e)
-    })?;
+    let dcl = DyldCacheLoader::new(helper, &dyld_cache_path);
+    let root_contents = dcl.load_cache().await?;
     let root_contents = FileContentsWrapper::new(root_contents);
-
-    let dyld_cache_path = dyld_cache_path.to_string_lossy();
 
     let mut subcache_contents = Vec::new();
     for subcache_index in 1.. {
         // Find the subcache at dyld_shared_cache_arm64e.1 or dyld_shared_cache_arm64e.01
-        let subcache_path = format!("{}.{}", dyld_cache_path, subcache_index);
-        let subcache_path2 = format!("{}.{:02}", dyld_cache_path, subcache_index);
-        let subcache = match get_file(subcache_path.into()).await {
+        let suffix = format!(".{}", subcache_index);
+        let suffix2 = format!(".{:02}", subcache_index);
+        let subcache = match dcl.load_subcache(&suffix).await {
             Ok(subcache) => subcache,
-            Err(_) => match get_file(subcache_path2.into()).await {
+            Err(_) => match dcl.load_subcache(&suffix2).await {
                 Ok(subcache) => subcache,
                 Err(_) => break,
             },
         };
         subcache_contents.push(FileContentsWrapper::new(subcache));
     }
-    let symbols_subcache_path = format!("{}.symbols", dyld_cache_path);
-    if let Ok(subcache) = get_file(symbols_subcache_path.into()).await {
+    if let Ok(subcache) = dcl.load_subcache(".symbols").await {
         subcache_contents.push(FileContentsWrapper::new(subcache));
     };
 
@@ -186,18 +216,18 @@ where
     ))
 }
 
-pub async fn load_symbol_map_for_dyld_cache<'h, H>(
-    dyld_cache_path: &Path,
-    dylib_path: &str,
+pub async fn load_symbol_map_for_dyld_cache<'h, H, FL>(
+    dyld_cache_path: H::FL,
+    dylib_path: String,
     helper: &'h H,
-) -> Result<SymbolMap, Error>
+) -> Result<SymbolMap<FL>, Error>
 where
-    H: FileAndPathHelper<'h>,
+    H: FileAndPathHelper<'h, FL = FL>,
+    FL: FileLocation,
 {
-    let base_path = BasePath::CanReferToLocalFiles(PathBuf::from(dylib_path));
-    let owner = load_file_data_for_dyld_cache(dyld_cache_path, dylib_path, helper).await?;
-    let symbol_map = GenericSymbolMap::new(owner, &base_path)?;
-    Ok(SymbolMap(Box::new(symbol_map)))
+    let owner = load_file_data_for_dyld_cache(dyld_cache_path.clone(), dylib_path, helper).await?;
+    let symbol_map = GenericSymbolMap::new(owner)?;
+    Ok(SymbolMap::new(dyld_cache_path, Box::new(symbol_map)))
 }
 
 pub struct DyldCacheFileData<T>
@@ -213,12 +243,12 @@ impl<T: FileContents + 'static> DyldCacheFileData<T> {
     pub fn new(
         root_file_data: FileContentsWrapper<T>,
         subcache_file_data: Vec<FileContentsWrapper<T>>,
-        dylib_path: &str,
+        dylib_path: String,
     ) -> Self {
         Self {
             root_file_data,
             subcache_file_data,
-            dylib_path: dylib_path.to_string(),
+            dylib_path,
         }
     }
 }
@@ -263,24 +293,24 @@ impl<T: FileContents + 'static> SymbolMapDataOuterTrait for DyldCacheFileData<T>
     }
 }
 
-pub fn get_symbol_map_for_macho<F: FileContents + 'static>(
-    base_path: &BasePath,
+pub fn get_symbol_map_for_macho<F: FileContents + 'static, FL: FileLocation>(
+    debug_file_location: FL,
     file_contents: FileContentsWrapper<F>,
-) -> Result<SymbolMap, Error> {
+) -> Result<SymbolMap<FL>, Error> {
     let owner = MachSymbolMapData::new(file_contents);
-    let symbol_map = GenericSymbolMap::new(owner, base_path)?;
-    Ok(SymbolMap(Box::new(symbol_map)))
+    let symbol_map = GenericSymbolMap::new(owner)?;
+    Ok(SymbolMap::new(debug_file_location, Box::new(symbol_map)))
 }
 
-pub fn get_symbol_map_for_fat_archive_member<F: FileContents + 'static>(
-    base_path: &BasePath,
+pub fn get_symbol_map_for_fat_archive_member<F: FileContents + 'static, FL: FileLocation>(
+    debug_file_location: FL,
     file_contents: FileContentsWrapper<F>,
     file_range: (u64, u64),
-) -> Result<SymbolMap, Error> {
+) -> Result<SymbolMap<FL>, Error> {
     let (start_offset, range_size) = file_range;
     let owner = MachOFatArchiveMemberData::new(file_contents, start_offset, range_size);
-    let symbol_map = GenericSymbolMap::new(owner, base_path)?;
-    Ok(SymbolMap(Box::new(symbol_map)))
+    let symbol_map = GenericSymbolMap::new(owner)?;
+    Ok(SymbolMap::new(debug_file_location, Box::new(symbol_map)))
 }
 
 struct MachSymbolMapData<T>
@@ -361,6 +391,26 @@ impl<T: FileContents + 'static> SymbolMapDataOuterTrait for MachOFatArchiveMembe
         );
         Ok(Box::new(object))
     }
+}
+
+pub async fn load_binary_from_dyld_cache<'h, F, H>(
+    dyld_cache_path: H::FL,
+    dylib_path: String,
+    helper: &'h H,
+) -> Result<BinaryImage<F>, Error>
+where
+    F: FileContents + 'static,
+    H: FileAndPathHelper<'h, F = F>,
+{
+    let file_data =
+        load_file_data_for_dyld_cache(dyld_cache_path, dylib_path.clone(), helper).await?;
+    let inner = BinaryImageInner::MemberOfDyldSharedCache(file_data);
+    let name = match dylib_path.rfind('/') {
+        Some(index) => dylib_path[index + 1..].to_owned(),
+        None => dylib_path.to_owned(),
+    };
+    let image = BinaryImage::new(inner, Some(name), Some(dylib_path), FileKind::DyldCache)?;
+    Ok(image)
 }
 
 struct MachOFunctionAddressesComputer<'data, R: ReadRef<'data>> {
