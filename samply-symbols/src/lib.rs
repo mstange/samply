@@ -580,7 +580,7 @@ where
         } else if windows::is_pdb_file(&file_contents) {
             windows::get_symbol_map_for_pdb(file_contents, &base_path)
         } else if breakpad::is_breakpad_file(&file_contents) {
-            breakpad::get_symbol_map_for_breakpad_sym(file_contents)
+            breakpad::get_symbol_map_for_breakpad_sym(file_contents, base_path)
         } else {
             Err(Error::InvalidInputError(
             "The file does not have a known format; PDB::open was not able to parse it and object::FileKind::parse was not able to detect the format.",

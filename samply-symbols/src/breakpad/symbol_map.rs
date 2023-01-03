@@ -8,7 +8,7 @@ use yoke::Yoke;
 
 use crate::{
     symbol_map::{SymbolMapInnerWrapper, SymbolMapTrait},
-    AddressInfo, Error, FileContents, FileContentsWrapper, FilePath, FramesLookupResult,
+    AddressInfo, BasePath, Error, FileContents, FileContentsWrapper, FilePath, FramesLookupResult,
     InlineStackFrame, SymbolInfo, SymbolMap,
 };
 
@@ -20,13 +20,14 @@ use super::index::{
 
 pub fn get_symbol_map_for_breakpad_sym<F>(
     file_contents: FileContentsWrapper<F>,
+    base_path: BasePath,
 ) -> Result<SymbolMap, Error>
 where
     F: FileContents + 'static,
 {
     let outer = BreakpadSymbolMapOuter::new(file_contents)?;
     let symbol_map = BreakpadSymbolMap(Yoke::attach_to_cart(Box::new(outer), |outer| {
-        outer.make_symbol_map()
+        outer.make_symbol_map(base_path)
     }));
     Ok(SymbolMap(Box::new(symbol_map)))
 }
@@ -36,6 +37,10 @@ pub struct BreakpadSymbolMap<T: FileContents>(
 );
 
 impl<T: FileContents> SymbolMapTrait for BreakpadSymbolMap<T> {
+    fn base_path(&self) -> &BasePath {
+        self.0.get().0.base_path()
+    }
+
     fn debug_id(&self) -> debugid::DebugId {
         self.0.get().0.debug_id()
     }
@@ -84,10 +89,11 @@ impl<T: FileContents> BreakpadSymbolMapOuter<T> {
         Ok(Self { data, index })
     }
 
-    pub fn make_symbol_map(&self) -> SymbolMapInnerWrapper<'_> {
+    pub fn make_symbol_map(&self, base_path: BasePath) -> SymbolMapInnerWrapper<'_> {
         let inner = BreakpadSymbolMapInner {
             data: &self.data,
             index: &self.index,
+            base_path,
             cache: Mutex::new(BreakpadSymbolMapCache::new(&self.data, &self.index)),
         };
         SymbolMapInnerWrapper(Box::new(inner))
@@ -97,6 +103,7 @@ impl<T: FileContents> BreakpadSymbolMapOuter<T> {
 struct BreakpadSymbolMapInner<'a, T: FileContents> {
     data: &'a FileContentsWrapper<T>,
     index: &'a BreakpadIndex,
+    base_path: BasePath,
     cache: Mutex<BreakpadSymbolMapCache<'a, T>>,
 }
 
@@ -205,6 +212,10 @@ impl<'a, I: FileOrInlineOrigin, T: FileContents> ItemCache<'a, I, T> {
 }
 
 impl<'a, T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'a, T> {
+    fn base_path(&self) -> &BasePath {
+        &self.base_path
+    }
+
     fn debug_id(&self) -> debugid::DebugId {
         self.index.debug_id
     }
@@ -277,7 +288,7 @@ impl<'a, T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'a, T> {
                         .map(ToString::to_string);
                     frames.push(InlineStackFrame {
                         function: name,
-                        file_path: file.map(FilePath::NonLocal),
+                        file_path: file.map(FilePath::from_breakpad_path),
                         line_number: Some(inlinee.call_line),
                     });
                     let inline_origin = inline_origins
@@ -296,7 +307,7 @@ impl<'a, T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'a, T> {
                 };
                 frames.push(InlineStackFrame {
                     function: name,
-                    file_path: file.map(FilePath::NonLocal),
+                    file_path: file.map(FilePath::from_breakpad_path),
                     line_number,
                 });
                 frames.reverse();
@@ -322,7 +333,8 @@ mod test {
     fn overeager_demangle() {
         let sym = b"MODULE Linux x86_64 BE4E976C325246EE9D6B7847A670B2A90 example-linux\nFILE 0 filename\nFUNC 1160 45 0 f\n1160 c 16 0";
         let fc = FileContentsWrapper::new(&sym[..]);
-        let symbol_map = get_symbol_map_for_breakpad_sym(fc).unwrap();
+        let symbol_map =
+            get_symbol_map_for_breakpad_sym(fc, BasePath::NoLocalSourceFileAccess).unwrap();
         assert_eq!(symbol_map.lookup(0x1160).unwrap().symbol.name, "f");
     }
 }

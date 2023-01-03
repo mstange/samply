@@ -1,7 +1,9 @@
+use std::path::{Path, PathBuf};
+
 use crate::to_debug_id;
 use samply_symbols::{
-    FileAndPathHelper, FileAndPathHelperError, FileContents, FileLocation, FramesLookupResult,
-    LibraryInfo, SymbolManager,
+    BasePath, FileAndPathHelper, FileAndPathHelperError, FileContents, FileLocation,
+    FramesLookupResult, LibraryInfo, SymbolManager,
 };
 use serde_json::json;
 
@@ -65,17 +67,19 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SourceApi<'a, 'h, H> {
         let debug_id = to_debug_id(debug_id)?;
 
         // Look up the address to see which file paths we are allowed to read.
-        let frames = {
+        let (base_path, frames) = {
             let info = LibraryInfo {
                 debug_name: Some(debug_name.to_string()),
                 debug_id: Some(debug_id),
                 ..Default::default()
             };
             let symbol_map = self.symbol_manager.load_symbol_map(&info).await?;
-            match symbol_map.lookup(*module_offset) {
+            let base_path = symbol_map.base_path().clone();
+            let frames = match symbol_map.lookup(*module_offset) {
                 Some(address_info) => address_info.frames,
                 None => FramesLookupResult::Unavailable,
-            }
+            };
+            (base_path, frames)
         };
         let frames = match frames {
             FramesLookupResult::Available(frames) => frames,
@@ -93,15 +97,17 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SourceApi<'a, 'h, H> {
         let file_path = frames
             .into_iter()
             .filter_map(|frame| frame.file_path)
-            .find(|file_path| *file_path.mapped_path() == *requested_file)
-            .ok_or(SourceError::InvalidPath)?;
+            .find(|file_path| *file_path.mapped_path_or_path() == *requested_file)
+            .ok_or(SourceError::InvalidPath)?
+            .into_file_path();
 
         // One last verification step: Make sure that there's actually a local path for this
         // source file. We will only have a local path if the path was referred to by a local
         // symbol file.
-        let local_path = file_path
-            .into_local_path()
-            .ok_or(SourceError::NonLocalSymbols)?;
+        let local_path = match base_path {
+            BasePath::CanReferToLocalFiles(base_path) => make_abs_path(&base_path, &file_path),
+            BasePath::NoLocalSourceFileAccess => return Err(SourceError::NonLocalSymbols),
+        };
 
         // If we got here, it means that the file access is allowed. Read the file.
         let helper = self.symbol_manager.helper();
@@ -115,5 +121,13 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SourceApi<'a, 'h, H> {
             file: requested_file.to_string(),
             source,
         })
+    }
+}
+
+fn make_abs_path(base: &Path, rel_or_abs: &Path) -> PathBuf {
+    if rel_or_abs.is_absolute() {
+        rel_or_abs.to_owned()
+    } else {
+        base.join(rel_or_abs)
     }
 }

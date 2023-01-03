@@ -1,5 +1,4 @@
 use crate::debugid_util::debug_id_for_object;
-use crate::demangle;
 use crate::error::{Context, Error};
 use crate::path_mapper::{ExtraPathMapper, PathMapper};
 use crate::shared::{
@@ -11,6 +10,7 @@ use crate::symbol_map::{
     SymbolMapInnerWrapper, SymbolMapTrait,
 };
 use crate::symbol_map_object::{FunctionAddressesComputer, ObjectSymbolMapDataMid};
+use crate::{demangle, FilePath};
 use debugid::DebugId;
 use object::{File, FileKind};
 use pdb::PDB;
@@ -161,10 +161,11 @@ impl<'data, FC: FileContents + 'static> SymbolMapDataMidTrait for PdbObject<'dat
             )?)),
             None => None,
         };
-        let path_mapper = PathMapper::new_with_maybe_extra_mapper(base_path, path_mapper);
+        let path_mapper = PathMapper::new_with_maybe_extra_mapper(path_mapper);
 
         let symbol_map = PdbSymbolMapInner {
             context,
+            base_path: base_path.clone(),
             debug_id: self.debug_id,
             path_mapper: Mutex::new(path_mapper),
         };
@@ -210,10 +211,14 @@ impl<'a, 's> PdbAddr2lineContextTrait for pdb_addr2line::Context<'a, 's> {
 struct PdbSymbolMapInner<'object> {
     context: Box<dyn PdbAddr2lineContextTrait + 'object>,
     debug_id: DebugId,
+    base_path: BasePath,
     path_mapper: Mutex<PathMapper<SrcSrvPathMapper<'object>>>,
 }
 
 impl<'object> SymbolMapTrait for PdbSymbolMapInner<'object> {
+    fn base_path(&self) -> &BasePath {
+        &self.base_path
+    }
     fn debug_id(&self) -> DebugId {
         self.debug_id
     }
@@ -251,7 +256,10 @@ impl<'object> SymbolMapTrait for PdbSymbolMapInner<'object> {
         };
         let frames = if has_debug_info(&function_frames) {
             let mut path_mapper = self.path_mapper.lock().unwrap();
-            let mut map_path = |path: Cow<str>| path_mapper.map_path(&path);
+            let mut map_path = |path: Cow<str>| {
+                let mapped_path = path_mapper.map_path(&path);
+                FilePath::new(path.into_owned().into(), mapped_path)
+            };
             let frames: Vec<_> = function_frames
                 .frames
                 .into_iter()

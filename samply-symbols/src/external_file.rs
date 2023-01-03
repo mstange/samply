@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::Path, sync::Mutex};
+use std::{collections::HashMap, sync::Mutex};
 
 use object::{read::archive::ArchiveFile, File, FileKind, ReadRef};
 use yoke::{Yoke, Yokeable};
@@ -7,9 +7,7 @@ use crate::{
     dwarf::{get_frames, Addr2lineContextData},
     macho,
     path_mapper::PathMapper,
-    shared::{
-        BasePath, ExternalFileAddressInFileRef, ExternalFileRef, FileContentsWrapper, RangeReadRef,
-    },
+    shared::{ExternalFileAddressInFileRef, ExternalFileRef, FileContentsWrapper, RangeReadRef},
     Error, FileAndPathHelper, FileContents, FileLocation, InlineStackFrame, MultiArchDisambiguator,
 };
 
@@ -234,7 +232,6 @@ struct ArchiveMemberObject<'a, R: ReadRef<'a>> {
 struct ExternalFileData<F: FileContents> {
     name: String,
     file_contents: FileContentsWrapper<F>,
-    base_path: BasePath,
     /// name in bytes -> (start, size) in file_contents
     archive_members_by_name: HashMap<Vec<u8>, (u64, u64)>,
     fat_archive_range: Option<(u64, u64)>,
@@ -243,9 +240,6 @@ struct ExternalFileData<F: FileContents> {
 
 impl<F: FileContents> ExternalFileData<F> {
     pub fn new(file_name: &str, file: F, arch: Option<&str>) -> Result<Self, Error> {
-        let file_path = &Path::new(file_name);
-        let base_path = file_path.parent().unwrap_or(file_path);
-        let base_path = BasePath::CanReferToLocalFiles(base_path.to_owned());
         let mut archive_members_by_name: HashMap<Vec<u8>, (u64, u64)> = HashMap::new();
         let file_contents = FileContentsWrapper::new(file);
         let mut fat_archive_range = None;
@@ -276,7 +270,6 @@ impl<F: FileContents> ExternalFileData<F> {
         Ok(Self {
             name: file_name.to_owned(),
             file_contents,
-            base_path,
             archive_members_by_name,
             fat_archive_range,
             addr2line_context_data: Addr2lineContextData::new(),
@@ -304,7 +297,7 @@ impl<F: FileContents> ExternalFileData<F> {
     }
 
     pub fn make_file_context(&self) -> ExternalFileContext<'_, F> {
-        let path_mapper = PathMapper::new(&self.base_path);
+        let path_mapper = PathMapper::new();
         ExternalFileContext {
             external_file: self,
             member_contexts: Mutex::new(HashMap::new()),

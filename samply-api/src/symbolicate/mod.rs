@@ -234,7 +234,10 @@ fn create_response(
                                 .split_last()
                                 .expect("inline_frames should always have at least one element");
                             DebugInfo {
-                                file: outer.file_path.as_ref().map(|p| p.mapped_path().into()),
+                                file: outer
+                                    .file_path
+                                    .as_ref()
+                                    .map(|p| p.mapped_path_or_path().into()),
                                 line: outer.line_number,
                                 inlines: inlines
                                     .iter()
@@ -243,7 +246,7 @@ fn create_response(
                                         file: inline_frame
                                             .file_path
                                             .as_ref()
-                                            .map(|p| p.mapped_path().into()),
+                                            .map(|p| p.mapped_path_or_path().into()),
                                         line: inline_frame.line_number,
                                     })
                                     .collect(),

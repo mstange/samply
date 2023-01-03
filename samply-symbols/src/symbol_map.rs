@@ -11,6 +11,10 @@ use crate::{
 pub struct SymbolMap(pub(crate) Box<dyn SymbolMapTrait>);
 
 impl SymbolMap {
+    pub fn base_path(&self) -> &BasePath {
+        self.0.base_path()
+    }
+
     pub fn debug_id(&self) -> debugid::DebugId {
         self.0.debug_id()
     }
@@ -29,6 +33,8 @@ impl SymbolMap {
 }
 
 pub trait SymbolMapTrait {
+    fn base_path(&self) -> &BasePath;
+
     fn debug_id(&self) -> DebugId;
 
     fn symbol_count(&self) -> usize;
@@ -89,6 +95,10 @@ pub struct SymbolMapInnerWrapper<'data>(pub Box<dyn SymbolMapTrait + 'data>);
 impl<SMDO: SymbolMapDataOuterTrait> SymbolMapTrait for GenericSymbolMap<SMDO> {
     fn debug_id(&self) -> debugid::DebugId {
         self.0.get().0.debug_id()
+    }
+
+    fn base_path(&self) -> &BasePath {
+        self.0.get().0.base_path()
     }
 
     fn symbol_count(&self) -> usize {

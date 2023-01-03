@@ -80,7 +80,7 @@ impl<'data, R: ReadRef<'data>, FAC: FunctionAddressesComputer<'data>> SymbolMapD
             self.file_data,
             self.supplementary_file_data,
             self.debug_id,
-            PathMapper::new(base_path),
+            base_path.clone(),
             function_starts.as_deref(),
             function_ends.as_deref(),
             self.arch,
@@ -119,6 +119,7 @@ where
     entries: Vec<(u32, FullSymbolListEntry<'data, Symbol>)>,
     debug_id: DebugId,
     arch: Option<&'static str>,
+    base_path: BasePath,
     path_mapper: Mutex<PathMapper<()>>,
     object_map: ObjectMap<'data>,
     context: Option<addr2line::Context<gimli::EndianSlice<'file, gimli::RunTimeEndian>>>,
@@ -146,7 +147,7 @@ where
         data: R,
         sup_data: Option<R>,
         debug_id: DebugId,
-        path_mapper: PathMapper<()>,
+        base_path: BasePath,
         function_start_addresses: Option<&[u32]>,
         function_end_addresses: Option<&[u32]>,
         arch: Option<&'static str>,
@@ -267,10 +268,13 @@ where
             .make_context(data, object_file, sup_data, sup_object_file)
             .ok();
 
+        let path_mapper = Mutex::new(PathMapper::new());
+
         Self {
             entries,
             debug_id,
-            path_mapper: Mutex::new(path_mapper),
+            base_path,
+            path_mapper,
             object_map: object_file.object_map(),
             context,
             arch,
@@ -284,6 +288,10 @@ impl<'data, 'file, Symbol: object::ObjectSymbol<'data>> SymbolMapTrait
 where
     'data: 'file,
 {
+    fn base_path(&self) -> &BasePath {
+        &self.base_path
+    }
+
     fn debug_id(&self) -> DebugId {
         self.debug_id
     }

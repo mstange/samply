@@ -1,8 +1,5 @@
 use regex::Regex;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-
-use crate::shared::{BasePath, FilePath};
 
 pub trait ExtraPathMapper {
     fn map_path(&mut self, path: &str) -> Option<String>;
@@ -15,21 +12,19 @@ impl ExtraPathMapper for () {
 }
 
 pub struct PathMapper<E: ExtraPathMapper> {
-    base_path: BasePath,
-    cache: HashMap<String, FilePath>,
+    cache: HashMap<String, Option<String>>,
     extra_mapper: Option<E>,
     rustc_regex: Regex,
     cargo_dep_regex: Regex,
 }
 
 impl<E: ExtraPathMapper> PathMapper<E> {
-    pub fn new(base_path: &BasePath) -> Self {
-        Self::new_with_maybe_extra_mapper(base_path, None)
+    pub fn new() -> Self {
+        Self::new_with_maybe_extra_mapper(None)
     }
 
-    pub fn new_with_maybe_extra_mapper(base_path: &BasePath, extra_mapper: Option<E>) -> Self {
+    pub fn new_with_maybe_extra_mapper(extra_mapper: Option<E>) -> Self {
         PathMapper {
-            base_path: base_path.clone(),
             cache: HashMap::new(),
             extra_mapper,
             rustc_regex: Regex::new(r"^/rustc/(?P<rev>[0-9a-f]+)\\?[/\\](?P<path>.*)$").unwrap(),
@@ -37,22 +32,11 @@ impl<E: ExtraPathMapper> PathMapper<E> {
         }
     }
 
-    /// Map the raw path to a `FilePath`.
-    ///
-    /// If `self.base_path` is `BasePath::CanReferToLocalFiles`, raw_path can be
-    /// a relative or an absolute path on the local machine which is resolved with
-    /// respect to `self.base_path`.
-    pub fn map_path(&mut self, raw_path: &str) -> FilePath {
+    /// Compute the mapped path for a raw path.
+    pub fn map_path(&mut self, raw_path: &str) -> Option<String> {
         if let Some(extra_mapper) = &mut self.extra_mapper {
             if let Some(mapped_path) = extra_mapper.map_path(raw_path) {
-                let file_path = match &self.base_path {
-                    BasePath::NoLocalSourceFileAccess => FilePath::NonLocal(mapped_path),
-                    BasePath::CanReferToLocalFiles(base) => FilePath::LocalMapped {
-                        local: make_abs_path(base, raw_path),
-                        mapped: mapped_path,
-                    },
-                };
-                return file_path;
+                return Some(mapped_path);
             }
         }
 
@@ -78,40 +62,7 @@ impl<E: ExtraPathMapper> PathMapper<E> {
         } else {
             None
         };
-
-        let file_path = match &self.base_path {
-            BasePath::CanReferToLocalFiles(base) => {
-                let rel_or_abs = Path::new(raw_path);
-                if rel_or_abs.is_absolute() {
-                    // raw_path is an absolute path, referring to a file on this machine.
-                    let local = rel_or_abs.to_owned();
-                    match mapped_path {
-                        Some(mapped) => FilePath::LocalMapped { local, mapped },
-                        None => FilePath::Local(local),
-                    }
-                } else {
-                    // raw_path is a relative path. Treat it as a "mapped" path, unless
-                    // we already have some other mapped path.
-                    let local = base.join(rel_or_abs);
-                    let mapped = mapped_path.unwrap_or_else(|| raw_path.to_owned());
-                    FilePath::LocalMapped { local, mapped }
-                }
-            }
-            BasePath::NoLocalSourceFileAccess => {
-                FilePath::NonLocal(mapped_path.unwrap_or_else(|| raw_path.to_owned()))
-            }
-        };
-
-        self.cache.insert(raw_path.into(), file_path.clone());
-        file_path
-    }
-}
-
-fn make_abs_path(base: &Path, rel_or_abs: &str) -> PathBuf {
-    let rel_or_abs = Path::new(rel_or_abs);
-    if rel_or_abs.is_absolute() {
-        rel_or_abs.to_owned()
-    } else {
-        base.join(rel_or_abs)
+        self.cache.insert(raw_path.into(), mapped_path.clone());
+        mapped_path
     }
 }
