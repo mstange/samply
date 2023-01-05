@@ -164,7 +164,7 @@ fn create_response(
     request: &request_json::Request,
     symbolicated_addresses: HashMap<Lib, Result<LookedUpAddresses, samply_symbols::Error>>,
 ) -> response_json::Response {
-    use response_json::{DebugInfo, InlineStackFrame, Response, Stack, StackFrame, Symbol};
+    use response_json::{DebugInfo, FrameDebugInfo, Response, Stack, StackFrame, Symbol};
 
     fn result_for_job(
         job: &request_json::Job,
@@ -247,7 +247,7 @@ fn create_response(
                                 line: outer.line_number,
                                 inlines: inlines
                                     .iter()
-                                    .map(|inline_frame| InlineStackFrame {
+                                    .map(|inline_frame| FrameDebugInfo {
                                         function: inline_frame.function.clone(),
                                         file: inline_frame
                                             .file_path

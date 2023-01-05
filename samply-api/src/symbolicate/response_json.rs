@@ -59,11 +59,11 @@ pub struct DebugInfo {
     pub line: Option<u32>,
 
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub inlines: Vec<InlineStackFrame>,
+    pub inlines: Vec<FrameDebugInfo>,
 }
 
 #[derive(Serialize, Debug)]
-pub struct InlineStackFrame {
+pub struct FrameDebugInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub function: Option<String>,
 

@@ -2,8 +2,8 @@ use crate::debugid_util::debug_id_for_object;
 use crate::error::{Context, Error};
 use crate::path_mapper::{ExtraPathMapper, PathMapper};
 use crate::shared::{
-    AddressInfo, FileAndPathHelper, FileContents, FileContentsWrapper, FramesLookupResult,
-    InlineStackFrame, SymbolInfo,
+    AddressInfo, FileAndPathHelper, FileContents, FileContentsWrapper, FrameDebugInfo,
+    FramesLookupResult, SymbolInfo,
 };
 use crate::symbol_map::{
     GenericSymbolMap, SymbolMap, SymbolMapDataMidTrait, SymbolMapDataOuterTrait,
@@ -253,7 +253,7 @@ impl<'object> SymbolMapTrait for PdbSymbolMapInner<'object> {
             let frames: Vec<_> = function_frames
                 .frames
                 .into_iter()
-                .map(|frame| InlineStackFrame {
+                .map(|frame| FrameDebugInfo {
                     function: frame.function,
                     file_path: frame.file.map(&mut map_path),
                     line_number: frame.line,

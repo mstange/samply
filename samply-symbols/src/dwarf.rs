@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::path_mapper::PathMapper;
-use crate::shared::InlineStackFrame;
+use crate::shared::FrameDebugInfo;
 use crate::{demangle, Error, FilePath};
 use addr2line::fallible_iterator;
 use addr2line::gimli;
@@ -15,7 +15,7 @@ pub fn get_frames<R: Reader>(
     address: u64,
     context: Option<&addr2line::Context<R>>,
     path_mapper: &mut PathMapper<()>,
-) -> Option<Vec<InlineStackFrame>> {
+) -> Option<Vec<FrameDebugInfo>> {
     let frame_iter = context?.find_frames(address).ok()?;
     let frames: Vec<_> = frame_iter
         .map(|f| Ok(convert_stack_frame(f, &mut *path_mapper)))
@@ -32,7 +32,7 @@ pub fn get_frames<R: Reader>(
 pub fn convert_stack_frame<R: gimli::Reader>(
     frame: addr2line::Frame<R>,
     path_mapper: &mut PathMapper<()>,
-) -> InlineStackFrame {
+) -> FrameDebugInfo {
     let function = match frame.function {
         Some(function_name) => {
             if let Ok(name) = function_name.raw_name() {
@@ -48,7 +48,7 @@ pub fn convert_stack_frame<R: gimli::Reader>(
         FilePath::new(file.into(), mapped_path)
     });
 
-    InlineStackFrame {
+    FrameDebugInfo {
         function,
         file_path,
         line_number: frame.location.and_then(|l| l.line),

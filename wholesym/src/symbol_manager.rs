@@ -5,7 +5,7 @@ use std::{future::Future, pin::Pin};
 use debugid::DebugId;
 use samply_api::samply_symbols::{
     self, AddressInfo, Error, ExternalFileAddressRef, ExternalFileRef, ExternalFileSymbolMap,
-    InlineStackFrame, LibraryInfo, MultiArchDisambiguator,
+    FrameDebugInfo, LibraryInfo, MultiArchDisambiguator,
 };
 use samply_api::Api;
 use yoke::{Yoke, Yokeable};
@@ -187,7 +187,7 @@ impl SymbolManager {
         &self,
         symbol_file_origin: &SymbolFileOrigin,
         address: &ExternalFileAddressRef,
-    ) -> Option<Vec<InlineStackFrame>> {
+    ) -> Option<Vec<FrameDebugInfo>> {
         self.helper_with_symbol_manager
             .get()
             .0
@@ -250,7 +250,7 @@ trait SymbolManagerTrait {
         &'a self,
         symbol_file_origin: &'a SymbolFileOrigin,
         address: &'a ExternalFileAddressRef,
-    ) -> Pin<Box<dyn Future<Output = Option<Vec<InlineStackFrame>>> + 'a + Send>>;
+    ) -> Pin<Box<dyn Future<Output = Option<Vec<FrameDebugInfo>>> + 'a + Send>>;
 
     fn load_external_file<'a>(
         &'a self,
@@ -313,7 +313,7 @@ impl<'h> SymbolManagerTrait for SymbolManagerWrapper<'h> {
         &'a self,
         symbol_file_origin: &'a SymbolFileOrigin,
         address: &'a ExternalFileAddressRef,
-    ) -> Pin<Box<dyn Future<Output = Option<Vec<InlineStackFrame>>> + 'a + Send>> {
+    ) -> Pin<Box<dyn Future<Output = Option<Vec<FrameDebugInfo>>> + 'a + Send>> {
         Box::pin(self.0.lookup_external(&symbol_file_origin.0, address))
     }
 

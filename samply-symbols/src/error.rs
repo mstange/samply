@@ -6,6 +6,7 @@ use thiserror::Error;
 
 use crate::{breakpad::BreakpadParseError, CodeId, FatArchiveMember, LibraryInfo};
 
+/// The error type used in this crate.
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum Error {

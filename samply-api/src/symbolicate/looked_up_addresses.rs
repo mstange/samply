@@ -1,11 +1,11 @@
-use samply_symbols::{AddressDebugInfo, InlineStackFrame};
+use samply_symbols::{AddressDebugInfo, FrameDebugInfo};
 use std::collections::BTreeMap;
 
 pub struct AddressResult {
     pub symbol_address: u32,
     pub symbol_name: String,
     pub function_size: Option<u32>,
-    pub inline_frames: Option<Vec<InlineStackFrame>>,
+    pub inline_frames: Option<Vec<FrameDebugInfo>>,
 }
 
 pub type AddressResults = BTreeMap<u32, Option<AddressResult>>;

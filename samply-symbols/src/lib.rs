@@ -242,7 +242,7 @@ pub use crate::shared::{
     relative_address_base, AddressDebugInfo, AddressInfo, CandidatePathInfo, CodeId, ElfBuildId,
     ExternalFileAddressInFileRef, ExternalFileAddressRef, ExternalFileRef, FileAndPathHelper,
     FileAndPathHelperError, FileAndPathHelperResult, FileContents, FileContentsWrapper,
-    FileLocation, FilePath, FramesLookupResult, InlineStackFrame, LibraryInfo,
+    FileLocation, FilePath, FrameDebugInfo, FramesLookupResult, LibraryInfo,
     MultiArchDisambiguator, OptionallySendFuture, PeCodeId, SymbolInfo,
 };
 pub use crate::symbol_map::SymbolMap;
@@ -372,7 +372,7 @@ where
         &self,
         debug_file_location: &H::FL,
         address: &ExternalFileAddressRef,
-    ) -> Option<Vec<InlineStackFrame>> {
+    ) -> Option<Vec<FrameDebugInfo>> {
         {
             let cached_external_file = self.cached_external_file.lock().ok()?;
             match &*cached_external_file {

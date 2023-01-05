@@ -8,7 +8,7 @@ use crate::{
     macho,
     path_mapper::PathMapper,
     shared::{ExternalFileAddressInFileRef, ExternalFileRef, FileContentsWrapper, RangeReadRef},
-    Error, FileAndPathHelper, FileContents, FileLocation, InlineStackFrame, MultiArchDisambiguator,
+    Error, FileAndPathHelper, FileContents, FileLocation, FrameDebugInfo, MultiArchDisambiguator,
 };
 
 pub async fn load_external_file<'h, H>(
@@ -46,7 +46,7 @@ impl<'a> ExternalFileMemberContext<'a> {
         symbol_name: &[u8],
         offset_from_symbol: u32,
         path_mapper: &mut PathMapper<()>,
-    ) -> Option<Vec<InlineStackFrame>> {
+    ) -> Option<Vec<FrameDebugInfo>> {
         let symbol_address = self.symbol_addresses.get(symbol_name)?;
         let address = symbol_address + offset_from_symbol as u64;
         get_frames(address, self.context.as_ref(), path_mapper)
@@ -77,14 +77,14 @@ trait ExternalFileContextTrait {
     fn lookup(
         &self,
         external_file_address: &ExternalFileAddressInFileRef,
-    ) -> Option<Vec<InlineStackFrame>>;
+    ) -> Option<Vec<FrameDebugInfo>>;
 }
 
 impl<'a, F: FileContents> ExternalFileContextTrait for ExternalFileContext<'a, F> {
     fn lookup(
         &self,
         external_file_address: &ExternalFileAddressInFileRef,
-    ) -> Option<Vec<InlineStackFrame>> {
+    ) -> Option<Vec<FrameDebugInfo>> {
         let member_key = external_file_address
             .name_in_archive
             .as_deref()
@@ -124,7 +124,7 @@ trait ExternalFileSymbolMapTrait {
     fn lookup(
         &self,
         external_file_address: &ExternalFileAddressInFileRef,
-    ) -> Option<Vec<InlineStackFrame>>;
+    ) -> Option<Vec<FrameDebugInfo>>;
 }
 
 impl<F: FileContents + 'static> ExternalFileSymbolMapImpl<F> {
@@ -154,28 +154,40 @@ impl<F: FileContents + 'static> ExternalFileSymbolMapTrait for ExternalFileSymbo
     fn lookup(
         &self,
         external_file_address: &ExternalFileAddressInFileRef,
-    ) -> Option<Vec<InlineStackFrame>> {
+    ) -> Option<Vec<FrameDebugInfo>> {
         self.0.get().0.lookup(external_file_address)
     }
 }
 
+/// A symbol map for an external object file. You usually don't need this because
+/// you usually call `SymbolManager::lookup_external`.
 #[cfg(feature = "send_futures")]
 pub struct ExternalFileSymbolMap(Box<dyn ExternalFileSymbolMapTrait + Send + Sync>);
 
+/// A symbol map for an external object file. You usually don't need this because
+/// you usually call `SymbolManager::lookup_external`.
 #[cfg(not(feature = "send_futures"))]
 pub struct ExternalFileSymbolMap(Box<dyn ExternalFileSymbolMapTrait>);
 
 impl ExternalFileSymbolMap {
+    /// The string which identifies this external file. This is usually an absolute
+    /// path. (XXX does this contain the `archive.a(membername)` stuff or no?)
     pub fn name(&self) -> &str {
         self.0.name()
     }
+
+    /// Checks whether `external_file_ref` refers to this external file.
+    ///
+    /// Used to avoid repeated loading of the same external file.
     pub fn is_same_file(&self, external_file_ref: &ExternalFileRef) -> bool {
         self.0.is_same_file(external_file_ref)
     }
+
+    /// Look up the debug info for the given [`ExternalFileAddressInFileRef`].
     pub fn lookup(
         &self,
         external_file_address: &ExternalFileAddressInFileRef,
-    ) -> Option<Vec<InlineStackFrame>> {
+    ) -> Option<Vec<FrameDebugInfo>> {
         self.0.lookup(external_file_address)
     }
 }

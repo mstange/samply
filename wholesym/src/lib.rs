@@ -12,7 +12,7 @@ pub use config::SymbolManagerConfig;
 pub use samply_api::samply_symbols;
 pub use samply_api::samply_symbols::{
     AddressInfo, CodeId, ElfBuildId, Error, ExternalFileAddressInFileRef, ExternalFileAddressRef,
-    ExternalFileRef, ExternalFileSymbolMap, FilePath, FramesLookupResult, InlineStackFrame,
+    ExternalFileRef, ExternalFileSymbolMap, FilePath, FrameDebugInfo, FramesLookupResult,
     LibraryInfo, MultiArchDisambiguator, PeCodeId, SymbolInfo,
 };
 pub use symbol_manager::{SymbolFileOrigin, SymbolManager, SymbolMap};
