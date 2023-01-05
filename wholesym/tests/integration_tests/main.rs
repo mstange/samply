@@ -65,11 +65,11 @@ fn dwz_symbolication() {
     let config = wholesym::SymbolManagerConfig::default()
         .verbose(true)
         .redirect_path_for_testing(
-            "/usr/lib/debug/.build-id/63/260a3e6e46db57abf718f6a3562c6eedccf269.debug".into(),
+            "/usr/lib/debug/.build-id/63/260a3e6e46db57abf718f6a3562c6eedccf269.debug",
             ls_dir.join("260a3e6e46db57abf718f6a3562c6eedccf269.debug"),
         )
         .redirect_path_for_testing(
-            "/usr/lib/debug/.dwz/aarch64-linux-gnu/coreutils.debug".into(),
+            "/usr/lib/debug/.dwz/aarch64-linux-gnu/coreutils.debug",
             ls_dir.join("coreutils.debug"),
         );
     let symbol_manager = wholesym::SymbolManager::with_config(config);

@@ -35,8 +35,13 @@ impl SymbolManagerConfig {
     ///
     /// This can be used to test debug files which refer to other files on the file system with
     /// absolute paths, by redirecting those absolute paths to a path in the test fixtures directory.
-    pub fn redirect_path_for_testing(mut self, redirect_path: PathBuf, dest_path: PathBuf) -> Self {
-        self.redirect_paths.insert(redirect_path, dest_path);
+    pub fn redirect_path_for_testing(
+        mut self,
+        redirect_path: impl Into<PathBuf>,
+        dest_path: impl Into<PathBuf>,
+    ) -> Self {
+        self.redirect_paths
+            .insert(redirect_path.into(), dest_path.into());
         self
     }
 
