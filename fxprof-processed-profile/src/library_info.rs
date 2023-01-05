@@ -46,10 +46,11 @@ pub struct LibraryInfo {
     /// symbol file from a symbol server.
     pub code_id: Option<CodeId>,
     /// An optional string with the CPU arch of this library, for example "x86_64",
-    /// "arm64", or "arm64e". Historically, this was used on macOS to find the
-    /// correct sub-binary in a fat binary. But we now use the debug_id for that
-    /// purpose. But it could still be used to find the right dyld shared cache for
-    /// system libraries on macOS.
+    /// "arm64", or "arm64e". This is used for macOS system libraries in the dyld
+    /// shared cache, in order to avoid loading the wrong cache files, as a
+    /// performance optimization. In the past, this was also used to find the
+    /// correct sub-binary in a mach-O fat binary. But we now use the debug_id for that
+    /// purpose.
     pub arch: Option<String>,
     /// An optional symbol table, for "pre-symbolicating" stack frames.
     ///

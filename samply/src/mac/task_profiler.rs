@@ -195,7 +195,7 @@ impl TaskProfiler {
                                 debug_path: path.to_string(),
                                 debug_id: lib.debug_id.unwrap(),
                                 code_id: None,
-                                arch: Some("x86_64".to_string()),
+                                arch: lib.arch.map(ToOwned::to_owned),
                                 symbol_table: None,
                             },
                         );
