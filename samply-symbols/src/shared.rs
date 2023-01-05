@@ -205,6 +205,8 @@ impl std::fmt::Display for ElfBuildId {
     }
 }
 
+/// Information about a library ("binary" / "module" / "DSO") which allows finding
+/// symbol files for it. The information can be partial.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct LibraryInfo {
     pub debug_name: Option<String>,
