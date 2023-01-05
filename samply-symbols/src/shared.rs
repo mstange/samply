@@ -390,14 +390,6 @@ pub trait FileContents: Send + Sync {
     ) -> FileAndPathHelperResult<()>;
 }
 
-#[derive(Debug, Clone)]
-pub struct AddressDebugInfo {
-    /// A non-empty "inline stack" of frames at the looked-up address. Ordered from inside to outside.
-    ///
-    /// The last frame is the outer function, the other frames are inlined functions.
-    pub frames: Vec<FrameDebugInfo>,
-}
-
 /// The debug information (function name, file path, line number) for a single frame
 /// at the looked-up address.
 #[derive(Debug, Clone, PartialEq, Eq)]

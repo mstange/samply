@@ -239,7 +239,7 @@ pub use crate::error::Error;
 pub use crate::external_file::{load_external_file, ExternalFileSymbolMap};
 pub use crate::macho::FatArchiveMember;
 pub use crate::shared::{
-    relative_address_base, AddressDebugInfo, AddressInfo, CandidatePathInfo, CodeId, ElfBuildId,
+    relative_address_base, AddressInfo, CandidatePathInfo, CodeId, ElfBuildId,
     ExternalFileAddressInFileRef, ExternalFileAddressRef, ExternalFileRef, FileAndPathHelper,
     FileAndPathHelperError, FileAndPathHelperResult, FileContents, FileContentsWrapper,
     FileLocation, FilePath, FrameDebugInfo, FramesLookupResult, LibraryInfo,

@@ -1,4 +1,4 @@
-use samply_symbols::{AddressDebugInfo, FrameDebugInfo};
+use samply_symbols::FrameDebugInfo;
 use std::collections::BTreeMap;
 
 pub struct AddressResult {
@@ -38,8 +38,8 @@ impl LookedUpAddresses {
         });
     }
 
-    pub fn add_address_debug_info(&mut self, address: u32, info: AddressDebugInfo) {
-        let outer_function_name = info.frames.last().and_then(|f| f.function.as_deref());
+    pub fn add_address_debug_info(&mut self, address: u32, frames: Vec<FrameDebugInfo>) {
+        let outer_function_name = frames.last().and_then(|f| f.function.as_deref());
         let entry = self.address_results.get_mut(&address).unwrap();
 
         match entry {
@@ -49,7 +49,7 @@ impl LookedUpAddresses {
                     address_result.symbol_name = name.to_string();
                 }
                 // Add the inline frame info.``
-                address_result.inline_frames = Some(info.frames);
+                address_result.inline_frames = Some(frames);
             }
             None => {
                 // add_address_symbol has not been called for this address.
@@ -60,7 +60,7 @@ impl LookedUpAddresses {
                     symbol_name: outer_function_name
                         .map_or_else(|| format!("0x{:x}", address), str::to_string),
                     function_size: None,
-                    inline_frames: Some(info.frames),
+                    inline_frames: Some(frames),
                 });
             }
         }

@@ -1,8 +1,6 @@
 use crate::error::Error;
 use crate::to_debug_id;
-use samply_symbols::{
-    AddressDebugInfo, FileAndPathHelper, FramesLookupResult, LibraryInfo, SymbolManager,
-};
+use samply_symbols::{FileAndPathHelper, FramesLookupResult, LibraryInfo, SymbolManager};
 use std::collections::HashMap;
 
 pub mod looked_up_addresses;
@@ -102,8 +100,9 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SymbolicateApi<'a, 'h, H> {
                         address_info.symbol.size,
                     );
                     match address_info.frames {
-                        FramesLookupResult::Available(frames) => symbolication_result
-                            .add_address_debug_info(address, AddressDebugInfo { frames }),
+                        FramesLookupResult::Available(frames) => {
+                            symbolication_result.add_address_debug_info(address, frames)
+                        }
                         FramesLookupResult::External(ext_address) => {
                             external_addresses.push((address, ext_address));
                         }
@@ -125,7 +124,7 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SymbolicateApi<'a, 'h, H> {
                 .lookup_external(&debug_file_location, &ext_address)
                 .await
             {
-                symbolication_result.add_address_debug_info(address, AddressDebugInfo { frames });
+                symbolication_result.add_address_debug_info(address, frames);
             }
         }
 
