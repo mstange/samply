@@ -13,26 +13,48 @@ use yoke::{Yoke, Yokeable};
 use crate::config::SymbolManagerConfig;
 use crate::helper::{FileReadOnlyHelper, Helper, WholesymFileLocation};
 
+/// Used in [`SymbolManager::lookup_external`] and [`SymbolManager::load_external_file`].
+#[derive(Debug, Clone)]
+pub struct SymbolFileOrigin(WholesymFileLocation);
+
+/// Contains the symbols for a binary, and allows querying them by address and iterating over them.
 pub struct SymbolMap(samply_api::samply_symbols::SymbolMap<WholesymFileLocation>);
 
 impl SymbolMap {
+    /// Look up symbol information by "relative address".
+    pub fn lookup(&self, address: u32) -> Option<AddressInfo> {
+        self.0.lookup(address)
+    }
+
+    /// Returns an abstract "origin token" which needs to be passed to [`SymbolManager::lookup_external`]
+    /// when resolving [`FramesLookupResult::External`](crate::FramesLookupResult::External) addresses.
+    ///
+    /// Internally, this is used to ensure that we only follow absolute paths to external object files
+    /// which were found in local symbol files, not those which were found in symbol files which were
+    /// downloaded from a symbol server.
+    pub fn symbol_file_origin(&self) -> SymbolFileOrigin {
+        SymbolFileOrigin(self.0.debug_file_location().clone())
+    }
+
+    /// The Debug ID of the binary that is described by the symbol information in this `SymbolMap`.
     pub fn debug_id(&self) -> debugid::DebugId {
         self.0.debug_id()
     }
 
+    /// The number of symbols (usually function entries) in this `SymbolMap`.
     pub fn symbol_count(&self) -> usize {
         self.0.symbol_count()
     }
 
+    /// Iterate over all symbols in this `SymbolMap`.
+    ///
+    /// This iterator yields the relative address and the name of each symbol.
     pub fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {
         self.0.iter_symbols()
     }
-
-    pub fn lookup(&self, address: u32) -> Option<AddressInfo> {
-        self.0.lookup(address)
-    }
 }
 
+/// Allows obtaining [`SymbolMap`]s.
 pub struct SymbolManager {
     helper_with_symbol_manager: Yoke<SymbolManagerWrapperTypeErased<'static>, Box<Helper>>,
 }
@@ -70,7 +92,7 @@ impl SymbolManager {
             .await
     }
 
-    /// Computes the `LibraryInfo` for the given binary. This `LibraryInfo`
+    /// Computes the [`LibraryInfo`] for the given binary. This [`LibraryInfo`]
     /// can be stored and used to identify symbol data for this binary at a later
     /// time.
     ///
@@ -142,8 +164,8 @@ impl SymbolManager {
             .await
     }
 
-    /// Resolve a debug info lookup for which `SymbolMap::lookup` returned a
-    /// `FramesLookupResult::External`.
+    /// Resolve a debug info lookup for which [`SymbolMap::lookup`] returned
+    /// [`FramesLookupResult::External`](crate::FramesLookupResult::External).
     ///
     /// This method is asynchronous because it may load a new external file.
     ///
@@ -155,19 +177,21 @@ impl SymbolManager {
     /// `FramesLookupResult::External` from the lookups. Then the address needs to be
     /// looked up in the external file.
     ///
+    /// In the future, this may also be used for loading `.dwo` or `.dwp` files on Linux.
+    ///
     /// The `SymbolManager` keeps the most recent external file cached, so that repeated
     /// calls to `lookup_external` for the same external file are fast. If the set of
     /// addresses for lookup is known ahead-of-time, sorting these addresses upfront can
     /// achieve a very good hit rate.
     pub async fn lookup_external(
         &self,
-        symbol_map: &SymbolMap,
+        symbol_file_origin: &SymbolFileOrigin,
         address: &ExternalFileAddressRef,
     ) -> Option<Vec<InlineStackFrame>> {
         self.helper_with_symbol_manager
             .get()
             .0
-            .lookup_external(symbol_map, address)
+            .lookup_external(symbol_file_origin, address)
             .await
     }
 
@@ -176,13 +200,13 @@ impl SymbolManager {
     /// and can be used if more control over caching is desired.
     pub async fn load_external_file(
         &self,
-        symbol_map: &SymbolMap,
+        symbol_file_origin: &SymbolFileOrigin,
         external_file_ref: &ExternalFileRef,
     ) -> Result<ExternalFileSymbolMap, Error> {
         self.helper_with_symbol_manager
             .get()
             .0
-            .load_external_file(symbol_map, external_file_ref)
+            .load_external_file(symbol_file_origin, external_file_ref)
             .await
     }
 
@@ -224,13 +248,13 @@ trait SymbolManagerTrait {
 
     fn lookup_external<'a>(
         &'a self,
-        symbol_map: &'a SymbolMap,
+        symbol_file_origin: &'a SymbolFileOrigin,
         address: &'a ExternalFileAddressRef,
     ) -> Pin<Box<dyn Future<Output = Option<Vec<InlineStackFrame>>> + 'a + Send>>;
 
     fn load_external_file<'a>(
         &'a self,
-        symbol_map: &'a SymbolMap,
+        symbol_file_origin: &'a SymbolFileOrigin,
         external_file_ref: &'a ExternalFileRef,
     ) -> Pin<Box<dyn Future<Output = Result<ExternalFileSymbolMap, Error>> + 'a + Send>>;
 
@@ -287,23 +311,20 @@ impl<'h> SymbolManagerTrait for SymbolManagerWrapper<'h> {
 
     fn lookup_external<'a>(
         &'a self,
-        symbol_map: &'a SymbolMap,
+        symbol_file_origin: &'a SymbolFileOrigin,
         address: &'a ExternalFileAddressRef,
     ) -> Pin<Box<dyn Future<Output = Option<Vec<InlineStackFrame>>> + 'a + Send>> {
-        Box::pin(
-            self.0
-                .lookup_external(symbol_map.0.debug_file_location(), address),
-        )
+        Box::pin(self.0.lookup_external(&symbol_file_origin.0, address))
     }
 
     fn load_external_file<'a>(
         &'a self,
-        symbol_map: &'a SymbolMap,
+        symbol_file_origin: &'a SymbolFileOrigin,
         external_file_ref: &'a ExternalFileRef,
     ) -> Pin<Box<dyn Future<Output = Result<ExternalFileSymbolMap, Error>> + 'a + Send>> {
         Box::pin(
             self.0
-                .load_external_file(symbol_map.0.debug_file_location(), external_file_ref),
+                .load_external_file(&symbol_file_origin.0, external_file_ref),
         )
     }
 

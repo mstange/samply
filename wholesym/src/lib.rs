@@ -13,6 +13,6 @@ pub use samply_api::samply_symbols;
 pub use samply_api::samply_symbols::{
     AddressInfo, CodeId, ElfBuildId, Error, ExternalFileAddressInFileRef, ExternalFileAddressRef,
     ExternalFileRef, ExternalFileSymbolMap, FilePath, FramesLookupResult, InlineStackFrame,
-    LibraryInfo, MultiArchDisambiguator, PeCodeId, SymbolInfo, SymbolMap,
+    LibraryInfo, MultiArchDisambiguator, PeCodeId, SymbolInfo,
 };
-pub use symbol_manager::SymbolManager;
+pub use symbol_manager::{SymbolFileOrigin, SymbolManager, SymbolMap};

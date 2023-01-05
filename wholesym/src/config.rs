@@ -2,6 +2,9 @@ use std::{collections::HashMap, path::PathBuf};
 
 use symsrv::{parse_nt_symbol_path, NtSymbolPathEntry};
 
+/// The configuration of a [`SymbolManager`](crate::SymbolManager).
+///
+/// Allows specifying various sources of symbol files.
 #[derive(Debug, Clone, Default)]
 pub struct SymbolManagerConfig {
     pub(crate) verbose: bool,
@@ -17,10 +20,12 @@ pub struct SymbolManagerConfig {
 }
 
 impl SymbolManagerConfig {
+    /// Create a new `SymbolManagerConfig` in its default state.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Turns logging on or off.
     pub fn verbose(mut self, verbose: bool) -> Self {
         self.verbose = verbose;
         self
