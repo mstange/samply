@@ -19,7 +19,7 @@ pub struct Request {
     pub module_offset: u32,
 
     /// The full path of the requested file, must match exactly what
-    /// /symbolicate/v5 returned in its response json for the give
+    /// /symbolicate/v5 returned in its response json for the given
     /// address.
     pub file: String,
 }
