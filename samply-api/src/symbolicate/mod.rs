@@ -1,5 +1,5 @@
-use crate::error::Error;
 use crate::to_debug_id;
+use crate::{api_file_path::to_api_file_path, error::Error};
 use samply_symbols::{FileAndPathHelper, FramesLookupResult, LibraryInfo, SymbolManager};
 use std::collections::HashMap;
 
@@ -239,19 +239,13 @@ fn create_response(
                                 .split_last()
                                 .expect("inline_frames should always have at least one element");
                             DebugInfo {
-                                file: outer
-                                    .file_path
-                                    .as_ref()
-                                    .map(|p| p.mapped_path_or_path().into()),
+                                file: outer.file_path.as_ref().map(to_api_file_path),
                                 line: outer.line_number,
                                 inlines: inlines
                                     .iter()
                                     .map(|inline_frame| FrameDebugInfo {
                                         function: inline_frame.function.clone(),
-                                        file: inline_frame
-                                            .file_path
-                                            .as_ref()
-                                            .map(|p| p.mapped_path_or_path().into()),
+                                        file: inline_frame.file_path.as_ref().map(to_api_file_path),
                                         line: inline_frame.line_number,
                                     })
                                     .collect(),

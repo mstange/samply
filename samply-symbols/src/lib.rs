@@ -225,6 +225,7 @@ mod elf;
 mod error;
 mod external_file;
 mod macho;
+mod mapped_path;
 mod path_mapper;
 mod shared;
 mod symbol_map;
@@ -238,6 +239,7 @@ pub use crate::debugid_util::{debug_id_for_object, DebugIdExt};
 pub use crate::error::Error;
 pub use crate::external_file::{load_external_file, ExternalFileSymbolMap};
 pub use crate::macho::FatArchiveMember;
+pub use crate::mapped_path::MappedPath;
 pub use crate::shared::{
     relative_address_base, AddressInfo, CandidatePathInfo, CodeId, ElfBuildId,
     ExternalFileAddressInFileRef, ExternalFileAddressRef, ExternalFileRef, FileAndPathHelper,
@@ -274,10 +276,10 @@ where
     pub async fn load_source_file(
         &self,
         debug_file_location: &H::FL,
-        source_file_path: &str,
+        source_file_path: &FilePath,
     ) -> Result<String, Error> {
         let source_file_location = debug_file_location
-            .location_for_source_file(source_file_path)
+            .location_for_source_file(source_file_path.raw_path())
             .ok_or(Error::FileLocationRefusedSourceFileLocation)?;
         let file_contents = self
             .helper

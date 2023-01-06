@@ -145,6 +145,7 @@ use serde_json::json;
 use source::SourceApi;
 use symbolicate::SymbolicateApi;
 
+mod api_file_path;
 mod asm;
 mod error;
 mod hex;

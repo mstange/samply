@@ -1,4 +1,4 @@
-use crate::to_debug_id;
+use crate::{api_file_path::to_api_file_path, to_debug_id};
 use samply_symbols::{
     FileAndPathHelper, FileAndPathHelperError, FramesLookupResult, LibraryInfo, SymbolManager,
 };
@@ -91,18 +91,18 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SourceApi<'a, 'h, H> {
             FramesLookupResult::Unavailable => return Err(SourceError::NoDebugInfo),
         };
 
-        // Find the FilePath whose mapped path matches the requested file. This gives us the raw path.
+        // Find the FilePath whose "api file path" matches the requested file.
         // This is where we check that the requested file path is permissible.
         let source_file_path = frames
             .into_iter()
             .filter_map(|frame| frame.file_path)
-            .find(|file_path| *file_path.mapped_path_or_path() == *requested_file)
+            .find(|file_path| to_api_file_path(file_path) == *requested_file)
             .ok_or(SourceError::InvalidPath)?;
 
         // If we got here, it means that the file access is allowed. Read the file.
         let source = self
             .symbol_manager
-            .load_source_file(&debug_file_location, source_file_path.file_path())
+            .load_source_file(&debug_file_location, &source_file_path)
             .await?;
 
         Ok(response_json::Response {

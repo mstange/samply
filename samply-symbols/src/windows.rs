@@ -10,7 +10,7 @@ use crate::symbol_map::{
     SymbolMapInnerWrapper, SymbolMapTrait,
 };
 use crate::symbol_map_object::{FunctionAddressesComputer, ObjectSymbolMapDataMid};
-use crate::{demangle, FileLocation, FilePath};
+use crate::{demangle, FileLocation, FilePath, MappedPath};
 use debugid::DebugId;
 use object::{File, FileKind};
 use pdb::PDB;
@@ -323,7 +323,7 @@ where
 ///   - "s3:<bucket>:<digest_and_path>:"
 struct SrcSrvPathMapper<'a> {
     srcsrv_stream: srcsrv::SrcSrvStream<'a>,
-    cache: HashMap<String, Option<String>>,
+    cache: HashMap<String, Option<MappedPath>>,
     github_regex: Regex,
     hg_regex: Regex,
     s3_regex: Regex,
@@ -332,7 +332,7 @@ struct SrcSrvPathMapper<'a> {
 }
 
 impl<'a> ExtraPathMapper for SrcSrvPathMapper<'a> {
-    fn map_path(&mut self, path: &str) -> Option<String> {
+    fn map_path(&mut self, path: &str) -> Option<MappedPath> {
         if let Some(value) = self.cache.get(path) {
             return value.clone();
         }
@@ -342,12 +342,12 @@ impl<'a> ExtraPathMapper for SrcSrvPathMapper<'a> {
             .source_and_raw_var_values_for_path(path, "C:\\Dummy")
         {
             Ok(Some((srcsrv::SourceRetrievalMethod::Download { url }, _map))) => {
-                Some(self.url_to_special_path(&url))
+                self.url_to_mapped_path(&url)
             }
             Ok(Some((srcsrv::SourceRetrievalMethod::ExecuteCommand { .. }, map))) => {
                 // We're not going to execute a command here.
                 // Instead, we have special handling for a few known cases (well, only one case for now).
-                self.gitiles_to_special_path(&map)
+                self.gitiles_to_mapped_path(&map)
             }
             _ => None,
         };
@@ -366,7 +366,7 @@ impl<'a> SrcSrvPathMapper<'a> {
             cache: HashMap::new(),
             github_regex: Regex::new(r"^https://raw\.githubusercontent\.com/(?P<repo>[^/]+/[^/]+)/(?P<rev>[^/]+)/(?P<path>.*)$").unwrap(),
             hg_regex: Regex::new(r"^https://(?P<repo>hg\..+)/raw-file/(?P<rev>[0-9a-f]+)/(?P<path>.*)$").unwrap(),
-            s3_regex: Regex::new(r"^https://(?P<bucket>[^/]+).s3.amazonaws.com/(?P<digest_and_path>.*)$").unwrap(),
+            s3_regex: Regex::new(r"^https://(?P<bucket>[^/]+).s3.amazonaws.com/(?P<digest>[^/]+)/(?P<path>.*)$").unwrap(),
             gitiles_regex: Regex::new(r"^https://(?P<repo>.+)\.git/\+/(?P<rev>[^/]+)/(?P<path>.*)\?format=TEXT$").unwrap(),
             command_is_file_download_with_url_in_var4_and_uncompress_function_in_var5,
         }
@@ -415,7 +415,7 @@ impl<'a> SrcSrvPathMapper<'a> {
     ///
     /// Due to this limitation, the Chrome PDBs contain a workaround which uses python to do the
     /// base64 decoding. We detect this workaround and try to obtain the original paths.
-    fn gitiles_to_special_path(&self, map: &HashMap<String, String>) -> Option<String> {
+    fn gitiles_to_mapped_path(&self, map: &HashMap<String, String>) -> Option<MappedPath> {
         if !self.command_is_file_download_with_url_in_var4_and_uncompress_function_in_var5 {
             return None;
         }
@@ -429,35 +429,40 @@ impl<'a> SrcSrvPathMapper<'a> {
         // -> "git:chromium.googlesource.com/chromium/src:third_party/blink/renderer/core/svg/svg_point.cc:c15858db55ed54c230743eaa9678117f21d5517e"
         let url = map.get("var4")?;
         let captures = self.gitiles_regex.captures(url)?;
-        let repo = captures.name("repo").unwrap().as_str();
-        let path = captures.name("path").unwrap().as_str();
-        let rev = captures.name("rev").unwrap().as_str();
-        Some(format!("git:{}:{}:{}", repo, path, rev))
+        let repo = captures.name("repo").unwrap().as_str().to_owned();
+        let path = captures.name("path").unwrap().as_str().to_owned();
+        let rev = captures.name("rev").unwrap().as_str().to_owned();
+        Some(MappedPath::Git { repo, path, rev })
     }
 
-    fn url_to_special_path(&self, url: &str) -> String {
+    fn url_to_mapped_path(&self, url: &str) -> Option<MappedPath> {
         if let Some(captures) = self.github_regex.captures(url) {
             // https://raw.githubusercontent.com/baldurk/renderdoc/v1.15/renderdoc/data/glsl/gl_texsample.h
             // -> "git:github.com/baldurk/renderdoc:renderdoc/data/glsl/gl_texsample.h:v1.15"
-            let repo = captures.name("repo").unwrap().as_str();
-            let path = captures.name("path").unwrap().as_str();
-            let rev = captures.name("rev").unwrap().as_str();
-            format!("git:github.com/{}:{}:{}", repo, path, rev)
+            let repo = captures.name("repo").unwrap().as_str().to_owned();
+            let path = captures.name("path").unwrap().as_str().to_owned();
+            let rev = captures.name("rev").unwrap().as_str().to_owned();
+            Some(MappedPath::Git { repo, path, rev })
         } else if let Some(captures) = self.hg_regex.captures(url) {
             // "https://hg.mozilla.org/mozilla-central/raw-file/1706d4d54ec68fae1280305b70a02cb24c16ff68/mozglue/baseprofiler/core/ProfilerBacktrace.cpp"
             // -> "hg:hg.mozilla.org/mozilla-central:mozglue/baseprofiler/core/ProfilerBacktrace.cpp:1706d4d54ec68fae1280305b70a02cb24c16ff68"
-            let repo = captures.name("repo").unwrap().as_str();
-            let path = captures.name("path").unwrap().as_str();
-            let rev = captures.name("rev").unwrap().as_str();
-            format!("hg:{}:{}:{}", repo, path, rev)
+            let repo = captures.name("repo").unwrap().as_str().to_owned();
+            let path = captures.name("path").unwrap().as_str().to_owned();
+            let rev = captures.name("rev").unwrap().as_str().to_owned();
+            Some(MappedPath::Hg { repo, path, rev })
         } else if let Some(captures) = self.s3_regex.captures(url) {
             // "https://gecko-generated-sources.s3.amazonaws.com/7a1db5dfd0061d0e0bcca227effb419a20439aef4f6c4e9cd391a9f136c6283e89043d62e63e7edbd63ad81c339c401092bcfeff80f74f9cae8217e072f0c6f3/x86_64-pc-windows-msvc/release/build/swgl-59e3a0e09f56f4ea/out/brush_solid_DEBUG_OVERDRAW.h"
             // -> "s3:gecko-generated-sources:7a1db5dfd0061d0e0bcca227effb419a20439aef4f6c4e9cd391a9f136c6283e89043d62e63e7edbd63ad81c339c401092bcfeff80f74f9cae8217e072f0c6f3/x86_64-pc-windows-msvc/release/build/swgl-59e3a0e09f56f4ea/out/brush_solid_DEBUG_OVERDRAW.h:"
-            let bucket = captures.name("bucket").unwrap().as_str();
-            let digest_and_path = captures.name("digest_and_path").unwrap().as_str();
-            format!("s3:{}:{}:", bucket, digest_and_path)
+            let bucket = captures.name("bucket").unwrap().as_str().to_owned();
+            let digest = captures.name("digest").unwrap().as_str().to_owned();
+            let path = captures.name("path").unwrap().as_str().to_owned();
+            Some(MappedPath::S3 {
+                bucket,
+                digest,
+                path,
+            })
         } else {
-            url.to_string()
+            None
         }
     }
 }

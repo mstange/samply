@@ -1,18 +1,21 @@
 use regex::Regex;
+
+use crate::MappedPath;
+
 use std::collections::HashMap;
 
 pub trait ExtraPathMapper {
-    fn map_path(&mut self, path: &str) -> Option<String>;
+    fn map_path(&mut self, path: &str) -> Option<MappedPath>;
 }
 
 impl ExtraPathMapper for () {
-    fn map_path(&mut self, _path: &str) -> Option<String> {
+    fn map_path(&mut self, _path: &str) -> Option<MappedPath> {
         None
     }
 }
 
 pub struct PathMapper<E: ExtraPathMapper> {
-    cache: HashMap<String, Option<String>>,
+    cache: HashMap<String, Option<MappedPath>>,
     extra_mapper: Option<E>,
     rustc_regex: Regex,
     cargo_dep_regex: Regex,
@@ -33,7 +36,7 @@ impl<E: ExtraPathMapper> PathMapper<E> {
     }
 
     /// Compute the mapped path for a raw path.
-    pub fn map_path(&mut self, raw_path: &str) -> Option<String> {
+    pub fn map_path(&mut self, raw_path: &str) -> Option<MappedPath> {
         if let Some(extra_mapper) = &mut self.extra_mapper {
             if let Some(mapped_path) = extra_mapper.map_path(raw_path) {
                 return Some(mapped_path);
@@ -45,20 +48,26 @@ impl<E: ExtraPathMapper> PathMapper<E> {
         }
 
         let mapped_path = if let Some(captures) = self.rustc_regex.captures(raw_path) {
-            let rev = captures.name("rev").unwrap().as_str();
+            let rev = captures.name("rev").unwrap().as_str().to_owned();
             let path = captures.name("path").unwrap().as_str();
             let path = path.replace('\\', "/");
-            Some(format!("git:github.com/rust-lang/rust:{}:{}", path, rev))
+            Some(MappedPath::Git {
+                repo: "github.com/rust-lang/rust".into(),
+                path,
+                rev,
+            })
         } else if let Some(captures) = self.cargo_dep_regex.captures(raw_path) {
-            let registry = captures.name("registry").unwrap().as_str();
-            let crate_ = captures.name("crate").unwrap().as_str();
-            let version = captures.name("version").unwrap().as_str();
+            let registry = captures.name("registry").unwrap().as_str().to_owned();
+            let crate_name = captures.name("crate").unwrap().as_str().to_owned();
+            let version = captures.name("version").unwrap().as_str().to_owned();
             let path = captures.name("path").unwrap().as_str();
             let path = path.replace('\\', "/");
-            Some(format!(
-                "cargo:{}:{}-{}:{}",
-                registry, crate_, version, path
-            ))
+            Some(MappedPath::Cargo {
+                registry,
+                crate_name,
+                version,
+                path,
+            })
         } else {
             None
         };
