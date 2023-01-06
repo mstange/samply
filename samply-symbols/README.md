@@ -1,11 +1,17 @@
 # samply-symbols
 
 This crate allows obtaining symbol information from binaries and compilation artifacts.
-It maps raw code addresses to symbol strings, and, if available, file name + line number
-information.
-The API was designed for the Firefox profiler.
 
-The main entry point of this crate is the `SymbolManager` struct and its async `get_symbol_map` method.
+You probably want to be using the [`wholesym` crate](https://docs.rs/wholesym/) instead.
+`wholesym` has a much more ergonomic API; it is a wrapper around `samply-symbols`.
+
+More specifically, `samply-symbols` provides the low-level implementation of `wholesym`,
+while satisfying both native and WebAssembly consumers, whereas `wholesym` only cares about
+native consumers.
+
+The main entry point of this crate is the `SymbolManager` struct and its async `load_symbol_map` method.
+With a `SymbolMap`, you can resolve raw code addresses to function name strings, and, if available,
+to file name + line number information and inline stacks.
 
 # Design constraints
 
@@ -13,7 +19,7 @@ This crate operates under the following design constraints:
 
   - Must be usable from JavaScript / WebAssembly: The Firefox profiler runs this code in a
     WebAssembly environment, invoked from a privileged piece of JavaScript code inside Firefox itself.
-    This setup allows us to download the profiler-get-symbols wasm bundle on demand, rather than shipping
+    This setup allows us to download a wasm bundle on demand, rather than shipping
     it with Firefox, which would increase the Firefox download size for a piece of functionality
     that the vast majority of Firefox users don't need.
   - Performance: We want to be able to obtain symbol data from a fresh build of a locally compiled
@@ -31,8 +37,15 @@ This crate operates under the following design constraints:
 
 The WebAssembly requirement means that this crate cannot contain any direct file access.
 Instead, all file access is mediated through a `FileAndPathHelper` trait which has to be implemented
-by the caller. Furthermore, the API request does not carry any absolute file paths, so the resolution
-to absolute file paths needs to be done by the caller as well.
+by the caller. We cannot even use the `std::path::Path` / `PathBuf` types to represent paths,
+because the WASM bundle can run on Windows, and the `Path` / `PathBuf` types have! Unix path
+semantics in Rust-compiled-to-WebAssembly.
+
+Furthermore, the caller needs to be able to find the right symbol files based on a subset
+of information about a library, for example just based on its debug name and debug ID. This
+is used when `SymbolManager::load_symbol_map` is called with such a subset of information.
+More concretely, this ability is used by `samply-api` when processing a JSON symbolication
+API call, which only comes with the debug name and debug ID for a library.
 
 # Supported formats and data
 
