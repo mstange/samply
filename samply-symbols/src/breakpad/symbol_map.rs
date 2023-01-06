@@ -8,8 +8,8 @@ use yoke::Yoke;
 
 use crate::{
     symbol_map::{SymbolMapInnerWrapper, SymbolMapTrait},
-    AddressInfo, Error, FileContents, FileContentsWrapper, FileLocation, FilePath, FrameDebugInfo,
-    FramesLookupResult, SymbolInfo, SymbolMap,
+    AddressInfo, Error, FileContents, FileContentsWrapper, FileLocation, FrameDebugInfo,
+    FramesLookupResult, SourceFilePath, SymbolInfo, SymbolMap,
 };
 
 use super::index::{
@@ -279,7 +279,7 @@ impl<'a, T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'a, T> {
                         .map(ToString::to_string);
                     frames.push(FrameDebugInfo {
                         function: name,
-                        file_path: file.map(FilePath::from_breakpad_path),
+                        file_path: file.map(SourceFilePath::from_breakpad_path),
                         line_number: Some(inlinee.call_line),
                     });
                     let inline_origin = inline_origins
@@ -298,7 +298,7 @@ impl<'a, T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'a, T> {
                 };
                 frames.push(FrameDebugInfo {
                     function: name,
-                    file_path: file.map(FilePath::from_breakpad_path),
+                    file_path: file.map(SourceFilePath::from_breakpad_path),
                     line_number,
                 });
                 frames.reverse();

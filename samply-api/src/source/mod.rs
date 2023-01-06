@@ -91,7 +91,7 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SourceApi<'a, 'h, H> {
             FramesLookupResult::Unavailable => return Err(SourceError::NoDebugInfo),
         };
 
-        // Find the FilePath whose "api file path" matches the requested file.
+        // Find the SourceFilePath whose "api file path" matches the requested file.
         // This is where we check that the requested file path is permissible.
         let source_file_path = frames
             .into_iter()

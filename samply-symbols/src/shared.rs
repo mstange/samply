@@ -401,8 +401,8 @@ pub trait FileContents: Send + Sync {
 pub struct FrameDebugInfo {
     /// The function name for this frame, if known.
     pub function: Option<String>,
-    /// The [`FilePath`] for this frame, if known.
-    pub file_path: Option<FilePath>,
+    /// The [`SourceFilePath`] for this frame, if known.
+    pub file_path: Option<SourceFilePath>,
     /// The line number for this frame, if known.
     pub line_number: Option<u32>,
 }
@@ -451,7 +451,7 @@ pub trait FileLocation: Clone + Display {
 /// build machine). The mapped path is something like a permalink which potentially
 /// allows obtaining the source file from a source server or a public hosted repository.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FilePath {
+pub struct SourceFilePath {
     /// The raw path to the source file, as written down in the debug file. This is
     /// usually an absolute path.
     raw_path: String,
@@ -461,8 +461,8 @@ pub struct FilePath {
     mapped_path: Option<MappedPath>,
 }
 
-impl FilePath {
-    /// Create a new `FilePath`.
+impl SourceFilePath {
+    /// Create a new `SourceFilePath`.
     pub fn new(raw_path: String, mapped_path: Option<MappedPath>) -> Self {
         Self {
             raw_path,
@@ -470,7 +470,7 @@ impl FilePath {
         }
     }
 
-    /// Create a `FilePath` from a path in a Breakpad .sym file. Such files can
+    /// Create a `SourceFilePath` from a path in a Breakpad .sym file. Such files can
     /// contain the "special path" serialization of a mapped path, but they can
     /// also contain absolute paths.
     pub fn from_breakpad_path(raw_path: String) -> Self {
@@ -520,7 +520,7 @@ impl FilePath {
         &self.raw_path
     }
 
-    /// Returns the raw path while consuming this `FilePath`.
+    /// Returns the raw path while consuming this `SourceFilePath`.
     pub fn into_raw_path(self) -> String {
         self.raw_path
     }
@@ -539,7 +539,7 @@ impl FilePath {
         self.mapped_path.as_ref()
     }
 
-    /// Returns the mapped path while consuming this `FilePath`.
+    /// Returns the mapped path while consuming this `SourceFilePath`.
     pub fn into_mapped_path(self) -> Option<MappedPath> {
         self.mapped_path
     }

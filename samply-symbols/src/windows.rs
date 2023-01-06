@@ -10,7 +10,7 @@ use crate::symbol_map::{
     SymbolMapInnerWrapper, SymbolMapTrait,
 };
 use crate::symbol_map_object::{FunctionAddressesComputer, ObjectSymbolMapDataMid};
-use crate::{demangle, FileLocation, FilePath, MappedPath};
+use crate::{demangle, FileLocation, MappedPath, SourceFilePath};
 use debugid::DebugId;
 use object::{File, FileKind};
 use pdb::PDB;
@@ -248,7 +248,7 @@ impl<'object> SymbolMapTrait for PdbSymbolMapInner<'object> {
             let mut path_mapper = self.path_mapper.lock().unwrap();
             let mut map_path = |path: Cow<str>| {
                 let mapped_path = path_mapper.map_path(&path);
-                FilePath::new(path.into_owned(), mapped_path)
+                SourceFilePath::new(path.into_owned(), mapped_path)
             };
             let frames: Vec<_> = function_frames
                 .frames

@@ -244,8 +244,8 @@ pub use crate::shared::{
     relative_address_base, AddressInfo, CandidatePathInfo, CodeId, ElfBuildId,
     ExternalFileAddressInFileRef, ExternalFileAddressRef, ExternalFileRef, FileAndPathHelper,
     FileAndPathHelperError, FileAndPathHelperResult, FileContents, FileContentsWrapper,
-    FileLocation, FilePath, FrameDebugInfo, FramesLookupResult, LibraryInfo,
-    MultiArchDisambiguator, OptionallySendFuture, PeCodeId, SymbolInfo,
+    FileLocation, FrameDebugInfo, FramesLookupResult, LibraryInfo, MultiArchDisambiguator,
+    OptionallySendFuture, PeCodeId, SourceFilePath, SymbolInfo,
 };
 pub use crate::symbol_map::SymbolMap;
 
@@ -276,7 +276,7 @@ where
     pub async fn load_source_file(
         &self,
         debug_file_location: &H::FL,
-        source_file_path: &FilePath,
+        source_file_path: &SourceFilePath,
     ) -> Result<String, Error> {
         let source_file_location = debug_file_location
             .location_for_source_file(source_file_path.raw_path())
