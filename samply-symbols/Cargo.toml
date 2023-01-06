@@ -1,6 +1,6 @@
 [package]
 name = "samply-symbols"
-version = "0.19.0"
+version = "0.20.0"
 authors = ["Markus Stange <mstange.moz@gmail.com>"]
 license = "MIT OR Apache-2.0"
 edition = "2018"
