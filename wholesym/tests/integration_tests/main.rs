@@ -2,7 +2,7 @@ use std::{path::PathBuf, str::FromStr};
 
 use debugid::DebugId;
 
-use wholesym::{CodeId, FramesLookupResult};
+use wholesym::{CodeId, FramesLookupResult, LibraryInfo};
 
 fn fixtures_dir() -> PathBuf {
     let this_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -108,4 +108,27 @@ fn dwz_symbolication() {
     // Check information coming from the supplementary file (coreutils.debug), found via absolute path in the debugaltlink:
     assert_eq!(frames[0].function.as_ref().unwrap(), "do_lstat");
     assert_eq!(frames[1].function.as_ref().unwrap(), "gobble_file");
+}
+
+// This test only works on macOS 13.0.1.
+#[ignore]
+#[test]
+fn disassemble_libcrypto() {
+    let lib_info = LibraryInfo {
+        debug_name: Some("libcorecrypto.dylib".into()),
+        debug_id: DebugId::from_breakpad("6A5FFEB0E606324EB687DA95C362CE050").ok(),
+        path: Some("/usr/lib/system/libcorecrypto.dylib".into()),
+        arch: Some("arm64e".into()),
+        ..Default::default()
+    };
+
+    let mut symbol_manager = wholesym::SymbolManager::with_config(Default::default());
+    symbol_manager.add_known_library(lib_info);
+    let response_json = futures::executor::block_on(
+        symbol_manager.query_json_api("/asm/v1", r#"{"debugName":"libcorecrypto.dylib","debugId":"6A5FFEB0E606324EB687DA95C362CE050","name":"libcorecrypto.dylib","codeId":null,"startAddress":"0x5844","size":"0x1c"}"#),
+    );
+    assert_eq!(
+        response_json,
+        r#"{"startAddress":"0x5844","size":"0x1c","instructions":[[0,"hint #0x1b"],[4,"stp x29, x30, [sp, #-0x10]!"],[8,"mov x29, sp"],[12,"adrp x0, $+0x593f3000"],[16,"add x0, x0, #0x340"],[20,"ldr x8, [x0]"],[24,"blraaz x8"]]}"#
+    );
 }

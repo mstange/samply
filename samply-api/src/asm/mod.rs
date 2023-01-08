@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use samply_symbols::{
     debugid::DebugId,
-    object::{self, Architecture, CompressionFormat, Object},
+    object::{self, Architecture, Object, ObjectSegment},
     relative_address_base, CodeId, FileAndPathHelper, LibraryInfo, SymbolManager,
 };
 use serde_json::json;
@@ -26,9 +26,6 @@ enum AsmError {
 
     #[error("The requested address was not found in any section in the binary.")]
     AddressNotFound,
-
-    #[error("Unexpected compression of text section")]
-    UnexpectedCompression,
 
     #[error("Could not read the requested address range from the section (might be out of bounds or the section might not have any bytes in the file)")]
     ByteRangeNotInSection,
@@ -123,26 +120,29 @@ fn compute_response<'data: 'file, 'file>(
     let image_base = relative_address_base(object);
     let start_address = image_base + u64::from(relative_start_address);
 
-    // Find the section which contains our start_address.
+    // Find the section and segment which contains our start_address.
     use object::ObjectSection;
-    let (section, section_address_range) = object
+    let (section, section_end_addr) = object
         .sections()
         .find_map(|section| {
             let section_start_addr = section.address();
             let section_end_addr = section_start_addr.checked_add(section.size())?;
-            let address_range = section_start_addr..section_end_addr;
-            if !address_range.contains(&start_address) {
+            if !(section_start_addr..section_end_addr).contains(&start_address) {
                 return None;
             }
 
-            Some((section, address_range))
+            Some((section, section_end_addr))
         })
         .ok_or(AsmError::AddressNotFound)?;
 
-    let file_range = section.compressed_file_range()?;
-    if file_range.format != CompressionFormat::None {
-        return Err(AsmError::UnexpectedCompression);
-    }
+    let segment = object.segments().find(|segment| {
+        let segment_start_addr = segment.address();
+        if let Some(segment_end_addr) = segment_start_addr.checked_add(segment.size()) {
+            (segment_start_addr..segment_end_addr).contains(&start_address)
+        } else {
+            false
+        }
+    });
 
     // Pad out the number of bytes we read a little, to allow for reading one
     // more instruction.
@@ -153,13 +153,22 @@ fn compute_response<'data: 'file, 'file>(
     // We have another check later to make sure we don't return instructions whose
     // address is beyond the requested range.
     const MAX_INSTR_LEN: u64 = 15; // TODO: Get the correct max length for this arch
-    let max_read_len = section_address_range.end - start_address;
+    let max_read_len = section_end_addr - start_address;
     let read_len = (u64::from(size) + MAX_INSTR_LEN).min(max_read_len);
 
-    // Now read the instruction bytes from the file.
-    let bytes = section
-        .data_range(start_address, read_len)?
-        .ok_or(AsmError::ByteRangeNotInSection)?;
+    // Now read the instruction bytes from the file. We prefer to read the data via the
+    // segment because the segment is more likely to have correct file offset information.
+    // Specifically, incorrect section file offset information was observed in the arm64e
+    // dyld cache on macOS 13.0.1, FB11929250.
+    let bytes = if let Some(segment) = segment {
+        segment
+            .data_range(start_address, read_len)?
+            .ok_or(AsmError::ByteRangeNotInSection)?
+    } else {
+        section
+            .data_range(start_address, read_len)?
+            .ok_or(AsmError::ByteRangeNotInSection)?
+    };
 
     let reader = yaxpeax_arch::U8Reader::new(bytes);
     let (instructions, len) = decode_arch(reader, architecture, size)?;
