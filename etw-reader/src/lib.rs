@@ -314,6 +314,7 @@ pub fn write_property(output: &mut dyn std::fmt::Write, parser: &mut Parser, pro
                     TdhInType::InTypeUnicodeString => TryParse::<String>::try_parse(parser, &property.name),
                     TdhInType::InTypeAnsiString => TryParse::<String>::try_parse(parser, &property.name),
                     TdhInType::InTypeBoolean => TryParse::<bool>::try_parse(parser, &property.name).map(|x| x.to_string()),
+                    TdhInType::InTypeHexInt32 => TryParse::<i32>::try_parse(parser, &property.name).map(|x| x.to_string()),
                     TdhInType::InTypeUInt32 => TryParse::<u32>::try_parse(parser, &property.name).map(|x| x.to_string()),
                     TdhInType::InTypeUInt16 => TryParse::<u16>::try_parse(parser, &property.name).map(|x| x.to_string()),
                     TdhInType::InTypeUInt8 => TryParse::<u8>::try_parse(parser, &property.name).map(|x| x.to_string()),

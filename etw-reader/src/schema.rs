@@ -9,7 +9,7 @@ use crate::FastHashMap;
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use once_cell::unsync::OnceCell;
-use windows::Win32::System::Diagnostics::Etw;
+use windows::Win32::System::Diagnostics::Etw::{self, EVENT_HEADER_FLAG_64_BIT_HEADER};
 use windows::core::GUID;
 
 /// Schema module errors
@@ -175,6 +175,7 @@ impl SchemaLocator {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
                 let info = Box::new(tdh::schema_from_tdh(event.clone())?);
+                // dbg!(info.provider_guid(), info.provider_name(), info.decoding_source());
                 // TODO: Cloning for now, should be a reference at some point...
                 entry.insert(Arc::new(Schema::new(info)))
             }
@@ -268,6 +269,10 @@ impl<'a> TypedEvent<'a> {
     /// ```
     pub fn event_flags(&self) -> u16 {
         self.record.EventHeader.Flags
+    }
+
+    pub fn is_64bit(&self) -> bool {
+        (self.record.EventHeader.Flags & EVENT_HEADER_FLAG_64_BIT_HEADER as u16) != 0
     }
 
     /// Use the `event_version` function to obtain the Version of the [EventRecord]

@@ -69,6 +69,7 @@ pub const EVENT_HEADER_FLAG_32_BIT_HEADER: u16 = Etw::EVENT_HEADER_FLAG_32_BIT_H
 /// Wrapper over the [DECODING_SOURCE] type
 ///
 /// [DECODING_SOURCE]: https://microsoft.github.io/windows-docs-rs/doc/bindings/Windows/Win32/Etw/struct.DECODING_SOURCE.html
+#[derive(Debug)]
 pub enum DecodingSource {
     DecodingSourceXMLFile,
     DecodingSourceWbem,

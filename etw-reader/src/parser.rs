@@ -15,6 +15,21 @@ use std::convert::TryInto;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use windows::core::GUID;
 
+#[derive(Debug, Clone, Copy)]
+pub enum Address {
+    Address64(u64),
+    Address32(u32)
+}
+
+impl Address {
+    pub fn as_u64(&self) -> u64 {
+        match self {
+            Address::Address64(a) => *a,
+            Address::Address32(a) => *a as u64
+        }
+    }
+}
+
 /// Parser module errors
 #[derive(Debug)]
 pub enum ParserError {
@@ -184,7 +199,7 @@ impl<'a> Parser<'a> {
             if let PropertyDesc::Primitive(desc) = &property.desc {
                 match desc.in_type {
                     TdhInType::InTypeBoolean => return Ok(4),
-                    TdhInType::InTypeInt32 | TdhInType::InTypeUInt32 => return Ok(4),
+                    TdhInType::InTypeInt32 | TdhInType::InTypeUInt32 | TdhInType::InTypeHexInt32 => return Ok(4),
                     TdhInType::InTypeInt64 | TdhInType::InTypeUInt64 => return Ok(8),
                     TdhInType::InTypeInt8 | TdhInType::InTypeUInt8 => return Ok(1),
                     TdhInType::InTypePointer => return Ok(if (self.event.event_flags() & EVENT_HEADER_FLAG_32_BIT_HEADER) != 0 {
@@ -193,7 +208,7 @@ impl<'a> Parser<'a> {
                         8
                     }),
                     TdhInType::InTypeGuid => return Ok(std::mem::size_of::<GUID>()),
-                    TdhInType::InTypeUnicodeString => {
+                    TdhInType::InTypeUnicodeString => { 
                         return Ok(utils::parse_unk_size_null_unicode_size(&self.buffer))
                     }
                     TdhInType::InTypeAnsiString => {
@@ -290,7 +305,6 @@ impl_try_parse_primitive!(i8, InTypeInt8);
 impl_try_parse_primitive!(u16, InTypeUInt16);
 impl_try_parse_primitive!(i16, InTypeInt16);
 impl_try_parse_primitive!(u32, InTypeUInt32);
-impl_try_parse_primitive!(i32, InTypeInt32);
 //impl_try_parse_primitive!(u64, InTypeUInt64);
 impl_try_parse_primitive!(i64, InTypeInt64);
 
@@ -317,6 +331,50 @@ impl TryParse<u64> for Parser<'_> {
                     return Err(ParserError::LengthMismatch);
                 }
                 return Ok(u64::from_ne_bytes(prop_info.buffer.try_into()?));
+            }
+        }
+        return Err(ParserError::InvalidType)
+    }
+}
+
+impl TryParse<i32> for Parser<'_> {
+    fn try_parse(&mut self, name: &str) -> ParserResult<i32> {
+        use TdhInType::*;
+        let indx = self.find_property(name)?;
+        let prop_info = &self.cache[indx];
+        if let PropertyDesc::Primitive(desc) = &prop_info.property.desc {
+            if desc.in_type == InTypeInt32 || desc.in_type == InTypeHexInt32 {
+                if std::mem::size_of::<i32>() != prop_info.buffer.len() {
+                    return Err(ParserError::LengthMismatch);
+                }
+                return Ok(i32::from_ne_bytes(prop_info.buffer.try_into()?));
+            }
+        }
+        return Err(ParserError::InvalidType)
+    }
+}
+
+impl TryParse<Address> for Parser<'_> {
+    fn try_parse(&mut self, name: &str) -> ParserResult<Address> {
+        use TdhInType::*;
+        let indx = self.find_property(name)?;
+        let prop_info = &self.cache[indx];
+
+        if let PropertyDesc::Primitive(desc) = &prop_info.property.desc {
+            if self.event.is_64bit() {
+                if desc.in_type == InTypeUInt64 || desc.in_type == InTypePointer {
+                    if std::mem::size_of::<u64>() != prop_info.buffer.len() {
+                        return Err(ParserError::LengthMismatch);
+                    }
+                    return Ok(Address::Address64(u64::from_ne_bytes(prop_info.buffer.try_into()?)));
+                }
+            } else {
+                if desc.in_type == InTypeUInt32 || desc.in_type == InTypePointer || desc.in_type == InTypeHexInt32 {
+                    if std::mem::size_of::<u32>() != prop_info.buffer.len() {
+                        return Err(ParserError::LengthMismatch);
+                    }
+                    return Ok(Address::Address32(u32::from_ne_bytes(prop_info.buffer.try_into()?)));
+                }
             }
         }
         return Err(ParserError::InvalidType)

@@ -1,5 +1,5 @@
 use etw_reader::{open_trace, parser::{Parser}, print_property, schema::SchemaLocator};
-
+use windows::Win32::System::Diagnostics::Etw;
 use std::path::Path;
 
 
@@ -21,7 +21,25 @@ fn main() {
                 return;
             }
         }
-        println!("{:?} {} {}-{} {} {}", e.EventHeader.ProviderId, s.name(),  e.EventHeader.EventDescriptor.Opcode, e.EventHeader.EventDescriptor.Id, s.property_count(), e.EventHeader.TimeStamp);
+        println!("{:?} {} {} {}-{} {} {}", e.EventHeader.ProviderId, s.name(), s.provider_name(), e.EventHeader.EventDescriptor.Opcode, e.EventHeader.EventDescriptor.Id, s.property_count(), e.EventHeader.TimeStamp);
+        println!("pid: {}", s.process_id());
+        if e.ExtendedDataCount > 0 {
+            let items = unsafe { std::slice::from_raw_parts(e.ExtendedData, e.ExtendedDataCount as usize) };
+            for i in items {
+                match i.ExtType as u32 {
+                    Etw::EVENT_HEADER_EXT_TYPE_EVENT_SCHEMA_TL => {
+                        println!("extended: SCHEMA_TL");
+                    }
+                    Etw::EVENT_HEADER_EXT_TYPE_PROV_TRAITS => {
+                        println!("extended: PROV_TRAITS");
+                    }
+                    _ => {
+                        println!("extended: {:?}", i);
+                    }
+
+                }
+            }
+        }
         let mut parser = Parser::create(&s);
         for i in 0..s.property_count() {
             let property = s.property(i);
