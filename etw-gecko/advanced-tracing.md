@@ -29,3 +29,5 @@ https://github.com/lallousx86/WinTools/tree/master/WEPExplorer is useful browser
 ### Stacks on page faults:
 e.g. `xperf -on latency+ALL_FAULTS -stackwalk PagefaultDemandZero`
 `latency` seems to be needed to get process information.
+Add in calls to VirtualAlloc/VirtualFree
+`xperf -on latency+ALL_FAULTS+VIRT_ALLOC -stackwalk PagefaultDemandZero`
