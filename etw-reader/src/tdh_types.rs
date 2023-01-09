@@ -21,7 +21,7 @@ pub struct PropertyMapInfo {
     pub is_bitmap: bool,
     pub map: crate::FastHashMap<u32, String>
 }
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct PrimitiveDesc {
     pub in_type: TdhInType,
     pub out_type: TdhOutType,
@@ -74,7 +74,7 @@ impl Property {
                 let out_type = FromPrimitive::from_u16(property.Anonymous1.nonStructType.OutType)
                     .unwrap_or(TdhOutType::OutTypeNull);
                 let in_type = FromPrimitive::from_u16(property.Anonymous1.nonStructType.InType)
-                    .unwrap_or(TdhInType::InTypeNull);
+                    .unwrap_or_else(|| panic!("{:?}", property.Anonymous1.nonStructType.InType));
                 
                 Property {
                     name,
@@ -121,13 +121,19 @@ pub enum TdhInType {
     InTypeHexInt32,
     InTypeHexInt64,
     InTypeCountedString = 300,
+    InTypeCountedAnsiString,
+    InTypeReverseCountedString,
+    InTypeReverseCountedAnsiString,
+    InTypeNonNullTerminatedString,
+    InTypeNonNullTerminatedAnsiString,
+    InTypeUnicodeChar,
+    InTypeAnsiChar,
+    InTypeSizeT,
+    InTypeHexdump,
+    InTypeWBEMSID,
 }
 
-impl Default for TdhInType {
-    fn default() -> TdhInType {
-        TdhInType::InTypeNull
-    }
-}
+
 
 /// Represent a TDH_OUT_TYPE
 #[repr(u16)]
