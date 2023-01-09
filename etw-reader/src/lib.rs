@@ -327,7 +327,7 @@ pub fn write_property(output: &mut dyn std::fmt::Write, parser: &mut Parser, pro
                             i.map(|x| x.to_string())
                         }
                     },
-                    TdhInType::InTypePointer => TryParse::<u64>::try_parse(parser, &property.name).map(|x| x.to_string()),
+                    TdhInType::InTypePointer | TdhInType::InTypeSizeT => TryParse::<u64>::try_parse(parser, &property.name).map(|x| x.to_string()),
                     TdhInType::InTypeGuid => TryParse::<GUID>::try_parse(parser, &property.name).map(|x| format!("{:?}", x)),
                     _ => Ok(format!("Unknown {:?}", desc.in_type))
                 }

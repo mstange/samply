@@ -320,7 +320,7 @@ impl TryParse<u64> for Parser<'_> {
                 }
                 return Ok(u64::from_ne_bytes(prop_info.buffer.try_into()?));
             }
-            if desc.in_type == InTypePointer {
+            if desc.in_type == InTypePointer || desc.in_type == InTypeSizeT {
                 if (self.event.event_flags() & EVENT_HEADER_FLAG_32_BIT_HEADER) != 0  {
                     if std::mem::size_of::<u32>() != prop_info.buffer.len() {
                         return Err(ParserError::LengthMismatch);
