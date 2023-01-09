@@ -356,7 +356,30 @@ fn main() {
                     // assert!(thread.running_since_time.is_some(), "thread {} not running @ {} on {}", thread_id, e.EventHeader.TimeStamp, unsafe { e.BufferContext.Anonymous.ProcessorIndex });
                     thread.last_sample_timestamp = Some(e.EventHeader.TimeStamp);
                 }
+                "MSNT_SystemTrace/PageFault/VirtualFree" => {
+                    let mut parser = Parser::create(&s);
+                    let timestamp = e.EventHeader.TimeStamp as u64;
+                    let timestamp = profile_start_instant + Duration::from_nanos(to_nanos(timestamp - start_time));
+                    let thread_id = e.EventHeader.ThreadId;
+                    let thread = match threads.entry(thread_id) {
+                        Entry::Occupied(e) => e.into_mut(),
+                        Entry::Vacant(_) => {
+                            dropped_sample_count += 1;
+                            // We don't know what process this will before so just drop it for now
+                            return;
+                        }
+                    };
+                    let timing =  MarkerTiming::Instant(timestamp);
+                    let mut text = String::new();
+                    for i in 0..s.property_count() {
+                        let property = s.property(i);
+                        //dbg!(&property);
+                        write_property(&mut text, &mut parser, &property);
+                        text += ", "
+                    }
 
+                    thread.builder.add_marker("VirtualFree", TextMarker(text), timing)
+                }
                 "KernelTraceControl/ImageID/" => {
 
                     let process_id = s.process_id();
