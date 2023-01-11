@@ -12,7 +12,7 @@ keywords = ["symbols", "profiling", "addr2line", "debuginfo"]
 
 [dependencies]
 debugid = "0.8.0"
-samply-api = { version = "0.21.0", path = "../samply-api", features = ["send_futures"] }
+samply-api = { version = "0.21.1", path = "../samply-api", features = ["send_futures"] }
 symsrv = "0.2.0"
 yoke = { version = "0.6.2", features = ["derive"] }
 libc = "0.2.71"
