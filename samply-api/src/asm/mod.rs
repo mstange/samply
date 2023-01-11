@@ -156,15 +156,19 @@ fn compute_response<'data: 'file, 'file>(
     let max_read_len = section_end_addr - start_address;
     let read_len = (u64::from(size) + MAX_INSTR_LEN).min(max_read_len);
 
-    // Now read the instruction bytes from the file. We prefer to read the data via the
-    // segment because the segment is more likely to have correct file offset information.
-    // Specifically, incorrect section file offset information was observed in the arm64e
-    // dyld cache on macOS 13.0.1, FB11929250.
+    // Now read the instruction bytes from the file.
     let bytes = if let Some(segment) = segment {
         segment
             .data_range(start_address, read_len)?
             .ok_or(AsmError::ByteRangeNotInSection)?
     } else {
+        // We don't have a segment, try reading via the section.
+        // We hit this path with synthetic .so files created by `perf inject --jit`;
+        // those only have sections, no segments (i.e. no ELF LOAD commands).
+        // For regular files, we prefer to read the data via the segment, because
+        // the segment is more likely to have correct file offset information.
+        // Specifically, incorrect section file offset information was observed in
+        // the arm64e dyld cache on macOS 13.0.1, FB11929250.
         section
             .data_range(start_address, read_len)?
             .ok_or(AsmError::ByteRangeNotInSection)?
