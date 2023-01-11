@@ -217,7 +217,7 @@ This finds the requested binary, reads the machine code bytes for the requested 
 
 The `/symbolicate/v5` API returns file paths in the `file` property of its response JSON. Such a file path can either be a regular path string (e.g. `/Users/mstange/code/mozilla/widget/cocoa/nsAppShell.mm`), or it can also a "special path", e.g. `hg:hg.mozilla.org/mozilla-central:mozglue/baseprofiler/core/ProfilerBacktrace.cpp:1706d4d54ec68fae1280305b70a02cb24c16ff68`.
 
-The current special path formats are supported:
+The following special path formats are supported:
 
  - `hg:<repo>:<path>:<rev>`: Path in a mercurial repository.
  - `git:<repo>:<path>:<rev>`: Path in a git repository.
