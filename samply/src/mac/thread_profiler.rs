@@ -1,6 +1,6 @@
 use framehop::FrameAddress;
 use fxprof_processed_profile::{
-    CategoryPairHandle, CpuDelta, Frame, Profile, ThreadHandle, Timestamp,
+    CategoryPairHandle, CpuDelta, Frame, Profile, StringHandle, ThreadHandle, Timestamp,
 };
 use mach::mach_types::thread_act_t;
 use mach::port::mach_port_t;
@@ -111,18 +111,11 @@ impl ThreadProfiler {
                 &mut self.stack_scratch_space,
             )?;
 
-            let frames = self
-                .stack_scratch_space
-                .iter()
-                .map(|address| match address {
-                    FrameAddress::InstructionPointer(ip) => {
-                        (Frame::InstructionPointer(*ip), self.default_category)
-                    }
-                    FrameAddress::ReturnAddress(ra) => {
-                        (Frame::ReturnAddress(u64::from(*ra)), self.default_category)
-                    }
-                });
-
+            let frames = StackDepthLimitingFrameIter::new(
+                profile,
+                &self.stack_scratch_space,
+                self.default_category,
+            );
             profile.add_sample(self.profile_thread, now, frames, cpu_delta, 1);
         } else {
             // No CPU time elapsed since just before the last time we grabbed a stack.
@@ -151,6 +144,144 @@ impl ThreadProfiler {
     pub fn notify_dead(&mut self, end_time: Timestamp, profile: &mut Profile) {
         profile.set_thread_end_time(self.profile_thread, end_time);
         self.stack_memory.clear();
+    }
+}
+
+/// Returns `Some((start_index, count))` if part of the stack should be elided
+/// in order to limit the stack length to < 2.5 * N.
+///
+/// The stack is partitioned into three pieces:
+///   1. N frames at the beginning which are kept.
+///   2. k * N frames in the middle which are elided and replaced with a placeholder.
+///   3. ~avg N frames at the end which are kept.
+///
+/// The third piece is m frames, and k is chosen such that 0.5 * N <= m < 1.5 * N
+fn should_elide_frames<const N: usize>(full_len: usize) -> Option<(usize, usize)> {
+    if full_len >= N + N + N / 2 {
+        let elided_count = (full_len - N - N / 2) / N * N;
+        Some((N, elided_count))
+    } else {
+        None
+    }
+}
+
+#[test]
+fn test_should_elide_frames() {
+    assert_eq!(should_elide_frames::<100>(100), None);
+    assert_eq!(should_elide_frames::<100>(220), None);
+    assert_eq!(should_elide_frames::<100>(249), None);
+    assert_eq!(should_elide_frames::<100>(250), Some((100, 100)));
+    assert_eq!(should_elide_frames::<100>(290), Some((100, 100)));
+    assert_eq!(should_elide_frames::<100>(349), Some((100, 100)));
+    assert_eq!(should_elide_frames::<100>(350), Some((100, 200)));
+    assert_eq!(should_elide_frames::<100>(352), Some((100, 200)));
+    assert_eq!(should_elide_frames::<100>(449), Some((100, 200)));
+    assert_eq!(should_elide_frames::<100>(450), Some((100, 300)));
+}
+
+struct StackDepthLimitingFrameIter<'a> {
+    frames: &'a [FrameAddress],
+    category: CategoryPairHandle,
+    state: StackDepthLimitingFrameIterState,
+}
+
+enum StackDepthLimitingFrameIterState {
+    BeforeElidedPiece {
+        index: usize,
+        first_elided_frame: usize,
+        elision_frame_string: StringHandle,
+        first_frame_after_elision: usize,
+    },
+    AtElidedPiece {
+        elision_frame_string: StringHandle,
+        first_frame_after_elision: usize,
+    },
+    NoMoreElision {
+        index: usize,
+    },
+}
+
+impl<'a> StackDepthLimitingFrameIter<'a> {
+    pub fn new(
+        profile: &mut Profile,
+        frames: &'a [FrameAddress],
+        category: CategoryPairHandle,
+    ) -> Self {
+        // Check if part of the stack should be elided, to limit the stack depth.
+        // Without such a limit, profiles with deep recursion may become too big
+        // to be processed.
+        // We limit to a depth of 500 frames, eliding chunks of 200 frames in the
+        // middle, keeping 200 frames at the start and 100 to 300 frames at the end.
+        let full_len = frames.len();
+        let state = if let Some((first_elided_frame, elided_count)) =
+            should_elide_frames::<200>(full_len)
+        {
+            let first_frame_after_elision = first_elided_frame + elided_count;
+            let elision_frame_string =
+                profile.intern_string(&format!("({elided_count} frames elided)"));
+            StackDepthLimitingFrameIterState::BeforeElidedPiece {
+                index: 0,
+                first_elided_frame,
+                elision_frame_string,
+                first_frame_after_elision,
+            }
+        } else {
+            StackDepthLimitingFrameIterState::NoMoreElision { index: 0 }
+        };
+        Self {
+            frames,
+            category,
+            state,
+        }
+    }
+}
+
+impl<'a> Iterator for StackDepthLimitingFrameIter<'a> {
+    type Item = (Frame, CategoryPairHandle);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let frame = match &mut self.state {
+            StackDepthLimitingFrameIterState::BeforeElidedPiece {
+                index,
+                first_elided_frame,
+                elision_frame_string,
+                first_frame_after_elision,
+            } => {
+                let frame = &self.frames[*index];
+                *index += 1;
+                if *index == *first_elided_frame {
+                    self.state = StackDepthLimitingFrameIterState::AtElidedPiece {
+                        elision_frame_string: *elision_frame_string,
+                        first_frame_after_elision: *first_frame_after_elision,
+                    };
+                }
+                frame
+            }
+            StackDepthLimitingFrameIterState::AtElidedPiece {
+                elision_frame_string,
+                first_frame_after_elision,
+            } => {
+                let label = Frame::Label(*elision_frame_string);
+                self.state = StackDepthLimitingFrameIterState::NoMoreElision {
+                    index: *first_frame_after_elision,
+                };
+                return Some((label, self.category));
+            }
+            StackDepthLimitingFrameIterState::NoMoreElision { index } => {
+                let frame = match self.frames.get(*index) {
+                    Some(frame) => frame,
+                    None => return None,
+                };
+                *index += 1;
+                frame
+            }
+        };
+
+        let frame = match frame {
+            FrameAddress::InstructionPointer(ip) => Frame::InstructionPointer(*ip),
+            FrameAddress::ReturnAddress(ra) => Frame::ReturnAddress(u64::from(*ra)),
+        };
+        Some((frame, self.category))
     }
 }
 

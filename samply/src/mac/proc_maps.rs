@@ -486,20 +486,10 @@ fn do_stackwalk(
     while let Ok(Some(address)) = iter.next() {
         frames.push(address);
 
-        if frames.len() >= 2000 {
+        if frames.len() >= 10000 {
             break;
         }
     }
-
-    // eprintln!(
-    //     "stack: [{}]",
-    //     frames
-    //         .iter()
-    //         .map(|addr| format!("0x{:x}", addr))
-    //         .collect::<Vec<String>>()
-    //         .join(", ")
-    // );
-    // eprintln!();
 
     frames.reverse();
 }
