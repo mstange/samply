@@ -894,6 +894,68 @@ fn open_file_with_fallback(
     }
 }
 
+/// Compute the image base address, in process memory, i.e. as an "actual virtual memory address".
+/// We have the section + segment information of the mapped object file, and we know the file offset
+/// and size of the mapping, as well as the AVMA at the mapping start.
+///
+/// An image is mapped into memory using ELF load commands ("segments"). Usually there are multiple
+/// ELF load commands, resulting in multiple mappings. Some of these mappings will be read-only,
+/// and some will be executable.
+///
+/// Commonly, the executable mapping is the second of four mappings.
+///
+/// If we know about all mappings of an image, then the base AVMA is the start AVMA of the first mapping.
+/// But sometimes we only have one mapping of an image, for example only the second mapping. This
+/// happens if the `perf.data` file only contains mmap information of the executable mappings. In that
+/// case, we have to look at the "page offset" of that mapping and find out which part of the file
+/// was mapped in that range.
+///
+/// In that case it's tempting to say "The AVMA is the address at which the file would start, if
+/// the entire file was mapped contiguously into memory around our mapping." While this works in
+/// many cases, it doesn't work if there are "SVMA gaps" between the segments which have been elided
+/// in the file, i.e. it doesn't work for files where the file offset <-> SVMA translation
+/// is different for each segment.
+///
+/// Easy case A:
+/// ```plain
+/// File offset:  0x0 |----------------| |-------------|
+/// SVMA:         0x0 |----------------| |-------------|
+/// AVMA:   0x1750000 |----------------| |-------------|
+/// ```
+///
+/// Easy case B:
+/// ```plain
+/// File offset:  0x0 |----------------| |-------------|
+/// SVMA:     0x40000 |----------------| |-------------|
+/// AVMA:   0x1750000 |----------------| |-------------|
+/// ```
+///
+/// Hard case:
+/// ```plain
+/// File offset:  0x0 |----------------| |-------------|
+/// SVMA:         0x0 |----------------|         |-------------|
+/// AVMA:   0x1750000 |----------------|         |-------------|
+/// ```
+///
+/// One example of the hard case has been observed in `libxul.so`: The `.text` section
+/// was in the second segment. In the first segment, SVMAs were equal to their
+/// corresponding file offsets. In the second segment, SMAs were 0x1000 bytes higher
+/// than their corresponding file offsets. In other words, there was a 0x1000-wide gap
+/// between the segments in virtual address space, but this gap was omitted in the file.
+/// The SVMA gap exists in the AVMAs too - the "bias" between SVMAs and AVMAs is the same
+/// for all segments of an image. So we have to find the SVMA for the mapping by finding
+/// a segment or section which overlaps the mapping in file offset space, and then use
+/// the matching segment's / section's SVMA to find the SVMA-to-AVMA "bias" for the
+/// mapped bytes.
+///
+/// Once we have the SVMA-to-AVMA bias, we can find the image base AVMA by translating the
+/// SVMA of the *first* segment.
+///
+/// Another interesting edge case we observed was a case where a mapping was seemingly
+/// not initiated by an ELF LOAD command: Part of the d8 binary (the V8 shell) was mapped
+/// into memory with a mapping that covered only a small part of the `.text` section.
+/// Usually, you'd expect a section to be mapped in its entirety, but this was not the
+/// case here. So the section finding code below only checks for overlap, not for containment.
 fn compute_base_avma<'data: 'file, 'file>(
     file: &'file impl Object<'data, 'file>,
     mapping_start_file_offset: u64,
@@ -902,41 +964,40 @@ fn compute_base_avma<'data: 'file, 'file>(
 ) -> Option<u64> {
     let mapping_end_file_offset = mapping_start_file_offset + mapping_size;
 
-    // Find one of the text sections in this mapping, to map file offsets to SVMAs.
-    // It would make more sense look for to ELF LOAD commands (which the `object`
-    // crate exposes as segments), but this does not work for the synthetic .so files
-    // created by `perf inject --jit` - those don't have LOAD commands.
-    let (section_start_file_offset, section_start_svma) = match file
-        .sections()
-        .filter(|s| s.kind() == SectionKind::Text)
-        .find_map(|s| match s.file_range() {
-            Some((section_start_file_offset, section_size)) => {
-                let section_end_file_offset = section_start_file_offset + section_size;
-                if mapping_start_file_offset <= section_start_file_offset
-                    && section_end_file_offset <= mapping_end_file_offset
-                {
-                    Some((section_start_file_offset, s.address()))
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        }) {
-        Some(section_info) => section_info,
-        None => {
-            println!(
-                "Could not find section covering file offset range 0x{:x}..0x{:x}",
-                mapping_start_file_offset, mapping_end_file_offset
-            );
-            return None;
-        }
+    let file_range_overlaps_mapping = |(file_range_start, file_range_size)| {
+        let file_range_end = file_range_start + file_range_size;
+        file_range_start <= mapping_end_file_offset && mapping_start_file_offset <= file_range_end
     };
 
-    let section_start_avma =
-        mapping_start_avma + (section_start_file_offset - mapping_start_file_offset);
+    // Find one of the "segments" (ELF LOAD commands) overlapping this mapping, to map file offsets to SVMAs.
+    // If no segment is found, fall back to using section information.
+    // This fallback only exists for the synthetic .so files created by `perf inject --jit`,
+    // - those don't have LOAD commands.
+    let (ref_file_offset, ref_svma) = if let Some(((file_range_start, _), svma)) = file
+        .segments()
+        .map(|s| (s.file_range(), s.address()))
+        .find(|(file_range, _svma)| file_range_overlaps_mapping(*file_range))
+    {
+        (file_range_start, svma)
+    } else if let Some(((file_range_start, _), svma)) = file
+        .sections()
+        .filter(|s| s.kind() == SectionKind::Text)
+        .filter_map(|s| s.file_range().map(|fr| (fr, s.address())))
+        .find(|(fr, _svma)| file_range_overlaps_mapping(*fr))
+    {
+        (file_range_start, svma)
+    } else {
+        println!(
+            "Could not find segment or section overlapping the file offset range 0x{:x}..0x{:x}",
+            mapping_start_file_offset, mapping_end_file_offset,
+        );
+        return None;
+    };
+
+    let ref_avma = mapping_start_avma + (ref_file_offset - mapping_start_file_offset);
 
     // Compute the offset between AVMAs and SVMAs. This is the bias of the image.
-    let bias = section_start_avma - section_start_svma;
+    let bias = ref_avma - ref_svma;
 
     let base_svma = match file.segments().next() {
         Some(first_segment) => first_segment.address(),
