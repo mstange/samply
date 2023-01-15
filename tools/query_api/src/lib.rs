@@ -56,6 +56,16 @@ impl<'h> FileAndPathHelper<'h> for Helper {
             )));
         }
 
+        // And Breakpad .sym files.
+        if let Some(debug_id) = library_info.debug_id {
+            paths.push(CandidatePathInfo::SingleFile(FileLocationType(
+                self.symbol_directory
+                    .join(debug_name)
+                    .join(debug_id.breakpad().to_string())
+                    .join(format!("{}.sym", debug_name.trim_end_matches(".pdb"))),
+            )));
+        }
+
         // Finally, the file itself.
         paths.push(CandidatePathInfo::SingleFile(FileLocationType(
             self.symbol_directory.join(debug_name),
