@@ -30,6 +30,7 @@ use wholesym::samply_symbols;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::convert::TryFrom;
+use std::fmt::Debug;
 use std::path::PathBuf;
 use std::time::SystemTime;
 use std::{ops::Range, path::Path};
@@ -894,6 +895,63 @@ fn open_file_with_fallback(
     }
 }
 
+// A file range in an object file, such as a segment or a section,
+// for which we know the corresponding Stated Virtual Memory Address (SVMA).
+#[derive(Clone)]
+struct SvmaFileRange {
+    svma: u64,
+    file_offset: u64,
+    size: u64,
+}
+
+impl SvmaFileRange {
+    pub fn from_segment<'data, S: ObjectSegment<'data>>(segment: S) -> Self {
+        let svma = segment.address();
+        let (file_offset, size) = segment.file_range();
+        SvmaFileRange {
+            svma,
+            file_offset,
+            size,
+        }
+    }
+
+    pub fn from_section<'data, S: ObjectSection<'data>>(section: S) -> Option<Self> {
+        let svma = section.address();
+        let (file_offset, size) = section.file_range()?;
+        Some(SvmaFileRange {
+            svma,
+            file_offset,
+            size,
+        })
+    }
+
+    pub fn encompasses_file_range(&self, other_file_offset: u64, other_file_size: u64) -> bool {
+        let self_file_range_end = self.file_offset + self.size;
+        let other_file_range_end = other_file_offset + other_file_size;
+        self.file_offset <= other_file_offset && other_file_range_end <= self_file_range_end
+    }
+
+    pub fn is_encompassed_by_file_range(
+        &self,
+        other_file_offset: u64,
+        other_file_size: u64,
+    ) -> bool {
+        let self_file_range_end = self.file_offset + self.size;
+        let other_file_range_end = other_file_offset + other_file_size;
+        other_file_offset <= self.file_offset && self_file_range_end <= other_file_range_end
+    }
+}
+
+impl Debug for SvmaFileRange {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SvmaFileRange")
+            .field("svma", &format!("{:#x}", &self.svma))
+            .field("file_offset", &format!("{:#x}", &self.file_offset))
+            .field("size", &format!("{:#x}", &self.size))
+            .finish()
+    }
+}
+
 /// Compute the image base address, in process memory, i.e. as an "actual virtual memory address".
 /// We have the section + segment information of the mapped object file, and we know the file offset
 /// and size of the mapping, as well as the AVMA at the mapping start.
@@ -955,57 +1013,148 @@ fn open_file_with_fallback(
 /// not initiated by an ELF LOAD command: Part of the d8 binary (the V8 shell) was mapped
 /// into memory with a mapping that covered only a small part of the `.text` section.
 /// Usually, you'd expect a section to be mapped in its entirety, but this was not the
-/// case here. So the section finding code below only checks for overlap, not for containment.
-fn compute_base_avma<'data: 'file, 'file>(
-    file: &'file impl Object<'data, 'file>,
+/// case here. So the segment finding code below checks for containment both ways: Whether
+/// the mapping is contained in the segment, or whether the segment is contained in the
+/// mapping. We also tried a solution where we just check for overlap between the segment
+/// and the mapping, but this sometimes got the wrong segment, because the mapping is
+/// larger than the segment due to alignment, and can extend into other segments.
+fn compute_base_avma<'data, 'file, O>(
+    file: &'file O,
     mapping_start_file_offset: u64,
     mapping_start_avma: u64,
     mapping_size: u64,
-) -> Option<u64> {
-    let mapping_end_file_offset = mapping_start_file_offset + mapping_size;
+) -> Option<u64>
+where
+    'data: 'file,
+    O: Object<'data, 'file>,
+{
+    let mut contributions: Vec<SvmaFileRange> =
+        file.segments().map(SvmaFileRange::from_segment).collect();
 
-    let file_range_overlaps_mapping = |(file_range_start, file_range_size)| {
-        let file_range_end = file_range_start + file_range_size;
-        file_range_start <= mapping_end_file_offset && mapping_start_file_offset <= file_range_end
-    };
-
-    // Find one of the "segments" (ELF LOAD commands) overlapping this mapping, to map file offsets to SVMAs.
-    // If no segment is found, fall back to using section information.
-    // This fallback only exists for the synthetic .so files created by `perf inject --jit`,
-    // - those don't have LOAD commands.
-    let (ref_file_offset, ref_svma) = if let Some(((file_range_start, _), svma)) = file
-        .segments()
-        .map(|s| (s.file_range(), s.address()))
-        .find(|(file_range, _svma)| file_range_overlaps_mapping(*file_range))
-    {
-        (file_range_start, svma)
-    } else if let Some(((file_range_start, _), svma)) = file
-        .sections()
-        .filter(|s| s.kind() == SectionKind::Text)
-        .filter_map(|s| s.file_range().map(|fr| (fr, s.address())))
-        .find(|(fr, _svma)| file_range_overlaps_mapping(*fr))
-    {
-        (file_range_start, svma)
-    } else {
-        println!(
-            "Could not find segment or section overlapping the file offset range 0x{:x}..0x{:x}",
-            mapping_start_file_offset, mapping_end_file_offset,
-        );
-        return None;
-    };
-
-    let ref_avma = mapping_start_avma + (ref_file_offset - mapping_start_file_offset);
-
-    // Compute the offset between AVMAs and SVMAs. This is the bias of the image.
-    let bias = ref_avma - ref_svma;
+    if contributions.is_empty() {
+        // If no segment is found, fall back to using section information.
+        // This fallback only exists for the synthetic .so files created by `perf inject --jit`
+        // - those don't have LOAD commands.
+        contributions = file
+            .sections()
+            .filter(|s| s.kind() == SectionKind::Text)
+            .filter_map(SvmaFileRange::from_section)
+            .collect();
+    }
 
     let base_svma = match file.segments().next() {
         Some(first_segment) => first_segment.address(),
         None => 0,
     };
-    let base_avma = base_svma + bias;
 
+    compute_base_avma_impl(
+        &contributions,
+        base_svma,
+        mapping_start_file_offset,
+        mapping_start_avma,
+        mapping_size,
+    )
+}
+
+fn compute_base_avma_impl(
+    contributions: &[SvmaFileRange],
+    base_svma: u64,
+    mapping_file_offset: u64,
+    mapping_avma: u64,
+    mapping_size: u64,
+) -> Option<u64> {
+    // Find a contribution which either fully contains the mapping, or which is fully contained by the mapping.
+    // Linux perf simply always uses the .text section as the reference contribution.
+    let ref_contribution =
+        if let Some(contribution) = contributions.into_iter().find(|contribution| {
+            contribution.encompasses_file_range(mapping_file_offset, mapping_size)
+                || contribution.is_encompassed_by_file_range(mapping_file_offset, mapping_size)
+        }) {
+            contribution
+        } else {
+            println!(
+            "Could not find segment or section overlapping the file offset range 0x{:x}..0x{:x}",
+            mapping_file_offset, mapping_file_offset + mapping_size,
+        );
+            return None;
+        };
+
+    // Compute the AVMA at which the reference contribution is located in process memory.
+    let ref_avma = if ref_contribution.file_offset > mapping_file_offset {
+        mapping_avma + (ref_contribution.file_offset - mapping_file_offset)
+    } else {
+        mapping_avma - (mapping_file_offset - ref_contribution.file_offset)
+    };
+
+    // We have everything we need now.
+    let bias = ref_avma - ref_contribution.svma;
+    let base_avma = base_svma + bias;
     Some(base_avma)
+}
+
+#[test]
+fn test_compute_base_avma_impl() {
+    // From a local build of the Spidermonkey shell ("js")
+    let js_segments = &[
+        SvmaFileRange {
+            svma: 0x0,
+            file_offset: 0x0,
+            size: 0x14bd0bc,
+        },
+        SvmaFileRange {
+            svma: 0x14be0c0,
+            file_offset: 0x14bd0c0,
+            size: 0xf5bf60,
+        },
+        SvmaFileRange {
+            svma: 0x241b020,
+            file_offset: 0x2419020,
+            size: 0x08e920,
+        },
+        SvmaFileRange {
+            svma: 0x24aa940,
+            file_offset: 0x24a7940,
+            size: 0x002d48,
+        },
+    ];
+    let base_svma = js_segments[0].svma;
+    assert_eq!(
+        compute_base_avma_impl(js_segments, base_svma, 0x14bd0c0, 0x100014be0c0, 0xf5bf60),
+        Some(0x10000000000)
+    );
+    assert_eq!(
+        compute_base_avma_impl(js_segments, base_svma, 0x14bd000, 0x55d605384000, 0xf5d000),
+        Some(0x55d603ec6000)
+    );
+
+    // From a local build of the V8 shell ("d8")
+    let d8_segments = &[
+        SvmaFileRange {
+            svma: 0x0,
+            file_offset: 0x0,
+            size: 0x3c8ed8,
+        },
+        SvmaFileRange {
+            svma: 0x03ca000,
+            file_offset: 0x3c9000,
+            size: 0xfec770,
+        },
+        SvmaFileRange {
+            svma: 0x13b7770,
+            file_offset: 0x13b5770,
+            size: 0x0528d0,
+        },
+        SvmaFileRange {
+            svma: 0x140c000,
+            file_offset: 0x1409000,
+            size: 0x0118f0,
+        },
+    ];
+    let base_svma = d8_segments[0].svma;
+    assert_eq!(
+        compute_base_avma_impl(d8_segments, base_svma, 0x1056000, 0x55d15fe80000, 0x180000),
+        Some(0x55d15ee29000)
+    );
 }
 
 /// Tell the unwinder about this module, and alsos create a ProfileModule
