@@ -37,41 +37,70 @@ pub fn build_id_from_notes_section_data(section_data: &[u8]) -> Option<&[u8]> {
     None
 }
 
+struct KallSymIter<'a> {
+    remaining_data: &'a [u8],
+}
+
+impl<'a> KallSymIter<'a> {
+    pub fn new(proc_kallsyms: &'a [u8]) -> Self {
+        Self {
+            remaining_data: proc_kallsyms,
+        }
+    }
+}
+
+impl<'a> Iterator for KallSymIter<'a> {
+    type Item = (u64, &'a [u8]);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining_data.is_empty() {
+            return None;
+        }
+
+        // Format: <hex address> <space> <letter> <space> <name> \n
+        let (after_address, address) = hex_str::<u64>(self.remaining_data).ok()?;
+        let starting_with_name = after_address.get(3..)?; // Skip <space> <letter> <space>
+        match memchr::memchr(b'\n', starting_with_name) {
+            Some(name_len) => {
+                self.remaining_data = &starting_with_name[(name_len + 1)..];
+                Some((address, &starting_with_name[..name_len]))
+            }
+            None => {
+                self.remaining_data = &[];
+                Some((address, starting_with_name))
+            }
+        }
+    }
+}
+
 pub fn parse_kallsyms(data: &[u8]) -> Option<(u64, SymbolTable)> {
     let mut symbols = Vec::new();
-    let (data, first_address) = hex_str::<u64>(data).ok()?;
-    let data = data.get(3..)?; // Skip space, letter, space
-    let (name, data): (_, &[u8]) = match memchr::memchr(b'\n', data) {
-        Some(name_len) => {
-            let name = std::str::from_utf8(&data[..name_len]).ok()?;
-            (name, &data[(name_len + 1)..])
-        }
-        None => (std::str::from_utf8(data).ok()?, &[]),
-    };
-    symbols.push(Symbol {
-        address: 0,
-        size: None,
-        name: name.to_string(),
-    });
-    let mut data = data;
-    while !data.is_empty() {
-        let (after_address, address) = hex_str::<u64>(data).ok()?;
-        let starting_with_name = after_address.get(3..)?; // Skip space, letter, space
-        let (name, next_symbol_data): (_, &[u8]) = match memchr::memchr(b'\n', starting_with_name) {
-            Some(name_len) => {
-                let name = std::str::from_utf8(&starting_with_name[..name_len]).ok()?;
-                (name, &starting_with_name[(name_len + 1)..])
+
+    let mut text_addr = None;
+    for (absolute_addr, symbol_name) in KallSymIter::new(data) {
+        match (text_addr, symbol_name) {
+            (None, b"_text") => {
+                text_addr = Some(absolute_addr);
+                symbols.push(Symbol {
+                    address: 0,
+                    size: None,
+                    name: "_text".to_string(),
+                });
             }
-            None => (std::str::from_utf8(starting_with_name).ok()?, &[]),
-        };
-        symbols.push(Symbol {
-            address: (address - first_address) as u32,
-            size: None,
-            name: name.to_string(),
-        });
-        data = next_symbol_data;
+            (Some(text_addr), _) => {
+                use std::convert::TryFrom;
+                symbols.push(Symbol {
+                    address: u32::try_from(absolute_addr - text_addr).ok()?,
+                    size: None,
+                    name: String::from_utf8_lossy(symbol_name).to_string(),
+                });
+            }
+            (None, _) => {
+                // Ignore symbols before the _text symbol.
+            }
+        }
     }
-    Some((first_address, SymbolTable::new(symbols)))
+    Some((text_addr?, SymbolTable::new(symbols)))
 }
 
 /// Match a hex string, parse it to a u32 or a u64.
@@ -249,6 +278,31 @@ ffff8000081f0190 t sun4i_handle_irq"#;
         assert_eq!(
             &symbol_table.lookup(0x10054).unwrap().name,
             "__irqentry_text_start"
+        );
+    }
+
+    #[test]
+    fn test3() {
+        let kallsyms = br#"0000000000000000 A fixed_percpu_data
+0000000000000000 A __per_cpu_start
+0000000000001000 A cpu_debug_store
+0000000000002000 A irq_stack_backing_store
+0000000000006000 A cpu_tss_rw
+0000000000032080 A steal_time
+00000000000320c0 A apf_reason
+0000000000033000 A __per_cpu_end
+ffffffffa7e00000 T startup_64
+ffffffffa7e00000 T _stext
+ffffffffa7e00000 T _text
+ffffffffa7e00040 T secondary_startup_64
+ffffffffa7e00045 T secondary_startup_64_no_verify
+ffffffffa7e00110 t verify_cpu
+ffffffffa7e00210 T sev_verify_cbit"#;
+        let (base_avma, symbol_table) = parse_kallsyms(kallsyms).unwrap();
+        assert_eq!(base_avma, 0xffffffffa7e00000);
+        assert_eq!(
+            &symbol_table.lookup(0x61).unwrap().name,
+            "secondary_startup_64_no_verify"
         );
     }
 }

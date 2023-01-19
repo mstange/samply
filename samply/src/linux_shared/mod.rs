@@ -657,6 +657,7 @@ where
             (DsoKey::Kernel, Some(build_id), Some(kernel_symbols))
                 if build_id == &kernel_symbols.build_id && kernel_symbols.base_avma != 0 =>
             {
+                // Run `sudo sh -c "echo 0 > /proc/sys/kernel/kptr_restrict"` to get here without root.
                 Some(kernel_symbols.symbol_table.clone())
             }
             _ => None,
