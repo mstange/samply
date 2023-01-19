@@ -2,7 +2,7 @@ use std::convert::TryFrom;
 use std::{borrow::Cow, slice, sync::Mutex};
 
 use debugid::DebugId;
-use object::{File, ObjectMap, ReadRef, SectionKind, SymbolKind};
+use object::{File, ObjectMap, ReadRef, SectionIndex, SectionKind, SymbolKind};
 
 use crate::ExternalFileAddressRef;
 use crate::{
@@ -158,14 +158,49 @@ where
 
         // Add entries in the order "best to worst".
 
+        use object::ObjectSection;
+        let executable_sections: Vec<SectionIndex> = object_file
+            .sections()
+            .filter_map(|section| match section.kind() {
+                SectionKind::Text => Some(section.index()),
+                _ => None,
+            })
+            .collect();
+
         // 1. Normal symbols
         // 2. Dynamic symbols (only used by ELF files, I think)
-        use object::ObjectSection;
         entries.extend(
             object_file
                 .symbols()
                 .chain(object_file.dynamic_symbols())
-                .filter(|symbol| symbol.kind() == SymbolKind::Text && symbol.address() != 0)
+                .filter(|symbol| {
+                    // Filter out symbols with no address.
+                    if symbol.address() == 0 {
+                        return false;
+                    }
+
+                    // Filter out non-Text symbols which don't have a symbol size.
+                    match symbol.kind() {
+                        SymbolKind::Text => {
+                            // Keep. This is a regular function symbol. On mach-O these don't have sizes.
+                        }
+                        SymbolKind::Unknown if symbol.size() != 0 => {
+                            // Keep. This catches some useful kernel symbols, e.g. asm_exc_page_fault,
+                            // which is a NOTYPE symbol (= SymbolKind::Unknown).
+                            //
+                            // We require a non-zero symbol size in this case, in order to filter out some
+                            // bad symbols in the middle of functions. For example, the android32-local/libmozglue.so
+                            // fixture has a NOTYPE symbol with zero size at 0x9850f.
+                        }
+                        _ => return false, // Cull.
+                    }
+
+                    // Filter out symbols from non-executable sections.
+                    match symbol.section_index() {
+                        Some(section_index) => executable_sections.contains(&section_index),
+                        _ => false,
+                    }
+                })
                 .filter_map(|symbol| {
                     Some((
                         u32::try_from(symbol.address().checked_sub(base_address)?).ok()?,
