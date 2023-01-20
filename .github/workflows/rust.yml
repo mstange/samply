@@ -35,8 +35,11 @@ jobs:
       run: cargo test --verbose
 
     - name: Build wholesym
-      working-directory: samply-api
+      working-directory: wholesym
       run: cargo build --verbose
+    - name: Test wholesym
+      working-directory: wholesym
+      run: cargo test --verbose
 
     - name: Check tools/benchmarks
       working-directory: tools/benchmarks

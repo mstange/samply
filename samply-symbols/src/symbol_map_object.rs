@@ -2,7 +2,7 @@ use std::convert::TryFrom;
 use std::{borrow::Cow, slice, sync::Mutex};
 
 use debugid::DebugId;
-use object::{File, ObjectMap, ReadRef, SectionIndex, SectionKind, SymbolKind};
+use object::{File, ObjectMap, ReadRef, SectionFlags, SectionIndex, SectionKind, SymbolKind};
 
 use crate::ExternalFileAddressRef;
 use crate::{
@@ -94,6 +94,23 @@ enum FullSymbolListEntry<'a, Symbol: object::ObjectSymbol<'a>> {
     EndAddress,
 }
 
+impl<'a, Symbol: object::ObjectSymbol<'a>> std::fmt::Debug for FullSymbolListEntry<'a, Symbol> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Synthesized => write!(f, "Synthesized"),
+            Self::Symbol(arg0) => f
+                .debug_tuple("Symbol")
+                .field(&arg0.name().unwrap())
+                .finish(),
+            Self::Export(arg0) => f
+                .debug_tuple("Export")
+                .field(&std::str::from_utf8(arg0.name()).unwrap())
+                .finish(),
+            Self::EndAddress => write!(f, "EndAddress"),
+        }
+    }
+}
+
 impl<'a, Symbol: object::ObjectSymbol<'a>> FullSymbolListEntry<'a, Symbol> {
     fn name(&self, addr: u32) -> Result<Cow<'a, str>, ()> {
         match self {
@@ -156,16 +173,27 @@ where
 
         let base_address = relative_address_base(object_file);
 
-        // Add entries in the order "best to worst".
-
+        // Compute the executable sections upfront. This will be used to filter out uninteresting symbols.
         use object::ObjectSection;
         let executable_sections: Vec<SectionIndex> = object_file
             .sections()
-            .filter_map(|section| match section.kind() {
-                SectionKind::Text => Some(section.index()),
+            .filter_map(|section| match (section.kind(), section.flags()) {
+                // Match executable sections.
+                (SectionKind::Text, _) => Some(section.index()),
+
+                // Match sections in debug files which correspond to executable sections in the original binary.
+                // "SectionKind::EmptyButUsedToBeText"
+                (SectionKind::UninitializedData, SectionFlags::Elf { sh_flags })
+                    if sh_flags & u64::from(object::elf::SHF_EXECINSTR) != 0 =>
+                {
+                    Some(section.index())
+                }
+
                 _ => None,
             })
             .collect();
+
+        // Build a list of symbol start and end entries. We add entries in the order "best to worst".
 
         // 1. Normal symbols
         // 2. Dynamic symbols (only used by ELF files, I think)
