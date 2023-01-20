@@ -184,9 +184,9 @@ where
                         SymbolKind::Text => {
                             // Keep. This is a regular function symbol. On mach-O these don't have sizes.
                         }
-                        SymbolKind::Unknown if symbol.size() != 0 => {
+                        SymbolKind::Label if symbol.size() != 0 => {
                             // Keep. This catches some useful kernel symbols, e.g. asm_exc_page_fault,
-                            // which is a NOTYPE symbol (= SymbolKind::Unknown).
+                            // which is a NOTYPE symbol (= SymbolKind::Label).
                             //
                             // We require a non-zero symbol size in this case, in order to filter out some
                             // bad symbols in the middle of functions. For example, the android32-local/libmozglue.so
