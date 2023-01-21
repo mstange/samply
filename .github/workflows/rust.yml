@@ -13,7 +13,11 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
-    - name: Build workspace
+    - name: Build
       run: cargo build --workspace --verbose
-    - name: Test workspace
+    - name: Test
       run: cargo test --workspace --verbose
+    - name: Check formatting
+      run: cargo fmt -- --check --verbose
+    - name: Clippy
+      run: cargo clippy -- --workspace --verbose
