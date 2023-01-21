@@ -28,7 +28,7 @@ fn main() -> anyhow::Result<()> {
     let result =
         futures::executor::block_on(main_impl(&opt.binary_path, opt.breakpad_id, opt.full));
     match result {
-        Ok(()) => return Ok(()),
+        Ok(()) => Ok(()),
         Err(Error::NoDisambiguatorForFatArchive(members)) => {
             // There's no one breakpad ID. We need the user to specify which one they want.
             // Print out all potential breakpad IDs so that the user can pick.
