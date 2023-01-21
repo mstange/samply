@@ -32,3 +32,9 @@ fn main() -> anyhow::Result<()> {
     println!("{}", response_json);
     Ok(())
 }
+
+#[test]
+fn verify_cli() {
+    use clap::CommandFactory;
+    Opt::command().debug_assert()
+}

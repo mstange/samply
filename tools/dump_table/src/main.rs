@@ -54,3 +54,9 @@ async fn main_impl(
     dump_table(&mut std::io::stdout(), table, full).unwrap();
     Ok(())
 }
+
+#[test]
+fn verify_cli() {
+    use clap::CommandFactory;
+    Opt::command().debug_assert()
+}
