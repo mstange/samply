@@ -1,8 +1,7 @@
-use futures::Future;
 pub use samply_api::debugid::{CodeId, DebugId};
 use samply_api::samply_symbols::{
     CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation, LibraryInfo,
-    SymbolManager,
+    OptionallySendFuture, SymbolManager,
 };
 use samply_api::Api;
 use std::fs::File;
@@ -23,7 +22,8 @@ struct Helper {
 impl<'h> FileAndPathHelper<'h> for Helper {
     type F = memmap2::Mmap;
     type FL = FileLocationType;
-    type OpenFileFuture = Pin<Box<dyn Future<Output = FileAndPathHelperResult<Self::F>> + 'h>>;
+    type OpenFileFuture =
+        Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>>;
 
     fn get_candidate_paths_for_debug_file(
         &self,
@@ -105,7 +105,7 @@ impl<'h> FileAndPathHelper<'h> for Helper {
     fn load_file(
         &'h self,
         location: FileLocationType,
-    ) -> Pin<Box<dyn Future<Output = FileAndPathHelperResult<Self::F>> + 'h>> {
+    ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>> {
         async fn load_file_impl(path: PathBuf) -> FileAndPathHelperResult<memmap2::Mmap> {
             eprintln!("Reading file {:?}", &path);
             let file = File::open(&path)?;

@@ -12,6 +12,3 @@ memmap2 = "0.5.0"
 anyhow = "1.0.28"
 futures = "0.3.5"
 serde_json = "1.0.68"
-
-[profile.release]
-debug = true

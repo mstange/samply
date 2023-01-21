@@ -57,7 +57,3 @@ flate2 = "1.0.23"
 parking_lot = "0.12.1"
 num_cpus = "1.13.1"
 uname = "0.1.1"
-
-[profile.release]
-debug = true
-panic = "abort"

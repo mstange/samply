@@ -1,7 +1,6 @@
 target
 profile.json
 .DS_Store
-Cargo.lock
 
 # These libxul blobs are too big to put them in the repo.
 # The benchmarks example downloads them from the Mozilla symbol server on demand.

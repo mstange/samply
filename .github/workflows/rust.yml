@@ -13,42 +13,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
-    - name: Build fxprof-processed-profile
-      working-directory: fxprof-processed-profile
-      run: cargo build --verbose
-    - name: Test fxprof-processed-profile
-      working-directory: fxprof-processed-profile
-      run: cargo test --verbose
-
-    - name: Build samply-symbols
-      working-directory: samply-symbols
-      run: cargo build --verbose
-    - name: Test samply-symbols
-      working-directory: samply-symbols
-      run: cargo test --verbose
-
-    - name: Build samply-api
-      working-directory: samply-api
-      run: cargo build --verbose
-    - name: Test samply-api
-      working-directory: samply-api
-      run: cargo test --verbose
-
-    - name: Build wholesym
-      working-directory: wholesym
-      run: cargo build --verbose
-    - name: Test wholesym
-      working-directory: wholesym
-      run: cargo test --verbose
-
-    - name: Check tools/benchmarks
-      working-directory: tools/benchmarks
-      run: cargo check --verbose
-
-    - name: Check tools/dump_table
-      working-directory: tools/dump_table
-      run: cargo check --verbose
-
-    - name: Check tools/query_api
-      working-directory: tools/query_api
-      run: cargo check --verbose
+    - name: Build workspace
+      run: cargo build --workspace --verbose
+    - name: Test workspace
+      run: cargo test --workspace --verbose

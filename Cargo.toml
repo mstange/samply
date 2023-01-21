@@ -1,0 +1,12 @@
+[workspace]
+members = [
+    "fxprof-processed-profile",
+    "gecko_profile",
+    "samply-api",
+    "samply-symbols",
+    "samply",
+    "tools/benchmarks",
+    "tools/dump_table",
+    "tools/query_api"
+]
+default-members = ["samply"]

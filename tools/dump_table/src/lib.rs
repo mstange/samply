@@ -2,10 +2,9 @@ pub use samply_symbols::debugid;
 use samply_symbols::debugid::DebugId;
 use samply_symbols::{
     self, CandidatePathInfo, CompactSymbolTable, Error, FileAndPathHelper, FileAndPathHelperResult,
-    FileLocation, LibraryInfo, MultiArchDisambiguator, SymbolManager,
+    FileLocation, LibraryInfo, MultiArchDisambiguator, OptionallySendFuture, SymbolManager,
 };
 use std::fs::File;
-use std::future::Future;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -137,7 +136,8 @@ fn mmap_to_file_contents(m: memmap2::Mmap) -> FileContentsType {
 impl<'h> FileAndPathHelper<'h> for Helper {
     type F = FileContentsType;
     type FL = FileLocationType;
-    type OpenFileFuture = Pin<Box<dyn Future<Output = FileAndPathHelperResult<Self::F>> + 'h>>;
+    type OpenFileFuture =
+        Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>>;
 
     fn get_candidate_paths_for_debug_file(
         &self,
@@ -209,7 +209,7 @@ impl<'h> FileAndPathHelper<'h> for Helper {
     fn load_file(
         &'h self,
         location: FileLocationType,
-    ) -> Pin<Box<dyn Future<Output = FileAndPathHelperResult<Self::F>> + 'h>> {
+    ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>> {
         async fn load_file_impl(path: PathBuf) -> FileAndPathHelperResult<memmap2::Mmap> {
             eprintln!("Reading file {:?}", &path);
             let file = File::open(&path)?;
