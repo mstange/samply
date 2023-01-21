@@ -83,11 +83,11 @@ impl TaskAccepter {
         let mut pid_bytes: [u8; 4] = Default::default();
         pid_bytes.copy_from_slice(&res[7..11]);
         let pid = u32::from_le_bytes(pid_bytes);
-        let mut task_channel = channels.pop().unwrap();
-        let mut sender_channel = channels.pop().unwrap();
-        let sender_channel = sender_channel.to_sender();
+        let task_channel = channels.pop().unwrap();
+        let sender_channel = channels.pop().unwrap();
+        let sender_channel = sender_channel.into_sender();
 
-        let task = task_channel.to_port();
+        let task = task_channel.into_port();
 
         Ok(AcceptedTask {
             task,

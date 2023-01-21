@@ -385,7 +385,7 @@ impl OsIpcSender {
             (*message).header.msgh_remote_port = self.port;
             (*message).header.msgh_reserved = 0;
             (*message).header.msgh_id = 0;
-            (*message).body.msgh_descriptor_count = (0 + shared_memory_regions.len()) as u32;
+            (*message).body.msgh_descriptor_count = shared_memory_regions.len() as u32;
 
             let port_descriptor_dest = message.offset(1) as *mut mach_msg_port_descriptor_t;
             let mut shared_memory_descriptor_dest =
@@ -465,14 +465,14 @@ impl OsOpaqueIpcChannel {
         OsOpaqueIpcChannel { port: name }
     }
 
-    pub fn to_sender(&mut self) -> OsIpcSender {
+    pub fn into_sender(mut self) -> OsIpcSender {
         OsIpcSender {
             port: mem::replace(&mut self.port, MACH_PORT_NULL),
             nosync_marker: PhantomData,
         }
     }
 
-    pub fn to_port(&mut self) -> mach_port_t {
+    pub fn into_port(mut self) -> mach_port_t {
         mem::replace(&mut self.port, MACH_PORT_NULL)
     }
 }

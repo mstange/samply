@@ -1066,19 +1066,19 @@ fn compute_base_avma_impl(
 ) -> Option<u64> {
     // Find a contribution which either fully contains the mapping, or which is fully contained by the mapping.
     // Linux perf simply always uses the .text section as the reference contribution.
-    let ref_contribution =
-        if let Some(contribution) = contributions.into_iter().find(|contribution| {
-            contribution.encompasses_file_range(mapping_file_offset, mapping_size)
-                || contribution.is_encompassed_by_file_range(mapping_file_offset, mapping_size)
-        }) {
-            contribution
-        } else {
-            println!(
+    let ref_contribution = if let Some(contribution) = contributions.iter().find(|contribution| {
+        contribution.encompasses_file_range(mapping_file_offset, mapping_size)
+            || contribution.is_encompassed_by_file_range(mapping_file_offset, mapping_size)
+    }) {
+        contribution
+    } else {
+        println!(
             "Could not find segment or section overlapping the file offset range 0x{:x}..0x{:x}",
-            mapping_file_offset, mapping_file_offset + mapping_size,
+            mapping_file_offset,
+            mapping_file_offset + mapping_size,
         );
-            return None;
-        };
+        return None;
+    };
 
     // Compute the AVMA at which the reference contribution is located in process memory.
     let ref_avma = if ref_contribution.file_offset > mapping_file_offset {
