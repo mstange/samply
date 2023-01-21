@@ -2,19 +2,19 @@
 //!
 //! You probably want to be using the [`wholesym` crate](https://docs.rs/wholesym/) instead.
 //! `wholesym` has a much more ergonomic API; it is a wrapper around `samply-symbols`.
-//! 
+//!
 //! More specifically, `samply-symbols` provides the low-level implementation of `wholesym`,
 //! while satisfying both native and WebAssembly consumers, whereas `wholesym` only cares about
 //! native consumers.
-//! 
+//!
 //! The main entry point of this crate is the `SymbolManager` struct and its async `load_symbol_map` method.
 //! With a `SymbolMap`, you can resolve raw code addresses to function name strings, and, if available,
 //! to file name + line number information and inline stacks.
-//! 
+//!
 //! # Design constraints
 //!
 //! This crate operates under the following design constraints:
-//! 
+//!
 //!   - Must be usable from JavaScript / WebAssembly: The Firefox profiler runs this code in a
 //!     WebAssembly environment, invoked from a privileged piece of JavaScript code inside Firefox itself.
 //!     This setup allows us to download a wasm bundle on demand, rather than shipping
