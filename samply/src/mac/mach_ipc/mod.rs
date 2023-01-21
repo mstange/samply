@@ -61,8 +61,6 @@ const MACH_MSG_SUCCESS: kern_return_t = 0;
 const MACH_MSG_TIMEOUT_NONE: mach_msg_timeout_t = 0;
 const MACH_MSG_TYPE_COPY_SEND: u8 = 19;
 const MACH_MSG_TYPE_MAKE_SEND: u8 = 20;
-const MACH_MSG_TYPE_MAKE_SEND_ONCE: u8 = 21;
-const MACH_MSG_TYPE_MOVE_RECEIVE: u8 = 16;
 const MACH_MSG_TYPE_MOVE_SEND: u8 = 17;
 const MACH_MSG_TYPE_PORT_SEND: u8 = MACH_MSG_TYPE_MOVE_SEND;
 const MACH_MSG_VIRTUAL_COPY: c_uint = 1;
@@ -73,7 +71,6 @@ const MACH_NOTIFY_NO_SENDERS: i32 = MACH_NOTIFY_FIRST + 6;
 const MACH_PORT_LIMITS_INFO: i32 = 1;
 const MACH_PORT_QLIMIT_LARGE: mach_port_msgcount_t = 1024;
 const MACH_PORT_QLIMIT_MAX: mach_port_msgcount_t = MACH_PORT_QLIMIT_LARGE;
-const MACH_PORT_RIGHT_PORT_SET: mach_port_right_t = 3;
 const MACH_PORT_RIGHT_RECEIVE: mach_port_right_t = 1;
 const MACH_PORT_RIGHT_SEND: mach_port_right_t = 0;
 const MACH_RCV_BODY_ERROR: kern_return_t = 0x1000400c;
@@ -119,13 +116,6 @@ const VM_INHERIT_SHARE: vm_inherit_t = 0;
 #[allow(non_camel_case_types)]
 type name_t = *const c_char;
 
-pub fn channel() -> Result<(OsIpcSender, OsIpcReceiver), MachError> {
-    let receiver = OsIpcReceiver::new()?;
-    let sender = receiver.sender()?;
-    receiver.request_no_senders_notification()?;
-    Ok((sender, receiver))
-}
-
 #[derive(PartialEq, Eq, Debug)]
 pub struct OsIpcReceiver {
     port: Cell<mach_port_t>,
@@ -163,14 +153,6 @@ fn mach_port_mod_release(port: mach_port_t, right: mach_port_right_t) -> Result<
         return Ok(());
     }
     Err(err.into())
-}
-
-fn mach_port_move_member(port: mach_port_t, set: mach_port_t) -> Result<(), KernelError> {
-    let error = unsafe { mach_sys::mach_port_move_member(mach_task_self(), port, set) };
-    if error == KERN_SUCCESS {
-        return Ok(());
-    }
-    Err(error.into())
 }
 
 fn mach_port_extract_right(
@@ -219,31 +201,6 @@ impl OsIpcReceiver {
         OsIpcReceiver {
             port: Cell::new(port),
         }
-    }
-
-    fn extract_port(&self) -> mach_port_t {
-        let port = self.port.get();
-        debug_assert!(port != MACH_PORT_NULL);
-        port
-    }
-
-    fn consume_port(&self) -> mach_port_t {
-        let port = self.extract_port();
-        self.port.set(MACH_PORT_NULL);
-        port
-    }
-
-    pub fn consume(&self) -> OsIpcReceiver {
-        OsIpcReceiver::from_name(self.consume_port())
-    }
-
-    fn sender(&self) -> Result<OsIpcSender, MachError> {
-        let port = self.port.get();
-        debug_assert!(port != MACH_PORT_NULL);
-        let (right, acquired_right) =
-            mach_port_extract_right(port, MACH_MSG_TYPE_MAKE_SEND as u32)?;
-        debug_assert!(acquired_right == MACH_MSG_TYPE_PORT_SEND as u32);
-        Ok(OsIpcSender::from_name(right))
     }
 
     fn register_bootstrap_name(&self) -> Result<String, MachError> {
@@ -305,26 +262,6 @@ impl OsIpcReceiver {
         }
     }
 
-    fn request_no_senders_notification(&self) -> Result<(), MachError> {
-        let port = self.port.get();
-        debug_assert!(port != MACH_PORT_NULL);
-        unsafe {
-            let os_result = mach_sys::mach_port_request_notification(
-                mach_task_self(),
-                port,
-                MACH_NOTIFY_NO_SENDERS,
-                0,
-                port,
-                MACH_MSG_TYPE_MAKE_SEND_ONCE as u32,
-                &mut 0,
-            );
-            if os_result != KERN_SUCCESS {
-                return Err(KernelError::from(os_result).into());
-            }
-        }
-        Ok(())
-    }
-
     #[allow(clippy::type_complexity)]
     pub fn recv_with_blocking_mode(
         &self,
@@ -336,20 +273,6 @@ impl OsIpcReceiver {
             }
             OsIpcSelectionResult::ChannelClosed(_) => Err(MachError::from(MACH_NOTIFY_NO_SENDERS)),
         })
-    }
-
-    #[allow(clippy::type_complexity)]
-    pub fn recv(
-        &self,
-    ) -> Result<(Vec<u8>, Vec<OsOpaqueIpcChannel>, Vec<OsIpcSharedMemory>), MachError> {
-        self.recv_with_blocking_mode(BlockingMode::Blocking)
-    }
-
-    #[allow(clippy::type_complexity)]
-    pub fn try_recv(
-        &self,
-    ) -> Result<(Vec<u8>, Vec<OsOpaqueIpcChannel>, Vec<OsIpcSharedMemory>), MachError> {
-        self.recv_with_blocking_mode(BlockingMode::Nonblocking)
     }
 }
 
@@ -443,44 +366,9 @@ impl Clone for OsIpcSender {
 }
 
 impl OsIpcSender {
-    fn from_name(port: mach_port_t) -> OsIpcSender {
-        OsIpcSender {
-            port,
-            nosync_marker: PhantomData,
-        }
-    }
-
-    pub fn connect(name: String) -> Result<OsIpcSender, MachError> {
-        unsafe {
-            let mut bootstrap_port = 0;
-            let os_result = mach_sys::task_get_special_port(
-                mach_task_self(),
-                TASK_BOOTSTRAP_PORT,
-                &mut bootstrap_port,
-            );
-            if os_result != KERN_SUCCESS {
-                return Err(KernelError::from(os_result).into());
-            }
-
-            let mut port = 0;
-            let c_name = CString::new(name).unwrap();
-            let os_result = bootstrap_look_up(bootstrap_port, c_name.as_ptr(), &mut port);
-            if os_result == BOOTSTRAP_SUCCESS {
-                Ok(OsIpcSender::from_name(port))
-            } else {
-                Err(MachError::from(os_result))
-            }
-        }
-    }
-
-    pub fn get_max_fragment_size() -> usize {
-        usize::MAX
-    }
-
     pub fn send(
         &self,
         data: &[u8],
-        ports: Vec<OsIpcChannel>,
         mut shared_memory_regions: Vec<OsIpcSharedMemory>,
     ) -> Result<(), MachError> {
         let mut data = SendData::from(data);
@@ -489,7 +377,7 @@ impl OsIpcSender {
         }
 
         unsafe {
-            let size = Message::size_of(&data, ports.len(), shared_memory_regions.len());
+            let size = Message::size_of(&data, 0, shared_memory_regions.len());
             let message = libc::malloc(size as size_t) as *mut Message;
             (*message).header.msgh_bits = (MACH_MSG_TYPE_COPY_SEND as u32) | MACH_MSGH_BITS_COMPLEX;
             (*message).header.msgh_size = size as u32;
@@ -497,24 +385,9 @@ impl OsIpcSender {
             (*message).header.msgh_remote_port = self.port;
             (*message).header.msgh_reserved = 0;
             (*message).header.msgh_id = 0;
-            (*message).body.msgh_descriptor_count =
-                (ports.len() + shared_memory_regions.len()) as u32;
+            (*message).body.msgh_descriptor_count = (0 + shared_memory_regions.len()) as u32;
 
-            let mut port_descriptor_dest = message.offset(1) as *mut mach_msg_port_descriptor_t;
-            for outgoing_port in &ports {
-                (*port_descriptor_dest).name = outgoing_port.port();
-                (*port_descriptor_dest).pad1 = 0;
-
-                (*port_descriptor_dest).disposition = match *outgoing_port {
-                    OsIpcChannel::Sender(_) => MACH_MSG_TYPE_MOVE_SEND,
-                    OsIpcChannel::Receiver(_) => MACH_MSG_TYPE_MOVE_RECEIVE,
-                    OsIpcChannel::RawPort(_) => MACH_MSG_TYPE_COPY_SEND,
-                };
-
-                (*port_descriptor_dest).type_ = MACH_MSG_PORT_DESCRIPTOR;
-                port_descriptor_dest = port_descriptor_dest.offset(1);
-            }
-
+            let port_descriptor_dest = message.offset(1) as *mut mach_msg_port_descriptor_t;
             let mut shared_memory_descriptor_dest =
                 port_descriptor_dest as *mut mach_msg_ool_descriptor_t;
             for shared_memory_region in &shared_memory_regions {
@@ -562,34 +435,15 @@ impl OsIpcSender {
                         *max_inline_size = inline_len;
                     }
                 }
-                return self.send(inline_data, ports, shared_memory_regions);
+                return self.send(inline_data, shared_memory_regions);
             }
             if os_result != MACH_MSG_SUCCESS {
                 return Err(MachError::from(os_result));
-            }
-            for outgoing_port in ports {
-                mem::forget(outgoing_port);
             }
             for shared_memory_region in shared_memory_regions {
                 mem::forget(shared_memory_region);
             }
             Ok(())
-        }
-    }
-}
-
-pub enum OsIpcChannel {
-    Sender(OsIpcSender),
-    Receiver(OsIpcReceiver),
-    RawPort(mach_port_t),
-}
-
-impl OsIpcChannel {
-    fn port(&self) -> mach_port_t {
-        match *self {
-            OsIpcChannel::Sender(ref sender) => sender.port,
-            OsIpcChannel::Receiver(ref receiver) => receiver.port.get(),
-            OsIpcChannel::RawPort(ref port) => *port,
         }
     }
 }
@@ -618,47 +472,8 @@ impl OsOpaqueIpcChannel {
         }
     }
 
-    pub fn to_receiver(&mut self) -> OsIpcReceiver {
-        OsIpcReceiver::from_name(mem::replace(&mut self.port, MACH_PORT_NULL))
-    }
-
     pub fn to_port(&mut self) -> mach_port_t {
         mem::replace(&mut self.port, MACH_PORT_NULL)
-    }
-}
-
-pub struct OsIpcReceiverSet {
-    port: mach_port_t,
-    ports: Vec<mach_port_t>,
-}
-
-impl OsIpcReceiverSet {
-    pub fn new() -> Result<OsIpcReceiverSet, MachError> {
-        let port = mach_port_allocate(MACH_PORT_RIGHT_PORT_SET)?;
-        Ok(OsIpcReceiverSet {
-            port,
-            ports: vec![],
-        })
-    }
-
-    pub fn add(&mut self, receiver: OsIpcReceiver) -> Result<u64, MachError> {
-        mach_port_move_member(receiver.extract_port(), self.port)?;
-        let receiver_port = receiver.consume_port();
-        self.ports.push(receiver_port);
-        Ok(receiver_port as u64)
-    }
-
-    pub fn select(&mut self) -> Result<Vec<OsIpcSelectionResult>, MachError> {
-        select(self.port, BlockingMode::Blocking).map(|result| vec![result])
-    }
-}
-
-impl Drop for OsIpcReceiverSet {
-    fn drop(&mut self) {
-        for port in &self.ports {
-            mach_port_mod_release(*port, MACH_PORT_RIGHT_RECEIVE).unwrap();
-        }
-        mach_port_mod_release(self.port, MACH_PORT_RIGHT_PORT_SET).unwrap();
     }
 }
 
@@ -672,32 +487,9 @@ pub enum OsIpcSelectionResult {
     ChannelClosed(u64),
 }
 
-impl OsIpcSelectionResult {
-    pub fn unwrap(
-        self,
-    ) -> (
-        u64,
-        Vec<u8>,
-        Vec<OsOpaqueIpcChannel>,
-        Vec<OsIpcSharedMemory>,
-    ) {
-        match self {
-            OsIpcSelectionResult::DataReceived(id, data, channels, shared_memory_regions) => {
-                (id, data, channels, shared_memory_regions)
-            }
-            OsIpcSelectionResult::ChannelClosed(id) => panic!(
-                "OsIpcSelectionResult::unwrap(): receiver ID {} was closed!",
-                id
-            ),
-        }
-    }
-}
-
 #[derive(Copy, Clone)]
 pub enum BlockingMode {
-    Blocking,
     BlockingWithTimeout(Duration),
-    Nonblocking,
 }
 
 fn select(
@@ -711,12 +503,10 @@ fn select(
         setup_receive_buffer(&mut buffer, port);
         let mut message = &mut buffer[0] as *mut _ as *mut Message;
         let (flags, timeout) = match blocking_mode {
-            BlockingMode::Blocking => (MACH_RCV_MSG | MACH_RCV_LARGE, MACH_MSG_TIMEOUT_NONE),
             BlockingMode::BlockingWithTimeout(dur) => (
                 MACH_RCV_MSG | MACH_RCV_LARGE | MACH_RCV_TIMEOUT,
                 (dur.as_secs_f32() * 1000.0).round() as u32,
             ),
-            BlockingMode::Nonblocking => (MACH_RCV_MSG | MACH_RCV_LARGE | MACH_RCV_TIMEOUT, 0),
         };
         match mach_sys::mach_msg(
             message as *mut _,
@@ -820,52 +610,6 @@ fn select(
             local_port as u64,
             payload,
             ports,
-            shared_memory_regions,
-        ))
-    }
-}
-
-pub struct OsIpcOneShotServer {
-    receiver: OsIpcReceiver,
-    name: String,
-}
-
-impl Drop for OsIpcOneShotServer {
-    fn drop(&mut self) {
-        let _ = OsIpcReceiver::unregister_global_name(mem::take(&mut self.name));
-    }
-}
-
-impl OsIpcOneShotServer {
-    pub fn new() -> Result<(OsIpcOneShotServer, String), MachError> {
-        let receiver = OsIpcReceiver::new()?;
-        let name = receiver.register_bootstrap_name()?;
-        Ok((
-            OsIpcOneShotServer {
-                receiver,
-                name: name.clone(),
-            },
-            name,
-        ))
-    }
-
-    #[allow(clippy::type_complexity)]
-    pub fn accept(
-        self,
-    ) -> Result<
-        (
-            OsIpcReceiver,
-            Vec<u8>,
-            Vec<OsOpaqueIpcChannel>,
-            Vec<OsIpcSharedMemory>,
-        ),
-        MachError,
-    > {
-        let (bytes, channels, shared_memory_regions) = self.receiver.recv()?;
-        Ok((
-            self.receiver.consume(),
-            bytes,
-            channels,
             shared_memory_regions,
         ))
     }
@@ -979,16 +723,6 @@ impl Deref for OsIpcSharedMemory {
 impl OsIpcSharedMemory {
     unsafe fn from_raw_parts(ptr: *mut u8, length: usize) -> OsIpcSharedMemory {
         OsIpcSharedMemory { ptr, length }
-    }
-
-    pub fn from_byte(byte: u8, length: usize) -> OsIpcSharedMemory {
-        unsafe {
-            let address = allocate_vm_pages(length);
-            for element in slice::from_raw_parts_mut(address, length) {
-                *element = byte;
-            }
-            OsIpcSharedMemory::from_raw_parts(address, length)
-        }
     }
 
     pub fn from_bytes(bytes: &[u8]) -> OsIpcSharedMemory {
@@ -1360,10 +1094,5 @@ extern "C" {
         service_name: name_t,
         sp: mach_port_t,
         flags: u64,
-    ) -> kern_return_t;
-    fn bootstrap_look_up(
-        bp: mach_port_t,
-        service_name: name_t,
-        sp: *mut mach_port_t,
     ) -> kern_return_t;
 }

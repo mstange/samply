@@ -5,9 +5,9 @@ use std::mem;
 use std::process::{Child, Command};
 use std::time::Duration;
 
+pub use super::mach_ipc::{mach_port_t, MachError, OsIpcSender};
+use super::mach_ipc::{BlockingMode, OsIpcMultiShotServer, MACH_PORT_NULL};
 use flate2::write::GzDecoder;
-pub use perfrecord_mach_ipc_rendezvous::{mach_port_t, MachError, OsIpcSender};
-use perfrecord_mach_ipc_rendezvous::{BlockingMode, OsIpcMultiShotServer, MACH_PORT_NULL};
 use tempfile::tempdir;
 
 pub struct TaskAccepter {
@@ -113,8 +113,6 @@ impl AcceptedTask {
     }
 
     pub fn start_execution(&self) {
-        self.sender_channel
-            .send(b"Proceed", vec![], vec![])
-            .unwrap();
+        self.sender_channel.send(b"Proceed", vec![]).unwrap();
     }
 }

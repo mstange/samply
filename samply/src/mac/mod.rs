@@ -3,6 +3,7 @@ mod dyld_bindings;
 
 mod error;
 pub mod kernel_error;
+mod mach_ipc;
 mod proc_maps;
 mod process_launcher;
 pub mod profiler;

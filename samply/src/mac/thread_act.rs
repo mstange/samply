@@ -4,7 +4,6 @@
 #![allow(non_upper_case_globals)]
 
 use super::thread_info::{policy_t, thread_info_t};
-use mach::boolean::boolean_t;
 use mach::exception_types::{
     exception_behavior_array_t, exception_behavior_t, exception_flavor_array_t,
     exception_mask_array_t, exception_mask_t,
@@ -118,29 +117,11 @@ extern "C" {
     ) -> kern_return_t;
 }
 extern "C" {
-    pub fn thread_policy(
-        thr_act: thread_act_t,
-        policy: policy_t,
-        base: policy_base_t,
-        baseCnt: mach_msg_type_number_t,
-        set_limit: boolean_t,
-    ) -> kern_return_t;
-}
-extern "C" {
     pub fn thread_policy_set(
         thread: thread_act_t,
         flavor: thread_policy_flavor_t,
         policy_info: thread_policy_t,
         policy_infoCnt: mach_msg_type_number_t,
-    ) -> kern_return_t;
-}
-extern "C" {
-    pub fn thread_policy_get(
-        thread: thread_inspect_t,
-        flavor: thread_policy_flavor_t,
-        policy_info: thread_policy_t,
-        policy_infoCnt: *mut mach_msg_type_number_t,
-        get_default: *mut boolean_t,
     ) -> kern_return_t;
 }
 extern "C" {
