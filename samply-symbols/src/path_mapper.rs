@@ -1,4 +1,9 @@
-use regex::Regex;
+use nom::branch::alt;
+use nom::bytes::complete::{tag, take_till1, take_until1, take_while1};
+use nom::character::complete::one_of;
+use nom::error::ErrorKind;
+use nom::sequence::{delimited, preceded, terminated, tuple};
+use nom::Err;
 
 use crate::MappedPath;
 
@@ -17,8 +22,6 @@ impl ExtraPathMapper for () {
 pub struct PathMapper<E: ExtraPathMapper> {
     cache: HashMap<String, Option<MappedPath>>,
     extra_mapper: Option<E>,
-    rustc_regex: Regex,
-    cargo_dep_regex: Regex,
 }
 
 impl<E: ExtraPathMapper> PathMapper<E> {
@@ -30,8 +33,6 @@ impl<E: ExtraPathMapper> PathMapper<E> {
         PathMapper {
             cache: HashMap::new(),
             extra_mapper,
-            rustc_regex: Regex::new(r"^/rustc/(?P<rev>[0-9a-f]+)\\?[/\\](?P<path>.*)$").unwrap(),
-            cargo_dep_regex: Regex::new(r"[/\\]\.cargo[/\\]registry[/\\]src[/\\](?P<registry>[^/\\]+)[/\\](?P<crate>[^/]+)-(?P<version>[0-9]+\.[0-9]+\.[0-9]+)[/\\](?P<path>.*)$").unwrap(),
         }
     }
 
@@ -47,31 +48,120 @@ impl<E: ExtraPathMapper> PathMapper<E> {
             return value.clone();
         }
 
-        let mapped_path = if let Some(captures) = self.rustc_regex.captures(raw_path) {
-            let rev = captures.name("rev").unwrap().as_str().to_owned();
-            let path = captures.name("path").unwrap().as_str();
-            let path = path.replace('\\', "/");
-            Some(MappedPath::Git {
-                repo: "github.com/rust-lang/rust".into(),
-                path,
-                rev,
-            })
-        } else if let Some(captures) = self.cargo_dep_regex.captures(raw_path) {
-            let registry = captures.name("registry").unwrap().as_str().to_owned();
-            let crate_name = captures.name("crate").unwrap().as_str().to_owned();
-            let version = captures.name("version").unwrap().as_str().to_owned();
-            let path = captures.name("path").unwrap().as_str();
-            let path = path.replace('\\', "/");
-            Some(MappedPath::Cargo {
-                registry,
-                crate_name,
-                version,
-                path,
-            })
+        let mapped_path = if let Ok(mapped_path) = map_rustc_path(raw_path) {
+            Some(mapped_path)
+        } else if let Ok(mapped_path) = map_cargo_dep_path(raw_path) {
+            Some(mapped_path)
         } else {
             None
         };
         self.cache.insert(raw_path.into(), mapped_path.clone());
         mapped_path
+    }
+}
+
+fn map_rustc_path(input: &str) -> Result<MappedPath, nom::Err<nom::error::Error<&str>>> {
+    // /rustc/c79419af0721c614d050f09b95f076da09d37b0d/library/std/src/rt.rs
+    // /rustc/e1884a8e3c3e813aada8254edfa120e85bf5ffca\/library\std\src\rt.rs
+    // /rustc/a178d0322ce20e33eac124758e837cbd80a6f633\library\std\src\rt.rs
+    let (input, rev) = delimited(
+        tag("/rustc/"),
+        take_till1(|c| c == '/' || c == '\\'),
+        take_while1(|c| c == '/' || c == '\\'),
+    )(input)?;
+    let path = input.replace('\\', "/");
+    Ok(MappedPath::Git {
+        repo: "github.com/rust-lang/rust".into(),
+        path: path.to_owned(),
+        rev: rev.to_owned(),
+    })
+}
+
+fn map_cargo_dep_path(input: &str) -> Result<MappedPath, nom::Err<nom::error::Error<&str>>> {
+    // /Users/mstange/.cargo/registry/src/github.com-1ecc6299db9ec823/nom-7.1.3/src/bytes/complete.rs
+    let (input, (registry, crate_name_and_version)) = preceded(
+        tuple((
+            alt((take_until1("/.cargo"), take_until1("\\.cargo"))),
+            delimited(one_of("/\\"), tag(".cargo"), one_of("/\\")),
+            terminated(tag("registry"), one_of("/\\")),
+            terminated(tag("src"), one_of("/\\")),
+        )),
+        tuple((
+            terminated(take_till1(|c| c == '/' || c == '\\'), one_of("/\\")),
+            terminated(take_till1(|c| c == '/' || c == '\\'), one_of("/\\")),
+        )),
+    )(input)?;
+    let (crate_name, version) = match crate_name_and_version.rfind('-') {
+        Some(pos) => (
+            &crate_name_and_version[..pos],
+            &crate_name_and_version[(pos + 1)..],
+        ),
+        None => {
+            return Err(Err::Error(nom::error::Error::new(
+                crate_name_and_version,
+                ErrorKind::Digit,
+            )))
+        }
+    };
+    let path = input.replace('\\', "/");
+    Ok(MappedPath::Cargo {
+        registry: registry.to_owned(),
+        crate_name: crate_name.to_owned(),
+        version: version.to_owned(),
+        path: path,
+    })
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_map_rustc_path() {
+        assert_eq!(
+            map_rustc_path(
+                r#"/rustc/c79419af0721c614d050f09b95f076da09d37b0d/library/std/src/rt.rs"#
+            ),
+            Ok(MappedPath::Git {
+                repo: "github.com/rust-lang/rust".into(),
+                path: "library/std/src/rt.rs".into(),
+                rev: "c79419af0721c614d050f09b95f076da09d37b0d".into()
+            })
+        );
+        assert_eq!(
+            map_rustc_path(
+                r#"/rustc/e1884a8e3c3e813aada8254edfa120e85bf5ffca\/library\std\src\rt.rs"#
+            ),
+            Ok(MappedPath::Git {
+                repo: "github.com/rust-lang/rust".into(),
+                path: "library/std/src/rt.rs".into(),
+                rev: "e1884a8e3c3e813aada8254edfa120e85bf5ffca".into()
+            })
+        );
+        assert_eq!(
+            map_rustc_path(
+                r#"/rustc/a178d0322ce20e33eac124758e837cbd80a6f633\library\std\src\rt.rs"#
+            ),
+            Ok(MappedPath::Git {
+                repo: "github.com/rust-lang/rust".into(),
+                path: "library/std/src/rt.rs".into(),
+                rev: "a178d0322ce20e33eac124758e837cbd80a6f633".into()
+            })
+        );
+    }
+
+    #[test]
+    fn test_map_cargo_dep_path() {
+        assert_eq!(
+            map_cargo_dep_path(
+                r#"/Users/mstange/.cargo/registry/src/github.com-1ecc6299db9ec823/nom-7.1.3/src/bytes/complete.rs"#
+            ),
+            Ok(MappedPath::Cargo {
+                registry: "github.com-1ecc6299db9ec823".into(),
+                crate_name: "nom".into(),
+                version: "7.1.3".into(),
+                path: "src/bytes/complete.rs".into(),
+            })
+        );
     }
 }
