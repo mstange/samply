@@ -1538,6 +1538,7 @@ dependencies = [
  "flate2",
  "futures",
  "gimli",
+ "lazy_static",
  "lzma-rs",
  "macho-unwind-info",
  "memchr",

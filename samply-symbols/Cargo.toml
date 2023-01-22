@@ -51,6 +51,7 @@ debugid = "0.8.0"
 flate2 = "1"
 yoke = { version = "0.6.2", features = ["derive"] }
 nom = "7.1.1"
+lazy_static = "1.4.0"
 
 [dev-dependencies]
 memmap2 = "0.5.0"

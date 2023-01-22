@@ -324,9 +324,6 @@ where
 struct SrcSrvPathMapper<'a> {
     srcsrv_stream: srcsrv::SrcSrvStream<'a>,
     cache: HashMap<String, Option<MappedPath>>,
-    github_regex: Regex,
-    hg_regex: Regex,
-    s3_regex: Regex,
     gitiles_regex: Regex,
     command_is_file_download_with_url_in_var4_and_uncompress_function_in_var5: bool,
 }
@@ -342,7 +339,7 @@ impl<'a> ExtraPathMapper for SrcSrvPathMapper<'a> {
             .source_and_raw_var_values_for_path(path, "C:\\Dummy")
         {
             Ok(Some((srcsrv::SourceRetrievalMethod::Download { url }, _map))) => {
-                self.url_to_mapped_path(&url)
+                MappedPath::from_url(&url)
             }
             Ok(Some((srcsrv::SourceRetrievalMethod::ExecuteCommand { .. }, map))) => {
                 // We're not going to execute a command here.
@@ -364,10 +361,10 @@ impl<'a> SrcSrvPathMapper<'a> {
         SrcSrvPathMapper {
             srcsrv_stream,
             cache: HashMap::new(),
-            github_regex: Regex::new(r"^https://raw\.githubusercontent\.com/(?P<repo>[^/]+/[^/]+)/(?P<rev>[^/]+)/(?P<path>.*)$").unwrap(),
-            hg_regex: Regex::new(r"^https://(?P<repo>hg\..+)/raw-file/(?P<rev>[0-9a-f]+)/(?P<path>.*)$").unwrap(),
-            s3_regex: Regex::new(r"^https://(?P<bucket>[^/]+).s3.amazonaws.com/(?P<digest>[^/]+)/(?P<path>.*)$").unwrap(),
-            gitiles_regex: Regex::new(r"^https://(?P<repo>.+)\.git/\+/(?P<rev>[^/]+)/(?P<path>.*)\?format=TEXT$").unwrap(),
+            gitiles_regex: Regex::new(
+                r"^https://(?P<repo>.+)\.git/\+/(?P<rev>[^/]+)/(?P<path>.*)\?format=TEXT$",
+            )
+            .unwrap(),
             command_is_file_download_with_url_in_var4_and_uncompress_function_in_var5,
         }
     }
@@ -433,37 +430,6 @@ impl<'a> SrcSrvPathMapper<'a> {
         let path = captures.name("path").unwrap().as_str().to_owned();
         let rev = captures.name("rev").unwrap().as_str().to_owned();
         Some(MappedPath::Git { repo, path, rev })
-    }
-
-    fn url_to_mapped_path(&self, url: &str) -> Option<MappedPath> {
-        if let Some(captures) = self.github_regex.captures(url) {
-            // https://raw.githubusercontent.com/baldurk/renderdoc/v1.15/renderdoc/data/glsl/gl_texsample.h
-            // -> "git:github.com/baldurk/renderdoc:renderdoc/data/glsl/gl_texsample.h:v1.15"
-            let repo = captures.name("repo").unwrap().as_str().to_owned();
-            let path = captures.name("path").unwrap().as_str().to_owned();
-            let rev = captures.name("rev").unwrap().as_str().to_owned();
-            Some(MappedPath::Git { repo, path, rev })
-        } else if let Some(captures) = self.hg_regex.captures(url) {
-            // "https://hg.mozilla.org/mozilla-central/raw-file/1706d4d54ec68fae1280305b70a02cb24c16ff68/mozglue/baseprofiler/core/ProfilerBacktrace.cpp"
-            // -> "hg:hg.mozilla.org/mozilla-central:mozglue/baseprofiler/core/ProfilerBacktrace.cpp:1706d4d54ec68fae1280305b70a02cb24c16ff68"
-            let repo = captures.name("repo").unwrap().as_str().to_owned();
-            let path = captures.name("path").unwrap().as_str().to_owned();
-            let rev = captures.name("rev").unwrap().as_str().to_owned();
-            Some(MappedPath::Hg { repo, path, rev })
-        } else if let Some(captures) = self.s3_regex.captures(url) {
-            // "https://gecko-generated-sources.s3.amazonaws.com/7a1db5dfd0061d0e0bcca227effb419a20439aef4f6c4e9cd391a9f136c6283e89043d62e63e7edbd63ad81c339c401092bcfeff80f74f9cae8217e072f0c6f3/x86_64-pc-windows-msvc/release/build/swgl-59e3a0e09f56f4ea/out/brush_solid_DEBUG_OVERDRAW.h"
-            // -> "s3:gecko-generated-sources:7a1db5dfd0061d0e0bcca227effb419a20439aef4f6c4e9cd391a9f136c6283e89043d62e63e7edbd63ad81c339c401092bcfeff80f74f9cae8217e072f0c6f3/x86_64-pc-windows-msvc/release/build/swgl-59e3a0e09f56f4ea/out/brush_solid_DEBUG_OVERDRAW.h:"
-            let bucket = captures.name("bucket").unwrap().as_str().to_owned();
-            let digest = captures.name("digest").unwrap().as_str().to_owned();
-            let path = captures.name("path").unwrap().as_str().to_owned();
-            Some(MappedPath::S3 {
-                bucket,
-                digest,
-                path,
-            })
-        } else {
-            None
-        }
     }
 }
 
