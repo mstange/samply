@@ -1,6 +1,9 @@
 target
 profile.json
 .DS_Store
+.direnv/
+
+result-bin
 
 # These libxul blobs are too big to put them in the repo.
 # The benchmarks example downloads them from the Mozilla symbol server on demand.

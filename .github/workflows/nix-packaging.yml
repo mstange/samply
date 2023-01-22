@@ -1,0 +1,33 @@
+# This is a basic workflow to help you get started with Actions
+
+name: "Nix Packaging"
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow on push or pull request events but only for the "main" branch
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  build:
+    name: "Build Samply using nix flake"
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v3
+      - uses: cachix/install-nix-action@v17
+        with:
+          nix_path: nixpkgs=channel:nixos-22.05
+      # - uses: cachix/cachix-action@v10
+      #   with:
+      #     name: samply
+      #     authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+
+      - name: Build samply with nix
+        run: nix build -L .#
