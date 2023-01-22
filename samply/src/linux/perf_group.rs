@@ -227,7 +227,7 @@ impl PerfGroup {
             self.members.insert(perf.fd(), Member::new(perf));
         }
 
-        let maps = read_string_lossy(&format!("/proc/{}/maps", pid))?;
+        let maps = read_string_lossy(format!("/proc/{}/maps", pid))?;
         let maps = proc_maps::parse(&maps);
 
         for (tid, name) in threads {
