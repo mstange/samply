@@ -72,7 +72,7 @@ fn map_rustc_path(input: &str) -> Result<MappedPath, nom::Err<nom::error::Error<
     let path = input.replace('\\', "/");
     Ok(MappedPath::Git {
         repo: "github.com/rust-lang/rust".into(),
-        path: path.to_owned(),
+        path,
         rev: rev.to_owned(),
     })
 }
@@ -108,7 +108,7 @@ fn map_cargo_dep_path(input: &str) -> Result<MappedPath, nom::Err<nom::error::Er
         registry: registry.to_owned(),
         crate_name: crate_name.to_owned(),
         version: version.to_owned(),
-        path: path,
+        path,
     })
 }
 
