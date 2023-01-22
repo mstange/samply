@@ -1,11 +1,9 @@
-use lazy_static::lazy_static;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_until1};
 use nom::combinator::{eof, map};
 use nom::error::ErrorKind;
 use nom::sequence::terminated;
 use nom::{Err, IResult};
-use regex::Regex;
 
 /// A special source file path for source files which are hosted online.
 ///
@@ -72,38 +70,9 @@ impl MappedPath {
 
     /// Detect some URLs of plain text files and convert them to a `MappedPath`.
     pub fn from_url(url: &str) -> Option<Self> {
-        lazy_static! {
-            static ref GITHUB_REGEX: Regex = Regex::new(r"^https://raw\.githubusercontent\.com/(?P<repo>[^/]+/[^/]+)/(?P<rev>[^/]+)/(?P<path>.*)$").unwrap();
-            static ref HG_REGEX: Regex = Regex::new(r"^https://(?P<repo>hg\..+)/raw-file/(?P<rev>[0-9a-f]+)/(?P<path>.*)$").unwrap();
-            static ref S3_REGEX: Regex = Regex::new(r"^https://(?P<bucket>[^/]+).s3.amazonaws.com/(?P<digest>[^/]+)/(?P<path>.*)$").unwrap();
-        }
-        if let Some(captures) = GITHUB_REGEX.captures(url) {
-            // https://raw.githubusercontent.com/baldurk/renderdoc/v1.15/renderdoc/data/glsl/gl_texsample.h
-            // -> "git:github.com/baldurk/renderdoc:renderdoc/data/glsl/gl_texsample.h:v1.15"
-            let repo = format!("github.com/{}", captures.name("repo").unwrap().as_str());
-            let path = captures.name("path").unwrap().as_str().to_owned();
-            let rev = captures.name("rev").unwrap().as_str().to_owned();
-            Some(MappedPath::Git { repo, path, rev })
-        } else if let Some(captures) = HG_REGEX.captures(url) {
-            // "https://hg.mozilla.org/mozilla-central/raw-file/1706d4d54ec68fae1280305b70a02cb24c16ff68/mozglue/baseprofiler/core/ProfilerBacktrace.cpp"
-            // -> "hg:hg.mozilla.org/mozilla-central:mozglue/baseprofiler/core/ProfilerBacktrace.cpp:1706d4d54ec68fae1280305b70a02cb24c16ff68"
-            let repo = captures.name("repo").unwrap().as_str().to_owned();
-            let path = captures.name("path").unwrap().as_str().to_owned();
-            let rev = captures.name("rev").unwrap().as_str().to_owned();
-            Some(MappedPath::Hg { repo, path, rev })
-        } else if let Some(captures) = S3_REGEX.captures(url) {
-            // "https://gecko-generated-sources.s3.amazonaws.com/7a1db5dfd0061d0e0bcca227effb419a20439aef4f6c4e9cd391a9f136c6283e89043d62e63e7edbd63ad81c339c401092bcfeff80f74f9cae8217e072f0c6f3/x86_64-pc-windows-msvc/release/build/swgl-59e3a0e09f56f4ea/out/brush_solid_DEBUG_OVERDRAW.h"
-            // -> "s3:gecko-generated-sources:7a1db5dfd0061d0e0bcca227effb419a20439aef4f6c4e9cd391a9f136c6283e89043d62e63e7edbd63ad81c339c401092bcfeff80f74f9cae8217e072f0c6f3/x86_64-pc-windows-msvc/release/build/swgl-59e3a0e09f56f4ea/out/brush_solid_DEBUG_OVERDRAW.h:"
-            let bucket = captures.name("bucket").unwrap().as_str().to_owned();
-            let digest = captures.name("digest").unwrap().as_str().to_owned();
-            let path = captures.name("path").unwrap().as_str().to_owned();
-            Some(MappedPath::S3 {
-                bucket,
-                digest,
-                path,
-            })
-        } else {
-            None
+        match parse_url(url) {
+            Ok((_, mapped_path)) => Some(mapped_path),
+            Err(_) => None,
         }
     }
 
@@ -191,7 +160,6 @@ fn cargo_path(input: &str) -> IResult<&str, (String, String, String, String)> {
     ))
 }
 
-// Parse any of the line data that can occur in the body of a symbol file.
 fn parse_special_path(input: &str) -> IResult<&str, MappedPath> {
     alt((
         map(git_path, |(repo, path, rev)| MappedPath::Git {
@@ -216,6 +184,70 @@ fn parse_special_path(input: &str) -> IResult<&str, MappedPath> {
                 version,
                 path,
             }
+        }),
+    ))(input)
+}
+
+fn github_url(input: &str) -> IResult<&str, (String, String, String)> {
+    // Example: "https://raw.githubusercontent.com/baldurk/renderdoc/v1.15/renderdoc/data/glsl/gl_texsample.h"
+    let (input, _) = tag("https://raw.githubusercontent.com/")(input)?;
+    let (input, org) = terminated(take_until1("/"), tag("/"))(input)?;
+    let (input, repo_name) = terminated(take_until1("/"), tag("/"))(input)?;
+    let (input, rev) = terminated(take_until1("/"), tag("/"))(input)?;
+    let path = input;
+    Ok((
+        "",
+        (
+            format!("github.com/{org}/{repo_name}"),
+            path.to_owned(),
+            rev.to_owned(),
+        ),
+    ))
+}
+
+fn hg_url(input: &str) -> IResult<&str, (String, String, String)> {
+    // Example: "https://hg.mozilla.org/mozilla-central/raw-file/1706d4d54ec68fae1280305b70a02cb24c16ff68/mozglue/baseprofiler/core/ProfilerBacktrace.cpp"
+    let (input, _) = tag("https://hg.")(input)?;
+    let (input, host_rest) = terminated(take_until1("/"), tag("/"))(input)?;
+    let (input, repo) = terminated(take_until1("/raw-file/"), tag("/raw-file/"))(input)?;
+    let (input, rev) = terminated(take_until1("/"), tag("/"))(input)?;
+    let path = input;
+    Ok((
+        "",
+        (
+            format!("hg.{host_rest}/{repo}"),
+            path.to_owned(),
+            rev.to_owned(),
+        ),
+    ))
+}
+
+fn s3_url(input: &str) -> IResult<&str, (String, String, String)> {
+    // Example: "https://gecko-generated-sources.s3.amazonaws.com/7a1db5dfd0061d0e0bcca227effb419a20439aef4f6c4e9cd391a9f136c6283e89043d62e63e7edbd63ad81c339c401092bcfeff80f74f9cae8217e072f0c6f3/x86_64-pc-windows-msvc/release/build/swgl-59e3a0e09f56f4ea/out/brush_solid_DEBUG_OVERDRAW.h"
+    let (input, _) = tag("https://")(input)?;
+    let (input, bucket) =
+        terminated(take_until1(".s3.amazonaws.com/"), tag(".s3.amazonaws.com/"))(input)?;
+    let (input, digest) = terminated(take_until1("/"), tag("/"))(input)?;
+    let path = input;
+    Ok(("", (bucket.to_owned(), digest.to_owned(), path.to_owned())))
+}
+
+fn parse_url(input: &str) -> IResult<&str, MappedPath> {
+    alt((
+        map(github_url, |(repo, path, rev)| MappedPath::Git {
+            repo,
+            path,
+            rev,
+        }),
+        map(hg_url, |(repo, path, rev)| MappedPath::Hg {
+            repo,
+            path,
+            rev,
+        }),
+        map(s3_url, |(bucket, digest, path)| MappedPath::S3 {
+            bucket,
+            digest,
+            path,
         }),
     ))(input)
 }
