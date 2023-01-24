@@ -385,11 +385,14 @@ fn asm_with_continue() {
     // This tests the following:
     //  - Basic disassembly test for arm32 thumb mode
     //  - Checks that the continueUntilFunctionEnd property is respected
+    //  - Checks that the `startAddress` in the result is `0x51fd0`, i.e. rounded
+    //    down from the given `0x51fd1` to the actual start of the instruction
+    //    at that location.
 
-    // The start address is 0x51fd1 and not 0x51fd0 because the symbol address is
-    // 0x51fd1 (with the thumb bit set), so 0x51fd0 would return the wrong symbol,
-    // and compute the wrong function end address, and not continue disassembling
-    // far enough.
+    // The start address is given as 0x51fd1 and not 0x51fd0 because the symbol
+    // address is 0x51fd1 (with the thumb bit set), so 0x51fd0 would return the
+    // wrong symbol, and compute the wrong function end address, and not continue
+    // disassembling far enough.
     // This is not a great situation but I'm not sure how to handle this case.
     compare_snapshot(
         "/asm/v1",
