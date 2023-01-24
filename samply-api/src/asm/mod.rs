@@ -62,7 +62,7 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> AsmApi<'a, 'h, H> {
         request: &request_json::Request,
     ) -> Result<response_json::Response, AsmError> {
         let request_json::Request {
-            debug_id,
+            breakpad_id,
             debug_name,
             name,
             code_id,
@@ -71,9 +71,9 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> AsmApi<'a, 'h, H> {
             ..
         } = request;
 
-        let debug_id = debug_id
+        let debug_id = breakpad_id
             .as_deref()
-            .and_then(|debug_id| DebugId::from_breakpad(debug_id).ok());
+            .and_then(|breakpad_id| DebugId::from_breakpad(breakpad_id).ok());
         let code_id = code_id
             .as_deref()
             .and_then(|code_id| CodeId::from_str(code_id).ok());
