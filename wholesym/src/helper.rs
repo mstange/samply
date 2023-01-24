@@ -449,17 +449,8 @@ impl<'h> FileAndPathHelper<'h> for Helper {
                 ));
             }
 
-            if debug_name.ends_with(".pdb") && self.win_symbol_cache.is_some() {
-                // We might find this pdb file with the help of a symbol server.
-                paths.push(CandidatePathInfo::SingleFile(
-                    WholesymFileLocation::SymsrvFile(format!(
-                        "{}/{}/{}",
-                        debug_name,
-                        debug_id.breakpad(),
-                        debug_name
-                    )),
-                ));
-            }
+            // TODO: Check symsrv local cache before checking breakpad servers
+            // but still check breakpad server before checking symsrv server
 
             if !self.config.breakpad_servers.is_empty() {
                 // We might find a .sym file on a symbol server.
@@ -469,6 +460,18 @@ impl<'h> FileAndPathHelper<'h> for Helper {
                         debug_name,
                         debug_id.breakpad(),
                         debug_name.trim_end_matches(".pdb")
+                    )),
+                ));
+            }
+
+            if debug_name.ends_with(".pdb") && self.win_symbol_cache.is_some() {
+                // We might find this pdb file with the help of a symbol server.
+                paths.push(CandidatePathInfo::SingleFile(
+                    WholesymFileLocation::SymsrvFile(format!(
+                        "{}/{}/{}",
+                        debug_name,
+                        debug_id.breakpad(),
+                        debug_name
                     )),
                 ));
             }
