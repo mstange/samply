@@ -23,7 +23,7 @@ pub struct Request {
     /// end of the function that `start_address` was found in. This field is
     /// optional and defaults to false.
     ///
-    /// Prefer to specify the function size explicitly, and only set this field
+    /// Prefer to specify the full function size in `size`, and only set this field
     /// if the function size is not known, for example because symbolication did
     /// not provide that information.
     #[serde(default)]
