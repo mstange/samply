@@ -15,6 +15,7 @@ pub struct SymbolManagerConfig {
     pub(crate) breakpad_servers: Vec<(String, PathBuf)>,
     pub(crate) windows_servers: Vec<(String, PathBuf)>,
     pub(crate) use_debuginfod: bool,
+    pub(crate) use_spotlight: bool,
     pub(crate) debuginfod_cache_dir_if_not_installed: Option<PathBuf>,
     pub(crate) debuginfod_servers: Vec<(String, PathBuf)>,
 }
@@ -146,6 +147,13 @@ impl SymbolManagerConfig {
     ) -> Self {
         self.debuginfod_servers
             .push((base_url.into(), cache_dir.into()));
+        self
+    }
+
+    /// Whether to use the macOS Spotlight service (`mdfind`) to look up the location
+    /// of dSYM files based on a mach-O UUID. Ignored on non-macOS.
+    pub fn use_spotlight(mut self, use_spotlight: bool) -> Self {
+        self.use_spotlight = use_spotlight;
         self
     }
 }

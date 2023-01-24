@@ -389,7 +389,7 @@ impl<'h> FileAndPathHelper<'h> for Helper {
             }
         }
 
-        if !got_dsym {
+        if !got_dsym && self.config.use_spotlight {
             if let Some(debug_id) = info.debug_id {
                 // Try a little harder to find a dSYM, just from the UUID. We can do this
                 // even if we don't have an entry for this library in the libinfo map.
