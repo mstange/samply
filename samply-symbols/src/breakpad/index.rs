@@ -8,7 +8,6 @@ use nom::multi::separated_list1;
 use nom::sequence::{terminated, tuple};
 use nom::{Err, IResult};
 
-use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::{mem, str};
@@ -22,8 +21,8 @@ pub struct BreakpadIndex {
     pub code_id: Option<CodeId>,
     pub symbol_addresses: Vec<u32>,
     pub symbol_offsets: Vec<BreakpadSymbolType>,
-    pub files: HashMap<u32, BreakpadFileLine>,
-    pub inline_origins: HashMap<u32, BreakpadInlineOriginLine>,
+    pub files: ItemMap<BreakpadFileLine>,
+    pub inline_origins: ItemMap<BreakpadInlineOriginLine>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -111,12 +110,32 @@ impl BreakpadFuncSymbol {
 }
 
 pub trait FileOrInlineOrigin {
+    fn index(&self) -> u32;
     fn offset_and_length(&self) -> (u64, u32);
     fn parse(line: &[u8]) -> Result<&str, BreakpadParseError>;
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ItemMap<I: FileOrInlineOrigin> {
+    inner: Vec<I>,
+}
+
+impl<I: FileOrInlineOrigin> ItemMap<I> {
+    pub fn from_sorted_vec(vec: Vec<I>) -> Self {
+        Self { inner: vec }
+    }
+    pub fn get(&self, index: u32) -> Option<&I> {
+        Some(&self.inner[self.get_vec_index(index)?])
+    }
+    fn get_vec_index(&self, index: u32) -> Option<usize> {
+        self.inner.binary_search_by_key(&index, I::index).ok()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BreakpadFileLine {
+    /// The file index of this file.
+    pub index: u32,
     /// The file offset at which there is the string `FILE ` at the start of the line
     pub file_offset: u64,
     /// The length of the line, excluding line break (`\r*\n`). `FILE` symbols only occupy a single line.
@@ -124,6 +143,9 @@ pub struct BreakpadFileLine {
 }
 
 impl FileOrInlineOrigin for BreakpadFileLine {
+    fn index(&self) -> u32 {
+        self.index
+    }
     fn offset_and_length(&self) -> (u64, u32) {
         (self.file_offset, self.line_length)
     }
@@ -136,6 +158,8 @@ impl FileOrInlineOrigin for BreakpadFileLine {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BreakpadInlineOriginLine {
+    /// The inline origin index of this inline origin.
+    pub index: u32,
     /// The file offset at which there is the string `INLINE_ORIGIN ` at the start of the line
     pub file_offset: u64,
     /// The length of the line, excluding line break (`\r*\n`). `INLINE_ORIGIN` symbols only occupy a single line.
@@ -143,6 +167,9 @@ pub struct BreakpadInlineOriginLine {
 }
 
 impl FileOrInlineOrigin for BreakpadInlineOriginLine {
+    fn index(&self) -> u32 {
+        self.index
+    }
     fn offset_and_length(&self) -> (u64, u32) {
         (self.file_offset, self.line_length)
     }
@@ -179,13 +206,66 @@ impl BreakpadIndexParser {
     }
 }
 
+#[derive(Debug, Clone)]
+struct SortedVecBuilder<I: FileOrInlineOrigin> {
+    inner: Vec<I>,
+    last_sorted_index: Option<u32>,
+    is_sorted: bool,
+}
+
+impl<I: FileOrInlineOrigin> Default for SortedVecBuilder<I> {
+    fn default() -> Self {
+        Self {
+            inner: Vec::new(),
+            last_sorted_index: None,
+            is_sorted: true,
+        }
+    }
+}
+
+impl<I: FileOrInlineOrigin> SortedVecBuilder<I> {
+    pub fn push(&mut self, item: I) {
+        if self.is_sorted {
+            let item_index = item.index();
+            match self.last_sorted_index {
+                None => {
+                    // This is the first item.
+                    self.last_sorted_index = Some(item_index);
+                }
+                Some(last_index) => {
+                    if item_index > last_index {
+                        // This is the common case.
+                        self.last_sorted_index = Some(item_index);
+                    } else if item_index == last_index {
+                        // Discard this item. We only keep the first item with this index.
+                        // Valid files don't have duplicate indexes.
+                        return;
+                    } else {
+                        // item_index < last_index
+                        self.is_sorted = false;
+                    }
+                }
+            }
+        }
+        self.inner.push(item);
+    }
+
+    pub fn into_sorted_vec(mut self) -> Vec<I> {
+        if !self.is_sorted {
+            self.inner.sort_by_key(I::index);
+            self.inner.dedup_by_key(|item| item.index());
+        }
+        self.inner
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 struct BreakpadIndexParserInner {
     module_info: Option<(DebugId, String, String, String)>,
     code_id: Option<CodeId>,
     symbols: Vec<(u32, BreakpadSymbolType)>,
-    files: HashMap<u32, BreakpadFileLine>,
-    inline_origins: HashMap<u32, BreakpadInlineOriginLine>,
+    files: SortedVecBuilder<BreakpadFileLine>,
+    inline_origins: SortedVecBuilder<BreakpadInlineOriginLine>,
     pending_func_block: Option<(u32, u64)>,
 }
 
@@ -205,21 +285,17 @@ impl BreakpadIndexParserInner {
         }
         let line_length = input.len() as u32;
         if let Ok((_r, (index, _filename))) = file_line(input) {
-            self.files.insert(
+            self.files.push(BreakpadFileLine {
                 index,
-                BreakpadFileLine {
-                    file_offset,
-                    line_length,
-                },
-            );
+                file_offset,
+                line_length,
+            });
         } else if let Ok((_r, (index, _inline_origin))) = inline_origin_line(input) {
-            self.inline_origins.insert(
+            self.inline_origins.push(BreakpadInlineOriginLine {
                 index,
-                BreakpadInlineOriginLine {
-                    file_offset,
-                    line_length,
-                },
-            );
+                file_offset,
+                line_length,
+            });
         } else if let Ok((_r, (address, _name))) = public_line(input) {
             self.finish_pending_func_block(file_offset);
             self.symbols.push((
@@ -266,6 +342,9 @@ impl BreakpadIndexParserInner {
         symbols.sort_by_key(|(address, _)| *address);
         symbols.dedup_by_key(|(address, _)| *address);
         let (symbol_addresses, symbol_offsets) = symbols.into_iter().unzip();
+
+        let files = ItemMap::from_sorted_vec(files.into_sorted_vec());
+        let inline_origins = ItemMap::from_sorted_vec(inline_origins.into_sorted_vec());
 
         let (debug_id, os, arch, name) =
             module_info.ok_or(BreakpadParseError::NoModuleInfoInSymFile)?;
@@ -638,8 +717,9 @@ mod test {
         parser.consume(b"8628f080");
         let index = parser.finish().unwrap();
         assert_eq!(
-            index.files.get(&0).unwrap(),
+            index.files.get(0).unwrap(),
             &BreakpadFileLine {
+                index: 0,
                 file_offset: 125,
                 line_length: 136,
             }

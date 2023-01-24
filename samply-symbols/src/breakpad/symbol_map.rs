@@ -15,7 +15,7 @@ use crate::{
 use super::index::{
     BreakpadFileLine, BreakpadFuncSymbol, BreakpadFuncSymbolInfo, BreakpadIndex,
     BreakpadIndexParser, BreakpadInlineOriginLine, BreakpadPublicSymbol, BreakpadPublicSymbolInfo,
-    BreakpadSymbolType, FileOrInlineOrigin,
+    BreakpadSymbolType, FileOrInlineOrigin, ItemMap,
 };
 
 pub fn get_symbol_map_for_breakpad_sym<F, FL>(
@@ -167,27 +167,27 @@ impl<'a> BreakpadSymbolMapSymbolCache<'a> {
 
 #[derive(Debug)]
 struct ItemCache<'a, I: FileOrInlineOrigin, T: FileContents> {
-    items: HashMap<u32, &'a str>,
-    item_offsets: &'a HashMap<u32, I>,
+    item_strings: HashMap<u32, &'a str>,
+    item_map: &'a ItemMap<I>,
     data: &'a FileContentsWrapper<T>,
 }
 
 impl<'a, I: FileOrInlineOrigin, T: FileContents> ItemCache<'a, I, T> {
-    pub fn new(item_offsets: &'a HashMap<u32, I>, data: &'a FileContentsWrapper<T>) -> Self {
+    pub fn new(item_map: &'a ItemMap<I>, data: &'a FileContentsWrapper<T>) -> Self {
         Self {
-            items: HashMap::new(),
-            item_offsets,
+            item_strings: HashMap::new(),
+            item_map,
             data,
         }
     }
 
     pub fn get_str(&mut self, index: u32) -> Result<&'a str, Error> {
-        match self.items.entry(index) {
+        match self.item_strings.entry(index) {
             Entry::Occupied(name) => Ok(name.into_mut()),
             Entry::Vacant(vacant) => {
                 let offsets = self
-                    .item_offsets
-                    .get(&index)
+                    .item_map
+                    .get(index)
                     .ok_or(Error::InvalidFileOrInlineOriginIndexInBreakpadFile(index))?;
                 let (file_offset, line_length) = offsets.offset_and_length();
                 let line = self
