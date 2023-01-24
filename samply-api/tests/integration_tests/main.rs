@@ -379,3 +379,31 @@ fn win_exe() {
         "output-api-v5-win-exe.txt",
     );
 }
+
+#[test]
+fn asm_with_continue() {
+    // This tests the following:
+    //  - Basic disassembly test for arm32 thumb mode
+    //  - Checks that the continueUntilFunctionEnd property is respected
+
+    // The start address is 0x51fd1 and not 0x51fd0 because the symbol address is
+    // 0x51fd1 (with the thumb bit set), so 0x51fd0 would return the wrong symbol,
+    // and compute the wrong function end address, and not continue disassembling
+    // far enough.
+    // This is not a great situation but I'm not sure how to handle this case.
+    compare_snapshot(
+        "/asm/v1",
+        r#"{
+            "name": "libmozglue.so",
+            "codeId": "7c7be40cf229ed7c55c41233b93eba456dcbc082",
+            "debugName": "libmozglue.so",
+            "breakpadId": "0CE47B7C29F27CED55C41233B93EBA450",
+            "startAddress": "0x51fd1",
+            "size": "0x8",
+            "continueUntilFunctionEnd": true
+        }"#,
+        fixtures_dir().join("android32-local"),
+        "asm_with_continue.txt",
+        "output-asm_with_continue.txt",
+    )
+}

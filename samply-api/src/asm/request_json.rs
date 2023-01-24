@@ -18,6 +18,16 @@ pub struct Request {
     /// as a "0x"-prefixed hex string.
     #[serde(deserialize_with = "crate::hex::from_prefixed_hex_str")]
     pub size: u32,
+
+    /// Whether to continue disassembling after `start_address + size` until the
+    /// end of the function that `start_address` was found in. This field is
+    /// optional and defaults to false.
+    ///
+    /// Prefer to specify the function size explicitly, and only set this field
+    /// if the function size is not known, for example because symbolication did
+    /// not provide that information.
+    #[serde(default)]
+    pub continue_until_function_end: bool,
 }
 
 #[cfg(test)]
@@ -42,6 +52,7 @@ mod test {
             r.breakpad_id,
             Some("A14CAFD390A3E1884C4C44205044422E1".into())
         );
+        assert_eq!(r.continue_until_function_end, false);
         Ok(())
     }
 }

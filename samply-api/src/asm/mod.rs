@@ -68,6 +68,7 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> AsmApi<'a, 'h, H> {
             code_id,
             start_address,
             size,
+            continue_until_function_end,
             ..
         } = request;
 
@@ -92,14 +93,39 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> AsmApi<'a, 'h, H> {
             .await
             .map_err(AsmError::LoadBinaryError)?;
 
-        compute_response(&binary_image.make_object(), *start_address, *size)
+        let mut disassembly_len = *size;
+
+        if *continue_until_function_end {
+            if let Some(function_end_address) = self
+                .get_function_end_address(&library_info, *start_address)
+                .await
+            {
+                if function_end_address >= *start_address
+                    && function_end_address - *start_address > *size
+                {
+                    disassembly_len = function_end_address - *start_address;
+                }
+            }
+        }
+
+        compute_response(&binary_image.make_object(), *start_address, disassembly_len)
+    }
+
+    async fn get_function_end_address(
+        &self,
+        library_info: &LibraryInfo,
+        address_within_function: u32,
+    ) -> Option<u32> {
+        let symbol_map_res = self.symbol_manager.load_symbol_map(&library_info).await;
+        let symbol = symbol_map_res.ok()?.lookup(address_within_function)?.symbol;
+        symbol.address.checked_add(symbol.size?)
     }
 }
 
 fn compute_response<'data: 'file, 'file>(
     object: &'file impl Object<'data, 'file>,
     start_address: u32,
-    size: u32,
+    disassembly_len: u32,
 ) -> Result<response_json::Response, AsmError> {
     // Align the start address, for architectures with instruction alignment.
     // For example, on ARM, you might be looking for the instructions of a
@@ -149,12 +175,12 @@ fn compute_response<'data: 'file, 'file>(
     // We've been asked to decode the instructions whose instruction addresses
     // are in the range start_address .. (start_address + size). If the end of
     // this range points into the middle of an instruction, we still want to
-    // decode the entire instruction last, so we need all of its bytes.
+    // decode the entire instruction, so we need all of its bytes.
     // We have another check later to make sure we don't return instructions whose
     // address is beyond the requested range.
     const MAX_INSTR_LEN: u64 = 15; // TODO: Get the correct max length for this arch
     let max_read_len = section_end_addr - start_address;
-    let read_len = (u64::from(size) + MAX_INSTR_LEN).min(max_read_len);
+    let read_len = (u64::from(disassembly_len) + MAX_INSTR_LEN).min(max_read_len);
 
     // Now read the instruction bytes from the file.
     let bytes = if let Some(segment) = segment {
@@ -175,7 +201,7 @@ fn compute_response<'data: 'file, 'file>(
     };
 
     let reader = yaxpeax_arch::U8Reader::new(bytes);
-    let (instructions, len) = decode_arch(reader, architecture, size)?;
+    let (instructions, len) = decode_arch(reader, architecture, disassembly_len)?;
     Ok(response_json::Response {
         start_address: relative_start_address,
         size: len,
