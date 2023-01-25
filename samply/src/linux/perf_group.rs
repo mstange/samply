@@ -114,7 +114,7 @@ fn get_threads(pid: u32) -> Result<Vec<(u32, Option<Vec<u8>>)>, io::Error> {
 
         let mut name = None;
         let comm_path = format!("/proc/{}/task/{}/comm", pid, tid);
-        if let Ok(mut fp) = File::open(&comm_path) {
+        if let Ok(mut fp) = File::open(comm_path) {
             let mut buffer = Vec::new();
             if fp.read_to_end(&mut buffer).is_ok() {
                 let length = buffer
@@ -227,7 +227,7 @@ impl PerfGroup {
             self.members.insert(perf.fd(), Member::new(perf));
         }
 
-        let maps = read_string_lossy(&format!("/proc/{}/maps", pid))?;
+        let maps = read_string_lossy(format!("/proc/{}/maps", pid))?;
         let maps = proc_maps::parse(&maps);
 
         for (tid, name) in threads {

@@ -20,4 +20,4 @@ jobs:
     - name: Check formatting
       run: cargo fmt -- --check --verbose
     - name: Clippy
-      run: cargo clippy --workspace --verbose
+      run: cargo clippy --workspace --verbose -- -Dwarnings
