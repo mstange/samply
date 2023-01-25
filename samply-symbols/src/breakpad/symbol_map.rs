@@ -21,12 +21,13 @@ use super::index::{
 pub fn get_symbol_map_for_breakpad_sym<F, FL>(
     file_contents: FileContentsWrapper<F>,
     file_location: FL,
+    index_file_contents: Option<FileContentsWrapper<F>>,
 ) -> Result<SymbolMap<FL>, Error>
 where
     F: FileContents + 'static,
     FL: FileLocation,
 {
-    let outer = BreakpadSymbolMapOuter::new(file_contents)?;
+    let outer = BreakpadSymbolMapOuter::new(file_contents, index_file_contents)?;
     let symbol_map = BreakpadSymbolMap(Yoke::attach_to_cart(Box::new(outer), |outer| {
         outer.make_symbol_map()
     }));
@@ -61,28 +62,38 @@ pub struct BreakpadSymbolMapOuter<T: FileContents> {
 }
 
 impl<T: FileContents> BreakpadSymbolMapOuter<T> {
-    pub fn new(data: FileContentsWrapper<T>) -> Result<Self, Error> {
-        const CHUNK_SIZE: u64 = 1024 * 1024; // 1MB
-        let mut buffer = Vec::with_capacity(CHUNK_SIZE as usize);
-        let mut index_parser = BreakpadIndexParser::new();
+    pub fn new(
+        data: FileContentsWrapper<T>,
+        index_data: Option<FileContentsWrapper<T>>,
+    ) -> Result<Self, Error> {
+        let index = if let Some(index) = index_data.as_ref().and_then(|d| {
+            let data = d.read_entire_data().ok()?;
+            BreakpadIndex::parse_symindex_file(data).ok()
+        }) {
+            index
+        } else {
+            const CHUNK_SIZE: u64 = 1024 * 1024; // 1MB
+            let mut buffer = Vec::with_capacity(CHUNK_SIZE as usize);
+            let mut index_parser = BreakpadIndexParser::new();
 
-        // Read the entire thing in chunks to build an index.
-        let len = data.len();
-        let mut offset = 0;
-        while offset < len {
-            let chunk_len = CHUNK_SIZE.min(len - offset);
-            data.read_bytes_into(&mut buffer, offset, chunk_len as usize)
-                .map_err(|e| {
-                    Error::HelperErrorDuringFileReading(
-                        "BreakpadBreakpadSymbolMapData".to_string(),
-                        e,
-                    )
-                })?;
-            index_parser.consume(&buffer);
-            buffer.clear();
-            offset += CHUNK_SIZE;
-        }
-        let index = index_parser.finish()?;
+            // Read the entire thing in chunks to build an index.
+            let len = data.len();
+            let mut offset = 0;
+            while offset < len {
+                let chunk_len = CHUNK_SIZE.min(len - offset);
+                data.read_bytes_into(&mut buffer, offset, chunk_len as usize)
+                    .map_err(|e| {
+                        Error::HelperErrorDuringFileReading(
+                            "BreakpadBreakpadSymbolMapData".to_string(),
+                            e,
+                        )
+                    })?;
+                index_parser.consume(&buffer);
+                buffer.clear();
+                offset += CHUNK_SIZE;
+            }
+            index_parser.finish()?
+        };
         Ok(Self { data, index })
     }
 
@@ -318,6 +329,8 @@ impl<'a, T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'a, T> {
 
 #[cfg(test)]
 mod test {
+    use debugid::DebugId;
+
     use super::*;
 
     #[derive(Clone)]
@@ -339,6 +352,10 @@ mod test {
         fn location_for_source_file(&self, _source_file_path: &str) -> Option<Self> {
             None
         }
+
+        fn location_for_breakpad_symindex(&self) -> Option<Self> {
+            None
+        }
     }
     impl std::fmt::Display for DummyLocation {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -350,7 +367,92 @@ mod test {
     fn overeager_demangle() {
         let sym = b"MODULE Linux x86_64 BE4E976C325246EE9D6B7847A670B2A90 example-linux\nFILE 0 filename\nFUNC 1160 45 0 f\n1160 c 16 0";
         let fc = FileContentsWrapper::new(&sym[..]);
-        let symbol_map = get_symbol_map_for_breakpad_sym(fc, DummyLocation).unwrap();
+        let symbol_map = get_symbol_map_for_breakpad_sym(fc, DummyLocation, None).unwrap();
         assert_eq!(symbol_map.lookup(0x1160).unwrap().symbol.name, "f");
+    }
+
+    #[test]
+    fn lookup_with_index() {
+        // This test simulates the case where an index is created independently, for
+        // example during sym file download, and then supplied as a separate file.
+        let data_slices: &[&[u8]] = &[
+            b"MODULE windows x86_64 F1E853FD662672044C4C44205044422E1 firefox.pdb\nIN",
+            b"FO CODE_ID 63C036DBA7000 firefox.exe\nINFO GENERATOR mozilla/dump_syms ",
+            b"2.1.1\nFILE 0 /builds/worker/workspace/obj-build/browser/app/d:/agent/_",
+            b"work/2/s/src/vctools/delayimp/dloadsup.h\nFILE 1 /builds/worker/workspa",
+            b"ce/obj-build/browser/app/d:/agent/_work/2/s/src/externalapis/windows/10",
+            b"/sdk/inc/winnt.h\nINLINE_ORIGIN 0 DloadLock()\nINLINE_ORIGIN 1 DloadUnl",
+            b"ock()\nINLINE_ORIGIN 2 WritePointerRelease(void**, void*)\nINLINE_ORIGI",
+            b"N 3 WriteRelease64(long long*, long long)\nFUNC 2b754 aa 0 DloadAcquire",
+            b"SectionWriteAccess()\nINLINE 0 658 0 0 2b76a 3d\nINLINE 0 665 0 1 2b7ca",
+            b" 17 2b7e6 12\nINLINE 1 345 0 2 2b7ed b\nINLINE 2 8358 1 3 2b7ed b\n2b75",
+            b"4 6 644 0\n2b75a 10 650 0\n2b76a e 299 0\n2b778 14 300 0\n2b78c 2 301 0",
+            b"\n2b78e 2 306 0\n2b790 c 305 0\n2b79c b 309 0\n2b7a7 10 660 0\n2b7b7 2 ",
+            b"661 0\n2b7b9 11 662 0\n2b7ca 9 340 0\n2b7d3 e 341 0\n2b7e1 c 668 0\n2b7",
+            b"ed b 7729 1\n2b7f8 6 668 0",
+        ];
+        let mut parser = BreakpadIndexParser::new();
+        for s in data_slices {
+            parser.consume(s);
+        }
+        let index = parser.finish().unwrap();
+        let index_bytes = index.serialize_to_bytes();
+
+        let full_sym_contents = data_slices.concat();
+        let sym_fc = FileContentsWrapper::new(full_sym_contents);
+        let symindex_fc = FileContentsWrapper::new(index_bytes);
+        let symbol_map =
+            get_symbol_map_for_breakpad_sym(sym_fc, DummyLocation, Some(symindex_fc)).unwrap();
+
+        assert_eq!(
+            symbol_map.debug_id(),
+            DebugId::from_breakpad("F1E853FD662672044C4C44205044422E1").unwrap()
+        );
+
+        let lookup_result = symbol_map.lookup(0x2b7ed).unwrap();
+        assert_eq!(
+            lookup_result.symbol.name,
+            "DloadAcquireSectionWriteAccess()"
+        );
+        assert_eq!(lookup_result.symbol.address, 0x2b754);
+        assert_eq!(lookup_result.symbol.size, Some(0xaa));
+
+        let frames = match lookup_result.frames {
+            FramesLookupResult::Available(frames) => frames,
+            _ => panic!("Frames should be available"),
+        };
+        assert_eq!(frames.len(), 4);
+        assert_eq!(
+            frames[0],
+            FrameDebugInfo {
+                function: Some("WriteRelease64(long long*, long long)".into()),
+                file_path: Some(SourceFilePath::new("/builds/worker/workspace/obj-build/browser/app/d:/agent/_work/2/s/src/externalapis/windows/10/sdk/inc/winnt.h".into(), None)),
+                line_number: Some(7729)
+            }
+        );
+        assert_eq!(
+            frames[1],
+            FrameDebugInfo {
+                function: Some("WritePointerRelease(void**, void*)".into()),
+                file_path: Some(SourceFilePath::new("/builds/worker/workspace/obj-build/browser/app/d:/agent/_work/2/s/src/externalapis/windows/10/sdk/inc/winnt.h".into(), None)),
+                line_number: Some(8358)
+            }
+        );
+        assert_eq!(
+            frames[2],
+            FrameDebugInfo {
+                function: Some("DloadUnlock()".into()),
+                file_path: Some(SourceFilePath::new("/builds/worker/workspace/obj-build/browser/app/d:/agent/_work/2/s/src/vctools/delayimp/dloadsup.h".into(), None)),
+                line_number: Some(345)
+            }
+        );
+        assert_eq!(
+            frames[3],
+            FrameDebugInfo {
+                function: Some("DloadAcquireSectionWriteAccess()".into()),
+                file_path: Some(SourceFilePath::new("/builds/worker/workspace/obj-build/browser/app/d:/agent/_work/2/s/src/vctools/delayimp/dloadsup.h".into(), None)),
+                line_number: Some(665)
+            }
+        );
     }
 }

@@ -13,6 +13,7 @@ pub struct SymbolManagerConfig {
     pub(crate) default_nt_symbol_path: Option<String>,
     pub(crate) breakpad_directories_readonly: Vec<PathBuf>,
     pub(crate) breakpad_servers: Vec<(String, PathBuf)>,
+    pub(crate) breakpad_symindex_cache_dir: Option<PathBuf>,
     pub(crate) windows_servers: Vec<(String, PathBuf)>,
     pub(crate) use_debuginfod: bool,
     pub(crate) use_spotlight: bool,
@@ -106,6 +107,17 @@ impl SymbolManagerConfig {
     ) -> Self {
         self.breakpad_servers
             .push((base_url.into(), cache_dir.into()));
+        self
+    }
+
+    /// Set a directory to cache symindex files in. These files are created while
+    /// downloading sym files from Breakpad symbol servers, and when opening existing
+    /// sym files without a corresponding symindex file.
+    ///
+    /// Only one directory of this type can be set. This directory is used for both
+    /// reading and writing.
+    pub fn breakpad_symindex_cache_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.breakpad_symindex_cache_dir = Some(dir.into());
         self
     }
 

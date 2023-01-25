@@ -1,7 +1,9 @@
 mod index;
 mod symbol_map;
 
-pub use index::BreakpadParseError;
+pub use index::{
+    BreakpadIndex, BreakpadIndexParser, BreakpadParseError, BreakpadSymindexParseError,
+};
 pub use symbol_map::get_symbol_map_for_breakpad_sym;
 
 use crate::{FileContents, FileContentsWrapper};

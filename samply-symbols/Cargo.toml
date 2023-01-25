@@ -50,6 +50,7 @@ debugid = "0.8.0"
 flate2 = "1"
 yoke = { version = "0.6.2", features = ["derive"] }
 nom = "7.1.1"
+zerocopy = "0.6.1"
 
 [dev-dependencies]
 memmap2 = "0.5.0"

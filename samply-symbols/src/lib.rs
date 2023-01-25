@@ -213,6 +213,10 @@
 //!     fn location_for_source_file(&self, source_file_path: &str) -> Option<Self> {
 //!         Some(Self(source_file_path.into()))
 //!     }
+//!
+//!     fn location_for_breakpad_symindex(&self) -> Option<Self> {
+//!         Some(Self(self.0.with_extension("symindex")))
+//!     }
 //! }
 //! ```
 
@@ -246,6 +250,9 @@ mod symbol_map_object;
 mod windows;
 
 pub use crate::binary_image::BinaryImage;
+pub use crate::breakpad::{
+    BreakpadIndex, BreakpadIndexParser, BreakpadParseError, BreakpadSymindexParseError,
+};
 pub use crate::cache::{FileByteSource, FileContentsWithChunkedCaching};
 pub use crate::compact_symbol_table::CompactSymbolTable;
 pub use crate::debugid_util::{debug_id_for_object, DebugIdExt};
@@ -624,7 +631,21 @@ where
         } else if windows::is_pdb_file(&file_contents) {
             windows::get_symbol_map_for_pdb(file_contents, file_location)
         } else if breakpad::is_breakpad_file(&file_contents) {
-            breakpad::get_symbol_map_for_breakpad_sym(file_contents, file_location)
+            let index_file_contents =
+                if let Some(index_file_location) = file_location.location_for_breakpad_symindex() {
+                    self.helper
+                        .load_file(index_file_location)
+                        .await
+                        .ok()
+                        .map(FileContentsWrapper::new)
+                } else {
+                    None
+                };
+            breakpad::get_symbol_map_for_breakpad_sym(
+                file_contents,
+                file_location,
+                index_file_contents,
+            )
         } else {
             Err(Error::InvalidInputError(
             "The file does not have a known format; PDB::open was not able to parse it and object::FileKind::parse was not able to detect the format.",

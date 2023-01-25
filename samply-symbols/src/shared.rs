@@ -442,6 +442,10 @@ pub trait FileLocation: Clone + Display {
     /// be relative to the working directory, and because perf / objdump were resolving
     /// those relative paths relative to the current working directory.
     fn location_for_source_file(&self, source_file_path: &str) -> Option<Self>;
+
+    /// Called on the location of a Breakpad sym file, to get a location for its
+    /// corresponding symindex file.
+    fn location_for_breakpad_symindex(&self) -> Option<Self>;
 }
 
 /// The path of a source file, as found in the debug info.

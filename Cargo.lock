@@ -1526,6 +1526,7 @@ dependencies = [
  "thiserror",
  "uuid",
  "yoke",
+ "zerocopy",
 ]
 
 [[package]]

@@ -1,10 +1,13 @@
 use debugid::DebugId;
-use samply_api::samply_symbols::{self, ElfBuildId, LibraryInfo, PeCodeId};
+use samply_api::samply_symbols::{
+    self, BreakpadIndex, BreakpadIndexParser, ElfBuildId, LibraryInfo, PeCodeId,
+};
 use samply_symbols::{
     CandidatePathInfo, CodeId, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
     OptionallySendFuture,
 };
 use symsrv::{memmap2, FileContents, SymbolCache};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use uuid::Uuid;
 
 use std::{
@@ -21,7 +24,9 @@ use crate::{config::SymbolManagerConfig, debuginfod::DebuginfodSymbolCache};
 pub enum WholesymFileLocation {
     LocalFile(PathBuf),
     SymsrvFile(String),
+    LocalBreakpadFile(PathBuf, String),
     BreakpadSymbolServerFile(String),
+    BreakpadSymindexFile(String),
     DebuginfodDebugFile(ElfBuildId),
     DebuginfodExecutable(ElfBuildId),
 }
@@ -78,6 +83,15 @@ impl FileLocation for WholesymFileLocation {
                 // Ignore the absolute path in the downloaded file.
                 None
             }
+        }
+    }
+
+    fn location_for_breakpad_symindex(&self) -> Option<Self> {
+        match self {
+            Self::BreakpadSymbolServerFile(rel_path) | Self::LocalBreakpadFile(_, rel_path) => {
+                Some(Self::BreakpadSymindexFile(rel_path.clone()))
+            }
+            _ => None,
         }
     }
 }
@@ -225,6 +239,16 @@ impl Helper {
                     memmap2::MmapOptions::new().map(&file)?
                 }))
             }
+            WholesymFileLocation::LocalBreakpadFile(path, rel_path) => {
+                if self.config.verbose {
+                    eprintln!("Opening file {:?}", path.to_string_lossy());
+                }
+                self.ensure_symindex(&path, &rel_path).await?;
+                let file = File::open(path)?;
+                Ok(FileContents::Mmap(unsafe {
+                    memmap2::MmapOptions::new().map(&file)?
+                }))
+            }
             WholesymFileLocation::SymsrvFile(path) => {
                 if self.config.verbose {
                     eprintln!("Trying to get file {:?} from symbol cache", path);
@@ -241,6 +265,19 @@ impl Helper {
                     eprintln!("Trying to get file {:?} from breakpad symbol server", path);
                 }
                 self.get_bp_sym_file(&path).await
+            }
+            WholesymFileLocation::BreakpadSymindexFile(rel_path) => {
+                if let Some(symindex_path) = self.symindex_path(&rel_path) {
+                    if self.config.verbose {
+                        eprintln!("Opening file {:?}", symindex_path.to_string_lossy());
+                    }
+                    let file = File::open(symindex_path)?;
+                    Ok(FileContents::Mmap(unsafe {
+                        memmap2::MmapOptions::new().map(&file)?
+                    }))
+                } else {
+                    Err("No breakpad symindex cache dir configured".into())
+                }
             }
             WholesymFileLocation::DebuginfodDebugFile(build_id) => self
                 .debuginfod_symbol_cache
@@ -293,10 +330,24 @@ impl Helper {
         let file = tokio::fs::File::create(&dest_path).await?;
         let mut writer = tokio::io::BufWriter::new(file);
         use futures_util::StreamExt;
+        let mut parser = samply_symbols::BreakpadIndexParser::new();
         while let Some(item) = stream.next().await {
-            tokio::io::copy(&mut item?.as_ref(), &mut writer).await?;
+            let item = item?;
+            let mut item_slice = item.as_ref();
+            parser.consume(item_slice);
+            tokio::io::copy(&mut item_slice, &mut writer).await?;
         }
         drop(writer);
+
+        match parser.finish() {
+            Ok(index) => self.write_symindex(rel_path, index).await?,
+            Err(err) => {
+                if self.config.verbose {
+                    eprintln!("Breakpad parsing for symindex failed: {}", err);
+                }
+            }
+        }
+
         if self.config.verbose {
             eprintln!("Opening file {:?}", dest_path.to_string_lossy());
         }
@@ -304,6 +355,69 @@ impl Helper {
         Ok(FileContents::Mmap(unsafe {
             memmap2::MmapOptions::new().map(&file)?
         }))
+    }
+
+    fn symindex_path(&self, rel_path: &str) -> Option<PathBuf> {
+        self.config
+            .breakpad_symindex_cache_dir
+            .as_deref()
+            .map(|symindex_dir| symindex_dir.join(rel_path).with_extension("symindex"))
+    }
+
+    async fn write_symindex(
+        &self,
+        rel_path: &str,
+        index: BreakpadIndex,
+    ) -> FileAndPathHelperResult<()> {
+        let symindex_path = self
+            .symindex_path(rel_path)
+            .ok_or("No breakpad symindex cache dir configured")?;
+        if self.config.verbose {
+            eprintln!("Writing symindex to {:?}.", symindex_path);
+        }
+        let mut index_file = tokio::fs::File::create(&symindex_path).await?;
+        index_file.write_all(&index.serialize_to_bytes()).await?;
+        index_file.flush().await?;
+        Ok(())
+    }
+
+    /// If we have a configured symindex cache directory, and there is a .sym file at
+    /// `local_path` for which we don't have a .symindex file, create the .symindex file.
+    async fn ensure_symindex(
+        &self,
+        local_dir: &Path,
+        rel_path: &str,
+    ) -> FileAndPathHelperResult<()> {
+        if let Some(symindex_path) = self.symindex_path(rel_path) {
+            if let (Ok(mut sym_file), Err(_symindex_file_error)) = (
+                tokio::fs::File::open(local_dir).await,
+                tokio::fs::File::open(symindex_path).await,
+            ) {
+                if self.config.verbose {
+                    eprintln!("Found a Breakpad sym file at {:?} for which no symindex exists. Attempting to create symindex.", local_dir);
+                }
+                let mut parser = BreakpadIndexParser::new();
+                const CHUNK_SIZE: usize = 4 * 1024 * 1024; // 4MiB
+                let mut buffer = vec![0; CHUNK_SIZE];
+                loop {
+                    let read_len = sym_file.read(&mut buffer).await?;
+                    if read_len == 0 {
+                        break;
+                    }
+                    parser.consume(&buffer[..read_len]);
+                }
+                match parser.finish() {
+                    Ok(index) => self.write_symindex(rel_path, index).await?,
+                    Err(err) => {
+                        if self.config.verbose {
+                            eprintln!("Breakpad parsing for symindex failed: {}", err);
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 
     fn fill_in_library_info_details(&self, info: &mut LibraryInfo) {
@@ -428,24 +542,25 @@ impl<'h> FileAndPathHelper<'h> for Helper {
         }
 
         if let (Some(debug_name), Some(debug_id)) = (&info.debug_name, info.debug_id) {
+            let rel_path = format!(
+                "{}/{}/{}.sym",
+                debug_name,
+                debug_id.breakpad(),
+                debug_name.trim_end_matches(".pdb")
+            );
+
             // Search breakpad symbol directories.
             for dir in &self.config.breakpad_directories_readonly {
-                let bp_path = dir
-                    .join(debug_name)
-                    .join(debug_id.breakpad().to_string())
-                    .join(format!("{}.sym", debug_name.trim_end_matches(".pdb")));
+                let local_path = dir.join(&rel_path);
                 paths.push(CandidatePathInfo::SingleFile(
-                    WholesymFileLocation::LocalFile(bp_path),
+                    WholesymFileLocation::LocalBreakpadFile(local_path, rel_path.clone()),
                 ));
             }
 
             for (_url, dir) in &self.config.breakpad_servers {
-                let bp_path = dir
-                    .join(debug_name)
-                    .join(debug_id.breakpad().to_string())
-                    .join(format!("{}.sym", debug_name.trim_end_matches(".pdb")));
+                let local_path = dir.join(&rel_path);
                 paths.push(CandidatePathInfo::SingleFile(
-                    WholesymFileLocation::LocalFile(bp_path),
+                    WholesymFileLocation::LocalBreakpadFile(local_path, rel_path.clone()),
                 ));
             }
 
@@ -455,12 +570,7 @@ impl<'h> FileAndPathHelper<'h> for Helper {
             if !self.config.breakpad_servers.is_empty() {
                 // We might find a .sym file on a symbol server.
                 paths.push(CandidatePathInfo::SingleFile(
-                    WholesymFileLocation::BreakpadSymbolServerFile(format!(
-                        "{}/{}/{}.sym",
-                        debug_name,
-                        debug_id.breakpad(),
-                        debug_name.trim_end_matches(".pdb")
-                    )),
+                    WholesymFileLocation::BreakpadSymbolServerFile(rel_path),
                 ));
             }
 

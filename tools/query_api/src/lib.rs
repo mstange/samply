@@ -202,4 +202,8 @@ impl FileLocation for FileLocationType {
     fn location_for_source_file(&self, source_file_path: &str) -> Option<Self> {
         Some(Self(source_file_path.into()))
     }
+
+    fn location_for_breakpad_symindex(&self) -> Option<Self> {
+        Some(Self(self.0.with_extension("symindex")))
+    }
 }
