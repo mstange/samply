@@ -3,9 +3,40 @@ use std::{collections::{HashMap, HashSet, hash_map::Entry}, convert::TryInto, fs
 use etw_reader::{GUID, open_trace, parser::{Parser, TryParse}, print_property, schema::SchemaLocator, write_property};
 use serde_json::{Value, json, to_writer};
 
-use gecko_profile::{MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerTiming, ProfilerMarker, TextMarker, ThreadBuilder, debugid};
+use fxprof_processed_profile::{Timestamp, MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, ReferenceTimestamp, MarkerSchemaField, MarkerTiming, ProfilerMarker, ThreadHandle, Profile, debugid, SamplingInterval, CategoryPairHandle, ProcessHandle, LibraryInfo};
 use debugid::DebugId;
 use uuid::Uuid;
+
+/// An example marker type with some text content.
+#[derive(Debug, Clone)]
+pub struct TextMarker(pub String);
+
+impl ProfilerMarker for TextMarker {
+    const MARKER_TYPE_NAME: &'static str = "Text";
+
+    fn json_marker_data(&self) -> serde_json::Value {
+        json!({
+            "type": Self::MARKER_TYPE_NAME,
+            "name": self.0
+        })
+    }
+
+    fn schema() -> MarkerSchema {
+        MarkerSchema {
+            type_name: Self::MARKER_TYPE_NAME,
+            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
+            chart_label: Some("{marker.data.name}"),
+            tooltip_label: None,
+            table_label: Some("{marker.name} - {marker.data.name}"),
+            fields: vec![MarkerSchemaField::Dynamic(MarkerDynamicField {
+                key: "name",
+                label: "Details",
+                format: MarkerFieldFormat::String,
+                searchable: None,
+            })],
+        }
+    }
+}
 
 fn is_kernel_address(ip: u64, pointer_size: u32) -> bool {
     if pointer_size == 4 {
@@ -14,7 +45,7 @@ fn is_kernel_address(ip: u64, pointer_size: u32) -> bool {
     return ip >= 0xFFFF000000000000;        // TODO I don't know what the true cutoff is.
 }
 struct ThreadState {
-    builder: ThreadBuilder,
+    handle: ThreadHandle,
     merge_name: Option<String>,
     last_kernel_stack: Option<Vec<u64>>,
     last_kernel_stack_time: u64,
@@ -22,19 +53,21 @@ struct ThreadState {
     running_since_time: Option<i64>,
     total_running_time: i64,
     previous_sample_cpu_time: i64,
+    thread_id: u32
 }
 
 impl ThreadState {
-    fn new(builder: ThreadBuilder) -> Self {
+    fn new(handle: ThreadHandle, tid: u32) -> Self {
         ThreadState {
-            builder,
+            handle,
             last_kernel_stack: None,
             last_kernel_stack_time: 0,
             last_sample_timestamp: None,
             merge_name: None,
             running_since_time: None,
             previous_sample_cpu_time: 0,
-            total_running_time: 0
+            total_running_time: 0,
+            thread_id: tid
         }
     }
 }
@@ -51,13 +84,15 @@ fn strip_thread_numbers(name: &str) -> &str {
 }
 
 fn main() {
-    let profile_start_instant = Instant::now();
+    let profile_start_instant = Timestamp::from_nanos_since_reference(0);
     let profile_start_system = SystemTime::now();
 
     let mut schema_locator = SchemaLocator::new();
     etw_reader::add_custom_schemas(&mut schema_locator);
     let mut threads: HashMap<u32, ThreadState> = HashMap::new();
-    let mut libs: HashMap<u64, (PathBuf, u32)> = HashMap::new();
+    let mut processes: HashMap<u32, ProcessHandle> = HashMap::new();
+
+    let mut libs: HashMap<u64, (String, u32)> = HashMap::new();
     let start = Instant::now();
     let mut pargs = pico_args::Arguments::from_env();
     let merge_threads = pargs.contains("--merge-threads");
@@ -82,7 +117,10 @@ fn main() {
     }
     
     let command_name = process_target_name.as_deref().unwrap_or("firefox");
-    let mut profile = gecko_profile::ProfileBuilder::new(profile_start_instant, profile_start_system, command_name, 34, Duration::from_secs_f32(1. / 8192.));
+    let mut profile = Profile::new(command_name, ReferenceTimestamp::from_system_time(profile_start_system),  SamplingInterval::from_nanos(122100)); // 8192Hz
+
+    let user_category: CategoryPairHandle = profile.add_category("User", fxprof_processed_profile::CategoryColor::Yellow).into();
+    let kernel_category: CategoryPairHandle = profile.add_category("Kernel", fxprof_processed_profile::CategoryColor::Orange).into();
 
     let mut thread_index = 0;
     let mut sample_count = 0;
@@ -92,9 +130,13 @@ fn main() {
     let mut start_time: u64 = 0;
     let mut perf_freq: u64 = 0;
     let mut event_count = 0;
-    let mut global_thread = ThreadBuilder::new(1, 1, profile_start_instant, false, false);
-    let mut gpu_thread = ThreadBuilder::new(1, 1, profile_start_instant, true, false);
-    let mut has_vsync = false;
+    let mut global_thread = if merge_threads {
+        let global_process = profile.add_process("All processes", 1, profile_start_instant);
+        Some(profile.add_thread(global_process, 1, profile_start_instant, false))
+    } else {
+        None
+    };
+    let mut gpu_thread = None;
 
     open_trace(Path::new(&trace_file), |e| {
         event_count += 1;
@@ -123,28 +165,32 @@ fn main() {
                 "MSNT_SystemTrace/PerfInfo/CollectionStart" => {
                     let mut parser = Parser::create(&s);
                     let interval: u32 = parser.parse("NewInterval");
-                    let interval = Duration::from_nanos(interval as u64 * 100);
-                    println!("Sample rate {}ms", interval.as_secs_f32() * 1000.);
+                    let interval = SamplingInterval::from_nanos(interval as u64 * 100);
+                    println!("Sample rate {}ms", interval.as_secs_f64() * 1000.);
                     profile.set_interval(interval);
                 }
                 "MSNT_SystemTrace/Thread/SetName" => {
                     let mut parser = Parser::create(&s);
 
                     let process_id: u32 = parser.parse("ProcessId");
+                    if !process_targets.contains(&process_id) {
+                        return;
+                    }
                     let thread_id: u32 = parser.parse("ThreadId");
                     let thread_name: String = parser.parse("ThreadName");
+                    let process = processes[&dbg!(process_id)];
                     let thread = match threads.entry(thread_id) {
                         Entry::Occupied(e) => e.into_mut(),
                         Entry::Vacant(e) => {
                             let thread_start_instant = profile_start_instant;
                             let tb = e.insert(
-                                ThreadState::new(ThreadBuilder::new(process_id, thread_index, thread_start_instant, false, false))
+                                ThreadState::new(profile.add_thread(process, thread_id, thread_start_instant, false), thread_id)
                             );
                             thread_index += 1;
                             tb
                          }
                     };
-                    thread.builder.set_name(&thread_name);
+                    profile.set_thread_name(thread.handle, &thread_name);
                     thread.merge_name = Some(thread_name);
                 }
                 "MSNT_SystemTrace/Thread/Start" |
@@ -160,27 +206,29 @@ fn main() {
                         return;
                     }
 
+                    let process = processes[&process_id];
                     let thread = match threads.entry(thread_id) {
                         Entry::Occupied(e) => e.into_mut(),
                         Entry::Vacant(e) => {
                             let thread_start_instant = profile_start_instant;
                             let tb = e.insert(
-                                ThreadState::new(ThreadBuilder::new(process_id, thread_index, thread_start_instant, false, false))
+                                ThreadState::new(profile.add_thread(process, thread_id, thread_start_instant, false), thread_id)
                             );
-                            thread_index += 1;
                             tb
                         }
                     };
 
                     let thread_name: Result<String, _> = parser.try_parse("ThreadName");
                     match thread_name {
-                        Ok(thread_name) if !thread_name.is_empty() => { thread.builder.set_name(&thread_name); thread.merge_name = Some(thread_name)},
+                        Ok(thread_name) if !thread_name.is_empty() => { profile.set_thread_name(thread.handle, &thread_name); thread.merge_name = Some(thread_name)},
                         _ => {}
                     }
                 }
                 "MSNT_SystemTrace/Process/Start" |
                 "MSNT_SystemTrace/Process/DCStart" => {
                     if let Some(process_target_name) = &process_target_name {
+                        let timestamp = e.EventHeader.TimeStamp as u64;
+                        let timestamp = Timestamp::from_nanos_since_reference(to_nanos(timestamp - start_time));
                         let mut parser = Parser::create(&s);
 
 
@@ -189,6 +237,7 @@ fn main() {
 
                         let process_id: u32 = parser.parse("ProcessId");
                         if image_file_name.contains(process_target_name) {
+                            processes.insert(process_id, profile.add_process(&image_file_name, process_id, timestamp));
                             println!("tracing {}", process_id);
                             process_targets.insert(process_id);
                         }
@@ -211,7 +260,7 @@ fn main() {
                             let thread_start_instant = profile_start_instant;
                             let tb = e.insert(
                                 ThreadState {
-                                    builder: ThreadBuilder::new(process_id, thread_index, thread_start_instant, false, false),
+                                    handle: profile.add_thread(processes[&process_id], thread_id, thread_start_instant, false),
                                     last_kernel_stack: None,
                                     last_kernel_stack_time: 0,
                                     last_sample_timestamp: None,
@@ -219,6 +268,7 @@ fn main() {
                                     running_since_time: None,
                                     previous_sample_cpu_time: 0,
                                     total_running_time: 0,
+                                    thread_id,
                                 }
                             );
                             thread_index += 1;
@@ -252,19 +302,19 @@ fn main() {
                     stack.reverse();
 
                     let mut add_sample = |thread: &mut ThreadState, timestamp, stack: Vec<u64>| {
-                        let frames = stack.iter().map(|addr| gecko_profile::Frame::Address(*addr));
-                        if merge_threads {
+                        let frames = stack.iter().map(|addr| (fxprof_processed_profile::Frame::ReturnAddress(*addr), user_category));
+                        if let Some(global_thread) = global_thread {
                             let stack_frames = frames;
                             let mut frames = Vec::new();
-                            let thread_name = thread.merge_name.as_ref().map(|x| strip_thread_numbers(x).to_owned()).unwrap_or_else(|| format!("thread {}", thread.builder.get_tid()));
-                            frames.push(gecko_profile::Frame::Label(global_thread.intern_string(&thread_name)));
+                            let thread_name = thread.merge_name.as_ref().map(|x| strip_thread_numbers(x).to_owned()).unwrap_or_else(|| format!("thread {}", thread.thread_id));
+                            frames.push((fxprof_processed_profile::Frame::Label(profile.intern_string(&thread_name)), user_category));
                             frames.extend(stack_frames);
-                            global_thread.add_sample(timestamp, frames.into_iter(), Duration::ZERO);
+                            profile.add_sample(global_thread, timestamp, frames.into_iter(), Duration::ZERO.into(), 1);
                         } else {
                             let delta = thread.total_running_time - thread.previous_sample_cpu_time;
                             thread.previous_sample_cpu_time = thread.total_running_time;
                             let delta = Duration::from_nanos(to_nanos(delta as u64));
-                            thread.builder.add_sample(timestamp, frames, delta);
+                            profile.add_sample(thread.handle, timestamp, frames, delta.into(), 1);
                         }
                     };
 
@@ -278,7 +328,7 @@ fn main() {
                             if thread.last_kernel_stack.is_none() {
                                 dbg!(thread.last_kernel_stack_time);
                             }
-                            let timestamp = profile_start_instant + Duration::from_nanos(to_nanos(timestamp - start_time));
+                            let timestamp = Timestamp::from_nanos_since_reference(to_nanos(timestamp - start_time));
                             stack.append(&mut thread.last_kernel_stack.take().unwrap());
                             add_sample(thread, timestamp, stack);
                         } else {
@@ -286,10 +336,10 @@ fn main() {
                                 // we're left with an unassociated kernel stack
                                 dbg!(thread.last_kernel_stack_time);
 
-                                let timestamp = profile_start_instant + Duration::from_nanos(to_nanos(thread.last_kernel_stack_time - start_time));
+                                let timestamp = Timestamp::from_nanos_since_reference(to_nanos(thread.last_kernel_stack_time - start_time));
                                 add_sample(thread, timestamp, kernel_stack);
                             }
-                            let timestamp = profile_start_instant + Duration::from_nanos(to_nanos(timestamp - start_time));
+                            let timestamp = Timestamp::from_nanos_since_reference(to_nanos(timestamp - start_time));
                             add_sample(thread, timestamp, stack);
                         }
                         stack_sample_count += 1;
@@ -306,17 +356,19 @@ fn main() {
                     let thread = match threads.entry(thread_id) {
                         Entry::Occupied(e) => e.into_mut(), 
                         Entry::Vacant(_) => {
-                            if include_idle && merge_threads {
-                                let mut frames = Vec::new();
-                                let thread_name = match thread_id {
-                                    0 => "Idle",
-                                    _ => "Other"
-                                };
-                                let timestamp = e.EventHeader.TimeStamp as u64;
-                                let timestamp = profile_start_instant + Duration::from_nanos(to_nanos(timestamp - start_time));
+                            if include_idle {
+                                if let Some(global_thread) = global_thread {
+                                    let mut frames = Vec::new();
+                                    let thread_name = match thread_id {
+                                        0 => "Idle",
+                                        _ => "Other"
+                                    };
+                                    let timestamp = e.EventHeader.TimeStamp as u64;
+                                    let timestamp = Timestamp::from_nanos_since_reference(to_nanos(timestamp - start_time));
 
-                                frames.push(gecko_profile::Frame::Label(global_thread.intern_string(&thread_name)));
-                                global_thread.add_sample(timestamp, frames.into_iter(), Duration::ZERO);
+                                    frames.push((fxprof_processed_profile::Frame::Label(profile.intern_string(&thread_name)), user_category));
+                                    profile.add_sample(global_thread, timestamp, frames.into_iter(), Duration::ZERO.into(), 1);
+                                }
                             }
                             dropped_sample_count += 1;
                             // We don't know what process this will before so just drop it for now
@@ -336,17 +388,19 @@ fn main() {
                     let thread = match threads.entry(thread_id) {
                         Entry::Occupied(e) => e.into_mut(),
                         Entry::Vacant(_) => {
-                            if include_idle && merge_threads {
-                                let mut frames = Vec::new();
-                                let thread_name = match thread_id {
-                                    0 => "Idle",
-                                    _ => "Other"
-                                };
-                                let timestamp = e.EventHeader.TimeStamp as u64;
-                                let timestamp = profile_start_instant + Duration::from_nanos(to_nanos(timestamp - start_time));
+                            if include_idle {
+                                if let Some(global_thread) = global_thread {
+                                    let mut frames = Vec::new();
+                                    let thread_name = match thread_id {
+                                        0 => "Idle",
+                                        _ => "Other"
+                                    };
+                                    let timestamp = e.EventHeader.TimeStamp as u64;
+                                    let timestamp = Timestamp::from_nanos_since_reference(to_nanos(timestamp - start_time));
 
-                                frames.push(gecko_profile::Frame::Label(global_thread.intern_string(&thread_name)));
-                                global_thread.add_sample(timestamp, frames.into_iter(), Duration::ZERO);
+                                    frames.push((fxprof_processed_profile::Frame::Label(profile.intern_string(&thread_name)), user_category));
+                                    profile.add_sample(global_thread, timestamp, frames.into_iter(), Duration::ZERO.into(), 1);
+                                }
                             }
                             dropped_sample_count += 1;
                             // We don't know what process this will before so just drop it for now
@@ -359,7 +413,7 @@ fn main() {
                 "MSNT_SystemTrace/PageFault/VirtualFree" => {
                     let mut parser = Parser::create(&s);
                     let timestamp = e.EventHeader.TimeStamp as u64;
-                    let timestamp = profile_start_instant + Duration::from_nanos(to_nanos(timestamp - start_time));
+                    let timestamp = Timestamp::from_nanos_since_reference(to_nanos(timestamp - start_time));
                     let thread_id = e.EventHeader.ThreadId;
                     let thread = match threads.entry(thread_id) {
                         Entry::Occupied(e) => e.into_mut(),
@@ -378,7 +432,7 @@ fn main() {
                         text += ", "
                     }
 
-                    thread.builder.add_marker("VirtualFree", TextMarker(text), timing)
+                    profile.add_marker(thread.handle, "VirtualFree", TextMarker(text), timing)
                 }
                 "KernelTraceControl/ImageID/" => {
 
@@ -392,7 +446,7 @@ fn main() {
                     // TODO: get the image timestamp and create the CodeId
                     let image_size: u32 = parser.try_parse("ImageSize").unwrap();
                     let binary_path: String = parser.try_parse("OriginalFileName").unwrap();
-                    let path = PathBuf::from(binary_path);
+                    let path = binary_path;
                     libs.insert(image_base, (path, image_size));
                 }
                 "KernelTraceControl/ImageID/DbgID_RSDS" => {
@@ -406,17 +460,30 @@ fn main() {
 
                     let guid: GUID = parser.try_parse("GuidSig").unwrap();
                     let age: u32 = parser.try_parse("Age").unwrap();
-                    let debug_id = DebugId::from_parts(Uuid::from_fields(guid.data1, guid.data2, guid.data3, &guid.data4).unwrap(), age);
+                    let debug_id = DebugId::from_parts(Uuid::from_fields(guid.data1, guid.data2, guid.data3, &guid.data4), age);
                     let pdb_path: String = parser.try_parse("PdbFileName").unwrap();
-                    let pdb_path = Path::new(&pdb_path);
+                    //let pdb_path = Path::new(&pdb_path);
                     let (ref path, image_size) = libs[&image_base];
-                    profile.add_lib(&path, None, &pdb_path, debug_id, Some("x86_64"), image_base, image_base..(image_base + image_size as u64))
+                    let info = LibraryInfo { 
+                        name: path.clone(), 
+                        debug_name: pdb_path.clone(), 
+                        path: path.clone(), 
+                        code_id: None, 
+                        symbol_table: None, 
+                        debug_path: pdb_path, 
+                        debug_id, 
+                        arch: Some("x86_64".into()), 
+                        base_avma: image_base, 
+                        avma_range: image_base..(image_base + image_size as u64) };
+                    if process_id == 0 {
+                        profile.add_kernel_lib(info)
+                    } else {
+                        profile.add_lib(processes[&dbg!(process_id)], info)
+                    }
                 }
                 "Microsoft-Windows-DxgKrnl/VSyncDPC/Info " => {
                     let timestamp = e.EventHeader.TimeStamp as u64;
-                    let timestamp = profile_start_instant + Duration::from_nanos(to_nanos(timestamp - start_time));
-                    has_vsync = true;
-                
+                    let timestamp = Timestamp::from_nanos_since_reference(to_nanos(timestamp - start_time));                
                     #[derive(Debug, Clone)]
                     pub struct VSyncMarker;
 
@@ -446,7 +513,12 @@ fn main() {
                             }
                         }
                     }
-                    gpu_thread.add_marker(
+
+                    let mut gpu_thread = gpu_thread.get_or_insert_with(|| {
+                        let gpu = profile.add_process("GPU", 1, profile_start_instant);
+                        profile.add_thread(gpu, 1, profile_start_instant, false)
+                    });
+                    profile.add_marker(*gpu_thread,
                         "Vsync",
                         VSyncMarker{},
                         MarkerTiming::Instant(timestamp)
@@ -477,7 +549,7 @@ fn main() {
                     if s.name().starts_with("Google.Chrome/") {
                         let mut parser = Parser::create(&s);
                         let timestamp = e.EventHeader.TimeStamp as u64;
-                        let timestamp = profile_start_instant + Duration::from_nanos(to_nanos(timestamp - start_time));
+                        let timestamp = Timestamp::from_nanos_since_reference(to_nanos(timestamp - start_time));
                         let thread_id = e.EventHeader.ThreadId;
                         let phase: String = parser.try_parse("Phase").unwrap();
                         let thread = match threads.entry(thread_id) {
@@ -502,7 +574,7 @@ fn main() {
                             text += ", "
                         }
 
-                        thread.builder.add_marker(s.name().trim_start_matches("Google.Chrome/"), TextMarker(text), timing)
+                        profile.add_marker(thread.handle, s.name().trim_start_matches("Google.Chrome/"), TextMarker(text), timing)
                     }
                      //println!("unhandled {}", s.name()) 
                     }
@@ -511,16 +583,14 @@ fn main() {
         }
     });
 
-    if merge_threads {
+    /*if merge_threads {
         profile.add_thread(global_thread);
     } else {
         for (_, thread) in threads.drain() { profile.add_thread(thread.builder); }
-    }
-    if has_vsync {
-        profile.add_thread(gpu_thread);
-    }
+    }*/
+
     let f = File::create("gecko.json").unwrap();
-    to_writer(BufWriter::new(f), &profile.to_json()).unwrap();
+    to_writer(BufWriter::new(f), &profile).unwrap();
     println!("Took {} seconds", (Instant::now()-start).as_secs_f32());
     println!("{} events, {} samples, {} dropped, {} stack-samples", event_count, sample_count, dropped_sample_count, stack_sample_count);
 }
