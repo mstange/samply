@@ -4,6 +4,7 @@ use crate::fast_hash_map::FastHashMap;
 use crate::frame_table::InternalFrameLocation;
 use crate::global_lib_table::{GlobalLibIndex, GlobalLibTable};
 use crate::lib_info::Lib;
+use crate::lib_ranges::{LibRange, LibRanges};
 use crate::library_info::LibraryInfo;
 use crate::Timestamp;
 
@@ -23,7 +24,7 @@ pub struct Process {
     start_time: Timestamp,
     end_time: Option<Timestamp>,
     libs: Vec<Lib>,
-    sorted_lib_ranges: Vec<ProcessLibRange>,
+    lib_ranges: LibRanges<ProcessLibIndex>,
     used_lib_map: FastHashMap<ProcessLibIndex, GlobalLibIndex>,
 }
 
@@ -32,7 +33,7 @@ impl Process {
         Self {
             pid,
             threads: Vec::new(),
-            sorted_lib_ranges: Vec::new(),
+            lib_ranges: LibRanges::new(),
             used_lib_map: FastHashMap::default(),
             libs: Vec::new(),
             start_time,
@@ -91,20 +92,10 @@ impl Process {
         global_libs: &mut GlobalLibTable,
         address: u64,
     ) -> InternalFrameLocation {
-        let ranges = &self.sorted_lib_ranges[..];
-        let index = match ranges.binary_search_by_key(&address, |r| r.start) {
-            Err(0) => return InternalFrameLocation::UnknownAddress(address),
-            Ok(exact_match) => exact_match,
-            Err(insertion_index) => {
-                let range_index = insertion_index - 1;
-                if address < ranges[range_index].end {
-                    range_index
-                } else {
-                    return InternalFrameLocation::UnknownAddress(address);
-                }
-            }
+        let range = match self.lib_ranges.lookup(address) {
+            Some(range) => range,
+            None => return InternalFrameLocation::UnknownAddress(address),
         };
-        let range = &ranges[index];
         let process_lib = range.lib_index;
         let relative_address = (address - range.base) as u32;
         let lib_index = self.convert_lib_index(process_lib, global_libs);
@@ -136,39 +127,15 @@ impl Process {
             symbol_table: lib.symbol_table,
         });
 
-        let insertion_index = match self
-            .sorted_lib_ranges
-            .binary_search_by_key(&lib.avma_range.start, |r| r.start)
-        {
-            Ok(i) => {
-                // We already have a library mapping at this address.
-                // Not sure how to best deal with it. Ideally it wouldn't happen. Let's just remove this mapping.
-                self.sorted_lib_ranges.remove(i);
-                i
-            }
-            Err(i) => i,
-        };
-
-        self.sorted_lib_ranges.insert(
-            insertion_index,
-            ProcessLibRange {
-                lib_index,
-                base: lib.base_avma,
-                start: lib.avma_range.start,
-                end: lib.avma_range.end,
-            },
-        );
+        self.lib_ranges.insert(LibRange {
+            lib_index,
+            base: lib.base_avma,
+            start: lib.avma_range.start,
+            end: lib.avma_range.end,
+        });
     }
 
     pub fn unload_lib(&mut self, base_address: u64) {
-        self.sorted_lib_ranges.retain(|r| r.base != base_address);
+        self.lib_ranges.remove(base_address);
     }
-}
-
-#[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq)]
-struct ProcessLibRange {
-    start: u64,
-    end: u64,
-    lib_index: ProcessLibIndex,
-    base: u64,
 }

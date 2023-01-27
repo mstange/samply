@@ -41,6 +41,7 @@ mod frame_table;
 mod func_table;
 mod global_lib_table;
 mod lib_info;
+mod lib_ranges;
 mod library_info;
 mod marker_table;
 mod markers;
