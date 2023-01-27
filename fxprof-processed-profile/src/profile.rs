@@ -30,6 +30,15 @@ pub struct SamplingInterval {
 }
 
 impl SamplingInterval {
+    /// Create a sampling interval from a sampling frequency in Hz.
+    ///
+    /// Panics on zero or negative values.
+    pub fn from_hz(samples_per_second: f32) -> Self {
+        assert!(samples_per_second > 0.0);
+        let nanos = (1_000_000_000.0 / samples_per_second) as u64;
+        Self::from_nanos(nanos)
+    }
+
     /// Create a sampling interval from a value in milliseconds.
     pub fn from_millis(millis: u64) -> Self {
         Self::from_nanos(millis * 1_000_000)
