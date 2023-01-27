@@ -81,9 +81,14 @@ impl Process {
     pub fn convert_address(
         &mut self,
         global_libs: &mut GlobalLibTable,
+        kernel_libs: &mut LibsWithRanges,
         address: u64,
     ) -> InternalFrameLocation {
-        match self.libs.convert_address(global_libs, address) {
+        // Try to find the address in the kernel libs first, and then in the process libs.
+        match kernel_libs
+            .convert_address(global_libs, address)
+            .or_else(|| self.libs.convert_address(global_libs, address))
+        {
             Some((relative_address, global_lib_index)) => {
                 InternalFrameLocation::AddressInLib(relative_address, global_lib_index)
             }

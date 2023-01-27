@@ -11,6 +11,7 @@ use crate::frame::Frame;
 use crate::frame_table::{InternalFrame, InternalFrameLocation};
 use crate::global_lib_table::GlobalLibTable;
 use crate::library_info::LibraryInfo;
+use crate::libs_with_ranges::LibsWithRanges;
 use crate::process::{Process, ThreadHandle};
 use crate::reference_timestamp::ReferenceTimestamp;
 use crate::string_table::{GlobalStringIndex, GlobalStringTable};
@@ -99,7 +100,8 @@ pub struct StringHandle(GlobalStringIndex);
 pub struct Profile {
     pub(crate) product: String,
     pub(crate) interval: SamplingInterval,
-    pub(crate) libs: GlobalLibTable,
+    pub(crate) global_libs: GlobalLibTable,
+    pub(crate) kernel_libs: LibsWithRanges,
     pub(crate) categories: Vec<Category>, // append-only for stable CategoryHandles
     pub(crate) processes: Vec<Process>,   // append-only for stable ProcessHandles
     pub(crate) threads: Vec<Thread>,      // append-only for stable ThreadHandles
@@ -124,7 +126,8 @@ impl Profile {
             interval,
             product: product.to_string(),
             threads: Vec::new(),
-            libs: GlobalLibTable::new(),
+            global_libs: GlobalLibTable::new(),
+            kernel_libs: LibsWithRanges::new(),
             reference_timestamp,
             processes: Vec::new(),
             string_table: GlobalStringTable::new(),
@@ -194,12 +197,12 @@ impl Profile {
         self.processes[process.0].set_name(name);
     }
 
-    /// Add a library. This allows symbolication of native stacks once the profile is loaded
-    /// in the Firefox Profiler.
+    /// Add a library which is loaded into a process. This allows symbolication of native
+    /// stacks once the profile is opened in the Firefox Profiler.
     ///
-    /// Each library covers an address space in the virtual memory of a process. Future calls
+    /// Each library covers an address range in the virtual memory of a process. Future calls
     /// to [`Profile::add_sample`] with native frames resolve the frame's code address with
-    /// respect to the currently loaded libraries.
+    /// respect to the currently loaded kernel and process libraries.
     pub fn add_lib(&mut self, process: ProcessHandle, library: LibraryInfo) {
         self.processes[process.0].add_lib(library);
     }
@@ -208,6 +211,23 @@ impl Profile {
     /// so that future calls to [`Profile::add_sample`] know about the unloading.
     pub fn unload_lib(&mut self, process: ProcessHandle, base_address: u64) {
         self.processes[process.0].unload_lib(base_address);
+    }
+
+    /// Add a kernel library. This allows symbolication of kernel stacks once the profile is
+    /// opened in the Firefox Profiler. Kernel libraries are global and not tied to a process.
+    ///
+    /// Each kernel library covers an address range in the kernel address space, which is
+    /// global across all processes. Future calls to [`Profile::add_sample`] with native
+    /// frames resolve the frame's code address with respect to the currently loaded kernel
+    /// and process libraries.
+    pub fn add_kernel_lib(&mut self, library: LibraryInfo) {
+        self.kernel_libs.add_lib(library);
+    }
+
+    /// Mark the kernel library at the specified base address in the specified process as
+    /// unloaded, so that future calls to [`Profile::add_sample`] know about the unloading.
+    pub fn unload_kernel_lib(&mut self, base_address: u64) {
+        self.kernel_libs.unload_lib(base_address);
     }
 
     /// Add an empty thread to the specified process.
@@ -317,10 +337,14 @@ impl Profile {
         let mut prefix = None;
         for (frame, category_pair) in frames {
             let location = match frame {
-                Frame::InstructionPointer(ip) => process.convert_address(&mut self.libs, ip),
-                Frame::ReturnAddress(ra) => {
-                    process.convert_address(&mut self.libs, ra.saturating_sub(1))
+                Frame::InstructionPointer(ip) => {
+                    process.convert_address(&mut self.global_libs, &mut self.kernel_libs, ip)
                 }
+                Frame::ReturnAddress(ra) => process.convert_address(
+                    &mut self.global_libs,
+                    &mut self.kernel_libs,
+                    ra.saturating_sub(1),
+                ),
                 Frame::Label(string_index) => {
                     let thread_string_index =
                         thread.convert_string_index(&self.string_table, string_index.0);
@@ -331,7 +355,7 @@ impl Profile {
                 location,
                 category_pair,
             };
-            let frame_index = thread.frame_index_for_frame(internal_frame, &self.libs);
+            let frame_index = thread.frame_index_for_frame(internal_frame, &self.global_libs);
             prefix = Some(thread.stack_index_for_stack(prefix, frame_index, category_pair));
         }
         prefix
@@ -342,7 +366,7 @@ impl Serialize for Profile {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry("meta", &SerializableProfileMeta(self))?;
-        map.serialize_entry("libs", &self.libs)?;
+        map.serialize_entry("libs", &self.global_libs)?;
         map.serialize_entry("threads", &SerializableProfileThreadsProperty(self))?;
         map.serialize_entry("pages", &[] as &[()])?;
         map.serialize_entry("profilerOverhead", &[] as &[()])?;
