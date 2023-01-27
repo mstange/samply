@@ -255,6 +255,19 @@ impl Profile {
     /// The CPU delta is the amount of CPU time that the CPU was busy with work for this
     /// thread since the previous sample. It should always be less than or equal the
     /// time delta between the sample timestamps.
+    ///
+    /// The weight affects the sample's stack's score in the call tree. You usually set
+    /// this to 1. You can use weights greater than one if you want to combine multiple
+    /// adjacent samples with the same stack into one sample, to save space. However,
+    /// this discards any CPU deltas between the adjacent samples, so it's only really
+    /// useful if no CPU time has occurred between the samples, and for that use case the
+    /// [`Profile::add_sample_same_stack_zero_cpu`] method should be preferred.
+    ///
+    /// You can can also set the weight to something negative, such as -1, to create a
+    /// "diff profile". For example, if you have partitioned your samples into "before"
+    /// and "after" groups, you can use -1 for all "before" samples and 1 for all "after"
+    /// samples, and the call tree will show you which stacks occur more frequently in
+    /// the "after" part of the profile, by sorting those stacks to the top.
     pub fn add_sample(
         &mut self,
         thread: ThreadHandle,
