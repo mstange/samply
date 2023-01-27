@@ -143,7 +143,6 @@ where
     processes: Processes<U>,
     threads: Threads,
     stack_converter: StackConverter,
-    kernel_modules: Vec<LibraryInfo>,
     timestamp_converter: TimestampConverter,
     current_sample_time: u64,
     build_ids: HashMap<DsoKey, DsoInfo>,
@@ -201,7 +200,6 @@ where
                 user_category,
                 kernel_category,
             },
-            kernel_modules: Vec::new(),
             timestamp_converter: TimestampConverter::with_reference_timestamp(first_sample_time),
             current_sample_time: first_sample_time,
             build_ids,
@@ -232,9 +230,7 @@ where
         let profile_timestamp = self.timestamp_converter.convert_time(timestamp);
 
         let is_main = pid == tid;
-        let process = self
-            .processes
-            .get_by_pid(pid, &mut self.profile, &self.kernel_modules);
+        let process = self.processes.get_by_pid(pid, &mut self.profile);
 
         let mut stack = Vec::new();
         Self::get_sample_stack::<C>(&e, &process.unwinder, &mut self.cache, &mut stack);
@@ -296,9 +292,7 @@ where
         let pid = e.pid.expect("Can't handle samples without pids");
         let tid = e.tid.expect("Can't handle samples without tids");
         let is_main = pid == tid;
-        let process = self
-            .processes
-            .get_by_pid(pid, &mut self.profile, &self.kernel_modules);
+        let process = self.processes.get_by_pid(pid, &mut self.profile);
 
         let mut stack = Vec::new();
         Self::get_sample_stack::<C>(&e, &process.unwinder, &mut self.cache, &mut stack);
@@ -429,11 +423,9 @@ where
 
         if e.pid == -1 {
             let lib = self.kernel_lib(e.address, e.length, dso_key, build_id, &path);
-            self.kernel_modules.push(lib);
+            self.profile.add_kernel_lib(lib);
         } else {
-            let process = self
-                .processes
-                .get_by_pid(e.pid, &mut self.profile, &self.kernel_modules);
+            let process = self.processes.get_by_pid(e.pid, &mut self.profile);
             if let Some(lib) = add_module_to_unwinder(
                 &mut process.unwinder,
                 &path,
@@ -467,9 +459,7 @@ where
             }
         };
 
-        let process = self
-            .processes
-            .get_by_pid(e.pid, &mut self.profile, &self.kernel_modules);
+        let process = self.processes.get_by_pid(e.pid, &mut self.profile);
         if let Some(lib) = add_module_to_unwinder(
             &mut process.unwinder,
             &path,
@@ -490,9 +480,7 @@ where
             .timestamp
             .expect("Can't handle context switch without time");
         let is_main = pid == tid;
-        let process = self
-            .processes
-            .get_by_pid(pid, &mut self.profile, &self.kernel_modules);
+        let process = self.processes.get_by_pid(pid, &mut self.profile);
         let process_handle = process.profile_process;
         let thread = self
             .threads
@@ -530,9 +518,7 @@ where
     pub fn handle_thread_start(&mut self, e: ForkOrExitRecord) {
         let is_main = e.pid == e.tid;
         let start_time = self.timestamp_converter.convert_time(e.timestamp);
-        let process = self
-            .processes
-            .get_by_pid(e.pid, &mut self.profile, &self.kernel_modules);
+        let process = self.processes.get_by_pid(e.pid, &mut self.profile);
         let process_handle = process.profile_process;
         if is_main {
             self.profile
@@ -549,9 +535,7 @@ where
     pub fn handle_thread_end(&mut self, e: ForkOrExitRecord) {
         let is_main = e.pid == e.tid;
         let end_time = self.timestamp_converter.convert_time(e.timestamp);
-        let process = self
-            .processes
-            .get_by_pid(e.pid, &mut self.profile, &self.kernel_modules);
+        let process = self.processes.get_by_pid(e.pid, &mut self.profile);
         let process_handle = process.profile_process;
         let thread = self
             .threads
@@ -590,7 +574,7 @@ where
 
         let process_handle = self
             .processes
-            .get_by_pid(e.pid, &mut self.profile, &self.kernel_modules)
+            .get_by_pid(e.pid, &mut self.profile)
             .profile_process;
 
         let name = e.name.as_slice();
@@ -783,12 +767,7 @@ impl<U> Processes<U>
 where
     U: Unwinder<Module = Module<Vec<u8>>> + Default,
 {
-    pub fn get_by_pid(
-        &mut self,
-        pid: i32,
-        profile: &mut Profile,
-        global_modules: &[LibraryInfo],
-    ) -> &mut Process<U> {
+    pub fn get_by_pid(&mut self, pid: i32, profile: &mut Profile) -> &mut Process<U> {
         self.0.entry(pid).or_insert_with(|| {
             let name = format!("<{}>", pid);
             let handle = profile.add_process(
@@ -796,9 +775,6 @@ where
                 pid as u32,
                 Timestamp::from_millis_since_reference(0.0),
             );
-            for module in global_modules.iter().cloned() {
-                profile.add_lib(handle, module);
-            }
             Process {
                 profile_process: handle,
                 unwinder: U::default(),
