@@ -1,20 +1,15 @@
 use std::cmp::Ordering;
+use std::hash::Hash;
 
-use crate::fast_hash_map::FastHashMap;
 use crate::frame_table::InternalFrameLocation;
-use crate::global_lib_table::{GlobalLibIndex, GlobalLibTable};
-use crate::lib_info::Lib;
-use crate::lib_ranges::{LibRange, LibRanges};
+use crate::global_lib_table::GlobalLibTable;
 use crate::library_info::LibraryInfo;
+use crate::libs_with_ranges::LibsWithRanges;
 use crate::Timestamp;
 
 /// A thread. Can be created with [`Profile::add_thread`](crate::Profile::add_thread).
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct ThreadHandle(pub(crate) usize);
-
-/// The index of a library within a process.
-#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub struct ProcessLibIndex(usize);
 
 #[derive(Debug)]
 pub struct Process {
@@ -23,9 +18,7 @@ pub struct Process {
     threads: Vec<ThreadHandle>,
     start_time: Timestamp,
     end_time: Option<Timestamp>,
-    libs: Vec<Lib>,
-    lib_ranges: LibRanges<ProcessLibIndex>,
-    used_lib_map: FastHashMap<ProcessLibIndex, GlobalLibIndex>,
+    libs: LibsWithRanges,
 }
 
 impl Process {
@@ -33,9 +26,7 @@ impl Process {
         Self {
             pid,
             threads: Vec::new(),
-            lib_ranges: LibRanges::new(),
-            used_lib_map: FastHashMap::default(),
-            libs: Vec::new(),
+            libs: LibsWithRanges::new(),
             start_time,
             end_time: None,
             name: name.to_owned(),
@@ -92,50 +83,19 @@ impl Process {
         global_libs: &mut GlobalLibTable,
         address: u64,
     ) -> InternalFrameLocation {
-        let range = match self.lib_ranges.lookup(address) {
-            Some(range) => range,
-            None => return InternalFrameLocation::UnknownAddress(address),
-        };
-        let process_lib = range.lib_index;
-        let relative_address = (address - range.base) as u32;
-        let lib_index = self.convert_lib_index(process_lib, global_libs);
-        InternalFrameLocation::AddressInLib(relative_address, lib_index)
-    }
-
-    pub fn convert_lib_index(
-        &mut self,
-        process_lib: ProcessLibIndex,
-        global_libs: &mut GlobalLibTable,
-    ) -> GlobalLibIndex {
-        let libs = &self.libs;
-        *self
-            .used_lib_map
-            .entry(process_lib)
-            .or_insert_with(|| global_libs.index_for_lib(libs[process_lib.0].clone()))
+        match self.libs.convert_address(global_libs, address) {
+            Some((relative_address, global_lib_index)) => {
+                InternalFrameLocation::AddressInLib(relative_address, global_lib_index)
+            }
+            None => InternalFrameLocation::UnknownAddress(address),
+        }
     }
 
     pub fn add_lib(&mut self, lib: LibraryInfo) {
-        let lib_index = ProcessLibIndex(self.libs.len());
-        self.libs.push(Lib {
-            name: lib.name,
-            debug_name: lib.debug_name,
-            path: lib.path,
-            debug_path: lib.debug_path,
-            arch: lib.arch,
-            debug_id: lib.debug_id,
-            code_id: lib.code_id,
-            symbol_table: lib.symbol_table,
-        });
-
-        self.lib_ranges.insert(LibRange {
-            lib_index,
-            base: lib.base_avma,
-            start: lib.avma_range.start,
-            end: lib.avma_range.end,
-        });
+        self.libs.add_lib(lib);
     }
 
     pub fn unload_lib(&mut self, base_address: u64) {
-        self.lib_ranges.remove(base_address);
+        self.libs.unload_lib(base_address);
     }
 }
