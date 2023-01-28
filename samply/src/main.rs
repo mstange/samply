@@ -91,8 +91,18 @@ struct RecordArgs {
     server_args: ServerArgs,
 
     /// Profile the execution of this command.
-    #[arg(required = true, allow_hyphen_values = true, trailing_var_arg = true)]
+    #[arg(
+        required_unless_present = "pid",
+        conflicts_with = "pid",
+        allow_hyphen_values = true,
+        trailing_var_arg = true
+    )]
     command: Vec<std::ffi::OsString>,
+
+    /// Process ID of existing process to attach to.
+    #[cfg(target_os = "linux")]
+    #[arg(short, long)]
+    pid: Option<u32>,
 }
 
 #[derive(Debug, Args)]
@@ -148,21 +158,37 @@ fn main() {
                 std::process::exit(1);
             }
             let interval = Duration::from_secs_f64(1.0 / record_args.rate);
-            let exit_status = match profiler::start_recording(
-                &record_args.output,
-                record_args.command[0].clone(),
-                &record_args.command[1..],
-                time_limit,
-                interval,
-                server_props,
-            ) {
-                Ok(exit_status) => exit_status,
-                Err(err) => {
-                    eprintln!("Encountered a mach error during profiling: {:?}", err);
-                    std::process::exit(1);
-                }
-            };
-            std::process::exit(exit_status.code().unwrap_or(0));
+
+            #[cfg(target_os = "linux")]
+            let pid = record_args.pid;
+            #[cfg(not(target_os = "linux"))]
+            let pid = None;
+            if let Some(pid) = pid {
+                #[cfg(target_os = "linux")]
+                profiler::start_profiling_pid(
+                    &record_args.output,
+                    pid,
+                    time_limit,
+                    interval,
+                    server_props,
+                );
+            } else {
+                let exit_status = match profiler::start_recording(
+                    &record_args.output,
+                    record_args.command[0].clone(),
+                    &record_args.command[1..],
+                    time_limit,
+                    interval,
+                    server_props,
+                ) {
+                    Ok(exit_status) => exit_status,
+                    Err(err) => {
+                        eprintln!("Encountered a mach error during profiling: {:?}", err);
+                        std::process::exit(1);
+                    }
+                };
+                std::process::exit(exit_status.code().unwrap_or(0));
+            }
         }
     }
 }
