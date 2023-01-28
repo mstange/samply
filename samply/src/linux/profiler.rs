@@ -7,7 +7,7 @@ use std::io::BufWriter;
 use std::path::Path;
 use std::process::Command;
 use std::process::ExitStatus;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -54,7 +54,14 @@ pub fn start_recording(
     let observer_thread = thread::spawn(move || {
         let product = command_name_copy;
         // start profiling pid
-        run_profiler(&output_file_copy, &product, time_limit, interval, pid);
+        run_profiler(
+            &output_file_copy,
+            &product,
+            time_limit,
+            interval,
+            pid,
+            Arc::new(AtomicBool::new(false)),
+        );
     });
 
     let exit_status = root_child.wait().expect("couldn't wait for child");
@@ -79,6 +86,7 @@ fn run_profiler(
     _time_limit: Option<Duration>,
     interval: Duration,
     pid: u32,
+    stop: Arc<AtomicBool>,
 ) {
     let interval_nanos = if interval.as_nanos() > 0 {
         interval.as_nanos() as u64
@@ -171,7 +179,7 @@ fn run_profiler(
     let mut pending_lost_events = 0;
     let mut total_lost_events = 0;
     loop {
-        if perf.is_empty() {
+        if stop.load(Ordering::SeqCst) || perf.is_empty() {
             break;
         }
 
