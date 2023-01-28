@@ -241,4 +241,8 @@ fn verify_cli() {
         matches!(opt.action, Action::Record(record_args) if record_args.command == ["rustup"] && record_args.server_args.no_open),
         "Arguments which come before the command name should be treated as samply arguments."
     );
+
+    // Make sure you can't pass both a pid and a command name at the same time.
+    let opt_res = Opt::try_parse_from(["samply", "record", "-p", "1234", "rustup"]);
+    assert!(opt_res.is_err());
 }
