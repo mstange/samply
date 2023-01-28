@@ -102,7 +102,7 @@ struct ServerArgs {
     no_open: bool,
 
     /// The port to use for the local web server
-    #[arg(short, long, default_value = "3000+")]
+    #[arg(short = 'P', long, default_value = "3000+")]
     port: String,
 
     /// Print debugging output.
