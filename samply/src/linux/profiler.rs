@@ -80,6 +80,42 @@ pub fn start_recording(
     Ok(exit_status)
 }
 
+pub fn start_profiling_pid(
+    output_file: &Path,
+    pid: u32,
+    time_limit: Option<Duration>,
+    interval: Duration,
+    server_props: Option<ServerProps>,
+) {
+    // When the first Ctrl+C is received, stop recording.
+    // The server launches after the recording finishes. On the second Ctrl+C, terminate the server.
+    let stop = Arc::new(AtomicBool::new(false));
+    #[cfg(unix)]
+    signal_hook::flag::register_conditional_default(signal_hook::consts::SIGINT, stop.clone())
+        .expect("cannot register signal handler");
+    #[cfg(unix)]
+    signal_hook::flag::register(signal_hook::consts::SIGINT, stop.clone())
+        .expect("cannot register signal handler");
+
+    let output_file_copy = output_file.to_owned();
+    let product = format!("PID {pid}");
+    let observer_thread = thread::spawn({
+        let stop = stop.clone();
+        move || run_profiler(&output_file_copy, &product, time_limit, interval, pid, stop)
+    });
+
+    observer_thread
+        .join()
+        .expect("couldn't join observer thread");
+    // If the recording was stopped due to application terminating, set the flag so that Ctrl+C
+    // terminates the server.
+    stop.store(true, Ordering::SeqCst);
+
+    if let Some(server_props) = server_props {
+        start_server_main(output_file, server_props);
+    }
+}
+
 fn run_profiler(
     output_filename: &Path,
     product_name: &str,
