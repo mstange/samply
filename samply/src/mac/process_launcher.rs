@@ -58,11 +58,24 @@ impl TaskAccepter {
                 server_name.into(),
             )));
 
-        let root_child = Command::new(program)
+        let root_child = match Command::new(program.as_ref())
             .args(args)
             .envs(child_env)
             .spawn()
-            .expect("launching child unsuccessful");
+        {
+            Ok(child) => child,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                eprintln!(
+                    "Error: Could not find an executable with the name {}.",
+                    program.as_ref().to_string_lossy()
+                );
+                std::process::exit(-1)
+            }
+            Err(err) => {
+                eprintln!("Error: Could not launch child process: {}", err);
+                std::process::exit(-1)
+            }
+        };
 
         Ok((
             TaskAccepter {
