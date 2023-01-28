@@ -16,6 +16,18 @@ use super::process_launcher::{MachError, TaskAccepter};
 use super::sampler::{Sampler, TaskInit};
 use crate::server::{start_server_main, ServerProps};
 
+pub fn start_profiling_pid(
+    _output_file: &Path,
+    _pid: u32,
+    _time_limit: Option<Duration>,
+    _interval: Duration,
+    _server_props: Option<ServerProps>,
+) {
+    eprintln!("Profiling existing processes is currently not supported on macOS.");
+    eprintln!("You can only profile processes which you launch via samply.");
+    std::process::exit(-1)
+}
+
 pub fn start_recording(
     output_file: &Path,
     command_name: OsString,

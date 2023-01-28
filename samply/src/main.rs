@@ -99,8 +99,7 @@ struct RecordArgs {
     )]
     command: Vec<std::ffi::OsString>,
 
-    /// Process ID of existing process to attach to.
-    #[cfg(target_os = "linux")]
+    /// Process ID of existing process to attach to (Linux only).
     #[arg(short, long)]
     pid: Option<u32>,
 }
@@ -159,12 +158,7 @@ fn main() {
             }
             let interval = Duration::from_secs_f64(1.0 / record_args.rate);
 
-            #[cfg(target_os = "linux")]
-            let pid = record_args.pid;
-            #[cfg(not(target_os = "linux"))]
-            let pid = None;
-            if let Some(pid) = pid {
-                #[cfg(target_os = "linux")]
+            if let Some(pid) = record_args.pid {
                 profiler::start_profiling_pid(
                     &record_args.output,
                     pid,
