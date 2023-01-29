@@ -1005,28 +1005,17 @@ where
     'data: 'file,
     O: Object<'data, 'file>,
 {
-    let mut contributions: Vec<SvmaFileRange> =
-        file.segments().map(SvmaFileRange::from_segment).collect();
+    let segments: Vec<SvmaFileRange> = file.segments().map(SvmaFileRange::from_segment).collect();
 
-    if contributions.is_empty() {
-        // If no segment is found, fall back to using section information.
-        // This fallback only exists for the synthetic .so files created by `perf inject --jit`
-        // - those don't have LOAD commands.
-        contributions = file
-            .sections()
-            .filter(|s| s.kind() == SectionKind::Text)
-            .filter_map(SvmaFileRange::from_section)
-            .collect();
-    }
-
-    let base_svma = match file.segments().next() {
-        Some(first_segment) => first_segment.address(),
-        None => 0,
-    };
+    let text_sections: Vec<SvmaFileRange> = file
+        .sections()
+        .filter(|s| s.kind() == SectionKind::Text)
+        .filter_map(SvmaFileRange::from_section)
+        .collect();
 
     compute_base_avma_impl(
-        &contributions,
-        base_svma,
+        &segments,
+        &text_sections,
         mapping_start_file_offset,
         mapping_start_avma,
         mapping_size,
@@ -1034,22 +1023,28 @@ where
 }
 
 fn compute_base_avma_impl(
-    contributions: &[SvmaFileRange],
-    base_svma: u64,
+    segments: &[SvmaFileRange],
+    text_sections: &[SvmaFileRange],
     mapping_file_offset: u64,
     mapping_avma: u64,
     mapping_size: u64,
 ) -> Option<u64> {
-    // Find a contribution which either fully contains the mapping, or which is fully contained by the mapping.
+    // Find a segment or section which either fully contains the mapping, or which is fully contained by the mapping.
     // Linux perf simply always uses the .text section as the reference contribution.
-    let ref_contribution = if let Some(contribution) = contributions.iter().find(|contribution| {
+    let is_matching_contribution = |contribution: &&SvmaFileRange| {
         contribution.encompasses_file_range(mapping_file_offset, mapping_size)
             || contribution.is_encompassed_by_file_range(mapping_file_offset, mapping_size)
-    }) {
+    };
+
+    let ref_contribution = if let Some(contribution) =
+        segments.iter().find(is_matching_contribution)
+    {
+        contribution
+    } else if let Some(contribution) = text_sections.iter().find(is_matching_contribution) {
         contribution
     } else {
         println!(
-            "Could not find segment or section overlapping the file offset range 0x{:x}..0x{:x}",
+            "Could not find segment or section corresponding to the mapping's file offset range 0x{:x}..0x{:x}",
             mapping_file_offset,
             mapping_file_offset + mapping_size,
         );
@@ -1063,6 +1058,13 @@ fn compute_base_avma_impl(
         mapping_avma - (mapping_file_offset - ref_contribution.file_offset)
     };
 
+    // Compute the image base address in SVMA space. The image base for ELF images
+    // is defined as the address of the first segment.
+    let base_svma = match segments.first() {
+        Some(first_segment) => first_segment.svma,
+        None => 0,
+    };
+
     // We have everything we need now.
     let bias = ref_avma - ref_contribution.svma;
     let base_avma = base_svma + bias;
@@ -1071,6 +1073,21 @@ fn compute_base_avma_impl(
 
 #[test]
 fn test_compute_base_avma_impl() {
+    #[cfg(any())]
+    {
+        let data = std::fs::read("/Users/mstange/Downloads/jitted-103168-33.so").unwrap();
+        let file = object::File::parse(&data[..]).unwrap();
+        let segments: Vec<SvmaFileRange> =
+            file.segments().map(SvmaFileRange::from_segment).collect();
+        let text_sections: Vec<SvmaFileRange> = file
+            .sections()
+            .filter(|s| s.kind() == SectionKind::Text)
+            .filter_map(SvmaFileRange::from_section)
+            .collect();
+        dbg!(segments);
+        dbg!(text_sections);
+    }
+
     // From a local build of the Spidermonkey shell ("js")
     let js_segments = &[
         SvmaFileRange {
@@ -1094,13 +1111,46 @@ fn test_compute_base_avma_impl() {
             size: 0x002d48,
         },
     ];
-    let base_svma = js_segments[0].svma;
+    let js_text_sections = &[
+        SvmaFileRange {
+            svma: 0x1429b00,
+            file_offset: 0x1428b00,
+            size: 0xf2b915,
+        },
+        SvmaFileRange {
+            svma: 0x2355418,
+            file_offset: 0x2354418,
+            size: 0x1a,
+        },
+        SvmaFileRange {
+            svma: 0x2355434,
+            file_offset: 0x2354434,
+            size: 0x9,
+        },
+        SvmaFileRange {
+            svma: 0x2355440,
+            file_offset: 0x2354440,
+            size: 0xf40,
+        },
+    ];
     assert_eq!(
-        compute_base_avma_impl(js_segments, base_svma, 0x14bd0c0, 0x100014be0c0, 0xf5bf60),
+        compute_base_avma_impl(
+            js_segments,
+            js_text_sections,
+            0x14bd0c0,
+            0x100014be0c0,
+            0xf5bf60
+        ),
         Some(0x10000000000)
     );
     assert_eq!(
-        compute_base_avma_impl(js_segments, base_svma, 0x14bd000, 0x55d605384000, 0xf5d000),
+        compute_base_avma_impl(
+            js_segments,
+            js_text_sections,
+            0x14bd000,
+            0x55d605384000,
+            0xf5d000
+        ),
         Some(0x55d603ec6000)
     );
 
@@ -1127,10 +1177,99 @@ fn test_compute_base_avma_impl() {
             size: 0x0118f0,
         },
     ];
-    let base_svma = d8_segments[0].svma;
+    let d8_text_sections = &[
+        SvmaFileRange {
+            svma: 0x3ca000,
+            file_offset: 0x3c9000,
+            size: 0xfeb86e,
+        },
+        SvmaFileRange {
+            svma: 0x13b5870,
+            file_offset: 0x13b4870,
+            size: 0x17,
+        },
+        SvmaFileRange {
+            svma: 0x13b5888,
+            file_offset: 0x13b4888,
+            size: 0x9,
+        },
+        SvmaFileRange {
+            svma: 0x13b58a0,
+            file_offset: 0x13b48a0,
+            size: 0xed0,
+        },
+    ];
     assert_eq!(
-        compute_base_avma_impl(d8_segments, base_svma, 0x1056000, 0x55d15fe80000, 0x180000),
+        compute_base_avma_impl(
+            d8_segments,
+            d8_text_sections,
+            0x1056000,
+            0x55d15fe80000,
+            0x180000
+        ),
         Some(0x55d15ee29000)
+    );
+
+    // From a perf-jitted-1234-12.so from before https://github.com/torvalds/linux/commit/babd04386b1df8c364cdaa39ac0e54349502e1e5
+    let jitted_so_segments = &[];
+    let jitted_so_text_sections = &[SvmaFileRange {
+        svma: 0x40,
+        file_offset: 0x40,
+        size: 0x50,
+    }];
+    assert_eq!(
+        compute_base_avma_impl(
+            jitted_so_segments,
+            jitted_so_text_sections,
+            0x40,
+            0x1000040,
+            0x50
+        ),
+        Some(0x1000000)
+    );
+
+    // From a perf-jitted-1234-12.so from after https://github.com/torvalds/linux/commit/babd04386b1df8c364cdaa39ac0e54349502e1e5
+    let jitted_so_segments = &[SvmaFileRange {
+        svma: 0x0,
+        file_offset: 0x0,
+        size: 0x50, // should be 0x90, but fails to take ELF header size into account
+    }];
+    let jitted_so_text_sections = &[SvmaFileRange {
+        svma: 0x40,
+        file_offset: 0x40,
+        size: 0x50,
+    }];
+    assert_eq!(
+        compute_base_avma_impl(
+            jitted_so_segments,
+            jitted_so_text_sections,
+            0x40,
+            0x1000040,
+            0x50
+        ),
+        Some(0x1000000)
+    );
+
+    // Desired perf-jitted-1234-12.so case (would require fixing perf in two places: fix PT_LOAD size, and make synthesizem mmap cover the whole segment instead of just the text section)
+    let jitted_so_segments = &[SvmaFileRange {
+        svma: 0x0,
+        file_offset: 0x0,
+        size: 0x90,
+    }];
+    let jitted_so_text_sections = &[SvmaFileRange {
+        svma: 0x40,
+        file_offset: 0x40,
+        size: 0x50,
+    }];
+    assert_eq!(
+        compute_base_avma_impl(
+            jitted_so_segments,
+            jitted_so_text_sections,
+            0x0,
+            0x1000000,
+            0x90
+        ),
+        Some(0x1000000)
     );
 }
 
@@ -1160,6 +1299,7 @@ where
     let file = open_file_with_fallback(objpath, extra_binary_artifact_dir).ok();
     if file.is_none() && !path.starts_with('[') {
         // eprintln!("Could not open file {:?}", objpath);
+        // eprintln!("mapping: file_offset: {:#x}, avma: {:#x}, size: {:#x}", mapping_start_file_offset, mapping_start_avma, mapping_size);
     }
 
     let mapping_end_avma = mapping_start_avma + mapping_size;
