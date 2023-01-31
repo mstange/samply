@@ -17,6 +17,13 @@ pub struct Response {
     /// The CPU architecture targeted by this binary, e.g. "i686", "x86_64", "arm", "aarch64"
     pub arch: String,
 
+    /// A single-element Vec with the disassembly syntax used in the `instructions`,
+    /// e.g. `["Intel"]` for x86.
+    ///
+    /// This is a Vec because I'd like to use `["Intel", "C Style"]` in the future,
+    /// with each instruction being `[<offset>, <intel-diassembly>, <c-style-disassembly>]`.
+    pub syntax: Vec<String>,
+
     /// The disassembled instructions.
     pub instructions: Vec<DecodedInstruction>,
 }
@@ -41,6 +48,7 @@ mod test {
             start_address: 0x1234,
             size: 0x3,
             arch: "x86_64".to_string(),
+            syntax: vec!["Intel".to_string()],
             instructions: vec![
                 DecodedInstruction {
                     offset: 0,
@@ -57,6 +65,9 @@ mod test {
   "startAddress": "0x1234",
   "size": "0x3",
   "arch": "x86_64",
+  "syntax": [
+    "Intel"
+  ],
   "instructions": [
     [
       0,

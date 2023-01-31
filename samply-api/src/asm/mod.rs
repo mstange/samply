@@ -10,6 +10,8 @@ use yaxpeax_arch::{Arch, DecodeError, U8Reader};
 
 use crate::asm::response_json::DecodedInstruction;
 
+use self::response_json::Response;
+
 mod request_json;
 mod response_json;
 
@@ -144,27 +146,27 @@ fn compute_response<'data: 'file, 'file>(
     // Translate start_address from a "relative address" into an
     // SVMA ("stated virtual memory address").
     let image_base = relative_address_base(object);
-    let start_address = image_base + u64::from(relative_start_address);
+    let start_svma = image_base + u64::from(relative_start_address);
 
-    // Find the section and segment which contains our start_address.
+    // Find the section and segment which contains our start_svma.
     use object::ObjectSection;
-    let (section, section_end_addr) = object
+    let (section, section_end_svma) = object
         .sections()
         .find_map(|section| {
-            let section_start_addr = section.address();
-            let section_end_addr = section_start_addr.checked_add(section.size())?;
-            if !(section_start_addr..section_end_addr).contains(&start_address) {
+            let section_start_svma = section.address();
+            let section_end_svma = section_start_svma.checked_add(section.size())?;
+            if !(section_start_svma..section_end_svma).contains(&start_svma) {
                 return None;
             }
 
-            Some((section, section_end_addr))
+            Some((section, section_end_svma))
         })
         .ok_or(AsmError::AddressNotFound)?;
 
     let segment = object.segments().find(|segment| {
-        let segment_start_addr = segment.address();
-        if let Some(segment_end_addr) = segment_start_addr.checked_add(segment.size()) {
-            (segment_start_addr..segment_end_addr).contains(&start_address)
+        let segment_start_svma = segment.address();
+        if let Some(segment_end_svma) = segment_start_svma.checked_add(segment.size()) {
+            (segment_start_svma..segment_end_svma).contains(&start_svma)
         } else {
             false
         }
@@ -173,19 +175,19 @@ fn compute_response<'data: 'file, 'file>(
     // Pad out the number of bytes we read a little, to allow for reading one
     // more instruction.
     // We've been asked to decode the instructions whose instruction addresses
-    // are in the range start_address .. (start_address + size). If the end of
+    // are in the range start_svma .. (start_svma + size). If the end of
     // this range points into the middle of an instruction, we still want to
     // decode the entire instruction, so we need all of its bytes.
     // We have another check later to make sure we don't return instructions whose
     // address is beyond the requested range.
     const MAX_INSTR_LEN: u64 = 15; // TODO: Get the correct max length for this arch
-    let max_read_len = section_end_addr - start_address;
+    let max_read_len = section_end_svma - start_svma;
     let read_len = (u64::from(disassembly_len) + MAX_INSTR_LEN).min(max_read_len);
 
     // Now read the instruction bytes from the file.
     let bytes = if let Some(segment) = segment {
         segment
-            .data_range(start_address, read_len)?
+            .data_range(start_svma, read_len)?
             .ok_or(AsmError::ByteRangeNotInSection)?
     } else {
         // We don't have a segment, try reading via the section.
@@ -196,42 +198,54 @@ fn compute_response<'data: 'file, 'file>(
         // Specifically, incorrect section file offset information was observed in
         // the arm64e dyld cache on macOS 13.0.1, FB11929250.
         section
-            .data_range(start_address, read_len)?
+            .data_range(start_svma, read_len)?
             .ok_or(AsmError::ByteRangeNotInSection)?
     };
 
     let reader = yaxpeax_arch::U8Reader::new(bytes);
-    let (instructions, len, arch) = decode_arch(reader, architecture, disassembly_len)?;
-    Ok(response_json::Response {
-        start_address: relative_start_address,
-        size: len,
-        arch,
-        instructions,
-    })
+    decode_arch(
+        reader,
+        architecture,
+        image_base,
+        start_svma,
+        disassembly_len,
+    )
 }
 
 fn decode_arch(
     reader: U8Reader,
     arch: Architecture,
+    image_base: u64,
+    start_svma: u64,
     decode_len: u32,
-) -> Result<(Vec<DecodedInstruction>, u32, String), AsmError> {
+) -> Result<Response, AsmError> {
     Ok(match arch {
-        Architecture::I386 => decode::<yaxpeax_x86::protected_mode::Arch>(reader, decode_len),
-        Architecture::X86_64 => decode::<yaxpeax_x86::amd64::Arch>(reader, decode_len),
-        Architecture::Aarch64 => decode::<yaxpeax_arm::armv8::a64::ARMv8>(reader, decode_len),
-        Architecture::Arm => decode::<yaxpeax_arm::armv7::ARMv7>(reader, decode_len),
+        Architecture::I386 => {
+            decode::<yaxpeax_x86::protected_mode::Arch>(reader, image_base, start_svma, decode_len)
+        }
+        Architecture::X86_64 => {
+            decode::<yaxpeax_x86::amd64::Arch>(reader, image_base, start_svma, decode_len)
+        }
+        Architecture::Aarch64 => {
+            decode::<yaxpeax_arm::armv8::a64::ARMv8>(reader, image_base, start_svma, decode_len)
+        }
+        Architecture::Arm => {
+            decode::<yaxpeax_arm::armv7::ARMv7>(reader, image_base, start_svma, decode_len)
+        }
         _ => return Err(AsmError::UnrecognizedArch(arch)),
     })
 }
 
 trait InstructionDecoding: Arch {
     const ARCH_NAME: &'static str;
+    const SYNTAX: &'static [&'static str];
     fn make_decoder() -> Self::Decoder;
     fn stringify_inst(inst: Self::Instruction) -> String;
 }
 
 impl InstructionDecoding for yaxpeax_x86::amd64::Arch {
     const ARCH_NAME: &'static str = "x86_64";
+    const SYNTAX: &'static [&'static str] = &["Intel"];
 
     fn make_decoder() -> Self::Decoder {
         yaxpeax_x86::amd64::InstDecoder::default()
@@ -244,6 +258,7 @@ impl InstructionDecoding for yaxpeax_x86::amd64::Arch {
 
 impl InstructionDecoding for yaxpeax_x86::protected_mode::Arch {
     const ARCH_NAME: &'static str = "i686";
+    const SYNTAX: &'static [&'static str] = &["Intel"];
 
     fn make_decoder() -> Self::Decoder {
         yaxpeax_x86::protected_mode::InstDecoder::default()
@@ -256,6 +271,7 @@ impl InstructionDecoding for yaxpeax_x86::protected_mode::Arch {
 
 impl InstructionDecoding for yaxpeax_arm::armv8::a64::ARMv8 {
     const ARCH_NAME: &'static str = "aarch64";
+    const SYNTAX: &'static [&'static str] = &["ARM"];
 
     fn make_decoder() -> Self::Decoder {
         yaxpeax_arm::armv8::a64::InstDecoder::default()
@@ -268,6 +284,7 @@ impl InstructionDecoding for yaxpeax_arm::armv8::a64::ARMv8 {
 
 impl InstructionDecoding for yaxpeax_arm::armv7::ARMv7 {
     const ARCH_NAME: &'static str = "arm";
+    const SYNTAX: &'static [&'static str] = &["ARM"];
 
     fn make_decoder() -> Self::Decoder {
         // TODO: Detect whether the instructions in the requested address range
@@ -291,8 +308,10 @@ impl InstructionDecoding for yaxpeax_arm::armv7::ARMv7 {
 
 fn decode<'a, A: InstructionDecoding>(
     mut reader: U8Reader<'a>,
+    image_base: u64,
+    start_svma: u64,
     decode_len: u32,
-) -> (Vec<DecodedInstruction>, u32, String)
+) -> Response
 where
     u64: From<A::Address>,
     U8Reader<'a>: yaxpeax_arch::Reader<A::Address, A::Word>,
@@ -331,5 +350,11 @@ where
         &mut reader,
     )) as u32;
 
-    (instructions, final_offset, A::ARCH_NAME.to_string())
+    Response {
+        start_address: (start_svma - image_base) as u32,
+        size: final_offset,
+        arch: A::ARCH_NAME.to_string(),
+        syntax: A::SYNTAX.iter().map(ToString::to_string).collect(),
+        instructions,
+    }
 }
