@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use debugid::{CodeId, DebugId};
+use debugid::DebugId;
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
 use crate::library_info::SymbolTable;
@@ -13,7 +13,7 @@ pub struct Lib {
     pub debug_path: String,
     pub arch: Option<String>,
     pub debug_id: DebugId,
-    pub code_id: Option<CodeId>,
+    pub code_id: Option<String>,
     pub symbol_table: Option<Arc<SymbolTable>>,
 }
 

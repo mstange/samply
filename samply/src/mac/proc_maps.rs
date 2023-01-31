@@ -21,6 +21,7 @@ use object::macho::{
 use object::read::macho::{MachHeader, Section, Segment};
 use object::LittleEndian;
 use wholesym::samply_symbols::object;
+use wholesym::CodeId;
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -62,6 +63,7 @@ pub struct DyldInfo {
     pub vmsize: u64,
     pub svma_info: framehop::ModuleSvmaInfo,
     pub debug_id: Option<DebugId>,
+    pub code_id: Option<CodeId>,
     pub arch: Option<&'static str>,
     pub unwind_sections: UnwindSectionInfo,
 }
@@ -316,6 +318,7 @@ fn get_dyld_image_info(
             got: section_svma_range(b"__got"),
         },
         debug_id: uuid.map(DebugId::from_uuid),
+        code_id: uuid.map(CodeId::MachoUuid),
         arch: get_arch_string(header.cputype(endian), header.cpusubtype(endian)),
         is_executable: header.filetype(endian) == MH_EXECUTE,
         unwind_sections: UnwindSectionInfo {

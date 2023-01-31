@@ -1,4 +1,4 @@
-use debugid::{CodeId, DebugId};
+use debugid::DebugId;
 use std::{ops::Range, sync::Arc};
 
 /// A library ("binary" / "module" / "DSO") which is loaded into a process.
@@ -44,7 +44,7 @@ pub struct LibraryInfo {
     /// The code ID of the library. This lets symbolication confirm that it's
     /// getting symbols for the right file, and it can sometimes allow obtaining a
     /// symbol file from a symbol server.
-    pub code_id: Option<CodeId>,
+    pub code_id: Option<String>,
     /// An optional string with the CPU arch of this library, for example "x86_64",
     /// "arm64", or "arm64e". This is used for macOS system libraries in the dyld
     /// shared cache, in order to avoid loading the wrong cache files, as a

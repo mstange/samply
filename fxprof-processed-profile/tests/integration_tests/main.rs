@@ -1,5 +1,5 @@
 use assert_json_diff::assert_json_eq;
-use debugid::{CodeId, DebugId};
+use debugid::DebugId;
 use serde_json::json;
 
 use fxprof_processed_profile::{
@@ -9,7 +9,7 @@ use fxprof_processed_profile::{
 };
 
 use std::sync::Arc;
-use std::{str::FromStr, time::Duration};
+use std::time::Duration;
 
 // TODO: Add tests for CategoryPairHandle, ProcessHandle, ThreadHandle
 
@@ -132,7 +132,7 @@ fn it_works() {
             name: "libc.so.6".to_string(),
             debug_name: "libc.so.6".to_string(),
             path: "/usr/lib/x86_64-linux-gnu/libc.so.6".to_string(),
-            code_id: Some(CodeId::from_str("f0fc29165cbe6088c0e1adf03b0048fbecbc003a").unwrap()),
+            code_id: Some("f0fc29165cbe6088c0e1adf03b0048fbecbc003a".to_string()),
             debug_path: "/usr/lib/x86_64-linux-gnu/libc.so.6".to_string(),
             debug_id: DebugId::from_breakpad("1629FCF0BE5C8860C0E1ADF03B0048FB0").unwrap(),
             arch: None,
@@ -163,7 +163,7 @@ fn it_works() {
             name: "dump_syms".to_string(),
             debug_name: "dump_syms".to_string(),
             path: "/home/mstange/code/dump_syms/target/release/dump_syms".to_string(),
-            code_id: Some(CodeId::from_str("510d0a5c19eadf8043f203b4525be9be3dcb9554").unwrap()),
+            code_id: Some("510d0a5c19eadf8043f203b4525be9be3dcb9554".to_string()),
             debug_path: "/home/mstange/code/dump_syms/target/release/dump_syms".to_string(),
             debug_id: DebugId::from_breakpad("5C0A0D51EA1980DF43F203B4525BE9BE0").unwrap(),
             arch: None,

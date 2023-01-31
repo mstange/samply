@@ -194,7 +194,7 @@ impl TaskProfiler {
                                 path: path.to_string(),
                                 debug_path: path.to_string(),
                                 debug_id: lib.debug_id.unwrap(),
-                                code_id: None,
+                                code_id: lib.code_id.map(|ci| ci.to_string()),
                                 arch: lib.arch.map(ToOwned::to_owned),
                                 symbol_table: None,
                             },

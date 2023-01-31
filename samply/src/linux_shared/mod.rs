@@ -653,7 +653,7 @@ where
             debug_id: debug_id.unwrap_or_default(),
             path,
             debug_path,
-            code_id: build_id.map(|build_id| CodeId::from_binary(&build_id)),
+            code_id: build_id.map(|build_id| CodeId::from_binary(&build_id).to_string()),
             name: dso_key.name().to_string(),
             debug_name: dso_key.name().to_string(),
             arch: None,
@@ -1288,7 +1288,11 @@ where
         unwinder.add_module(module);
 
         debug_id = debug_id_for_object(&file)?;
-        code_id = file.build_id().ok().flatten().map(CodeId::from_binary);
+        code_id = file
+            .build_id()
+            .ok()
+            .flatten()
+            .map(|build_id| CodeId::from_binary(build_id).to_string());
     } else {
         // Without access to the binary file, make some guesses. We can't really
         // know what the right base address is because we don't have the section
@@ -1300,7 +1304,7 @@ where
         debug_id = build_id
             .map(|id| DebugId::from_identifier(id, true)) // TODO: endian
             .unwrap_or_default();
-        code_id = build_id.map(CodeId::from_binary);
+        code_id = build_id.map(|build_id| CodeId::from_binary(build_id).to_string());
     }
 
     let name = objpath
