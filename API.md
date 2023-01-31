@@ -199,6 +199,8 @@ Example response JSON:
 {
   "startAddress": "0x5844",
   "size": "0x1c",
+  "arch": "aarch64",
+  "syntax": "ARM",
   "instructions": [
     [0, "hint #0x1b"],
     [4, "stp x29, x30, [sp, #-0x10]!"],
@@ -212,6 +214,8 @@ Example response JSON:
 ```
 
 This finds the requested binary, reads the machine code bytes for the requested range, and disassembles them based on the binary's target architecture. The per-instruction offset is relative to the given `startAddress`.
+
+The data for each instruction consists of `[offset, ...oneStringPerSyntax]`.
 
 ## Special paths
 

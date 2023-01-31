@@ -240,19 +240,27 @@ trait InstructionDecoding: Arch {
     const ARCH_NAME: &'static str;
     const SYNTAX: &'static [&'static str];
     fn make_decoder() -> Self::Decoder;
-    fn stringify_inst(inst: Self::Instruction) -> String;
+    fn stringify_inst(offset: u32, inst: Self::Instruction) -> DecodedInstruction;
 }
 
 impl InstructionDecoding for yaxpeax_x86::amd64::Arch {
     const ARCH_NAME: &'static str = "x86_64";
-    const SYNTAX: &'static [&'static str] = &["Intel"];
+    const SYNTAX: &'static [&'static str] = &["Intel", "C style"];
 
     fn make_decoder() -> Self::Decoder {
         yaxpeax_x86::amd64::InstDecoder::default()
     }
 
-    fn stringify_inst(inst: Self::Instruction) -> String {
-        inst.to_string()
+    fn stringify_inst(offset: u32, inst: Self::Instruction) -> DecodedInstruction {
+        DecodedInstruction {
+            offset,
+            decoded_string_per_syntax: vec![
+                inst.display_with(yaxpeax_x86::amd64::DisplayStyle::Intel)
+                    .to_string(),
+                inst.display_with(yaxpeax_x86::amd64::DisplayStyle::C)
+                    .to_string(),
+            ],
+        }
     }
 }
 
@@ -264,8 +272,11 @@ impl InstructionDecoding for yaxpeax_x86::protected_mode::Arch {
         yaxpeax_x86::protected_mode::InstDecoder::default()
     }
 
-    fn stringify_inst(inst: Self::Instruction) -> String {
-        inst.to_string()
+    fn stringify_inst(offset: u32, inst: Self::Instruction) -> DecodedInstruction {
+        DecodedInstruction {
+            offset,
+            decoded_string_per_syntax: vec![inst.to_string()],
+        }
     }
 }
 
@@ -277,8 +288,11 @@ impl InstructionDecoding for yaxpeax_arm::armv8::a64::ARMv8 {
         yaxpeax_arm::armv8::a64::InstDecoder::default()
     }
 
-    fn stringify_inst(inst: Self::Instruction) -> String {
-        inst.to_string()
+    fn stringify_inst(offset: u32, inst: Self::Instruction) -> DecodedInstruction {
+        DecodedInstruction {
+            offset,
+            decoded_string_per_syntax: vec![inst.to_string()],
+        }
     }
 }
 
@@ -301,8 +315,11 @@ impl InstructionDecoding for yaxpeax_arm::armv7::ARMv7 {
         yaxpeax_arm::armv7::InstDecoder::default_thumb()
     }
 
-    fn stringify_inst(inst: Self::Instruction) -> String {
-        inst.to_string()
+    fn stringify_inst(offset: u32, inst: Self::Instruction) -> DecodedInstruction {
+        DecodedInstruction {
+            offset,
+            decoded_string_per_syntax: vec![inst.to_string()],
+        }
     }
 }
 
@@ -328,18 +345,17 @@ where
         }
         match decoder.decode(&mut reader) {
             Ok(inst) => {
-                let decoded_string = A::stringify_inst(inst);
-                instructions.push(DecodedInstruction {
-                    offset,
-                    decoded_string,
-                });
+                instructions.push(A::stringify_inst(offset, inst));
             }
             Err(e) => {
                 if !e.data_exhausted() {
                     // If decoding encountered an error, append a fake "!!! ERROR" instruction
                     instructions.push(DecodedInstruction {
                         offset,
-                        decoded_string: format!("!!! ERROR: {}", e),
+                        decoded_string_per_syntax: A::SYNTAX
+                            .iter()
+                            .map(|_| format!("!!! ERROR: {}", e))
+                            .collect(),
                     });
                 }
                 break;

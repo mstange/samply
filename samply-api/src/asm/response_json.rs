@@ -1,5 +1,4 @@
-use serde::Serialize;
-use serde_tuple::*;
+use serde::{ser::SerializeSeq, Serialize};
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -28,13 +27,38 @@ pub struct Response {
     pub instructions: Vec<DecodedInstruction>,
 }
 
-#[derive(Serialize_tuple, Debug)]
+#[derive(Debug)]
 pub struct DecodedInstruction {
     /// Byte offset from start_address.
     pub offset: u32,
 
-    /// The decoded instruction as a string.
-    pub decoded_string: String,
+    /// The decoded instruction as a string, one for each syntax (e.g. Intel and then C-Style).
+    pub decoded_string_per_syntax: Vec<String>,
+}
+
+impl Serialize for DecodedInstruction {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // Output as a single array of the form `[8, "decoded instruction"]`.
+        // If syntax is `["Intel", "C style"]`, serialize as `[8, "decoded using Intel syntax", "decoded using C style syntax"]`.
+        let mut seq = serializer.serialize_seq(None)?;
+
+        // First element is the offset to the start address.
+        seq.serialize_element(&self.offset)?;
+
+        // Flatten all string into the outer array.
+        for decoded_string in &self.decoded_string_per_syntax {
+            seq.serialize_element(decoded_string)?;
+        }
+
+        // In the future we may append more elements here, for extra per-instruction information.
+        // For example `{ "jumpTarget": "0x1390" }`.
+        // Or even `{ "jumpTarget": "0x2468", "destSymbol": { "name": "MyFunction()", "address": "0x2468", "size": "0x38" } }`
+
+        seq.end()
+    }
 }
 
 #[cfg(test)]
@@ -52,11 +76,11 @@ mod test {
             instructions: vec![
                 DecodedInstruction {
                     offset: 0,
-                    decoded_string: "push rbp".to_string(),
+                    decoded_string_per_syntax: vec!["push rbp".to_string()],
                 },
                 DecodedInstruction {
                     offset: 1,
-                    decoded_string: "mov rbp, rsp".to_string(),
+                    decoded_string_per_syntax: vec!["mov rbp, rsp".to_string()],
                 },
             ],
         };
