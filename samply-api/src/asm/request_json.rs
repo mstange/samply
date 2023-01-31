@@ -52,7 +52,7 @@ mod test {
             r.breakpad_id,
             Some("A14CAFD390A3E1884C4C44205044422E1".into())
         );
-        assert_eq!(r.continue_until_function_end, false);
+        assert!(!r.continue_until_function_end);
         Ok(())
     }
 }
