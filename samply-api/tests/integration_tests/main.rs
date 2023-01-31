@@ -414,3 +414,20 @@ fn asm_with_continue() {
         "output-asm_with_continue.txt",
     )
 }
+
+#[test]
+fn asm_x86_64() {
+    compare_snapshot(
+        "/asm/v1",
+        r#"{
+            "name": "firefox.exe",
+            "debugName": "firefox.pdb",
+            "breakpadId": "8A913DE821D9DE764C4C44205044422E1",
+            "startAddress": "0x17a20",
+            "size": "0x3a"
+        }"#,
+        fixtures_dir().join("win64-local"),
+        "asm_x86_64.txt",
+        "output-asm_x86_64.txt",
+    )
+}
