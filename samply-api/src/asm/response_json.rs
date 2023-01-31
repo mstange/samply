@@ -14,6 +14,9 @@ pub struct Response {
     #[serde(serialize_with = "crate::hex::as_hex_string")]
     pub size: u32,
 
+    /// The CPU architecture targeted by this binary, e.g. "i686", "x86_64", "arm", "aarch64"
+    pub arch: String,
+
     /// The disassembled instructions.
     pub instructions: Vec<DecodedInstruction>,
 }
@@ -37,6 +40,7 @@ mod test {
         let response = Response {
             start_address: 0x1234,
             size: 0x3,
+            arch: "x86_64".to_string(),
             instructions: vec![
                 DecodedInstruction {
                     offset: 0,
@@ -52,6 +56,7 @@ mod test {
         let expected = r#"{
   "startAddress": "0x1234",
   "size": "0x3",
+  "arch": "x86_64",
   "instructions": [
     [
       0,
@@ -63,7 +68,7 @@ mod test {
     ]
   ]
 }"#;
-        eprintln!("{}", response);
+        // eprintln!("{}", response);
         assert_eq!(response, expected);
         Ok(())
     }

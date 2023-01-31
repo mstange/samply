@@ -201,10 +201,11 @@ fn compute_response<'data: 'file, 'file>(
     };
 
     let reader = yaxpeax_arch::U8Reader::new(bytes);
-    let (instructions, len) = decode_arch(reader, architecture, disassembly_len)?;
+    let (instructions, len, arch) = decode_arch(reader, architecture, disassembly_len)?;
     Ok(response_json::Response {
         start_address: relative_start_address,
         size: len,
+        arch,
         instructions,
     })
 }
@@ -213,7 +214,7 @@ fn decode_arch(
     reader: U8Reader,
     arch: Architecture,
     decode_len: u32,
-) -> Result<(Vec<DecodedInstruction>, u32), AsmError> {
+) -> Result<(Vec<DecodedInstruction>, u32, String), AsmError> {
     Ok(match arch {
         Architecture::I386 => decode::<yaxpeax_x86::protected_mode::Arch>(reader, decode_len),
         Architecture::X86_64 => decode::<yaxpeax_x86::amd64::Arch>(reader, decode_len),
@@ -224,11 +225,14 @@ fn decode_arch(
 }
 
 trait InstructionDecoding: Arch {
+    const ARCH_NAME: &'static str;
     fn make_decoder() -> Self::Decoder;
     fn stringify_inst(inst: Self::Instruction) -> String;
 }
 
 impl InstructionDecoding for yaxpeax_x86::amd64::Arch {
+    const ARCH_NAME: &'static str = "x86_64";
+
     fn make_decoder() -> Self::Decoder {
         yaxpeax_x86::amd64::InstDecoder::default()
     }
@@ -239,6 +243,8 @@ impl InstructionDecoding for yaxpeax_x86::amd64::Arch {
 }
 
 impl InstructionDecoding for yaxpeax_x86::protected_mode::Arch {
+    const ARCH_NAME: &'static str = "i686";
+
     fn make_decoder() -> Self::Decoder {
         yaxpeax_x86::protected_mode::InstDecoder::default()
     }
@@ -249,6 +255,8 @@ impl InstructionDecoding for yaxpeax_x86::protected_mode::Arch {
 }
 
 impl InstructionDecoding for yaxpeax_arm::armv8::a64::ARMv8 {
+    const ARCH_NAME: &'static str = "aarch64";
+
     fn make_decoder() -> Self::Decoder {
         yaxpeax_arm::armv8::a64::InstDecoder::default()
     }
@@ -259,6 +267,8 @@ impl InstructionDecoding for yaxpeax_arm::armv8::a64::ARMv8 {
 }
 
 impl InstructionDecoding for yaxpeax_arm::armv7::ARMv7 {
+    const ARCH_NAME: &'static str = "arm";
+
     fn make_decoder() -> Self::Decoder {
         // TODO: Detect whether the instructions in the requested address range
         // use thumb or non-thumb mode.
@@ -282,7 +292,7 @@ impl InstructionDecoding for yaxpeax_arm::armv7::ARMv7 {
 fn decode<'a, A: InstructionDecoding>(
     mut reader: U8Reader<'a>,
     decode_len: u32,
-) -> (Vec<DecodedInstruction>, u32)
+) -> (Vec<DecodedInstruction>, u32, String)
 where
     u64: From<A::Address>,
     U8Reader<'a>: yaxpeax_arch::Reader<A::Address, A::Word>,
@@ -321,5 +331,5 @@ where
         &mut reader,
     )) as u32;
 
-    (instructions, final_offset)
+    (instructions, final_offset, A::ARCH_NAME.to_string())
 }
