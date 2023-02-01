@@ -177,7 +177,7 @@ fn main() {
                 ) {
                     Ok(exit_status) => exit_status,
                     Err(err) => {
-                        eprintln!("Encountered a mach error during profiling: {:?}", err);
+                        eprintln!("Encountered a mach error during profiling: {err:?}");
                         std::process::exit(1);
                     }
                 };

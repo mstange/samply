@@ -71,7 +71,7 @@ pub fn dump_table(w: &mut impl Write, table: CompactSymbolTable, full: bool) -> 
         let end_pos = table.index[i + 1];
         let symbol_bytes = &table.buffer[start_pos as usize..end_pos as usize];
         let symbol_string = std::str::from_utf8(symbol_bytes)?;
-        writeln!(w, "{:x} {}", address, symbol_string)?;
+        writeln!(w, "{address:x} {symbol_string}")?;
     }
     Ok(())
 }
@@ -145,7 +145,7 @@ impl<'h> FileAndPathHelper<'h> for Helper {
 
         // Also consider .so.dbg files in the symbol directory.
         if debug_name.ends_with(".so") {
-            let debug_debug_name = format!("{}.dbg", debug_name);
+            let debug_debug_name = format!("{debug_name}.dbg");
             paths.push(CandidatePathInfo::SingleFile(FileLocationType(
                 self.symbol_directory.join(debug_debug_name),
             )));
@@ -155,7 +155,7 @@ impl<'h> FileAndPathHelper<'h> for Helper {
         if !debug_name.ends_with(".pdb") {
             paths.push(CandidatePathInfo::SingleFile(FileLocationType(
                 self.symbol_directory
-                    .join(format!("{}.dSYM", debug_name))
+                    .join(format!("{debug_name}.dSYM"))
                     .join("Contents")
                     .join("Resources")
                     .join("DWARF")

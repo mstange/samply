@@ -29,7 +29,7 @@ fn main() -> anyhow::Result<()> {
     };
     let response_json =
         futures::executor::block_on(query_api(&opt.url, &request_json, opt.symbol_directory));
-    println!("{}", response_json);
+    println!("{response_json}");
     Ok(())
 }
 

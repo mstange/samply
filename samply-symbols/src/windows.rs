@@ -224,7 +224,7 @@ impl<'object> SymbolMapTrait for PdbSymbolMapInner<'object> {
             let start_rva = f.start_rva;
             (
                 start_rva,
-                Cow::Owned(f.name.unwrap_or_else(|| format!("fun_{:x}", start_rva))),
+                Cow::Owned(f.name.unwrap_or_else(|| format!("fun_{start_rva:x}"))),
             )
         });
         Box::new(iter)

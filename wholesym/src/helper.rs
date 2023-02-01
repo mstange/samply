@@ -98,7 +98,7 @@ impl FileLocation for WholesymFileLocation {
 
 impl std::fmt::Display for WholesymFileLocation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("{:?}", self))
+        f.write_fmt(format_args!("{self:?}"))
     }
 }
 
@@ -251,7 +251,7 @@ impl Helper {
             }
             WholesymFileLocation::SymsrvFile(path) => {
                 if self.config.verbose {
-                    eprintln!("Trying to get file {:?} from symbol cache", path);
+                    eprintln!("Trying to get file {path:?} from symbol cache");
                 }
                 Ok(self
                     .win_symbol_cache
@@ -262,7 +262,7 @@ impl Helper {
             }
             WholesymFileLocation::BreakpadSymbolServerFile(path) => {
                 if self.config.verbose {
-                    eprintln!("Trying to get file {:?} from breakpad symbol server", path);
+                    eprintln!("Trying to get file {path:?} from breakpad symbol server");
                 }
                 self.get_bp_sym_file(&path).await
             }
@@ -314,9 +314,9 @@ impl Helper {
         server_base_url: &str,
         cache_dir: &Path,
     ) -> FileAndPathHelperResult<FileContents> {
-        let url = format!("{}/{}", server_base_url, rel_path);
+        let url = format!("{server_base_url}/{rel_path}");
         if self.config.verbose {
-            eprintln!("Downloading {}...", url);
+            eprintln!("Downloading {url}...");
         }
         let sym_file_response = reqwest::get(&url).await?.error_for_status()?;
         let mut stream = sym_file_response.bytes_stream();
@@ -325,7 +325,7 @@ impl Helper {
             tokio::fs::create_dir_all(dir).await?;
         }
         if self.config.verbose {
-            eprintln!("Saving bytes to {:?}.", dest_path);
+            eprintln!("Saving bytes to {dest_path:?}.");
         }
         let file = tokio::fs::File::create(&dest_path).await?;
         let mut writer = tokio::io::BufWriter::new(file);
@@ -343,7 +343,7 @@ impl Helper {
             Ok(index) => self.write_symindex(rel_path, index).await?,
             Err(err) => {
                 if self.config.verbose {
-                    eprintln!("Breakpad parsing for symindex failed: {}", err);
+                    eprintln!("Breakpad parsing for symindex failed: {err}");
                 }
             }
         }
@@ -373,7 +373,7 @@ impl Helper {
             .symindex_path(rel_path)
             .ok_or("No breakpad symindex cache dir configured")?;
         if self.config.verbose {
-            eprintln!("Writing symindex to {:?}.", symindex_path);
+            eprintln!("Writing symindex to {symindex_path:?}.");
         }
         let mut index_file = tokio::fs::File::create(&symindex_path).await?;
         index_file.write_all(&index.serialize_to_bytes()).await?;
@@ -394,7 +394,7 @@ impl Helper {
                 tokio::fs::File::open(symindex_path).await,
             ) {
                 if self.config.verbose {
-                    eprintln!("Found a Breakpad sym file at {:?} for which no symindex exists. Attempting to create symindex.", local_dir);
+                    eprintln!("Found a Breakpad sym file at {local_dir:?} for which no symindex exists. Attempting to create symindex.");
                 }
                 let mut parser = BreakpadIndexParser::new();
                 const CHUNK_SIZE: usize = 4 * 1024 * 1024; // 4MiB
@@ -410,7 +410,7 @@ impl Helper {
                     Ok(index) => self.write_symindex(rel_path, index).await?,
                     Err(err) => {
                         if self.config.verbose {
-                            eprintln!("Breakpad parsing for symindex failed: {}", err);
+                            eprintln!("Breakpad parsing for symindex failed: {err}");
                         }
                     }
                 }
@@ -489,7 +489,7 @@ impl<'h> FileAndPathHelper<'h> for Helper {
 
             // Also consider .so.dbg files in the same directory.
             if debug_path.ends_with(".so") {
-                let so_dbg_path = format!("{}.dbg", debug_path);
+                let so_dbg_path = format!("{debug_path}.dbg");
                 paths.push(CandidatePathInfo::SingleFile(
                     WholesymFileLocation::LocalFile(PathBuf::from(so_dbg_path)),
                 ));
@@ -534,7 +534,7 @@ impl<'h> FileAndPathHelper<'h> for Helper {
             let build_id = build_id.to_string();
             if build_id.len() > 2 {
                 let (two_chars, rest) = build_id.split_at(2);
-                let path = format!("/usr/lib/debug/.build-id/{}/{}.debug", two_chars, rest);
+                let path = format!("/usr/lib/debug/.build-id/{two_chars}/{rest}.debug");
                 paths.push(CandidatePathInfo::SingleFile(
                     WholesymFileLocation::LocalFile(PathBuf::from(path)),
                 ));
@@ -657,7 +657,7 @@ impl<'h> FileAndPathHelper<'h> for Helper {
         {
             // We might find this exe / dll file with the help of a symbol server.
             paths.push(CandidatePathInfo::SingleFile(
-                WholesymFileLocation::SymsrvFile(format!("{}/{}/{}", name, code_id, name)),
+                WholesymFileLocation::SymsrvFile(format!("{name}/{code_id}/{name}")),
             ));
         }
 
@@ -725,7 +725,7 @@ impl<'h> FileAndPathHelper<'h> for Helper {
         let build_id = sup_file_build_id.to_string();
         if build_id.len() > 2 {
             let (two_chars, rest) = build_id.split_at(2);
-            let path = format!("/usr/lib/debug/.build-id/{}/{}.debug", two_chars, rest);
+            let path = format!("/usr/lib/debug/.build-id/{two_chars}/{rest}.debug");
             paths.push(WholesymFileLocation::LocalFile(PathBuf::from(path)));
 
             paths.push(WholesymFileLocation::DebuginfodDebugFile(

@@ -532,7 +532,7 @@ impl FrameTable {
             let frame_index = frames.len();
             let location_string_index = match frame {
                 Frame::Address(address) => {
-                    let location_string = format!("0x{:x}", address);
+                    let location_string = format!("0x{address:x}");
                     string_table.index_for_string(&location_string)
                 }
                 Frame::Label(string_index) => string_index,

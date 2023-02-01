@@ -194,8 +194,8 @@ where
     let mut subcache_contents = Vec::new();
     for subcache_index in 1.. {
         // Find the subcache at dyld_shared_cache_arm64e.1 or dyld_shared_cache_arm64e.01
-        let suffix = format!(".{}", subcache_index);
-        let suffix2 = format!(".{:02}", subcache_index);
+        let suffix = format!(".{subcache_index}");
+        let suffix2 = format!(".{subcache_index:02}");
         let subcache = match dcl.load_subcache(&suffix).await {
             Ok(subcache) => subcache,
             Err(_) => match dcl.load_subcache(&suffix2).await {

@@ -42,7 +42,7 @@ mod test {
   "file": "/Users/mstange/code/mozilla/modules/zlib/src/deflate.c",
   "source": "/* deflate.c -- compress data using the deflation algorithm\n* Copyright (C) 1995-2017 Jean-loup Gailly and Mark Adler\n* For conditions of distribution and use, see copyright notice in zlib.h\n*/\n"
 }"#;
-        eprintln!("{}", response);
+        eprintln!("{response}");
         assert_eq!(response, expected);
         Ok(())
     }

@@ -354,7 +354,7 @@ where
                         offset,
                         decoded_string_per_syntax: A::SYNTAX
                             .iter()
-                            .map(|_| format!("!!! ERROR: {}", e))
+                            .map(|_| format!("!!! ERROR: {e}"))
                             .collect(),
                     });
                 }

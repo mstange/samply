@@ -58,7 +58,7 @@ impl LookedUpAddresses {
                 *entry = Some(AddressResult {
                     symbol_address: address, // TODO: Would be nice to get the actual function start address from addr2line
                     symbol_name: outer_function_name
-                        .map_or_else(|| format!("0x{:x}", address), str::to_string),
+                        .map_or_else(|| format!("0x{address:x}"), str::to_string),
                     function_size: None,
                     inline_frames: Some(frames),
                 });

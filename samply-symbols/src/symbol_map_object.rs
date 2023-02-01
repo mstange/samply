@@ -114,7 +114,7 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> std::fmt::Debug for FullSymbolListEnt
 impl<'a, Symbol: object::ObjectSymbol<'a>> FullSymbolListEntry<'a, Symbol> {
     fn name(&self, addr: u32) -> Result<Cow<'a, str>, ()> {
         match self {
-            FullSymbolListEntry::Synthesized => Ok(format!("fun_{:x}", addr).into()),
+            FullSymbolListEntry::Synthesized => Ok(format!("fun_{addr:x}").into()),
             FullSymbolListEntry::Symbol(symbol) => match symbol.name_bytes() {
                 Ok(name) => Ok(String::from_utf8_lossy(name)),
                 Err(_) => Err(()),

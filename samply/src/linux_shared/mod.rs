@@ -633,7 +633,7 @@ where
         let debug_path = match self.linux_version.as_deref() {
             Some(linux_version) if path.starts_with("[kernel.kallsyms]") => {
                 // Take a guess at the vmlinux debug file path.
-                format!("/usr/lib/debug/boot/vmlinux-{}", linux_version)
+                format!("/usr/lib/debug/boot/vmlinux-{linux_version}")
             }
             _ => path.clone(),
         };
@@ -769,7 +769,7 @@ where
 {
     pub fn get_by_pid(&mut self, pid: i32, profile: &mut Profile) -> &mut Process<U> {
         self.0.entry(pid).or_insert_with(|| {
-            let name = format!("<{}>", pid);
+            let name = format!("<{pid}>");
             let handle = profile.add_process(
                 &name,
                 pid as u32,
@@ -1173,7 +1173,7 @@ where
         let mmap = match unsafe { memmap2::MmapOptions::new().map(&file) } {
             Ok(mmap) => mmap,
             Err(err) => {
-                eprintln!("Could not mmap file {}: {:?}", path, err);
+                eprintln!("Could not mmap file {path}: {err:?}");
                 return None;
             }
         };
@@ -1185,7 +1185,7 @@ where
         let file = match object::File::parse(&mmap[..]) {
             Ok(file) => file,
             Err(_) => {
-                eprintln!("File {:?} has unrecognized format", objpath);
+                eprintln!("File {objpath:?} has unrecognized format");
                 return None;
             }
         };
@@ -1200,15 +1200,13 @@ where
                     let file_build_id = CodeId::from_binary(file_build_id);
                     let expected_build_id = CodeId::from_binary(build_id);
                     eprintln!(
-                        "File {:?} has non-matching build ID {} (expected {})",
-                        objpath, file_build_id, expected_build_id
+                        "File {objpath:?} has non-matching build ID {file_build_id} (expected {expected_build_id})"
                     );
                     return None;
                 }
                 None => {
                     eprintln!(
-                        "File {:?} does not contain a build ID, but we expected it to have one",
-                        objpath
+                        "File {objpath:?} does not contain a build ID, but we expected it to have one"
                     );
                     return None;
                 }

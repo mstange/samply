@@ -48,7 +48,7 @@ impl FrameTable {
                 let (address, location_string_index, native_symbol, resource) = match frame.location
                 {
                     InternalFrameLocation::UnknownAddress(address) => {
-                        let location_string = format!("0x{:x}", address);
+                        let location_string = format!("0x{address:x}");
                         let s = string_table.index_for_string(&location_string);
                         (None, s, None, None)
                     }
@@ -72,7 +72,7 @@ impl FrameTable {
                                 (Some(native_symbol), name_string_index)
                             }
                             None => {
-                                let location_string = format!("0x{:x}", address);
+                                let location_string = format!("0x{address:x}");
                                 (None, string_table.index_for_string(&location_string))
                             }
                         };

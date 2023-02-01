@@ -136,7 +136,7 @@ impl ManualDebuginfodSymbolCache {
     ) -> Result<FileContents, Box<dyn std::error::Error>> {
         let url = format!("{server_base_url}/buildid/{buildid}/{file_type}");
         if self.verbose {
-            eprintln!("Downloading {}...", url);
+            eprintln!("Downloading {url}...");
         }
         let sym_file_response = reqwest::get(&url).await?.error_for_status()?;
         let mut stream = sym_file_response.bytes_stream();
@@ -145,7 +145,7 @@ impl ManualDebuginfodSymbolCache {
             tokio::fs::create_dir_all(dir).await?;
         }
         if self.verbose {
-            eprintln!("Saving bytes to {:?}.", dest_path);
+            eprintln!("Saving bytes to {dest_path:?}.");
         }
         let file = tokio::fs::File::create(&dest_path).await?;
         let mut writer = tokio::io::BufWriter::new(file);

@@ -3,6 +3,7 @@ name = "wholesym"
 version = "0.3.0"
 authors = ["Markus Stange <mstange.moz@gmail.com>"]
 edition = "2021"
+rust-version = "1.61"
 description = "A complete solution for fetching symbol files and resolving code addresses to symbols and debuginfo."
 readme = "README.md"
 homepage = "https://github.com/mstange/samply/tree/main/wholesym"

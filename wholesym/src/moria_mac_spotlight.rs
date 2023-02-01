@@ -120,7 +120,7 @@ where
 /// Attempt to locate the Mach-O file inside a dSYM matching `uuid` using spotlight.
 fn spotlight_locate_dsym_bundle(uuid: Uuid) -> Result<String, Error> {
     let uuid = uuid.hyphenated().to_string().to_uppercase();
-    let query_string = format!("com_apple_xcode_dsym_uuids == {}", uuid);
+    let query_string = format!("com_apple_xcode_dsym_uuids == {uuid}");
     let query = MDQuery::create(&query_string)?;
     let count = query.execute()?;
     for i in 0..count {

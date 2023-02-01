@@ -15,7 +15,7 @@ pub fn demangle_any(name: &str) -> String {
     }
 
     if let Ok(demangled_symbol) = rustc_demangle::try_demangle(name) {
-        return format!("{:#}", demangled_symbol);
+        return format!("{demangled_symbol:#}");
     }
 
     if name.starts_with('_') {

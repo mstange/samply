@@ -200,7 +200,7 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> Api<'a, 'h, H> {
             let asm_api = AsmApi::new(self.symbol_manager);
             asm_api.query_api_json(request_json_data).await
         } else {
-            json!({ "error": format!("Unrecognized URL {}", request_url) }).to_string()
+            json!({ "error": format!("Unrecognized URL {request_url}") }).to_string()
         }
     }
 }

@@ -163,7 +163,7 @@ mod test {
     }
   ]
 }"#;
-        eprintln!("{}", response);
+        eprintln!("{response}");
         assert_eq!(response, expected);
         Ok(())
     }

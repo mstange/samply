@@ -327,10 +327,7 @@ fn get_thread_name(thread_act: thread_act_t) -> Result<Option<String>, SamplingE
             SamplingError::ThreadTerminated("thread_info in get_thread_name", err)
         }
         err => {
-            println!(
-                "thread_info in get_thread_name encountered unexpected error: {:?}",
-                err
-            );
+            println!("thread_info in get_thread_name encountered unexpected error: {err:?}");
             SamplingError::Ignorable("thread_info in get_thread_name", err)
         }
     })?;

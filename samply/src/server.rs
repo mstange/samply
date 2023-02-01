@@ -97,15 +97,15 @@ async fn start_server(
     let (builder, addr) = make_builder_at_port(port_selection);
 
     let token = generate_token();
-    let path_prefix = format!("/{}", token);
-    let server_origin = format!("http://{}", addr);
-    let symbol_server_url = format!("{}{}", server_origin, path_prefix);
+    let path_prefix = format!("/{token}");
+    let server_origin = format!("http://{addr}");
+    let symbol_server_url = format!("{server_origin}{path_prefix}");
     let mut template_values: HashMap<&'static str, String> = HashMap::new();
     template_values.insert("SERVER_URL", server_origin.clone());
     template_values.insert("PATH_PREFIX", path_prefix.clone());
 
     let profiler_url = if profile_filename.is_some() {
-        let profile_url = format!("{}/profile.json", symbol_server_url);
+        let profile_url = format!("{symbol_server_url}/profile.json");
 
         let env_profiler_override = std::env::var("PROFILER_URL").ok();
         let profiler_origin = match &env_profiler_override {
@@ -117,8 +117,7 @@ async fn start_server(
         let encoded_symbol_server_url =
             utf8_percent_encode(&symbol_server_url, BAD_CHARS).to_string();
         let profiler_url = format!(
-            "{}/from-url/{}/?symbolServer={}",
-            profiler_origin, encoded_profile_url, encoded_symbol_server_url
+            "{profiler_origin}/from-url/{encoded_profile_url}/?symbolServer={encoded_symbol_server_url}"
         );
         template_values.insert("PROFILER_URL", profiler_url.clone());
         template_values.insert("PROFILE_URL", profile_url);
@@ -165,10 +164,10 @@ async fn start_server(
 
     let server = builder.serve(new_service);
 
-    eprintln!("Local server listening at {}", server_origin);
+    eprintln!("Local server listening at {server_origin}");
     if !open_in_browser {
         if let Some(profiler_url) = &profiler_url {
-            eprintln!("  Open the profiler at {}", profiler_url);
+            eprintln!("  Open the profiler at {profiler_url}");
         }
     }
     eprintln!("Press Ctrl+C to stop.");
@@ -181,7 +180,7 @@ async fn start_server(
 
     // Run this server for... forever!
     if let Err(e) = server.await {
-        eprintln!("server error: {}", e);
+        eprintln!("server error: {e}");
     }
 }
 
@@ -238,7 +237,7 @@ fn make_builder_at_port(port_selection: PortSelection) -> (Builder<AddrIncoming>
             match Server::try_bind(&addr) {
                 Ok(builder) => (builder, addr),
                 Err(e) => {
-                    eprintln!("Could not bind to port {}: {}", port, e);
+                    eprintln!("Could not bind to port {port}: {e}");
                     std::process::exit(1)
                 }
             }
@@ -256,13 +255,10 @@ fn make_builder_at_port(port_selection: PortSelection) -> (Builder<AddrIncoming>
             }
             match error {
                 Some(error) => {
-                    eprintln!(
-                        "Could not bind to any port in the range {:?}: {}",
-                        range, error,
-                    );
+                    eprintln!("Could not bind to any port in the range {range:?}: {error}",);
                 }
                 None => {
-                    eprintln!("Binding failed, port range empty? {:?}", range);
+                    eprintln!("Binding failed, port range empty? {range:?}");
                 }
             }
             std::process::exit(1)

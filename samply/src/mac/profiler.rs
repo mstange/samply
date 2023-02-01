@@ -94,7 +94,7 @@ pub fn start_recording(
                 // TODO: give status back via task_sender
             }
             Err(err) => {
-                eprintln!("Encountered error while waiting for task port: {:?}", err);
+                eprintln!("Encountered error while waiting for task port: {err:?}");
             }
         }
     });

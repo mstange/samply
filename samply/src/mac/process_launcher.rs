@@ -72,7 +72,7 @@ impl TaskAccepter {
                 std::process::exit(-1)
             }
             Err(err) => {
-                eprintln!("Error: Could not launch child process: {}", err);
+                eprintln!("Error: Could not launch child process: {err}");
                 std::process::exit(-1)
             }
         };

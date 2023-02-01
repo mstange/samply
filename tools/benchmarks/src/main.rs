@@ -198,7 +198,7 @@ fn main() -> anyhow::Result<()> {
         duration,
     } in timings
     {
-        eprintln!("  - {:12} {:16} {:?}", platform, action, duration);
+        eprintln!("  - {platform:12} {action:16} {duration:?}");
     }
 
     Ok(())
@@ -215,19 +215,13 @@ fn run_api_query_benchmark(
     request_json_filename: &Path,
     symbol_directory: PathBuf,
 ) -> anyhow::Result<Duration> {
-    eprintln!(
-        "Starting query API benchmark for {}, {:?}.",
-        url, request_json_filename
-    );
+    eprintln!("Starting query API benchmark for {url}, {request_json_filename:?}.");
     let request_json = std::fs::read_to_string(request_json_filename)?;
     let start = Instant::now();
     let _result = futures::executor::block_on(query_api(url, &request_json, symbol_directory));
     let duration = start.elapsed();
-    eprintln!(
-        "Finished query API benchmark for {}, {:?}.",
-        url, request_json_filename
-    );
-    eprintln!("Elapsed time: {:?}", duration);
+    eprintln!("Finished query API benchmark for {url}, {request_json_filename:?}.");
+    eprintln!("Elapsed time: {duration:?}");
     Ok(duration)
 }
 
@@ -240,8 +234,7 @@ fn run_dump_table_benchmark(
         .as_deref()
         .and_then(|debug_id| DebugId::from_breakpad(debug_id).ok());
     eprintln!(
-        "Starting dump_table benchmark for {}, {:?}, {:?}.",
-        debug_name, breakpad_id, symbol_directory
+        "Starting dump_table benchmark for {debug_name}, {breakpad_id:?}, {symbol_directory:?}."
     );
     let start = Instant::now();
     let _result = futures::executor::block_on(get_table_for_debug_name_and_id(
@@ -252,10 +245,9 @@ fn run_dump_table_benchmark(
     .unwrap();
     let duration = start.elapsed();
     eprintln!(
-        "Finished dump_table benchmark for {}, {:?}, {:?}.",
-        debug_name, breakpad_id, symbol_directory
+        "Finished dump_table benchmark for {debug_name}, {breakpad_id:?}, {symbol_directory:?}."
     );
-    eprintln!("Elapsed time: {:?}", duration);
+    eprintln!("Elapsed time: {duration:?}");
     duration
 }
 
@@ -288,7 +280,7 @@ fn prepare(local_path: PathBuf, download_url: &str, ftype: FileType) -> anyhow::
     let fname = local_path.file_name().unwrap();
 
     let client = reqwest::blocking::Client::builder().timeout(None).build()?;
-    eprint!("Downloading {} into memory...", download_url);
+    eprint!("Downloading {download_url} into memory...");
     let response = client.get(download_url).send()?.bytes()?;
     eprintln!(" done.");
     let dir = tempdir()?;
@@ -304,17 +296,14 @@ fn prepare(local_path: PathBuf, download_url: &str, ftype: FileType) -> anyhow::
                 let file = folder.file_entries().next().unwrap();
                 file.name().to_string()
             };
-            eprint!(
-                "Extracting {:?} to {:?}...",
-                file_name_in_cab, temp_file_path
-            );
+            eprint!("Extracting {file_name_in_cab:?} to {temp_file_path:?}...");
             let mut reader = cabinet.read_file(&file_name_in_cab).unwrap();
             let mut file = File::create(&temp_file_path)?;
             std::io::copy(&mut reader, &mut file).unwrap();
             eprintln!(" done.");
         }
         FileType::Gzip => {
-            eprint!("Extracting contents to {:?}...", temp_file_path);
+            eprint!("Extracting contents to {temp_file_path:?}...");
             let cursor = std::io::Cursor::new(&response);
             let mut reader = GzDecoder::new(cursor);
             let mut file = File::create(&temp_file_path)?;
@@ -323,7 +312,7 @@ fn prepare(local_path: PathBuf, download_url: &str, ftype: FileType) -> anyhow::
         }
         FileType::TarBz2 => {
             let dir_path = dir.path();
-            eprint!("Extracting contents to {:?}...", dir_path);
+            eprint!("Extracting contents to {dir_path:?}...");
             let cursor = std::io::Cursor::new(&response);
             let tar = BzDecoder::new(cursor);
 
@@ -351,7 +340,7 @@ fn prepare(local_path: PathBuf, download_url: &str, ftype: FileType) -> anyhow::
             assert_eq!(root, fname)
         }
     };
-    eprint!("Moving {:?} to {:?}...", temp_file_path, local_path);
+    eprint!("Moving {temp_file_path:?} to {local_path:?}...");
     fs::create_dir_all(local_path.parent().unwrap())?;
     fs::rename(temp_file_path, local_path)?;
     drop(dir);

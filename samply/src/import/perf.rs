@@ -81,7 +81,7 @@ where
     let linux_version = perf_file.os_release().unwrap();
     let attributes = perf_file.event_attributes();
     for event_name in attributes.iter().filter_map(|attr| attr.name()) {
-        println!("event {}", event_name);
+        println!("event {event_name}");
     }
     let interpretation = EventInterpretation::divine_from_attrs(attributes);
 
@@ -89,7 +89,7 @@ where
     let mut converter = Converter::<U>::new(
         product,
         Some(Box::new(move |name| {
-            format!("{} on {} (perf version {})", name, host, perf_version)
+            format!("{name} on {host} (perf version {perf_version})")
         })),
         build_ids,
         linux_version,
@@ -113,8 +113,7 @@ where
         if let Some(timestamp) = record.timestamp() {
             if timestamp < last_timestamp {
                 println!(
-                    "bad timestamp ordering; {} is earlier but arrived after {}",
-                    timestamp, last_timestamp
+                    "bad timestamp ordering; {timestamp} is earlier but arrived after {last_timestamp}"
                 );
             }
             last_timestamp = timestamp;

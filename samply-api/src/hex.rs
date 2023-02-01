@@ -3,7 +3,7 @@ where
     S: serde::Serializer,
     T: std::fmt::LowerHex,
 {
-    serializer.collect_str(&format_args!("{:#x}", field))
+    serializer.collect_str(&format_args!("{field:#x}"))
 }
 
 pub fn as_optional_hex_string<S, T>(
@@ -15,7 +15,7 @@ where
     T: std::fmt::LowerHex,
 {
     match field {
-        Some(field) => serializer.collect_str(&format_args!("{:#x}", field)),
+        Some(field) => serializer.collect_str(&format_args!("{field:#x}")),
         None => serializer.serialize_none(),
     }
 }

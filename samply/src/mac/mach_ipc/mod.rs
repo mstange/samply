@@ -945,10 +945,9 @@ impl From<MachError> for Error {
                 ErrorKind::Other,
                 "Receive right is not a member of a port set.",
             ),
-            MachError::Kernel(KernelError::Unknown(code)) => Error::new(
-                ErrorKind::Other,
-                format!("Unknown kernel error: {:x}", code),
-            ),
+            MachError::Kernel(KernelError::Unknown(code)) => {
+                Error::new(ErrorKind::Other, format!("Unknown kernel error: {code:x}"))
+            }
             MachError::IpcSpace => Error::new(
                 ErrorKind::Other,
                 "No room in IPC name space for another capability name.",
@@ -1082,7 +1081,7 @@ impl From<MachError> for Error {
             ),
             MachError::Unknown(mach_error_number) => Error::new(
                 ErrorKind::Other,
-                format!("Unknown Mach error: {:x}", mach_error_number),
+                format!("Unknown Mach error: {mach_error_number:x}"),
             ),
         }
     }
