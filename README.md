@@ -30,6 +30,12 @@ All data is kept locally (on disk and in RAM) until you choose to upload your pr
 
 samply is a sampling profiler and collects stack traces, per thread, at some sampling interval (the default 1000Hz, i.e. 1ms). On macOS, both on- and off-cpu samples are collected (so you can see under which stack you were blocking on a lock, for example). On Linux, only on-cpu samples are collected at the moment.
 
+On Linux, as samply needs access to performance events system by unprivileged users, run:
+
+```
+sudo sysctl kernel.perf_event_paranoid=1 
+```
+
 ## Examples
 
 Here's a profile from `samply record rustup check`: https://share.firefox.dev/3hteKZZ
