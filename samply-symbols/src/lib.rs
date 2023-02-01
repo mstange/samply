@@ -329,7 +329,10 @@ where
             .helper
             .get_candidate_paths_for_debug_file(library_info)
             .map_err(|e| {
-                Error::HelperErrorDuringGetCandidatePathsForDebugFile(library_info.clone(), e)
+                Error::HelperErrorDuringGetCandidatePathsForDebugFile(
+                    Box::new(library_info.clone()),
+                    e,
+                )
             })?;
 
         let mut last_err = None;
@@ -361,7 +364,8 @@ where
                 }
             }
         }
-        Err(last_err.unwrap_or_else(|| Error::NoCandidatePathForDebugFile(library_info.clone())))
+        Err(last_err
+            .unwrap_or_else(|| Error::NoCandidatePathForDebugFile(Box::new(library_info.clone()))))
     }
 
     /// Load and return an external file which may contain additional debug info.

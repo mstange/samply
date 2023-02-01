@@ -94,7 +94,7 @@ pub enum Error {
 
     #[error("get_candidate_paths_for_debug_file helper callback for {0:?} returned error: {1}")]
     HelperErrorDuringGetCandidatePathsForDebugFile(
-        LibraryInfo,
+        Box<LibraryInfo>,
         #[source] Box<dyn std::error::Error + Send + Sync>,
     ),
 
@@ -117,7 +117,7 @@ pub enum Error {
     NoCandidatePathForDyldCache,
 
     #[error("No candidate path for binary, for {0:?}")]
-    NoCandidatePathForDebugFile(LibraryInfo),
+    NoCandidatePathForDebugFile(Box<LibraryInfo>),
 
     #[error("No associated PDB file with the right debug ID was found for the PE (Windows) binary at path {0}")]
     NoMatchingPdbForBinary(String),
