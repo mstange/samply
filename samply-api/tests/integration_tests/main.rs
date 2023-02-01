@@ -404,7 +404,7 @@ fn asm_with_continue() {
             "name": "libmozglue.so",
             "codeId": "7c7be40cf229ed7c55c41233b93eba456dcbc082",
             "debugName": "libmozglue.so",
-            "breakpadId": "0CE47B7C29F27CED55C41233B93EBA450",
+            "debugId": "0CE47B7C29F27CED55C41233B93EBA450",
             "startAddress": "0x51fd1",
             "size": "0x8",
             "continueUntilFunctionEnd": true
@@ -422,7 +422,7 @@ fn asm_x86_64() {
         r#"{
             "name": "firefox.exe",
             "debugName": "firefox.pdb",
-            "breakpadId": "8A913DE821D9DE764C4C44205044422E1",
+            "debugId": "8A913DE821D9DE764C4C44205044422E1",
             "startAddress": "0x17a20",
             "size": "0x3a"
         }"#,

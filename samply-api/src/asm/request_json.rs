@@ -6,7 +6,7 @@ pub struct Request {
     pub name: Option<String>, // example: "xul.dll"
     pub code_id: Option<String>,
     pub debug_name: Option<String>, // example: "xul.pdb"
-    pub breakpad_id: Option<String>,
+    pub debug_id: Option<String>,
 
     /// The start address where the disassembly should start,
     /// as a "0x"-prefixed hex string, interpreted as a
@@ -41,17 +41,14 @@ mod test {
         let data = r#"
         {
           "debugName": "xul.pdb",
-          "breakpadId": "A14CAFD390A3E1884C4C44205044422E1",
+          "debugId": "A14CAFD390A3E1884C4C44205044422E1",
           "startAddress": "0x1d04742",
           "size": "0x84"
         }"#;
 
         let r: Request = serde_json::from_str(data)?;
         assert_eq!(r.start_address, 30426946);
-        assert_eq!(
-            r.breakpad_id,
-            Some("A14CAFD390A3E1884C4C44205044422E1".into())
-        );
+        assert_eq!(r.debug_id, Some("A14CAFD390A3E1884C4C44205044422E1".into()));
         assert!(!r.continue_until_function_end);
         Ok(())
     }
