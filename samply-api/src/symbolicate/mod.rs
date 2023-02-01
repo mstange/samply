@@ -199,10 +199,10 @@ fn create_response(
         }
     }
 
-    fn response_stack_for_request_stack<'a>(
+    fn response_stack_for_request_stack(
         stack: &request_json::Stack,
         memory_map: &[Lib],
-        symbols_by_module_index: &HashMap<u32, &'a AddressResults>,
+        symbols_by_module_index: &HashMap<u32, &AddressResults>,
     ) -> Stack {
         let frames = stack.0.iter().enumerate().map(|(frame_index, frame)| {
             response_frame_for_request_frame(
@@ -215,11 +215,11 @@ fn create_response(
         Stack(frames.collect())
     }
 
-    fn response_frame_for_request_frame<'a>(
+    fn response_frame_for_request_frame(
         frame: &request_json::StackFrame,
         frame_index: u32,
         memory_map: &[Lib],
-        symbols_by_module_index: &HashMap<u32, &'a AddressResults>,
+        symbols_by_module_index: &HashMap<u32, &AddressResults>,
     ) -> StackFrame {
         let symbol = symbols_by_module_index
             .get(&frame.module_index)
