@@ -1,1 +1,0 @@
-{"startAddress":"0x51fd0","size":"0x8","arch":"arm","syntax":["ARM"],"instructions":[[0,"push {r4, r6, r7, lr}"],[2,"add r7, sp, 0x8"],[4,"mov r4, r0"],[6,"ldr r0, [r0, 0x14]"]]}
