@@ -1057,7 +1057,7 @@ fn compute_vma_bias_impl(
     };
 
     // We have everything we need now.
-    let bias = ref_avma - ref_contribution.svma;
+    let bias = ref_avma.wrapping_sub(ref_contribution.svma);
     Some(bias)
 }
 
@@ -1210,7 +1210,7 @@ where
             mapping_start_avma,
             mapping_size,
         )?;
-        base_avma = base_svma + bias;
+        base_avma = base_svma.wrapping_add(bias);
 
         let text = file.section_by_name(".text");
         let text_env = file.section_by_name("text_env");
