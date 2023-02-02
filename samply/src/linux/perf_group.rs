@@ -106,14 +106,14 @@ where
 #[allow(clippy::type_complexity)]
 fn get_threads(pid: u32) -> Result<Vec<(u32, Option<Vec<u8>>)>, io::Error> {
     let mut output = Vec::new();
-    for entry in (fs::read_dir(format!("/proc/{}/task", pid))?).flatten() {
+    for entry in (fs::read_dir(format!("/proc/{pid}/task"))?).flatten() {
         let tid: u32 = entry.file_name().to_string_lossy().parse().unwrap();
         if tid == pid {
             continue;
         }
 
         let mut name = None;
-        let comm_path = format!("/proc/{}/task/{}/comm", pid, tid);
+        let comm_path = format!("/proc/{pid}/task/{tid}/comm");
         if let Ok(mut fp) = File::open(comm_path) {
             let mut buffer = Vec::new();
             if fp.read_to_end(&mut buffer).is_ok() {
@@ -227,7 +227,7 @@ impl PerfGroup {
             self.members.insert(perf.fd(), Member::new(perf));
         }
 
-        let maps = read_string_lossy(format!("/proc/{}/maps", pid))?;
+        let maps = read_string_lossy(format!("/proc/{pid}/maps"))?;
         let maps = proc_maps::parse(&maps);
 
         for (tid, name) in threads {

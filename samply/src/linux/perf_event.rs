@@ -246,7 +246,7 @@ impl PerfBuilder {
         if let Some(max_sample_rate) = max_sample_rate {
             // debug!("Maximum sample rate: {}", max_sample_rate);
             if frequency > max_sample_rate {
-                let message = format!( "frequency can be at most {} as configured in /proc/sys/kernel/perf_event_max_sample_rate", max_sample_rate );
+                let message = format!( "frequency can be at most {max_sample_rate} as configured in /proc/sys/kernel/perf_event_max_sample_rate" );
                 return Err(io::Error::new(io::ErrorKind::InvalidInput, message));
             }
         }
@@ -347,7 +347,6 @@ impl PerfBuilder {
         let required_space = max(stack_size, 4096) * STACK_COUNT_PER_BUFFER;
         let page_size = 4096;
         let n = (1..26)
-            .into_iter()
             .find(|n| (1_u32 << n) * 4096_u32 >= required_space)
             .expect("cannot find appropriate page count for given stack size");
         let page_count: u32 = max(1 << n, 16);
