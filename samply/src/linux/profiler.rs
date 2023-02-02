@@ -139,7 +139,7 @@ fn run_profiler(
     let mut perf = match perf {
         Ok(perf) => perf,
         Err(error) => {
-            eprintln!("Failed to start profiling: {}", error);
+            eprintln!("Failed to start profiling: {error}");
             if error.kind() == std::io::ErrorKind::PermissionDenied {
                 if let Ok(perf_event_paranoid) =
                     read_string_lossy("/proc/sys/kernel/perf_event_paranoid")
@@ -148,8 +148,7 @@ fn run_profiler(
                         if level > 1 {
                             eprintln!();
                             eprintln!(
-                                "'/proc/sys/kernel/perf_event_paranoid' is currently set to {}.",
-                                level
+                                "'/proc/sys/kernel/perf_event_paranoid' is currently set to {level}."
                             );
                             eprintln!("In order for samply to work with a non-root user, this level needs");
                             eprintln!("to be set to 1 or lower.");
@@ -274,14 +273,14 @@ fn run_profiler(
             }
 
             if pending_lost_events > 0 {
-                eprintln!("Pending lost events: {}", pending_lost_events);
+                eprintln!("Pending lost events: {pending_lost_events}");
                 pending_lost_events = 0;
             }
         }
     }
 
     if total_lost_events > 0 {
-        eprintln!("Lost {} events!", total_lost_events);
+        eprintln!("Lost {total_lost_events} events!");
     }
 
     let profile = converter.finish();
