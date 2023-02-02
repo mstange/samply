@@ -1203,10 +1203,7 @@ where
             }
         }
 
-        let base_svma = match file.segments().next() {
-            Some(first_segment) => first_segment.address(),
-            None => 0,
-        };
+        let base_svma = samply_symbols::relative_address_base(&file);
         let bias = compute_vma_bias(
             &file,
             mapping_start_file_offset,
