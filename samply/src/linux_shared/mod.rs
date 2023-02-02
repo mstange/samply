@@ -23,14 +23,19 @@ use linux_perf_event_reader::{
     Mmap2FileId, Mmap2Record, MmapRecord, PerfEventType, RawDataU64, Regs, SampleRecord,
     SamplingPolicy, SoftwareCounterType,
 };
-use object::{Object, ObjectSection, ObjectSegment, SectionKind};
+use memmap2::Mmap;
+use object::pe::{ImageNtHeaders32, ImageNtHeaders64};
+use object::read::pe::{ImageNtHeaders, ImageOptionalHeader, PeFile};
+use object::{FileKind, Object, ObjectSection, ObjectSegment, SectionKind};
 use samply_symbols::{debug_id_for_object, object, DebugIdExt};
 use wholesym::samply_symbols;
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::convert::TryFrom;
+use std::ffi::OsStr;
 use std::fmt::Debug;
+use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
 use std::time::SystemTime;
 use std::{ops::Range, path::Path};
@@ -134,6 +139,14 @@ impl EventInterpretation {
 
 pub type BoxedProductNameGenerator = Box<dyn FnOnce(&str) -> String>;
 
+/// See [`Converter::check_for_pe_mapping`].
+#[derive(Debug, Clone)]
+struct SuspectedPeMapping {
+    path: Vec<u8>,
+    start: u64,
+    size: u64,
+}
+
 pub struct Converter<U>
 where
     U: Unwinder<Module = Module<Vec<u8>>> + Default,
@@ -155,6 +168,10 @@ where
     off_cpu_weight_per_sample: i32,
     have_context_switches: bool,
     kernel_symbols: Option<KernelSymbols>,
+
+    /// Mapping of start address to potential mapped PE binaries.
+    /// The key is equal to the start field of the value.
+    suspected_pe_mappings: BTreeMap<u64, SuspectedPeMapping>,
 }
 
 const DEFAULT_OFF_CPU_SAMPLING_INTERVAL_NS: u64 = 1_000_000; // 1ms
@@ -212,6 +229,7 @@ where
             context_switch_handler: ContextSwitchHandler::new(off_cpu_sampling_interval_ns),
             have_context_switches: interpretation.have_context_switches,
             kernel_symbols: KernelSymbols::new_for_running_kernel(),
+            suspected_pe_mappings: BTreeMap::new(),
         }
     }
 
@@ -399,7 +417,62 @@ where
         }
     }
 
+    /// This is a terrible hack to get binary correlation working with apps on Wine.
+    ///
+    /// Unlike ELF, PE has the notion of "file alignment" that is different from page alignment.
+    /// Hence, even if the virtual address is page aligned, its on-disk offset may not be. This
+    /// leads to obvious trouble with using mmap, since mmap requires the file offset to be page
+    /// aligned. Wine's workaround is straightforward: for misaligned sections, Wine will simply
+    /// copy the image from disk instead of mmaping them. For example, /proc/<pid>/maps can look
+    /// like this:
+    ///
+    /// ```
+    /// <PE header> 140000000-140001000 r--p 00000000 00:25 272185   game.exe
+    /// <.text>     140001000-143be8000 r-xp 00000000 00:00 0
+    ///             143be8000-144c0c000 r--p 00000000 00:00 0
+    /// ```
+    ///
+    /// When this misalignment happens, most of the sections in the memory will not be a file
+    /// mapping. However, the PE header is always mapped, and it resides at the beginning of the
+    /// file, which means it's also always *aligned*. Finally, it's always mapped first, because
+    /// the information from the header is required to determine the load address of the other
+    /// sections. Hence, if we find a mapping that seems to pointing to a PE file, and has a file
+    /// offset of 0, we'll add it to the list of "suspected PE images". When we see a later mapping
+    /// that belongs to one of the suspected PE ranges, we'll match the mapping with the file,
+    /// which allows binary correlation and unwinding to work.
+    fn check_for_pe_mapping(&mut self, path_slice: &[u8], mapping_start_avma: u64) {
+        // Do a quick extension check first, to avoid end up trying to parse every mmaped file.
+        let filename_is_pe = path_slice.ends_with(b".exe")
+            || path_slice.ends_with(b".dll")
+            || path_slice.ends_with(b".EXE")
+            || path_slice.ends_with(b".DLL");
+        if !filename_is_pe {
+            return;
+        }
+
+        // There are a few assumptions here:
+        // - The SizeOfImage field in the PE header is defined to be a multiple of SectionAlignment.
+        //   SectionAlignment is usually the page size. When it's not the page size, additional
+        //   layout restrictions apply and Wine will always map the file in its entirety, which
+        //   means we're safe without the workaround. So we can safely assume it to be page aligned
+        //   here.
+        // - VirtualAddress of the sections are defined to be adjacent after page-alignment. This
+        //   means that we can treat the image as a contiguous region.
+        if let Some(size) = get_pe_mapping_size(path_slice) {
+            let mapping = SuspectedPeMapping {
+                path: path_slice.to_owned(),
+                start: mapping_start_avma,
+                size,
+            };
+            self.suspected_pe_mappings.insert(mapping.start, mapping);
+        }
+    }
+
     pub fn handle_mmap(&mut self, e: MmapRecord) {
+        if e.page_offset == 0 {
+            self.check_for_pe_mapping(&e.path.as_slice(), e.address);
+        }
+
         if !e.is_executable {
             return;
         }
@@ -433,6 +506,7 @@ where
                 e.address,
                 e.length,
                 build_id,
+                &self.suspected_pe_mappings,
                 self.extra_binary_artifact_dir.as_deref(),
             ) {
                 self.profile.add_lib(process.profile_process, lib);
@@ -441,6 +515,10 @@ where
     }
 
     pub fn handle_mmap2(&mut self, e: Mmap2Record) {
+        if e.page_offset == 0 {
+            self.check_for_pe_mapping(&e.path.as_slice(), e.address);
+        }
+
         const PROT_EXEC: u32 = 0b100;
         if e.protection & PROT_EXEC == 0 {
             // Ignore non-executable mappings.
@@ -467,6 +545,7 @@ where
             e.address,
             e.length,
             build_id,
+            &self.suspected_pe_mappings,
             self.extra_binary_artifact_dir.as_deref(),
         ) {
             self.profile.add_lib(process.profile_process, lib);
@@ -1124,6 +1203,24 @@ fn test_compute_base_avma_impl() {
     );
 }
 
+fn get_pe_mapping_size(path_slice: &[u8]) -> Option<u64> {
+    fn inner<T: ImageNtHeaders>(data: &[u8]) -> Option<u64> {
+        let file = PeFile::<T>::parse(data).ok()?;
+        let size = file.nt_headers().optional_header().size_of_image();
+        Some(size as u64)
+    }
+
+    let path = Path::new(OsStr::from_bytes(path_slice));
+    let file = std::fs::File::open(path).ok()?;
+    let mmap = unsafe { Mmap::map(&file).ok()? };
+
+    match FileKind::parse(&mmap[..]).ok()? {
+        FileKind::Pe32 => inner::<ImageNtHeaders32>(&mmap),
+        FileKind::Pe64 => inner::<ImageNtHeaders64>(&mmap),
+        _ => None,
+    }
+}
+
 /// Tell the unwinder about this module, and alsos create a ProfileModule
 /// so that the profile can be told about this module.
 ///
@@ -1132,6 +1229,7 @@ fn test_compute_base_avma_impl() {
 /// The profile needs to know about this module so that it can assign
 /// addresses in the stack to the right module and so that symbolication
 /// knows where to get symbols for this module.
+#[allow(clippy::too_many_arguments)]
 fn add_module_to_unwinder<U>(
     unwinder: &mut U,
     path_slice: &[u8],
@@ -1139,15 +1237,33 @@ fn add_module_to_unwinder<U>(
     mapping_start_avma: u64,
     mapping_size: u64,
     build_id: Option<&[u8]>,
+    suspected_pe_mappings: &BTreeMap<u64, SuspectedPeMapping>,
     extra_binary_artifact_dir: Option<&Path>,
 ) -> Option<LibraryInfo>
 where
     U: Unwinder<Module = Module<Vec<u8>>>,
 {
-    let path = std::str::from_utf8(path_slice).unwrap();
-    let objpath = Path::new(path);
+    let mut path = std::str::from_utf8(path_slice).unwrap();
+    let mut objpath = Path::new(path);
+    let mut suspected_pe_mapping = None;
 
-    let file = open_file_with_fallback(objpath, extra_binary_artifact_dir).ok();
+    let mut file = open_file_with_fallback(objpath, extra_binary_artifact_dir).ok();
+    if file.is_none() {
+        suspected_pe_mapping = suspected_pe_mappings
+            .range(..=mapping_start_avma)
+            .next_back()
+            .map(|(_, m)| m)
+            .filter(|m| {
+                mapping_start_avma >= m.start
+                    && mapping_start_avma + mapping_size <= m.start + m.size
+            });
+        if let Some(mapping) = suspected_pe_mapping {
+            path = std::str::from_utf8(&mapping.path).unwrap();
+            objpath = Path::new(path);
+            file = open_file_with_fallback(objpath, extra_binary_artifact_dir).ok();
+        }
+    }
+
     if file.is_none() && !path.starts_with('[') {
         // eprintln!("Could not open file {:?}", objpath);
     }
@@ -1204,13 +1320,20 @@ where
         }
 
         let base_svma = samply_symbols::relative_address_base(&file);
-        let bias = compute_vma_bias(
-            &file,
-            mapping_start_file_offset,
-            mapping_start_avma,
-            mapping_size,
-        )?;
-        base_avma = base_svma.wrapping_add(bias);
+        if let Some(mapping) = suspected_pe_mapping {
+            // For the PE correlation hack, we can't use the mapping offsets as they correspond to
+            // an anonymous mapping. Instead, the base address is pre-determined from the PE header
+            // mapping.
+            base_avma = mapping.start;
+        } else {
+            let bias = compute_vma_bias(
+                &file,
+                mapping_start_file_offset,
+                mapping_start_avma,
+                mapping_size,
+            )?;
+            base_avma = base_svma.wrapping_add(bias);
+        }
 
         let text = file.section_by_name(".text");
         let text_env = file.section_by_name("text_env");
