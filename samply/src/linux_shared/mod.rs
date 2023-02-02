@@ -929,7 +929,10 @@ impl Debug for SvmaFileRange {
     }
 }
 
-/// Compute the image base address, in process memory, i.e. as an "actual virtual memory address".
+/// Compute the bias from the stated virtual memory address (SVMA), the VMA defined in the file's
+/// section table, to the actual virtual memory address (AVMA), the VMA the file is actually mapped
+/// at.
+///
 /// We have the section + segment information of the mapped object file, and we know the file offset
 /// and size of the mapping, as well as the AVMA at the mapping start.
 ///
@@ -983,9 +986,6 @@ impl Debug for SvmaFileRange {
 /// the matching segment's / section's SVMA to find the SVMA-to-AVMA "bias" for the
 /// mapped bytes.
 ///
-/// Once we have the SVMA-to-AVMA bias, we can find the image base AVMA by translating the
-/// SVMA of the *first* segment.
-///
 /// Another interesting edge case we observed was a case where a mapping was seemingly
 /// not initiated by an ELF LOAD command: Part of the d8 binary (the V8 shell) was mapped
 /// into memory with a mapping that covered only a small part of the `.text` section.
@@ -995,7 +995,7 @@ impl Debug for SvmaFileRange {
 /// mapping. We also tried a solution where we just check for overlap between the segment
 /// and the mapping, but this sometimes got the wrong segment, because the mapping is
 /// larger than the segment due to alignment, and can extend into other segments.
-fn compute_base_avma<'data, 'file, O>(
+fn compute_vma_bias<'data, 'file, O>(
     file: &'file O,
     mapping_start_file_offset: u64,
     mapping_start_avma: u64,
@@ -1019,23 +1019,16 @@ where
             .collect();
     }
 
-    let base_svma = match file.segments().next() {
-        Some(first_segment) => first_segment.address(),
-        None => 0,
-    };
-
-    compute_base_avma_impl(
+    compute_vma_bias_impl(
         &contributions,
-        base_svma,
         mapping_start_file_offset,
         mapping_start_avma,
         mapping_size,
     )
 }
 
-fn compute_base_avma_impl(
+fn compute_vma_bias_impl(
     contributions: &[SvmaFileRange],
-    base_svma: u64,
     mapping_file_offset: u64,
     mapping_avma: u64,
     mapping_size: u64,
@@ -1065,8 +1058,7 @@ fn compute_base_avma_impl(
 
     // We have everything we need now.
     let bias = ref_avma - ref_contribution.svma;
-    let base_avma = base_svma + bias;
-    Some(base_avma)
+    Some(bias)
 }
 
 #[test]
@@ -1094,13 +1086,12 @@ fn test_compute_base_avma_impl() {
             size: 0x002d48,
         },
     ];
-    let base_svma = js_segments[0].svma;
     assert_eq!(
-        compute_base_avma_impl(js_segments, base_svma, 0x14bd0c0, 0x100014be0c0, 0xf5bf60),
+        compute_vma_bias_impl(js_segments, 0x14bd0c0, 0x100014be0c0, 0xf5bf60),
         Some(0x10000000000)
     );
     assert_eq!(
-        compute_base_avma_impl(js_segments, base_svma, 0x14bd000, 0x55d605384000, 0xf5d000),
+        compute_vma_bias_impl(js_segments, 0x14bd000, 0x55d605384000, 0xf5d000),
         Some(0x55d603ec6000)
     );
 
@@ -1127,9 +1118,8 @@ fn test_compute_base_avma_impl() {
             size: 0x0118f0,
         },
     ];
-    let base_svma = d8_segments[0].svma;
     assert_eq!(
-        compute_base_avma_impl(d8_segments, base_svma, 0x1056000, 0x55d15fe80000, 0x180000),
+        compute_vma_bias_impl(d8_segments, 0x1056000, 0x55d15fe80000, 0x180000),
         Some(0x55d15ee29000)
     );
 }
@@ -1213,13 +1203,17 @@ where
             }
         }
 
-        let base_svma = 0;
-        base_avma = compute_base_avma(
+        let base_svma = match file.segments().next() {
+            Some(first_segment) => first_segment.address(),
+            None => 0,
+        };
+        let bias = compute_vma_bias(
             &file,
             mapping_start_file_offset,
             mapping_start_avma,
             mapping_size,
         )?;
+        base_avma = base_svma + bias;
 
         let text = file.section_by_name(".text");
         let text_env = file.section_by_name("text_env");
