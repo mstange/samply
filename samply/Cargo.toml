@@ -58,3 +58,8 @@ flate2 = "1.0.23"
 parking_lot = "0.12.1"
 num_cpus = "1.13.1"
 uname = "0.1.1"
+
+[dependencies.object]
+default-features = false
+features = ["std", "read_core", "elf", "unaligned", "write"]
+version = "0.30.2"

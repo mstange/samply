@@ -1,8 +1,8 @@
 use std::{fmt::Debug, sync::Arc};
 
 use fxprof_processed_profile::{Symbol, SymbolTable};
+use object::{elf, read, NativeEndian};
 use read::elf::NoteHeader;
-use wholesym::samply_symbols::object::{elf, read, NativeEndian};
 
 #[derive(Debug, Clone)]
 pub struct KernelSymbols {
