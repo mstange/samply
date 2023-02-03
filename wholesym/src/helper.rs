@@ -590,9 +590,11 @@ impl<'h> FileAndPathHelper<'h> for Helper {
         if let (Some(_debuginfod_symbol_cache), Some(CodeId::ElfBuildId(build_id))) =
             (self.debuginfod_symbol_cache.as_ref(), &info.code_id)
         {
-            paths.push(CandidatePathInfo::SingleFile(
-                WholesymFileLocation::DebuginfodDebugFile(build_id.to_owned()),
-            ));
+            if !might_be_perf_jit_so_file(&info) {
+                paths.push(CandidatePathInfo::SingleFile(
+                    WholesymFileLocation::DebuginfodDebugFile(build_id.to_owned()),
+                ));
+            }
         }
 
         if let Some(path) = &info.path {
@@ -767,4 +769,9 @@ fn get_dyld_shared_cache_paths(arch: Option<&str>) -> Vec<WholesymFileLocation> 
             WholesymFileLocation::LocalFile("/System/Library/dyld/dyld_shared_cache_x86_64".into()),
         ]
     }
+}
+
+/// Used to filter out files like `jitted-12345-12.so`, to avoid hammering debuginfod servers.
+fn might_be_perf_jit_so_file(info: &LibraryInfo) -> bool {
+    matches!(&info.name, Some(name) if name.starts_with("jitted-") && name.ends_with(".so"))
 }
