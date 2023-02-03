@@ -136,13 +136,20 @@ impl SymbolManagerConfig {
 
     /// Whether debuginfod should be used, i.e. whether the `DEBUGINFOD_URLS` environment variable should be respected.
     ///
-    /// If debuginfod is not installed, this will only work if you specify a custom cache directory with `debuginfod_cache_dir_if_not_installed`.
+    /// At the moment this will only work if you specify a custom cache directory with `debuginfod_cache_dir_if_not_installed`.
+    // TODO: Once "official debuginfod" is supported, change this to:
+    // /// If debuginfod is not installed, this will only work if you specify a custom cache directory with `debuginfod_cache_dir_if_not_installed`.
     pub fn use_debuginfod(mut self, flag: bool) -> Self {
         self.use_debuginfod = flag;
         self
     }
 
-    /// If `use_debuginfod` is set, and debuginfod is not installed (e.g. on non-Linux), use this directory as a cache directory.
+    /// If `use_debuginfod` is set, use this directory as a cache directory. At the moment
+    /// this is used even if debuginfod is installed, despite the function name, because
+    /// wholesym is still missing a way to use the installed debuginfod and currently
+    /// always runs its own code for downloading files from debuginfod servers.
+    // TODO: Once "official debuginfod" is supported, change this to:
+    // /// If `use_debuginfod` is set, and debuginfod is not installed (e.g. on non-Linux), use this directory as a cache directory.
     pub fn debuginfod_cache_dir_if_not_installed(mut self, cache_dir: impl Into<PathBuf>) -> Self {
         self.debuginfod_cache_dir_if_not_installed = Some(cache_dir.into());
         self

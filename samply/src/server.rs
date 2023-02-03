@@ -132,7 +132,7 @@ async fn start_server(
         .verbose(verbose)
         .respect_nt_symbol_path(true)
         .default_nt_symbol_path("srv**https://msdl.microsoft.com/download/symbols")
-        .use_debuginfod(true)
+        .use_debuginfod(std::env::var("SAMPLY_USE_DEBUGINFOD").is_ok())
         .use_spotlight(true);
     if let Some(home_dir) = dirs::home_dir() {
         config = config.debuginfod_cache_dir_if_not_installed(home_dir.join("sym"));
