@@ -89,7 +89,7 @@ async fn run_query() {
     };
 
     // Look up the symbol for an address.
-    let lookup_result = symbol_map.lookup(0x1f98f);
+    let lookup_result = symbol_map.lookup_relative_address(0x1f98f);
 
     match lookup_result {
         Some(address_info) => {

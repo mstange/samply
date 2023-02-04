@@ -51,8 +51,16 @@ impl<T: FileContents> SymbolMapTrait for BreakpadSymbolMap<T> {
         self.0.get().0.iter_symbols()
     }
 
-    fn lookup(&self, address: u32) -> Option<AddressInfo> {
-        self.0.get().0.lookup(address)
+    fn lookup_relative_address(&self, address: u32) -> Option<AddressInfo> {
+        self.0.get().0.lookup_relative_address(address)
+    }
+
+    fn lookup_svma(&self, svma: u64) -> Option<AddressInfo> {
+        self.0.get().0.lookup_svma(svma)
+    }
+
+    fn lookup_offset(&self, offset: u64) -> Option<AddressInfo> {
+        self.0.get().0.lookup_offset(offset)
     }
 }
 
@@ -245,7 +253,7 @@ impl<'a, T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'a, T> {
         Box::new(iter)
     }
 
-    fn lookup(&self, address: u32) -> Option<AddressInfo> {
+    fn lookup_relative_address(&self, address: u32) -> Option<AddressInfo> {
         let index = match self.index.symbol_addresses.binary_search(&address) {
             Ok(i) => i,
             Err(0) => return None,
@@ -325,6 +333,16 @@ impl<'a, T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'a, T> {
             }
         }
     }
+
+    fn lookup_svma(&self, _svma: u64) -> Option<AddressInfo> {
+        // Breakpad symbol files have no information about the image base address.
+        None
+    }
+
+    fn lookup_offset(&self, _offset: u64) -> Option<AddressInfo> {
+        // Breakpad symbol files have no information about file offsets.
+        None
+    }
 }
 
 #[cfg(test)]
@@ -368,7 +386,14 @@ mod test {
         let sym = b"MODULE Linux x86_64 BE4E976C325246EE9D6B7847A670B2A90 example-linux\nFILE 0 filename\nFUNC 1160 45 0 f\n1160 c 16 0";
         let fc = FileContentsWrapper::new(&sym[..]);
         let symbol_map = get_symbol_map_for_breakpad_sym(fc, DummyLocation, None).unwrap();
-        assert_eq!(symbol_map.lookup(0x1160).unwrap().symbol.name, "f");
+        assert_eq!(
+            symbol_map
+                .lookup_relative_address(0x1160)
+                .unwrap()
+                .symbol
+                .name,
+            "f"
+        );
     }
 
     #[test]
@@ -409,7 +434,7 @@ mod test {
             DebugId::from_breakpad("F1E853FD662672044C4C44205044422E1").unwrap()
         );
 
-        let lookup_result = symbol_map.lookup(0x2b7ed).unwrap();
+        let lookup_result = symbol_map.lookup_relative_address(0x2b7ed).unwrap();
         assert_eq!(
             lookup_result.symbol.name,
             "DloadAcquireSectionWriteAccess()"

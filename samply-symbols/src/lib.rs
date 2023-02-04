@@ -87,7 +87,7 @@
 //!     };
 //!
 //!     // Look up the symbol for an address.
-//!     let lookup_result = symbol_map.lookup(0x1f98f);
+//!     let lookup_result = symbol_map.lookup_relative_address(0x1f98f);
 //!
 //!     match lookup_result {
 //!         Some(address_info) => {
@@ -387,7 +387,7 @@ where
         external_file::load_external_file(self.helper, debug_file_location, external_file_ref).await
     }
 
-    /// Resolve a debug info lookup for which `SymbolMap::lookup` returned a
+    /// Resolve a debug info lookup for which `SymbolMap::lookup_*` returned a
     /// `FramesLookupResult::External`.
     ///
     /// This method is asynchronous because it may load a new external file.

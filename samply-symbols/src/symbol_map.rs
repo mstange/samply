@@ -34,8 +34,16 @@ impl<FL: FileLocation> SymbolMap<FL> {
         self.inner.iter_symbols()
     }
 
-    pub fn lookup(&self, address: u32) -> Option<AddressInfo> {
-        self.inner.lookup(address)
+    pub fn lookup_relative_address(&self, address: u32) -> Option<AddressInfo> {
+        self.inner.lookup_relative_address(address)
+    }
+
+    pub fn lookup_svma(&self, svma: u64) -> Option<AddressInfo> {
+        self.inner.lookup_svma(svma)
+    }
+
+    pub fn lookup_offset(&self, offset: u64) -> Option<AddressInfo> {
+        self.inner.lookup_offset(offset)
     }
 }
 
@@ -46,7 +54,9 @@ pub trait SymbolMapTrait {
 
     fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_>;
 
-    fn lookup(&self, address: u32) -> Option<AddressInfo>;
+    fn lookup_relative_address(&self, address: u32) -> Option<AddressInfo>;
+    fn lookup_svma(&self, svma: u64) -> Option<AddressInfo>;
+    fn lookup_offset(&self, offset: u64) -> Option<AddressInfo>;
 }
 
 pub trait SymbolMapDataOuterTrait {
@@ -107,7 +117,15 @@ impl<SMDO: SymbolMapDataOuterTrait> SymbolMapTrait for GenericSymbolMap<SMDO> {
         self.0.get().0.iter_symbols()
     }
 
-    fn lookup(&self, address: u32) -> Option<AddressInfo> {
-        self.0.get().0.lookup(address)
+    fn lookup_relative_address(&self, address: u32) -> Option<AddressInfo> {
+        self.0.get().0.lookup_relative_address(address)
+    }
+
+    fn lookup_svma(&self, svma: u64) -> Option<AddressInfo> {
+        self.0.get().0.lookup_svma(svma)
+    }
+
+    fn lookup_offset(&self, offset: u64) -> Option<AddressInfo> {
+        self.0.get().0.lookup_offset(offset)
     }
 }

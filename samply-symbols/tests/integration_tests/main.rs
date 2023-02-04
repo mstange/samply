@@ -428,12 +428,51 @@ fn linux_nonzero_base_address() {
         symbol_map.debug_id(),
         DebugId::from_breakpad("83CA53B0E8272691CEFCD79178D33D5C0").unwrap()
     );
-    assert_eq!(symbol_map.lookup(0x1700), None);
-    assert_eq!(symbol_map.lookup(0x18a0).unwrap().symbol.name, "start");
-    assert_eq!(symbol_map.lookup(0x19ea).unwrap().symbol.name, "main");
+    assert_eq!(symbol_map.lookup_relative_address(0x1700), None);
     assert_eq!(
-        symbol_map.lookup(0x1a60).unwrap().symbol.name,
+        symbol_map
+            .lookup_relative_address(0x18a0)
+            .unwrap()
+            .symbol
+            .name,
+        "start"
+    );
+    assert_eq!(
+        symbol_map
+            .lookup_relative_address(0x19ea)
+            .unwrap()
+            .symbol
+            .name,
+        "main"
+    );
+    assert_eq!(
+        symbol_map
+            .lookup_relative_address(0x1a60)
+            .unwrap()
+            .symbol
+            .name,
         "_libc_csu_init"
+    );
+
+    // Compare relative addresses, SVMAs, and file offsets.
+    // For this firefox binary, the segment information is as follows (from `llvm-readelf --segments`):
+    // Type           Offset   VirtAddr           PhysAddr           FileSiz  MemSiz   Flg Align
+    // LOAD           0x000000 0x0000000000200000 0x0000000000200000 0x000894 0x000894 R   0x1000
+    // LOAD           0x0008a0 0x00000000002018a0 0x00000000002018a0 0x0002f0 0x0002f0 R E 0x1000
+    // LOAD           0x000b90 0x0000000000202b90 0x0000000000202b90 0x000200 0x000200 RW  0x1000
+    // LOAD           0x000d90 0x0000000000203d90 0x0000000000203d90 0x000068 0x000069 RW  0x1000
+    //
+    // [Nr] Name              Type            Address          Off    Size   ES Flg Lk Inf Al
+    // ...
+    // [15] .text             PROGBITS        00000000002018a0 0008a0 000232 00  AX  0   0 16
+
+    assert_eq!(
+        symbol_map.lookup_offset(0x8a0).unwrap(),
+        symbol_map.lookup_relative_address(0x18a0).unwrap(),
+    );
+    assert_eq!(
+        symbol_map.lookup_relative_address(0x18a0).unwrap(),
+        symbol_map.lookup_svma(0x2018a0).unwrap(),
     );
 }
 
@@ -452,9 +491,27 @@ fn example_linux() {
         symbol_map.debug_id(),
         DebugId::from_breakpad("BE4E976C325246EE9D6B7847A670B2A90").unwrap()
     );
-    assert_eq!(&symbol_map.lookup(0x1156).unwrap().symbol.name, "main");
-    assert_eq!(symbol_map.lookup(0x1158), None, "Gap between main and f");
-    assert_eq!(&symbol_map.lookup(0x1160).unwrap().symbol.name, "f");
+    assert_eq!(
+        &symbol_map
+            .lookup_relative_address(0x1156)
+            .unwrap()
+            .symbol
+            .name,
+        "main"
+    );
+    assert_eq!(
+        symbol_map.lookup_relative_address(0x1158),
+        None,
+        "Gap between main and f"
+    );
+    assert_eq!(
+        &symbol_map
+            .lookup_relative_address(0x1160)
+            .unwrap()
+            .symbol
+            .name,
+        "f"
+    );
 }
 
 #[test]
@@ -473,7 +530,7 @@ fn example_linux_fallback() {
         DebugId::from_breakpad("C3FC2519F439E42A970B693775586AA80").unwrap()
     );
     // no _stack_chk_fail@@GLIBC_2.4 please
-    assert_eq!(symbol_map.lookup(0x6), None);
+    assert_eq!(symbol_map.lookup_relative_address(0x6), None);
 }
 
 #[test]

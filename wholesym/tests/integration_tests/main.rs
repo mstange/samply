@@ -38,7 +38,7 @@ fn for_docs() {
             .load_symbol_map_for_binary_at_path(&ls_bin_path, None)
             .await?;
         println!("Looking up 0xd6f4 in /usr/bin/ls. Results:");
-        if let Some(address_info) = symbol_map.lookup(0xd6f4) {
+        if let Some(address_info) = symbol_map.lookup_relative_address(0xd6f4) {
             println!(
                 "Symbol: {:#x} {}",
                 address_info.symbol.address, address_info.symbol.name
@@ -142,7 +142,7 @@ fn dwz_symbolication() {
         DebugId::from_breakpad("3E0A2663466E57DBABF718F6A3562C6E0").unwrap()
     );
 
-    let sym = symbol_map.lookup(0xd6f4).unwrap();
+    let sym = symbol_map.lookup_relative_address(0xd6f4).unwrap();
 
     let frames = match &sym.frames {
         FramesLookupResult::Available(frames) => frames,

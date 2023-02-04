@@ -92,7 +92,7 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SymbolicateApi<'a, 'h, H> {
             symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
 
             for &address in &addresses {
-                if let Some(address_info) = symbol_map.lookup(address) {
+                if let Some(address_info) = symbol_map.lookup_relative_address(address) {
                     symbolication_result.add_address_symbol(
                         address,
                         address_info.symbol.address,

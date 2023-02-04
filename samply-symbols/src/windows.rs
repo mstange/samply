@@ -230,7 +230,7 @@ impl<'object> SymbolMapTrait for PdbSymbolMapInner<'object> {
         Box::new(iter)
     }
 
-    fn lookup(&self, address: u32) -> Option<AddressInfo> {
+    fn lookup_relative_address(&self, address: u32) -> Option<AddressInfo> {
         let function_frames = self.context.find_frames(address).ok()??;
         let symbol_address = function_frames.start_rva;
         let symbol_name = match &function_frames.frames.last().unwrap().function {
@@ -267,6 +267,17 @@ impl<'object> SymbolMapTrait for PdbSymbolMapInner<'object> {
         };
 
         Some(AddressInfo { symbol, frames })
+    }
+
+    fn lookup_svma(&self, _svma: u64) -> Option<AddressInfo> {
+        // TODO: Convert svma into rva by subtracting the image base address.
+        // Does the PDB know about the image base address?
+        None
+    }
+
+    fn lookup_offset(&self, _offset: u64) -> Option<AddressInfo> {
+        // TODO
+        None
     }
 }
 

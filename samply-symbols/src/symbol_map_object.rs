@@ -1,8 +1,11 @@
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 use std::{borrow::Cow, slice, sync::Mutex};
 
 use debugid::DebugId;
-use object::{File, ObjectMap, ReadRef, SectionFlags, SectionIndex, SectionKind, SymbolKind};
+use object::{
+    File, ObjectMap, ObjectSection, ObjectSegment, ReadRef, SectionFlags, SectionIndex,
+    SectionKind, SymbolKind,
+};
 
 use crate::ExternalFileAddressRef;
 use crate::{
@@ -125,6 +128,47 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> FullSymbolListEntry<'a, Symbol> {
     }
 }
 
+// A file range in an object file, such as a segment or a section,
+// for which we know the corresponding Stated Virtual Memory Address (SVMA).
+#[derive(Clone)]
+struct SvmaFileRange {
+    svma: u64,
+    file_offset: u64,
+    size: u64,
+}
+
+impl SvmaFileRange {
+    pub fn from_segment<'data, S: ObjectSegment<'data>>(segment: S) -> Self {
+        let svma = segment.address();
+        let (file_offset, size) = segment.file_range();
+        SvmaFileRange {
+            svma,
+            file_offset,
+            size,
+        }
+    }
+
+    pub fn from_section<'data, S: ObjectSection<'data>>(section: S) -> Option<Self> {
+        let svma = section.address();
+        let (file_offset, size) = section.file_range()?;
+        Some(SvmaFileRange {
+            svma,
+            file_offset,
+            size,
+        })
+    }
+}
+
+impl std::fmt::Debug for SvmaFileRange {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SvmaFileRange")
+            .field("svma", &format!("{:#x}", &self.svma))
+            .field("file_offset", &format!("{:#x}", &self.file_offset))
+            .field("size", &format!("{:#x}", &self.size))
+            .finish()
+    }
+}
+
 pub struct ObjectSymbolMapInner<'data, 'file, Symbol: object::ObjectSymbol<'data>>
 where
     'data: 'file,
@@ -135,6 +179,7 @@ where
     path_mapper: Mutex<PathMapper<()>>,
     object_map: ObjectMap<'data>,
     context: Option<addr2line::Context<gimli::EndianSlice<'file, gimli::RunTimeEndian>>>,
+    svma_file_ranges: Vec<SvmaFileRange>,
     image_base_address: u64,
 }
 
@@ -174,7 +219,6 @@ where
         let base_address = relative_address_base(object_file);
 
         // Compute the executable sections upfront. This will be used to filter out uninteresting symbols.
-        use object::ObjectSection;
         let executable_sections: Vec<SectionIndex> = object_file
             .sections()
             .filter_map(|section| match (section.kind(), section.flags()) {
@@ -327,6 +371,19 @@ where
 
         let path_mapper = Mutex::new(PathMapper::new());
 
+        let mut svma_file_ranges: Vec<SvmaFileRange> = object_file
+            .segments()
+            .map(SvmaFileRange::from_segment)
+            .collect();
+
+        if svma_file_ranges.is_empty() {
+            // If no segment is found, fall back to using section information.
+            svma_file_ranges = object_file
+                .sections()
+                .filter_map(SvmaFileRange::from_section)
+                .collect();
+        }
+
         Self {
             entries,
             debug_id,
@@ -335,7 +392,21 @@ where
             context,
             arch,
             image_base_address: base_address,
+            svma_file_ranges,
         }
+    }
+
+    fn file_offset_to_svma(&self, offset: u64) -> Option<u64> {
+        for svma_file_range in &self.svma_file_ranges {
+            if svma_file_range.file_offset <= offset
+                && offset < svma_file_range.file_offset + svma_file_range.size
+            {
+                let offset_from_range_start = offset - svma_file_range.file_offset;
+                let svma = svma_file_range.svma.checked_add(offset_from_range_start)?;
+                return Some(svma);
+            }
+        }
+        None
     }
 }
 
@@ -366,7 +437,7 @@ where
         })
     }
 
-    fn lookup(&self, address: u32) -> Option<AddressInfo> {
+    fn lookup_relative_address(&self, address: u32) -> Option<AddressInfo> {
         let index = match self
             .entries
             .binary_search_by_key(&address, |&(addr, _)| addr)
@@ -385,14 +456,14 @@ where
 
             let mut path_mapper = self.path_mapper.lock().unwrap();
 
-            let vmaddr = self.image_base_address + u64::from(address);
-            let frames = match get_frames(vmaddr, self.context.as_ref(), &mut path_mapper) {
+            let svma = self.image_base_address + u64::from(address);
+            let frames = match get_frames(svma, self.context.as_ref(), &mut path_mapper) {
                 Some(frames) => FramesLookupResult::Available(frames),
                 None => {
-                    if let Some(entry) = self.object_map.get(vmaddr) {
+                    if let Some(entry) = self.object_map.get(svma) {
                         let external_file_name = entry.object(&self.object_map);
                         let external_file_name = std::str::from_utf8(external_file_name).unwrap();
-                        let offset_from_symbol = (vmaddr - entry.address()) as u32;
+                        let offset_from_symbol = (svma - entry.address()) as u32;
                         let (file_name, name_in_archive) = match external_file_name.find('(') {
                             Some(index) => {
                                 // This is an "archive" reference of the form
@@ -437,6 +508,17 @@ where
         } else {
             None
         }
+    }
+
+    fn lookup_svma(&self, svma: u64) -> Option<AddressInfo> {
+        let relative_address = svma.checked_sub(self.image_base_address)?.try_into().ok()?;
+        // 4200608 2103456 2097152
+        self.lookup_relative_address(relative_address)
+    }
+
+    fn lookup_offset(&self, offset: u64) -> Option<AddressInfo> {
+        let svma = self.file_offset_to_svma(offset)?;
+        self.lookup_svma(svma)
     }
 }
 

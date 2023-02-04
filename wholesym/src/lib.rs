@@ -5,8 +5,8 @@
 //! Use it as follows:
 //!
 //!  1. Create a [`SymbolManager`] using [`SymbolManager::with_config`].
-//!  2. Load a symbol map with [`SymbolManager::load_symbol_map_for_binary_at_path`].
-//!  3. Look up an address with [`SymbolMap::lookup`].
+//!  2. Load a [`SymbolMap`] with [`SymbolManager::load_symbol_map_for_binary_at_path`].
+//!  3. Look up an address with [`SymbolMap::lookup_relative_address`].
 //!  4. Inspect the returned [`AddressInfo`], which gives you the symbol name, and
 //!     potentially file and line information, along with inlined function info.
 //!
@@ -26,7 +26,7 @@
 //!     .load_symbol_map_for_binary_at_path(Path::new("/usr/bin/ls"), None)
 //!     .await?;
 //! println!("Looking up 0xd6f4 in /usr/bin/ls. Results:");
-//! if let Some(address_info) = symbol_map.lookup(0xd6f4) {
+//! if let Some(address_info) = symbol_map.lookup_relative_address(0xd6f4) {
 //!     println!(
 //!         "Symbol: {:#x} {}",
 //!         address_info.symbol.address, address_info.symbol.name

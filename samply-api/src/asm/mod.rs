@@ -119,7 +119,10 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> AsmApi<'a, 'h, H> {
         address_within_function: u32,
     ) -> Option<u32> {
         let symbol_map_res = self.symbol_manager.load_symbol_map(library_info).await;
-        let symbol = symbol_map_res.ok()?.lookup(address_within_function)?.symbol;
+        let symbol = symbol_map_res
+            .ok()?
+            .lookup_relative_address(address_within_function)?
+            .symbol;
         symbol.address.checked_add(symbol.size?)
     }
 }

@@ -69,7 +69,7 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SourceApi<'a, 'h, H> {
             };
             let symbol_map = self.symbol_manager.load_symbol_map(&info).await?;
             let debug_file_location = symbol_map.debug_file_location().clone();
-            let frames = match symbol_map.lookup(*module_offset) {
+            let frames = match symbol_map.lookup_relative_address(*module_offset) {
                 Some(address_info) => address_info.frames,
                 None => FramesLookupResult::Unavailable,
             };

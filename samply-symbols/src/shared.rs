@@ -549,9 +549,11 @@ impl SourceFilePath {
     }
 }
 
-/// In calls to SymbolMap::lookup, the requested addresses are in "relative address" form.
-/// This is in contrast to the u64 "vmaddr" form which is used by section
-/// addresses, symbol addresses and DWARF pc offset information.
+/// In calls to `SymbolMap::lookup_relative_address`, the requested addresses
+/// are in "relative address" form.
+/// This is in contrast to the u64 SVMA ("stated virtual memory address") form
+/// which is used by section addresses, symbol addresses and DWARF pc offset
+/// information.
 ///
 /// Relative addresses are u32 offsets which are relative to some "base address".
 ///
