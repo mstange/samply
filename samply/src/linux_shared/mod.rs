@@ -424,7 +424,7 @@ where
     /// Hence, even if the virtual address is page aligned, its on-disk offset may not be. This
     /// leads to obvious trouble with using mmap, since mmap requires the file offset to be page
     /// aligned. Wine's workaround is straightforward: for misaligned sections, Wine will simply
-    /// copy the image from disk instead of mmaping them. For example, /proc/<pid>/maps can look
+    /// copy the image from disk instead of mmaping them. For example, `/proc/<pid>/maps` can look
     /// like this:
     ///
     /// ```
@@ -1488,9 +1488,9 @@ fn kernel_module_build_id(
 /// .text section at offset and address 0x40, followed by a few other sections, followed by
 /// the section table.
 ///
-/// This was changed by commit https://github.com/torvalds/linux/commit/babd04386b1df8c364cdaa39ac0e54349502e1e5 ,
+/// This was changed by commit <https://github.com/torvalds/linux/commit/babd04386b1df8c364cdaa39ac0e54349502e1e5>,
 /// "perf jit: Include program header in ELF files", in September 2022.
-/// There was a bug in this commit, which was fixed by commit https://github.com/torvalds/linux/commit/89b15d00527b7 ,
+/// There was a bug in this commit, which was fixed by commit <https://github.com/torvalds/linux/commit/89b15d00527b7>,
 /// "perf inject: Fix GEN_ELF_TEXT_OFFSET for jit", in October 2022.
 ///
 /// Unfortunately, the first commit made it into a number of perf releases:

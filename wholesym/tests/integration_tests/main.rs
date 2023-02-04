@@ -9,6 +9,65 @@ fn fixtures_dir() -> PathBuf {
     this_dir.join("..").join("fixtures")
 }
 
+/// This is the example from the crate docs. Run it when you update the docs.
+#[test]
+#[ignore]
+fn for_docs() {
+    use wholesym::{FramesLookupResult, SymbolManager, SymbolManagerConfig};
+
+    async fn run() -> Result<(), wholesym::Error> {
+        // let symbol_map = symbol_manager
+        //     .load_symbol_map_for_binary_at_path(std::path::Path::new("/usr/bin/ls"), None)
+        //     .await?;
+        // let symbol_manager = SymbolManager::with_config(SymbolManagerConfig::default());
+
+        let ls_dir = fixtures_dir().join("other").join("ls-linux");
+        let ls_bin_path = ls_dir.join("ls");
+        let config = SymbolManagerConfig::default()
+            .redirect_path_for_testing(
+                "/usr/lib/debug/.build-id/63/260a3e6e46db57abf718f6a3562c6eedccf269.debug",
+                ls_dir.join("260a3e6e46db57abf718f6a3562c6eedccf269.debug"),
+            )
+            .redirect_path_for_testing(
+                "/usr/lib/debug/.dwz/aarch64-linux-gnu/coreutils.debug",
+                ls_dir.join("coreutils.debug"),
+            );
+        let symbol_manager = SymbolManager::with_config(config);
+
+        let symbol_map = symbol_manager
+            .load_symbol_map_for_binary_at_path(&ls_bin_path, None)
+            .await?;
+        println!("Looking up 0xd6f4 in /usr/bin/ls. Results:");
+        if let Some(address_info) = symbol_map.lookup(0xd6f4) {
+            println!(
+                "Symbol: {:#x} {}",
+                address_info.symbol.address, address_info.symbol.name
+            );
+            let frames = match address_info.frames {
+                FramesLookupResult::Available(frames) => Some(frames),
+                FramesLookupResult::External(ext_ref) => {
+                    symbol_manager
+                        .lookup_external(&symbol_map.symbol_file_origin(), &ext_ref)
+                        .await
+                }
+                FramesLookupResult::Unavailable => None,
+            };
+            if let Some(frames) = frames {
+                for (i, frame) in frames.into_iter().enumerate() {
+                    let function = frame.function.unwrap();
+                    let file = frame.file_path.unwrap().display_path();
+                    let line = frame.line_number.unwrap();
+                    println!("  #{i:02} {function} at {file}:{line}");
+                }
+            }
+        } else {
+            println!("No symbol for 0xd6f4 was found.");
+        }
+        Ok(())
+    }
+    let _ = futures::executor::block_on(run());
+}
+
 #[test]
 fn dll() {
     // Compute the LibraryInfo for mozglue.dll.
