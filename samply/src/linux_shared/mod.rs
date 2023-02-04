@@ -424,10 +424,10 @@ where
     /// Hence, even if the virtual address is page aligned, its on-disk offset may not be. This
     /// leads to obvious trouble with using mmap, since mmap requires the file offset to be page
     /// aligned. Wine's workaround is straightforward: for misaligned sections, Wine will simply
-    /// copy the image from disk instead of mmaping them. For example, `/proc/<pid>/maps` can look
+    /// copy the image from disk instead of mmapping them. For example, `/proc/<pid>/maps` can look
     /// like this:
     ///
-    /// ```
+    /// ```plain
     /// <PE header> 140000000-140001000 r--p 00000000 00:25 272185   game.exe
     /// <.text>     140001000-143be8000 r-xp 00000000 00:00 0
     ///             143be8000-144c0c000 r--p 00000000 00:00 0
@@ -442,7 +442,7 @@ where
     /// that belongs to one of the suspected PE ranges, we'll match the mapping with the file,
     /// which allows binary correlation and unwinding to work.
     fn check_for_pe_mapping(&mut self, path_slice: &[u8], mapping_start_avma: u64) {
-        // Do a quick extension check first, to avoid end up trying to parse every mmaped file.
+        // Do a quick extension check first, to avoid end up trying to parse every mmapped file.
         let filename_is_pe = path_slice.ends_with(b".exe")
             || path_slice.ends_with(b".dll")
             || path_slice.ends_with(b".EXE")
