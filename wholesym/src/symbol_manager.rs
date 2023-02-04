@@ -31,7 +31,8 @@ pub struct SymbolFileOrigin(WholesymFileLocation);
 ///
 /// Sometimes it can be easy to mix these address types up, especially if you're testing with
 /// a file for which all three are the same. For a file for which all three are different,
-/// check out [this `firefox` binary}(), which has the following ELF LOAD commands ("segments"):
+/// check out [this `firefox` binary](https://github.com/mstange/samply/blob/841f97b0df3ecefddf8f9ba2b7d39fdcc79a79f5/fixtures/linux64-ci/firefox),
+/// which has the following ELF LOAD commands ("segments"):
 ///
 /// ```plain
 /// Type           Offset   VirtAddr           PhysAddr           FileSiz  MemSiz   Flg Align
@@ -41,8 +42,9 @@ pub struct SymbolFileOrigin(WholesymFileLocation);
 /// LOAD           0x000d90 0x0000000000203d90 0x0000000000203d90 0x000068 0x000069 RW  0x1000
 /// ```
 ///
-/// For example, in this file, the file offset `0x9ea` corresponds to the relative address
-/// `0x19ea` and to the SVMA `0x2019ea`. The image base address is `0x200000`.
+/// For example, in this file, the file offset `0x9ea` falls into the second segment and
+/// corresponds to the relative address `0x19ea` and to the SVMA `0x2019ea`.
+/// The image base address is `0x200000`.
 pub struct SymbolMap(samply_api::samply_symbols::SymbolMap<WholesymFileLocation>);
 
 impl SymbolMap {
