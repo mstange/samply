@@ -60,7 +60,8 @@ pub fn get_fat_archive_member_range(
     if members.is_empty() {
         return Err(Error::EmptyFatArchive);
     }
-    if members.len() == 1 {
+
+    if members.len() == 1 && disambiguator.is_none() {
         return Ok(members[0].offset_and_size);
     }
 
@@ -71,9 +72,13 @@ pub fn get_fat_archive_member_range(
 
     match members
         .iter()
-        .find(|m| m.matches_disambiguator(&disambiguator))
+        .filter_map(|m| {
+            m.match_score_for_disambiguator(&disambiguator)
+                .map(|score| (score, m))
+        })
+        .min_by_key(|(score, _m)| *score)
     {
-        Some(m) => Ok(m.offset_and_size),
+        Some((_score, m)) => Ok(m.offset_and_size),
         None => Err(Error::NoMatchMultiArch(members)),
     }
 }
@@ -113,13 +118,53 @@ pub struct FatArchiveMember {
 }
 
 impl FatArchiveMember {
-    pub fn matches_disambiguator(&self, disambiguator: &MultiArchDisambiguator) -> bool {
+    /// Returns `None` if it doesn't match.
+    /// Returns `Some(_)` if there is a match, and lower values are better.
+    pub fn match_score_for_disambiguator(
+        &self,
+        disambiguator: &MultiArchDisambiguator,
+    ) -> Option<usize> {
         match disambiguator {
             MultiArchDisambiguator::Arch(expected_arch) => {
-                self.arch.as_deref() == Some(expected_arch)
+                if self.arch.as_deref() == Some(expected_arch) {
+                    Some(0)
+                } else {
+                    None
+                }
+            }
+            MultiArchDisambiguator::BestMatch(expected_archs) => {
+                if let Some(arch) = self.arch.as_deref() {
+                    expected_archs.iter().position(|ea| ea == arch)
+                } else {
+                    None
+                }
+            }
+            MultiArchDisambiguator::BestMatchForNative => {
+                if let Some(arch) = self.arch.as_deref() {
+                    #[cfg(target_arch = "x86_64")]
+                    match arch {
+                        "x86_64h" => Some(0),
+                        "x86_64" => Some(1),
+                        _ => None,
+                    }
+                    #[cfg(target_arch = "aarch64")]
+                    match arch {
+                        "arm64e" => Some(0),
+                        "arm64" => Some(1),
+                        _ => None,
+                    }
+                    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+                    None
+                } else {
+                    None
+                }
             }
             MultiArchDisambiguator::DebugId(expected_debug_id) => {
-                self.uuid.map(DebugId::from_uuid) == Some(*expected_debug_id)
+                if self.uuid.map(DebugId::from_uuid) == Some(*expected_debug_id) {
+                    Some(0)
+                } else {
+                    None
+                }
             }
         }
     }

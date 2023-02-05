@@ -54,13 +54,32 @@ pub enum CandidatePathInfo<FL: FileLocation> {
 /// how to resolve the ambiguity. This is only needed on macOS.
 #[derive(Debug, Clone)]
 pub enum MultiArchDisambiguator {
-    /// Disambiguate by CPU architecture.
+    /// Disambiguate by CPU architecture (exact match).
     ///
-    /// This string is a mach-O string for what mach-O calls the "CPU type" and "CPU subtype".
+    /// This string is a name for what mach-O calls the "CPU type" and "CPU subtype".
     /// Examples are `x86_64`, `x86_64h`, `arm64`, `arm64e`.
     ///
     /// These strings are returned by the mach function `macho_arch_name_for_cpu_type`.
     Arch(String),
+
+    /// Disambiguate by CPU architecture (best match).
+    ///
+    /// The Vec contains the first choice, followed by acceptable fallback choices.
+    /// Examples are `["arm64e", "arm64"]` or `["x86_64h", "x86_64"]`.
+    /// This is used in cases where you have lost information about the architecture
+    /// you're interested in and just want to hope to get the right one.
+    ///
+    /// The strings are names for what mach-O calls the "CPU type" and "CPU subtype".
+    /// Examples are `x86_64`, `x86_64h`, `arm64`, `arm64e`.
+    ///
+    /// These strings are returned by the mach function `macho_arch_name_for_cpu_type`.
+    BestMatch(Vec<String>),
+
+    /// Disambiguate by CPU architecture and find the best match for the architecture
+    /// that is currently executing this code. This is a heuristic, and should only
+    /// be used in cases where you have lost information about the architecture you're
+    /// interested in.
+    BestMatchForNative,
 
     /// Disambiguate by `DebugId`.
     DebugId(DebugId),
