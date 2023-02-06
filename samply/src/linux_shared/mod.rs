@@ -265,10 +265,13 @@ where
 
         let thread_handle = thread.profile_thread;
 
+        // Consume off-cpu time and clear any saved off-CPU stack.
         let off_cpu_sample = self
             .context_switch_handler
             .handle_sample(timestamp, &mut thread.context_switch_data);
-        if let Some(off_cpu_sample) = off_cpu_sample {
+        if let (Some(off_cpu_sample), Some(off_cpu_stack)) =
+            (off_cpu_sample, thread.off_cpu_stack.take())
+        {
             let cpu_delta_ns = self
                 .context_switch_handler
                 .consume_cpu_delta(&mut thread.context_switch_data);
@@ -278,12 +281,10 @@ where
                 cpu_delta_ns,
                 &self.timestamp_converter,
                 self.off_cpu_weight_per_sample,
-                &thread.off_cpu_stack,
+                &off_cpu_stack,
                 &mut self.profile,
             );
         }
-        // Clear any saved off-CPU stack.
-        thread.off_cpu_stack = Vec::new();
 
         let cpu_delta = if self.have_context_switches {
             CpuDelta::from_nanos(
@@ -324,7 +325,7 @@ where
         let thread =
             self.threads
                 .get_by_tid(tid, process.profile_process, is_main, &mut self.profile);
-        thread.off_cpu_stack = stack;
+        thread.off_cpu_stack = Some(stack);
     }
 
     /// Get the stack contained in this sample, and put it into `stack`.
@@ -568,10 +569,13 @@ where
 
         match e {
             ContextSwitchRecord::In { .. } => {
+                // Consume off-cpu time and clear the saved off-CPU stack.
                 let off_cpu_sample = self
                     .context_switch_handler
                     .handle_switch_in(timestamp, &mut thread.context_switch_data);
-                if let Some(off_cpu_sample) = off_cpu_sample {
+                if let (Some(off_cpu_sample), Some(off_cpu_stack)) =
+                    (off_cpu_sample, thread.off_cpu_stack.take())
+                {
                     let cpu_delta_ns = self
                         .context_switch_handler
                         .consume_cpu_delta(&mut thread.context_switch_data);
@@ -581,12 +585,10 @@ where
                         cpu_delta_ns,
                         &self.timestamp_converter,
                         self.off_cpu_weight_per_sample,
-                        &thread.off_cpu_stack,
+                        &off_cpu_stack,
                         &mut self.profile,
                     );
                 }
-                // Clear the saved off-CPU stack.
-                thread.off_cpu_stack = Vec::new();
             }
             ContextSwitchRecord::Out { .. } => {
                 self.context_switch_handler
@@ -884,7 +886,7 @@ impl Threads {
                 profile_thread,
                 context_switch_data: Default::default(),
                 last_sample_timestamp: None,
-                off_cpu_stack: Vec::new(),
+                off_cpu_stack: None,
             }
         })
     }
@@ -894,7 +896,7 @@ struct Thread {
     profile_thread: ThreadHandle,
     context_switch_data: ThreadContextSwitchData,
     last_sample_timestamp: Option<u64>,
-    off_cpu_stack: Vec<(Frame, CategoryPairHandle)>,
+    off_cpu_stack: Option<Vec<(Frame, CategoryPairHandle)>>,
 }
 
 struct Process<U> {
