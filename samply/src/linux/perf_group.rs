@@ -137,6 +137,12 @@ fn get_threads(pid: u32) -> Result<Vec<(u32, Option<Vec<u8>>)>, io::Error> {
     Ok(output)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttachMode {
+    AttachWithEnableOnExec,
+    StopAttachEnableResume,
+}
+
 impl PerfGroup {
     pub fn new(frequency: u32, stack_size: u32, regs_mask: u64, event_source: EventSource) -> Self {
         PerfGroup {
@@ -158,20 +164,23 @@ impl PerfGroup {
         stack_size: u32,
         event_source: EventSource,
         regs_mask: u64,
+        attach_mode: AttachMode,
     ) -> Result<Self, io::Error> {
         let mut group = PerfGroup::new(frequency, stack_size, regs_mask, event_source);
-        group.open_process(pid)?;
+        group.open_process(pid, attach_mode)?;
         Ok(group)
     }
 
-    pub fn open_process(&mut self, pid: u32) -> Result<(), io::Error> {
-        self.stopped_processes.push(StoppedProcess::new(pid)?);
+    pub fn open_process(&mut self, pid: u32, attach_mode: AttachMode) -> Result<(), io::Error> {
+        if attach_mode == AttachMode::StopAttachEnableResume {
+            self.stopped_processes.push(StoppedProcess::new(pid)?);
+        }
         let mut perf_events = Vec::new();
         let threads = get_threads(pid)?;
 
         let cpu_count = num_cpus::get();
         for cpu in 0..cpu_count as u32 {
-            let perf = Perf::build()
+            let mut builder = Perf::build()
                 .pid(pid)
                 .only_cpu(cpu as _)
                 .frequency(self.frequency as u64)
@@ -181,15 +190,20 @@ impl PerfGroup {
                 .gather_context_switches()
                 .event_source(self.event_source)
                 .inherit_to_children()
-                .start_disabled()
-                .open()?;
+                .start_disabled();
+
+            if attach_mode == AttachMode::AttachWithEnableOnExec {
+                builder = builder.enable_on_exec();
+            }
+
+            let perf = builder.open()?;
 
             perf_events.push((Some(cpu), perf));
         }
 
         if cpu_count * (threads.len() + 1) >= 1000 {
             for &(tid, _) in &threads {
-                let perf = Perf::build()
+                let mut builder = Perf::build()
                     .pid(tid)
                     .any_cpu()
                     .frequency(self.frequency as u64)
@@ -197,15 +211,18 @@ impl PerfGroup {
                     .sample_user_regs(self.regs_mask)
                     .sample_kernel()
                     .event_source(self.event_source)
-                    .start_disabled()
-                    .open()?;
+                    .start_disabled();
+                if attach_mode == AttachMode::AttachWithEnableOnExec {
+                    builder = builder.enable_on_exec();
+                }
+                let perf = builder.open()?;
 
                 perf_events.push((None, perf));
             }
         } else {
             for cpu in 0..cpu_count as u32 {
                 for &(tid, _) in &threads {
-                    let perf = Perf::build()
+                    let mut builder = Perf::build()
                         .pid(tid)
                         .only_cpu(cpu as _)
                         .frequency(self.frequency as u64)
@@ -215,8 +232,11 @@ impl PerfGroup {
                         .gather_context_switches()
                         .event_source(self.event_source)
                         .inherit_to_children()
-                        .start_disabled()
-                        .open()?;
+                        .start_disabled();
+                    if attach_mode == AttachMode::AttachWithEnableOnExec {
+                        builder = builder.enable_on_exec();
+                    }
+                    let perf = builder.open()?;
 
                     perf_events.push((Some(cpu), perf));
                 }

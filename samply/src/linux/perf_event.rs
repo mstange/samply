@@ -157,6 +157,7 @@ pub struct PerfBuilder {
     event_source: EventSource,
     inherit: bool,
     start_disabled: bool,
+    enable_on_exec: bool,
     exclude_kernel: bool,
     gather_context_switches: bool,
 }
@@ -210,6 +211,11 @@ impl PerfBuilder {
 
     pub fn start_disabled(mut self) -> Self {
         self.start_disabled = true;
+        self
+    }
+
+    pub fn enable_on_exec(mut self) -> Self {
+        self.enable_on_exec = true;
         self
     }
 
@@ -315,6 +321,10 @@ impl PerfBuilder {
             | PERF_ATTR_FLAG_TASK
             | PERF_ATTR_FLAG_SAMPLE_ID_ALL;
 
+        if self.enable_on_exec {
+            attr.flags |= PERF_ATTR_FLAG_ENABLE_ON_EXEC;
+        }
+
         if exclude_kernel {
             attr.flags |= PERF_ATTR_FLAG_EXCLUDE_KERNEL;
         }
@@ -419,6 +429,7 @@ impl Perf {
             event_source: EventSource::SwCpuClock,
             inherit: false,
             start_disabled: false,
+            enable_on_exec: false,
             exclude_kernel: true,
             gather_context_switches: false,
         }

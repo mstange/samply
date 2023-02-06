@@ -5,7 +5,6 @@ use std::ffi::OsString;
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::Path;
-use std::process::Command;
 use std::process::ExitStatus;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -13,7 +12,8 @@ use std::thread;
 use std::time::Duration;
 
 use super::perf_event::EventSource;
-use super::perf_group::PerfGroup;
+use super::perf_group::{AttachMode, PerfGroup};
+use super::process::SuspendedLaunchedProcess;
 use crate::linux_shared::{ConvertRegs, Converter, EventInterpretation};
 use crate::server::{start_server_main, ServerProps};
 
@@ -42,36 +42,85 @@ pub fn start_recording(
     )
     .expect("cannot register signal handler");
 
-    let mut root_child = Command::new(&command_name)
-        .args(command_args)
-        .spawn()
-        .expect("launching child unsuccessful");
+    // Start a new process for the launched command and get its pid.
+    // The command will not start running until we tell it to.
+    let process =
+        SuspendedLaunchedProcess::launch_in_suspended_state(&command_name, command_args).unwrap();
+    let pid = process.pid();
 
-    let pid = root_child.id();
+    // Create a channel for the observer thread to notify the main thread once
+    // profiling has been initialized and the launched process can start.
+    let (s, r) = crossbeam_channel::bounded(1);
 
+    // Launch the observer thread. This thread will manage the perf events.
     let output_file_copy = output_file.to_owned();
     let command_name_copy = command_name.to_string_lossy().to_string();
     let observer_thread = thread::spawn(move || {
         let product = command_name_copy;
-        // start profiling pid
+
+        let interval_nanos = if interval.as_nanos() > 0 {
+            interval.as_nanos() as u64
+        } else {
+            1_000_000 // 1 million nano seconds = 1 milli second
+        };
+
+        // Create the perf events, setting ENABLE_ON_EXEC.
+        let perf = init_profiler(interval_nanos, pid, AttachMode::AttachWithEnableOnExec);
+
+        // Tell the main thread to tell the child process to begin executing.
+        s.send(()).unwrap();
+        drop(s);
+
+        // Create a stop flag which always stays false. We won't stop profiling until the
+        // child process is done.
+        // If Ctrl+C is pressed, it will reach the child process, and the child process
+        // will act on it and maybe terminate. If it does, profiling stops too because
+        // the main thread's wait() call below will exit.
+        let stop_flag = Arc::new(AtomicBool::new(false));
+
+        // Start profiling the process.
         run_profiler(
+            perf,
             &output_file_copy,
             &product,
             time_limit,
-            interval,
-            pid,
-            Arc::new(AtomicBool::new(false)),
+            interval_nanos,
+            stop_flag,
         );
     });
 
-    let exit_status = root_child.wait().expect("couldn't wait for child");
+    // We're on the main thread here and the observer thread has just been launched.
 
-    // The subprocess is done. From now on, we want to terminate if the user presses Ctrl+C.
-    should_terminate_on_ctrl_c.store(true, std::sync::atomic::Ordering::SeqCst);
+    // Wait for profiler initialization.
+    let () = r.recv().unwrap();
+    drop(r);
 
+    // Now tell the child process to start executing.
+    let process = match process.unsuspend_and_run() {
+        Ok(process) => process,
+        Err(run_err) => {
+            eprintln!("Could not launch child process: {}", run_err);
+            std::process::exit(1)
+        }
+    };
+
+    // Phew, we're profiling!
+
+    // Wait for the child process to quit.
+    // This is where the main thread spends all its time during profiling.
+    let exit_status = process.wait().unwrap();
+
+    // The child has quit.
+
+    // Now wait for the observer thread to quit. It will keep running until all
+    // perf events are closed, which happens if all processes which the events
+    // are attached to have quit.
     observer_thread
         .join()
         .expect("couldn't join observer thread");
+
+    // All subprocesses are done now. From now on, we want to terminate if the user presses Ctrl+C.
+    should_terminate_on_ctrl_c.store(true, std::sync::atomic::Ordering::SeqCst);
 
     if let Some(server_props) = server_props {
         start_server_main(output_file, server_props);
@@ -97,16 +146,33 @@ pub fn start_profiling_pid(
     signal_hook::flag::register(signal_hook::consts::SIGINT, stop.clone())
         .expect("cannot register signal handler");
 
+    let interval_nanos = if interval.as_nanos() > 0 {
+        interval.as_nanos() as u64
+    } else {
+        1_000_000 // 1 million nano seconds = 1 milli second
+    };
+
     let output_file_copy = output_file.to_owned();
     let product = format!("PID {pid}");
     let observer_thread = thread::spawn({
         let stop = stop.clone();
-        move || run_profiler(&output_file_copy, &product, time_limit, interval, pid, stop)
+        move || {
+            let perf_group = init_profiler(interval_nanos, pid, AttachMode::StopAttachEnableResume);
+            run_profiler(
+                perf_group,
+                &output_file_copy,
+                &product,
+                time_limit,
+                interval_nanos,
+                stop,
+            )
+        }
     });
 
     observer_thread
         .join()
         .expect("couldn't join observer thread");
+
     // If the recording was stopped due to application terminating, set the flag so that Ctrl+C
     // terminates the server.
     stop.store(true, Ordering::SeqCst);
@@ -116,59 +182,90 @@ pub fn start_profiling_pid(
     }
 }
 
-fn run_profiler(
-    output_filename: &Path,
-    product_name: &str,
-    _time_limit: Option<Duration>,
-    interval: Duration,
-    pid: u32,
-    stop: Arc<AtomicBool>,
-) {
-    let interval_nanos = if interval.as_nanos() > 0 {
-        interval.as_nanos() as u64
-    } else {
-        1_000_000 // 1 million nano seconds = 1 milli second
-    };
+fn paranoia_level() -> Option<u32> {
+    let level = read_string_lossy("/proc/sys/kernel/perf_event_paranoid").ok()?;
+    let level = level.trim().parse::<u32>().ok()?;
+    Some(level)
+}
+
+fn init_profiler(interval_nanos: u64, pid: u32, attach_mode: AttachMode) -> PerfGroup {
     let frequency = (1_000_000_000 / interval_nanos) as u32;
     let stack_size = 32000;
-    let event_source = EventSource::HwCpuCycles;
     let regs_mask = ConvertRegsNative::regs_mask();
 
-    let perf = PerfGroup::open(pid, frequency, stack_size, event_source, regs_mask);
+    let perf = PerfGroup::open(
+        pid,
+        frequency,
+        stack_size,
+        EventSource::HwCpuCycles,
+        regs_mask,
+        attach_mode,
+    );
 
     let mut perf = match perf {
         Ok(perf) => perf,
-        Err(error) => {
-            eprintln!("Failed to start profiling: {error}");
-            if error.kind() == std::io::ErrorKind::PermissionDenied {
-                if let Ok(perf_event_paranoid) =
-                    read_string_lossy("/proc/sys/kernel/perf_event_paranoid")
-                {
-                    if let Ok(level) = perf_event_paranoid.trim().parse::<u32>() {
-                        if level > 1 {
-                            eprintln!();
-                            eprintln!(
-                                "'/proc/sys/kernel/perf_event_paranoid' is currently set to {level}."
-                            );
-                            eprintln!("In order for samply to work with a non-root user, this level needs");
-                            eprintln!("to be set to 1 or lower.");
-                            eprintln!("You can execute the following command and then try again:");
-                            eprintln!(
-                                "    echo '1' | sudo tee /proc/sys/kernel/perf_event_paranoid"
-                            );
-                            eprintln!();
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            match paranoia_level() {
+                Some(level) if level > 1 => {
+                    eprintln!();
+                    eprintln!(
+                        "'/proc/sys/kernel/perf_event_paranoid' is currently set to {level}."
+                    );
+                    eprintln!("In order for samply to work with a non-root user, this level needs");
+                    eprintln!("to be set to 1 or lower.");
+                    eprintln!("You can execute the following command and then try again:");
+                    eprintln!("    echo '1' | sudo tee /proc/sys/kernel/perf_event_paranoid");
+                    eprintln!();
+                    std::process::exit(1);
+                }
+                _ => {
+                    // Permission denied even though parania was probably not the reason.
+                    // Another reason for the error could be the type of perf event:
+                    // The "Hardware CPU cycles" event is not supported in some contexts, for example in VMs.
+                    // Try a different event type.
+                    let perf = PerfGroup::open(
+                        pid,
+                        frequency,
+                        stack_size,
+                        EventSource::SwCpuClock,
+                        regs_mask,
+                        attach_mode,
+                    );
+                    match perf {
+                        Ok(perf) => perf, // Success!
+                        Err(error) => {
+                            eprintln!("Failed to start profiling: {error}");
+                            std::process::exit(1);
                         }
                     }
                 }
             }
-
+        }
+        Err(error) => {
+            eprintln!("Failed to start profiling: {error}");
             std::process::exit(1);
         }
     };
 
     // eprintln!("Enabling perf events...");
-    perf.enable();
+    match attach_mode {
+        AttachMode::StopAttachEnableResume => perf.enable(),
+        AttachMode::AttachWithEnableOnExec => {
+            // The perf event will get enabled automatically once the forked child process execs.
+        }
+    }
 
+    perf
+}
+
+fn run_profiler(
+    mut perf: PerfGroup,
+    output_filename: &Path,
+    product_name: &str,
+    _time_limit: Option<Duration>,
+    interval_nanos: u64,
+    stop: Arc<AtomicBool>,
+) {
     let cache = framehop::CacheNative::new();
 
     let first_sample_time = 0;
