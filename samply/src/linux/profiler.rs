@@ -99,7 +99,7 @@ pub fn start_recording(
     let process = match process.unsuspend_and_run() {
         Ok(process) => process,
         Err(run_err) => {
-            eprintln!("Could not launch child process: {}", run_err);
+            eprintln!("Could not launch child process: {run_err}");
             std::process::exit(1)
         }
     };

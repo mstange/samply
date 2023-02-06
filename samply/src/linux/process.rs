@@ -82,8 +82,7 @@ impl SuspendedLaunchedProcess {
                     assert_eq!(
                         Self::EXECERR_MSG_FOOTER,
                         footer,
-                        "Validation on the execerr pipe failed: {:?}",
-                        bytes
+                        "Validation on the execerr pipe failed: {bytes:?}",
                     );
                     let errno = i32::from_be_bytes([errno[0], errno[1], errno[2], errno[3]]);
                     let mut exit_status: i32 = 0;
