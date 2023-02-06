@@ -58,14 +58,9 @@ pub fn start_recording(
     let observer_thread = thread::spawn(move || {
         let product = command_name_copy;
 
-        let interval_nanos = if interval.as_nanos() > 0 {
-            interval.as_nanos() as u64
-        } else {
-            1_000_000 // 1 million nano seconds = 1 milli second
-        };
-
         // Create the perf events, setting ENABLE_ON_EXEC.
-        let perf = init_profiler(interval_nanos, pid, AttachMode::AttachWithEnableOnExec);
+        let (perf_group, converter) =
+            init_profiler(interval, pid, AttachMode::AttachWithEnableOnExec, &product);
 
         // Tell the main thread to tell the child process to begin executing.
         s.send(()).unwrap();
@@ -80,11 +75,10 @@ pub fn start_recording(
 
         // Start profiling the process.
         run_profiler(
-            perf,
+            perf_group,
+            converter,
             &output_file_copy,
-            &product,
             time_limit,
-            interval_nanos,
             stop_flag,
         );
     });
@@ -146,26 +140,14 @@ pub fn start_profiling_pid(
     signal_hook::flag::register(signal_hook::consts::SIGINT, stop.clone())
         .expect("cannot register signal handler");
 
-    let interval_nanos = if interval.as_nanos() > 0 {
-        interval.as_nanos() as u64
-    } else {
-        1_000_000 // 1 million nano seconds = 1 milli second
-    };
-
     let output_file_copy = output_file.to_owned();
     let product = format!("PID {pid}");
     let observer_thread = thread::spawn({
         let stop = stop.clone();
         move || {
-            let perf_group = init_profiler(interval_nanos, pid, AttachMode::StopAttachEnableResume);
-            run_profiler(
-                perf_group,
-                &output_file_copy,
-                &product,
-                time_limit,
-                interval_nanos,
-                stop,
-            )
+            let (perf_group, converter) =
+                init_profiler(interval, pid, AttachMode::StopAttachEnableResume, &product);
+            run_profiler(perf_group, converter, &output_file_copy, time_limit, stop)
         }
     });
 
@@ -188,7 +170,21 @@ fn paranoia_level() -> Option<u32> {
     Some(level)
 }
 
-fn init_profiler(interval_nanos: u64, pid: u32, attach_mode: AttachMode) -> PerfGroup {
+fn init_profiler(
+    interval: Duration,
+    pid: u32,
+    attach_mode: AttachMode,
+    product_name: &str,
+) -> (
+    PerfGroup,
+    Converter<framehop::UnwinderNative<Vec<u8>, framehop::MayAllocateDuringUnwind>>,
+) {
+    let interval_nanos = if interval.as_nanos() > 0 {
+        interval.as_nanos() as u64
+    } else {
+        1_000_000 // 1 million nano seconds = 1 milli second
+    };
+
     let frequency = (1_000_000_000 / interval_nanos) as u32;
     let stack_size = 32000;
     let regs_mask = ConvertRegsNative::regs_mask();
@@ -255,19 +251,6 @@ fn init_profiler(interval_nanos: u64, pid: u32, attach_mode: AttachMode) -> Perf
         }
     }
 
-    perf
-}
-
-fn run_profiler(
-    mut perf: PerfGroup,
-    output_filename: &Path,
-    product_name: &str,
-    _time_limit: Option<Duration>,
-    interval_nanos: u64,
-    stop: Arc<AtomicBool>,
-) {
-    let cache = framehop::CacheNative::new();
-
     let first_sample_time = 0;
 
     let little_endian = cfg!(target_endian = "little");
@@ -288,7 +271,7 @@ fn run_profiler(
             machine_info.as_ref().map(|info| info.release.as_str()),
             first_sample_time,
             little_endian,
-            cache,
+            framehop::CacheNative::new(),
             None,
             interpretation,
         );
@@ -305,6 +288,16 @@ fn run_profiler(
         }
     }
 
+    (perf, converter)
+}
+
+fn run_profiler(
+    mut perf: PerfGroup,
+    mut converter: Converter<framehop::UnwinderNative<Vec<u8>, framehop::MayAllocateDuringUnwind>>,
+    output_filename: &Path,
+    _time_limit: Option<Duration>,
+    stop: Arc<AtomicBool>,
+) {
     // eprintln!("Running...");
 
     let mut wait = false;
