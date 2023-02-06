@@ -730,9 +730,11 @@ impl<'h> FileAndPathHelper<'h> for Helper {
             let path = format!("/usr/lib/debug/.build-id/{two_chars}/{rest}.debug");
             paths.push(WholesymFileLocation::LocalFile(PathBuf::from(path)));
 
-            paths.push(WholesymFileLocation::DebuginfodDebugFile(
-                sup_file_build_id.to_owned(),
-            ));
+            if self.debuginfod_symbol_cache.is_some() {
+                paths.push(WholesymFileLocation::DebuginfodDebugFile(
+                    sup_file_build_id.to_owned(),
+                ));
+            }
         }
 
         Ok(paths)
