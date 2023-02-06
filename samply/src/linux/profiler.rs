@@ -370,14 +370,14 @@ fn run_profiler(
             }
 
             if pending_lost_events > 0 {
-                eprintln!("Pending lost events: {pending_lost_events}");
+                // eprintln!("Pending lost events: {pending_lost_events}");
                 pending_lost_events = 0;
             }
         }
     }
 
     if total_lost_events > 0 {
-        eprintln!("Lost {total_lost_events} events!");
+        eprintln!("Lost {total_lost_events} events.");
     }
 
     let profile = converter.finish();
