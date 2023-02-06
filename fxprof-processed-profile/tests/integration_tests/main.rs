@@ -355,7 +355,7 @@ fn it_works() {
                     }
                   ],
                   "pausedRanges": [],
-                  "preprocessedProfileVersion": 44,
+                  "preprocessedProfileVersion": 46,
                   "processType": 0,
                   "product": "test",
                   "sampleUnits": {
@@ -758,7 +758,8 @@ fn it_works() {
                         0.0
                       ]
                     },
-                    "name": "GeckoMain",
+                    "name": "test",
+                    "isMainThread": true,
                     "nativeSymbols": {
                       "address": [1700001, 172156, 674226],
                       "functionSize": [Some(180), Some(20), Some(44)],
@@ -767,7 +768,7 @@ fn it_works() {
                       "name": [8, 9, 17]
                     },
                     "pausedRanges": [],
-                    "pid": 123,
+                    "pid": "123",
                     "processName": "test",
                     "processShutdownTime": null,
                     "processStartupTime": 0.0,
@@ -917,7 +918,7 @@ fn it_works() {
                       "Experimental",
                       "CustomName"
                     ],
-                    "tid": 12345,
+                    "tid": "12345",
                     "unregisterTime": null
                   }
                 ],

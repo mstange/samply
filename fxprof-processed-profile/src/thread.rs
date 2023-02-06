@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::cmp::Ordering;
 
 use serde::ser::{SerializeMap, Serializer};
@@ -23,7 +24,7 @@ pub struct ProcessHandle(pub(crate) usize);
 #[derive(Debug)]
 pub struct Thread {
     process: ProcessHandle,
-    tid: u32,
+    tid: String,
     name: Option<String>,
     start_time: Timestamp,
     end_time: Option<Timestamp>,
@@ -41,7 +42,7 @@ pub struct Thread {
 }
 
 impl Thread {
-    pub fn new(process: ProcessHandle, tid: u32, start_time: Timestamp, is_main: bool) -> Self {
+    pub fn new(process: ProcessHandle, tid: String, start_time: Timestamp, is_main: bool) -> Self {
         Self {
             process,
             tid,
@@ -161,15 +162,12 @@ impl Thread {
         process_start_time: Timestamp,
         process_end_time: Option<Timestamp>,
         process_name: &str,
-        pid: u32,
+        pid: &str,
     ) -> Result<S::Ok, S::Error> {
-        let thread_name = if self.is_main {
-            // https://github.com/firefox-devtools/profiler/issues/2508
-            "GeckoMain".to_string()
-        } else if let Some(name) = &self.name {
-            name.clone()
-        } else {
-            format!("Thread <{}>", self.tid)
+        let thread_name: Cow<str> = match (self.is_main, &self.name) {
+            (true, _) => process_name.into(),
+            (false, Some(name)) => name.into(),
+            (false, None) => format!("Thread <{}>", self.tid).into(),
         };
 
         let thread_register_time = self.start_time;
@@ -180,6 +178,7 @@ impl Thread {
         map.serialize_entry("funcTable", &self.func_table)?;
         map.serialize_entry("markers", &self.markers)?;
         map.serialize_entry("name", &thread_name)?;
+        map.serialize_entry("isMainThread", &self.is_main)?;
         map.serialize_entry("nativeSymbols", &self.native_symbols)?;
         map.serialize_entry("pausedRanges", &[] as &[()])?;
         map.serialize_entry("pid", &pid)?;

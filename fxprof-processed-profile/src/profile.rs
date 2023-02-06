@@ -108,6 +108,8 @@ pub struct Profile {
     pub(crate) reference_timestamp: ReferenceTimestamp,
     pub(crate) string_table: GlobalStringTable,
     pub(crate) marker_schemas: FastHashMap<&'static str, MarkerSchema>,
+    used_pids: FastHashMap<u32, u32>,
+    used_tids: FastHashMap<u32, u32>,
 }
 
 impl Profile {
@@ -137,6 +139,8 @@ impl Profile {
                 color: CategoryColor::Grey,
                 subcategories: Vec::new(),
             }],
+            used_pids: FastHashMap::default(),
+            used_tids: FastHashMap::default(),
         }
     }
 
@@ -177,9 +181,33 @@ impl Profile {
     /// Add an empty process. The name, pid and start time can be changed afterwards,
     /// but they are required here because they have to be present in the profile JSON.
     pub fn add_process(&mut self, name: &str, pid: u32, start_time: Timestamp) -> ProcessHandle {
+        let pid = self.make_unique_pid(pid);
         let handle = ProcessHandle(self.processes.len());
         self.processes.push(Process::new(name, pid, start_time));
         handle
+    }
+
+    fn make_unique_pid(&mut self, pid: u32) -> String {
+        Self::make_unique_pid_or_tid(&mut self.used_pids, pid)
+    }
+
+    fn make_unique_tid(&mut self, tid: u32) -> String {
+        Self::make_unique_pid_or_tid(&mut self.used_tids, tid)
+    }
+
+    /// Appends ".1" / ".2" etc. to the pid or tid if needed
+    fn make_unique_pid_or_tid(map: &mut FastHashMap<u32, u32>, id: u32) -> String {
+        match map.entry(id) {
+            std::collections::hash_map::Entry::Occupied(mut entry) => {
+                let suffix = *entry.get();
+                *entry.get_mut() += 1;
+                format!("{id}.{suffix}")
+            }
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(1);
+                format!("{id}")
+            }
+        }
     }
 
     /// Change the start time of a process.
@@ -238,6 +266,7 @@ impl Profile {
         start_time: Timestamp,
         is_main: bool,
     ) -> ThreadHandle {
+        let tid = self.make_unique_tid(tid);
         let handle = ThreadHandle(self.threads.len());
         self.threads
             .push(Thread::new(process, tid, start_time, is_main));
@@ -392,7 +421,7 @@ impl<'a> Serialize for SerializableProfileMeta<'a> {
             }),
         )?;
         map.serialize_entry("interval", &(self.0.interval.as_secs_f64() * 1000.0))?;
-        map.serialize_entry("preprocessedProfileVersion", &44)?;
+        map.serialize_entry("preprocessedProfileVersion", &46)?;
         map.serialize_entry("processType", &0)?;
         map.serialize_entry("product", &self.0.product)?;
         map.serialize_entry(

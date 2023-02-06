@@ -13,7 +13,7 @@ pub struct ThreadHandle(pub(crate) usize);
 
 #[derive(Debug)]
 pub struct Process {
-    pid: u32,
+    pid: String,
     name: String,
     threads: Vec<ThreadHandle>,
     start_time: Timestamp,
@@ -22,7 +22,7 @@ pub struct Process {
 }
 
 impl Process {
-    pub fn new(name: &str, pid: u32, start_time: Timestamp) -> Self {
+    pub fn new(name: &str, pid: String, start_time: Timestamp) -> Self {
         Self {
             pid,
             threads: Vec::new(),
@@ -61,8 +61,8 @@ impl Process {
         self.threads.push(thread);
     }
 
-    pub fn pid(&self) -> u32 {
-        self.pid
+    pub fn pid(&self) -> &str {
+        &self.pid
     }
 
     pub fn cmp_for_json_order(&self, other: &Process) -> Ordering {
