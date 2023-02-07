@@ -25,7 +25,7 @@ pub fn start_profiling_pid(
 ) {
     eprintln!("Profiling existing processes is currently not supported on macOS.");
     eprintln!("You can only profile processes which you launch via samply.");
-    std::process::exit(-1)
+    std::process::exit(1)
 }
 
 pub fn start_recording(

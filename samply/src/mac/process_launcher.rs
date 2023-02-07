@@ -69,11 +69,11 @@ impl TaskAccepter {
                     "Error: Could not find an executable with the name {}.",
                     program.as_ref().to_string_lossy()
                 );
-                std::process::exit(-1)
+                std::process::exit(1)
             }
             Err(err) => {
                 eprintln!("Error: Could not launch child process: {err}");
-                std::process::exit(-1)
+                std::process::exit(1)
             }
         };
 
