@@ -404,6 +404,23 @@ impl TryParse<bool> for Parser<'_> {
     }
 }
 
+impl TryParse<f32> for Parser<'_> {
+    fn try_parse(&mut self, name: &str) -> ParserResult<f32> {
+        use TdhInType::*;
+        let indx = self.find_property(name)?;
+        let prop_info = &self.cache[indx];
+        if let PropertyDesc::Primitive(desc) = &prop_info.property.desc {
+            if desc.in_type == InTypeFloat {
+                if std::mem::size_of::<f32>() != prop_info.buffer.len() {
+                    return Err(ParserError::LengthMismatch);
+                }
+                return Ok(f32::from_ne_bytes(prop_info.buffer.try_into()?));
+            }
+        }
+        return Err(ParserError::InvalidType);
+    }
+}
+
 /// The `String` impl of the `TryParse` trait should be used to retrieve the following [TdhInTypes]:
 ///
 /// * InTypeUnicodeString
