@@ -1,5 +1,4 @@
 use crossbeam_channel::unbounded;
-use fxprof_processed_profile::Profile;
 use serde_json::to_writer;
 
 use std::ffi::OsString;
@@ -12,6 +11,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use super::error::SamplingError;
 use super::process_launcher::{MachError, TaskAccepter};
 use super::sampler::{Sampler, TaskInit};
 use crate::server::{start_server_main, ServerProps};
@@ -36,26 +36,11 @@ pub fn start_recording(
     interval: Duration,
     server_props: Option<ServerProps>,
 ) -> Result<ExitStatus, MachError> {
-    let (saver_sender, saver_receiver) = unbounded();
-    let output_file = output_file.to_owned();
-    let saver_thread = thread::spawn(move || {
-        let profile: Profile = saver_receiver.recv().expect("saver couldn't recv");
-        let file = File::create(&output_file).unwrap();
-        let writer = BufWriter::new(file);
-        to_writer(writer, &profile).expect("Couldn't write JSON");
-
-        // Reuse the saver thread as the server thread.
-        if let Some(server_props) = server_props {
-            start_server_main(&output_file, server_props);
-        }
-    });
-
     let (task_sender, task_receiver) = unbounded();
     let command_name_copy = command_name.to_string_lossy().to_string();
     let sampler_thread = thread::spawn(move || {
         let sampler = Sampler::new(command_name_copy, task_receiver, interval, time_limit);
-        let profile = sampler.run().expect("Sampler ran into an error");
-        saver_sender.send(profile).expect("couldn't send profile");
+        sampler.run()
     });
 
     // Ignore SIGINT while the subcommand is running. The signal still reaches the process
@@ -110,8 +95,34 @@ pub fn start_recording(
     accepter_thread
         .join()
         .expect("couldn't join accepter thread");
-    sampler_thread.join().expect("couldn't join sampler thread");
-    saver_thread.join().expect("couldn't join saver thread");
+
+    // Wait for the sampler to stop. It will run until all accepted tasks have terminated,
+    // or until the time limit has elapsed.
+    let profile_result = sampler_thread.join().expect("couldn't join sampler thread");
+
+    let profile = match profile_result {
+        Ok(profile) => profile,
+        Err(SamplingError::CouldNotObtainRootTask) => {
+            eprintln!("Profiling failed: Could not obtain the root task.");
+            eprintln!();
+            eprintln!("On macOS, samply cannot profile system commands, such as the sleep command or system python. This is because system executables are signed in such a way that they block the DYLD_INSERT_LIBRARIES environment variable, which subverts samply's attempt to siphon out the mach task port of the process.");
+            eprintln!();
+            eprintln!("Suggested remedy: You can profile any binaries that you've compiled yourself, or which are unsigned or locally-signed, such as anything installed by cargo install or by Homebrew.");
+            std::process::exit(1)
+        }
+        Err(e) => {
+            eprintln!("An error occurred during profiling: {e}");
+            std::process::exit(1)
+        }
+    };
+
+    let file = File::create(output_file).unwrap();
+    let writer = BufWriter::new(file);
+    to_writer(writer, &profile).expect("Couldn't write JSON");
+
+    if let Some(server_props) = server_props {
+        start_server_main(output_file, server_props);
+    }
 
     Ok(exit_status)
 }
