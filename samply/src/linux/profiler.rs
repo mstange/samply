@@ -139,6 +139,10 @@ pub fn start_profiling_pid(
     signal_hook::flag::register(signal_hook::consts::SIGINT, stop.clone())
         .expect("cannot register signal handler");
 
+    // Create a channel for the observer thread to notify the main thread once
+    // profiling has been initialized.
+    let (s, r) = crossbeam_channel::bounded(1);
+
     let output_file_copy = output_file.to_owned();
     let product = format!("PID {pid}");
     let observer_thread = thread::spawn({
@@ -146,16 +150,33 @@ pub fn start_profiling_pid(
         move || {
             let (perf_group, converter) =
                 init_profiler(interval, pid, AttachMode::StopAttachEnableResume, &product);
+
+            // Tell the main thread that we are now executing.
+            s.send(()).unwrap();
+            drop(s);
+
             run_profiler(perf_group, converter, &output_file_copy, time_limit, stop)
         }
     });
 
+    // We're on the main thread here and the observer thread has just been launched.
+
+    // Wait for profiler initialization.
+    let () = r.recv().unwrap();
+    drop(r);
+
+    // Now that we know that profiler initialization has succeeded, tell the user about it.
+    eprintln!("Recording process with PID {pid} until Ctrl+C...");
+
+    // Now wait for the observer thread to quit. It will keep running until the
+    // stop flag has been set to true by Ctrl+C, or until all perf events are closed,
+    // which happens if all processes which the events are attached to have quit.
     observer_thread
         .join()
         .expect("couldn't join observer thread");
 
-    // If the recording was stopped due to application terminating, set the flag so that Ctrl+C
-    // terminates the server.
+    // From now on we want Ctrl+C to always quit our process. The stop flag might still be
+    // false if the observer thread finished because the observed processes terminated.
     stop.store(true, Ordering::SeqCst);
 
     if let Some(server_props) = server_props {
