@@ -631,6 +631,43 @@ where
         }
     }
 
+    pub fn set_thread_name(&mut self, pid: i32, tid: i32, name: &str, is_thread_creation: bool) {
+        let is_main = pid == tid;
+
+        let process_handle = self
+            .processes
+            .get_by_pid(pid, &mut self.profile)
+            .profile_process;
+
+        let thread = self
+            .threads
+            .get_by_tid(tid, process_handle, is_main, &mut self.profile);
+        let thread_handle = thread.profile_thread;
+
+        self.profile.set_thread_name(thread_handle, name);
+        if is_main {
+            self.profile.set_process_name(process_handle, name);
+        }
+
+        if is_thread_creation {
+            // Mark this as the start time of the new thread / process.
+            let time = self
+                .timestamp_converter
+                .convert_time(self.current_sample_time);
+            self.profile.set_thread_start_time(thread_handle, time);
+            if is_main {
+                self.profile.set_process_start_time(process_handle, time);
+            }
+        }
+
+        if self.delayed_product_name_generator.is_some() && name != "perf-exec" {
+            let generator = self.delayed_product_name_generator.take().unwrap();
+            let product = generator(name);
+            self.profile.set_product(&product);
+            self.have_product_name = true;
+        }
+    }
+
     pub fn handle_thread_name_update(&mut self, e: CommOrExecRecord, timestamp: Option<u64>) {
         let is_main = e.pid == e.tid;
         if e.is_execve {
@@ -654,40 +691,9 @@ where
             }
         }
 
-        let process_handle = self
-            .processes
-            .get_by_pid(e.pid, &mut self.profile)
-            .profile_process;
-
         let name = e.name.as_slice();
         let name = String::from_utf8_lossy(&name);
-        let thread = self
-            .threads
-            .get_by_tid(e.tid, process_handle, is_main, &mut self.profile);
-        let thread_handle = thread.profile_thread;
-
-        self.profile.set_thread_name(thread_handle, &name);
-        if is_main {
-            self.profile.set_process_name(process_handle, &name);
-        }
-
-        if e.is_execve {
-            // Mark this as the start time of the new thread / process.
-            let time = self
-                .timestamp_converter
-                .convert_time(self.current_sample_time);
-            self.profile.set_thread_start_time(thread_handle, time);
-            if is_main {
-                self.profile.set_process_start_time(process_handle, time);
-            }
-        }
-
-        if self.delayed_product_name_generator.is_some() && name != "perf-exec" {
-            let generator = self.delayed_product_name_generator.take().unwrap();
-            let product = generator(&name);
-            self.profile.set_product(&product);
-            self.have_product_name = true;
-        }
+        self.set_thread_name(e.pid, e.tid, &name, e.is_execve);
     }
 
     fn kernel_lib(

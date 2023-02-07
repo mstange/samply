@@ -1,18 +1,10 @@
-use linux_perf_data::linux_perf_event_reader::{
-    CommOrExecRecord, CpuMode, EventRecord, Mmap2FileId, Mmap2InodeAndVersion, Mmap2Record, RawData,
-};
-
 use std::cell::Cell;
 use std::collections::BTreeMap;
-use std::fs::{self, File};
-use std::io::{self, Read};
-use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::os::unix::io::RawFd;
-use std::vec;
+use std::{fs, io, vec};
 
 use super::perf_event::{EventRef, EventSource, Perf};
-use super::proc_maps;
 
 struct StoppedProcess(u32);
 
@@ -72,7 +64,6 @@ pub struct PerfGroup {
     stack_size: u32,
     regs_mask: u64,
     event_source: EventSource,
-    initial_events: Vec<EventRecord<'static>>,
     stopped_processes: Vec<StoppedProcess>,
 }
 
@@ -103,38 +94,20 @@ where
     }
 }
 
-#[allow(clippy::type_complexity)]
-fn get_threads(pid: u32) -> Result<Vec<(u32, Option<Vec<u8>>)>, io::Error> {
-    let mut output = Vec::new();
-    for entry in (fs::read_dir(format!("/proc/{pid}/task"))?).flatten() {
-        let tid: u32 = entry.file_name().to_string_lossy().parse().unwrap();
-        if tid == pid {
-            continue;
-        }
-
-        let mut name = None;
-        let comm_path = format!("/proc/{pid}/task/{tid}/comm");
-        if let Ok(mut fp) = File::open(comm_path) {
-            let mut buffer = Vec::new();
-            if fp.read_to_end(&mut buffer).is_ok() {
-                let length = buffer
-                    .iter()
-                    .position(|&byte| byte == 0)
-                    .unwrap_or(buffer.len());
-                buffer.truncate(length);
-
-                if !buffer.is_empty() && buffer[buffer.len() - 1] == b'\n' {
-                    buffer.truncate(length - 1);
-                }
-
-                name = Some(buffer);
+fn get_threads(pid: u32) -> Result<Vec<u32>, io::Error> {
+    let entries = fs::read_dir(format!("/proc/{pid}/task"))?;
+    let tids = entries
+        .flatten()
+        .filter_map(|entry| {
+            let tid: u32 = entry.file_name().to_string_lossy().parse().unwrap();
+            if tid != pid {
+                Some(tid)
+            } else {
+                None
             }
-        }
-
-        output.push((tid, name));
-    }
-
-    Ok(output)
+        })
+        .collect();
+    Ok(tids)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -153,7 +126,6 @@ impl PerfGroup {
             stack_size,
             event_source,
             regs_mask,
-            initial_events: Vec::new(),
             stopped_processes: Vec::new(),
         }
     }
@@ -202,7 +174,7 @@ impl PerfGroup {
         }
 
         if cpu_count * (threads.len() + 1) >= 1000 {
-            for &(tid, _) in &threads {
+            for &tid in &threads {
                 let mut builder = Perf::build()
                     .pid(tid)
                     .any_cpu()
@@ -221,7 +193,7 @@ impl PerfGroup {
             }
         } else {
             for cpu in 0..cpu_count as u32 {
-                for &(tid, _) in &threads {
+                for &tid in &threads {
                     let mut builder = Perf::build()
                         .pid(tid)
                         .only_cpu(cpu as _)
@@ -247,68 +219,7 @@ impl PerfGroup {
             self.members.insert(perf.fd(), Member::new(perf));
         }
 
-        let maps = read_string_lossy(format!("/proc/{pid}/maps"))?;
-        let maps = proc_maps::parse(&maps);
-
-        for (tid, name) in threads {
-            let name = match name {
-                Some(name) => Box::leak(name.into_boxed_slice()),
-                None => &mut [],
-            };
-            self.initial_events
-                .push(EventRecord::Comm(CommOrExecRecord {
-                    pid: pid as i32,
-                    tid: tid as i32,
-                    name: RawData::Single(name),
-                    is_execve: false,
-                }));
-        }
-
-        for region in maps {
-            let mut protection = 0;
-            if region.is_read {
-                protection |= libc::PROT_READ;
-            }
-            if region.is_write {
-                protection |= libc::PROT_WRITE;
-            }
-            if region.is_executable {
-                protection |= libc::PROT_EXEC;
-            }
-
-            let mut flags = 0;
-            if region.is_shared {
-                flags |= libc::MAP_SHARED;
-            } else {
-                flags |= libc::MAP_PRIVATE;
-            }
-
-            self.initial_events.push(EventRecord::Mmap2(Mmap2Record {
-                pid: pid as i32,
-                tid: pid as i32,
-                address: region.start,
-                length: region.end - region.start,
-                page_offset: region.file_offset,
-                file_id: Mmap2FileId::InodeAndVersion(Mmap2InodeAndVersion {
-                    major: region.major,
-                    minor: region.minor,
-                    inode: region.inode,
-                    inode_generation: 0,
-                }),
-                protection: protection as _,
-                flags: flags as _,
-                path: RawData::Single(Box::leak(region.name.into_bytes().into_boxed_slice())),
-                cpu_mode: CpuMode::User,
-            }));
-        }
-
         Ok(())
-    }
-
-    pub fn take_initial_events(&mut self) -> Vec<EventRecord<'static>> {
-        let mut events = Vec::new();
-        mem::swap(&mut events, &mut self.initial_events);
-        events
     }
 
     pub fn is_empty(&self) -> bool {
@@ -357,9 +268,4 @@ impl PerfGroup {
 
         self.event_buffer.drain(..)
     }
-}
-
-pub fn read_string_lossy<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<String> {
-    let data = std::fs::read(path)?;
-    Ok(String::from_utf8_lossy(&data).into_owned())
 }

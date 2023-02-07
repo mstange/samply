@@ -1,4 +1,7 @@
 use linux_perf_data::linux_perf_event_reader::EventRecord;
+use linux_perf_data::linux_perf_event_reader::{
+    CpuMode, Mmap2FileId, Mmap2InodeAndVersion, Mmap2Record, RawData,
+};
 
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -13,6 +16,7 @@ use std::time::Duration;
 
 use super::perf_event::EventSource;
 use super::perf_group::{AttachMode, PerfGroup};
+use super::proc_maps;
 use super::process::SuspendedLaunchedProcess;
 use crate::linux_shared::{ConvertRegs, Converter, EventInterpretation};
 use crate::server::{start_server_main, ServerProps};
@@ -263,14 +267,6 @@ fn init_profiler(
         }
     };
 
-    // eprintln!("Enabling perf events...");
-    match attach_mode {
-        AttachMode::StopAttachEnableResume => perf.enable(),
-        AttachMode::AttachWithEnableOnExec => {
-            // The perf event will get enabled automatically once the forked child process execs.
-        }
-    }
-
     let first_sample_time = 0;
 
     let little_endian = cfg!(target_endian = "little");
@@ -296,15 +292,66 @@ fn init_profiler(
             interpretation,
         );
 
-    for event in perf.take_initial_events() {
-        match event {
-            EventRecord::Comm(e) => {
-                converter.handle_thread_name_update(e, Some(0));
-            }
-            EventRecord::Mmap2(e) => {
-                converter.handle_mmap2(e);
-            }
-            _ => unreachable!(),
+    // TODO: Gather threads / processes recursively, here and in PerfGroup setup.
+    for entry in std::fs::read_dir(format!("/proc/{pid}/task"))
+        .unwrap()
+        .flatten()
+    {
+        let tid: u32 = entry.file_name().to_string_lossy().parse().unwrap();
+        let comm_path = format!("/proc/{pid}/task/{tid}/comm");
+        if let Ok(buffer) = std::fs::read(comm_path) {
+            let length = memchr::memchr(b'\0', &buffer).unwrap_or(buffer.len());
+            let name = std::str::from_utf8(&buffer[..length]).unwrap().trim_end();
+            converter.set_thread_name(pid as i32, tid as i32, name, true);
+        }
+    }
+
+    let maps = read_string_lossy(format!("/proc/{pid}/maps")).expect("couldn't read proc maps");
+    let maps = proc_maps::parse(&maps);
+
+    for region in maps {
+        let mut protection = 0;
+        if region.is_read {
+            protection |= libc::PROT_READ;
+        }
+        if region.is_write {
+            protection |= libc::PROT_WRITE;
+        }
+        if region.is_executable {
+            protection |= libc::PROT_EXEC;
+        }
+
+        let mut flags = 0;
+        if region.is_shared {
+            flags |= libc::MAP_SHARED;
+        } else {
+            flags |= libc::MAP_PRIVATE;
+        }
+
+        converter.handle_mmap2(Mmap2Record {
+            pid: pid as i32,
+            tid: pid as i32,
+            address: region.start,
+            length: region.end - region.start,
+            page_offset: region.file_offset,
+            file_id: Mmap2FileId::InodeAndVersion(Mmap2InodeAndVersion {
+                major: region.major,
+                minor: region.minor,
+                inode: region.inode,
+                inode_generation: 0,
+            }),
+            protection: protection as _,
+            flags: flags as _,
+            path: RawData::Single(&region.name.into_bytes()),
+            cpu_mode: CpuMode::User,
+        });
+    }
+
+    // eprintln!("Enabling perf events...");
+    match attach_mode {
+        AttachMode::StopAttachEnableResume => perf.enable(),
+        AttachMode::AttachWithEnableOnExec => {
+            // The perf event will get enabled automatically once the forked child process execs.
         }
     }
 
