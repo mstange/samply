@@ -29,6 +29,7 @@ use server::{start_server_main, PortSelection, ServerProps};
 #[derive(Debug, Parser)]
 #[command(
     name = "samply",
+    version,
     about = r#"
 samply is a sampling CPU profiler.
 Run a command, record a CPU profile of its execution, and open the profiler UI.
@@ -39,9 +40,15 @@ EXAMPLES:
     # Default usage:
     samply record ./yourcommand yourargs
 
+    # On Linux, you can also profile existing processes by pid:
+    samply record -p 12345 # Linux only
+
     # Alternative usage: Save profile to file for later viewing, and then load it.
     samply record --save-only -o prof.json -- ./yourcommand yourargs
-    samply load prof.json
+    samply load prof.json # Opens in the browser and supplies symbols
+
+    # Import perf.data files from Linux perf:
+    samply load perf.data
 "#
 )]
 struct Opt {
