@@ -105,6 +105,8 @@ pub fn start_recording(
     let exit_status = process.wait().unwrap();
 
     // The child has quit.
+    // From now on, we want to terminate if the user presses Ctrl+C.
+    should_terminate_on_ctrl_c.store(true, std::sync::atomic::Ordering::SeqCst);
 
     // Now wait for the observer thread to quit. It will keep running until all
     // perf events are closed, which happens if all processes which the events
@@ -112,9 +114,6 @@ pub fn start_recording(
     observer_thread
         .join()
         .expect("couldn't join observer thread");
-
-    // All subprocesses are done now. From now on, we want to terminate if the user presses Ctrl+C.
-    should_terminate_on_ctrl_c.store(true, std::sync::atomic::Ordering::SeqCst);
 
     if let Some(server_props) = server_props {
         start_server_main(output_file, server_props);
