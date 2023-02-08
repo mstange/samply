@@ -1,7 +1,7 @@
 use serde::ser::{Serialize, Serializer};
 
 /// One of the available colors for a category.
-#[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
 pub enum CategoryColor {
     Transparent,
     Purple,

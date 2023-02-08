@@ -1,4 +1,5 @@
 mod context_switch;
+mod jit_category_manager;
 mod kernel_symbols;
 mod object_rewriter;
 
@@ -27,7 +28,9 @@ use linux_perf_event_reader::{
 use memmap2::Mmap;
 use object::pe::{ImageNtHeaders32, ImageNtHeaders64};
 use object::read::pe::{ImageNtHeaders, ImageOptionalHeader, PeFile};
-use object::{FileKind, Object, ObjectSection, ObjectSegment, SectionKind};
+use object::{
+    FileKind, Object, ObjectSection, ObjectSegment, ObjectSymbol, SectionKind, SymbolKind,
+};
 use samply_symbols::{debug_id_for_object, DebugIdExt};
 use wholesym::samply_symbols;
 
@@ -40,6 +43,7 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 use std::{ops::Range, path::Path};
 
+use self::jit_category_manager::JitCategoryManager;
 use self::kernel_symbols::KernelSymbols;
 
 pub trait ConvertRegs {
@@ -172,6 +176,8 @@ where
     /// Mapping of start address to potential mapped PE binaries.
     /// The key is equal to the start field of the value.
     suspected_pe_mappings: BTreeMap<u64, SuspectedPeMapping>,
+
+    jit_category_manager: JitCategoryManager,
 }
 
 const DEFAULT_OFF_CPU_SAMPLING_INTERVAL_NS: u64 = 1_000_000; // 1ms
@@ -230,6 +236,7 @@ where
             have_context_switches: interpretation.have_context_switches,
             kernel_symbols: KernelSymbols::new_for_running_kernel(),
             suspected_pe_mappings: BTreeMap::new(),
+            jit_category_manager: JitCategoryManager::new(),
         }
     }
 
@@ -298,7 +305,9 @@ where
             CpuDelta::from_nanos(0)
         };
 
-        let frames = self.stack_converter.convert_stack(stack);
+        let frames = self
+            .stack_converter
+            .convert_stack(stack, &process.jit_functions);
         self.profile
             .add_sample(thread_handle, profile_timestamp, frames, cpu_delta, 1);
         thread.last_sample_timestamp = Some(timestamp);
@@ -318,7 +327,7 @@ where
 
         let stack = self
             .stack_converter
-            .convert_stack_no_kernel(&stack)
+            .convert_stack_no_kernel(&stack, &process.jit_functions)
             .collect();
 
         let thread =
@@ -802,6 +811,10 @@ where
         let mapping_end_avma = mapping_start_avma + mapping_size;
         let avma_range = mapping_start_avma..mapping_end_avma;
 
+        let name = Path::new(&path)
+            .file_name()
+            .map_or("<unknown>".into(), |f| f.to_string_lossy().to_string());
+
         let code_id;
         let debug_id;
         let base_avma;
@@ -941,6 +954,18 @@ where
                 .ok()
                 .flatten()
                 .map(|build_id| CodeId::from_binary(build_id).to_string());
+
+            if name.starts_with("jitted-") && name.ends_with(".so") {
+                let symbol_name = jit_function_name(&file);
+                let category = self
+                    .jit_category_manager
+                    .get_category(symbol_name, &mut self.profile);
+                process.jit_functions.insert(JitFunction {
+                    start_address: mapping_start_avma,
+                    end_address: mapping_end_avma,
+                    category,
+                });
+            };
         } else {
             // Without access to the binary file, make some guesses. We can't really
             // know what the right base address is because we don't have the section
@@ -954,10 +979,6 @@ where
                 .unwrap_or_default();
             code_id = build_id.map(|build_id| CodeId::from_binary(build_id).to_string());
         }
-
-        let name = Path::new(&path)
-            .file_name()
-            .map_or("<unknown>".into(), |f| f.to_string_lossy().to_string());
 
         self.profile.add_lib(
             process.profile_process,
@@ -976,6 +997,19 @@ where
         );
     }
 }
+
+fn jit_function_name<'data>(obj: &object::File<'data>) -> Option<&'data str> {
+    let mut text_symbols = obj.symbols().filter(|s| s.kind() == SymbolKind::Text);
+    let symbol = text_symbols.next()?;
+    symbol.name().ok()
+}
+
+// #[test]
+// fn test_my_jit() {
+//     let data = std::fs::read("/Users/mstange/Downloads/jitted-123175-0-fixed.so").unwrap();
+//     let file = object::File::parse(&data[..]).unwrap();
+//     dbg!(jit_function_name(&file));
+// }
 
 struct TimestampConverter {
     reference_ns: u64,
@@ -1031,22 +1065,28 @@ struct StackConverter {
 }
 
 impl StackConverter {
-    fn convert_stack(
+    fn convert_stack<'a>(
         &self,
         stack: Vec<StackFrame>,
-    ) -> impl Iterator<Item = (Frame, CategoryPairHandle)> {
+        jit_functions: &'a JitFunctions,
+    ) -> impl Iterator<Item = (Frame, CategoryPairHandle)> + 'a {
         let user_category = self.user_category;
         let kernel_category = self.kernel_category;
         stack.into_iter().rev().filter_map(move |frame| {
-            let (location, mode) = match frame {
+            let (location, mode, lookup_address) = match frame {
                 StackFrame::InstructionPointer(addr, mode) => {
-                    (Frame::InstructionPointer(addr), mode)
+                    (Frame::InstructionPointer(addr), mode, addr)
                 }
-                StackFrame::ReturnAddress(addr, mode) => (Frame::ReturnAddress(addr), mode),
+                StackFrame::ReturnAddress(addr, mode) => {
+                    (Frame::ReturnAddress(addr), mode, addr.saturating_sub(1))
+                }
                 StackFrame::TruncatedStackMarker => return None,
             };
             let category = match mode {
-                StackMode::User => user_category,
+                StackMode::User => match jit_functions.category_for_address(lookup_address) {
+                    Some(category) => category,
+                    None => user_category,
+                },
                 StackMode::Kernel => kernel_category,
             };
             Some((location, category))
@@ -1056,18 +1096,27 @@ impl StackConverter {
     fn convert_stack_no_kernel<'a>(
         &self,
         stack: &'a [StackFrame],
+        jit_functions: &'a JitFunctions,
     ) -> impl Iterator<Item = (Frame, CategoryPairHandle)> + 'a {
         let user_category = self.user_category;
         stack.iter().rev().filter_map(move |frame| {
-            let (location, mode) = match *frame {
+            let (location, mode, lookup_address) = match *frame {
                 StackFrame::InstructionPointer(addr, mode) => {
-                    (Frame::InstructionPointer(addr), mode)
+                    (Frame::InstructionPointer(addr), mode, addr)
                 }
-                StackFrame::ReturnAddress(addr, mode) => (Frame::ReturnAddress(addr), mode),
+                StackFrame::ReturnAddress(addr, mode) => {
+                    (Frame::ReturnAddress(addr), mode, addr.saturating_sub(1))
+                }
                 StackFrame::TruncatedStackMarker => return None,
             };
             match mode {
-                StackMode::User => Some((location, user_category)),
+                StackMode::User => {
+                    let category = match jit_functions.category_for_address(lookup_address) {
+                        Some(category) => category,
+                        None => user_category,
+                    };
+                    Some((location, category))
+                }
                 StackMode::Kernel => None,
             }
         })
@@ -1093,6 +1142,7 @@ where
             Process {
                 profile_process: handle,
                 unwinder: U::default(),
+                jit_functions: JitFunctions(Vec::new()),
             }
         })
     }
@@ -1135,6 +1185,40 @@ struct Thread {
 struct Process<U> {
     pub profile_process: ProcessHandle,
     pub unwinder: U,
+    pub jit_functions: JitFunctions,
+}
+
+struct JitFunctions(Vec<JitFunction>);
+
+impl JitFunctions {
+    pub fn insert(&mut self, fun: JitFunction) {
+        match self
+            .0
+            .binary_search_by_key(&fun.start_address, |jf| jf.start_address)
+        {
+            Ok(i) => self.0[i] = fun,
+            Err(i) => self.0.insert(i, fun),
+        }
+    }
+
+    pub fn category_for_address(&self, address: u64) -> Option<CategoryPairHandle> {
+        let jit_function = match self.0.binary_search_by_key(&address, |jf| jf.start_address) {
+            Err(0) => return None,
+            Ok(i) => &self.0[i],
+            Err(i) => &self.0[i - 1],
+        };
+        if address >= jit_function.end_address {
+            return None;
+        }
+        Some(jit_function.category)
+    }
+}
+
+#[derive(Debug, Clone)]
+struct JitFunction {
+    pub start_address: u64,
+    pub end_address: u64,
+    pub category: CategoryPairHandle,
 }
 
 #[derive(Clone, Debug)]
