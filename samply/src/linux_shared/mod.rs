@@ -31,7 +31,6 @@ use object::{FileKind, Object, ObjectSection, ObjectSegment, SectionKind};
 use samply_symbols::{debug_id_for_object, DebugIdExt};
 use wholesym::samply_symbols;
 
-use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::convert::TryFrom;
 use std::ffi::OsStr;
@@ -486,33 +485,28 @@ where
         };
         let mut build_id = None;
         if let Some(dso_info) = self.build_ids.get(&dso_key) {
-            build_id = Some(&dso_info.build_id[..]);
+            build_id = Some(dso_info.build_id.to_owned());
             // Overwrite the path from the mmap record with the path from the build ID info.
             // These paths are usually the same, but in some cases the path from the build
             // ID info can be "better". For example, the synthesized mmap event for the
             // kernel vmlinux image usually has "[kernel.kallsyms]_text" whereas the build
             // ID info might have the full path to a kernel debug file, e.g.
             // "/usr/lib/debug/boot/vmlinux-4.16.0-1-amd64".
-            path = Cow::Borrowed(&dso_info.path);
+            path = dso_info.path.to_owned().into();
         }
 
         if e.pid == -1 {
-            let lib = self.kernel_lib(e.address, e.length, dso_key, build_id, &path);
+            let lib = self.kernel_lib(e.address, e.length, dso_key, build_id.as_deref(), &path);
             self.profile.add_kernel_lib(lib);
         } else {
-            let process = self.processes.get_by_pid(e.pid, &mut self.profile);
-            if let Some(lib) = add_module_to_unwinder(
-                &mut process.unwinder,
+            self.add_module_to_process(
+                e.pid,
                 &path,
                 e.page_offset,
                 e.address,
                 e.length,
-                build_id,
-                &self.suspected_pe_mappings,
-                self.extra_binary_artifact_dir.as_deref(),
-            ) {
-                self.profile.add_lib(process.profile_process, lib);
-            }
+                build_id.as_deref(),
+            );
         }
     }
 
@@ -529,29 +523,26 @@ where
 
         let path = e.path.as_slice();
         let build_id = match &e.file_id {
-            Mmap2FileId::BuildId(build_id) => Some(&build_id[..]),
+            Mmap2FileId::BuildId(build_id) => Some(build_id.to_owned()),
             Mmap2FileId::InodeAndVersion(_) => {
                 let dso_key = match DsoKey::detect(&path, e.cpu_mode) {
                     Some(dso_key) => dso_key,
                     None => return,
                 };
-                self.build_ids.get(&dso_key).map(|db| &db.build_id[..])
+                self.build_ids
+                    .get(&dso_key)
+                    .map(|db| db.build_id.to_owned())
             }
         };
 
-        let process = self.processes.get_by_pid(e.pid, &mut self.profile);
-        if let Some(lib) = add_module_to_unwinder(
-            &mut process.unwinder,
+        self.add_module_to_process(
+            e.pid,
             &path,
             e.page_offset,
             e.address,
             e.length,
-            build_id,
-            &self.suspected_pe_mappings,
-            self.extra_binary_artifact_dir.as_deref(),
-        ) {
-            self.profile.add_lib(process.profile_process, lib);
-        }
+            build_id.as_deref(),
+        );
     }
 
     pub fn handle_context_switch(&mut self, e: ContextSwitchRecord, common: CommonData) {
@@ -741,6 +732,248 @@ where
             arch: None,
             symbol_table,
         }
+    }
+
+    /// Tell the unwinder about this module, and alsos create a ProfileModule
+    /// and add it to the profile.
+    ///
+    /// The unwinder needs to know about it in case we need to do DWARF stack
+    /// unwinding - it needs to get the unwinding information from the binary.
+    /// The profile needs to know about this module so that it can assign
+    /// addresses in the stack to the right module and so that symbolication
+    /// knows where to get symbols for this module.
+    fn add_module_to_process(
+        &mut self,
+        process_pid: i32,
+        path_slice: &[u8],
+        mapping_start_file_offset: u64,
+        mapping_start_avma: u64,
+        mapping_size: u64,
+        build_id: Option<&[u8]>,
+    ) {
+        let process = self.processes.get_by_pid(process_pid, &mut self.profile);
+        // &self.suspected_pe_mappings,
+        // self.extra_binary_artifact_dir.as_deref(),
+
+        let path = std::str::from_utf8(path_slice).unwrap();
+        let (mut file, mut path): (Option<_>, String) = match open_file_with_fallback(
+            Path::new(path),
+            self.extra_binary_artifact_dir.as_deref(),
+        ) {
+            Ok((file, path)) => (Some(file), path.to_string_lossy().to_string()),
+            _ => (None, path.to_owned()),
+        };
+
+        let mut suspected_pe_mapping = None;
+        if file.is_none() {
+            suspected_pe_mapping = self
+                .suspected_pe_mappings
+                .range(..=mapping_start_avma)
+                .next_back()
+                .map(|(_, m)| m)
+                .filter(|m| {
+                    mapping_start_avma >= m.start
+                        && mapping_start_avma + mapping_size <= m.start + m.size
+                });
+            if let Some(mapping) = suspected_pe_mapping {
+                if let Ok((pe_file, pe_path)) = open_file_with_fallback(
+                    Path::new(std::str::from_utf8(&mapping.path).unwrap()),
+                    self.extra_binary_artifact_dir.as_deref(),
+                ) {
+                    file = Some(pe_file);
+                    path = pe_path.to_string_lossy().to_string();
+                }
+            }
+        }
+
+        if file.is_none() && !path.starts_with('[') {
+            // eprintln!("Could not open file {:?}", objpath);
+        }
+
+        // Fix up bad files from `perf inject --jit`.
+        if let Some(file_inner) = &file {
+            if let Some((fixed_file, fixed_path)) = correct_bad_perf_jit_so_file(file_inner, &path)
+            {
+                file = Some(fixed_file);
+                path = fixed_path;
+            }
+        }
+
+        let mapping_end_avma = mapping_start_avma + mapping_size;
+        let avma_range = mapping_start_avma..mapping_end_avma;
+
+        let code_id;
+        let debug_id;
+        let base_avma;
+
+        if let Some(file) = file {
+            let mmap = match unsafe { memmap2::MmapOptions::new().map(&file) } {
+                Ok(mmap) => mmap,
+                Err(err) => {
+                    eprintln!("Could not mmap file {path}: {err:?}");
+                    return;
+                }
+            };
+
+            fn section_data<'a>(section: &impl ObjectSection<'a>) -> Option<Vec<u8>> {
+                section.uncompressed_data().ok().map(|data| data.to_vec())
+            }
+
+            let file = match object::File::parse(&mmap[..]) {
+                Ok(file) => file,
+                Err(_) => {
+                    eprintln!("File {path} has unrecognized format");
+                    return;
+                }
+            };
+
+            // Verify build ID.
+            if let Some(build_id) = build_id {
+                match file.build_id().ok().flatten() {
+                    Some(file_build_id) if build_id == file_build_id => {
+                        // Build IDs match. Good.
+                    }
+                    Some(file_build_id) => {
+                        let file_build_id = CodeId::from_binary(file_build_id);
+                        let expected_build_id = CodeId::from_binary(build_id);
+                        eprintln!(
+                            "File {path} has non-matching build ID {file_build_id} (expected {expected_build_id})"
+                        );
+                        return;
+                    }
+                    None => {
+                        eprintln!(
+                            "File {path} does not contain a build ID, but we expected it to have one"
+                        );
+                        return;
+                    }
+                }
+            }
+
+            let base_svma = samply_symbols::relative_address_base(&file);
+            if let Some(mapping) = suspected_pe_mapping {
+                // For the PE correlation hack, we can't use the mapping offsets as they correspond to
+                // an anonymous mapping. Instead, the base address is pre-determined from the PE header
+                // mapping.
+                base_avma = mapping.start;
+            } else if let Some(bias) = compute_vma_bias(
+                &file,
+                mapping_start_file_offset,
+                mapping_start_avma,
+                mapping_size,
+            ) {
+                base_avma = base_svma.wrapping_add(bias);
+            } else {
+                return;
+            }
+
+            let text = file.section_by_name(".text");
+            let text_env = file.section_by_name("text_env");
+            let eh_frame = file.section_by_name(".eh_frame");
+            let got = file.section_by_name(".got");
+            let eh_frame_hdr = file.section_by_name(".eh_frame_hdr");
+
+            let unwind_data = match (
+                eh_frame.as_ref().and_then(section_data),
+                eh_frame_hdr.as_ref().and_then(section_data),
+            ) {
+                (Some(eh_frame), Some(eh_frame_hdr)) => {
+                    ModuleUnwindData::EhFrameHdrAndEhFrame(eh_frame_hdr, eh_frame)
+                }
+                (Some(eh_frame), None) => ModuleUnwindData::EhFrame(eh_frame),
+                (None, _) => ModuleUnwindData::None,
+            };
+
+            let text_data = if let Some(text_segment) = file
+                .segments()
+                .find(|segment| segment.name_bytes() == Ok(Some(b"__TEXT")))
+            {
+                let (start, size) = text_segment.file_range();
+                let address_range = base_avma + start..base_avma + start + size;
+                text_segment
+                    .data()
+                    .ok()
+                    .map(|data| TextByteData::new(data.to_owned(), address_range))
+            } else if let Some(text_section) = &text {
+                if let Some((start, size)) = text_section.file_range() {
+                    let address_range = base_avma + start..base_avma + start + size;
+                    text_section
+                        .data()
+                        .ok()
+                        .map(|data| TextByteData::new(data.to_owned(), address_range))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            fn svma_range<'a>(section: &impl ObjectSection<'a>) -> Range<u64> {
+                section.address()..section.address() + section.size()
+            }
+
+            let module = Module::new(
+                path.to_string(),
+                avma_range.clone(),
+                base_avma,
+                ModuleSvmaInfo {
+                    base_svma,
+                    text: text.as_ref().map(svma_range),
+                    text_env: text_env.as_ref().map(svma_range),
+                    stubs: None,
+                    stub_helper: None,
+                    eh_frame: eh_frame.as_ref().map(svma_range),
+                    eh_frame_hdr: eh_frame_hdr.as_ref().map(svma_range),
+                    got: got.as_ref().map(svma_range),
+                },
+                unwind_data,
+                text_data,
+            );
+            process.unwinder.add_module(module);
+
+            debug_id = if let Some(debug_id) = debug_id_for_object(&file) {
+                debug_id
+            } else {
+                return;
+            };
+            code_id = file
+                .build_id()
+                .ok()
+                .flatten()
+                .map(|build_id| CodeId::from_binary(build_id).to_string());
+        } else {
+            // Without access to the binary file, make some guesses. We can't really
+            // know what the right base address is because we don't have the section
+            // information which lets us map between addresses and file offsets, but
+            // often svmas and file offsets are the same, so this is a reasonable guess.
+            base_avma = mapping_start_avma - mapping_start_file_offset;
+
+            // If we have a build ID, convert it to a debug_id and a code_id.
+            debug_id = build_id
+                .map(|id| DebugId::from_identifier(id, true)) // TODO: endian
+                .unwrap_or_default();
+            code_id = build_id.map(|build_id| CodeId::from_binary(build_id).to_string());
+        }
+
+        let name = Path::new(&path)
+            .file_name()
+            .map_or("<unknown>".into(), |f| f.to_string_lossy().to_string());
+
+        self.profile.add_lib(
+            process.profile_process,
+            LibraryInfo {
+                base_avma,
+                avma_range,
+                debug_id,
+                code_id,
+                path: path.clone(),
+                debug_path: path,
+                debug_name: name.clone(),
+                name,
+                arch: None,
+                symbol_table: None,
+            },
+        );
     }
 }
 
@@ -1223,236 +1456,6 @@ fn get_pe_mapping_size(path_slice: &[u8]) -> Option<u64> {
         FileKind::Pe64 => inner::<ImageNtHeaders64>(&mmap),
         _ => None,
     }
-}
-
-/// Tell the unwinder about this module, and alsos create a ProfileModule
-/// so that the profile can be told about this module.
-///
-/// The unwinder needs to know about it in case we need to do DWARF stack
-/// unwinding - it needs to get the unwinding information from the binary.
-/// The profile needs to know about this module so that it can assign
-/// addresses in the stack to the right module and so that symbolication
-/// knows where to get symbols for this module.
-#[allow(clippy::too_many_arguments)]
-fn add_module_to_unwinder<U>(
-    unwinder: &mut U,
-    path_slice: &[u8],
-    mapping_start_file_offset: u64,
-    mapping_start_avma: u64,
-    mapping_size: u64,
-    build_id: Option<&[u8]>,
-    suspected_pe_mappings: &BTreeMap<u64, SuspectedPeMapping>,
-    extra_binary_artifact_dir: Option<&Path>,
-) -> Option<LibraryInfo>
-where
-    U: Unwinder<Module = Module<Vec<u8>>>,
-{
-    let path = std::str::from_utf8(path_slice).unwrap();
-    let (mut file, mut path): (Option<_>, String) =
-        match open_file_with_fallback(Path::new(path), extra_binary_artifact_dir) {
-            Ok((file, path)) => (Some(file), path.to_string_lossy().to_string()),
-            _ => (None, path.to_owned()),
-        };
-
-    let mut suspected_pe_mapping = None;
-    if file.is_none() {
-        suspected_pe_mapping = suspected_pe_mappings
-            .range(..=mapping_start_avma)
-            .next_back()
-            .map(|(_, m)| m)
-            .filter(|m| {
-                mapping_start_avma >= m.start
-                    && mapping_start_avma + mapping_size <= m.start + m.size
-            });
-        if let Some(mapping) = suspected_pe_mapping {
-            if let Ok((pe_file, pe_path)) = open_file_with_fallback(
-                Path::new(std::str::from_utf8(&mapping.path).unwrap()),
-                extra_binary_artifact_dir,
-            ) {
-                file = Some(pe_file);
-                path = pe_path.to_string_lossy().to_string();
-            }
-        }
-    }
-
-    if file.is_none() && !path.starts_with('[') {
-        // eprintln!("Could not open file {:?}", objpath);
-    }
-
-    // Fix up bad files from `perf inject --jit`.
-    if let Some(file_inner) = &file {
-        if let Some((fixed_file, fixed_path)) = correct_bad_perf_jit_so_file(file_inner, &path) {
-            file = Some(fixed_file);
-            path = fixed_path;
-        }
-    }
-
-    let mapping_end_avma = mapping_start_avma + mapping_size;
-    let avma_range = mapping_start_avma..mapping_end_avma;
-
-    let code_id;
-    let debug_id;
-    let base_avma;
-
-    if let Some(file) = file {
-        let mmap = match unsafe { memmap2::MmapOptions::new().map(&file) } {
-            Ok(mmap) => mmap,
-            Err(err) => {
-                eprintln!("Could not mmap file {path}: {err:?}");
-                return None;
-            }
-        };
-
-        fn section_data<'a>(section: &impl ObjectSection<'a>) -> Option<Vec<u8>> {
-            section.uncompressed_data().ok().map(|data| data.to_vec())
-        }
-
-        let file = match object::File::parse(&mmap[..]) {
-            Ok(file) => file,
-            Err(_) => {
-                eprintln!("File {path} has unrecognized format");
-                return None;
-            }
-        };
-
-        // Verify build ID.
-        if let Some(build_id) = build_id {
-            match file.build_id().ok().flatten() {
-                Some(file_build_id) if build_id == file_build_id => {
-                    // Build IDs match. Good.
-                }
-                Some(file_build_id) => {
-                    let file_build_id = CodeId::from_binary(file_build_id);
-                    let expected_build_id = CodeId::from_binary(build_id);
-                    eprintln!(
-                        "File {path} has non-matching build ID {file_build_id} (expected {expected_build_id})"
-                    );
-                    return None;
-                }
-                None => {
-                    eprintln!(
-                        "File {path} does not contain a build ID, but we expected it to have one"
-                    );
-                    return None;
-                }
-            }
-        }
-
-        let base_svma = samply_symbols::relative_address_base(&file);
-        if let Some(mapping) = suspected_pe_mapping {
-            // For the PE correlation hack, we can't use the mapping offsets as they correspond to
-            // an anonymous mapping. Instead, the base address is pre-determined from the PE header
-            // mapping.
-            base_avma = mapping.start;
-        } else {
-            let bias = compute_vma_bias(
-                &file,
-                mapping_start_file_offset,
-                mapping_start_avma,
-                mapping_size,
-            )?;
-            base_avma = base_svma.wrapping_add(bias);
-        }
-
-        let text = file.section_by_name(".text");
-        let text_env = file.section_by_name("text_env");
-        let eh_frame = file.section_by_name(".eh_frame");
-        let got = file.section_by_name(".got");
-        let eh_frame_hdr = file.section_by_name(".eh_frame_hdr");
-
-        let unwind_data = match (
-            eh_frame.as_ref().and_then(section_data),
-            eh_frame_hdr.as_ref().and_then(section_data),
-        ) {
-            (Some(eh_frame), Some(eh_frame_hdr)) => {
-                ModuleUnwindData::EhFrameHdrAndEhFrame(eh_frame_hdr, eh_frame)
-            }
-            (Some(eh_frame), None) => ModuleUnwindData::EhFrame(eh_frame),
-            (None, _) => ModuleUnwindData::None,
-        };
-
-        let text_data = if let Some(text_segment) = file
-            .segments()
-            .find(|segment| segment.name_bytes() == Ok(Some(b"__TEXT")))
-        {
-            let (start, size) = text_segment.file_range();
-            let address_range = base_avma + start..base_avma + start + size;
-            text_segment
-                .data()
-                .ok()
-                .map(|data| TextByteData::new(data.to_owned(), address_range))
-        } else if let Some(text_section) = &text {
-            if let Some((start, size)) = text_section.file_range() {
-                let address_range = base_avma + start..base_avma + start + size;
-                text_section
-                    .data()
-                    .ok()
-                    .map(|data| TextByteData::new(data.to_owned(), address_range))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        fn svma_range<'a>(section: &impl ObjectSection<'a>) -> Range<u64> {
-            section.address()..section.address() + section.size()
-        }
-
-        let module = Module::new(
-            path.to_string(),
-            avma_range.clone(),
-            base_avma,
-            ModuleSvmaInfo {
-                base_svma,
-                text: text.as_ref().map(svma_range),
-                text_env: text_env.as_ref().map(svma_range),
-                stubs: None,
-                stub_helper: None,
-                eh_frame: eh_frame.as_ref().map(svma_range),
-                eh_frame_hdr: eh_frame_hdr.as_ref().map(svma_range),
-                got: got.as_ref().map(svma_range),
-            },
-            unwind_data,
-            text_data,
-        );
-        unwinder.add_module(module);
-
-        debug_id = debug_id_for_object(&file)?;
-        code_id = file
-            .build_id()
-            .ok()
-            .flatten()
-            .map(|build_id| CodeId::from_binary(build_id).to_string());
-    } else {
-        // Without access to the binary file, make some guesses. We can't really
-        // know what the right base address is because we don't have the section
-        // information which lets us map between addresses and file offsets, but
-        // often svmas and file offsets are the same, so this is a reasonable guess.
-        base_avma = mapping_start_avma - mapping_start_file_offset;
-
-        // If we have a build ID, convert it to a debug_id and a code_id.
-        debug_id = build_id
-            .map(|id| DebugId::from_identifier(id, true)) // TODO: endian
-            .unwrap_or_default();
-        code_id = build_id.map(|build_id| CodeId::from_binary(build_id).to_string());
-    }
-
-    let name = Path::new(&path)
-        .file_name()
-        .map_or("<unknown>".into(), |f| f.to_string_lossy().to_string());
-    Some(LibraryInfo {
-        base_avma,
-        avma_range,
-        debug_id,
-        code_id,
-        path: path.clone(),
-        debug_path: path,
-        debug_name: name.clone(),
-        name,
-        arch: None,
-        symbol_table: None,
-    })
 }
 
 fn kernel_module_build_id(
