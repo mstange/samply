@@ -597,23 +597,51 @@ where
         }
     }
 
+    /// Called for a FORK record.
+    ///
+    /// FORK records are emitted if a new thread is started or if a new
+    /// process is created. The name is inherited from the forking thread.
     pub fn handle_thread_start(&mut self, e: ForkOrExitRecord) {
-        let is_main = e.pid == e.tid;
         let start_time = self.timestamp_converter.convert_time(e.timestamp);
-        let process = self.processes.get_by_pid(e.pid, &mut self.profile);
-        let process_handle = process.profile_process;
-        if is_main {
+
+        let prev_is_main = e.ppid == e.ptid;
+        let is_main = e.pid == e.tid;
+        let prev_process = self.processes.get_by_pid(e.ppid, &mut self.profile);
+        let prev_process_handle = prev_process.profile_process;
+        let process_handle = if e.pid != e.ppid {
+            if !is_main {
+                eprintln!("Unexpected data in FORK record: If we fork into a different process, the forked child thread should be the main thread of the new process");
+            }
+            let prev_process_name = prev_process.name.clone();
+            let process = self.processes.get_by_pid(e.pid, &mut self.profile);
+            process.name = prev_process_name;
+            let process_handle = process.profile_process;
+            if let Some(process_name) = process.name.as_deref() {
+                self.profile.set_process_name(process_handle, process_name);
+            }
             self.profile
                 .set_process_start_time(process_handle, start_time);
-        }
+            process_handle
+        } else {
+            prev_process_handle
+        };
+        let prev_thread =
+            self.threads
+                .get_by_tid(e.ptid, prev_process_handle, prev_is_main, &mut self.profile);
+        let prev_thread_name = prev_thread.name.clone();
         let thread = self
             .threads
             .get_by_tid(e.tid, process_handle, is_main, &mut self.profile);
+        thread.name = prev_thread_name;
         let thread_handle = thread.profile_thread;
+        if let Some(thread_name) = thread.name.as_deref() {
+            self.profile.set_thread_name(thread_handle, thread_name);
+        }
         self.profile
             .set_thread_start_time(thread_handle, start_time);
     }
 
+    /// Called for an EXIT record.
     pub fn handle_thread_end(&mut self, e: ForkOrExitRecord) {
         let is_main = e.pid == e.tid;
         let end_time = self.timestamp_converter.convert_time(e.timestamp);
@@ -634,10 +662,8 @@ where
     pub fn set_thread_name(&mut self, pid: i32, tid: i32, name: &str, is_thread_creation: bool) {
         let is_main = pid == tid;
 
-        let process_handle = self
-            .processes
-            .get_by_pid(pid, &mut self.profile)
-            .profile_process;
+        let process = self.processes.get_by_pid(pid, &mut self.profile);
+        let process_handle = process.profile_process;
 
         let thread = self
             .threads
@@ -645,8 +671,10 @@ where
         let thread_handle = thread.profile_thread;
 
         self.profile.set_thread_name(thread_handle, name);
+        thread.name = Some(name.to_owned());
         if is_main {
             self.profile.set_process_name(process_handle, name);
+            process.name = Some(name.to_owned());
         }
 
         if is_thread_creation {
@@ -1147,6 +1175,7 @@ where
                 profile_process: handle,
                 unwinder: U::default(),
                 jit_functions: JitFunctions(Vec::new()),
+                name: None,
             }
         })
     }
@@ -1174,6 +1203,7 @@ impl Threads {
                 context_switch_data: Default::default(),
                 last_sample_timestamp: None,
                 off_cpu_stack: None,
+                name: None,
             }
         })
     }
@@ -1184,12 +1214,14 @@ struct Thread {
     context_switch_data: ThreadContextSwitchData,
     last_sample_timestamp: Option<u64>,
     off_cpu_stack: Option<Vec<(Frame, CategoryPairHandle)>>,
+    name: Option<String>,
 }
 
 struct Process<U> {
     pub profile_process: ProcessHandle,
     pub unwinder: U,
     pub jit_functions: JitFunctions,
+    pub name: Option<String>,
 }
 
 struct JitFunctions(Vec<JitFunction>);
