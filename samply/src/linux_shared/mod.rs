@@ -767,8 +767,6 @@ where
         build_id: Option<&[u8]>,
     ) {
         let process = self.processes.get_by_pid(process_pid, &mut self.profile);
-        // &self.suspected_pe_mappings,
-        // self.extra_binary_artifact_dir.as_deref(),
 
         let path = std::str::from_utf8(path_slice).unwrap();
         let (mut file, mut path): (Option<_>, String) = match open_file_with_fallback(
