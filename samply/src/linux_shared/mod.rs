@@ -214,6 +214,13 @@ where
                 Some(interval_ns) => (*interval_ns, 1),
                 None => (DEFAULT_OFF_CPU_SAMPLING_INTERVAL_NS, 0),
             };
+        let kernel_symbols = match KernelSymbols::new_for_running_kernel() {
+            Ok(kernel_symbols) => Some(kernel_symbols),
+            Err(err) => {
+                eprintln!("Could not obtain kernel symbols: {err}");
+                None
+            }
+        };
         Self {
             profile,
             cache,
@@ -234,7 +241,7 @@ where
             off_cpu_weight_per_sample,
             context_switch_handler: ContextSwitchHandler::new(off_cpu_sampling_interval_ns),
             have_context_switches: interpretation.have_context_switches,
-            kernel_symbols: KernelSymbols::new_for_running_kernel(),
+            kernel_symbols,
             suspected_pe_mappings: BTreeMap::new(),
             jit_category_manager: JitCategoryManager::new(),
         }
@@ -757,7 +764,7 @@ where
             (DsoKey::Kernel, Some(build_id), Some(kernel_symbols))
                 if build_id == &kernel_symbols.build_id && kernel_symbols.base_avma != 0 =>
             {
-                // Run `sudo sh -c "echo 0 > /proc/sys/kernel/kptr_restrict"` to get here without root.
+                // Run `echo '0' | sudo tee /proc/sys/kernel/kptr_restrict` to get here without root.
                 Some(kernel_symbols.symbol_table.clone())
             }
             _ => None,
