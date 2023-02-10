@@ -130,11 +130,11 @@ fn main() {
     let mut start_time: u64 = 0;
     let mut perf_freq: u64 = 0;
     let mut event_count = 0;
-    let mut global_thread = if merge_threads {
+    let (mut global_thread, global_process) = if merge_threads {
         let global_process = profile.add_process("All processes", 1, profile_start_instant);
-        Some(profile.add_thread(global_process, 1, profile_start_instant, false))
+        (Some(profile.add_thread(global_process, 1, profile_start_instant, false)), Some(global_process))
     } else {
-        None
+        (None, None)
     };
     let mut gpu_thread = None;
 
@@ -178,13 +178,14 @@ fn main() {
                     }
                     let thread_id: u32 = parser.parse("ThreadId");
                     let thread_name: String = parser.parse("ThreadName");
-                    let process = processes[&dbg!(process_id)];
                     let thread = match threads.entry(thread_id) {
                         Entry::Occupied(e) => e.into_mut(),
                         Entry::Vacant(e) => {
                             let thread_start_instant = profile_start_instant;
+                            let process = processes[&dbg!(process_id)];
+                            let handle = profile.add_thread(process, thread_id, thread_start_instant, false);
                             let tb = e.insert(
-                                ThreadState::new(profile.add_thread(process, thread_id, thread_start_instant, false), thread_id)
+                                ThreadState::new(handle, thread_id)
                             );
                             thread_index += 1;
                             tb
@@ -206,13 +207,18 @@ fn main() {
                         return;
                     }
 
-                    let process = processes[&process_id];
                     let thread = match threads.entry(thread_id) {
                         Entry::Occupied(e) => e.into_mut(),
                         Entry::Vacant(e) => {
                             let thread_start_instant = profile_start_instant;
+                            let handle = if let Some(global_thread) = global_thread {
+                                global_thread
+                            } else {
+                                let process = processes[&process_id];
+                                profile.add_thread(process, thread_id, thread_start_instant, false)
+                            };
                             let tb = e.insert(
-                                ThreadState::new(profile.add_thread(process, thread_id, thread_start_instant, false), thread_id)
+                                ThreadState::new(handle, thread_id)
                             );
                             tb
                         }
@@ -220,7 +226,10 @@ fn main() {
 
                     let thread_name: Result<String, _> = parser.try_parse("ThreadName");
                     match thread_name {
-                        Ok(thread_name) if !thread_name.is_empty() => { profile.set_thread_name(thread.handle, &thread_name); thread.merge_name = Some(thread_name)},
+                        Ok(thread_name) if !thread_name.is_empty() => {
+                            profile.set_thread_name(thread.handle, &thread_name);
+                            thread.merge_name = Some(thread_name)
+                        },
                         _ => {}
                     }
                 }
@@ -237,9 +246,11 @@ fn main() {
 
                         let process_id: u32 = parser.parse("ProcessId");
                         if image_file_name.contains(process_target_name) {
-                            processes.insert(process_id, profile.add_process(&image_file_name, process_id, timestamp));
                             println!("tracing {}", process_id);
                             process_targets.insert(process_id);
+                            if global_process.is_none() {
+                                processes.insert(process_id, profile.add_process(&image_file_name, process_id, timestamp));
+                            }
                         }
                     }
                 }
@@ -258,9 +269,14 @@ fn main() {
                         Entry::Occupied(e) => e.into_mut(),
                         Entry::Vacant(e) => {
                             let thread_start_instant = profile_start_instant;
+                            let handle = if let Some(global_thread) = global_thread {
+                                global_thread
+                            } else {
+                                profile.add_thread(processes[&process_id], thread_id, thread_start_instant, false)
+                            };
                             let tb = e.insert(
                                 ThreadState {
-                                    handle: profile.add_thread(processes[&process_id], thread_id, thread_start_instant, false),
+                                    handle,
                                     last_kernel_stack: None,
                                     last_kernel_stack_time: 0,
                                     last_sample_timestamp: None,
@@ -478,7 +494,11 @@ fn main() {
                     if process_id == 0 {
                         profile.add_kernel_lib(info)
                     } else {
-                        profile.add_lib(processes[&dbg!(process_id)], info)
+                        let process = match global_process {
+                            Some(global_process) => global_process,
+                            None => processes[&dbg!(process_id)],
+                        };
+                        profile.add_lib(process, info)
                     }
                 }
                 "Microsoft-Windows-DxgKrnl/VSyncDPC/Info " => {
