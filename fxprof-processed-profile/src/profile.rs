@@ -195,7 +195,10 @@ impl Profile {
         Self::make_unique_pid_or_tid(&mut self.used_tids, tid)
     }
 
-    /// Appends ".1" / ".2" etc. to the pid or tid if needed
+    /// Appends ".1" / ".2" etc. to the pid or tid if needed.
+    ///
+    /// The map contains the next suffix for each pid/tid, or no entry if the pid/tid
+    /// hasn't been used before and needs no suffix.
     fn make_unique_pid_or_tid(map: &mut FastHashMap<u32, u32>, id: u32) -> String {
         match map.entry(id) {
             std::collections::hash_map::Entry::Occupied(mut entry) => {
