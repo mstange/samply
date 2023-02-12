@@ -36,9 +36,7 @@ use wholesym::samply_symbols;
 
 use std::collections::{BTreeMap, HashMap};
 use std::convert::TryFrom;
-use std::ffi::OsStr;
 use std::fmt::Debug;
-use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
 use std::time::SystemTime;
 use std::{ops::Range, path::Path};
@@ -1574,7 +1572,7 @@ fn get_pe_mapping_size(path_slice: &[u8]) -> Option<u64> {
         Some(size as u64)
     }
 
-    let path = Path::new(OsStr::from_bytes(path_slice));
+    let path = Path::new(std::str::from_utf8(path_slice).ok()?);
     let file = std::fs::File::open(path).ok()?;
     let mmap = unsafe { Mmap::map(&file).ok()? };
 
