@@ -188,8 +188,14 @@ impl FileLocation for FileLocationType {
         Some(Self(object_file.into()))
     }
 
-    fn location_for_pdb_from_binary(&self, pdb_path_in_binary: &str) -> Option<Self> {
-        Some(Self(pdb_path_in_binary.into()))
+    fn location_for_pdb_from_binary(&self, _pdb_path_in_binary: &str) -> Option<Self> {
+        // Don't allow getting the pdb via the binary in this test.
+        // There's a test below which wants to check if we can get symbols from
+        // the symbol table of the "mozglue.dll" binary, and it doesn't have an easy
+        // way to prohibit getting symbols from the "mozglue.pdb" next to it.
+        // Also, `pdb_path_in_binary` has backslashes in it, so if we just convert it
+        // to a path we get different behavior on Windows vs Unix.
+        None
     }
 
     fn location_for_source_file(&self, source_file_path: &str) -> Option<Self> {
