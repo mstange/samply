@@ -551,6 +551,8 @@ fn compare_snapshot() {
     .unwrap();
     let mut expected: Vec<u8> = Vec::new();
     snapshot_file.read_to_end(&mut expected).unwrap();
+    // Strip \r which git sometimes automatically inserts on Windows
+    expected.retain(|x| *x != b'\r');
 
     if output != expected {
         let mut output_file = File::create(
