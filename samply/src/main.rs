@@ -227,29 +227,38 @@ fn attempt_conversion(filename: &Path, input_file: &File) -> Option<NamedTempFil
     Some(output_file)
 }
 
-#[test]
-fn verify_cli() {
-    use clap::CommandFactory;
-    Opt::command().debug_assert();
+#[cfg(test)]
+mod test {
+    use super::*;
 
-    let opt = Opt::parse_from(["samply", "record", "rustup", "show"]);
-    assert!(
-        matches!(opt.action, Action::Record(record_args) if record_args.command == ["rustup", "show"])
-    );
+    #[test]
+    fn verify_cli() {
+        use clap::CommandFactory;
+        Opt::command().debug_assert();
+    }
 
-    let opt = Opt::parse_from(["samply", "record", "rustup", "--no-open"]);
-    assert!(
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn verify_cli_record() {
+        let opt = Opt::parse_from(["samply", "record", "rustup", "show"]);
+        assert!(
+            matches!(opt.action, Action::Record(record_args) if record_args.command == ["rustup", "show"])
+        );
+
+        let opt = Opt::parse_from(["samply", "record", "rustup", "--no-open"]);
+        assert!(
         matches!(opt.action, Action::Record(record_args) if record_args.command == ["rustup", "--no-open"]),
         "Arguments of the form --arg should be considered part of the command even if they match samply options."
     );
 
-    let opt = Opt::parse_from(["samply", "record", "--no-open", "rustup"]);
-    assert!(
-        matches!(opt.action, Action::Record(record_args) if record_args.command == ["rustup"] && record_args.server_args.no_open),
-        "Arguments which come before the command name should be treated as samply arguments."
-    );
+        let opt = Opt::parse_from(["samply", "record", "--no-open", "rustup"]);
+        assert!(
+            matches!(opt.action, Action::Record(record_args) if record_args.command == ["rustup"] && record_args.server_args.no_open),
+            "Arguments which come before the command name should be treated as samply arguments."
+        );
 
-    // Make sure you can't pass both a pid and a command name at the same time.
-    let opt_res = Opt::try_parse_from(["samply", "record", "-p", "1234", "rustup"]);
-    assert!(opt_res.is_err());
+        // Make sure you can't pass both a pid and a command name at the same time.
+        let opt_res = Opt::try_parse_from(["samply", "record", "-p", "1234", "rustup"]);
+        assert!(opt_res.is_err());
+    }
 }
