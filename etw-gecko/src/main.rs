@@ -480,13 +480,15 @@ fn main() {
                     let pdb_path: String = parser.try_parse("PdbFileName").unwrap();
                     //let pdb_path = Path::new(&pdb_path);
                     let (ref path, image_size) = libs[&image_base];
+                    let name = Path::new(path).file_name().unwrap().to_str().unwrap().to_owned();
+                    let debug_name = Path::new(&pdb_path).file_name().unwrap().to_str().unwrap().to_owned();
                     let info = LibraryInfo { 
-                        name: path.clone(), 
-                        debug_name: pdb_path.clone(), 
+                        name,
+                        debug_name,
                         path: path.clone(), 
-                        code_id: None, 
+                        code_id: None,
                         symbol_table: None, 
-                        debug_path: pdb_path, 
+                        debug_path: pdb_path,
                         debug_id, 
                         arch: Some("x86_64".into()), 
                         base_avma: image_base, 
