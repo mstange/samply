@@ -328,23 +328,26 @@ fn init_profiler(
             flags |= libc::MAP_PRIVATE;
         }
 
-        converter.handle_mmap2(Mmap2Record {
-            pid: pid as i32,
-            tid: pid as i32,
-            address: region.start,
-            length: region.end - region.start,
-            page_offset: region.file_offset,
-            file_id: Mmap2FileId::InodeAndVersion(Mmap2InodeAndVersion {
-                major: region.major,
-                minor: region.minor,
-                inode: region.inode,
-                inode_generation: 0,
-            }),
-            protection: protection as _,
-            flags: flags as _,
-            path: RawData::Single(&region.name.into_bytes()),
-            cpu_mode: CpuMode::User,
-        });
+        converter.handle_mmap2(
+            Mmap2Record {
+                pid: pid as i32,
+                tid: pid as i32,
+                address: region.start,
+                length: region.end - region.start,
+                page_offset: region.file_offset,
+                file_id: Mmap2FileId::InodeAndVersion(Mmap2InodeAndVersion {
+                    major: region.major,
+                    minor: region.minor,
+                    inode: region.inode,
+                    inode_generation: 0,
+                }),
+                protection: protection as _,
+                flags: flags as _,
+                path: RawData::Single(&region.name.into_bytes()),
+                cpu_mode: CpuMode::User,
+            },
+            0,
+        );
     }
 
     // eprintln!("Enabling perf events...");
@@ -370,6 +373,7 @@ fn run_profiler(
     let mut wait = false;
     let mut pending_lost_events = 0;
     let mut total_lost_events = 0;
+    let mut last_timestamp = 0;
     loop {
         if stop.load(Ordering::SeqCst) || perf.is_empty() {
             break;
@@ -391,6 +395,15 @@ fn run_profiler(
             let parsed_record = record.parse().unwrap();
             // debug!("Recording parsed_record: {:#?}", parsed_record);
 
+            if let Some(timestamp) = record.timestamp() {
+                if timestamp < last_timestamp {
+                    // eprintln!(
+                    //     "bad timestamp ordering; {timestamp} is earlier but arrived after {last_timestamp}"
+                    // );
+                }
+                last_timestamp = timestamp;
+            }
+
             match parsed_record {
                 EventRecord::Sample(e) => {
                     converter.handle_sample::<ConvertRegsNative>(e);
@@ -409,10 +422,10 @@ fn run_profiler(
                     converter.handle_thread_end(e);
                 }
                 EventRecord::Mmap(e) => {
-                    converter.handle_mmap(e);
+                    converter.handle_mmap(e, last_timestamp);
                 }
                 EventRecord::Mmap2(e) => {
-                    converter.handle_mmap2(e);
+                    converter.handle_mmap2(e, last_timestamp);
                 }
                 EventRecord::ContextSwitch(e) => {
                     let common = match record.common_data() {

@@ -10,8 +10,10 @@ use framehop::aarch64::UnwindRegsAarch64;
 use framehop::x86_64::UnwindRegsX86_64;
 use framehop::{FrameAddress, Module, ModuleSvmaInfo, ModuleUnwindData, TextByteData, Unwinder};
 use fxprof_processed_profile::{
-    CategoryColor, CategoryPairHandle, CpuDelta, Frame, LibraryInfo, ProcessHandle, Profile,
-    ReferenceTimestamp, SamplingInterval, ThreadHandle, Timestamp,
+    CategoryColor, CategoryPairHandle, CpuDelta, Frame, LibraryInfo, MarkerDynamicField,
+    MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerTiming,
+    ProcessHandle, Profile, ProfilerMarker, ReferenceTimestamp, SamplingInterval, ThreadHandle,
+    Timestamp,
 };
 use linux_perf_data::linux_perf_event_reader;
 use linux_perf_data::{AttributeDescription, DsoInfo, DsoKey};
@@ -32,6 +34,7 @@ use object::{
     FileKind, Object, ObjectSection, ObjectSegment, ObjectSymbol, SectionKind, SymbolKind,
 };
 use samply_symbols::{debug_id_for_object, DebugIdExt};
+use serde_json::json;
 use wholesym::samply_symbols;
 
 use std::collections::{BTreeMap, HashMap};
@@ -483,7 +486,7 @@ where
         }
     }
 
-    pub fn handle_mmap(&mut self, e: MmapRecord) {
+    pub fn handle_mmap(&mut self, e: MmapRecord, timestamp: u64) {
         if e.page_offset == 0 {
             self.check_for_pe_mapping(&e.path.as_slice(), e.address);
         }
@@ -520,11 +523,12 @@ where
                 e.address,
                 e.length,
                 build_id.as_deref(),
+                timestamp,
             );
         }
     }
 
-    pub fn handle_mmap2(&mut self, e: Mmap2Record) {
+    pub fn handle_mmap2(&mut self, e: Mmap2Record, timestamp: u64) {
         if e.page_offset == 0 {
             self.check_for_pe_mapping(&e.path.as_slice(), e.address);
         }
@@ -556,6 +560,7 @@ where
             e.address,
             e.length,
             build_id.as_deref(),
+            timestamp,
         );
     }
 
@@ -790,6 +795,7 @@ where
     /// The profile needs to know about this module so that it can assign
     /// addresses in the stack to the right module and so that symbolication
     /// knows where to get symbols for this module.
+    #[allow(clippy::too_many_arguments)]
     fn add_module_to_process(
         &mut self,
         process_pid: i32,
@@ -798,6 +804,7 @@ where
         mapping_start_avma: u64,
         mapping_size: u64,
         build_id: Option<&[u8]>,
+        timestamp: u64,
     ) {
         let process = self.processes.get_by_pid(process_pid, &mut self.profile);
 
@@ -1002,6 +1009,24 @@ where
                     end_address: mapping_end_avma,
                     category,
                 });
+
+                let main_thread = self
+                    .threads
+                    .get_by_tid(
+                        process_pid,
+                        process.profile_process,
+                        true,
+                        &mut self.profile,
+                    )
+                    .profile_thread;
+                let timing =
+                    MarkerTiming::Instant(self.timestamp_converter.convert_time(timestamp));
+                self.profile.add_marker(
+                    main_thread,
+                    "JitFunctionAdd",
+                    JitFunctionAddMarker(symbol_name.unwrap_or("<unknown>").to_owned()),
+                    timing,
+                );
             };
         } else {
             // Without access to the binary file, make some guesses. We can't really
@@ -1032,6 +1057,36 @@ where
                 symbol_table: None,
             },
         );
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct JitFunctionAddMarker(pub String);
+
+impl ProfilerMarker for JitFunctionAddMarker {
+    const MARKER_TYPE_NAME: &'static str = "JitFunctionAdd";
+
+    fn json_marker_data(&self) -> serde_json::Value {
+        json!({
+            "type": Self::MARKER_TYPE_NAME,
+            "functionName": self.0
+        })
+    }
+
+    fn schema() -> MarkerSchema {
+        MarkerSchema {
+            type_name: Self::MARKER_TYPE_NAME,
+            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
+            chart_label: Some("{marker.data.name}"),
+            tooltip_label: None,
+            table_label: Some("{marker.name} - {marker.data.name}"),
+            fields: vec![MarkerSchemaField::Dynamic(MarkerDynamicField {
+                key: "functionName",
+                label: "Name of the JIT function",
+                format: MarkerFieldFormat::String,
+                searchable: None,
+            })],
+        }
     }
 }
 

@@ -112,7 +112,7 @@ where
         };
         if let Some(timestamp) = record.timestamp() {
             if timestamp < last_timestamp {
-                println!(
+                eprintln!(
                     "bad timestamp ordering; {timestamp} is earlier but arrived after {last_timestamp}"
                 );
             }
@@ -136,10 +136,10 @@ where
                 converter.handle_thread_end(e);
             }
             EventRecord::Mmap(e) => {
-                converter.handle_mmap(e);
+                converter.handle_mmap(e, last_timestamp);
             }
             EventRecord::Mmap2(e) => {
-                converter.handle_mmap2(e);
+                converter.handle_mmap2(e, last_timestamp);
             }
             EventRecord::ContextSwitch(e) => {
                 let common = match record.common_data() {
