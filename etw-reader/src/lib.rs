@@ -279,6 +279,7 @@ pub fn start_trace<F: FnMut(&EventRecord)>(mut callback: F)  {
 }
 
 pub fn write_property(output: &mut dyn std::fmt::Write, parser: &mut Parser, property: &Property) {
+    //write!(output, "  {}: {:?} = ", property.name, property.desc).unwrap();
     write!(output, "  {}= ", property.name).unwrap();
     if let Some(map_info) = &property.map_info {
         let value = match property.desc {
