@@ -273,10 +273,26 @@ fn it_works() {
         ),
     );
 
-    let memory_counter = profile.add_counter(process, "malloc", "Memory", "Amount of allocated memory");
-    profile.add_counter_sample(memory_counter, Timestamp::from_millis_since_reference(0.0), 0.0, 0);
-    profile.add_counter_sample(memory_counter, Timestamp::from_millis_since_reference(1.0), 1000.0, 2);
-    profile.add_counter_sample(memory_counter, Timestamp::from_millis_since_reference(2.0), 800.0, 1);
+    let memory_counter =
+        profile.add_counter(process, "malloc", "Memory", "Amount of allocated memory");
+    profile.add_counter_sample(
+        memory_counter,
+        Timestamp::from_millis_since_reference(0.0),
+        0.0,
+        0,
+    );
+    profile.add_counter_sample(
+        memory_counter,
+        Timestamp::from_millis_since_reference(1.0),
+        1000.0,
+        2,
+    );
+    profile.add_counter_sample(
+        memory_counter,
+        Timestamp::from_millis_since_reference(2.0),
+        800.0,
+        1,
+    );
 
     // eprintln!("{}", serde_json::to_string_pretty(&profile).unwrap());
     assert_json_eq!(
