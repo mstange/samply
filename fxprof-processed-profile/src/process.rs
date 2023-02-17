@@ -11,6 +11,7 @@ use crate::Timestamp;
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct ThreadHandle(pub(crate) usize);
 
+
 #[derive(Debug)]
 pub struct Process {
     pid: String,
@@ -74,8 +75,8 @@ impl Process {
         self.pid.cmp(&other.pid)
     }
 
-    pub fn threads(&self) -> Vec<ThreadHandle> {
-        self.threads.clone()
+    pub fn threads(&self) -> &[ThreadHandle] {
+        &self.threads
     }
 
     pub fn convert_address(

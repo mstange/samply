@@ -272,6 +272,12 @@ fn it_works() {
             Timestamp::from_millis_since_reference(2.0),
         ),
     );
+
+    let memory_counter = profile.add_counter(process, "malloc", "Memory", "Amount of allocated memory");
+    profile.add_counter_sample(memory_counter, Timestamp::from_millis_since_reference(0.0), 0.0, 0);
+    profile.add_counter_sample(memory_counter, Timestamp::from_millis_since_reference(1.0), 1000.0, 2);
+    profile.add_counter_sample(memory_counter, Timestamp::from_millis_since_reference(2.0), 800.0, 1);
+
     // eprintln!("{}", serde_json::to_string_pretty(&profile).unwrap());
     assert_json_eq!(
         profile,
@@ -924,7 +930,38 @@ fn it_works() {
                 ],
                 "pages": [],
                 "profilerOverhead": [],
-                "counters": []
+                "counters": [
+                  {
+                    "category": "Memory",
+                    "name": "malloc",
+                    "description": "Amount of allocated memory",
+                    "mainThreadIndex": 0,
+                    "pid": "123",
+                    "sampleGroups": [
+                      {
+                        "id": 0,
+                        "samples": {
+                          "length": 3,
+                          "count": [
+                            0.0,
+                            1000.0,
+                            800.0
+                          ],
+                          "number": [
+                            0,
+                            2,
+                            1
+                          ],
+                          "time": [
+                            0.0,
+                            1.0,
+                            2.0
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                ]
               }
         )
     )

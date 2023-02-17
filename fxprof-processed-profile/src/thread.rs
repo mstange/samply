@@ -21,6 +21,9 @@ use crate::{MarkerTiming, ProfilerMarker, Timestamp};
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct ProcessHandle(pub(crate) usize);
 
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
+pub struct CounterHandle(pub(crate) usize);
+
 #[derive(Debug)]
 pub struct Thread {
     process: ProcessHandle,
@@ -143,6 +146,10 @@ impl Thread {
     }
 
     pub fn cmp_for_json_order(&self, other: &Thread) -> Ordering {
+        let ordering = (!self.is_main).cmp(&(!other.is_main));
+        if ordering != Ordering::Equal {
+            return ordering;
+        }
         if let Some(ordering) = self.start_time.partial_cmp(&other.start_time) {
             if ordering != Ordering::Equal {
                 return ordering;

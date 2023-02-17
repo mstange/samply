@@ -5,6 +5,7 @@ use serde_json::json;
 
 use crate::category::{Category, CategoryHandle, CategoryPairHandle};
 use crate::category_color::CategoryColor;
+use crate::counters::{Counter, CounterHandle};
 use crate::cpu_delta::CpuDelta;
 use crate::fast_hash_map::FastHashMap;
 use crate::frame::Frame;
@@ -104,7 +105,8 @@ pub struct Profile {
     pub(crate) kernel_libs: LibsWithRanges,
     pub(crate) categories: Vec<Category>, // append-only for stable CategoryHandles
     pub(crate) processes: Vec<Process>,   // append-only for stable ProcessHandles
-    pub(crate) threads: Vec<Thread>,      // append-only for stable ThreadHandles
+    pub(crate) counters: Vec<Counter>,
+    pub(crate) threads: Vec<Thread>, // append-only for stable ThreadHandles
     pub(crate) reference_timestamp: ReferenceTimestamp,
     pub(crate) string_table: GlobalStringTable,
     pub(crate) marker_schemas: FastHashMap<&'static str, MarkerSchema>,
@@ -141,6 +143,7 @@ impl Profile {
             }],
             used_pids: FastHashMap::default(),
             used_tids: FastHashMap::default(),
+            counters: Vec::new(),
         }
     }
 
@@ -211,6 +214,40 @@ impl Profile {
                 format!("{id}")
             }
         }
+    }
+
+    /// Create a counter. Counters let you make graphs with a time axis and a Y axis. One example of a
+    /// counter is memory usage.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fxprof_processed_profile::{Profile, CategoryHandle, CpuDelta, Frame, SamplingInterval, Timestamp};
+    /// use std::time::SystemTime;
+    ///
+    /// let mut profile = Profile::new("My app", SystemTime::now().into(), SamplingInterval::from_millis(1));
+    /// let process = profile.add_process("App process", 54132, Timestamp::from_millis_since_reference(0.0));
+    /// let memory_counter = profile.add_counter(process, "malloc", "Memory", "Amount of allocated memory");
+    /// profile.add_counter_sample(memory_counter, Timestamp::from_millis_since_reference(0.0), 0.0, 0);
+    /// profile.add_counter_sample(memory_counter, Timestamp::from_millis_since_reference(1.0), 1000.0, 2);
+    /// profile.add_counter_sample(memory_counter, Timestamp::from_millis_since_reference(2.0), 800.0, 1);
+    /// ```
+    pub fn add_counter(
+        &mut self,
+        process: ProcessHandle,
+        name: &str,
+        category: &str,
+        description: &str,
+    ) -> CounterHandle {
+        let handle = CounterHandle(self.counters.len());
+        self.counters.push(Counter::new(
+            name,
+            category,
+            description,
+            process,
+            self.processes[process.0].pid(),
+        ));
+        handle
     }
 
     /// Change the start time of a process.
@@ -358,6 +395,27 @@ impl Profile {
         self.threads[thread.0].add_marker(name, marker, timing);
     }
 
+    /// Add a data point to a counter. For a memory counter, `value_delta` would be the number
+    /// of bytes that have been allocated / deallocated since the previous counter sample, and
+    /// `number_of_operations` would be the number of `malloc` / `free` calls since the previous
+    /// counter sample. Both numbers are deltas.
+    ///
+    /// The graph in the profiler UI will connect subsequent data points with diagonal lines.
+    /// Counters are intended for values that are measured at a certain sample rate. You can
+    /// also use them for instrumented events and emit a new data point at every discrete change,
+    /// but in that case you probably want to emit two values per change: one right before (with
+    /// the old value) and one right at the timestamp of change (with the new value). This way
+    /// you'll get more horizontal lines, and the diagonal line will be very short.
+    pub fn add_counter_sample(
+        &mut self,
+        counter: CounterHandle,
+        timestamp: Timestamp,
+        value_delta: f64,
+        number_of_operations_delta: u32,
+    ) {
+        self.counters[counter.0].add_sample(timestamp, value_delta, number_of_operations_delta)
+    }
+
     // frames is ordered from caller to callee, i.e. root function first, pc last
     fn stack_index_for_frames(
         &mut self,
@@ -392,17 +450,75 @@ impl Profile {
         }
         prefix
     }
+
+    /// Returns a flattened list of `ThreadHandle`s in the right order.
+    ///
+    // The processed profile format has all threads from all processes in a flattened threads list.
+    // Each thread duplicates some information about its process, which allows the Firefox Profiler
+    // UI to group threads from the same process.
+    fn sorted_threads(&self) -> (Vec<ThreadHandle>, Vec<usize>) {
+        let mut sorted_threads = Vec::with_capacity(self.threads.len());
+        let mut first_thread_index_per_process = Vec::with_capacity(self.processes.len());
+
+        let mut sorted_processes: Vec<_> = (0..self.processes.len()).map(ProcessHandle).collect();
+        sorted_processes.sort_by(|a_handle, b_handle| {
+            let a = &self.processes[a_handle.0];
+            let b = &self.processes[b_handle.0];
+            a.cmp_for_json_order(b)
+        });
+
+        for process in sorted_processes {
+            let prev_len = sorted_threads.len();
+            first_thread_index_per_process.push(prev_len);
+            sorted_threads.extend_from_slice(self.processes[process.0].threads());
+
+            let sorted_threads_for_this_process = &mut sorted_threads[prev_len..];
+            sorted_threads_for_this_process.sort_by(|a_handle, b_handle| {
+                let a = &self.threads[a_handle.0];
+                let b = &self.threads[b_handle.0];
+                a.cmp_for_json_order(b)
+            });
+        }
+
+        (sorted_threads, first_thread_index_per_process)
+    }
+
+    fn serializable_threads<'a>(
+        &'a self,
+        sorted_threads: &'a [ThreadHandle],
+    ) -> SerializableProfileThreadsProperty<'a> {
+        SerializableProfileThreadsProperty {
+            threads: &self.threads,
+            processes: &self.processes,
+            categories: &self.categories,
+            sorted_threads,
+        }
+    }
+
+    fn serializable_counters<'a>(
+        &'a self,
+        first_thread_index_per_process: &'a [usize],
+    ) -> SerializableProfileCountersProperty<'a> {
+        SerializableProfileCountersProperty {
+            counters: &self.counters,
+            first_thread_index_per_process,
+        }
+    }
 }
 
 impl Serialize for Profile {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let (sorted_threads, first_thread_index_per_process) = self.sorted_threads();
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry("meta", &SerializableProfileMeta(self))?;
         map.serialize_entry("libs", &self.global_libs)?;
-        map.serialize_entry("threads", &SerializableProfileThreadsProperty(self))?;
+        map.serialize_entry("threads", &self.serializable_threads(&sorted_threads))?;
         map.serialize_entry("pages", &[] as &[()])?;
         map.serialize_entry("profilerOverhead", &[] as &[()])?;
-        map.serialize_entry("counters", &[] as &[()])?;
+        map.serialize_entry(
+            "counters",
+            &self.serializable_counters(&first_thread_index_per_process),
+        )?;
         map.end()
     }
 }
@@ -452,37 +568,40 @@ impl<'a> Serialize for SerializableProfileMeta<'a> {
     }
 }
 
-struct SerializableProfileThreadsProperty<'a>(&'a Profile);
+struct SerializableProfileThreadsProperty<'a> {
+    threads: &'a [Thread],
+    processes: &'a [Process],
+    categories: &'a [Category],
+    sorted_threads: &'a [ThreadHandle],
+}
 
 impl<'a> Serialize for SerializableProfileThreadsProperty<'a> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        // The processed profile format has all threads from all processes in a flattened threads list.
-        // Each thread duplicates some information about its process, which allows the Firefox Profiler
-        // UI to group threads from the same process.
+        let mut seq = serializer.serialize_seq(Some(self.threads.len()))?;
 
-        let mut seq = serializer.serialize_seq(Some(self.0.threads.len()))?;
+        for thread in self.sorted_threads {
+            let categories = &self.categories;
+            let thread = &self.threads[thread.0];
+            let process = &self.processes[thread.process().0];
+            seq.serialize_element(&SerializableProfileThread(process, thread, categories))?;
+        }
 
-        let mut sorted_processes: Vec<_> = (0..self.0.processes.len()).map(ProcessHandle).collect();
-        sorted_processes.sort_by(|a_handle, b_handle| {
-            let a = &self.0.processes[a_handle.0];
-            let b = &self.0.processes[b_handle.0];
-            a.cmp_for_json_order(b)
-        });
+        seq.end()
+    }
+}
 
-        for process in sorted_processes {
-            let mut sorted_threads = self.0.processes[process.0].threads();
-            sorted_threads.sort_by(|a_handle, b_handle| {
-                let a = &self.0.threads[a_handle.0];
-                let b = &self.0.threads[b_handle.0];
-                a.cmp_for_json_order(b)
-            });
+struct SerializableProfileCountersProperty<'a> {
+    counters: &'a [Counter],
+    first_thread_index_per_process: &'a [usize],
+}
 
-            for thread in sorted_threads {
-                let categories = &self.0.categories;
-                let thread = &self.0.threads[thread.0];
-                let process = &self.0.processes[thread.process().0];
-                seq.serialize_element(&SerializableProfileThread(process, thread, categories))?;
-            }
+impl<'a> Serialize for SerializableProfileCountersProperty<'a> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut seq = serializer.serialize_seq(Some(self.counters.len()))?;
+
+        for counter in self.counters {
+            let main_thread_index = self.first_thread_index_per_process[counter.process().0];
+            seq.serialize_element(&counter.as_serializable(main_thread_index))?;
         }
 
         seq.end()

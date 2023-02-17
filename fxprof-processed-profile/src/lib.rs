@@ -34,6 +34,7 @@ pub use debugid;
 
 mod category;
 mod category_color;
+mod counters;
 mod cpu_delta;
 mod fast_hash_map;
 mod frame;
@@ -60,6 +61,7 @@ mod timestamp;
 
 pub use category::{CategoryHandle, CategoryPairHandle};
 pub use category_color::CategoryColor;
+pub use counters::CounterHandle;
 pub use cpu_delta::CpuDelta;
 pub use frame::Frame;
 pub use library_info::{LibraryInfo, Symbol, SymbolTable};
