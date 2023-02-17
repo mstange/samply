@@ -666,9 +666,9 @@ fn main() {
                     let mut parser = Parser::create(&s);
                     let _thread_id: u32 = parser.parse("TThreadId");
                 }
-                "V8.js/MethodLoad/" /*|
+                "V8.js/MethodLoad/" |
                 "Microsoft-JScript/MethodRuntime/MethodDCStart" |
-                "Microsoft-JScript/MethodRuntime/MethodLoad"*/ => {
+                "Microsoft-JScript/MethodRuntime/MethodLoad" => {
                     // these events can give us the unblocking stack
                     let mut parser = Parser::create(&s);
                     let method_name: String = parser.parse("MethodName");
