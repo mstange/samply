@@ -97,7 +97,7 @@ pub trait TryParse<T> {
     /// * `name` - Name of the property to be found in the Schema
     fn try_parse(&mut self, name: &str) -> Result<T, ParserError>;
     fn parse(&mut self, name: &str) -> T {
-        self.try_parse(name).unwrap()
+        self.try_parse(name).unwrap_or_else(|_| panic!("name {:?}", name))
     }
 }
 

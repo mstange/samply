@@ -3,7 +3,7 @@ use std::{collections::{HashMap, HashSet, hash_map::Entry}, convert::TryInto, fs
 use etw_reader::{GUID, open_trace, parser::{Parser, TryParse}, print_property, schema::SchemaLocator, write_property};
 use serde_json::{Value, json, to_writer};
 
-use fxprof_processed_profile::{Timestamp, MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, ReferenceTimestamp, MarkerSchemaField, MarkerTiming, ProfilerMarker, ThreadHandle, Profile, debugid, SamplingInterval, CategoryPairHandle, ProcessHandle, LibraryInfo};
+use fxprof_processed_profile::{Timestamp, MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, ReferenceTimestamp, MarkerSchemaField, MarkerTiming, ProfilerMarker, ThreadHandle, Profile, debugid, SamplingInterval, CategoryPairHandle, ProcessHandle, LibraryInfo, CounterHandle};
 use debugid::DebugId;
 use uuid::Uuid;
 
@@ -83,6 +83,11 @@ fn strip_thread_numbers(name: &str) -> &str {
     return name;
 }
 
+struct MemoryUsage {
+    counter: CounterHandle,
+    value: f64
+}
+
 fn main() {
     let profile_start_instant = Timestamp::from_nanos_since_reference(0);
     let profile_start_system = SystemTime::now();
@@ -91,6 +96,7 @@ fn main() {
     etw_reader::add_custom_schemas(&mut schema_locator);
     let mut threads: HashMap<u32, ThreadState> = HashMap::new();
     let mut processes: HashMap<u32, ProcessHandle> = HashMap::new();
+    let mut memory_usage: HashMap<u32, MemoryUsage> = HashMap::new();
 
     let mut libs: HashMap<u64, (String, u32)> = HashMap::new();
     let start = Instant::now();
@@ -427,10 +433,19 @@ fn main() {
                     thread.last_sample_timestamp = Some(e.EventHeader.TimeStamp);
                 }
                 "MSNT_SystemTrace/PageFault/VirtualFree" => {
+                    if !process_targets.contains(&e.EventHeader.ProcessId) {
+                        return;
+                    }
                     let mut parser = Parser::create(&s);
                     let timestamp = e.EventHeader.TimeStamp as u64;
                     let timestamp = Timestamp::from_nanos_since_reference(to_nanos(timestamp - start_time));
                     let thread_id = e.EventHeader.ThreadId;
+                    let counter = match memory_usage.entry(e.EventHeader.ProcessId) {
+                        Entry::Occupied(e) => e.into_mut(),
+                        Entry::Vacant(entry) => {
+                            entry.insert(MemoryUsage { counter: profile.add_counter("MemoryUsage", processes[&e.EventHeader.ProcessId]), value: 0. })
+                        }
+                    };
                     let thread = match threads.entry(thread_id) {
                         Entry::Occupied(e) => e.into_mut(),
                         Entry::Vacant(_) => {
@@ -441,6 +456,12 @@ fn main() {
                     };
                     let timing =  MarkerTiming::Instant(timestamp);
                     let mut text = String::new();
+                    let region_size: u64 = parser.parse("RegionSize");
+                    counter.value -= region_size as f64;
+
+                    println!("{} VirtualFree({}) = {}", e.EventHeader.ProcessId, region_size, counter.value);
+                    
+                    profile.add_counter_sample(counter.counter, timestamp, -(region_size as f64), 1);
                     for i in 0..s.property_count() {
                         let property = s.property(i);
                         //dbg!(&property);
@@ -448,7 +469,44 @@ fn main() {
                         text += ", "
                     }
 
-                    profile.add_marker(thread.handle, "VirtualFree", TextMarker(text), timing)
+                    //profile.add_marker(thread.handle, "VirtualFree", TextMarker(text), timing)
+                }
+                "MSNT_SystemTrace/PageFault/VirtualAlloc" => {
+                    if !process_targets.contains(&e.EventHeader.ProcessId) {
+                        return;
+                    }
+                    let mut parser = Parser::create(&s);
+                    let timestamp = e.EventHeader.TimeStamp as u64;
+                    let timestamp = Timestamp::from_nanos_since_reference(to_nanos(timestamp - start_time));
+                    let thread_id = e.EventHeader.ThreadId;
+                    let counter = match memory_usage.entry(e.EventHeader.ProcessId) {
+                        Entry::Occupied(e) => e.into_mut(),
+                        Entry::Vacant(entry) => {
+                            entry.insert(MemoryUsage { counter: profile.add_counter("MemoryUsage", processes[&e.EventHeader.ProcessId]), value: 0. })
+                        }
+                    };
+                    let thread = match threads.entry(thread_id) {
+                        Entry::Occupied(e) => e.into_mut(),
+                        Entry::Vacant(_) => {
+                            dropped_sample_count += 1;
+                            // We don't know what process this will before so just drop it for now
+                            return;
+                        }
+                    };
+                    let timing =  MarkerTiming::Instant(timestamp);
+                    let mut text = String::new();
+                    let region_size: u64 = parser.parse("RegionSize");
+                    for i in 0..s.property_count() {
+                        let property = s.property(i);
+                        //dbg!(&property);
+                        write_property(&mut text, &mut parser, &property);
+                        text += ", "
+                    }
+                    counter.value += region_size as f64;
+                    //println!("{}.{} VirtualAlloc({}) = {}",  e.EventHeader.ProcessId, thread_id, region_size, counter.value);
+                    
+                    profile.add_counter_sample(counter.counter, timestamp, (region_size as f64), 1);
+                    profile.add_marker(thread.handle, "VirtualAlloc", TextMarker(text), timing)
                 }
                 "KernelTraceControl/ImageID/" => {
 
