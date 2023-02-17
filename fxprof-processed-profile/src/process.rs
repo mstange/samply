@@ -11,7 +11,6 @@ use crate::Timestamp;
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct ThreadHandle(pub(crate) usize);
 
-
 #[derive(Debug)]
 pub struct Process {
     pid: String,
