@@ -3,7 +3,7 @@ use std::{collections::{HashMap, HashSet, hash_map::Entry}, convert::TryInto, fs
 use etw_reader::{GUID, open_trace, parser::{Parser, TryParse}, print_property, schema::SchemaLocator, write_property};
 use serde_json::{Value, json, to_writer};
 
-use fxprof_processed_profile::{Timestamp, MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, ReferenceTimestamp, MarkerSchemaField, MarkerTiming, ProfilerMarker, ThreadHandle, Profile, debugid, SamplingInterval, CategoryPairHandle, ProcessHandle, LibraryInfo, CounterHandle};
+use fxprof_processed_profile::{Timestamp, MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, ReferenceTimestamp, MarkerSchemaField, MarkerTiming, ProfilerMarker, ThreadHandle, Profile, debugid::{self, CodeId}, SamplingInterval, CategoryPairHandle, ProcessHandle, LibraryInfo, CounterHandle};
 use debugid::DebugId;
 use uuid::Uuid;
 
@@ -98,7 +98,7 @@ fn main() {
     let mut processes: HashMap<u32, ProcessHandle> = HashMap::new();
     let mut memory_usage: HashMap<u32, MemoryUsage> = HashMap::new();
 
-    let mut libs: HashMap<u64, (String, u32)> = HashMap::new();
+    let mut libs: HashMap<u64, (String, u32, u32)> = HashMap::new();
     let start = Instant::now();
     let mut pargs = pico_args::Arguments::from_env();
     let merge_threads = pargs.contains("--merge-threads");
@@ -517,11 +517,11 @@ fn main() {
                     let mut parser = Parser::create(&s);
 
                     let image_base: u64 = parser.try_parse("ImageBase").unwrap();
-                    // TODO: get the image timestamp and create the CodeId
+                    let timestamp = parser.try_parse("TimeDateStamp").unwrap();
                     let image_size: u32 = parser.try_parse("ImageSize").unwrap();
                     let binary_path: String = parser.try_parse("OriginalFileName").unwrap();
                     let path = binary_path;
-                    libs.insert(image_base, (path, image_size));
+                    libs.insert(image_base, (path, image_size, timestamp));
                 }
                 "KernelTraceControl/ImageID/DbgID_RSDS" => {
                     let mut parser = Parser::create(&s);
@@ -537,14 +537,15 @@ fn main() {
                     let debug_id = DebugId::from_parts(Uuid::from_fields(guid.data1, guid.data2, guid.data3, &guid.data4), age);
                     let pdb_path: String = parser.try_parse("PdbFileName").unwrap();
                     //let pdb_path = Path::new(&pdb_path);
-                    let (ref path, image_size) = libs[&image_base];
+                    let (ref path, image_size, timestamp) = libs[&image_base];
+                    let code_id = Some(CodeId::new(format!("{timestamp:08X}{image_size:x}")));
                     let name = Path::new(path).file_name().unwrap().to_str().unwrap().to_owned();
                     let debug_name = Path::new(&pdb_path).file_name().unwrap().to_str().unwrap().to_owned();
                     let info = LibraryInfo { 
                         name,
                         debug_name,
                         path: path.clone(), 
-                        code_id: None,
+                        code_id,
                         symbol_table: None, 
                         debug_path: pdb_path,
                         debug_id, 
