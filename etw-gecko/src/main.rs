@@ -144,7 +144,7 @@ fn main() {
     };
     let mut gpu_thread = None;
 
-    open_trace(Path::new(&trace_file), |e| {
+    let result = open_trace(Path::new(&trace_file), |e| {
         event_count += 1;
         let s = schema_locator.event_schema(e);
         if let Ok(s) = s {
@@ -664,14 +664,18 @@ fn main() {
         }
     });
 
+    if result.is_ok() {
     /*if merge_threads {
         profile.add_thread(global_thread);
     } else {
         for (_, thread) in threads.drain() { profile.add_thread(thread.builder); }
     }*/
 
-    let f = File::create("gecko.json").unwrap();
-    to_writer(BufWriter::new(f), &profile).unwrap();
-    println!("Took {} seconds", (Instant::now()-start).as_secs_f32());
-    println!("{} events, {} samples, {} dropped, {} stack-samples", event_count, sample_count, dropped_sample_count, stack_sample_count);
+        let f = File::create("gecko.json").unwrap();
+        to_writer(BufWriter::new(f), &profile).unwrap();
+        println!("Took {} seconds", (Instant::now()-start).as_secs_f32());
+        println!("{} events, {} samples, {} dropped, {} stack-samples", event_count, sample_count, dropped_sample_count, stack_sample_count);
+    } else {
+        dbg!(&result);
+    }
 }

@@ -6,7 +6,7 @@ extern crate bitflags;
 #[macro_use]
 extern crate num_derive;
 
-use windows::{Win32::{Foundation::{GetLastError, MAX_PATH}, System::Diagnostics::Etw::{EVENT_TRACE_FLAG, CONTROLTRACE_HANDLE}}, core::{PWSTR, HSTRING}, h};
+use windows::{Win32::{Foundation::{GetLastError, MAX_PATH, ERROR_SUCCESS}, System::Diagnostics::Etw::{EVENT_TRACE_FLAG, CONTROLTRACE_HANDLE}}, core::{PWSTR, HSTRING}, h};
 use crate::{parser::{Parser, ParserError, TryParse}, schema::SchemaLocator, tdh_types::{PropertyDesc, PrimitiveDesc, TdhInType}, traits::EncodeUtf16};
 
 #[macro_use]
@@ -67,7 +67,7 @@ unsafe extern "system" fn trace_callback_thunk(event_record: *mut Etw::EVENT_REC
     f(std::mem::transmute(event_record))
 }
 
-pub fn open_trace<F: FnMut(&EventRecord)>(path: &Path, mut callback: F)  {
+pub fn open_trace<F: FnMut(&EventRecord)>(path: &Path, mut callback: F) -> Result<(), std::io::Error> {
     let mut log_file = EventTraceLogfile::default();
 
     #[cfg(windows)]
@@ -81,7 +81,12 @@ pub fn open_trace<F: FnMut(&EventRecord)>(path: &Path, mut callback: F)  {
     log_file.0.Anonymous2.EventRecordCallback = Some(trace_callback_thunk);
 
     let session_handle = unsafe { Etw::OpenTraceW(&mut *log_file) };
-    unsafe { Etw::ProcessTrace(&[session_handle], None, None) };
+    let result = unsafe { Etw::ProcessTrace(&[session_handle], None, None) };
+    if result == ERROR_SUCCESS {
+        Ok(())
+    } else {
+        Err(std::io::Error::from_raw_os_error(result.0 as i32))
+    }
 }
 
 /// Complete Trace Properties struct
