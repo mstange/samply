@@ -36,6 +36,12 @@ On Linux, as samply needs access to performance events system by unprivileged us
 sudo sysctl kernel.perf_event_paranoid=1 
 ```
 
+If you still get a `mmap failed` error (an `EPERM`), you might also need to increase the `mlock` limit, e.g.:
+
+```
+sudo sysctl kernel.perf_event_mlock_kb=2048
+```
+
 ## Examples
 
 Here's a profile from `samply record rustup check`: https://share.firefox.dev/3hteKZZ
