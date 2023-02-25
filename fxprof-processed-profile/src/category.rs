@@ -52,7 +52,6 @@ pub struct Category {
 impl Category {
     /// Add a subcategory to this category.
     pub fn add_subcategory(&mut self, subcategory_name: String) -> SubcategoryIndex {
-        use std::convert::TryFrom;
         let subcategory_index = SubcategoryIndex(u8::try_from(self.subcategories.len()).unwrap());
         self.subcategories.push(subcategory_name);
         subcategory_index

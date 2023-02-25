@@ -111,7 +111,6 @@ pub fn parse_kallsyms(data: &[u8]) -> Result<(u64, SymbolTable), KernelSymbolsEr
             }
             (Some(text_addr), _) if absolute_addr >= text_addr => {
                 let relative_address = absolute_addr - text_addr;
-                use std::convert::TryFrom;
                 let relative_address = u32::try_from(relative_address)
                     .map_err(|_| KernelSymbolsError::RelativeAddressTooLarge(relative_address))?;
                 symbols.push(Symbol {

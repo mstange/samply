@@ -2,7 +2,7 @@
 name = "samply"
 version = "0.11.0"
 authors = ["Markus Stange <mstange@themasta.com>"]
-edition = "2018"
+edition = "2021"
 rust-version = "1.61"
 license = "MIT OR Apache-2.0"
 description = "A command line profiler for macOS and Linux."

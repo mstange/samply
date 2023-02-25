@@ -9,7 +9,6 @@ use nom::sequence::{terminated, tuple};
 use nom::{Err, IResult};
 use zerocopy::{AsBytes, FromBytes, LayoutVerified, LittleEndian, Unaligned, U32, U64};
 
-use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::str::FromStr;
 use std::{mem, str};
