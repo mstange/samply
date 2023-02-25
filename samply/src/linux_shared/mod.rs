@@ -38,7 +38,6 @@ use serde_json::json;
 use wholesym::samply_symbols;
 
 use std::collections::{BTreeMap, HashMap};
-use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::path::PathBuf;
 use std::time::SystemTime;

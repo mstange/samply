@@ -17,7 +17,6 @@ use crate::mach_sys::{
 pub use crate::mach_sys::mach_port_t;
 
 use core::cell::Cell;
-use core::convert::TryInto;
 use core::fmt::Debug;
 use core::marker::PhantomData;
 use core::mem;

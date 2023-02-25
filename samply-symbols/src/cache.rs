@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    convert::TryInto,
     ops::Range,
     sync::{atomic::AtomicUsize, Mutex},
 };

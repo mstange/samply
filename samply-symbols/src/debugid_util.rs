@@ -1,6 +1,5 @@
 use debugid::DebugId;
 use object::{Object, ObjectSection};
-use std::convert::TryInto;
 use uuid::Uuid;
 
 use crate::shared::{CodeId, ElfBuildId};
