@@ -11,9 +11,9 @@ use framehop::x86_64::UnwindRegsX86_64;
 use framehop::{FrameAddress, Module, ModuleSvmaInfo, ModuleUnwindData, TextByteData, Unwinder};
 use fxprof_processed_profile::{
     CategoryColor, CategoryPairHandle, CpuDelta, Frame, LibraryInfo, MarkerDynamicField,
-    MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerTiming,
-    ProcessHandle, Profile, ProfilerMarker, ReferenceTimestamp, SamplingInterval, ThreadHandle,
-    Timestamp,
+    MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerStaticField,
+    MarkerTiming, ProcessHandle, Profile, ProfilerMarker, ReferenceTimestamp, SamplingInterval,
+    ThreadHandle, Timestamp,
 };
 use linux_perf_data::linux_perf_event_reader;
 use linux_perf_data::{AttributeDescription, DsoInfo, DsoKey};
@@ -1076,15 +1076,21 @@ impl ProfilerMarker for JitFunctionAddMarker {
         MarkerSchema {
             type_name: Self::MARKER_TYPE_NAME,
             locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
-            chart_label: Some("{marker.data.name}"),
-            tooltip_label: None,
-            table_label: Some("{marker.name} - {marker.data.name}"),
-            fields: vec![MarkerSchemaField::Dynamic(MarkerDynamicField {
-                key: "functionName",
-                label: "Name of the JIT function",
-                format: MarkerFieldFormat::String,
-                searchable: None,
-            })],
+            chart_label: Some("{marker.data.functionName}"),
+            tooltip_label: Some("{marker.data.functionName}"),
+            table_label: Some("{marker.data.functionName}"),
+            fields: vec![
+                MarkerSchemaField::Dynamic(MarkerDynamicField {
+                    key: "functionName",
+                    label: "Function",
+                    format: MarkerFieldFormat::String,
+                    searchable: None,
+                }),
+                MarkerSchemaField::Static(MarkerStaticField {
+                    label: "Description",
+                    value: "Emitted when a JIT function is added to the process.",
+                }),
+            ],
         }
     }
 }
