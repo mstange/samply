@@ -328,7 +328,7 @@ fn prepare(local_path: PathBuf, download_url: &str, ftype: FileType) -> anyhow::
                 if let std::path::Component::Normal(root) = root {
                     roots.insert(root.into());
                 } else {
-                    panic!("weird path component in bz2: {:?}", root);
+                    panic!("weird path component in bz2: {root:?}");
                 }
                 entry.unpack_in(&dir)?;
             }

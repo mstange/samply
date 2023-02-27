@@ -377,7 +377,7 @@ fn unspecified_id_fat_arch() {
             assert!(member_ids
                 .contains(&DebugId::from_breakpad("8E7B0ED0B04F3FCCA05E139E5250BA720").unwrap()));
         }
-        _ => panic!("wrong Error subtype: {:?}", err),
+        _ => panic!("wrong Error subtype: {err:?}"),
     }
 }
 

@@ -355,7 +355,7 @@ impl Clone for OsIpcSender {
             match mach_port_mod_addref(cloned_port, MACH_PORT_RIGHT_SEND) {
                 Ok(()) => (),
                 Err(KernelError::InvalidRight) => cloned_port = MACH_PORT_NULL,
-                Err(error) => panic!("mach_port_mod_refs(1, {}) failed: {:?}", cloned_port, error),
+                Err(error) => panic!("mach_port_mod_refs(1, {cloned_port}) failed: {error:?}"),
             }
         }
         OsIpcSender {
@@ -738,7 +738,7 @@ unsafe fn allocate_vm_pages(length: usize) -> *mut u8 {
     let mut address = 0;
     let result = mach_sys::vm_allocate(mach_task_self(), &mut address, length, 1);
     if result != KERN_SUCCESS {
-        panic!("`vm_allocate()` failed: {}", result);
+        panic!("`vm_allocate()` failed: {result}");
     }
     address as *mut u8
 }
