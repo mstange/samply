@@ -197,7 +197,9 @@ fn main() {
                             tb
                          }
                     };
-                    profile.set_thread_name(thread.handle, &thread_name);
+                    if Some(thread.handle) != global_thread {
+                        profile.set_thread_name(thread.handle, &thread_name);
+                    }
                     thread.merge_name = Some(thread_name);
                 }
                 "MSNT_SystemTrace/Thread/Start" |
@@ -233,7 +235,9 @@ fn main() {
                     let thread_name: Result<String, _> = parser.try_parse("ThreadName");
                     match thread_name {
                         Ok(thread_name) if !thread_name.is_empty() => {
-                            profile.set_thread_name(thread.handle, &thread_name);
+                            if Some(thread.handle) != global_thread {
+                                profile.set_thread_name(thread.handle, &thread_name);
+                            }
                             thread.merge_name = Some(thread_name)
                         },
                         _ => {}
