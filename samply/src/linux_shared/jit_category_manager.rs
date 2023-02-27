@@ -1,4 +1,4 @@
-use fxprof_processed_profile::{CategoryColor, CategoryPairHandle, Profile};
+use fxprof_processed_profile::{CategoryColor, CategoryPairHandle, FrameFlags, Profile};
 
 #[derive(Debug, Clone)]
 pub struct JitCategoryManager {
@@ -6,17 +6,50 @@ pub struct JitCategoryManager {
 }
 
 impl JitCategoryManager {
-    /// (prefix, name, color)
-    const CATEGORIES: &'static [(&'static str, &'static str, CategoryColor)] = &[
-        ("JS:~", "Interpreter", CategoryColor::Red),
-        ("JS:^", "Baseline", CategoryColor::Blue),
-        ("JS:+", "Maglev", CategoryColor::LightGreen),
-        ("JS:*", "Turbofan", CategoryColor::Green),
-        ("Baseline: ", "Baseline", CategoryColor::Blue),
-        ("Ion: ", "Ion", CategoryColor::Green),
-        ("IC: ", "IC", CategoryColor::Brown),
-        ("Trampoline: ", "Trampoline", CategoryColor::DarkGray),
-        ("", "JIT", CategoryColor::Purple), // Generic fallback category for JIT code
+    /// (prefix, name, color, frame_flags)
+    const CATEGORIES: &'static [(&'static str, &'static str, CategoryColor, FrameFlags)] = &[
+        ("JS:~", "Interpreter", CategoryColor::Red, FrameFlags::IS_JS),
+        ("JS:^", "Baseline", CategoryColor::Blue, FrameFlags::IS_JS),
+        (
+            "JS:+",
+            "Maglev",
+            CategoryColor::LightGreen,
+            FrameFlags::IS_JS,
+        ),
+        ("JS:*", "Turbofan", CategoryColor::Green, FrameFlags::IS_JS),
+        (
+            "Baseline: ",
+            "Baseline",
+            CategoryColor::Blue,
+            FrameFlags::IS_JS,
+        ),
+        ("Ion: ", "Ion", CategoryColor::Green, FrameFlags::IS_JS),
+        ("IC: ", "IC", CategoryColor::Brown, FrameFlags::empty()),
+        (
+            "Trampoline: ",
+            "Trampoline",
+            CategoryColor::DarkGray,
+            FrameFlags::empty(),
+        ),
+        (
+            "Baseline JIT code for ",
+            "Baseline",
+            CategoryColor::Blue,
+            FrameFlags::IS_JS,
+        ),
+        (
+            "DFG JIT code for ",
+            "DFG",
+            CategoryColor::LightGreen,
+            FrameFlags::IS_JS,
+        ),
+        (
+            "FTL B3 code for ",
+            "FTL",
+            CategoryColor::Green,
+            FrameFlags::IS_JS,
+        ),
+        ("", "JIT", CategoryColor::Purple, FrameFlags::empty()), // Generic fallback category for JIT code
     ];
 
     pub fn new() -> Self {
@@ -25,24 +58,24 @@ impl JitCategoryManager {
         }
     }
 
-    /// Get the category which should be used for the stack frame for a function
-    /// from JIT code.
+    /// Get the category and flame flags which should be used for the stack
+    /// frame for a function from JIT code.
     ///
     /// The category is only created in the profile once a function with that
     /// category is encountered.
-    pub fn get_category(
+    pub fn classify_jit_symbol(
         &mut self,
         name: Option<&str>,
         profile: &mut Profile,
-    ) -> CategoryPairHandle {
+    ) -> (CategoryPairHandle, FrameFlags) {
         let name = name.unwrap_or("");
-        for (&(prefix, category_name, color), storage) in
+        for (&(prefix, category_name, color, flags), storage) in
             Self::CATEGORIES.iter().zip(self.categories.iter_mut())
         {
             if name.starts_with(prefix) {
                 let category = *storage
                     .get_or_insert_with(|| profile.add_category(category_name, color).into());
-                return category;
+                return (category, flags);
             }
         }
         panic!("the last category has prefix '' so it should always be hit")

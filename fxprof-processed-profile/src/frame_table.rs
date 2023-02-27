@@ -4,6 +4,7 @@ use crate::category::{
     Category, CategoryHandle, CategoryPairHandle, SerializableSubcategoryColumn, Subcategory,
 };
 use crate::fast_hash_map::FastHashMap;
+use crate::frame::FrameFlags;
 use crate::func_table::{FuncIndex, FuncTable};
 use crate::global_lib_table::{GlobalLibIndex, GlobalLibTable};
 use crate::native_symbols::{NativeSymbolIndex, NativeSymbols};
@@ -80,7 +81,8 @@ impl FrameTable {
                     }
                     InternalFrameLocation::Label(string_index) => (None, string_index, None, None),
                 };
-                let func_index = func_table.index_for_func(location_string_index, resource);
+                let func_index =
+                    func_table.index_for_func(location_string_index, resource, frame.flags);
                 let CategoryPairHandle(category, subcategory_index) = frame.category_pair;
                 let subcategory = match subcategory_index {
                     Some(index) => Subcategory::Normal(index),
@@ -153,6 +155,7 @@ impl<'a> Serialize for SerializableFrameTableAddressColumn<'a> {
 pub struct InternalFrame {
     pub location: InternalFrameLocation,
     pub category_pair: CategoryPairHandle,
+    pub flags: FrameFlags,
 }
 
 #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]

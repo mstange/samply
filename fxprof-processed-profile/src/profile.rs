@@ -8,7 +8,7 @@ use crate::category_color::CategoryColor;
 use crate::counters::{Counter, CounterHandle};
 use crate::cpu_delta::CpuDelta;
 use crate::fast_hash_map::FastHashMap;
-use crate::frame::Frame;
+use crate::frame::{Frame, FrameInfo};
 use crate::frame_table::{InternalFrame, InternalFrameLocation};
 use crate::global_lib_table::GlobalLibTable;
 use crate::library_info::LibraryInfo;
@@ -78,7 +78,7 @@ pub struct StringHandle(GlobalStringIndex);
 /// Each thread has its own samples and markers.
 ///
 /// ```
-/// use fxprof_processed_profile::{Profile, CategoryHandle, CpuDelta, Frame, SamplingInterval, Timestamp};
+/// use fxprof_processed_profile::{Profile, CategoryHandle, CpuDelta, Frame, FrameInfo, FrameFlags, SamplingInterval, Timestamp};
 /// use std::time::SystemTime;
 ///
 /// # fn write_profile(output_file: std::fs::File) -> Result<(), Box<dyn std::error::Error>> {
@@ -87,8 +87,8 @@ pub struct StringHandle(GlobalStringIndex);
 /// let thread = profile.add_thread(process, 54132000, Timestamp::from_millis_since_reference(0.0), true);
 /// profile.set_thread_name(thread, "Main thread");
 /// let stack = vec![
-///     (Frame::Label(profile.intern_string("Root node")), CategoryHandle::OTHER.into()),
-///     (Frame::Label(profile.intern_string("First callee")), CategoryHandle::OTHER.into())
+///     FrameInfo { frame: Frame::Label(profile.intern_string("Root node")), category_pair: CategoryHandle::OTHER.into(), flags: FrameFlags::empty() },
+///     FrameInfo { frame: Frame::Label(profile.intern_string("First callee")), category_pair: CategoryHandle::OTHER.into(), flags: FrameFlags::empty() }
 /// ];
 /// profile.add_sample(thread, Timestamp::from_millis_since_reference(0.0), stack.into_iter(), CpuDelta::ZERO, 1);
 ///
@@ -361,7 +361,7 @@ impl Profile {
         &mut self,
         thread: ThreadHandle,
         timestamp: Timestamp,
-        frames: impl Iterator<Item = (Frame, CategoryPairHandle)>,
+        frames: impl Iterator<Item = FrameInfo>,
         cpu_delta: CpuDelta,
         weight: i32,
     ) {
@@ -420,13 +420,13 @@ impl Profile {
     fn stack_index_for_frames(
         &mut self,
         thread: ThreadHandle,
-        frames: impl Iterator<Item = (Frame, CategoryPairHandle)>,
+        frames: impl Iterator<Item = FrameInfo>,
     ) -> Option<usize> {
         let thread = &mut self.threads[thread.0];
         let process = &mut self.processes[thread.process().0];
         let mut prefix = None;
-        for (frame, category_pair) in frames {
-            let location = match frame {
+        for frame_info in frames {
+            let location = match frame_info.frame {
                 Frame::InstructionPointer(ip) => {
                     process.convert_address(&mut self.global_libs, &mut self.kernel_libs, ip)
                 }
@@ -443,10 +443,12 @@ impl Profile {
             };
             let internal_frame = InternalFrame {
                 location,
-                category_pair,
+                flags: frame_info.flags,
+                category_pair: frame_info.category_pair,
             };
             let frame_index = thread.frame_index_for_frame(internal_frame, &self.global_libs);
-            prefix = Some(thread.stack_index_for_stack(prefix, frame_index, category_pair));
+            prefix =
+                Some(thread.stack_index_for_stack(prefix, frame_index, frame_info.category_pair));
         }
         prefix
     }
@@ -504,6 +506,10 @@ impl Profile {
             first_thread_index_per_process,
         }
     }
+
+    fn contains_js_function(&self) -> bool {
+        self.threads.iter().any(|t| t.contains_js_function())
+    }
 }
 
 impl Serialize for Profile {
@@ -555,7 +561,7 @@ impl<'a> Serialize for SerializableProfileMeta<'a> {
         map.serialize_entry("symbolicated", &false)?;
         map.serialize_entry("pausedRanges", &[] as &[()])?;
         map.serialize_entry("version", &24)?;
-        map.serialize_entry("usesOnlyOneStackType", &true)?;
+        map.serialize_entry("usesOnlyOneStackType", &(!self.0.contains_js_function()))?;
         map.serialize_entry("doesNotUseFrameImplementation", &true)?;
         map.serialize_entry("sourceCodeIsNotOnSearchfox", &true)?;
 

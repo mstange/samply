@@ -10,10 +10,10 @@ use framehop::aarch64::UnwindRegsAarch64;
 use framehop::x86_64::UnwindRegsX86_64;
 use framehop::{FrameAddress, Module, ModuleSvmaInfo, ModuleUnwindData, TextByteData, Unwinder};
 use fxprof_processed_profile::{
-    CategoryColor, CategoryPairHandle, CpuDelta, Frame, LibraryInfo, MarkerDynamicField,
-    MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerStaticField,
-    MarkerTiming, ProcessHandle, Profile, ProfilerMarker, ReferenceTimestamp, SamplingInterval,
-    ThreadHandle, Timestamp,
+    CategoryColor, CategoryPairHandle, CpuDelta, Frame, FrameFlags, FrameInfo, LibraryInfo,
+    MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField,
+    MarkerStaticField, MarkerTiming, ProcessHandle, Profile, ProfilerMarker, ReferenceTimestamp,
+    SamplingInterval, ThreadHandle, Timestamp,
 };
 use linux_perf_data::linux_perf_event_reader;
 use linux_perf_data::{AttributeDescription, DsoInfo, DsoKey};
@@ -1000,13 +1000,14 @@ where
 
             if name.starts_with("jitted-") && name.ends_with(".so") {
                 let symbol_name = jit_function_name(&file);
-                let category = self
+                let (category, frame_flags) = self
                     .jit_category_manager
-                    .get_category(symbol_name, &mut self.profile);
+                    .classify_jit_symbol(symbol_name, &mut self.profile);
                 process.jit_functions.insert(JitFunction {
                     start_address: mapping_start_avma,
                     end_address: mapping_end_avma,
                     category,
+                    frame_flags,
                 });
 
                 let main_thread = self
@@ -1128,7 +1129,7 @@ fn process_off_cpu_sample_group(
     cpu_delta_ns: u64,
     timestamp_converter: &TimestampConverter,
     off_cpu_weight_per_sample: i32,
-    off_cpu_stack: &[(Frame, CategoryPairHandle)],
+    off_cpu_stack: &[FrameInfo],
     profile: &mut Profile,
 ) {
     let OffCpuSampleGroup {
@@ -1166,7 +1167,7 @@ impl StackConverter {
         &self,
         stack: Vec<StackFrame>,
         jit_functions: &'a JitFunctions,
-    ) -> impl Iterator<Item = (Frame, CategoryPairHandle)> + 'a {
+    ) -> impl Iterator<Item = FrameInfo> + 'a {
         let user_category = self.user_category;
         let kernel_category = self.kernel_category;
         stack.into_iter().rev().filter_map(move |frame| {
@@ -1179,14 +1180,20 @@ impl StackConverter {
                 }
                 StackFrame::TruncatedStackMarker => return None,
             };
-            let category = match mode {
-                StackMode::User => match jit_functions.category_for_address(lookup_address) {
-                    Some(category) => category,
-                    None => user_category,
-                },
-                StackMode::Kernel => kernel_category,
+            let (category, flags) = match mode {
+                StackMode::User => {
+                    match jit_functions.category_and_frame_flags_for_address(lookup_address) {
+                        Some(category_and_frame_flags) => category_and_frame_flags,
+                        None => (user_category, FrameFlags::empty()),
+                    }
+                }
+                StackMode::Kernel => (kernel_category, FrameFlags::empty()),
             };
-            Some((location, category))
+            Some(FrameInfo {
+                frame: location,
+                category_pair: category,
+                flags,
+            })
         })
     }
 
@@ -1194,7 +1201,7 @@ impl StackConverter {
         &self,
         stack: &'a [StackFrame],
         jit_functions: &'a JitFunctions,
-    ) -> impl Iterator<Item = (Frame, CategoryPairHandle)> + 'a {
+    ) -> impl Iterator<Item = FrameInfo> + 'a {
         let user_category = self.user_category;
         stack.iter().rev().filter_map(move |frame| {
             let (location, mode, lookup_address) = match *frame {
@@ -1208,11 +1215,16 @@ impl StackConverter {
             };
             match mode {
                 StackMode::User => {
-                    let category = match jit_functions.category_for_address(lookup_address) {
-                        Some(category) => category,
-                        None => user_category,
-                    };
-                    Some((location, category))
+                    let (category, flags) =
+                        match jit_functions.category_and_frame_flags_for_address(lookup_address) {
+                            Some(category_and_frame_flags) => category_and_frame_flags,
+                            None => (user_category, FrameFlags::empty()),
+                        };
+                    Some(FrameInfo {
+                        frame: location,
+                        category_pair: category,
+                        flags,
+                    })
                 }
                 StackMode::Kernel => None,
             }
@@ -1278,7 +1290,7 @@ struct Thread {
     profile_thread: ThreadHandle,
     context_switch_data: ThreadContextSwitchData,
     last_sample_timestamp: Option<u64>,
-    off_cpu_stack: Option<Vec<(Frame, CategoryPairHandle)>>,
+    off_cpu_stack: Option<Vec<FrameInfo>>,
     name: Option<String>,
 }
 
@@ -1302,7 +1314,10 @@ impl JitFunctions {
         }
     }
 
-    pub fn category_for_address(&self, address: u64) -> Option<CategoryPairHandle> {
+    pub fn category_and_frame_flags_for_address(
+        &self,
+        address: u64,
+    ) -> Option<(CategoryPairHandle, FrameFlags)> {
         let jit_function = match self.0.binary_search_by_key(&address, |jf| jf.start_address) {
             Err(0) => return None,
             Ok(i) => &self.0[i],
@@ -1311,7 +1326,7 @@ impl JitFunctions {
         if address >= jit_function.end_address {
             return None;
         }
-        Some(jit_function.category)
+        Some((jit_function.category, jit_function.frame_flags))
     }
 }
 
@@ -1320,6 +1335,7 @@ struct JitFunction {
     pub start_address: u64,
     pub end_address: u64,
     pub category: CategoryPairHandle,
+    pub frame_flags: FrameFlags,
 }
 
 #[derive(Clone, Debug)]

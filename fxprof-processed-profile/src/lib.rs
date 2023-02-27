@@ -10,7 +10,7 @@
 //! ## Example
 //!
 //! ```
-//! use fxprof_processed_profile::{Profile, CategoryHandle, CpuDelta, Frame, SamplingInterval, Timestamp};
+//! use fxprof_processed_profile::{Profile, CategoryHandle, CpuDelta, Frame, FrameInfo, FrameFlags, SamplingInterval, Timestamp};
 //! use std::time::SystemTime;
 //!
 //! # fn write_profile(output_file: std::fs::File) -> Result<(), Box<dyn std::error::Error>> {
@@ -19,8 +19,8 @@
 //! let thread = profile.add_thread(process, 54132000, Timestamp::from_millis_since_reference(0.0), true);
 //! profile.set_thread_name(thread, "Main thread");
 //! let stack = vec![
-//!     (Frame::Label(profile.intern_string("Root node")), CategoryHandle::OTHER.into()),
-//!     (Frame::Label(profile.intern_string("First callee")), CategoryHandle::OTHER.into())
+//!     FrameInfo { frame: Frame::Label(profile.intern_string("Root node")), category_pair: CategoryHandle::OTHER.into(), flags: FrameFlags::empty() },
+//!     FrameInfo { frame: Frame::Label(profile.intern_string("First callee")), category_pair: CategoryHandle::OTHER.into(), flags: FrameFlags::empty() }
 //! ];
 //! profile.add_sample(thread, Timestamp::from_millis_since_reference(0.0), stack.into_iter(), CpuDelta::ZERO, 1);
 //!
@@ -63,7 +63,7 @@ pub use category::{CategoryHandle, CategoryPairHandle};
 pub use category_color::CategoryColor;
 pub use counters::CounterHandle;
 pub use cpu_delta::CpuDelta;
-pub use frame::Frame;
+pub use frame::{Frame, FrameFlags, FrameInfo};
 pub use library_info::{LibraryInfo, Symbol, SymbolTable};
 pub use markers::*;
 pub use process::ThreadHandle;

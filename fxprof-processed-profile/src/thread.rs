@@ -65,6 +65,7 @@ impl Thread {
             last_sample_was_zero_cpu: false,
         }
     }
+
     pub fn set_name(&mut self, name: &str) {
         self.name = Some(name.to_string());
     }
@@ -143,6 +144,10 @@ impl Thread {
         let name_string_index = self.string_table.index_for_string(name);
         self.markers
             .add_marker(name_string_index, timing, marker.json_marker_data());
+    }
+
+    pub fn contains_js_function(&self) -> bool {
+        self.func_table.contains_js_function()
     }
 
     pub fn cmp_for_json_order(&self, other: &Thread) -> Ordering {

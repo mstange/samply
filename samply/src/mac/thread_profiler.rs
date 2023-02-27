@@ -1,6 +1,7 @@
 use framehop::FrameAddress;
 use fxprof_processed_profile::{
-    CategoryPairHandle, CpuDelta, Frame, Profile, StringHandle, ThreadHandle, Timestamp,
+    CategoryPairHandle, CpuDelta, Frame, FrameFlags, FrameInfo, Profile, StringHandle,
+    ThreadHandle, Timestamp,
 };
 use mach::mach_types::thread_act_t;
 use mach::port::mach_port_t;
@@ -237,7 +238,7 @@ impl<'a> StackDepthLimitingFrameIter<'a> {
 }
 
 impl<'a> Iterator for StackDepthLimitingFrameIter<'a> {
-    type Item = (Frame, CategoryPairHandle);
+    type Item = FrameInfo;
 
     fn next(&mut self) -> Option<Self::Item> {
         let frame = match &mut self.state {
@@ -261,11 +262,15 @@ impl<'a> Iterator for StackDepthLimitingFrameIter<'a> {
                 elision_frame_string,
                 first_frame_after_elision,
             } => {
-                let label = Frame::Label(*elision_frame_string);
+                let frame = Frame::Label(*elision_frame_string);
                 self.state = StackDepthLimitingFrameIterState::NoMoreElision {
                     index: *first_frame_after_elision,
                 };
-                return Some((label, self.category));
+                return Some(FrameInfo {
+                    frame,
+                    category_pair: self.category,
+                    flags: FrameFlags::empty(),
+                });
             }
             StackDepthLimitingFrameIterState::NoMoreElision { index } => {
                 let frame = match self.frames.get(*index) {
@@ -281,7 +286,11 @@ impl<'a> Iterator for StackDepthLimitingFrameIter<'a> {
             FrameAddress::InstructionPointer(ip) => Frame::InstructionPointer(*ip),
             FrameAddress::ReturnAddress(ra) => Frame::ReturnAddress(u64::from(*ra)),
         };
-        Some((frame, self.category))
+        Some(FrameInfo {
+            frame,
+            category_pair: self.category,
+            flags: FrameFlags::empty(),
+        })
     }
 }
 

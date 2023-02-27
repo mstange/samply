@@ -3,9 +3,10 @@ use debugid::DebugId;
 use serde_json::json;
 
 use fxprof_processed_profile::{
-    CategoryColor, CpuDelta, Frame, LibraryInfo, MarkerDynamicField, MarkerFieldFormat,
-    MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerStaticField, MarkerTiming, Profile,
-    ProfilerMarker, ReferenceTimestamp, SamplingInterval, Symbol, SymbolTable, Timestamp,
+    CategoryColor, CpuDelta, Frame, FrameFlags, FrameInfo, LibraryInfo, MarkerDynamicField,
+    MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerStaticField,
+    MarkerTiming, Profile, ProfilerMarker, ReferenceTimestamp, SamplingInterval, Symbol,
+    SymbolTable, Timestamp,
 };
 
 use std::sync::Arc;
@@ -45,7 +46,7 @@ impl ProfilerMarker for TextMarker {
 }
 
 #[test]
-fn it_works() {
+fn profile_without_js() {
     struct CustomMarker {
         event_name: String,
         allocation_size: u32,
@@ -195,7 +196,11 @@ fn it_works() {
                 Frame::ReturnAddress(addr)
             }
         })
-        .map(|frame| (frame, category.into())),
+        .map(|frame| FrameInfo {
+            frame,
+            category_pair: category.into(),
+            flags: FrameFlags::empty(),
+        }),
         CpuDelta::ZERO,
         1,
     );
@@ -221,7 +226,11 @@ fn it_works() {
                 Frame::ReturnAddress(addr)
             }
         })
-        .map(|frame| (frame, category.into())),
+        .map(|frame| FrameInfo {
+            frame,
+            category_pair: category.into(),
+            flags: FrameFlags::empty(),
+        }),
         CpuDelta::ZERO,
         1,
     );
@@ -247,7 +256,11 @@ fn it_works() {
                 Frame::ReturnAddress(addr)
             }
         })
-        .map(|frame| (frame, category.into())),
+        .map(|frame| FrameInfo {
+            frame,
+            category_pair: category.into(),
+            flags: FrameFlags::empty(),
+        }),
         CpuDelta::ZERO,
         1,
     );
@@ -979,6 +992,254 @@ fn it_works() {
                   }
                 ]
               }
+        )
+    )
+}
+
+#[test]
+fn profile_with_js() {
+    let mut profile = Profile::new(
+        "test with js",
+        ReferenceTimestamp::from_millis_since_unix_epoch(1636162232627.0),
+        SamplingInterval::from_millis(1),
+    );
+    let process = profile.add_process("test2", 123, Timestamp::from_millis_since_reference(0.0));
+    let thread = profile.add_thread(
+        process,
+        12346,
+        Timestamp::from_millis_since_reference(0.0),
+        true,
+    );
+
+    let some_label_string = profile.intern_string("Some label string");
+    let category = profile.add_category("Regular", CategoryColor::Green);
+    profile.add_sample(
+        thread,
+        Timestamp::from_millis_since_reference(1.0),
+        vec![
+            FrameInfo {
+                frame: Frame::Label(some_label_string),
+                category_pair: category.into(),
+                flags: FrameFlags::IS_JS,
+            },
+            FrameInfo {
+                frame: Frame::ReturnAddress(0x7f76b7ffc0e7),
+                category_pair: category.into(),
+                flags: FrameFlags::empty(),
+            },
+        ]
+        .into_iter(),
+        CpuDelta::ZERO,
+        1,
+    );
+
+    // eprintln!("{}", serde_json::to_string_pretty(&profile).unwrap());
+    assert_json_eq!(
+        profile,
+        json!(
+          {
+            "meta": {
+              "categories": [
+                {
+                  "name": "Other",
+                  "color": "grey",
+                  "subcategories": [
+                    "Other"
+                  ]
+                },
+                {
+                  "name": "Regular",
+                  "color": "green",
+                  "subcategories": [
+                    "Other"
+                  ]
+                }
+              ],
+              "debug": false,
+              "extensions": {
+                "baseURL": [],
+                "id": [],
+                "length": 0,
+                "name": []
+              },
+              "interval": 1.0,
+              "preprocessedProfileVersion": 46,
+              "processType": 0,
+              "product": "test with js",
+              "sampleUnits": {
+                "eventDelay": "ms",
+                "threadCPUDelta": "µs",
+                "time": "ms"
+              },
+              "startTime": 1636162232627.0,
+              "symbolicated": false,
+              "pausedRanges": [],
+              "version": 24,
+              "usesOnlyOneStackType": false,
+              "doesNotUseFrameImplementation": true,
+              "sourceCodeIsNotOnSearchfox": true,
+              "markerSchema": []
+            },
+            "libs": [],
+            "threads": [
+              {
+                "frameTable": {
+                  "length": 2,
+                  "address": [
+                    -1,
+                    -1
+                  ],
+                  "inlineDepth": [
+                    0,
+                    0
+                  ],
+                  "category": [
+                    1,
+                    1
+                  ],
+                  "subcategory": [
+                    0,
+                    0
+                  ],
+                  "func": [
+                    0,
+                    1
+                  ],
+                  "nativeSymbol": [
+                    null,
+                    null
+                  ],
+                  "innerWindowID": [
+                    null,
+                    null
+                  ],
+                  "implementation": [
+                    null,
+                    null
+                  ],
+                  "line": [
+                    null,
+                    null
+                  ],
+                  "column": [
+                    null,
+                    null
+                  ],
+                  "optimizations": [
+                    null,
+                    null
+                  ]
+                },
+                "funcTable": {
+                  "length": 2,
+                  "name": [
+                    0,
+                    1
+                  ],
+                  "isJS": [
+                    true,
+                    false
+                  ],
+                  "relevantForJS": [
+                    false,
+                    false
+                  ],
+                  "resource": [
+                    -1,
+                    -1
+                  ],
+                  "fileName": [
+                    null,
+                    null
+                  ],
+                  "lineNumber": [
+                    null,
+                    null
+                  ],
+                  "columnNumber": [
+                    null,
+                    null
+                  ]
+                },
+                "markers": {
+                  "length": 0,
+                  "category": [],
+                  "data": [],
+                  "endTime": [],
+                  "name": [],
+                  "phase": [],
+                  "startTime": []
+                },
+                "name": "test2",
+                "isMainThread": true,
+                "nativeSymbols": {
+                  "length": 0,
+                  "address": [],
+                  "functionSize": [],
+                  "libIndex": [],
+                  "name": []
+                },
+                "pausedRanges": [],
+                "pid": "123",
+                "processName": "test2",
+                "processShutdownTime": null,
+                "processStartupTime": 0.0,
+                "processType": "default",
+                "registerTime": 0.0,
+                "resourceTable": {
+                  "length": 0,
+                  "lib": [],
+                  "name": [],
+                  "host": [],
+                  "type": []
+                },
+                "samples": {
+                  "length": 1,
+                  "stack": [
+                    1
+                  ],
+                  "time": [
+                    1.0
+                  ],
+                  "weight": [
+                    1
+                  ],
+                  "weightType": "samples",
+                  "threadCPUDelta": [
+                    0
+                  ]
+                },
+                "stackTable": {
+                  "length": 2,
+                  "prefix": [
+                    null,
+                    0
+                  ],
+                  "frame": [
+                    0,
+                    1
+                  ],
+                  "category": [
+                    1,
+                    1
+                  ],
+                  "subcategory": [
+                    0,
+                    0
+                  ]
+                },
+                "stringArray": [
+                  "Some label string",
+                  "0x7f76b7ffc0e6"
+                ],
+                "tid": "12346",
+                "unregisterTime": null
+              }
+            ],
+            "pages": [],
+            "profilerOverhead": [],
+            "counters": []
+          }
         )
     )
 }

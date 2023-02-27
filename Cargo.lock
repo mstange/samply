@@ -613,6 +613,7 @@ name = "fxprof-processed-profile"
 version = "0.5.0"
 dependencies = [
  "assert-json-diff",
+ "bitflags",
  "debugid",
  "fxhash",
  "serde",

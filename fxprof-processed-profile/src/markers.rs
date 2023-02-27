@@ -68,7 +68,6 @@ pub enum MarkerTiming {
 ///     }
 /// }
 /// ```
-
 pub trait ProfilerMarker {
     /// The name of the marker type.
     const MARKER_TYPE_NAME: &'static str;
