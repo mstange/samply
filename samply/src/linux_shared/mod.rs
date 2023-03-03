@@ -13,7 +13,7 @@ use fxprof_processed_profile::{
     CategoryColor, CategoryPairHandle, CpuDelta, Frame, FrameFlags, FrameInfo, LibraryInfo,
     MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField,
     MarkerStaticField, MarkerTiming, ProcessHandle, Profile, ProfilerMarker, ReferenceTimestamp,
-    SamplingInterval, ThreadHandle, Timestamp,
+    SamplingInterval, StringHandle, ThreadHandle, Timestamp,
 };
 use linux_perf_data::linux_perf_event_reader;
 use linux_perf_data::{AttributeDescription, DsoInfo, DsoKey};
@@ -1000,7 +1000,7 @@ where
 
             if name.starts_with("jitted-") && name.ends_with(".so") {
                 let symbol_name = jit_function_name(&file);
-                let (category, frame_flags) = self
+                let (category, frame_flags, adjusted_name) = self
                     .jit_category_manager
                     .classify_jit_symbol(symbol_name, &mut self.profile);
                 process.jit_functions.insert(JitFunction {
@@ -1008,6 +1008,7 @@ where
                     end_address: mapping_end_avma,
                     category,
                     frame_flags,
+                    adjusted_name,
                 });
 
                 let main_thread = self
@@ -1171,7 +1172,7 @@ impl StackConverter {
         let user_category = self.user_category;
         let kernel_category = self.kernel_category;
         stack.into_iter().rev().filter_map(move |frame| {
-            let (location, mode, lookup_address) = match frame {
+            let (mut location, mode, lookup_address) = match frame {
                 StackFrame::InstructionPointer(addr, mode) => {
                     (Frame::InstructionPointer(addr), mode, addr)
                 }
@@ -1181,12 +1182,13 @@ impl StackConverter {
                 StackFrame::TruncatedStackMarker => return None,
             };
             let (category, flags) = match mode {
-                StackMode::User => {
-                    match jit_functions.category_and_frame_flags_for_address(lookup_address) {
-                        Some(category_and_frame_flags) => category_and_frame_flags,
-                        None => (user_category, FrameFlags::empty()),
+                StackMode::User => match jit_functions.find(lookup_address) {
+                    Some(jit_function) => {
+                        location = Frame::Label(jit_function.adjusted_name);
+                        (jit_function.category, jit_function.frame_flags)
                     }
-                }
+                    None => (user_category, FrameFlags::empty()),
+                },
                 StackMode::Kernel => (kernel_category, FrameFlags::empty()),
             };
             Some(FrameInfo {
@@ -1204,7 +1206,7 @@ impl StackConverter {
     ) -> impl Iterator<Item = FrameInfo> + 'a {
         let user_category = self.user_category;
         stack.iter().rev().filter_map(move |frame| {
-            let (location, mode, lookup_address) = match *frame {
+            let (mut location, mode, lookup_address) = match *frame {
                 StackFrame::InstructionPointer(addr, mode) => {
                     (Frame::InstructionPointer(addr), mode, addr)
                 }
@@ -1215,11 +1217,13 @@ impl StackConverter {
             };
             match mode {
                 StackMode::User => {
-                    let (category, flags) =
-                        match jit_functions.category_and_frame_flags_for_address(lookup_address) {
-                            Some(category_and_frame_flags) => category_and_frame_flags,
-                            None => (user_category, FrameFlags::empty()),
-                        };
+                    let (category, flags) = match jit_functions.find(lookup_address) {
+                        Some(jit_function) => {
+                            location = Frame::Label(jit_function.adjusted_name);
+                            (jit_function.category, jit_function.frame_flags)
+                        }
+                        None => (user_category, FrameFlags::empty()),
+                    };
                     Some(FrameInfo {
                         frame: location,
                         category_pair: category,
@@ -1314,10 +1318,7 @@ impl JitFunctions {
         }
     }
 
-    pub fn category_and_frame_flags_for_address(
-        &self,
-        address: u64,
-    ) -> Option<(CategoryPairHandle, FrameFlags)> {
+    pub fn find(&self, address: u64) -> Option<&JitFunction> {
         let jit_function = match self.0.binary_search_by_key(&address, |jf| jf.start_address) {
             Err(0) => return None,
             Ok(i) => &self.0[i],
@@ -1326,7 +1327,7 @@ impl JitFunctions {
         if address >= jit_function.end_address {
             return None;
         }
-        Some((jit_function.category, jit_function.frame_flags))
+        Some(jit_function)
     }
 }
 
@@ -1336,6 +1337,7 @@ struct JitFunction {
     pub end_address: u64,
     pub category: CategoryPairHandle,
     pub frame_flags: FrameFlags,
+    pub adjusted_name: StringHandle,
 }
 
 #[derive(Clone, Debug)]

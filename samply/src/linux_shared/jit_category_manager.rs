@@ -1,4 +1,6 @@
-use fxprof_processed_profile::{CategoryColor, CategoryPairHandle, FrameFlags, Profile};
+use fxprof_processed_profile::{
+    CategoryColor, CategoryPairHandle, FrameFlags, Profile, StringHandle,
+};
 
 #[derive(Debug, Clone)]
 pub struct JitCategoryManager {
@@ -58,7 +60,7 @@ impl JitCategoryManager {
         }
     }
 
-    /// Get the category and flame flags which should be used for the stack
+    /// Get the category, flame flags and adjusted name which should be used for the stack
     /// frame for a function from JIT code.
     ///
     /// The category is only created in the profile once a function with that
@@ -67,15 +69,15 @@ impl JitCategoryManager {
         &mut self,
         name: Option<&str>,
         profile: &mut Profile,
-    ) -> (CategoryPairHandle, FrameFlags) {
+    ) -> (CategoryPairHandle, FrameFlags, StringHandle) {
         let name = name.unwrap_or("");
         for (&(prefix, category_name, color, flags), storage) in
             Self::CATEGORIES.iter().zip(self.categories.iter_mut())
         {
-            if name.starts_with(prefix) {
+            if let Some(adjusted_name) = name.strip_prefix(prefix) {
                 let category = *storage
                     .get_or_insert_with(|| profile.add_category(category_name, color).into());
-                return (category, flags);
+                return (category, flags, profile.intern_string(adjusted_name));
             }
         }
         panic!("the last category has prefix '' so it should always be hit")
