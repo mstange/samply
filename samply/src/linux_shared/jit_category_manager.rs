@@ -25,6 +25,12 @@ impl JitCategoryManager {
             CategoryColor::Blue,
             FrameFlags::IS_JS,
         ),
+        (
+            "BaselineInterpreter",
+            "BaselineInterpreter",
+            CategoryColor::Brown,
+            FrameFlags::IS_JS,
+        ),
         ("Ion: ", "Ion", CategoryColor::Green, FrameFlags::IS_JS),
         ("IC: ", "IC", CategoryColor::Brown, FrameFlags::empty()),
         (
@@ -77,6 +83,13 @@ impl JitCategoryManager {
             if let Some(adjusted_name) = name.strip_prefix(prefix) {
                 let category = *storage
                     .get_or_insert_with(|| profile.add_category(category_name, color).into());
+
+                // If the entire name was just the prefix (such as with "BaselineInterpreter"), use the unstripped name.
+                let adjusted_name = if adjusted_name.is_empty() {
+                    name
+                } else {
+                    adjusted_name
+                };
                 return (category, flags, profile.intern_string(adjusted_name));
             }
         }
