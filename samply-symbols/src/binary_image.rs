@@ -193,10 +193,12 @@ fn pe_info<'a, Pe: ImageNtHeaders, R: ReadRef<'a>>(pe: &PeFile<'a, Pe, R>) -> Pe
         Some(pdb_path.to_string())
     });
 
-    let pdb_name = pdb_path.as_deref().and_then(|pdb_path| {
-        let (_base, file_name) = pdb_path.rsplit_once(['/', '\\'])?;
-        Some(file_name.to_string())
-    });
+    let pdb_name = pdb_path
+        .as_deref()
+        .map(|pdb_path| match pdb_path.rsplit_once(['/', '\\']) {
+            Some((_base, file_name)) => file_name.to_string(),
+            None => pdb_path.to_string(),
+        });
 
     PeInfo {
         code_id,
