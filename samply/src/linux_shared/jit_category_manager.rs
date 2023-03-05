@@ -56,7 +56,7 @@ impl JitCategoryManager {
                 let category = *storage
                     .get_or_insert_with(|| profile.add_category(category_name, color).into());
 
-                let js_name = if is_js {
+                let js_name = if is_js && !name.contains("(self-hosted:") {
                     // If the entire name was just the prefix (such as with "BaselineInterpreter"), use the unstripped name.
                     let canonicalized_name = if name_without_prefix.is_empty() {
                         name
