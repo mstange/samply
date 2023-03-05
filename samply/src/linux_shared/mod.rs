@@ -1211,7 +1211,7 @@ impl<'a> Iterator for ConvertedStackIter<'a> {
                 self.pending_frame_after_js = Some(frame_info);
                 FrameInfo {
                     frame: Frame::Label(js_name),
-                    category_pair: CategoryHandle::OTHER.into(),
+                    category_pair: category,
                     flags: FrameFlags::IS_JS,
                 }
             } else {
