@@ -10,10 +10,10 @@ use framehop::aarch64::UnwindRegsAarch64;
 use framehop::x86_64::UnwindRegsX86_64;
 use framehop::{FrameAddress, Module, ModuleSvmaInfo, ModuleUnwindData, TextByteData, Unwinder};
 use fxprof_processed_profile::{
-    CategoryColor, CategoryPairHandle, CpuDelta, Frame, FrameFlags, FrameInfo, LibraryInfo,
-    MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField,
-    MarkerStaticField, MarkerTiming, ProcessHandle, Profile, ProfilerMarker, ReferenceTimestamp,
-    SamplingInterval, StringHandle, ThreadHandle, Timestamp,
+    CategoryColor, CategoryHandle, CategoryPairHandle, CpuDelta, Frame, FrameFlags, FrameInfo,
+    LibraryInfo, MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema,
+    MarkerSchemaField, MarkerStaticField, MarkerTiming, ProcessHandle, Profile, ProfilerMarker,
+    ReferenceTimestamp, SamplingInterval, StringHandle, ThreadHandle, Timestamp,
 };
 use linux_perf_data::linux_perf_event_reader;
 use linux_perf_data::{AttributeDescription, DsoInfo, DsoKey};
@@ -314,7 +314,7 @@ where
 
         let frames = self
             .stack_converter
-            .convert_stack(stack, &process.jit_functions);
+            .convert_stack(&stack, &process.jit_functions);
         self.profile
             .add_sample(thread_handle, profile_timestamp, frames, cpu_delta, 1);
         thread.last_sample_timestamp = Some(timestamp);
@@ -1000,15 +1000,14 @@ where
 
             if name.starts_with("jitted-") && name.ends_with(".so") {
                 let symbol_name = jit_function_name(&file);
-                let (category, frame_flags, adjusted_name) = self
+                let (category, js_name) = self
                     .jit_category_manager
                     .classify_jit_symbol(symbol_name, &mut self.profile);
                 process.jit_functions.insert(JitFunction {
                     start_address: mapping_start_avma,
                     end_address: mapping_end_avma,
                     category,
-                    frame_flags,
-                    adjusted_name,
+                    js_name,
                 });
 
                 let main_thread = self
@@ -1163,40 +1162,80 @@ struct StackConverter {
     kernel_category: CategoryPairHandle,
 }
 
-impl StackConverter {
-    fn convert_stack<'a>(
-        &self,
-        stack: Vec<StackFrame>,
-        jit_functions: &'a JitFunctions,
-    ) -> impl Iterator<Item = FrameInfo> + 'a {
-        let user_category = self.user_category;
-        let kernel_category = self.kernel_category;
-        stack.into_iter().rev().filter_map(move |frame| {
-            let (mut location, mode, lookup_address) = match frame {
+struct ConvertedStackIter<'a> {
+    inner: std::iter::Rev<std::slice::Iter<'a, StackFrame>>,
+    jit_functions: &'a JitFunctions,
+    user_category: CategoryPairHandle,
+    kernel_category: CategoryPairHandle,
+    include_kernel: bool,
+    pending_frame_after_js: Option<FrameInfo>,
+}
+
+impl<'a> Iterator for ConvertedStackIter<'a> {
+    type Item = FrameInfo;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some(pending_frame_after_js) = self.pending_frame_after_js.take() {
+                return Some(pending_frame_after_js);
+            }
+            let frame = self.inner.next()?;
+            let (location, mode, lookup_address) = match *frame {
                 StackFrame::InstructionPointer(addr, mode) => {
                     (Frame::InstructionPointer(addr), mode, addr)
                 }
                 StackFrame::ReturnAddress(addr, mode) => {
                     (Frame::ReturnAddress(addr), mode, addr.saturating_sub(1))
                 }
-                StackFrame::TruncatedStackMarker => return None,
+                StackFrame::TruncatedStackMarker => continue,
             };
-            let (category, flags) = match mode {
-                StackMode::User => match jit_functions.find(lookup_address) {
-                    Some(jit_function) => {
-                        location = Frame::Label(jit_function.adjusted_name);
-                        (jit_function.category, jit_function.frame_flags)
-                    }
-                    None => (user_category, FrameFlags::empty()),
+            let (category, js_name) = match mode {
+                StackMode::User => match self.jit_functions.find(lookup_address) {
+                    Some(jit_function) => (jit_function.category, jit_function.js_name),
+                    None => (self.user_category, None),
                 },
-                StackMode::Kernel => (kernel_category, FrameFlags::empty()),
+                StackMode::Kernel => {
+                    if !self.include_kernel {
+                        continue;
+                    }
+                    (self.kernel_category, None)
+                }
             };
-            Some(FrameInfo {
+            let frame_info = FrameInfo {
                 frame: location,
                 category_pair: category,
-                flags,
-            })
-        })
+                flags: FrameFlags::empty(),
+            };
+            let frame_info = if let Some(js_name) = js_name {
+                // Prepend a JS frame.
+                self.pending_frame_after_js = Some(frame_info);
+                FrameInfo {
+                    frame: Frame::Label(js_name),
+                    category_pair: CategoryHandle::OTHER.into(),
+                    flags: FrameFlags::IS_JS,
+                }
+            } else {
+                frame_info
+            };
+            return Some(frame_info);
+        }
+    }
+}
+
+impl StackConverter {
+    fn convert_stack<'a>(
+        &self,
+        stack: &'a [StackFrame],
+        jit_functions: &'a JitFunctions,
+    ) -> impl Iterator<Item = FrameInfo> + 'a {
+        ConvertedStackIter {
+            inner: stack.iter().rev(),
+            jit_functions,
+            user_category: self.user_category,
+            kernel_category: self.kernel_category,
+            include_kernel: true,
+            pending_frame_after_js: None,
+        }
     }
 
     fn convert_stack_no_kernel<'a>(
@@ -1204,35 +1243,14 @@ impl StackConverter {
         stack: &'a [StackFrame],
         jit_functions: &'a JitFunctions,
     ) -> impl Iterator<Item = FrameInfo> + 'a {
-        let user_category = self.user_category;
-        stack.iter().rev().filter_map(move |frame| {
-            let (mut location, mode, lookup_address) = match *frame {
-                StackFrame::InstructionPointer(addr, mode) => {
-                    (Frame::InstructionPointer(addr), mode, addr)
-                }
-                StackFrame::ReturnAddress(addr, mode) => {
-                    (Frame::ReturnAddress(addr), mode, addr.saturating_sub(1))
-                }
-                StackFrame::TruncatedStackMarker => return None,
-            };
-            match mode {
-                StackMode::User => {
-                    let (category, flags) = match jit_functions.find(lookup_address) {
-                        Some(jit_function) => {
-                            location = Frame::Label(jit_function.adjusted_name);
-                            (jit_function.category, jit_function.frame_flags)
-                        }
-                        None => (user_category, FrameFlags::empty()),
-                    };
-                    Some(FrameInfo {
-                        frame: location,
-                        category_pair: category,
-                        flags,
-                    })
-                }
-                StackMode::Kernel => None,
-            }
-        })
+        ConvertedStackIter {
+            inner: stack.iter().rev(),
+            jit_functions,
+            user_category: self.user_category,
+            kernel_category: self.kernel_category,
+            include_kernel: false,
+            pending_frame_after_js: None,
+        }
     }
 }
 
@@ -1336,8 +1354,7 @@ struct JitFunction {
     pub start_address: u64,
     pub end_address: u64,
     pub category: CategoryPairHandle,
-    pub frame_flags: FrameFlags,
-    pub adjusted_name: StringHandle,
+    pub js_name: Option<StringHandle>,
 }
 
 #[derive(Clone, Debug)]
