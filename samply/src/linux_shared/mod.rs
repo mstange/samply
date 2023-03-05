@@ -10,10 +10,10 @@ use framehop::aarch64::UnwindRegsAarch64;
 use framehop::x86_64::UnwindRegsX86_64;
 use framehop::{FrameAddress, Module, ModuleSvmaInfo, ModuleUnwindData, TextByteData, Unwinder};
 use fxprof_processed_profile::{
-    CategoryColor, CategoryHandle, CategoryPairHandle, CpuDelta, Frame, FrameFlags, FrameInfo,
-    LibraryInfo, MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema,
-    MarkerSchemaField, MarkerStaticField, MarkerTiming, ProcessHandle, Profile, ProfilerMarker,
-    ReferenceTimestamp, SamplingInterval, StringHandle, ThreadHandle, Timestamp,
+    CategoryColor, CategoryPairHandle, CpuDelta, Frame, FrameFlags, FrameInfo, LibraryInfo,
+    MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField,
+    MarkerStaticField, MarkerTiming, ProcessHandle, Profile, ProfilerMarker, ReferenceTimestamp,
+    SamplingInterval, StringHandle, ThreadHandle, Timestamp,
 };
 use linux_perf_data::linux_perf_event_reader;
 use linux_perf_data::{AttributeDescription, DsoInfo, DsoKey};
