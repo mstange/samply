@@ -1,9 +1,10 @@
 use framehop::{Module, Unwinder};
 use fxprof_processed_profile::Profile;
 use linux_perf_data::linux_perf_event_reader;
-use linux_perf_data::{PerfFileReader, PerfFileRecord};
+use linux_perf_data::{DsoInfo, DsoKey, PerfFileReader, PerfFileRecord};
 use linux_perf_event_reader::EventRecord;
 
+use std::collections::HashMap;
 use std::io::{Read, Seek};
 use std::path::Path;
 
@@ -62,7 +63,8 @@ where
         mut perf_file,
         mut record_iter,
     } = file;
-    let build_ids = perf_file.build_ids().ok().unwrap_or_default();
+    let mut build_ids = perf_file.build_ids().ok().unwrap_or_default();
+    fixup_perf_jit_build_ids(&mut build_ids);
     let first_sample_time = perf_file
         .sample_time_range()
         .unwrap()
@@ -155,4 +157,33 @@ where
     }
 
     converter.finish()
+}
+
+/// This is a terrible hack to work around ambiguous build IDs in old versions
+/// of perf (tested with perf 5.4.224). Those versions of perf do two things:
+///
+///  - They do not write down the length of the build ID in the perf.data file.
+///  - They generate .so files with 20-byte build IDs which end in [..., 0, 0, 0, 0].
+///
+/// The former means that linux-perf-data needs to guess the build ID length,
+/// which it does by stripping off 4-byte chunks of zeros from the end.
+///
+/// The latter means that the guessed build ID length for these JIT images is 16, when
+/// it really should have been 20 (including the 4 zeros at the end). So we correct
+/// that guess here, based on the file name.
+///
+/// Some ELF files legitimately have a build ID of 16 bytes, so we must make sure
+/// to leave those alone.
+///
+/// TODO: We should not do this adjustment if the length of 16 was written down in
+/// the perf.data file. However, at the moment linux-perf-data doesn't tell us
+/// whether the build ID length is "real" or guessed.
+fn fixup_perf_jit_build_ids(build_ids: &mut HashMap<DsoKey, DsoInfo>) {
+    for (key, info) in build_ids {
+        let name = key.name();
+        if name.starts_with("jitted-") && name.ends_with(".so") && info.build_id.len() == 16 {
+            // Extend to 20 bytes.
+            info.build_id.extend_from_slice(&[0, 0, 0, 0]);
+        }
+    }
 }
