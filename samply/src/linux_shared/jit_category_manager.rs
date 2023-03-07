@@ -12,6 +12,7 @@ impl JitCategoryManager {
         ("JS:^", "Baseline", CategoryColor::Blue, true),
         ("JS:+", "Maglev", CategoryColor::LightGreen, true),
         ("JS:*", "Turbofan", CategoryColor::Green, true),
+        ("Interpreter: ", "Interpreter", CategoryColor::Red, true),
         ("Baseline: ", "Baseline", CategoryColor::Blue, true),
         (
             "BaselineInterpreter",
