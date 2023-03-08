@@ -15,6 +15,12 @@ impl JitCategoryManager {
         ("Interpreter: ", "Interpreter", CategoryColor::Red, true),
         ("Baseline: ", "Baseline", CategoryColor::Blue, true),
         (
+            "BaselineInterpreter: ",
+            "BaselineInterpreter",
+            CategoryColor::Brown,
+            true,
+        ),
+        (
             "BaselineInterpreter",
             "BaselineInterpreter",
             CategoryColor::Brown,
