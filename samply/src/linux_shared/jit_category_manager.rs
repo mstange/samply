@@ -25,7 +25,7 @@ impl JitCategoryManager {
             "BaselineInterpreter",
             "BaselineInterpreter",
             CategoryColor::Brown,
-            true,
+            false,
         ),
         ("Ion: ", "Ion", CategoryColor::Green, true),
         ("IC: ", "IC", CategoryColor::Brown, false),
