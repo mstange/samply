@@ -9,6 +9,7 @@ impl JitCategoryManager {
     /// (prefix, name, color, is_js)
     const CATEGORIES: &'static [(&'static str, &'static str, CategoryColor, bool)] = &[
         ("JS:~", "Interpreter", CategoryColor::Red, true),
+        ("Script:~", "Interpreter", CategoryColor::Red, true),
         ("JS:^", "Baseline", CategoryColor::Blue, true),
         ("JS:+", "Maglev", CategoryColor::LightGreen, true),
         ("JS:*", "Turbofan", CategoryColor::Green, true),
