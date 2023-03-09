@@ -34,7 +34,7 @@ impl Serialize for CategoryColor {
             CategoryColor::Brown => "brown".serialize(serializer),
             CategoryColor::Magenta => "magenta".serialize(serializer),
             CategoryColor::LightGreen => "lightgreen".serialize(serializer),
-            CategoryColor::Gray => "gray".serialize(serializer),
+            CategoryColor::Gray => "grey".serialize(serializer),
             CategoryColor::DarkGray => "darkgray".serialize(serializer),
         }
     }
