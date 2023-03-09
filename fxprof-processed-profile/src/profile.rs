@@ -138,7 +138,7 @@ impl Profile {
             marker_schemas: FastHashMap::default(),
             categories: vec![Category {
                 name: "Other".to_string(),
-                color: CategoryColor::Grey,
+                color: CategoryColor::Gray,
                 subcategories: Vec::new(),
             }],
             used_pids: FastHashMap::default(),

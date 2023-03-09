@@ -315,7 +315,7 @@ fn profile_without_js() {
                 "meta": {
                   "categories": [
                     {
-                      "color": "grey",
+                      "color": "gray",
                       "name": "Other",
                       "subcategories": [
                         "Other"
@@ -1042,7 +1042,7 @@ fn profile_with_js() {
               "categories": [
                 {
                   "name": "Other",
-                  "color": "grey",
+                  "color": "gray",
                   "subcategories": [
                     "Other"
                   ]
