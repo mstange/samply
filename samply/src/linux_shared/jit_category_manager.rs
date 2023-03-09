@@ -18,16 +18,18 @@ impl JitCategoryManager {
         (
             "BaselineInterpreter: ",
             "BaselineInterpreter",
-            CategoryColor::Brown,
+            CategoryColor::Magenta,
             true,
         ),
         (
             "BaselineInterpreter",
             "BaselineInterpreter",
-            CategoryColor::Brown,
+            CategoryColor::Magenta,
             false,
         ),
         ("Ion: ", "Ion", CategoryColor::Green, true),
+        ("IonIC: ", "IonIC", CategoryColor::Brown, false),
+        ("BaselineIC: ", "BaselineIC", CategoryColor::Brown, false),
         ("IC: ", "IC", CategoryColor::Brown, false),
         ("Trampoline: ", "Trampoline", CategoryColor::DarkGray, false),
         (
