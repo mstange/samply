@@ -174,7 +174,7 @@ async fn start_server(
 
     if open_in_browser {
         if let Some(profiler_url) = &profiler_url {
-            let _ = webbrowser::open(profiler_url);
+            let _ = opener::open_browser(profiler_url);
         }
     }
 
