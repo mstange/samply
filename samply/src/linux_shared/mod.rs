@@ -1002,7 +1002,7 @@ where
                 let symbol_name = jit_function_name(&file);
                 let (category, js_name) = self
                     .jit_category_manager
-                    .classify_jit_symbol(symbol_name, &mut self.profile);
+                    .classify_jit_symbol(symbol_name.unwrap_or(""), &mut self.profile);
                 process.jit_functions.insert(JitFunction {
                     start_address: mapping_start_avma,
                     end_address: mapping_end_avma,

@@ -334,6 +334,14 @@ impl Profile {
         StringHandle(self.string_table.index_for_string(s))
     }
 
+    /// Get the string for a string handle. This is sometimes useful when writing tests.
+    ///
+    /// Panics if the handle wasn't found, which can happen if you pass a handle
+    /// from a different Profile instance.
+    pub fn get_string(&self, handle: StringHandle) -> &str {
+        self.string_table.get_string(handle.0).unwrap()
+    }
+
     /// Add a sample to the given thread.
     ///
     /// The sample has a timestamp, a stack, a CPU delta, and a weight.
