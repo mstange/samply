@@ -5,7 +5,7 @@ use linux_perf_data::linux_perf_event_reader;
 use linux_perf_data::{DsoInfo, DsoKey, PerfFileReader, PerfFileRecord};
 use linux_perf_event_reader::EventRecord;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
 
@@ -49,6 +49,28 @@ pub fn convert<C: Read + Seek>(cursor: C, extra_dir: Option<&Path>) -> Result<Pr
         }
     };
     Ok(profile)
+}
+
+/// Returns any pid associated with this event.
+fn event_record_pid(r: &EventRecord<'_>) -> Option<i32> {
+    match r {
+        EventRecord::Sample(r) => r.pid,
+        EventRecord::Comm(r) => Some(r.pid),
+        EventRecord::Exit(r) => Some(r.pid),
+        EventRecord::Fork(r) => Some(r.pid),
+        EventRecord::Mmap(r) => Some(r.pid),
+        EventRecord::Mmap2(r) => Some(r.pid),
+        EventRecord::ContextSwitch(r) => match r {
+            linux_perf_event_reader::ContextSwitchRecord::In { prev_pid, .. } => *prev_pid,
+            linux_perf_event_reader::ContextSwitchRecord::Out { next_pid, .. } => *next_pid,
+        },
+        EventRecord::Lost(_)
+        | EventRecord::Throttle(_)
+        | EventRecord::Unthrottle(_)
+        | EventRecord::Raw(_) => None,
+        // Necessary because non-exhaustive.
+        _ => None,
+    }
 }
 
 fn convert_impl<U, C, R>(
@@ -103,6 +125,8 @@ where
         extra_dir,
         interpretation.clone(),
     );
+
+    let mut loaded_perf_maps = HashSet::new();
 
     let mut last_timestamp = 0;
     let mut jitdumps: Vec<JitDump> = Vec::new();
@@ -164,6 +188,13 @@ where
                 }
             }
         }
+
+        if let Some(pid) = event_record_pid(&parsed_record) {
+            if loaded_perf_maps.insert(pid) {
+                converter.try_load_perf_map(pid);
+            }
+        }
+
         match parsed_record {
             EventRecord::Sample(e) => {
                 if attr_index == interpretation.main_event_attr_index {
