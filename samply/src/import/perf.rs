@@ -1,16 +1,18 @@
 use framehop::{Module, Unwinder};
-use fxprof_processed_profile::Profile;
+use fxprof_processed_profile::{LibraryHandle, Profile};
+use linux_perf_data::jitdump::{JitDumpReader, JitDumpRecord, JitDumpRecordType};
 use linux_perf_data::linux_perf_event_reader;
 use linux_perf_data::{DsoInfo, DsoKey, PerfFileReader, PerfFileRecord};
 use linux_perf_event_reader::EventRecord;
 
 use std::collections::HashMap;
 use std::io::{Read, Seek};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::linux_shared::{
     ConvertRegs, ConvertRegsAarch64, ConvertRegsX86_64, Converter, EventInterpretation,
 };
+use crate::utils::open_file_with_fallback;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -103,6 +105,7 @@ where
     );
 
     let mut last_timestamp = 0;
+    let mut jitdumps: Vec<JitDump> = Vec::new();
 
     while let Ok(Some(record)) = record_iter.next_record(&mut perf_file) {
         let (record, parsed_record, attr_index) = match record {
@@ -119,6 +122,47 @@ where
                 );
             }
             last_timestamp = timestamp;
+        }
+        for jitdump in &mut jitdumps {
+            while let Ok(Some(next_record_header)) = jitdump.reader.next_record_header() {
+                if next_record_header.timestamp > last_timestamp {
+                    break;
+                }
+                match next_record_header.record_type {
+                    JitDumpRecordType::JIT_CODE_LOAD | JitDumpRecordType::JIT_CODE_MOVE => {
+                        // These are interesting.
+                    }
+                    _ => {
+                        // We skip other records. We especially want to skip JIT_CODE_DEBUG_INFO
+                        // records because they can be big and we don't need to read them from
+                        // the file.
+                        if let Ok(true) = jitdump.reader.skip_next_record() {
+                            continue;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                let Ok(Some(raw_jitdump_record)) = jitdump.reader.next_record() else { break };
+                match raw_jitdump_record.parse() {
+                    Ok(JitDumpRecord::CodeLoad(code_load_record)) => {
+                        converter.handle_jit_code_load(
+                            raw_jitdump_record.start_offset,
+                            raw_jitdump_record.timestamp,
+                            jitdump.lib_handle,
+                            &code_load_record,
+                        );
+                    }
+                    Ok(JitDumpRecord::CodeMove(code_move_record)) => {
+                        converter.handle_jit_code_move(
+                            raw_jitdump_record.timestamp,
+                            jitdump.lib_handle,
+                            &code_move_record,
+                        );
+                    }
+                    _ => {}
+                }
+            }
         }
         match parsed_record {
             EventRecord::Sample(e) => {
@@ -138,10 +182,20 @@ where
                 converter.handle_thread_end(e);
             }
             EventRecord::Mmap(e) => {
-                converter.handle_mmap(e, last_timestamp);
+                if let Some((reader, path)) = load_jitdump(&e.path.as_slice(), extra_dir) {
+                    let lib_handle = converter.lib_handle_for_jitdump(&path, reader.header());
+                    jitdumps.push(JitDump { reader, lib_handle });
+                } else {
+                    converter.handle_mmap(e, last_timestamp);
+                }
             }
             EventRecord::Mmap2(e) => {
-                converter.handle_mmap2(e, last_timestamp);
+                if let Some((reader, path)) = load_jitdump(&e.path.as_slice(), extra_dir) {
+                    let lib_handle = converter.lib_handle_for_jitdump(&path, reader.header());
+                    jitdumps.push(JitDump { reader, lib_handle });
+                } else {
+                    converter.handle_mmap2(e, last_timestamp);
+                }
             }
             EventRecord::ContextSwitch(e) => {
                 let common = match record.common_data() {
@@ -157,6 +211,44 @@ where
     }
 
     converter.finish()
+}
+
+struct JitDump {
+    reader: JitDumpReader<std::fs::File>,
+    lib_handle: LibraryHandle,
+}
+
+fn load_jitdump(
+    path: &[u8],
+    extra_dir: Option<&Path>,
+) -> Option<(JitDumpReader<std::fs::File>, PathBuf)> {
+    let jitdump_path = get_path_if_jitdump(path)?;
+    let (file, actual_path) = match open_file_with_fallback(jitdump_path, extra_dir) {
+        Ok(file_and_path) => file_and_path,
+        Err(e) => {
+            eprintln!("Could not open JITDUMP file at {jitdump_path:?}: {e}");
+            return None;
+        }
+    };
+    let reader = match JitDumpReader::new(file) {
+        Ok(reader) => reader,
+        Err(e) => {
+            eprintln!("Could not parse JITDUMP file at {actual_path:?}: {e}");
+            return None;
+        }
+    };
+
+    Some((reader, actual_path))
+}
+
+fn get_path_if_jitdump(path: &[u8]) -> Option<&Path> {
+    let path = Path::new(std::str::from_utf8(path).ok()?);
+    let filename = path.file_name()?.to_str()?;
+    if filename.starts_with("jit-") && filename.ends_with(".dump") {
+        Some(path)
+    } else {
+        None
+    }
 }
 
 /// This is a terrible hack to work around ambiguous build IDs in old versions

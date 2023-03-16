@@ -15,7 +15,7 @@ fxprof-processed-profile = { version = "0.5", path = "../fxprof-processed-profil
 # framehop = { path = "../../framehop" }
 framehop = "0.7.2"
 # linux-perf-data = { path = "../../linux-perf-data" }
-linux-perf-data = "0.7.0"
+linux-perf-data = "0.8.0"
 
 tokio = { version = "1.17.0", features = ["rt", "rt-multi-thread", "macros"] }
 hyper = { version = "0.14.18", features = ["full"] }
