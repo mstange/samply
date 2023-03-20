@@ -249,7 +249,7 @@ mod symbol_map;
 mod symbol_map_object;
 mod windows;
 
-pub use crate::binary_image::BinaryImage;
+pub use crate::binary_image::{BinaryImage, CodeByteReadingError};
 pub use crate::breakpad::{
     BreakpadIndex, BreakpadIndexParser, BreakpadParseError, BreakpadSymindexParseError,
 };

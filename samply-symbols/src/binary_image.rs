@@ -8,9 +8,25 @@ use crate::{
     debug_id_for_object,
     debugid_util::code_id_for_object,
     macho::{DyldCacheFileData, MachOData, MachOFatArchiveMemberData, ObjectAndMachOData},
+    relative_address_base,
     shared::{FileContentsWrapper, LibraryInfo, PeCodeId, RangeReadRef},
-    CodeId, Error, FileContents,
+    CodeId, Error, FileAndPathHelperError, FileContents,
 };
+
+#[derive(thiserror::Error, Debug)]
+pub enum CodeByteReadingError {
+    #[error("The requested address was not found in any section in the binary.")]
+    AddressNotFound,
+
+    #[error("object parse error: {0}")]
+    ObjectParseError(#[from] object::Error),
+
+    #[error("Could not read the requested address range from the section (might be out of bounds or the section might not have any bytes in the file)")]
+    ByteRangeNotInSection,
+
+    #[error("Could not read the requested address range from the file: {0}")]
+    FileIO(#[from] FileAndPathHelperError),
+}
 
 pub struct BinaryImage<F: FileContents + 'static> {
     inner: BinaryImageInner<F>,
@@ -63,6 +79,15 @@ impl<F: FileContents + 'static> BinaryImage<F> {
         self.inner
             .make_object()
             .expect("We already parsed this before, why is it not parsing now?")
+    }
+
+    pub fn read_bytes_at_relative_address(
+        &self,
+        start_address: u32,
+        size: u32,
+    ) -> Result<&[u8], CodeByteReadingError> {
+        self.inner
+            .read_bytes_at_relative_address(start_address, size)
     }
 }
 
@@ -165,6 +190,65 @@ impl<F: FileContents> BinaryImageInner<F> {
                 Ok(obj_and_macho_data.object)
             }
         }
+    }
+
+    pub fn read_bytes_at_relative_address(
+        &self,
+        start_address: u32,
+        size: u32,
+    ) -> Result<&[u8], CodeByteReadingError> {
+        let object = self.make_object().expect("We've succeeded before");
+
+        // Translate start_address from a "relative address" into an
+        // SVMA ("stated virtual memory address").
+        let image_base = relative_address_base(&object);
+        let start_svma = image_base + u64::from(start_address);
+
+        // Find the section and segment which contains our start_svma.
+        use object::{ObjectSection, ObjectSegment};
+        let (section, section_end_svma) = object
+            .sections()
+            .find_map(|section| {
+                let section_start_svma = section.address();
+                let section_end_svma = section_start_svma.checked_add(section.size())?;
+                if !(section_start_svma..section_end_svma).contains(&start_svma) {
+                    return None;
+                }
+
+                Some((section, section_end_svma))
+            })
+            .ok_or(CodeByteReadingError::AddressNotFound)?;
+
+        let segment = object.segments().find(|segment| {
+            let segment_start_svma = segment.address();
+            if let Some(segment_end_svma) = segment_start_svma.checked_add(segment.size()) {
+                (segment_start_svma..segment_end_svma).contains(&start_svma)
+            } else {
+                false
+            }
+        });
+
+        let max_read_len = section_end_svma - start_svma;
+        let read_len = u64::from(size).min(max_read_len);
+
+        // Now read the instruction bytes from the file.
+        let bytes = if let Some(segment) = segment {
+            segment
+                .data_range(start_svma, read_len)?
+                .ok_or(CodeByteReadingError::ByteRangeNotInSection)?
+        } else {
+            // We don't have a segment, try reading via the section.
+            // We hit this path with synthetic .so files created by `perf inject --jit`;
+            // those only have sections, no segments (i.e. no ELF LOAD commands).
+            // For regular files, we prefer to read the data via the segment, because
+            // the segment is more likely to have correct file offset information.
+            // Specifically, incorrect section file offset information was observed in
+            // the arm64e dyld cache on macOS 13.0.1, FB11929250.
+            section
+                .data_range(start_svma, read_len)?
+                .ok_or(CodeByteReadingError::ByteRangeNotInSection)?
+        };
+        Ok(bytes)
     }
 }
 

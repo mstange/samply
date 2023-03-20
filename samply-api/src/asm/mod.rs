@@ -1,9 +1,8 @@
 use std::str::FromStr;
 
 use samply_symbols::{
-    debugid::DebugId,
-    object::{self, Architecture, Object, ObjectSegment},
-    relative_address_base, CodeId, FileAndPathHelper, LibraryInfo, SymbolManager,
+    debugid::DebugId, object, CodeByteReadingError, CodeId, FileAndPathHelper,
+    FileAndPathHelperError, LibraryInfo, SymbolManager,
 };
 use serde_json::json;
 use yaxpeax_arch::{Arch, DecodeError, U8Reader};
@@ -33,7 +32,10 @@ enum AsmError {
     ByteRangeNotInSection,
 
     #[error("Unrecognized architecture {0:?}")]
-    UnrecognizedArch(Architecture),
+    UnrecognizedArch(String),
+
+    #[error("Could not read the requested address range from the file: {0}")]
+    FileIO(#[from] FileAndPathHelperError),
 }
 
 pub struct AsmApi<'a, 'h: 'a, H: FileAndPathHelper<'h>> {
@@ -110,7 +112,48 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> AsmApi<'a, 'h, H> {
             }
         }
 
-        compute_response(&binary_image.make_object(), *start_address, disassembly_len)
+        // Align the start address, for architectures with instruction alignment.
+        // For example, on ARM, you might be looking for the instructions of a
+        // function whose function symbol has address 0x2001. But this address is
+        // really two pieces of information: 0x2000 is the address of the function's
+        // first instruction (ARM instructions are two-byte aligned), and the 0x1 bit
+        // is the "thumb" bit, meaning that the instructions need to be decoded
+        // with the thumb decoder.
+        let architecture = binary_image.arch();
+        let relative_start_address = match architecture {
+            Some("arm64" | "arm64e") => start_address & !0b11,
+            Some("arm") => start_address & !0b1,
+            _ => *start_address,
+        };
+
+        // Pad out the number of bytes we read a little, to allow for reading one
+        // more instruction.
+        // We've been asked to decode the instructions whose instruction addresses
+        // are in the range relative_start_address .. (relative_start_address + disassembly_len).
+        // If the end of
+        // this range points into the middle of an instruction, we still want to
+        // decode the entire instruction, so we need all of its bytes.
+        // We have another check later to make sure we don't return instructions whose
+        // address is beyond the requested range.
+        const MAX_INSTR_LEN: u32 = 15; // TODO: Get the correct max length for this arch
+
+        // Now read the instruction bytes from the file.
+        let bytes = binary_image
+            .read_bytes_at_relative_address(relative_start_address, disassembly_len + MAX_INSTR_LEN)
+            .map_err(|e| match e {
+                CodeByteReadingError::AddressNotFound => AsmError::AddressNotFound,
+                CodeByteReadingError::ObjectParseError(e) => AsmError::ObjectParseError(e),
+                CodeByteReadingError::ByteRangeNotInSection => AsmError::ByteRangeNotInSection,
+                CodeByteReadingError::FileIO(e) => AsmError::FileIO(e),
+            })?;
+
+        let reader = yaxpeax_arch::U8Reader::new(bytes);
+        decode_arch(
+            reader,
+            architecture,
+            relative_start_address,
+            disassembly_len,
+        )
     }
 
     async fn get_function_end_address(
@@ -127,115 +170,30 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> AsmApi<'a, 'h, H> {
     }
 }
 
-fn compute_response<'data: 'file, 'file>(
-    object: &'file impl Object<'data, 'file>,
-    start_address: u32,
-    disassembly_len: u32,
-) -> Result<response_json::Response, AsmError> {
-    // Align the start address, for architectures with instruction alignment.
-    // For example, on ARM, you might be looking for the instructions of a
-    // function whose function symbol has address 0x2001. But this address is
-    // really two pieces of information: 0x2000 is the address of the function's
-    // first instruction (ARM instructions are two-byte aligned), and the 0x1 bit
-    // is the "thumb" bit, meaning that the instructions need to be decoded
-    // with the thumb decoder.
-    let architecture = object.architecture();
-    let relative_start_address = match architecture {
-        Architecture::Aarch64 => start_address & !0b11,
-        Architecture::Arm => start_address & !0b1,
-        _ => start_address,
-    };
-
-    // Translate start_address from a "relative address" into an
-    // SVMA ("stated virtual memory address").
-    let image_base = relative_address_base(object);
-    let start_svma = image_base + u64::from(relative_start_address);
-
-    // Find the section and segment which contains our start_svma.
-    use object::ObjectSection;
-    let (section, section_end_svma) = object
-        .sections()
-        .find_map(|section| {
-            let section_start_svma = section.address();
-            let section_end_svma = section_start_svma.checked_add(section.size())?;
-            if !(section_start_svma..section_end_svma).contains(&start_svma) {
-                return None;
-            }
-
-            Some((section, section_end_svma))
-        })
-        .ok_or(AsmError::AddressNotFound)?;
-
-    let segment = object.segments().find(|segment| {
-        let segment_start_svma = segment.address();
-        if let Some(segment_end_svma) = segment_start_svma.checked_add(segment.size()) {
-            (segment_start_svma..segment_end_svma).contains(&start_svma)
-        } else {
-            false
-        }
-    });
-
-    // Pad out the number of bytes we read a little, to allow for reading one
-    // more instruction.
-    // We've been asked to decode the instructions whose instruction addresses
-    // are in the range start_svma .. (start_svma + size). If the end of
-    // this range points into the middle of an instruction, we still want to
-    // decode the entire instruction, so we need all of its bytes.
-    // We have another check later to make sure we don't return instructions whose
-    // address is beyond the requested range.
-    const MAX_INSTR_LEN: u64 = 15; // TODO: Get the correct max length for this arch
-    let max_read_len = section_end_svma - start_svma;
-    let read_len = (u64::from(disassembly_len) + MAX_INSTR_LEN).min(max_read_len);
-
-    // Now read the instruction bytes from the file.
-    let bytes = if let Some(segment) = segment {
-        segment
-            .data_range(start_svma, read_len)?
-            .ok_or(AsmError::ByteRangeNotInSection)?
-    } else {
-        // We don't have a segment, try reading via the section.
-        // We hit this path with synthetic .so files created by `perf inject --jit`;
-        // those only have sections, no segments (i.e. no ELF LOAD commands).
-        // For regular files, we prefer to read the data via the segment, because
-        // the segment is more likely to have correct file offset information.
-        // Specifically, incorrect section file offset information was observed in
-        // the arm64e dyld cache on macOS 13.0.1, FB11929250.
-        section
-            .data_range(start_svma, read_len)?
-            .ok_or(AsmError::ByteRangeNotInSection)?
-    };
-
-    let reader = yaxpeax_arch::U8Reader::new(bytes);
-    decode_arch(
-        reader,
-        architecture,
-        image_base,
-        start_svma,
-        disassembly_len,
-    )
-}
-
 fn decode_arch(
     reader: U8Reader,
-    arch: Architecture,
-    image_base: u64,
-    start_svma: u64,
+    arch: Option<&str>,
+    relative_start_address: u32,
     decode_len: u32,
 ) -> Result<Response, AsmError> {
     Ok(match arch {
-        Architecture::I386 => {
-            decode::<yaxpeax_x86::protected_mode::Arch>(reader, image_base, start_svma, decode_len)
+        Some("x86") => {
+            decode::<yaxpeax_x86::protected_mode::Arch>(reader, relative_start_address, decode_len)
         }
-        Architecture::X86_64 => {
-            decode::<yaxpeax_x86::amd64::Arch>(reader, image_base, start_svma, decode_len)
+        Some("x86_64" | "x86_64h") => {
+            decode::<yaxpeax_x86::amd64::Arch>(reader, relative_start_address, decode_len)
         }
-        Architecture::Aarch64 => {
-            decode::<yaxpeax_arm::armv8::a64::ARMv8>(reader, image_base, start_svma, decode_len)
+        Some("arm64" | "arm64e") => {
+            decode::<yaxpeax_arm::armv8::a64::ARMv8>(reader, relative_start_address, decode_len)
         }
-        Architecture::Arm => {
-            decode::<yaxpeax_arm::armv7::ARMv7>(reader, image_base, start_svma, decode_len)
+        Some("arm") => {
+            decode::<yaxpeax_arm::armv7::ARMv7>(reader, relative_start_address, decode_len)
         }
-        _ => return Err(AsmError::UnrecognizedArch(arch)),
+        _ => {
+            return Err(AsmError::UnrecognizedArch(
+                arch.map_or_else(|| "unknown".to_string(), |a| a.to_string()),
+            ))
+        }
     })
 }
 
@@ -328,8 +286,7 @@ impl InstructionDecoding for yaxpeax_arm::armv7::ARMv7 {
 
 fn decode<'a, A: InstructionDecoding>(
     mut reader: U8Reader<'a>,
-    image_base: u64,
-    start_svma: u64,
+    relative_start_address: u32,
     decode_len: u32,
 ) -> Response
 where
@@ -370,7 +327,7 @@ where
     )) as u32;
 
     Response {
-        start_address: (start_svma - image_base) as u32,
+        start_address: relative_start_address,
         size: final_offset,
         arch: A::ARCH_NAME.to_string(),
         syntax: A::SYNTAX.iter().map(ToString::to_string).collect(),
