@@ -1,4 +1,5 @@
 use debugid::DebugId;
+use linux_perf_data::jitdump::JitDumpError;
 use object::FileKind;
 use pdb_addr2line::pdb::Error as PdbError;
 use std::path::PathBuf;
@@ -21,6 +22,9 @@ pub enum Error {
 
     #[error("The Breakpad sym file was malformed, causing a parsing error: {0}")]
     BreakpadParsing(#[from] BreakpadParseError),
+
+    #[error("The JITDUMP file was malformed, causing a parsing error: {0}")]
+    JitDumpParsing(#[from] JitDumpError),
 
     #[error("Invalid index {0} for file or inline_origin in breakpad sym file")]
     InvalidFileOrInlineOriginIndexInBreakpadFile(u32),
@@ -109,6 +113,9 @@ pub enum Error {
 
     #[error("FileContents read_bytes_at for file {0} returned error: {1}")]
     HelperErrorDuringFileReading(String, #[source] Box<dyn std::error::Error + Send + Sync>),
+
+    #[error("FileContents read_bytes_at during JITDUMP parsing returned error: {0}")]
+    JitDumpFileReading(#[source] std::io::Error),
 
     #[error("No candidate path for binary, for {0:?} {1:?}")]
     NoCandidatePathForBinary(Option<String>, Option<DebugId>),
@@ -217,6 +224,7 @@ impl Error {
             Error::UnmatchedDebugId(_, _) => "UnmatchedDebugId",
             Error::NoDisambiguatorForFatArchive(_) => "NoDisambiguatorForFatArchive",
             Error::BreakpadParsing(_) => "BreakpadParsing",
+            Error::JitDumpParsing(_) => "JitDumpParsing",
             Error::NotEnoughInformationToIdentifyBinary => "NotEnoughInformationToIdentifyBinary",
             Error::NotEnoughInformationToIdentifySymbolMap => {
                 "NotEnoughInformationToIdentifySymbolMap"
@@ -257,6 +265,7 @@ impl Error {
             }
             Error::HelperErrorDuringOpenFile(_, _) => "HelperErrorDuringOpenFile",
             Error::HelperErrorDuringFileReading(_, _) => "HelperErrorDuringFileReading",
+            Error::JitDumpFileReading(_) => "JitDumpFileReading",
             Error::NoCandidatePathForDebugFile(_) => "NoCandidatePathForDebugFile",
             Error::NoCandidatePathForBinary(_, _) => "NoCandidatePathForBinary",
             Error::NoCandidatePathForDyldCache => "NoCandidatePathForDyldCache",

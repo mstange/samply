@@ -905,6 +905,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "linux-perf-data"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04f5a02690fb67db3945c4f5cfd6714c5371539728fea15ab2faafbd499bedaf"
+dependencies = [
+ "byteorder",
+ "linear-map",
+ "linux-perf-event-reader",
+ "memchr",
+ "thiserror",
+]
+
+[[package]]
 name = "linux-perf-event-reader"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1494,7 +1507,7 @@ dependencies = [
  "hyper",
  "lazy_static",
  "libc",
- "linux-perf-data",
+ "linux-perf-data 0.7.0",
  "mach",
  "memchr",
  "memmap2",
@@ -1552,6 +1565,7 @@ dependencies = [
  "flate2",
  "futures",
  "gimli",
+ "linux-perf-data 0.8.0",
  "lzma-rs",
  "macho-unwind-info",
  "memchr",

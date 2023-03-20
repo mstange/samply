@@ -1,16 +1,17 @@
 use debugid::DebugId;
+use linux_perf_data::{jitdump::JitDumpHeader, linux_perf_event_reader::RawData};
 use object::{
     read::pe::{ImageNtHeaders, ImageOptionalHeader, PeFile, PeFile32, PeFile64},
     FileKind, Object, ReadRef,
 };
 
 use crate::{
-    debug_id_for_object,
+    debug_id_and_code_id_for_jitdump, debug_id_for_object,
     debugid_util::code_id_for_object,
     macho::{DyldCacheFileData, MachOData, MachOFatArchiveMemberData, ObjectAndMachOData},
     relative_address_base,
     shared::{FileContentsWrapper, LibraryInfo, PeCodeId, RangeReadRef},
-    CodeId, Error, FileAndPathHelperError, FileContents,
+    CodeId, ElfBuildId, Error, FileAndPathHelperError, FileContents,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -75,7 +76,9 @@ impl<F: FileContents + 'static> BinaryImage<F> {
         self.info.arch.as_deref()
     }
 
-    pub fn make_object(&self) -> object::File<'_, RangeReadRef<'_, &'_ FileContentsWrapper<F>>> {
+    pub fn make_object(
+        &self,
+    ) -> Option<object::File<'_, RangeReadRef<'_, &'_ FileContentsWrapper<F>>>> {
         self.inner
             .make_object()
             .expect("We already parsed this before, why is it not parsing now?")
@@ -95,6 +98,7 @@ pub enum BinaryImageInner<F: FileContents + 'static> {
     Normal(FileContentsWrapper<F>, FileKind),
     MemberOfFatArchive(MachOFatArchiveMemberData<F>, FileKind),
     MemberOfDyldSharedCache(DyldCacheFileData<F>),
+    JitDump(FileContentsWrapper<F>),
 }
 
 impl<F: FileContents> BinaryImageInner<F> {
@@ -158,6 +162,25 @@ impl<F: FileContents> BinaryImageInner<F> {
                 let arch = macho_data.get_arch().map(ToOwned::to_owned);
                 (debug_id, code_id, debug_path, debug_name, arch)
             }
+            BinaryImageInner::JitDump(file) => {
+                let header_bytes =
+                    file.read_bytes_at(0, JitDumpHeader::SIZE as u64)
+                        .map_err(|e| {
+                            Error::HelperErrorDuringFileReading(path.clone().unwrap_or_default(), e)
+                        })?;
+                let header = JitDumpHeader::parse(RawData::Single(header_bytes))
+                    .map_err(Error::JitDumpParsing)?;
+                let (debug_id, code_id_bytes) = debug_id_and_code_id_for_jitdump(
+                    header.pid,
+                    header.timestamp,
+                    header.elf_machine_arch,
+                );
+                let code_id = CodeId::ElfBuildId(ElfBuildId::from_bytes(&code_id_bytes));
+                let (debug_path, debug_name) = (path.clone(), name.clone());
+                let arch =
+                    elf_machine_arch_to_string(header.elf_machine_arch).map(ToOwned::to_owned);
+                (Some(debug_id), Some(code_id), debug_path, debug_name, arch)
+            }
         };
         let info = LibraryInfo {
             debug_id,
@@ -173,22 +196,23 @@ impl<F: FileContents> BinaryImageInner<F> {
 
     fn make_object(
         &self,
-    ) -> Result<object::File<'_, RangeReadRef<'_, &'_ FileContentsWrapper<F>>>, Error> {
+    ) -> Result<Option<object::File<'_, RangeReadRef<'_, &'_ FileContentsWrapper<F>>>>, Error> {
         match self {
             BinaryImageInner::Normal(file, file_kind) => {
                 let obj = object::File::parse(file.full_range())
                     .map_err(|e| Error::ObjectParseError(*file_kind, e))?;
-                Ok(obj)
+                Ok(Some(obj))
             }
             BinaryImageInner::MemberOfFatArchive(member, file_kind) => {
                 let obj = object::File::parse(member.data())
                     .map_err(|e| Error::ObjectParseError(*file_kind, e))?;
-                Ok(obj)
+                Ok(Some(obj))
             }
             BinaryImageInner::MemberOfDyldSharedCache(dyld_cache_file_data) => {
                 let obj_and_macho_data = dyld_cache_file_data.make_object()?;
-                Ok(obj_and_macho_data.object)
+                Ok(Some(obj_and_macho_data.object))
             }
+            BinaryImageInner::JitDump(_file) => Ok(None),
         }
     }
 
@@ -197,7 +221,17 @@ impl<F: FileContents> BinaryImageInner<F> {
         start_address: u32,
         size: u32,
     ) -> Result<&[u8], CodeByteReadingError> {
-        let object = self.make_object().expect("We've succeeded before");
+        let object = match self.make_object().expect("We've succeeded before") {
+            Some(obj) => obj,
+            None => {
+                // No object. This must be JITDUMP.
+                if let BinaryImageInner::JitDump(data) = self {
+                    return Ok(data.read_bytes_at(start_address.into(), size.into())?);
+                } else {
+                    panic!()
+                }
+            }
+        };
 
         // Translate start_address from a "relative address" into an
         // SVMA ("stated virtual memory address").
@@ -304,6 +338,17 @@ fn object_arch_to_string(arch: object::Architecture) -> Option<&'static str> {
         object::Architecture::Arm => "arm",
         object::Architecture::I386 => "x86",
         object::Architecture::X86_64 => "x86_64",
+        _ => return None,
+    };
+    Some(s)
+}
+
+fn elf_machine_arch_to_string(elf_machine_arch: u32) -> Option<&'static str> {
+    let s = match elf_machine_arch as u16 {
+        object::elf::EM_ARM => "arm64",
+        object::elf::EM_AARCH64 => "arm",
+        object::elf::EM_386 => "x86",
+        object::elf::EM_X86_64 => "x86_64",
         _ => return None,
     };
     Some(s)

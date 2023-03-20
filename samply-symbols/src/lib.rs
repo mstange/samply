@@ -241,6 +241,7 @@ mod dwarf;
 mod elf;
 mod error;
 mod external_file;
+mod jitdump;
 mod macho;
 mod mapped_path;
 mod path_mapper;
@@ -258,6 +259,7 @@ pub use crate::compact_symbol_table::CompactSymbolTable;
 pub use crate::debugid_util::{debug_id_for_object, DebugIdExt};
 pub use crate::error::Error;
 pub use crate::external_file::{load_external_file, ExternalFileSymbolMap};
+pub use crate::jitdump::debug_id_and_code_id_for_jitdump;
 pub use crate::macho::FatArchiveMember;
 pub use crate::mapped_path::MappedPath;
 pub use crate::shared::{
@@ -650,6 +652,8 @@ where
                 file_location,
                 index_file_contents,
             )
+        } else if jitdump::is_jitdump_file(&file_contents) {
+            jitdump::get_symbol_map_for_jitdump(file_contents, file_location)
         } else {
             Err(Error::InvalidInputError(
             "The file does not have a known format; PDB::open was not able to parse it and object::FileKind::parse was not able to detect the format.",
@@ -674,6 +678,10 @@ where
 
         let file_kind = match FileKind::parse(&file_contents) {
             Ok(file_kind) => file_kind,
+            Err(_) if jitdump::is_jitdump_file(&file_contents) => {
+                let inner = BinaryImageInner::JitDump(file_contents);
+                return BinaryImage::new(inner, name, path);
+            }
             Err(_) => {
                 return Err(Error::InvalidInputError("Unrecognized file"));
             }
