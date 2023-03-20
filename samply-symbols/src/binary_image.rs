@@ -1,19 +1,18 @@
 use debugid::DebugId;
 use object::{
     read::pe::{ImageNtHeaders, ImageOptionalHeader, PeFile, PeFile32, PeFile64},
-    Endianness, FileKind, Object, ReadRef,
+    FileKind, Object, ReadRef,
 };
 
 use crate::{
     debug_id_for_object,
     debugid_util::code_id_for_object,
-    macho::{DyldCacheFileData, MachOFatArchiveMemberData},
+    macho::{DyldCacheFileData, MachOData, MachOFatArchiveMemberData, ObjectAndMachOData},
     shared::{FileContentsWrapper, LibraryInfo, PeCodeId, RangeReadRef},
     CodeId, Error, FileContents,
 };
 
 pub struct BinaryImage<F: FileContents + 'static> {
-    file_kind: FileKind,
     inner: BinaryImageInner<F>,
     info: LibraryInfo,
 }
@@ -23,36 +22,9 @@ impl<F: FileContents + 'static> BinaryImage<F> {
         inner: BinaryImageInner<F>,
         name: Option<String>,
         path: Option<String>,
-        file_kind: FileKind,
     ) -> Result<Self, Error> {
-        let obj_and_data = inner.make_object_and_data(file_kind)?;
-        let debug_id = debug_id_for_object(&obj_and_data.obj);
-        let (code_id, debug_path, debug_name) = if let FileKind::Pe32 | FileKind::Pe64 = file_kind {
-            if let Ok(pe) = PeFile64::parse(obj_and_data.data) {
-                pe_info(&pe).into_tuple()
-            } else if let Ok(pe) = PeFile32::parse(obj_and_data.data) {
-                pe_info(&pe).into_tuple()
-            } else {
-                (None, None, None)
-            }
-        } else {
-            let code_id = code_id_for_object(&obj_and_data.obj);
-            (code_id, path.clone(), name.clone())
-        };
-        let info = LibraryInfo {
-            debug_id,
-            debug_name,
-            debug_path,
-            name,
-            code_id,
-            path,
-            arch: None,
-        };
-        Ok(Self {
-            file_kind,
-            inner,
-            info,
-        })
+        let info = inner.make_library_info(name, path)?;
+        Ok(Self { inner, info })
     }
 
     pub fn library_info(&self) -> LibraryInfo {
@@ -89,73 +61,108 @@ impl<F: FileContents + 'static> BinaryImage<F> {
 
     pub fn make_object(&self) -> object::File<'_, RangeReadRef<'_, &'_ FileContentsWrapper<F>>> {
         self.inner
-            .make_object(self.file_kind)
+            .make_object()
             .expect("We already parsed this before, why is it not parsing now?")
     }
 }
 
 pub enum BinaryImageInner<F: FileContents + 'static> {
-    Normal(FileContentsWrapper<F>),
-    MemberOfFatArchive(MachOFatArchiveMemberData<F>),
+    Normal(FileContentsWrapper<F>, FileKind),
+    MemberOfFatArchive(MachOFatArchiveMemberData<F>, FileKind),
     MemberOfDyldSharedCache(DyldCacheFileData<F>),
 }
 
-struct ObjectAndData<'a, F: FileContents> {
-    obj: object::File<'a, RangeReadRef<'a, &'a FileContentsWrapper<F>>>,
-    data: RangeReadRef<'a, &'a FileContentsWrapper<F>>,
-}
-
 impl<F: FileContents> BinaryImageInner<F> {
-    pub fn make_object(
+    fn make_library_info(
         &self,
-        file_kind: FileKind,
-    ) -> Result<object::File<'_, RangeReadRef<'_, &'_ FileContentsWrapper<F>>>, Error> {
-        let ObjectAndData { obj, .. } = self.make_object_and_data(file_kind)?;
-        Ok(obj)
+        name: Option<String>,
+        path: Option<String>,
+    ) -> Result<LibraryInfo, Error> {
+        let (debug_id, code_id, debug_path, debug_name, arch) = match self {
+            BinaryImageInner::Normal(file, file_kind) => {
+                let data = file.full_range();
+                let object = object::File::parse(data)
+                    .map_err(|e| Error::ObjectParseError(*file_kind, e))?;
+                let debug_id = debug_id_for_object(&object);
+                match file_kind {
+                    FileKind::Pe32 | FileKind::Pe64 => {
+                        let (code_id, debug_path, debug_name) =
+                            if let Ok(pe) = PeFile64::parse(file) {
+                                pe_info(&pe).into_tuple()
+                            } else if let Ok(pe) = PeFile32::parse(file) {
+                                pe_info(&pe).into_tuple()
+                            } else {
+                                (None, None, None)
+                            };
+                        let arch =
+                            object_arch_to_string(object.architecture()).map(ToOwned::to_owned);
+                        (debug_id, code_id, debug_path, debug_name, arch)
+                    }
+                    FileKind::MachO32 | FileKind::MachO64 => {
+                        let macho_data = MachOData::new(file, 0, *file_kind == FileKind::MachO64);
+                        let code_id = code_id_for_object(&object);
+                        let arch = macho_data.get_arch().map(ToOwned::to_owned);
+                        let (debug_path, debug_name) = (path.clone(), name.clone());
+                        (debug_id, code_id, debug_path, debug_name, arch)
+                    }
+                    _ => {
+                        let code_id = code_id_for_object(&object);
+                        let (debug_path, debug_name) = (path.clone(), name.clone());
+                        let arch =
+                            object_arch_to_string(object.architecture()).map(ToOwned::to_owned);
+                        (debug_id, code_id, debug_path, debug_name, arch)
+                    }
+                }
+            }
+            BinaryImageInner::MemberOfFatArchive(member, file_kind) => {
+                let data = member.data();
+                let object = object::File::parse(data)
+                    .map_err(|e| Error::ObjectParseError(*file_kind, e))?;
+                let debug_id = debug_id_for_object(&object);
+                let code_id = code_id_for_object(&object);
+                let (debug_path, debug_name) = (path.clone(), name.clone());
+                let arch = member.arch.clone();
+                (debug_id, code_id, debug_path, debug_name, arch)
+            }
+            BinaryImageInner::MemberOfDyldSharedCache(dyld_cache_file_data) => {
+                let ObjectAndMachOData { object, macho_data } =
+                    dyld_cache_file_data.make_object()?;
+                let debug_id = debug_id_for_object(&object);
+                let code_id = code_id_for_object(&object);
+                let (debug_path, debug_name) = (path.clone(), name.clone());
+                let arch = macho_data.get_arch().map(ToOwned::to_owned);
+                (debug_id, code_id, debug_path, debug_name, arch)
+            }
+        };
+        let info = LibraryInfo {
+            debug_id,
+            debug_name,
+            debug_path,
+            name,
+            code_id,
+            path,
+            arch,
+        };
+        Ok(info)
     }
 
-    fn make_object_and_data(&self, file_kind: FileKind) -> Result<ObjectAndData<'_, F>, Error> {
+    fn make_object(
+        &self,
+    ) -> Result<object::File<'_, RangeReadRef<'_, &'_ FileContentsWrapper<F>>>, Error> {
         match self {
-            BinaryImageInner::Normal(file) => {
-                let data = file.full_range();
-                let obj =
-                    object::File::parse(data).map_err(|e| Error::ObjectParseError(file_kind, e))?;
-                Ok(ObjectAndData { obj, data })
+            BinaryImageInner::Normal(file, file_kind) => {
+                let obj = object::File::parse(file.full_range())
+                    .map_err(|e| Error::ObjectParseError(*file_kind, e))?;
+                Ok(obj)
             }
-            BinaryImageInner::MemberOfFatArchive(member) => {
-                let data = member.data();
-                let obj =
-                    object::File::parse(data).map_err(|e| Error::ObjectParseError(file_kind, e))?;
-                Ok(ObjectAndData { obj, data })
+            BinaryImageInner::MemberOfFatArchive(member, file_kind) => {
+                let obj = object::File::parse(member.data())
+                    .map_err(|e| Error::ObjectParseError(*file_kind, e))?;
+                Ok(obj)
             }
-            BinaryImageInner::MemberOfDyldSharedCache(DyldCacheFileData {
-                root_file_data,
-                subcache_file_data,
-                dylib_path,
-            }) => {
-                let rootcache_range = root_file_data.full_range();
-                let subcache_ranges: Vec<_> = subcache_file_data
-                    .iter()
-                    .map(FileContentsWrapper::full_range)
-                    .collect();
-                let cache = object::read::macho::DyldCache::<Endianness, _>::parse(
-                    rootcache_range,
-                    &subcache_ranges,
-                )
-                .map_err(Error::DyldCacheParseError)?;
-
-                let image = match cache.images().find(|image| image.path() == Ok(dylib_path)) {
-                    Some(image) => image,
-                    None => {
-                        return Err(Error::NoMatchingDyldCacheImagePath(dylib_path.to_string()))
-                    }
-                };
-                let (data, _header_offset) = image
-                    .image_data_and_offset()
-                    .map_err(Error::DyldCacheParseError)?;
-
-                let obj = image.parse_object().map_err(Error::MachOHeaderParseError)?;
-                Ok(ObjectAndData { obj, data })
+            BinaryImageInner::MemberOfDyldSharedCache(dyld_cache_file_data) => {
+                let obj_and_macho_data = dyld_cache_file_data.make_object()?;
+                Ok(obj_and_macho_data.object)
             }
         }
     }
@@ -205,4 +212,15 @@ fn pe_info<'a, Pe: ImageNtHeaders, R: ReadRef<'a>>(pe: &PeFile<'a, Pe, R>) -> Pe
         pdb_path,
         pdb_name,
     }
+}
+
+fn object_arch_to_string(arch: object::Architecture) -> Option<&'static str> {
+    let s = match arch {
+        object::Architecture::Aarch64 => "arm64",
+        object::Architecture::Arm => "arm",
+        object::Architecture::I386 => "x86",
+        object::Architecture::X86_64 => "x86_64",
+        _ => return None,
+    };
+    Some(s)
 }

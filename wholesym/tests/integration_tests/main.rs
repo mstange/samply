@@ -88,7 +88,7 @@ fn dll() {
         info.debug_path,
         Some("/builds/worker/workspace/obj-build/mozglue/build/mozglue.pdb".into())
     );
-    assert_eq!(info.arch, None);
+    assert_eq!(info.arch.as_deref(), Some("x86_64"));
 }
 
 #[test]
@@ -114,7 +114,7 @@ fn exe() {
         info.debug_path,
         Some("c:\\mozilla-source\\obj-m-opt\\browser\\app\\firefox.pdb".into())
     );
-    assert_eq!(info.arch, None);
+    assert_eq!(info.arch.as_deref(), Some("x86_64"));
 }
 
 #[test]

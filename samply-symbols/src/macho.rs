@@ -46,23 +46,23 @@ fn macho_arch_name_for_cpu_type(cputype: u32, cpusubtype: u32) -> Option<&'stati
     Some(s)
 }
 
-/// Returns the (offset, size) in the fat binary file for the object that matches
+/// Returns the (offset, size, arch) in the fat binary file for the object that matches
 /// `disambiguator`, if found.
 ///
 /// If `disambiguator` is `None`, this will always return [`Error::NoDisambiguatorForFatArchive`].
-pub fn get_fat_archive_member_range(
+pub fn get_fat_archive_member(
     file_contents: &FileContentsWrapper<impl FileContents>,
     archive_kind: FileKind,
     disambiguator: Option<MultiArchDisambiguator>,
-) -> Result<(u64, u64), Error> {
-    let members = get_fat_archive_members(file_contents, archive_kind)?;
+) -> Result<FatArchiveMember, Error> {
+    let mut members = get_fat_archive_members(file_contents, archive_kind)?;
 
     if members.is_empty() {
         return Err(Error::EmptyFatArchive);
     }
 
     if members.len() == 1 && disambiguator.is_none() {
-        return Ok(members[0].offset_and_size);
+        return Ok(members.remove(0));
     }
 
     let disambiguator = match disambiguator {
@@ -72,13 +72,14 @@ pub fn get_fat_archive_member_range(
 
     match members
         .iter()
-        .filter_map(|m| {
+        .enumerate()
+        .filter_map(|(i, m)| {
             m.match_score_for_disambiguator(&disambiguator)
-                .map(|score| (score, m))
+                .map(|score| (i, score))
         })
-        .min_by_key(|(score, _m)| *score)
+        .min_by_key(|(_i, score)| *score)
     {
-        Some((_score, m)) => Ok(m.offset_and_size),
+        Some((i, _score)) => Ok(members.remove(i)),
         None => Err(Error::NoMatchMultiArch(members)),
     }
 }
@@ -284,6 +285,11 @@ where
     pub(crate) dylib_path: String,
 }
 
+pub struct ObjectAndMachOData<'data, T: FileContents + 'static> {
+    pub object: File<'data, RangeReadRef<'data, &'data FileContentsWrapper<T>>>,
+    pub macho_data: MachOData<'data, RangeReadRef<'data, &'data FileContentsWrapper<T>>>,
+}
+
 impl<T: FileContents + 'static> DyldCacheFileData<T> {
     pub fn new(
         root_file_data: FileContentsWrapper<T>,
@@ -296,16 +302,20 @@ impl<T: FileContents + 'static> DyldCacheFileData<T> {
             dylib_path,
         }
     }
-}
 
-impl<T: FileContents + 'static> SymbolMapDataOuterTrait for DyldCacheFileData<T> {
-    fn make_symbol_map_data_mid(&self) -> Result<Box<dyn SymbolMapDataMidTrait + '_>, Error> {
-        let subcache_contents_refs: Vec<_> = self.subcache_file_data.iter().collect();
+    pub fn make_object(&self) -> Result<ObjectAndMachOData<'_, T>, Error> {
+        let rootcache_range = self.root_file_data.full_range();
+        let subcache_ranges: Vec<_> = self
+            .subcache_file_data
+            .iter()
+            .map(FileContentsWrapper::full_range)
+            .collect();
         let cache = object::read::macho::DyldCache::<Endianness, _>::parse(
-            &self.root_file_data,
-            &subcache_contents_refs,
+            rootcache_range,
+            &subcache_ranges,
         )
         .map_err(Error::DyldCacheParseError)?;
+
         let image = match cache
             .images()
             .find(|image| image.path() == Ok(&self.dylib_path))
@@ -313,13 +323,18 @@ impl<T: FileContents + 'static> SymbolMapDataOuterTrait for DyldCacheFileData<T>
             Some(image) => image,
             None => return Err(Error::NoMatchingDyldCacheImagePath(self.dylib_path.clone())),
         };
-
         let object = image.parse_object().map_err(Error::MachOHeaderParseError)?;
-
         let (data, header_offset) = image
             .image_data_and_offset()
             .map_err(Error::MachOHeaderParseError)?;
         let macho_data = MachOData::new(data, header_offset, object.is_64());
+        Ok(ObjectAndMachOData { object, macho_data })
+    }
+}
+
+impl<T: FileContents + 'static> SymbolMapDataOuterTrait for DyldCacheFileData<T> {
+    fn make_symbol_map_data_mid(&self) -> Result<Box<dyn SymbolMapDataMidTrait + '_>, Error> {
+        let ObjectAndMachOData { object, macho_data } = self.make_object()?;
         let arch = macho_data.get_arch();
         let function_addresses_computer = MachOFunctionAddressesComputer { macho_data };
         let debug_id = debug_id_for_object(&object)
@@ -328,7 +343,7 @@ impl<T: FileContents + 'static> SymbolMapDataOuterTrait for DyldCacheFileData<T>
             object,
             None,
             function_addresses_computer,
-            &self.root_file_data,
+            self.root_file_data.full_range(),
             None,
             arch,
             debug_id,
@@ -350,10 +365,11 @@ pub fn get_symbol_map_for_macho<F: FileContents + 'static, FL: FileLocation>(
 pub fn get_symbol_map_for_fat_archive_member<F: FileContents + 'static, FL: FileLocation>(
     debug_file_location: FL,
     file_contents: FileContentsWrapper<F>,
-    file_range: (u64, u64),
+    member: FatArchiveMember,
 ) -> Result<SymbolMap<FL>, Error> {
-    let (start_offset, range_size) = file_range;
-    let owner = MachOFatArchiveMemberData::new(file_contents, start_offset, range_size);
+    let (start_offset, range_size) = member.offset_and_size;
+    let owner =
+        MachOFatArchiveMemberData::new(file_contents, start_offset, range_size, member.arch);
     let symbol_map = GenericSymbolMap::new(owner)?;
     Ok(SymbolMap::new(debug_file_location, Box::new(symbol_map)))
 }
@@ -399,14 +415,21 @@ where
     pub(crate) file_data: FileContentsWrapper<T>,
     pub(crate) start_offset: u64,
     pub(crate) range_size: u64,
+    pub(crate) arch: Option<String>,
 }
 
 impl<T: FileContents> MachOFatArchiveMemberData<T> {
-    pub fn new(file_data: FileContentsWrapper<T>, start_offset: u64, range_size: u64) -> Self {
+    pub fn new(
+        file_data: FileContentsWrapper<T>,
+        start_offset: u64,
+        range_size: u64,
+        arch: Option<String>,
+    ) -> Self {
         Self {
             file_data,
             start_offset,
             range_size,
+            arch,
         }
     }
 
@@ -454,7 +477,7 @@ where
         Some(index) => dylib_path[index + 1..].to_owned(),
         None => dylib_path.to_owned(),
     };
-    let image = BinaryImage::new(inner, Some(name), Some(dylib_path), FileKind::DyldCache)?;
+    let image = BinaryImage::new(inner, Some(name), Some(dylib_path))?;
     Ok(image)
 }
 

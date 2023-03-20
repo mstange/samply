@@ -599,7 +599,7 @@ where
                     .await
                 }
                 FileKind::MachOFat32 | FileKind::MachOFat64 => {
-                    let range = macho::get_fat_archive_member_range(
+                    let member = macho::get_fat_archive_member(
                         &file_contents,
                         file_kind,
                         multi_arch_disambiguator,
@@ -607,7 +607,7 @@ where
                     macho::get_symbol_map_for_fat_archive_member(
                         file_location,
                         file_contents,
-                        range,
+                        member,
                     )
                 }
                 FileKind::MachO32 | FileKind::MachO64 => {
@@ -672,23 +672,29 @@ where
 
         let file_contents = FileContentsWrapper::new(file_contents);
 
-        let file_kind = FileKind::parse(&file_contents)
-            .map_err(|_| Error::InvalidInputError("Unrecognized file"))?;
+        let file_kind = match FileKind::parse(&file_contents) {
+            Ok(file_kind) => file_kind,
+            Err(_) => {
+                return Err(Error::InvalidInputError("Unrecognized file"));
+            }
+        };
         let inner = match file_kind {
             FileKind::Elf32
             | FileKind::Elf64
             | FileKind::MachO32
             | FileKind::MachO64
             | FileKind::Pe32
-            | FileKind::Pe64 => BinaryImageInner::Normal(file_contents),
+            | FileKind::Pe64 => BinaryImageInner::Normal(file_contents, file_kind),
             FileKind::MachOFat32 | FileKind::MachOFat64 => {
-                let (offset, size) = macho::get_fat_archive_member_range(
+                let member = macho::get_fat_archive_member(
                     &file_contents,
                     file_kind,
                     multi_arch_disambiguator,
                 )?;
-                let data = macho::MachOFatArchiveMemberData::new(file_contents, offset, size);
-                BinaryImageInner::MemberOfFatArchive(data)
+                let (offset, size) = member.offset_and_size;
+                let arch = member.arch;
+                let data = macho::MachOFatArchiveMemberData::new(file_contents, offset, size, arch);
+                BinaryImageInner::MemberOfFatArchive(data, file_kind)
             }
             _ => {
                 return Err(Error::InvalidInputError(
@@ -696,6 +702,6 @@ where
                 ))
             }
         };
-        BinaryImage::new(inner, name, path, file_kind)
+        BinaryImage::new(inner, name, path)
     }
 }
