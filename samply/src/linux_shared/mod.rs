@@ -512,8 +512,7 @@ where
         }
 
         if e.pid == -1 {
-            let lib = self.kernel_lib(e.address, e.length, dso_key, build_id.as_deref(), &path);
-            self.profile.add_kernel_lib(lib);
+            self.add_kernel_module(e.address, e.length, dso_key, build_id.as_deref(), &path);
         } else {
             self.add_module_to_process(
                 e.pid,
@@ -733,14 +732,14 @@ where
         self.set_thread_name(e.pid, e.tid, &name, e.is_execve);
     }
 
-    fn kernel_lib(
-        &self,
+    fn add_kernel_module(
+        &mut self,
         base_address: u64,
         len: u64,
         dso_key: DsoKey,
         build_id: Option<&[u8]>,
         path: &[u8],
-    ) -> LibraryInfo {
+    ) {
         let path = std::str::from_utf8(path).unwrap().to_string();
         let build_id: Option<Vec<u8>> = match (build_id, self.kernel_symbols.as_ref()) {
             (None, Some(kernel_symbols)) if kernel_symbols.base_avma == base_address => {
@@ -772,9 +771,7 @@ where
             _ => None,
         };
 
-        LibraryInfo {
-            base_avma: base_address,
-            avma_range: base_address..(base_address + len),
+        let lib_handle = self.profile.add_lib(LibraryInfo {
             debug_id: debug_id.unwrap_or_default(),
             path,
             debug_path,
@@ -783,9 +780,10 @@ where
             debug_name: dso_key.name().to_string(),
             arch: None,
             symbol_table,
-        }
+        });
+        self.profile
+            .add_kernel_lib_mapping(lib_handle, base_address, base_address + len, 0);
     }
-
     /// Tell the unwinder about this module, and alsos create a ProfileModule
     /// and add it to the profile.
     ///
@@ -806,6 +804,7 @@ where
         timestamp: u64,
     ) {
         let process = self.processes.get_by_pid(process_pid, &mut self.profile);
+        let profile_process = process.profile_process;
 
         let path = std::str::from_utf8(path_slice).unwrap();
         let (mut file, mut path): (Option<_>, String) = match open_file_with_fallback(
@@ -1042,20 +1041,22 @@ where
             code_id = build_id.map(|build_id| CodeId::from_binary(build_id).to_string());
         }
 
-        self.profile.add_lib(
-            process.profile_process,
-            LibraryInfo {
-                base_avma,
-                avma_range,
-                debug_id,
-                code_id,
-                path: path.clone(),
-                debug_path: path,
-                debug_name: name.clone(),
-                name,
-                arch: None,
-                symbol_table: None,
-            },
+        let lib_handle = self.profile.add_lib(LibraryInfo {
+            debug_id,
+            code_id,
+            path: path.clone(),
+            debug_path: path,
+            debug_name: name.clone(),
+            name,
+            arch: None,
+            symbol_table: None,
+        });
+        self.profile.add_lib_mapping(
+            profile_process,
+            lib_handle,
+            avma_range.start,
+            avma_range.end,
+            (avma_range.start - base_avma) as u32,
         );
     }
 }

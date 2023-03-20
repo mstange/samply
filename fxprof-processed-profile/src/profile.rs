@@ -10,9 +10,9 @@ use crate::cpu_delta::CpuDelta;
 use crate::fast_hash_map::FastHashMap;
 use crate::frame::{Frame, FrameInfo};
 use crate::frame_table::{InternalFrame, InternalFrameLocation};
-use crate::global_lib_table::GlobalLibTable;
+use crate::global_lib_table::{GlobalLibTable, LibraryHandle};
+use crate::lib_mappings::LibMappings;
 use crate::library_info::LibraryInfo;
-use crate::libs_with_ranges::LibsWithRanges;
 use crate::process::{Process, ThreadHandle};
 use crate::reference_timestamp::ReferenceTimestamp;
 use crate::string_table::{GlobalStringIndex, GlobalStringTable};
@@ -102,7 +102,7 @@ pub struct Profile {
     pub(crate) product: String,
     pub(crate) interval: SamplingInterval,
     pub(crate) global_libs: GlobalLibTable,
-    pub(crate) kernel_libs: LibsWithRanges,
+    pub(crate) kernel_libs: LibMappings<LibraryHandle>,
     pub(crate) categories: Vec<Category>, // append-only for stable CategoryHandles
     pub(crate) processes: Vec<Process>,   // append-only for stable ProcessHandles
     pub(crate) counters: Vec<Counter>,
@@ -131,7 +131,7 @@ impl Profile {
             product: product.to_string(),
             threads: Vec::new(),
             global_libs: GlobalLibTable::new(),
-            kernel_libs: LibsWithRanges::new(),
+            kernel_libs: LibMappings::new(),
             reference_timestamp,
             processes: Vec::new(),
             string_table: GlobalStringTable::new(),
@@ -271,14 +271,33 @@ impl Profile {
     /// Each library covers an address range in the virtual memory of a process. Future calls
     /// to [`Profile::add_sample`] with native frames resolve the frame's code address with
     /// respect to the currently loaded kernel and process libraries.
-    pub fn add_lib(&mut self, process: ProcessHandle, library: LibraryInfo) {
-        self.processes[process.0].add_lib(library);
+    pub fn add_lib(&mut self, library: LibraryInfo) -> LibraryHandle {
+        self.global_libs.handle_for_lib(library)
     }
 
-    /// Mark the library at the specified base address in the specified process as unloaded,
-    /// so that future calls to [`Profile::add_sample`] know about the unloading.
-    pub fn unload_lib(&mut self, process: ProcessHandle, base_address: u64) {
-        self.processes[process.0].unload_lib(base_address);
+    /// Each library covers one or more addresss range in the virtual memory of a process.
+    /// Future calls to [`Profile::add_sample`] with native frames resolve the frame's code
+    /// address with respect to the currently loaded kernel and process libraries.
+    pub fn add_lib_mapping(
+        &mut self,
+        process: ProcessHandle,
+        lib: LibraryHandle,
+        start_avma: u64,
+        end_avma: u64,
+        relative_address_at_start: u32,
+    ) {
+        self.processes[process.0].add_lib_mapping(
+            lib,
+            start_avma,
+            end_avma,
+            relative_address_at_start,
+        );
+    }
+
+    /// Mark the library at the specified base address in the specified process as
+    /// unloaded, so that future calls to [`Profile::add_sample`] know about the unloading.
+    pub fn remove_lib_mapping(&mut self, process: ProcessHandle, start_avma: u64) {
+        self.processes[process.0].remove_lib_mapping(start_avma);
     }
 
     /// Add a kernel library. This allows symbolication of kernel stacks once the profile is
@@ -288,14 +307,21 @@ impl Profile {
     /// global across all processes. Future calls to [`Profile::add_sample`] with native
     /// frames resolve the frame's code address with respect to the currently loaded kernel
     /// and process libraries.
-    pub fn add_kernel_lib(&mut self, library: LibraryInfo) {
-        self.kernel_libs.add_lib(library);
+    pub fn add_kernel_lib_mapping(
+        &mut self,
+        lib: LibraryHandle,
+        start_avma: u64,
+        end_avma: u64,
+        relative_address_at_start: u32,
+    ) {
+        self.kernel_libs
+            .add_mapping(start_avma, end_avma, relative_address_at_start, lib);
     }
 
-    /// Mark the kernel library at the specified base address in the specified process as
+    /// Mark the kernel library at the specified base address as
     /// unloaded, so that future calls to [`Profile::add_sample`] know about the unloading.
-    pub fn unload_kernel_lib(&mut self, base_address: u64) {
-        self.kernel_libs.unload_lib(base_address);
+    pub fn remove_kernel_lib_mapping(&mut self, start_avma: u64) {
+        self.kernel_libs.remove_mapping(start_avma);
     }
 
     /// Add an empty thread to the specified process.
@@ -443,6 +469,15 @@ impl Profile {
                     &mut self.kernel_libs,
                     ra.saturating_sub(1),
                 ),
+                Frame::RelativeAddressFromInstructionPointer(lib_handle, relative_address) => {
+                    let global_lib_index = self.global_libs.index_for_used_lib(lib_handle);
+                    InternalFrameLocation::AddressInLib(relative_address, global_lib_index)
+                }
+                Frame::RelativeAddressFromReturnAddress(lib_handle, relative_address) => {
+                    let global_lib_index = self.global_libs.index_for_used_lib(lib_handle);
+                    let nudged_relative_address = relative_address.saturating_sub(1);
+                    InternalFrameLocation::AddressInLib(nudged_relative_address, global_lib_index)
+                }
                 Frame::Label(string_index) => {
                     let thread_string_index =
                         thread.convert_string_index(&self.string_table, string_index.0);

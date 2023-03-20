@@ -1,6 +1,7 @@
 use bitflags::bitflags;
 
 use crate::category::CategoryPairHandle;
+use crate::global_lib_table::LibraryHandle;
 use crate::profile::StringHandle;
 
 /// A part of the information about a single stack frame.
@@ -10,6 +11,12 @@ pub enum Frame {
     InstructionPointer(u64),
     /// A code address taken from a return address
     ReturnAddress(u64),
+    /// A relative address taken from the instruction pointer which
+    /// has already been resolved to a `LibraryHandle`.
+    RelativeAddressFromInstructionPointer(LibraryHandle, u32),
+    /// A relative address taken from a return address which
+    /// has already been resolved to a `LibraryHandle`.
+    RelativeAddressFromReturnAddress(LibraryHandle, u32),
     /// A string, containing an index returned by Profile::intern_string
     Label(StringHandle),
 }

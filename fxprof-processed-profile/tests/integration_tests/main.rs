@@ -127,51 +127,55 @@ fn profile_without_js() {
         CpuDelta::ZERO,
         1,
     );
-    profile.add_lib(
+    let libc_handle = profile.add_lib(LibraryInfo {
+        name: "libc.so.6".to_string(),
+        debug_name: "libc.so.6".to_string(),
+        path: "/usr/lib/x86_64-linux-gnu/libc.so.6".to_string(),
+        code_id: Some("f0fc29165cbe6088c0e1adf03b0048fbecbc003a".to_string()),
+        debug_path: "/usr/lib/x86_64-linux-gnu/libc.so.6".to_string(),
+        debug_id: DebugId::from_breakpad("1629FCF0BE5C8860C0E1ADF03B0048FB0").unwrap(),
+        arch: None,
+        symbol_table: Some(Arc::new(SymbolTable::new(vec![
+            Symbol {
+                address: 1700001,
+                size: Some(180),
+                name: "libc_symbol_1".to_string(),
+            },
+            Symbol {
+                address: 674226,
+                size: Some(44),
+                name: "libc_symbol_3".to_string(),
+            },
+            Symbol {
+                address: 172156,
+                size: Some(20),
+                name: "libc_symbol_2".to_string(),
+            },
+        ]))),
+    });
+    profile.add_lib_mapping(
         process,
-        LibraryInfo {
-            name: "libc.so.6".to_string(),
-            debug_name: "libc.so.6".to_string(),
-            path: "/usr/lib/x86_64-linux-gnu/libc.so.6".to_string(),
-            code_id: Some("f0fc29165cbe6088c0e1adf03b0048fbecbc003a".to_string()),
-            debug_path: "/usr/lib/x86_64-linux-gnu/libc.so.6".to_string(),
-            debug_id: DebugId::from_breakpad("1629FCF0BE5C8860C0E1ADF03B0048FB0").unwrap(),
-            arch: None,
-            base_avma: 0x00007f76b7e5d000,
-            avma_range: 0x00007f76b7e85000..0x00007f76b8019000,
-            symbol_table: Some(Arc::new(SymbolTable::new(vec![
-                Symbol {
-                    address: 1700001,
-                    size: Some(180),
-                    name: "libc_symbol_1".to_string(),
-                },
-                Symbol {
-                    address: 674226,
-                    size: Some(44),
-                    name: "libc_symbol_3".to_string(),
-                },
-                Symbol {
-                    address: 172156,
-                    size: Some(20),
-                    name: "libc_symbol_2".to_string(),
-                },
-            ]))),
-        },
+        libc_handle,
+        0x00007f76b7e85000,
+        0x00007f76b8019000,
+        (0x00007f76b7e85000u64 - 0x00007f76b7e5d000u64) as u32,
     );
-    profile.add_lib(
+    let dump_syms_lib_handle = profile.add_lib(LibraryInfo {
+        name: "dump_syms".to_string(),
+        debug_name: "dump_syms".to_string(),
+        path: "/home/mstange/code/dump_syms/target/release/dump_syms".to_string(),
+        code_id: Some("510d0a5c19eadf8043f203b4525be9be3dcb9554".to_string()),
+        debug_path: "/home/mstange/code/dump_syms/target/release/dump_syms".to_string(),
+        debug_id: DebugId::from_breakpad("5C0A0D51EA1980DF43F203B4525BE9BE0").unwrap(),
+        arch: None,
+        symbol_table: None,
+    });
+    profile.add_lib_mapping(
         process,
-        LibraryInfo {
-            name: "dump_syms".to_string(),
-            debug_name: "dump_syms".to_string(),
-            path: "/home/mstange/code/dump_syms/target/release/dump_syms".to_string(),
-            code_id: Some("510d0a5c19eadf8043f203b4525be9be3dcb9554".to_string()),
-            debug_path: "/home/mstange/code/dump_syms/target/release/dump_syms".to_string(),
-            debug_id: DebugId::from_breakpad("5C0A0D51EA1980DF43F203B4525BE9BE0").unwrap(),
-            arch: None,
-            base_avma: 0x000055ba9eb4d000,
-            avma_range: 0x000055ba9ebf6000..0x000055ba9f07e000,
-            symbol_table: None,
-        },
+        dump_syms_lib_handle,
+        0x000055ba9ebf6000,
+        0x000055ba9f07e000,
+        (0x000055ba9ebf6000u64 - 0x000055ba9eb4d000u64) as u32,
     );
     let category = profile.add_category("Regular", CategoryColor::Blue);
     profile.add_sample(

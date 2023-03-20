@@ -1,5 +1,6 @@
 use debugid::DebugId;
-use std::{ops::Range, sync::Arc};
+use serde::{ser::SerializeMap, Serialize, Serializer};
+use std::sync::Arc;
 
 /// A library ("binary" / "module" / "DSO") which is loaded into a process.
 /// This can be the main executable file or a dynamic library, or any other
@@ -10,23 +11,9 @@ use std::{ops::Range, sync::Arc};
 /// addresses get resolved later.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LibraryInfo {
-    /// The "actual virtual memory address", in the address space of the process,
-    /// where this library's base address is located. The base address is the
-    /// address which "relative addresses" are relative to.
-    ///
-    /// For ELF binaries, the base address is AVMA of the first segment, i.e. of
-    /// the mapping created by the first ELF `LOAD` command.
-    ///
-    /// For mach-O binaries, the base address is the start of the `__TEXT` segment.
-    ///
-    /// For Windows binaries, the base address is the image load address.
-    pub base_avma: u64,
-    /// The address range that this mapping occupies in the virtual memory
-    /// address space of the process. AVMA = "actual virtual memory address"
-    pub avma_range: Range<u64>,
     /// The name of this library that should be displayed in the profiler.
     /// Usually this is the filename of the binary, but it could also be any other
-    /// name, such as "\[kernel.kallsyms\]" or "\[vdso\]".
+    /// name, such as "\[kernel.kallsyms\]" or "\[vdso\]" or "JIT".
     pub name: String,
     /// The debug name of this library which should be used when looking up symbols.
     /// On Windows this is the filename of the PDB file, on other platforms it's
@@ -70,6 +57,22 @@ pub struct LibraryInfo {
     /// inline frames. It is intended for relatively "small" symbol tables for which
     /// an address lookup is fast.
     pub symbol_table: Option<Arc<SymbolTable>>,
+}
+
+impl Serialize for LibraryInfo {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let breakpad_id = self.debug_id.breakpad().to_string();
+        let code_id = self.code_id.as_ref().map(|cid| cid.to_string());
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("name", &self.name)?;
+        map.serialize_entry("path", &self.path)?;
+        map.serialize_entry("debugName", &self.debug_name)?;
+        map.serialize_entry("debugPath", &self.debug_path)?;
+        map.serialize_entry("breakpadId", &breakpad_id)?;
+        map.serialize_entry("codeId", &code_id)?;
+        map.serialize_entry("arch", &self.arch)?;
+        map.end()
+    }
 }
 
 /// A symbol table which contains a list of [`Symbol`]s, used in [`LibraryInfo`].

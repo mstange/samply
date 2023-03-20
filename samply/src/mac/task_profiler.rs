@@ -184,25 +184,27 @@ impl TaskProfiler {
                     if let Some(name) = path.file_name() {
                         let name = name.to_string_lossy();
                         let path = path.to_string_lossy();
-                        profile.add_lib(
+                        let lib_handle = profile.add_lib(LibraryInfo {
+                            name: name.to_string(),
+                            debug_name: name.to_string(),
+                            path: path.to_string(),
+                            debug_path: path.to_string(),
+                            debug_id: lib.debug_id.unwrap(),
+                            code_id: lib.code_id.map(|ci| ci.to_string()),
+                            arch: lib.arch.map(ToOwned::to_owned),
+                            symbol_table: None,
+                        });
+                        profile.add_lib_mapping(
                             self.profile_process,
-                            LibraryInfo {
-                                base_avma: lib.base_avma,
-                                avma_range: lib.base_avma..(lib.base_avma + lib.vmsize),
-                                name: name.to_string(),
-                                debug_name: name.to_string(),
-                                path: path.to_string(),
-                                debug_path: path.to_string(),
-                                debug_id: lib.debug_id.unwrap(),
-                                code_id: lib.code_id.map(|ci| ci.to_string()),
-                                arch: lib.arch.map(ToOwned::to_owned),
-                                symbol_table: None,
-                            },
+                            lib_handle,
+                            lib.base_avma,
+                            lib.base_avma + lib.vmsize,
+                            0,
                         );
                     }
                 }
                 Modification::Removed(lib) => {
-                    profile.unload_lib(self.profile_process, lib.base_avma);
+                    profile.remove_lib_mapping(self.profile_process, lib.base_avma);
                 }
             }
         }
