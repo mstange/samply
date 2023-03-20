@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
@@ -17,7 +18,7 @@ use crate::process::{Process, ThreadHandle};
 use crate::reference_timestamp::ReferenceTimestamp;
 use crate::string_table::{GlobalStringIndex, GlobalStringTable};
 use crate::thread::{ProcessHandle, Thread};
-use crate::{MarkerSchema, MarkerTiming, ProfilerMarker, Timestamp};
+use crate::{MarkerSchema, MarkerTiming, ProfilerMarker, SymbolTable, Timestamp};
 
 /// The sampling interval used during profile recording.
 ///
@@ -273,6 +274,10 @@ impl Profile {
     /// respect to the currently loaded kernel and process libraries.
     pub fn add_lib(&mut self, library: LibraryInfo) -> LibraryHandle {
         self.global_libs.handle_for_lib(library)
+    }
+
+    pub fn set_lib_symbol_table(&mut self, library: LibraryHandle, symbol_table: Arc<SymbolTable>) {
+        self.global_libs.set_lib_symbol_table(library, symbol_table);
     }
 
     /// Each library covers one or more addresss range in the virtual memory of a process.
