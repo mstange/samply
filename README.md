@@ -30,11 +30,19 @@ All data is kept locally (on disk and in RAM) until you choose to upload your pr
 
 samply is a sampling profiler and collects stack traces, per thread, at some sampling interval (the default 1000Hz, i.e. 1ms). On macOS, both on- and off-cpu samples are collected (so you can see under which stack you were blocking on a lock, for example). On Linux, only on-cpu samples are collected at the moment.
 
-On Linux, as samply needs access to performance events system by unprivileged users, run:
+On Linux, samply needs access to performance events system for unprivileged users. For this, you can either:
 
-```
-sudo sysctl kernel.perf_event_paranoid=1 
-```
+ - if using Linux 5.8 or later, set the `CAP_PERFMON` capability as effective and permitted for samply (recommended):
+
+   ```
+   sudo setcap 'cap_perfmon+ep' `which samply`
+   ```
+
+ - allow use of (almost) all events by changing the `perf_event_paranoid` kernel variable (not recommended):
+
+   ```
+   sudo sysctl kernel.perf_event_paranoid=-1 
+   ```
 
 If you still get a `mmap failed` error (an `EPERM`), you might also need to increase the `mlock` limit, e.g.:
 
