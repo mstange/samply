@@ -1,7 +1,9 @@
+use std::sync::Arc;
+
 use serde::ser::{Serialize, Serializer};
 
 use crate::fast_hash_map::FastHashMap;
-use crate::LibraryInfo;
+use crate::{LibraryInfo, SymbolTable};
 
 #[derive(Debug)]
 pub struct GlobalLibTable {
@@ -31,6 +33,10 @@ impl GlobalLibTable {
             all_libs.push(lib);
             handle
         })
+    }
+
+    pub fn set_lib_symbol_table(&mut self, library: LibraryHandle, symbol_table: Arc<SymbolTable>) {
+        self.all_libs[library.0].symbol_table = Some(symbol_table);
     }
 
     pub fn index_for_used_lib(&mut self, lib_handle: LibraryHandle) -> GlobalLibIndex {
