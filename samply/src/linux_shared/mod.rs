@@ -1289,7 +1289,7 @@ impl ProfilerMarker for JitFunctionAddMarker {
                     key: "functionName",
                     label: "Function",
                     format: MarkerFieldFormat::String,
-                    searchable: None,
+                    searchable: true,
                 }),
                 MarkerSchemaField::Static(MarkerStaticField {
                     label: "Description",

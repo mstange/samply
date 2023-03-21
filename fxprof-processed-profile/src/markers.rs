@@ -62,7 +62,7 @@ pub enum MarkerTiming {
 ///                 key: "name",
 ///                 label: "Details",
 ///                 format: MarkerFieldFormat::String,
-///                 searchable: None,
+///                 searchable: true,
 ///             })],
 ///         }
 ///     }
@@ -167,8 +167,7 @@ pub struct MarkerDynamicField {
     pub format: MarkerFieldFormat,
 
     /// Whether this field's value should be matched against search terms.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub searchable: Option<bool>,
+    pub searchable: bool,
 }
 
 /// The field format of a marker field.
