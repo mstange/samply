@@ -113,7 +113,6 @@ impl JitCategoryManager {
     }
 
     fn intern_js_name(profile: &mut Profile, func_name: &str) -> JsName {
-        // Don't treat Spidermonkey "self-hosted" functions as JS (e.g. filter/map/push).
         let s = profile.intern_string(func_name);
         match func_name.contains("(self-hosted:") {
             true => JsName::SelfHosted(s),

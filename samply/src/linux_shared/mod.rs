@@ -1134,14 +1134,14 @@ where
         symbol_name: Option<&str>,
     ) {
         let process = self.processes.get_by_pid(process_pid, &mut self.profile);
-        let (category, js_name) = self
+        let (category, js_frame) = self
             .jit_category_manager
             .classify_jit_symbol(symbol_name.unwrap_or(""), &mut self.profile);
         process.jit_functions.insert(JitFunction {
             start_address,
             end_address,
             category,
-            js_name,
+            js_frame,
         });
 
         let main_thread = self
@@ -1295,7 +1295,7 @@ impl<'a> Iterator for ConvertedStackIter<'a> {
             };
             let (category, js_frame) = match mode {
                 StackMode::User => match self.jit_functions.find(lookup_address) {
-                    Some(jit_function) => (jit_function.category, jit_function.js_name),
+                    Some(jit_function) => (jit_function.category, jit_function.js_frame),
                     None => (self.user_category, JsFrame::None),
                 },
                 StackMode::Kernel => {
@@ -1346,7 +1346,8 @@ impl<'a> Iterator for ConvertedStackIter<'a> {
                         flags: FrameFlags::IS_JS,
                     }
                 }
-                _ => frame_info,
+                // Don't treat Spidermonkey "self-hosted" functions as JS (e.g. filter/map/push).
+                Some(JsName::SelfHosted(_)) | None => frame_info,
             };
             return Some(frame_info);
         }
@@ -1515,7 +1516,7 @@ impl<U> Process<U> {
             let start_address = addr;
             let end_address = addr + len;
 
-            let (category, js_name) =
+            let (category, js_frame) =
                 jit_category_manager.classify_jit_symbol(symbol_name, profile);
 
             // Add this function to process.jit_functions so that it can be consulted for
@@ -1524,7 +1525,7 @@ impl<U> Process<U> {
                 start_address,
                 end_address,
                 category,
-                js_name,
+                js_frame,
             });
 
             // Pretend that all JIT code is laid out consecutively in our fake library.
@@ -1602,7 +1603,7 @@ struct JitFunction {
     pub start_address: u64,
     pub end_address: u64,
     pub category: CategoryPairHandle,
-    pub js_name: JsFrame,
+    pub js_frame: JsFrame,
 }
 
 #[derive(Clone, Debug)]
