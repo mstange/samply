@@ -110,4 +110,8 @@ impl Process {
     pub fn remove_lib_mapping(&mut self, start_avma: u64) {
         self.libs.remove_mapping(start_avma);
     }
+
+    pub fn remove_all_lib_mappings(&mut self) {
+        self.libs.clear();
+    }
 }

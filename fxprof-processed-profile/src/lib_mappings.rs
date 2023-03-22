@@ -68,6 +68,11 @@ impl<T> LibMappings<T> {
         self.sorted_mappings.retain(|r| r.start_avma != start_avma);
     }
 
+    pub fn clear(&mut self) {
+        self.sorted_mappings.clear();
+        self.sorted_mappings.shrink_to_fit();
+    }
+
     fn lookup(&self, avma: u64) -> Option<&Mapping<T>> {
         let mappings = &self.sorted_mappings[..];
         let index = match mappings.binary_search_by_key(&avma, |r| r.start_avma) {

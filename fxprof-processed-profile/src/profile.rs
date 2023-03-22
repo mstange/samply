@@ -305,6 +305,11 @@ impl Profile {
         self.processes[process.0].remove_lib_mapping(start_avma);
     }
 
+    /// Clear all library mappings in the specified process.
+    pub fn clear_process_lib_mappings(&mut self, process: ProcessHandle) {
+        self.processes[process.0].remove_all_lib_mappings();
+    }
+
     /// Add a kernel library. This allows symbolication of kernel stacks once the profile is
     /// opened in the Firefox Profiler. Kernel libraries are global and not tied to a process.
     ///
