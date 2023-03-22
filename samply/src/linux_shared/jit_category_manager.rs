@@ -2,6 +2,20 @@ use fxprof_processed_profile::{
     CategoryColor, CategoryHandle, CategoryPairHandle, Profile, StringHandle,
 };
 
+#[derive(Debug, Clone, Copy)]
+pub enum JsFrame {
+    Regular(JsName),
+    BaselineInterpreterStub(JsName),
+    BaselineInterpreter,
+    None,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum JsName {
+    SelfHosted(StringHandle),
+    NonSelfHosted(StringHandle),
+}
+
 #[derive(Debug, Clone)]
 pub struct JitCategoryManager {
     categories: Vec<LazilyCreatedCategory>,
@@ -56,24 +70,29 @@ impl JitCategoryManager {
         &mut self,
         name: &str,
         profile: &mut Profile,
-    ) -> (CategoryPairHandle, Option<StringHandle>) {
+    ) -> (CategoryPairHandle, JsFrame) {
         if name == "BaselineInterpreter" {
-            return (self.baseline_interpreter_category.get(profile).into(), None);
+            return (
+                self.baseline_interpreter_category.get(profile).into(),
+                JsFrame::BaselineInterpreter,
+            );
         }
 
         if let Some(js_func) = name.strip_prefix("BaselineInterpreter: ") {
+            let js_func = JsFrame::BaselineInterpreterStub(Self::intern_js_name(profile, js_func));
             return (
                 self.baseline_interpreter_category.get(profile).into(),
-                Self::intern_js_name(profile, js_func),
+                js_func,
             );
         }
 
         if let Some(ion_ic_rest) = name.strip_prefix("IonIC: ") {
             let category = self.ion_ic_category.get(profile);
             if let Some((_ic_type, js_func)) = ion_ic_rest.split_once(" : ") {
-                return (category.into(), Self::intern_js_name(profile, js_func));
+                let js_func = JsFrame::Regular(Self::intern_js_name(profile, js_func));
+                return (category.into(), js_func);
             }
-            return (category.into(), None);
+            return (category.into(), JsFrame::None);
         }
 
         for (&(prefix, _category_name, _color, is_js), lazy_category_handle) in
@@ -83,9 +102,9 @@ impl JitCategoryManager {
                 let category = lazy_category_handle.get(profile);
 
                 let js_name = if is_js {
-                    Self::intern_js_name(profile, name_without_prefix)
+                    JsFrame::Regular(Self::intern_js_name(profile, name_without_prefix))
                 } else {
-                    None
+                    JsFrame::None
                 };
                 return (category.into(), js_name);
             }
@@ -93,12 +112,12 @@ impl JitCategoryManager {
         panic!("the last category has prefix '' so it should always be hit")
     }
 
-    fn intern_js_name(profile: &mut Profile, func_name: &str) -> Option<StringHandle> {
+    fn intern_js_name(profile: &mut Profile, func_name: &str) -> JsName {
         // Don't treat Spidermonkey "self-hosted" functions as JS (e.g. filter/map/push).
-        if !func_name.contains("(self-hosted:") {
-            Some(profile.intern_string(func_name))
-        } else {
-            None
+        let s = profile.intern_string(func_name);
+        match func_name.contains("(self-hosted:") {
+            true => JsName::SelfHosted(s),
+            false => JsName::NonSelfHosted(s),
         }
     }
 }
@@ -144,9 +163,11 @@ mod test {
             "IonIC: SetElem : AccessibleButton (main.js:3560:25)",
             &mut profile,
         );
-        assert_eq!(
-            profile.get_string(js_name.unwrap()),
-            "AccessibleButton (main.js:3560:25)"
-        );
+        match js_name {
+            JsFrame::Regular(JsName::NonSelfHosted(s)) => {
+                assert_eq!(profile.get_string(s), "AccessibleButton (main.js:3560:25)")
+            }
+            _ => panic!(),
+        }
     }
 }

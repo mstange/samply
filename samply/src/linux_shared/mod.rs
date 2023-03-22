@@ -13,8 +13,7 @@ use fxprof_processed_profile::{
     CategoryColor, CategoryPairHandle, CpuDelta, Frame, FrameFlags, FrameInfo, LibraryHandle,
     LibraryInfo, MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema,
     MarkerSchemaField, MarkerStaticField, MarkerTiming, ProcessHandle, Profile, ProfilerMarker,
-    ReferenceTimestamp, SamplingInterval, StringHandle, Symbol, SymbolTable, ThreadHandle,
-    Timestamp,
+    ReferenceTimestamp, SamplingInterval, Symbol, SymbolTable, ThreadHandle, Timestamp,
 };
 use linux_perf_data::jitdump::{JitCodeLoadRecord, JitCodeMoveRecord, JitDumpHeader};
 use linux_perf_data::linux_perf_event_reader;
@@ -47,7 +46,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 use std::{ops::Range, path::Path};
 
-use self::jit_category_manager::JitCategoryManager;
+use self::jit_category_manager::{JitCategoryManager, JsFrame, JsName};
 use self::kernel_symbols::KernelSymbols;
 
 use crate::utils::open_file_with_fallback;
@@ -1273,6 +1272,7 @@ struct ConvertedStackIter<'a> {
     kernel_category: CategoryPairHandle,
     include_kernel: bool,
     pending_frame_after_js: Option<FrameInfo>,
+    js_name_for_baseline_interpreter: Option<JsName>,
 }
 
 impl<'a> Iterator for ConvertedStackIter<'a> {
@@ -1293,16 +1293,16 @@ impl<'a> Iterator for ConvertedStackIter<'a> {
                 }
                 StackFrame::TruncatedStackMarker => continue,
             };
-            let (category, js_name) = match mode {
+            let (category, js_frame) = match mode {
                 StackMode::User => match self.jit_functions.find(lookup_address) {
                     Some(jit_function) => (jit_function.category, jit_function.js_name),
-                    None => (self.user_category, None),
+                    None => (self.user_category, JsFrame::None),
                 },
                 StackMode::Kernel => {
                     if !self.include_kernel {
                         continue;
                     }
-                    (self.kernel_category, None)
+                    (self.kernel_category, JsFrame::None)
                 }
             };
             let frame_info = FrameInfo {
@@ -1310,16 +1310,43 @@ impl<'a> Iterator for ConvertedStackIter<'a> {
                 category_pair: category,
                 flags: FrameFlags::empty(),
             };
-            let frame_info = if let Some(js_name) = js_name {
-                // Prepend a JS frame.
-                self.pending_frame_after_js = Some(frame_info);
-                FrameInfo {
-                    frame: Frame::Label(js_name),
-                    category_pair: category,
-                    flags: FrameFlags::IS_JS,
+
+            // Work around an imperfection in Spidermonkey's stack frames.
+            // We sometimes have missing BaselineInterpreterStubs in the OSR-into-BaselineInterpreter case.
+            // Usually, a BaselineInterpreter frame is directly preceded by a BaselineInterpreterStub frame.
+            // However, sometimes you get Regular(x) -> None -> None -> None -> BaselineInterpreter,
+            // without a BaselineInterpreterStub frame. In that case, the name "x" from the ancestor
+            // JsFrame::Regular (which is really an InterpreterStub frame for the C++ interpreter)
+            // should be used for the BaselineInterpreter frame. This will create a stack
+            // node with the right name, category and JS-only flag, and helps with correct attribution.
+            // Unfortunately it means that we'll have two prepended JS label frames for the same function
+            // in that case, but that's still better than accounting those samples to the wrong JS function.
+            let js_name = match js_frame {
+                JsFrame::Regular(js_name) => {
+                    // Remember the name for a potentially upcoming unnamed BaselineInterpreter frame.
+                    self.js_name_for_baseline_interpreter = Some(js_name);
+                    Some(js_name)
                 }
-            } else {
-                frame_info
+                JsFrame::BaselineInterpreterStub(js_name) => {
+                    // Discard the name of an ancestor JS function.
+                    self.js_name_for_baseline_interpreter = None;
+                    Some(js_name)
+                }
+                JsFrame::BaselineInterpreter => self.js_name_for_baseline_interpreter.take(),
+                JsFrame::None => None,
+            };
+
+            let frame_info = match js_name {
+                Some(JsName::NonSelfHosted(js_name)) => {
+                    // Prepend a JS frame.
+                    self.pending_frame_after_js = Some(frame_info);
+                    FrameInfo {
+                        frame: Frame::Label(js_name),
+                        category_pair: category,
+                        flags: FrameFlags::IS_JS,
+                    }
+                }
+                _ => frame_info,
             };
             return Some(frame_info);
         }
@@ -1339,6 +1366,7 @@ impl StackConverter {
             kernel_category: self.kernel_category,
             include_kernel: true,
             pending_frame_after_js: None,
+            js_name_for_baseline_interpreter: None,
         }
     }
 
@@ -1354,6 +1382,7 @@ impl StackConverter {
             kernel_category: self.kernel_category,
             include_kernel: false,
             pending_frame_after_js: None,
+            js_name_for_baseline_interpreter: None,
         }
     }
 }
@@ -1573,7 +1602,7 @@ struct JitFunction {
     pub start_address: u64,
     pub end_address: u64,
     pub category: CategoryPairHandle,
-    pub js_name: Option<StringHandle>,
+    pub js_name: JsFrame,
 }
 
 #[derive(Clone, Debug)]
