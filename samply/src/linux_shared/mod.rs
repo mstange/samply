@@ -231,8 +231,8 @@ where
         Self {
             profile,
             cache,
-            processes: Processes(HashMap::new()),
-            threads: Threads(HashMap::new()),
+            processes: Processes::new(),
+            threads: Threads::new(),
             stack_converter: StackConverter {
                 user_category,
                 kernel_category,
@@ -1375,16 +1375,25 @@ impl StackConverter {
     }
 }
 
-struct Processes<U>(HashMap<i32, Process<U>>)
+struct Processes<U>
 where
-    U: Unwinder<Module = Module<Vec<u8>>> + Default;
+    U: Unwinder<Module = Module<Vec<u8>>> + Default,
+{
+    processes_by_pid: HashMap<i32, Process<U>>,
+}
 
 impl<U> Processes<U>
 where
     U: Unwinder<Module = Module<Vec<u8>>> + Default,
 {
+    pub fn new() -> Self {
+        Self {
+            processes_by_pid: HashMap::new(),
+        }
+    }
+
     pub fn get_by_pid(&mut self, pid: i32, profile: &mut Profile) -> &mut Process<U> {
-        self.0.entry(pid).or_insert_with(|| {
+        self.processes_by_pid.entry(pid).or_insert_with(|| {
             let name = format!("<{pid}>");
             let handle = profile.add_process(
                 &name,
@@ -1403,16 +1412,24 @@ where
     }
 
     pub fn remove(&mut self, pid: i32, time: Timestamp, profile: &mut Profile) {
-        if let Entry::Occupied(entry) = self.0.entry(pid) {
+        if let Entry::Occupied(entry) = self.processes_by_pid.entry(pid) {
             profile.set_process_end_time(entry.get().profile_process, time);
             entry.remove();
         }
     }
 }
 
-struct Threads(HashMap<i32, Thread>);
+struct Threads {
+    threads_by_tid: HashMap<i32, Thread>,
+}
 
 impl Threads {
+    pub fn new() -> Self {
+        Self {
+            threads_by_tid: HashMap::new(),
+        }
+    }
+
     pub fn get_by_tid(
         &mut self,
         tid: i32,
@@ -1420,7 +1437,7 @@ impl Threads {
         is_main: bool,
         profile: &mut Profile,
     ) -> &mut Thread {
-        self.0.entry(tid).or_insert_with(|| {
+        self.threads_by_tid.entry(tid).or_insert_with(|| {
             let profile_thread = profile.add_thread(
                 process_handle,
                 tid as u32,
@@ -1438,7 +1455,7 @@ impl Threads {
     }
 
     pub fn remove(&mut self, tid: i32, time: Timestamp, profile: &mut Profile) {
-        if let Entry::Occupied(entry) = self.0.entry(tid) {
+        if let Entry::Occupied(entry) = self.threads_by_tid.entry(tid) {
             profile.set_thread_end_time(entry.get().profile_thread, time);
             entry.remove();
         }
