@@ -164,7 +164,6 @@ where
     cache: U::Cache,
     profile: Profile,
     processes: Processes<U>,
-    threads: Threads,
     stack_converter: StackConverter,
     timestamp_converter: TimestampConverter,
     current_sample_time: u64,
@@ -232,7 +231,6 @@ where
             profile,
             cache,
             processes: Processes::new(),
-            threads: Threads::new(),
             stack_converter: StackConverter {
                 user_category,
                 kernel_category,
@@ -277,15 +275,14 @@ where
         let mut stack = Vec::new();
         Self::get_sample_stack::<C>(&e, &process.unwinder, &mut self.cache, &mut stack);
 
-        let thread =
-            self.threads
-                .get_by_tid(tid, process.profile_process, is_main, &mut self.profile);
+        let thread = process.get_thread_by_tid(tid, is_main, &mut self.profile);
 
         if thread.last_sample_timestamp == Some(timestamp) {
             // Duplicate sample. Ignore.
             return;
         }
 
+        thread.last_sample_timestamp = Some(timestamp);
         let thread_handle = thread.profile_thread;
 
         // Consume off-cpu time and clear any saved off-CPU stack.
@@ -327,7 +324,6 @@ where
             .convert_stack(&stack, &process.jit_functions);
         self.profile
             .add_sample(thread_handle, profile_timestamp, frames, cpu_delta, 1);
-        thread.last_sample_timestamp = Some(timestamp);
     }
 
     pub fn handle_sched_switch<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
@@ -347,9 +343,7 @@ where
             .convert_stack_no_kernel(&stack, &process.jit_functions)
             .collect();
 
-        let thread =
-            self.threads
-                .get_by_tid(tid, process.profile_process, is_main, &mut self.profile);
+        let thread = process.get_thread_by_tid(tid, is_main, &mut self.profile);
         thread.off_cpu_stack = Some(stack);
     }
 
@@ -583,10 +577,7 @@ where
 
         process.maybe_load_perf_map(&mut self.profile, &mut self.jit_category_manager);
 
-        let process_handle = process.profile_process;
-        let thread = self
-            .threads
-            .get_by_tid(tid, process_handle, is_main, &mut self.profile);
+        let thread = process.get_thread_by_tid(tid, is_main, &mut self.profile);
 
         match e {
             ContextSwitchRecord::In { .. } => {
@@ -628,8 +619,9 @@ where
         let prev_is_main = e.ppid == e.ptid;
         let is_main = e.pid == e.tid;
         let prev_process = self.processes.get_by_pid(e.ppid, &mut self.profile);
-        let prev_process_handle = prev_process.profile_process;
-        let process_handle = if e.pid != e.ppid {
+        let prev_thread = prev_process.get_thread_by_tid(e.ptid, prev_is_main, &mut self.profile);
+        let prev_thread_name = prev_thread.name.clone();
+        let process = if e.pid != e.ppid {
             if !is_main {
                 eprintln!("Unexpected data in FORK record: If we fork into a different process, the forked child thread should be the main thread of the new process");
             }
@@ -642,17 +634,11 @@ where
             }
             self.profile
                 .set_process_start_time(process_handle, start_time);
-            process_handle
+            process
         } else {
-            prev_process_handle
+            prev_process
         };
-        let prev_thread =
-            self.threads
-                .get_by_tid(e.ptid, prev_process_handle, prev_is_main, &mut self.profile);
-        let prev_thread_name = prev_thread.name.clone();
-        let thread = self
-            .threads
-            .get_by_tid(e.tid, process_handle, is_main, &mut self.profile);
+        let thread = process.get_thread_by_tid(e.tid, is_main, &mut self.profile);
         thread.name = prev_thread_name;
         let thread_handle = thread.profile_thread;
         if let Some(thread_name) = thread.name.as_deref() {
@@ -666,9 +652,11 @@ where
     pub fn handle_thread_end(&mut self, e: ForkOrExitRecord) {
         let is_main = e.pid == e.tid;
         let end_time = self.timestamp_converter.convert_time(e.timestamp);
-        self.threads.remove(e.tid, end_time, &mut self.profile);
         if is_main {
             self.processes.remove(e.pid, end_time, &mut self.profile);
+        } else {
+            let process = self.processes.get_by_pid(e.pid, &mut self.profile);
+            process.remove_non_main_thread(e.tid, end_time, &mut self.profile);
         }
     }
 
@@ -678,9 +666,7 @@ where
         let process = self.processes.get_by_pid(pid, &mut self.profile);
         let process_handle = process.profile_process;
 
-        let thread = self
-            .threads
-            .get_by_tid(tid, process_handle, is_main, &mut self.profile);
+        let thread = process.get_thread_by_tid(tid, is_main, &mut self.profile);
         let thread_handle = thread.profile_thread;
 
         self.profile.set_thread_name(thread_handle, name);
@@ -711,6 +697,9 @@ where
 
     pub fn handle_thread_name_update(&mut self, e: CommOrExecRecord, timestamp: Option<u64>) {
         let is_main = e.pid == e.tid;
+        let name = e.name.as_slice();
+        let name = String::from_utf8_lossy(&name);
+
         if e.is_execve {
             // Mark the old thread / process as ended.
             // If the COMM record doesn't have a timestamp, take the last seen
@@ -720,14 +709,15 @@ where
                 Some(ts) => ts,
             };
             let end_time = self.timestamp_converter.convert_time(timestamp);
-            self.threads.remove(e.tid, end_time, &mut self.profile);
             if is_main {
                 self.processes.remove(e.pid, end_time, &mut self.profile);
+                self.processes.attempt_reuse(e.pid, &name);
+            } else {
+                let process = self.processes.get_by_pid(e.pid, &mut self.profile);
+                process.remove_non_main_thread(e.tid, end_time, &mut self.profile);
             }
         }
 
-        let name = e.name.as_slice();
-        let name = String::from_utf8_lossy(&name);
         self.set_thread_name(e.pid, e.tid, &name, e.is_execve);
     }
 
@@ -1131,14 +1121,8 @@ where
             js_frame,
         });
 
-        let main_thread = self
-            .threads
-            .get_by_tid(
-                process_pid,
-                process.profile_process,
-                true,
-                &mut self.profile,
-            )
+        let main_thread = process
+            .get_thread_by_tid(process_pid, true, &mut self.profile)
             .profile_thread;
         let timing = MarkerTiming::Instant(self.timestamp_converter.convert_time(timestamp));
         self.profile.add_marker(
@@ -1380,6 +1364,7 @@ where
     U: Unwinder<Module = Module<Vec<u8>>> + Default,
 {
     processes_by_pid: HashMap<i32, Process<U>>,
+    ended_processes_for_reuse_by_name: HashMap<String, Process<U>>,
 }
 
 impl<U> Processes<U>
@@ -1389,7 +1374,18 @@ where
     pub fn new() -> Self {
         Self {
             processes_by_pid: HashMap::new(),
+            ended_processes_for_reuse_by_name: HashMap::new(),
         }
+    }
+
+    pub fn attempt_reuse(&mut self, pid: i32, name: &str) -> Option<&mut Process<U>> {
+        if let Entry::Vacant(entry) = self.processes_by_pid.entry(pid) {
+            if let Some(mut process) = self.ended_processes_for_reuse_by_name.remove(name) {
+                process.pid = pid;
+                return Some(entry.insert(process));
+            }
+        }
+        None
     }
 
     pub fn get_by_pid(&mut self, pid: i32, profile: &mut Profile) -> &mut Process<U> {
@@ -1400,13 +1396,28 @@ where
                 pid as u32,
                 Timestamp::from_millis_since_reference(0.0),
             );
+            let profile_thread = profile.add_thread(
+                handle,
+                pid as u32,
+                Timestamp::from_millis_since_reference(0.0),
+                true,
+            );
+            let main_thread = Thread {
+                profile_thread,
+                context_switch_data: Default::default(),
+                last_sample_timestamp: None,
+                off_cpu_stack: None,
+                name: None,
+            };
             Process {
                 profile_process: handle,
                 unwinder: U::default(),
                 jit_functions: JitFunctions(Vec::new()),
                 name: None,
                 has_looked_up_perf_map: false,
-                pid: pid as u32,
+                pid,
+                main_thread,
+                threads_by_tid: HashMap::new(),
             }
         })
     }
@@ -1414,50 +1425,11 @@ where
     pub fn remove(&mut self, pid: i32, time: Timestamp, profile: &mut Profile) {
         if let Entry::Occupied(entry) = self.processes_by_pid.entry(pid) {
             profile.set_process_end_time(entry.get().profile_process, time);
-            entry.remove();
-        }
-    }
-}
-
-struct Threads {
-    threads_by_tid: HashMap<i32, Thread>,
-}
-
-impl Threads {
-    pub fn new() -> Self {
-        Self {
-            threads_by_tid: HashMap::new(),
-        }
-    }
-
-    pub fn get_by_tid(
-        &mut self,
-        tid: i32,
-        process_handle: ProcessHandle,
-        is_main: bool,
-        profile: &mut Profile,
-    ) -> &mut Thread {
-        self.threads_by_tid.entry(tid).or_insert_with(|| {
-            let profile_thread = profile.add_thread(
-                process_handle,
-                tid as u32,
-                Timestamp::from_millis_since_reference(0.0),
-                is_main,
-            );
-            Thread {
-                profile_thread,
-                context_switch_data: Default::default(),
-                last_sample_timestamp: None,
-                off_cpu_stack: None,
-                name: None,
+            let process = entry.remove();
+            if let Some(name) = process.name.as_deref() {
+                self.ended_processes_for_reuse_by_name
+                    .insert(name.to_string(), process);
             }
-        })
-    }
-
-    pub fn remove(&mut self, tid: i32, time: Timestamp, profile: &mut Profile) {
-        if let Entry::Occupied(entry) = self.threads_by_tid.entry(tid) {
-            profile.set_thread_end_time(entry.get().profile_thread, time);
-            entry.remove();
         }
     }
 }
@@ -1475,7 +1447,9 @@ struct Process<U> {
     pub unwinder: U,
     pub jit_functions: JitFunctions,
     pub name: Option<String>,
-    pid: u32,
+    main_thread: Thread,
+    threads_by_tid: HashMap<i32, Thread>,
+    pid: i32,
     has_looked_up_perf_map: bool,
 }
 
@@ -1574,6 +1548,39 @@ impl<U> Process<U> {
         }
 
         profile.set_lib_symbol_table(lib_handle, Arc::new(SymbolTable::new(symbols)));
+    }
+
+    pub fn get_thread_by_tid(
+        &mut self,
+        tid: i32,
+        is_main: bool,
+        profile: &mut Profile,
+    ) -> &mut Thread {
+        if tid == self.pid {
+            return &mut self.main_thread;
+        }
+        self.threads_by_tid.entry(tid).or_insert_with(|| {
+            let profile_thread = profile.add_thread(
+                self.profile_process,
+                tid as u32,
+                Timestamp::from_millis_since_reference(0.0),
+                is_main,
+            );
+            Thread {
+                profile_thread,
+                context_switch_data: Default::default(),
+                last_sample_timestamp: None,
+                off_cpu_stack: None,
+                name: None,
+            }
+        })
+    }
+
+    pub fn remove_non_main_thread(&mut self, tid: i32, time: Timestamp, profile: &mut Profile) {
+        if let Entry::Occupied(entry) = self.threads_by_tid.entry(tid) {
+            profile.set_thread_end_time(entry.get().profile_thread, time);
+            entry.remove();
+        }
     }
 }
 
