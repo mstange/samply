@@ -38,6 +38,7 @@ use samply_symbols::{debug_id_and_code_id_for_jitdump, debug_id_for_object, Debu
 use serde_json::json;
 use wholesym::samply_symbols;
 
+use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Debug;
 use std::fs;
@@ -665,17 +666,9 @@ where
     pub fn handle_thread_end(&mut self, e: ForkOrExitRecord) {
         let is_main = e.pid == e.tid;
         let end_time = self.timestamp_converter.convert_time(e.timestamp);
-        let process = self.processes.get_by_pid(e.pid, &mut self.profile);
-        let process_handle = process.profile_process;
-        let thread = self
-            .threads
-            .get_by_tid(e.tid, process_handle, is_main, &mut self.profile);
-        let thread_handle = thread.profile_thread;
-        self.profile.set_thread_end_time(thread_handle, end_time);
-        self.threads.0.remove(&e.tid);
+        self.threads.remove(e.tid, end_time, &mut self.profile);
         if is_main {
-            self.profile.set_process_end_time(process_handle, end_time);
-            self.processes.0.remove(&e.pid);
+            self.processes.remove(e.pid, end_time, &mut self.profile);
         }
     }
 
@@ -726,16 +719,10 @@ where
                 Some(0) | None => self.current_sample_time,
                 Some(ts) => ts,
             };
-            let time = self.timestamp_converter.convert_time(timestamp);
-            if let Some(t) = self.threads.0.get(&e.tid) {
-                self.profile.set_thread_end_time(t.profile_thread, time);
-                self.threads.0.remove(&e.tid);
-            }
+            let end_time = self.timestamp_converter.convert_time(timestamp);
+            self.threads.remove(e.tid, end_time, &mut self.profile);
             if is_main {
-                if let Some(p) = self.processes.0.get(&e.pid) {
-                    self.profile.set_process_end_time(p.profile_process, time);
-                    self.processes.0.remove(&e.pid);
-                }
+                self.processes.remove(e.pid, end_time, &mut self.profile);
             }
         }
 
@@ -1414,6 +1401,13 @@ where
             }
         })
     }
+
+    pub fn remove(&mut self, pid: i32, time: Timestamp, profile: &mut Profile) {
+        if let Entry::Occupied(entry) = self.0.entry(pid) {
+            profile.set_process_end_time(entry.get().profile_process, time);
+            entry.remove();
+        }
+    }
 }
 
 struct Threads(HashMap<i32, Thread>);
@@ -1441,6 +1435,13 @@ impl Threads {
                 name: None,
             }
         })
+    }
+
+    pub fn remove(&mut self, tid: i32, time: Timestamp, profile: &mut Profile) {
+        if let Entry::Occupied(entry) = self.0.entry(tid) {
+            profile.set_thread_end_time(entry.get().profile_thread, time);
+            entry.remove();
+        }
     }
 }
 
