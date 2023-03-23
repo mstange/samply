@@ -184,6 +184,10 @@ where
 
     jit_category_manager: JitCategoryManager,
     jitdump_code_offsets: HashMap<(LibraryHandle, u64), u32>,
+
+    /// Whether a new thread should be merged into a previously exited
+    /// thread of the same name.
+    merge_threads: bool,
 }
 
 const DEFAULT_OFF_CPU_SAMPLING_INTERVAL_NS: u64 = 1_000_000; // 1ms
@@ -203,6 +207,7 @@ where
         cache: U::Cache,
         extra_binary_artifact_dir: Option<&Path>,
         interpretation: EventInterpretation,
+        merge_threads: bool,
     ) -> Self {
         let interval = match interpretation.sampling_is_time_based {
             Some(nanos) => SamplingInterval::from_nanos(nanos),
@@ -250,6 +255,7 @@ where
             suspected_pe_mappings: BTreeMap::new(),
             jit_category_manager: JitCategoryManager::new(),
             jitdump_code_offsets: HashMap::new(),
+            merge_threads,
         }
     }
 
@@ -653,10 +659,11 @@ where
         let is_main = e.pid == e.tid;
         let end_time = self.timestamp_converter.convert_time(e.timestamp);
         if is_main {
-            self.processes.remove(e.pid, end_time, &mut self.profile);
+            self.processes
+                .remove(e.pid, end_time, self.merge_threads, &mut self.profile);
         } else {
             let process = self.processes.get_by_pid(e.pid, &mut self.profile);
-            process.remove_non_main_thread(e.tid, end_time, &mut self.profile);
+            process.remove_non_main_thread(e.tid, end_time, self.merge_threads, &mut self.profile);
         }
     }
 
@@ -700,7 +707,7 @@ where
         let name = e.name.as_slice();
         let name = String::from_utf8_lossy(&name);
 
-        if e.is_execve {
+        let is_thread_creation = if e.is_execve {
             // Mark the old thread / process as ended.
             // If the COMM record doesn't have a timestamp, take the last seen
             // timestamp from the previous sample.
@@ -710,15 +717,25 @@ where
             };
             let end_time = self.timestamp_converter.convert_time(timestamp);
             if is_main {
-                self.processes.remove(e.pid, end_time, &mut self.profile);
-                self.processes.attempt_reuse(e.pid, &name);
+                self.processes
+                    .remove(e.pid, end_time, self.merge_threads, &mut self.profile);
+                let maybe_reused_process = self.processes.attempt_reuse(e.pid, &name);
+                maybe_reused_process.is_none()
             } else {
                 let process = self.processes.get_by_pid(e.pid, &mut self.profile);
-                process.remove_non_main_thread(e.tid, end_time, &mut self.profile);
+                process.remove_non_main_thread(
+                    e.tid,
+                    end_time,
+                    self.merge_threads,
+                    &mut self.profile,
+                );
+                true
             }
-        }
+        } else {
+            false
+        };
 
-        self.set_thread_name(e.pid, e.tid, &name, e.is_execve);
+        self.set_thread_name(e.pid, e.tid, &name, is_thread_creation);
     }
 
     pub fn lib_handle_for_jitdump(&mut self, path: &Path, header: &JitDumpHeader) -> LibraryHandle {
@@ -1422,7 +1439,7 @@ where
         })
     }
 
-    pub fn remove(&mut self, pid: i32, time: Timestamp, profile: &mut Profile) {
+    pub fn remove(&mut self, pid: i32, time: Timestamp, allow_reuse: bool, profile: &mut Profile) {
         if let Entry::Occupied(entry) = self.processes_by_pid.entry(pid) {
             let mut process = entry.remove();
 
@@ -1433,9 +1450,11 @@ where
             process.has_looked_up_perf_map = false;
             process.unwinder = U::default();
 
-            if let Some(name) = process.name.as_deref() {
-                self.ended_processes_for_reuse_by_name
-                    .insert(name.to_string(), process);
+            if allow_reuse {
+                if let Some(name) = process.name.as_deref() {
+                    self.ended_processes_for_reuse_by_name
+                        .insert(name.to_string(), process);
+                }
             }
         }
     }
@@ -1593,7 +1612,13 @@ where
         })
     }
 
-    pub fn remove_non_main_thread(&mut self, tid: i32, time: Timestamp, profile: &mut Profile) {
+    pub fn remove_non_main_thread(
+        &mut self,
+        tid: i32,
+        time: Timestamp,
+        _allow_reuse: bool,
+        profile: &mut Profile,
+    ) {
         if let Entry::Occupied(entry) = self.threads_by_tid.entry(tid) {
             profile.set_thread_end_time(entry.get().profile_thread, time);
             entry.remove();

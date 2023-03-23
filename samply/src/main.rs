@@ -73,6 +73,9 @@ struct LoadArgs {
     file: PathBuf,
 
     #[command(flatten)]
+    conversion_args: ConversionArgs,
+
+    #[command(flatten)]
     server_args: ServerArgs,
 }
 
@@ -127,6 +130,13 @@ struct ServerArgs {
     verbose: bool,
 }
 
+#[derive(Debug, Args)]
+pub struct ConversionArgs {
+    /// Merge non-overlapping threads of the same name.
+    #[arg(long)]
+    merge_threads: bool,
+}
+
 fn main() {
     let opt = Opt::parse();
     match opt.action {
@@ -138,7 +148,8 @@ fn main() {
                     std::process::exit(1)
                 }
             };
-            let converted_temp_file = attempt_conversion(&load_args.file, &input_file);
+            let converted_temp_file =
+                attempt_conversion(&load_args.file, &input_file, &load_args.conversion_args);
             let filename = match &converted_temp_file {
                 Some(temp_file) => temp_file.path(),
                 None => &load_args.file,
@@ -216,13 +227,17 @@ impl ServerArgs {
     }
 }
 
-fn attempt_conversion(filename: &Path, input_file: &File) -> Option<NamedTempFile> {
+fn attempt_conversion(
+    filename: &Path,
+    input_file: &File,
+    settings: &ConversionArgs,
+) -> Option<NamedTempFile> {
     let path = Path::new(filename)
         .canonicalize()
         .expect("Couldn't form absolute path");
     let reader = BufReader::new(input_file);
     let output_file = tempfile::NamedTempFile::new().ok()?;
-    let profile = import::perf::convert(reader, path.parent()).ok()?;
+    let profile = import::perf::convert(reader, path.parent(), settings.merge_threads).ok()?;
     let writer = BufWriter::new(output_file.as_file());
     serde_json::to_writer(writer, &profile).ok()?;
     Some(output_file)

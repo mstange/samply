@@ -23,7 +23,11 @@ pub enum Error {
     LinuxPerf(#[from] linux_perf_data::Error),
 }
 
-pub fn convert<C: Read + Seek>(cursor: C, extra_dir: Option<&Path>) -> Result<Profile, Error> {
+pub fn convert<C: Read + Seek>(
+    cursor: C,
+    extra_dir: Option<&Path>,
+    merge_threads: bool,
+) -> Result<Profile, Error> {
     let perf_file = PerfFileReader::parse_file(cursor)?;
 
     let arch = perf_file.perf_file.arch().ok().flatten();
@@ -32,7 +36,10 @@ pub fn convert<C: Read + Seek>(cursor: C, extra_dir: Option<&Path>) -> Result<Pr
         Some("aarch64") => {
             let cache = framehop::aarch64::CacheAarch64::new();
             convert_impl::<framehop::aarch64::UnwinderAarch64<Vec<u8>>, ConvertRegsAarch64, _>(
-                perf_file, extra_dir, cache,
+                perf_file,
+                extra_dir,
+                cache,
+                merge_threads,
             )
         }
         _ => {
@@ -44,7 +51,10 @@ pub fn convert<C: Read + Seek>(cursor: C, extra_dir: Option<&Path>) -> Result<Pr
             }
             let cache = framehop::x86_64::CacheX86_64::new();
             convert_impl::<framehop::x86_64::UnwinderX86_64<Vec<u8>>, ConvertRegsX86_64, _>(
-                perf_file, extra_dir, cache,
+                perf_file,
+                extra_dir,
+                cache,
+                merge_threads,
             )
         }
     };
@@ -55,6 +65,7 @@ fn convert_impl<U, C, R>(
     file: PerfFileReader<R>,
     extra_dir: Option<&Path>,
     cache: U::Cache,
+    merge_threads: bool,
 ) -> Profile
 where
     U: Unwinder<Module = Module<Vec<u8>>> + Default,
@@ -102,6 +113,7 @@ where
         cache,
         extra_dir,
         interpretation.clone(),
+        merge_threads,
     );
 
     let mut last_timestamp = 0;

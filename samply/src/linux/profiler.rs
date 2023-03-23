@@ -290,6 +290,7 @@ fn init_profiler(
             framehop::CacheNative::new(),
             None,
             interpretation,
+            false,
         );
 
     // TODO: Gather threads / processes recursively, here and in PerfGroup setup.
