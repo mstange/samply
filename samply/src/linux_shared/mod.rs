@@ -637,46 +637,33 @@ where
             let process = self.processes.get_by_pid(e.pid, &mut self.profile);
             process.name = parent_process_name;
             let process_handle = process.profile_process;
-            if let Some(process_name) = process.name.as_deref() {
-                self.profile.set_process_name(process_handle, process_name);
-            }
-            if !is_reused {
-                self.profile
-                    .set_process_start_time(process_handle, start_time);
-            }
-            let thread = process.get_thread_by_tid(e.tid, &mut self.profile);
+            let thread = process.get_main_thread();
             thread.name = parent_thread_name;
             let thread_handle = thread.profile_thread;
             if let Some(thread_name) = thread.name.as_deref() {
                 self.profile.set_thread_name(thread_handle, thread_name);
             }
             if !is_reused {
+                self.profile
+                    .set_process_start_time(process_handle, start_time);
                 self.profile
                     .set_thread_start_time(thread_handle, start_time);
             }
         } else {
             let parent_thread = parent_process.get_thread_by_tid(e.ptid, &mut self.profile);
             let parent_thread_name = parent_thread.name.clone();
-            let (mut thread, is_reused) = if let Some(name) = parent_thread_name.as_deref() {
-                match parent_process.attempt_thread_reuse(e.tid, name) {
-                    Some(thread) => (thread, true),
-                    None => (
-                        parent_process.get_thread_by_tid(e.tid, &mut self.profile),
-                        false,
-                    ),
-                }
+            let is_reused = if let Some(name) = parent_thread_name.as_deref() {
+                parent_process.attempt_thread_reuse(e.tid, name).is_some()
             } else {
-                (
-                    parent_process.get_thread_by_tid(e.tid, &mut self.profile),
-                    false,
-                )
+                false
             };
+            let mut thread = parent_process.get_thread_by_tid(e.tid, &mut self.profile);
             thread.name = parent_thread_name;
-            let thread_handle = thread.profile_thread;
-            if let Some(thread_name) = thread.name.as_deref() {
-                self.profile.set_thread_name(thread_handle, thread_name);
-            }
             if !is_reused {
+                let thread_handle = thread.profile_thread;
+                if let Some(thread_name) = thread.name.as_deref() {
+                    self.profile.set_thread_name(thread_handle, thread_name);
+                }
                 self.profile
                     .set_thread_start_time(thread_handle, start_time);
             }
@@ -1692,6 +1679,10 @@ where
             }
         }
         None
+    }
+
+    pub fn get_main_thread(&mut self) -> &mut Thread {
+        &mut self.main_thread
     }
 
     pub fn get_thread_by_tid(&mut self, tid: i32, profile: &mut Profile) -> &mut Thread {
