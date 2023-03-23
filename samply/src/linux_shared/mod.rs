@@ -39,7 +39,7 @@ use serde_json::json;
 use wholesym::samply_symbols;
 
 use std::collections::hash_map::Entry;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fmt::Debug;
 use std::fs;
 use std::path::PathBuf;
@@ -722,6 +722,10 @@ where
                 let maybe_reused_process = self.processes.attempt_reuse(e.pid, &name);
                 maybe_reused_process.is_none()
             } else {
+                eprintln!(
+                    "Unexpected is_execve on non-main thread! pid: {}, tid: {}",
+                    e.pid, e.tid
+                );
                 let process = self.processes.get_by_pid(e.pid, &mut self.profile);
                 process.remove_non_main_thread(
                     e.tid,
@@ -729,8 +733,22 @@ where
                     self.merge_threads,
                     &mut self.profile,
                 );
-                true
+                let maybe_reused_thread = process.attempt_thread_reuse(e.tid, &name);
+                maybe_reused_thread.is_none()
             }
+        } else if self.merge_threads && !is_main {
+            // Mark the old thread / process as ended.
+            // If the COMM record doesn't have a timestamp, take the last seen
+            // timestamp from the previous sample.
+            let timestamp = match timestamp {
+                Some(0) | None => self.current_sample_time,
+                Some(ts) => ts,
+            };
+            let end_time = self.timestamp_converter.convert_time(timestamp);
+            let process = self.processes.get_by_pid(e.pid, &mut self.profile);
+            process.remove_non_main_thread(e.tid, end_time, self.merge_threads, &mut self.profile);
+            let maybe_reused_thread = process.attempt_thread_reuse(e.tid, &name);
+            maybe_reused_thread.is_none()
         } else {
             false
         };
@@ -1381,7 +1399,7 @@ where
     U: Unwinder<Module = Module<Vec<u8>>> + Default,
 {
     processes_by_pid: HashMap<i32, Process<U>>,
-    ended_processes_for_reuse_by_name: HashMap<String, Process<U>>,
+    ended_processes_for_reuse_by_name: HashMap<String, VecDeque<Process<U>>>,
 }
 
 impl<U> Processes<U>
@@ -1397,7 +1415,15 @@ where
 
     pub fn attempt_reuse(&mut self, pid: i32, name: &str) -> Option<&mut Process<U>> {
         if let Entry::Vacant(entry) = self.processes_by_pid.entry(pid) {
-            if let Some(mut process) = self.ended_processes_for_reuse_by_name.remove(name) {
+            if let Some(processes_of_same_name) =
+                self.ended_processes_for_reuse_by_name.get_mut(name)
+            {
+                let mut process = processes_of_same_name
+                    .pop_front()
+                    .expect("We only have non-empty VecDeques in this HashMap");
+                if processes_of_same_name.is_empty() {
+                    self.ended_processes_for_reuse_by_name.remove(name);
+                }
                 process.reset_for_reuse(pid);
                 return Some(entry.insert(process));
             }
@@ -1435,6 +1461,7 @@ where
                 pid,
                 main_thread,
                 threads_by_tid: HashMap::new(),
+                ended_threads_for_reuse_by_name: HashMap::new(),
             }
         })
     }
@@ -1446,26 +1473,37 @@ where
             profile.set_process_end_time(process.profile_process, time);
             profile.clear_process_lib_mappings(process.profile_process);
 
-            process.jit_functions = JitFunctions(Vec::new());
-            process.has_looked_up_perf_map = false;
-            process.unwinder = U::default();
+            process.on_remove(allow_reuse);
 
             if allow_reuse {
                 if let Some(name) = process.name.as_deref() {
                     self.ended_processes_for_reuse_by_name
-                        .insert(name.to_string(), process);
+                        .entry(name.to_string())
+                        .or_default()
+                        .push_back(process);
                 }
             }
         }
     }
 }
 
+#[derive(Debug)]
 struct Thread {
     profile_thread: ThreadHandle,
     context_switch_data: ThreadContextSwitchData,
     last_sample_timestamp: Option<u64>,
     off_cpu_stack: Option<Vec<FrameInfo>>,
     name: Option<String>,
+}
+
+impl Thread {
+    pub fn on_remove(&mut self) {
+        self.context_switch_data = Default::default();
+        self.last_sample_timestamp = None;
+        self.off_cpu_stack = None;
+    }
+
+    pub fn reset_for_reuse(&mut self, _tid: i32) {}
 }
 
 struct Process<U>
@@ -1480,6 +1518,7 @@ where
     threads_by_tid: HashMap<i32, Thread>,
     pid: i32,
     has_looked_up_perf_map: bool,
+    ended_threads_for_reuse_by_name: HashMap<String, VecDeque<Thread>>,
 }
 
 impl<U> Process<U>
@@ -1586,6 +1625,41 @@ where
         self.pid = new_pid;
     }
 
+    pub fn on_remove(&mut self, allow_thread_reuse: bool) {
+        self.jit_functions = JitFunctions(Vec::new());
+        self.has_looked_up_perf_map = false;
+        self.unwinder = U::default();
+
+        if allow_thread_reuse {
+            for (_tid, mut thread) in self.threads_by_tid.drain() {
+                thread.on_remove();
+
+                if let Some(name) = thread.name.as_deref() {
+                    self.ended_threads_for_reuse_by_name
+                        .entry(name.to_owned())
+                        .or_default()
+                        .push_back(thread);
+                }
+            }
+        }
+    }
+
+    pub fn attempt_thread_reuse(&mut self, tid: i32, name: &str) -> Option<&mut Thread> {
+        if let Entry::Vacant(entry) = self.threads_by_tid.entry(tid) {
+            if let Some(threads_of_same_name) = self.ended_threads_for_reuse_by_name.get_mut(name) {
+                let mut thread = threads_of_same_name
+                    .pop_front()
+                    .expect("We only have non-empty VecDeques in this HashMap");
+                if threads_of_same_name.is_empty() {
+                    self.ended_threads_for_reuse_by_name.remove(name);
+                }
+                thread.reset_for_reuse(tid);
+                return Some(entry.insert(thread));
+            }
+        }
+        None
+    }
+
     pub fn get_thread_by_tid(
         &mut self,
         tid: i32,
@@ -1616,12 +1690,23 @@ where
         &mut self,
         tid: i32,
         time: Timestamp,
-        _allow_reuse: bool,
+        allow_reuse: bool,
         profile: &mut Profile,
     ) {
         if let Entry::Occupied(entry) = self.threads_by_tid.entry(tid) {
-            profile.set_thread_end_time(entry.get().profile_thread, time);
-            entry.remove();
+            let mut thread = entry.remove();
+            profile.set_thread_end_time(thread.profile_thread, time);
+
+            thread.on_remove();
+
+            if allow_reuse {
+                if let Some(name) = thread.name.as_deref() {
+                    self.ended_threads_for_reuse_by_name
+                        .entry(name.to_owned())
+                        .or_default()
+                        .push_back(thread);
+                }
+            }
         }
     }
 }
