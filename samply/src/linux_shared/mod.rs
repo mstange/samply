@@ -789,13 +789,18 @@ where
         let (debug_id, code_id_bytes) =
             debug_id_and_code_id_for_jitdump(header.pid, header.timestamp, header.elf_machine_arch);
         let code_id = CodeId::from_binary(&code_id_bytes);
+        let name = path
+            .file_name()
+            .unwrap_or(path.as_os_str())
+            .to_string_lossy()
+            .into_owned();
         let path = path.to_string_lossy().into_owned();
 
         self.profile.add_lib(LibraryInfo {
-            name: "JIT".into(),
-            debug_name: "JIT".into(),
-            path: path.clone(),
-            debug_path: path,
+            debug_name: name.clone(),
+            debug_path: path.clone(),
+            name,
+            path,
             debug_id,
             code_id: Some(code_id.to_string()),
             arch: None,
