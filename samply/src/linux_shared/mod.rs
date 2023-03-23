@@ -273,7 +273,6 @@ where
 
         let profile_timestamp = self.timestamp_converter.convert_time(timestamp);
 
-        let is_main = pid == tid;
         let process = self.processes.get_by_pid(pid, &mut self.profile);
 
         process.maybe_load_perf_map(&mut self.profile, &mut self.jit_category_manager);
@@ -281,7 +280,7 @@ where
         let mut stack = Vec::new();
         Self::get_sample_stack::<C>(&e, &process.unwinder, &mut self.cache, &mut stack);
 
-        let thread = process.get_thread_by_tid(tid, is_main, &mut self.profile);
+        let thread = process.get_thread_by_tid(tid, &mut self.profile);
 
         if thread.last_sample_timestamp == Some(timestamp) {
             // Duplicate sample. Ignore.
@@ -338,7 +337,6 @@ where
     ) {
         let pid = e.pid.expect("Can't handle samples without pids");
         let tid = e.tid.expect("Can't handle samples without tids");
-        let is_main = pid == tid;
         let process = self.processes.get_by_pid(pid, &mut self.profile);
 
         let mut stack = Vec::new();
@@ -349,7 +347,7 @@ where
             .convert_stack_no_kernel(&stack, &process.jit_functions)
             .collect();
 
-        let thread = process.get_thread_by_tid(tid, is_main, &mut self.profile);
+        let thread = process.get_thread_by_tid(tid, &mut self.profile);
         thread.off_cpu_stack = Some(stack);
     }
 
@@ -578,12 +576,11 @@ where
         let timestamp = common
             .timestamp
             .expect("Can't handle context switch without time");
-        let is_main = pid == tid;
         let process = self.processes.get_by_pid(pid, &mut self.profile);
 
         process.maybe_load_perf_map(&mut self.profile, &mut self.jit_category_manager);
 
-        let thread = process.get_thread_by_tid(tid, is_main, &mut self.profile);
+        let thread = process.get_thread_by_tid(tid, &mut self.profile);
 
         match e {
             ContextSwitchRecord::In { .. } => {
@@ -622,36 +619,68 @@ where
     pub fn handle_thread_start(&mut self, e: ForkOrExitRecord) {
         let start_time = self.timestamp_converter.convert_time(e.timestamp);
 
-        let prev_is_main = e.ppid == e.ptid;
         let is_main = e.pid == e.tid;
-        let prev_process = self.processes.get_by_pid(e.ppid, &mut self.profile);
-        let prev_thread = prev_process.get_thread_by_tid(e.ptid, prev_is_main, &mut self.profile);
-        let prev_thread_name = prev_thread.name.clone();
-        let process = if e.pid != e.ppid {
+        let parent_process = self.processes.get_by_pid(e.ppid, &mut self.profile);
+        if e.pid != e.ppid {
+            // We've created a new process.
             if !is_main {
                 eprintln!("Unexpected data in FORK record: If we fork into a different process, the forked child thread should be the main thread of the new process");
             }
-            let prev_process_name = prev_process.name.clone();
+            let parent_process_name = parent_process.name.clone();
+            let parent_thread = parent_process.get_thread_by_tid(e.ptid, &mut self.profile);
+            let parent_thread_name = parent_thread.name.clone();
+            let is_reused = if let Some(name) = parent_process_name.as_deref() {
+                self.processes.attempt_reuse(e.pid, name).is_some()
+            } else {
+                false
+            };
             let process = self.processes.get_by_pid(e.pid, &mut self.profile);
-            process.name = prev_process_name;
+            process.name = parent_process_name;
             let process_handle = process.profile_process;
             if let Some(process_name) = process.name.as_deref() {
                 self.profile.set_process_name(process_handle, process_name);
             }
-            self.profile
-                .set_process_start_time(process_handle, start_time);
-            process
+            if !is_reused {
+                self.profile
+                    .set_process_start_time(process_handle, start_time);
+            }
+            let thread = process.get_thread_by_tid(e.tid, &mut self.profile);
+            thread.name = parent_thread_name;
+            let thread_handle = thread.profile_thread;
+            if let Some(thread_name) = thread.name.as_deref() {
+                self.profile.set_thread_name(thread_handle, thread_name);
+            }
+            if !is_reused {
+                self.profile
+                    .set_thread_start_time(thread_handle, start_time);
+            }
         } else {
-            prev_process
+            let parent_thread = parent_process.get_thread_by_tid(e.ptid, &mut self.profile);
+            let parent_thread_name = parent_thread.name.clone();
+            let (mut thread, is_reused) = if let Some(name) = parent_thread_name.as_deref() {
+                match parent_process.attempt_thread_reuse(e.tid, name) {
+                    Some(thread) => (thread, true),
+                    None => (
+                        parent_process.get_thread_by_tid(e.tid, &mut self.profile),
+                        false,
+                    ),
+                }
+            } else {
+                (
+                    parent_process.get_thread_by_tid(e.tid, &mut self.profile),
+                    false,
+                )
+            };
+            thread.name = parent_thread_name;
+            let thread_handle = thread.profile_thread;
+            if let Some(thread_name) = thread.name.as_deref() {
+                self.profile.set_thread_name(thread_handle, thread_name);
+            }
+            if !is_reused {
+                self.profile
+                    .set_thread_start_time(thread_handle, start_time);
+            }
         };
-        let thread = process.get_thread_by_tid(e.tid, is_main, &mut self.profile);
-        thread.name = prev_thread_name;
-        let thread_handle = thread.profile_thread;
-        if let Some(thread_name) = thread.name.as_deref() {
-            self.profile.set_thread_name(thread_handle, thread_name);
-        }
-        self.profile
-            .set_thread_start_time(thread_handle, start_time);
     }
 
     /// Called for an EXIT record.
@@ -673,7 +702,7 @@ where
         let process = self.processes.get_by_pid(pid, &mut self.profile);
         let process_handle = process.profile_process;
 
-        let thread = process.get_thread_by_tid(tid, is_main, &mut self.profile);
+        let thread = process.get_thread_by_tid(tid, &mut self.profile);
         let thread_handle = thread.profile_thread;
 
         self.profile.set_thread_name(thread_handle, name);
@@ -1157,7 +1186,7 @@ where
         });
 
         let main_thread = process
-            .get_thread_by_tid(process_pid, true, &mut self.profile)
+            .get_thread_by_tid(process_pid, &mut self.profile)
             .profile_thread;
         let timing = MarkerTiming::Instant(self.timestamp_converter.convert_time(timestamp));
         self.profile.add_marker(
@@ -1660,12 +1689,7 @@ where
         None
     }
 
-    pub fn get_thread_by_tid(
-        &mut self,
-        tid: i32,
-        is_main: bool,
-        profile: &mut Profile,
-    ) -> &mut Thread {
+    pub fn get_thread_by_tid(&mut self, tid: i32, profile: &mut Profile) -> &mut Thread {
         if tid == self.pid {
             return &mut self.main_thread;
         }
@@ -1674,7 +1698,7 @@ where
                 self.profile_process,
                 tid as u32,
                 Timestamp::from_millis_since_reference(0.0),
-                is_main,
+                false,
             );
             Thread {
                 profile_thread,
