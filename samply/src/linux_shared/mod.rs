@@ -273,7 +273,11 @@ where
 
         let process = self.processes.get_by_pid(pid, &mut self.profile);
 
-        process.maybe_load_perf_map(&mut self.profile, &mut self.jit_category_manager);
+        process.maybe_load_perf_map(
+            &mut self.profile,
+            &mut self.jit_category_manager,
+            self.merge_threads,
+        );
 
         let mut stack = Vec::new();
         Self::get_sample_stack::<C>(&e, &process.unwinder, &mut self.cache, &mut stack);
@@ -576,7 +580,11 @@ where
             .expect("Can't handle context switch without time");
         let process = self.processes.get_by_pid(pid, &mut self.profile);
 
-        process.maybe_load_perf_map(&mut self.profile, &mut self.jit_category_manager);
+        process.maybe_load_perf_map(
+            &mut self.profile,
+            &mut self.jit_category_manager,
+            self.merge_threads,
+        );
 
         let thread = process.get_thread_by_tid(tid, &mut self.profile);
 
@@ -817,6 +825,7 @@ where
             jitdump_lib,
             &mut self.jit_category_manager,
             &mut self.profile,
+            self.merge_threads,
         );
     }
 
@@ -1113,6 +1122,7 @@ where
                     lib_handle,
                     &mut self.jit_category_manager,
                     &mut self.profile,
+                    self.merge_threads,
                 );
             } else {
                 self.profile.add_lib_mapping(
@@ -1471,6 +1481,8 @@ where
                 main_thread,
                 threads_by_tid: HashMap::new(),
                 ended_threads_for_reuse_by_name: HashMap::new(),
+                new_jit_functions: Vec::new(),
+                jit_functions_for_reuse_by_name_and_size: HashMap::new(),
             }
         })
     }
@@ -1528,6 +1540,8 @@ where
     pid: i32,
     has_looked_up_perf_map: bool,
     ended_threads_for_reuse_by_name: HashMap<String, VecDeque<Thread>>,
+    new_jit_functions: Vec<(String, u32, LibraryHandle, u32)>,
+    jit_functions_for_reuse_by_name_and_size: HashMap<(String, u32), (LibraryHandle, u32)>,
 }
 
 impl<U> Process<U>
@@ -1540,6 +1554,7 @@ where
         &mut self,
         profile: &mut Profile,
         jit_category_manager: &mut JitCategoryManager,
+        allow_reuse: bool,
     ) {
         if self.has_looked_up_perf_map {
             return;
@@ -1606,6 +1621,7 @@ where
                 lib_handle,
                 jit_category_manager,
                 profile,
+                allow_reuse,
             );
 
             // Add a symbol for this function to the fake library's symbol table.
@@ -1641,6 +1657,11 @@ where
                         .push_back(thread);
                 }
             }
+        }
+
+        for (name, code_size, lib_handle, rel_addr) in self.new_jit_functions.drain(..) {
+            self.jit_functions_for_reuse_by_name_and_size
+                .insert((name, code_size), (lib_handle, rel_addr));
         }
     }
 
@@ -1716,10 +1737,11 @@ where
         symbol_name: Option<&str>,
         start_address: u64,
         end_address: u64,
-        relative_address_at_start: u32,
-        lib_handle: LibraryHandle,
+        mut relative_address_at_start: u32,
+        mut lib_handle: LibraryHandle,
         jit_category_manager: &mut JitCategoryManager,
         profile: &mut Profile,
+        allow_reuse: bool,
     ) {
         if let Some(timestamp) = timestamp {
             let main_thread = self.main_thread.profile_thread;
@@ -1730,6 +1752,27 @@ where
                 JitFunctionAddMarker(symbol_name.unwrap_or("<unknown>").to_owned()),
                 timing,
             );
+        }
+
+        if let (Some(name), true) = (symbol_name, allow_reuse) {
+            let code_size = (end_address - start_address) as u32;
+            let name_and_code_size = (name.to_owned(), code_size);
+            match self
+                .jit_functions_for_reuse_by_name_and_size
+                .get(&name_and_code_size)
+            {
+                Some(reused_function) => {
+                    (lib_handle, relative_address_at_start) = *reused_function;
+                }
+                None => {
+                    self.new_jit_functions.push((
+                        name_and_code_size.0,
+                        code_size,
+                        lib_handle,
+                        relative_address_at_start,
+                    ));
+                }
+            }
         }
 
         let (category, js_frame) =
