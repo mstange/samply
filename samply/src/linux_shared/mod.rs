@@ -808,22 +808,16 @@ where
         let symbol_name = record.function_name.as_slice();
         let symbol_name = std::str::from_utf8(&symbol_name).ok();
         let process = self.processes.get_by_pid(process_pid, &mut self.profile);
-        process.add_marker_for_new_jit_function(
-            self.timestamp_converter.convert_time(timestamp),
+        process.add_jit_function(
+            Some(self.timestamp_converter.convert_time(timestamp)),
             symbol_name,
+            start_avma,
+            end_avma,
+            relative_address_at_start,
+            jitdump_lib,
+            &mut self.jit_category_manager,
             &mut self.profile,
         );
-        let (category, js_frame) = self
-            .jit_category_manager
-            .classify_jit_symbol(symbol_name.unwrap_or(""), &mut self.profile);
-        process.jit_functions.insert(JitFunction {
-            start_address: start_avma,
-            end_address: end_avma,
-            relative_address_at_start,
-            lib_handle: jitdump_lib,
-            category,
-            js_frame,
-        });
     }
 
     pub fn handle_jit_code_move(&mut self, _timestamp: u64, record: &JitCodeMoveRecord) {
@@ -1110,22 +1104,16 @@ where
 
             if name.starts_with("jitted-") && name.ends_with(".so") {
                 let symbol_name = jit_function_name(&file);
-                process.add_marker_for_new_jit_function(
-                    self.timestamp_converter.convert_time(timestamp),
+                process.add_jit_function(
+                    Some(self.timestamp_converter.convert_time(timestamp)),
                     symbol_name,
-                    &mut self.profile,
-                );
-                let (category, js_frame) = self
-                    .jit_category_manager
-                    .classify_jit_symbol(symbol_name.unwrap_or(""), &mut self.profile);
-                process.jit_functions.insert(JitFunction {
-                    start_address: mapping_start_avma,
-                    end_address: mapping_end_avma,
+                    mapping_start_avma,
+                    mapping_end_avma,
                     relative_address_at_start,
                     lib_handle,
-                    category,
-                    js_frame,
-                });
+                    &mut self.jit_category_manager,
+                    &mut self.profile,
+                );
             } else {
                 self.profile.add_lib_mapping(
                     profile_process,
@@ -1600,9 +1588,6 @@ where
             let start_address = addr;
             let end_address = addr + len;
 
-            let (category, js_frame) =
-                jit_category_manager.classify_jit_symbol(symbol_name, profile);
-
             // Pretend that all JIT code is laid out consecutively in our fake library.
             // This relative address is used for symbolication whenever we add a frame
             // to the profile.
@@ -1612,14 +1597,16 @@ where
             // Add this function to process.jit_functions so that it can be consulted for
             // category information, JS function prepending, and to translate the absolute
             // address into a relative address.
-            self.jit_functions.insert(JitFunction {
+            self.add_jit_function(
+                None,
+                Some(symbol_name),
                 start_address,
                 end_address,
-                relative_address_at_start: relative_address,
-                category,
-                js_frame,
+                relative_address,
                 lib_handle,
-            });
+                jit_category_manager,
+                profile,
+            );
 
             // Add a symbol for this function to the fake library's symbol table.
             // This symbol will be looked up when the address is added to the profile,
@@ -1722,20 +1709,39 @@ where
         }
     }
 
-    pub fn add_marker_for_new_jit_function(
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_jit_function(
         &mut self,
-        timestamp: Timestamp,
+        timestamp: Option<Timestamp>,
         symbol_name: Option<&str>,
+        start_address: u64,
+        end_address: u64,
+        relative_address_at_start: u32,
+        lib_handle: LibraryHandle,
+        jit_category_manager: &mut JitCategoryManager,
         profile: &mut Profile,
     ) {
-        let main_thread = self.main_thread.profile_thread;
-        let timing = MarkerTiming::Instant(timestamp);
-        profile.add_marker(
-            main_thread,
-            "JitFunctionAdd",
-            JitFunctionAddMarker(symbol_name.unwrap_or("<unknown>").to_owned()),
-            timing,
-        );
+        if let Some(timestamp) = timestamp {
+            let main_thread = self.main_thread.profile_thread;
+            let timing = MarkerTiming::Instant(timestamp);
+            profile.add_marker(
+                main_thread,
+                "JitFunctionAdd",
+                JitFunctionAddMarker(symbol_name.unwrap_or("<unknown>").to_owned()),
+                timing,
+            );
+        }
+
+        let (category, js_frame) =
+            jit_category_manager.classify_jit_symbol(symbol_name.unwrap_or(""), profile);
+        self.jit_functions.insert(JitFunction {
+            start_address,
+            end_address,
+            relative_address_at_start,
+            lib_handle,
+            category,
+            js_frame,
+        });
     }
 }
 
