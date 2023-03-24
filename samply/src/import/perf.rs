@@ -166,11 +166,8 @@ where
                         );
                     }
                     Ok(JitDumpRecord::CodeMove(code_move_record)) => {
-                        converter.handle_jit_code_move(
-                            raw_jitdump_record.timestamp,
-                            jitdump.lib_handle,
-                            &code_move_record,
-                        );
+                        converter
+                            .handle_jit_code_move(raw_jitdump_record.timestamp, &code_move_record);
                     }
                     _ => {}
                 }

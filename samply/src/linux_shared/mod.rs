@@ -183,7 +183,6 @@ where
     suspected_pe_mappings: BTreeMap<u64, SuspectedPeMapping>,
 
     jit_category_manager: JitCategoryManager,
-    jitdump_code_offsets: HashMap<(LibraryHandle, u64), u32>,
 
     /// Whether a new thread should be merged into a previously exited
     /// thread of the same name.
@@ -254,7 +253,6 @@ where
             kernel_symbols,
             suspected_pe_mappings: BTreeMap::new(),
             jit_category_manager: JitCategoryManager::new(),
-            jitdump_code_offsets: HashMap::new(),
             merge_threads,
         }
     }
@@ -807,46 +805,33 @@ where
         let end_avma = start_avma + record.code_bytes.len() as u64;
         let relative_address_at_start = record_offset_in_file as u32
             + record.code_bytes_offset_from_record_header_start() as u32;
-        self.jitdump_code_offsets
-            .insert((jitdump_lib, record.code_index), relative_address_at_start);
-        self.add_jit_function(
-            process_pid,
-            timestamp,
-            start_avma,
-            end_avma,
-            std::str::from_utf8(&record.function_name.as_slice()).ok(),
-        );
+        let symbol_name = record.function_name.as_slice();
+        let symbol_name = std::str::from_utf8(&symbol_name).ok();
         let process = self.processes.get_by_pid(process_pid, &mut self.profile);
-        self.profile.add_lib_mapping(
-            process.profile_process,
-            jitdump_lib,
-            start_avma,
-            end_avma,
-            relative_address_at_start,
+        process.add_marker_for_new_jit_function(
+            self.timestamp_converter.convert_time(timestamp),
+            symbol_name,
+            &mut self.profile,
         );
+        let (category, js_frame) = self
+            .jit_category_manager
+            .classify_jit_symbol(symbol_name.unwrap_or(""), &mut self.profile);
+        process.jit_functions.insert(JitFunction {
+            start_address: start_avma,
+            end_address: end_avma,
+            relative_address_at_start,
+            lib_handle: jitdump_lib,
+            category,
+            js_frame,
+        });
     }
 
-    pub fn handle_jit_code_move(
-        &mut self,
-        _timestamp: u64,
-        jitdump_lib: LibraryHandle,
-        record: &JitCodeMoveRecord,
-    ) {
+    pub fn handle_jit_code_move(&mut self, _timestamp: u64, record: &JitCodeMoveRecord) {
         let process_pid = record.pid as i32;
         let process = self.processes.get_by_pid(process_pid, &mut self.profile);
-        self.profile
-            .remove_lib_mapping(process.profile_process, record.old_code_addr);
-        if let Some(relative_address_at_start) = self
-            .jitdump_code_offsets
-            .get(&(jitdump_lib, record.code_index))
-        {
-            self.profile.add_lib_mapping(
-                process.profile_process,
-                jitdump_lib,
-                record.new_code_addr,
-                record.new_code_addr + record.code_size,
-                *relative_address_at_start,
-            );
+        if let Some(mut jit_function) = process.jit_functions.remove(record.old_code_addr) {
+            jit_function.start_address = record.new_code_addr;
+            jit_function.end_address = record.new_code_addr + record.code_size;
         }
     }
 
@@ -975,10 +960,6 @@ where
             .file_name()
             .map_or("<unknown>".into(), |f| f.to_string_lossy().to_string());
 
-        let code_id;
-        let debug_id;
-        let base_avma;
-
         if let Some(file) = file {
             let mmap = match unsafe { memmap2::MmapOptions::new().map(&file) } {
                 Ok(mmap) => mmap,
@@ -1024,21 +1005,21 @@ where
             }
 
             let base_svma = samply_symbols::relative_address_base(&file);
-            if let Some(mapping) = suspected_pe_mapping {
+            let base_avma = if let Some(mapping) = suspected_pe_mapping {
                 // For the PE correlation hack, we can't use the mapping offsets as they correspond to
                 // an anonymous mapping. Instead, the base address is pre-determined from the PE header
                 // mapping.
-                base_avma = mapping.start;
+                mapping.start
             } else if let Some(bias) = compute_vma_bias(
                 &file,
                 mapping_start_file_offset,
                 mapping_start_avma,
                 mapping_size,
             ) {
-                base_avma = base_svma.wrapping_add(bias);
+                base_svma.wrapping_add(bias)
             } else {
                 return;
-            }
+            };
 
             let text = file.section_by_name(".text");
             let text_env = file.section_by_name("text_env");
@@ -1104,89 +1085,87 @@ where
             );
             process.unwinder.add_module(module);
 
-            debug_id = if let Some(debug_id) = debug_id_for_object(&file) {
+            let debug_id = if let Some(debug_id) = debug_id_for_object(&file) {
                 debug_id
             } else {
                 return;
             };
-            code_id = file
+            let code_id = file
                 .build_id()
                 .ok()
                 .flatten()
                 .map(|build_id| CodeId::from_binary(build_id).to_string());
+            let lib_handle = self.profile.add_lib(LibraryInfo {
+                debug_id,
+                code_id,
+                path: path.clone(),
+                debug_path: path,
+                debug_name: name.clone(),
+                name: name.clone(),
+                arch: None,
+                symbol_table: None,
+            });
+
+            let relative_address_at_start = (avma_range.start - base_avma) as u32;
 
             if name.starts_with("jitted-") && name.ends_with(".so") {
                 let symbol_name = jit_function_name(&file);
-                self.add_jit_function(
-                    process_pid,
-                    timestamp,
+                process.add_marker_for_new_jit_function(
+                    self.timestamp_converter.convert_time(timestamp),
+                    symbol_name,
+                    &mut self.profile,
+                );
+                let (category, js_frame) = self
+                    .jit_category_manager
+                    .classify_jit_symbol(symbol_name.unwrap_or(""), &mut self.profile);
+                process.jit_functions.insert(JitFunction {
+                    start_address: mapping_start_avma,
+                    end_address: mapping_end_avma,
+                    relative_address_at_start,
+                    lib_handle,
+                    category,
+                    js_frame,
+                });
+            } else {
+                self.profile.add_lib_mapping(
+                    profile_process,
+                    lib_handle,
                     mapping_start_avma,
                     mapping_end_avma,
-                    symbol_name,
+                    relative_address_at_start,
                 );
-            };
+            }
         } else {
             // Without access to the binary file, make some guesses. We can't really
             // know what the right base address is because we don't have the section
             // information which lets us map between addresses and file offsets, but
             // often svmas and file offsets are the same, so this is a reasonable guess.
-            base_avma = mapping_start_avma - mapping_start_file_offset;
+            let base_avma = mapping_start_avma - mapping_start_file_offset;
 
             // If we have a build ID, convert it to a debug_id and a code_id.
-            debug_id = build_id
+            let debug_id = build_id
                 .map(|id| DebugId::from_identifier(id, true)) // TODO: endian
                 .unwrap_or_default();
-            code_id = build_id.map(|build_id| CodeId::from_binary(build_id).to_string());
+            let code_id = build_id.map(|build_id| CodeId::from_binary(build_id).to_string());
+
+            let lib_handle = self.profile.add_lib(LibraryInfo {
+                debug_id,
+                code_id,
+                path: path.clone(),
+                debug_path: path,
+                debug_name: name.clone(),
+                name,
+                arch: None,
+                symbol_table: None,
+            });
+            self.profile.add_lib_mapping(
+                profile_process,
+                lib_handle,
+                mapping_start_avma,
+                mapping_end_avma,
+                (mapping_start_avma - base_avma) as u32,
+            );
         }
-
-        let lib_handle = self.profile.add_lib(LibraryInfo {
-            debug_id,
-            code_id,
-            path: path.clone(),
-            debug_path: path,
-            debug_name: name.clone(),
-            name,
-            arch: None,
-            symbol_table: None,
-        });
-        self.profile.add_lib_mapping(
-            profile_process,
-            lib_handle,
-            avma_range.start,
-            avma_range.end,
-            (avma_range.start - base_avma) as u32,
-        );
-    }
-
-    fn add_jit_function(
-        &mut self,
-        process_pid: i32,
-        timestamp: u64,
-        start_address: u64,
-        end_address: u64,
-        symbol_name: Option<&str>,
-    ) {
-        let process = self.processes.get_by_pid(process_pid, &mut self.profile);
-        let (category, js_frame) = self
-            .jit_category_manager
-            .classify_jit_symbol(symbol_name.unwrap_or(""), &mut self.profile);
-        process.jit_functions.insert(JitFunction {
-            start_address,
-            end_address,
-            category,
-            js_frame,
-        });
-
-        let main_thread = process
-            .get_thread_by_tid(process_pid, &mut self.profile)
-            .profile_thread;
-        let timing = MarkerTiming::Instant(self.timestamp_converter.convert_time(timestamp));
-        self.profile.add_marker(
-            main_thread,
-            "JitFunctionAdd",
-            JitFunctionAddMarker(symbol_name.unwrap_or("<unknown>").to_owned()),
-            timing,
-        );
     }
 }
 
@@ -1311,25 +1290,46 @@ impl<'a> Iterator for ConvertedStackIter<'a> {
                 return Some(pending_frame_after_js);
             }
             let frame = self.inner.next()?;
-            let (location, mode, lookup_address) = match *frame {
-                StackFrame::InstructionPointer(addr, mode) => {
-                    (Frame::InstructionPointer(addr), mode, addr)
-                }
+            let (mode, addr, lookup_address, from_ip) = match *frame {
+                StackFrame::InstructionPointer(addr, mode) => (mode, addr, addr, true),
                 StackFrame::ReturnAddress(addr, mode) => {
-                    (Frame::ReturnAddress(addr), mode, addr.saturating_sub(1))
+                    (mode, addr, addr.saturating_sub(1), false)
                 }
                 StackFrame::TruncatedStackMarker => continue,
             };
-            let (category, js_frame) = match mode {
+            let (location, category, js_frame) = match mode {
                 StackMode::User => match self.jit_functions.find(lookup_address) {
-                    Some(jit_function) => (jit_function.category, jit_function.js_frame),
-                    None => (self.user_category, JsFrame::None),
+                    Some(jit_function) => {
+                        let relative_address = jit_function.avma_to_relative_address(addr);
+                        let location = match from_ip {
+                            true => Frame::RelativeAddressFromInstructionPointer(
+                                jit_function.lib_handle,
+                                relative_address,
+                            ),
+                            false => Frame::RelativeAddressFromReturnAddress(
+                                jit_function.lib_handle,
+                                relative_address,
+                            ),
+                        };
+                        (location, jit_function.category, jit_function.js_frame)
+                    }
+                    None => {
+                        let location = match from_ip {
+                            true => Frame::InstructionPointer(addr),
+                            false => Frame::ReturnAddress(addr),
+                        };
+                        (location, self.user_category, JsFrame::None)
+                    }
                 },
                 StackMode::Kernel => {
                     if !self.include_kernel {
                         continue;
                     }
-                    (self.kernel_category, JsFrame::None)
+                    let location = match from_ip {
+                        true => Frame::InstructionPointer(addr),
+                        false => Frame::ReturnAddress(addr),
+                    };
+                    (location, self.kernel_category, JsFrame::None)
                 }
             };
             let frame_info = FrameInfo {
@@ -1603,31 +1603,23 @@ where
             let (category, js_frame) =
                 jit_category_manager.classify_jit_symbol(symbol_name, profile);
 
-            // Add this function to process.jit_functions so that it can be consulted for
-            // category information and JS function prepending.
-            self.jit_functions.insert(JitFunction {
-                start_address,
-                end_address,
-                category,
-                js_frame,
-            });
-
             // Pretend that all JIT code is laid out consecutively in our fake library.
             // This relative address is used for symbolication whenever we add a frame
             // to the profile.
             let relative_address = cumulative_address;
             cumulative_address += len as u32;
 
-            // Add this function to the "mappings" of the fake library so that the
-            // profile can translate an absolute frame address to a relative address
-            // in the fake JIT library.
-            profile.add_lib_mapping(
-                self.profile_process,
-                lib_handle,
+            // Add this function to process.jit_functions so that it can be consulted for
+            // category information, JS function prepending, and to translate the absolute
+            // address into a relative address.
+            self.jit_functions.insert(JitFunction {
                 start_address,
                 end_address,
-                relative_address,
-            );
+                relative_address_at_start: relative_address,
+                category,
+                js_frame,
+                lib_handle,
+            });
 
             // Add a symbol for this function to the fake library's symbol table.
             // This symbol will be looked up when the address is added to the profile,
@@ -1729,6 +1721,22 @@ where
             }
         }
     }
+
+    pub fn add_marker_for_new_jit_function(
+        &mut self,
+        timestamp: Timestamp,
+        symbol_name: Option<&str>,
+        profile: &mut Profile,
+    ) {
+        let main_thread = self.main_thread.profile_thread;
+        let timing = MarkerTiming::Instant(timestamp);
+        profile.add_marker(
+            main_thread,
+            "JitFunctionAdd",
+            JitFunctionAddMarker(symbol_name.unwrap_or("<unknown>").to_owned()),
+            timing,
+        );
+    }
 }
 
 fn process_perf_map_line(line: &str) -> Option<(u64, u64, &str)> {
@@ -1757,6 +1765,13 @@ impl JitFunctions {
         }
     }
 
+    pub fn remove(&mut self, start_avma: u64) -> Option<JitFunction> {
+        self.0
+            .binary_search_by_key(&start_avma, |jf| jf.start_address)
+            .ok()
+            .map(|i| self.0.remove(i))
+    }
+
     pub fn find(&self, address: u64) -> Option<&JitFunction> {
         let jit_function = match self.0.binary_search_by_key(&address, |jf| jf.start_address) {
             Err(0) => return None,
@@ -1774,8 +1789,16 @@ impl JitFunctions {
 struct JitFunction {
     pub start_address: u64,
     pub end_address: u64,
+    pub relative_address_at_start: u32,
     pub category: CategoryPairHandle,
     pub js_frame: JsFrame,
+    pub lib_handle: LibraryHandle,
+}
+
+impl JitFunction {
+    fn avma_to_relative_address(&self, addr: u64) -> u32 {
+        self.relative_address_at_start + (addr - self.start_address) as u32
+    }
 }
 
 #[derive(Clone, Debug)]
