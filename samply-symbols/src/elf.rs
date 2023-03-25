@@ -65,7 +65,7 @@ where
     let debug_id = debug_id_for_object(elf_file)?;
     let name = std::str::from_utf8(name).ok()?;
     let candidate_paths = helper
-        .get_candidate_paths_for_gnu_debug_link_dest(name)
+        .get_candidate_paths_for_gnu_debug_link_dest(original_file_location, name)
         .ok()?;
 
     for candidate_path in candidate_paths {

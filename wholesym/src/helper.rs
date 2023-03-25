@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use std::{
     collections::HashMap,
-    fs::File,
+    fs::{self, File},
     path::{Path, PathBuf},
     pin::Pin,
     sync::{Arc, Mutex},
@@ -619,22 +619,32 @@ impl<'h> FileAndPathHelper<'h> for Helper {
 
     fn get_candidate_paths_for_gnu_debug_link_dest(
         &self,
+        original_file_location: &WholesymFileLocation,
         debug_link_name: &str,
     ) -> FileAndPathHelperResult<Vec<WholesymFileLocation>> {
+        let absolute_original_file_parent = match original_file_location {
+            WholesymFileLocation::LocalFile(path) => {
+                let parent = path
+                    .parent()
+                    .ok_or("Original file should point to a file")?;
+                fs::canonicalize(parent)?
+            }
+            _ => return Err("Only local files have a .gnu_debuglink".into()),
+        };
+
         // https://www-zeuthen.desy.de/unix/unixguide/infohtml/gdb/Separate-Debug-Files.html
         Ok(vec![
-            WholesymFileLocation::LocalFile(PathBuf::from(format!(
-                "/usr/bin/{}.debug",
-                &debug_link_name
-            ))),
-            WholesymFileLocation::LocalFile(PathBuf::from(format!(
-                "/usr/bin/.debug/{}.debug",
-                &debug_link_name
-            ))),
-            WholesymFileLocation::LocalFile(PathBuf::from(format!(
-                "/usr/lib/debug/usr/bin/{}.debug",
-                &debug_link_name
-            ))),
+            WholesymFileLocation::LocalFile(absolute_original_file_parent.join(debug_link_name)),
+            WholesymFileLocation::LocalFile(
+                absolute_original_file_parent
+                    .join(".debug")
+                    .join(debug_link_name),
+            ),
+            WholesymFileLocation::LocalFile(
+                Path::new("/usr/lib/debug")
+                    .join(absolute_original_file_parent.strip_prefix("/")?)
+                    .join(debug_link_name),
+            ),
         ])
     }
 
