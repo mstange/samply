@@ -320,6 +320,7 @@ pub trait FileAndPathHelper<'h> {
     /// TODO
     fn get_candidate_paths_for_gnu_debug_link_dest(
         &self,
+        _original_file_location: &Self::FL,
         _debug_link_name: &str,
     ) -> FileAndPathHelperResult<Vec<Self::FL>> {
         Ok(Vec::new())
