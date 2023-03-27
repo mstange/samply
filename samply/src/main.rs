@@ -135,6 +135,10 @@ pub struct ConversionArgs {
     /// Merge non-overlapping threads of the same name.
     #[arg(long)]
     merge_threads: bool,
+
+    /// Fold repeated frames at the base of the stack.
+    #[arg(long)]
+    fold_recursive_prefix: bool,
 }
 
 fn main() {
@@ -237,7 +241,13 @@ fn attempt_conversion(
         .expect("Couldn't form absolute path");
     let reader = BufReader::new(input_file);
     let output_file = tempfile::NamedTempFile::new().ok()?;
-    let profile = import::perf::convert(reader, path.parent(), settings.merge_threads).ok()?;
+    let profile = import::perf::convert(
+        reader,
+        path.parent(),
+        settings.merge_threads,
+        settings.fold_recursive_prefix,
+    )
+    .ok()?;
     let writer = BufWriter::new(output_file.as_file());
     serde_json::to_writer(writer, &profile).ok()?;
     Some(output_file)

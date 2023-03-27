@@ -27,6 +27,7 @@ pub fn convert<C: Read + Seek>(
     cursor: C,
     extra_dir: Option<&Path>,
     merge_threads: bool,
+    fold_recursive_prefix: bool,
 ) -> Result<Profile, Error> {
     let perf_file = PerfFileReader::parse_file(cursor)?;
 
@@ -40,6 +41,7 @@ pub fn convert<C: Read + Seek>(
                 extra_dir,
                 cache,
                 merge_threads,
+                fold_recursive_prefix,
             )
         }
         _ => {
@@ -55,6 +57,7 @@ pub fn convert<C: Read + Seek>(
                 extra_dir,
                 cache,
                 merge_threads,
+                fold_recursive_prefix,
             )
         }
     };
@@ -66,6 +69,7 @@ fn convert_impl<U, C, R>(
     extra_dir: Option<&Path>,
     cache: U::Cache,
     merge_threads: bool,
+    fold_recursive_prefix: bool,
 ) -> Profile
 where
     U: Unwinder<Module = Module<Vec<u8>>> + Default,
@@ -114,6 +118,7 @@ where
         extra_dir,
         interpretation.clone(),
         merge_threads,
+        fold_recursive_prefix,
     );
 
     let mut last_timestamp = 0;

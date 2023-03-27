@@ -187,6 +187,10 @@ where
     /// Whether a new thread should be merged into a previously exited
     /// thread of the same name.
     merge_threads: bool,
+
+    /// Whether repeated frames at the base of the stack should be folded
+    /// into one frame.
+    fold_recursive_prefix: bool,
 }
 
 const DEFAULT_OFF_CPU_SAMPLING_INTERVAL_NS: u64 = 1_000_000; // 1ms
@@ -207,6 +211,7 @@ where
         extra_binary_artifact_dir: Option<&Path>,
         interpretation: EventInterpretation,
         merge_threads: bool,
+        fold_recursive_prefix: bool,
     ) -> Self {
         let interval = match interpretation.sampling_is_time_based {
             Some(nanos) => SamplingInterval::from_nanos(nanos),
@@ -254,6 +259,7 @@ where
             suspected_pe_mappings: BTreeMap::new(),
             jit_category_manager: JitCategoryManager::new(),
             merge_threads,
+            fold_recursive_prefix,
         }
     }
 
@@ -280,7 +286,13 @@ where
         );
 
         let mut stack = Vec::new();
-        Self::get_sample_stack::<C>(&e, &process.unwinder, &mut self.cache, &mut stack);
+        Self::get_sample_stack::<C>(
+            &e,
+            &process.unwinder,
+            &mut self.cache,
+            &mut stack,
+            self.fold_recursive_prefix,
+        );
 
         let thread = process.get_thread_by_tid(tid, &mut self.profile);
 
@@ -342,7 +354,13 @@ where
         let process = self.processes.get_by_pid(pid, &mut self.profile);
 
         let mut stack = Vec::new();
-        Self::get_sample_stack::<C>(&e, &process.unwinder, &mut self.cache, &mut stack);
+        Self::get_sample_stack::<C>(
+            &e,
+            &process.unwinder,
+            &mut self.cache,
+            &mut stack,
+            self.fold_recursive_prefix,
+        );
 
         let stack = self
             .stack_converter
@@ -375,6 +393,7 @@ where
         unwinder: &U,
         cache: &mut U::Cache,
         stack: &mut Vec<StackFrame>,
+        fold_recursive_prefix: bool,
     ) {
         stack.truncate(0);
 
@@ -440,6 +459,11 @@ where
         if stack.is_empty() {
             if let Some(ip) = e.ip {
                 stack.push(StackFrame::InstructionPointer(ip, e.cpu_mode.into()));
+            }
+        } else if fold_recursive_prefix {
+            let last_frame = stack.last().unwrap().clone();
+            while stack.len() > 2 && stack[stack.len() - 2] == last_frame {
+                stack.pop();
             }
         }
     }
@@ -1850,14 +1874,14 @@ impl JitFunction {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StackFrame {
     InstructionPointer(u64, StackMode),
     ReturnAddress(u64, StackMode),
     TruncatedStackMarker,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StackMode {
     User,
     Kernel,

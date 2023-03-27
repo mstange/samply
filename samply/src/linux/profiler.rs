@@ -291,6 +291,7 @@ fn init_profiler(
             None,
             interpretation,
             false,
+            false,
         );
 
     // TODO: Gather threads / processes recursively, here and in PerfGroup setup.
