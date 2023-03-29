@@ -462,7 +462,7 @@ where
             }
         } else if fold_recursive_prefix {
             let last_frame = stack.last().unwrap().clone();
-            while stack.len() > 2 && stack[stack.len() - 2] == last_frame {
+            while stack.len() >= 2 && stack[stack.len() - 2] == last_frame {
                 stack.pop();
             }
         }
