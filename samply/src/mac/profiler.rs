@@ -1,6 +1,8 @@
 use crossbeam_channel::unbounded;
 use serde_json::to_writer;
 
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::BufWriter;
@@ -12,7 +14,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use super::error::SamplingError;
-use super::process_launcher::{MachError, TaskAccepter};
+use super::process_launcher::{MachError, ReceivedStuff, TaskAccepter};
 use super::sampler::{Sampler, TaskInit};
 use crate::server::{start_server_main, ServerProps};
 
@@ -58,28 +60,57 @@ pub fn start_recording(
         TaskAccepter::create_and_launch_root_task(&command_name, command_args)?;
 
     let (accepter_sender, accepter_receiver) = unbounded();
-    let accepter_thread = thread::spawn(move || loop {
-        if let Ok(()) = accepter_receiver.try_recv() {
-            break;
-        }
-        let timeout = Duration::from_secs_f64(1.0);
-        match task_accepter.try_accept(timeout) {
-            Ok(mut accepted_task) => {
-                let send_result = task_sender.send(TaskInit {
-                    start_time: Instant::now(),
-                    task: accepted_task.take_task(),
-                    pid: accepted_task.get_id(),
-                });
-                if send_result.is_err() {
-                    // The sampler has already shut down. This task arrived too late.
+    let accepter_thread = thread::spawn(move || {
+        // Loop while accepting messages from the spawned process tree.
+
+        // A map of pids to channel senders, to notify existing tasks of Jitdump
+        // paths. Having the mapping here lets us deliver the path to the right
+        // task even in cases where a process execs into a new task with the same pid.
+        let mut jitdump_path_senders_per_pid = HashMap::new();
+
+        loop {
+            if let Ok(()) = accepter_receiver.try_recv() {
+                break;
+            }
+            let timeout = Duration::from_secs_f64(1.0);
+            match task_accepter.next_message(timeout) {
+                Ok(ReceivedStuff::AcceptedTask(mut accepted_task)) => {
+                    let pid = accepted_task.get_id();
+                    let (jitdump_path_sender, jitdump_path_receiver) = unbounded();
+                    let send_result = task_sender.send(TaskInit {
+                        start_time: Instant::now(),
+                        task: accepted_task.take_task(),
+                        pid,
+                        jitdump_path_receiver,
+                    });
+                    jitdump_path_senders_per_pid.insert(pid, jitdump_path_sender);
+                    if send_result.is_err() {
+                        // The sampler has already shut down. This task arrived too late.
+                    }
+                    accepted_task.start_execution();
                 }
-                accepted_task.start_execution();
-            }
-            Err(MachError::RcvTimedOut) => {
-                // TODO: give status back via task_sender
-            }
-            Err(err) => {
-                eprintln!("Encountered error while waiting for task port: {err:?}");
+                Ok(ReceivedStuff::JitdumpPath(pid, path)) => {
+                    match jitdump_path_senders_per_pid.entry(pid) {
+                        Entry::Occupied(mut entry) => {
+                            let send_result = entry.get_mut().send(path);
+                            if send_result.is_err() {
+                                // The task is probably already dead. The path arrived too late.
+                                entry.remove();
+                            }
+                        }
+                        Entry::Vacant(_entry) => {
+                            eprintln!(
+                                "Received a Jitdump path for pid {pid} which I don't have a task for."
+                            );
+                        }
+                    }
+                }
+                Err(MachError::RcvTimedOut) => {
+                    // TODO: give status back via task_sender
+                }
+                Err(err) => {
+                    eprintln!("Encountered error while waiting for task port: {err:?}");
+                }
             }
         }
     });

@@ -5,6 +5,9 @@ authors = ["Markus Stange <mstange@themasta.com>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
 
+[workspace]
+# This crate is not part of the samply workspace.
+
 [lib]
 crate_type = ["cdylib"]
 
@@ -17,4 +20,5 @@ panic = 'abort'
 
 [dependencies]
 libc = { version = "0.2.70", default-features = false }
+spin = "0.9.6"
 

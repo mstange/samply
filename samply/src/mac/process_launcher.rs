@@ -2,6 +2,8 @@ use std::ffi::OsStr;
 use std::fs::File;
 use std::io::Write;
 use std::mem;
+use std::os::unix::prelude::OsStrExt;
+use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::time::Duration;
 
@@ -86,28 +88,47 @@ impl TaskAccepter {
         ))
     }
 
-    pub fn try_accept(&mut self, timeout: Duration) -> Result<AcceptedTask, MachError> {
+    pub fn next_message(&mut self, timeout: Duration) -> Result<ReceivedStuff, MachError> {
         // Wait until the child is ready
         let (res, mut channels, _) = self
             .server
             .accept(BlockingMode::BlockingWithTimeout(timeout))?;
-        assert_eq!(res.len(), 11);
-        assert!(&res[0..7] == b"My task");
-        let mut pid_bytes: [u8; 4] = Default::default();
-        pid_bytes.copy_from_slice(&res[7..11]);
-        let pid = u32::from_le_bytes(pid_bytes);
-        let task_channel = channels.pop().unwrap();
-        let sender_channel = channels.pop().unwrap();
-        let sender_channel = sender_channel.into_sender();
+        let received_stuff = match res.split_at(7) {
+            (b"My task", pid_bytes) => {
+                assert!(pid_bytes.len() == 4);
+                let pid =
+                    u32::from_le_bytes([pid_bytes[0], pid_bytes[1], pid_bytes[2], pid_bytes[3]]);
+                let task_channel = channels.pop().unwrap();
+                let sender_channel = channels.pop().unwrap();
+                let sender_channel = sender_channel.into_sender();
 
-        let task = task_channel.into_port();
+                let task = task_channel.into_port();
 
-        Ok(AcceptedTask {
-            task,
-            pid,
-            sender_channel,
-        })
+                ReceivedStuff::AcceptedTask(AcceptedTask {
+                    task,
+                    pid,
+                    sender_channel,
+                })
+            }
+            (b"Jitdump", jitdump_info) => {
+                let pid_bytes = &jitdump_info[0..4];
+                let pid =
+                    u32::from_le_bytes([pid_bytes[0], pid_bytes[1], pid_bytes[2], pid_bytes[3]]);
+                let len = jitdump_info[4] as usize;
+                let path = &jitdump_info[5..][..len];
+                ReceivedStuff::JitdumpPath(pid, OsStr::from_bytes(path).into())
+            }
+            (other, _) => {
+                panic!("Unexpected message: {:?}", other);
+            }
+        };
+        Ok(received_stuff)
     }
+}
+
+pub enum ReceivedStuff {
+    AcceptedTask(AcceptedTask),
+    JitdumpPath(u32, PathBuf),
 }
 
 pub struct AcceptedTask {

@@ -1,3 +1,4 @@
+use crossbeam_channel::Receiver;
 use framehop::{
     CacheNative, MayAllocateDuringUnwind, Module, ModuleUnwindData, TextByteData, Unwinder,
     UnwinderNative,
@@ -6,6 +7,7 @@ use fxprof_processed_profile::debugid::DebugId;
 use fxprof_processed_profile::{
     CategoryPairHandle, LibraryInfo, ProcessHandle, Profile, Timestamp,
 };
+use linux_perf_data::jitdump::JitDumpReader;
 use mach::mach_types::thread_act_port_array_t;
 use mach::mach_types::thread_act_t;
 use mach::message::mach_msg_type_number_t;
@@ -19,10 +21,10 @@ use samply_symbols::{object, DebugIdExt};
 use wholesym::samply_symbols;
 
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::mem;
 use std::ops::Deref;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::error::SamplingError;
 use super::kernel_error::{IntoResult, KernelError};
@@ -86,12 +88,16 @@ pub struct TaskProfiler {
     ignored_errors: Vec<SamplingError>,
     unwinder: UnwinderNative<UnwindSectionBytes, MayAllocateDuringUnwind>,
     default_category: CategoryPairHandle,
+    jitdump_path_receiver: Receiver<PathBuf>,
+    pending_jitdump_paths: VecDeque<PathBuf>,
+    jitdumps: VecDeque<JitDumpReader<std::fs::File>>,
 }
 
 impl TaskProfiler {
     pub fn new(
         task: mach_port_t,
         pid: u32,
+        jitdump_path_receiver: Receiver<PathBuf>,
         start_time: Timestamp,
         command_name: &str,
         profile: &mut Profile,
@@ -122,6 +128,9 @@ impl TaskProfiler {
             ignored_errors: Vec::new(),
             unwinder: UnwinderNative::new(),
             default_category,
+            jitdump_path_receiver,
+            pending_jitdump_paths: Default::default(),
+            jitdumps: Default::default(),
         })
     }
 
@@ -320,6 +329,25 @@ impl TaskProfiler {
             text_data,
         );
         self.unwinder.add_module(module);
+    }
+
+    pub fn check_jitdump(&mut self) {
+        while let Ok(jitdump_path) = self.jitdump_path_receiver.try_recv() {
+            self.pending_jitdump_paths.push_back(jitdump_path);
+        }
+
+        self.pending_jitdump_paths.retain_mut(|path| {
+            fn jitdump_for_path(path: &Path) -> Option<JitDumpReader<std::fs::File>> {
+                JitDumpReader::new(std::fs::File::open(path).ok()?).ok()
+            }
+            let Some(reader) = jitdump_for_path(path) else { return true };
+            self.jitdumps.push_back(reader);
+            false // "Do not retain", i.e. remove from pending_jitdump_paths
+        });
+
+        for _jitdump in &mut self.jitdumps {
+            // TODO
+        }
     }
 
     pub fn notify_dead(&mut self, end_time: Timestamp, profile: &mut Profile) {

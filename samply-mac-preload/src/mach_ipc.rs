@@ -233,7 +233,7 @@ impl OsIpcReceiver {
                 message as *mut _,
                 flags,
                 0,
-                (*message).header.msgh_size,
+                buf.len() as u32,
                 port,
                 timeout,
                 MACH_PORT_NULL,

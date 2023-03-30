@@ -5,7 +5,7 @@ use fxprof_processed_profile::{
 use mach::port::mach_port_t;
 
 use std::mem;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::SystemTime;
 use std::time::{Duration, Instant};
@@ -18,6 +18,7 @@ pub struct TaskInit {
     pub start_time: Instant,
     pub task: mach_port_t,
     pub pid: u32,
+    pub jitdump_path_receiver: Receiver<PathBuf>,
 }
 
 pub struct Sampler {
@@ -75,6 +76,7 @@ impl Sampler {
         let root_task = TaskProfiler::new(
             root_task_init.task,
             root_task_init.pid,
+            root_task_init.jitdump_path_receiver,
             timestamp_maker.make_ts(root_task_init.start_time),
             &self.command_name,
             &mut profile,
@@ -97,6 +99,7 @@ impl Sampler {
                 let new_task = match TaskProfiler::new(
                     task_init.task,
                     task_init.pid,
+                    task_init.jitdump_path_receiver,
                     timestamp_maker.make_ts(task_init.start_time),
                     &self.command_name,
                     &mut profile,
@@ -123,6 +126,7 @@ impl Sampler {
             let sample_timestamp = timestamp_maker.make_ts(sample_instant);
 
             if let Some(task) = &mut live_root_task {
+                task.check_jitdump();
                 let still_alive =
                     task.sample(sample_timestamp, &mut unwinder_cache, &mut profile)?;
                 if !still_alive {
@@ -134,6 +138,7 @@ impl Sampler {
             let mut other_tasks = Vec::with_capacity(live_other_tasks.capacity());
             mem::swap(&mut live_other_tasks, &mut other_tasks);
             for mut task in other_tasks.into_iter() {
+                task.check_jitdump();
                 let still_alive =
                     task.sample(sample_timestamp, &mut unwinder_cache, &mut profile)?;
                 if still_alive {
@@ -155,6 +160,7 @@ impl Sampler {
                     let new_task = TaskProfiler::new(
                         task_init.task,
                         task_init.pid,
+                        task_init.jitdump_path_receiver,
                         timestamp_maker.make_ts(task_init.start_time),
                         &self.command_name,
                         &mut profile,
@@ -163,7 +169,7 @@ impl Sampler {
                     .expect("couldn't create TaskProfiler");
                     live_other_tasks.push(new_task);
                 } else {
-                    println!("All tasks terminated.");
+                    eprintln!("All tasks terminated.");
                     break;
                 }
             }
