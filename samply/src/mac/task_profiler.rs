@@ -1,13 +1,10 @@
 use crossbeam_channel::Receiver;
 use framehop::{
-    CacheNative, MayAllocateDuringUnwind, Module, ModuleUnwindData, TextByteData, Unwinder,
-    UnwinderNative,
+    CacheNative, FrameAddress, MayAllocateDuringUnwind, Module, ModuleUnwindData, TextByteData,
+    Unwinder, UnwinderNative,
 };
 use fxprof_processed_profile::debugid::DebugId;
-use fxprof_processed_profile::{
-    CategoryPairHandle, LibraryInfo, ProcessHandle, Profile, Timestamp,
-};
-use linux_perf_data::jitdump::JitDumpReader;
+use fxprof_processed_profile::{LibraryInfo, ProcessHandle, Profile, Timestamp};
 use mach::mach_types::thread_act_port_array_t;
 use mach::mach_types::thread_act_t;
 use mach::message::mach_msg_type_number_t;
@@ -21,10 +18,20 @@ use samply_symbols::{object, DebugIdExt};
 use wholesym::samply_symbols;
 
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
+
+use crate::shared::jit_category_manager::JitCategoryManager;
+use crate::shared::jitdump_manager::JitDumpManager;
+use crate::shared::lib_mappings::{
+    LibMappingAdd, LibMappingInfo, LibMappingOp, LibMappingOpQueue, LibMappingRemove,
+};
+use crate::shared::perf_map::try_load_perf_map;
+use crate::shared::process_sample_data::ProcessSampleData;
+use crate::shared::timestamp_converter::TimestampConverter;
+use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
 
 use super::error::SamplingError;
 use super::kernel_error::{IntoResult, KernelError};
@@ -87,10 +94,10 @@ pub struct TaskProfiler {
     profile_process: ProcessHandle,
     ignored_errors: Vec<SamplingError>,
     unwinder: UnwinderNative<UnwindSectionBytes, MayAllocateDuringUnwind>,
-    default_category: CategoryPairHandle,
     jitdump_path_receiver: Receiver<PathBuf>,
-    pending_jitdump_paths: VecDeque<PathBuf>,
-    jitdumps: VecDeque<JitDumpReader<std::fs::File>>,
+    jitdump_manager: JitDumpManager,
+    unresolved_samples: UnresolvedSamples,
+    lib_mapping_ops: LibMappingOpQueue,
 }
 
 impl TaskProfiler {
@@ -101,18 +108,27 @@ impl TaskProfiler {
         start_time: Timestamp,
         command_name: &str,
         profile: &mut Profile,
-        default_category: CategoryPairHandle,
     ) -> Result<Self, SamplingError> {
         let thread_acts = get_thread_list(task)?;
+        if thread_acts.is_empty() {
+            return Err(SamplingError::Ignorable(
+                "No threads",
+                KernelError::Terminated,
+            ));
+        }
+
         let profile_process = profile.add_process(command_name, pid, start_time);
         let mut live_threads = HashMap::new();
+        let mut main_thread_handle = None;
         for (i, thread_act) in thread_acts.into_iter().enumerate() {
             // Assume that the first thread is the main thread. This seems to hold true in practice.
             let is_main = i == 0;
             if let Ok((tid, _is_libdispatch_thread)) = get_thread_id(thread_act) {
                 let profile_thread = profile.add_thread(profile_process, tid, start_time, is_main);
-                let thread =
-                    ThreadProfiler::new(task, tid, profile_thread, thread_act, default_category);
+                if is_main {
+                    main_thread_handle = Some(profile_thread);
+                }
+                let thread = ThreadProfiler::new(task, tid, profile_thread, thread_act);
                 live_threads.insert(thread_act, thread);
             }
         }
@@ -127,20 +143,30 @@ impl TaskProfiler {
             executable_lib: None,
             ignored_errors: Vec::new(),
             unwinder: UnwinderNative::new(),
-            default_category,
             jitdump_path_receiver,
-            pending_jitdump_paths: Default::default(),
-            jitdumps: Default::default(),
+            jitdump_manager: JitDumpManager::new_for_process(main_thread_handle.unwrap()),
+            lib_mapping_ops: Default::default(),
+            unresolved_samples: Default::default(),
         })
     }
 
     pub fn sample(
         &mut self,
         now: Timestamp,
+        now_mono: u64,
         unwinder_cache: &mut UnwinderCache,
         profile: &mut Profile,
+        stack_scratch_buffer: &mut Vec<FrameAddress>,
+        unresolved_stacks: &mut UnresolvedStacks,
     ) -> Result<bool, SamplingError> {
-        let result = self.sample_impl(now, unwinder_cache, profile);
+        let result = self.sample_impl(
+            now,
+            now_mono,
+            unwinder_cache,
+            profile,
+            stack_scratch_buffer,
+            unresolved_stacks,
+        );
         match result {
             Ok(()) => Ok(true),
             Err(SamplingError::ProcessTerminated(_, _)) => Ok(false),
@@ -148,7 +174,7 @@ impl TaskProfiler {
                 self.ignored_errors.push(err);
                 if self.ignored_errors.len() >= 10 {
                     println!(
-                        "Treating process \"{}\" [pid: {}] as terminated after 10 unknown errors:",
+                        "Treating process_pending_records \"{}\" [pid: {}] as terminated after 10 unknown errors:",
                         self.command_name, self.pid
                     );
                     println!("{:#?}", self.ignored_errors);
@@ -165,8 +191,11 @@ impl TaskProfiler {
     fn sample_impl(
         &mut self,
         now: Timestamp,
+        now_mono: u64,
         unwinder_cache: &mut UnwinderCache,
         profile: &mut Profile,
+        stack_scratch_buffer: &mut Vec<FrameAddress>,
+        unresolved_stacks: &mut UnresolvedStacks,
     ) -> Result<(), SamplingError> {
         // First, check for any newly-loaded libraries.
         let changes = self
@@ -203,17 +232,25 @@ impl TaskProfiler {
                             arch: lib.arch.map(ToOwned::to_owned),
                             symbol_table: None,
                         });
-                        profile.add_lib_mapping(
-                            self.profile_process,
-                            lib_handle,
-                            lib.base_avma,
-                            lib.base_avma + lib.vmsize,
-                            0,
+                        self.lib_mapping_ops.push(
+                            now_mono,
+                            LibMappingOp::Add(LibMappingAdd {
+                                start_avma: lib.base_avma,
+                                end_avma: lib.base_avma + lib.vmsize,
+                                relative_address_at_start: 0,
+                                info: LibMappingInfo::new_lib(lib_handle),
+                            }),
                         );
                     }
                 }
                 Modification::Removed(lib) => {
-                    profile.remove_lib_mapping(self.profile_process, lib.base_avma);
+                    self.unwinder.remove_module(lib.base_avma);
+                    self.lib_mapping_ops.push(
+                        now_mono,
+                        LibMappingOp::Remove(LibMappingRemove {
+                            start_avma: lib.base_avma,
+                        }),
+                    );
                 }
             }
         }
@@ -230,13 +267,8 @@ impl TaskProfiler {
                     if let Ok((tid, _is_libdispatch_thread)) = get_thread_id(thread_act) {
                         let profile_thread =
                             profile.add_thread(self.profile_process, tid, now, false);
-                        let thread = ThreadProfiler::new(
-                            self.task,
-                            tid,
-                            profile_thread,
-                            thread_act,
-                            self.default_category,
-                        );
+                        let thread =
+                            ThreadProfiler::new(self.task, tid, profile_thread, thread_act);
                         entry.insert(thread)
                     } else {
                         continue;
@@ -245,7 +277,15 @@ impl TaskProfiler {
             };
             // Grab a sample from the thread.
             let stackwalker = StackwalkerRef::new(&self.unwinder, unwinder_cache);
-            let still_alive = thread.sample(stackwalker, now, profile)?;
+            let still_alive = thread.sample(
+                stackwalker,
+                now,
+                now_mono,
+                profile,
+                stack_scratch_buffer,
+                unresolved_stacks,
+                &mut self.unresolved_samples,
+            )?;
             if still_alive {
                 now_live_threads.insert(thread_act);
             }
@@ -331,23 +371,22 @@ impl TaskProfiler {
         self.unwinder.add_module(module);
     }
 
-    pub fn check_jitdump(&mut self) {
+    pub fn check_jitdump(
+        &mut self,
+        profile: &mut Profile,
+        jit_category_manager: &mut JitCategoryManager,
+        timestamp_converter: &TimestampConverter,
+    ) {
         while let Ok(jitdump_path) = self.jitdump_path_receiver.try_recv() {
-            self.pending_jitdump_paths.push_back(jitdump_path);
+            self.jitdump_manager.add_jitdump_path(jitdump_path, None);
         }
 
-        self.pending_jitdump_paths.retain_mut(|path| {
-            fn jitdump_for_path(path: &Path) -> Option<JitDumpReader<std::fs::File>> {
-                JitDumpReader::new(std::fs::File::open(path).ok()?).ok()
-            }
-            let Some(reader) = jitdump_for_path(path) else { return true };
-            self.jitdumps.push_back(reader);
-            false // "Do not retain", i.e. remove from pending_jitdump_paths
-        });
-
-        for _jitdump in &mut self.jitdumps {
-            // TODO
-        }
+        self.jitdump_manager.process_pending_records(
+            jit_category_manager,
+            profile,
+            None,
+            timestamp_converter,
+        );
     }
 
     pub fn notify_dead(&mut self, end_time: Timestamp, profile: &mut Profile) {
@@ -357,6 +396,26 @@ impl TaskProfiler {
         }
         profile.set_process_end_time(self.profile_process, end_time);
         self.lib_info_manager.unmap_memory();
+    }
+
+    pub fn finish(
+        self,
+        jit_category_manager: &mut JitCategoryManager,
+        profile: &mut Profile,
+        timestamp_converter: &TimestampConverter,
+    ) -> ProcessSampleData {
+        let perf_map_mappings = if !self.unresolved_samples.is_empty() {
+            try_load_perf_map(self.pid, profile, jit_category_manager, None)
+        } else {
+            None
+        };
+        ProcessSampleData::new(
+            self.unresolved_samples,
+            self.lib_mapping_ops,
+            self.jitdump_manager
+                .finish(jit_category_manager, profile, None, timestamp_converter),
+            perf_map_mappings,
+        )
     }
 }
 

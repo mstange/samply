@@ -7,7 +7,6 @@ pub enum JsFrame {
     Regular(JsName),
     BaselineInterpreterStub(JsName),
     BaselineInterpreter,
-    None,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -70,11 +69,11 @@ impl JitCategoryManager {
         &mut self,
         name: &str,
         profile: &mut Profile,
-    ) -> (CategoryPairHandle, JsFrame) {
+    ) -> (CategoryPairHandle, Option<JsFrame>) {
         if name == "BaselineInterpreter" {
             return (
                 self.baseline_interpreter_category.get(profile).into(),
-                JsFrame::BaselineInterpreter,
+                Some(JsFrame::BaselineInterpreter),
             );
         }
 
@@ -82,7 +81,7 @@ impl JitCategoryManager {
             let js_func = JsFrame::BaselineInterpreterStub(Self::intern_js_name(profile, js_func));
             return (
                 self.baseline_interpreter_category.get(profile).into(),
-                js_func,
+                Some(js_func),
             );
         }
 
@@ -90,9 +89,9 @@ impl JitCategoryManager {
             let category = self.ion_ic_category.get(profile);
             if let Some((_ic_type, js_func)) = ion_ic_rest.split_once(" : ") {
                 let js_func = JsFrame::Regular(Self::intern_js_name(profile, js_func));
-                return (category.into(), js_func);
+                return (category.into(), Some(js_func));
             }
-            return (category.into(), JsFrame::None);
+            return (category.into(), None);
         }
 
         for (&(prefix, _category_name, _color, is_js), lazy_category_handle) in
@@ -102,9 +101,12 @@ impl JitCategoryManager {
                 let category = lazy_category_handle.get(profile);
 
                 let js_name = if is_js {
-                    JsFrame::Regular(Self::intern_js_name(profile, name_without_prefix))
+                    Some(JsFrame::Regular(Self::intern_js_name(
+                        profile,
+                        name_without_prefix,
+                    )))
                 } else {
-                    JsFrame::None
+                    None
                 };
                 return (category.into(), js_name);
             }
@@ -163,7 +165,7 @@ mod test {
             &mut profile,
         );
         match js_name {
-            JsFrame::Regular(JsName::NonSelfHosted(s)) => {
+            Some(JsFrame::Regular(JsName::NonSelfHosted(s))) => {
                 assert_eq!(profile.get_string(s), "AccessibleButton (main.js:3560:25)")
             }
             _ => panic!(),

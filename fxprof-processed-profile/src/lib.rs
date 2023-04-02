@@ -64,6 +64,7 @@ pub use counters::CounterHandle;
 pub use cpu_delta::CpuDelta;
 pub use frame::{Frame, FrameFlags, FrameInfo};
 pub use global_lib_table::LibraryHandle;
+pub use lib_mappings::LibMappings;
 pub use library_info::{LibraryInfo, Symbol, SymbolTable};
 pub use markers::*;
 pub use process::ThreadHandle;

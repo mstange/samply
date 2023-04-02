@@ -7,7 +7,7 @@ mod linux;
 mod import;
 mod linux_shared;
 mod server;
-mod utils;
+mod shared;
 
 use clap::{Args, Parser, Subcommand};
 use tempfile::NamedTempFile;

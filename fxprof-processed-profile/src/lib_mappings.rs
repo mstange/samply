@@ -64,8 +64,12 @@ impl<T> LibMappings<T> {
         );
     }
 
-    pub fn remove_mapping(&mut self, start_avma: u64) {
-        self.sorted_mappings.retain(|r| r.start_avma != start_avma);
+    pub fn remove_mapping(&mut self, start_avma: u64) -> Option<(u32, T)> {
+        self.sorted_mappings
+            .binary_search_by_key(&start_avma, |m| m.start_avma)
+            .ok()
+            .map(|i| self.sorted_mappings.remove(i))
+            .map(|m| (m.relative_address_at_start, m.value))
     }
 
     pub fn clear(&mut self) {

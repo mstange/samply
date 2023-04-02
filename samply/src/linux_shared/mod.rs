@@ -1,5 +1,4 @@
 mod context_switch;
-mod jit_category_manager;
 mod kernel_symbols;
 mod object_rewriter;
 
@@ -10,23 +9,18 @@ use framehop::aarch64::UnwindRegsAarch64;
 use framehop::x86_64::UnwindRegsX86_64;
 use framehop::{FrameAddress, Module, ModuleSvmaInfo, ModuleUnwindData, TextByteData, Unwinder};
 use fxprof_processed_profile::{
-    CategoryColor, CategoryPairHandle, CounterHandle, CpuDelta, Frame, FrameFlags, FrameInfo,
-    LibraryHandle, LibraryInfo, MarkerDynamicField, MarkerFieldFormat, MarkerLocation,
-    MarkerSchema, MarkerSchemaField, MarkerStaticField, MarkerTiming, ProcessHandle, Profile,
-    ProfilerMarker, ReferenceTimestamp, SamplingInterval, Symbol, SymbolTable, ThreadHandle,
-    Timestamp,
+    CategoryColor, CounterHandle, CpuDelta, LibraryHandle, LibraryInfo, MarkerTiming,
+    ProcessHandle, Profile, ReferenceTimestamp, SamplingInterval, ThreadHandle, Timestamp,
 };
-use linux_perf_data::jitdump::{JitCodeLoadRecord, JitCodeMoveRecord, JitDumpHeader};
-use linux_perf_data::linux_perf_event_reader::{self, RawData};
+use linux_perf_data::linux_perf_event_reader;
 use linux_perf_data::{AttributeDescription, DsoInfo, DsoKey, Endianness};
 use linux_perf_event_reader::constants::{
-    PERF_CONTEXT_GUEST, PERF_CONTEXT_GUEST_KERNEL, PERF_CONTEXT_GUEST_USER, PERF_CONTEXT_KERNEL,
-    PERF_CONTEXT_MAX, PERF_CONTEXT_USER, PERF_REG_ARM64_LR, PERF_REG_ARM64_PC, PERF_REG_ARM64_SP,
-    PERF_REG_ARM64_X29, PERF_REG_X86_BP, PERF_REG_X86_IP, PERF_REG_X86_SP,
+    PERF_CONTEXT_MAX, PERF_REG_ARM64_LR, PERF_REG_ARM64_PC, PERF_REG_ARM64_SP, PERF_REG_ARM64_X29,
+    PERF_REG_X86_BP, PERF_REG_X86_IP, PERF_REG_X86_SP,
 };
 use linux_perf_event_reader::{
-    AttrFlags, CommOrExecRecord, CommonData, ContextSwitchRecord, CpuMode, ForkOrExitRecord,
-    Mmap2FileId, Mmap2Record, MmapRecord, PerfEventType, RawDataU64, Regs, SampleRecord,
+    AttrFlags, CommOrExecRecord, CommonData, ContextSwitchRecord, ForkOrExitRecord, Mmap2FileId,
+    Mmap2Record, MmapRecord, PerfEventType, RawData, RawDataU64, Regs, SampleRecord,
     SamplingPolicy, SoftwareCounterType,
 };
 use memmap2::Mmap;
@@ -35,23 +29,30 @@ use object::read::pe::{ImageNtHeaders, ImageOptionalHeader, PeFile};
 use object::{
     FileKind, Object, ObjectSection, ObjectSegment, ObjectSymbol, SectionKind, SymbolKind,
 };
-use samply_symbols::{debug_id_and_code_id_for_jitdump, debug_id_for_object, DebugIdExt};
-use serde_json::json;
+use samply_symbols::{debug_id_for_object, DebugIdExt};
 use wholesym::samply_symbols;
 
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fmt::Debug;
-use std::fs;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::SystemTime;
 use std::{ops::Range, path::Path};
 
-use self::jit_category_manager::{JitCategoryManager, JsFrame, JsName};
 use self::kernel_symbols::KernelSymbols;
-
-use crate::utils::open_file_with_fallback;
+use crate::shared::jit_category_manager::JitCategoryManager;
+use crate::shared::jit_function_add_marker::JitFunctionAddMarker;
+use crate::shared::jit_function_recycler::JitFunctionRecycler;
+use crate::shared::jitdump_manager::JitDumpManager;
+use crate::shared::lib_mappings::{LibMappingAdd, LibMappingInfo, LibMappingOp, LibMappingOpQueue};
+use crate::shared::perf_map::try_load_perf_map;
+use crate::shared::process_sample_data::{ProcessSampleData, RssStatMember};
+use crate::shared::timestamp_converter::TimestampConverter;
+use crate::shared::types::{StackFrame, StackMode};
+use crate::shared::unresolved_samples::{
+    UnresolvedSamples, UnresolvedStackHandle, UnresolvedStacks,
+};
+use crate::shared::utils::open_file_with_fallback;
 
 pub trait ConvertRegs {
     type UnwindRegs;
@@ -182,7 +183,6 @@ where
     cache: U::Cache,
     profile: Profile,
     processes: Processes<U>,
-    stack_converter: StackConverter,
     timestamp_converter: TimestampConverter,
     current_sample_time: u64,
     build_ids: HashMap<DsoKey, DsoInfo>,
@@ -192,6 +192,7 @@ where
     linux_version: Option<String>,
     extra_binary_artifact_dir: Option<PathBuf>,
     context_switch_handler: ContextSwitchHandler,
+    unresolved_stacks: UnresolvedStacks,
     off_cpu_weight_per_sample: i32,
     have_context_switches: bool,
     event_names: Vec<String>,
@@ -236,13 +237,11 @@ where
             Some(nanos) => SamplingInterval::from_nanos(nanos),
             None => SamplingInterval::from_millis(1),
         };
-        let mut profile = Profile::new(
+        let profile = Profile::new(
             product,
             ReferenceTimestamp::from_system_time(SystemTime::now()),
             interval,
         );
-        let user_category = profile.add_category("User", CategoryColor::Yellow).into();
-        let kernel_category = profile.add_category("Kernel", CategoryColor::Orange).into();
         let (off_cpu_sampling_interval_ns, off_cpu_weight_per_sample) =
             match &interpretation.sampling_is_time_based {
                 Some(interval_ns) => (*interval_ns, 1),
@@ -258,11 +257,7 @@ where
         Self {
             profile,
             cache,
-            processes: Processes::new(),
-            stack_converter: StackConverter {
-                user_category,
-                kernel_category,
-            },
+            processes: Processes::new(merge_threads),
             timestamp_converter: TimestampConverter::with_reference_timestamp(first_sample_time),
             current_sample_time: first_sample_time,
             build_ids,
@@ -273,6 +268,7 @@ where
             extra_binary_artifact_dir: extra_binary_artifact_dir.map(ToOwned::to_owned),
             off_cpu_weight_per_sample,
             context_switch_handler: ContextSwitchHandler::new(off_cpu_sampling_interval_ns),
+            unresolved_stacks: UnresolvedStacks::default(),
             have_context_switches: interpretation.have_context_switches,
             event_names: interpretation.event_names,
             kernel_symbols,
@@ -284,7 +280,10 @@ where
     }
 
     pub fn finish(self) -> Profile {
-        self.profile
+        let mut profile = self.profile;
+        self.processes
+            .finish(&mut profile, &self.unresolved_stacks, &self.event_names);
+        profile
     }
 
     pub fn handle_sample<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(&mut self, e: &SampleRecord) {
@@ -298,11 +297,10 @@ where
         let profile_timestamp = self.timestamp_converter.convert_time(timestamp);
 
         let process = self.processes.get_by_pid(pid, &mut self.profile);
-
-        process.maybe_load_perf_map(
-            &mut self.profile,
+        process.check_jitdump(
             &mut self.jit_category_manager,
-            self.merge_threads,
+            &mut self.profile,
+            &self.timestamp_converter,
         );
 
         let mut stack = Vec::new();
@@ -314,7 +312,7 @@ where
             self.fold_recursive_prefix,
         );
 
-        let thread = process.get_thread_by_tid(tid, &mut self.profile);
+        let thread = process.threads.get_thread_by_tid(tid, &mut self.profile);
 
         if thread.last_sample_timestamp == Some(timestamp) {
             // Duplicate sample. Ignore.
@@ -340,8 +338,8 @@ where
                 cpu_delta_ns,
                 &self.timestamp_converter,
                 self.off_cpu_weight_per_sample,
-                &off_cpu_stack,
-                &mut self.profile,
+                off_cpu_stack,
+                &mut process.unresolved_samples,
             );
         }
 
@@ -358,11 +356,15 @@ where
             CpuDelta::from_nanos(0)
         };
 
-        let frames = self
-            .stack_converter
-            .convert_stack(&stack, &process.jit_functions);
-        self.profile
-            .add_sample(thread_handle, profile_timestamp, frames, cpu_delta, 1);
+        let stack_index = self.unresolved_stacks.convert(stack.iter().rev().cloned());
+        process.unresolved_samples.add_sample(
+            thread_handle,
+            profile_timestamp,
+            timestamp,
+            stack_index,
+            cpu_delta,
+            1,
+        );
     }
 
     pub fn handle_sched_switch<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
@@ -372,6 +374,11 @@ where
         let pid = e.pid.expect("Can't handle samples without pids");
         let tid = e.tid.expect("Can't handle samples without tids");
         let process = self.processes.get_by_pid(pid, &mut self.profile);
+        process.check_jitdump(
+            &mut self.jit_category_manager,
+            &mut self.profile,
+            &self.timestamp_converter,
+        );
 
         let mut stack = Vec::new();
         Self::get_sample_stack::<C>(
@@ -382,13 +389,11 @@ where
             self.fold_recursive_prefix,
         );
 
-        let stack = self
-            .stack_converter
-            .convert_stack_no_kernel(&stack, &process.jit_functions)
-            .collect();
-
-        let thread = process.get_thread_by_tid(tid, &mut self.profile);
-        thread.off_cpu_stack = Some(stack);
+        let stack_index = self
+            .unresolved_stacks
+            .convert_no_kernel(stack.iter().rev().cloned());
+        let thread = process.threads.get_thread_by_tid(tid, &mut self.profile);
+        thread.off_cpu_stack = Some(stack_index);
     }
 
     pub fn handle_rss_stat<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
@@ -406,13 +411,29 @@ where
 
         ) else { return };
 
-        let timestamp = self.timestamp_converter.convert_time(e.timestamp.unwrap());
+        let Some(timestamp_mono) = e.timestamp else {
+            eprintln!("rss_stat record doesn't have a timestamp");
+            return;
+        };
+        let timestamp = self.timestamp_converter.convert_time(timestamp_mono);
 
-        let (prev_size_of_this_member, name) = match rss_stat.member {
-            MM_FILEPAGES => (&mut process.prev_mm_filepages_size, "RSS Stat FILEPAGES"),
-            MM_ANONPAGES => (&mut process.prev_mm_anonpages_size, "RSS Stat ANONPAGES"),
-            MM_SHMEMPAGES => (&mut process.prev_mm_shmempages_size, "RSS Stat SHMEMPAGES"),
-            MM_SWAPENTS => (&mut process.prev_mm_swapents_size, "RSS Stat SWAPENTS"),
+        let (prev_size_of_this_member, member) = match rss_stat.member {
+            MM_FILEPAGES => (
+                &mut process.prev_mm_filepages_size,
+                RssStatMember::ResidentFileMappingPages,
+            ),
+            MM_ANONPAGES => (
+                &mut process.prev_mm_anonpages_size,
+                RssStatMember::ResidentAnonymousPages,
+            ),
+            MM_SHMEMPAGES => (
+                &mut process.prev_mm_shmempages_size,
+                RssStatMember::ResidentSharedMemoryPages,
+            ),
+            MM_SWAPENTS => (
+                &mut process.prev_mm_swapents_size,
+                RssStatMember::AnonymousSwapEntries,
+            ),
             _ => return,
         };
 
@@ -425,6 +446,12 @@ where
                 .add_counter_sample(counter, timestamp, delta as f64, 1);
         }
 
+        process.check_jitdump(
+            &mut self.jit_category_manager,
+            &mut self.profile,
+            &self.timestamp_converter,
+        );
+
         let mut stack = Vec::new();
         Self::get_sample_stack::<C>(
             e,
@@ -433,16 +460,16 @@ where
             &mut stack,
             self.fold_recursive_prefix,
         );
-
-        let main_thread = process.main_thread.profile_thread;
-        let timing = MarkerTiming::Instant(timestamp);
-        self.profile.add_marker_with_stack(
-            main_thread,
-            name,
-            RssStatMarker(rss_stat.size, delta),
-            timing,
-            self.stack_converter
-                .convert_stack(&stack, &process.jit_functions),
+        let unresolved_stack = self.unresolved_stacks.convert(stack.into_iter().rev());
+        let thread_handle = process.threads.main_thread.profile_thread;
+        process.unresolved_samples.add_rss_stat_marker(
+            thread_handle,
+            timestamp,
+            timestamp_mono,
+            unresolved_stack,
+            member,
+            rss_stat.size,
+            delta,
         );
     }
 
@@ -451,10 +478,6 @@ where
         e: &SampleRecord,
         attr_index: usize,
     ) {
-        let Some(event_name) = self.event_names.get(attr_index) else {
-            eprintln!("Invalid attribute index {attr_index}");
-            return;
-        };
         let pid = e.pid.expect("Can't handle samples without pids");
         let timestamp_mono = e
             .timestamp
@@ -462,6 +485,11 @@ where
         let timestamp = self.timestamp_converter.convert_time(timestamp_mono);
         // let tid = e.tid.expect("Can't handle samples without tids");
         let process = self.processes.get_by_pid(pid, &mut self.profile);
+        process.check_jitdump(
+            &mut self.jit_category_manager,
+            &mut self.profile,
+            &self.timestamp_converter,
+        );
 
         let mut stack = Vec::new();
         Self::get_sample_stack::<C>(
@@ -475,29 +503,31 @@ where
         let thread_handle = match e.tid {
             Some(tid) => {
                 process
+                    .threads
                     .get_thread_by_tid(tid, &mut self.profile)
                     .profile_thread
             }
-            None => process.main_thread.profile_thread,
+            None => process.threads.main_thread.profile_thread,
         };
 
-        let timing = MarkerTiming::Instant(timestamp);
-        self.profile.add_marker_with_stack(
+        let unresolved_stack = self.unresolved_stacks.convert(stack.into_iter().rev());
+        process.unresolved_samples.add_other_event_marker(
             thread_handle,
-            event_name,
-            OtherEventMarker,
-            timing,
-            self.stack_converter
-                .convert_stack(&stack, &process.jit_functions),
+            timestamp,
+            timestamp_mono,
+            unresolved_stack,
+            attr_index,
         );
     }
 
     /// Get the stack contained in this sample, and put it into `stack`.
     ///
     /// We can have both the kernel stack and the user stack, or just one of
-    /// them, or neither.
+    /// them, or neither. The stack is appended onto the `stack` outparameter,
+    /// ordered from callee-most ("innermost") to caller-most. The kernel
+    /// stack comes before the user stack.
     ///
-    /// If this sample has a kernel stack, it's always in `e.callchain`.
+    /// If the `SampleRecord` has a kernel stack, it's always in `e.callchain`.
     ///
     /// If this sample has a user stack, its source depends on the method of
     /// stackwalking that was requested during recording:
@@ -582,7 +612,7 @@ where
                 stack.push(StackFrame::InstructionPointer(ip, e.cpu_mode.into()));
             }
         } else if fold_recursive_prefix {
-            let last_frame = stack.last().unwrap().clone();
+            let last_frame = *stack.last().unwrap();
             while stack.len() >= 2 && stack[stack.len() - 2] == last_frame {
                 stack.pop();
             }
@@ -641,6 +671,15 @@ where
     }
 
     pub fn handle_mmap(&mut self, e: MmapRecord, timestamp: u64) {
+        let mut path = e.path.as_slice();
+        if let Some(jitdump_path) = get_path_if_jitdump(&path) {
+            let process = self.processes.get_by_pid(e.pid, &mut self.profile);
+            process
+                .jitdump_manager
+                .add_jitdump_path(jitdump_path, self.extra_binary_artifact_dir.clone());
+            return;
+        }
+
         if e.page_offset == 0 {
             self.check_for_pe_mapping(&e.path.as_slice(), e.address);
         }
@@ -649,7 +688,6 @@ where
             return;
         }
 
-        let mut path = e.path.as_slice();
         let dso_key = match DsoKey::detect(&path, e.cpu_mode) {
             Some(dso_key) => dso_key,
             None => return,
@@ -682,6 +720,15 @@ where
     }
 
     pub fn handle_mmap2(&mut self, e: Mmap2Record, timestamp: u64) {
+        let path = e.path.as_slice();
+        if let Some(jitdump_path) = get_path_if_jitdump(&path) {
+            let process = self.processes.get_by_pid(e.pid, &mut self.profile);
+            process
+                .jitdump_manager
+                .add_jitdump_path(jitdump_path, self.extra_binary_artifact_dir.clone());
+            return;
+        }
+
         if e.page_offset == 0 {
             self.check_for_pe_mapping(&e.path.as_slice(), e.address);
         }
@@ -692,7 +739,6 @@ where
             return;
         }
 
-        let path = e.path.as_slice();
         let build_id = match &e.file_id {
             Mmap2FileId::BuildId(build_id) => Some(build_id.to_owned()),
             Mmap2FileId::InodeAndVersion(_) => {
@@ -724,14 +770,7 @@ where
             .timestamp
             .expect("Can't handle context switch without time");
         let process = self.processes.get_by_pid(pid, &mut self.profile);
-
-        process.maybe_load_perf_map(
-            &mut self.profile,
-            &mut self.jit_category_manager,
-            self.merge_threads,
-        );
-
-        let thread = process.get_thread_by_tid(tid, &mut self.profile);
+        let thread = process.threads.get_thread_by_tid(tid, &mut self.profile);
 
         match e {
             ContextSwitchRecord::In { .. } => {
@@ -751,8 +790,8 @@ where
                         cpu_delta_ns,
                         &self.timestamp_converter,
                         self.off_cpu_weight_per_sample,
-                        &off_cpu_stack,
-                        &mut self.profile,
+                        off_cpu_stack,
+                        &mut process.unresolved_samples,
                     );
                 }
             }
@@ -778,7 +817,9 @@ where
                 eprintln!("Unexpected data in FORK record: If we fork into a different process, the forked child thread should be the main thread of the new process");
             }
             let parent_process_name = parent_process.name.clone();
-            let parent_thread = parent_process.get_thread_by_tid(e.ptid, &mut self.profile);
+            let parent_thread = parent_process
+                .threads
+                .get_thread_by_tid(e.ptid, &mut self.profile);
             let parent_thread_name = parent_thread.name.clone();
             let is_reused = if let Some(name) = parent_process_name.as_deref() {
                 self.processes.attempt_reuse(e.pid, name).is_some()
@@ -788,7 +829,7 @@ where
             let process = self.processes.get_by_pid(e.pid, &mut self.profile);
             process.name = parent_process_name;
             let process_handle = process.profile_process;
-            let thread = process.get_main_thread();
+            let thread = process.threads.get_main_thread();
             thread.name = parent_thread_name;
             let thread_handle = thread.profile_thread;
             if let Some(thread_name) = thread.name.as_deref() {
@@ -801,14 +842,21 @@ where
                     .set_thread_start_time(thread_handle, start_time);
             }
         } else {
-            let parent_thread = parent_process.get_thread_by_tid(e.ptid, &mut self.profile);
+            let parent_thread = parent_process
+                .threads
+                .get_thread_by_tid(e.ptid, &mut self.profile);
             let parent_thread_name = parent_thread.name.clone();
             let is_reused = if let Some(name) = parent_thread_name.as_deref() {
-                parent_process.attempt_thread_reuse(e.tid, name).is_some()
+                parent_process
+                    .threads
+                    .attempt_thread_reuse(e.tid, name)
+                    .is_some()
             } else {
                 false
             };
-            let mut thread = parent_process.get_thread_by_tid(e.tid, &mut self.profile);
+            let mut thread = parent_process
+                .threads
+                .get_thread_by_tid(e.tid, &mut self.profile);
             thread.name = parent_thread_name;
             if !is_reused {
                 let thread_handle = thread.profile_thread;
@@ -826,11 +874,21 @@ where
         let is_main = e.pid == e.tid;
         let end_time = self.timestamp_converter.convert_time(e.timestamp);
         if is_main {
-            self.processes
-                .remove(e.pid, end_time, self.merge_threads, &mut self.profile);
+            self.processes.remove(
+                e.pid,
+                end_time,
+                &mut self.profile,
+                &mut self.jit_category_manager,
+                &self.timestamp_converter,
+            );
         } else {
             let process = self.processes.get_by_pid(e.pid, &mut self.profile);
-            process.remove_non_main_thread(e.tid, end_time, self.merge_threads, &mut self.profile);
+            process.threads.remove_non_main_thread(
+                e.tid,
+                end_time,
+                self.merge_threads,
+                &mut self.profile,
+            );
         }
     }
 
@@ -840,7 +898,7 @@ where
         let process = self.processes.get_by_pid(pid, &mut self.profile);
         let process_handle = process.profile_process;
 
-        let thread = process.get_thread_by_tid(tid, &mut self.profile);
+        let thread = process.threads.get_thread_by_tid(tid, &mut self.profile);
         let thread_handle = thread.profile_thread;
 
         self.profile.set_thread_name(thread_handle, name);
@@ -884,8 +942,13 @@ where
             };
             let end_time = self.timestamp_converter.convert_time(timestamp);
             if is_main {
-                self.processes
-                    .remove(e.pid, end_time, self.merge_threads, &mut self.profile);
+                self.processes.remove(
+                    e.pid,
+                    end_time,
+                    &mut self.profile,
+                    &mut self.jit_category_manager,
+                    &self.timestamp_converter,
+                );
                 let maybe_reused_process = self.processes.attempt_reuse(e.pid, &name);
                 maybe_reused_process.is_none()
             } else {
@@ -894,13 +957,13 @@ where
                     e.pid, e.tid
                 );
                 let process = self.processes.get_by_pid(e.pid, &mut self.profile);
-                process.remove_non_main_thread(
+                process.threads.remove_non_main_thread(
                     e.tid,
                     end_time,
                     self.merge_threads,
                     &mut self.profile,
                 );
-                let maybe_reused_thread = process.attempt_thread_reuse(e.tid, &name);
+                let maybe_reused_thread = process.threads.attempt_thread_reuse(e.tid, &name);
                 maybe_reused_thread.is_none()
             }
         } else if self.merge_threads && !is_main {
@@ -913,74 +976,19 @@ where
             };
             let end_time = self.timestamp_converter.convert_time(timestamp);
             let process = self.processes.get_by_pid(e.pid, &mut self.profile);
-            process.remove_non_main_thread(e.tid, end_time, self.merge_threads, &mut self.profile);
-            let maybe_reused_thread = process.attempt_thread_reuse(e.tid, &name);
+            process.threads.remove_non_main_thread(
+                e.tid,
+                end_time,
+                self.merge_threads,
+                &mut self.profile,
+            );
+            let maybe_reused_thread = process.threads.attempt_thread_reuse(e.tid, &name);
             maybe_reused_thread.is_none()
         } else {
             false
         };
 
         self.set_thread_name(e.pid, e.tid, &name, is_thread_creation);
-    }
-
-    pub fn lib_handle_for_jitdump(&mut self, path: &Path, header: &JitDumpHeader) -> LibraryHandle {
-        let (debug_id, code_id_bytes) =
-            debug_id_and_code_id_for_jitdump(header.pid, header.timestamp, header.elf_machine_arch);
-        let code_id = CodeId::from_binary(&code_id_bytes);
-        let name = path
-            .file_name()
-            .unwrap_or(path.as_os_str())
-            .to_string_lossy()
-            .into_owned();
-        let path = path.to_string_lossy().into_owned();
-
-        self.profile.add_lib(LibraryInfo {
-            debug_name: name.clone(),
-            debug_path: path.clone(),
-            name,
-            path,
-            debug_id,
-            code_id: Some(code_id.to_string()),
-            arch: None,
-            symbol_table: None,
-        })
-    }
-
-    pub fn handle_jit_code_load(
-        &mut self,
-        record_offset_in_file: u64,
-        timestamp: u64,
-        jitdump_lib: LibraryHandle,
-        record: &JitCodeLoadRecord,
-    ) {
-        let process_pid = record.pid as i32;
-        let start_avma = record.code_addr;
-        let end_avma = start_avma + record.code_bytes.len() as u64;
-        let relative_address_at_start = record_offset_in_file as u32
-            + record.code_bytes_offset_from_record_header_start() as u32;
-        let symbol_name = record.function_name.as_slice();
-        let symbol_name = std::str::from_utf8(&symbol_name).ok();
-        let process = self.processes.get_by_pid(process_pid, &mut self.profile);
-        process.add_jit_function(
-            Some(self.timestamp_converter.convert_time(timestamp)),
-            symbol_name,
-            start_avma,
-            end_avma,
-            relative_address_at_start,
-            jitdump_lib,
-            &mut self.jit_category_manager,
-            &mut self.profile,
-            self.merge_threads,
-        );
-    }
-
-    pub fn handle_jit_code_move(&mut self, _timestamp: u64, record: &JitCodeMoveRecord) {
-        let process_pid = record.pid as i32;
-        let process = self.processes.get_by_pid(process_pid, &mut self.profile);
-        if let Some(mut jit_function) = process.jit_functions.remove(record.old_code_addr) {
-            jit_function.start_address = record.new_code_addr;
-            jit_function.end_address = record.new_code_addr + record.code_size;
-        }
     }
 
     fn add_kernel_module(
@@ -1035,6 +1043,7 @@ where
         self.profile
             .add_kernel_lib_mapping(lib_handle, base_address, base_address + len, 0);
     }
+
     /// Tell the unwinder about this module, and alsos create a ProfileModule
     /// and add it to the profile.
     ///
@@ -1055,7 +1064,6 @@ where
         timestamp: u64,
     ) {
         let process = self.processes.get_by_pid(process_pid, &mut self.profile);
-        let profile_process = process.profile_process;
 
         let path = std::str::from_utf8(path_slice).unwrap();
         let (mut file, mut path): (Option<_>, String) = match open_file_with_fallback(
@@ -1258,8 +1266,9 @@ where
 
             if name.starts_with("jitted-") && name.ends_with(".so") {
                 let symbol_name = jit_function_name(&file);
-                process.add_jit_function(
-                    Some(self.timestamp_converter.convert_time(timestamp)),
+                process.add_lib_mapping_for_injected_jit_lib(
+                    timestamp,
+                    self.timestamp_converter.convert_time(timestamp),
                     symbol_name,
                     mapping_start_avma,
                     mapping_end_avma,
@@ -1267,15 +1276,14 @@ where
                     lib_handle,
                     &mut self.jit_category_manager,
                     &mut self.profile,
-                    self.merge_threads,
                 );
             } else {
-                self.profile.add_lib_mapping(
-                    profile_process,
-                    lib_handle,
+                process.add_regular_lib_mapping(
+                    timestamp,
                     mapping_start_avma,
                     mapping_end_avma,
                     relative_address_at_start,
+                    lib_handle,
                 );
             }
         } else {
@@ -1284,6 +1292,7 @@ where
             // information which lets us map between addresses and file offsets, but
             // often svmas and file offsets are the same, so this is a reasonable guess.
             let base_avma = mapping_start_avma - mapping_start_file_offset;
+            let relative_address_at_start = (mapping_start_avma - base_avma) as u32;
 
             // If we have a build ID, convert it to a debug_id and a code_id.
             let debug_id = build_id
@@ -1301,120 +1310,13 @@ where
                 arch: None,
                 symbol_table: None,
             });
-            self.profile.add_lib_mapping(
-                profile_process,
-                lib_handle,
+            process.add_regular_lib_mapping(
+                timestamp,
                 mapping_start_avma,
                 mapping_end_avma,
-                (mapping_start_avma - base_avma) as u32,
+                relative_address_at_start,
+                lib_handle,
             );
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct RssStatMarker(pub i64, pub i64);
-
-impl ProfilerMarker for RssStatMarker {
-    const MARKER_TYPE_NAME: &'static str = "RSS Anon";
-
-    fn json_marker_data(&self) -> serde_json::Value {
-        json!({
-            "type": Self::MARKER_TYPE_NAME,
-            "totalBytes": self.0,
-            "deltaBytes": self.1
-        })
-    }
-
-    fn schema() -> MarkerSchema {
-        MarkerSchema {
-            type_name: Self::MARKER_TYPE_NAME,
-            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
-            chart_label: Some("{marker.data.totalBytes}"),
-            tooltip_label: Some("{marker.data.totalBytes}"),
-            table_label: Some("Total: {marker.data.totalBytes}, delta: {marker.data.deltaBytes}"),
-            fields: vec![
-                MarkerSchemaField::Dynamic(MarkerDynamicField {
-                    key: "totalBytes",
-                    label: "Total bytes",
-                    format: MarkerFieldFormat::Bytes,
-                    searchable: true,
-                }),
-                MarkerSchemaField::Dynamic(MarkerDynamicField {
-                    key: "deltaBytes",
-                    label: "Delta",
-                    format: MarkerFieldFormat::Bytes,
-                    searchable: true,
-                }),
-                MarkerSchemaField::Static(MarkerStaticField {
-                    label: "Description",
-                    value: "Emitted when the kmem:rss_stat tracepoint is hit.",
-                }),
-            ],
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct OtherEventMarker;
-
-impl ProfilerMarker for OtherEventMarker {
-    const MARKER_TYPE_NAME: &'static str = "Other event";
-
-    fn json_marker_data(&self) -> serde_json::Value {
-        json!({
-            "type": Self::MARKER_TYPE_NAME,
-        })
-    }
-
-    fn schema() -> MarkerSchema {
-        MarkerSchema {
-            type_name: Self::MARKER_TYPE_NAME,
-            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
-            chart_label: None,
-            tooltip_label: None,
-            table_label: None,
-            fields: vec![MarkerSchemaField::Static(MarkerStaticField {
-                label: "Description",
-                value:
-                    "Emitted for any records in a perf.data file which don't map to a known event.",
-            })],
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct JitFunctionAddMarker(pub String);
-
-impl ProfilerMarker for JitFunctionAddMarker {
-    const MARKER_TYPE_NAME: &'static str = "JitFunctionAdd";
-
-    fn json_marker_data(&self) -> serde_json::Value {
-        json!({
-            "type": Self::MARKER_TYPE_NAME,
-            "functionName": self.0
-        })
-    }
-
-    fn schema() -> MarkerSchema {
-        MarkerSchema {
-            type_name: Self::MARKER_TYPE_NAME,
-            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
-            chart_label: Some("{marker.data.functionName}"),
-            tooltip_label: Some("{marker.data.functionName}"),
-            table_label: Some("{marker.data.functionName}"),
-            fields: vec![
-                MarkerSchemaField::Dynamic(MarkerDynamicField {
-                    key: "functionName",
-                    label: "Function",
-                    format: MarkerFieldFormat::String,
-                    searchable: true,
-                }),
-                MarkerSchemaField::Static(MarkerStaticField {
-                    label: "Description",
-                    value: "Emitted when a JIT function is added to the process.",
-                }),
-            ],
         }
     }
 }
@@ -1432,28 +1334,14 @@ fn jit_function_name<'data>(obj: &object::File<'data>) -> Option<&'data str> {
 //     dbg!(jit_function_name(&file));
 // }
 
-struct TimestampConverter {
-    reference_ns: u64,
-}
-
-impl TimestampConverter {
-    pub fn with_reference_timestamp(reference_ns: u64) -> Self {
-        Self { reference_ns }
-    }
-
-    pub fn convert_time(&self, ktime_ns: u64) -> Timestamp {
-        Timestamp::from_nanos_since_reference(ktime_ns.saturating_sub(self.reference_ns))
-    }
-}
-
 fn process_off_cpu_sample_group(
     off_cpu_sample: OffCpuSampleGroup,
     thread_handle: ThreadHandle,
     cpu_delta_ns: u64,
     timestamp_converter: &TimestampConverter,
     off_cpu_weight_per_sample: i32,
-    off_cpu_stack: &[FrameInfo],
-    profile: &mut Profile,
+    off_cpu_stack: UnresolvedStackHandle,
+    samples: &mut UnresolvedSamples,
 ) {
     let OffCpuSampleGroup {
         begin_timestamp,
@@ -1465,167 +1353,30 @@ fn process_off_cpu_sample_group(
     // This "first sample" will carry any leftover accumulated running time ("cpu delta").
     let cpu_delta = CpuDelta::from_nanos(cpu_delta_ns);
     let weight = off_cpu_weight_per_sample;
-    let frames = off_cpu_stack.iter().cloned();
+    let stack = off_cpu_stack;
     let profile_timestamp = timestamp_converter.convert_time(begin_timestamp);
-    profile.add_sample(thread_handle, profile_timestamp, frames, cpu_delta, weight);
+    samples.add_sample(
+        thread_handle,
+        profile_timestamp,
+        begin_timestamp,
+        stack,
+        cpu_delta,
+        weight,
+    );
 
     if sample_count > 1 {
         // Emit a "rest sample" with a CPU delta of zero covering the rest of the paused range.
         let cpu_delta = CpuDelta::from_nanos(0);
         let weight = i32::try_from(sample_count - 1).unwrap_or(0) * off_cpu_weight_per_sample;
-        let frames = off_cpu_stack.iter().cloned();
         let profile_timestamp = timestamp_converter.convert_time(end_timestamp);
-        profile.add_sample(thread_handle, profile_timestamp, frames, cpu_delta, weight);
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct StackConverter {
-    user_category: CategoryPairHandle,
-    kernel_category: CategoryPairHandle,
-}
-
-struct ConvertedStackIter<'a> {
-    inner: std::iter::Rev<std::slice::Iter<'a, StackFrame>>,
-    jit_functions: &'a JitFunctions,
-    user_category: CategoryPairHandle,
-    kernel_category: CategoryPairHandle,
-    include_kernel: bool,
-    pending_frame_after_js: Option<FrameInfo>,
-    js_name_for_baseline_interpreter: Option<JsName>,
-}
-
-impl<'a> Iterator for ConvertedStackIter<'a> {
-    type Item = FrameInfo;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            if let Some(pending_frame_after_js) = self.pending_frame_after_js.take() {
-                return Some(pending_frame_after_js);
-            }
-            let frame = self.inner.next()?;
-            let (mode, addr, lookup_address, from_ip) = match *frame {
-                StackFrame::InstructionPointer(addr, mode) => (mode, addr, addr, true),
-                StackFrame::ReturnAddress(addr, mode) => {
-                    (mode, addr, addr.saturating_sub(1), false)
-                }
-                StackFrame::TruncatedStackMarker => continue,
-            };
-            let (location, category, js_frame) = match mode {
-                StackMode::User => match self.jit_functions.find(lookup_address) {
-                    Some(jit_function) => {
-                        let relative_address = jit_function.avma_to_relative_address(addr);
-                        let location = match from_ip {
-                            true => Frame::RelativeAddressFromInstructionPointer(
-                                jit_function.lib_handle,
-                                relative_address,
-                            ),
-                            false => Frame::RelativeAddressFromReturnAddress(
-                                jit_function.lib_handle,
-                                relative_address,
-                            ),
-                        };
-                        (location, jit_function.category, jit_function.js_frame)
-                    }
-                    None => {
-                        let location = match from_ip {
-                            true => Frame::InstructionPointer(addr),
-                            false => Frame::ReturnAddress(addr),
-                        };
-                        (location, self.user_category, JsFrame::None)
-                    }
-                },
-                StackMode::Kernel => {
-                    if !self.include_kernel {
-                        continue;
-                    }
-                    let location = match from_ip {
-                        true => Frame::InstructionPointer(addr),
-                        false => Frame::ReturnAddress(addr),
-                    };
-                    (location, self.kernel_category, JsFrame::None)
-                }
-            };
-            let frame_info = FrameInfo {
-                frame: location,
-                category_pair: category,
-                flags: FrameFlags::empty(),
-            };
-
-            // Work around an imperfection in Spidermonkey's stack frames.
-            // We sometimes have missing BaselineInterpreterStubs in the OSR-into-BaselineInterpreter case.
-            // Usually, a BaselineInterpreter frame is directly preceded by a BaselineInterpreterStub frame.
-            // However, sometimes you get Regular(x) -> None -> None -> None -> BaselineInterpreter,
-            // without a BaselineInterpreterStub frame. In that case, the name "x" from the ancestor
-            // JsFrame::Regular (which is really an InterpreterStub frame for the C++ interpreter)
-            // should be used for the BaselineInterpreter frame. This will create a stack
-            // node with the right name, category and JS-only flag, and helps with correct attribution.
-            // Unfortunately it means that we'll have two prepended JS label frames for the same function
-            // in that case, but that's still better than accounting those samples to the wrong JS function.
-            let js_name = match js_frame {
-                JsFrame::Regular(js_name) => {
-                    // Remember the name for a potentially upcoming unnamed BaselineInterpreter frame.
-                    self.js_name_for_baseline_interpreter = Some(js_name);
-                    Some(js_name)
-                }
-                JsFrame::BaselineInterpreterStub(js_name) => {
-                    // Discard the name of an ancestor JS function.
-                    self.js_name_for_baseline_interpreter = None;
-                    Some(js_name)
-                }
-                JsFrame::BaselineInterpreter => self.js_name_for_baseline_interpreter.take(),
-                JsFrame::None => None,
-            };
-
-            let frame_info = match js_name {
-                Some(JsName::NonSelfHosted(js_name)) => {
-                    // Prepend a JS frame.
-                    self.pending_frame_after_js = Some(frame_info);
-                    FrameInfo {
-                        frame: Frame::Label(js_name),
-                        category_pair: category,
-                        flags: FrameFlags::IS_JS,
-                    }
-                }
-                // Don't treat Spidermonkey "self-hosted" functions as JS (e.g. filter/map/push).
-                Some(JsName::SelfHosted(_)) | None => frame_info,
-            };
-            return Some(frame_info);
-        }
-    }
-}
-
-impl StackConverter {
-    fn convert_stack<'a>(
-        &self,
-        stack: &'a [StackFrame],
-        jit_functions: &'a JitFunctions,
-    ) -> impl Iterator<Item = FrameInfo> + 'a {
-        ConvertedStackIter {
-            inner: stack.iter().rev(),
-            jit_functions,
-            user_category: self.user_category,
-            kernel_category: self.kernel_category,
-            include_kernel: true,
-            pending_frame_after_js: None,
-            js_name_for_baseline_interpreter: None,
-        }
-    }
-
-    fn convert_stack_no_kernel<'a>(
-        &self,
-        stack: &'a [StackFrame],
-        jit_functions: &'a JitFunctions,
-    ) -> impl Iterator<Item = FrameInfo> + 'a {
-        ConvertedStackIter {
-            inner: stack.iter().rev(),
-            jit_functions,
-            user_category: self.user_category,
-            kernel_category: self.kernel_category,
-            include_kernel: false,
-            pending_frame_after_js: None,
-            js_name_for_baseline_interpreter: None,
-        }
+        samples.add_sample(
+            thread_handle,
+            profile_timestamp,
+            begin_timestamp,
+            stack,
+            cpu_delta,
+            weight,
+        );
     }
 }
 
@@ -1635,16 +1386,23 @@ where
 {
     processes_by_pid: HashMap<i32, Process<U>>,
     ended_processes_for_reuse_by_name: HashMap<String, VecDeque<Process<U>>>,
+
+    /// The sample data for all removed processes.
+    process_sample_datas: Vec<ProcessSampleData>,
+
+    allow_reuse: bool,
 }
 
 impl<U> Processes<U>
 where
     U: Unwinder<Module = Module<Vec<u8>>> + Default,
 {
-    pub fn new() -> Self {
+    pub fn new(allow_reuse: bool) -> Self {
         Self {
             processes_by_pid: HashMap::new(),
             ended_processes_for_reuse_by_name: HashMap::new(),
+            process_sample_datas: Vec::new(),
+            allow_reuse,
         }
     }
 
@@ -1687,18 +1445,27 @@ where
                 off_cpu_stack: None,
                 name: None,
             };
+            let jit_function_recycler = if self.allow_reuse {
+                Some(JitFunctionRecycler::default())
+            } else {
+                None
+            };
             Process {
                 profile_process: handle,
                 unwinder: U::default(),
-                jit_functions: JitFunctions(Vec::new()),
+                jitdump_manager: JitDumpManager::new_for_process(profile_thread),
+                lib_mapping_ops: Default::default(),
                 name: None,
-                has_looked_up_perf_map: false,
                 pid,
-                main_thread,
-                threads_by_tid: HashMap::new(),
-                ended_threads_for_reuse_by_name: HashMap::new(),
-                new_jit_functions: Vec::new(),
-                jit_functions_for_reuse_by_name_and_size: HashMap::new(),
+                threads: ProcessThreads {
+                    pid,
+                    profile_process: handle,
+                    main_thread,
+                    threads_by_tid: HashMap::new(),
+                    ended_threads_for_reuse_by_name: HashMap::new(),
+                },
+                jit_function_recycler,
+                unresolved_samples: Default::default(),
                 prev_mm_filepages_size: 0,
                 prev_mm_anonpages_size: 0,
                 prev_mm_swapents_size: 0,
@@ -1708,20 +1475,55 @@ where
         })
     }
 
-    pub fn remove(&mut self, pid: i32, time: Timestamp, allow_reuse: bool, profile: &mut Profile) {
+    pub fn remove(
+        &mut self,
+        pid: i32,
+        time: Timestamp,
+        profile: &mut Profile,
+        jit_category_manager: &mut JitCategoryManager,
+        timestamp_converter: &TimestampConverter,
+    ) {
         let Some(mut process) = self.processes_by_pid.remove(&pid) else { return };
         profile.set_process_end_time(process.profile_process, time);
-        profile.clear_process_lib_mappings(process.profile_process);
 
-        process.on_remove(allow_reuse);
+        let process_sample_data = process.on_remove(
+            self.allow_reuse,
+            profile,
+            jit_category_manager,
+            timestamp_converter,
+        );
+        if !process_sample_data.is_empty() {
+            self.process_sample_datas.push(process_sample_data);
+        }
 
-        if allow_reuse {
+        if self.allow_reuse {
             if let Some(name) = process.name.as_deref() {
                 self.ended_processes_for_reuse_by_name
                     .entry(name.to_string())
                     .or_default()
                     .push_back(process);
             }
+        }
+    }
+
+    pub fn finish(
+        self,
+        profile: &mut Profile,
+        unresolved_stacks: &UnresolvedStacks,
+        event_names: &[String],
+    ) {
+        let user_category = profile.add_category("User", CategoryColor::Yellow).into();
+        let kernel_category = profile.add_category("Kernel", CategoryColor::Orange).into();
+        let mut stack_frame_scratch_buf = Vec::new();
+        for process_sample_data in self.process_sample_datas {
+            process_sample_data.flush_samples_to_profile(
+                profile,
+                user_category,
+                kernel_category,
+                &mut stack_frame_scratch_buf,
+                unresolved_stacks,
+                event_names,
+            );
         }
     }
 }
@@ -1731,7 +1533,11 @@ struct Thread {
     profile_thread: ThreadHandle,
     context_switch_data: ThreadContextSwitchData,
     last_sample_timestamp: Option<u64>,
-    off_cpu_stack: Option<Vec<FrameInfo>>,
+
+    /// Some() between sched_switch and the next context switch IN
+    ///
+    /// Refers to a stack in the containing Process's UnresolvedSamples stack table.
+    off_cpu_stack: Option<UnresolvedStackHandle>,
     name: Option<String>,
 }
 
@@ -1751,15 +1557,13 @@ where
 {
     pub profile_process: ProcessHandle,
     pub unwinder: U,
-    pub jit_functions: JitFunctions,
+    pub jitdump_manager: JitDumpManager,
+    pub lib_mapping_ops: LibMappingOpQueue,
     pub name: Option<String>,
-    main_thread: Thread,
-    threads_by_tid: HashMap<i32, Thread>,
+    pub threads: ProcessThreads,
     pid: i32,
-    has_looked_up_perf_map: bool,
-    ended_threads_for_reuse_by_name: HashMap<String, VecDeque<Thread>>,
-    new_jit_functions: Vec<(String, u32, LibraryHandle, u32)>,
-    jit_functions_for_reuse_by_name_and_size: HashMap<(String, u32), (LibraryHandle, u32)>,
+    pub unresolved_samples: UnresolvedSamples,
+    jit_function_recycler: Option<JitFunctionRecycler>,
     prev_mm_filepages_size: i64,
     prev_mm_anonpages_size: i64,
     prev_mm_swapents_size: i64,
@@ -1771,120 +1575,167 @@ impl<U> Process<U>
 where
     U: Unwinder<Module = Module<Vec<u8>>> + Default,
 {
-    /// Tries to load a perf mapping file that could have been generated by the process during
-    /// execution.
-    fn maybe_load_perf_map(
+    pub fn check_jitdump(
         &mut self,
-        profile: &mut Profile,
         jit_category_manager: &mut JitCategoryManager,
-        allow_reuse: bool,
+        profile: &mut Profile,
+        timestamp_converter: &TimestampConverter,
     ) {
-        if self.has_looked_up_perf_map {
-            return;
-        }
-        self.has_looked_up_perf_map = true;
-
-        let name = format!("perf-{}.map", self.pid);
-        let path = format!("/tmp/{name}");
-        let Ok(content) = fs::read_to_string(&path) else { return };
-
-        // Read the map file and set everything up so that absolute addresses
-        // in JIT code get symbolicated to the right function name.
-
-        // There are three ways to put function names into the profile:
-        //
-        //  1. Function name without address ("label frame"),
-        //  2. Address with after-the-fact symbolicated function name, and
-        //  3. Address with up-front symbolicated function name.
-        //
-        // Having the address on the frame allows the assembly view in the
-        // Firefox profiler to compute the right hitcount per instruction.
-        // However, with a perf.map file, we don't have the code bytes of the jitted
-        // code, so we have no way of displaying the instructions. So the code
-        // address is not overly useful information, and we could just discard
-        // it and use label frames for perf.map JIT frames (approach 1).
-        //
-        // We'll be using approach 3 here anyway, so our JIT frames will have
-        // both a function name and a code address.
-
-        // Create a fake "library" for the JIT code.
-        let lib_handle = profile.add_lib(LibraryInfo {
-            debug_name: name.clone(),
-            name,
-            debug_path: path.clone(),
-            path,
-            debug_id: DebugId::nil(),
-            code_id: None,
-            arch: None,
-            symbol_table: None,
-        });
-
-        let mut symbols = Vec::new();
-        let mut cumulative_address = 0;
-
-        for (addr, len, symbol_name) in content.lines().filter_map(process_perf_map_line) {
-            let start_address = addr;
-            let end_address = addr + len;
-
-            // Pretend that all JIT code is laid out consecutively in our fake library.
-            // This relative address is used for symbolication whenever we add a frame
-            // to the profile.
-            let relative_address = cumulative_address;
-            cumulative_address += len as u32;
-
-            // Add this function to process.jit_functions so that it can be consulted for
-            // category information, JS function prepending, and to translate the absolute
-            // address into a relative address.
-            self.add_jit_function(
-                None,
-                Some(symbol_name),
-                start_address,
-                end_address,
-                relative_address,
-                lib_handle,
-                jit_category_manager,
-                profile,
-                allow_reuse,
-            );
-
-            // Add a symbol for this function to the fake library's symbol table.
-            // This symbol will be looked up when the address is added to the profile,
-            // based on the relative address.
-            symbols.push(Symbol {
-                address: relative_address,
-                size: Some(len as u32),
-                name: symbol_name.to_owned(),
-            });
-        }
-
-        profile.set_lib_symbol_table(lib_handle, Arc::new(SymbolTable::new(symbols)));
+        self.jitdump_manager.process_pending_records(
+            jit_category_manager,
+            profile,
+            self.jit_function_recycler.as_mut(),
+            timestamp_converter,
+        );
     }
 
     pub fn reset_for_reuse(&mut self, new_pid: i32) {
         self.pid = new_pid;
     }
 
-    pub fn on_remove(&mut self, allow_thread_reuse: bool) {
-        self.jit_functions = JitFunctions(Vec::new());
-        self.has_looked_up_perf_map = false;
+    pub fn on_remove(
+        &mut self,
+        allow_thread_reuse: bool,
+        profile: &mut Profile,
+        jit_category_manager: &mut JitCategoryManager,
+        timestamp_converter: &TimestampConverter,
+    ) -> ProcessSampleData {
         self.unwinder = U::default();
 
         if allow_thread_reuse {
-            for (_tid, mut thread) in self.threads_by_tid.drain() {
-                thread.on_remove();
-
-                if let Some(name) = thread.name.as_deref() {
-                    self.ended_threads_for_reuse_by_name
-                        .entry(name.to_owned())
-                        .or_default()
-                        .push_back(thread);
-                }
-            }
+            self.threads.prepare_for_reuse();
         }
 
-        for (name, code_size, lib_handle, rel_addr) in self.new_jit_functions.drain(..) {
-            self.jit_functions_for_reuse_by_name_and_size
-                .insert((name, code_size), (lib_handle, rel_addr));
+        let perf_map_mappings = if !self.unresolved_samples.is_empty() {
+            try_load_perf_map(
+                self.pid as u32,
+                profile,
+                jit_category_manager,
+                self.jit_function_recycler.as_mut(),
+            )
+        } else {
+            None
+        };
+
+        if let Some(recycler) = self.jit_function_recycler.as_mut() {
+            recycler.finish_round();
+        }
+
+        let jitdump_manager = std::mem::replace(
+            &mut self.jitdump_manager,
+            JitDumpManager::new_for_process(self.threads.main_thread.profile_thread),
+        );
+        let jitdump_ops = jitdump_manager.finish(
+            jit_category_manager,
+            profile,
+            self.jit_function_recycler.as_mut(),
+            timestamp_converter,
+        );
+
+        ProcessSampleData::new(
+            std::mem::take(&mut self.unresolved_samples),
+            std::mem::take(&mut self.lib_mapping_ops),
+            jitdump_ops,
+            perf_map_mappings,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_regular_lib_mapping(
+        &mut self,
+        timestamp: u64,
+        start_address: u64,
+        end_address: u64,
+        relative_address_at_start: u32,
+        lib_handle: LibraryHandle,
+    ) {
+        self.lib_mapping_ops.push(
+            timestamp,
+            LibMappingOp::Add(LibMappingAdd {
+                start_avma: start_address,
+                end_avma: end_address,
+                relative_address_at_start,
+                info: LibMappingInfo::new_lib(lib_handle),
+            }),
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_lib_mapping_for_injected_jit_lib(
+        &mut self,
+        timestamp: u64,
+        profile_timestamp: Timestamp,
+        symbol_name: Option<&str>,
+        start_address: u64,
+        end_address: u64,
+        mut relative_address_at_start: u32,
+        mut lib_handle: LibraryHandle,
+        jit_category_manager: &mut JitCategoryManager,
+        profile: &mut Profile,
+    ) {
+        let main_thread = self.threads.main_thread.profile_thread;
+        let timing = MarkerTiming::Instant(profile_timestamp);
+        profile.add_marker(
+            main_thread,
+            "JitFunctionAdd",
+            JitFunctionAddMarker(symbol_name.unwrap_or("<unknown>").to_owned()),
+            timing,
+        );
+
+        if let (Some(name), Some(recycler)) = (symbol_name, self.jit_function_recycler.as_mut()) {
+            (lib_handle, relative_address_at_start) = recycler.recycle(
+                start_address,
+                end_address,
+                relative_address_at_start,
+                name,
+                lib_handle,
+            );
+        }
+
+        let (category, js_frame) =
+            jit_category_manager.classify_jit_symbol(symbol_name.unwrap_or(""), profile);
+        self.lib_mapping_ops.push(
+            timestamp,
+            LibMappingOp::Add(LibMappingAdd {
+                start_avma: start_address,
+                end_avma: end_address,
+                relative_address_at_start,
+                info: LibMappingInfo::new_jit_function(lib_handle, category, js_frame),
+            }),
+        );
+    }
+
+    pub fn get_or_make_mem_counter(&mut self, profile: &mut Profile) -> CounterHandle {
+        *self.mem_counter.get_or_insert_with(|| {
+            profile.add_counter(
+                self.profile_process,
+                "malloc",
+                "Memory",
+                "Amount of allocated memory",
+            )
+        })
+    }
+}
+
+struct ProcessThreads {
+    pid: i32,
+    profile_process: ProcessHandle,
+    main_thread: Thread,
+    threads_by_tid: HashMap<i32, Thread>,
+    ended_threads_for_reuse_by_name: HashMap<String, VecDeque<Thread>>,
+}
+
+impl ProcessThreads {
+    pub fn prepare_for_reuse(&mut self) {
+        for (_tid, mut thread) in self.threads_by_tid.drain() {
+            thread.on_remove();
+
+            if let Some(name) = thread.name.as_deref() {
+                self.ended_threads_for_reuse_by_name
+                    .entry(name.to_owned())
+                    .or_default()
+                    .push_back(thread);
+            }
         }
     }
 
@@ -1948,173 +1799,6 @@ where
                     .or_default()
                     .push_back(thread);
             }
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn add_jit_function(
-        &mut self,
-        timestamp: Option<Timestamp>,
-        symbol_name: Option<&str>,
-        start_address: u64,
-        end_address: u64,
-        mut relative_address_at_start: u32,
-        mut lib_handle: LibraryHandle,
-        jit_category_manager: &mut JitCategoryManager,
-        profile: &mut Profile,
-        allow_reuse: bool,
-    ) {
-        if let Some(timestamp) = timestamp {
-            let main_thread = self.main_thread.profile_thread;
-            let timing = MarkerTiming::Instant(timestamp);
-            profile.add_marker(
-                main_thread,
-                "JitFunctionAdd",
-                JitFunctionAddMarker(symbol_name.unwrap_or("<unknown>").to_owned()),
-                timing,
-            );
-        }
-
-        if let (Some(name), true) = (symbol_name, allow_reuse) {
-            let code_size = (end_address - start_address) as u32;
-            let name_and_code_size = (name.to_owned(), code_size);
-            match self
-                .jit_functions_for_reuse_by_name_and_size
-                .get(&name_and_code_size)
-            {
-                Some(reused_function) => {
-                    (lib_handle, relative_address_at_start) = *reused_function;
-                }
-                None => {
-                    self.new_jit_functions.push((
-                        name_and_code_size.0,
-                        code_size,
-                        lib_handle,
-                        relative_address_at_start,
-                    ));
-                }
-            }
-        }
-
-        let (category, js_frame) =
-            jit_category_manager.classify_jit_symbol(symbol_name.unwrap_or(""), profile);
-        self.jit_functions.insert(JitFunction {
-            start_address,
-            end_address,
-            relative_address_at_start,
-            lib_handle,
-            category,
-            js_frame,
-        });
-    }
-
-    pub fn get_or_make_mem_counter(&mut self, profile: &mut Profile) -> CounterHandle {
-        *self.mem_counter.get_or_insert_with(|| {
-            profile.add_counter(
-                self.profile_process,
-                "malloc",
-                "Memory",
-                "Amount of allocated memory",
-            )
-        })
-    }
-}
-
-fn process_perf_map_line(line: &str) -> Option<(u64, u64, &str)> {
-    let mut split = line.splitn(3, ' ');
-    let addr = split.next()?;
-    let len = split.next()?;
-    let symbol_name = split.next()?;
-    if symbol_name.is_empty() {
-        return None;
-    }
-    let addr = u64::from_str_radix(addr.trim_start_matches("0x"), 16).ok()?;
-    let len = u64::from_str_radix(len.trim_start_matches("0x"), 16).ok()?;
-    Some((addr, len, symbol_name))
-}
-
-struct JitFunctions(Vec<JitFunction>);
-
-impl JitFunctions {
-    pub fn insert(&mut self, fun: JitFunction) {
-        match self
-            .0
-            .binary_search_by_key(&fun.start_address, |jf| jf.start_address)
-        {
-            Ok(i) => self.0[i] = fun,
-            Err(i) => self.0.insert(i, fun),
-        }
-    }
-
-    pub fn remove(&mut self, start_avma: u64) -> Option<JitFunction> {
-        self.0
-            .binary_search_by_key(&start_avma, |jf| jf.start_address)
-            .ok()
-            .map(|i| self.0.remove(i))
-    }
-
-    pub fn find(&self, address: u64) -> Option<&JitFunction> {
-        let jit_function = match self.0.binary_search_by_key(&address, |jf| jf.start_address) {
-            Err(0) => return None,
-            Ok(i) => &self.0[i],
-            Err(i) => &self.0[i - 1],
-        };
-        if address >= jit_function.end_address {
-            return None;
-        }
-        Some(jit_function)
-    }
-}
-
-#[derive(Debug, Clone)]
-struct JitFunction {
-    pub start_address: u64,
-    pub end_address: u64,
-    pub relative_address_at_start: u32,
-    pub category: CategoryPairHandle,
-    pub js_frame: JsFrame,
-    pub lib_handle: LibraryHandle,
-}
-
-impl JitFunction {
-    fn avma_to_relative_address(&self, addr: u64) -> u32 {
-        self.relative_address_at_start + (addr - self.start_address) as u32
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum StackFrame {
-    InstructionPointer(u64, StackMode),
-    ReturnAddress(u64, StackMode),
-    TruncatedStackMarker,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StackMode {
-    User,
-    Kernel,
-}
-
-impl StackMode {
-    /// Detect stack mode from a "context frame".
-    ///
-    /// Context frames are present in sample callchains; they're u64 addresses
-    /// which are `>= PERF_CONTEXT_MAX`.
-    pub fn from_context_frame(frame: u64) -> Option<Self> {
-        match frame {
-            PERF_CONTEXT_KERNEL | PERF_CONTEXT_GUEST_KERNEL => Some(Self::Kernel),
-            PERF_CONTEXT_USER | PERF_CONTEXT_GUEST | PERF_CONTEXT_GUEST_USER => Some(Self::User),
-            _ => None,
-        }
-    }
-}
-
-impl From<CpuMode> for StackMode {
-    /// Convert CpuMode into StackMode.
-    fn from(cpu_mode: CpuMode) -> Self {
-        match cpu_mode {
-            CpuMode::Kernel | CpuMode::GuestKernel => Self::Kernel,
-            _ => Self::User,
         }
     }
 }
@@ -2578,5 +2262,15 @@ impl RssStat {
             member,
             size,
         })
+    }
+}
+
+fn get_path_if_jitdump(path: &[u8]) -> Option<&Path> {
+    let path = Path::new(std::str::from_utf8(path).ok()?);
+    let filename = path.file_name()?.to_str()?;
+    if filename.starts_with("jit-") && filename.ends_with(".dump") {
+        Some(path)
+    } else {
+        None
     }
 }

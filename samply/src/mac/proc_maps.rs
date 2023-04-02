@@ -527,8 +527,6 @@ fn do_stackwalk(
             break;
         }
     }
-
-    frames.reverse();
 }
 
 #[derive(Debug, Clone)]

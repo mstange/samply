@@ -1502,6 +1502,7 @@ dependencies = [
  "dirs",
  "flate2",
  "framehop",
+ "fxhash",
  "fxprof-processed-profile",
  "hyper",
  "lazy_static",

@@ -11,11 +11,12 @@ use std::process::ExitStatus;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use super::error::SamplingError;
 use super::process_launcher::{MachError, ReceivedStuff, TaskAccepter};
 use super::sampler::{Sampler, TaskInit};
+use super::time::get_monotonic_timestamp;
 use crate::server::{start_server_main, ServerProps};
 
 pub fn start_profiling_pid(
@@ -78,7 +79,7 @@ pub fn start_recording(
                     let pid = accepted_task.get_id();
                     let (jitdump_path_sender, jitdump_path_receiver) = unbounded();
                     let send_result = task_sender.send(TaskInit {
-                        start_time: Instant::now(),
+                        start_time: get_monotonic_timestamp(),
                         task: accepted_task.take_task(),
                         pid,
                         jitdump_path_receiver,
