@@ -20,6 +20,8 @@ use object::macho::{
 };
 use object::read::macho::{MachHeader, Section, Segment};
 use object::LittleEndian;
+#[cfg(target_arch = "aarch64")]
+use once_cell::sync::Lazy;
 use wholesym::samply_symbols::object;
 use wholesym::CodeId;
 
@@ -385,6 +387,42 @@ fn get_unwinding_registers(
 }
 
 #[cfg(target_arch = "aarch64")]
+/// Read the `machdep.virtual_address_size` sysctl.
+fn get_virtual_address_size() -> Option<u32> {
+    unsafe {
+        let mut bitcount: libc::c_int = 0;
+        let mut size: usize = std::mem::size_of_val(&bitcount);
+        let ret = libc::sysctlbyname(
+            b"machdep.virtual_address_size\0" as *const _ as *const _,
+            &mut bitcount as *mut _ as *mut _,
+            &mut size as *mut _,
+            std::ptr::null_mut(),
+            0,
+        );
+        if ret == libc::ENOMEM || size != 4 {
+            eprintln!("Unexpected size for machdep.virtual_address_size value: {size}");
+            return None;
+        }
+        if ret < 0 {
+            eprintln!("Reading machdep.virtual_address_size failed: {ret}");
+            return None;
+        }
+        if bitcount <= 0 || bitcount > 64 {
+            eprintln!("Unexpected machdep.virtual_address_size: {bitcount}");
+            return None;
+        }
+        Some(bitcount as u32)
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+static PTR_AUTH_MASK: Lazy<PtrAuthMask> = Lazy::new(|| {
+    let addr_bits = get_virtual_address_size().unwrap_or(47);
+    let mask_bits = 64 - addr_bits;
+    PtrAuthMask(u64::MAX >> mask_bits)
+});
+
+#[cfg(target_arch = "aarch64")]
 fn get_unwinding_registers(
     thread_act: mach_port_t,
 ) -> kernel_error::Result<(u64, UnwindRegsAarch64)> {
@@ -399,7 +437,7 @@ fn get_unwinding_registers(
         )
     }
     .into_result()?;
-    let mask = PtrAuthMask::new_24_40();
+    let mask = *PTR_AUTH_MASK;
     Ok((
         mask.strip_ptr_auth(state.__pc),
         UnwindRegsAarch64::new_with_ptr_auth_mask(mask, state.__lr, state.__sp, state.__fp),
