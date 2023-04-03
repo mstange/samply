@@ -387,32 +387,28 @@ fn get_unwinding_registers(
 }
 
 #[cfg(target_arch = "aarch64")]
+fn read_int_sysctl_by_name(name: &str) -> Result<i32, sysctl::SysctlError> {
+    use sysctl::Sysctl;
+    let val = sysctl::Ctl::new(name)?.value()?;
+    let val = *val.as_int().ok_or(sysctl::SysctlError::ExtractionError)?;
+    Ok(val)
+}
+
+#[cfg(target_arch = "aarch64")]
 /// Read the `machdep.virtual_address_size` sysctl.
 fn get_virtual_address_size() -> Option<u32> {
-    unsafe {
-        let mut bitcount: libc::c_int = 0;
-        let mut size: usize = std::mem::size_of_val(&bitcount);
-        let ret = libc::sysctlbyname(
-            b"machdep.virtual_address_size\0" as *const _ as *const _,
-            &mut bitcount as *mut _ as *mut _,
-            &mut size as *mut _,
-            std::ptr::null_mut(),
-            0,
-        );
-        if ret == libc::ENOMEM || size != 4 {
-            eprintln!("Unexpected size for machdep.virtual_address_size value: {size}");
+    let bitcount = match read_int_sysctl_by_name("machdep.virtual_address_size") {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("Reading machdep.virtual_address_size failed: {e}");
             return None;
         }
-        if ret < 0 {
-            eprintln!("Reading machdep.virtual_address_size failed: {ret}");
-            return None;
-        }
-        if bitcount <= 0 || bitcount > 64 {
-            eprintln!("Unexpected machdep.virtual_address_size: {bitcount}");
-            return None;
-        }
-        Some(bitcount as u32)
+    };
+    if bitcount <= 0 || bitcount > 64 {
+        eprintln!("Unexpected machdep.virtual_address_size: {bitcount}");
+        return None;
     }
+    Some(bitcount as u32)
 }
 
 #[cfg(target_arch = "aarch64")]
