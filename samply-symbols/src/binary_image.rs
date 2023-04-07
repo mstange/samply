@@ -334,8 +334,8 @@ fn pe_info<'a, Pe: ImageNtHeaders, R: ReadRef<'a>>(pe: &PeFile<'a, Pe, R>) -> Pe
 
 fn object_arch_to_string(arch: object::Architecture) -> Option<&'static str> {
     let s = match arch {
-        object::Architecture::Aarch64 => "arm64",
         object::Architecture::Arm => "arm",
+        object::Architecture::Aarch64 => "arm64",
         object::Architecture::I386 => "x86",
         object::Architecture::X86_64 => "x86_64",
         _ => return None,
@@ -345,8 +345,8 @@ fn object_arch_to_string(arch: object::Architecture) -> Option<&'static str> {
 
 fn elf_machine_arch_to_string(elf_machine_arch: u32) -> Option<&'static str> {
     let s = match elf_machine_arch as u16 {
-        object::elf::EM_ARM => "arm64",
-        object::elf::EM_AARCH64 => "arm",
+        object::elf::EM_ARM => "arm",
+        object::elf::EM_AARCH64 => "arm64",
         object::elf::EM_386 => "x86",
         object::elf::EM_X86_64 => "x86_64",
         _ => return None,
