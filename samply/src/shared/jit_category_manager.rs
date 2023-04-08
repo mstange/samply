@@ -33,7 +33,19 @@ impl JitCategoryManager {
         ("Builtin:", "Builtin", CategoryColor::Brown, false),
         ("BytecodeHandler:", "Interpreter", CategoryColor::Red, false),
         ("Interpreter: ", "Interpreter", CategoryColor::Red, true),
+        (
+            "BaselineThunk: ",
+            "Trampoline",
+            CategoryColor::DarkGray,
+            false,
+        ),
         ("Baseline: ", "Baseline", CategoryColor::Blue, true),
+        (
+            "PolymorphicCallStubBaseline: ",
+            "Baseline",
+            CategoryColor::Blue,
+            true,
+        ),
         ("Ion: ", "Ion", CategoryColor::Green, true),
         ("BaselineIC: ", "BaselineIC", CategoryColor::Brown, false),
         ("IC: ", "IC", CategoryColor::Brown, false),
@@ -44,8 +56,9 @@ impl JitCategoryManager {
             CategoryColor::Blue,
             true,
         ),
-        ("DFG JIT code for ", "DFG", CategoryColor::LightGreen, true),
-        ("FTL B3 code for ", "FTL", CategoryColor::Green, true),
+        ("DFG JIT code for DFG: ", "DFG", CategoryColor::Green, true),
+        ("FTL B3 code for FTL: ", "FTL", CategoryColor::Green, true),
+        ("LLInt: ", "LLInt", CategoryColor::Red, true),
         ("", "JIT", CategoryColor::Purple, false), // Generic fallback category for JIT code
     ];
 
@@ -117,8 +130,28 @@ impl JitCategoryManager {
     }
 
     fn intern_js_name(profile: &mut Profile, func_name: &str) -> JsName {
+        if let Some((before, after)) = func_name
+            .split_once("[Call")
+            .or_else(|| func_name.split_once("[Construct"))
+        {
+            // Canonicalize JSC name, e.g. "diffProps[Call (StrictMode)] /home/.../index.js:123:12"
+            // and "diffProps[Call (DidTryToEnterInLoop) (StrictMode)] /home/.../index.js:123:12"
+            if let Some((_square_bracket_call_stuff, after)) = after.split_once(']') {
+                if after.is_empty() {
+                    // Nothing is following the closing square bracket, in particular no filename.
+                    // Example: "forEach[Call (StrictMode)]"
+                    // This is likely a self-hosted function.
+                    return JsName::SelfHosted(profile.intern_string(before));
+                }
+                return JsName::NonSelfHosted(profile.intern_string(&format!("{before}{after}")));
+            }
+        }
+
         let s = profile.intern_string(func_name);
-        match func_name.contains("(self-hosted:") {
+        match func_name.contains("(self-hosted:")
+            || func_name.ends_with("valueIsFalsey")
+            || func_name.ends_with("valueIsTruthy")
+        {
             true => JsName::SelfHosted(s),
             false => JsName::NonSelfHosted(s),
         }
