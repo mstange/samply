@@ -1512,21 +1512,18 @@ where
     }
 
     pub fn remove(&mut self, pid: i32, time: Timestamp, allow_reuse: bool, profile: &mut Profile) {
-        if let Entry::Occupied(entry) = self.processes_by_pid.entry(pid) {
-            let mut process = entry.remove();
+        let Some(mut process) = self.processes_by_pid.remove(&pid) else { return };
+        profile.set_process_end_time(process.profile_process, time);
+        profile.clear_process_lib_mappings(process.profile_process);
 
-            profile.set_process_end_time(process.profile_process, time);
-            profile.clear_process_lib_mappings(process.profile_process);
+        process.on_remove(allow_reuse);
 
-            process.on_remove(allow_reuse);
-
-            if allow_reuse {
-                if let Some(name) = process.name.as_deref() {
-                    self.ended_processes_for_reuse_by_name
-                        .entry(name.to_string())
-                        .or_default()
-                        .push_back(process);
-                }
+        if allow_reuse {
+            if let Some(name) = process.name.as_deref() {
+                self.ended_processes_for_reuse_by_name
+                    .entry(name.to_string())
+                    .or_default()
+                    .push_back(process);
             }
         }
     }
@@ -1737,19 +1734,17 @@ where
         allow_reuse: bool,
         profile: &mut Profile,
     ) {
-        if let Entry::Occupied(entry) = self.threads_by_tid.entry(tid) {
-            let mut thread = entry.remove();
-            profile.set_thread_end_time(thread.profile_thread, time);
+        let Some(mut thread) = self.threads_by_tid.remove(&tid) else { return };
+        profile.set_thread_end_time(thread.profile_thread, time);
 
-            thread.on_remove();
+        thread.on_remove();
 
-            if allow_reuse {
-                if let Some(name) = thread.name.as_deref() {
-                    self.ended_threads_for_reuse_by_name
-                        .entry(name.to_owned())
-                        .or_default()
-                        .push_back(thread);
-                }
+        if allow_reuse {
+            if let Some(name) = thread.name.as_deref() {
+                self.ended_threads_for_reuse_by_name
+                    .entry(name.to_owned())
+                    .or_default()
+                    .push_back(thread);
             }
         }
     }
