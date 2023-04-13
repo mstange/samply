@@ -417,7 +417,7 @@ where
                 RssStatMarker(rss_stat.size),
                 timing,
                 self.stack_converter
-                    .convert_stack_no_kernel(&stack, &process.jit_functions),
+                    .convert_stack(&stack, &process.jit_functions),
             );
         }
     }
