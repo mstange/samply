@@ -86,7 +86,7 @@ where
         .sample_time_range()
         .unwrap()
         .map_or(0, |r| r.first_sample_time);
-    let little_endian = perf_file.endian() == linux_perf_data::Endianness::LittleEndian;
+    let endian = perf_file.endian();
     let host = perf_file
         .hostname()
         .unwrap()
@@ -113,7 +113,7 @@ where
         build_ids,
         linux_version,
         first_sample_time,
-        little_endian,
+        endian,
         cache,
         extra_dir,
         interpretation.clone(),
@@ -182,9 +182,12 @@ where
         match parsed_record {
             EventRecord::Sample(e) => {
                 if attr_index == interpretation.main_event_attr_index {
-                    converter.handle_sample::<C>(e);
+                    converter.handle_sample::<C>(&e);
                 } else if interpretation.sched_switch_attr_index == Some(attr_index) {
-                    converter.handle_sched_switch::<C>(e);
+                    converter.handle_sched_switch::<C>(&e);
+                }
+                if interpretation.rss_stat_attr_index == Some(attr_index) {
+                    converter.handle_rss_stat::<C>(&e);
                 }
             }
             EventRecord::Fork(e) => {

@@ -3,21 +3,22 @@ mod jit_category_manager;
 mod kernel_symbols;
 mod object_rewriter;
 
-use byteorder::LittleEndian;
+use byteorder::{ByteOrder, LittleEndian};
 use context_switch::{ContextSwitchHandler, OffCpuSampleGroup, ThreadContextSwitchData};
 use debugid::{CodeId, DebugId};
 use framehop::aarch64::UnwindRegsAarch64;
 use framehop::x86_64::UnwindRegsX86_64;
 use framehop::{FrameAddress, Module, ModuleSvmaInfo, ModuleUnwindData, TextByteData, Unwinder};
 use fxprof_processed_profile::{
-    CategoryColor, CategoryPairHandle, CpuDelta, Frame, FrameFlags, FrameInfo, LibraryHandle,
-    LibraryInfo, MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema,
-    MarkerSchemaField, MarkerStaticField, MarkerTiming, ProcessHandle, Profile, ProfilerMarker,
-    ReferenceTimestamp, SamplingInterval, Symbol, SymbolTable, ThreadHandle, Timestamp,
+    CategoryColor, CategoryPairHandle, CounterHandle, CpuDelta, Frame, FrameFlags, FrameInfo,
+    LibraryHandle, LibraryInfo, MarkerDynamicField, MarkerFieldFormat, MarkerLocation,
+    MarkerSchema, MarkerSchemaField, MarkerStaticField, MarkerTiming, ProcessHandle, Profile,
+    ProfilerMarker, ReferenceTimestamp, SamplingInterval, Symbol, SymbolTable, ThreadHandle,
+    Timestamp,
 };
 use linux_perf_data::jitdump::{JitCodeLoadRecord, JitCodeMoveRecord, JitDumpHeader};
-use linux_perf_data::linux_perf_event_reader;
-use linux_perf_data::{AttributeDescription, DsoInfo, DsoKey};
+use linux_perf_data::linux_perf_event_reader::{self, RawData};
+use linux_perf_data::{AttributeDescription, DsoInfo, DsoKey, Endianness};
 use linux_perf_event_reader::constants::{
     PERF_CONTEXT_GUEST, PERF_CONTEXT_GUEST_KERNEL, PERF_CONTEXT_GUEST_USER, PERF_CONTEXT_KERNEL,
     PERF_CONTEXT_MAX, PERF_CONTEXT_USER, PERF_REG_ARM64_LR, PERF_REG_ARM64_PC, PERF_REG_ARM64_SP,
@@ -102,6 +103,7 @@ pub struct EventInterpretation {
     pub sampling_is_time_based: Option<u64>,
     pub have_context_switches: bool,
     pub sched_switch_attr_index: Option<usize>,
+    pub rss_stat_attr_index: Option<usize>,
 }
 
 impl EventInterpretation {
@@ -136,6 +138,9 @@ impl EventInterpretation {
         let sched_switch_attr_index = attrs
             .iter()
             .position(|attr_desc| attr_desc.name.as_deref() == Some("sched:sched_switch"));
+        let rss_stat_attr_index = attrs
+            .iter()
+            .position(|attr_desc| attr_desc.name.as_deref() == Some("kmem:rss_stat"));
 
         Self {
             main_event_attr_index,
@@ -143,6 +148,7 @@ impl EventInterpretation {
             sampling_is_time_based,
             have_context_switches,
             sched_switch_attr_index,
+            rss_stat_attr_index,
         }
     }
 }
@@ -168,7 +174,7 @@ where
     timestamp_converter: TimestampConverter,
     current_sample_time: u64,
     build_ids: HashMap<DsoKey, DsoInfo>,
-    little_endian: bool,
+    endian: Endianness,
     have_product_name: bool,
     delayed_product_name_generator: Option<BoxedProductNameGenerator>,
     linux_version: Option<String>,
@@ -206,7 +212,7 @@ where
         build_ids: HashMap<DsoKey, DsoInfo>,
         linux_version: Option<&str>,
         first_sample_time: u64,
-        little_endian: bool,
+        endian: Endianness,
         cache: U::Cache,
         extra_binary_artifact_dir: Option<&Path>,
         interpretation: EventInterpretation,
@@ -247,7 +253,7 @@ where
             timestamp_converter: TimestampConverter::with_reference_timestamp(first_sample_time),
             current_sample_time: first_sample_time,
             build_ids,
-            little_endian,
+            endian,
             have_product_name: delayed_product_name_generator.is_none(),
             delayed_product_name_generator,
             linux_version: linux_version.map(ToOwned::to_owned),
@@ -267,7 +273,7 @@ where
         self.profile
     }
 
-    pub fn handle_sample<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(&mut self, e: SampleRecord) {
+    pub fn handle_sample<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(&mut self, e: &SampleRecord) {
         let pid = e.pid.expect("Can't handle samples without pids");
         let tid = e.tid.expect("Can't handle samples without tids");
         let timestamp = e
@@ -287,7 +293,7 @@ where
 
         let mut stack = Vec::new();
         Self::get_sample_stack::<C>(
-            &e,
+            e,
             &process.unwinder,
             &mut self.cache,
             &mut stack,
@@ -347,7 +353,7 @@ where
 
     pub fn handle_sched_switch<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
         &mut self,
-        e: SampleRecord,
+        e: &SampleRecord,
     ) {
         let pid = e.pid.expect("Can't handle samples without pids");
         let tid = e.tid.expect("Can't handle samples without tids");
@@ -355,7 +361,7 @@ where
 
         let mut stack = Vec::new();
         Self::get_sample_stack::<C>(
-            &e,
+            e,
             &process.unwinder,
             &mut self.cache,
             &mut stack,
@@ -369,6 +375,30 @@ where
 
         let thread = process.get_thread_by_tid(tid, &mut self.profile);
         thread.off_cpu_stack = Some(stack);
+    }
+
+    pub fn handle_rss_stat<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
+        &mut self,
+        e: &SampleRecord,
+    ) {
+        let pid = e.pid.expect("Can't handle samples without pids");
+        // let tid = e.tid.expect("Can't handle samples without tids");
+        let process = self.processes.get_by_pid(pid, &mut self.profile);
+
+        let Some(raw) = e.raw else { return };
+        let Ok(rss_stat) = RssStat::parse(
+            raw,
+            self.endian,
+
+        ) else { return };
+        if rss_stat.member == MM_ANONPAGES {
+            let counter = process.get_or_make_mem_counter(&mut self.profile);
+            let timestamp = self.timestamp_converter.convert_time(e.timestamp.unwrap());
+            let delta = rss_stat.size - process.prev_mm_anon_size;
+            self.profile
+                .add_counter_sample(counter, timestamp, delta as f64, 1);
+            process.prev_mm_anon_size = rss_stat.size;
+        }
     }
 
     /// Get the stack contained in this sample, and put it into `stack`.
@@ -882,7 +912,7 @@ where
         };
         let debug_id = build_id
             .as_deref()
-            .map(|id| DebugId::from_identifier(id, self.little_endian));
+            .map(|id| DebugId::from_identifier(id, self.endian == Endianness::LittleEndian));
 
         let debug_path = match self.linux_version.as_deref() {
             Some(linux_version) if path.starts_with("[kernel.kallsyms]") => {
@@ -1507,6 +1537,8 @@ where
                 ended_threads_for_reuse_by_name: HashMap::new(),
                 new_jit_functions: Vec::new(),
                 jit_functions_for_reuse_by_name_and_size: HashMap::new(),
+                prev_mm_anon_size: 0,
+                mem_counter: None,
             }
         })
     }
@@ -1563,6 +1595,8 @@ where
     ended_threads_for_reuse_by_name: HashMap<String, VecDeque<Thread>>,
     new_jit_functions: Vec<(String, u32, LibraryHandle, u32)>,
     jit_functions_for_reuse_by_name_and_size: HashMap<(String, u32), (LibraryHandle, u32)>,
+    prev_mm_anon_size: i64,
+    mem_counter: Option<CounterHandle>,
 }
 
 impl<U> Process<U>
@@ -1804,6 +1838,17 @@ where
             category,
             js_frame,
         });
+    }
+
+    pub fn get_or_make_mem_counter(&mut self, profile: &mut Profile) -> CounterHandle {
+        *self.mem_counter.get_or_insert_with(|| {
+            profile.add_counter(
+                self.profile_process,
+                "malloc",
+                "Memory",
+                "Amount of allocated memory",
+            )
+        })
     }
 }
 
@@ -2289,4 +2334,81 @@ fn correct_bad_perf_jit_so_file(
     let fixed_file = std::fs::File::open(&fixed_path).ok()?;
 
     Some((fixed_file, fixed_path))
+}
+
+/// Resident file mapping pages
+#[allow(unused)]
+const MM_FILEPAGES: i32 = 0;
+
+/// Resident anonymous pages
+#[allow(unused)]
+const MM_ANONPAGES: i32 = 1;
+
+/// Anonymous swap entries
+#[allow(unused)]
+const MM_SWAPENTS: i32 = 2;
+
+/// Resident shared memory pages
+#[allow(unused)]
+const MM_SHMEMPAGES: i32 = 3;
+
+/// ```
+/// # cat /sys/kernel/debug/tracing/events/kmem/rss_stat/format
+/// name: rss_stat
+/// ID: 537
+/// format:
+///         field:unsigned short common_type;       offset:0;       size:2; signed:0;
+///         field:unsigned char common_flags;       offset:2;       size:1; signed:0;
+///         field:unsigned char common_preempt_count;       offset:3;       size:1; signed:0;
+///         field:int common_pid;   offset:4;       size:4; signed:1;
+///
+///         field:unsigned int mm_id;       offset:8;       size:4; signed:0;
+///         field:unsigned int curr;        offset:12;      size:4; signed:0;
+///         field:int member;       offset:16;      size:4; signed:1;
+///         field:long size;        offset:24;      size:8; signed:1;
+///
+/// print fmt: "mm_id=%u curr=%d type=%s size=%ldB", REC->mm_id, REC->curr, __print_symbolic(REC->member, { 0, "MM_FILEPAGES" }, { 1, "MM_ANONPAGES" }, { 2, "MM_SWAPENTS" }, { 3, "MM_SHMEMPAGES" }), REC->size
+/// ```
+#[repr(C)]
+#[derive(Debug)]
+struct RssStat {
+    common_type: u16,
+    common_flags: u8,
+    common_preempt_count: u8,
+    common_pid: i32,
+    mm_id: u32,
+    curr: u32,
+    member: i32,
+    size: i64,
+}
+
+impl RssStat {
+    pub fn parse(data: RawData, endian: Endianness) -> Result<Self, std::io::Error> {
+        match endian {
+            Endianness::LittleEndian => Self::parse_impl::<byteorder::LittleEndian>(data),
+            Endianness::BigEndian => Self::parse_impl::<byteorder::BigEndian>(data),
+        }
+    }
+
+    pub fn parse_impl<O: ByteOrder>(mut data: RawData) -> Result<Self, std::io::Error> {
+        let common_type = data.read_u16::<O>()?;
+        let common_flags = data.read_u8()?;
+        let common_preempt_count = data.read_u8()?;
+        let common_pid = data.read_i32::<O>()?;
+        let mm_id = data.read_u32::<O>()?;
+        let curr = data.read_u32::<O>()?;
+        let member = data.read_i32::<O>()?;
+        let _padding = data.read_u32::<O>()?;
+        let size = data.read_u64::<O>()? as i64;
+        Ok(RssStat {
+            common_type,
+            common_flags,
+            common_preempt_count,
+            common_pid,
+            mm_id,
+            curr,
+            member,
+            size,
+        })
+    }
 }

@@ -1,6 +1,6 @@
 use linux_perf_data::linux_perf_event_reader::EventRecord;
 use linux_perf_data::linux_perf_event_reader::{
-    CpuMode, Mmap2FileId, Mmap2InodeAndVersion, Mmap2Record, RawData,
+    CpuMode, Endianness, Mmap2FileId, Mmap2InodeAndVersion, Mmap2Record, RawData,
 };
 
 use std::collections::HashMap;
@@ -269,7 +269,11 @@ fn init_profiler(
 
     let first_sample_time = 0;
 
-    let little_endian = cfg!(target_endian = "little");
+    let endian = if cfg!(target_endian = "little") {
+        Endianness::LittleEndian
+    } else {
+        Endianness::BigEndian
+    };
     let machine_info = uname::uname().ok();
     let interpretation = EventInterpretation {
         main_event_attr_index: 0,
@@ -277,6 +281,7 @@ fn init_profiler(
         sampling_is_time_based: Some(interval_nanos),
         have_context_switches: true,
         sched_switch_attr_index: None,
+        rss_stat_attr_index: None,
     };
 
     let mut converter =
@@ -286,7 +291,7 @@ fn init_profiler(
             HashMap::new(),
             machine_info.as_ref().map(|info| info.release.as_str()),
             first_sample_time,
-            little_endian,
+            endian,
             framehop::CacheNative::new(),
             None,
             interpretation,
@@ -408,7 +413,7 @@ fn run_profiler(
 
             match parsed_record {
                 EventRecord::Sample(e) => {
-                    converter.handle_sample::<ConvertRegsNative>(e);
+                    converter.handle_sample::<ConvertRegsNative>(&e);
                     /*
                     } else if interpretation.sched_switch_attr_index == Some(attr_index) {
                         converter.handle_sched_switch::<C>(e);
