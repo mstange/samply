@@ -436,7 +436,23 @@ impl Profile {
         self.marker_schemas
             .entry(T::MARKER_TYPE_NAME)
             .or_insert_with(T::schema);
-        self.threads[thread.0].add_marker(name, marker, timing);
+        self.threads[thread.0].add_marker(name, marker, timing, None);
+    }
+
+    /// Add a marker to the given thread, with a stack.
+    pub fn add_marker_with_stack<T: ProfilerMarker>(
+        &mut self,
+        thread: ThreadHandle,
+        name: &str,
+        marker: T,
+        timing: MarkerTiming,
+        stack_frames: impl Iterator<Item = FrameInfo>,
+    ) {
+        self.marker_schemas
+            .entry(T::MARKER_TYPE_NAME)
+            .or_insert_with(T::schema);
+        let stack_index = self.stack_index_for_frames(thread, stack_frames);
+        self.threads[thread.0].add_marker(name, marker, timing, stack_index);
     }
 
     /// Add a data point to a counter. For a memory counter, `value_delta` would be the number

@@ -391,6 +391,7 @@ where
             self.endian,
 
         ) else { return };
+
         if rss_stat.member == MM_ANONPAGES {
             let counter = process.get_or_make_mem_counter(&mut self.profile);
             let timestamp = self.timestamp_converter.convert_time(e.timestamp.unwrap());
@@ -398,6 +399,26 @@ where
             self.profile
                 .add_counter_sample(counter, timestamp, delta as f64, 1);
             process.prev_mm_anon_size = rss_stat.size;
+
+            let mut stack = Vec::new();
+            Self::get_sample_stack::<C>(
+                e,
+                &process.unwinder,
+                &mut self.cache,
+                &mut stack,
+                self.fold_recursive_prefix,
+            );
+
+            let main_thread = process.main_thread.profile_thread;
+            let timing = MarkerTiming::Instant(timestamp);
+            self.profile.add_marker_with_stack(
+                main_thread,
+                "RSS Stat Anon",
+                RssStatMarker(rss_stat.size),
+                timing,
+                self.stack_converter
+                    .convert_stack_no_kernel(&stack, &process.jit_functions),
+            );
         }
     }
 
@@ -1217,6 +1238,42 @@ where
                 mapping_end_avma,
                 (mapping_start_avma - base_avma) as u32,
             );
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RssStatMarker(pub i64);
+
+impl ProfilerMarker for RssStatMarker {
+    const MARKER_TYPE_NAME: &'static str = "RSS Anon";
+
+    fn json_marker_data(&self) -> serde_json::Value {
+        json!({
+            "type": Self::MARKER_TYPE_NAME,
+            "totalBytes": self.0
+        })
+    }
+
+    fn schema() -> MarkerSchema {
+        MarkerSchema {
+            type_name: Self::MARKER_TYPE_NAME,
+            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
+            chart_label: Some("{marker.data.totalBytes}"),
+            tooltip_label: Some("{marker.data.totalBytes}"),
+            table_label: Some("{marker.data.totalBytes}"),
+            fields: vec![
+                MarkerSchemaField::Dynamic(MarkerDynamicField {
+                    key: "totalBytes",
+                    label: "Total bytes",
+                    format: MarkerFieldFormat::Bytes,
+                    searchable: true,
+                }),
+                MarkerSchemaField::Static(MarkerStaticField {
+                    label: "Description",
+                    value: "Emitted when the kmem:rss_stat tracepoint is hit.",
+                }),
+            ],
         }
     }
 }

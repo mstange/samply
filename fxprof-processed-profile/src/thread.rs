@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::cmp::Ordering;
 
 use serde::ser::{SerializeMap, Serializer};
+use serde_json::json;
 
 use crate::category::{Category, CategoryPairHandle};
 use crate::cpu_delta::CpuDelta;
@@ -140,10 +141,21 @@ impl Thread {
         }
     }
 
-    pub fn add_marker<T: ProfilerMarker>(&mut self, name: &str, marker: T, timing: MarkerTiming) {
+    pub fn add_marker<T: ProfilerMarker>(
+        &mut self,
+        name: &str,
+        marker: T,
+        timing: MarkerTiming,
+        stack_index: Option<usize>,
+    ) {
         let name_string_index = self.string_table.index_for_string(name);
-        self.markers
-            .add_marker(name_string_index, timing, marker.json_marker_data());
+        let mut data = marker.json_marker_data();
+        if let Some(stack_index) = stack_index {
+            if let Some(obj) = data.as_object_mut() {
+                obj.insert("cause".to_string(), json!({ "stack": stack_index }));
+            }
+        }
+        self.markers.add_marker(name_string_index, timing, data);
     }
 
     pub fn contains_js_function(&self) -> bool {
