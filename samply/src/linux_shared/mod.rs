@@ -414,7 +414,7 @@ where
             self.profile.add_marker_with_stack(
                 main_thread,
                 "RSS Stat Anon",
-                RssStatMarker(rss_stat.size),
+                RssStatMarker(rss_stat.size, delta),
                 timing,
                 self.stack_converter
                     .convert_stack(&stack, &process.jit_functions),
@@ -1243,7 +1243,7 @@ where
 }
 
 #[derive(Debug, Clone)]
-pub struct RssStatMarker(pub i64);
+pub struct RssStatMarker(pub i64, pub i64);
 
 impl ProfilerMarker for RssStatMarker {
     const MARKER_TYPE_NAME: &'static str = "RSS Anon";
@@ -1251,7 +1251,8 @@ impl ProfilerMarker for RssStatMarker {
     fn json_marker_data(&self) -> serde_json::Value {
         json!({
             "type": Self::MARKER_TYPE_NAME,
-            "totalBytes": self.0
+            "totalBytes": self.0,
+            "deltaBytes": self.1
         })
     }
 
@@ -1261,11 +1262,17 @@ impl ProfilerMarker for RssStatMarker {
             locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
             chart_label: Some("{marker.data.totalBytes}"),
             tooltip_label: Some("{marker.data.totalBytes}"),
-            table_label: Some("{marker.data.totalBytes}"),
+            table_label: Some("Total: {marker.data.totalBytes}, delta: {marker.data.deltaBytes}"),
             fields: vec![
                 MarkerSchemaField::Dynamic(MarkerDynamicField {
                     key: "totalBytes",
                     label: "Total bytes",
+                    format: MarkerFieldFormat::Bytes,
+                    searchable: true,
+                }),
+                MarkerSchemaField::Dynamic(MarkerDynamicField {
+                    key: "deltaBytes",
+                    label: "Delta",
                     format: MarkerFieldFormat::Bytes,
                     searchable: true,
                 }),
