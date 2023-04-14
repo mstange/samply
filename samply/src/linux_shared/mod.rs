@@ -104,6 +104,7 @@ pub struct EventInterpretation {
     pub have_context_switches: bool,
     pub sched_switch_attr_index: Option<usize>,
     pub rss_stat_attr_index: Option<usize>,
+    pub event_names: Vec<String>,
 }
 
 impl EventInterpretation {
@@ -141,6 +142,16 @@ impl EventInterpretation {
         let rss_stat_attr_index = attrs
             .iter()
             .position(|attr_desc| attr_desc.name.as_deref() == Some("kmem:rss_stat"));
+        let event_names = attrs
+            .iter()
+            .enumerate()
+            .map(|(attr_index, attr_desc)| {
+                attr_desc
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| format!("<unknown event {attr_index}>"))
+            })
+            .collect();
 
         Self {
             main_event_attr_index,
@@ -149,6 +160,7 @@ impl EventInterpretation {
             have_context_switches,
             sched_switch_attr_index,
             rss_stat_attr_index,
+            event_names,
         }
     }
 }
@@ -182,6 +194,7 @@ where
     context_switch_handler: ContextSwitchHandler,
     off_cpu_weight_per_sample: i32,
     have_context_switches: bool,
+    event_names: Vec<String>,
     kernel_symbols: Option<KernelSymbols>,
 
     /// Mapping of start address to potential mapped PE binaries.
@@ -261,6 +274,7 @@ where
             off_cpu_weight_per_sample,
             context_switch_handler: ContextSwitchHandler::new(off_cpu_sampling_interval_ns),
             have_context_switches: interpretation.have_context_switches,
+            event_names: interpretation.event_names,
             kernel_symbols,
             suspected_pe_mappings: BTreeMap::new(),
             jit_category_manager: JitCategoryManager::new(),
@@ -420,6 +434,52 @@ where
                     .convert_stack(&stack, &process.jit_functions),
             );
         }
+    }
+
+    pub fn handle_other_event_sample<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
+        &mut self,
+        e: &SampleRecord,
+        attr_index: usize,
+    ) {
+        let Some(event_name) = self.event_names.get(attr_index) else {
+            eprintln!("Invalid attribute index {attr_index}");
+            return;
+        };
+        let pid = e.pid.expect("Can't handle samples without pids");
+        let timestamp_mono = e
+            .timestamp
+            .expect("Can't handle samples without timestamps");
+        let timestamp = self.timestamp_converter.convert_time(timestamp_mono);
+        // let tid = e.tid.expect("Can't handle samples without tids");
+        let process = self.processes.get_by_pid(pid, &mut self.profile);
+
+        let mut stack = Vec::new();
+        Self::get_sample_stack::<C>(
+            e,
+            &process.unwinder,
+            &mut self.cache,
+            &mut stack,
+            self.fold_recursive_prefix,
+        );
+
+        let thread_handle = match e.tid {
+            Some(tid) => {
+                process
+                    .get_thread_by_tid(tid, &mut self.profile)
+                    .profile_thread
+            }
+            None => process.main_thread.profile_thread,
+        };
+
+        let timing = MarkerTiming::Instant(timestamp);
+        self.profile.add_marker_with_stack(
+            thread_handle,
+            event_name,
+            OtherEventMarker,
+            timing,
+            self.stack_converter
+                .convert_stack(&stack, &process.jit_functions),
+        );
     }
 
     /// Get the stack contained in this sample, and put it into `stack`.
@@ -1281,6 +1341,34 @@ impl ProfilerMarker for RssStatMarker {
                     value: "Emitted when the kmem:rss_stat tracepoint is hit.",
                 }),
             ],
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct OtherEventMarker;
+
+impl ProfilerMarker for OtherEventMarker {
+    const MARKER_TYPE_NAME: &'static str = "Other event";
+
+    fn json_marker_data(&self) -> serde_json::Value {
+        json!({
+            "type": Self::MARKER_TYPE_NAME,
+        })
+    }
+
+    fn schema() -> MarkerSchema {
+        MarkerSchema {
+            type_name: Self::MARKER_TYPE_NAME,
+            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
+            chart_label: None,
+            tooltip_label: None,
+            table_label: None,
+            fields: vec![MarkerSchemaField::Static(MarkerStaticField {
+                label: "Description",
+                value:
+                    "Emitted for any records in a perf.data file which don't map to a known event.",
+            })],
         }
     }
 }

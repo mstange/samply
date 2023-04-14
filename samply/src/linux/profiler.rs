@@ -282,6 +282,7 @@ fn init_profiler(
         have_context_switches: true,
         sched_switch_attr_index: None,
         rss_stat_attr_index: None,
+        event_names: vec!["cycles".to_string()],
     };
 
     let mut converter =

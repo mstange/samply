@@ -185,6 +185,8 @@ where
                     converter.handle_sample::<C>(&e);
                 } else if interpretation.sched_switch_attr_index == Some(attr_index) {
                     converter.handle_sched_switch::<C>(&e);
+                } else if interpretation.rss_stat_attr_index != Some(attr_index) {
+                    converter.handle_other_event_sample::<C>(&e, attr_index);
                 }
                 if interpretation.rss_stat_attr_index == Some(attr_index) {
                     converter.handle_rss_stat::<C>(&e);
