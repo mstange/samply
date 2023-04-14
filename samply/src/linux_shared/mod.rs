@@ -406,34 +406,44 @@ where
 
         ) else { return };
 
+        let timestamp = self.timestamp_converter.convert_time(e.timestamp.unwrap());
+
+        let (prev_size_of_this_member, name) = match rss_stat.member {
+            MM_FILEPAGES => (&mut process.prev_mm_filepages_size, "RSS Stat FILEPAGES"),
+            MM_ANONPAGES => (&mut process.prev_mm_anonpages_size, "RSS Stat ANONPAGES"),
+            MM_SHMEMPAGES => (&mut process.prev_mm_shmempages_size, "RSS Stat SHMEMPAGES"),
+            MM_SWAPENTS => (&mut process.prev_mm_swapents_size, "RSS Stat SWAPENTS"),
+            _ => return,
+        };
+
+        let delta = rss_stat.size - *prev_size_of_this_member;
+        *prev_size_of_this_member = rss_stat.size;
+
         if rss_stat.member == MM_ANONPAGES {
             let counter = process.get_or_make_mem_counter(&mut self.profile);
-            let timestamp = self.timestamp_converter.convert_time(e.timestamp.unwrap());
-            let delta = rss_stat.size - process.prev_mm_anon_size;
             self.profile
                 .add_counter_sample(counter, timestamp, delta as f64, 1);
-            process.prev_mm_anon_size = rss_stat.size;
-
-            let mut stack = Vec::new();
-            Self::get_sample_stack::<C>(
-                e,
-                &process.unwinder,
-                &mut self.cache,
-                &mut stack,
-                self.fold_recursive_prefix,
-            );
-
-            let main_thread = process.main_thread.profile_thread;
-            let timing = MarkerTiming::Instant(timestamp);
-            self.profile.add_marker_with_stack(
-                main_thread,
-                "RSS Stat Anon",
-                RssStatMarker(rss_stat.size, delta),
-                timing,
-                self.stack_converter
-                    .convert_stack(&stack, &process.jit_functions),
-            );
         }
+
+        let mut stack = Vec::new();
+        Self::get_sample_stack::<C>(
+            e,
+            &process.unwinder,
+            &mut self.cache,
+            &mut stack,
+            self.fold_recursive_prefix,
+        );
+
+        let main_thread = process.main_thread.profile_thread;
+        let timing = MarkerTiming::Instant(timestamp);
+        self.profile.add_marker_with_stack(
+            main_thread,
+            name,
+            RssStatMarker(rss_stat.size, delta),
+            timing,
+            self.stack_converter
+                .convert_stack(&stack, &process.jit_functions),
+        );
     }
 
     pub fn handle_other_event_sample<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
@@ -1689,7 +1699,10 @@ where
                 ended_threads_for_reuse_by_name: HashMap::new(),
                 new_jit_functions: Vec::new(),
                 jit_functions_for_reuse_by_name_and_size: HashMap::new(),
-                prev_mm_anon_size: 0,
+                prev_mm_filepages_size: 0,
+                prev_mm_anonpages_size: 0,
+                prev_mm_swapents_size: 0,
+                prev_mm_shmempages_size: 0,
                 mem_counter: None,
             }
         })
@@ -1747,7 +1760,10 @@ where
     ended_threads_for_reuse_by_name: HashMap<String, VecDeque<Thread>>,
     new_jit_functions: Vec<(String, u32, LibraryHandle, u32)>,
     jit_functions_for_reuse_by_name_and_size: HashMap<(String, u32), (LibraryHandle, u32)>,
-    prev_mm_anon_size: i64,
+    prev_mm_filepages_size: i64,
+    prev_mm_anonpages_size: i64,
+    prev_mm_swapents_size: i64,
+    prev_mm_shmempages_size: i64,
     mem_counter: Option<CounterHandle>,
 }
 
