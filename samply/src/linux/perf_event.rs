@@ -319,6 +319,7 @@ impl PerfBuilder {
         attr.sample_regs_user = reg_mask;
         attr.sample_stack_user = stack_size;
         attr.sample_period_or_freq = frequency;
+        attr.clock_id = libc::CLOCK_MONOTONIC;
 
         attr.flags = PERF_ATTR_FLAG_DISABLED
             | PERF_ATTR_FLAG_MMAP
@@ -327,7 +328,8 @@ impl PerfBuilder {
             | PERF_ATTR_FLAG_COMM
             | PERF_ATTR_FLAG_FREQ
             | PERF_ATTR_FLAG_TASK
-            | PERF_ATTR_FLAG_SAMPLE_ID_ALL;
+            | PERF_ATTR_FLAG_SAMPLE_ID_ALL
+            | PERF_ATTR_FLAG_USE_CLOCKID;
 
         if self.enable_on_exec {
             attr.flags |= PERF_ATTR_FLAG_ENABLE_ON_EXEC;
