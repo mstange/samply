@@ -62,7 +62,7 @@ impl Sampler {
         );
 
         let default_category =
-            CategoryPairHandle::from(profile.add_category("Regular", CategoryColor::Blue));
+            CategoryPairHandle::from(profile.add_category("Regular", CategoryColor::Yellow));
 
         let root_task_init = match self.task_receiver.recv() {
             Ok(task_init) => task_init,
