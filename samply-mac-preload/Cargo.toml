@@ -20,5 +20,5 @@ panic = 'abort'
 
 [dependencies]
 libc = { version = "0.2.70", default-features = false }
-spin = "0.9.6"
+spin = "0.9.8"
 
