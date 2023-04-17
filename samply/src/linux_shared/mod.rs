@@ -1591,6 +1591,7 @@ where
 
     pub fn reset_for_reuse(&mut self, new_pid: i32) {
         self.pid = new_pid;
+        self.threads.pid = new_pid;
     }
 
     pub fn on_remove(
