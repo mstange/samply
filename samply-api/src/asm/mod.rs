@@ -5,7 +5,7 @@ use samply_symbols::{
     FileAndPathHelperError, LibraryInfo, SymbolManager,
 };
 use serde_json::json;
-use yaxpeax_arch::{Arch, DecodeError, U8Reader};
+use yaxpeax_arch::{Arch, DecodeError, Reader, U8Reader};
 
 use crate::asm::response_json::DecodedInstruction;
 
@@ -120,7 +120,7 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> AsmApi<'a, 'h, H> {
         // is the "thumb" bit, meaning that the instructions need to be decoded
         // with the thumb decoder.
         let architecture = binary_image.arch();
-        let relative_start_address = match architecture {
+        let rel_address = match architecture {
             Some("arm64" | "arm64e") => start_address & !0b11,
             Some("arm") => start_address & !0b1,
             _ => *start_address,
@@ -129,7 +129,7 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> AsmApi<'a, 'h, H> {
         // Pad out the number of bytes we read a little, to allow for reading one
         // more instruction.
         // We've been asked to decode the instructions whose instruction addresses
-        // are in the range relative_start_address .. (relative_start_address + disassembly_len).
+        // are in the range rel_address .. (rel_address + disassembly_len).
         // If the end of
         // this range points into the middle of an instruction, we still want to
         // decode the entire instruction, so we need all of its bytes.
@@ -139,7 +139,7 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> AsmApi<'a, 'h, H> {
 
         // Now read the instruction bytes from the file.
         let bytes = binary_image
-            .read_bytes_at_relative_address(relative_start_address, disassembly_len + MAX_INSTR_LEN)
+            .read_bytes_at_relative_address(rel_address, disassembly_len + MAX_INSTR_LEN)
             .map_err(|e| match e {
                 CodeByteReadingError::AddressNotFound => AsmError::AddressNotFound,
                 CodeByteReadingError::ObjectParseError(e) => AsmError::ObjectParseError(e),
@@ -147,13 +147,7 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> AsmApi<'a, 'h, H> {
                 CodeByteReadingError::FileIO(e) => AsmError::FileIO(e),
             })?;
 
-        let reader = yaxpeax_arch::U8Reader::new(bytes);
-        decode_arch(
-            reader,
-            architecture,
-            relative_start_address,
-            disassembly_len,
-        )
+        decode_arch(bytes, architecture, rel_address, disassembly_len)
     }
 
     async fn get_function_end_address(
@@ -171,24 +165,20 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> AsmApi<'a, 'h, H> {
 }
 
 fn decode_arch(
-    reader: U8Reader,
+    bytes: &[u8],
     arch: Option<&str>,
-    relative_start_address: u32,
+    rel_address: u32,
     decode_len: u32,
 ) -> Result<Response, AsmError> {
     Ok(match arch {
-        Some("x86") => {
-            decode::<yaxpeax_x86::protected_mode::Arch>(reader, relative_start_address, decode_len)
-        }
+        Some("x86") => decode::<yaxpeax_x86::protected_mode::Arch>(bytes, rel_address, decode_len),
         Some("x86_64" | "x86_64h") => {
-            decode::<yaxpeax_x86::amd64::Arch>(reader, relative_start_address, decode_len)
+            decode::<yaxpeax_x86::amd64::Arch>(bytes, rel_address, decode_len)
         }
         Some("arm64" | "arm64e") => {
-            decode::<yaxpeax_arm::armv8::a64::ARMv8>(reader, relative_start_address, decode_len)
+            decode::<yaxpeax_arm::armv8::a64::ARMv8>(bytes, rel_address, decode_len)
         }
-        Some("arm") => {
-            decode::<yaxpeax_arm::armv7::ARMv7>(reader, relative_start_address, decode_len)
-        }
+        Some("arm") => decode::<yaxpeax_arm::armv7::ARMv7>(bytes, rel_address, decode_len),
         _ => {
             return Err(AsmError::UnrecognizedArch(
                 arch.map_or_else(|| "unknown".to_string(), |a| a.to_string()),
@@ -200,6 +190,7 @@ fn decode_arch(
 trait InstructionDecoding: Arch {
     const ARCH_NAME: &'static str;
     const SYNTAX: &'static [&'static str];
+    const ADJUST_BY_AFTER_ERROR: usize;
     fn make_decoder() -> Self::Decoder;
     fn stringify_inst(offset: u32, inst: Self::Instruction) -> DecodedInstruction;
 }
@@ -207,6 +198,7 @@ trait InstructionDecoding: Arch {
 impl InstructionDecoding for yaxpeax_x86::amd64::Arch {
     const ARCH_NAME: &'static str = "x86_64";
     const SYNTAX: &'static [&'static str] = &["Intel", "C style"];
+    const ADJUST_BY_AFTER_ERROR: usize = 1;
 
     fn make_decoder() -> Self::Decoder {
         yaxpeax_x86::amd64::InstDecoder::default()
@@ -228,6 +220,7 @@ impl InstructionDecoding for yaxpeax_x86::amd64::Arch {
 impl InstructionDecoding for yaxpeax_x86::protected_mode::Arch {
     const ARCH_NAME: &'static str = "i686";
     const SYNTAX: &'static [&'static str] = &["Intel"];
+    const ADJUST_BY_AFTER_ERROR: usize = 1;
 
     fn make_decoder() -> Self::Decoder {
         yaxpeax_x86::protected_mode::InstDecoder::default()
@@ -244,6 +237,7 @@ impl InstructionDecoding for yaxpeax_x86::protected_mode::Arch {
 impl InstructionDecoding for yaxpeax_arm::armv8::a64::ARMv8 {
     const ARCH_NAME: &'static str = "aarch64";
     const SYNTAX: &'static [&'static str] = &["ARM"];
+    const ADJUST_BY_AFTER_ERROR: usize = 4;
 
     fn make_decoder() -> Self::Decoder {
         yaxpeax_arm::armv8::a64::InstDecoder::default()
@@ -260,6 +254,7 @@ impl InstructionDecoding for yaxpeax_arm::armv8::a64::ARMv8 {
 impl InstructionDecoding for yaxpeax_arm::armv7::ARMv7 {
     const ARCH_NAME: &'static str = "arm";
     const SYNTAX: &'static [&'static str] = &["ARM"];
+    const ADJUST_BY_AFTER_ERROR: usize = 2;
 
     fn make_decoder() -> Self::Decoder {
         // TODO: Detect whether the instructions in the requested address range
@@ -285,8 +280,8 @@ impl InstructionDecoding for yaxpeax_arm::armv7::ARMv7 {
 }
 
 fn decode<'a, A: InstructionDecoding>(
-    mut reader: U8Reader<'a>,
-    relative_start_address: u32,
+    bytes: &'a [u8],
+    rel_address: u32,
     decode_len: u32,
 ) -> Response
 where
@@ -294,31 +289,56 @@ where
     U8Reader<'a>: yaxpeax_arch::Reader<A::Address, A::Word>,
 {
     use yaxpeax_arch::Decoder;
+    let mut reader = yaxpeax_arch::U8Reader::new(bytes);
     let decoder = A::make_decoder();
     let mut instructions = Vec::new();
+    let mut offset = 0;
     loop {
-        let offset = u64::from(yaxpeax_arch::Reader::<A::Address, A::Word>::total_offset(
-            &mut reader,
-        )) as u32;
         if offset >= decode_len {
             break;
         }
+        let before = u64::from(reader.total_offset()) as u32;
         match decoder.decode(&mut reader) {
             Ok(inst) => {
                 instructions.push(A::stringify_inst(offset, inst));
+                let after = u64::from(reader.total_offset()) as u32;
+                offset += after - before;
             }
             Err(e) => {
-                if !e.data_exhausted() {
-                    // If decoding encountered an error, append a fake "!!! ERROR" instruction
-                    instructions.push(DecodedInstruction {
-                        offset,
-                        decoded_string_per_syntax: A::SYNTAX
-                            .iter()
-                            .map(|_| format!("!!! ERROR: {e}"))
-                            .collect(),
-                    });
+                if e.data_exhausted() {
+                    break;
                 }
-                break;
+
+                let remaining_bytes = &bytes[offset as usize..];
+                let s = remaining_bytes
+                    .iter()
+                    .take(A::ADJUST_BY_AFTER_ERROR)
+                    .map(|b| format!("{b:#02x}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let s2 = remaining_bytes
+                    .iter()
+                    .take(A::ADJUST_BY_AFTER_ERROR)
+                    .map(|b| format!("{b:02X}"))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+
+                instructions.push(DecodedInstruction {
+                    offset,
+                    decoded_string_per_syntax: A::SYNTAX
+                        .iter()
+                        .map(|_| {
+                            format!(
+                                ".byte {s:width$} # Invalid instruction {s2}: {e}",
+                                width = A::ADJUST_BY_AFTER_ERROR * 6
+                            )
+                        })
+                        .collect(),
+                });
+
+                offset += A::ADJUST_BY_AFTER_ERROR as u32;
+                let Some(reader_bytes) = bytes.get(offset as usize..) else { break };
+                reader = U8Reader::new(reader_bytes);
             }
         }
     }
@@ -327,7 +347,7 @@ where
     )) as u32;
 
     Response {
-        start_address: relative_start_address,
+        start_address: rel_address,
         size: final_offset,
         arch: A::ARCH_NAME.to_string(),
         syntax: A::SYNTAX.iter().map(ToString::to_string).collect(),
