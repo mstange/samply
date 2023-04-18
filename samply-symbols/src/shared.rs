@@ -1022,3 +1022,67 @@ impl<'data, T: ReadRef<'data>> ReadRef<'data> for RangeReadRef<'data, T> {
         self.original_readref.read_bytes_at_until(range, delimiter)
     }
 }
+
+pub struct FileContentsCursor<'a, T: FileContents> {
+    /// Invariant: current_offset + remaining_len == total_len
+    current_offset: u64,
+    /// Invariant: current_offset + remaining_len == total_len
+    remaining_len: u64,
+    inner: &'a FileContentsWrapper<T>,
+}
+
+impl<'a, T: FileContents> FileContentsCursor<'a, T> {
+    pub fn new(inner: &'a FileContentsWrapper<T>) -> Self {
+        let remaining_len = inner.len();
+        Self {
+            current_offset: 0,
+            remaining_len,
+            inner,
+        }
+    }
+}
+
+impl<'a, T: FileContents> std::io::Read for FileContentsCursor<'a, T> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let read_len = <[u8]>::len(buf).min(self.remaining_len as usize);
+        // Make a silly copy
+        let mut tmp_buf = Vec::with_capacity(read_len);
+        self.inner
+            .read_bytes_into(&mut tmp_buf, self.current_offset, read_len)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        buf[..read_len].copy_from_slice(&tmp_buf);
+        self.current_offset += read_len as u64;
+        self.remaining_len -= read_len as u64;
+        Ok(read_len)
+    }
+}
+
+impl<'a, T: FileContents> std::io::Seek for FileContentsCursor<'a, T> {
+    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+        /// Returns (new_offset, new_remaining_len)
+        fn inner(cur: u64, total_len: u64, pos: std::io::SeekFrom) -> Option<(u64, u64)> {
+            let new_offset: u64 = match pos {
+                std::io::SeekFrom::Start(pos) => pos,
+                std::io::SeekFrom::End(pos) => {
+                    (total_len as i64).checked_add(pos)?.try_into().ok()?
+                }
+                std::io::SeekFrom::Current(pos) => {
+                    (cur as i64).checked_add(pos)?.try_into().ok()?
+                }
+            };
+            let new_remaining = total_len.checked_sub(new_offset)?;
+            Some((new_offset, new_remaining))
+        }
+
+        let cur = self.current_offset;
+        let total_len = self.current_offset + self.remaining_len;
+        match inner(cur, total_len, pos) {
+            Some((cur, rem)) => {
+                self.current_offset = cur;
+                self.remaining_len = rem;
+                Ok(cur)
+            }
+            None => Err(std::io::Error::new(std::io::ErrorKind::Other, "Bad Seek")),
+        }
+    }
+}

@@ -224,10 +224,13 @@ use std::sync::Mutex;
 
 use binary_image::BinaryImageInner;
 pub use debugid;
+use jitdump::JitDumpIndex;
+use linux_perf_data::jitdump::JitDumpReader;
 pub use object;
 pub use pdb_addr2line::pdb;
 
 use object::read::FileKind;
+use shared::FileContentsCursor;
 
 mod binary_image;
 mod breakpad;
@@ -679,7 +682,10 @@ where
         let file_kind = match FileKind::parse(&file_contents) {
             Ok(file_kind) => file_kind,
             Err(_) if jitdump::is_jitdump_file(&file_contents) => {
-                let inner = BinaryImageInner::JitDump(file_contents);
+                let cursor = FileContentsCursor::new(&file_contents);
+                let reader = JitDumpReader::new(cursor)?;
+                let index = JitDumpIndex::from_reader(reader).map_err(Error::JitDumpFileReading)?;
+                let inner = BinaryImageInner::JitDump(file_contents, index);
                 return BinaryImage::new(inner, name, path);
             }
             Err(_) => {

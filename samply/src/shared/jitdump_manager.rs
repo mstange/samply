@@ -89,6 +89,15 @@ struct SingleJitDumpProcessor {
     lib_mapping_ops: LibMappingOpQueue,
     symbols: Vec<Symbol>,
     main_thread_handle: ThreadHandle,
+
+    /// The relative_address of the next JIT function.
+    ///
+    /// We define the relative address space for Jitdump files as follows:
+    /// Pretend that all JIT code is located in sequence, without gaps, in
+    /// the order of JIT_CODE_LOAD entries in the file. A given JIT function's
+    /// relative address is the sum of the `code_size`s of all the `JIT_CODE_LOAD`
+    /// entries that came before it in the file.
+    cumulative_address: u32,
 }
 
 impl SingleJitDumpProcessor {
@@ -103,6 +112,7 @@ impl SingleJitDumpProcessor {
             lib_mapping_ops: Default::default(),
             symbols: Default::default(),
             main_thread_handle,
+            cumulative_address: 0,
         }
     }
 
@@ -138,8 +148,10 @@ impl SingleJitDumpProcessor {
                 Ok(JitDumpRecord::CodeLoad(record)) => {
                     let start_avma = record.code_addr;
                     let end_avma = start_avma + record.code_bytes.len() as u64;
-                    let relative_address_at_start = raw_jitdump_record.start_offset as u32
-                        + record.code_bytes_offset_from_record_header_start() as u32;
+
+                    let relative_address_at_start = self.cumulative_address;
+                    self.cumulative_address += record.code_bytes.len() as u32;
+
                     let symbol_name = record.function_name.as_slice();
                     let symbol_name = std::str::from_utf8(&symbol_name).unwrap_or("");
                     self.symbols.push(Symbol {

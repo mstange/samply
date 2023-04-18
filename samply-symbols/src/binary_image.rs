@@ -8,6 +8,7 @@ use object::{
 use crate::{
     debug_id_and_code_id_for_jitdump, debug_id_for_object,
     debugid_util::code_id_for_object,
+    jitdump::JitDumpIndex,
     macho::{DyldCacheFileData, MachOData, MachOFatArchiveMemberData, ObjectAndMachOData},
     relative_address_base,
     shared::{FileContentsWrapper, LibraryInfo, PeCodeId, RangeReadRef},
@@ -98,7 +99,7 @@ pub enum BinaryImageInner<F: FileContents + 'static> {
     Normal(FileContentsWrapper<F>, FileKind),
     MemberOfFatArchive(MachOFatArchiveMemberData<F>, FileKind),
     MemberOfDyldSharedCache(DyldCacheFileData<F>),
-    JitDump(FileContentsWrapper<F>),
+    JitDump(FileContentsWrapper<F>, JitDumpIndex),
 }
 
 impl<F: FileContents> BinaryImageInner<F> {
@@ -162,7 +163,7 @@ impl<F: FileContents> BinaryImageInner<F> {
                 let arch = macho_data.get_arch().map(ToOwned::to_owned);
                 (debug_id, code_id, debug_path, debug_name, arch)
             }
-            BinaryImageInner::JitDump(file) => {
+            BinaryImageInner::JitDump(file, _index) => {
                 let header_bytes =
                     file.read_bytes_at(0, JitDumpHeader::SIZE as u64)
                         .map_err(|e| {
@@ -212,10 +213,11 @@ impl<F: FileContents> BinaryImageInner<F> {
                 let obj_and_macho_data = dyld_cache_file_data.make_object()?;
                 Ok(Some(obj_and_macho_data.object))
             }
-            BinaryImageInner::JitDump(_file) => Ok(None),
+            BinaryImageInner::JitDump(_file, _index) => Ok(None),
         }
     }
 
+    /// Shortens the size as needed to fit in the section.
     pub fn read_bytes_at_relative_address(
         &self,
         start_address: u32,
@@ -225,8 +227,17 @@ impl<F: FileContents> BinaryImageInner<F> {
             Some(obj) => obj,
             None => {
                 // No object. This must be JITDUMP.
-                if let BinaryImageInner::JitDump(data) = self {
-                    return Ok(data.read_bytes_at(start_address.into(), size.into())?);
+                if let BinaryImageInner::JitDump(data, index) = self {
+                    let (entry_index, _symbol_address, offset_from_symbol) = index
+                        .lookup_relative_address(start_address)
+                        .ok_or(CodeByteReadingError::AddressNotFound)?;
+                    let entry = &index.entries[entry_index];
+                    let symbol_code_bytes_len = entry.code_bytes_len;
+                    let remaining_bytes_after_start_address =
+                        symbol_code_bytes_len - offset_from_symbol;
+                    let size = (size as u64).min(remaining_bytes_after_start_address);
+                    let start_offset = entry.code_bytes_offset + offset_from_symbol;
+                    return Ok(data.read_bytes_at(start_offset, size)?);
                 } else {
                     panic!()
                 }
