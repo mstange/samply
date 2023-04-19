@@ -16,7 +16,8 @@ impl<T> LibMappings<T> {
         }
     }
 
-    /// Add a mapping to this process.
+    /// Add a mapping to this process. Any existing mappings which overlap with the
+    /// new mapping are removed.
     ///
     /// `start_avma..end_avma` describe the address mapping that this mapping
     /// occupies in the virtual memory address space of the process.
@@ -40,27 +41,39 @@ impl<T> LibMappings<T> {
         relative_address_at_start: u32,
         value: T,
     ) {
-        let insertion_index = match self
+        let remove_range_begin = match self
             .sorted_mappings
             .binary_search_by_key(&start_avma, |r| r.start_avma)
         {
-            Ok(i) => {
-                // We already have a library mapping at this address.
-                // Not sure how to best deal with it. Ideally it wouldn't happen. Let's just remove this mapping.
-                self.sorted_mappings.remove(i);
-                i
+            Ok(i) => i,
+            Err(0) => 0,
+            Err(i) => {
+                // start_avma falls between the start_avmas of `i - 1` and `i`.
+                if start_avma < self.sorted_mappings[i - 1].end_avma {
+                    i - 1
+                } else {
+                    i
+                }
             }
-            Err(i) => i,
         };
 
-        self.sorted_mappings.insert(
-            insertion_index,
-            Mapping {
+        let mut remove_range_end = remove_range_begin;
+        for mapping in &self.sorted_mappings[remove_range_begin..] {
+            if mapping.start_avma < end_avma {
+                remove_range_end += 1;
+            } else {
+                break;
+            }
+        }
+
+        self.sorted_mappings.splice(
+            remove_range_begin..remove_range_end,
+            [Mapping {
                 start_avma,
                 end_avma,
                 relative_address_at_start,
                 value,
-            },
+            }],
         );
     }
 
