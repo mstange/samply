@@ -279,10 +279,15 @@ where
         }
     }
 
-    pub fn finish(self) -> Profile {
+    pub fn finish(mut self) -> Profile {
         let mut profile = self.profile;
-        self.processes
-            .finish(&mut profile, &self.unresolved_stacks, &self.event_names);
+        self.processes.finish(
+            &mut profile,
+            &self.unresolved_stacks,
+            &self.event_names,
+            &mut self.jit_category_manager,
+            &self.timestamp_converter,
+        );
         profile
     }
 
@@ -1507,11 +1512,26 @@ where
     }
 
     pub fn finish(
-        self,
+        mut self,
         profile: &mut Profile,
         unresolved_stacks: &UnresolvedStacks,
         event_names: &[String],
+        jit_category_manager: &mut JitCategoryManager,
+        timestamp_converter: &TimestampConverter,
     ) {
+        // Gather the ProcessSampleData from any processes which are still alive at the end of profiling.
+        for mut process in self.processes_by_pid.into_values() {
+            let process_sample_data = process.on_remove(
+                self.allow_reuse,
+                profile,
+                jit_category_manager,
+                timestamp_converter,
+            );
+            if !process_sample_data.is_empty() {
+                self.process_sample_datas.push(process_sample_data);
+            }
+        }
+
         let user_category = profile.add_category("User", CategoryColor::Yellow).into();
         let kernel_category = profile.add_category("Kernel", CategoryColor::Orange).into();
         let mut stack_frame_scratch_buf = Vec::new();
