@@ -74,7 +74,7 @@ pub fn open_trace<F: FnMut(&EventRecord)>(path: &Path, mut callback: F)  {
     let path = HSTRING::from(path.as_os_str());
     #[cfg(not(windows))]
     let path: HSTRING = panic!();
-    log_file.0.LogFileName = unsafe { PWSTR(path.as_wide().as_ptr() as *mut _) };
+    log_file.0.LogFileName = PWSTR(path.as_wide().as_ptr() as *mut _);
     log_file.0.Anonymous1.ProcessTraceMode = Etw::PROCESS_TRACE_MODE_EVENT_RECORD | Etw::PROCESS_TRACE_MODE_RAW_TIMESTAMP;
     let mut cb: &mut dyn FnMut(&EventRecord) = &mut callback;
     log_file.0.Context = unsafe { std::mem::transmute(&mut cb) };
@@ -261,7 +261,7 @@ pub fn start_trace<F: FnMut(&EventRecord)>(mut callback: F)  {
     ); }
     
     let mut trace = EventTraceLogfile::default();
-    trace.0.LoggerName = unsafe { PWSTR(session_name.as_ptr() as *mut _ ) };
+    trace.0.LoggerName = PWSTR(session_name.as_ptr() as *mut _ );
     trace.0.Anonymous1.ProcessTraceMode = Etw::PROCESS_TRACE_MODE_REAL_TIME | Etw::PROCESS_TRACE_MODE_EVENT_RECORD;
     let mut cb: &mut dyn FnMut(&EventRecord) = &mut callback;
     trace.0.Context = unsafe { std::mem::transmute(&mut cb) };
