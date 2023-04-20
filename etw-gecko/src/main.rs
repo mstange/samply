@@ -45,6 +45,7 @@ fn is_kernel_address(ip: u64, pointer_size: u32) -> bool {
     return ip >= 0xFFFF000000000000;        // TODO I don't know what the true cutoff is.
 }
 struct ThreadState {
+    // When merging threads `handle` is the global thread handle and we use `merge_name` to store the name
     handle: ThreadHandle,
     merge_name: Option<String>,
     last_kernel_stack: Option<Vec<u64>>,
