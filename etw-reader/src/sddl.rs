@@ -1,6 +1,6 @@
 use windows::{Win32::{
     Security,
-    Foundation::PSID,
+    Foundation::{PSID, HLOCAL},
     System::Memory::LocalFree,
 
 }, core::PSTR};
@@ -44,7 +44,7 @@ pub fn convert_sid_to_string(sid: *const u8) -> SddlResult<String> {
             .to_str()?
             .to_owned();
 
-        LocalFree(tmp.0 as isize);
+        let _ = LocalFree(HLOCAL(tmp.0 as isize));
 
         Ok(sid_string)
     }
