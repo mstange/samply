@@ -3,7 +3,7 @@ use std::{collections::{HashMap, HashSet, hash_map::Entry}, convert::TryInto, fs
 use etw_reader::{GUID, open_trace, parser::{Parser, TryParse}, print_property, schema::SchemaLocator, write_property};
 use serde_json::{Value, json, to_writer};
 
-use fxprof_processed_profile::{Timestamp, MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, ReferenceTimestamp, MarkerSchemaField, MarkerTiming, ProfilerMarker, ThreadHandle, Profile, debugid::{self, CodeId}, SamplingInterval, CategoryPairHandle, ProcessHandle, LibraryInfo, CounterHandle};
+use fxprof_processed_profile::{Timestamp, MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, ReferenceTimestamp, MarkerSchemaField, MarkerTiming, ProfilerMarker, ThreadHandle, Profile, debugid::{self, CodeId}, SamplingInterval, CategoryPairHandle, ProcessHandle, LibraryInfo, CounterHandle, FrameInfo, FrameFlags};
 use debugid::DebugId;
 use uuid::Uuid;
 
@@ -32,7 +32,7 @@ impl ProfilerMarker for TextMarker {
                 key: "name",
                 label: "Details",
                 format: MarkerFieldFormat::String,
-                searchable: None,
+                searchable: false,
             })],
         }
     }
@@ -329,12 +329,21 @@ fn main() {
                     stack.reverse();
 
                     let mut add_sample = |thread: &mut ThreadState, timestamp, stack: Vec<u64>| {
-                        let frames = stack.iter().map(|addr| (fxprof_processed_profile::Frame::ReturnAddress(*addr), user_category));
+                        let frames = stack.iter().map(|addr| 
+                            FrameInfo {
+                                frame: fxprof_processed_profile::Frame::ReturnAddress(*addr),
+                                category_pair: user_category,
+                                flags: FrameFlags::empty(),
+                            });
                         if let Some(global_thread) = global_thread {
                             let stack_frames = frames;
                             let mut frames = Vec::new();
                             let thread_name = thread.merge_name.as_ref().map(|x| strip_thread_numbers(x).to_owned()).unwrap_or_else(|| format!("thread {}", thread.thread_id));
-                            frames.push((fxprof_processed_profile::Frame::Label(profile.intern_string(&thread_name)), user_category));
+                            frames.push(FrameInfo {
+                                frame: fxprof_processed_profile::Frame::Label(profile.intern_string(&thread_name)),
+                                category_pair: user_category,
+                                flags: FrameFlags::empty(),
+                            });
                             frames.extend(stack_frames);
                             profile.add_sample(global_thread, timestamp, frames.into_iter(), Duration::ZERO.into(), 1);
                         } else {
@@ -393,7 +402,11 @@ fn main() {
                                     let timestamp = e.EventHeader.TimeStamp as u64;
                                     let timestamp = Timestamp::from_nanos_since_reference(to_nanos(timestamp - start_time));
 
-                                    frames.push((fxprof_processed_profile::Frame::Label(profile.intern_string(&thread_name)), user_category));
+                                    frames.push(FrameInfo {
+                                        frame: fxprof_processed_profile::Frame::Label(profile.intern_string(&thread_name)),
+                                        category_pair: user_category,
+                                        flags: FrameFlags::empty()
+                                    });
                                     profile.add_sample(global_thread, timestamp, frames.into_iter(), Duration::ZERO.into(), 1);
                                 }
                             }
@@ -425,7 +438,12 @@ fn main() {
                                     let timestamp = e.EventHeader.TimeStamp as u64;
                                     let timestamp = Timestamp::from_nanos_since_reference(to_nanos(timestamp - start_time));
 
-                                    frames.push((fxprof_processed_profile::Frame::Label(profile.intern_string(&thread_name)), user_category));
+                                    frames.push(FrameInfo {
+                                        frame: fxprof_processed_profile::Frame::Label(profile.intern_string(&thread_name)),
+                                        category_pair: user_category,
+                                        flags: FrameFlags::empty(),
+                                    });
+
                                     profile.add_sample(global_thread, timestamp, frames.into_iter(), Duration::ZERO.into(), 1);
                                 }
                             }
@@ -448,7 +466,7 @@ fn main() {
                     let counter = match memory_usage.entry(e.EventHeader.ProcessId) {
                         Entry::Occupied(e) => e.into_mut(),
                         Entry::Vacant(entry) => {
-                            entry.insert(MemoryUsage { counter: profile.add_counter("MemoryUsage", processes[&e.EventHeader.ProcessId]), value: 0. })
+                            entry.insert(MemoryUsage { counter: profile.add_counter(processes[&e.EventHeader.ProcessId], "VirtualAlloc", "Memory", "Amount of VirtualAlloc allocated memory"), value: 0. })
                         }
                     };
                     let thread = match threads.entry(thread_id) {
@@ -487,7 +505,7 @@ fn main() {
                     let counter = match memory_usage.entry(e.EventHeader.ProcessId) {
                         Entry::Occupied(e) => e.into_mut(),
                         Entry::Vacant(entry) => {
-                            entry.insert(MemoryUsage { counter: profile.add_counter("MemoryUsage", processes[&e.EventHeader.ProcessId]), value: 0. })
+                            entry.insert(MemoryUsage { counter: profile.add_counter(processes[&e.EventHeader.ProcessId], "VirtualAlloc", "Memory", "Amount of VirtualAlloc allocated memory"), value: 0. })
                         }
                     };
                     let thread = match threads.entry(thread_id) {
@@ -543,7 +561,7 @@ fn main() {
                     let pdb_path: String = parser.try_parse("PdbFileName").unwrap();
                     //let pdb_path = Path::new(&pdb_path);
                     let (ref path, image_size, timestamp) = libs[&image_base];
-                    let code_id = Some(CodeId::new(format!("{timestamp:08X}{image_size:x}")));
+                    let code_id = Some(format!("{timestamp:08X}{image_size:x}"));
                     let name = Path::new(path).file_name().unwrap().to_str().unwrap().to_owned();
                     let debug_name = Path::new(&pdb_path).file_name().unwrap().to_str().unwrap().to_owned();
                     let info = LibraryInfo { 
@@ -554,17 +572,17 @@ fn main() {
                         symbol_table: None, 
                         debug_path: pdb_path,
                         debug_id, 
-                        arch: Some("x86_64".into()), 
-                        base_avma: image_base, 
-                        avma_range: image_base..(image_base + image_size as u64) };
+                        arch: Some("x86_64".into())
+                    };
+                    let lib = profile.add_lib(info);
                     if process_id == 0 {
-                        profile.add_kernel_lib(info)
+                        profile.add_kernel_lib_mapping(lib, image_base, image_base + image_size as u64, 0);
                     } else {
                         let process = match global_process {
                             Some(global_process) => global_process,
                             None => processes[&dbg!(process_id)],
                         };
-                        profile.add_lib(process, info)
+                        profile.add_lib_mapping(process, lib, image_base, image_base + image_size as u64, 0);
                     }
                 }
                 "Microsoft-Windows-DxgKrnl/VSyncDPC/Info " => {
@@ -594,7 +612,7 @@ fn main() {
                                     key: "name",
                                     label: "Details",
                                     format: MarkerFieldFormat::String,
-                                    searchable: None,
+                                    searchable: false,
                                 })],
                             }
                         }
