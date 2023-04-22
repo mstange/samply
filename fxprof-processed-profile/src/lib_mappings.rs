@@ -1,3 +1,6 @@
+/// Keeps track of mapped libraries in an address space. Stores a value
+/// for each mapping, and allows efficient lookup of that value based on
+/// an address.
 #[derive(Debug, Clone)]
 pub struct LibMappings<T> {
     sorted_mappings: Vec<Mapping<T>>,
@@ -10,25 +13,29 @@ impl<T> Default for LibMappings<T> {
 }
 
 impl<T> LibMappings<T> {
+    /// Creates a new empty instance.
     pub fn new() -> Self {
         Self {
             sorted_mappings: Vec::new(),
         }
     }
 
-    /// Add a mapping to this process. Any existing mappings which overlap with the
+    /// Add a mapping to this address space. Any existing mappings which overlap with the
     /// new mapping are removed.
     ///
-    /// `start_avma..end_avma` describe the address mapping that this mapping
-    /// occupies in the virtual memory address space of the process.
+    /// `start_avma` and `end_avma` describe the address range that this mapping
+    /// occupies.
+    ///
     /// AVMA = "actual virtual memory address"
     ///
     /// `relative_address_at_start` is the "relative address" which corresponds
-    /// to `start_avma`, in the library that is mapped in this mapping. A relative
-    /// address is a `u32` value which is relative to the library base address.
+    /// to `start_avma`, in the library that is mapped in this mapping. This is zero if
+    /// `start_avm` is the base address of the library.
+    ///
+    /// A relative address is a `u32` value which is relative to the library base address.
     /// So you will usually set `relative_address_at_start` to `start_avma - base_avma`.
     ///
-    /// For ELF binaries, the base address is AVMA of the first segment, i.e. the
+    /// For ELF binaries, the base address is the AVMA of the first segment, i.e. the
     /// start_avma of the mapping created by the first ELF `LOAD` command.
     ///
     /// For mach-O binaries, the base address is the vmaddr of the `__TEXT` segment.
@@ -77,6 +84,8 @@ impl<T> LibMappings<T> {
         );
     }
 
+    /// Remove a mapping which starts at the given address. If found, this returns
+    /// the `relative_address_at_start` and the associated value of the mapping.
     pub fn remove_mapping(&mut self, start_avma: u64) -> Option<(u32, T)> {
         self.sorted_mappings
             .binary_search_by_key(&start_avma, |m| m.start_avma)
@@ -85,11 +94,13 @@ impl<T> LibMappings<T> {
             .map(|m| (m.relative_address_at_start, m.value))
     }
 
+    /// Clear all mappings.
     pub fn clear(&mut self) {
         self.sorted_mappings.clear();
         self.sorted_mappings.shrink_to_fit();
     }
 
+    /// Look up the mapping which covers the given address.
     fn lookup(&self, avma: u64) -> Option<&Mapping<T>> {
         let mappings = &self.sorted_mappings[..];
         let index = match mappings.binary_search_by_key(&avma, |r| r.start_avma) {

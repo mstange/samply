@@ -266,23 +266,37 @@ impl Profile {
         self.processes[process.0].set_name(name);
     }
 
-    /// Add a library which is loaded into a process. This allows symbolication of native
-    /// stacks once the profile is opened in the Firefox Profiler.
+    /// Get the `LibraryHandle` for a library. This handle is used in [`Profile::add_lib_mapping`]
+    /// and in the pre-resolved [`Frame`] variants.
     ///
-    /// Each library covers an address range in the virtual memory of a process. Future calls
-    /// to [`Profile::add_sample`] with native frames resolve the frame's code address with
-    /// respect to the currently loaded kernel and process libraries.
+    /// Knowing the library information allows symbolication of native stacks once the
+    /// profile is opened in the Firefox Profiler.
     pub fn add_lib(&mut self, library: LibraryInfo) -> LibraryHandle {
         self.global_libs.handle_for_lib(library)
     }
 
+    /// Set the symbol table for a library.
+    ///
+    /// This symbol table can also be specified in the [`LibraryInfo`] which is given to
+    /// [`Profile::add_lib`]. However, sometimes you may want to have the [`LibraryHandle`]
+    /// for a library before you know about all its symbols. In those cases, you can call
+    /// [`Profile::add_lib`] with `symbol_table` set to `None`, and then supply the symbol
+    /// table afterwards.
+    ///
+    /// Symbol tables are optional.
     pub fn set_lib_symbol_table(&mut self, library: LibraryHandle, symbol_table: Arc<SymbolTable>) {
         self.global_libs.set_lib_symbol_table(library, symbol_table);
     }
 
-    /// Each library covers one or more addresss range in the virtual memory of a process.
-    /// Future calls to [`Profile::add_sample`] with native frames resolve the frame's code
-    /// address with respect to the currently loaded kernel and process libraries.
+    /// For a given process, define where in the virtual memory of this process the given library
+    /// is mapped.
+    ///
+    /// Existing mappings which overlap with the range `start_avma..end_avma` will be removed.
+    ///
+    /// A single library can have multiple mappings in the same process.
+    ///
+    /// The new mapping will be respected by future [`Profile::add_sample`] calls, when resolving
+    /// absolute frame addresses to library-relative addresses.
     pub fn add_lib_mapping(
         &mut self,
         process: ProcessHandle,
@@ -299,8 +313,8 @@ impl Profile {
         );
     }
 
-    /// Mark the library at the specified base address in the specified process as
-    /// unloaded, so that future calls to [`Profile::add_sample`] know about the unloading.
+    /// Mark the library mapping at the specified start address in the specified process as
+    /// unloaded, so that future calls to [`Profile::add_sample`] know about the removal.
     pub fn remove_lib_mapping(&mut self, process: ProcessHandle, start_avma: u64) {
         self.processes[process.0].remove_lib_mapping(start_avma);
     }
@@ -310,7 +324,7 @@ impl Profile {
         self.processes[process.0].remove_all_lib_mappings();
     }
 
-    /// Add a kernel library. This allows symbolication of kernel stacks once the profile is
+    /// Add a kernel library mapping. This allows symbolication of kernel stacks once the profile is
     /// opened in the Firefox Profiler. Kernel libraries are global and not tied to a process.
     ///
     /// Each kernel library covers an address range in the kernel address space, which is
@@ -328,7 +342,7 @@ impl Profile {
             .add_mapping(start_avma, end_avma, relative_address_at_start, lib);
     }
 
-    /// Mark the kernel library at the specified base address as
+    /// Mark the kernel library at the specified start address as
     /// unloaded, so that future calls to [`Profile::add_sample`] know about the unloading.
     pub fn remove_kernel_lib_mapping(&mut self, start_avma: u64) {
         self.kernel_libs.remove_mapping(start_avma);
@@ -455,9 +469,9 @@ impl Profile {
         self.threads[thread.0].add_marker(name, marker, timing, stack_index);
     }
 
-    /// Add a data point to a counter. For a memory counter, `value_delta` would be the number
+    /// Add a data point to a counter. For a memory counter, `value_delta` is the number
     /// of bytes that have been allocated / deallocated since the previous counter sample, and
-    /// `number_of_operations` would be the number of `malloc` / `free` calls since the previous
+    /// `number_of_operations` is the number of `malloc` / `free` calls since the previous
     /// counter sample. Both numbers are deltas.
     ///
     /// The graph in the profiler UI will connect subsequent data points with diagonal lines.

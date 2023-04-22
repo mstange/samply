@@ -7,9 +7,17 @@ use crate::profile::StringHandle;
 /// A part of the information about a single stack frame.
 #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq)]
 pub enum Frame {
-    /// A code address taken from the instruction pointer
+    /// A code address taken from the instruction pointer.
+    ///
+    /// This code address will be resolved to a library-relative address using
+    /// the library mappings on the process which were specified using
+    /// [`Profile::add_lib_mapping`](crate::Profile::add_lib_mapping).
     InstructionPointer(u64),
     /// A code address taken from a return address
+    ///
+    /// This code address will be resolved to a library-relative address using
+    /// the library mappings on the process which were specified using
+    /// [`Profile::add_lib_mapping`](crate::Profile::add_lib_mapping).
     ReturnAddress(u64),
     /// A relative address taken from the instruction pointer which
     /// has already been resolved to a `LibraryHandle`.
