@@ -42,6 +42,7 @@ pub struct FrameInfo {
 
 bitflags! {
     /// Flags for a stack frame.
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Copy)]
     pub struct FrameFlags: u32 {
         /// Set on frames which are JavaScript functions.
         const IS_JS = 0b00000001;
