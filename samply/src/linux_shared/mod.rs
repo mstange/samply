@@ -2,9 +2,10 @@ mod context_switch;
 mod event_interpretation;
 mod kernel_symbols;
 mod object_rewriter;
+mod rss_stat;
 mod svma_file_range;
 
-use byteorder::{ByteOrder, LittleEndian};
+use byteorder::LittleEndian;
 use debugid::{CodeId, DebugId};
 use framehop::aarch64::UnwindRegsAarch64;
 use framehop::x86_64::UnwindRegsX86_64;
@@ -21,7 +22,7 @@ use linux_perf_event_reader::constants::{
 };
 use linux_perf_event_reader::{
     CommOrExecRecord, CommonData, ContextSwitchRecord, ForkOrExitRecord, Mmap2FileId, Mmap2Record,
-    MmapRecord, RawData, RawDataU64, Regs, SampleRecord,
+    MmapRecord, RawDataU64, Regs, SampleRecord,
 };
 use memmap2::Mmap;
 use object::pe::{ImageNtHeaders32, ImageNtHeaders64};
@@ -40,6 +41,7 @@ use std::{ops::Range, path::Path};
 use self::context_switch::{ContextSwitchHandler, OffCpuSampleGroup, ThreadContextSwitchData};
 pub use self::event_interpretation::EventInterpretation;
 use self::kernel_symbols::KernelSymbols;
+use self::rss_stat::{RssStat, MM_ANONPAGES, MM_FILEPAGES, MM_SHMEMPAGES, MM_SWAPENTS};
 use crate::linux_shared::svma_file_range::compute_vma_bias;
 use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::jit_function_add_marker::JitFunctionAddMarker;
@@ -1886,83 +1888,6 @@ fn correct_bad_perf_jit_so_file(
     let fixed_file = std::fs::File::open(&fixed_path).ok()?;
 
     Some((fixed_file, fixed_path))
-}
-
-/// Resident file mapping pages
-#[allow(unused)]
-const MM_FILEPAGES: i32 = 0;
-
-/// Resident anonymous pages
-#[allow(unused)]
-const MM_ANONPAGES: i32 = 1;
-
-/// Anonymous swap entries
-#[allow(unused)]
-const MM_SWAPENTS: i32 = 2;
-
-/// Resident shared memory pages
-#[allow(unused)]
-const MM_SHMEMPAGES: i32 = 3;
-
-/// ```
-/// # cat /sys/kernel/debug/tracing/events/kmem/rss_stat/format
-/// name: rss_stat
-/// ID: 537
-/// format:
-///         field:unsigned short common_type;       offset:0;       size:2; signed:0;
-///         field:unsigned char common_flags;       offset:2;       size:1; signed:0;
-///         field:unsigned char common_preempt_count;       offset:3;       size:1; signed:0;
-///         field:int common_pid;   offset:4;       size:4; signed:1;
-///
-///         field:unsigned int mm_id;       offset:8;       size:4; signed:0;
-///         field:unsigned int curr;        offset:12;      size:4; signed:0;
-///         field:int member;       offset:16;      size:4; signed:1;
-///         field:long size;        offset:24;      size:8; signed:1;
-///
-/// print fmt: "mm_id=%u curr=%d type=%s size=%ldB", REC->mm_id, REC->curr, __print_symbolic(REC->member, { 0, "MM_FILEPAGES" }, { 1, "MM_ANONPAGES" }, { 2, "MM_SWAPENTS" }, { 3, "MM_SHMEMPAGES" }), REC->size
-/// ```
-#[repr(C)]
-#[derive(Debug)]
-struct RssStat {
-    common_type: u16,
-    common_flags: u8,
-    common_preempt_count: u8,
-    common_pid: i32,
-    mm_id: u32,
-    curr: u32,
-    member: i32,
-    size: i64,
-}
-
-impl RssStat {
-    pub fn parse(data: RawData, endian: Endianness) -> Result<Self, std::io::Error> {
-        match endian {
-            Endianness::LittleEndian => Self::parse_impl::<byteorder::LittleEndian>(data),
-            Endianness::BigEndian => Self::parse_impl::<byteorder::BigEndian>(data),
-        }
-    }
-
-    pub fn parse_impl<O: ByteOrder>(mut data: RawData) -> Result<Self, std::io::Error> {
-        let common_type = data.read_u16::<O>()?;
-        let common_flags = data.read_u8()?;
-        let common_preempt_count = data.read_u8()?;
-        let common_pid = data.read_i32::<O>()?;
-        let mm_id = data.read_u32::<O>()?;
-        let curr = data.read_u32::<O>()?;
-        let member = data.read_i32::<O>()?;
-        let _padding = data.read_u32::<O>()?;
-        let size = data.read_u64::<O>()? as i64;
-        Ok(RssStat {
-            common_type,
-            common_flags,
-            common_preempt_count,
-            common_pid,
-            mm_id,
-            curr,
-            member,
-            size,
-        })
-    }
 }
 
 fn get_path_if_jitdump(path: &[u8]) -> Option<&Path> {
