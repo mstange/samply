@@ -64,7 +64,6 @@ where
     current_sample_time: u64,
     build_ids: HashMap<DsoKey, DsoInfo>,
     endian: Endianness,
-    have_product_name: bool,
     delayed_product_name_generator: Option<BoxedProductNameGenerator>,
     linux_version: Option<String>,
     extra_binary_artifact_dir: Option<PathBuf>,
@@ -139,7 +138,6 @@ where
             current_sample_time: first_sample_time,
             build_ids,
             endian,
-            have_product_name: delayed_product_name_generator.is_none(),
             delayed_product_name_generator,
             linux_version: linux_version.map(ToOwned::to_owned),
             extra_binary_artifact_dir: extra_binary_artifact_dir.map(ToOwned::to_owned),
@@ -878,7 +876,6 @@ where
             let generator = self.delayed_product_name_generator.take().unwrap();
             let product = generator(name);
             self.profile.set_product(&product);
-            self.have_product_name = true;
         }
     }
 
