@@ -141,24 +141,24 @@ where
         match parsed_record {
             EventRecord::Sample(e) => {
                 if attr_index == interpretation.main_event_attr_index {
-                    converter.handle_sample::<C>(&e);
+                    converter.handle_main_event_sample::<C>(&e);
                 } else if interpretation.sched_switch_attr_index == Some(attr_index) {
-                    converter.handle_sched_switch::<C>(&e);
+                    converter.handle_sched_switch_sample::<C>(&e);
                 } else if interpretation.rss_stat_attr_index != Some(attr_index) {
                     converter.handle_other_event_sample::<C>(&e, attr_index);
                 }
                 if interpretation.rss_stat_attr_index == Some(attr_index) {
-                    converter.handle_rss_stat::<C>(&e);
+                    converter.handle_rss_stat_sample::<C>(&e);
                 }
             }
             EventRecord::Fork(e) => {
-                converter.handle_thread_start(e);
+                converter.handle_fork(e);
             }
             EventRecord::Comm(e) => {
-                converter.handle_thread_name_update(e, record.timestamp());
+                converter.handle_comm(e, record.timestamp());
             }
             EventRecord::Exit(e) => {
-                converter.handle_thread_end(e);
+                converter.handle_exit(e);
             }
             EventRecord::Mmap(e) => {
                 converter.handle_mmap(e, last_timestamp);

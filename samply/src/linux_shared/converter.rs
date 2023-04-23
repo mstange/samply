@@ -168,7 +168,10 @@ where
         profile
     }
 
-    pub fn handle_sample<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(&mut self, e: &SampleRecord) {
+    pub fn handle_main_event_sample<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
+        &mut self,
+        e: &SampleRecord,
+    ) {
         let pid = e.pid.expect("Can't handle samples without pids");
         let tid = e.tid.expect("Can't handle samples without tids");
         let timestamp = e
@@ -207,7 +210,7 @@ where
         // Consume off-cpu time and clear any saved off-CPU stack.
         let off_cpu_sample = self
             .context_switch_handler
-            .handle_sample(timestamp, &mut thread.context_switch_data);
+            .handle_on_cpu_sample(timestamp, &mut thread.context_switch_data);
         if let (Some(off_cpu_sample), Some(off_cpu_stack)) =
             (off_cpu_sample, thread.off_cpu_stack.take())
         {
@@ -249,7 +252,7 @@ where
         );
     }
 
-    pub fn handle_sched_switch<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
+    pub fn handle_sched_switch_sample<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
         &mut self,
         e: &SampleRecord,
     ) {
@@ -278,7 +281,7 @@ where
         thread.off_cpu_stack = Some(stack_index);
     }
 
-    pub fn handle_rss_stat<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
+    pub fn handle_rss_stat_sample<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
         &mut self,
         e: &SampleRecord,
     ) {
@@ -688,7 +691,7 @@ where
     ///
     /// FORK records are emitted if a new thread is started or if a new
     /// process is created. The name is inherited from the forking thread.
-    pub fn handle_thread_start(&mut self, e: ForkOrExitRecord) {
+    pub fn handle_fork(&mut self, e: ForkOrExitRecord) {
         let start_time = self.timestamp_converter.convert_time(e.timestamp);
 
         let is_main = e.pid == e.tid;
@@ -752,7 +755,7 @@ where
     }
 
     /// Called for an EXIT record.
-    pub fn handle_thread_end(&mut self, e: ForkOrExitRecord) {
+    pub fn handle_exit(&mut self, e: ForkOrExitRecord) {
         let is_main = e.pid == e.tid;
         let end_time = self.timestamp_converter.convert_time(e.timestamp);
         if is_main {
@@ -774,42 +777,7 @@ where
         }
     }
 
-    pub fn set_thread_name(&mut self, pid: i32, tid: i32, name: &str, is_thread_creation: bool) {
-        let is_main = pid == tid;
-
-        let process = self.processes.get_by_pid(pid, &mut self.profile);
-        let process_handle = process.profile_process;
-
-        let thread = process.threads.get_thread_by_tid(tid, &mut self.profile);
-        let thread_handle = thread.profile_thread;
-
-        self.profile.set_thread_name(thread_handle, name);
-        thread.name = Some(name.to_owned());
-        if is_main {
-            self.profile.set_process_name(process_handle, name);
-            process.name = Some(name.to_owned());
-        }
-
-        if is_thread_creation {
-            // Mark this as the start time of the new thread / process.
-            let time = self
-                .timestamp_converter
-                .convert_time(self.current_sample_time);
-            self.profile.set_thread_start_time(thread_handle, time);
-            if is_main {
-                self.profile.set_process_start_time(process_handle, time);
-            }
-        }
-
-        if self.delayed_product_name_generator.is_some() && name != "perf-exec" {
-            let generator = self.delayed_product_name_generator.take().unwrap();
-            let product = generator(name);
-            self.profile.set_product(&product);
-            self.have_product_name = true;
-        }
-    }
-
-    pub fn handle_thread_name_update(&mut self, e: CommOrExecRecord, timestamp: Option<u64>) {
+    pub fn handle_comm(&mut self, e: CommOrExecRecord, timestamp: Option<u64>) {
         let is_main = e.pid == e.tid;
         let name = e.name.as_slice();
         let name = String::from_utf8_lossy(&name);
@@ -871,6 +839,47 @@ where
         };
 
         self.set_thread_name(e.pid, e.tid, &name, is_thread_creation);
+    }
+
+    #[allow(unused)]
+    pub fn register_existing_thread(&mut self, pid: i32, tid: i32, name: &str) {
+        self.set_thread_name(pid, tid, name, true);
+    }
+
+    /// Called by `handle_comm` for `COMM` and `EXEC`, and from `handle_fork`, and from `register_existing_thread`.
+    fn set_thread_name(&mut self, pid: i32, tid: i32, name: &str, is_thread_creation: bool) {
+        let is_main = pid == tid;
+
+        let process = self.processes.get_by_pid(pid, &mut self.profile);
+        let process_handle = process.profile_process;
+
+        let thread = process.threads.get_thread_by_tid(tid, &mut self.profile);
+        let thread_handle = thread.profile_thread;
+
+        self.profile.set_thread_name(thread_handle, name);
+        thread.name = Some(name.to_owned());
+        if is_main {
+            self.profile.set_process_name(process_handle, name);
+            process.name = Some(name.to_owned());
+        }
+
+        if is_thread_creation {
+            // Mark this as the start time of the new thread / process.
+            let time = self
+                .timestamp_converter
+                .convert_time(self.current_sample_time);
+            self.profile.set_thread_start_time(thread_handle, time);
+            if is_main {
+                self.profile.set_process_start_time(process_handle, time);
+            }
+        }
+
+        if self.delayed_product_name_generator.is_some() && name != "perf-exec" {
+            let generator = self.delayed_product_name_generator.take().unwrap();
+            let product = generator(name);
+            self.profile.set_product(&product);
+            self.have_product_name = true;
+        }
     }
 
     fn add_kernel_module(

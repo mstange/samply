@@ -133,7 +133,7 @@ impl ContextSwitchHandler {
         off_cpu_sample
     }
 
-    pub fn handle_sample(
+    pub fn handle_on_cpu_sample(
         &self,
         timestamp: u64,
         thread: &mut ThreadContextSwitchData,
@@ -275,7 +275,7 @@ mod test {
         handler.handle_switch_out(3, &mut thread);
         let s = handler.handle_switch_in(5, &mut thread);
         assert_eq!(s, None);
-        let s = handler.handle_sample(12, &mut thread);
+        let s = handler.handle_on_cpu_sample(12, &mut thread);
         let delta = handler.consume_cpu_delta(&mut thread);
         assert_eq!(s, None);
         assert_eq!(delta, 10);
@@ -309,11 +309,11 @@ mod test {
         );
         let delta = handler.consume_cpu_delta(&mut thread);
         assert_eq!(delta, 3);
-        let s = handler.handle_sample(51, &mut thread);
+        let s = handler.handle_on_cpu_sample(51, &mut thread);
         let delta = handler.consume_cpu_delta(&mut thread);
         assert_eq!(s, None);
         assert_eq!(delta, 3);
-        let s = handler.handle_sample(61, &mut thread);
+        let s = handler.handle_on_cpu_sample(61, &mut thread);
         let delta = handler.consume_cpu_delta(&mut thread);
         assert_eq!(s, None);
         assert_eq!(delta, 10);

@@ -310,7 +310,7 @@ fn init_profiler(
         if let Ok(buffer) = std::fs::read(comm_path) {
             let length = memchr::memchr(b'\0', &buffer).unwrap_or(buffer.len());
             let name = std::str::from_utf8(&buffer[..length]).unwrap().trim_end();
-            converter.set_thread_name(pid as i32, tid as i32, name, true);
+            converter.register_existing_thread(pid as i32, tid as i32, name);
         }
     }
 
@@ -414,20 +414,20 @@ fn run_profiler(
 
             match parsed_record {
                 EventRecord::Sample(e) => {
-                    converter.handle_sample::<ConvertRegsNative>(&e);
+                    converter.handle_main_event_sample::<ConvertRegsNative>(&e);
                     /*
                     } else if interpretation.sched_switch_attr_index == Some(attr_index) {
-                        converter.handle_sched_switch::<C>(e);
+                        converter.handle_sched_switch_sample::<C>(e);
                     }*/
                 }
                 EventRecord::Fork(e) => {
-                    converter.handle_thread_start(e);
+                    converter.handle_fork(e);
                 }
                 EventRecord::Comm(e) => {
-                    converter.handle_thread_name_update(e, record.timestamp());
+                    converter.handle_comm(e, record.timestamp());
                 }
                 EventRecord::Exit(e) => {
-                    converter.handle_thread_end(e);
+                    converter.handle_exit(e);
                 }
                 EventRecord::Mmap(e) => {
                     converter.handle_mmap(e, last_timestamp);
