@@ -1,7 +1,5 @@
 use object::{Object, ObjectSection, ObjectSegment, ObjectSymbol, SymbolKind};
 
-use std::path::Path;
-
 use super::object_rewriter;
 
 pub fn jit_function_name<'data>(obj: &object::File<'data>) -> Option<&'data str> {
@@ -108,14 +106,4 @@ pub fn correct_bad_perf_jit_so_file(
     let fixed_file = std::fs::File::open(&fixed_path).ok()?;
 
     Some((fixed_file, fixed_path))
-}
-
-pub fn get_path_if_jitdump(path: &[u8]) -> Option<&Path> {
-    let path = Path::new(std::str::from_utf8(path).ok()?);
-    let filename = path.file_name()?.to_str()?;
-    if filename.starts_with("jit-") && filename.ends_with(".dump") {
-        Some(path)
-    } else {
-        None
-    }
 }

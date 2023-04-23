@@ -28,14 +28,13 @@ use std::{ops::Range, path::Path};
 use super::context_switch::{ContextSwitchHandler, OffCpuSampleGroup};
 use super::convert_regs::ConvertRegs;
 use super::event_interpretation::EventInterpretation;
-use super::injected_jit_object::{correct_bad_perf_jit_so_file, get_path_if_jitdump};
+use super::injected_jit_object::{correct_bad_perf_jit_so_file, jit_function_name};
 use super::kernel_symbols::{kernel_module_build_id, KernelSymbols};
 use super::processes::Processes;
 use super::rss_stat::{RssStat, MM_ANONPAGES, MM_FILEPAGES, MM_SHMEMPAGES, MM_SWAPENTS};
-use crate::linux_shared::injected_jit_object::jit_function_name;
-use crate::linux_shared::svma_file_range::compute_vma_bias;
-use crate::shared::jit_category_manager::JitCategoryManager;
+use super::svma_file_range::compute_vma_bias;
 
+use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::process_sample_data::RssStatMember;
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::types::{StackFrame, StackMode};
@@ -1272,5 +1271,15 @@ fn get_pe_mapping_size(path_slice: &[u8]) -> Option<u64> {
         FileKind::Pe32 => inner::<ImageNtHeaders32>(&mmap),
         FileKind::Pe64 => inner::<ImageNtHeaders64>(&mmap),
         _ => None,
+    }
+}
+
+fn get_path_if_jitdump(path: &[u8]) -> Option<&Path> {
+    let path = Path::new(std::str::from_utf8(path).ok()?);
+    let filename = path.file_name()?.to_str()?;
+    if filename.starts_with("jit-") && filename.ends_with(".dump") {
+        Some(path)
+    } else {
+        None
     }
 }
