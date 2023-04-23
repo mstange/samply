@@ -2,6 +2,7 @@ mod context_switch;
 mod convert_regs;
 mod converter;
 mod event_interpretation;
+mod injected_jit_object;
 mod kernel_symbols;
 mod object_rewriter;
 mod process;
