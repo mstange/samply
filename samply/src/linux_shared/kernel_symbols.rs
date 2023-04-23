@@ -1,8 +1,10 @@
-use std::{fmt::Debug, sync::Arc};
+use std::{fmt::Debug, path::Path, sync::Arc};
 
 use fxprof_processed_profile::{Symbol, SymbolTable};
-use object::{elf, read, NativeEndian};
+use object::{elf, read, NativeEndian, Object};
 use read::elf::NoteHeader;
+
+use crate::shared::utils::open_file_with_fallback;
 
 #[derive(Debug, thiserror::Error)]
 pub enum KernelSymbolsError {
@@ -267,6 +269,21 @@ impl<'data, Elf: read::elf::FileHeader> Note<'data, Elf> {
     /// of this field is determined by `name` and `n_type`.
     pub fn desc(&self) -> &'data [u8] {
         self.desc
+    }
+}
+
+pub fn kernel_module_build_id(
+    path: &Path,
+    extra_binary_artifact_dir: Option<&Path>,
+) -> Option<Vec<u8>> {
+    let file = open_file_with_fallback(path, extra_binary_artifact_dir)
+        .ok()?
+        .0;
+    let mmap = unsafe { memmap2::MmapOptions::new().map(&file) }.ok()?;
+    let obj = object::File::parse(&mmap[..]).ok()?;
+    match obj.build_id() {
+        Ok(Some(build_id)) => Some(build_id.to_owned()),
+        _ => None,
     }
 }
 
