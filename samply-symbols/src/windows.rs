@@ -234,7 +234,7 @@ impl<'object> SymbolMapTrait for PdbSymbolMapInner<'object> {
         let function_frames = self.context.find_frames(address).ok()??;
         let symbol_address = function_frames.start_rva;
         let symbol_name = match &function_frames.frames.last().unwrap().function {
-            Some(name) => demangle::demangle_any(name),
+            Some(name) => demangle::demangle_any(name).1,
             None => "unknown".to_string(),
         };
         let function_size = function_frames
@@ -259,6 +259,7 @@ impl<'object> SymbolMapTrait for PdbSymbolMapInner<'object> {
                     function: frame.function,
                     file_path: frame.file.map(&mut map_path),
                     line_number: frame.line,
+                    mangled_name: None,
                 })
                 .collect();
             FramesLookupResult::Available(frames)

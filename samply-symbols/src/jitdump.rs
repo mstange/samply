@@ -304,6 +304,7 @@ impl<'a, T: FileContents> JitDumpSymbolMapInner<'a, T> {
                             function: Some(name.clone()),
                             file_path: Some(SourceFilePath::new(file_path, None)),
                             line_number: Some(entry.line),
+                            mangled_name: None,
                         };
                         FramesLookupResult::Available(vec![frame])
                     }

@@ -33,15 +33,15 @@ pub fn convert_stack_frame<R: gimli::Reader>(
     frame: addr2line::Frame<R>,
     path_mapper: &mut PathMapper<()>,
 ) -> FrameDebugInfo {
-    let function = match frame.function {
+    let (function, mangled_name) = match frame.function {
         Some(function_name) => {
             if let Ok(name) = function_name.raw_name() {
-                Some(demangle::demangle_any(&name))
+                (Some(demangle::demangle_any(&name).1), Some(name.to_string()))
             } else {
-                None
+                (None, None)
             }
         }
-        None => None,
+        None => (None, None),
     };
     let file_path = frame.location.as_ref().and_then(|l| l.file).map(|file| {
         let mapped_path = path_mapper.map_path(file);
@@ -52,6 +52,7 @@ pub fn convert_stack_frame<R: gimli::Reader>(
         function,
         file_path,
         line_number: frame.location.and_then(|l| l.line),
+        mangled_name,
     }
 }
 

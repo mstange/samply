@@ -425,6 +425,8 @@ pub struct FrameDebugInfo {
     pub file_path: Option<SourceFilePath>,
     /// The line number for this frame, if known.
     pub line_number: Option<u32>,
+    /// The mangled name of this frame, if known.
+    pub mangled_name: Option<String>,
 }
 
 /// A trait which abstracts away the token that's passed to the [`FileAndPathHelper::load_file`]

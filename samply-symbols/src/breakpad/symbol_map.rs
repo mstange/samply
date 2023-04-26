@@ -300,6 +300,7 @@ impl<'a, T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'a, T> {
                         function: name,
                         file_path: file.map(SourceFilePath::from_breakpad_path),
                         line_number: Some(inlinee.call_line),
+                        mangled_name: None,
                     });
                     let inline_origin = inline_origins
                         .get_str(inlinee.origin_id)
@@ -319,6 +320,7 @@ impl<'a, T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'a, T> {
                     function: name,
                     file_path: file.map(SourceFilePath::from_breakpad_path),
                     line_number,
+                    mangled_name: None,
                 });
                 frames.reverse();
 
@@ -452,7 +454,8 @@ mod test {
             FrameDebugInfo {
                 function: Some("WriteRelease64(long long*, long long)".into()),
                 file_path: Some(SourceFilePath::new("/builds/worker/workspace/obj-build/browser/app/d:/agent/_work/2/s/src/externalapis/windows/10/sdk/inc/winnt.h".into(), None)),
-                line_number: Some(7729)
+                line_number: Some(7729),
+                mangled_name: None,
             }
         );
         assert_eq!(
@@ -460,7 +463,8 @@ mod test {
             FrameDebugInfo {
                 function: Some("WritePointerRelease(void**, void*)".into()),
                 file_path: Some(SourceFilePath::new("/builds/worker/workspace/obj-build/browser/app/d:/agent/_work/2/s/src/externalapis/windows/10/sdk/inc/winnt.h".into(), None)),
-                line_number: Some(8358)
+                line_number: Some(8358),
+                mangled_name: None,
             }
         );
         assert_eq!(
@@ -468,7 +472,8 @@ mod test {
             FrameDebugInfo {
                 function: Some("DloadUnlock()".into()),
                 file_path: Some(SourceFilePath::new("/builds/worker/workspace/obj-build/browser/app/d:/agent/_work/2/s/src/vctools/delayimp/dloadsup.h".into(), None)),
-                line_number: Some(345)
+                line_number: Some(345),
+                mangled_name: None,
             }
         );
         assert_eq!(
@@ -476,7 +481,8 @@ mod test {
             FrameDebugInfo {
                 function: Some("DloadAcquireSectionWriteAccess()".into()),
                 file_path: Some(SourceFilePath::new("/builds/worker/workspace/obj-build/browser/app/d:/agent/_work/2/s/src/vctools/delayimp/dloadsup.h".into(), None)),
-                line_number: Some(665)
+                line_number: Some(665),
+                mangled_name: None,
             }
         );
     }
