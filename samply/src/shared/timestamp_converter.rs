@@ -1,5 +1,6 @@
 use fxprof_processed_profile::Timestamp;
 
+#[derive(Debug, Clone, Copy)]
 pub struct TimestampConverter {
     reference_ns: u64,
 }

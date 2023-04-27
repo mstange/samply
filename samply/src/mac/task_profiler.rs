@@ -4,7 +4,7 @@ use framehop::{
     Unwinder, UnwinderNative,
 };
 use fxprof_processed_profile::debugid::DebugId;
-use fxprof_processed_profile::{LibraryInfo, ProcessHandle, Profile, Timestamp};
+use fxprof_processed_profile::{LibraryInfo, ProcessHandle, Profile, ThreadHandle, Timestamp};
 use mach::mach_types::thread_act_port_array_t;
 use mach::mach_types::thread_act_t;
 use mach::message::mach_msg_type_number_t;
@@ -24,19 +24,22 @@ use std::ops::Deref;
 use std::path::{Path, PathBuf};
 
 use crate::shared::jit_category_manager::JitCategoryManager;
+use crate::shared::jit_function_recycler::JitFunctionRecycler;
 use crate::shared::jitdump_manager::JitDumpManager;
 use crate::shared::lib_mappings::{
     LibMappingAdd, LibMappingInfo, LibMappingOp, LibMappingOpQueue, LibMappingRemove,
 };
 use crate::shared::perf_map::try_load_perf_map;
 use crate::shared::process_sample_data::ProcessSampleData;
+use crate::shared::recycling::{ProcessRecycler, ProcessRecyclingData, ThreadRecycler};
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
 
 use super::error::SamplingError;
 use super::kernel_error::{IntoResult, KernelError};
 use super::proc_maps::{DyldInfo, DyldInfoManager, Modification, StackwalkerRef, VmSubData};
-use super::thread_profiler::{get_thread_id, ThreadProfiler};
+use super::sampler::TaskInit;
+use super::thread_profiler::{get_thread_id, get_thread_name, ThreadProfiler};
 
 pub enum UnwindSectionBytes {
     Remapped(VmSubData),
@@ -87,28 +90,51 @@ pub struct TaskProfiler {
     task: mach_port_t,
     pid: u32,
     live_threads: HashMap<thread_act_t, ThreadProfiler>,
-    dead_threads: Vec<ThreadProfiler>,
     lib_info_manager: DyldInfoManager,
-    executable_lib: Option<DyldInfo>,
-    command_name: String,
+    executable_name: String,
     profile_process: ProcessHandle,
+    main_thread_handle: ThreadHandle,
     ignored_errors: Vec<SamplingError>,
     unwinder: UnwinderNative<UnwindSectionBytes, MayAllocateDuringUnwind>,
     jitdump_path_receiver: Receiver<PathBuf>,
     jitdump_manager: JitDumpManager,
     unresolved_samples: UnresolvedSamples,
     lib_mapping_ops: LibMappingOpQueue,
+    thread_recycler: Option<ThreadRecycler>,
+    jit_function_recycler: Option<JitFunctionRecycler>,
+    timestamp_converter: TimestampConverter,
 }
 
 impl TaskProfiler {
     pub fn new(
-        task: mach_port_t,
-        pid: u32,
-        jitdump_path_receiver: Receiver<PathBuf>,
-        start_time: Timestamp,
+        task_init: TaskInit,
+        timestamp_converter: TimestampConverter,
         command_name: &str,
         profile: &mut Profile,
+        mut process_recycler: Option<&mut ProcessRecycler>,
     ) -> Result<Self, SamplingError> {
+        let TaskInit {
+            start_time_mono,
+            task,
+            pid,
+            jitdump_path_receiver,
+        } = task_init;
+        let start_time = timestamp_converter.convert_time(start_time_mono);
+
+        let mut lib_info_manager = DyldInfoManager::new(task);
+        let initial_lib_mods = lib_info_manager
+            .check_for_changes()
+            .map_err(|e| SamplingError::Ignorable("Could not check process libraries", e))?;
+        let executable_name = initial_lib_mods
+            .iter()
+            .find_map(|change| match change {
+                Modification::Added(lib) if lib.is_executable => Path::new(&lib.file)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string()),
+                _ => None,
+            })
+            .unwrap_or_else(|| command_name.to_string());
+
         let thread_acts = get_thread_list(task)?;
         if thread_acts.is_empty() {
             return Err(SamplingError::Ignorable(
@@ -117,39 +143,119 @@ impl TaskProfiler {
             ));
         }
 
-        let profile_process = profile.add_process(command_name, pid, start_time);
+        let recycling_data = process_recycler
+            .as_mut()
+            .and_then(|r| r.recycle_by_name(&executable_name));
+
         let mut live_threads = HashMap::new();
-        let mut main_thread_handle = None;
-        for (i, thread_act) in thread_acts.into_iter().enumerate() {
-            // Assume that the first thread is the main thread. This seems to hold true in practice.
-            let is_main = i == 0;
-            if let Ok((tid, _is_libdispatch_thread)) = get_thread_id(thread_act) {
-                let profile_thread = profile.add_thread(profile_process, tid, start_time, is_main);
-                if is_main {
-                    main_thread_handle = Some(profile_thread);
+        let mut thread_act_iter = thread_acts.into_iter();
+        let main_thread_act = thread_act_iter.next().ok_or(SamplingError::Ignorable(
+            "No main thread",
+            KernelError::Terminated,
+        ))?;
+        let (main_thread_tid, _is_libdispatch_thread) = get_thread_id(main_thread_act)
+            .map_err(|e| SamplingError::Ignorable("Could not get main thread tid", e))?;
+        let main_thread_name = get_thread_name(main_thread_act)?;
+
+        let (profile_process, main_thread_handle, mut thread_recycler, jit_function_recycler) =
+            match recycling_data {
+                Some(ProcessRecyclingData {
+                    process_handle,
+                    main_thread_handle,
+                    thread_recycler,
+                    jit_function_recycler,
+                }) => (
+                    process_handle,
+                    main_thread_handle,
+                    Some(thread_recycler),
+                    Some(jit_function_recycler),
+                ),
+                None => {
+                    let profile_process = profile.add_process(&executable_name, pid, start_time);
+                    let main_thread_handle =
+                        profile.add_thread(profile_process, main_thread_tid, start_time, true);
+                    if let Some(main_thread_name) = &main_thread_name {
+                        profile.set_thread_name(main_thread_handle, main_thread_name);
+                    }
+                    let (thread_recycler, jit_function_recycler) = match process_recycler {
+                        Some(_) => (
+                            Some(ThreadRecycler::new()),
+                            Some(JitFunctionRecycler::default()),
+                        ),
+                        None => (None, None),
+                    };
+                    (
+                        profile_process,
+                        main_thread_handle,
+                        thread_recycler,
+                        jit_function_recycler,
+                    )
                 }
-                let thread = ThreadProfiler::new(task, tid, profile_thread, thread_act);
+            };
+
+        let main_thread = ThreadProfiler::new(
+            task,
+            main_thread_tid,
+            main_thread_handle,
+            main_thread_act,
+            main_thread_name,
+        );
+        live_threads.insert(main_thread_act, main_thread);
+
+        for thread_act in thread_act_iter {
+            if let (Ok((tid, _is_libdispatch_thread)), Ok(name)) =
+                (get_thread_id(thread_act), get_thread_name(thread_act))
+            {
+                let profile_thread = if let (Some(name), Some(thread_recycler)) =
+                    (&name, thread_recycler.as_mut())
+                {
+                    if let Some(profile_thread) = thread_recycler.recycle_by_name(name) {
+                        profile_thread
+                    } else {
+                        let profile_thread =
+                            profile.add_thread(profile_process, tid, start_time, false);
+                        profile.set_thread_name(profile_thread, name);
+                        profile_thread
+                    }
+                } else {
+                    let profile_thread =
+                        profile.add_thread(profile_process, tid, start_time, false);
+                    if let Some(name) = &name {
+                        profile.set_thread_name(profile_thread, name);
+                    }
+                    profile_thread
+                };
+
+                let thread = ThreadProfiler::new(task, tid, profile_thread, thread_act, name);
                 live_threads.insert(thread_act, thread);
             }
         }
-        Ok(TaskProfiler {
+
+        let mut task_profiler = TaskProfiler {
             task,
             pid,
             live_threads,
-            dead_threads: Vec::new(),
-            lib_info_manager: DyldInfoManager::new(task),
-            command_name: command_name.to_owned(),
+            lib_info_manager,
+            executable_name,
             profile_process,
-            executable_lib: None,
+            main_thread_handle,
             ignored_errors: Vec::new(),
             unwinder: UnwinderNative::new(),
             jitdump_path_receiver,
-            jitdump_manager: JitDumpManager::new_for_process(main_thread_handle.unwrap()),
+            jitdump_manager: JitDumpManager::new_for_process(main_thread_handle),
             lib_mapping_ops: Default::default(),
             unresolved_samples: Default::default(),
-        })
+            thread_recycler,
+            jit_function_recycler,
+            timestamp_converter,
+        };
+
+        task_profiler.process_lib_modifications(start_time_mono, initial_lib_mods, profile);
+
+        Ok(task_profiler)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn sample(
         &mut self,
         now: Timestamp,
@@ -158,6 +264,7 @@ impl TaskProfiler {
         profile: &mut Profile,
         stack_scratch_buffer: &mut Vec<FrameAddress>,
         unresolved_stacks: &mut UnresolvedStacks,
+        fold_recursive_prefix: bool,
     ) -> Result<bool, SamplingError> {
         let result = self.sample_impl(
             now,
@@ -166,6 +273,7 @@ impl TaskProfiler {
             profile,
             stack_scratch_buffer,
             unresolved_stacks,
+            fold_recursive_prefix,
         );
         match result {
             Ok(()) => Ok(true),
@@ -174,8 +282,8 @@ impl TaskProfiler {
                 self.ignored_errors.push(err);
                 if self.ignored_errors.len() >= 10 {
                     println!(
-                        "Treating process_pending_records \"{}\" [pid: {}] as terminated after 10 unknown errors:",
-                        self.command_name, self.pid
+                        "Treating process \"{}\" [pid: {}] as terminated after 10 unknown errors:",
+                        self.executable_name, self.pid
                     );
                     println!("{:#?}", self.ignored_errors);
                     Ok(false)
@@ -188,6 +296,7 @@ impl TaskProfiler {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn sample_impl(
         &mut self,
         now: Timestamp,
@@ -196,29 +305,94 @@ impl TaskProfiler {
         profile: &mut Profile,
         stack_scratch_buffer: &mut Vec<FrameAddress>,
         unresolved_stacks: &mut UnresolvedStacks,
+        fold_recursive_prefix: bool,
     ) -> Result<(), SamplingError> {
         // First, check for any newly-loaded libraries.
-        let changes = self
-            .lib_info_manager
-            .check_for_changes()
-            .unwrap_or_else(|_| Vec::new());
+        if let Ok(changes) = self.lib_info_manager.check_for_changes() {
+            self.process_lib_modifications(now_mono, changes, profile);
+        }
+
+        // Enumerate threads.
+        let thread_acts = get_thread_list(self.task)?;
+        let previously_live_threads: HashSet<_> = self.live_threads.keys().cloned().collect();
+        let mut now_live_threads = HashSet::new();
+        for thread_act in thread_acts {
+            let mut entry = self.live_threads.entry(thread_act);
+            let thread = match entry {
+                Entry::Occupied(ref mut entry) => entry.get_mut(),
+                Entry::Vacant(entry) => {
+                    if let (Ok((tid, _is_libdispatch_thread)), Ok(name)) =
+                        (get_thread_id(thread_act), get_thread_name(thread_act))
+                    {
+                        let profile_thread = if let (Some(name), Some(thread_recycler)) =
+                            (&name, self.thread_recycler.as_mut())
+                        {
+                            if let Some(profile_thread) = thread_recycler.recycle_by_name(name) {
+                                profile_thread
+                            } else {
+                                let profile_thread =
+                                    profile.add_thread(self.profile_process, tid, now, false);
+                                profile.set_thread_name(profile_thread, name);
+                                profile_thread
+                            }
+                        } else {
+                            let profile_thread =
+                                profile.add_thread(self.profile_process, tid, now, false);
+                            if let Some(name) = &name {
+                                profile.set_thread_name(profile_thread, name);
+                            }
+                            profile_thread
+                        };
+                        let thread =
+                            ThreadProfiler::new(self.task, tid, profile_thread, thread_act, name);
+                        entry.insert(thread)
+                    } else {
+                        continue;
+                    }
+                }
+            };
+            // Grab a sample from the thread.
+            let stackwalker = StackwalkerRef::new(&self.unwinder, unwinder_cache);
+            thread.check_thread_name(profile, self.thread_recycler.as_mut());
+            let still_alive = thread.sample(
+                stackwalker,
+                now,
+                now_mono,
+                stack_scratch_buffer,
+                unresolved_stacks,
+                &mut self.unresolved_samples,
+                fold_recursive_prefix,
+            )?;
+            if still_alive {
+                now_live_threads.insert(thread_act);
+            }
+        }
+        let dead_threads = previously_live_threads.difference(&now_live_threads);
+        for thread_act in dead_threads {
+            let mut thread = self.live_threads.remove(thread_act).unwrap();
+            thread.notify_dead(now, profile);
+            let (thread_name, thread_handle) = thread.finish();
+            if let (Some(thread_name), Some(thread_recycler)) =
+                (thread_name, self.thread_recycler.as_mut())
+            {
+                thread_recycler.add_to_pool(&thread_name, thread_handle);
+            }
+        }
+        Ok(())
+    }
+
+    fn process_lib_modifications(
+        &mut self,
+        now_mono: u64,
+        changes: Vec<Modification<DyldInfo>>,
+        profile: &mut Profile,
+    ) {
         for change in changes {
             match change {
                 Modification::Added(mut lib) => {
                     self.add_lib_to_unwinder_and_ensure_debug_id(&mut lib);
-                    let path = Path::new(&lib.file);
-                    if self.executable_lib.is_none() && lib.is_executable {
-                        self.executable_lib = Some(lib.clone());
-                        self.command_name = path
-                            .components()
-                            .next_back()
-                            .unwrap()
-                            .as_os_str()
-                            .to_string_lossy()
-                            .to_string();
-                        profile.set_process_name(self.profile_process, &self.command_name);
-                    }
 
+                    let path = Path::new(&lib.file);
                     if let Some(name) = path.file_name() {
                         let name = name.to_string_lossy();
                         let path = path.to_string_lossy();
@@ -254,49 +428,6 @@ impl TaskProfiler {
                 }
             }
         }
-
-        // Enumerate threads.
-        let thread_acts = get_thread_list(self.task)?;
-        let previously_live_threads: HashSet<_> = self.live_threads.keys().cloned().collect();
-        let mut now_live_threads = HashSet::new();
-        for thread_act in thread_acts {
-            let mut entry = self.live_threads.entry(thread_act);
-            let thread = match entry {
-                Entry::Occupied(ref mut entry) => entry.get_mut(),
-                Entry::Vacant(entry) => {
-                    if let Ok((tid, _is_libdispatch_thread)) = get_thread_id(thread_act) {
-                        let profile_thread =
-                            profile.add_thread(self.profile_process, tid, now, false);
-                        let thread =
-                            ThreadProfiler::new(self.task, tid, profile_thread, thread_act);
-                        entry.insert(thread)
-                    } else {
-                        continue;
-                    }
-                }
-            };
-            // Grab a sample from the thread.
-            let stackwalker = StackwalkerRef::new(&self.unwinder, unwinder_cache);
-            let still_alive = thread.sample(
-                stackwalker,
-                now,
-                now_mono,
-                profile,
-                stack_scratch_buffer,
-                unresolved_stacks,
-                &mut self.unresolved_samples,
-            )?;
-            if still_alive {
-                now_live_threads.insert(thread_act);
-            }
-        }
-        let dead_threads = previously_live_threads.difference(&now_live_threads);
-        for thread_act in dead_threads {
-            let mut thread = self.live_threads.remove(thread_act).unwrap();
-            thread.notify_dead(now, profile);
-            self.dead_threads.push(thread);
-        }
-        Ok(())
     }
 
     fn add_lib_to_unwinder_and_ensure_debug_id(&mut self, lib: &mut DyldInfo) {
@@ -375,7 +506,6 @@ impl TaskProfiler {
         &mut self,
         profile: &mut Profile,
         jit_category_manager: &mut JitCategoryManager,
-        timestamp_converter: &TimestampConverter,
     ) {
         while let Ok(jitdump_path) = self.jitdump_path_receiver.try_recv() {
             self.jitdump_manager.add_jitdump_path(jitdump_path, None);
@@ -384,38 +514,70 @@ impl TaskProfiler {
         self.jitdump_manager.process_pending_records(
             jit_category_manager,
             profile,
-            None,
-            timestamp_converter,
+            self.jit_function_recycler.as_mut(),
+            &self.timestamp_converter,
         );
     }
 
+    /// Called when a process has exited, before finish(). Not called if the process
+    /// is still alive at the end of the profiling run.
     pub fn notify_dead(&mut self, end_time: Timestamp, profile: &mut Profile) {
         for (_, mut thread) in self.live_threads.drain() {
             thread.notify_dead(end_time, profile);
-            self.dead_threads.push(thread);
+            let (thread_name, thread_handle) = thread.finish();
+
+            if let (Some(thread_name), Some(thread_recycler)) =
+                (thread_name, self.thread_recycler.as_mut())
+            {
+                thread_recycler.add_to_pool(&thread_name, thread_handle);
+            }
         }
         profile.set_process_end_time(self.profile_process, end_time);
         self.lib_info_manager.unmap_memory();
     }
 
+    /// Called when a process has exited or at the end of the profiling run.
     pub fn finish(
-        self,
+        mut self,
         jit_category_manager: &mut JitCategoryManager,
         profile: &mut Profile,
-        timestamp_converter: &TimestampConverter,
-    ) -> ProcessSampleData {
+    ) -> (ProcessSampleData, Option<(String, ProcessRecyclingData)>) {
         let perf_map_mappings = if !self.unresolved_samples.is_empty() {
             try_load_perf_map(self.pid, profile, jit_category_manager, None)
         } else {
             None
         };
-        ProcessSampleData::new(
+        let jitdump_lib_ops = self.jitdump_manager.finish(
+            jit_category_manager,
+            profile,
+            self.jit_function_recycler.as_mut(),
+            &self.timestamp_converter,
+        );
+        let process_sample_data = ProcessSampleData::new(
             self.unresolved_samples,
             self.lib_mapping_ops,
-            self.jitdump_manager
-                .finish(jit_category_manager, profile, None, timestamp_converter),
+            jitdump_lib_ops,
             perf_map_mappings,
-        )
+        );
+
+        let recycling_data = if let (Some(mut jit_function_recycler), Some(thread_recycler)) =
+            (self.jit_function_recycler, self.thread_recycler)
+        {
+            jit_function_recycler.finish_round();
+            Some((
+                self.executable_name,
+                ProcessRecyclingData {
+                    process_handle: self.profile_process,
+                    main_thread_handle: self.main_thread_handle,
+                    thread_recycler,
+                    jit_function_recycler,
+                },
+            ))
+        } else {
+            None
+        };
+
+        (process_sample_data, recycling_data)
     }
 }
 

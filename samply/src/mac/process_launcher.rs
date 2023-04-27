@@ -1,10 +1,11 @@
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::Write;
 use std::mem;
 use std::os::unix::prelude::OsStrExt;
 use std::path::PathBuf;
 use std::process::{Child, Command};
+use std::sync::Arc;
 use std::time::Duration;
 
 pub use super::mach_ipc::{mach_port_t, MachError, OsIpcSender};
@@ -12,22 +13,49 @@ use super::mach_ipc::{BlockingMode, OsIpcMultiShotServer, MACH_PORT_NULL};
 use flate2::write::GzDecoder;
 use tempfile::tempdir;
 
+pub struct TaskLauncher {
+    program: OsString,
+    args: Vec<OsString>,
+    child_env: Vec<(OsString, OsString)>,
+    _temp_dir: Arc<tempfile::TempDir>,
+}
+
+impl TaskLauncher {
+    pub fn launch_child(&self) -> Child {
+        match Command::new(&self.program)
+            .args(&self.args)
+            .envs(self.child_env.clone())
+            .spawn()
+        {
+            Ok(child) => child,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                eprintln!(
+                    "Error: Could not find an executable with the name {}.",
+                    self.program.to_string_lossy()
+                );
+                std::process::exit(1)
+            }
+            Err(err) => {
+                eprintln!("Error: Could not launch child process: {err}");
+                std::process::exit(1)
+            }
+        }
+    }
+}
+
 pub struct TaskAccepter {
     server: OsIpcMultiShotServer,
-    _temp_dir: tempfile::TempDir,
+    _temp_dir: Arc<tempfile::TempDir>,
 }
 
 static PRELOAD_LIB_CONTENTS: &[u8] =
     include_bytes!("../../resources/libsamply_mac_preload.dylib.gz");
 
 impl TaskAccepter {
-    pub fn create_and_launch_root_task<I, S>(
-        program: S,
-        args: I,
-    ) -> Result<(Self, Child), MachError>
+    pub fn new<I, S>(program: S, args: I) -> Result<(Self, TaskLauncher), MachError>
     where
         I: IntoIterator<Item = S>,
-        S: AsRef<OsStr>,
+        S: Into<OsString>,
     {
         let (server, server_name) = OsIpcMultiShotServer::new()?;
 
@@ -50,7 +78,7 @@ impl TaskAccepter {
 
         // Take this process's environment variables and add DYLD_INSERT_LIBRARIES
         // and SAMPLY_BOOTSTRAP_SERVER_NAME.
-        let child_env = std::env::vars_os()
+        let child_env: Vec<(OsString, OsString)> = std::env::vars_os()
             .chain(std::iter::once((
                 "DYLD_INSERT_LIBRARIES".into(),
                 preload_lib_path.into(),
@@ -58,33 +86,24 @@ impl TaskAccepter {
             .chain(std::iter::once((
                 "SAMPLY_BOOTSTRAP_SERVER_NAME".into(),
                 server_name.into(),
-            )));
+            )))
+            .collect();
 
-        let root_child = match Command::new(program.as_ref())
-            .args(args)
-            .envs(child_env)
-            .spawn()
-        {
-            Ok(child) => child,
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                eprintln!(
-                    "Error: Could not find an executable with the name {}.",
-                    program.as_ref().to_string_lossy()
-                );
-                std::process::exit(1)
-            }
-            Err(err) => {
-                eprintln!("Error: Could not launch child process: {err}");
-                std::process::exit(1)
-            }
-        };
+        let args: Vec<OsString> = args.into_iter().map(|a| a.into()).collect();
+        let program: OsString = program.into();
+        let dir = Arc::new(dir);
 
         Ok((
             TaskAccepter {
                 server,
+                _temp_dir: dir.clone(),
+            },
+            TaskLauncher {
+                program,
+                args,
+                child_env,
                 _temp_dir: dir,
             },
-            root_child,
         ))
     }
 

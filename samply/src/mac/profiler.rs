@@ -18,6 +18,7 @@ use super::process_launcher::{MachError, ReceivedStuff, TaskAccepter};
 use super::sampler::{Sampler, TaskInit};
 use super::time::get_monotonic_timestamp;
 use crate::server::{start_server_main, ServerProps};
+use crate::ConversionArgs;
 
 pub fn start_profiling_pid(
     _output_file: &Path,
@@ -25,12 +26,14 @@ pub fn start_profiling_pid(
     _time_limit: Option<Duration>,
     _interval: Duration,
     _server_props: Option<ServerProps>,
+    _conversion_args: &ConversionArgs,
 ) {
     eprintln!("Profiling existing processes is currently not supported on macOS.");
     eprintln!("You can only profile processes which you launch via samply.");
     std::process::exit(1)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn start_recording(
     output_file: &Path,
     command_name: OsString,
@@ -38,11 +41,20 @@ pub fn start_recording(
     time_limit: Option<Duration>,
     interval: Duration,
     server_props: Option<ServerProps>,
+    conversion_args: &ConversionArgs,
+    iteration_count: u32,
 ) -> Result<ExitStatus, MachError> {
     let (task_sender, task_receiver) = unbounded();
     let command_name_copy = command_name.to_string_lossy().to_string();
+    let conversion_args = conversion_args.clone();
     let sampler_thread = thread::spawn(move || {
-        let sampler = Sampler::new(command_name_copy, task_receiver, interval, time_limit);
+        let sampler = Sampler::new(
+            command_name_copy,
+            task_receiver,
+            interval,
+            time_limit,
+            &conversion_args,
+        );
         sampler.run()
     });
 
@@ -57,8 +69,7 @@ pub fn start_recording(
     )
     .expect("cannot register signal handler");
 
-    let (mut task_accepter, mut root_child) =
-        TaskAccepter::create_and_launch_root_task(&command_name, command_args)?;
+    let (mut task_accepter, task_launcher) = TaskAccepter::new(&command_name, command_args)?;
 
     let (accepter_sender, accepter_receiver) = unbounded();
     let accepter_thread = thread::spawn(move || {
@@ -79,7 +90,7 @@ pub fn start_recording(
                     let pid = accepted_task.get_id();
                     let (jitdump_path_sender, jitdump_path_receiver) = unbounded();
                     let send_result = task_sender.send(TaskInit {
-                        start_time: get_monotonic_timestamp(),
+                        start_time_mono: get_monotonic_timestamp(),
                         task: accepted_task.take_task(),
                         pid,
                         jitdump_path_receiver,
@@ -116,9 +127,23 @@ pub fn start_recording(
         }
     });
 
-    let exit_status = root_child.wait().expect("couldn't wait for child");
+    let mut root_child = task_launcher.launch_child();
+    let mut exit_status = root_child.wait().expect("couldn't wait for child");
 
-    // The subprocess is done. From now on, we want to terminate if the user presses Ctrl+C.
+    for i in 2..=iteration_count {
+        if !exit_status.success() {
+            eprintln!(
+                "Skipping remaining iterations due to non-success exit status: \"{}\"",
+                exit_status
+            );
+            break;
+        }
+        eprintln!("Running iteration {i} of {iteration_count}...");
+        let mut root_child = task_launcher.launch_child();
+        exit_status = root_child.wait().expect("couldn't wait for child");
+    }
+
+    // The launched subprocess is done. From now on, we want to terminate if the user presses Ctrl+C.
     should_terminate_on_ctrl_c.store(true, std::sync::atomic::Ordering::SeqCst);
 
     accepter_sender

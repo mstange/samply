@@ -98,6 +98,13 @@ struct RecordArgs {
     #[arg(short, long, default_value = "profile.json")]
     output: PathBuf,
 
+    /// How many times to run the profiled command.
+    #[arg(long, default_value = "1")]
+    iteration_count: u32,
+
+    #[command(flatten)]
+    conversion_args: ConversionArgs,
+
     #[command(flatten)]
     server_args: ServerArgs,
 
@@ -130,7 +137,7 @@ struct ServerArgs {
     verbose: bool,
 }
 
-#[derive(Debug, Args)]
+#[derive(Debug, Args, Clone)]
 pub struct ConversionArgs {
     /// Merge non-overlapping threads of the same name.
     #[arg(long)]
@@ -188,6 +195,7 @@ fn main() {
                     time_limit,
                     interval,
                     server_props,
+                    &record_args.conversion_args,
                 );
             } else {
                 let exit_status = match profiler::start_recording(
@@ -197,6 +205,8 @@ fn main() {
                     time_limit,
                     interval,
                     server_props,
+                    &record_args.conversion_args,
+                    record_args.iteration_count,
                 ) {
                     Ok(exit_status) => exit_status,
                     Err(err) => {

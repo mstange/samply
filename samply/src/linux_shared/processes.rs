@@ -2,16 +2,14 @@ use framehop::{Module, Unwinder};
 use fxprof_processed_profile::{CategoryColor, Profile, Timestamp};
 
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
 use super::process::Process;
-use super::process_threads::ProcessThreads;
-use super::thread::Thread;
 
 use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::jit_function_recycler::JitFunctionRecycler;
-use crate::shared::jitdump_manager::JitDumpManager;
 use crate::shared::process_sample_data::ProcessSampleData;
+use crate::shared::recycling::{ProcessRecycler, ProcessRecyclingData, ThreadRecycler};
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::unresolved_samples::UnresolvedStacks;
 
@@ -20,12 +18,13 @@ where
     U: Unwinder<Module = Module<Vec<u8>>> + Default,
 {
     processes_by_pid: HashMap<i32, Process<U>>,
-    ended_processes_for_reuse_by_name: HashMap<String, VecDeque<Process<U>>>,
+
+    /// Some() if a thread should be merged into a previously exited
+    /// thread of the same name.
+    process_recycler: Option<ProcessRecycler>,
 
     /// The sample data for all removed processes.
     process_sample_datas: Vec<ProcessSampleData>,
-
-    allow_reuse: bool,
 }
 
 impl<U> Processes<U>
@@ -33,80 +32,89 @@ where
     U: Unwinder<Module = Module<Vec<u8>>> + Default,
 {
     pub fn new(allow_reuse: bool) -> Self {
+        let process_recycler = if allow_reuse {
+            Some(ProcessRecycler::new())
+        } else {
+            None
+        };
         Self {
             processes_by_pid: HashMap::new(),
-            ended_processes_for_reuse_by_name: HashMap::new(),
+            process_recycler,
             process_sample_datas: Vec::new(),
-            allow_reuse,
         }
     }
 
-    pub fn attempt_reuse(&mut self, pid: i32, name: &str) -> Option<&mut Process<U>> {
-        if let Entry::Vacant(entry) = self.processes_by_pid.entry(pid) {
-            if let Some(processes_of_same_name) =
-                self.ended_processes_for_reuse_by_name.get_mut(name)
-            {
-                let mut process = processes_of_same_name
-                    .pop_front()
-                    .expect("We only have non-empty VecDeques in this HashMap");
-                if processes_of_same_name.is_empty() {
-                    self.ended_processes_for_reuse_by_name.remove(name);
+    pub fn recycle_or_get_new(
+        &mut self,
+        pid: i32,
+        name: Option<String>,
+        start_time: Timestamp,
+        profile: &mut Profile,
+    ) -> &mut Process<U> {
+        match self.processes_by_pid.entry(pid) {
+            Entry::Vacant(entry) => {
+                if let (Some(process_recycler), Some(name_ref)) =
+                    (self.process_recycler.as_mut(), name.as_deref())
+                {
+                    if let Some(ProcessRecyclingData {
+                        process_handle,
+                        main_thread_handle,
+                        thread_recycler,
+                        jit_function_recycler,
+                    }) = process_recycler.recycle_by_name(name_ref)
+                    {
+                        let process = Process::new(
+                            pid,
+                            process_handle,
+                            main_thread_handle,
+                            name,
+                            Some(thread_recycler),
+                            Some(jit_function_recycler),
+                        );
+                        return entry.insert(process);
+                    }
                 }
-                process.reset_for_reuse(pid);
-                return Some(entry.insert(process));
+
+                let fallback_name = format!("<{pid}>");
+                let process_handle = profile.add_process(
+                    name.as_deref().unwrap_or(&fallback_name),
+                    pid as u32,
+                    start_time,
+                );
+                let main_thread_handle =
+                    profile.add_thread(process_handle, pid as u32, start_time, true);
+                if let Some(name) = name.as_deref() {
+                    profile.set_thread_name(main_thread_handle, name);
+                }
+                let process = Process::new(
+                    pid,
+                    process_handle,
+                    main_thread_handle,
+                    name,
+                    Some(ThreadRecycler::new()),
+                    Some(JitFunctionRecycler::default()),
+                );
+                entry.insert(process)
             }
+            Entry::Occupied(entry) => entry.into_mut(),
         }
-        None
     }
 
     pub fn get_by_pid(&mut self, pid: i32, profile: &mut Profile) -> &mut Process<U> {
         self.processes_by_pid.entry(pid).or_insert_with(|| {
-            let name = format!("<{pid}>");
-            let handle = profile.add_process(
-                &name,
-                pid as u32,
-                Timestamp::from_millis_since_reference(0.0),
-            );
-            let profile_thread = profile.add_thread(
-                handle,
-                pid as u32,
-                Timestamp::from_millis_since_reference(0.0),
-                true,
-            );
-            let main_thread = Thread {
-                profile_thread,
-                context_switch_data: Default::default(),
-                last_sample_timestamp: None,
-                off_cpu_stack: None,
-                name: None,
-            };
-            let jit_function_recycler = if self.allow_reuse {
-                Some(JitFunctionRecycler::default())
-            } else {
-                None
-            };
-            Process {
-                profile_process: handle,
-                unwinder: U::default(),
-                jitdump_manager: JitDumpManager::new_for_process(profile_thread),
-                lib_mapping_ops: Default::default(),
-                name: None,
+            let fake_start_time = Timestamp::from_millis_since_reference(0.0);
+            let process_handle =
+                profile.add_process(&format!("<{pid}>"), pid as u32, fake_start_time);
+            let main_thread_handle =
+                profile.add_thread(process_handle, pid as u32, fake_start_time, true);
+            Process::new(
                 pid,
-                threads: ProcessThreads {
-                    pid,
-                    profile_process: handle,
-                    main_thread,
-                    threads_by_tid: HashMap::new(),
-                    ended_threads_for_reuse_by_name: HashMap::new(),
-                },
-                jit_function_recycler,
-                unresolved_samples: Default::default(),
-                prev_mm_filepages_size: 0,
-                prev_mm_anonpages_size: 0,
-                prev_mm_swapents_size: 0,
-                prev_mm_shmempages_size: 0,
-                mem_counter: None,
-            }
+                process_handle,
+                main_thread_handle,
+                None,
+                Some(ThreadRecycler::new()),
+                Some(JitFunctionRecycler::default()),
+            )
         })
     }
 
@@ -119,24 +127,50 @@ where
         timestamp_converter: &TimestampConverter,
     ) {
         let Some(mut process) = self.processes_by_pid.remove(&pid) else { return };
-        profile.set_process_end_time(process.profile_process, time);
 
-        let process_sample_data = process.on_remove(
-            self.allow_reuse,
-            profile,
-            jit_category_manager,
-            timestamp_converter,
-        );
+        process.notify_dead(time, profile);
+
+        let (process_sample_data, process_recycling_data) =
+            process.finish(profile, jit_category_manager, timestamp_converter);
         if !process_sample_data.is_empty() {
             self.process_sample_datas.push(process_sample_data);
         }
 
-        if self.allow_reuse {
-            if let Some(name) = process.name.as_deref() {
-                self.ended_processes_for_reuse_by_name
-                    .entry(name.to_string())
-                    .or_default()
-                    .push_back(process);
+        if let (Some((name, process_recycling_data)), Some(process_recycler)) =
+            (process_recycling_data, self.process_recycler.as_mut())
+        {
+            process_recycler.add_to_pool(&name, process_recycling_data);
+        }
+    }
+
+    pub fn rename_process(
+        &mut self,
+        pid: i32,
+        timestamp: Timestamp,
+        name: String,
+        profile: &mut Profile,
+    ) {
+        match self.processes_by_pid.entry(pid) {
+            Entry::Vacant(_) => {
+                self.recycle_or_get_new(pid, Some(name), timestamp, profile);
+            }
+            Entry::Occupied(mut entry) => {
+                if entry.get().name.as_deref() == Some(&name) {
+                    return;
+                }
+
+                if let Some(process_recycler) = self.process_recycler.as_mut() {
+                    if let Some(process_recycling_data) = process_recycler.recycle_by_name(&name) {
+                        let old_recycling_data =
+                            entry.get_mut().swap_recycling_data(process_recycling_data);
+                        if let (Some(old_recycling_data), Some(old_name)) =
+                            (old_recycling_data, entry.get().name.as_deref())
+                        {
+                            process_recycler.add_to_pool(old_name, old_recycling_data);
+                        }
+                    }
+                }
+                entry.get_mut().set_name(name, profile);
             }
         }
     }
@@ -150,13 +184,9 @@ where
         timestamp_converter: &TimestampConverter,
     ) {
         // Gather the ProcessSampleData from any processes which are still alive at the end of profiling.
-        for mut process in self.processes_by_pid.into_values() {
-            let process_sample_data = process.on_remove(
-                self.allow_reuse,
-                profile,
-                jit_category_manager,
-                timestamp_converter,
-            );
+        for process in self.processes_by_pid.into_values() {
+            let (process_sample_data, _process_recycling_data) =
+                process.finish(profile, jit_category_manager, timestamp_converter);
             if !process_sample_data.is_empty() {
                 self.process_sample_datas.push(process_sample_data);
             }

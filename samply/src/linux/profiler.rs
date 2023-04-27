@@ -1,3 +1,4 @@
+use crossbeam_channel::{Receiver, Sender};
 use linux_perf_data::linux_perf_event_reader::EventRecord;
 use linux_perf_data::linux_perf_event_reader::{
     CpuMode, Endianness, Mmap2FileId, Mmap2InodeAndVersion, Mmap2Record, RawData,
@@ -20,6 +21,7 @@ use super::proc_maps;
 use super::process::SuspendedLaunchedProcess;
 use crate::linux_shared::{ConvertRegs, Converter, EventInterpretation};
 use crate::server::{start_server_main, ServerProps};
+use crate::ConversionArgs;
 
 #[cfg(target_arch = "x86_64")]
 pub type ConvertRegsNative = crate::linux_shared::ConvertRegsX86_64;
@@ -27,6 +29,7 @@ pub type ConvertRegsNative = crate::linux_shared::ConvertRegsX86_64;
 #[cfg(target_arch = "aarch64")]
 pub type ConvertRegsNative = crate::linux_shared::ConvertRegsAarch64;
 
+#[allow(clippy::too_many_arguments)]
 pub fn start_recording(
     output_file: &Path,
     command_name: OsString,
@@ -34,6 +37,8 @@ pub fn start_recording(
     time_limit: Option<Duration>,
     interval: Duration,
     server_props: Option<ServerProps>,
+    conversion_args: &ConversionArgs,
+    iteration_count: u32,
 ) -> Result<ExitStatus, ()> {
     // Ignore SIGINT while the subcommand is running. The signal still reaches the process
     // under observation while we continue to record it. (ctrl+c will send the SIGINT signal
@@ -54,21 +59,30 @@ pub fn start_recording(
 
     // Create a channel for the observer thread to notify the main thread once
     // profiling has been initialized and the launched process can start.
-    let (s, r) = crossbeam_channel::bounded(1);
+    let (profile_another_pid_request_sender, profile_another_pid_request_receiver) =
+        crossbeam_channel::bounded(2);
+    let (profile_another_pid_reply_sender, profile_another_pid_reply_receiver) =
+        crossbeam_channel::bounded(2);
 
     // Launch the observer thread. This thread will manage the perf events.
     let output_file_copy = output_file.to_owned();
     let command_name_copy = command_name.to_string_lossy().to_string();
+    let conversion_args = conversion_args.clone();
     let observer_thread = thread::spawn(move || {
         let product = command_name_copy;
+        let mut converter = make_converter(interval, &product, &conversion_args);
+
+        // Wait for the initial pid to profile.
+        let SamplerRequest::StartProfilingAnotherProcess(pid, attach_mode) =
+            profile_another_pid_request_receiver.recv().unwrap() else {
+                panic!("The first message should be a StartProfilingAnotherProcess")
+            };
 
         // Create the perf events, setting ENABLE_ON_EXEC.
-        let (perf_group, converter) =
-            init_profiler(interval, pid, AttachMode::AttachWithEnableOnExec, &product);
+        let perf_group = init_profiler(interval, pid, attach_mode, &mut converter);
 
         // Tell the main thread to tell the child process to begin executing.
-        s.send(()).unwrap();
-        drop(s);
+        profile_another_pid_reply_sender.send(true).unwrap();
 
         // Create a stop flag which always stays false. We won't stop profiling until the
         // child process is done.
@@ -83,15 +97,22 @@ pub fn start_recording(
             converter,
             &output_file_copy,
             time_limit,
+            profile_another_pid_request_receiver,
+            profile_another_pid_reply_sender,
             stop_flag,
         );
     });
 
     // We're on the main thread here and the observer thread has just been launched.
 
-    // Wait for profiler initialization.
-    let () = r.recv().unwrap();
-    drop(r);
+    // Request profiling of our process and wait for profiler initialization.
+    profile_another_pid_request_sender
+        .send(SamplerRequest::StartProfilingAnotherProcess(
+            pid,
+            AttachMode::AttachWithEnableOnExec,
+        ))
+        .unwrap();
+    let _ = profile_another_pid_reply_receiver.recv().unwrap();
 
     // Now tell the child process to start executing.
     let process = match process.unsuspend_and_run() {
@@ -106,7 +127,49 @@ pub fn start_recording(
 
     // Wait for the child process to quit.
     // This is where the main thread spends all its time during profiling.
-    let exit_status = process.wait().unwrap();
+    let mut exit_status = process.wait().unwrap();
+
+    for i in 2..=iteration_count {
+        if !exit_status.success() {
+            eprintln!(
+                "Skipping remaining iterations due to non-success exit status: \"{}\"",
+                exit_status
+            );
+            break;
+        }
+        eprintln!("Running iteration {i} of {iteration_count}...");
+        let process =
+            SuspendedLaunchedProcess::launch_in_suspended_state(&command_name, command_args)
+                .unwrap();
+        let pid = process.pid();
+
+        // Tell the sampler to start profiling another pid, and wait for it to signal us to go ahead.
+        profile_another_pid_request_sender
+            .send(SamplerRequest::StartProfilingAnotherProcess(
+                pid,
+                AttachMode::AttachWithEnableOnExec,
+            ))
+            .unwrap();
+        let succeeded = profile_another_pid_reply_receiver.recv().unwrap();
+        if !succeeded {
+            break;
+        }
+
+        // Now tell the child process to start executing.
+        let process = match process.unsuspend_and_run() {
+            Ok(process) => process,
+            Err(run_err) => {
+                eprintln!("Could not launch child process: {run_err}");
+                break;
+            }
+        };
+
+        exit_status = process.wait().expect("couldn't wait for child");
+    }
+
+    profile_another_pid_request_sender
+        .send(SamplerRequest::StopProfilingOncePerfEventsExhausted)
+        .unwrap();
 
     // The child has quit.
     // From now on, we want to terminate if the user presses Ctrl+C.
@@ -132,6 +195,7 @@ pub fn start_profiling_pid(
     time_limit: Option<Duration>,
     interval: Duration,
     server_props: Option<ServerProps>,
+    conversion_args: &ConversionArgs,
 ) {
     // When the first Ctrl+C is received, stop recording.
     // The server launches after the recording finishes. On the second Ctrl+C, terminate the server.
@@ -145,32 +209,56 @@ pub fn start_profiling_pid(
 
     // Create a channel for the observer thread to notify the main thread once
     // profiling has been initialized.
-    let (s, r) = crossbeam_channel::bounded(1);
+    let (profile_another_pid_request_sender, profile_another_pid_request_receiver) =
+        crossbeam_channel::bounded(2);
+    let (profile_another_pid_reply_sender, profile_another_pid_reply_receiver) =
+        crossbeam_channel::bounded(2);
 
     let output_file_copy = output_file.to_owned();
     let product = format!("PID {pid}");
+    let conversion_args = conversion_args.clone();
     let observer_thread = thread::spawn({
         let stop = stop.clone();
         move || {
-            let (perf_group, converter) =
-                init_profiler(interval, pid, AttachMode::StopAttachEnableResume, &product);
+            let mut converter = make_converter(interval, &product, &conversion_args);
+            let SamplerRequest::StartProfilingAnotherProcess(pid, attach_mode) =
+                profile_another_pid_request_receiver.recv().unwrap() else {
+                    panic!("The first message should be a StartProfilingAnotherProcess")
+                };
+            let perf_group = init_profiler(interval, pid, attach_mode, &mut converter);
 
             // Tell the main thread that we are now executing.
-            s.send(()).unwrap();
-            drop(s);
+            profile_another_pid_reply_sender.send(true).unwrap();
 
-            run_profiler(perf_group, converter, &output_file_copy, time_limit, stop)
+            run_profiler(
+                perf_group,
+                converter,
+                &output_file_copy,
+                time_limit,
+                profile_another_pid_request_receiver,
+                profile_another_pid_reply_sender,
+                stop,
+            )
         }
     });
 
     // We're on the main thread here and the observer thread has just been launched.
 
-    // Wait for profiler initialization.
-    let () = r.recv().unwrap();
-    drop(r);
+    // Request profiling of our process and wait for profiler initialization.
+    profile_another_pid_request_sender
+        .send(SamplerRequest::StartProfilingAnotherProcess(
+            pid,
+            AttachMode::StopAttachEnableResume,
+        ))
+        .unwrap();
+    let _ = profile_another_pid_reply_receiver.recv().unwrap();
 
     // Now that we know that profiler initialization has succeeded, tell the user about it.
     eprintln!("Recording process with PID {pid} until Ctrl+C...");
+
+    profile_another_pid_request_sender
+        .send(SamplerRequest::StopProfilingOncePerfEventsExhausted)
+        .unwrap();
 
     // Now wait for the observer thread to quit. It will keep running until the
     // stop flag has been set to true by Ctrl+C, or until all perf events are closed,
@@ -194,15 +282,56 @@ fn paranoia_level() -> Option<u32> {
     Some(level)
 }
 
+fn make_converter(
+    interval: Duration,
+    product_name: &str,
+    conversion_args: &ConversionArgs,
+) -> Converter<framehop::UnwinderNative<Vec<u8>, framehop::MayAllocateDuringUnwind>> {
+    let interval_nanos = if interval.as_nanos() > 0 {
+        interval.as_nanos() as u64
+    } else {
+        1_000_000 // 1 million nano seconds = 1 milli second
+    };
+
+    let first_sample_time = 0;
+
+    let endian = if cfg!(target_endian = "little") {
+        Endianness::LittleEndian
+    } else {
+        Endianness::BigEndian
+    };
+    let machine_info = uname::uname().ok();
+    let interpretation = EventInterpretation {
+        main_event_attr_index: 0,
+        main_event_name: "cycles".to_string(),
+        sampling_is_time_based: Some(interval_nanos),
+        have_context_switches: true,
+        sched_switch_attr_index: None,
+        rss_stat_attr_index: None,
+        event_names: vec!["cycles".to_string()],
+    };
+
+    Converter::<framehop::UnwinderNative<Vec<u8>, framehop::MayAllocateDuringUnwind>>::new(
+        product_name,
+        None,
+        HashMap::new(),
+        machine_info.as_ref().map(|info| info.release.as_str()),
+        first_sample_time,
+        endian,
+        framehop::CacheNative::new(),
+        None,
+        interpretation,
+        conversion_args.merge_threads,
+        conversion_args.fold_recursive_prefix,
+    )
+}
+
 fn init_profiler(
     interval: Duration,
     pid: u32,
     attach_mode: AttachMode,
-    product_name: &str,
-) -> (
-    PerfGroup,
-    Converter<framehop::UnwinderNative<Vec<u8>, framehop::MayAllocateDuringUnwind>>,
-) {
+    converter: &mut Converter<framehop::UnwinderNative<Vec<u8>, framehop::MayAllocateDuringUnwind>>,
+) -> PerfGroup {
     let interval_nanos = if interval.as_nanos() > 0 {
         interval.as_nanos() as u64
     } else {
@@ -266,39 +395,6 @@ fn init_profiler(
             std::process::exit(1);
         }
     };
-
-    let first_sample_time = 0;
-
-    let endian = if cfg!(target_endian = "little") {
-        Endianness::LittleEndian
-    } else {
-        Endianness::BigEndian
-    };
-    let machine_info = uname::uname().ok();
-    let interpretation = EventInterpretation {
-        main_event_attr_index: 0,
-        main_event_name: "cycles".to_string(),
-        sampling_is_time_based: Some(interval_nanos),
-        have_context_switches: true,
-        sched_switch_attr_index: None,
-        rss_stat_attr_index: None,
-        event_names: vec!["cycles".to_string()],
-    };
-
-    let mut converter =
-        Converter::<framehop::UnwinderNative<Vec<u8>, framehop::MayAllocateDuringUnwind>>::new(
-            product_name,
-            None,
-            HashMap::new(),
-            machine_info.as_ref().map(|info| info.release.as_str()),
-            first_sample_time,
-            endian,
-            framehop::CacheNative::new(),
-            None,
-            interpretation,
-            false,
-            false,
-        );
 
     // TODO: Gather threads / processes recursively, here and in PerfGroup setup.
     for entry in std::fs::read_dir(format!("/proc/{pid}/task"))
@@ -366,7 +462,12 @@ fn init_profiler(
         }
     }
 
-    (perf, converter)
+    perf
+}
+
+enum SamplerRequest {
+    StartProfilingAnotherProcess(u32, AttachMode),
+    StopProfilingOncePerfEventsExhausted,
 }
 
 fn run_profiler(
@@ -374,16 +475,65 @@ fn run_profiler(
     mut converter: Converter<framehop::UnwinderNative<Vec<u8>, framehop::MayAllocateDuringUnwind>>,
     output_filename: &Path,
     _time_limit: Option<Duration>,
+    more_processes_request_receiver: Receiver<SamplerRequest>,
+    more_processes_reply_sender: Sender<bool>,
     stop: Arc<AtomicBool>,
 ) {
     // eprintln!("Running...");
 
     let mut wait = false;
+    let mut should_stop_profiling_once_perf_events_exhausted = false;
     let mut pending_lost_events = 0;
     let mut total_lost_events = 0;
     let mut last_timestamp = 0;
     loop {
-        if stop.load(Ordering::SeqCst) || perf.is_empty() {
+        if stop.load(Ordering::SeqCst) {
+            break;
+        }
+
+        match more_processes_request_receiver.try_recv() {
+            Ok(SamplerRequest::StartProfilingAnotherProcess(another_pid, attach_mode)) => {
+                match perf.open_process(another_pid, attach_mode) {
+                    Ok(_) => {
+                        more_processes_reply_sender.send(true).unwrap();
+                    }
+                    Err(error) => {
+                        eprintln!("Failed to start profiling on subsequent process: {error}");
+                        more_processes_reply_sender.send(false).unwrap();
+                    }
+                }
+            }
+            Ok(SamplerRequest::StopProfilingOncePerfEventsExhausted) => {
+                should_stop_profiling_once_perf_events_exhausted = true;
+            }
+            Err(_) => {
+                // No requests pending at the moment.
+            }
+        }
+
+        if perf.is_empty() && !should_stop_profiling_once_perf_events_exhausted {
+            match more_processes_request_receiver.recv() {
+                Ok(SamplerRequest::StartProfilingAnotherProcess(another_pid, attach_mode)) => {
+                    match perf.open_process(another_pid, attach_mode) {
+                        Ok(_) => {
+                            more_processes_reply_sender.send(true).unwrap();
+                        }
+                        Err(error) => {
+                            eprintln!("Failed to start profiling on subsequent process: {error}");
+                            more_processes_reply_sender.send(false).unwrap();
+                        }
+                    }
+                }
+                Ok(SamplerRequest::StopProfilingOncePerfEventsExhausted) => {
+                    should_stop_profiling_once_perf_events_exhausted = true;
+                }
+                Err(_) => {
+                    // No requests pending at the moment.
+                }
+            }
+        }
+
+        if perf.is_empty() && should_stop_profiling_once_perf_events_exhausted {
             break;
         }
 

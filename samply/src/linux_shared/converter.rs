@@ -80,10 +80,6 @@ where
 
     jit_category_manager: JitCategoryManager,
 
-    /// Whether a new thread should be merged into a previously exited
-    /// thread of the same name.
-    merge_threads: bool,
-
     /// Whether repeated frames at the base of the stack should be folded
     /// into one frame.
     fold_recursive_prefix: bool,
@@ -149,7 +145,6 @@ where
             kernel_symbols,
             suspected_pe_mappings: BTreeMap::new(),
             jit_category_manager: JitCategoryManager::new(),
-            merge_threads,
             fold_recursive_prefix,
         }
     }
@@ -700,56 +695,24 @@ where
                 eprintln!("Unexpected data in FORK record: If we fork into a different process, the forked child thread should be the main thread of the new process");
             }
             let parent_process_name = parent_process.name.clone();
-            let parent_thread = parent_process
-                .threads
-                .get_thread_by_tid(e.ptid, &mut self.profile);
-            let parent_thread_name = parent_thread.name.clone();
-            let is_reused = if let Some(name) = parent_process_name.as_deref() {
-                self.processes.attempt_reuse(e.pid, name).is_some()
-            } else {
-                false
-            };
-            let process = self.processes.get_by_pid(e.pid, &mut self.profile);
-            process.name = parent_process_name;
-            let process_handle = process.profile_process;
-            let thread = process.threads.get_main_thread();
-            thread.name = parent_thread_name;
-            let thread_handle = thread.profile_thread;
-            if let Some(thread_name) = thread.name.as_deref() {
-                self.profile.set_thread_name(thread_handle, thread_name);
-            }
-            if !is_reused {
-                self.profile
-                    .set_process_start_time(process_handle, start_time);
-                self.profile
-                    .set_thread_start_time(thread_handle, start_time);
-            }
+            self.processes.recycle_or_get_new(
+                e.pid,
+                parent_process_name,
+                start_time,
+                &mut self.profile,
+            );
         } else {
             let parent_thread = parent_process
                 .threads
                 .get_thread_by_tid(e.ptid, &mut self.profile);
             let parent_thread_name = parent_thread.name.clone();
-            let is_reused = if let Some(name) = parent_thread_name.as_deref() {
-                parent_process
-                    .threads
-                    .attempt_thread_reuse(e.tid, name)
-                    .is_some()
-            } else {
-                false
-            };
-            let mut thread = parent_process
-                .threads
-                .get_thread_by_tid(e.tid, &mut self.profile);
-            thread.name = parent_thread_name;
-            if !is_reused {
-                let thread_handle = thread.profile_thread;
-                if let Some(thread_name) = thread.name.as_deref() {
-                    self.profile.set_thread_name(thread_handle, thread_name);
-                }
-                self.profile
-                    .set_thread_start_time(thread_handle, start_time);
-            }
-        };
+            parent_process.recycle_or_get_new_thread(
+                e.tid,
+                parent_thread_name,
+                start_time,
+                &mut self.profile,
+            );
+        }
     }
 
     /// Called for an EXIT record.
@@ -766,12 +729,9 @@ where
             );
         } else {
             let process = self.processes.get_by_pid(e.pid, &mut self.profile);
-            process.threads.remove_non_main_thread(
-                e.tid,
-                end_time,
-                self.merge_threads,
-                &mut self.profile,
-            );
+            process
+                .threads
+                .remove_non_main_thread(e.tid, end_time, &mut self.profile);
         }
     }
 
@@ -780,72 +740,68 @@ where
         let name = e.name.as_slice();
         let name = String::from_utf8_lossy(&name);
 
-        let is_thread_creation = if e.is_execve {
+        // If the COMM record doesn't have a timestamp, take the last seen
+        // timestamp from the previous sample.
+        let timestamp_mono = match timestamp {
+            Some(0) | None => self.current_sample_time,
+            Some(ts) => ts,
+        };
+        let timestamp = self.timestamp_converter.convert_time(timestamp_mono);
+
+        if is_main && self.delayed_product_name_generator.is_some() && name != "perf-exec" {
+            let generator = self.delayed_product_name_generator.take().unwrap();
+            let product = generator(&name);
+            self.profile.set_product(&product);
+        }
+
+        if e.is_execve {
             // Mark the old thread / process as ended.
-            // If the COMM record doesn't have a timestamp, take the last seen
-            // timestamp from the previous sample.
-            let timestamp = match timestamp {
-                Some(0) | None => self.current_sample_time,
-                Some(ts) => ts,
-            };
-            let end_time = self.timestamp_converter.convert_time(timestamp);
             if is_main {
                 self.processes.remove(
                     e.pid,
-                    end_time,
+                    timestamp,
                     &mut self.profile,
                     &mut self.jit_category_manager,
                     &self.timestamp_converter,
                 );
-                let maybe_reused_process = self.processes.attempt_reuse(e.pid, &name);
-                maybe_reused_process.is_none()
+                self.processes.recycle_or_get_new(
+                    e.pid,
+                    Some(name.to_string()),
+                    timestamp,
+                    &mut self.profile,
+                );
             } else {
                 eprintln!(
                     "Unexpected is_execve on non-main thread! pid: {}, tid: {}",
                     e.pid, e.tid
                 );
                 let process = self.processes.get_by_pid(e.pid, &mut self.profile);
-                process.threads.remove_non_main_thread(
+                process
+                    .threads
+                    .remove_non_main_thread(e.tid, timestamp, &mut self.profile);
+                process.recycle_or_get_new_thread(
                     e.tid,
-                    end_time,
-                    self.merge_threads,
+                    Some(name.to_string()),
+                    timestamp,
                     &mut self.profile,
                 );
-                let maybe_reused_thread = process.threads.attempt_thread_reuse(e.tid, &name);
-                maybe_reused_thread.is_none()
             }
-        } else if self.merge_threads && !is_main {
-            // Mark the old thread / process as ended.
-            // If the COMM record doesn't have a timestamp, take the last seen
-            // timestamp from the previous sample.
-            let timestamp = match timestamp {
-                Some(0) | None => self.current_sample_time,
-                Some(ts) => ts,
-            };
-            let end_time = self.timestamp_converter.convert_time(timestamp);
+        } else if is_main {
+            self.processes
+                .rename_process(e.pid, timestamp, name.to_string(), &mut self.profile);
+        } else {
             let process = self.processes.get_by_pid(e.pid, &mut self.profile);
-            process.threads.remove_non_main_thread(
+            process.threads.rename_non_main_thread(
                 e.tid,
-                end_time,
-                self.merge_threads,
+                timestamp,
+                name.to_string(),
                 &mut self.profile,
             );
-            let maybe_reused_thread = process.threads.attempt_thread_reuse(e.tid, &name);
-            maybe_reused_thread.is_none()
-        } else {
-            false
-        };
-
-        self.set_thread_name(e.pid, e.tid, &name, is_thread_creation);
+        }
     }
 
     #[allow(unused)]
     pub fn register_existing_thread(&mut self, pid: i32, tid: i32, name: &str) {
-        self.set_thread_name(pid, tid, name, true);
-    }
-
-    /// Called by `handle_comm` for `COMM` and `EXEC`, and from `handle_fork`, and from `register_existing_thread`.
-    fn set_thread_name(&mut self, pid: i32, tid: i32, name: &str, is_thread_creation: bool) {
         let is_main = pid == tid;
 
         let process = self.processes.get_by_pid(pid, &mut self.profile);
@@ -861,15 +817,13 @@ where
             process.name = Some(name.to_owned());
         }
 
-        if is_thread_creation {
-            // Mark this as the start time of the new thread / process.
-            let time = self
-                .timestamp_converter
-                .convert_time(self.current_sample_time);
-            self.profile.set_thread_start_time(thread_handle, time);
-            if is_main {
-                self.profile.set_process_start_time(process_handle, time);
-            }
+        // Mark this as the start time of the new thread / process.
+        let time = self
+            .timestamp_converter
+            .convert_time(self.current_sample_time);
+        self.profile.set_thread_start_time(thread_handle, time);
+        if is_main {
+            self.profile.set_process_start_time(process_handle, time);
         }
 
         if self.delayed_product_name_generator.is_some() && name != "perf-exec" {

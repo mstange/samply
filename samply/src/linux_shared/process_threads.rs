@@ -1,7 +1,9 @@
-use fxprof_processed_profile::{ProcessHandle, Profile, Timestamp};
+use fxprof_processed_profile::{ProcessHandle, Profile, ThreadHandle, Timestamp};
 
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, VecDeque};
+
+use crate::shared::recycling::ThreadRecycler;
+use crate::shared::types::FastHashMap;
 
 use super::thread::Thread;
 
@@ -9,42 +11,120 @@ pub struct ProcessThreads {
     pub pid: i32,
     pub profile_process: ProcessHandle,
     pub main_thread: Thread,
-    pub threads_by_tid: HashMap<i32, Thread>,
-    pub ended_threads_for_reuse_by_name: HashMap<String, VecDeque<Thread>>,
+    pub threads_by_tid: FastHashMap<i32, Thread>,
+    pub thread_recycler: Option<ThreadRecycler>,
 }
 
 impl ProcessThreads {
-    pub fn prepare_for_reuse(&mut self) {
-        for (_tid, mut thread) in self.threads_by_tid.drain() {
-            thread.on_remove();
-
-            if let Some(name) = thread.name.as_deref() {
-                self.ended_threads_for_reuse_by_name
-                    .entry(name.to_owned())
-                    .or_default()
-                    .push_back(thread);
-            }
+    pub fn new(
+        pid: i32,
+        process_handle: ProcessHandle,
+        main_thread_handle: ThreadHandle,
+        thread_recycler: Option<ThreadRecycler>,
+    ) -> Self {
+        Self {
+            pid,
+            profile_process: process_handle,
+            main_thread: Thread::new(main_thread_handle),
+            threads_by_tid: Default::default(),
+            thread_recycler,
         }
     }
 
-    pub fn attempt_thread_reuse(&mut self, tid: i32, name: &str) -> Option<&mut Thread> {
-        if let Entry::Vacant(entry) = self.threads_by_tid.entry(tid) {
-            if let Some(threads_of_same_name) = self.ended_threads_for_reuse_by_name.get_mut(name) {
-                let mut thread = threads_of_same_name
-                    .pop_front()
-                    .expect("We only have non-empty VecDeques in this HashMap");
-                if threads_of_same_name.is_empty() {
-                    self.ended_threads_for_reuse_by_name.remove(name);
+    pub fn swap_recycling_data(
+        &mut self,
+        process_handle: ProcessHandle,
+        main_thread_handle: ThreadHandle,
+        thread_recycler: ThreadRecycler,
+    ) -> Option<(ThreadHandle, ThreadRecycler)> {
+        let _old_process_handle = std::mem::replace(&mut self.profile_process, process_handle);
+        let old_main_thread_handle = self.main_thread.swap_thread_handle(main_thread_handle);
+        let old_thread_recycler =
+            std::mem::replace(&mut self.thread_recycler, Some(thread_recycler));
+        Some((old_main_thread_handle, old_thread_recycler?))
+    }
+
+    pub fn recycle_or_get_new_thread(
+        &mut self,
+        tid: i32,
+        name: Option<String>,
+        start_time: Timestamp,
+        profile: &mut Profile,
+    ) -> &mut Thread {
+        if tid == self.pid {
+            return &mut self.main_thread;
+        }
+        match self.threads_by_tid.entry(tid) {
+            Entry::Vacant(entry) => {
+                if let (Some(name), Some(thread_recycler)) = (name, self.thread_recycler.as_mut()) {
+                    if let Some(thread_handle) = thread_recycler.recycle_by_name(&name) {
+                        let thread = Thread::new(thread_handle);
+                        return entry.insert(thread);
+                    }
                 }
-                thread.reset_for_reuse(tid);
-                return Some(entry.insert(thread));
+
+                let thread_handle =
+                    profile.add_thread(self.profile_process, tid as u32, start_time, false);
+                let thread = Thread::new(thread_handle);
+                entry.insert(thread)
             }
+            Entry::Occupied(entry) => entry.into_mut(),
         }
-        None
     }
 
-    pub fn get_main_thread(&mut self) -> &mut Thread {
-        &mut self.main_thread
+    pub fn rename_non_main_thread(
+        &mut self,
+        tid: i32,
+        timestamp: Timestamp,
+        name: String,
+        profile: &mut Profile,
+    ) {
+        if tid == self.pid {
+            return;
+        }
+        match self.threads_by_tid.entry(tid) {
+            Entry::Vacant(_) => {
+                self.recycle_or_get_new_thread(tid, Some(name), timestamp, profile);
+            }
+            Entry::Occupied(mut entry) => {
+                if entry.get().name.as_deref() == Some(&name) {
+                    return;
+                }
+
+                if let Some(thread_recycler) = self.thread_recycler.as_mut() {
+                    if let Some(recycled_thread_handle) = thread_recycler.recycle_by_name(&name) {
+                        let old_thread_handle =
+                            entry.get_mut().swap_thread_handle(recycled_thread_handle);
+                        if let Some(old_name) = entry.get().name.as_deref() {
+                            thread_recycler.add_to_pool(old_name, old_thread_handle);
+                        }
+                    }
+                }
+
+                entry.get_mut().set_name(name, profile);
+            }
+        }
+    }
+
+    /// Called when a process has exited, before finish(). Not called if the process
+    /// is still alive at the end of the profiling run.
+    pub fn notify_process_dead(&mut self, end_time: Timestamp, profile: &mut Profile) {
+        for (_tid, mut thread) in self.threads_by_tid.drain() {
+            thread.notify_dead(end_time, profile);
+
+            let (name, thread_handle) = thread.finish();
+
+            if let (Some(name), Some(thread_recycler)) = (name, self.thread_recycler.as_mut()) {
+                thread_recycler.add_to_pool(&name, thread_handle);
+            }
+        }
+
+        self.main_thread.notify_dead(end_time, profile);
+    }
+    /// Called when the process has exited, or at the end of profiling. Called after notify_process_dead.
+    pub fn finish(self) -> (ThreadHandle, Option<ThreadRecycler>) {
+        let (_main_thread_name, main_thread_handle) = self.main_thread.finish();
+        (main_thread_handle, self.thread_recycler)
     }
 
     pub fn get_thread_by_tid(&mut self, tid: i32, profile: &mut Profile) -> &mut Thread {
@@ -68,25 +148,15 @@ impl ProcessThreads {
         })
     }
 
-    pub fn remove_non_main_thread(
-        &mut self,
-        tid: i32,
-        time: Timestamp,
-        allow_reuse: bool,
-        profile: &mut Profile,
-    ) {
+    pub fn remove_non_main_thread(&mut self, tid: i32, time: Timestamp, profile: &mut Profile) {
         let Some(mut thread) = self.threads_by_tid.remove(&tid) else { return };
-        profile.set_thread_end_time(thread.profile_thread, time);
 
-        thread.on_remove();
+        thread.notify_dead(time, profile);
 
-        if allow_reuse {
-            if let Some(name) = thread.name.as_deref() {
-                self.ended_threads_for_reuse_by_name
-                    .entry(name.to_owned())
-                    .or_default()
-                    .push_back(thread);
-            }
+        let (name, thread_handle) = thread.finish();
+
+        if let (Some(name), Some(thread_recycler)) = (name, self.thread_recycler.as_mut()) {
+            thread_recycler.add_to_pool(&name, thread_handle);
         }
     }
 }

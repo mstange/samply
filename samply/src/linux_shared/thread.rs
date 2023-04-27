@@ -1,4 +1,4 @@
-use fxprof_processed_profile::ThreadHandle;
+use fxprof_processed_profile::{Profile, ThreadHandle, Timestamp};
 
 use std::fmt::Debug;
 
@@ -20,11 +20,30 @@ pub struct Thread {
 }
 
 impl Thread {
-    pub fn on_remove(&mut self) {
-        self.context_switch_data = Default::default();
-        self.last_sample_timestamp = None;
-        self.off_cpu_stack = None;
+    pub fn new(thread_handle: ThreadHandle) -> Self {
+        Self {
+            profile_thread: thread_handle,
+            context_switch_data: Default::default(),
+            last_sample_timestamp: None,
+            off_cpu_stack: None,
+            name: None,
+        }
     }
 
-    pub fn reset_for_reuse(&mut self, _tid: i32) {}
+    pub fn swap_thread_handle(&mut self, thread_handle: ThreadHandle) -> ThreadHandle {
+        std::mem::replace(&mut self.profile_thread, thread_handle)
+    }
+
+    pub fn set_name(&mut self, name: String, profile: &mut Profile) {
+        profile.set_thread_name(self.profile_thread, &name);
+        self.name = Some(name);
+    }
+
+    pub fn notify_dead(&mut self, end_time: Timestamp, profile: &mut Profile) {
+        profile.set_thread_end_time(self.profile_thread, end_time);
+    }
+
+    pub fn finish(self) -> (Option<String>, ThreadHandle) {
+        (self.name, self.profile_thread)
+    }
 }

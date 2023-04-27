@@ -467,11 +467,15 @@ impl<'a> StackwalkerRef<'a> {
     }
 }
 
+/// `frames` must be empty initially.
+///
+/// On return, `frames` will have the stack frames from callee-most to root-most.
 pub fn get_backtrace(
     stackwalker: StackwalkerRef,
     memory: &mut ForeignMemory,
     thread_act: mach_port_t,
     frames: &mut Vec<FrameAddress>,
+    fold_recursive_prefix: bool,
 ) -> Result<(), SamplingError> {
     with_suspended_thread(thread_act, || {
         let (pc, regs) = get_unwinding_registers(thread_act).map_err(|err| match err {
@@ -496,9 +500,21 @@ pub fn get_backtrace(
             "thread_suspend in with_suspended_thread",
             err,
         )),
-    })
+    })?;
+
+    if fold_recursive_prefix && !frames.is_empty() {
+        let last_frame = *frames.last().unwrap();
+        while frames.len() >= 2 && frames[frames.len() - 2] == last_frame {
+            frames.pop();
+        }
+    }
+
+    Ok(())
 }
 
+/// `frames` must be empty initially.
+///
+/// On return, `frames` will have the stack frames from callee-most to root-most.
 fn do_stackwalk(
     stackwalker: StackwalkerRef,
     pc: u64,

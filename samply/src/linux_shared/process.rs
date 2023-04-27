@@ -1,9 +1,10 @@
 use framehop::{Module, Unwinder};
 use fxprof_processed_profile::{
-    CounterHandle, LibraryHandle, MarkerTiming, ProcessHandle, Profile, Timestamp,
+    CounterHandle, LibraryHandle, MarkerTiming, ProcessHandle, Profile, ThreadHandle, Timestamp,
 };
 
 use super::process_threads::ProcessThreads;
+use super::thread::Thread;
 
 use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::jit_function_add_marker::JitFunctionAddMarker;
@@ -12,6 +13,7 @@ use crate::shared::jitdump_manager::JitDumpManager;
 use crate::shared::lib_mappings::{LibMappingAdd, LibMappingInfo, LibMappingOp, LibMappingOpQueue};
 use crate::shared::perf_map::try_load_perf_map;
 use crate::shared::process_sample_data::ProcessSampleData;
+use crate::shared::recycling::{ProcessRecyclingData, ThreadRecycler};
 use crate::shared::timestamp_converter::TimestampConverter;
 
 use crate::shared::unresolved_samples::UnresolvedSamples;
@@ -40,6 +42,75 @@ impl<U> Process<U>
 where
     U: Unwinder<Module = Module<Vec<u8>>> + Default,
 {
+    pub fn new(
+        pid: i32,
+        process_handle: ProcessHandle,
+        main_thread_handle: ThreadHandle,
+        name: Option<String>,
+        thread_recycler: Option<ThreadRecycler>,
+        jit_function_recycler: Option<JitFunctionRecycler>,
+    ) -> Self {
+        Self {
+            profile_process: process_handle,
+            unwinder: U::default(),
+            jitdump_manager: JitDumpManager::new_for_process(main_thread_handle),
+            lib_mapping_ops: Default::default(),
+            name,
+            pid,
+            threads: ProcessThreads::new(pid, process_handle, main_thread_handle, thread_recycler),
+            jit_function_recycler,
+            unresolved_samples: Default::default(),
+            prev_mm_filepages_size: 0,
+            prev_mm_anonpages_size: 0,
+            prev_mm_swapents_size: 0,
+            prev_mm_shmempages_size: 0,
+            mem_counter: None,
+        }
+    }
+
+    pub fn swap_recycling_data(
+        &mut self,
+        recycling_data: ProcessRecyclingData,
+    ) -> Option<ProcessRecyclingData> {
+        let ProcessRecyclingData {
+            process_handle,
+            main_thread_handle,
+            thread_recycler,
+            jit_function_recycler,
+        } = recycling_data;
+        let old_process_handle = std::mem::replace(&mut self.profile_process, process_handle);
+        let old_jit_function_recycler =
+            std::mem::replace(&mut self.jit_function_recycler, Some(jit_function_recycler));
+        let (old_main_thread_handle, old_thread_recycler) = self.threads.swap_recycling_data(
+            process_handle,
+            main_thread_handle,
+            thread_recycler,
+        )?;
+        Some(ProcessRecyclingData {
+            process_handle: old_process_handle,
+            main_thread_handle: old_main_thread_handle,
+            thread_recycler: old_thread_recycler,
+            jit_function_recycler: old_jit_function_recycler?,
+        })
+    }
+
+    pub fn set_name(&mut self, name: String, profile: &mut Profile) {
+        profile.set_process_name(self.profile_process, &name);
+        self.threads.main_thread.set_name(name.clone(), profile);
+        self.name = Some(name);
+    }
+
+    pub fn recycle_or_get_new_thread(
+        &mut self,
+        tid: i32,
+        name: Option<String>,
+        start_time: Timestamp,
+        profile: &mut Profile,
+    ) -> &mut Thread {
+        self.threads
+            .recycle_or_get_new_thread(tid, name, start_time, profile)
+    }
+
     pub fn check_jitdump(
         &mut self,
         jit_category_manager: &mut JitCategoryManager,
@@ -54,23 +125,18 @@ where
         );
     }
 
-    pub fn reset_for_reuse(&mut self, new_pid: i32) {
-        self.pid = new_pid;
-        self.threads.pid = new_pid;
+    pub fn notify_dead(&mut self, end_time: Timestamp, profile: &mut Profile) {
+        self.threads.notify_process_dead(end_time, profile);
+        profile.set_process_end_time(self.profile_process, end_time);
     }
 
-    pub fn on_remove(
-        &mut self,
-        allow_thread_reuse: bool,
+    pub fn finish(
+        mut self,
         profile: &mut Profile,
         jit_category_manager: &mut JitCategoryManager,
         timestamp_converter: &TimestampConverter,
-    ) -> ProcessSampleData {
+    ) -> (ProcessSampleData, Option<(String, ProcessRecyclingData)>) {
         self.unwinder = U::default();
-
-        if allow_thread_reuse {
-            self.threads.prepare_for_reuse();
-        }
 
         let perf_map_mappings = if !self.unresolved_samples.is_empty() {
             try_load_perf_map(
@@ -83,10 +149,6 @@ where
             None
         };
 
-        if let Some(recycler) = self.jit_function_recycler.as_mut() {
-            recycler.finish_round();
-        }
-
         let jitdump_manager = std::mem::replace(
             &mut self.jitdump_manager,
             JitDumpManager::new_for_process(self.threads.main_thread.profile_thread),
@@ -98,12 +160,34 @@ where
             timestamp_converter,
         );
 
-        ProcessSampleData::new(
+        let process_sample_data = ProcessSampleData::new(
             std::mem::take(&mut self.unresolved_samples),
             std::mem::take(&mut self.lib_mapping_ops),
             jitdump_ops,
             perf_map_mappings,
-        )
+        );
+
+        let thread_recycler = self.threads.finish();
+
+        let process_recycling_data = if let (
+            Some(name),
+            Some(mut jit_function_recycler),
+            (main_thread_handle, Some(thread_recycler)),
+        ) = (self.name, self.jit_function_recycler, thread_recycler)
+        {
+            jit_function_recycler.finish_round();
+            let recycling_data = ProcessRecyclingData {
+                process_handle: self.profile_process,
+                main_thread_handle,
+                thread_recycler,
+                jit_function_recycler,
+            };
+            Some((name, recycling_data))
+        } else {
+            None
+        };
+
+        (process_sample_data, process_recycling_data)
     }
 
     #[allow(clippy::too_many_arguments)]

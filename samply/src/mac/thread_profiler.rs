@@ -5,6 +5,7 @@ use mach::port::mach_port_t;
 
 use std::mem;
 
+use crate::shared::recycling::ThreadRecycler;
 use crate::shared::types::{StackFrame, StackMode};
 use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
 
@@ -36,16 +37,37 @@ impl ThreadProfiler {
         tid: u32,
         profile_thread: ThreadHandle,
         thread_act: thread_act_t,
+        name: Option<String>,
     ) -> Self {
         ThreadProfiler {
             thread_act,
             tid,
-            name: None,
+            name,
             profile_thread,
             tick_count: 0,
             stack_memory: ForeignMemory::new(task),
             previous_sample_cpu_time_us: 0,
             ignored_errors: Vec::new(),
+        }
+    }
+
+    /// Called before every call to `sample`.
+    pub fn check_thread_name(
+        &mut self,
+        profile: &mut Profile,
+        thread_recycler: Option<&mut ThreadRecycler>,
+    ) {
+        if self.name.is_none() && self.tick_count % 10 == 0 {
+            if let Ok(Some(name)) = get_thread_name(self.thread_act) {
+                if let Some(thread_handle) =
+                    thread_recycler.and_then(|tr| tr.recycle_by_name(&name))
+                {
+                    self.profile_thread = thread_handle;
+                } else {
+                    profile.set_thread_name(self.profile_thread, &name);
+                }
+                self.name = Some(name);
+            }
         }
     }
 
@@ -55,19 +77,19 @@ impl ThreadProfiler {
         stackwalker: StackwalkerRef,
         now: Timestamp,
         now_mono: u64,
-        profile: &mut Profile,
         stack_scratch_buffer: &mut Vec<FrameAddress>,
         unresolved_stacks: &mut UnresolvedStacks,
         unresolved_samples: &mut UnresolvedSamples,
+        fold_recursive_prefix: bool,
     ) -> Result<bool, SamplingError> {
         let result = self.sample_impl(
             stackwalker,
             now,
             now_mono,
-            profile,
             stack_scratch_buffer,
             unresolved_stacks,
             unresolved_samples,
+            fold_recursive_prefix,
         );
         match result {
             Ok(()) => Ok(true),
@@ -75,12 +97,12 @@ impl ThreadProfiler {
             Err(err @ SamplingError::Ignorable(_, _)) => {
                 self.ignored_errors.push(err);
                 if self.ignored_errors.len() >= 10 {
-                    println!(
+                    eprintln!(
                         "Treating thread \"{}\" [tid: {}] as terminated after 10 unknown errors:",
                         self.name.as_deref().unwrap_or("<unknown"),
                         self.tid
                     );
-                    println!("{:#?}", self.ignored_errors);
+                    eprintln!("{:#?}", self.ignored_errors);
                     Ok(false)
                 } else {
                     // Pretend that sampling worked and that the thread is still alive.
@@ -97,19 +119,12 @@ impl ThreadProfiler {
         stackwalker: StackwalkerRef,
         now: Timestamp,
         now_mono: u64,
-        profile: &mut Profile,
         stack_scratch_buffer: &mut Vec<FrameAddress>,
         unresolved_stacks: &mut UnresolvedStacks,
         unresolved_samples: &mut UnresolvedSamples,
+        fold_recursive_prefix: bool,
     ) -> Result<(), SamplingError> {
         self.tick_count += 1;
-
-        if self.name.is_none() && self.tick_count % 10 == 1 {
-            self.name = get_thread_name(self.thread_act)?;
-            if let Some(name) = &self.name {
-                profile.set_thread_name(self.profile_thread, name);
-            }
-        }
 
         let cpu_time_us = get_thread_cpu_time_since_thread_start(self.thread_act)?;
         let cpu_time_us = cpu_time_us.0 + cpu_time_us.1;
@@ -123,6 +138,7 @@ impl ThreadProfiler {
                 &mut self.stack_memory,
                 self.thread_act,
                 stack_scratch_buffer,
+                fold_recursive_prefix,
             )?;
 
             let frames = stack_scratch_buffer.iter().rev().map(|f| match f {
@@ -166,7 +182,10 @@ impl ThreadProfiler {
 
     pub fn notify_dead(&mut self, end_time: Timestamp, profile: &mut Profile) {
         profile.set_thread_end_time(self.profile_thread, end_time);
-        self.stack_memory.clear();
+    }
+
+    pub fn finish(self) -> (Option<String>, ThreadHandle) {
+        (self.name, self.profile_thread)
     }
 }
 
@@ -192,7 +211,7 @@ pub fn get_thread_id(thread_act: thread_act_t) -> kernel_error::Result<(u32, boo
     Ok((identifier_info_data.thread_id as u32, is_libdispatch_thread))
 }
 
-fn get_thread_name(thread_act: thread_act_t) -> Result<Option<String>, SamplingError> {
+pub fn get_thread_name(thread_act: thread_act_t) -> Result<Option<String>, SamplingError> {
     // Get the thread name.
     let mut extended_info_data: thread_extended_info_data_t = unsafe { mem::zeroed() };
     let mut count = THREAD_EXTENDED_INFO_COUNT;

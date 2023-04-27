@@ -8,8 +8,10 @@ use std::thread;
 use std::time::Duration;
 use std::time::SystemTime;
 
+use crate::shared::recycling::ProcessRecycler;
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::unresolved_samples::UnresolvedStacks;
+use crate::ConversionArgs;
 
 use super::error::SamplingError;
 use super::task_profiler::TaskProfiler;
@@ -17,7 +19,7 @@ use super::time::get_monotonic_timestamp;
 
 #[derive(Debug, Clone)]
 pub struct TaskInit {
-    pub start_time: u64,
+    pub start_time_mono: u64,
     pub task: mach_port_t,
     pub pid: u32,
     pub jitdump_path_receiver: Receiver<PathBuf>,
@@ -28,6 +30,8 @@ pub struct Sampler {
     task_receiver: Receiver<TaskInit>,
     interval: Duration,
     time_limit: Option<Duration>,
+    fold_recursive_prefix: bool,
+    merge_threads: bool,
 }
 
 impl Sampler {
@@ -36,6 +40,7 @@ impl Sampler {
         task_receiver: Receiver<TaskInit>,
         interval: Duration,
         time_limit: Option<Duration>,
+        conversion_args: &ConversionArgs,
     ) -> Self {
         let command_name = Path::new(&command)
             .components()
@@ -45,11 +50,18 @@ impl Sampler {
             .to_string_lossy()
             .to_string();
 
+        let ConversionArgs {
+            merge_threads,
+            fold_recursive_prefix,
+        } = *conversion_args;
+
         Sampler {
             command_name,
             task_receiver,
             interval,
             time_limit,
+            fold_recursive_prefix,
+            merge_threads,
         }
     }
 
@@ -78,14 +90,18 @@ impl Sampler {
                 return Err(SamplingError::CouldNotObtainRootTask);
             }
         };
+        let mut process_recycler = if self.merge_threads {
+            Some(ProcessRecycler::new())
+        } else {
+            None
+        };
 
         let root_task = TaskProfiler::new(
-            root_task_init.task,
-            root_task_init.pid,
-            root_task_init.jitdump_path_receiver,
-            timestamp_converter.convert_time(root_task_init.start_time),
+            root_task_init,
+            timestamp_converter,
             &self.command_name,
             &mut profile,
+            process_recycler.as_mut(),
         )
         .expect("couldn't create root TaskProfiler");
 
@@ -97,31 +113,41 @@ impl Sampler {
         let mut last_sleep_overshoot = 0;
 
         loop {
-            // Poll to see if there are any new tasks we should add. If no new tasks are available,
-            // this completes immediately.
-            while let Ok(task_init) = self.task_receiver.try_recv() {
-                let new_task = match TaskProfiler::new(
-                    task_init.task,
-                    task_init.pid,
-                    task_init.jitdump_path_receiver,
-                    timestamp_converter.convert_time(task_init.start_time),
+            loop {
+                let task_init = if !live_tasks.is_empty() {
+                    // Poll to see if there are any new tasks we should add. If no new tasks are available,
+                    // this completes immediately.
+                    self.task_receiver.try_recv().ok()
+                } else {
+                    // All tasks we know about are dead.
+                    // Wait for a little more in case one of the just-ended tasks spawned a new task.
+                    let all_dead_timeout = Duration::from_secs_f32(0.5);
+                    self.task_receiver.recv_timeout(all_dead_timeout).ok()
+                };
+                let Some(task_init) = task_init else { break };
+                if let Ok(new_task) = TaskProfiler::new(
+                    task_init,
+                    timestamp_converter,
                     &self.command_name,
                     &mut profile,
+                    process_recycler.as_mut(),
                 ) {
-                    Ok(new_task) => new_task,
-                    Err(_) => {
-                        // The task is probably already dead again. We get here for tasks which are
-                        // very short-lived.
-                        continue;
-                    }
-                };
+                    live_tasks.push(new_task);
+                } else {
+                    // The task is probably already dead again. We get here for tasks which are
+                    // very short-lived.
+                }
+            }
 
-                live_tasks.push(new_task);
+            if live_tasks.is_empty() {
+                eprintln!("All tasks terminated.");
+                break;
             }
 
             let sample_mono = get_monotonic_timestamp();
             if let Some(time_limit) = self.time_limit {
                 if sample_mono - reference_mono >= time_limit.as_nanos() as u64 {
+                    // Time limit reached.
                     break;
                 }
             }
@@ -131,11 +157,7 @@ impl Sampler {
             let mut tasks = Vec::with_capacity(live_tasks.capacity());
             mem::swap(&mut live_tasks, &mut tasks);
             for mut task in tasks.into_iter() {
-                task.check_jitdump(
-                    &mut profile,
-                    &mut jit_category_manager,
-                    &timestamp_converter,
-                );
+                task.check_jitdump(&mut profile, &mut jit_category_manager);
                 let still_alive = task.sample(
                     sample_timestamp,
                     sample_mono,
@@ -143,40 +165,22 @@ impl Sampler {
                     &mut profile,
                     &mut stack_scratch_buffer,
                     &mut unresolved_stacks,
+                    self.fold_recursive_prefix,
                 )?;
                 if still_alive {
                     live_tasks.push(task);
                 } else {
                     task.notify_dead(sample_timestamp, &mut profile);
-                    process_sample_datas.push(task.finish(
-                        &mut jit_category_manager,
-                        &mut profile,
-                        &timestamp_converter,
-                    ));
-                }
-            }
+                    let (process_sample_data, process_recycling_data) =
+                        task.finish(&mut jit_category_manager, &mut profile);
 
-            if live_tasks.is_empty() {
-                // All tasks we know about are dead.
-                // Wait for a little more in case one of the just-ended tasks spawned a new task.
-                if let Ok(task_init) = self
-                    .task_receiver
-                    .recv_timeout(Duration::from_secs_f32(0.5))
-                {
-                    // Got one!
-                    let new_task = TaskProfiler::new(
-                        task_init.task,
-                        task_init.pid,
-                        task_init.jitdump_path_receiver,
-                        timestamp_converter.convert_time(task_init.start_time),
-                        &self.command_name,
-                        &mut profile,
-                    )
-                    .expect("couldn't create TaskProfiler");
-                    live_tasks.push(new_task);
-                } else {
-                    eprintln!("All tasks terminated.");
-                    break;
+                    process_sample_datas.push(process_sample_data);
+
+                    if let (Some(process_recycler), Some((process_name, process_recycling_data))) =
+                        (process_recycler.as_mut(), process_recycling_data)
+                    {
+                        process_recycler.add_to_pool(&process_name, process_recycling_data);
+                    }
                 }
             }
 
@@ -193,11 +197,9 @@ impl Sampler {
         // `live_tasks` can be non-empty if we stopped profiling before all tasks ended,
         // for example because the time limit was reached,
         for task in live_tasks.into_iter() {
-            process_sample_datas.push(task.finish(
-                &mut jit_category_manager,
-                &mut profile,
-                &timestamp_converter,
-            ));
+            let (process_sample_data, _process_recycling_data) =
+                task.finish(&mut jit_category_manager, &mut profile);
+            process_sample_datas.push(process_sample_data);
         }
 
         let mut stack_frame_scratch_buf = Vec::new();
