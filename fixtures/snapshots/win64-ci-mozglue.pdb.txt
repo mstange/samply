@@ -634,7 +634,7 @@ ff10 Allocator<MozJemallocBase>::moz_arena_memalign(unsigned long long, unsigned
 3a230 mozilla::ProfileBufferChunkManagerSingle::SizeOfExcludingThis(unsigned long long (*)(void const*)) const
 3a280 mozilla::ProfileBufferChunkManagerSingle::SizeOfIncludingThis(unsigned long long (*)(void const*)) const
 3a2b0 mozilla::ProfileBufferChunkManagerWithLocalLimit::MaxTotalSize() const
-3a2c0 std::_Func_class<void,mozilla::ProfileBufferControlledChunkManager::Update &&>::_Reset_move(std::_Func_class<void,mozilla::ProfileBufferControlledChunkManager::Update &&>&&)
+3a2c0 std::_Func_class<void,const mozilla::ProfileBufferChunk &>::_Reset_move(std::_Func_class<void,const mozilla::ProfileBufferChunk &>&&)
 3a320 mozilla::ProfileBufferChunk::SizeOfIncludingThis(unsigned long long (*)(void const*)) const
 3a370 mozilla::ProfileChunkedBuffer::ResetChunkManager(mozilla::baseprofiler::detail::BaseProfilerMaybeAutoLock const&)
 3a4a0 mozilla::baseprofiler::detail::BaseProfilerMaybeMutex::Lock()
