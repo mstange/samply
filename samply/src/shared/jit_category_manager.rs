@@ -72,7 +72,7 @@ impl JitCategoryManager {
         name: &str,
         profile: &mut Profile,
     ) -> (CategoryPairHandle, Option<JsFrame>) {
-        if name == "BaselineInterpreter" {
+        if name == "BaselineInterpreter" || name.starts_with("BlinterpOp: ") {
             return (
                 self.baseline_interpreter_category.get(profile).into(),
                 Some(JsFrame::BaselineInterpreter),
