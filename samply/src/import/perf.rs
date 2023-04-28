@@ -10,6 +10,7 @@ use std::path::Path;
 
 use crate::linux_shared::{
     ConvertRegs, ConvertRegsAarch64, ConvertRegsX86_64, Converter, EventInterpretation,
+    MmapRangeOrVec,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -34,7 +35,7 @@ pub fn convert<C: Read + Seek>(
     let profile = match arch {
         Some("aarch64") => {
             let cache = framehop::aarch64::CacheAarch64::new();
-            convert_impl::<framehop::aarch64::UnwinderAarch64<Vec<u8>>, ConvertRegsAarch64, _>(
+            convert_impl::<framehop::aarch64::UnwinderAarch64<MmapRangeOrVec>, ConvertRegsAarch64, _>(
                 perf_file,
                 extra_dir,
                 cache,
@@ -50,7 +51,7 @@ pub fn convert<C: Read + Seek>(
                 );
             }
             let cache = framehop::x86_64::CacheX86_64::new();
-            convert_impl::<framehop::x86_64::UnwinderX86_64<Vec<u8>>, ConvertRegsX86_64, _>(
+            convert_impl::<framehop::x86_64::UnwinderX86_64<MmapRangeOrVec>, ConvertRegsX86_64, _>(
                 perf_file,
                 extra_dir,
                 cache,
@@ -70,7 +71,7 @@ fn convert_impl<U, C, R>(
     fold_recursive_prefix: bool,
 ) -> Profile
 where
-    U: Unwinder<Module = Module<Vec<u8>>> + Default,
+    U: Unwinder<Module = Module<MmapRangeOrVec>> + Default,
     C: ConvertRegs<UnwindRegs = U::UnwindRegs>,
     R: Read,
 {

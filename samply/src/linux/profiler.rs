@@ -19,7 +19,7 @@ use super::perf_event::EventSource;
 use super::perf_group::{AttachMode, PerfGroup};
 use super::proc_maps;
 use super::process::SuspendedLaunchedProcess;
-use crate::linux_shared::{ConvertRegs, Converter, EventInterpretation};
+use crate::linux_shared::{ConvertRegs, Converter, EventInterpretation, MmapRangeOrVec};
 use crate::server::{start_server_main, ServerProps};
 use crate::ConversionArgs;
 
@@ -286,7 +286,7 @@ fn make_converter(
     interval: Duration,
     product_name: &str,
     conversion_args: &ConversionArgs,
-) -> Converter<framehop::UnwinderNative<Vec<u8>, framehop::MayAllocateDuringUnwind>> {
+) -> Converter<framehop::UnwinderNative<MmapRangeOrVec, framehop::MayAllocateDuringUnwind>> {
     let interval_nanos = if interval.as_nanos() > 0 {
         interval.as_nanos() as u64
     } else {
@@ -311,7 +311,7 @@ fn make_converter(
         event_names: vec!["cycles".to_string()],
     };
 
-    Converter::<framehop::UnwinderNative<Vec<u8>, framehop::MayAllocateDuringUnwind>>::new(
+    Converter::<framehop::UnwinderNative<MmapRangeOrVec, framehop::MayAllocateDuringUnwind>>::new(
         product_name,
         None,
         HashMap::new(),
@@ -330,7 +330,9 @@ fn init_profiler(
     interval: Duration,
     pid: u32,
     attach_mode: AttachMode,
-    converter: &mut Converter<framehop::UnwinderNative<Vec<u8>, framehop::MayAllocateDuringUnwind>>,
+    converter: &mut Converter<
+        framehop::UnwinderNative<MmapRangeOrVec, framehop::MayAllocateDuringUnwind>,
+    >,
 ) -> PerfGroup {
     let interval_nanos = if interval.as_nanos() > 0 {
         interval.as_nanos() as u64
@@ -472,7 +474,9 @@ enum SamplerRequest {
 
 fn run_profiler(
     mut perf: PerfGroup,
-    mut converter: Converter<framehop::UnwinderNative<Vec<u8>, framehop::MayAllocateDuringUnwind>>,
+    mut converter: Converter<
+        framehop::UnwinderNative<MmapRangeOrVec, framehop::MayAllocateDuringUnwind>,
+    >,
     output_filename: &Path,
     _time_limit: Option<Duration>,
     more_processes_request_receiver: Receiver<SamplerRequest>,

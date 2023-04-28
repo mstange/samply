@@ -1,4 +1,4 @@
-use framehop::{Module, Unwinder};
+use framehop::Unwinder;
 use fxprof_processed_profile::{CategoryColor, Profile, Timestamp};
 
 use std::collections::hash_map::Entry;
@@ -15,7 +15,7 @@ use crate::shared::unresolved_samples::UnresolvedStacks;
 
 pub struct Processes<U>
 where
-    U: Unwinder<Module = Module<Vec<u8>>> + Default,
+    U: Unwinder + Default,
 {
     processes_by_pid: HashMap<i32, Process<U>>,
 
@@ -29,7 +29,7 @@ where
 
 impl<U> Processes<U>
 where
-    U: Unwinder<Module = Module<Vec<u8>>> + Default,
+    U: Unwinder + Default,
 {
     pub fn new(allow_reuse: bool) -> Self {
         let process_recycler = if allow_reuse {

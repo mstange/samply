@@ -15,13 +15,16 @@ use linux_perf_event_reader::{
 use memmap2::Mmap;
 use object::pe::{ImageNtHeaders32, ImageNtHeaders64};
 use object::read::pe::{ImageNtHeaders, ImageOptionalHeader, PeFile};
-use object::{FileKind, Object, ObjectSection, ObjectSegment};
+use object::{
+    CompressedFileRange, CompressionFormat, FileKind, Object, ObjectSection, ObjectSegment,
+};
 use samply_symbols::{debug_id_for_object, DebugIdExt};
 use wholesym::samply_symbols;
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Debug;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::SystemTime;
 use std::{ops::Range, path::Path};
 
@@ -30,6 +33,7 @@ use super::convert_regs::ConvertRegs;
 use super::event_interpretation::EventInterpretation;
 use super::injected_jit_object::{correct_bad_perf_jit_so_file, jit_function_name};
 use super::kernel_symbols::{kernel_module_build_id, KernelSymbols};
+use super::mmap_range_or_vec::MmapRangeOrVec;
 use super::processes::Processes;
 use super::rss_stat::{RssStat, MM_ANONPAGES, MM_FILEPAGES, MM_SHMEMPAGES, MM_SWAPENTS};
 use super::svma_file_range::compute_vma_bias;
@@ -55,7 +59,7 @@ struct SuspectedPeMapping {
 
 pub struct Converter<U>
 where
-    U: Unwinder<Module = Module<Vec<u8>>> + Default,
+    U: Unwinder<Module = Module<MmapRangeOrVec>> + Default,
 {
     cache: U::Cache,
     profile: Profile,
@@ -89,7 +93,7 @@ const DEFAULT_OFF_CPU_SAMPLING_INTERVAL_NS: u64 = 1_000_000; // 1ms
 
 impl<U> Converter<U>
 where
-    U: Unwinder<Module = Module<Vec<u8>>> + Default,
+    U: Unwinder<Module = Module<MmapRangeOrVec>> + Default,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -960,15 +964,31 @@ where
 
         if let Some(file) = file {
             let mmap = match unsafe { memmap2::MmapOptions::new().map(&file) } {
-                Ok(mmap) => mmap,
+                Ok(mmap) => Arc::new(mmap),
                 Err(err) => {
                     eprintln!("Could not mmap file {path}: {err:?}");
                     return;
                 }
             };
 
-            fn section_data<'a>(section: &impl ObjectSection<'a>) -> Option<Vec<u8>> {
-                section.uncompressed_data().ok().map(|data| data.to_vec())
+            fn section_data<'a>(
+                section: &impl ObjectSection<'a>,
+                mmap: Arc<Mmap>,
+            ) -> Option<MmapRangeOrVec> {
+                let CompressedFileRange {
+                    format,
+                    offset,
+                    compressed_size: _,
+                    uncompressed_size,
+                } = section.compressed_file_range().ok()?;
+                match format {
+                    CompressionFormat::None => {
+                        MmapRangeOrVec::new_mmap_range(mmap, offset, uncompressed_size)
+                    }
+                    _ => Some(MmapRangeOrVec::Vec(Arc::new(
+                        section.uncompressed_data().ok()?.to_vec(),
+                    ))),
+                }
             }
 
             let file = match object::File::parse(&mmap[..]) {
@@ -1026,8 +1046,12 @@ where
             let eh_frame_hdr = file.section_by_name(".eh_frame_hdr");
 
             let unwind_data = match (
-                eh_frame.as_ref().and_then(section_data),
-                eh_frame_hdr.as_ref().and_then(section_data),
+                eh_frame
+                    .as_ref()
+                    .and_then(|s| section_data(s, mmap.clone())),
+                eh_frame_hdr
+                    .as_ref()
+                    .and_then(|s| section_data(s, mmap.clone())),
             ) {
                 (Some(eh_frame), Some(eh_frame_hdr)) => {
                     ModuleUnwindData::EhFrameHdrAndEhFrame(eh_frame_hdr, eh_frame)
@@ -1042,17 +1066,13 @@ where
             {
                 let (start, size) = text_segment.file_range();
                 let address_range = base_avma + start..base_avma + start + size;
-                text_segment
-                    .data()
-                    .ok()
-                    .map(|data| TextByteData::new(data.to_owned(), address_range))
+                MmapRangeOrVec::new_mmap_range(mmap.clone(), start, size)
+                    .map(|data| TextByteData::new(data, address_range))
             } else if let Some(text_section) = &text {
                 if let Some((start, size)) = text_section.file_range() {
                     let address_range = base_avma + start..base_avma + start + size;
-                    text_section
-                        .data()
-                        .ok()
-                        .map(|data| TextByteData::new(data.to_owned(), address_range))
+                    MmapRangeOrVec::new_mmap_range(mmap.clone(), start, size)
+                        .map(|data| TextByteData::new(data, address_range))
                 } else {
                     None
                 }
@@ -1064,20 +1084,22 @@ where
                 section.address()..section.address() + section.size()
             }
 
+            let module_svma_info = ModuleSvmaInfo {
+                base_svma,
+                text: text.as_ref().map(svma_range),
+                text_env: text_env.as_ref().map(svma_range),
+                stubs: None,
+                stub_helper: None,
+                eh_frame: eh_frame.as_ref().map(svma_range),
+                eh_frame_hdr: eh_frame_hdr.as_ref().map(svma_range),
+                got: got.as_ref().map(svma_range),
+            };
+
             let module = Module::new(
                 path.to_string(),
                 avma_range.clone(),
                 base_avma,
-                ModuleSvmaInfo {
-                    base_svma,
-                    text: text.as_ref().map(svma_range),
-                    text_env: text_env.as_ref().map(svma_range),
-                    stubs: None,
-                    stub_helper: None,
-                    eh_frame: eh_frame.as_ref().map(svma_range),
-                    eh_frame_hdr: eh_frame_hdr.as_ref().map(svma_range),
-                    got: got.as_ref().map(svma_range),
-                },
+                module_svma_info,
                 unwind_data,
                 text_data,
             );

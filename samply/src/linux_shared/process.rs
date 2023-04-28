@@ -1,4 +1,4 @@
-use framehop::{Module, Unwinder};
+use framehop::Unwinder;
 use fxprof_processed_profile::{
     CounterHandle, LibraryHandle, MarkerTiming, ProcessHandle, Profile, ThreadHandle, Timestamp,
 };
@@ -20,7 +20,7 @@ use crate::shared::unresolved_samples::UnresolvedSamples;
 
 pub struct Process<U>
 where
-    U: Unwinder<Module = Module<Vec<u8>>> + Default,
+    U: Unwinder + Default,
 {
     pub profile_process: ProcessHandle,
     pub unwinder: U,
@@ -40,7 +40,7 @@ where
 
 impl<U> Process<U>
 where
-    U: Unwinder<Module = Module<Vec<u8>>> + Default,
+    U: Unwinder + Default,
 {
     pub fn new(
         pid: i32,
