@@ -33,5 +33,6 @@ Add in calls to VirtualAlloc/VirtualFree
 `xperf -on latency+ALL_FAULTS+VIRT_ALLOC -stackwalk PagefaultDemandZero`
 
 ### Jscript
+- Start Chrome with `chrome --js-flags="--enable-etw-stack-walking --interpreted-frames-native-stack"`
 `xperf -start "NT Kernel Logger" -on latency -stackwalk profile -start "usersession" -on Microsoft-JScript:0x3`
 `xperf -stop "NT Kernel Logger" -stop "usersession" -d out.etl`
