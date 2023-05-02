@@ -283,9 +283,17 @@ pub fn start_trace<F: FnMut(&EventRecord)>(mut callback: F)  {
     println!("status: {:?}", status);
 }
 
-pub fn write_property(output: &mut dyn std::fmt::Write, parser: &mut Parser, property: &Property) {
-    //write!(output, "  {}: {:?} = ", property.name, property.desc).unwrap();
-    write!(output, "  {}= ", property.name).unwrap();
+pub fn write_property(output: &mut dyn std::fmt::Write, parser: &mut Parser, property: &Property, write_types: bool) {
+    if write_types {
+        let type_name = if let PropertyDesc::Primitive(prim) = &property.desc {
+            format!("{:?}", prim.in_type)
+        } else {
+            format!("{:?}", property.desc)
+        };
+        write!(output, "  {}: {} = ", property.name, type_name).unwrap();
+    } else {
+        write!(output, "  {}= ", property.name).unwrap();
+    }
     if let Some(map_info) = &property.map_info {
         let value = match property.desc {
             PropertyDesc::Primitive(PrimitiveDesc{ in_type: TdhInType::InTypeUInt32, ..}) => TryParse::<u32>::parse(parser, &property.name),
@@ -356,9 +364,9 @@ pub fn write_property(output: &mut dyn std::fmt::Write, parser: &mut Parser, pro
     }
 }
 
-pub fn print_property(parser: &mut Parser, property: &Property) {
+pub fn print_property(parser: &mut Parser, property: &Property, write_types: bool) {
     let mut result = String::new();
-    write_property(&mut result, parser, property);
+    write_property(&mut result, parser, property, write_types);
     println!("{}", result);
 }
 

@@ -22,7 +22,7 @@ fn main() {
         for i in 0..s.property_count() {
             let property = s.property(i);
             //dbg!(&property);
-            print_property(&mut parser, &property);
+            print_property(&mut parser, &property, false);
         }
     } else {
         if pattern.is_none() {

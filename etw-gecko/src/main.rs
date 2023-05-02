@@ -169,7 +169,7 @@ fn main() {
 
                     for i in 0..s.property_count() {
                         let property = s.property(i);
-                        print_property(&mut parser, &property);
+                        print_property(&mut parser, &property, false);
                     }
                 }
                 "MSNT_SystemTrace/PerfInfo/CollectionStart" => {
@@ -505,7 +505,7 @@ fn main() {
                     for i in 0..s.property_count() {
                         let property = s.property(i);
                         //dbg!(&property);
-                        write_property(&mut text, &mut parser, &property);
+                        write_property(&mut text, &mut parser, &property, false);
                         text += ", "
                     }
 
@@ -539,7 +539,7 @@ fn main() {
                     for i in 0..s.property_count() {
                         let property = s.property(i);
                         //dbg!(&property);
-                        write_property(&mut text, &mut parser, &property);
+                        write_property(&mut text, &mut parser, &property, false);
                         text += ", "
                     }
                     counter.value += region_size as f64;
@@ -734,7 +734,7 @@ fn main() {
                         for i in 0..s.property_count() {
                             let property = s.property(i);
                             //dbg!(&property);
-                            write_property(&mut text, &mut parser, &property);
+                            write_property(&mut text, &mut parser, &property, false);
                             text += ", "
                         }
 
