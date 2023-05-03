@@ -678,11 +678,11 @@ fn main() {
                     //if s.process_id() == 6736 { dbg!(s.process_id(), &method_name, method_start_address, method_size); }
                     let syms =  jscript_symbols.entry(s.process_id()).or_insert(BTreeMap::new());
                     let start_address = method_start_address.as_u64();
-                    let name_and_file = format!("{} {}", method_name, jscript_sources.get(&source_id).map(|x| x.as_ref()).unwrap_or("?"));
+                    //let name_and_file = format!("{} {}", method_name, jscript_sources.get(&source_id).map(|x| x.as_ref()).unwrap_or("?"));
 
                     let mut overlaps = Vec::new();
                     for sym in syms.range_mut((Included(start_address), Included(start_address + method_size))) {
-                        if name_and_file != sym.1.1 || start_address != *sym.0 || method_size != sym.1.0 {
+                        if method_name != sym.1.1 || start_address != *sym.0 || method_size != sym.1.0 {
                             println!("overlap {} {} {} -  {:?}", method_name, start_address, method_size, sym);
                             overlaps.push(*sym.0);
                         } else {
@@ -693,7 +693,7 @@ fn main() {
                         syms.remove(&sym);
                     }
 
-                    syms.insert(start_address, (method_size, name_and_file));
+                    syms.insert(start_address, (method_size, method_name));
                     //dbg!(s.process_id(), jscript_symbols.keys());
 
                 }
