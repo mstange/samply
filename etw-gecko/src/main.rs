@@ -1,12 +1,27 @@
-use std::{collections::{HashMap, HashSet, hash_map::Entry, BTreeMap}, convert::TryInto, fs::File, io::{BufWriter}, path::{Path, PathBuf}, time::{Duration, Instant, SystemTime}};
+use std::{collections::{HashMap, HashSet, hash_map::Entry}, convert::TryInto, fs::File, io::BufWriter, path::Path, time::{Duration, Instant, SystemTime}, sync::Arc};
 
 use etw_reader::{GUID, open_trace, parser::{Parser, TryParse, Address}, print_property, schema::SchemaLocator, write_property};
+use lib_mappings::{LibMappingOpQueue, LibMappingOp, LibMappingAdd};
 use serde_json::{Value, json, to_writer};
-
-use fxprof_processed_profile::{Timestamp, MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, ReferenceTimestamp, MarkerSchemaField, MarkerTiming, ProfilerMarker, ThreadHandle, Profile, debugid::{self, CodeId}, SamplingInterval, CategoryPairHandle, ProcessHandle, LibraryInfo, CounterHandle, FrameInfo, FrameFlags};
+use fxprof_processed_profile::{Timestamp, MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, ReferenceTimestamp, MarkerSchemaField, MarkerTiming, ProfilerMarker, ThreadHandle, Profile, debugid, SamplingInterval, CategoryPairHandle, ProcessHandle, LibraryInfo, CounterHandle, FrameInfo, FrameFlags, LibraryHandle, CpuDelta, SymbolTable, Symbol};
 use debugid::DebugId;
+
+mod jit_category_manager;
+mod lib_mappings;
+mod process_sample_data;
+mod stack_converter;
+mod stack_depth_limiting_frame_iter;
+mod types;
+mod unresolved_samples;
+
+use jit_category_manager::JitCategoryManager;
+use stack_converter::StackConverter;
+use lib_mappings::LibMappingInfo;
+use types::{StackFrame, StackMode};
+use unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
 use uuid::Uuid;
-use std::collections::Bound::{Included, Unbounded};
+use process_sample_data::ProcessSampleData;
+
 
 /// An example marker type with some text content.
 #[derive(Debug, Clone)]
@@ -49,7 +64,7 @@ struct ThreadState {
     // When merging threads `handle` is the global thread handle and we use `merge_name` to store the name
     handle: ThreadHandle,
     merge_name: Option<String>,
-    last_kernel_stack: Option<Vec<u64>>,
+    last_kernel_stack: Option<Vec<StackFrame>>,
     last_kernel_stack_time: u64,
     last_sample_timestamp: Option<i64>,
     running_since_time: Option<i64>,
@@ -90,6 +105,29 @@ struct MemoryUsage {
     value: f64
 }
 
+struct ProcessJitInfo {
+    lib_handle: LibraryHandle,
+    jit_mapping_ops: LibMappingOpQueue,
+    next_relative_address: u32,
+    symbols: Vec<Symbol>,
+}
+
+struct ProcessState {
+    process_handle: ProcessHandle,
+    unresolved_samples: UnresolvedSamples,
+    regular_lib_mapping_ops: LibMappingOpQueue,
+}
+
+impl ProcessState {
+    pub fn new(process_handle: ProcessHandle) -> Self {
+        Self {
+            process_handle,
+            unresolved_samples: UnresolvedSamples::default(),
+            regular_lib_mapping_ops: LibMappingOpQueue::default(),
+        }
+    }
+}
+
 fn main() {
     let profile_start_instant = Timestamp::from_nanos_since_reference(0);
     let profile_start_system = SystemTime::now();
@@ -97,7 +135,7 @@ fn main() {
     let mut schema_locator = SchemaLocator::new();
     etw_reader::add_custom_schemas(&mut schema_locator);
     let mut threads: HashMap<u32, ThreadState> = HashMap::new();
-    let mut processes: HashMap<u32, ProcessHandle> = HashMap::new();
+    let mut processes: HashMap<u32, ProcessState> = HashMap::new();
     let mut memory_usage: HashMap<u32, MemoryUsage> = HashMap::new();
 
     let mut libs: HashMap<u64, (String, u32, u32)> = HashMap::new();
@@ -130,6 +168,9 @@ fn main() {
     let user_category: CategoryPairHandle = profile.add_category("User", fxprof_processed_profile::CategoryColor::Yellow).into();
     let kernel_category: CategoryPairHandle = profile.add_category("Kernel", fxprof_processed_profile::CategoryColor::Orange).into();
 
+    let mut jit_category_manager = JitCategoryManager::new();
+    let mut unresolved_stacks = UnresolvedStacks::default();
+
     let mut thread_index = 0;
     let mut sample_count = 0;
     let mut stack_sample_count = 0;
@@ -138,14 +179,14 @@ fn main() {
     let mut start_time: u64 = 0;
     let mut perf_freq: u64 = 0;
     let mut event_count = 0;
-    let (mut global_thread, global_process) = if merge_threads {
+    let (global_thread, global_process) = if merge_threads {
         let global_process = profile.add_process("All processes", 1, profile_start_instant);
         (Some(profile.add_thread(global_process, 1, profile_start_instant, false)), Some(global_process))
     } else {
         (None, None)
     };
     let mut gpu_thread = None;
-    let mut jscript_symbols: HashMap<u32, BTreeMap<u64, (u64, String)>> = HashMap::new();
+    let mut jscript_symbols: HashMap<u32, ProcessJitInfo> = HashMap::new();
     let mut jscript_sources: HashMap<u64, String> = HashMap::new();
 
     let result = open_trace(Path::new(&trace_file), |e| {
@@ -192,8 +233,13 @@ fn main() {
                         Entry::Occupied(e) => e.into_mut(),
                         Entry::Vacant(e) => {
                             let thread_start_instant = profile_start_instant;
-                            let process = processes[&dbg!(process_id)];
-                            let handle = profile.add_thread(process, thread_id, thread_start_instant, false);
+                            let handle = match global_thread {
+                                Some(global_thread) => global_thread,
+                                None => {
+                                    let process = processes[&process_id].process_handle;
+                                    profile.add_thread(process, thread_id, thread_start_instant, false)
+                                }
+                            };
                             let tb = e.insert(
                                 ThreadState::new(handle, thread_id)
                             );
@@ -223,11 +269,12 @@ fn main() {
                         Entry::Occupied(e) => e.into_mut(),
                         Entry::Vacant(e) => {
                             let thread_start_instant = profile_start_instant;
-                            let handle = if let Some(global_thread) = global_thread {
-                                global_thread
-                            } else {
-                                let process = processes[&process_id];
-                                profile.add_thread(process, thread_id, thread_start_instant, false)
+                            let handle = match global_thread {
+                                Some(global_thread) => global_thread,
+                                None => {
+                                    let process = processes[&process_id].process_handle;
+                                    profile.add_thread(process, thread_id, thread_start_instant, false)
+                                }
                             };
                             let tb = e.insert(
                                 ThreadState::new(handle, thread_id)
@@ -262,9 +309,11 @@ fn main() {
                         if image_file_name.contains(process_target_name) {
                             println!("tracing {}", process_id);
                             process_targets.insert(process_id);
-                            if global_process.is_none() {
-                                processes.insert(process_id, profile.add_process(&image_file_name, process_id, timestamp));
-                            }
+                            let process_handle = match global_process {
+                                Some(global_process) => global_process,
+                                None => profile.add_process(&image_file_name, process_id, timestamp),
+                            };
+                            processes.insert(process_id, ProcessState::new(process_handle));
                         }
                     }
                 }
@@ -283,23 +332,15 @@ fn main() {
                         Entry::Occupied(e) => e.into_mut(),
                         Entry::Vacant(e) => {
                             let thread_start_instant = profile_start_instant;
-                            let handle = if let Some(global_thread) = global_thread {
-                                global_thread
-                            } else {
-                                profile.add_thread(processes[&process_id], thread_id, thread_start_instant, false)
+                            let handle = match global_thread {
+                                Some(global_thread) => global_thread,
+                                None => {
+                                    let process = processes[&process_id].process_handle;
+                                    profile.add_thread(process, thread_id, thread_start_instant, false)
+                                }
                             };
                             let tb = e.insert(
-                                ThreadState {
-                                    handle,
-                                    last_kernel_stack: None,
-                                    last_kernel_stack_time: 0,
-                                    last_sample_timestamp: None,
-                                    merge_name: None,
-                                    running_since_time: None,
-                                    previous_sample_cpu_time: 0,
-                                    total_running_time: 0,
-                                    thread_id,
-                                }
+                                ThreadState::new(handle, thread_id)
                             );
                             thread_index += 1;
                             tb
@@ -321,79 +362,59 @@ fn main() {
                     //eprintln!(" sample");
 
                     // read the stacks out manually
-                    let mut stack = parser.buffer.chunks_exact(8)
+                    let mut stack: Vec<StackFrame> = parser.buffer.chunks_exact(8)
                     .map(|a| u64::from_ne_bytes(a.try_into().unwrap()))
-                    .collect::<Vec<u64>>();
+                    .map(|a| StackFrame::ReturnAddress(a, if is_kernel_address(a, 8) { StackMode::Kernel } else { StackMode::User }))
+                    .collect();
                     /*
                     for i in 0..s.property_count() {
                         let property = s.property(i);
                         print_property(&mut parser, &property);
                     }*/
-                    stack.reverse();
 
-                    let mut add_sample = |thread: &mut ThreadState, timestamp, stack: Vec<u64>| {
-                        let frames = stack.iter().map(|addr| {
-                            if let Some(syms) = jscript_symbols.get(&process_id) {
-                                if let Some(sym) = syms.range((Unbounded, Included(addr))).last() {
-                                    //if process_id == 6736 { eprintln!("{:x} {:x}", addr, sym.0); }
-                                    if *addr < *sym.0 + sym.1.0 {
-                                        //eprintln!("found match for {} {:?}", addr, sym);
-                                        return FrameInfo {
-                                            frame: fxprof_processed_profile::Frame::Label(profile.intern_string(&sym.1.1)),
-                                            category_pair: user_category,
-                                            flags: FrameFlags::IS_JS,
-                                        }
-                                    }
-                                }
-                            }
-                            FrameInfo {
-                                frame: fxprof_processed_profile::Frame::ReturnAddress(*addr),
-                                category_pair: user_category,
-                                flags: FrameFlags::empty(),
-                            }
-                        }).collect::<Vec<_>>();
-                        if let Some(global_thread) = global_thread {
-                            let stack_frames = frames;
-                            let mut frames = Vec::new();
-                            let thread_name = thread.merge_name.as_ref().map(|x| strip_thread_numbers(x).to_owned()).unwrap_or_else(|| format!("thread {}", thread.thread_id));
-                            frames.push(FrameInfo {
-                                frame: fxprof_processed_profile::Frame::Label(profile.intern_string(&thread_name)),
-                                category_pair: user_category,
-                                flags: FrameFlags::empty(),
-                            });
-                            frames.extend(stack_frames);
-                            profile.add_sample(global_thread, timestamp, frames.into_iter(), Duration::ZERO.into(), 1);
-                        } else {
-                            let delta = thread.total_running_time - thread.previous_sample_cpu_time;
-                            thread.previous_sample_cpu_time = thread.total_running_time;
-                            let delta = Duration::from_nanos(to_nanos(delta as u64));
-                            profile.add_sample(thread.handle, timestamp, frames.into_iter(), delta.into(), 1);
-                        }
+                    let mut add_sample = |thread: &mut ThreadState, process: &mut ProcessState, timestamp: u64, cpu_delta: CpuDelta, stack: Vec<StackFrame>| {
+                        let profile_timestamp = Timestamp::from_nanos_since_reference(to_nanos(timestamp - start_time));
+                        let stack_index = unresolved_stacks.convert(stack.into_iter().rev());
+                        // TODO: when using global thread, also store the thread's merge name along with this sample
+                        process.unresolved_samples.add_sample(thread.handle, profile_timestamp, timestamp, stack_index, cpu_delta, 1);
+                        // if let Some(global_thread) = global_thread {
+                        //     let thread_name = thread.merge_name.as_ref().map(|x| strip_thread_numbers(x).to_owned()).unwrap_or_else(|| format!("thread {}", thread.thread_id));
+                        //     frames.push(FrameInfo {
+                        //         frame: fxprof_processed_profile::Frame::Label(profile.intern_string(&thread_name)),
+                        //         category_pair: user_category,
+                        //         flags: FrameFlags::empty(),
+                        //     });
+                        // }
                     };
 
-                    if is_kernel_address(stack[0], 8) {
+                    if matches!(stack[0], StackFrame::ReturnAddress(_, StackMode::Kernel)) {
                         //eprintln!("kernel ");
                         thread.last_kernel_stack_time = timestamp;
                         thread.last_kernel_stack = Some(stack);
                     } else {
+                        let delta = thread.total_running_time - thread.previous_sample_cpu_time;
+                        thread.previous_sample_cpu_time = thread.total_running_time;
+                        let cpu_delta = CpuDelta::from_nanos(to_nanos(delta as u64));
+                        let process = processes.get_mut(&process_id).unwrap();
                         if timestamp == thread.last_kernel_stack_time {
                             //eprintln!("matched");
                             if thread.last_kernel_stack.is_none() {
                                 dbg!(thread.last_kernel_stack_time);
                             }
-                            let timestamp = Timestamp::from_nanos_since_reference(to_nanos(timestamp - start_time));
-                            stack.append(&mut thread.last_kernel_stack.take().unwrap());
-                            add_sample(thread, timestamp, stack);
+                            // Prepend the kernel stack to the user stack, because `stack` is ordered from inside to outside
+                            let mut user_stack = std::mem::replace(&mut stack, thread.last_kernel_stack.take().unwrap());
+                            stack.append(&mut user_stack);
+                            add_sample(thread, process, timestamp, cpu_delta, stack);
                         } else {
                             if let Some(kernel_stack) = thread.last_kernel_stack.take() {
                                 // we're left with an unassociated kernel stack
                                 dbg!(thread.last_kernel_stack_time);
 
-                                let timestamp = Timestamp::from_nanos_since_reference(to_nanos(thread.last_kernel_stack_time - start_time));
-                                add_sample(thread, timestamp, kernel_stack);
+                                add_sample(thread, process, thread.last_kernel_stack_time, CpuDelta::ZERO, kernel_stack);
+                                // add_sample(thread, profile_timestamp, kernel_stack);
                             }
-                            let timestamp = Timestamp::from_nanos_since_reference(to_nanos(timestamp - start_time));
-                            add_sample(thread, timestamp, stack);
+                            add_sample(thread, process, timestamp, cpu_delta, stack);
+                            // process.unresolved_samples.add_sample(thread.handle, profile_timestamp, timestamp, stack_index, cpu_delta, 1);
                         }
                         stack_sample_count += 1;
                         //XXX: what unit are timestamps in the trace in?
@@ -483,7 +504,7 @@ fn main() {
                     let counter = match memory_usage.entry(e.EventHeader.ProcessId) {
                         Entry::Occupied(e) => e.into_mut(),
                         Entry::Vacant(entry) => {
-                            entry.insert(MemoryUsage { counter: profile.add_counter(processes[&e.EventHeader.ProcessId], "VirtualAlloc", "Memory", "Amount of VirtualAlloc allocated memory"), value: 0. })
+                            entry.insert(MemoryUsage { counter: profile.add_counter(processes[&e.EventHeader.ProcessId].process_handle, "VirtualAlloc", "Memory", "Amount of VirtualAlloc allocated memory"), value: 0. })
                         }
                     };
                     let thread = match threads.entry(thread_id) {
@@ -522,7 +543,7 @@ fn main() {
                     let counter = match memory_usage.entry(e.EventHeader.ProcessId) {
                         Entry::Occupied(e) => e.into_mut(),
                         Entry::Vacant(entry) => {
-                            entry.insert(MemoryUsage { counter: profile.add_counter(processes[&e.EventHeader.ProcessId], "VirtualAlloc", "Memory", "Amount of VirtualAlloc allocated memory"), value: 0. })
+                            entry.insert(MemoryUsage { counter: profile.add_counter(processes[&e.EventHeader.ProcessId].process_handle, "VirtualAlloc", "Memory", "Amount of VirtualAlloc allocated memory"), value: 0. })
                         }
                     };
                     let thread = match threads.entry(thread_id) {
@@ -591,15 +612,17 @@ fn main() {
                         debug_id, 
                         arch: Some("x86_64".into())
                     };
-                    let lib = profile.add_lib(info);
+                    let lib_handle = profile.add_lib(info);
                     if process_id == 0 {
-                        profile.add_kernel_lib_mapping(lib, image_base, image_base + image_size as u64, 0);
+                        profile.add_kernel_lib_mapping(lib_handle, image_base, image_base + image_size as u64, 0);
                     } else {
-                        let process = match global_process {
-                            Some(global_process) => global_process,
-                            None => processes[&dbg!(process_id)],
-                        };
-                        profile.add_lib_mapping(process, lib, image_base, image_base + image_size as u64, 0);
+                        let process = processes.get_mut(&process_id).unwrap();
+                        process.regular_lib_mapping_ops.push(e.EventHeader.TimeStamp as u64, LibMappingOp::Add(LibMappingAdd {
+                            start_avma: image_base,
+                            end_avma: image_base + image_size as u64,
+                            relative_address_at_start: 0,
+                            info: LibMappingInfo::new_lib(lib_handle),
+                        }));
                     }
                 }
                 "Microsoft-Windows-DxgKrnl/VSyncDPC/Info " => {
@@ -675,27 +698,29 @@ fn main() {
                     let method_start_address: Address = parser.parse("MethodStartAddress");
                     let method_size: u64 = parser.parse("MethodSize");
                     let source_id: u64 = parser.parse("SourceID");
+                    let process_id = s.process_id();
                     //if s.process_id() == 6736 { dbg!(s.process_id(), &method_name, method_start_address, method_size); }
-                    let syms =  jscript_symbols.entry(s.process_id()).or_insert(BTreeMap::new());
+                    let process_jit_info = jscript_symbols.entry(s.process_id()).or_insert_with(|| {
+                        let lib_handle = profile.add_lib(LibraryInfo { name: format!("JIT-{process_id}"), debug_name: format!("JIT-{process_id}"), path: format!("JIT-{process_id}"), debug_path: format!("JIT-{process_id}"), debug_id: DebugId::nil(), code_id: None, arch: None, symbol_table: None });
+                        ProcessJitInfo { lib_handle, jit_mapping_ops: LibMappingOpQueue::default(), next_relative_address: 0, symbols: Vec::new() }
+                    });
                     let start_address = method_start_address.as_u64();
-                    //let name_and_file = format!("{} {}", method_name, jscript_sources.get(&source_id).map(|x| x.as_ref()).unwrap_or("?"));
-
-                    let mut overlaps = Vec::new();
-                    for sym in syms.range_mut((Included(start_address), Included(start_address + method_size))) {
-                        if method_name != sym.1.1 || start_address != *sym.0 || method_size != sym.1.0 {
-                            println!("overlap {} {} {} -  {:?}", method_name, start_address, method_size, sym);
-                            overlaps.push(*sym.0);
-                        } else {
-                            println!("overlap same {} {} {} -  {:?}", method_name, start_address, method_size, sym);
-                        }
-                    }
-                    for sym in overlaps {
-                        syms.remove(&sym);
-                    }
-
-                    syms.insert(start_address, (method_size, method_name));
-                    //dbg!(s.process_id(), jscript_symbols.keys());
-
+                    let relative_address = process_jit_info.next_relative_address;
+                    process_jit_info.next_relative_address += method_size as u32;
+                    
+                    let (category, js_frame) = jit_category_manager.classify_jit_symbol(&method_name, &mut profile);
+                    let info = LibMappingInfo::new_jit_function(process_jit_info.lib_handle, category, js_frame);
+                    process_jit_info.jit_mapping_ops.push(e.EventHeader.TimeStamp as u64, LibMappingOp::Add(LibMappingAdd {
+                        start_avma: start_address,
+                        end_avma: start_address + method_size,
+                        relative_address_at_start: relative_address,
+                        info
+                    }));
+                    process_jit_info.symbols.push(Symbol {
+                        address: relative_address,
+                        size: Some(method_size as u32),
+                        name: method_name,
+                    });
                 }
                 "V8.js/SourceLoad/" /*|
                 "Microsoft-JScript/MethodRuntime/MethodDCStart" |
@@ -747,18 +772,40 @@ fn main() {
         }
     });
 
-    if result.is_ok() {
+    if !result.is_ok() {
+        dbg!(&result);
+        std::process::exit(1);
+    }
+
+    // Push queued samples into the profile.
+    // We queue them so that we can get symbolicated JIT function names. To get symbolicated JIT function names,
+    // we have to call profile.add_sample after we call profile.set_lib_symbol_table, and we don't have the
+    // complete JIT symbol table before we've seen all JIT symbols.
+    // (This is a rather weak justification. The better justification is that this is consistent with what
+    // samply does on Linux and macOS, where the queued samples also want to respect JIT function names from
+    // a /tmp/perf-1234.map file, and this file may not exist until the profiled process finishes.)
+    let mut stack_frame_scratch_buf = Vec::new();
+    for (process_id, process) in processes {
+        let ProcessState { unresolved_samples, regular_lib_mapping_ops, .. } = process;
+        let jitdump_lib_mapping_op_queues = match jscript_symbols.remove(&process_id) {
+            Some(jit_info) => {
+                profile.set_lib_symbol_table(jit_info.lib_handle, Arc::new(SymbolTable::new(jit_info.symbols)));
+                vec![jit_info.jit_mapping_ops]
+            },
+            None => Vec::new(),
+        };
+        let process_sample_data = ProcessSampleData::new(unresolved_samples, regular_lib_mapping_ops, jitdump_lib_mapping_op_queues, None);
+        process_sample_data.flush_samples_to_profile(&mut profile, user_category, kernel_category, &mut stack_frame_scratch_buf, &mut unresolved_stacks, &[])
+    }
+
     /*if merge_threads {
         profile.add_thread(global_thread);
     } else {
         for (_, thread) in threads.drain() { profile.add_thread(thread.builder); }
     }*/
 
-        let f = File::create("gecko.json").unwrap();
-        to_writer(BufWriter::new(f), &profile).unwrap();
-        println!("Took {} seconds", (Instant::now()-start).as_secs_f32());
-        println!("{} events, {} samples, {} dropped, {} stack-samples", event_count, sample_count, dropped_sample_count, stack_sample_count);
-    } else {
-        dbg!(&result);
-    }
+    let f = File::create("gecko.json").unwrap();
+    to_writer(BufWriter::new(f), &profile).unwrap();
+    println!("Took {} seconds", (Instant::now()-start).as_secs_f32());
+    println!("{} events, {} samples, {} dropped, {} stack-samples", event_count, sample_count, dropped_sample_count, stack_sample_count);
 }

@@ -2,7 +2,7 @@
 name = "etw-gecko"
 version = "0.1.0"
 authors = ["Jeff Muizelaar <jrmuizel@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -12,3 +12,4 @@ fxprof-processed-profile = { git = "https://github.com/mstange/samply/", rev="4f
 uuid = "1" # We really want gecko_profile::debugid::uuid, but debugid doesn't re-export uuid
 etw-reader = { path = "../etw-reader" }
 pico-args = "0.4.2"
+fxhash = "0.2.1"
