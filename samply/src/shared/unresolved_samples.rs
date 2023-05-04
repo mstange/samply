@@ -2,9 +2,8 @@ use std::collections::hash_map::Entry;
 
 use fxprof_processed_profile::{CpuDelta, ThreadHandle, Timestamp};
 
-use crate::shared::types::{FastHashMap, StackFrame};
-
-use super::{process_sample_data::RssStatMember, types::StackMode};
+use super::process_sample_data::RssStatMember;
+use super::types::{FastHashMap, StackFrame, StackMode};
 
 #[derive(Debug, Clone, Default)]
 pub struct UnresolvedSamples {
