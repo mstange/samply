@@ -116,6 +116,7 @@ struct ProcessState {
     process_handle: ProcessHandle,
     unresolved_samples: UnresolvedSamples,
     regular_lib_mapping_ops: LibMappingOpQueue,
+    has_seen_first_thread: bool,
 }
 
 impl ProcessState {
@@ -124,6 +125,7 @@ impl ProcessState {
             process_handle,
             unresolved_samples: UnresolvedSamples::default(),
             regular_lib_mapping_ops: LibMappingOpQueue::default(),
+            has_seen_first_thread: false,
         }
     }
 }
@@ -181,7 +183,7 @@ fn main() {
     let mut event_count = 0;
     let (global_thread, global_process) = if merge_threads {
         let global_process = profile.add_process("All processes", 1, profile_start_instant);
-        (Some(profile.add_thread(global_process, 1, profile_start_instant, false)), Some(global_process))
+        (Some(profile.add_thread(global_process, 1, profile_start_instant, true)), Some(global_process))
     } else {
         (None, None)
     };
@@ -272,8 +274,10 @@ fn main() {
                             let handle = match global_thread {
                                 Some(global_thread) => global_thread,
                                 None => {
-                                    let process = processes[&process_id].process_handle;
-                                    profile.add_thread(process, thread_id, thread_start_instant, false)
+                                    let process = processes.get_mut(&process_id).unwrap();
+                                    let is_main = !process.has_seen_first_thread;
+                                    process.has_seen_first_thread = true;
+                                    profile.add_thread(process.process_handle, thread_id, thread_start_instant, is_main)
                                 }
                             };
                             let tb = e.insert(
