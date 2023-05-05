@@ -246,6 +246,7 @@ where
             stack_index,
             cpu_delta,
             1,
+            None,
         );
     }
 
@@ -1220,6 +1221,7 @@ fn process_off_cpu_sample_group(
         stack,
         cpu_delta,
         weight,
+        None,
     );
 
     if sample_count > 1 {
@@ -1234,6 +1236,7 @@ fn process_off_cpu_sample_group(
             stack,
             cpu_delta,
             weight,
+            None,
         );
     }
 }

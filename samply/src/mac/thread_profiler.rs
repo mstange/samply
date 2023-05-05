@@ -150,7 +150,15 @@ impl ThreadProfiler {
                 }
             });
             let stack = unresolved_stacks.convert(frames);
-            unresolved_samples.add_sample(self.profile_thread, now, now_mono, stack, cpu_delta, 1);
+            unresolved_samples.add_sample(
+                self.profile_thread,
+                now,
+                now_mono,
+                stack,
+                cpu_delta,
+                1,
+                None,
+            );
         } else {
             // No CPU time elapsed since just before the last time we grabbed a stack.
             // Assume that the thread has done literally zero work and could not have changed
@@ -172,6 +180,7 @@ impl ThreadProfiler {
                 now,
                 now_mono,
                 1,
+                None,
             );
         }
 

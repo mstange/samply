@@ -15,7 +15,7 @@ pub struct ConvertedStackIter<'a> {
     lib_mappings: &'a LibMappingsHierarchy,
     user_category: CategoryPairHandle,
     kernel_category: CategoryPairHandle,
-    pending_frame_after_js: Option<FrameInfo>,
+    pending_frame: Option<FrameInfo>,
     js_name_for_baseline_interpreter: Option<JsName>,
 }
 
@@ -33,8 +33,8 @@ impl<'a> Iterator for ConvertedStackIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            if let Some(pending_frame_after_js) = self.pending_frame_after_js.take() {
-                return Some(pending_frame_after_js);
+            if let Some(pending_frame) = self.pending_frame.take() {
+                return Some(pending_frame);
             }
             let frame = self.inner.next()?;
             let (mode, addr, lookup_address, from_ip) = match *frame {
@@ -113,7 +113,7 @@ impl<'a> Iterator for ConvertedStackIter<'a> {
             let frame_info = match js_name {
                 Some(JsName::NonSelfHosted(js_name)) => {
                     // Prepend a JS frame.
-                    self.pending_frame_after_js = Some(frame_info);
+                    self.pending_frame = Some(frame_info);
                     FrameInfo {
                         frame: Frame::Label(js_name),
                         category_pair: category,
@@ -140,13 +140,14 @@ impl StackConverter {
         &self,
         stack: &'a [StackFrame],
         lib_mappings: &'a LibMappingsHierarchy,
+        extra_first_frame: Option<FrameInfo>,
     ) -> impl Iterator<Item = FrameInfo> + 'a {
         ConvertedStackIter {
             inner: stack.iter().rev(),
             lib_mappings,
             user_category: self.user_category,
             kernel_category: self.kernel_category,
-            pending_frame_after_js: None,
+            pending_frame: extra_first_frame,
             js_name_for_baseline_interpreter: None,
         }
     }
