@@ -18,7 +18,7 @@ pub fn parse_unk_size_null_unicode_size(v: &[u8]) -> usize {
     // TODO: Make sure is aligned
     v.chunks_exact(2)
     .into_iter()
-    .take_while(|&a| a[0] != 0 && a[1] == 0) // Take until null terminator
+    .take_while(|&a| a != &[0, 0]) // Take until null terminator
     .map(|a| u16::from_ne_bytes([a[0], a[1]]))
     .count() * 2 + 2
 }
