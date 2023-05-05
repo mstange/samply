@@ -69,7 +69,10 @@ impl Sampler {
         let reference_mono = get_monotonic_timestamp();
         let reference_system_time = SystemTime::now();
 
-        let timestamp_converter = TimestampConverter::with_reference_timestamp(reference_mono);
+        let timestamp_converter = TimestampConverter {
+            reference_raw: reference_mono,
+            raw_to_ns_factor: 1,
+        };
 
         let mut profile = Profile::new(
             &self.command_name,

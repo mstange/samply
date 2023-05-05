@@ -130,11 +130,16 @@ where
                 None
             }
         };
+        let timestamp_converter = TimestampConverter {
+            reference_raw: first_sample_time,
+            raw_to_ns_factor: 1,
+        };
+
         Self {
             profile,
             cache,
             processes: Processes::new(merge_threads),
-            timestamp_converter: TimestampConverter::with_reference_timestamp(first_sample_time),
+            timestamp_converter,
             current_sample_time: first_sample_time,
             build_ids,
             endian,
