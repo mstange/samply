@@ -1,6 +1,6 @@
 use std::collections::hash_map::Entry;
 
-use fxprof_processed_profile::{CpuDelta, ThreadHandle, Timestamp, FrameInfo};
+use fxprof_processed_profile::{CpuDelta, FrameInfo, ThreadHandle, Timestamp};
 
 use super::process_sample_data::RssStatMember;
 use super::types::{FastHashMap, StackFrame, StackMode};
@@ -26,6 +26,7 @@ impl UnresolvedSamples {
         self.samples_and_markers.is_empty()
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn add_sample(
         &mut self,
         thread_handle: ThreadHandle,

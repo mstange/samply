@@ -10,6 +10,7 @@ use debugid::DebugId;
 mod context_switch;
 mod jit_category_manager;
 mod lib_mappings;
+mod marker_file;
 mod process_sample_data;
 mod stack_converter;
 mod stack_depth_limiting_frame_iter;
@@ -25,8 +26,7 @@ use unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
 use uuid::Uuid;
 use process_sample_data::ProcessSampleData;
 
-use crate::{timestamp_converter::TimestampConverter, context_switch::ContextSwitchHandler};
-
+use crate::{timestamp_converter::TimestampConverter, context_switch::ContextSwitchHandler, marker_file::get_markers};
 
 /// An example marker type with some text content.
 #[derive(Debug, Clone)]
@@ -117,7 +117,7 @@ struct ProcessState {
     process_handle: ProcessHandle,
     unresolved_samples: UnresolvedSamples,
     regular_lib_mapping_ops: LibMappingOpQueue,
-    has_seen_first_thread: bool,
+    main_thread_handle: Option<ThreadHandle>,
 }
 
 impl ProcessState {
@@ -126,7 +126,7 @@ impl ProcessState {
             process_handle,
             unresolved_samples: UnresolvedSamples::default(),
             regular_lib_mapping_ops: LibMappingOpQueue::default(),
-            has_seen_first_thread: false,
+            main_thread_handle: None,
         }
     }
 }
@@ -147,6 +147,8 @@ fn main() {
     let merge_threads = pargs.contains("--merge-threads");
     let include_idle = pargs.contains("--idle");
     let demand_zero_faults = pargs.contains("--demand-zero-faults");
+    let marker_file: Option<String> = pargs.opt_value_from_str("--marker-file").unwrap();
+    let marker_prefix: Option<String> = pargs.opt_value_from_str("--filter-by-marker-prefix").unwrap();
 
     let trace_file: String = pargs.free_from_str().unwrap();
 
@@ -277,9 +279,12 @@ fn main() {
                                 Some(global_thread) => global_thread,
                                 None => {
                                     let process = processes.get_mut(&process_id).unwrap();
-                                    let is_main = !process.has_seen_first_thread;
-                                    process.has_seen_first_thread = true;
-                                    profile.add_thread(process.process_handle, thread_id, thread_start_instant, is_main)
+                                    let is_main = process.main_thread_handle.is_none();
+                                    let thread_handle = profile.add_thread(process.process_handle, thread_id, thread_start_instant, is_main);
+                                    if is_main {
+                                        process.main_thread_handle = Some(thread_handle);
+                                    }
+                                    thread_handle
                                 }
                             };
                             let tb = e.insert(
@@ -781,6 +786,16 @@ fn main() {
         std::process::exit(1);
     }
 
+    let (marker_spans, sample_ranges) = match marker_file {
+        Some(marker_file) => get_markers(
+            &marker_file,
+            marker_prefix.as_deref(),
+            timestamp_converter,
+        )
+        .expect("Could not get markers"),
+        None => (Vec::new(), None),
+    };
+
     // Push queued samples into the profile.
     // We queue them so that we can get symbolicated JIT function names. To get symbolicated JIT function names,
     // we have to call profile.add_sample after we call profile.set_lib_symbol_table, and we don't have the
@@ -790,7 +805,7 @@ fn main() {
     // a /tmp/perf-1234.map file, and this file may not exist until the profiled process finishes.)
     let mut stack_frame_scratch_buf = Vec::new();
     for (process_id, process) in processes {
-        let ProcessState { unresolved_samples, regular_lib_mapping_ops, .. } = process;
+        let ProcessState { unresolved_samples, regular_lib_mapping_ops, main_thread_handle, .. } = process;
         let jitdump_lib_mapping_op_queues = match jscript_symbols.remove(&process_id) {
             Some(jit_info) => {
                 profile.set_lib_symbol_table(jit_info.lib_handle, Arc::new(SymbolTable::new(jit_info.symbols)));
@@ -798,8 +813,8 @@ fn main() {
             },
             None => Vec::new(),
         };
-        let process_sample_data = ProcessSampleData::new(unresolved_samples, regular_lib_mapping_ops, jitdump_lib_mapping_op_queues, None);
-        process_sample_data.flush_samples_to_profile(&mut profile, user_category, kernel_category, &mut stack_frame_scratch_buf, &mut unresolved_stacks, &[])
+        let process_sample_data = ProcessSampleData::new(unresolved_samples, regular_lib_mapping_ops, jitdump_lib_mapping_op_queues, None, main_thread_handle.unwrap());
+        process_sample_data.flush_samples_to_profile(&mut profile, user_category, kernel_category, &mut stack_frame_scratch_buf, &mut unresolved_stacks, &[], &marker_spans, sample_ranges.as_ref())
     }
 
     /*if merge_threads {
