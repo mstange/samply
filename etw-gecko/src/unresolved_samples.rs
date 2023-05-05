@@ -1,6 +1,6 @@
 use std::collections::hash_map::Entry;
 
-use fxprof_processed_profile::{CpuDelta, ThreadHandle, Timestamp};
+use fxprof_processed_profile::{CpuDelta, ThreadHandle, Timestamp, FrameInfo};
 
 use super::process_sample_data::RssStatMember;
 use super::types::{FastHashMap, StackFrame, StackMode};
@@ -34,6 +34,7 @@ impl UnresolvedSamples {
         stack: UnresolvedStackHandle,
         cpu_delta: CpuDelta,
         weight: i32,
+        extra_label_frame: Option<FrameInfo>,
     ) {
         let sample_index = self.samples_and_markers.len();
         self.samples_and_markers.push(UnresolvedSampleOrMarker {
@@ -41,6 +42,7 @@ impl UnresolvedSamples {
             timestamp,
             timestamp_mono,
             stack,
+            extra_label_frame,
             sample_or_marker: SampleOrMarker::Sample(SampleData { weight, cpu_delta }),
         });
         self.prev_sample_info_per_thread.insert(
@@ -60,6 +62,7 @@ impl UnresolvedSamples {
         timestamp: Timestamp,
         timestamp_mono: u64,
         weight: i32,
+        extra_label_frame: Option<FrameInfo>,
     ) {
         match self.prev_sample_info_per_thread.entry(thread_handle) {
             Entry::Occupied(mut entry) => {
@@ -77,6 +80,7 @@ impl UnresolvedSamples {
                         timestamp,
                         timestamp_mono,
                         stack,
+                        extra_label_frame,
                         sample_or_marker: SampleOrMarker::Sample(SampleData {
                             weight,
                             cpu_delta: CpuDelta::ZERO,
@@ -93,6 +97,7 @@ impl UnresolvedSamples {
                     timestamp,
                     timestamp_mono,
                     stack,
+                    extra_label_frame,
                     sample_or_marker: SampleOrMarker::Sample(SampleData {
                         weight,
                         cpu_delta: CpuDelta::ZERO,
@@ -122,6 +127,7 @@ impl UnresolvedSamples {
             timestamp,
             timestamp_mono,
             stack,
+            extra_label_frame: None,
             sample_or_marker: SampleOrMarker::RssStatMarker(RssStatMarkerData {
                 member: rss_member,
                 size: rss_size,
@@ -143,6 +149,7 @@ impl UnresolvedSamples {
             timestamp,
             timestamp_mono,
             stack,
+            extra_label_frame: None,
             sample_or_marker: SampleOrMarker::OtherEventMarker(OtherEventMarkerData { attr_index }),
         });
     }
@@ -154,6 +161,7 @@ pub struct UnresolvedSampleOrMarker {
     pub timestamp: Timestamp,
     pub timestamp_mono: u64,
     pub stack: UnresolvedStackHandle,
+    pub extra_label_frame: Option<FrameInfo>,
     pub sample_or_marker: SampleOrMarker,
 }
 
@@ -245,6 +253,7 @@ impl UnresolvedStacks {
         prefix
     }
 
+    // Appends the stack to `buf`, starting with the callee-most frame.
     pub fn convert_back(&self, mut stack_index: UnresolvedStackHandle, buf: &mut Vec<StackFrame>) {
         while stack_index != UnresolvedStackHandle::EMPTY {
             let (prefix, frame) = self.stacks[stack_index.0 as usize];

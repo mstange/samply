@@ -379,16 +379,15 @@ fn main() {
                     let mut add_sample = |thread: &mut ThreadState, process: &mut ProcessState, timestamp: u64, cpu_delta: CpuDelta, stack: Vec<StackFrame>| {
                         let profile_timestamp = Timestamp::from_nanos_since_reference(to_nanos(timestamp - start_time));
                         let stack_index = unresolved_stacks.convert(stack.into_iter().rev());
-                        // TODO: when using global thread, also store the thread's merge name along with this sample
-                        process.unresolved_samples.add_sample(thread.handle, profile_timestamp, timestamp, stack_index, cpu_delta, 1);
-                        // if let Some(global_thread) = global_thread {
-                        //     let thread_name = thread.merge_name.as_ref().map(|x| strip_thread_numbers(x).to_owned()).unwrap_or_else(|| format!("thread {}", thread.thread_id));
-                        //     frames.push(FrameInfo {
-                        //         frame: fxprof_processed_profile::Frame::Label(profile.intern_string(&thread_name)),
-                        //         category_pair: user_category,
-                        //         flags: FrameFlags::empty(),
-                        //     });
-                        // }
+                        let extra_label_frame = if let Some(global_thread) = global_thread {
+                            let thread_name = thread.merge_name.as_ref().map(|x| strip_thread_numbers(x).to_owned()).unwrap_or_else(|| format!("thread {}", thread.thread_id));
+                            Some(FrameInfo {
+                                frame: fxprof_processed_profile::Frame::Label(profile.intern_string(&thread_name)),
+                                category_pair: user_category,
+                                flags: FrameFlags::empty(),
+                            })
+                        } else { None };
+                        process.unresolved_samples.add_sample(thread.handle, profile_timestamp, timestamp, stack_index, cpu_delta, 1, extra_label_frame);
                     };
 
                     if matches!(stack[0], StackFrame::ReturnAddress(_, StackMode::Kernel)) {

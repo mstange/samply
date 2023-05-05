@@ -81,12 +81,13 @@ impl ProcessSampleData {
                 timestamp,
                 stack,
                 sample_or_marker,
+                extra_label_frame,
                 ..
             } = sample;
             stack_frame_scratch_buf.clear();
             stacks.convert_back(stack, stack_frame_scratch_buf);
             let frames =
-                stack_converter.convert_stack(stack_frame_scratch_buf, &lib_mappings_hierarchy);
+                stack_converter.convert_stack(stack_frame_scratch_buf, &lib_mappings_hierarchy, extra_label_frame);
             let frames = StackDepthLimitingFrameIter::new(profile, frames, user_category);
             match sample_or_marker {
                 SampleOrMarker::Sample(SampleData { cpu_delta, weight }) => {
