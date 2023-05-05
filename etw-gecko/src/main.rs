@@ -1,11 +1,13 @@
 use std::{collections::{HashMap, HashSet, hash_map::Entry}, convert::TryInto, fs::File, io::BufWriter, path::Path, time::{Duration, Instant, SystemTime}, sync::Arc};
 
+use context_switch::ThreadContextSwitchData;
 use etw_reader::{GUID, open_trace, parser::{Parser, TryParse, Address}, print_property, schema::SchemaLocator, write_property};
 use lib_mappings::{LibMappingOpQueue, LibMappingOp, LibMappingAdd};
 use serde_json::{Value, json, to_writer};
 use fxprof_processed_profile::{Timestamp, MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, ReferenceTimestamp, MarkerSchemaField, MarkerTiming, ProfilerMarker, ThreadHandle, Profile, debugid, SamplingInterval, CategoryPairHandle, ProcessHandle, LibraryInfo, CounterHandle, FrameInfo, FrameFlags, LibraryHandle, CpuDelta, SymbolTable, Symbol};
 use debugid::DebugId;
 
+mod context_switch;
 mod jit_category_manager;
 mod lib_mappings;
 mod process_sample_data;
@@ -23,7 +25,7 @@ use unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
 use uuid::Uuid;
 use process_sample_data::ProcessSampleData;
 
-use crate::timestamp_converter::TimestampConverter;
+use crate::{timestamp_converter::TimestampConverter, context_switch::ContextSwitchHandler};
 
 
 /// An example marker type with some text content.
@@ -70,9 +72,7 @@ struct ThreadState {
     last_kernel_stack: Option<Vec<StackFrame>>,
     last_kernel_stack_time: u64,
     last_sample_timestamp: Option<i64>,
-    running_since_time: Option<i64>,
-    total_running_time: i64,
-    previous_sample_cpu_time: i64,
+    content_switch_data: ThreadContextSwitchData,
     thread_id: u32
 }
 
@@ -83,10 +83,8 @@ impl ThreadState {
             last_kernel_stack: None,
             last_kernel_stack_time: 0,
             last_sample_timestamp: None,
+            content_switch_data: ThreadContextSwitchData::default(),
             merge_name: None,
-            running_since_time: None,
-            previous_sample_cpu_time: 0,
-            total_running_time: 0,
             thread_id: tid
         }
     }
@@ -174,6 +172,7 @@ fn main() {
 
     let mut jit_category_manager = JitCategoryManager::new();
     let mut unresolved_stacks = UnresolvedStacks::default();
+    let mut context_switch_handler = ContextSwitchHandler::new(122100);
 
     let mut thread_index = 0;
     let mut sample_count = 0;
@@ -218,10 +217,12 @@ fn main() {
                 }
                 "MSNT_SystemTrace/PerfInfo/CollectionStart" => {
                     let mut parser = Parser::create(&s);
-                    let interval: u32 = parser.parse("NewInterval");
-                    let interval = SamplingInterval::from_nanos(interval as u64 * 100);
+                    let interval_raw: u32 = parser.parse("NewInterval");
+                    let interval_nanos = interval_raw as u64 * 100;
+                    let interval = SamplingInterval::from_nanos(interval_nanos);
                     println!("Sample rate {}ms", interval.as_secs_f64() * 1000.);
                     profile.set_interval(interval);
+                    context_switch_handler = ContextSwitchHandler::new(interval_raw as u64);
                 }
                 "MSNT_SystemTrace/Thread/SetName" => {
                     let mut parser = Parser::create(&s);
@@ -396,8 +397,7 @@ fn main() {
                         thread.last_kernel_stack_time = timestamp;
                         thread.last_kernel_stack = Some(stack);
                     } else {
-                        let delta = thread.total_running_time - thread.previous_sample_cpu_time;
-                        thread.previous_sample_cpu_time = thread.total_running_time;
+                        let delta = context_switch_handler.consume_cpu_delta(&mut thread.content_switch_data);
                         let cpu_delta = CpuDelta::from_nanos(delta as u64 * timestamp_converter.raw_to_ns_factor);
                         let process = processes.get_mut(&process_id).unwrap();
                         if timestamp == thread.last_kernel_stack_time {
@@ -457,8 +457,10 @@ fn main() {
                             return;
                         }
                     };
-                    // assert!(thread.running_since_time.is_some(), "thread {} not running @ {} on {}", thread_id, e.EventHeader.TimeStamp, unsafe { e.BufferContext.Anonymous.ProcessorIndex });
+
                     thread.last_sample_timestamp = Some(e.EventHeader.TimeStamp);
+                    let _off_cpu_samples = context_switch_handler.handle_on_cpu_sample(e.EventHeader.TimeStamp as u64, &mut thread.content_switch_data);
+                    // TODO: when we have CSwitch stacks, handle off-cpu samples here
                 }
                 "MSNT_SystemTrace/PageFault/DemandZeroFault" => {
                     if !demand_zero_faults { return }
@@ -494,7 +496,6 @@ fn main() {
                             return;
                         }
                     };
-                    // assert!(thread.running_since_time.is_some(), "thread {} not running @ {} on {}", thread_id, e.EventHeader.TimeStamp, unsafe { e.BufferContext.Anonymous.ProcessorIndex });
                     thread.last_sample_timestamp = Some(e.EventHeader.TimeStamp);
                 }
                 "MSNT_SystemTrace/PageFault/VirtualFree" => {
@@ -678,14 +679,12 @@ fn main() {
                     let new_thread: u32 = parser.parse("NewThreadId");
                     let old_thread: u32 = parser.parse("OldThreadId");
                     // println!("CSwitch {} -> {} @ {} on {}", old_thread, new_thread, e.EventHeader.TimeStamp, unsafe { e.BufferContext.Anonymous.ProcessorIndex });
-                    if let Some(new_thread) = threads.get_mut(&new_thread) {
-                        new_thread.running_since_time = Some(e.EventHeader.TimeStamp);
-                    };
                     if let Some(old_thread) = threads.get_mut(&old_thread) {
-                        if let Some(start_time) = old_thread.running_since_time {
-                            old_thread.total_running_time += e.EventHeader.TimeStamp - start_time
-                        }
-                        old_thread.running_since_time = None;
+                        context_switch_handler.handle_switch_out(e.EventHeader.TimeStamp as u64, &mut old_thread.content_switch_data);
+                    };
+                    if let Some(new_thread) = threads.get_mut(&new_thread) {
+                        let _off_cpu_samples = context_switch_handler.handle_switch_in(e.EventHeader.TimeStamp as u64, &mut new_thread.content_switch_data);
+                        // TODO: when we have CSwitch stacks, handle off cpu samples here
                     };
 
                 }
