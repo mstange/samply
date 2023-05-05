@@ -53,6 +53,7 @@ impl Sampler {
         let ConversionArgs {
             merge_threads,
             fold_recursive_prefix,
+            ..
         } = *conversion_args;
 
         Sampler {
@@ -214,6 +215,8 @@ impl Sampler {
                 &mut stack_frame_scratch_buf,
                 &unresolved_stacks,
                 &[],
+                &[],
+                None,
             );
         }
 

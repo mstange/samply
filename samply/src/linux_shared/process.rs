@@ -165,6 +165,7 @@ where
             std::mem::take(&mut self.lib_mapping_ops),
             jitdump_ops,
             perf_map_mappings,
+            self.threads.main_thread.profile_thread,
         );
 
         let thread_recycler = self.threads.finish();

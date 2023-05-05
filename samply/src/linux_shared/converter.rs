@@ -3,7 +3,7 @@ use debugid::{CodeId, DebugId};
 
 use framehop::{FrameAddress, Module, ModuleSvmaInfo, ModuleUnwindData, TextByteData, Unwinder};
 use fxprof_processed_profile::{
-    CpuDelta, LibraryInfo, Profile, ReferenceTimestamp, SamplingInterval, ThreadHandle,
+    CpuDelta, LibraryInfo, Profile, ReferenceTimestamp, SamplingInterval, ThreadHandle, Timestamp,
 };
 use linux_perf_data::linux_perf_event_reader;
 use linux_perf_data::{DsoInfo, DsoKey, Endianness};
@@ -18,6 +18,7 @@ use object::read::pe::{ImageNtHeaders, ImageOptionalHeader, PeFile};
 use object::{
     CompressedFileRange, CompressionFormat, FileKind, Object, ObjectSection, ObjectSegment,
 };
+use rangemap::RangeSet;
 use samply_symbols::{debug_id_for_object, DebugIdExt};
 use wholesym::samply_symbols;
 
@@ -39,6 +40,7 @@ use super::rss_stat::{RssStat, MM_ANONPAGES, MM_FILEPAGES, MM_SHMEMPAGES, MM_SWA
 use super::svma_file_range::compute_vma_bias;
 
 use crate::shared::jit_category_manager::JitCategoryManager;
+use crate::shared::marker_file::{get_markers, MarkerSpan};
 use crate::shared::process_sample_data::RssStatMember;
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::types::{StackFrame, StackMode};
@@ -87,6 +89,11 @@ where
     /// Whether repeated frames at the base of the stack should be folded
     /// into one frame.
     fold_recursive_prefix: bool,
+
+    marker_spans: Vec<MarkerSpan>,
+
+    /// If Some(), only include samples which occurred during these ranges.
+    sample_ranges: Option<RangeSet<Timestamp>>,
 }
 
 const DEFAULT_OFF_CPU_SAMPLING_INTERVAL_NS: u64 = 1_000_000; // 1ms
@@ -108,6 +115,8 @@ where
         interpretation: EventInterpretation,
         merge_threads: bool,
         fold_recursive_prefix: bool,
+        marker_file: Option<&str>,
+        marker_name_prefix_for_filtering: Option<&str>,
     ) -> Self {
         let interval = match interpretation.sampling_is_time_based {
             Some(nanos) => SamplingInterval::from_nanos(nanos),
@@ -134,6 +143,15 @@ where
             reference_raw: first_sample_time,
             raw_to_ns_factor: 1,
         };
+        let (marker_spans, sample_ranges) = match marker_file {
+            Some(marker_file) => get_markers(
+                marker_file,
+                marker_name_prefix_for_filtering,
+                timestamp_converter,
+            )
+            .expect("Could not get markers"),
+            None => (Vec::new(), None),
+        };
 
         Self {
             profile,
@@ -155,6 +173,8 @@ where
             suspected_pe_mappings: BTreeMap::new(),
             jit_category_manager: JitCategoryManager::new(),
             fold_recursive_prefix,
+            marker_spans,
+            sample_ranges,
         }
     }
 
@@ -166,6 +186,8 @@ where
             &self.event_names,
             &mut self.jit_category_manager,
             &self.timestamp_converter,
+            &self.marker_spans,
+            self.sample_ranges.as_ref(),
         );
         profile
     }

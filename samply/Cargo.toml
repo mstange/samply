@@ -41,6 +41,7 @@ wholesym = { version = "0.3.0", path = "../wholesym" }
 dirs = "5.0.0"
 once_cell = "1.17"
 fxhash = "0.2.1"
+rangemap = "1.3.0"
 
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 

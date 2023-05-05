@@ -558,6 +558,7 @@ impl TaskProfiler {
             self.lib_mapping_ops,
             jitdump_lib_ops,
             perf_map_mappings,
+            self.main_thread_handle,
         );
 
         let recycling_data = if let (Some(mut jit_function_recycler), Some(thread_recycler)) =

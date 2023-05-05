@@ -1,11 +1,14 @@
 use fxprof_processed_profile::{
     CategoryPairHandle, LibMappings, MarkerDynamicField, MarkerFieldFormat, MarkerLocation,
     MarkerSchema, MarkerSchemaField, MarkerStaticField, MarkerTiming, Profile, ProfilerMarker,
+    ThreadHandle, Timestamp,
 };
+use rangemap::RangeSet;
 use serde_json::json;
 
 use super::{
     lib_mappings::{LibMappingInfo, LibMappingOpQueue, LibMappingsHierarchy},
+    marker_file::MarkerSpan,
     stack_converter::StackConverter,
     stack_depth_limiting_frame_iter::StackDepthLimitingFrameIter,
     types::StackFrame,
@@ -23,12 +26,13 @@ pub enum RssStatMember {
     ResidentSharedMemoryPages,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ProcessSampleData {
     unresolved_samples: UnresolvedSamples,
     regular_lib_mapping_op_queue: LibMappingOpQueue,
     jitdump_lib_mapping_op_queues: Vec<LibMappingOpQueue>,
     perf_map_mappings: Option<LibMappings<LibMappingInfo>>,
+    main_thread_handle: ThreadHandle,
 }
 
 impl ProcessSampleData {
@@ -37,12 +41,14 @@ impl ProcessSampleData {
         regular_lib_mapping_op_queue: LibMappingOpQueue,
         jitdump_lib_mapping_op_queues: Vec<LibMappingOpQueue>,
         perf_map_mappings: Option<LibMappings<LibMappingInfo>>,
+        main_thread_handle: ThreadHandle,
     ) -> Self {
         Self {
             unresolved_samples,
             regular_lib_mapping_op_queue,
             jitdump_lib_mapping_op_queues,
             perf_map_mappings,
+            main_thread_handle,
         }
     }
 
@@ -50,6 +56,7 @@ impl ProcessSampleData {
         self.unresolved_samples.is_empty()
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn flush_samples_to_profile(
         self,
         profile: &mut Profile,
@@ -58,12 +65,15 @@ impl ProcessSampleData {
         stack_frame_scratch_buf: &mut Vec<StackFrame>,
         stacks: &UnresolvedStacks,
         event_names: &[String],
+        marker_spans: &[MarkerSpan],
+        sample_range_set: Option<&RangeSet<Timestamp>>,
     ) {
         let ProcessSampleData {
             unresolved_samples,
             regular_lib_mapping_op_queue,
             jitdump_lib_mapping_op_queues,
             perf_map_mappings,
+            main_thread_handle,
         } = self;
         let mut lib_mappings_hierarchy = LibMappingsHierarchy::new(regular_lib_mapping_op_queue);
         for jitdump_lib_mapping_ops in jitdump_lib_mapping_op_queues {
@@ -84,6 +94,13 @@ impl ProcessSampleData {
                 extra_label_frame,
                 ..
             } = sample;
+
+            if sample_range_set.is_some()
+                && !sample_range_set.as_ref().unwrap().contains(&timestamp)
+            {
+                continue;
+            }
+
             stack_frame_scratch_buf.clear();
             stacks.convert_back(stack, stack_frame_scratch_buf);
             let frames = stack_converter.convert_stack(
@@ -128,6 +145,15 @@ impl ProcessSampleData {
                         );
                     }
                 }
+            }
+
+            for marker in marker_spans {
+                profile.add_marker(
+                    main_thread_handle,
+                    "UserTiming",
+                    UserTimingMarker(marker.name.clone()),
+                    MarkerTiming::Interval(marker.start_time, marker.end_time),
+                );
             }
         }
     }
@@ -200,6 +226,42 @@ impl ProfilerMarker for OtherEventMarker {
                 value:
                     "Emitted for any records in a perf.data file which don't map to a known event.",
             })],
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct UserTimingMarker(pub String);
+
+impl ProfilerMarker for UserTimingMarker {
+    const MARKER_TYPE_NAME: &'static str = "UserTiming";
+
+    fn json_marker_data(&self) -> serde_json::Value {
+        json!({
+            "type": Self::MARKER_TYPE_NAME,
+            "name": self.0,
+        })
+    }
+
+    fn schema() -> MarkerSchema {
+        MarkerSchema {
+            type_name: Self::MARKER_TYPE_NAME,
+            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
+            chart_label: Some("{marker.data.name}"),
+            tooltip_label: Some("{marker.data.name}"),
+            table_label: Some("{marker.data.name}"),
+            fields: vec![
+                MarkerSchemaField::Dynamic(MarkerDynamicField {
+                    key: "name",
+                    label: "Name",
+                    format: MarkerFieldFormat::String,
+                    searchable: true,
+                }),
+                MarkerSchemaField::Static(MarkerStaticField {
+                    label: "Description",
+                    value: "Emitted for marker spans in a markers text file.",
+                }),
+            ],
         }
     }
 }

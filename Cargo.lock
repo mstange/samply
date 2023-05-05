@@ -1509,6 +1509,7 @@ dependencies = [
  "parking_lot",
  "percent-encoding",
  "rand",
+ "rangemap",
  "serde",
  "serde_derive",
  "serde_json",

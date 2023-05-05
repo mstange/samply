@@ -1,5 +1,6 @@
 use framehop::Unwinder;
 use fxprof_processed_profile::{CategoryColor, Profile, Timestamp};
+use rangemap::RangeSet;
 
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -8,6 +9,7 @@ use super::process::Process;
 
 use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::jit_function_recycler::JitFunctionRecycler;
+use crate::shared::marker_file::MarkerSpan;
 use crate::shared::process_sample_data::ProcessSampleData;
 use crate::shared::recycling::{ProcessRecycler, ProcessRecyclingData, ThreadRecycler};
 use crate::shared::timestamp_converter::TimestampConverter;
@@ -175,6 +177,7 @@ where
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn finish(
         mut self,
         profile: &mut Profile,
@@ -182,6 +185,8 @@ where
         event_names: &[String],
         jit_category_manager: &mut JitCategoryManager,
         timestamp_converter: &TimestampConverter,
+        marker_spans: &[MarkerSpan],
+        sample_ranges: Option<&RangeSet<Timestamp>>,
     ) {
         // Gather the ProcessSampleData from any processes which are still alive at the end of profiling.
         for process in self.processes_by_pid.into_values() {
@@ -203,6 +208,8 @@ where
                 &mut stack_frame_scratch_buf,
                 unresolved_stacks,
                 event_names,
+                marker_spans,
+                sample_ranges,
             );
         }
     }
