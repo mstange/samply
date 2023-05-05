@@ -11,6 +11,7 @@ mod lib_mappings;
 mod process_sample_data;
 mod stack_converter;
 mod stack_depth_limiting_frame_iter;
+mod timestamp_converter;
 mod types;
 mod unresolved_samples;
 
@@ -21,6 +22,8 @@ use types::{StackFrame, StackMode};
 use unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
 use uuid::Uuid;
 use process_sample_data::ProcessSampleData;
+
+use crate::timestamp_converter::TimestampConverter;
 
 
 /// An example marker type with some text content.
@@ -147,7 +150,6 @@ fn main() {
     let include_idle = pargs.contains("--idle");
     let demand_zero_faults = pargs.contains("--demand-zero-faults");
 
-
     let trace_file: String = pargs.free_from_str().unwrap();
 
     let mut process_targets = HashSet::new();
@@ -178,8 +180,6 @@ fn main() {
     let mut stack_sample_count = 0;
     let mut dropped_sample_count = 0;
     let mut timer_resolution: u32 = 0; // Resolution of the hardware timer, in units of 100 nanoseconds.
-    let mut start_time: u64 = 0;
-    let mut perf_freq: u64 = 0;
     let mut event_count = 0;
     let (global_thread, global_process) = if merge_threads {
         let global_process = profile.add_process("All processes", 1, profile_start_instant);
@@ -191,24 +191,25 @@ fn main() {
     let mut jscript_symbols: HashMap<u32, ProcessJitInfo> = HashMap::new();
     let mut jscript_sources: HashMap<u64, String> = HashMap::new();
 
+    // Make a dummy TimestampConverter. Once we've parsed the header, this will have correct values.
+    let mut timestamp_converter = TimestampConverter {
+        reference_raw: 0,
+        raw_to_ns_factor: 1,
+    };
+
     let result = open_trace(Path::new(&trace_file), |e| {
         event_count += 1;
         let s = schema_locator.event_schema(e);
         if let Ok(s) = s {
-            let _to_millis = |timestamp: i64| {
-                (timestamp as f64 / perf_freq as f64) * 1000.
-            };
-            // XXX: be careful with this as it can overflow
-            let to_nanos = |timestamp: u64| {
-                timestamp * 1000 * 1000 * 1000 / perf_freq 
-            };
             match s.name() {
                 "MSNT_SystemTrace/EventTrace/Header" => {
                     let mut parser = Parser::create(&s);
                     timer_resolution = parser.parse("TimerResolution");
-                    perf_freq = parser.parse("PerfFreq");
-
-                    start_time = e.EventHeader.TimeStamp as u64;
+                    let perf_freq: u64 = parser.parse("PerfFreq");
+                    timestamp_converter = TimestampConverter {
+                        reference_raw: e.EventHeader.TimeStamp as u64,
+                        raw_to_ns_factor: 1000 * 1000 * 1000 / perf_freq,
+                    };
 
                     for i in 0..s.property_count() {
                         let property = s.property(i);
@@ -302,7 +303,7 @@ fn main() {
                 "MSNT_SystemTrace/Process/DCStart" => {
                     if let Some(process_target_name) = &process_target_name {
                         let timestamp = e.EventHeader.TimeStamp as u64;
-                        let timestamp = Timestamp::from_nanos_since_reference(to_nanos(timestamp - start_time));
+                        let timestamp = timestamp_converter.convert_time(timestamp);
                         let mut parser = Parser::create(&s);
 
 
@@ -377,7 +378,7 @@ fn main() {
                     }*/
 
                     let mut add_sample = |thread: &mut ThreadState, process: &mut ProcessState, timestamp: u64, cpu_delta: CpuDelta, stack: Vec<StackFrame>| {
-                        let profile_timestamp = Timestamp::from_nanos_since_reference(to_nanos(timestamp - start_time));
+                        let profile_timestamp = timestamp_converter.convert_time(timestamp);
                         let stack_index = unresolved_stacks.convert(stack.into_iter().rev());
                         let extra_label_frame = if let Some(global_thread) = global_thread {
                             let thread_name = thread.merge_name.as_ref().map(|x| strip_thread_numbers(x).to_owned()).unwrap_or_else(|| format!("thread {}", thread.thread_id));
@@ -397,7 +398,7 @@ fn main() {
                     } else {
                         let delta = thread.total_running_time - thread.previous_sample_cpu_time;
                         thread.previous_sample_cpu_time = thread.total_running_time;
-                        let cpu_delta = CpuDelta::from_nanos(to_nanos(delta as u64));
+                        let cpu_delta = CpuDelta::from_nanos(delta as u64 * timestamp_converter.raw_to_ns_factor);
                         let process = processes.get_mut(&process_id).unwrap();
                         if timestamp == thread.last_kernel_stack_time {
                             //eprintln!("matched");
@@ -441,7 +442,7 @@ fn main() {
                                         _ => "Other"
                                     };
                                     let timestamp = e.EventHeader.TimeStamp as u64;
-                                    let timestamp = Timestamp::from_nanos_since_reference(to_nanos(timestamp - start_time));
+                                    let timestamp = timestamp_converter.convert_time(timestamp);
 
                                     frames.push(FrameInfo {
                                         frame: fxprof_processed_profile::Frame::Label(profile.intern_string(&thread_name)),
@@ -477,7 +478,7 @@ fn main() {
                                         _ => "Other"
                                     };
                                     let timestamp = e.EventHeader.TimeStamp as u64;
-                                    let timestamp = Timestamp::from_nanos_since_reference(to_nanos(timestamp - start_time));
+                                    let timestamp = timestamp_converter.convert_time(timestamp);
 
                                     frames.push(FrameInfo {
                                         frame: fxprof_processed_profile::Frame::Label(profile.intern_string(&thread_name)),
@@ -502,7 +503,7 @@ fn main() {
                     }
                     let mut parser = Parser::create(&s);
                     let timestamp = e.EventHeader.TimeStamp as u64;
-                    let timestamp = Timestamp::from_nanos_since_reference(to_nanos(timestamp - start_time));
+                    let timestamp = timestamp_converter.convert_time(timestamp);
                     let thread_id = e.EventHeader.ThreadId;
                     let counter = match memory_usage.entry(e.EventHeader.ProcessId) {
                         Entry::Occupied(e) => e.into_mut(),
@@ -541,7 +542,7 @@ fn main() {
                     }
                     let mut parser = Parser::create(&s);
                     let timestamp = e.EventHeader.TimeStamp as u64;
-                    let timestamp = Timestamp::from_nanos_since_reference(to_nanos(timestamp - start_time));
+                    let timestamp = timestamp_converter.convert_time(timestamp);
                     let thread_id = e.EventHeader.ThreadId;
                     let counter = match memory_usage.entry(e.EventHeader.ProcessId) {
                         Entry::Occupied(e) => e.into_mut(),
@@ -630,7 +631,8 @@ fn main() {
                 }
                 "Microsoft-Windows-DxgKrnl/VSyncDPC/Info " => {
                     let timestamp = e.EventHeader.TimeStamp as u64;
-                    let timestamp = Timestamp::from_nanos_since_reference(to_nanos(timestamp - start_time));                
+                    let timestamp = timestamp_converter.convert_time(timestamp);
+
                     #[derive(Debug, Clone)]
                     pub struct VSyncMarker;
 
@@ -741,7 +743,7 @@ fn main() {
                     if s.name().starts_with("Google.Chrome/") {
                         let mut parser = Parser::create(&s);
                         let timestamp = e.EventHeader.TimeStamp as u64;
-                        let timestamp = Timestamp::from_nanos_since_reference(to_nanos(timestamp - start_time));
+                        let timestamp = timestamp_converter.convert_time(timestamp);
                         let thread_id = e.EventHeader.ThreadId;
                         let phase: String = parser.try_parse("Phase").unwrap();
                         let thread = match threads.entry(thread_id) {
