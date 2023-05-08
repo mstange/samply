@@ -24,3 +24,4 @@ jobs:
     - name: Stop xperf
       run: xperf -d out.etl
     - run: cargo run --example event-types out.etl
+    - run: cargo run out.etl xperf
