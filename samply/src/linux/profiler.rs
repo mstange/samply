@@ -307,7 +307,7 @@ fn make_converter(
         sampling_is_time_based: Some(interval_nanos),
         have_context_switches: true,
         sched_switch_attr_index: None,
-        rss_stat_attr_index: None,
+        known_event_indices: HashMap::new(),
         event_names: vec!["cycles".to_string()],
     };
 
