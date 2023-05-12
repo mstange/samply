@@ -9,7 +9,7 @@ use std::io::{Read, Seek};
 use std::path::Path;
 
 use crate::linux_shared::{
-    ConvertRegs, ConvertRegsAarch64, ConvertRegsX86_64, Converter, EventInterpretation,
+    ConvertRegs, ConvertRegsAarch64, ConvertRegsX86_64, Converter, EventInterpretation, KnownEvent,
     MmapRangeOrVec,
 };
 
@@ -143,13 +143,20 @@ where
             EventRecord::Sample(e) => {
                 if attr_index == interpretation.main_event_attr_index {
                     converter.handle_main_event_sample::<C>(&e);
-                } else if interpretation.sched_switch_attr_index == Some(attr_index) {
+                } else if Some(attr_index) == interpretation.sched_switch_attr_index {
                     converter.handle_sched_switch_sample::<C>(&e);
-                } else if interpretation.rss_stat_attr_index != Some(attr_index) {
-                    converter.handle_other_event_sample::<C>(&e, attr_index);
                 }
-                if interpretation.rss_stat_attr_index == Some(attr_index) {
-                    converter.handle_rss_stat_sample::<C>(&e);
+
+                match interpretation.known_event_indices.get(&attr_index) {
+                    Some(KnownEvent::RssStat) => converter.handle_rss_stat_sample::<C>(&e),
+                    _ => {
+                        // the main event and sched_switch are already covered by regular samples so don't add other event markers
+                        if !(attr_index == interpretation.main_event_attr_index
+                            || Some(attr_index) == interpretation.sched_switch_attr_index)
+                        {
+                            converter.handle_other_event_sample::<C>(&e, attr_index)
+                        }
+                    }
                 }
             }
             EventRecord::Fork(e) => {

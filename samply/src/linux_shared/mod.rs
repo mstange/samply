@@ -15,5 +15,5 @@ mod thread;
 
 pub use convert_regs::{ConvertRegs, ConvertRegsAarch64, ConvertRegsX86_64};
 pub use converter::Converter;
-pub use event_interpretation::EventInterpretation;
+pub use event_interpretation::{EventInterpretation, KnownEvent};
 pub use mmap_range_or_vec::MmapRangeOrVec;

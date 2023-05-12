@@ -3,7 +3,17 @@ use linux_perf_data::AttributeDescription;
 
 use linux_perf_event_reader::{AttrFlags, PerfEventType, SamplingPolicy, SoftwareCounterType};
 
+use std::collections::HashMap;
 use std::fmt::Debug;
+
+#[derive(Debug, Clone)]
+pub enum KnownEvent {
+    RssStat,
+    MmapEnter,
+    MmapExit,
+    MprotectEnter,
+    PageFault,
+}
 
 #[derive(Debug, Clone)]
 pub struct EventInterpretation {
@@ -13,7 +23,7 @@ pub struct EventInterpretation {
     pub sampling_is_time_based: Option<u64>,
     pub have_context_switches: bool,
     pub sched_switch_attr_index: Option<usize>,
-    pub rss_stat_attr_index: Option<usize>,
+    pub known_event_indices: HashMap<usize, KnownEvent>,
     pub event_names: Vec<String>,
 }
 
@@ -49,9 +59,25 @@ impl EventInterpretation {
         let sched_switch_attr_index = attrs
             .iter()
             .position(|attr_desc| attr_desc.name.as_deref() == Some("sched:sched_switch"));
-        let rss_stat_attr_index = attrs
-            .iter()
-            .position(|attr_desc| attr_desc.name.as_deref() == Some("kmem:rss_stat"));
+        let mut known_event_indices = HashMap::new();
+
+        let known_events = [
+            ("kmem:rss_stat", KnownEvent::RssStat),
+            ("exceptions:page_fault_user", KnownEvent::PageFault),
+            ("syscalls:sys_enter_mprotect", KnownEvent::MprotectEnter),
+            ("syscalls:sys_enter_mmap", KnownEvent::MmapEnter),
+            ("syscalls:sys_exit_mmap", KnownEvent::MmapExit),
+        ];
+
+        for (event_name, event) in known_events {
+            let index = attrs
+                .iter()
+                .position(|attr_desc| attr_desc.name.as_deref() == Some(event_name));
+            if let Some(index) = index {
+                known_event_indices.insert(index, event);
+            }
+        }
+
         let event_names = attrs
             .iter()
             .enumerate()
@@ -69,7 +95,7 @@ impl EventInterpretation {
             sampling_is_time_based,
             have_context_switches,
             sched_switch_attr_index,
-            rss_stat_attr_index,
+            known_event_indices,
             event_names,
         }
     }
