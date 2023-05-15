@@ -1268,3 +1268,327 @@ fn profile_with_js() {
         )
     )
 }
+
+#[test]
+fn profile_counters_with_sorted_processes() {
+    let mut profile = Profile::new(
+        "test",
+        ReferenceTimestamp::from_millis_since_unix_epoch(1636162232627.0),
+        SamplingInterval::from_millis(1),
+    );
+    // Setting the timestamps first `1` and then `0` intentionally to make sure that the processes
+    // are sorted and order has been reversed.
+    let process0 = profile.add_process("test 1", 123, Timestamp::from_millis_since_reference(1.0));
+    let process1 = profile.add_process("test 2", 123, Timestamp::from_millis_since_reference(0.0));
+    let thread0 = profile.add_thread(
+        process0,
+        12345,
+        Timestamp::from_millis_since_reference(0.0),
+        true,
+    );
+    let thread1 = profile.add_thread(
+        process1,
+        54321,
+        Timestamp::from_millis_since_reference(1.0),
+        true,
+    );
+
+    profile.add_sample(
+        thread0,
+        Timestamp::from_millis_since_reference(1.0),
+        vec![].into_iter(),
+        CpuDelta::ZERO,
+        1,
+    );
+    profile.add_sample(
+        thread1,
+        Timestamp::from_millis_since_reference(0.0),
+        vec![].into_iter(),
+        CpuDelta::ZERO,
+        1,
+    );
+
+    let memory_counter0 =
+        profile.add_counter(process0, "malloc", "Memory 1", "Amount of allocated memory");
+    profile.add_counter_sample(
+        memory_counter0,
+        Timestamp::from_millis_since_reference(1.0),
+        0.0,
+        0,
+    );
+    let memory_counter1 =
+        profile.add_counter(process0, "malloc", "Memory 2", "Amount of allocated memory");
+    profile.add_counter_sample(
+        memory_counter1,
+        Timestamp::from_millis_since_reference(0.0),
+        0.0,
+        0,
+    );
+
+    // eprintln!("{}", serde_json::to_string_pretty(&profile).unwrap());
+    assert_json_eq!(
+        profile,
+        json!(
+          {
+            "meta": {
+              "categories": [
+                {
+                  "name": "Other",
+                  "color": "grey",
+                  "subcategories": [
+                    "Other"
+                  ]
+                }
+              ],
+              "debug": false,
+              "extensions": {
+                "baseURL": [],
+                "id": [],
+                "length": 0,
+                "name": []
+              },
+              "interval": 1.0,
+              "preprocessedProfileVersion": 46,
+              "processType": 0,
+              "product": "test",
+              "sampleUnits": {
+                "eventDelay": "ms",
+                "threadCPUDelta": "µs",
+                "time": "ms"
+              },
+              "startTime": 1636162232627.0,
+              "symbolicated": false,
+              "pausedRanges": [],
+              "version": 24,
+              "usesOnlyOneStackType": true,
+              "doesNotUseFrameImplementation": true,
+              "sourceCodeIsNotOnSearchfox": true,
+              "markerSchema": []
+            },
+            "libs": [],
+            "threads": [
+              {
+                "frameTable": {
+                  "length": 0,
+                  "address": [],
+                  "inlineDepth": [],
+                  "category": [],
+                  "subcategory": [],
+                  "func": [],
+                  "nativeSymbol": [],
+                  "innerWindowID": [],
+                  "implementation": [],
+                  "line": [],
+                  "column": [],
+                  "optimizations": []
+                },
+                "funcTable": {
+                  "length": 0,
+                  "name": [],
+                  "isJS": [],
+                  "relevantForJS": [],
+                  "resource": [],
+                  "fileName": [],
+                  "lineNumber": [],
+                  "columnNumber": []
+                },
+                "markers": {
+                  "length": 0,
+                  "category": [],
+                  "data": [],
+                  "endTime": [],
+                  "name": [],
+                  "phase": [],
+                  "startTime": []
+                },
+                "name": "test 2",
+                "isMainThread": true,
+                "nativeSymbols": {
+                  "length": 0,
+                  "address": [],
+                  "functionSize": [],
+                  "libIndex": [],
+                  "name": []
+                },
+                "pausedRanges": [],
+                "pid": "123.1",
+                "processName": "test 2",
+                "processShutdownTime": null,
+                "processStartupTime": 0.0,
+                "processType": "default",
+                "registerTime": 1.0,
+                "resourceTable": {
+                  "length": 0,
+                  "lib": [],
+                  "name": [],
+                  "host": [],
+                  "type": []
+                },
+                "samples": {
+                  "length": 1,
+                  "stack": [
+                    null
+                  ],
+                  "time": [
+                    0.0
+                  ],
+                  "weight": [
+                    1
+                  ],
+                  "weightType": "samples",
+                  "threadCPUDelta": [
+                    0
+                  ]
+                },
+                "stackTable": {
+                  "length": 0,
+                  "prefix": [],
+                  "frame": [],
+                  "category": [],
+                  "subcategory": []
+                },
+                "stringArray": [],
+                "tid": "54321",
+                "unregisterTime": null
+              },
+              {
+                "frameTable": {
+                  "length": 0,
+                  "address": [],
+                  "inlineDepth": [],
+                  "category": [],
+                  "subcategory": [],
+                  "func": [],
+                  "nativeSymbol": [],
+                  "innerWindowID": [],
+                  "implementation": [],
+                  "line": [],
+                  "column": [],
+                  "optimizations": []
+                },
+                "funcTable": {
+                  "length": 0,
+                  "name": [],
+                  "isJS": [],
+                  "relevantForJS": [],
+                  "resource": [],
+                  "fileName": [],
+                  "lineNumber": [],
+                  "columnNumber": []
+                },
+                "markers": {
+                  "length": 0,
+                  "category": [],
+                  "data": [],
+                  "endTime": [],
+                  "name": [],
+                  "phase": [],
+                  "startTime": []
+                },
+                "name": "test 1",
+                "isMainThread": true,
+                "nativeSymbols": {
+                  "length": 0,
+                  "address": [],
+                  "functionSize": [],
+                  "libIndex": [],
+                  "name": []
+                },
+                "pausedRanges": [],
+                "pid": "123",
+                "processName": "test 1",
+                "processShutdownTime": null,
+                "processStartupTime": 1.0,
+                "processType": "default",
+                "registerTime": 0.0,
+                "resourceTable": {
+                  "length": 0,
+                  "lib": [],
+                  "name": [],
+                  "host": [],
+                  "type": []
+                },
+                "samples": {
+                  "length": 1,
+                  "stack": [
+                    null
+                  ],
+                  "time": [
+                    1.0
+                  ],
+                  "weight": [
+                    1
+                  ],
+                  "weightType": "samples",
+                  "threadCPUDelta": [
+                    0
+                  ]
+                },
+                "stackTable": {
+                  "length": 0,
+                  "prefix": [],
+                  "frame": [],
+                  "category": [],
+                  "subcategory": []
+                },
+                "stringArray": [],
+                "tid": "12345",
+                "unregisterTime": null
+              }
+            ],
+            "pages": [],
+            "profilerOverhead": [],
+            "counters": [
+              {
+                "category": "Memory 1",
+                "name": "malloc",
+                "description": "Amount of allocated memory",
+                "mainThreadIndex": 1,
+                "pid": "123",
+                "sampleGroups": [
+                  {
+                    "id": 0,
+                    "samples": {
+                      "length": 1,
+                      "count": [
+                        0.0
+                      ],
+                      "number": [
+                        0
+                      ],
+                      "time": [
+                        1.0
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "category": "Memory 2",
+                "name": "malloc",
+                "description": "Amount of allocated memory",
+                "mainThreadIndex": 1,
+                "pid": "123",
+                "sampleGroups": [
+                  {
+                    "id": 0,
+                    "samples": {
+                      "length": 1,
+                      "count": [
+                        0.0
+                      ],
+                      "number": [
+                        0
+                      ],
+                      "time": [
+                        0.0
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        )
+    )
+}

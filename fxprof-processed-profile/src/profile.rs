@@ -543,7 +543,7 @@ impl Profile {
     // UI to group threads from the same process.
     fn sorted_threads(&self) -> (Vec<ThreadHandle>, Vec<usize>) {
         let mut sorted_threads = Vec::with_capacity(self.threads.len());
-        let mut first_thread_index_per_process = Vec::with_capacity(self.processes.len());
+        let mut first_thread_index_per_process = vec![0; self.processes.len()];
 
         let mut sorted_processes: Vec<_> = (0..self.processes.len()).map(ProcessHandle).collect();
         sorted_processes.sort_by(|a_handle, b_handle| {
@@ -554,7 +554,7 @@ impl Profile {
 
         for process in sorted_processes {
             let prev_len = sorted_threads.len();
-            first_thread_index_per_process.push(prev_len);
+            first_thread_index_per_process[process.0] = prev_len;
             sorted_threads.extend_from_slice(self.processes[process.0].threads());
 
             let sorted_threads_for_this_process = &mut sorted_threads[prev_len..];
