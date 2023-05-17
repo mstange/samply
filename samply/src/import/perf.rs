@@ -98,8 +98,11 @@ where
         .to_owned();
     let linux_version = perf_file.os_release().unwrap();
     let attributes = perf_file.event_attributes();
+    if let Ok(Some(cmd_line)) = perf_file.cmdline() {
+        eprintln!("cmd line: {}", cmd_line.join(" "));
+    }
     for event_name in attributes.iter().filter_map(|attr| attr.name()) {
-        println!("event {event_name}");
+        eprintln!("event {event_name}");
     }
     let interpretation = EventInterpretation::divine_from_attrs(attributes);
 
