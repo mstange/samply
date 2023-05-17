@@ -372,11 +372,21 @@ fn main() {
                     }
                     //eprintln!(" sample");
 
-                    // read the stacks out manually
-                    let mut stack: Vec<StackFrame> = parser.buffer.chunks_exact(8)
-                    .map(|a| u64::from_ne_bytes(a.try_into().unwrap()))
-                    .map(|a| StackFrame::ReturnAddress(a, if is_kernel_address(a, 8) { StackMode::Kernel } else { StackMode::User }))
-                    .collect();
+                    let mut stack_mode = StackMode::User;
+                    
+                    // Iterate over the stack addresses, starting with the instruction pointer
+                    let mut stack: Vec<StackFrame> = Vec::with_capacity(parser.buffer.len() / 8);
+                    let mut address_iter = parser.buffer.chunks_exact(8).map(|a| u64::from_ne_bytes(a.try_into().unwrap()));
+                    if let Some(first_frame_address) = address_iter.next() {
+                        if is_kernel_address(first_frame_address, 8) {
+                            stack_mode = StackMode::Kernel;
+                        }
+                        stack.push(StackFrame::InstructionPointer(first_frame_address, stack_mode));
+                        for frame_address in address_iter {
+                            stack.push(StackFrame::ReturnAddress(frame_address, stack_mode));
+                        }
+                    }
+
                     /*
                     for i in 0..s.property_count() {
                         let property = s.property(i);
@@ -397,7 +407,7 @@ fn main() {
                         process.unresolved_samples.add_sample(thread.handle, profile_timestamp, timestamp, stack_index, cpu_delta, 1, extra_label_frame);
                     };
 
-                    if matches!(stack[0], StackFrame::ReturnAddress(_, StackMode::Kernel)) {
+                    if stack_mode == StackMode::Kernel {
                         //eprintln!("kernel ");
                         thread.last_kernel_stack_time = timestamp;
                         thread.last_kernel_stack = Some(stack);
