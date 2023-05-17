@@ -46,16 +46,19 @@ impl<'a> Iterator for ConvertedStackIter<'a> {
             };
             let (location, category, js_frame) = match mode {
                 StackMode::User => match self.lib_mappings.convert_address(lookup_address) {
-                    Some((relative_address, info)) => {
-                        let location = match from_ip {
-                            true => Frame::RelativeAddressFromInstructionPointer(
+                    Some((relative_lookup_address, info)) => {
+                        let location = if from_ip {
+                            let relative_address = relative_lookup_address;
+                            Frame::RelativeAddressFromInstructionPointer(
                                 info.lib_handle,
                                 relative_address,
-                            ),
-                            false => Frame::RelativeAddressFromReturnAddress(
+                            )
+                        } else {
+                            let relative_address = relative_lookup_address + 1;
+                            Frame::RelativeAddressFromReturnAddress(
                                 info.lib_handle,
                                 relative_address,
-                            ),
+                            )
                         };
                         (
                             location,
