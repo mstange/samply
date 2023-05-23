@@ -332,6 +332,7 @@ pub fn write_property(output: &mut dyn std::fmt::Write, parser: &mut Parser, pro
                     TdhInType::InTypeUInt32 => TryParse::<u32>::try_parse(parser, &property.name).map(|x| x.to_string()),
                     TdhInType::InTypeUInt16 => TryParse::<u16>::try_parse(parser, &property.name).map(|x| x.to_string()),
                     TdhInType::InTypeUInt8 => TryParse::<u8>::try_parse(parser, &property.name).map(|x| x.to_string()),
+                    TdhInType::InTypeInt8 => TryParse::<i8>::try_parse(parser, &property.name).map(|x| x.to_string()),
                     TdhInType::InTypeInt64 => TryParse::<i64>::try_parse(parser, &property.name).map(|x| x.to_string()),
                     TdhInType::InTypeUInt64 => {
                         let i = TryParse::<u64>::try_parse(parser, &property.name);
