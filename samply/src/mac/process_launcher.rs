@@ -78,16 +78,16 @@ impl TaskAccepter {
 
         // Take this process's environment variables and add DYLD_INSERT_LIBRARIES
         // and SAMPLY_BOOTSTRAP_SERVER_NAME.
-        let child_env: Vec<(OsString, OsString)> = std::env::vars_os()
-            .chain(std::iter::once((
-                "DYLD_INSERT_LIBRARIES".into(),
-                preload_lib_path.into(),
-            )))
-            .chain(std::iter::once((
-                "SAMPLY_BOOTSTRAP_SERVER_NAME".into(),
-                server_name.into(),
-            )))
-            .collect();
+        let mut child_env: Vec<(OsString, OsString)> = std::env::vars_os().collect();
+        let mut add_env = |name: &str, val: &OsStr| {
+            child_env.push((name.into(), val.to_owned()));
+            // Also set the same variable with an `__XPC_` prefix, so that it gets applied
+            // to services launched via XPC. XPC strips the prefix when setting these environment
+            // variables on the launched process.
+            child_env.push((format!("__XPC_{name}").into(), val.to_owned()));
+        };
+        add_env("DYLD_INSERT_LIBRARIES", preload_lib_path.as_os_str());
+        add_env("SAMPLY_BOOTSTRAP_SERVER_NAME", OsStr::new(&server_name));
 
         let args: Vec<OsString> = args.into_iter().map(|a| a.into()).collect();
         let program: OsString = program.into();
