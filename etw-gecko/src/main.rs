@@ -73,12 +73,17 @@ struct PendingOffCpuSampleGroup {
     kernel_stack: Option<Vec<StackFrame>>,
 }
 
+struct UnfinishedKernelStack {
+    timestamp: u64,
+    stack: Vec<StackFrame>,
+    cpu_delta: CpuDelta
+}
+
 struct ThreadState {
     // When merging threads `handle` is the global thread handle and we use `merge_name` to store the name
     handle: ThreadHandle,
     merge_name: Option<String>,
-    last_kernel_stack: Option<Vec<StackFrame>>,
-    last_kernel_stack_time: u64,
+    unfinished_kernel_stacks: Vec<UnfinishedKernelStack>,
     last_sample_timestamp: Option<i64>,
     context_switch_data: ThreadContextSwitchData,
     pending_off_cpu_sample_group: Option<PendingOffCpuSampleGroup>,
@@ -89,8 +94,7 @@ impl ThreadState {
     fn new(handle: ThreadHandle, tid: u32) -> Self {
         ThreadState {
             handle,
-            last_kernel_stack: None,
-            last_kernel_stack_time: 0,
+            unfinished_kernel_stacks: Vec::new(),
             last_sample_timestamp: None,
             context_switch_data: ThreadContextSwitchData::default(),
             pending_off_cpu_sample_group: None,
@@ -382,10 +386,13 @@ fn main() {
                         stack.push(StackFrame::InstructionPointer(first_frame_address, stack_mode));
                         for frame_address in address_iter {
                             stack.push(StackFrame::ReturnAddress(frame_address, stack_mode));
+                            if is_kernel_address(frame_address, 8) {
+                                stack_mode = StackMode::Kernel;
+                            }
                         }
                     }
 
-                    let mut add_sample = |thread: &mut ThreadState, process: &mut ProcessState, timestamp: u64, cpu_delta: CpuDelta, weight: i32, stack: Vec<StackFrame>| {
+                    let mut add_sample = |thread: &ThreadState, process: &mut ProcessState, timestamp: u64, cpu_delta: CpuDelta, weight: i32, stack: Vec<StackFrame>| {
                         let profile_timestamp = timestamp_converter.convert_time(timestamp);
                         let stack_index = unresolved_stacks.convert(stack.into_iter().rev());
                         let extra_label_frame = if let Some(global_thread) = global_thread {
@@ -444,26 +451,41 @@ fn main() {
 
                     if stack_mode == StackMode::Kernel {
                         //eprintln!("kernel ");
-                        thread.last_kernel_stack_time = timestamp;
-                        thread.last_kernel_stack = Some(stack);
+                        if let Some(last_stack) = thread.unfinished_kernel_stacks.last_mut() {
+                            if last_stack.timestamp == timestamp {
+                                last_stack.stack.extend_from_slice(&stack[..]);
+                                return;
+                            }
+                        }
+                        let delta = context_switch_handler.consume_cpu_delta(&mut thread.context_switch_data);
+                        let cpu_delta = CpuDelta::from_nanos(delta as u64 * timestamp_converter.raw_to_ns_factor);
+                        thread.unfinished_kernel_stacks.push(UnfinishedKernelStack { timestamp, stack, cpu_delta });
                         return;
                     }
 
                     let delta = context_switch_handler.consume_cpu_delta(&mut thread.context_switch_data);
                     let cpu_delta = CpuDelta::from_nanos(delta as u64 * timestamp_converter.raw_to_ns_factor);
                     let process = processes.get_mut(&process_id).unwrap();
-                    if timestamp == thread.last_kernel_stack_time {
-                        // Prepend the kernel stack to the user stack, because `stack` is ordered from inside to outside
-                        let mut user_stack = std::mem::replace(&mut stack, thread.last_kernel_stack.take().unwrap());
-                        stack.append(&mut user_stack);
-                        add_sample(thread, process, timestamp, cpu_delta, 1, stack);
-                    } else {
-                        if let Some(kernel_stack) = thread.last_kernel_stack.take() {
-                            // we're left with an unassociated kernel stack
-                            // dbg!(thread.last_kernel_stack_time);
 
-                            add_sample(thread, process, thread.last_kernel_stack_time, CpuDelta::ZERO, 1, kernel_stack);
+                    let mut last_kernel_stack_time = 0;
+
+                    let mut unfinished_kernel_stacks = std::mem::take(&mut thread.unfinished_kernel_stacks);
+                    if let Some(last_stack) = unfinished_kernel_stacks.last() {
+                        if last_stack.timestamp == timestamp {
+                            for kernel_stack in &mut unfinished_kernel_stacks {
+                                kernel_stack.stack.extend_from_slice(&stack[..]);
+                                add_sample(thread, process, kernel_stack.timestamp, kernel_stack.cpu_delta, 1, std::mem::take(&mut kernel_stack.stack));
+                                last_kernel_stack_time = kernel_stack.timestamp;
+                            }
+                        } else {
+                            // the kernel stacks are missing a corresponding user space stack 
+                            for kernel_stack in &mut unfinished_kernel_stacks {
+                                add_sample(thread, process, kernel_stack.timestamp, kernel_stack.cpu_delta, 1, std::mem::take(&mut kernel_stack.stack));
+                                last_kernel_stack_time = kernel_stack.timestamp;
+                            }
+                            add_sample(thread, process, timestamp, cpu_delta, 1, stack);
                         }
+                    } else {
                         add_sample(thread, process, timestamp, cpu_delta, 1, stack);
                     }
                     stack_sample_count += 1;

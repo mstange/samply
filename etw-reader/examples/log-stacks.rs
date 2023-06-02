@@ -123,12 +123,14 @@ fn main() {
                                     }
                                 };
                             } else {
+                                let mut last_kernel_timestamp = 0;
                                 for e in &thread.unfinished_kernel_stacks {
                                     events[*e]
                                         .stack
                                         .as_mut()
                                         .unwrap()
                                         .extend_from_slice(&stack[..]);
+                                    last_kernel_timestamp = events[*e].timestamp;
                                 }
                                 match &mut events[i].stack {
                                     Some(_) => {
@@ -139,6 +141,11 @@ fn main() {
                                         events[i].stack = Some(stack.clone());
                                     }
                                 };
+                                if thread.unfinished_kernel_stacks.len() > 0 {
+                                    if last_kernel_timestamp != events[i].timestamp {
+                                        println!("missing userspace stack {} {}", last_kernel_timestamp, events[i].timestamp);
+                                    }
+                                }
                                 thread.unfinished_kernel_stacks.clear();
 
                             }
