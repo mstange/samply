@@ -1,6 +1,6 @@
 use std::{collections::{HashMap, HashSet, hash_map::Entry}, convert::TryInto, fs::File, io::BufWriter, path::Path, time::{Duration, Instant, SystemTime}, sync::Arc};
 
-use context_switch::ThreadContextSwitchData;
+use context_switch::{OffCpuSampleGroup, ThreadContextSwitchData};
 use etw_reader::{GUID, open_trace, parser::{Parser, TryParse, Address}, print_property, schema::SchemaLocator, write_property};
 use lib_mappings::{LibMappingOpQueue, LibMappingOp, LibMappingAdd};
 use serde_json::{Value, json, to_writer};
@@ -65,6 +65,14 @@ fn is_kernel_address(ip: u64, pointer_size: u32) -> bool {
     }
     return ip >= 0xFFFF000000000000;        // TODO I don't know what the true cutoff is.
 }
+
+#[derive(Debug, Clone)]
+struct PendingOffCpuSampleGroup {
+    cswitch_timestamp: u64,
+    off_cpu_sample_group: OffCpuSampleGroup,
+    kernel_stack: Option<Vec<StackFrame>>,
+}
+
 struct ThreadState {
     // When merging threads `handle` is the global thread handle and we use `merge_name` to store the name
     handle: ThreadHandle,
@@ -72,7 +80,8 @@ struct ThreadState {
     last_kernel_stack: Option<Vec<StackFrame>>,
     last_kernel_stack_time: u64,
     last_sample_timestamp: Option<i64>,
-    content_switch_data: ThreadContextSwitchData,
+    context_switch_data: ThreadContextSwitchData,
+    pending_off_cpu_sample_group: Option<PendingOffCpuSampleGroup>,
     thread_id: u32
 }
 
@@ -83,7 +92,8 @@ impl ThreadState {
             last_kernel_stack: None,
             last_kernel_stack_time: 0,
             last_sample_timestamp: None,
-            content_switch_data: ThreadContextSwitchData::default(),
+            context_switch_data: ThreadContextSwitchData::default(),
+            pending_off_cpu_sample_group: None,
             merge_name: None,
             thread_id: tid
         }
@@ -334,6 +344,7 @@ fn main() {
                     let thread_id: u32 = parser.parse("StackThread");
                     let process_id: u32 = parser.parse("StackProcess");
 
+                    let timestamp: u64 = parser.parse("EventTimeStamp");
                     if !process_targets.contains(&process_id) {
                         // eprintln!("not watching");
                         return;
@@ -357,23 +368,10 @@ fn main() {
                             tb
                         }
                     };
-                    let timestamp: u64 = parser.parse("EventTimeStamp");
-                   // eprint!("{} {} {}", thread_id, e.EventHeader.TimeStamp, timestamp);
-
-                    // Only add callstacks if this stack is associated with a SampleProf event
-                    if let Some(last) = thread.last_sample_timestamp {
-                        if timestamp as i64 != last {
-                            // eprintln!("doesn't match last");
-                            return
-                        }
-                    } else {
-                        // eprintln!("not last");
-                        return
-                    }
-                    //eprintln!(" sample");
+                    // eprint!("{} {} {}", thread_id, e.EventHeader.TimeStamp, timestamp);
 
                     let mut stack_mode = StackMode::User;
-                    
+
                     // Iterate over the stack addresses, starting with the instruction pointer
                     let mut stack: Vec<StackFrame> = Vec::with_capacity(parser.buffer.len() / 8);
                     let mut address_iter = parser.buffer.chunks_exact(8).map(|a| u64::from_ne_bytes(a.try_into().unwrap()));
@@ -387,13 +385,7 @@ fn main() {
                         }
                     }
 
-                    /*
-                    for i in 0..s.property_count() {
-                        let property = s.property(i);
-                        print_property(&mut parser, &property);
-                    }*/
-
-                    let mut add_sample = |thread: &mut ThreadState, process: &mut ProcessState, timestamp: u64, cpu_delta: CpuDelta, stack: Vec<StackFrame>| {
+                    let mut add_sample = |thread: &mut ThreadState, process: &mut ProcessState, timestamp: u64, cpu_delta: CpuDelta, weight: i32, stack: Vec<StackFrame>| {
                         let profile_timestamp = timestamp_converter.convert_time(timestamp);
                         let stack_index = unresolved_stacks.convert(stack.into_iter().rev());
                         let extra_label_frame = if let Some(global_thread) = global_thread {
@@ -404,40 +396,77 @@ fn main() {
                                 flags: FrameFlags::empty(),
                             })
                         } else { None };
-                        process.unresolved_samples.add_sample(thread.handle, profile_timestamp, timestamp, stack_index, cpu_delta, 1, extra_label_frame);
+                        process.unresolved_samples.add_sample(thread.handle, profile_timestamp, timestamp, stack_index, cpu_delta, weight, extra_label_frame);
                     };
+
+                    if thread.pending_off_cpu_sample_group.is_some() && thread.pending_off_cpu_sample_group.as_ref().unwrap().cswitch_timestamp == timestamp {
+                        if stack_mode == StackMode::Kernel {
+                            thread.pending_off_cpu_sample_group.as_mut().unwrap().kernel_stack = Some(stack);
+                            return;
+                        }
+
+                        let PendingOffCpuSampleGroup { cswitch_timestamp, off_cpu_sample_group, kernel_stack } = thread.pending_off_cpu_sample_group.take().unwrap();
+                        let _ = kernel_stack; // Discard the kernel stack. It's not clear what to do with it here - we don't want to show it for the full duration of the sleep.
+                        // if let Some(kernel_stack) = kernel_stack {
+                        //     // Prepend the kernel stack to the user stack, because `stack` is ordered from inside to outside
+                        //     let mut user_stack = std::mem::replace(&mut stack, kernel_stack);
+                        //     stack.append(&mut user_stack);
+                        // }
+                        let OffCpuSampleGroup { begin_timestamp, end_timestamp, sample_count } = off_cpu_sample_group;
+
+                        let cpu_delta_raw = context_switch_handler.consume_cpu_delta(&mut thread.context_switch_data);
+                        let cpu_delta = CpuDelta::from_nanos(cpu_delta_raw as u64 * timestamp_converter.raw_to_ns_factor);
+                        let process = processes.get_mut(&process_id).unwrap();
+
+                        // Add a sample at the beginning of the paused range.
+                        // This "first sample" will carry any leftover accumulated running time ("cpu delta").
+                        add_sample(thread, process, begin_timestamp, cpu_delta, 1, stack.clone());
+
+                        if sample_count > 1 {
+                            // Emit a "rest sample" with a CPU delta of zero covering the rest of the paused range.
+                            let weight = i32::try_from(sample_count - 1).unwrap_or(0) * 1;
+                            add_sample(thread, process, end_timestamp, CpuDelta::ZERO, weight, stack);
+                        }
+                        return;
+                    }
+
+                    // Only add callstacks if this stack is associated with a SampleProf event
+                    if let Some(last) = thread.last_sample_timestamp {
+                        if timestamp as i64 != last {
+                            // eprintln!("doesn't match last");
+                            return
+                        }
+                    } else {
+                        // eprintln!("not last");
+                        return
+                    }
+                    //eprintln!(" sample");
 
                     if stack_mode == StackMode::Kernel {
                         //eprintln!("kernel ");
                         thread.last_kernel_stack_time = timestamp;
                         thread.last_kernel_stack = Some(stack);
-                    } else {
-                        let delta = context_switch_handler.consume_cpu_delta(&mut thread.content_switch_data);
-                        let cpu_delta = CpuDelta::from_nanos(delta as u64 * timestamp_converter.raw_to_ns_factor);
-                        let process = processes.get_mut(&process_id).unwrap();
-                        if timestamp == thread.last_kernel_stack_time {
-                            //eprintln!("matched");
-                            if thread.last_kernel_stack.is_none() {
-                                dbg!(thread.last_kernel_stack_time);
-                            }
-                            // Prepend the kernel stack to the user stack, because `stack` is ordered from inside to outside
-                            let mut user_stack = std::mem::replace(&mut stack, thread.last_kernel_stack.take().unwrap());
-                            stack.append(&mut user_stack);
-                            add_sample(thread, process, timestamp, cpu_delta, stack);
-                        } else {
-                            if let Some(kernel_stack) = thread.last_kernel_stack.take() {
-                                // we're left with an unassociated kernel stack
-                                dbg!(thread.last_kernel_stack_time);
-
-                                add_sample(thread, process, thread.last_kernel_stack_time, CpuDelta::ZERO, kernel_stack);
-                                // add_sample(thread, profile_timestamp, kernel_stack);
-                            }
-                            add_sample(thread, process, timestamp, cpu_delta, stack);
-                            // process.unresolved_samples.add_sample(thread.handle, profile_timestamp, timestamp, stack_index, cpu_delta, 1);
-                        }
-                        stack_sample_count += 1;
-                        //XXX: what unit are timestamps in the trace in?
+                        return;
                     }
+
+                    let delta = context_switch_handler.consume_cpu_delta(&mut thread.context_switch_data);
+                    let cpu_delta = CpuDelta::from_nanos(delta as u64 * timestamp_converter.raw_to_ns_factor);
+                    let process = processes.get_mut(&process_id).unwrap();
+                    if timestamp == thread.last_kernel_stack_time {
+                        // Prepend the kernel stack to the user stack, because `stack` is ordered from inside to outside
+                        let mut user_stack = std::mem::replace(&mut stack, thread.last_kernel_stack.take().unwrap());
+                        stack.append(&mut user_stack);
+                        add_sample(thread, process, timestamp, cpu_delta, 1, stack);
+                    } else {
+                        if let Some(kernel_stack) = thread.last_kernel_stack.take() {
+                            // we're left with an unassociated kernel stack
+                            // dbg!(thread.last_kernel_stack_time);
+
+                            add_sample(thread, process, thread.last_kernel_stack_time, CpuDelta::ZERO, 1, kernel_stack);
+                        }
+                        add_sample(thread, process, timestamp, cpu_delta, 1, stack);
+                    }
+                    stack_sample_count += 1;
                 }
                 "MSNT_SystemTrace/PerfInfo/SampleProf" => {
                     let mut parser = Parser::create(&s);
@@ -474,7 +503,7 @@ fn main() {
                     };
 
                     thread.last_sample_timestamp = Some(e.EventHeader.TimeStamp);
-                    let _off_cpu_samples = context_switch_handler.handle_on_cpu_sample(e.EventHeader.TimeStamp as u64, &mut thread.content_switch_data);
+                    let _off_cpu_samples = context_switch_handler.handle_on_cpu_sample(e.EventHeader.TimeStamp as u64, &mut thread.context_switch_data);
                     // TODO: when we have CSwitch stacks, handle off-cpu samples here
                 }
                 "MSNT_SystemTrace/PageFault/DemandZeroFault" => {
@@ -693,13 +722,16 @@ fn main() {
                     let mut parser = Parser::create(&s);
                     let new_thread: u32 = parser.parse("NewThreadId");
                     let old_thread: u32 = parser.parse("OldThreadId");
+                    let timestamp = e.EventHeader.TimeStamp as u64;
                     // println!("CSwitch {} -> {} @ {} on {}", old_thread, new_thread, e.EventHeader.TimeStamp, unsafe { e.BufferContext.Anonymous.ProcessorIndex });
                     if let Some(old_thread) = threads.get_mut(&old_thread) {
-                        context_switch_handler.handle_switch_out(e.EventHeader.TimeStamp as u64, &mut old_thread.content_switch_data);
+                        context_switch_handler.handle_switch_out(timestamp, &mut old_thread.context_switch_data);
                     };
                     if let Some(new_thread) = threads.get_mut(&new_thread) {
-                        let _off_cpu_samples = context_switch_handler.handle_switch_in(e.EventHeader.TimeStamp as u64, &mut new_thread.content_switch_data);
-                        // TODO: when we have CSwitch stacks, handle off cpu samples here
+                        let off_cpu_sample_group = context_switch_handler.handle_switch_in(timestamp, &mut new_thread.context_switch_data);
+                        if let Some(off_cpu_sample_group) = off_cpu_sample_group {
+                            new_thread.pending_off_cpu_sample_group = Some(PendingOffCpuSampleGroup { cswitch_timestamp: timestamp, off_cpu_sample_group, kernel_stack: None });
+                        }
                     };
 
                 }
@@ -711,14 +743,12 @@ fn main() {
                 "V8.js/MethodLoad/" |
                 "Microsoft-JScript/MethodRuntime/MethodDCStart" |
                 "Microsoft-JScript/MethodRuntime/MethodLoad" => {
-                    // these events can give us the unblocking stack
                     let mut parser = Parser::create(&s);
                     let method_name: String = parser.parse("MethodName");
                     let method_start_address: Address = parser.parse("MethodStartAddress");
                     let method_size: u64 = parser.parse("MethodSize");
                     let source_id: u64 = parser.parse("SourceID");
                     let process_id = s.process_id();
-                    //if s.process_id() == 6736 { dbg!(s.process_id(), &method_name, method_start_address, method_size); }
                     let process_jit_info = jscript_symbols.entry(s.process_id()).or_insert_with(|| {
                         let lib_handle = profile.add_lib(LibraryInfo { name: format!("JIT-{process_id}"), debug_name: format!("JIT-{process_id}"), path: format!("JIT-{process_id}"), debug_path: format!("JIT-{process_id}"), debug_id: DebugId::nil(), code_id: None, arch: None, symbol_table: None });
                         ProcessJitInfo { lib_handle, jit_mapping_ops: LibMappingOpQueue::default(), next_relative_address: 0, symbols: Vec::new() }
@@ -744,7 +774,6 @@ fn main() {
                 "V8.js/SourceLoad/" /*|
                 "Microsoft-JScript/MethodRuntime/MethodDCStart" |
                 "Microsoft-JScript/MethodRuntime/MethodLoad"*/ => {
-                    // these events can give us the unblocking stack
                     let mut parser = Parser::create(&s);
                     let source_id: u64 = parser.parse("SourceID");
                     let url: String = parser.parse("Url");
