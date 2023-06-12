@@ -324,7 +324,6 @@ fn make_converter(
         conversion_args.merge_threads,
         conversion_args.fold_recursive_prefix,
         None,
-        None,
     )
 }
 

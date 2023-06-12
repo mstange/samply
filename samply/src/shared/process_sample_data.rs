@@ -1,9 +1,8 @@
 use fxprof_processed_profile::{
     CategoryPairHandle, LibMappings, MarkerDynamicField, MarkerFieldFormat, MarkerLocation,
     MarkerSchema, MarkerSchemaField, MarkerStaticField, MarkerTiming, Profile, ProfilerMarker,
-    ThreadHandle, Timestamp,
+    ThreadHandle,
 };
-use rangemap::RangeSet;
 use serde_json::json;
 
 use super::{
@@ -32,6 +31,7 @@ pub struct ProcessSampleData {
     regular_lib_mapping_op_queue: LibMappingOpQueue,
     jitdump_lib_mapping_op_queues: Vec<LibMappingOpQueue>,
     perf_map_mappings: Option<LibMappings<LibMappingInfo>>,
+    marker_spans: Vec<MarkerSpan>,
     main_thread_handle: ThreadHandle,
 }
 
@@ -41,6 +41,7 @@ impl ProcessSampleData {
         regular_lib_mapping_op_queue: LibMappingOpQueue,
         jitdump_lib_mapping_op_queues: Vec<LibMappingOpQueue>,
         perf_map_mappings: Option<LibMappings<LibMappingInfo>>,
+        marker_spans: Vec<MarkerSpan>,
         main_thread_handle: ThreadHandle,
     ) -> Self {
         Self {
@@ -48,6 +49,7 @@ impl ProcessSampleData {
             regular_lib_mapping_op_queue,
             jitdump_lib_mapping_op_queues,
             perf_map_mappings,
+            marker_spans,
             main_thread_handle,
         }
     }
@@ -65,14 +67,13 @@ impl ProcessSampleData {
         stack_frame_scratch_buf: &mut Vec<StackFrame>,
         stacks: &UnresolvedStacks,
         event_names: &[String],
-        marker_spans: &[MarkerSpan],
-        sample_range_set: Option<&RangeSet<Timestamp>>,
     ) {
         let ProcessSampleData {
             unresolved_samples,
             regular_lib_mapping_op_queue,
             jitdump_lib_mapping_op_queues,
             perf_map_mappings,
+            marker_spans,
             main_thread_handle,
         } = self;
         let mut lib_mappings_hierarchy = LibMappingsHierarchy::new(regular_lib_mapping_op_queue);
@@ -94,12 +95,6 @@ impl ProcessSampleData {
                 extra_label_frame,
                 ..
             } = sample;
-
-            if sample_range_set.is_some()
-                && !sample_range_set.as_ref().unwrap().contains(&timestamp)
-            {
-                continue;
-            }
 
             stack_frame_scratch_buf.clear();
             stacks.convert_back(stack, stack_frame_scratch_buf);
@@ -146,15 +141,15 @@ impl ProcessSampleData {
                     }
                 }
             }
+        }
 
-            for marker in marker_spans {
-                profile.add_marker(
-                    main_thread_handle,
-                    "UserTiming",
-                    UserTimingMarker(marker.name.clone()),
-                    MarkerTiming::Interval(marker.start_time, marker.end_time),
-                );
-            }
+        for marker in marker_spans {
+            profile.add_marker(
+                main_thread_handle,
+                "UserTiming",
+                UserTimingMarker(marker.name.clone()),
+                MarkerTiming::Interval(marker.start_time, marker.end_time),
+            );
         }
     }
 }

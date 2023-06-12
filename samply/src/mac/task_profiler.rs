@@ -29,6 +29,7 @@ use crate::shared::jitdump_manager::JitDumpManager;
 use crate::shared::lib_mappings::{
     LibMappingAdd, LibMappingInfo, LibMappingOp, LibMappingOpQueue, LibMappingRemove,
 };
+use crate::shared::marker_file::get_markers;
 use crate::shared::perf_map::try_load_perf_map;
 use crate::shared::process_sample_data::ProcessSampleData;
 use crate::shared::recycling::{ProcessRecycler, ProcessRecyclingData, ThreadRecycler};
@@ -38,7 +39,7 @@ use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
 use super::error::SamplingError;
 use super::kernel_error::{IntoResult, KernelError};
 use super::proc_maps::{DyldInfo, DyldInfoManager, Modification, StackwalkerRef, VmSubData};
-use super::sampler::TaskInit;
+use super::sampler::{JitdumpOrMarkerPath, TaskInit};
 use super::thread_profiler::{get_thread_id, get_thread_name, ThreadProfiler};
 
 pub enum UnwindSectionBytes {
@@ -96,8 +97,9 @@ pub struct TaskProfiler {
     main_thread_handle: ThreadHandle,
     ignored_errors: Vec<SamplingError>,
     unwinder: UnwinderNative<UnwindSectionBytes, MayAllocateDuringUnwind>,
-    jitdump_path_receiver: Receiver<PathBuf>,
+    path_receiver: Receiver<JitdumpOrMarkerPath>,
     jitdump_manager: JitDumpManager,
+    marker_file_path: Option<PathBuf>,
     unresolved_samples: UnresolvedSamples,
     lib_mapping_ops: LibMappingOpQueue,
     thread_recycler: Option<ThreadRecycler>,
@@ -117,7 +119,7 @@ impl TaskProfiler {
             start_time_mono,
             task,
             pid,
-            jitdump_path_receiver,
+            path_receiver,
         } = task_init;
         let start_time = timestamp_converter.convert_time(start_time_mono);
 
@@ -241,8 +243,9 @@ impl TaskProfiler {
             main_thread_handle,
             ignored_errors: Vec::new(),
             unwinder: UnwinderNative::new(),
-            jitdump_path_receiver,
+            path_receiver,
             jitdump_manager: JitDumpManager::new_for_process(main_thread_handle),
+            marker_file_path: None,
             lib_mapping_ops: Default::default(),
             unresolved_samples: Default::default(),
             thread_recycler,
@@ -502,15 +505,24 @@ impl TaskProfiler {
         self.unwinder.add_module(module);
     }
 
+    pub fn check_received_paths(&mut self) {
+        while let Ok(jitdump_or_marker_file_path) = self.path_receiver.try_recv() {
+            match jitdump_or_marker_file_path {
+                JitdumpOrMarkerPath::JitdumpPath(jitdump_path) => {
+                    self.jitdump_manager.add_jitdump_path(jitdump_path, None);
+                }
+                JitdumpOrMarkerPath::MarkerFilePath(marker_file_path) => {
+                    self.marker_file_path = Some(marker_file_path);
+                }
+            }
+        }
+    }
+
     pub fn check_jitdump(
         &mut self,
         profile: &mut Profile,
         jit_category_manager: &mut JitCategoryManager,
     ) {
-        while let Ok(jitdump_path) = self.jitdump_path_receiver.try_recv() {
-            self.jitdump_manager.add_jitdump_path(jitdump_path, None);
-        }
-
         self.jitdump_manager.process_pending_records(
             jit_category_manager,
             profile,
@@ -553,11 +565,20 @@ impl TaskProfiler {
             self.jit_function_recycler.as_mut(),
             &self.timestamp_converter,
         );
+        let mut marker_spans = Vec::new();
+        if let Some(marker_file_path) = self.marker_file_path.as_deref() {
+            if let Ok(marker_spans_from_this_file) =
+                get_markers(marker_file_path, self.timestamp_converter)
+            {
+                marker_spans = marker_spans_from_this_file;
+            }
+        }
         let process_sample_data = ProcessSampleData::new(
             self.unresolved_samples,
             self.lib_mapping_ops,
             jitdump_lib_ops,
             perf_map_mappings,
+            marker_spans,
             self.main_thread_handle,
         );
 
@@ -649,7 +670,7 @@ fn get_thread_list(task: mach_port_t) -> Result<Vec<thread_act_t>, SamplingError
             err => SamplingError::Ignorable("task_threads in get_thread_list", err),
         })?;
 
-    let thread_acts =
+    let mut thread_acts =
         unsafe { std::slice::from_raw_parts(thread_list, thread_count as usize) }.to_owned();
 
     unsafe {
@@ -661,6 +682,8 @@ fn get_thread_list(task: mach_port_t) -> Result<Vec<thread_act_t>, SamplingError
     }
     .into_result()
     .map_err(|err| SamplingError::Fatal("mach_vm_deallocate in get_thread_list", err))?;
+
+    thread_acts.truncate(1);
 
     Ok(thread_acts)
 }

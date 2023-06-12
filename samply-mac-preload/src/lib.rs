@@ -79,6 +79,7 @@ extern "C" fn samply_hooked_open(path: *const c_char, flags: c_int, mode: mode_t
 
     if let Ok(path) = unsafe { CStr::from_ptr(path) }.to_str() {
         detect_and_send_jitdump_path(path);
+        detect_and_send_marker_file_path(path);
     }
 
     // Call the original. Do this at the end, so that this is compiled as a tail call.
@@ -101,6 +102,7 @@ extern "C" fn samply_hooked_fopen(path: *const c_char, mode: *const c_char) -> *
 
     if let Ok(path) = unsafe { CStr::from_ptr(path) }.to_str() {
         detect_and_send_jitdump_path(path);
+        detect_and_send_marker_file_path(path);
     }
 
     // Call the original.
@@ -117,6 +119,22 @@ fn detect_and_send_jitdump_path(path: &str) {
     let pid = unsafe { libc::getpid() };
     let mut message_bytes = [0; 256];
     message_bytes[0..7].copy_from_slice(b"Jitdump");
+    message_bytes[7..11].copy_from_slice(&pid.to_le_bytes());
+    message_bytes[11] = path.len() as u8;
+    message_bytes[12..][..path.len()].copy_from_slice(path.as_bytes());
+    let _ = sender.send(&message_bytes, []);
+}
+
+fn detect_and_send_marker_file_path(path: &str) {
+    if path.len() > 256 - 12 || !path.ends_with(".txt") || !path.contains("/marker-") {
+        return;
+    }
+
+    let channel_sender = CHANNEL_SENDER.lock();
+    let Some(sender) = channel_sender.as_ref() else { return };
+    let pid = unsafe { libc::getpid() };
+    let mut message_bytes = [0; 256];
+    message_bytes[0..7].copy_from_slice(b"MarkerF");
     message_bytes[7..11].copy_from_slice(&pid.to_le_bytes());
     message_bytes[11] = path.len() as u8;
     message_bytes[12..][..path.len()].copy_from_slice(path.as_bytes());

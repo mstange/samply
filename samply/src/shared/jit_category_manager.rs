@@ -42,8 +42,14 @@ impl JitCategoryManager {
         ("Baseline: ", "Baseline", CategoryColor::Blue, true),
         (
             "PolymorphicCallStubBaseline: ",
-            "Baseline",
-            CategoryColor::Blue,
+            "Trampoline",
+            CategoryColor::DarkGray,
+            true,
+        ),
+        (
+            "PolymorphicAccessStubBaseline: ",
+            "Trampoline",
+            CategoryColor::DarkGray,
             true,
         ),
         ("Ion: ", "Ion", CategoryColor::Green, true),

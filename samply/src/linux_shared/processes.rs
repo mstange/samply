@@ -1,6 +1,5 @@
 use framehop::Unwinder;
 use fxprof_processed_profile::{CategoryColor, Profile, Timestamp};
-use rangemap::RangeSet;
 
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -126,14 +125,19 @@ where
         time: Timestamp,
         profile: &mut Profile,
         jit_category_manager: &mut JitCategoryManager,
+        marker_spans: Vec<MarkerSpan>,
         timestamp_converter: &TimestampConverter,
     ) {
         let Some(mut process) = self.processes_by_pid.remove(&pid) else { return };
 
         process.notify_dead(time, profile);
 
-        let (process_sample_data, process_recycling_data) =
-            process.finish(profile, jit_category_manager, timestamp_converter);
+        let (process_sample_data, process_recycling_data) = process.finish(
+            profile,
+            jit_category_manager,
+            marker_spans,
+            timestamp_converter,
+        );
         if !process_sample_data.is_empty() {
             self.process_sample_datas.push(process_sample_data);
         }
@@ -185,13 +189,16 @@ where
         event_names: &[String],
         jit_category_manager: &mut JitCategoryManager,
         timestamp_converter: &TimestampConverter,
-        marker_spans: &[MarkerSpan],
-        sample_ranges: Option<&RangeSet<Timestamp>>,
+        marker_spans: Vec<MarkerSpan>,
     ) {
         // Gather the ProcessSampleData from any processes which are still alive at the end of profiling.
         for process in self.processes_by_pid.into_values() {
-            let (process_sample_data, _process_recycling_data) =
-                process.finish(profile, jit_category_manager, timestamp_converter);
+            let (process_sample_data, _process_recycling_data) = process.finish(
+                profile,
+                jit_category_manager,
+                marker_spans.clone(),
+                timestamp_converter,
+            );
             if !process_sample_data.is_empty() {
                 self.process_sample_datas.push(process_sample_data);
             }
@@ -208,8 +215,6 @@ where
                 &mut stack_frame_scratch_buf,
                 unresolved_stacks,
                 event_names,
-                marker_spans,
-                sample_ranges,
             );
         }
     }

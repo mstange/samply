@@ -3,7 +3,7 @@ use debugid::{CodeId, DebugId};
 
 use framehop::{FrameAddress, Module, ModuleSvmaInfo, ModuleUnwindData, TextByteData, Unwinder};
 use fxprof_processed_profile::{
-    CpuDelta, LibraryInfo, Profile, ReferenceTimestamp, SamplingInterval, ThreadHandle, Timestamp,
+    CpuDelta, LibraryInfo, Profile, ReferenceTimestamp, SamplingInterval, ThreadHandle,
 };
 use linux_perf_data::linux_perf_event_reader;
 use linux_perf_data::{DsoInfo, DsoKey, Endianness};
@@ -18,7 +18,6 @@ use object::read::pe::{ImageNtHeaders, ImageOptionalHeader, PeFile};
 use object::{
     CompressedFileRange, CompressionFormat, FileKind, Object, ObjectSection, ObjectSegment,
 };
-use rangemap::RangeSet;
 use samply_symbols::{debug_id_for_object, DebugIdExt};
 use wholesym::samply_symbols;
 
@@ -91,9 +90,6 @@ where
     fold_recursive_prefix: bool,
 
     marker_spans: Vec<MarkerSpan>,
-
-    /// If Some(), only include samples which occurred during these ranges.
-    sample_ranges: Option<RangeSet<Timestamp>>,
 }
 
 const DEFAULT_OFF_CPU_SAMPLING_INTERVAL_NS: u64 = 1_000_000; // 1ms
@@ -116,7 +112,6 @@ where
         merge_threads: bool,
         fold_recursive_prefix: bool,
         marker_file: Option<&str>,
-        marker_name_prefix_for_filtering: Option<&str>,
     ) -> Self {
         let interval = match interpretation.sampling_is_time_based {
             Some(nanos) => SamplingInterval::from_nanos(nanos),
@@ -143,14 +138,10 @@ where
             reference_raw: first_sample_time,
             raw_to_ns_factor: 1,
         };
-        let (marker_spans, sample_ranges) = match marker_file {
-            Some(marker_file) => get_markers(
-                marker_file,
-                marker_name_prefix_for_filtering,
-                timestamp_converter,
-            )
-            .expect("Could not get markers"),
-            None => (Vec::new(), None),
+        let marker_spans = match marker_file {
+            Some(marker_file) => get_markers(Path::new(marker_file), timestamp_converter)
+                .expect("Could not get markers"),
+            None => Vec::new(),
         };
 
         Self {
@@ -174,7 +165,6 @@ where
             jit_category_manager: JitCategoryManager::new(),
             fold_recursive_prefix,
             marker_spans,
-            sample_ranges,
         }
     }
 
@@ -186,8 +176,7 @@ where
             &self.event_names,
             &mut self.jit_category_manager,
             &self.timestamp_converter,
-            &self.marker_spans,
-            self.sample_ranges.as_ref(),
+            self.marker_spans.clone(),
         );
         profile
     }
@@ -757,6 +746,7 @@ where
                 end_time,
                 &mut self.profile,
                 &mut self.jit_category_manager,
+                self.marker_spans.clone(),
                 &self.timestamp_converter,
             );
         } else {
@@ -794,6 +784,7 @@ where
                     timestamp,
                     &mut self.profile,
                     &mut self.jit_category_manager,
+                    self.marker_spans.clone(),
                     &self.timestamp_converter,
                 );
                 self.processes.recycle_or_get_new(

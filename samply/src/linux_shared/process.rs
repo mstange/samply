@@ -11,6 +11,7 @@ use crate::shared::jit_function_add_marker::JitFunctionAddMarker;
 use crate::shared::jit_function_recycler::JitFunctionRecycler;
 use crate::shared::jitdump_manager::JitDumpManager;
 use crate::shared::lib_mappings::{LibMappingAdd, LibMappingInfo, LibMappingOp, LibMappingOpQueue};
+use crate::shared::marker_file::MarkerSpan;
 use crate::shared::perf_map::try_load_perf_map;
 use crate::shared::process_sample_data::ProcessSampleData;
 use crate::shared::recycling::{ProcessRecyclingData, ThreadRecycler};
@@ -134,6 +135,7 @@ where
         mut self,
         profile: &mut Profile,
         jit_category_manager: &mut JitCategoryManager,
+        marker_spans: Vec<MarkerSpan>,
         timestamp_converter: &TimestampConverter,
     ) -> (ProcessSampleData, Option<(String, ProcessRecyclingData)>) {
         self.unwinder = U::default();
@@ -165,6 +167,7 @@ where
             std::mem::take(&mut self.lib_mapping_ops),
             jitdump_ops,
             perf_map_mappings,
+            marker_spans,
             self.threads.main_thread.profile_thread,
         );
 

@@ -137,6 +137,14 @@ impl TaskAccepter {
                 let path = &jitdump_info[5..][..len];
                 ReceivedStuff::JitdumpPath(pid, OsStr::from_bytes(path).into())
             }
+            (b"MarkerF", marker_file_info) => {
+                let pid_bytes = &marker_file_info[0..4];
+                let pid =
+                    u32::from_le_bytes([pid_bytes[0], pid_bytes[1], pid_bytes[2], pid_bytes[3]]);
+                let len = marker_file_info[4] as usize;
+                let path = &marker_file_info[5..][..len];
+                ReceivedStuff::MarkerFilePath(pid, OsStr::from_bytes(path).into())
+            }
             (other, _) => {
                 panic!("Unexpected message: {:?}", other);
             }
@@ -148,6 +156,7 @@ impl TaskAccepter {
 pub enum ReceivedStuff {
     AcceptedTask(AcceptedTask),
     JitdumpPath(u32, PathBuf),
+    MarkerFilePath(u32, PathBuf),
 }
 
 pub struct AcceptedTask {

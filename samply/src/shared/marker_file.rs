@@ -1,8 +1,8 @@
 use fxprof_processed_profile::Timestamp;
-use rangemap::RangeSet;
 
 use std::fs::File;
 use std::io::{BufRead, BufReader, Lines};
+use std::path::Path;
 
 use super::timestamp_converter::TimestampConverter;
 
@@ -57,27 +57,12 @@ impl Iterator for MarkerFile {
 }
 
 pub fn get_markers(
-    marker_file: &str,
-    marker_name_prefix_for_filtering: Option<&str>,
+    marker_file: &Path,
     timestamp_converter: TimestampConverter,
-) -> Result<(Vec<MarkerSpan>, Option<RangeSet<Timestamp>>), std::io::Error> {
+) -> Result<Vec<MarkerSpan>, std::io::Error> {
     let f = std::fs::File::open(marker_file)?;
     let marker_file = MarkerFile::parse(f, timestamp_converter);
     let mut marker_spans: Vec<MarkerSpan> = marker_file.collect();
     marker_spans.sort_by_key(|m| m.start_time);
-
-    let sample_ranges = if let Some(prefix) = marker_name_prefix_for_filtering {
-        let mut sample_ranges = RangeSet::new();
-        for marker_span in &marker_spans {
-            if marker_span.name.starts_with(prefix) && marker_span.end_time > marker_span.start_time
-            {
-                sample_ranges.insert(marker_span.start_time..marker_span.end_time);
-            }
-        }
-        Some(sample_ranges)
-    } else {
-        None
-    };
-
-    Ok((marker_spans, sample_ranges))
+    Ok(marker_spans)
 }
