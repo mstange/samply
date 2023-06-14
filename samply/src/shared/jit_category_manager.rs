@@ -56,6 +56,7 @@ impl JitCategoryManager {
         ("BaselineIC: ", "BaselineIC", CategoryColor::Brown, false),
         ("IC: ", "IC", CategoryColor::Brown, false),
         ("Trampoline: ", "Trampoline", CategoryColor::DarkGray, false),
+        ("VMWrapper: ", "Trampoline", CategoryColor::DarkGray, false),
         (
             "Baseline JIT code for ",
             "Baseline",
