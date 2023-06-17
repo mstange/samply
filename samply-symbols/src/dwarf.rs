@@ -16,7 +16,7 @@ pub fn get_frames<R: Reader>(
     context: Option<&addr2line::Context<R>>,
     path_mapper: &mut PathMapper<()>,
 ) -> Option<Vec<FrameDebugInfo>> {
-    let frame_iter = context?.find_frames(address).ok()?;
+    let frame_iter = context?.find_frames(address).skip_all_loads().ok()?;
     let frames: Vec<_> = frame_iter
         .map(|f| Ok(convert_stack_frame(f, &mut *path_mapper)))
         .collect()
