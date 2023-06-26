@@ -241,8 +241,7 @@ impl<'a> Parser<'a> {
                 ));
             }
 
-            // TODO: Evaluate not cloning the Property nor the buffer
-            // We drain the buffer, if everything works correctly in the end the buffer will be empty
+            // We split the buffer, if everything works correctly in the end the buffer will be empty
             // and we should have all properties in the cache
             let (prop_buffer, remaining) = self.buffer.split_at(prop_size);
             self.buffer = remaining;
