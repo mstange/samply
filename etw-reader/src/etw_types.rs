@@ -140,7 +140,7 @@ impl TraceEventInfoRaw {
     fn property_map_info(&self, index: u32) -> Option<PropertyMapInfo> {
 
         // let's make sure index is not bigger thant the PropertyCount
-        assert!(index <= self.property_count());
+        assert!(index <= TraceEventInfo::from(self).PropertyCount);
 
         // We need to subtract the sizeof(EVENT_PROPERTY_INFO) due to how TRACE_EVENT_INFO is declared
         // in the bindings, the last field `EventPropertyInfoArray[ANYSIZE_ARRAY]` is declared as
@@ -238,12 +238,12 @@ impl EventSchema for TraceEventInfoRaw {
     }
     
     fn property_count(&self) -> u32 {
-        TraceEventInfo::from(self).PropertyCount
+        TraceEventInfo::from(self).TopLevelPropertyCount
     }
     
     fn property(&self, index: u32) -> Property {
         // let's make sure index is not bigger thant the PropertyCount
-        assert!(index <= self.property_count());
+        assert!(index <= TraceEventInfo::from(self).PropertyCount);
 
         // We need to subtract the sizeof(EVENT_PROPERTY_INFO) due to how TRACE_EVENT_INFO is declared
         // in the bindings, the last field `EventPropertyInfoArray[ANYSIZE_ARRAY]` is declared as
