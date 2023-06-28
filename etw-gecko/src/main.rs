@@ -274,6 +274,8 @@ fn main() {
                 }
                 "MSNT_SystemTrace/Thread/Start" |
                 "MSNT_SystemTrace/Thread/DCStart" => {
+                    let timestamp = e.EventHeader.TimeStamp as u64;
+                    let timestamp = timestamp_converter.convert_time(timestamp);
                     let mut parser = Parser::create(&s);
 
                     let thread_id: u32 = parser.parse("TThreadId");
@@ -285,30 +287,51 @@ fn main() {
                         return;
                     }
 
+                    let thread_start_instant = profile_start_instant;
+                    let handle = match global_thread {
+                        Some(global_thread) => global_thread,
+                        None => {
+                            let process = processes.get_mut(&process_id).unwrap();
+
+                            let is_main = process.main_thread_handle.is_none();
+                            let thread_handle = profile.add_thread(process.process_handle, thread_id, timestamp, is_main);
+                            if is_main {
+                                process.main_thread_handle = Some(thread_handle);
+                            }
+                            thread_handle
+                        }
+                    };
+                    let thread = ThreadState::new(handle, thread_id);
+
                     let thread = match threads.entry(thread_id) {
-                        Entry::Occupied(e) => e.into_mut(),
+                        Entry::Occupied(e) => {
+                            // Clobber the existing thread. We don't rely on thread end events to remove threads
+                            // because they can be dropped and there can be subsequent events that refer to an ended thread.
+                            // eg.
+                            // MSNT_SystemTrace/Thread/End MSNT_SystemTrace 2-0 14 7369515373
+                            //     ProcessId: InTypeUInt32 = 4532
+                            //     TThreadId: InTypeUInt32 = 17524
+                            // MSNT_SystemTrace/Thread/ReadyThread MSNT_SystemTrace 50-0 5 7369515411
+                            //     TThreadId: InTypeUInt32 = 1644
+                            // MSNT_SystemTrace/StackWalk/Stack MSNT_SystemTrace 32-0 35 7369515425
+                            //     EventTimeStamp: InTypeUInt64 = 7369515411
+                            //     StackProcess: InTypeUInt32 = 4532
+                            //     StackThread: InTypeUInt32 = 17524
+                            // MSNT_SystemTrace/Thread/CSwitch MSNT_SystemTrace 36-0 12 7369515482
+                            //     NewThreadId: InTypeUInt32 = 1644
+                            //     OldThreadId: InTypeUInt32 = 0
+
+                            let existing = e.into_mut();
+                            *existing = thread;
+                            existing
+                        }
                         Entry::Vacant(e) => {
-                            let thread_start_instant = profile_start_instant;
-                            let handle = match global_thread {
-                                Some(global_thread) => global_thread,
-                                None => {
-                                    let process = processes.get_mut(&process_id).unwrap();
-                                    let is_main = process.main_thread_handle.is_none();
-                                    let thread_handle = profile.add_thread(process.process_handle, thread_id, thread_start_instant, is_main);
-                                    if is_main {
-                                        process.main_thread_handle = Some(thread_handle);
-                                    }
-                                    thread_handle
-                                }
-                            };
-                            let tb = e.insert(
-                                ThreadState::new(handle, thread_id)
-                            );
-                            tb
+                            e.insert(thread)
                         }
                     };
 
                     let thread_name: Result<String, _> = parser.try_parse("ThreadName");
+
                     match thread_name {
                         Ok(thread_name) if !thread_name.is_empty() => {
                             if Some(thread.handle) != global_thread {
@@ -318,6 +341,24 @@ fn main() {
                         },
                         _ => {}
                     }
+                }
+                "MSNT_SystemTrace/Thread/End" |
+                "MSNT_SystemTrace/Thread/DCEnd" => {
+                    let timestamp = e.EventHeader.TimeStamp as u64;
+                    let timestamp = timestamp_converter.convert_time(timestamp);
+                    let mut parser = Parser::create(&s);
+
+                    let thread_id: u32 = parser.parse("TThreadId");
+                    let process_id: u32 = parser.parse("ProcessId");
+
+                    let thread = match threads.entry(thread_id) {
+                        Entry::Occupied(e) => {
+                            profile.set_thread_end_time(e.get().handle, timestamp);
+                        }
+                        Entry::Vacant(e) => {
+                        }
+                    };
+
                 }
                 "MSNT_SystemTrace/Process/Start" |
                 "MSNT_SystemTrace/Process/DCStart" => {
@@ -332,12 +373,13 @@ fn main() {
 
                         let process_id: u32 = parser.parse("ProcessId");
                         if image_file_name.contains(process_target_name) {
-                            println!("tracing {}", process_id);
                             process_targets.insert(process_id);
+                            println!("tracing {}", process_id);
                             let process_handle = match global_process {
                                 Some(global_process) => global_process,
                                 None => profile.add_process(&image_file_name, process_id, timestamp),
                             };
+
                             processes.insert(process_id, ProcessState::new(process_handle));
                         }
                     }
@@ -874,7 +916,7 @@ fn main() {
             },
             None => Vec::new(),
         };
-        let process_sample_data = ProcessSampleData::new(unresolved_samples, regular_lib_mapping_ops, jitdump_lib_mapping_op_queues, None, main_thread_handle.unwrap());
+        let process_sample_data = ProcessSampleData::new(unresolved_samples, regular_lib_mapping_ops, jitdump_lib_mapping_op_queues, None, main_thread_handle.unwrap_or_else(|| panic!("process no main thread {:?}", process_id)));
         process_sample_data.flush_samples_to_profile(&mut profile, user_category, kernel_category, &mut stack_frame_scratch_buf, &mut unresolved_stacks, &[], &marker_spans, sample_ranges.as_ref())
     }
 
