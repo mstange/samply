@@ -221,6 +221,15 @@ fn main() {
                     let mut parser = Parser::create(&s);
                     timer_resolution = parser.parse("TimerResolution");
                     let perf_freq: u64 = parser.parse("PerfFreq");
+                    let clock_type: u32 = parser.parse("ReservedFlags");
+                    if clock_type != 1 {
+                        println!("WARNING: QPC not used as clock");
+                    }
+                    let events_lost: u32 = parser.parse("EventsLost");
+                    if events_lost != 0 {
+                        println!("WARNING: {} events lost", events_lost);
+                    }
+
                     timestamp_converter = TimestampConverter {
                         reference_raw: e.EventHeader.TimeStamp as u64,
                         raw_to_ns_factor: 1000 * 1000 * 1000 / perf_freq,
