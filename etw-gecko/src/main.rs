@@ -9,6 +9,7 @@ use debugid::DebugId;
 
 mod context_switch;
 mod jit_category_manager;
+mod jit_function_add_marker;
 mod lib_mappings;
 mod marker_file;
 mod process_sample_data;
@@ -26,7 +27,7 @@ use unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
 use uuid::Uuid;
 use process_sample_data::ProcessSampleData;
 
-use crate::{timestamp_converter::TimestampConverter, context_switch::ContextSwitchHandler, marker_file::get_markers};
+use crate::{timestamp_converter::TimestampConverter, context_switch::ContextSwitchHandler, marker_file::get_markers, jit_function_add_marker::JitFunctionAddMarker};
 
 /// An example marker type with some text content.
 #[derive(Debug, Clone)]
@@ -829,6 +830,19 @@ fn main() {
                     let start_address = method_start_address.as_u64();
                     let relative_address = process_jit_info.next_relative_address;
                     process_jit_info.next_relative_address += method_size as u32;
+
+                    let timestamp = e.EventHeader.TimeStamp as u64;
+                    let timestamp = timestamp_converter.convert_time(timestamp);
+                    let process = processes.get_mut(&process_id).unwrap();
+
+                    if let Some(main_thread) = process.main_thread_handle {
+                        profile.add_marker(
+                            main_thread,
+                            "JitFunctionAdd",
+                            JitFunctionAddMarker(method_name.to_owned()),
+                            MarkerTiming::Instant(timestamp),
+                        );
+                    }
                     
                     let (category, js_frame) = jit_category_manager.classify_jit_symbol(&method_name, &mut profile);
                     let info = LibMappingInfo::new_jit_function(process_jit_info.lib_handle, category, js_frame);
