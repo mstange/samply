@@ -65,8 +65,8 @@ impl<'data, R: ReadRef<'data>, FAC: FunctionAddressesComputer<'data>>
     }
 }
 
-impl<'data, R: ReadRef<'data>, FAC: FunctionAddressesComputer<'data>> SymbolMapDataMidTrait
-    for ObjectSymbolMapDataMid<'data, R, FAC>
+impl<'data, R: ReadRef<'data> + Send + Sync, FAC: FunctionAddressesComputer<'data>>
+    SymbolMapDataMidTrait for ObjectSymbolMapDataMid<'data, R, FAC>
 {
     fn make_symbol_map_inner(&self) -> Result<SymbolMapInnerWrapper<'_>, Error> {
         let (function_starts, function_ends) = self

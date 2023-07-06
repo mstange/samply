@@ -31,8 +31,8 @@ features = ["std", "read_core", "archive", "elf", "macho", "pe", "unaligned", "c
 version = "0.30.2"
 
 [dependencies]
-# pdb-addr2line = { path = "../../pdb-addr2line" }
-pdb-addr2line = "0.10.0"
+#pdb-addr2line = { path = "../../pdb-addr2line" }
+pdb-addr2line = "0.11.0"
 uuid = "1.0.0"
 thiserror = "1.0.26"
 cpp_demangle = "0.4.0"

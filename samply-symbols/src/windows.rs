@@ -94,7 +94,9 @@ impl<T: FileContents> PeSymbolMapData<T> {
 }
 
 impl<T: FileContents + 'static> SymbolMapDataOuterTrait for PeSymbolMapData<T> {
-    fn make_symbol_map_data_mid(&self) -> Result<Box<dyn SymbolMapDataMidTrait + '_>, Error> {
+    fn make_symbol_map_data_mid(
+        &self,
+    ) -> Result<Box<dyn SymbolMapDataMidTrait + Send + '_>, Error> {
         let object =
             File::parse(&self.file_data).map_err(|e| Error::ObjectParseError(self.file_kind, e))?;
         let debug_id = debug_id_for_object(&object)
@@ -145,7 +147,7 @@ pub fn is_pdb_file<F: FileContents>(file: &FileContentsWrapper<F>) -> bool {
 struct PdbObject<'data, FC: FileContents + 'static> {
     context_data: pdb_addr2line::ContextPdbData<'data, 'data, &'data FileContentsWrapper<FC>>,
     debug_id: DebugId,
-    srcsrv_stream: Option<Box<dyn Deref<Target = [u8]> + 'data>>,
+    srcsrv_stream: Option<Box<dyn Deref<Target = [u8]> + Send + 'data>>,
 }
 
 impl<'data, FC: FileContents + 'static> SymbolMapDataMidTrait for PdbObject<'data, FC> {
@@ -172,7 +174,7 @@ impl<'data, FC: FileContents + 'static> SymbolMapDataMidTrait for PdbObject<'dat
 impl<'data, FC: FileContents + 'static> PdbObject<'data, FC> {
     fn make_context<'object>(
         &'object self,
-    ) -> Result<Box<dyn PdbAddr2lineContextTrait + 'object>, Error> {
+    ) -> Result<Box<dyn PdbAddr2lineContextTrait + Send + 'object>, Error> {
         let context = self.context_data.make_context().context("make_context()")?;
         Ok(Box::new(context))
     }
@@ -205,7 +207,7 @@ impl<'a, 's> PdbAddr2lineContextTrait for pdb_addr2line::Context<'a, 's> {
 }
 
 struct PdbSymbolMapInner<'object> {
-    context: Box<dyn PdbAddr2lineContextTrait + 'object>,
+    context: Box<dyn PdbAddr2lineContextTrait + Send + 'object>,
     debug_id: DebugId,
     path_mapper: Mutex<PathMapper<SrcSrvPathMapper<'object>>>,
 }
@@ -281,9 +283,9 @@ impl<'object> SymbolMapTrait for PdbSymbolMapInner<'object> {
     }
 }
 
-fn box_stream<'data, T>(stream: T) -> Box<dyn Deref<Target = [u8]> + 'data>
+fn box_stream<'data, T>(stream: T) -> Box<dyn Deref<Target = [u8]> + Send + 'data>
 where
-    T: Deref<Target = [u8]> + 'data,
+    T: Deref<Target = [u8]> + Send + 'data,
 {
     Box::new(stream)
 }
@@ -291,7 +293,9 @@ where
 struct PdbSymbolData<T: FileContents + 'static>(FileContentsWrapper<T>);
 
 impl<T: FileContents + 'static> SymbolMapDataOuterTrait for PdbSymbolData<T> {
-    fn make_symbol_map_data_mid(&self) -> Result<Box<dyn SymbolMapDataMidTrait + '_>, Error> {
+    fn make_symbol_map_data_mid(
+        &self,
+    ) -> Result<Box<dyn SymbolMapDataMidTrait + Send + '_>, Error> {
         let mut pdb = PDB::open(&self.0)?;
         let info = pdb.pdb_information().context("pdb_information")?;
         let dbi = pdb.debug_information()?;
@@ -464,7 +468,7 @@ impl<'s, F: FileContents> pdb::Source<'s> for &'s FileContentsWrapper<F> {
     fn view(
         &mut self,
         slices: &[pdb::SourceSlice],
-    ) -> std::result::Result<Box<dyn pdb::SourceView<'s>>, std::io::Error> {
+    ) -> std::result::Result<Box<dyn pdb::SourceView<'s> + Send + Sync>, std::io::Error> {
         let len = slices.iter().fold(0, |acc, s| acc + s.size);
 
         let mut bytes = Vec::with_capacity(len);
