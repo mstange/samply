@@ -300,7 +300,9 @@ impl<T: FileContents> ElfSymbolMapData<T> {
 }
 
 impl<T: FileContents + 'static> SymbolMapDataOuterTrait for ElfSymbolMapData<T> {
-    fn make_symbol_map_data_mid(&self) -> Result<Box<dyn SymbolMapDataMidTrait + '_>, Error> {
+    fn make_symbol_map_data_mid(
+        &self,
+    ) -> Result<Box<dyn SymbolMapDataMidTrait + Send + '_>, Error> {
         let object =
             File::parse(&self.file_data).map_err(|e| Error::ObjectParseError(self.file_kind, e))?;
         let supplementary_object = match self.supplementary_file_data.as_ref() {

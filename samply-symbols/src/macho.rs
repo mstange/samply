@@ -333,7 +333,9 @@ impl<T: FileContents + 'static> DyldCacheFileData<T> {
 }
 
 impl<T: FileContents + 'static> SymbolMapDataOuterTrait for DyldCacheFileData<T> {
-    fn make_symbol_map_data_mid(&self) -> Result<Box<dyn SymbolMapDataMidTrait + '_>, Error> {
+    fn make_symbol_map_data_mid(
+        &self,
+    ) -> Result<Box<dyn SymbolMapDataMidTrait + Send + '_>, Error> {
         let ObjectAndMachOData { object, macho_data } = self.make_object()?;
         let arch = macho_data.get_arch();
         let function_addresses_computer = MachOFunctionAddressesComputer { macho_data };
@@ -388,7 +390,9 @@ impl<T: FileContents> MachSymbolMapData<T> {
 }
 
 impl<T: FileContents + 'static> SymbolMapDataOuterTrait for MachSymbolMapData<T> {
-    fn make_symbol_map_data_mid(&self) -> Result<Box<dyn SymbolMapDataMidTrait + '_>, Error> {
+    fn make_symbol_map_data_mid(
+        &self,
+    ) -> Result<Box<dyn SymbolMapDataMidTrait + Send + '_>, Error> {
         let macho_file = File::parse(&self.file_data).map_err(Error::MachOHeaderParseError)?;
         let macho_data = MachOData::new(&self.file_data, 0, macho_file.is_64());
         let arch = macho_data.get_arch();
@@ -440,7 +444,9 @@ impl<T: FileContents> MachOFatArchiveMemberData<T> {
 }
 
 impl<T: FileContents + 'static> SymbolMapDataOuterTrait for MachOFatArchiveMemberData<T> {
-    fn make_symbol_map_data_mid(&self) -> Result<Box<dyn SymbolMapDataMidTrait + '_>, Error> {
+    fn make_symbol_map_data_mid(
+        &self,
+    ) -> Result<Box<dyn SymbolMapDataMidTrait + Send + '_>, Error> {
         let range_data = self.data();
         let macho_file = File::parse(range_data).map_err(Error::MachOHeaderParseError)?;
         let macho_data = MachOData::new(range_data, 0, macho_file.is_64());

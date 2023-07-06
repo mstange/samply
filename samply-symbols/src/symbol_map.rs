@@ -7,11 +7,11 @@ use crate::{shared::AddressInfo, Error, FileLocation};
 
 pub struct SymbolMap<FL: FileLocation> {
     debug_file_location: FL,
-    pub(crate) inner: Box<dyn SymbolMapTrait>,
+    pub(crate) inner: Box<dyn SymbolMapTrait + Send>,
 }
 
 impl<FL: FileLocation> SymbolMap<FL> {
-    pub(crate) fn new(debug_file_location: FL, inner: Box<dyn SymbolMapTrait>) -> Self {
+    pub(crate) fn new(debug_file_location: FL, inner: Box<dyn SymbolMapTrait + Send>) -> Self {
         Self {
             debug_file_location,
             inner,
@@ -60,7 +60,8 @@ pub trait SymbolMapTrait {
 }
 
 pub trait SymbolMapDataOuterTrait {
-    fn make_symbol_map_data_mid(&self) -> Result<Box<dyn SymbolMapDataMidTrait + '_>, Error>;
+    fn make_symbol_map_data_mid(&self)
+        -> Result<Box<dyn SymbolMapDataMidTrait + Send + '_>, Error>;
 }
 
 pub trait SymbolMapDataMidTrait {
@@ -68,7 +69,7 @@ pub trait SymbolMapDataMidTrait {
 }
 
 #[derive(Yokeable)]
-pub struct SymbolMapDataMidWrapper<'data>(Box<dyn SymbolMapDataMidTrait + 'data>);
+pub struct SymbolMapDataMidWrapper<'data>(Box<dyn SymbolMapDataMidTrait + Send + 'data>);
 
 struct SymbolMapDataOuterAndMid<SMDO: SymbolMapDataOuterTrait>(
     Yoke<SymbolMapDataMidWrapper<'static>, Box<SMDO>>,
@@ -102,7 +103,7 @@ impl<SMDO: SymbolMapDataOuterTrait> GenericSymbolMap<SMDO> {
 }
 
 #[derive(Yokeable)]
-pub struct SymbolMapInnerWrapper<'data>(pub Box<dyn SymbolMapTrait + 'data>);
+pub struct SymbolMapInnerWrapper<'data>(pub Box<dyn SymbolMapTrait + Send + 'data>);
 
 impl<SMDO: SymbolMapDataOuterTrait> SymbolMapTrait for GenericSymbolMap<SMDO> {
     fn debug_id(&self) -> debugid::DebugId {
