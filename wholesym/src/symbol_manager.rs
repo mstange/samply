@@ -3,11 +3,10 @@ use std::path::Path;
 use std::{future::Future, pin::Pin};
 
 use debugid::DebugId;
-use samply_api::samply_symbols::{
+use samply_symbols::{
     self, AddressInfo, Error, ExternalFileAddressRef, ExternalFileRef, ExternalFileSymbolMap,
     FrameDebugInfo, LibraryInfo, MultiArchDisambiguator,
 };
-use samply_api::Api;
 use yoke::{Yoke, Yokeable};
 
 use crate::config::SymbolManagerConfig;
@@ -45,7 +44,7 @@ pub struct SymbolFileOrigin(WholesymFileLocation);
 /// For example, in this file, the file offset `0x9ea` falls into the second segment and
 /// corresponds to the relative address `0x19ea` and to the SVMA `0x2019ea`.
 /// The image base address is `0x200000`.
-pub struct SymbolMap(samply_api::samply_symbols::SymbolMap<WholesymFileLocation>);
+pub struct SymbolMap(samply_symbols::SymbolMap<WholesymFileLocation>);
 
 impl SymbolMap {
     /// Look up symbol information by "relative address". This is the preferred lookup
@@ -258,8 +257,7 @@ impl SymbolManager {
     }
 
     /// Run a symbolication query with the "Tecken" JSON API.
-    ///
-    /// In the future, this will be a feature on this crate and not enabled by default.
+    #[cfg(feature = "api")]
     pub async fn query_json_api(&self, path: &str, request_json: &str) -> String {
         self.helper_with_symbol_manager
             .get()
@@ -305,6 +303,7 @@ trait SymbolManagerTrait {
         external_file_ref: &'a ExternalFileRef,
     ) -> Pin<Box<dyn Future<Output = Result<ExternalFileSymbolMap, Error>> + 'a + Send>>;
 
+    #[cfg(feature = "api")]
     fn query_json_api<'a>(
         &'a self,
         path: &'a str,
@@ -375,12 +374,13 @@ impl<'h> SymbolManagerTrait for SymbolManagerWrapper<'h> {
         )
     }
 
+    #[cfg(feature = "api")]
     fn query_json_api<'a>(
         &'a self,
         path: &'a str,
         request_json: &'a str,
     ) -> Pin<Box<dyn Future<Output = String> + 'a + Send>> {
-        let api = Api::new(&self.0);
+        let api = samply_api::Api::new(&self.0);
         let f = api.query_api(path, request_json);
         Box::pin(f)
     }

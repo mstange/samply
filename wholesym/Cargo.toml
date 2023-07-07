@@ -11,9 +11,15 @@ repository = "https://github.com/mstange/samply"
 license = "MIT OR Apache-2.0"
 keywords = ["symbols", "profiling", "addr2line", "debuginfo"]
 
+[features]
+default = ["api"]
+# Enable the JSON API interface.
+api = ["samply-api"]
+
 [dependencies]
 debugid = "0.8.0"
-samply-api = { version = "0.21.1", path = "../samply-api", features = ["send_futures"] }
+samply-api = { version = "0.21.1", path = "../samply-api", features = ["send_futures"], optional = true }
+samply-symbols = { version = "0.20.0", path = "../samply-symbols", features = ["send_futures"] }
 symsrv = "0.2.0"
 yoke = { version = "0.6.2", features = ["derive"] }
 libc = "0.2.71"

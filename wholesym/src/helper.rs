@@ -1,10 +1,7 @@
 use debugid::DebugId;
-use samply_api::samply_symbols::{
-    self, BreakpadIndex, BreakpadIndexParser, ElfBuildId, LibraryInfo, PeCodeId,
-};
 use samply_symbols::{
-    CandidatePathInfo, CodeId, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
-    OptionallySendFuture,
+    BreakpadIndex, BreakpadIndexParser, CandidatePathInfo, CodeId, ElfBuildId, FileAndPathHelper,
+    FileAndPathHelperResult, FileLocation, LibraryInfo, OptionallySendFuture, PeCodeId,
 };
 use symsrv::{memmap2, FileContents, SymbolCache};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -330,7 +327,7 @@ impl Helper {
         let file = tokio::fs::File::create(&dest_path).await?;
         let mut writer = tokio::io::BufWriter::new(file);
         use futures_util::StreamExt;
-        let mut parser = samply_symbols::BreakpadIndexParser::new();
+        let mut parser = BreakpadIndexParser::new();
         while let Some(item) = stream.next().await {
             let item = item?;
             let mut item_slice = item.as_ref();
