@@ -2189,6 +2189,7 @@ dependencies = [
  "libc",
  "reqwest",
  "samply-api",
+ "samply-symbols",
  "symsrv",
  "tokio",
  "uuid",
