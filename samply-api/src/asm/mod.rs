@@ -5,7 +5,8 @@ use samply_symbols::{
     FileAndPathHelperError, LibraryInfo, SymbolManager,
 };
 use serde_json::json;
-use yaxpeax_arch::{Arch, DecodeError, Reader, U8Reader};
+use yaxpeax_arch::{Arch, DecodeError, LengthedInstruction, Reader, U8Reader};
+use yaxpeax_x86::amd64::{Opcode, Operand};
 
 use crate::asm::response_json::DecodedInstruction;
 
@@ -192,7 +193,8 @@ trait InstructionDecoding: Arch {
     const SYNTAX: &'static [&'static str];
     const ADJUST_BY_AFTER_ERROR: usize;
     fn make_decoder() -> Self::Decoder;
-    fn stringify_inst(offset: u32, inst: Self::Instruction) -> DecodedInstruction;
+    fn stringify_inst(rel_address: u32, offset: u32, inst: Self::Instruction)
+        -> DecodedInstruction;
 }
 
 impl InstructionDecoding for yaxpeax_x86::amd64::Arch {
@@ -204,15 +206,70 @@ impl InstructionDecoding for yaxpeax_x86::amd64::Arch {
         yaxpeax_x86::amd64::InstDecoder::default()
     }
 
-    fn stringify_inst(offset: u32, inst: Self::Instruction) -> DecodedInstruction {
+    fn stringify_inst(
+        rel_address: u32,
+        offset: u32,
+        inst: Self::Instruction,
+    ) -> DecodedInstruction {
+        let (mut intel_insn, mut c_insn) = (
+            inst.display_with(yaxpeax_x86::amd64::DisplayStyle::Intel)
+                .to_string(),
+            inst.display_with(yaxpeax_x86::amd64::DisplayStyle::C)
+                .to_string(),
+        );
+
+        fn is_relative_branch(opcode: Opcode) -> bool {
+            matches!(
+                opcode,
+                Opcode::JMP
+                    | Opcode::JRCXZ
+                    | Opcode::LOOP
+                    | Opcode::LOOPZ
+                    | Opcode::LOOPNZ
+                    | Opcode::JO
+                    | Opcode::JNO
+                    | Opcode::JB
+                    | Opcode::JNB
+                    | Opcode::JZ
+                    | Opcode::JNZ
+                    | Opcode::JNA
+                    | Opcode::JA
+                    | Opcode::JS
+                    | Opcode::JNS
+                    | Opcode::JP
+                    | Opcode::JNP
+                    | Opcode::JL
+                    | Opcode::JGE
+                    | Opcode::JLE
+                    | Opcode::JG
+            )
+        }
+
+        if is_relative_branch(inst.opcode()) {
+            match inst.operand(0) {
+                Operand::ImmediateI8(rel) => {
+                    let dest = rel_address as i64
+                        + offset as i64
+                        + inst.len().to_const() as i64
+                        + rel as i64;
+                    intel_insn = format!("{} 0x{:x}", inst.opcode(), dest);
+                    c_insn = intel_insn.clone();
+                }
+                Operand::ImmediateI32(rel) => {
+                    let dest = rel_address as i64
+                        + offset as i64
+                        + inst.len().to_const() as i64
+                        + rel as i64;
+                    intel_insn = format!("{} 0x{:x}", inst.opcode(), dest);
+                    c_insn = intel_insn.clone();
+                }
+                _ => {}
+            };
+        }
+
         DecodedInstruction {
             offset,
-            decoded_string_per_syntax: vec![
-                inst.display_with(yaxpeax_x86::amd64::DisplayStyle::Intel)
-                    .to_string(),
-                inst.display_with(yaxpeax_x86::amd64::DisplayStyle::C)
-                    .to_string(),
-            ],
+            decoded_string_per_syntax: vec![intel_insn, c_insn],
         }
     }
 }
@@ -226,7 +283,11 @@ impl InstructionDecoding for yaxpeax_x86::protected_mode::Arch {
         yaxpeax_x86::protected_mode::InstDecoder::default()
     }
 
-    fn stringify_inst(offset: u32, inst: Self::Instruction) -> DecodedInstruction {
+    fn stringify_inst(
+        _rel_address: u32,
+        offset: u32,
+        inst: Self::Instruction,
+    ) -> DecodedInstruction {
         DecodedInstruction {
             offset,
             decoded_string_per_syntax: vec![inst.to_string()],
@@ -243,7 +304,11 @@ impl InstructionDecoding for yaxpeax_arm::armv8::a64::ARMv8 {
         yaxpeax_arm::armv8::a64::InstDecoder::default()
     }
 
-    fn stringify_inst(offset: u32, inst: Self::Instruction) -> DecodedInstruction {
+    fn stringify_inst(
+        _rel_address: u32,
+        offset: u32,
+        inst: Self::Instruction,
+    ) -> DecodedInstruction {
         DecodedInstruction {
             offset,
             decoded_string_per_syntax: vec![inst.to_string()],
@@ -271,7 +336,11 @@ impl InstructionDecoding for yaxpeax_arm::armv7::ARMv7 {
         yaxpeax_arm::armv7::InstDecoder::default_thumb()
     }
 
-    fn stringify_inst(offset: u32, inst: Self::Instruction) -> DecodedInstruction {
+    fn stringify_inst(
+        _rel_address: u32,
+        offset: u32,
+        inst: Self::Instruction,
+    ) -> DecodedInstruction {
         DecodedInstruction {
             offset,
             decoded_string_per_syntax: vec![inst.to_string()],
@@ -300,7 +369,7 @@ where
         let before = u64::from(reader.total_offset()) as u32;
         match decoder.decode(&mut reader) {
             Ok(inst) => {
-                instructions.push(A::stringify_inst(offset, inst));
+                instructions.push(A::stringify_inst(rel_address, offset, inst));
                 let after = u64::from(reader.total_offset()) as u32;
                 offset += after - before;
             }
