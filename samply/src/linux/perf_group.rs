@@ -1,13 +1,17 @@
 use std::collections::BTreeMap;
+use std::fmt::Debug;
 use std::ops::{Deref, DerefMut};
 use std::os::unix::io::RawFd;
 use std::time::Duration;
 use std::{fs, io};
 
+use byteorder::LittleEndian;
+use linux_perf_data::linux_perf_event_reader::get_record_timestamp;
 use mio::unix::SourceFd;
 use mio::{Events, Interest, Poll, Token};
 
 use super::perf_event::{EventRef, EventSource, Perf};
+use super::sorter::EventSorter;
 
 struct StoppedProcess(u32);
 
@@ -60,6 +64,7 @@ impl DerefMut for Member {
 }
 
 pub struct PerfGroup {
+    event_sorter: EventSorter<RawFd, u64, EventRef>,
     members: BTreeMap<RawFd, Member>,
     poll: Poll,
     poll_events: Events,
@@ -95,6 +100,7 @@ pub enum AttachMode {
 impl PerfGroup {
     pub fn new(frequency: u32, stack_size: u32, regs_mask: u64, event_source: EventSource) -> Self {
         PerfGroup {
+            event_sorter: EventSorter::new(),
             members: Default::default(),
             poll: Poll::new().unwrap(),
             poll_events: Events::with_capacity(16),
@@ -243,24 +249,46 @@ impl PerfGroup {
 
     pub fn consume_events(&mut self, cb: &mut impl FnMut(EventRef)) {
         let mut fds_to_remove = Vec::new();
-        for member in self.members.values_mut() {
-            let perf = &mut member.perf;
-            if !perf.are_events_pending() {
-                if member.is_closed {
-                    fds_to_remove.push(perf.fd());
+        loop {
+            for (&fd, member) in &mut self.members {
+                self.event_sorter.begin_group(fd);
+                while let Some(ev) = self.event_sorter.pop() {
+                    cb(ev);
+                }
+
+                let perf = &mut member.perf;
+                if !perf.are_events_pending() {
+                    if member.is_closed {
+                        fds_to_remove.push(perf.fd());
+                        continue;
+                    }
                     continue;
                 }
 
-                continue;
+                self.event_sorter.extend(perf.iter().map(|event| {
+                    let rec = event.get();
+                    let timestamp = get_record_timestamp::<LittleEndian>(
+                        rec.record_type,
+                        rec.data,
+                        &rec.parse_info,
+                    )
+                    .expect("All events should have a record identifier");
+                    (timestamp, event)
+                }));
             }
 
-            for ev in perf.iter() {
+            self.event_sorter.advance_round();
+            while let Some(ev) = self.event_sorter.pop() {
                 cb(ev);
             }
-        }
 
-        for fd in fds_to_remove {
-            self.members.remove(&fd);
+            for fd in fds_to_remove.drain(..) {
+                self.members.remove(&fd);
+            }
+
+            if !self.event_sorter.has_more() {
+                break;
+            }
         }
     }
 }
