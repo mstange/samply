@@ -860,8 +860,16 @@ fn main() {
                     let method_name: String = parser.parse("MethodName");
                     let method_start_address: Address = parser.parse("MethodStartAddress");
                     let method_size: u64 = parser.parse("MethodSize");
-                    let source_id: u64 = parser.parse("SourceID");
+                    // let source_id: u64 = parser.parse("SourceID");
                     let process_id = s.process_id();
+                    let process = match processes.get_mut(&process_id) {
+                        Some(process) => process,
+                        None => {
+                            // This event is probably from a process which doesn't match our name filter.
+                            // Ignore it.
+                            return;
+                        }
+                    };
                     let process_jit_info = jscript_symbols.entry(s.process_id()).or_insert_with(|| {
                         let lib_handle = profile.add_lib(LibraryInfo { name: format!("JIT-{process_id}"), debug_name: format!("JIT-{process_id}"), path: format!("JIT-{process_id}"), debug_path: format!("JIT-{process_id}"), debug_id: DebugId::nil(), code_id: None, arch: None, symbol_table: None });
                         ProcessJitInfo { lib_handle, jit_mapping_ops: LibMappingOpQueue::default(), next_relative_address: 0, symbols: Vec::new() }
@@ -872,7 +880,6 @@ fn main() {
 
                     let timestamp = e.EventHeader.TimeStamp as u64;
                     let timestamp = timestamp_converter.convert_time(timestamp);
-                    let process = processes.get_mut(&process_id).unwrap();
 
                     if let Some(main_thread) = process.main_thread_handle {
                         profile.add_marker(
