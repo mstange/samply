@@ -1,8 +1,11 @@
-use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::ops::{Deref, DerefMut};
 use std::os::unix::io::RawFd;
+use std::time::Duration;
 use std::{fs, io, vec};
+
+use mio::unix::SourceFd;
+use mio::{Events, Interest, Poll, Token};
 
 use super::perf_event::{EventRef, EventSource, Perf};
 
@@ -31,14 +34,14 @@ impl Drop for StoppedProcess {
 
 struct Member {
     perf: Perf,
-    is_closed: Cell<bool>,
+    is_closed: bool,
 }
 
 impl Member {
     fn new(perf: Perf) -> Self {
         Member {
             perf,
-            is_closed: Cell::new(false),
+            is_closed: false,
         }
     }
 }
@@ -59,39 +62,13 @@ impl DerefMut for Member {
 pub struct PerfGroup {
     event_buffer: Vec<EventRef>,
     members: BTreeMap<RawFd, Member>,
-    poll_fds: Vec<libc::pollfd>,
+    poll: Poll,
+    poll_events: Events,
     frequency: u32,
     stack_size: u32,
     regs_mask: u64,
     event_source: EventSource,
     stopped_processes: Vec<StoppedProcess>,
-}
-
-fn poll_events<'a, I>(poll_fds: &mut Vec<libc::pollfd>, iter: I)
-where
-    I: IntoIterator<Item = &'a Member>,
-    <I as IntoIterator>::IntoIter: Clone,
-{
-    let iter = iter.into_iter();
-
-    poll_fds.clear();
-    poll_fds.extend(iter.clone().map(|member| libc::pollfd {
-        fd: member.fd(),
-        events: libc::POLLIN | libc::POLLHUP,
-        revents: 0,
-    }));
-
-    let ok = unsafe { libc::poll(poll_fds.as_ptr() as *mut _, poll_fds.len() as _, 1000) };
-    if ok == -1 {
-        let err = io::Error::last_os_error();
-        if err.kind() != io::ErrorKind::Interrupted {
-            panic!("poll failed: {}", err);
-        }
-    }
-
-    for (member, poll_fd) in iter.zip(poll_fds.iter()) {
-        member.is_closed.set(poll_fd.revents & libc::POLLHUP != 0);
-    }
 }
 
 fn get_threads(pid: u32) -> Result<Vec<u32>, io::Error> {
@@ -121,7 +98,8 @@ impl PerfGroup {
         PerfGroup {
             event_buffer: Vec::new(),
             members: Default::default(),
-            poll_fds: Vec::new(),
+            poll: Poll::new().unwrap(),
+            poll_events: Events::with_capacity(16),
             frequency,
             stack_size,
             event_source,
@@ -216,7 +194,13 @@ impl PerfGroup {
         }
 
         for (_cpu, perf) in perf_events {
-            self.members.insert(perf.fd(), Member::new(perf));
+            let fd = perf.fd();
+            self.members.insert(fd, Member::new(perf));
+            self.poll.registry().register(
+                &mut SourceFd(&fd),
+                Token(fd as usize),
+                Interest::READABLE,
+            )?;
         }
 
         Ok(())
@@ -241,7 +225,22 @@ impl PerfGroup {
             }
         }
 
-        poll_events(&mut self.poll_fds, self.members.values());
+        let result = self
+            .poll
+            .poll(&mut self.poll_events, Some(Duration::from_millis(100)));
+        if let Err(err) = result {
+            eprintln!("poll failed: {}", err);
+            return;
+        }
+
+        for ev in self.poll_events.iter() {
+            if ev.is_read_closed() {
+                self.members
+                    .get_mut(&(ev.token().0 as RawFd))
+                    .unwrap()
+                    .is_closed = true;
+            }
+        }
     }
 
     pub fn iter(&mut self) -> vec::Drain<EventRef> {
@@ -251,7 +250,7 @@ impl PerfGroup {
         for member in self.members.values_mut() {
             let perf = &mut member.perf;
             if !perf.are_events_pending() {
-                if member.is_closed.get() {
+                if member.is_closed {
                     fds_to_remove.push(perf.fd());
                     continue;
                 }
