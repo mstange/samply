@@ -133,6 +133,7 @@ struct ProcessState {
     unresolved_samples: UnresolvedSamples,
     regular_lib_mapping_ops: LibMappingOpQueue,
     main_thread_handle: Option<ThreadHandle>,
+    pending_libraries: HashMap<u64, LibraryInfo>,
 }
 
 impl ProcessState {
@@ -142,6 +143,7 @@ impl ProcessState {
             unresolved_samples: UnresolvedSamples::default(),
             regular_lib_mapping_ops: LibMappingOpQueue::default(),
             main_thread_handle: None,
+            pending_libraries: HashMap::new(),
         }
     }
 }
@@ -154,6 +156,7 @@ fn main() {
     etw_reader::add_custom_schemas(&mut schema_locator);
     let mut threads: HashMap<u32, ThreadState> = HashMap::new();
     let mut processes: HashMap<u32, ProcessState> = HashMap::new();
+    let mut kernel_pending_libraries: HashMap<u64, LibraryInfo> = HashMap::new();
     let mut memory_usage: HashMap<u32, MemoryUsage> = HashMap::new();
 
     let mut libs: HashMap<u64, (String, u32, u32)> = HashMap::new();
@@ -735,6 +738,42 @@ fn main() {
                         debug_id, 
                         arch: Some("x86_64".into())
                     };
+                    if process_id == 0 {
+                        kernel_pending_libraries.insert(image_base, info);
+                    } else {
+                        let process = processes.get_mut(&process_id).unwrap();
+                        process.pending_libraries.insert(image_base, info);
+                    }
+
+                }
+                "MSNT_SystemTrace/Image/Load" => {
+                    // KernelTraceControl/ImageID/ and KernelTraceControl/ImageID/DbgID_RSDS are synthesized from MSNT_SystemTrace/Image/Load
+                    // but don't contain the full path of the binary. We go through a bit of a dance to store the information from those events
+                    // in pending_libraries and deal with it here. We assume that the KernelTraceControl events come before the Image/Load event.
+
+                    let mut parser = Parser::create(&s);
+
+                    let process_id = s.process_id();
+                    if !process_targets.contains(&process_id) && process_id != 0 {
+                        return;
+                    }
+                    let image_base: u64 = parser.try_parse("ImageBase").unwrap();
+                    let image_size: u64 = parser.try_parse("ImageSize").unwrap();
+
+                    let path: String = parser.try_parse("FileName").unwrap();
+                    // The filename is a NT kernel path (https://chrisdenton.github.io/omnipath/NT.html) which isn't direclty usable from user space.
+                    // perfview goes through a dance to convert it to a regular user space path
+                    // https://github.com/microsoft/perfview/blob/4fb9ec6947cb4e68ac7cb5e80f50ae3757d0ede4/src/TraceEvent/Parsers/KernelTraceEventParser.cs#L3461
+                    // We'll just concatenate \\?\GLOBALROOT\
+                    let path = format!("\\\\?\\GLOBALROOT{}", path);
+
+                    let mut info = if process_id == 0 {
+                        kernel_pending_libraries.remove(&image_base).unwrap()
+                    } else {
+                        let process = processes.get_mut(&process_id).unwrap();
+                        process.pending_libraries.remove(&image_base).unwrap()
+                    };
+                    info.path = path;
                     let lib_handle = profile.add_lib(info);
                     if process_id == 0 {
                         profile.add_kernel_lib_mapping(lib_handle, image_base, image_base + image_size as u64, 0);
