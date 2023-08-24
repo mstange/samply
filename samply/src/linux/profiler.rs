@@ -485,7 +485,6 @@ fn run_profiler(
 ) {
     // eprintln!("Running...");
 
-    let mut wait = false;
     let mut should_stop_profiling_once_perf_events_exhausted = false;
     let mut pending_lost_events = 0;
     let mut total_lost_events = 0;
@@ -541,18 +540,7 @@ fn run_profiler(
             break;
         }
 
-        if wait {
-            wait = false;
-            perf.wait();
-        }
-
-        let iter = perf.iter();
-        if iter.len() == 0 {
-            wait = true;
-            continue;
-        }
-
-        for event_ref in iter {
+        perf.consume_events(&mut |event_ref| {
             let record = event_ref.get();
             let parsed_record = record.parse().unwrap();
             // debug!("Recording parsed_record: {:#?}", parsed_record);
@@ -592,14 +580,14 @@ fn run_profiler(
                 EventRecord::ContextSwitch(e) => {
                     let common = match record.common_data() {
                         Ok(common) => common,
-                        Err(_) => continue,
+                        Err(_) => return,
                     };
                     converter.handle_context_switch(e, common);
                 }
                 EventRecord::Lost(event) => {
                     pending_lost_events += event.count;
                     total_lost_events += event.count;
-                    continue;
+                    return;
                 }
                 _ => {}
             }
@@ -608,7 +596,9 @@ fn run_profiler(
                 // eprintln!("Pending lost events: {pending_lost_events}");
                 pending_lost_events = 0;
             }
-        }
+        });
+
+        perf.wait();
     }
 
     if total_lost_events > 0 {

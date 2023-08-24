@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::ops::{Deref, DerefMut};
 use std::os::unix::io::RawFd;
 use std::time::Duration;
-use std::{fs, io, vec};
+use std::{fs, io};
 
 use mio::unix::SourceFd;
 use mio::{Events, Interest, Poll, Token};
@@ -60,7 +60,6 @@ impl DerefMut for Member {
 }
 
 pub struct PerfGroup {
-    event_buffer: Vec<EventRef>,
     members: BTreeMap<RawFd, Member>,
     poll: Poll,
     poll_events: Events,
@@ -96,7 +95,6 @@ pub enum AttachMode {
 impl PerfGroup {
     pub fn new(frequency: u32, stack_size: u32, regs_mask: u64, event_source: EventSource) -> Self {
         PerfGroup {
-            event_buffer: Vec::new(),
             members: Default::default(),
             poll: Poll::new().unwrap(),
             poll_events: Events::with_capacity(16),
@@ -243,9 +241,7 @@ impl PerfGroup {
         }
     }
 
-    pub fn iter(&mut self) -> vec::Drain<EventRef> {
-        self.event_buffer.clear();
-
+    pub fn consume_events(&mut self, cb: &mut impl FnMut(EventRef)) {
         let mut fds_to_remove = Vec::new();
         for member in self.members.values_mut() {
             let perf = &mut member.perf;
@@ -258,13 +254,13 @@ impl PerfGroup {
                 continue;
             }
 
-            self.event_buffer.extend(perf.iter());
+            for ev in perf.iter() {
+                cb(ev);
+            }
         }
 
         for fd in fds_to_remove {
             self.members.remove(&fd);
         }
-
-        self.event_buffer.drain(..)
     }
 }
