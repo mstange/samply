@@ -12,7 +12,8 @@ readme = "README.md"
 [dependencies]
 bitflags = "2.0"
 serde_json = "1.0"
-serde = { version = "1.0", features = ["derive"] }
+serde = "1.0.188"
+serde_derive = "1.0.188"
 debugid = "0.8.0"
 fxhash = "0.2.1"
 
