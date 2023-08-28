@@ -746,14 +746,14 @@ fn main() {
                     }
 
                 }
-                "MSNT_SystemTrace/Image/Load" => {
+                "MSNT_SystemTrace/Image/Load" | "MSNT_SystemTrace/Image/DCStart" => {
                     // KernelTraceControl/ImageID/ and KernelTraceControl/ImageID/DbgID_RSDS are synthesized from MSNT_SystemTrace/Image/Load
                     // but don't contain the full path of the binary. We go through a bit of a dance to store the information from those events
                     // in pending_libraries and deal with it here. We assume that the KernelTraceControl events come before the Image/Load event.
 
                     let mut parser = Parser::create(&s);
-
-                    let process_id = s.process_id();
+                    // the ProcessId field doesn't necessarily match s.process_id();
+                    let process_id = parser.try_parse("ProcessId").unwrap();
                     if !process_targets.contains(&process_id) && process_id != 0 {
                         return;
                     }
@@ -767,24 +767,28 @@ fn main() {
                     // We'll just concatenate \\?\GLOBALROOT\
                     let path = format!("\\\\?\\GLOBALROOT{}", path);
 
-                    let mut info = if process_id == 0 {
-                        kernel_pending_libraries.remove(&image_base).unwrap()
+                    let info = if process_id == 0 {
+                        kernel_pending_libraries.remove(&image_base)
                     } else {
                         let process = processes.get_mut(&process_id).unwrap();
-                        process.pending_libraries.remove(&image_base).unwrap()
+                        process.pending_libraries.remove(&image_base)
                     };
-                    info.path = path;
-                    let lib_handle = profile.add_lib(info);
-                    if process_id == 0 {
-                        profile.add_kernel_lib_mapping(lib_handle, image_base, image_base + image_size as u64, 0);
-                    } else {
-                        let process = processes.get_mut(&process_id).unwrap();
-                        process.regular_lib_mapping_ops.push(e.EventHeader.TimeStamp as u64, LibMappingOp::Add(LibMappingAdd {
-                            start_avma: image_base,
-                            end_avma: image_base + image_size as u64,
-                            relative_address_at_start: 0,
-                            info: LibMappingInfo::new_lib(lib_handle),
-                        }));
+                    // If the file doesn't exist on disk we won't have KernelTraceControl/ImageID events
+                    // This happens for the ghost drivers mentioned here: https://devblogs.microsoft.com/oldnewthing/20160913-00/?p=94305
+                    if let Some(mut info) = info {
+                        info.path = path;
+                        let lib_handle = profile.add_lib(info);
+                        if process_id == 0 {
+                            profile.add_kernel_lib_mapping(lib_handle, image_base, image_base + image_size as u64, 0);
+                        } else {
+                            let process = processes.get_mut(&process_id).unwrap();
+                            process.regular_lib_mapping_ops.push(e.EventHeader.TimeStamp as u64, LibMappingOp::Add(LibMappingAdd {
+                                start_avma: image_base,
+                                end_avma: image_base + image_size as u64,
+                                relative_address_at_start: 0,
+                                info: LibMappingInfo::new_lib(lib_handle),
+                            }));
+                        }
                     }
                 }
                 "Microsoft-Windows-DxgKrnl/VSyncDPC/Info " => {
