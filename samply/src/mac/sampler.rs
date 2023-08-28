@@ -26,6 +26,7 @@ pub struct TaskInit {
 }
 
 pub struct Sampler {
+    product_name: String,
     command_name: String,
     task_receiver: Receiver<TaskInit>,
     interval: Duration,
@@ -37,6 +38,7 @@ pub struct Sampler {
 impl Sampler {
     pub fn new(
         command: String,
+        product_name: String,
         task_receiver: Receiver<TaskInit>,
         interval: Duration,
         time_limit: Option<Duration>,
@@ -57,6 +59,7 @@ impl Sampler {
 
         Sampler {
             command_name,
+            product_name,
             task_receiver,
             interval,
             time_limit,
@@ -75,7 +78,7 @@ impl Sampler {
         };
 
         let mut profile = Profile::new(
-            &self.command_name,
+            &self.product_name,
             ReferenceTimestamp::from_system_time(reference_system_time),
             self.interval.into(),
         );

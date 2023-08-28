@@ -98,6 +98,11 @@ struct RecordArgs {
     #[arg(short, long, default_value = "profile.json")]
     output: PathBuf,
 
+    /// Overwrite the name shown at the top of the profiler results
+    /// By default it is either the command that was run or the process pid.
+    #[arg(long)]
+    profile_name: Option<String>,
+
     /// How many times to run the profiled command.
     #[arg(long, default_value = "1")]
     iteration_count: u32,
@@ -191,6 +196,7 @@ fn main() {
             if let Some(pid) = record_args.pid {
                 profiler::start_profiling_pid(
                     &record_args.output,
+                    record_args.profile_name,
                     pid,
                     time_limit,
                     interval,
@@ -200,6 +206,7 @@ fn main() {
             } else {
                 let exit_status = match profiler::start_recording(
                     &record_args.output,
+                    record_args.profile_name,
                     record_args.command[0].clone(),
                     &record_args.command[1..],
                     time_limit,
