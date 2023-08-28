@@ -32,6 +32,7 @@ pub type ConvertRegsNative = crate::linux_shared::ConvertRegsAarch64;
 #[allow(clippy::too_many_arguments)]
 pub fn start_recording(
     output_file: &Path,
+    profile_name: Option<String>,
     command_name: OsString,
     command_args: &[OsString],
     time_limit: Option<Duration>,
@@ -66,10 +67,9 @@ pub fn start_recording(
 
     // Launch the observer thread. This thread will manage the perf events.
     let output_file_copy = output_file.to_owned();
-    let command_name_copy = command_name.to_string_lossy().to_string();
+    let product = profile_name.unwrap_or_else(|| command_name.to_string_lossy().to_string());
     let conversion_args = conversion_args.clone();
     let observer_thread = thread::spawn(move || {
-        let product = command_name_copy;
         let mut converter = make_converter(interval, &product, &conversion_args);
 
         // Wait for the initial pid to profile.
@@ -192,6 +192,7 @@ pub fn start_recording(
 
 pub fn start_profiling_pid(
     output_file: &Path,
+    profile_name: Option<String>,
     pid: u32,
     time_limit: Option<Duration>,
     interval: Duration,
@@ -216,7 +217,7 @@ pub fn start_profiling_pid(
         crossbeam_channel::bounded(2);
 
     let output_file_copy = output_file.to_owned();
-    let product = format!("PID {pid}");
+    let product = profile_name.unwrap_or_else(|| format!("PID {pid}"));
     let conversion_args = conversion_args.clone();
     let observer_thread = thread::spawn({
         let stop = stop.clone();

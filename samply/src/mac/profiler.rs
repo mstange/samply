@@ -22,6 +22,7 @@ use crate::ConversionArgs;
 
 pub fn start_profiling_pid(
     _output_file: &Path,
+    _profile_name: Option<String>,
     _pid: u32,
     _time_limit: Option<Duration>,
     _interval: Duration,
@@ -36,6 +37,7 @@ pub fn start_profiling_pid(
 #[allow(clippy::too_many_arguments)]
 pub fn start_recording(
     output_file: &Path,
+    profile_name: Option<String>,
     command_name: OsString,
     command_args: &[OsString],
     time_limit: Option<Duration>,
@@ -47,9 +49,11 @@ pub fn start_recording(
     let (task_sender, task_receiver) = unbounded();
     let command_name_copy = command_name.to_string_lossy().to_string();
     let conversion_args = conversion_args.clone();
+    let product_name = profile_name.unwrap_or_else(|| command_name_copy.clone());
     let sampler_thread = thread::spawn(move || {
         let sampler = Sampler::new(
             command_name_copy,
+            product_name,
             task_receiver,
             interval,
             time_limit,
