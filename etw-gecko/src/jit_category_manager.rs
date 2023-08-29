@@ -28,7 +28,7 @@ impl JitCategoryManager {
         ("JS:~", "Interpreter", CategoryColor::Magenta, true),
         ("Script:~", "Interpreter", CategoryColor::Magenta, true),
         ("JS:^", "Baseline", CategoryColor::Blue, true),
-        ("JS:+", "Maglev", CategoryColor::LightGreen, true),
+        ("JS:+", "Maglev", CategoryColor::Green, true),
         ("JS:*", "Turbofan", CategoryColor::Green, true),
         ("Builtin:", "Builtin", CategoryColor::Brown, false),
         ("BytecodeHandler:", "Interpreter", CategoryColor::Red, false),
@@ -44,7 +44,7 @@ impl JitCategoryManager {
             CategoryColor::Blue,
             true,
         ),
-        ("DFG JIT code for ", "DFG", CategoryColor::LightGreen, true),
+        ("DFG JIT code for ", "DFG", CategoryColor::Green, true),
         ("FTL B3 code for ", "FTL", CategoryColor::Green, true),
         ("", "JIT", CategoryColor::Purple, false), // Generic fallback category for JIT code
     ];
