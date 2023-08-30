@@ -9,4 +9,5 @@ members = [
     "tools/dump_table",
     "tools/query_api"
 ]
+resolver = "2"
 default-members = ["samply"]
