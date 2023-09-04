@@ -353,11 +353,10 @@ fn init_profiler(
         attach_mode,
     );
 
-    let mut perf = match perf {
-        Ok(perf) => perf,
-        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
-            match paranoia_level() {
-                Some(level) if level > 1 => {
+    if let Err(error) = &perf {
+        if error.kind() == std::io::ErrorKind::PermissionDenied {
+            if let Some(level) = paranoia_level() {
+                if level > 1 {
                     eprintln!();
                     eprintln!(
                         "'/proc/sys/kernel/perf_event_paranoid' is currently set to {level}."
@@ -369,32 +368,34 @@ fn init_profiler(
                     eprintln!();
                     std::process::exit(1);
                 }
-                _ => {
-                    // Permission denied even though parania was probably not the reason.
-                    // Another reason for the error could be the type of perf event:
-                    // The "Hardware CPU cycles" event is not supported in some contexts, for example in VMs.
-                    // Try a different event type.
-                    let perf = PerfGroup::open(
-                        pid,
-                        frequency,
-                        stack_size,
-                        EventSource::SwCpuClock,
-                        regs_mask,
-                        attach_mode,
-                    );
-                    match perf {
-                        Ok(perf) => perf, // Success!
-                        Err(error) => {
-                            eprintln!("Failed to start profiling: {error}");
-                            std::process::exit(1);
-                        }
-                    }
-                }
             }
         }
-        Err(error) => {
-            eprintln!("Failed to start profiling: {error}");
-            std::process::exit(1);
+    }
+
+    let mut perf = match perf {
+        Ok(perf) => perf,
+        Err(_) => {
+            // We've already checked for permission denied due to paranoia
+            // level, and exited with a warning in that case.
+
+            // Another reason for the error could be the type of perf event:
+            // The "Hardware CPU cycles" event is not supported in some contexts, for example in VMs.
+            // Try a different event type.
+            let perf = PerfGroup::open(
+                pid,
+                frequency,
+                stack_size,
+                EventSource::SwCpuClock,
+                regs_mask,
+                attach_mode,
+            );
+            match perf {
+                Ok(perf) => perf, // Success!
+                Err(error) => {
+                    eprintln!("Failed to start profiling: {error}");
+                    std::process::exit(1);
+                }
+            }
         }
     };
 
