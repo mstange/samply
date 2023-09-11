@@ -29,7 +29,7 @@ impl DebuginfodSymbolCache {
                     servers_from_env.push((url.to_string(), cache_dir.clone()));
                 }
                 let extra_servers = std::mem::replace(&mut servers_and_caches, servers_from_env);
-                servers_and_caches.extend(extra_servers.into_iter());
+                servers_and_caches.extend(extra_servers);
             }
             Self(DebuginfodSymbolCacheInner::Manual(
                 ManualDebuginfodSymbolCache {

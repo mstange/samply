@@ -130,7 +130,7 @@ mod test {
         );
         assert_eq!(
             map_rustc_path(
-                r#"/rustc/e1884a8e3c3e813aada8254edfa120e85bf5ffca\/library\std\src\rt.rs"#
+                r"/rustc/e1884a8e3c3e813aada8254edfa120e85bf5ffca\/library\std\src\rt.rs"
             ),
             Ok(MappedPath::Git {
                 repo: "github.com/rust-lang/rust".into(),
@@ -140,7 +140,7 @@ mod test {
         );
         assert_eq!(
             map_rustc_path(
-                r#"/rustc/a178d0322ce20e33eac124758e837cbd80a6f633\library\std\src\rt.rs"#
+                r"/rustc/a178d0322ce20e33eac124758e837cbd80a6f633\library\std\src\rt.rs"
             ),
             Ok(MappedPath::Git {
                 repo: "github.com/rust-lang/rust".into(),
