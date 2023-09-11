@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::cmp::max;
 use std::collections::BinaryHeap;
 use std::io;
@@ -5,16 +6,15 @@ use std::mem;
 use std::ops::Range;
 use std::os::unix::io::RawFd;
 use std::ptr;
+use std::rc::Rc;
 use std::slice;
 use std::sync::atomic::fence;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 use std::{cmp, fmt};
 
 use libc::{self, c_void, pid_t};
 use linux_perf_data::linux_perf_event_reader;
 use linux_perf_event_reader::{Endianness, RawData, RawEventRecord, RecordParseInfo, RecordType};
-use parking_lot::Mutex;
 
 use super::sys::*;
 
@@ -85,7 +85,7 @@ unsafe fn write_tail(pointer: *mut u8, value: u64) {
 
 #[derive(Debug)]
 pub struct Perf {
-    event_ref_state: Arc<Mutex<EventRefState>>,
+    event_ref_state: Rc<RefCell<EventRefState>>,
     buffer: *mut u8,
     size: u64,
     fd: RawFd,
@@ -407,7 +407,7 @@ impl PerfBuilder {
 
         // debug!("Perf events open with fd={}", fd);
         let mut perf = Perf {
-            event_ref_state: Arc::new(Mutex::new(EventRefState::new(buffer, size))),
+            event_ref_state: Rc::new(RefCell::new(EventRefState::new(buffer, size))),
             buffer,
             size,
             fd,
@@ -525,7 +525,7 @@ impl Drop for EventRefState {
 pub struct EventRef {
     buffer: *mut u8,
     buffer_size: usize,
-    state: Arc<Mutex<EventRefState>>,
+    state: Rc<RefCell<EventRefState>>,
     event_location: RawRecordLocation,
     prev_position: u64,
     position: u64,
@@ -546,7 +546,7 @@ impl Drop for EventRef {
     #[inline]
     fn drop(&mut self) {
         self.state
-            .lock()
+            .borrow_mut()
             .try_commit(self.prev_position, self.position);
     }
 }
