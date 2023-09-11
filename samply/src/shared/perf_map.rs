@@ -31,7 +31,9 @@ pub fn try_load_perf_map(
 ) -> Option<LibMappings<LibMappingInfo>> {
     let name = format!("perf-{}.map", pid);
     let path = format!("/tmp/{name}");
-    let Ok(content) = std::fs::read_to_string(&path) else { return None };
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return None;
+    };
 
     // Read the map file and set everything up so that absolute addresses
     // in JIT code get symbolicated to the right function name.

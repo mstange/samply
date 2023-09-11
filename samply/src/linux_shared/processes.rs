@@ -126,7 +126,9 @@ where
         jit_category_manager: &mut JitCategoryManager,
         timestamp_converter: &TimestampConverter,
     ) {
-        let Some(mut process) = self.processes_by_pid.remove(&pid) else { return };
+        let Some(mut process) = self.processes_by_pid.remove(&pid) else {
+            return;
+        };
 
         process.notify_dead(time, profile);
 

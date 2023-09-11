@@ -293,11 +293,9 @@ where
         let process = self.processes.get_by_pid(pid, &mut self.profile);
 
         let Some(raw) = e.raw else { return };
-        let Ok(rss_stat) = RssStat::parse(
-            raw,
-            self.endian,
-
-        ) else { return };
+        let Ok(rss_stat) = RssStat::parse(raw, self.endian) else {
+            return;
+        };
 
         let Some(timestamp_mono) = e.timestamp else {
             eprintln!("rss_stat record doesn't have a timestamp");

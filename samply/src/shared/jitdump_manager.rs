@@ -42,19 +42,33 @@ impl JitDumpManager {
         mut recycler: Option<&mut JitFunctionRecycler>,
         timestamp_converter: &TimestampConverter,
     ) {
-        self.pending_jitdump_paths.retain_mut(|(path, fallback_dir)| {
-            fn jitdump_reader_for_path(path: &Path, fallback_dir: Option<&Path>) -> Option<(JitDumpReader<std::fs::File>, PathBuf)> {
-                let (file, path) = open_file_with_fallback(path, fallback_dir).ok()?;
-                let reader = JitDumpReader::new(file).ok()?;
-                Some((reader, path))
-            }
-            let Some((reader, actual_path)) = jitdump_reader_for_path(path, fallback_dir.as_deref()) else { return true };
-            let lib_handle =
-                crate::shared::utils::lib_handle_for_jitdump(&actual_path, reader.header(), profile);
-            self.processors
-                .push(SingleJitDumpProcessor::new(reader, lib_handle, self.main_thread_handle));
-            false // "Do not retain", i.e. remove from pending_jitdump_paths
-        });
+        self.pending_jitdump_paths
+            .retain_mut(|(path, fallback_dir)| {
+                fn jitdump_reader_for_path(
+                    path: &Path,
+                    fallback_dir: Option<&Path>,
+                ) -> Option<(JitDumpReader<std::fs::File>, PathBuf)> {
+                    let (file, path) = open_file_with_fallback(path, fallback_dir).ok()?;
+                    let reader = JitDumpReader::new(file).ok()?;
+                    Some((reader, path))
+                }
+                let Some((reader, actual_path)) =
+                    jitdump_reader_for_path(path, fallback_dir.as_deref())
+                else {
+                    return true;
+                };
+                let lib_handle = crate::shared::utils::lib_handle_for_jitdump(
+                    &actual_path,
+                    reader.header(),
+                    profile,
+                );
+                self.processors.push(SingleJitDumpProcessor::new(
+                    reader,
+                    lib_handle,
+                    self.main_thread_handle,
+                ));
+                false // "Do not retain", i.e. remove from pending_jitdump_paths
+            });
 
         for jitdump in &mut self.processors {
             jitdump.process_pending_records(
@@ -123,7 +137,9 @@ impl SingleJitDumpProcessor {
         mut recycler: Option<&mut JitFunctionRecycler>,
         timestamp_converter: &TimestampConverter,
     ) {
-        let Some(reader) = self.reader.as_mut() else { return };
+        let Some(reader) = self.reader.as_mut() else {
+            return;
+        };
         while let Ok(Some(next_record_header)) = reader.next_record_header() {
             match next_record_header.record_type {
                 JitDumpRecordType::JIT_CODE_LOAD
@@ -143,7 +159,9 @@ impl SingleJitDumpProcessor {
                     }
                 }
             }
-            let Ok(Some(raw_jitdump_record)) = reader.next_record() else { break };
+            let Ok(Some(raw_jitdump_record)) = reader.next_record() else {
+                break;
+            };
             match raw_jitdump_record.parse() {
                 Ok(JitDumpRecord::CodeLoad(record)) => {
                     let start_avma = record.code_addr;

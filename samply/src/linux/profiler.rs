@@ -74,9 +74,10 @@ pub fn start_recording(
 
         // Wait for the initial pid to profile.
         let SamplerRequest::StartProfilingAnotherProcess(pid, attach_mode) =
-            profile_another_pid_request_receiver.recv().unwrap() else {
-                panic!("The first message should be a StartProfilingAnotherProcess")
-            };
+            profile_another_pid_request_receiver.recv().unwrap()
+        else {
+            panic!("The first message should be a StartProfilingAnotherProcess")
+        };
 
         // Create the perf events, setting ENABLE_ON_EXEC.
         let perf_group = init_profiler(interval, pid, attach_mode, &mut converter);
@@ -222,9 +223,10 @@ pub fn start_profiling_pid(
         move || {
             let mut converter = make_converter(interval, &product, &conversion_args);
             let SamplerRequest::StartProfilingAnotherProcess(pid, attach_mode) =
-                profile_another_pid_request_receiver.recv().unwrap() else {
-                    panic!("The first message should be a StartProfilingAnotherProcess")
-                };
+                profile_another_pid_request_receiver.recv().unwrap()
+            else {
+                panic!("The first message should be a StartProfilingAnotherProcess")
+            };
             let perf_group = init_profiler(interval, pid, attach_mode, &mut converter);
 
             // Tell the main thread that we are now executing.

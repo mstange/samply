@@ -71,7 +71,9 @@ impl UnresolvedSamples {
                 if let Some(sample_index) = sample_info.prev_sample_index_if_zero_cpu {
                     let sample = &mut self.samples_and_markers[sample_index];
                     sample.timestamp = timestamp;
-                    let SampleOrMarker::Sample(ref mut data) = &mut sample.sample_or_marker else { panic!() };
+                    let SampleOrMarker::Sample(ref mut data) = &mut sample.sample_or_marker else {
+                        panic!()
+                    };
                     data.weight += weight;
                 } else {
                     let stack = sample_info.stack;

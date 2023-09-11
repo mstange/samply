@@ -149,7 +149,9 @@ impl ProcessThreads {
     }
 
     pub fn remove_non_main_thread(&mut self, tid: i32, time: Timestamp, profile: &mut Profile) {
-        let Some(mut thread) = self.threads_by_tid.remove(&tid) else { return };
+        let Some(mut thread) = self.threads_by_tid.remove(&tid) else {
+            return;
+        };
 
         thread.notify_dead(time, profile);
 

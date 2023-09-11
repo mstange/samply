@@ -70,8 +70,12 @@ impl JitDumpIndex {
             match record_header.record_type {
                 JitDumpRecordType::JIT_CODE_LOAD => {
                     // Read the full record.
-                    let Some(raw_record) = reader.next_record()? else { break };
-                    let JitDumpRecord::CodeLoad(record) = raw_record.parse()? else { panic!() };
+                    let Some(raw_record) = reader.next_record()? else {
+                        break;
+                    };
+                    let JitDumpRecord::CodeLoad(record) = raw_record.parse()? else {
+                        panic!()
+                    };
                     let code_debug_info_record_offset_and_len =
                         offset_and_len_of_pending_debug_record.take();
                     let relative_address = cumulative_address;
