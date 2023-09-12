@@ -8,10 +8,10 @@ use std::thread;
 use std::time::Duration;
 use std::time::SystemTime;
 
+use crate::shared::recording_props::{ConversionProps, RecordingProps};
 use crate::shared::recycling::ProcessRecycler;
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::unresolved_samples::UnresolvedStacks;
-use crate::ConversionArgs;
 
 use super::error::SamplingError;
 use super::task_profiler::TaskProfiler;
@@ -26,23 +26,18 @@ pub struct TaskInit {
 }
 
 pub struct Sampler {
-    product_name: String,
     command_name: String,
     task_receiver: Receiver<TaskInit>,
-    interval: Duration,
-    time_limit: Option<Duration>,
-    fold_recursive_prefix: bool,
-    merge_threads: bool,
+    recording_props: RecordingProps,
+    conversion_props: ConversionProps,
 }
 
 impl Sampler {
     pub fn new(
         command: String,
-        product_name: String,
         task_receiver: Receiver<TaskInit>,
-        interval: Duration,
-        time_limit: Option<Duration>,
-        conversion_args: &ConversionArgs,
+        recording_props: RecordingProps,
+        conversion_props: ConversionProps,
     ) -> Self {
         let command_name = Path::new(&command)
             .components()
@@ -52,19 +47,11 @@ impl Sampler {
             .to_string_lossy()
             .to_string();
 
-        let ConversionArgs {
-            merge_threads,
-            fold_recursive_prefix,
-        } = *conversion_args;
-
         Sampler {
             command_name,
-            product_name,
             task_receiver,
-            interval,
-            time_limit,
-            fold_recursive_prefix,
-            merge_threads,
+            recording_props,
+            conversion_props,
         }
     }
 
@@ -78,9 +65,9 @@ impl Sampler {
         };
 
         let mut profile = Profile::new(
-            &self.product_name,
+            &self.conversion_props.profile_name,
             ReferenceTimestamp::from_system_time(reference_system_time),
-            self.interval.into(),
+            self.recording_props.interval.into(),
         );
 
         let mut jit_category_manager =
@@ -96,7 +83,7 @@ impl Sampler {
                 return Err(SamplingError::CouldNotObtainRootTask);
             }
         };
-        let mut process_recycler = if self.merge_threads {
+        let mut process_recycler = if self.conversion_props.merge_threads {
             Some(ProcessRecycler::new())
         } else {
             None
@@ -151,7 +138,7 @@ impl Sampler {
             }
 
             let sample_mono = get_monotonic_timestamp();
-            if let Some(time_limit) = self.time_limit {
+            if let Some(time_limit) = self.recording_props.time_limit {
                 if sample_mono - reference_mono >= time_limit.as_nanos() as u64 {
                     // Time limit reached.
                     break;
@@ -171,7 +158,7 @@ impl Sampler {
                     &mut profile,
                     &mut stack_scratch_buffer,
                     &mut unresolved_stacks,
-                    self.fold_recursive_prefix,
+                    self.conversion_props.fold_recursive_prefix,
                 )?;
                 if still_alive {
                     live_tasks.push(task);
@@ -190,7 +177,8 @@ impl Sampler {
                 }
             }
 
-            let intended_wakeup_time = sample_mono + self.interval.as_nanos() as u64;
+            let intended_wakeup_time =
+                sample_mono + self.recording_props.interval.as_nanos() as u64;
             let before_sleep = get_monotonic_timestamp();
             let indended_wait_time = intended_wakeup_time.saturating_sub(before_sleep);
             let sleep_time = indended_wait_time.saturating_sub(last_sleep_overshoot);

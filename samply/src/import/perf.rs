@@ -12,6 +12,7 @@ use crate::linux_shared::{
     ConvertRegs, ConvertRegsAarch64, ConvertRegsX86_64, Converter, EventInterpretation, KnownEvent,
     MmapRangeOrVec,
 };
+use crate::shared::recording_props::ConversionProps;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -25,8 +26,7 @@ pub enum Error {
 pub fn convert<C: Read + Seek>(
     cursor: C,
     extra_dir: Option<&Path>,
-    merge_threads: bool,
-    fold_recursive_prefix: bool,
+    conversion_props: ConversionProps,
 ) -> Result<Profile, Error> {
     let perf_file = PerfFileReader::parse_file(cursor)?;
 
@@ -39,8 +39,7 @@ pub fn convert<C: Read + Seek>(
                 perf_file,
                 extra_dir,
                 cache,
-                merge_threads,
-                fold_recursive_prefix,
+                conversion_props,
             )
         }
         _ => {
@@ -55,8 +54,7 @@ pub fn convert<C: Read + Seek>(
                 perf_file,
                 extra_dir,
                 cache,
-                merge_threads,
-                fold_recursive_prefix,
+                conversion_props,
             )
         }
     };
@@ -67,8 +65,7 @@ fn convert_impl<U, C, R>(
     file: PerfFileReader<R>,
     extra_dir: Option<&Path>,
     cache: U::Cache,
-    merge_threads: bool,
-    fold_recursive_prefix: bool,
+    conversion_props: ConversionProps,
 ) -> Profile
 where
     U: Unwinder<Module = Module<MmapRangeOrVec>> + Default,
@@ -106,9 +103,8 @@ where
     }
     let interpretation = EventInterpretation::divine_from_attrs(attributes);
 
-    let product = "Converted perf profile";
     let mut converter = Converter::<U>::new(
-        product,
+        &conversion_props.profile_name,
         Some(Box::new(move |name| {
             format!("{name} on {host} (perf version {perf_version})")
         })),
@@ -119,8 +115,8 @@ where
         cache,
         extra_dir,
         interpretation.clone(),
-        merge_threads,
-        fold_recursive_prefix,
+        conversion_props.merge_threads,
+        conversion_props.fold_recursive_prefix,
     );
 
     let mut last_timestamp = 0;

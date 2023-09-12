@@ -5,6 +5,7 @@ pub mod jitdump_manager;
 pub mod lib_mappings;
 pub mod perf_map;
 pub mod process_sample_data;
+pub mod recording_props;
 pub mod recycling;
 pub mod stack_converter;
 pub mod stack_depth_limiting_frame_iter;

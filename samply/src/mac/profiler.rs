@@ -6,7 +6,6 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::BufWriter;
-use std::path::Path;
 use std::process::ExitStatus;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -18,46 +17,36 @@ use super::process_launcher::{MachError, ReceivedStuff, TaskAccepter};
 use super::sampler::{Sampler, TaskInit};
 use super::time::get_monotonic_timestamp;
 use crate::server::{start_server_main, ServerProps};
-use crate::ConversionArgs;
+use crate::shared::recording_props::{ConversionProps, RecordingProps};
 
 pub fn start_profiling_pid(
-    _output_file: &Path,
-    _profile_name: Option<String>,
     _pid: u32,
-    _time_limit: Option<Duration>,
-    _interval: Duration,
+    _recording_props: RecordingProps,
+    _conversion_props: ConversionProps,
     _server_props: Option<ServerProps>,
-    _conversion_args: &ConversionArgs,
 ) {
     eprintln!("Profiling existing processes is currently not supported on macOS.");
     eprintln!("You can only profile processes which you launch via samply.");
     std::process::exit(1)
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn start_recording(
-    output_file: &Path,
-    profile_name: Option<String>,
     command_name: OsString,
     command_args: &[OsString],
-    time_limit: Option<Duration>,
-    interval: Duration,
-    server_props: Option<ServerProps>,
-    conversion_args: &ConversionArgs,
     iteration_count: u32,
+    recording_props: RecordingProps,
+    conversion_props: ConversionProps,
+    server_props: Option<ServerProps>,
 ) -> Result<ExitStatus, MachError> {
     let (task_sender, task_receiver) = unbounded();
     let command_name_copy = command_name.to_string_lossy().to_string();
-    let conversion_args = conversion_args.clone();
-    let product_name = profile_name.unwrap_or_else(|| command_name_copy.clone());
+    let output_file = recording_props.output_file.clone();
     let sampler_thread = thread::spawn(move || {
         let sampler = Sampler::new(
             command_name_copy,
-            product_name,
             task_receiver,
-            interval,
-            time_limit,
-            &conversion_args,
+            recording_props,
+            conversion_props,
         );
         sampler.run()
     });
@@ -177,12 +166,12 @@ pub fn start_recording(
         }
     };
 
-    let file = File::create(output_file).unwrap();
+    let file = File::create(&output_file).unwrap();
     let writer = BufWriter::new(file);
     to_writer(writer, &profile).expect("Couldn't write JSON");
 
     if let Some(server_props) = server_props {
-        start_server_main(output_file, server_props);
+        start_server_main(&output_file, server_props);
     }
 
     Ok(exit_status)
