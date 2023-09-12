@@ -81,7 +81,7 @@ struct LoadArgs {
     server_args: ServerArgs,
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[allow(unused)]
 #[derive(Debug, Args)]
 struct RecordArgs {
     /// Do not run a local server after recording.
@@ -225,8 +225,8 @@ impl LoadArgs {
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
 impl RecordArgs {
+    #[allow(unused)]
     pub fn recording_props(&self) -> RecordingProps {
         let time_limit = self.duration.map(Duration::from_secs_f64);
         if self.rate <= 0.0 {
@@ -245,6 +245,7 @@ impl RecordArgs {
         }
     }
 
+    #[allow(unused)]
     pub fn conversion_props(&self) -> ConversionProps {
         let profile_name = match (self.conversion_args.profile_name.clone(), self.pid, self.command.first()) {
             (Some(profile_name), _, _) => profile_name,
