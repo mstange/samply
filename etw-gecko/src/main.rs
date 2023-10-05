@@ -656,7 +656,7 @@ fn main() {
                         text += ", "
                     }
 
-                    //profile.add_marker(thread.handle, "VirtualFree", TextMarker(text), timing)
+                    profile.add_marker(thread.handle, "VirtualFree", TextMarker(text), timing)
                 }
                 "MSNT_SystemTrace/PageFault/VirtualAlloc" => {
                     if !process_targets.contains(&e.EventHeader.ProcessId) {
