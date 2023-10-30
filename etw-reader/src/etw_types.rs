@@ -258,5 +258,16 @@ impl EventSchema for TraceEventInfoRaw {
         Property::new(name, &curr_prop, self.property_map_info(index))
     }
 
+    fn event_message(&self) -> Option<String> {
+        
+        let offset = TraceEventInfo::from(self).EventMessageOffset;
+        dbg!(offset);
+        if offset != 0 {
+            Some(utils::parse_unk_size_null_utf16_string(&self.info[offset as usize..]))
+        } else {
+            None
+        }
+    }
+
 
 }

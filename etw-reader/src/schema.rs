@@ -123,6 +123,8 @@ pub trait EventSchema {
     
     fn property_count(&self) -> u32;
     fn property(&self, index: u32) -> Property;
+
+    fn event_message(&self) -> Option<String> { return None }
 }
 
 
@@ -422,6 +424,10 @@ impl<'a> TypedEvent<'a> {
 
     pub fn name(&self) -> &str {
         self.schema.name()
+    }
+
+    pub fn event_message(&self) -> Option<String> {
+        self.schema.event_schema.event_message()
     }
 }
 

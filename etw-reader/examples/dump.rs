@@ -50,6 +50,10 @@ fn main() {
                 }
             }
         }
+        let formatted_message = s.event_message();
+        if let Some(message) = formatted_message {
+            println!("message: {}", message);
+        }
         let mut parser = Parser::create(&s);
         for i in 0..s.property_count() {
             let property = s.property(i);
