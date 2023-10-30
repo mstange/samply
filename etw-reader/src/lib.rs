@@ -337,12 +337,12 @@ pub fn write_property(output: &mut dyn std::fmt::Write, parser: &mut Parser, pro
                     TdhInType::InTypeUInt64 => {
                         let i = TryParse::<u64>::try_parse(parser, &property.name);
                         if desc.out_type == TdhOutType::OutTypeHexInt64 {
-                            i.map(|x| format!("{:x}", x))
+                            i.map(|x| format!("0x{:x}", x))
                         } else {
                             i.map(|x| x.to_string())
                         }
                     },
-                    TdhInType::InTypePointer | TdhInType::InTypeSizeT => TryParse::<u64>::try_parse(parser, &property.name).map(|x| format!("{:x}", x)),
+                    TdhInType::InTypePointer | TdhInType::InTypeSizeT => TryParse::<u64>::try_parse(parser, &property.name).map(|x| format!("0x{:x}", x)),
                     TdhInType::InTypeGuid => TryParse::<GUID>::try_parse(parser, &property.name).map(|x| format!("{:?}", x)),
                     TdhInType::InTypeInt32 => {
                         TryParse::<i32>::try_parse(parser, &property.name).map(|x| x.to_string())
