@@ -6,6 +6,7 @@ use crate::sddl;
 use crate::tdh;
 use crate::tdh_types::PrimitiveDesc;
 use crate::tdh_types::PropertyDesc;
+use crate::tdh_types::PropertyLength;
 use crate::tdh_types::{Property, PropertyFlags, TdhInType, TdhOutType};
 use crate::property::{PropertyInfo, PropertyIter};
 use crate::schema::TypedEvent;
@@ -174,51 +175,42 @@ impl<'a> Parser<'a> {
 
     // TODO: Find a cleaner way to do this, not very happy with it rn
     fn find_property_size(&self, property: &Property) -> ParserResult<usize> {
-        if property
-            .flags
-            .intersects(PropertyFlags::PROPERTY_PARAM_LENGTH)
-            && property.len() > 0
-        {
-            let size;
-            if let PropertyDesc::Primitive(PrimitiveDesc { in_type: TdhInType::InTypePointer, ..}) = property.desc {
-                size = if (self.event.event_flags() & EVENT_HEADER_FLAG_32_BIT_HEADER) != 0 {
-                    4
-                } else {
-                    8
-                };
-            } else {
-                size = property.len() as usize;
+        match property.length {
+            PropertyLength::Index(index) => {
+                assert_ne!(index, 0);
+                return Ok(tdh::property_size(self.event.record(), &property.name).unwrap() as usize);
             }
-            return Ok(size);
-        }
-        // TODO: Study heuristic method used in krabsetw :)
-        if property.flags.is_empty() && property.len() > 0 && property.count == 1 {
-            return Ok(property.len());
-        }
-        if property.count == 1 {
-            if let PropertyDesc::Primitive(desc) = &property.desc {
-                match desc.in_type {
-                    TdhInType::InTypeBoolean => return Ok(4),
-                    TdhInType::InTypeInt32 | TdhInType::InTypeUInt32 | TdhInType::InTypeHexInt32 => return Ok(4),
-                    TdhInType::InTypeInt64 | TdhInType::InTypeUInt64 => return Ok(8),
-                    TdhInType::InTypeInt8 | TdhInType::InTypeUInt8 => return Ok(1),
-                    TdhInType::InTypePointer => return Ok(if (self.event.event_flags() & EVENT_HEADER_FLAG_32_BIT_HEADER) != 0 {
-                        4
-                    } else {
-                        8
-                    }),
-                    TdhInType::InTypeGuid => return Ok(std::mem::size_of::<GUID>()),
-                    TdhInType::InTypeUnicodeString => { 
-                        return Ok(utils::parse_unk_size_null_unicode_size(&self.buffer))
-                    }
-                    TdhInType::InTypeAnsiString => {
-                        return Ok(utils::parse_unk_size_null_ansi_size(&self.buffer));
-                    }
-                    _ => {}
+            PropertyLength::Length(length) => {
+                // TODO: Study heuristic method used in krabsetw :)
+                if property.flags.is_empty() && length > 0 && property.count == 1 {
+                    return Ok(length as usize);
                 }
+                if property.count == 1 {
+                    if let PropertyDesc::Primitive(desc) = &property.desc {
+                        match desc.in_type {
+                            TdhInType::InTypeBoolean => return Ok(4),
+                            TdhInType::InTypeInt32 | TdhInType::InTypeUInt32 | TdhInType::InTypeHexInt32 => return Ok(4),
+                            TdhInType::InTypeInt64 | TdhInType::InTypeUInt64 => return Ok(8),
+                            TdhInType::InTypeInt8 | TdhInType::InTypeUInt8 => return Ok(1),
+                            TdhInType::InTypePointer => return Ok(if (self.event.event_flags() & EVENT_HEADER_FLAG_32_BIT_HEADER) != 0 {
+                                4
+                            } else {
+                                8
+                            }),
+                            TdhInType::InTypeGuid => return Ok(std::mem::size_of::<GUID>()),
+                            TdhInType::InTypeUnicodeString => { 
+                                return Ok(dbg!(utils::parse_unk_size_null_unicode_size(&self.buffer)))
+                            }
+                            TdhInType::InTypeAnsiString => {
+                                return Ok(utils::parse_unk_size_null_ansi_size(&self.buffer));
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                return Ok(tdh::property_size(self.event.record(), &property.name).unwrap() as usize)
             }
         }
-        Ok(tdh::property_size(self.event.record(), &property.name).unwrap() as usize)
     }
 
     pub fn find_property(&mut self, name: &str) -> ParserResult<usize> {
@@ -523,12 +515,12 @@ impl TryParse<IpAddr> for Parser<'_> {
             }
 
             // Hardcoded values for now
-            let res = match prop_info.property.len() {
-                16 => {
+            let res = match prop_info.property.length {
+                PropertyLength::Length(16) => {
                     let tmp: [u8; 16] = prop_info.buffer.try_into()?;
                     IpAddr::V6(Ipv6Addr::from(tmp))
                 }
-                4 => {
+                PropertyLength::Length(4) => {
                     let tmp: [u8; 4] = prop_info.buffer.try_into()?;
                     IpAddr::V4(Ipv4Addr::from(tmp))
                 }

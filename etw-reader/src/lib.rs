@@ -290,7 +290,11 @@ pub fn write_property(output: &mut dyn std::fmt::Write, parser: &mut Parser, pro
         } else {
             format!("{:?}", property.desc)
         };
-        write!(output, "  {}: {} = ", property.name, type_name).unwrap();
+        if property.flags.is_empty() {
+            write!(output, "  {}: {} = ", property.name, type_name).unwrap();
+        } else {
+            write!(output, "  {}({:?}): {} = ", property.name, property.flags, type_name).unwrap();
+        }
     } else {
         write!(output, "  {}= ", property.name).unwrap();
     }

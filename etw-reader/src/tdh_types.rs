@@ -39,6 +39,14 @@ pub enum PropertyDesc {
     Struct(StructDesc),
 }
 
+/// Notes if the property length is a concrete length or an index to another property
+/// which contains the length.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PropertyLength {
+    Length(u16),
+    Index(u16),
+}
+
 /// Attributes of a property
 #[derive(Debug, Clone)]
 pub struct Property {
@@ -46,7 +54,7 @@ pub struct Property {
     pub name: String,
     /// Represent the [PropertyFlags]
     pub flags: PropertyFlags,
-    pub length: u16,
+    pub length: PropertyLength,
     pub desc: PropertyDesc,
     pub map_info: Option<PropertyMapInfo>,
     pub count: u16,
@@ -55,15 +63,22 @@ pub struct Property {
 #[doc(hidden)]
 impl Property {
     pub fn new(name: String, property: &EventPropertyInfo, map_info: Option<PropertyMapInfo>) -> Self {
+        let flags = PropertyFlags::from(property.Flags);
+        let length = if flags.contains(PropertyFlags::PROPERTY_PARAM_LENGTH) {
+            // The property length is stored in another property, this is the index of that property
+            PropertyLength::Index(unsafe { property.Anonymous3.lengthPropertyIndex })
+        } else {
+            // The property has no param for its length, it makes sense to access this field of the union
+            PropertyLength::Length(unsafe { property.Anonymous3.length })
+        };
         if property.Flags.0 & Etw::PropertyStruct.0 != 0 {
             unsafe {
                 let start_index = property.Anonymous1.structType.StructStartIndex;
                 let num_members = property.Anonymous1.structType.NumOfStructMembers;
-                
                 Property {
                     name,
                     flags: PropertyFlags::from(property.Flags),
-                    length: property.Anonymous3.length,
+                    length,
                     desc: PropertyDesc::Struct(StructDesc{start_index, num_members}),
                     map_info,
                     count: property.Anonymous2.count,
@@ -79,17 +94,13 @@ impl Property {
                 Property {
                     name,
                     flags: PropertyFlags::from(property.Flags),
-                    length: property.Anonymous3.length,
+                    length,
                     desc: PropertyDesc::Primitive(PrimitiveDesc{in_type, out_type}),
                     map_info,
                     count: property.Anonymous2.count,
                 }
             }
         }
-    }
-
-    pub fn len(&self) -> usize {
-        self.length.clone() as usize
     }
 }
 

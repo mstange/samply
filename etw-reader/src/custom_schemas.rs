@@ -1,6 +1,6 @@
 use windows::core::GUID;
 
-use crate::{etw_types::DecodingSource, schema::EventSchema, tdh_types::{Property, PropertyDesc, PrimitiveDesc, PropertyFlags, TdhInType, TdhOutType}};
+use crate::{etw_types::DecodingSource, schema::EventSchema, tdh_types::{Property, PropertyDesc, PrimitiveDesc, PropertyFlags, TdhInType, TdhOutType, PropertyLength}};
 
 struct PropDesc {
     name: &'static str,
@@ -62,7 +62,7 @@ impl EventSchema for ImageID {
         Property { name: prop.name.to_owned(),
         desc: PropertyDesc::Primitive(PrimitiveDesc{ in_type: prop.in_type,
         out_type: prop.out_type,}),
-        length: 0,
+        length: PropertyLength::Length(0),
         count: 1,
         map_info: None,
         flags: PropertyFlags::empty()}
@@ -125,7 +125,7 @@ impl EventSchema for DbgID {
             desc: PropertyDesc::Primitive(PrimitiveDesc{ in_type: prop.in_type,
                 out_type: prop.out_type,}),
         count: 1,
-        length: 0,
+        length: PropertyLength::Length(0),
         map_info: None,
         flags: PropertyFlags::empty()}
     }
@@ -199,7 +199,7 @@ impl EventSchema for ThreadStart {
         Property { name: prop.name.to_owned(),
             desc: PropertyDesc::Primitive(PrimitiveDesc{ in_type: prop.in_type,
                 out_type: prop.out_type,}),
-        length: 0,
+        length: PropertyLength::Length(0),
         count:1,
         map_info: None,
         flags: PropertyFlags::empty()}
@@ -258,7 +258,7 @@ impl EventSchema for D3DUmdLogging_MapAllocation {
             desc: PropertyDesc::Primitive(PrimitiveDesc{ in_type: prop.in_type,
                 out_type: prop.out_type,}),
         count: 1,
-        length: 0,
+        length: PropertyLength::Length(0),
         map_info: None,
         flags: PropertyFlags::empty()}
     }
@@ -305,7 +305,7 @@ impl EventSchema for D3DUmdLogging_RundownAllocation {
             desc: PropertyDesc::Primitive(PrimitiveDesc{ in_type: prop.in_type,
                 out_type: prop.out_type,}),
         count: 1,
-        length: 0,
+        length: PropertyLength::Length(0),
         map_info: None,
         flags: PropertyFlags::empty()}
     }
@@ -353,7 +353,7 @@ impl EventSchema for D3DUmdLogging_UnmapAllocation {
             desc: PropertyDesc::Primitive(PrimitiveDesc{ in_type: prop.in_type,
                 out_type: prop.out_type,}),
         count: 1,
-        length: 0,
+        length: PropertyLength::Length(0),
         map_info: None,
         flags: PropertyFlags::empty()}
     }
