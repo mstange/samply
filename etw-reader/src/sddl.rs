@@ -1,8 +1,6 @@
 use windows::{Win32::{
     Security,
-    Foundation::{PSID, HLOCAL},
-    System::Memory::LocalFree,
-
+    Foundation::{PSID, HLOCAL, LocalFree},
 }, core::PSTR};
 //use crate::traits::*;
 use std::str::Utf8Error;
@@ -36,7 +34,7 @@ pub fn convert_sid_to_string(sid: *const u8) -> SddlResult<String> {
     
     let mut tmp = PSTR::null();
     unsafe {
-        if !Security::Authorization::ConvertSidToStringSidA(PSID(sid as *const _ as *mut _), &mut tmp).as_bool() {
+        if !Security::Authorization::ConvertSidToStringSidA(PSID(sid as *const _ as *mut _), &mut tmp).is_ok() {
             return Err(SddlNativeError::IoError(std::io::Error::last_os_error()));
         }
 
@@ -44,7 +42,7 @@ pub fn convert_sid_to_string(sid: *const u8) -> SddlResult<String> {
             .to_str()?
             .to_owned();
 
-        let _ = LocalFree(HLOCAL(tmp.0 as isize));
+        let _ = LocalFree(HLOCAL(tmp.0 as *mut _));
 
         Ok(sid_string)
     }

@@ -6,7 +6,7 @@ extern crate bitflags;
 #[macro_use]
 extern crate num_derive;
 
-use windows::{Win32::{Foundation::{GetLastError, MAX_PATH, ERROR_SUCCESS}, System::Diagnostics::Etw::{EVENT_TRACE_FLAG, CONTROLTRACE_HANDLE}}, core::{PWSTR, HSTRING}, h};
+use windows::{Win32::{Foundation::{GetLastError, MAX_PATH, ERROR_SUCCESS}, System::Diagnostics::Etw::{EVENT_TRACE_FLAG, CONTROLTRACE_HANDLE}}, core::{PWSTR, HSTRING, h}};
 use crate::{parser::{Parser, ParserError, TryParse}, schema::SchemaLocator, tdh_types::{PropertyDesc, PrimitiveDesc, TdhInType}, traits::EncodeUtf16};
 
 #[macro_use]
@@ -82,11 +82,7 @@ pub fn open_trace<F: FnMut(&EventRecord)>(path: &Path, mut callback: F) -> Resul
 
     let session_handle = unsafe { Etw::OpenTraceW(&mut *log_file) };
     let result = unsafe { Etw::ProcessTrace(&[session_handle], None, None) };
-    if result == ERROR_SUCCESS {
-        Ok(())
-    } else {
-        Err(std::io::Error::from_raw_os_error(result.0 as i32))
-    }
+    result.map_err(|e| std::io::Error::from_raw_os_error(e.code().0))
 }
 
 /// Complete Trace Properties struct
@@ -235,10 +231,10 @@ pub fn start_trace<F: FnMut(&EventRecord)>(mut callback: F)  {
     let mut info = TraceInfo::default();
     info.fill(&session_name.to_string());
 
-    let mut handle = CONTROLTRACE_HANDLE(0);
+    let mut handle = CONTROLTRACE_HANDLE { Value: 0 };
 
     unsafe {
-        let status = Etw::ControlTraceW(None, session_name, &info.properties as *const _ as *mut _, Etw::EVENT_TRACE_CONTROL_STOP);
+        let status = Etw::ControlTraceW(handle, session_name, &info.properties as *const _ as *mut _, Etw::EVENT_TRACE_CONTROL_STOP);
         println!("ControlTrace = {:?}", status);
         let status = Etw::StartTraceW(&mut handle, session_name, &info.properties as *const _ as *mut _);
         println!("StartTrace = {:?} handle {:?}", status, handle);
@@ -273,8 +269,8 @@ pub fn start_trace<F: FnMut(&EventRecord)>(mut callback: F)  {
     trace.0.Anonymous2.EventRecordCallback = Some(trace_callback_thunk);
 
     let session_handle = unsafe { Etw::OpenTraceW(&mut *trace) };
-    if session_handle.0 == INVALID_TRACE_HANDLE {
-        println!("{} {:?}", unsafe { GetLastError().0 }, windows::core::Error::from_win32());
+    if session_handle.Value == INVALID_TRACE_HANDLE {
+        println!("{:?} {:?}", unsafe { GetLastError() }, windows::core::Error::from_win32());
 
         panic!("Invalid handle");
     }
