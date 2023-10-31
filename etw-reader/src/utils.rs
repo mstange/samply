@@ -5,7 +5,7 @@ pub fn parse_unk_size_null_utf16_string(v: &[u8]) -> String {
     String::from_utf16_lossy(
         v.chunks_exact(2)
             .into_iter()
-            .take_while(|&a| a[0] != 0 && a[1] == 0) // Take until null terminator
+            .take_while(|&a| a != &[0, 0]) // Take until null terminator
             .map(|a| u16::from_ne_bytes([a[0], a[1]]))
             .collect::<Vec<u16>>()
             .as_slice(),
@@ -27,7 +27,7 @@ pub fn parse_unk_size_null_unicode_vec(v: &[u8]) -> Vec<u16> {
     // TODO: Make sure is aligned
     v.chunks_exact(2)
         .into_iter()
-        .take_while(|&a| a[0] != 0 && a[1] == 0) // Take until null terminator
+        .take_while(|&a| a != &[0, 0]) // Take until null terminator
         .map(|a| u16::from_ne_bytes([a[0], a[1]]))
         .collect::<Vec<u16>>()
 }
