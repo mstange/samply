@@ -43,7 +43,7 @@ once_cell = "1.17"
 fxhash = "0.2.1"
 mio = { version = "0.8.6", features = ["os-ext", "os-poll"] }
 
-[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
+[target.'cfg(any(target_os = "android", target_os = "macos", target_os = "linux"))'.dependencies]
 
 libc = "0.2.71"
 crossbeam-channel = "0.5.4"
@@ -56,7 +56,7 @@ lazy_static = "1.4.0"
 flate2 = "1.0.23"
 sysctl = "0.5.4"
 
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(any(target_os = "android", target_os = "linux"))'.dependencies]
 
 parking_lot = "0.12.1"
 num_cpus = "1.13.1"

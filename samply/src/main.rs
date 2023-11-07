@@ -1,7 +1,7 @@
 #[cfg(target_os = "macos")]
 mod mac;
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "android", target_os = "linux"))]
 mod linux;
 
 mod import;
@@ -22,7 +22,7 @@ use std::time::Duration;
 #[cfg(target_os = "macos")]
 pub use mac::{kernel_error, thread_act, thread_info};
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "android", target_os = "linux"))]
 use linux::profiler;
 #[cfg(target_os = "macos")]
 use mac::profiler;
@@ -64,7 +64,7 @@ enum Action {
     /// Load a profile from a file and display it.
     Load(LoadArgs),
 
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(any(target_os = "android", target_os = "macos", target_os = "linux"))]
     /// Record a profile and display it.
     Record(RecordArgs),
 }
@@ -176,7 +176,7 @@ fn main() {
             start_server_main(filename, load_args.server_args.server_props());
         }
 
-        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        #[cfg(any(target_os = "android", target_os = "macos", target_os = "linux"))]
         Action::Record(record_args) => {
             let server_props = if record_args.save_only {
                 None
@@ -308,7 +308,7 @@ mod test {
         Opt::command().debug_assert();
     }
 
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(any(target_os = "android", target_os = "macos", target_os = "linux"))]
     #[test]
     fn verify_cli_record() {
         let opt = Opt::parse_from(["samply", "record", "rustup", "show"]);
