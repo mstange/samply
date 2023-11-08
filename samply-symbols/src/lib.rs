@@ -446,7 +446,7 @@ where
         let candidate_paths_for_binary = self
             .helper
             .get_candidate_paths_for_binary(info)
-            .map_err(|e| Error::HelperErrorDuringGetCandidatePathsForBinary(e))?;
+            .map_err(Error::HelperErrorDuringGetCandidatePathsForBinary)?;
 
         let disambiguator = match (&info.debug_id, &info.arch) {
             (Some(debug_id), _) => Some(MultiArchDisambiguator::DebugId(*debug_id)),
