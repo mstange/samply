@@ -143,7 +143,7 @@ fn gather_requested_addresses(
             for frame in &stack.0 {
                 requested_addresses_by_module_index
                     .entry(frame.module_index)
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(frame.address);
             }
         }
@@ -153,7 +153,7 @@ fn gather_requested_addresses(
             )?;
             requested_addresses
                 .entry((*lib).clone())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .extend(addresses);
         }
     }
