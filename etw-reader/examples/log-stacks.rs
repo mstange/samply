@@ -25,17 +25,18 @@ struct Event {
     thread_id: u32,
     stack: Option<Vec<u64>>,
     cpu: u16,
+    bad_stack: bool
 }
 
 struct ThreadState {
     process_id: u32,
-    unfinished_kernel_stacks: Vec<usize>,
+    events_with_unfinished_kernel_stacks: Vec<usize>,
 }
 impl ThreadState {
     fn new(process_id: u32) -> Self {
         ThreadState {
             process_id,
-            unfinished_kernel_stacks: Vec::new(),
+            events_with_unfinished_kernel_stacks: Vec::new(),
         }
     }
 }
@@ -114,39 +115,42 @@ fn main() {
                                         // the address which matches the 'InstructionPointer' field in the SampleProf event.
                                         // 
                                         // Instead of discarding, we concatenate the stacks
-                                        assert!(thread.unfinished_kernel_stacks.contains(&i));
+                                        assert!(thread.events_with_unfinished_kernel_stacks.contains(&i));
                                         existing_stack.extend_from_slice(&stack[..])
                                     }
                                     None => {
-                                        thread.unfinished_kernel_stacks.push(i);
+                                        thread.events_with_unfinished_kernel_stacks.push(i);
                                         events[i].stack = Some(stack.clone());
                                     }
                                 };
                             } else {
-                                let mut last_kernel_timestamp = 0;
-                                for e in &thread.unfinished_kernel_stacks {
+                                for e in &thread.events_with_unfinished_kernel_stacks {
                                     events[*e]
                                         .stack
                                         .as_mut()
                                         .unwrap()
                                         .extend_from_slice(&stack[..]);
-                                    last_kernel_timestamp = events[*e].timestamp;
                                 }
                                 match &mut events[i].stack {
                                     Some(_) => {
                                         // any existing stacks should only have come from kernel stacks
-                                        assert!(thread.unfinished_kernel_stacks.contains(&i));
+                                        assert!(thread.events_with_unfinished_kernel_stacks.contains(&i));
                                     }
                                     None => {
                                         events[i].stack = Some(stack.clone());
                                     }
                                 };
-                                if thread.unfinished_kernel_stacks.len() > 0 {
-                                    if last_kernel_timestamp != events[i].timestamp {
-                                        println!("missing userspace stack {} {}", last_kernel_timestamp, events[i].timestamp);
+                                if let Some(event_index_with_last_unfinished_stack) = thread.events_with_unfinished_kernel_stacks.last() {
+                                    if events[*event_index_with_last_unfinished_stack].timestamp < events[i].timestamp {
+                                        // We had an event A with a kernel stack, then an event B without a kernel stack, and this user stack is for B.
+                                        // So we must have exited the kernel at some point in between. We would have expected the user stack for A
+                                        // to be captured during that exit. But we didn't get one! The user stack for B might be different from the 
+                                        // (missing) user stack for A.
+                                        println!("missing userspace stack? {} < {}", events[*event_index_with_last_unfinished_stack].timestamp, events[i].timestamp);
+                                        events[*event_index_with_last_unfinished_stack].bad_stack = true;
                                     }
                                 }
-                                thread.unfinished_kernel_stacks.clear();
+                                thread.events_with_unfinished_kernel_stacks.clear();
 
                             }
 
@@ -163,6 +167,11 @@ fn main() {
                     let mut parser = Parser::create(&s);
 
                     thread_id = parser.parse("ThreadId");
+                }
+                "MSNT_SystemTrace/Thread/CSwitch" => {
+                    let mut parser = Parser::create(&s);
+
+                    thread_id = parser.parse("NewThreadId");
                 }
                 _ => {}
             }
@@ -183,6 +192,7 @@ fn main() {
                 thread_id,
                 cpu: unsafe { e.BufferContext.Anonymous.ProcessorIndex },
                 stack: None,
+                bad_stack: false,
             });
         } else {
             if pattern.is_none() {
@@ -197,15 +207,16 @@ fn main() {
     for e in &mut events {
         if let Some(stack) = &e.stack {
             println!("{} {}", e.timestamp, e.name);
+            if (e.bad_stack) { println!("bad stack");}
             for addr in stack {
                 println!("    {:x}", addr);
             }
         }
     }
     for (tid, state) in threads {
-        if state.unfinished_kernel_stacks.len() > 0 {
-            println!("thread `{tid}` of {} has {} unfinished kernel stacks", state.process_id, state.unfinished_kernel_stacks.len());
-            for stack in state.unfinished_kernel_stacks {
+        if state.events_with_unfinished_kernel_stacks.len() > 0 {
+            println!("thread `{tid}` of {} has {} unfinished kernel stacks", state.process_id, state.events_with_unfinished_kernel_stacks.len());
+            for stack in state.events_with_unfinished_kernel_stacks {
                 println!("   {}", events[stack].timestamp);
             }
         }
