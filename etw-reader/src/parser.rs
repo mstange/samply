@@ -199,7 +199,7 @@ impl<'a> Parser<'a> {
                             }),
                             TdhInType::InTypeGuid => return Ok(std::mem::size_of::<GUID>()),
                             TdhInType::InTypeUnicodeString => { 
-                                return Ok(dbg!(utils::parse_unk_size_null_unicode_size(&self.buffer)))
+                                return Ok(utils::parse_unk_size_null_unicode_size(&self.buffer))
                             }
                             TdhInType::InTypeAnsiString => {
                                 return Ok(utils::parse_unk_size_null_ansi_size(&self.buffer));
