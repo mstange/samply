@@ -22,7 +22,7 @@ impl Eq for ProcessRecyclingData {}
 
 impl PartialOrd for ProcessRecyclingData {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.process_handle.partial_cmp(&other.process_handle)
+        Some(self.cmp(other))
     }
 }
 
