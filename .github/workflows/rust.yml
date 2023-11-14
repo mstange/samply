@@ -10,17 +10,63 @@ jobs:
 
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # List of targets to check. See https://forge.rust-lang.org/release/platform-support.html.
+        target: 
+          - aarch64-linux-android
+          - aarch64-unknown-linux-gnu
+          - x86_64-apple-darwin
+          - x86_64-pc-windows-msvc
+          - x86_64-unknown-linux-gnu
+          - x86_64-unknown-linux-musl
+        # Specify the OS for each target. If a target needs `cross` to be installed, set `cross: true`.
+        include:
+          - target: aarch64-linux-android
+            os: ubuntu-latest
+            cross: true
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            cross: true
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            cross: true
     runs-on: ${{ matrix.os }}
 
     steps:
-    - uses: actions/checkout@v3
-
-    - name: Build
-      run: cargo build --workspace --verbose
-    - name: Test
-      run: cargo test --workspace --verbose
-    - name: Check formatting
-      run: cargo fmt -- --check --verbose
-    - name: Clippy
-      run: cargo clippy --workspace --verbose -- -Dwarnings
+      - name: Checkout
+        uses: actions/checkout@v3
+      - if: matrix.cross
+        name: Install cross
+        # Latest cross release 0.2.5 fails to link binaries for the `aar64-linux-android` target. A release is pending.
+        # Use a specific commit until the release is out.
+        run: cargo install --git https://github.com/cross-rs/cross.git --rev 44011c8 cross
+      - name: Build
+        uses: actions-rs/cargo@v1
+        with:
+            use-cross: ${{ matrix.cross}}
+            command: build
+            args: --workspace --verbose --target=${{ matrix.target }}
+      - name: Test
+        uses: actions-rs/cargo@v1
+        with:
+            use-cross: ${{ matrix.cross}}
+            command: test
+            args: --workspace --verbose --target=${{ matrix.target }}
+      # The formatting check could be done just once because it's completly target independant.
+      # For the sake of simplicity, it's done for each target.
+      - name: Check formatting
+        uses: actions-rs/cargo@v1
+        with:
+            command: fmt
+            args: -- --check --verbose
+      - name: Clippy
+        uses: actions-rs/cargo@v1
+        with:
+            use-cross: ${{ matrix.cross}}
+            command: clippy
+            args: --workspace --verbose --target=${{ matrix.target }} -- -Dwarnings
