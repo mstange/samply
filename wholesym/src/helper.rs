@@ -22,6 +22,7 @@ pub enum WholesymFileLocation {
     LocalFile(PathBuf),
     SymsrvFile(String),
     LocalBreakpadFile(PathBuf, String),
+    UrlForSourceFile(String),
     BreakpadSymbolServerFile(String),
     BreakpadSymindexFile(String),
     DebuginfodDebugFile(ElfBuildId),
@@ -61,6 +62,19 @@ impl FileLocation for WholesymFileLocation {
     fn location_for_source_file(&self, source_file_path: &str) -> Option<Self> {
         match self {
             Self::LocalFile(debug_file_path) => {
+                if source_file_path.starts_with("https://")
+                    || source_file_path.starts_with("http://")
+                {
+                    // Treat the path as a URL. One case where we get URLs is in jitdump files:
+                    // E.g. profiling a browser which executes JITted JS code from a script on
+                    // the web will create a jitdump file where the debug information for an
+                    // address has a URL as the file path.
+                    //
+                    // SECURITY: This URL is referred to by a debug file on the local file system.
+                    // We trust the contents of these files, and we allow them to refer to
+                    // arbitrary URLs.
+                    return Some(Self::UrlForSourceFile(source_file_path.to_owned()));
+                }
                 let source_file_path = Path::new(source_file_path);
                 if source_file_path.is_absolute() {
                     Some(Self::LocalFile(source_file_path.to_owned()))
@@ -245,6 +259,13 @@ impl Helper {
                 Ok(FileContents::Mmap(unsafe {
                     memmap2::MmapOptions::new().map(&file)?
                 }))
+            }
+            WholesymFileLocation::UrlForSourceFile(url) => {
+                if self.config.verbose {
+                    eprintln!("Trying to get file {url} from a URL");
+                }
+                let bytes = reqwest::get(&url).await?.bytes().await?;
+                Ok(FileContents::Bytes(bytes))
             }
             WholesymFileLocation::SymsrvFile(path) => {
                 if self.config.verbose {
