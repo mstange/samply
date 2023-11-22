@@ -13,7 +13,7 @@ readme = "README.md"
 
 fxprof-processed-profile = { version = "0.6", path = "../fxprof-processed-profile" }
 # framehop = { path = "../../framehop" }
-framehop = "0.7.2"
+framehop = "0.9.0"
 # linux-perf-data = { path = "../../linux-perf-data" }
 linux-perf-data = "0.8.2"
 

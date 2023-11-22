@@ -1,7 +1,7 @@
 use byteorder::LittleEndian;
 use debugid::{CodeId, DebugId};
 
-use framehop::{FrameAddress, Module, ModuleSvmaInfo, ModuleUnwindData, TextByteData, Unwinder};
+use framehop::{ExplicitModuleSectionInfo, FrameAddress, Module, Unwinder};
 use fxprof_processed_profile::{
     CpuDelta, LibraryInfo, Profile, ReferenceTimestamp, SamplingInterval, ThreadHandle,
 };
@@ -1044,39 +1044,32 @@ where
             };
 
             let text = file.section_by_name(".text");
-            let text_env = file.section_by_name("text_env");
             let eh_frame = file.section_by_name(".eh_frame");
             let got = file.section_by_name(".got");
             let eh_frame_hdr = file.section_by_name(".eh_frame_hdr");
 
-            let unwind_data = match (
-                eh_frame
-                    .as_ref()
-                    .and_then(|s| section_data(s, mmap.clone())),
-                eh_frame_hdr
-                    .as_ref()
-                    .and_then(|s| section_data(s, mmap.clone())),
-            ) {
-                (Some(eh_frame), Some(eh_frame_hdr)) => {
-                    ModuleUnwindData::EhFrameHdrAndEhFrame(eh_frame_hdr, eh_frame)
-                }
-                (Some(eh_frame), None) => ModuleUnwindData::EhFrame(eh_frame),
-                (None, _) => ModuleUnwindData::None,
-            };
+            let eh_frame_data = eh_frame
+                .as_ref()
+                .and_then(|s| section_data(s, mmap.clone()));
+            let eh_frame_hdr_data = eh_frame_hdr
+                .as_ref()
+                .and_then(|s| section_data(s, mmap.clone()));
 
-            let text_data = if let Some(text_segment) = file
+            let (text_segment, text_segment_svma) = if let Some(text_segment) = file
                 .segments()
                 .find(|segment| segment.name_bytes() == Ok(Some(b"__TEXT")))
             {
+                let text_segment_svma =
+                    Some(text_segment.address()..text_segment.address() + text_segment.size());
                 let (start, size) = text_segment.file_range();
-                let address_range = base_avma + start..base_avma + start + size;
-                MmapRangeOrVec::new_mmap_range(mmap.clone(), start, size)
-                    .map(|data| TextByteData::new(data, address_range))
-            } else if let Some(text_section) = &text {
+                let text_segment = MmapRangeOrVec::new_mmap_range(mmap.clone(), start, size);
+                (text_segment, text_segment_svma)
+            } else {
+                (None, None)
+            };
+            let text_section_data = if let Some(text_section) = &text {
                 if let Some((start, size)) = text_section.file_range() {
-                    let address_range = base_avma + start..base_avma + start + size;
                     MmapRangeOrVec::new_mmap_range(mmap.clone(), start, size)
-                        .map(|data| TextByteData::new(data, address_range))
                 } else {
                     None
                 }
@@ -1088,24 +1081,28 @@ where
                 section.address()..section.address() + section.size()
             }
 
-            let module_svma_info = ModuleSvmaInfo {
+            let module_section_info = ExplicitModuleSectionInfo {
                 base_svma,
-                text: text.as_ref().map(svma_range),
-                text_env: text_env.as_ref().map(svma_range),
-                stubs: None,
-                stub_helper: None,
-                eh_frame: eh_frame.as_ref().map(svma_range),
-                eh_frame_hdr: eh_frame_hdr.as_ref().map(svma_range),
-                got: got.as_ref().map(svma_range),
+                text_svma: text.as_ref().map(svma_range),
+                text: text_section_data,
+                stubs_svma: None,
+                stub_helper_svma: None,
+                got_svma: got.as_ref().map(svma_range),
+                unwind_info: None,
+                eh_frame_svma: eh_frame.as_ref().map(svma_range),
+                eh_frame: eh_frame_data,
+                eh_frame_hdr_svma: eh_frame_hdr.as_ref().map(svma_range),
+                eh_frame_hdr: eh_frame_hdr_data,
+                debug_frame: None,
+                text_segment_svma,
+                text_segment,
             };
 
             let module = Module::new(
                 path.to_string(),
                 avma_range.clone(),
                 base_avma,
-                module_svma_info,
-                unwind_data,
-                text_data,
+                module_section_info,
             );
             process.unwinder.add_module(module);
 

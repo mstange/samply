@@ -1,6 +1,6 @@
 use crossbeam_channel::Receiver;
 use framehop::{
-    CacheNative, FrameAddress, MayAllocateDuringUnwind, Module, ModuleUnwindData, TextByteData,
+    CacheNative, ExplicitModuleSectionInfo, FrameAddress, MayAllocateDuringUnwind, Module,
     Unwinder, UnwinderNative,
 };
 use fxprof_processed_profile::debugid::DebugId;
@@ -20,7 +20,7 @@ use wholesym::samply_symbols;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::mem;
-use std::ops::Deref;
+use std::ops::{Deref, Range};
 use std::path::{Path, PathBuf};
 
 use crate::shared::jit_category_manager::JitCategoryManager;
@@ -37,10 +37,13 @@ use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
 
 use super::error::SamplingError;
 use super::kernel_error::{IntoResult, KernelError};
-use super::proc_maps::{DyldInfo, DyldInfoManager, Modification, StackwalkerRef, VmSubData};
+use super::proc_maps::{
+    DyldInfo, DyldInfoManager, Modification, ModuleSvmaInfo, StackwalkerRef, VmSubData,
+};
 use super::sampler::TaskInit;
 use super::thread_profiler::{get_thread_id, get_thread_name, ThreadProfiler};
 
+#[derive(Debug)]
 pub enum UnwindSectionBytes {
     Remapped(VmSubData),
     Mmap(MmapSubData),
@@ -59,6 +62,7 @@ impl Deref for UnwindSectionBytes {
     }
 }
 
+#[derive(Debug)]
 pub struct MmapSubData {
     mmap: memmap2::Mmap,
     offset: usize,
@@ -431,7 +435,17 @@ impl TaskProfiler {
     }
 
     fn add_lib_to_unwinder_and_ensure_debug_id(&mut self, lib: &mut DyldInfo) {
-        let base_svma = lib.svma_info.base_svma;
+        let ModuleSvmaInfo {
+            base_svma,
+            text_svma,
+            stubs_svma,
+            stub_helper_svma,
+            got_svma,
+            eh_frame_svma,
+            eh_frame_hdr_svma,
+            text_segment_svma,
+        } = lib.module_info.clone();
+
         let base_avma = lib.base_avma;
         let unwind_info_data = lib
             .unwind_sections
@@ -445,59 +459,57 @@ impl TaskProfiler {
             .and_then(|(svma, size)| {
                 VmSubData::map_from_task(self.task, svma - base_svma + base_avma, size).ok()
             });
-        let text_data = lib.unwind_sections.text_segment.and_then(|(svma, size)| {
+        let text_segment_data = lib.unwind_sections.text_segment.and_then(|(svma, size)| {
             let avma = svma - base_svma + base_avma;
-            VmSubData::map_from_task(self.task, avma, size)
-                .ok()
-                .map(|data| {
-                    TextByteData::new(UnwindSectionBytes::Remapped(data), avma..avma + size)
-                })
+            VmSubData::map_from_task(self.task, avma, size).ok()
         });
 
         if lib.debug_id.is_none() {
-            if let (Some(text_data), Some(text_section)) =
-                (text_data.as_ref(), lib.svma_info.text.clone())
+            if let (Some(text_segment_data), Some(text_section_svma)) =
+                (text_segment_data.as_ref(), text_svma.clone())
             {
-                let text_section_start_avma = text_section.start - base_svma + base_avma;
-                let text_section_first_page_end_avma = text_section_start_avma.wrapping_add(4096);
-                let debug_id = if let Some(text_first_page) =
-                    text_data.get_bytes(text_section_start_avma..text_section_first_page_end_avma)
-                {
-                    // Generate a debug ID from the __text section.
-                    DebugId::from_text_first_page(text_first_page, true)
-                } else {
-                    DebugId::nil()
-                };
-                lib.debug_id = Some(debug_id);
+                lib.debug_id = Some(
+                    compute_debug_id_from_text_section(
+                        text_segment_data,
+                        base_svma,
+                        text_section_svma,
+                    )
+                    .unwrap_or(DebugId::nil()),
+                );
             }
         }
 
-        let unwind_data = match (unwind_info_data, eh_frame_data) {
-            (Some(unwind_info), eh_frame) => ModuleUnwindData::CompactUnwindInfoAndEhFrame(
-                UnwindSectionBytes::Remapped(unwind_info),
-                eh_frame.map(UnwindSectionBytes::Remapped),
-            ),
-            (None, Some(eh_frame)) => {
-                ModuleUnwindData::EhFrame(UnwindSectionBytes::Remapped(eh_frame))
-            }
-            (None, None) => {
-                // Have no unwind information.
-                // Let's try to open the file and use debug_frame.
-                if let Some(debug_frame) = get_debug_frame(&lib.file) {
-                    ModuleUnwindData::DebugFrame(debug_frame)
-                } else {
-                    ModuleUnwindData::None
-                }
-            }
+        let unwind_info = unwind_info_data.map(UnwindSectionBytes::Remapped);
+        let eh_frame = eh_frame_data.map(UnwindSectionBytes::Remapped);
+        let text_segment = text_segment_data.map(UnwindSectionBytes::Remapped);
+        let debug_frame = if unwind_info.is_none() && eh_frame.is_none() {
+            // We have no unwind information.
+            // Let's try to open the file and use debug_frame.
+            get_debug_frame(&lib.file)
+        } else {
+            None
         };
 
         let module = Module::new(
             lib.file.clone(),
             lib.base_avma..(lib.base_avma + lib.vmsize),
             lib.base_avma,
-            lib.svma_info.clone(),
-            unwind_data,
-            text_data,
+            ExplicitModuleSectionInfo {
+                base_svma,
+                text_svma,
+                text: None,
+                stubs_svma,
+                stub_helper_svma,
+                got_svma,
+                unwind_info,
+                eh_frame_svma,
+                eh_frame,
+                eh_frame_hdr_svma,
+                eh_frame_hdr: None,
+                debug_frame,
+                text_segment_svma,
+                text_segment,
+            },
         );
         self.unwinder.add_module(module);
     }
@@ -662,4 +674,15 @@ fn get_thread_list(task: mach_port_t) -> Result<Vec<thread_act_t>, SamplingError
     .map_err(|err| SamplingError::Fatal("mach_vm_deallocate in get_thread_list", err))?;
 
     Ok(thread_acts)
+}
+
+fn compute_debug_id_from_text_section(
+    text_segment: &VmSubData,
+    base_svma: u64,
+    text_section_svma: Range<u64>,
+) -> Option<DebugId> {
+    let rel_start = text_section_svma.start.checked_sub(base_svma)?;
+    let rel_end = text_section_svma.end.checked_sub(base_svma)?;
+    let text_section = text_segment.get((rel_start as usize)..(rel_end as usize))?;
+    Some(DebugId::from_text_first_page(text_section, true))
 }

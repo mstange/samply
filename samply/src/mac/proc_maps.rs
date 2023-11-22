@@ -63,11 +63,23 @@ pub struct DyldInfo {
     pub file: String,
     pub base_avma: u64,
     pub vmsize: u64,
-    pub svma_info: framehop::ModuleSvmaInfo,
+    pub module_info: ModuleSvmaInfo,
     pub debug_id: Option<DebugId>,
     pub code_id: Option<CodeId>,
     pub arch: Option<&'static str>,
     pub unwind_sections: UnwindSectionInfo,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModuleSvmaInfo {
+    pub base_svma: u64,
+    pub text_svma: Option<Range<u64>>,
+    pub stubs_svma: Option<Range<u64>>,
+    pub stub_helper_svma: Option<Range<u64>>,
+    pub got_svma: Option<Range<u64>>,
+    pub eh_frame_svma: Option<Range<u64>>,
+    pub eh_frame_hdr_svma: Option<Range<u64>>,
+    pub text_segment_svma: Option<Range<u64>>,
 }
 
 /// These are SVMAs.
@@ -309,15 +321,15 @@ fn get_dyld_image_info(
         file: filename,
         base_avma,
         vmsize,
-        svma_info: framehop::ModuleSvmaInfo {
+        module_info: ModuleSvmaInfo {
             base_svma,
-            text: section_svma_range(b"__text"),
-            text_env: section_svma_range(b"text_env"),
-            stubs: section_svma_range(b"__stubs"),
-            stub_helper: section_svma_range(b"__stub_helper"),
-            eh_frame: section_svma_range(b"__eh_frame"),
-            eh_frame_hdr: section_svma_range(b"__eh_frame_hdr"),
-            got: section_svma_range(b"__got"),
+            text_svma: section_svma_range(b"__text"),
+            stubs_svma: section_svma_range(b"__stubs"),
+            stub_helper_svma: section_svma_range(b"__stub_helper"),
+            got_svma: section_svma_range(b"__got"),
+            eh_frame_svma: section_svma_range(b"__eh_frame"),
+            eh_frame_hdr_svma: section_svma_range(b"__eh_frame_hdr"),
+            text_segment_svma: Some(base_svma..base_svma + vmsize),
         },
         debug_id: uuid.map(DebugId::from_uuid),
         code_id: uuid.map(CodeId::MachoUuid),
@@ -334,6 +346,7 @@ fn get_dyld_image_info(
 // bindgen seemed to put all the members for this struct as a single opaque blob:
 //      (bindgen /usr/include/mach/task_info.h --with-derive-default --whitelist-type task_dyld_info)
 // rather than debug the bindgen command, just define manually here
+#[allow(non_camel_case_types)]
 #[repr(C)]
 #[derive(Default, Debug)]
 pub struct task_dyld_info {
@@ -342,6 +355,7 @@ pub struct task_dyld_info {
     pub all_image_info_format: mach::vm_types::integer_t,
 }
 
+#[allow(non_camel_case_types)]
 #[cfg(target_arch = "aarch64")]
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, Hash, PartialOrd, PartialEq, Eq, Ord)]
@@ -617,6 +631,7 @@ impl ForeignMemory {
     }
 }
 
+#[derive(Debug)]
 pub struct VmSubData {
     page_aligned_data: VmData,
     address_range: std::ops::Range<u64>,
