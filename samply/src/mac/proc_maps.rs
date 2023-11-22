@@ -63,11 +63,54 @@ pub struct DyldInfo {
     pub file: String,
     pub base_avma: u64,
     pub vmsize: u64,
-    pub svma_info: framehop::ModuleSvmaInfo,
+    pub module_info: ModuleInfo,
     pub debug_id: Option<DebugId>,
     pub code_id: Option<CodeId>,
     pub arch: Option<&'static str>,
     pub unwind_sections: UnwindSectionInfo,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModuleInfo {
+    pub base_svma: u64,
+    pub text_svma: Option<Range<u64>>,
+    pub stubs_svma: Option<Range<u64>>,
+    pub stub_helper_svma: Option<Range<u64>>,
+    pub got_svma: Option<Range<u64>>,
+    pub eh_frame_svma: Option<Range<u64>>,
+    pub eh_frame_hdr_svma: Option<Range<u64>>,
+    pub text_segment_file_range: Option<Range<u64>>,
+}
+
+impl ModuleInfo {
+    pub fn framehop_section_info(&self) -> framehop::ExplicitModuleSectionInfo<UnwindSectionBytes> {
+        let ModuleInfo {
+            base_svma,
+            text_svma,
+            stubs_svma,
+            stub_helper_svma,
+            got_svma,
+            eh_frame_svma,
+            eh_frame_hdr_svma,
+            text_segment_file_range,
+        } = self.clone();
+        framehop::ExplicitModuleSectionInfo {
+            base_svma,
+            text_svma,
+            text: None,
+            stubs_svma,
+            stub_helper_svma,
+            got_svma,
+            unwind_info: None,
+            eh_frame_svma,
+            eh_frame: None,
+            eh_frame_hdr_svma,
+            eh_frame_hdr: None,
+            debug_frame: None,
+            text_segment_file_range,
+            text_segment: None,
+        }
+    }
 }
 
 /// These are SVMAs.
@@ -280,12 +323,16 @@ fn get_dyld_image_info(
     let mut vmsize: u64 = 0;
     let mut uuid = None;
     let mut sections = HashMap::new();
+    let mut text_segment_file_range = None;
 
     while let Ok(Some(command)) = load_commands.next() {
         if let Ok(Some((segment, section_data))) = SegmentCommand64::from_command(command) {
             if segment.name() == b"__TEXT" {
                 base_svma = segment.vmaddr(endian);
                 vmsize = segment.vmsize(endian);
+                let file_offset = segment.fileoff.get(endian);
+                let file_size = segment.filesize.get(endian);
+                text_segment_file_range = Some(file_offset..file_offset + file_size);
 
                 for section in segment
                     .sections(endian, section_data)
@@ -309,15 +356,15 @@ fn get_dyld_image_info(
         file: filename,
         base_avma,
         vmsize,
-        svma_info: framehop::ModuleSvmaInfo {
+        module_info: ModuleInfo {
             base_svma,
-            text: section_svma_range(b"__text"),
-            text_env: section_svma_range(b"text_env"),
-            stubs: section_svma_range(b"__stubs"),
-            stub_helper: section_svma_range(b"__stub_helper"),
-            eh_frame: section_svma_range(b"__eh_frame"),
-            eh_frame_hdr: section_svma_range(b"__eh_frame_hdr"),
-            got: section_svma_range(b"__got"),
+            text_svma: section_svma_range(b"__text"),
+            stubs_svma: section_svma_range(b"__stubs"),
+            stub_helper_svma: section_svma_range(b"__stub_helper"),
+            got_svma: section_svma_range(b"__got"),
+            eh_frame_svma: section_svma_range(b"__eh_frame"),
+            eh_frame_hdr_svma: section_svma_range(b"__eh_frame_hdr"),
+            text_segment_file_range,
         },
         debug_id: uuid.map(DebugId::from_uuid),
         code_id: uuid.map(CodeId::MachoUuid),
@@ -617,6 +664,7 @@ impl ForeignMemory {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct VmSubData {
     page_aligned_data: VmData,
     address_range: std::ops::Range<u64>,

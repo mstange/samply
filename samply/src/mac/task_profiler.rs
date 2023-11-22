@@ -1,7 +1,6 @@
 use crossbeam_channel::Receiver;
 use framehop::{
-    CacheNative, FrameAddress, MayAllocateDuringUnwind, Module, ModuleUnwindData, TextByteData,
-    Unwinder, UnwinderNative,
+    CacheNative, FrameAddress, MayAllocateDuringUnwind, Module, Unwinder, UnwinderNative,
 };
 use fxprof_processed_profile::debugid::DebugId;
 use fxprof_processed_profile::{LibraryInfo, ProcessHandle, Profile, ThreadHandle, Timestamp};
@@ -22,6 +21,7 @@ use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::jit_function_recycler::JitFunctionRecycler;
@@ -41,10 +41,11 @@ use super::proc_maps::{DyldInfo, DyldInfoManager, Modification, StackwalkerRef, 
 use super::sampler::TaskInit;
 use super::thread_profiler::{get_thread_id, get_thread_name, ThreadProfiler};
 
+#[derive(Debug, Clone)]
 pub enum UnwindSectionBytes {
     Remapped(VmSubData),
-    Mmap(MmapSubData),
-    Allocated(Vec<u8>),
+    Mmap(Arc<MmapSubData>),
+    Allocated(Arc<[u8]>),
 }
 
 impl Deref for UnwindSectionBytes {
@@ -54,11 +55,12 @@ impl Deref for UnwindSectionBytes {
         match self {
             UnwindSectionBytes::Remapped(vm_sub_data) => vm_sub_data.deref(),
             UnwindSectionBytes::Mmap(mmap_sub_data) => mmap_sub_data.deref(),
-            UnwindSectionBytes::Allocated(vec) => vec.deref(),
+            UnwindSectionBytes::Allocated(data) => data.deref(),
         }
     }
 }
 
+#[derive(Debug)]
 pub struct MmapSubData {
     mmap: memmap2::Mmap,
     offset: usize,
@@ -431,7 +433,8 @@ impl TaskProfiler {
     }
 
     fn add_lib_to_unwinder_and_ensure_debug_id(&mut self, lib: &mut DyldInfo) {
-        let base_svma = lib.svma_info.base_svma;
+        let mut module_section_info = lib.module_info.framehop_section_info();
+        let base_svma = module_section_info.base_svma;
         let base_avma = lib.base_avma;
         let unwind_info_data = lib
             .unwind_sections
@@ -445,24 +448,25 @@ impl TaskProfiler {
             .and_then(|(svma, size)| {
                 VmSubData::map_from_task(self.task, svma - base_svma + base_avma, size).ok()
             });
-        let text_data = lib.unwind_sections.text_segment.and_then(|(svma, size)| {
+        let text_segment = lib.unwind_sections.text_segment.and_then(|(svma, size)| {
             let avma = svma - base_svma + base_avma;
             VmSubData::map_from_task(self.task, avma, size)
                 .ok()
-                .map(|data| {
-                    TextByteData::new(UnwindSectionBytes::Remapped(data), avma..avma + size)
-                })
+                .map(|data| (UnwindSectionBytes::Remapped(data), avma..avma + size))
         });
 
         if lib.debug_id.is_none() {
-            if let (Some(text_data), Some(text_section)) =
-                (text_data.as_ref(), lib.svma_info.text.clone())
+            if let (Some((text_segment, text_segment_avma)), Some(text_section)) =
+                (text_segment.as_ref(), lib.module_info.text_svma.clone())
             {
                 let text_section_start_avma = text_section.start - base_svma + base_avma;
                 let text_section_first_page_end_avma = text_section_start_avma.wrapping_add(4096);
-                let debug_id = if let Some(text_first_page) =
-                    text_data.get_bytes(text_section_start_avma..text_section_first_page_end_avma)
-                {
+                let debug_id = if let Some(text_first_page) = text_section_start_avma
+                    .checked_sub(text_segment_avma.start)
+                    .zip(text_section_first_page_end_avma.checked_sub(text_segment_avma.start))
+                    .and_then(|(rel_start, rel_end)| {
+                        text_segment.get(rel_start as usize..rel_end as usize)
+                    }) {
                     // Generate a debug ID from the __text section.
                     DebugId::from_text_first_page(text_first_page, true)
                 } else {
@@ -471,33 +475,23 @@ impl TaskProfiler {
                 lib.debug_id = Some(debug_id);
             }
         }
+        let (text_segment, _) = text_segment.unzip();
 
-        let unwind_data = match (unwind_info_data, eh_frame_data) {
-            (Some(unwind_info), eh_frame) => ModuleUnwindData::CompactUnwindInfoAndEhFrame(
-                UnwindSectionBytes::Remapped(unwind_info),
-                eh_frame.map(UnwindSectionBytes::Remapped),
-            ),
-            (None, Some(eh_frame)) => {
-                ModuleUnwindData::EhFrame(UnwindSectionBytes::Remapped(eh_frame))
-            }
-            (None, None) => {
-                // Have no unwind information.
-                // Let's try to open the file and use debug_frame.
-                if let Some(debug_frame) = get_debug_frame(&lib.file) {
-                    ModuleUnwindData::DebugFrame(debug_frame)
-                } else {
-                    ModuleUnwindData::None
-                }
-            }
-        };
+        module_section_info.text_segment = text_segment.clone();
+        module_section_info.text = text_segment;
+        module_section_info.unwind_info = unwind_info_data.map(UnwindSectionBytes::Remapped);
+        module_section_info.eh_frame = eh_frame_data.map(UnwindSectionBytes::Remapped);
+        if module_section_info.unwind_info.is_none() && module_section_info.eh_frame.is_none() {
+            // We have no unwind information.
+            // Let's try to open the file and use debug_frame.
+            module_section_info.debug_frame = get_debug_frame(&lib.file);
+        }
 
         let module = Module::new(
             lib.file.clone(),
             lib.base_avma..(lib.base_avma + lib.vmsize),
             lib.base_avma,
-            lib.svma_info.clone(),
-            unwind_data,
-            text_data,
+            module_section_info,
         );
         self.unwinder.add_module(module);
     }
@@ -609,11 +603,11 @@ fn get_debug_frame(file_path: &str) -> Option<UnwindSectionBytes> {
         debug_frame_section.compressed_file_range().ok()?
     };
     match compressed_range.format {
-        CompressionFormat::None => Some(UnwindSectionBytes::Mmap(MmapSubData::try_new(
+        CompressionFormat::None => Some(UnwindSectionBytes::Mmap(Arc::new(MmapSubData::try_new(
             mmap,
             compressed_range.offset as usize,
             compressed_range.uncompressed_size as usize,
-        )?)),
+        )?))),
         CompressionFormat::Unknown => None,
         CompressionFormat::Zlib => {
             let compressed_bytes = &mmap[compressed_range.offset as usize..]
@@ -628,7 +622,7 @@ fn get_debug_frame(file_path: &str) -> Option<UnwindSectionBytes> {
                     flate2::FlushDecompress::Finish,
                 )
                 .ok()?;
-            Some(UnwindSectionBytes::Allocated(decompressed))
+            Some(UnwindSectionBytes::Allocated(decompressed.into()))
         }
         _ => None,
     }

@@ -12,8 +12,8 @@ readme = "README.md"
 [dependencies]
 
 fxprof-processed-profile = { version = "0.6", path = "../fxprof-processed-profile" }
-# framehop = { path = "../../framehop" }
-framehop = "0.7.2"
+# framehop = { path = "../../framehop", features = ["object"] }
+framehop = { version = "0.8.0", features = ["object"] }
 # linux-perf-data = { path = "../../linux-perf-data" }
 linux-perf-data = "0.8.2"
 
