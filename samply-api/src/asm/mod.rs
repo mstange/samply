@@ -242,6 +242,7 @@ impl InstructionDecoding for yaxpeax_x86::amd64::Arch {
                     | Opcode::JGE
                     | Opcode::JLE
                     | Opcode::JG
+                    | Opcode::CALL
             )
         }
 
