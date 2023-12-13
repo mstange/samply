@@ -32,6 +32,9 @@ e.g. `xperf -on latency+ALL_FAULTS -stackwalk PagefaultDemandZero`
 Add in calls to VirtualAlloc/VirtualFree
 `xperf -on latency+ALL_FAULTS+VIRT_ALLOC -stackwalk PagefaultDemandZero`
 
+### Stacks on syscalls:
+`xperf -on syscall -stackwalk SyscallEnter` -- Use syscall branch
+
 ### Jscript
 - Start Chrome with `chrome --js-flags="--enable-etw-stack-walking --interpreted-frames-native-stack"`
 - `xperf -start "NT Kernel Logger" -on latency -stackwalk profile -start "usersession" -on Microsoft-JScript:0x3`
