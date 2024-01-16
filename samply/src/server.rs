@@ -61,7 +61,7 @@ impl PortSelection {
     pub fn try_from_str(s: &str) -> std::result::Result<Self, <u16 as FromStr>::Err> {
         if s.ends_with('+') {
             let start = s.trim_end_matches('+').parse()?;
-            let end = start + 100;
+            let end = start + 400;
             Ok(PortSelection::TryMultiple(start..end))
         } else {
             Ok(PortSelection::OnePort(s.parse()?))
@@ -139,7 +139,7 @@ async fn start_server(
         config = config.debuginfod_cache_dir_if_not_installed(&sym_dir_in_home);
 
         // HACK: Use the Mozilla breakpad symbols
-        config = config.breakpad_symbols_server("https://symbols.mozilla.org/try/", &sym_dir_in_home);
+        config = config.breakpad_symbols_server("https://symbols.mozilla.org/try", &sym_dir_in_home);
         config = config.breakpad_symindex_cache_dir(&sym_dir_in_home);
     }
 
