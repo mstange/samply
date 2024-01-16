@@ -135,8 +135,14 @@ async fn start_server(
         .use_debuginfod(std::env::var("SAMPLY_USE_DEBUGINFOD").is_ok())
         .use_spotlight(true);
     if let Some(home_dir) = dirs::home_dir() {
-        config = config.debuginfod_cache_dir_if_not_installed(home_dir.join("sym"));
+        let sym_dir_in_home = home_dir.join("sym");
+        config = config.debuginfod_cache_dir_if_not_installed(&sym_dir_in_home);
+
+        // HACK: Use the Mozilla breakpad symbols
+        config = config.breakpad_symbols_server("https://symbols.mozilla.org/try/", &sym_dir_in_home);
+        config = config.breakpad_symindex_cache_dir(&sym_dir_in_home);
     }
+
     // TODO: Read breakpad symbol server config from some kind of config file, and call breakpad_symbols_server
 
     let mut symbol_manager = SymbolManager::with_config(config);
