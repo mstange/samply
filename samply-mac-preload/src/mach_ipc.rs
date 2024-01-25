@@ -39,14 +39,14 @@ const KERN_NO_SPACE: kern_return_t = 3;
 const MACH_MSGH_BITS_COMPLEX: u32 = 0x80000000;
 const MACH_MSG_IPC_KERNEL: kern_return_t = 0x00000800;
 const MACH_MSG_IPC_SPACE: kern_return_t = 0x00002000;
-const MACH_MSG_PORT_DESCRIPTOR: u8 = 0;
+const MACH_MSG_PORT_DESCRIPTOR: u32 = 0;
 const MACH_MSG_SUCCESS: kern_return_t = 0;
 const MACH_MSG_TIMEOUT_NONE: mach_msg_timeout_t = 0;
-const MACH_MSG_TYPE_COPY_SEND: u8 = 19;
-const MACH_MSG_TYPE_MAKE_SEND: u8 = 20;
-const MACH_MSG_TYPE_MAKE_SEND_ONCE: u8 = 21;
-const MACH_MSG_TYPE_MOVE_SEND: u8 = 17;
-const MACH_MSG_TYPE_PORT_SEND: u8 = MACH_MSG_TYPE_MOVE_SEND;
+const MACH_MSG_TYPE_COPY_SEND: u32 = 19;
+const MACH_MSG_TYPE_MAKE_SEND: u32 = 20;
+const MACH_MSG_TYPE_MAKE_SEND_ONCE: u32 = 21;
+const MACH_MSG_TYPE_MOVE_SEND: u32 = 17;
+const MACH_MSG_TYPE_PORT_SEND: u32 = MACH_MSG_TYPE_MOVE_SEND;
 const MACH_MSG_VM_KERNEL: kern_return_t = 0x00000400;
 const MACH_MSG_VM_SPACE: kern_return_t = 0x00001000;
 const MACH_NOTIFY_FIRST: i32 = 64;
@@ -174,7 +174,7 @@ impl OsIpcReceiver {
                 mach_task_self(),
                 port,
                 MACH_PORT_LIMITS_INFO,
-                &limits as *const mach_sys::Struct_mach_port_limits as *mut i32,
+                &limits as *const mach_sys::mach_port_limits as *mut i32,
                 1,
             )
         };
@@ -194,9 +194,8 @@ impl OsIpcReceiver {
     fn sender(&self) -> Result<OsIpcSender, MachError> {
         let port = self.port.get();
         debug_assert!(port != MACH_PORT_NULL);
-        let (right, acquired_right) =
-            mach_port_extract_right(port, MACH_MSG_TYPE_MAKE_SEND as u32)?;
-        debug_assert!(acquired_right == MACH_MSG_TYPE_PORT_SEND as u32);
+        let (right, acquired_right) = mach_port_extract_right(port, MACH_MSG_TYPE_MAKE_SEND)?;
+        debug_assert!(acquired_right == MACH_MSG_TYPE_PORT_SEND);
         Ok(OsIpcSender::from_name(right))
     }
 
@@ -249,7 +248,7 @@ impl OsIpcReceiver {
             let mut port_descriptor = message.offset(1) as *mut mach_msg_port_descriptor_t;
             let mut descriptors_remaining = (*message).body.msgh_descriptor_count;
             while descriptors_remaining > 0 {
-                if (*port_descriptor).type_ != MACH_MSG_PORT_DESCRIPTOR {
+                if (*port_descriptor).type_() != MACH_MSG_PORT_DESCRIPTOR {
                     break;
                 }
                 let _ = (*port_descriptor).name;
@@ -265,7 +264,9 @@ impl OsIpcReceiver {
             let has_inline_data_ptr = shared_memory_descriptor as *mut bool;
             let has_inline_data = *has_inline_data_ptr;
             let payload = if has_inline_data {
-                let payload_size_ptr = has_inline_data_ptr.offset(1) as *mut usize;
+                let padding_start = has_inline_data_ptr.offset(1) as *mut u8;
+                let padding_count = Message::payload_padding(padding_start as usize);
+                let payload_size_ptr = padding_start.add(padding_count) as *mut usize;
                 let payload_size = *payload_size_ptr;
                 let max_payload_size = message as usize + ((*message).header.msgh_size as usize)
                     - (shared_memory_descriptor as usize);
@@ -362,11 +363,10 @@ impl OsIpcSender {
         unsafe {
             let size = Message::size_of(data, ports.len(), 0);
             let message = libc::malloc(size as size_t) as *mut Message;
-            (*message).header.msgh_bits = (MACH_MSG_TYPE_COPY_SEND as u32) | MACH_MSGH_BITS_COMPLEX;
+            (*message).header.msgh_bits = (MACH_MSG_TYPE_COPY_SEND) | MACH_MSGH_BITS_COMPLEX;
             (*message).header.msgh_size = size as u32;
             (*message).header.msgh_local_port = MACH_PORT_NULL;
             (*message).header.msgh_remote_port = self.port;
-            (*message).header.msgh_reserved = 0;
             (*message).header.msgh_id = 0;
             (*message).body.msgh_descriptor_count = ports.len() as u32;
 
@@ -375,12 +375,13 @@ impl OsIpcSender {
                 (*port_descriptor_dest).name = outgoing_port.port();
                 (*port_descriptor_dest).pad1 = 0;
 
-                (*port_descriptor_dest).disposition = match *outgoing_port {
+                let disposition = match *outgoing_port {
                     OsIpcChannel::Sender(_) => MACH_MSG_TYPE_MOVE_SEND,
                     OsIpcChannel::RawPort(_) => MACH_MSG_TYPE_COPY_SEND,
                 };
+                (*port_descriptor_dest).set_disposition(disposition);
 
-                (*port_descriptor_dest).type_ = MACH_MSG_PORT_DESCRIPTOR;
+                (*port_descriptor_dest).set_type(MACH_MSG_PORT_DESCRIPTOR);
                 port_descriptor_dest = port_descriptor_dest.offset(1);
             }
 
@@ -394,7 +395,11 @@ impl OsIpcSender {
                 *((message as *mut u8).offset(size as isize - 4) as *mut u32) = 0;
 
                 let data_size = data.len();
-                let data_size_dest = is_inline_dest.offset(1) as *mut usize;
+                let padding_start = is_inline_dest.offset(1) as *mut u8;
+                let padding_count = Message::payload_padding(padding_start as usize);
+                // Zero out padding
+                padding_start.write_bytes(0, padding_count);
+                let data_size_dest = padding_start.add(padding_count) as *mut usize;
                 *data_size_dest = data_size;
 
                 let data_dest = data_size_dest.offset(1) as *mut u8;
@@ -465,12 +470,19 @@ struct Message {
 }
 
 impl Message {
+    fn payload_padding(unaligned: usize) -> usize {
+        ((unaligned + 7) & !7) - unaligned // 8 byte alignment
+    }
+
     fn size_of(data: &[u8], port_length: usize, shared_memory_length: usize) -> usize {
         let mut size = mem::size_of::<Message>()
             + mem::size_of::<mach_msg_port_descriptor_t>() * port_length
             + mem::size_of::<mach_msg_ool_descriptor_t>() * shared_memory_length
             + mem::size_of::<bool>();
 
+        // rustc panics in debug mode for unaligned accesses.
+        // so include padding to start payload at 8-byte aligned address
+        size += Self::payload_padding(size);
         size += mem::size_of::<usize>() + data.len();
 
         // Round up to the next 4 bytes; mach_msg_send returns an error for unaligned sizes.
