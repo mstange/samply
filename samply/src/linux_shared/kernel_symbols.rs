@@ -2,7 +2,7 @@ use std::{fmt::Debug, path::Path, sync::Arc};
 
 use fxprof_processed_profile::{Symbol, SymbolTable};
 use object::{elf, read, NativeEndian, Object};
-use read::elf::NoteHeader;
+use read::elf::NoteIterator;
 
 use crate::shared::utils::open_file_with_fallback;
 
@@ -51,9 +51,9 @@ impl KernelSymbols {
 }
 
 pub fn build_id_from_notes_section_data(section_data: &[u8]) -> Option<&[u8]> {
-    let note_iter =
-        NoteIterator::<elf::FileHeader64<NativeEndian>>::new(NativeEndian, 4, section_data)?;
-    for note in note_iter {
+    let mut note_iter =
+        NoteIterator::<elf::FileHeader64<NativeEndian>>::new(NativeEndian, 4, section_data).ok()?;
+    while let Ok(Some(note)) = note_iter.next() {
         if note.name() == elf::ELF_NOTE_GNU && note.n_type(NativeEndian) == elf::NT_GNU_BUILD_ID {
             return Some(note.desc());
         }
@@ -154,122 +154,6 @@ fn hex_str<T: std::ops::Shl<T, Output = T> + std::ops::BitOr<T, Output = T> + Fr
     }
     let remaining = &input[k..];
     Ok((remaining, res))
-}
-
-/// An iterator over the notes in an ELF section or segment.
-#[derive(Debug)]
-pub struct NoteIterator<'data, Elf>
-where
-    Elf: read::elf::FileHeader,
-{
-    endian: Elf::Endian,
-    align: usize,
-    data: read::Bytes<'data>,
-}
-
-impl<'data, Elf> NoteIterator<'data, Elf>
-where
-    Elf: read::elf::FileHeader,
-{
-    /// Returns `Err` if `align` is invalid.
-    pub(super) fn new(endian: Elf::Endian, align: Elf::Word, data: &'data [u8]) -> Option<Self> {
-        let align = match align.into() {
-            0u64..=4 => 4,
-            8 => 8,
-            _ => return None,
-        };
-        // TODO: check data alignment?
-        Some(NoteIterator {
-            endian,
-            align,
-            data: read::Bytes(data),
-        })
-    }
-}
-
-impl<'data, Elf> Iterator for NoteIterator<'data, Elf>
-where
-    Elf: read::elf::FileHeader,
-{
-    type Item = Note<'data, Elf>;
-    /// Returns the next note.
-    fn next(&mut self) -> Option<Note<'data, Elf>> {
-        let mut data = self.data;
-        if data.is_empty() {
-            return None;
-        }
-
-        let header = data.read_at::<Elf::NoteHeader>(0).ok()?;
-
-        // The name has no alignment requirement.
-        let offset = std::mem::size_of::<Elf::NoteHeader>();
-        let namesz = header.n_namesz(self.endian) as usize;
-        let name = data.read_bytes_at(offset, namesz).ok()?.0;
-
-        // The descriptor must be aligned.
-        let offset = align(offset + namesz, self.align);
-        let descsz = header.n_descsz(self.endian) as usize;
-        let desc = data.read_bytes_at(offset, descsz).ok()?.0;
-
-        // The next note (if any) must be aligned.
-        let offset = align(offset + descsz, self.align);
-        if data.skip(offset).is_err() {
-            data = read::Bytes(&[]);
-        }
-        self.data = data;
-
-        Some(Note { header, name, desc })
-    }
-}
-
-#[inline]
-fn align(offset: usize, size: usize) -> usize {
-    (offset + (size - 1)) & !(size - 1)
-}
-
-/// A parsed `NoteHeader`.
-#[derive(Debug)]
-pub struct Note<'data, Elf>
-where
-    Elf: read::elf::FileHeader,
-{
-    header: &'data Elf::NoteHeader,
-    name: &'data [u8],
-    desc: &'data [u8],
-}
-
-impl<'data, Elf: read::elf::FileHeader> Note<'data, Elf> {
-    /// Return the `n_type` field of the `NoteHeader`.
-    ///
-    /// The meaning of this field is determined by `name`.
-    pub fn n_type(&self, endian: Elf::Endian) -> u32 {
-        self.header.n_type(endian)
-    }
-
-    /// Return the bytes for the name field following the `NoteHeader`,
-    /// excluding any null terminator.
-    ///
-    /// This field is usually a string including a null terminator
-    /// (but it is not required to be).
-    ///
-    /// The length of this field (including any null terminator) is given by
-    /// `n_namesz`.
-    pub fn name(&self) -> &'data [u8] {
-        if let Some((last, name)) = self.name.split_last() {
-            if *last == 0 {
-                return name;
-            }
-        }
-        self.name
-    }
-
-    /// Return the bytes for the desc field following the `NoteHeader`.
-    ///
-    /// The length of this field is given by `n_descsz`. The meaning
-    /// of this field is determined by `name` and `n_type`.
-    pub fn desc(&self) -> &'data [u8] {
-        self.desc
-    }
 }
 
 pub fn kernel_module_build_id(
