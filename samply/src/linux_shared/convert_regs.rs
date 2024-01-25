@@ -9,8 +9,6 @@ use linux_perf_event_reader::constants::{
 };
 use linux_perf_event_reader::Regs;
 
-pub use super::event_interpretation::EventInterpretation;
-
 pub trait ConvertRegs {
     type UnwindRegs;
     fn convert_regs(regs: &Regs) -> (u64, u64, Self::UnwindRegs);
