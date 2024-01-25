@@ -66,4 +66,4 @@ nix = "0.26.2"
 [dependencies.object]
 default-features = false
 features = ["std", "read_core", "elf", "unaligned", "write"]
-version = "0.30.2"
+version = "0.32.2"
