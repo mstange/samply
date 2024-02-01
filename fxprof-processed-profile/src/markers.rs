@@ -105,6 +105,10 @@ pub struct MarkerSchema {
     /// The marker fields. These can be specified on each marker.
     #[serde(rename = "data")]
     pub fields: Vec<MarkerSchemaField>,
+
+    /// Give the marker its own local track.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub graphs: Vec<MarkerGraph>,
 }
 
 /// The location of markers with this type.
@@ -221,4 +225,44 @@ pub enum MarkerFieldFormat {
     // Do not use it for time information.
     // "Label: 52.23, 0.0054, 123,456.78"
     Decimal,
+}
+
+/// How the marker should be rendered in the UI.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MarkerGraphType {
+    /// As a bar graph.
+    Bar,
+    /// As lines.
+    Line,
+    /// As lines that are colored underneath.
+    LineFilled,
+}
+
+/// Color to use for a marker graph.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GraphColor {
+    Blue,
+    Green,
+    Grey,
+    Ink,
+    Magenta,
+    Orange,
+    Purple,
+    Red,
+    Teal,
+    Yellow,
+}
+
+/// How to graph a marker.
+#[derive(Clone, Debug, Serialize)]
+pub struct MarkerGraph {
+    /// Refers to the field in the marker to graph.
+    pub key: &'static str,
+    /// How to render the marker.
+    #[serde(rename = "type")]
+    pub graph_type: MarkerGraphType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<GraphColor>,
 }

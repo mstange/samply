@@ -3,10 +3,10 @@ use debugid::DebugId;
 use serde_json::json;
 
 use fxprof_processed_profile::{
-    CategoryColor, CpuDelta, Frame, FrameFlags, FrameInfo, LibraryInfo, MarkerDynamicField,
-    MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerStaticField,
-    MarkerTiming, Profile, ProfilerMarker, ReferenceTimestamp, SamplingInterval, Symbol,
-    SymbolTable, Timestamp, WeightType,
+    CategoryColor, CpuDelta, Frame, FrameFlags, FrameInfo, GraphColor, LibraryInfo,
+    MarkerDynamicField, MarkerFieldFormat, MarkerGraph, MarkerGraphType, MarkerLocation,
+    MarkerSchema, MarkerSchemaField, MarkerStaticField, MarkerTiming, Profile, ProfilerMarker,
+    ReferenceTimestamp, SamplingInterval, Symbol, SymbolTable, Timestamp, WeightType,
 };
 
 use std::sync::Arc;
@@ -41,6 +41,7 @@ impl ProfilerMarker for TextMarker {
                 format: MarkerFieldFormat::String,
                 searchable: true,
             })],
+            graphs: vec![],
         }
     }
 }
@@ -93,6 +94,11 @@ fn profile_without_js() {
                         value: "This is a test marker with a custom schema.",
                     }),
                 ],
+                graphs: vec![MarkerGraph {
+                    key: "latency",
+                    graph_type: MarkerGraphType::Line,
+                    color: Some(GraphColor::Green),
+                }],
             }
         }
 
@@ -379,6 +385,13 @@ fn profile_without_js() {
                   "display": [
                     "marker-chart",
                     "marker-table"
+                  ],
+                  "graphs": [
+                    {
+                      "key": "latency",
+                      "type": "line",
+                      "color": "green"
+                    }
                   ],
                   "tooltipLabel": "Custom tooltip label",
                   "data": [
