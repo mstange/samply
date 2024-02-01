@@ -111,6 +111,7 @@ pub struct Profile {
     pub(crate) reference_timestamp: ReferenceTimestamp,
     pub(crate) string_table: GlobalStringTable,
     pub(crate) marker_schemas: FastHashMap<&'static str, MarkerSchema>,
+    pub(crate) symbolicated: bool,
     used_pids: FastHashMap<u32, u32>,
     used_tids: FastHashMap<u32, u32>,
 }
@@ -142,6 +143,7 @@ impl Profile {
                 color: CategoryColor::Gray,
                 subcategories: Vec::new(),
             }],
+            symbolicated: false,
             used_pids: FastHashMap::default(),
             used_tids: FastHashMap::default(),
             counters: Vec::new(),
@@ -495,6 +497,19 @@ impl Profile {
         self.counters[counter.0].add_sample(timestamp, value_delta, number_of_operations_delta)
     }
 
+    /// Set whether the profile is already symbolicated.
+    ///
+    /// Read: whether symbols are resolved.
+    ///
+    /// If your samples refer to labels instead of addresses, it is safe
+    /// to set to true.
+    ///
+    /// Setting to true prevents the Firefox Profiler from attempting to
+    /// resolve symbols.
+    pub fn set_symbolicated(&mut self, v: bool) {
+        self.symbolicated = v;
+    }
+
     // frames is ordered from caller to callee, i.e. root function first, pc last
     fn stack_index_for_frames(
         &mut self,
@@ -646,7 +661,7 @@ impl<'a> Serialize for SerializableProfileMeta<'a> {
             }),
         )?;
         map.serialize_entry("startTime", &self.0.reference_timestamp)?;
-        map.serialize_entry("symbolicated", &false)?;
+        map.serialize_entry("symbolicated", &self.0.symbolicated)?;
         map.serialize_entry("pausedRanges", &[] as &[()])?;
         map.serialize_entry("version", &24)?;
         map.serialize_entry("usesOnlyOneStackType", &(!self.0.contains_js_function()))?;

@@ -1329,6 +1329,8 @@ fn profile_counters_with_sorted_processes() {
         0,
     );
 
+    profile.set_symbolicated(true);
+
     // eprintln!("{}", serde_json::to_string_pretty(&profile).unwrap());
     assert_json_eq!(
         profile,
@@ -1361,7 +1363,7 @@ fn profile_counters_with_sorted_processes() {
                 "time": "ms"
               },
               "startTime": 1636162232627.0,
-              "symbolicated": false,
+              "symbolicated": true,
               "pausedRanges": [],
               "version": 24,
               "usesOnlyOneStackType": true,
