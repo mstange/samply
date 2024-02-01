@@ -12,7 +12,7 @@ use crate::global_lib_table::GlobalLibTable;
 use crate::marker_table::MarkerTable;
 use crate::native_symbols::NativeSymbols;
 use crate::resource_table::ResourceTable;
-use crate::sample_table::SampleTable;
+use crate::sample_table::{SampleTable, WeightType};
 use crate::stack_table::StackTable;
 use crate::string_table::{GlobalStringIndex, GlobalStringTable};
 use crate::thread_string_table::{ThreadInternalStringIndex, ThreadStringTable};
@@ -145,6 +145,10 @@ impl Thread {
                 .add_sample(timestamp, stack_index, CpuDelta::ZERO, weight);
             self.last_sample_was_zero_cpu = true;
         }
+    }
+
+    pub fn set_samples_weight_type(&mut self, t: WeightType) {
+        self.samples.set_weight_type(t);
     }
 
     pub fn add_marker<T: ProfilerMarker>(

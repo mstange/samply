@@ -16,6 +16,7 @@ use crate::lib_mappings::LibMappings;
 use crate::library_info::LibraryInfo;
 use crate::process::{Process, ThreadHandle};
 use crate::reference_timestamp::ReferenceTimestamp;
+use crate::sample_table::WeightType;
 use crate::string_table::{GlobalStringIndex, GlobalStringTable};
 use crate::thread::{ProcessHandle, Thread};
 use crate::{MarkerSchema, MarkerTiming, ProfilerMarker, SymbolTable, Timestamp};
@@ -388,6 +389,13 @@ impl Profile {
     /// Set whether to render markers in a thread's timeline view.
     pub fn set_thread_show_markers_in_timeline(&mut self, thread: ThreadHandle, v: bool) {
         self.threads[thread.0].set_show_markers_in_timeline(v);
+    }
+
+    /// Set the weighting type of samples of a thread.
+    ///
+    /// Default is [WeightType::Samples].
+    pub fn set_thread_samples_weight_type(&mut self, thread: ThreadHandle, t: WeightType) {
+        self.threads[thread.0].set_samples_weight_type(t);
     }
 
     /// Add a thread as initially visible in the UI.

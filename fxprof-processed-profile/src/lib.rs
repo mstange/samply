@@ -70,5 +70,6 @@ pub use markers::*;
 pub use process::ThreadHandle;
 pub use profile::{Profile, SamplingInterval, StringHandle};
 pub use reference_timestamp::ReferenceTimestamp;
+pub use sample_table::WeightType;
 pub use thread::ProcessHandle;
 pub use timestamp::*;

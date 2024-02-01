@@ -6,7 +6,7 @@ use fxprof_processed_profile::{
     CategoryColor, CpuDelta, Frame, FrameFlags, FrameInfo, LibraryInfo, MarkerDynamicField,
     MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerStaticField,
     MarkerTiming, Profile, ProfilerMarker, ReferenceTimestamp, SamplingInterval, Symbol,
-    SymbolTable, Timestamp,
+    SymbolTable, Timestamp, WeightType,
 };
 
 use std::sync::Arc;
@@ -1334,6 +1334,8 @@ fn profile_counters_with_sorted_processes() {
     profile.add_initial_visible_thread(thread1);
     profile.add_initial_selected_thread(thread1);
 
+    profile.set_thread_samples_weight_type(thread0, WeightType::Bytes);
+
     // eprintln!("{}", serde_json::to_string_pretty(&profile).unwrap());
     assert_json_eq!(
         profile,
@@ -1531,7 +1533,7 @@ fn profile_counters_with_sorted_processes() {
                   "weight": [
                     1
                   ],
-                  "weightType": "samples",
+                  "weightType": "bytes",
                   "threadCPUDelta": [
                     0
                   ]
