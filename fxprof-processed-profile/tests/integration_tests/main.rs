@@ -1331,6 +1331,9 @@ fn profile_counters_with_sorted_processes() {
 
     profile.set_symbolicated(true);
 
+    profile.add_initial_visible_thread(thread1);
+    profile.add_initial_selected_thread(thread1);
+
     // eprintln!("{}", serde_json::to_string_pretty(&profile).unwrap());
     assert_json_eq!(
         profile,
@@ -1353,6 +1356,8 @@ fn profile_counters_with_sorted_processes() {
                 "length": 0,
                 "name": []
               },
+              "initialSelectedThreads": [0],
+              "initialVisibleThreads": [0],
               "interval": 1.0,
               "preprocessedProfileVersion": 46,
               "processType": 0,

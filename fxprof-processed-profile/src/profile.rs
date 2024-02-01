@@ -108,6 +108,8 @@ pub struct Profile {
     pub(crate) processes: Vec<Process>,   // append-only for stable ProcessHandles
     pub(crate) counters: Vec<Counter>,
     pub(crate) threads: Vec<Thread>, // append-only for stable ThreadHandles
+    pub(crate) initial_visible_threads: Vec<ThreadHandle>,
+    pub(crate) initial_selected_threads: Vec<ThreadHandle>,
     pub(crate) reference_timestamp: ReferenceTimestamp,
     pub(crate) string_table: GlobalStringTable,
     pub(crate) marker_schemas: FastHashMap<&'static str, MarkerSchema>,
@@ -132,6 +134,8 @@ impl Profile {
             interval,
             product: product.to_string(),
             threads: Vec::new(),
+            initial_visible_threads: Vec::new(),
+            initial_selected_threads: Vec::new(),
             global_libs: GlobalLibTable::new(),
             kernel_libs: LibMappings::new(),
             reference_timestamp,
@@ -386,6 +390,32 @@ impl Profile {
         self.threads[thread.0].set_show_markers_in_timeline(v);
     }
 
+    /// Add a thread as initially visible in the UI.
+    ///
+    /// If not called, the UI uses its own ranking heuristic to choose which
+    /// threads are visible.
+    pub fn add_initial_visible_thread(&mut self, thread: ThreadHandle) {
+        self.initial_visible_threads.push(thread);
+    }
+
+    /// Clear the list of threads marked as initially visible in the UI.
+    pub fn clear_initial_visible_threads(&mut self) {
+        self.initial_visible_threads.clear();
+    }
+
+    /// Add a thread as initially selected in the UI.
+    ///
+    /// If not called, the UI uses its own heuristic to choose which threads
+    /// are initially selected.
+    pub fn add_initial_selected_thread(&mut self, thread: ThreadHandle) {
+        self.initial_selected_threads.push(thread);
+    }
+
+    /// Clear the list of threads marked as initially selected in the UI.
+    pub fn clear_initial_selected_threads(&mut self) {
+        self.initial_selected_threads.clear();
+    }
+
     /// Turn the string into in a [`StringHandle`], for use in [`Frame::Label`].
     pub fn intern_string(&mut self, s: &str) -> StringHandle {
         StringHandle(self.string_table.index_for_string(s))
@@ -561,9 +591,10 @@ impl Profile {
     // The processed profile format has all threads from all processes in a flattened threads list.
     // Each thread duplicates some information about its process, which allows the Firefox Profiler
     // UI to group threads from the same process.
-    fn sorted_threads(&self) -> (Vec<ThreadHandle>, Vec<usize>) {
+    fn sorted_threads(&self) -> (Vec<ThreadHandle>, Vec<usize>, Vec<usize>) {
         let mut sorted_threads = Vec::with_capacity(self.threads.len());
         let mut first_thread_index_per_process = vec![0; self.processes.len()];
+        let mut new_thread_indices = vec![0; self.threads.len()];
 
         let mut sorted_processes: Vec<_> = (0..self.processes.len()).map(ProcessHandle).collect();
         sorted_processes.sort_by(|a_handle, b_handle| {
@@ -583,9 +614,17 @@ impl Profile {
                 let b = &self.threads[b_handle.0];
                 a.cmp_for_json_order(b)
             });
+
+            for (i, v) in sorted_threads_for_this_process.iter().enumerate() {
+                new_thread_indices[v.0] = prev_len + i;
+            }
         }
 
-        (sorted_threads, first_thread_index_per_process)
+        (
+            sorted_threads,
+            first_thread_index_per_process,
+            new_thread_indices,
+        )
     }
 
     fn serializable_threads<'a>(
@@ -617,9 +656,10 @@ impl Profile {
 
 impl Serialize for Profile {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let (sorted_threads, first_thread_index_per_process) = self.sorted_threads();
+        let (sorted_threads, first_thread_index_per_process, new_thread_indices) =
+            self.sorted_threads();
         let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("meta", &SerializableProfileMeta(self))?;
+        map.serialize_entry("meta", &SerializableProfileMeta(self, &new_thread_indices))?;
         map.serialize_entry("libs", &self.global_libs)?;
         map.serialize_entry("threads", &self.serializable_threads(&sorted_threads))?;
         map.serialize_entry("pages", &[] as &[()])?;
@@ -632,7 +672,7 @@ impl Serialize for Profile {
     }
 }
 
-struct SerializableProfileMeta<'a>(&'a Profile);
+struct SerializableProfileMeta<'a>(&'a Profile, &'a [usize]);
 
 impl<'a> Serialize for SerializableProfileMeta<'a> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -672,6 +712,30 @@ impl<'a> Serialize for SerializableProfileMeta<'a> {
             self.0.marker_schemas.values().cloned().collect();
         marker_schemas.sort_by_key(|schema| schema.type_name);
         map.serialize_entry("markerSchema", &marker_schemas)?;
+
+        if !self.0.initial_visible_threads.is_empty() {
+            map.serialize_entry(
+                "initialVisibleThreads",
+                &self
+                    .0
+                    .initial_visible_threads
+                    .iter()
+                    .map(|x| self.1[x.0])
+                    .collect::<Vec<_>>(),
+            )?;
+        }
+
+        if !self.0.initial_selected_threads.is_empty() {
+            map.serialize_entry(
+                "initialSelectedThreads",
+                &self
+                    .0
+                    .initial_selected_threads
+                    .iter()
+                    .map(|x| self.1[x.0])
+                    .collect::<Vec<_>>(),
+            )?;
+        };
 
         map.end()
     }
