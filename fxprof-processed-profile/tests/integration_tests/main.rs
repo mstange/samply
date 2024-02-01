@@ -956,6 +956,7 @@ fn profile_without_js() {
                     0
                   ]
                 },
+                "showMarkersInTimeline": false,
                 "stringArray": [
                   "0x7ffdb4824837",
                   "dump_syms",
@@ -979,7 +980,7 @@ fn profile_without_js() {
                   "CustomName"
                 ],
                 "tid": "12345",
-                "unregisterTime": null
+                "unregisterTime": null,
               }
             ],
             "pages": [],
@@ -1234,6 +1235,7 @@ fn profile_with_js() {
                     0
                   ]
                 },
+                "showMarkersInTimeline": false,
                 "stackTable": {
                   "length": 2,
                   "prefix": [
@@ -1292,6 +1294,8 @@ fn profile_counters_with_sorted_processes() {
         Timestamp::from_millis_since_reference(1.0),
         true,
     );
+
+    profile.set_thread_show_markers_in_timeline(thread0, true);
 
     profile.add_sample(
         thread0,
@@ -1440,6 +1444,7 @@ fn profile_counters_with_sorted_processes() {
                     0
                   ]
                 },
+                "showMarkersInTimeline": false,
                 "stackTable": {
                   "length": 0,
                   "prefix": [],
@@ -1524,6 +1529,7 @@ fn profile_counters_with_sorted_processes() {
                     0
                   ]
                 },
+                "showMarkersInTimeline": true,
                 "stackTable": {
                   "length": 0,
                   "prefix": [],

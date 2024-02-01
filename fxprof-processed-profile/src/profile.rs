@@ -379,6 +379,11 @@ impl Profile {
         self.threads[thread.0].set_end_time(end_time);
     }
 
+    /// Set whether to render markers in a thread's timeline view.
+    pub fn set_thread_show_markers_in_timeline(&mut self, thread: ThreadHandle, v: bool) {
+        self.threads[thread.0].set_show_markers_in_timeline(v);
+    }
+
     /// Turn the string into in a [`StringHandle`], for use in [`Frame::Label`].
     pub fn intern_string(&mut self, s: &str) -> StringHandle {
         StringHandle(self.string_table.index_for_string(s))
