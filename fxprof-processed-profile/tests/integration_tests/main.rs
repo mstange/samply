@@ -298,6 +298,7 @@ fn profile_without_js() {
 
     let memory_counter =
         profile.add_counter(process, "malloc", "Memory", "Amount of allocated memory");
+    profile.set_counter_color(memory_counter, GraphColor::Red);
     profile.add_counter_sample(
         memory_counter,
         Timestamp::from_millis_since_reference(0.0),
@@ -1001,6 +1002,7 @@ fn profile_without_js() {
             "counters": [
               {
                 "category": "Memory",
+                "color": "red",
                 "name": "malloc",
                 "description": "Amount of allocated memory",
                 "mainThreadIndex": 0,

@@ -19,7 +19,7 @@ use crate::reference_timestamp::ReferenceTimestamp;
 use crate::sample_table::WeightType;
 use crate::string_table::{GlobalStringIndex, GlobalStringTable};
 use crate::thread::{ProcessHandle, Thread};
-use crate::{MarkerSchema, MarkerTiming, ProfilerMarker, SymbolTable, Timestamp};
+use crate::{GraphColor, MarkerSchema, MarkerTiming, ProfilerMarker, SymbolTable, Timestamp};
 
 /// The sampling interval used during profile recording.
 ///
@@ -256,6 +256,11 @@ impl Profile {
             self.processes[process.0].pid(),
         ));
         handle
+    }
+
+    /// Set the color to use when rendering the counter.
+    pub fn set_counter_color(&mut self, counter: CounterHandle, color: GraphColor) {
+        self.counters[counter.0].set_color(color);
     }
 
     /// Change the start time of a process.
