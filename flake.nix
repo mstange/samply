@@ -50,6 +50,10 @@
 
         craneLib = (crane.mkLib pkgs).overrideToolchain rust-toolchain;
 
+        crateNameFromCargoToml = craneLib.crateNameFromCargoToml {
+          cargoToml = ./samply/Cargo.toml;
+        };
+        
         src = craneLib.cleanCargoSource ./.;
 
         buildInputs = with pkgs; [
@@ -63,14 +67,15 @@
         # Build *just* the cargo dependencies, so we can reuse
         # all of that work (e.g. via cachix) when running in CI
         cargoArtifacts = craneLib.buildDepsOnly {
+          inherit (crateNameFromCargoToml) pname version;
           inherit src buildInputs;
         };
 
         # Build the actual crate itself, reusing the dependency
         # artifacts from above.
         samply = craneLib.buildPackage {
+          inherit (crateNameFromCargoToml) pname version;
           inherit cargoArtifacts src buildInputs;
-          pname = "samply";
           cargoExtraArgs = "--bin samply";
         };
       in
