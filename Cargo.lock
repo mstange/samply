@@ -499,7 +499,7 @@ dependencies = [
  "anyhow",
  "clap",
  "futures",
- "memmap2",
+ "memmap2 0.9.4",
  "samply-symbols",
 ]
 
@@ -1093,6 +1093,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "memmap2"
+version = "0.9.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe751422e4a8caa417e13c3ea66452215d7d63e19e604f4980461212f3ae1322"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1332,7 +1341,7 @@ dependencies = [
  "anyhow",
  "clap",
  "futures",
- "memmap2",
+ "memmap2 0.9.4",
  "samply-api",
  "serde_json",
 ]
@@ -1605,7 +1614,7 @@ dependencies = [
  "linux-perf-data",
  "mach",
  "memchr",
- "memmap2",
+ "memmap2 0.9.4",
  "mio",
  "nix",
  "nix-base32",
@@ -1637,7 +1646,7 @@ dependencies = [
  "anyhow",
  "assert-json-diff",
  "futures",
- "memmap2",
+ "memmap2 0.9.4",
  "samply-symbols",
  "serde",
  "serde_derive",
@@ -1668,7 +1677,7 @@ dependencies = [
  "lzma-rs",
  "macho-unwind-info",
  "memchr",
- "memmap2",
+ "memmap2 0.9.4",
  "msvc-demangler",
  "nom",
  "object",
@@ -1855,7 +1864,7 @@ dependencies = [
  "bytes",
  "cab",
  "dirs 4.0.0",
- "memmap2",
+ "memmap2 0.5.10",
  "reqwest",
  "thiserror",
  "tokio",
