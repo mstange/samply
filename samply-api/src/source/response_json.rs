@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde_derive::Serialize;
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]

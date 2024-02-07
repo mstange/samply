@@ -1,4 +1,5 @@
-use serde::{ser::SerializeSeq, Serialize};
+use serde::ser::SerializeSeq;
+use serde_derive::Serialize;
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -36,7 +37,7 @@ pub struct DecodedInstruction {
     pub decoded_string_per_syntax: Vec<String>,
 }
 
-impl Serialize for DecodedInstruction {
+impl serde::Serialize for DecodedInstruction {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,

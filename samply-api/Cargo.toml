@@ -19,7 +19,6 @@ thiserror = "1.0.26"
 serde = "1.0.188"
 serde_derive = "1.0.188"
 serde_json = "1.0.64"
-serde_tuple = "0.5.0"
 yaxpeax-arch = { version = "0.2.7", default-features = false }
 yaxpeax-x86 = { version = "1.1.4", default-features = false, features = ["std", "fmt"] }
 yaxpeax-arm = { version = "0.2.3", default-features = false, features = ["std"] }
