@@ -52,7 +52,8 @@ flate2 = "1"
 yoke = "0.7"
 yoke-derive = "0.7"
 nom = "7.1.1"
-zerocopy = "0.6.1"
+zerocopy = "0.7"
+zerocopy-derive = "0.7"
 linux-perf-data = "0.8.0"
 
 [dev-dependencies]

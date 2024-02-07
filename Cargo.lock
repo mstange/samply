@@ -1700,7 +1700,8 @@ dependencies = [
  "uuid",
  "yoke",
  "yoke-derive",
- "zerocopy 0.6.6",
+ "zerocopy 0.7.32",
+ "zerocopy-derive 0.7.32",
 ]
 
 [[package]]
