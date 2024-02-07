@@ -7,7 +7,8 @@ use samply_symbols::{
     self, AddressInfo, Error, ExternalFileAddressRef, ExternalFileRef, ExternalFileSymbolMap,
     FrameDebugInfo, LibraryInfo, MultiArchDisambiguator,
 };
-use yoke::{Yoke, Yokeable};
+use yoke::Yoke;
+use yoke_derive::Yokeable;
 
 use crate::config::SymbolManagerConfig;
 use crate::helper::{FileReadOnlyHelper, Helper, WholesymFileLocation};

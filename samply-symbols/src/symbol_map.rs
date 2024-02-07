@@ -1,7 +1,8 @@
 use std::borrow::Cow;
 
 use debugid::DebugId;
-use yoke::{Yoke, Yokeable};
+use yoke::Yoke;
+use yoke_derive::Yokeable;
 
 use crate::{shared::AddressInfo, Error, FileLocation};
 
@@ -79,7 +80,7 @@ pub struct GenericSymbolMap<SMDO: SymbolMapDataOuterTrait>(
     Yoke<SymbolMapInnerWrapper<'static>, Box<SymbolMapDataOuterAndMid<SMDO>>>,
 );
 
-impl<SMDO: SymbolMapDataOuterTrait> GenericSymbolMap<SMDO> {
+impl<SMDO: SymbolMapDataOuterTrait + 'static> GenericSymbolMap<SMDO> {
     pub fn new(outer: SMDO) -> Result<Self, Error> {
         let outer_and_mid = SymbolMapDataOuterAndMid(
             Yoke::<SymbolMapDataMidWrapper<'static>, _>::try_attach_to_cart(

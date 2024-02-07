@@ -1,7 +1,8 @@
 use std::{collections::HashMap, sync::Mutex};
 
 use object::{read::archive::ArchiveFile, File, FileKind, ReadRef};
-use yoke::{Yoke, Yokeable};
+use yoke::Yoke;
+use yoke_derive::Yokeable;
 
 use crate::{
     dwarf::{get_frames, Addr2lineContextData},
