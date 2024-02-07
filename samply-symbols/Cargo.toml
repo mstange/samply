@@ -46,7 +46,7 @@ elsa = "1.4.0"
 memchr = { version = "2.4", default-features = false }
 srcsrv = "0.2.2"
 lzma-rs = "0.2.0"
-macho-unwind-info = "0.3.0"
+macho-unwind-info = "0.4.0"
 debugid = "0.8.0"
 flate2 = "1"
 yoke = { version = "0.6.2", features = ["derive"] }

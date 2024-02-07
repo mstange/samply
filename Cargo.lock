@@ -612,7 +612,7 @@ checksum = "6e3cae7151aeb94b1e204677f528adf6f6c56c0f56dbc5661c910b1f7deab806"
 dependencies = [
  "fallible-iterator 0.2.0",
  "gimli 0.27.3",
- "macho-unwind-info",
+ "macho-unwind-info 0.3.0",
  "thiserror",
 ]
 
@@ -1069,6 +1069,17 @@ checksum = "29014be9ddec1a1e9bfbb926493d2df811adc2e257a5a36072136eb84c19c14f"
 dependencies = [
  "thiserror",
  "zerocopy 0.6.6",
+]
+
+[[package]]
+name = "macho-unwind-info"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6b6086acc74bc23f56b60e88bb082d505e23849d68d6c0f12bb6a7ad5c60e03e"
+dependencies = [
+ "thiserror",
+ "zerocopy 0.7.32",
+ "zerocopy-derive 0.7.32",
 ]
 
 [[package]]
@@ -1675,7 +1686,7 @@ dependencies = [
  "gimli 0.28.1",
  "linux-perf-data",
  "lzma-rs",
- "macho-unwind-info",
+ "macho-unwind-info 0.4.0",
  "memchr",
  "memmap2 0.9.4",
  "msvc-demangler",
@@ -2612,6 +2623,7 @@ version = "0.7.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "74d4d3961e53fa4c9a25a8637fc2bfaf2595b3d3ae34875568a5cf64787716be"
 dependencies = [
+ "byteorder",
  "zerocopy-derive 0.7.32",
 ]
 
