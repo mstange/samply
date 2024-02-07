@@ -545,7 +545,7 @@ fn do_stackwalk(
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ForeignMemory {
     task: mach_port_t,
     data: Vec<VmData>,
@@ -652,7 +652,7 @@ impl Deref for VmSubData {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct VmData {
     address_range: std::ops::Range<u64>,
     data: *mut u8,
