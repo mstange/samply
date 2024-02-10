@@ -12,20 +12,6 @@ use crate::{FileAndPathHelperResult, FileContents};
 
 const CHUNK_SIZE: u64 = 32 * 1024;
 
-#[cfg(not(feature = "send_futures"))]
-pub trait FileByteSource {
-    /// Read `size` bytes at offset `offset` and append them to `buffer`.
-    /// If successful, `buffer` must have had its len increased exactly by `size`,
-    /// otherwise the caller may panic.
-    fn read_bytes_into(
-        &self,
-        buffer: &mut Vec<u8>,
-        offset: u64,
-        size: usize,
-    ) -> FileAndPathHelperResult<()>;
-}
-
-#[cfg(feature = "send_futures")]
 pub trait FileByteSource: Send + Sync {
     /// Read `size` bytes at offset `offset` and append them to `buffer`.
     /// If successful, `buffer` must have had its len increased exactly by `size`,

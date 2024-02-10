@@ -347,41 +347,6 @@ pub trait FileAndPathHelper<'h> {
 
 /// Provides synchronous access to the raw bytes of a file.
 /// This trait needs to be implemented by the consumer of this crate.
-#[cfg(not(feature = "send_futures"))]
-pub trait FileContents {
-    /// Must return the length, in bytes, of this file.
-    fn len(&self) -> u64;
-
-    /// Whether the file is empty.
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Must return a slice of the file contents, or an error.
-    /// The slice's lifetime must be valid for the entire lifetime of this
-    /// `FileContents` object. This restriction may be a bit cumbersome to satisfy;
-    /// it's a restriction that's inherited from the `object` crate's `ReadRef` trait.
-    fn read_bytes_at(&self, offset: u64, size: u64) -> FileAndPathHelperResult<&[u8]>;
-
-    /// TODO: document
-    fn read_bytes_at_until(
-        &self,
-        range: Range<u64>,
-        delimiter: u8,
-    ) -> FileAndPathHelperResult<&[u8]>;
-
-    /// Append `size` bytes to `buffer`, starting to read at `offset` in the file.
-    /// If successful, `buffer` must have had its len increased exactly by `size`,
-    /// otherwise the caller may panic.
-    fn read_bytes_into(
-        &self,
-        buffer: &mut Vec<u8>,
-        offset: u64,
-        size: usize,
-    ) -> FileAndPathHelperResult<()>;
-}
-
-#[cfg(feature = "send_futures")]
 pub trait FileContents: Send + Sync {
     /// Must return the length, in bytes, of this file.
     fn len(&self) -> u64;

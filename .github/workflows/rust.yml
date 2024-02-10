@@ -45,6 +45,12 @@ jobs:
         # Latest cross release 0.2.5 fails to link binaries for the `aar64-linux-android` target. A release is pending.
         # Use a specific commit until the release is out.
         run: cargo install --git https://github.com/cross-rs/cross.git --rev 44011c8 cross
+      - name: Check samply-api with default features
+        uses: actions-rs/cargo@v1
+        with:
+            use-cross: ${{ matrix.cross}}
+            command: check
+            args: -p samply-api --verbose --target=${{ matrix.target }}
       - name: Build
         uses: actions-rs/cargo@v1
         with:
