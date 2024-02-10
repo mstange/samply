@@ -836,7 +836,7 @@ pub struct FileContentsWrapper<T: FileContents> {
     file_contents: T,
     len: u64,
     #[cfg(feature = "partial_read_stats")]
-    partial_read_stats: RefCell<FileReadStats>,
+    partial_read_stats: std::sync::Mutex<FileReadStats>,
 }
 
 impl<T: FileContents> FileContentsWrapper<T> {
@@ -846,7 +846,7 @@ impl<T: FileContents> FileContentsWrapper<T> {
             file_contents,
             len,
             #[cfg(feature = "partial_read_stats")]
-            partial_read_stats: RefCell::new(FileReadStats::new(len)),
+            partial_read_stats: std::sync::Mutex::new(FileReadStats::new(len)),
         }
     }
 
@@ -864,7 +864,8 @@ impl<T: FileContents> FileContentsWrapper<T> {
     pub fn read_bytes_at(&self, offset: u64, size: u64) -> FileAndPathHelperResult<&[u8]> {
         #[cfg(feature = "partial_read_stats")]
         self.partial_read_stats
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .record_read(offset, size);
 
         self.file_contents.read_bytes_at(offset, size)
@@ -883,7 +884,8 @@ impl<T: FileContents> FileContentsWrapper<T> {
 
         #[cfg(feature = "partial_read_stats")]
         self.partial_read_stats
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .record_read(start, (bytes.len() + 1) as u64);
 
         Ok(bytes)
@@ -900,7 +902,8 @@ impl<T: FileContents> FileContentsWrapper<T> {
     ) -> FileAndPathHelperResult<()> {
         #[cfg(feature = "partial_read_stats")]
         self.partial_read_stats
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .record_read(offset, size as u64);
 
         self.file_contents.read_bytes_into(buffer, offset, size)
@@ -922,7 +925,7 @@ impl<T: FileContents> FileContentsWrapper<T> {
 #[cfg(feature = "partial_read_stats")]
 impl<T: FileContents> Drop for FileContentsWrapper<T> {
     fn drop(&mut self) {
-        eprintln!("{}", self.partial_read_stats.borrow());
+        eprintln!("{}", self.partial_read_stats.lock());
     }
 }
 
