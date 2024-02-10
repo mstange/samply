@@ -130,6 +130,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-trait"
+version = "0.1.77"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c980ee35e870bd1a4d2c8294d4c04d0499e67bca1e4b5cefcc693c2fa00caea9"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.48",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -293,9 +304,9 @@ dependencies = [
 
 [[package]]
 name = "cab"
-version = "0.4.1"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae6b4de23c7d39c0631fd3cc952d87951c86c75a13812d7247cb7a896e7b3551"
+checksum = "9e8636d870cf15918e416b7904f0db1cbd06de0ffe392986c3b16662552df00c"
 dependencies = [
  "byteorder",
  "flate2",
@@ -459,31 +470,11 @@ dependencies = [
 
 [[package]]
 name = "dirs"
-version = "4.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca3aa72a6f96ea37bbc5aa912f6788242832f75369bdfdadcb0e38423f100059"
-dependencies = [
- "dirs-sys 0.3.7",
-]
-
-[[package]]
-name = "dirs"
 version = "5.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "44c45a9d03d6676652bcb5e724c7e988de1acad23a711b5217ab9cbecbec2225"
 dependencies = [
- "dirs-sys 0.4.1",
-]
-
-[[package]]
-name = "dirs-sys"
-version = "0.3.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b1d1d91c932ef41c0f2663aa8b0ca0342d444d842c06914aa0a7e352d0bada6"
-dependencies = [
- "libc",
- "redox_users",
- "winapi",
+ "dirs-sys",
 ]
 
 [[package]]
@@ -505,7 +496,7 @@ dependencies = [
  "anyhow",
  "clap",
  "futures",
- "memmap2 0.9.4",
+ "memmap2",
  "samply-symbols",
 ]
 
@@ -622,6 +613,18 @@ dependencies = [
  "macho-unwind-info",
  "pe-unwind-info",
  "thiserror",
+]
+
+[[package]]
+name = "fs4"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29f9df8a11882c4e3335eb2d18a0137c505d9ca927470b0cac9c6f0ae07d28f7"
+dependencies = [
+ "async-trait",
+ "rustix",
+ "tokio",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -1030,9 +1033,9 @@ dependencies = [
 
 [[package]]
 name = "lzxd"
-version = "0.1.4"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "784462f20dddd9dfdb45de963fa4ad4a288cb10a7889ac5d2c34fb6481c6b213"
+checksum = "5de7336a183103429ad66d11d56d8bdc9c4a2916f6b85a8f11e5b127bde12001"
 
 [[package]]
 name = "mach"
@@ -1065,15 +1068,6 @@ name = "memchr"
 version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "523dc4f511e55ab87b694dc30d0f820d60906ef06413f93d4d7a1385599cc149"
-
-[[package]]
-name = "memmap2"
-version = "0.5.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83faa42c0a078c393f6b29d5db232d8be22776a891f8f56e5284faee4a20b327"
-dependencies = [
- "libc",
-]
 
 [[package]]
 name = "memmap2"
@@ -1337,7 +1331,7 @@ dependencies = [
  "anyhow",
  "clap",
  "futures",
- "memmap2 0.9.4",
+ "memmap2",
  "samply-api",
  "serde_json",
 ]
@@ -1599,7 +1593,7 @@ dependencies = [
  "clap",
  "crossbeam-channel",
  "debugid",
- "dirs 5.0.1",
+ "dirs",
  "flate2",
  "framehop",
  "fxhash",
@@ -1610,7 +1604,7 @@ dependencies = [
  "linux-perf-data",
  "mach",
  "memchr",
- "memmap2 0.9.4",
+ "memmap2",
  "mio",
  "nix",
  "nix-base32",
@@ -1625,7 +1619,6 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "signal-hook",
- "symsrv",
  "sysctl",
  "tempfile",
  "thiserror",
@@ -1642,7 +1635,7 @@ dependencies = [
  "anyhow",
  "assert-json-diff",
  "futures",
- "memmap2 0.9.4",
+ "memmap2",
  "samply-symbols",
  "serde",
  "serde_derive",
@@ -1672,7 +1665,7 @@ dependencies = [
  "lzma-rs",
  "macho-unwind-info",
  "memchr",
- "memmap2 0.9.4",
+ "memmap2",
  "msvc-demangler",
  "nom",
  "object",
@@ -1833,14 +1826,14 @@ checksum = "73473c0e59e6d5812c5dfe2a064a6444949f089e20eec9a2e5506596494e4623"
 
 [[package]]
 name = "symsrv"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "328d40bbd6972015696ee86709ccc1327a2529816898f2844a62b71e449b1274"
+checksum = "4b6a9f40855a5ba9f9008b2c12eef13a67d2655459ba9f74970aea341e0fb5e9"
 dependencies = [
- "bytes",
  "cab",
- "dirs 4.0.0",
- "memmap2 0.5.10",
+ "dirs",
+ "fs4",
+ "futures-util",
  "reqwest",
  "thiserror",
  "tokio",
@@ -2292,6 +2285,7 @@ dependencies = [
  "futures",
  "futures-util",
  "libc",
+ "memmap2",
  "reqwest",
  "samply-api",
  "samply-symbols",

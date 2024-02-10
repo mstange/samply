@@ -3,7 +3,6 @@ use samply_symbols::{
     BreakpadIndex, BreakpadIndexParser, CandidatePathInfo, CodeId, ElfBuildId, FileAndPathHelper,
     FileAndPathHelperResult, FileLocation, LibraryInfo, OptionallySendFuture, PeCodeId,
 };
-use symsrv::{memmap2, FileContents, SymbolCache};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use uuid::Uuid;
 
@@ -16,6 +15,33 @@ use std::{
 };
 
 use crate::{config::SymbolManagerConfig, debuginfod::DebuginfodSymbolCache};
+
+use bytes::Bytes;
+
+/// This is how the symbol file contents are returned. If there's an uncompressed file
+/// in the store, then we return an Mmap of that uncompressed file. If there is no
+/// local file or the local file is compressed, then we load or uncompress the file
+/// into memory and return a `Bytes` wrapper of that memory.
+///
+/// This type can be coerced to a [u8] slice with `&file_contents[..]`.
+pub enum FileContents {
+    /// A mapped file.
+    Mmap(memmap2::Mmap),
+    /// Bytes in memory.
+    Bytes(Bytes),
+}
+
+impl std::ops::Deref for FileContents {
+    type Target = [u8];
+
+    #[inline]
+    fn deref(&self) -> &[u8] {
+        match self {
+            FileContents::Mmap(mmap) => mmap,
+            FileContents::Bytes(bytes) => bytes,
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum WholesymFileLocation {
@@ -172,7 +198,7 @@ impl<'h> FileAndPathHelper<'h> for FileReadOnlyHelper {
 }
 
 pub struct Helper {
-    win_symbol_cache: Option<SymbolCache>,
+    win_symbol_cache: Option<symsrv::SymbolCache>,
     debuginfod_symbol_cache: Option<DebuginfodSymbolCache>,
     known_libs: Mutex<KnownLibs>,
     config: SymbolManagerConfig,
@@ -188,8 +214,13 @@ struct KnownLibs {
 
 impl Helper {
     pub fn with_config(config: SymbolManagerConfig) -> Self {
+        let default_downstream_store = symsrv::get_default_downstream_store();
         let win_symbol_cache = match config.effective_nt_symbol_path() {
-            Some(nt_symbol_path) => Some(SymbolCache::new(nt_symbol_path, config.verbose)),
+            Some(nt_symbol_path) => Some(symsrv::SymbolCache::new(
+                nt_symbol_path,
+                default_downstream_store.as_deref(),
+                config.verbose,
+            )),
             None => None,
         };
         let debuginfod_symbol_cache = if config.use_debuginfod {
@@ -271,12 +302,15 @@ impl Helper {
                 if self.config.verbose {
                     eprintln!("Trying to get file {path:?} from symbol cache");
                 }
-                Ok(self
+                let file_path = self
                     .win_symbol_cache
                     .as_ref()
                     .unwrap()
                     .get_file(Path::new(&path))
-                    .await?)
+                    .await?;
+                Ok(FileContents::Mmap(unsafe {
+                    memmap2::MmapOptions::new().map(&File::open(file_path)?)?
+                }))
             }
             WholesymFileLocation::BreakpadSymbolServerFile(path) => {
                 if self.config.verbose {
@@ -297,20 +331,32 @@ impl Helper {
                     Err("No breakpad symindex cache dir configured".into())
                 }
             }
-            WholesymFileLocation::DebuginfodDebugFile(build_id) => self
-                .debuginfod_symbol_cache
-                .as_ref()
-                .unwrap()
-                .get_file(&build_id.to_string(), "debuginfo")
-                .await
-                .ok_or_else(|| "Debuginfod could not find debuginfo".into()),
-            WholesymFileLocation::DebuginfodExecutable(build_id) => self
-                .debuginfod_symbol_cache
-                .as_ref()
-                .unwrap()
-                .get_file(&build_id.to_string(), "debuginfo")
-                .await
-                .ok_or_else(|| "Debuginfod could not find debuginfo".into()),
+            WholesymFileLocation::DebuginfodDebugFile(build_id) => {
+                let file_path = self
+                    .debuginfod_symbol_cache
+                    .as_ref()
+                    .unwrap()
+                    .get_file(&build_id.to_string(), "debuginfo")
+                    .await
+                    .ok_or("Debuginfod could not find debuginfo")?;
+
+                Ok(FileContents::Mmap(unsafe {
+                    memmap2::MmapOptions::new().map(&File::open(file_path)?)?
+                }))
+            }
+            WholesymFileLocation::DebuginfodExecutable(build_id) => {
+                let file_path = self
+                    .debuginfod_symbol_cache
+                    .as_ref()
+                    .unwrap()
+                    .get_file(&build_id.to_string(), "debuginfo")
+                    .await
+                    .ok_or("Debuginfod could not find debuginfo")?;
+
+                Ok(FileContents::Mmap(unsafe {
+                    memmap2::MmapOptions::new().map(&File::open(file_path)?)?
+                }))
+            }
         }
     }
 

@@ -42,15 +42,6 @@ pub async fn start_server_main(file: &Path, props: ServerProps) {
 
 const BAD_CHARS: &AsciiSet = &CONTROLS.add(b':').add(b'/');
 
-#[test]
-fn test_is_send_and_sync() {
-    use symsrv::FileContents;
-    fn assert_is_send<T: Send>() {}
-    fn assert_is_sync<T: Sync>() {}
-    assert_is_send::<FileContents>();
-    assert_is_sync::<FileContents>();
-}
-
 #[derive(Clone, Debug)]
 pub enum PortSelection {
     OnePort(u16),

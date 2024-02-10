@@ -1,7 +1,5 @@
 use std::path::{Path, PathBuf};
 
-use symsrv::{memmap2, FileContents};
-
 pub struct DebuginfodSymbolCache(DebuginfodSymbolCacheInner);
 
 enum DebuginfodSymbolCacheInner {
@@ -41,11 +39,7 @@ impl DebuginfodSymbolCache {
     }
 
     #[allow(unused)]
-    pub async fn get_file_only_cached(
-        &self,
-        buildid: &str,
-        file_type: &str,
-    ) -> Option<symsrv::FileContents> {
+    pub async fn get_file_only_cached(&self, buildid: &str, file_type: &str) -> Option<PathBuf> {
         match &self.0 {
             DebuginfodSymbolCacheInner::Official(official) => {
                 official.get_file_only_cached(buildid, file_type).await
@@ -56,7 +50,7 @@ impl DebuginfodSymbolCache {
         }
     }
 
-    pub async fn get_file(&self, buildid: &str, file_type: &str) -> Option<symsrv::FileContents> {
+    pub async fn get_file(&self, buildid: &str, file_type: &str) -> Option<PathBuf> {
         match &self.0 {
             DebuginfodSymbolCacheInner::Official(official) => {
                 official.get_file(buildid, file_type).await
@@ -70,15 +64,11 @@ impl DebuginfodSymbolCache {
 struct OfficialDebuginfodSymbolCache;
 
 impl OfficialDebuginfodSymbolCache {
-    pub async fn get_file_only_cached(
-        &self,
-        _buildid: &str,
-        _file_type: &str,
-    ) -> Option<symsrv::FileContents> {
+    pub async fn get_file_only_cached(&self, _buildid: &str, _file_type: &str) -> Option<PathBuf> {
         None // TODO
     }
 
-    pub async fn get_file(&self, _buildid: &str, _file_type: &str) -> Option<symsrv::FileContents> {
+    pub async fn get_file(&self, _buildid: &str, _file_type: &str) -> Option<PathBuf> {
         None // TODO
     }
 }
@@ -92,26 +82,17 @@ struct ManualDebuginfodSymbolCache {
 }
 
 impl ManualDebuginfodSymbolCache {
-    pub async fn get_file_only_cached(
-        &self,
-        buildid: &str,
-        file_type: &str,
-    ) -> Option<symsrv::FileContents> {
+    pub async fn get_file_only_cached(&self, buildid: &str, file_type: &str) -> Option<PathBuf> {
         for (_server_base_url, cache_dir) in &self.servers_and_caches {
             let cached_file_path = cache_dir.join(buildid).join(file_type);
-            if self.verbose {
-                eprintln!("Opening file {:?}", cached_file_path.to_string_lossy());
-            }
-            if let Ok(file) = std::fs::File::open(&cached_file_path) {
-                return Some(FileContents::Mmap(unsafe {
-                    memmap2::MmapOptions::new().map(&file).ok()?
-                }));
+            if cached_file_path.exists() {
+                return Some(cached_file_path);
             }
         }
         None
     }
 
-    pub async fn get_file(&self, buildid: &str, file_type: &str) -> Option<symsrv::FileContents> {
+    pub async fn get_file(&self, buildid: &str, file_type: &str) -> Option<PathBuf> {
         if let Some(f) = self.get_file_only_cached(buildid, file_type).await {
             return Some(f);
         }
@@ -133,7 +114,7 @@ impl ManualDebuginfodSymbolCache {
         file_type: &str,
         server_base_url: &str,
         cache_dir: &Path,
-    ) -> Result<FileContents, Box<dyn std::error::Error>> {
+    ) -> Result<PathBuf, Box<dyn std::error::Error>> {
         let url = format!("{server_base_url}/buildid/{buildid}/{file_type}");
         if self.verbose {
             eprintln!("Downloading {url}...");
@@ -154,12 +135,6 @@ impl ManualDebuginfodSymbolCache {
             tokio::io::copy(&mut item?.as_ref(), &mut writer).await?;
         }
         drop(writer);
-        if self.verbose {
-            eprintln!("Opening file {:?}", dest_path.to_string_lossy());
-        }
-        let file = std::fs::File::open(&dest_path)?;
-        Ok(FileContents::Mmap(unsafe {
-            memmap2::MmapOptions::new().map(&file)?
-        }))
+        Ok(dest_path)
     }
 }

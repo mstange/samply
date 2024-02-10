@@ -65,23 +65,21 @@ impl SymbolManagerConfig {
     }
 
     pub(crate) fn effective_nt_symbol_path(&self) -> Option<Vec<NtSymbolPathEntry>> {
-        let default_downstream_store = symsrv::get_default_downstream_store();
-        let default_downstream_store = default_downstream_store.as_deref();
         let respected_env_value = if self.respect_nt_symbol_path {
             std::env::var("_NT_SYMBOL_PATH").ok()
         } else {
             None
         };
         let mut path = match (respected_env_value, &self.default_nt_symbol_path) {
-            (Some(env_var), _) => Some(parse_nt_symbol_path(&env_var, default_downstream_store)),
-            (None, Some(default)) => Some(parse_nt_symbol_path(default, default_downstream_store)),
+            (Some(env_var), _) => Some(parse_nt_symbol_path(&env_var)),
+            (None, Some(default)) => Some(parse_nt_symbol_path(default)),
             (None, None) => None,
         };
         for (base_url, cache_dir) in &self.windows_servers {
             path.get_or_insert_with(Default::default)
                 .push(NtSymbolPathEntry::Chain {
                     dll: "symsrv.dll".to_string(),
-                    cache_paths: vec![cache_dir.clone()],
+                    cache_paths: vec![symsrv::CachePath::Path(cache_dir.clone())],
                     urls: vec![base_url.clone()],
                 })
         }
