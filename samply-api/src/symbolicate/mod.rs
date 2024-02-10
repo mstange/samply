@@ -114,10 +114,10 @@ impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SymbolicateApi<'a, 'h, H> {
         }
 
         // Look up any addresses whose debug info is in an external file.
-        // The symbol_manager caches the most recent external file.
-        // Since our addresses are sorted, they usually happen to be grouped by external
-        // file, so in practice we don't do much (if any) repeated reading of the same
-        // external file.
+        // The symbol_manager caches the most recent external file, so we sort our
+        // external addresses by ExternalFileAddressRef before we do the lookup,
+        // in order to get the best hit rate in lookup_external.
+        external_addresses.sort_unstable_by(|(_, a), (_, b)| a.cmp(b));
 
         for (address, ext_address) in external_addresses {
             if let Some(frames) = self
