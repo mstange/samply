@@ -122,13 +122,15 @@ async fn start_server(
     let mut config = SymbolManagerConfig::new()
         .verbose(verbose)
         .respect_nt_symbol_path(true)
-        .default_nt_symbol_path("srv**https://msdl.microsoft.com/download/symbols")
         .use_debuginfod(std::env::var("SAMPLY_USE_DEBUGINFOD").is_ok())
         .use_spotlight(true);
     if let Some(home_dir) = dirs::home_dir() {
         config = config.debuginfod_cache_dir_if_not_installed(home_dir.join("sym"));
     }
     // TODO: Read breakpad symbol server config from some kind of config file, and call breakpad_symbols_server
+    // TODO: On Windows, put https://msdl.microsoft.com/download/symbols into the config file.
+    // There's a privacy tradeoff here; some people may not want library names and debug IDs to be sent to Microsoft servers.
+    //     .default_nt_symbol_path("srv**https://msdl.microsoft.com/download/symbols")
 
     let mut symbol_manager = SymbolManager::with_config(config);
     for lib_info in libinfo_map.into_values() {
