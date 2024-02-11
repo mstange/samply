@@ -155,7 +155,10 @@ impl FatArchiveMember {
                         _ => None,
                     }
                     #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-                    None
+                    {
+                        let _ = arch;
+                        None
+                    }
                 } else {
                     None
                 }
