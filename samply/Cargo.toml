@@ -36,7 +36,7 @@ rand = "0.8.4"
 nix-base32 = "0.1.1"
 serde_derive = "1.0.137"
 serde = "1.0.137"
-wholesym = { version = "0.3.0", path = "../wholesym" }
+wholesym = { version = "0.4.0", path = "../wholesym" }
 dirs = "5.0.0"
 once_cell = "1.17"
 fxhash = "0.2.1"
