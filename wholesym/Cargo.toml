@@ -12,7 +12,7 @@ license = "MIT OR Apache-2.0"
 keywords = ["symbols", "profiling", "addr2line", "debuginfo"]
 
 [features]
-default = ["api"]
+default = []
 # Enable the JSON API interface.
 api = ["samply-api"]
 
