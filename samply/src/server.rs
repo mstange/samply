@@ -1,19 +1,21 @@
 use flate2::read::GzDecoder;
-use hyper::body::Bytes;
-use hyper::server::conn::AddrIncoming;
-use hyper::server::Builder;
-use hyper::service::{make_service_fn, service_fn};
-use hyper::{header, Body, Request, Response, Server};
-use hyper::{Method, StatusCode};
+use futures_util::TryStreamExt;
+use http_body_util::combinators::BoxBody;
+use http_body_util::{BodyExt, Either, StreamBody};
+use hyper::body::{Bytes, Frame};
+use hyper::server::conn::http1;
+use hyper::service::service_fn;
+use hyper::{header, Method, Request, Response, StatusCode};
+use hyper_util::rt::TokioIo;
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use rand::RngCore;
 use serde_derive::Deserialize;
-use tokio::io::AsyncReadExt;
+use tokio::net::TcpListener;
+use tokio_util::io::ReaderStream;
 use wholesym::debugid::DebugId;
 use wholesym::{CodeId, LibraryInfo, SymbolManager, SymbolManagerConfig};
 
 use std::collections::HashMap;
-use std::convert::Infallible;
 use std::ffi::{OsStr, OsString};
 use std::io::BufReader;
 use std::net::SocketAddr;
@@ -85,7 +87,7 @@ async fn start_server(
         HashMap::new()
     };
 
-    let (builder, addr) = make_builder_at_port(port_selection);
+    let (listener, addr) = make_listener(port_selection).await;
 
     let token = generate_token();
     let path_prefix = format!("/{token}");
@@ -137,25 +139,14 @@ async fn start_server(
         symbol_manager.add_known_library(lib_info);
     }
     let symbol_manager = Arc::new(symbol_manager);
-    let new_service = make_service_fn(move |_conn| {
-        let symbol_manager = symbol_manager.clone();
-        let profile_filename = profile_filename.map(PathBuf::from);
-        let template_values = template_values.clone();
-        let path_prefix = path_prefix.clone();
-        async {
-            Ok::<_, Infallible>(service_fn(move |req| {
-                symbolication_service(
-                    req,
-                    template_values.clone(),
-                    symbol_manager.clone(),
-                    profile_filename.clone(),
-                    path_prefix.clone(),
-                )
-            }))
-        }
-    });
 
-    let server = builder.serve(new_service);
+    let server = tokio::task::spawn(run_server(
+        listener,
+        symbol_manager,
+        profile_filename.map(PathBuf::from),
+        template_values,
+        path_prefix,
+    ));
 
     eprintln!("Local server listening at {server_origin}");
     if !open_in_browser {
@@ -223,12 +214,12 @@ fn generate_token() -> String {
     nix_base32::to_nix_base32(&bytes)
 }
 
-fn make_builder_at_port(port_selection: PortSelection) -> (Builder<AddrIncoming>, SocketAddr) {
+async fn make_listener(port_selection: PortSelection) -> (TcpListener, SocketAddr) {
     match port_selection {
         PortSelection::OnePort(port) => {
             let addr = SocketAddr::from(([127, 0, 0, 1], port));
-            match Server::try_bind(&addr) {
-                Ok(builder) => (builder, addr),
+            match TcpListener::bind(&addr).await {
+                Ok(listener) => (listener, addr),
                 Err(e) => {
                     eprintln!("Could not bind to port {port}: {e}");
                     std::process::exit(1)
@@ -239,8 +230,8 @@ fn make_builder_at_port(port_selection: PortSelection) -> (Builder<AddrIncoming>
             let mut error = None;
             for port in range.clone() {
                 let addr = SocketAddr::from(([127, 0, 0, 1], port));
-                match Server::try_bind(&addr) {
-                    Ok(builder) => return (builder, addr),
+                match TcpListener::bind(&addr).await {
+                    Ok(listener) => return (listener, addr),
                     Err(e) => {
                         error.get_or_insert(e);
                     }
@@ -289,41 +280,83 @@ const TEMPLATE_WITHOUT_PROFILE: &str = r#"
 </ul>
 "#;
 
+async fn run_server(
+    listener: TcpListener,
+    symbol_manager: Arc<SymbolManager>,
+    profile_filename: Option<PathBuf>,
+    template_values: Arc<HashMap<&'static str, String>>,
+    path_prefix: String,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // We start a loop to continuously accept incoming connections
+    loop {
+        let (stream, _) = listener.accept().await?;
+
+        // Use an adapter to access something implementing `tokio::io` traits as if they implement
+        // `hyper::rt` IO traits.
+        let io = TokioIo::new(stream);
+
+        let symbol_manager = symbol_manager.clone();
+        let profile_filename = profile_filename.clone();
+        let template_values = template_values.clone();
+        let path_prefix = path_prefix.clone();
+
+        // Spawn a tokio task to serve multiple connections concurrently
+        tokio::task::spawn(async move {
+            // Finally, we bind the incoming connection to our service
+            if let Err(err) = http1::Builder::new()
+                // `service_fn` converts our function in a `Service`
+                .serve_connection(
+                    io,
+                    service_fn(move |req| {
+                        symbolication_service(
+                            req,
+                            template_values.clone(),
+                            symbol_manager.clone(),
+                            profile_filename.clone(),
+                            path_prefix.clone(),
+                        )
+                    }),
+                )
+                .await
+            {
+                println!("Error serving connection: {:?}", err);
+            }
+        });
+    }
+}
+
 async fn symbolication_service(
-    req: Request<Body>,
+    req: Request<hyper::body::Incoming>,
     template_values: Arc<HashMap<&'static str, String>>,
     symbol_manager: Arc<SymbolManager>,
     profile_filename: Option<PathBuf>,
     path_prefix: String,
-) -> Result<Response<Body>, hyper::Error> {
+) -> Result<Response<Either<String, BoxBody<Bytes, std::io::Error>>>, hyper::Error> {
     let has_profile = profile_filename.is_some();
     let method = req.method();
     let path = req.uri().path();
-    let mut response = Response::new(Body::empty());
+    let mut response = Response::new(Either::Left(String::new()));
 
-    let path_without_prefix = match path.strip_prefix(&path_prefix) {
-        None => {
-            // The secret prefix was not part of the URL. Do not send CORS headers.
-            match (method, path) {
-                (&Method::GET, "/") => {
-                    response.headers_mut().insert(
-                        header::CONTENT_TYPE,
-                        header::HeaderValue::from_static("text/html"),
-                    );
-                    let template = match has_profile {
-                        true => TEMPLATE_WITH_PROFILE,
-                        false => TEMPLATE_WITHOUT_PROFILE,
-                    };
-                    *response.body_mut() =
-                        Body::from(substitute_template(template, &template_values));
-                }
-                _ => {
-                    *response.status_mut() = StatusCode::NOT_FOUND;
-                }
+    let Some(path_without_prefix) = path.strip_prefix(&path_prefix) else {
+        // The secret prefix was not part of the URL. Do not send CORS headers.
+        match (method, path) {
+            (&Method::GET, "/") => {
+                response.headers_mut().insert(
+                    header::CONTENT_TYPE,
+                    header::HeaderValue::from_static("text/html"),
+                );
+                let template = match has_profile {
+                    true => TEMPLATE_WITH_PROFILE,
+                    false => TEMPLATE_WITHOUT_PROFILE,
+                };
+                *response.body_mut() =
+                    Either::Left(substitute_template(template, &template_values));
             }
-            return Ok(response);
+            _ => {
+                *response.status_mut() = StatusCode::NOT_FOUND;
+            }
         }
-        Some(path_without_prefix) => path_without_prefix,
+        return Ok(response);
     };
 
     // If we get here, then the secret prefix was part of the URL.
@@ -379,32 +412,18 @@ async fn symbolication_service(
                 header::CONTENT_TYPE,
                 header::HeaderValue::from_static("application/json; charset=UTF-8"),
             );
-            let (mut sender, body) = Body::channel();
-            *response.body_mut() = body;
 
-            // Stream the file out to the response body, asynchronously, after this function has returned.
-            tokio::spawn(async move {
-                let mut file = tokio::fs::File::open(&profile_filename)
-                    .await
-                    .expect("couldn't open profile file");
-                let mut contents = vec![0; 1024 * 1024];
-                loop {
-                    let data_len = file
-                        .read(&mut contents)
-                        .await
-                        .expect("couldn't read profile file");
-                    if data_len == 0 {
-                        break;
-                    }
-                    let send_result = sender
-                        .send_data(Bytes::copy_from_slice(&contents[..data_len]))
-                        .await;
-                    if send_result.is_err() {
-                        // The other side may have closed the channel. Stop sending.
-                        break;
-                    }
-                }
-            });
+            // Stream the file. This follows the send_file example from the hyper repo.
+            // https://github.com/hyperium/hyper/blob/7206fe30302937075c51c16a69d1eb3bbce6a671/examples/send_file.rs
+            let file = tokio::fs::File::open(&profile_filename)
+                .await
+                .expect("couldn't open profile file");
+
+            // Wrap in a tokio_util::io::ReaderStream
+            let reader_stream = ReaderStream::new(file);
+
+            let stream_body = StreamBody::new(reader_stream.map_ok(Frame::data));
+            *response.body_mut() = Either::Right(stream_body.boxed());
         }
         (&Method::POST, path, _) => {
             response.headers_mut().insert(
@@ -412,12 +431,14 @@ async fn symbolication_service(
                 header::HeaderValue::from_static("application/json"),
             );
             let path = path.to_string();
-            // Await the full body to be concatenated into a single `Bytes`...
-            let full_body = hyper::body::to_bytes(req.into_body()).await?;
-            let full_body = String::from_utf8(full_body.to_vec()).expect("invalid utf-8");
+            // Await the full body to be concatenated into a `Collected<Bytes>`.
+            let full_body = req.into_body().collect().await?;
+            // Convert the `Collected<Bytes>` into a `String`.
+            let full_body =
+                String::from_utf8(full_body.to_bytes().to_vec()).expect("invalid utf-8");
             let response_json = symbol_manager.query_json_api(&path, &full_body).await;
 
-            *response.body_mut() = response_json.into();
+            *response.body_mut() = Either::Left(response_json);
         }
         _ => {
             *response.status_mut() = StatusCode::NOT_FOUND;
