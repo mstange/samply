@@ -41,7 +41,7 @@ rustc-demangle = "0.1.21"
 bitflags = "2"
 bytesize = { version = "1.0.1", optional = true }
 bitvec = { version = "1.0.0", optional = true }
-rangemap = "1.0.1"
+rangemap = "1.5.0"
 elsa = "1.4.0"
 memchr = { version = "2.4", default-features = false }
 srcsrv = "0.2.2"
