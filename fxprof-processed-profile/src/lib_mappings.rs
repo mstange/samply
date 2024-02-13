@@ -1,9 +1,20 @@
+use std::collections::BTreeMap;
+
 /// Keeps track of mapped libraries in an address space. Stores a value
 /// for each mapping, and allows efficient lookup of that value based on
 /// an address.
+///
+/// A "library" here is a loose term; it could be a normal shared library,
+/// or the main binary, but it could also be a synthetic library for JIT
+/// code. For normal libraries, there's usually just one mapping per library.
+/// For JIT code, you could have many small mappings, one per JIT function,
+/// all pointing to the synthetic JIT "library".
 #[derive(Debug, Clone)]
 pub struct LibMappings<T> {
-    sorted_mappings: Vec<Mapping<T>>,
+    /// A BTreeMap of non-overlapping Mappings. The key is the start_avma of the mapping.
+    ///
+    /// When a new mapping is added, overlapping mappings are removed.
+    map: BTreeMap<u64, Mapping<T>>,
 }
 
 impl<T> Default for LibMappings<T> {
@@ -16,7 +27,7 @@ impl<T> LibMappings<T> {
     /// Creates a new empty instance.
     pub fn new() -> Self {
         Self {
-            sorted_mappings: Vec::new(),
+            map: BTreeMap::new(),
         }
     }
 
@@ -48,80 +59,68 @@ impl<T> LibMappings<T> {
         relative_address_at_start: u32,
         value: T,
     ) {
-        let remove_range_begin = match self
-            .sorted_mappings
-            .binary_search_by_key(&start_avma, |r| r.start_avma)
-        {
-            Ok(i) => i,
-            Err(0) => 0,
-            Err(i) => {
-                // start_avma falls between the start_avmas of `i - 1` and `i`.
-                if start_avma < self.sorted_mappings[i - 1].end_avma {
-                    i - 1
-                } else {
-                    i
-                }
-            }
-        };
-
-        let mut remove_range_end = remove_range_begin;
-        for mapping in &self.sorted_mappings[remove_range_begin..] {
-            if mapping.start_avma < end_avma {
-                remove_range_end += 1;
+        let removal_avma_range_start =
+            if let Some(mapping_overlapping_with_start_avma) = self.lookup_impl(start_avma) {
+                mapping_overlapping_with_start_avma.start_avma
             } else {
-                break;
-            }
+                start_avma
+            };
+        // self.map.drain(removal_avma_range_start..end_avma);
+        let overlapping_keys: Vec<u64> = self
+            .map
+            .range(removal_avma_range_start..end_avma)
+            .map(|(start_avma, _)| *start_avma)
+            .collect();
+        for key in overlapping_keys {
+            self.map.remove(&key);
         }
 
-        self.sorted_mappings.splice(
-            remove_range_begin..remove_range_end,
-            [Mapping {
+        self.map.insert(
+            start_avma,
+            Mapping {
                 start_avma,
                 end_avma,
                 relative_address_at_start,
                 value,
-            }],
+            },
         );
     }
 
     /// Remove a mapping which starts at the given address. If found, this returns
     /// the `relative_address_at_start` and the associated value of the mapping.
     pub fn remove_mapping(&mut self, start_avma: u64) -> Option<(u32, T)> {
-        self.sorted_mappings
-            .binary_search_by_key(&start_avma, |m| m.start_avma)
-            .ok()
-            .map(|i| self.sorted_mappings.remove(i))
+        self.map
+            .remove(&start_avma)
             .map(|m| (m.relative_address_at_start, m.value))
     }
 
     /// Clear all mappings.
     pub fn clear(&mut self) {
-        self.sorted_mappings.clear();
-        self.sorted_mappings.shrink_to_fit();
+        self.map.clear();
     }
 
-    /// Look up the mapping which covers the given address.
-    fn lookup(&self, avma: u64) -> Option<&Mapping<T>> {
-        let mappings = &self.sorted_mappings[..];
-        let index = match mappings.binary_search_by_key(&avma, |r| r.start_avma) {
-            Err(0) => return None,
-            Ok(exact_match) => exact_match,
-            Err(insertion_index) => {
-                let mapping_index = insertion_index - 1;
-                if avma < mappings[mapping_index].end_avma {
-                    mapping_index
-                } else {
-                    return None;
-                }
-            }
-        };
-        Some(&mappings[index])
+    /// Look up the mapping which covers the given address and return
+    /// the stored value.
+    pub fn lookup(&self, avma: u64) -> Option<&T> {
+        self.lookup_impl(avma).map(|m| &m.value)
+    }
+
+    /// Look up the mapping which covers the given address and return
+    /// its `Mapping<T>``.
+    fn lookup_impl(&self, avma: u64) -> Option<&Mapping<T>> {
+        let (_start_avma, last_mapping_starting_at_or_before_avma) =
+            self.map.range(..=avma).next_back()?;
+        if avma < last_mapping_starting_at_or_before_avma.end_avma {
+            Some(last_mapping_starting_at_or_before_avma)
+        } else {
+            None
+        }
     }
 
     /// Converts an absolute address (AVMA, actual virtual memory address) into
     /// a relative address and the mapping's associated value.
     pub fn convert_address(&self, avma: u64) -> Option<(u32, &T)> {
-        let mapping = match self.lookup(avma) {
+        let mapping = match self.lookup_impl(avma) {
             Some(mapping) => mapping,
             None => return None,
         };
@@ -137,4 +136,29 @@ struct Mapping<T> {
     end_avma: u64,
     relative_address_at_start: u32,
     value: T,
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_lib_mappings() {
+        let mut m = LibMappings::new();
+        m.add_mapping(100, 200, 100, "100..200");
+        m.add_mapping(200, 250, 200, "200..250");
+        assert_eq!(m.lookup(200), Some(&"200..250"));
+        m.add_mapping(180, 220, 180, "180..220");
+        assert_eq!(m.lookup(200), Some(&"180..220"));
+        assert_eq!(m.lookup(170), None);
+        assert_eq!(m.lookup(220), None);
+        m.add_mapping(225, 250, 225, "225..250");
+        m.add_mapping(255, 270, 255, "255..270");
+        m.add_mapping(100, 150, 100, "100..150");
+        assert_eq!(m.lookup(90), None);
+        assert_eq!(m.lookup(150), None);
+        assert_eq!(m.lookup(149), Some(&"100..150"));
+        assert_eq!(m.lookup(200), Some(&"180..220"));
+        assert_eq!(m.lookup(260), Some(&"255..270"));
+    }
 }
