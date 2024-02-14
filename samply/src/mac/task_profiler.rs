@@ -30,17 +30,18 @@ use crate::shared::lib_mappings::{
     LibMappingAdd, LibMappingInfo, LibMappingOp, LibMappingOpQueue, LibMappingRemove,
 };
 use crate::shared::perf_map::try_load_perf_map;
-use crate::shared::process_sample_data::ProcessSampleData;
+use crate::shared::process_sample_data::{MarkerSpanOnThread, ProcessSampleData};
 use crate::shared::recycling::{ProcessRecycler, ProcessRecyclingData, ThreadRecycler};
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
 
 use super::error::SamplingError;
 use super::kernel_error::{IntoResult, KernelError};
+use super::marker_file::get_markers;
 use super::proc_maps::{
     DyldInfo, DyldInfoManager, Modification, ModuleSvmaInfo, StackwalkerRef, VmSubData,
 };
-use super::sampler::TaskInit;
+use super::sampler::{JitdumpOrMarkerPath, TaskInit};
 use super::thread_profiler::{get_thread_id, get_thread_name, ThreadProfiler};
 
 #[derive(Debug)]
@@ -100,8 +101,9 @@ pub struct TaskProfiler {
     main_thread_handle: ThreadHandle,
     ignored_errors: Vec<SamplingError>,
     unwinder: UnwinderNative<UnwindSectionBytes, MayAllocateDuringUnwind>,
-    jitdump_path_receiver: Receiver<PathBuf>,
+    path_receiver: Receiver<JitdumpOrMarkerPath>,
     jitdump_manager: JitDumpManager,
+    marker_file_paths: Vec<(ThreadHandle, PathBuf)>,
     unresolved_samples: UnresolvedSamples,
     lib_mapping_ops: LibMappingOpQueue,
     thread_recycler: Option<ThreadRecycler>,
@@ -121,7 +123,7 @@ impl TaskProfiler {
             start_time_mono,
             task,
             pid,
-            jitdump_path_receiver,
+            path_receiver,
         } = task_init;
         let start_time = timestamp_converter.convert_time(start_time_mono);
 
@@ -245,8 +247,9 @@ impl TaskProfiler {
             main_thread_handle,
             ignored_errors: Vec::new(),
             unwinder: UnwinderNative::new(),
-            jitdump_path_receiver,
+            path_receiver,
             jitdump_manager: JitDumpManager::new_for_process(main_thread_handle),
+            marker_file_paths: Vec::new(),
             lib_mapping_ops: Default::default(),
             unresolved_samples: Default::default(),
             thread_recycler,
@@ -514,15 +517,27 @@ impl TaskProfiler {
         self.unwinder.add_module(module);
     }
 
+    pub fn check_received_paths(&mut self) {
+        while let Ok(jitdump_or_marker_file_path) = self.path_receiver.try_recv() {
+            match jitdump_or_marker_file_path {
+                JitdumpOrMarkerPath::JitdumpPath(jitdump_path) => {
+                    self.jitdump_manager.add_jitdump_path(jitdump_path, None);
+                }
+                JitdumpOrMarkerPath::MarkerFilePath(marker_file_path) => {
+                    // TODO: Detect which thread the marker file is opened on, and use that thread's
+                    // thread handle so that the markers are put on that thread in the profile.
+                    self.marker_file_paths
+                        .push((self.main_thread_handle, marker_file_path));
+                }
+            }
+        }
+    }
+
     pub fn check_jitdump(
         &mut self,
         profile: &mut Profile,
         jit_category_manager: &mut JitCategoryManager,
     ) {
-        while let Ok(jitdump_path) = self.jitdump_path_receiver.try_recv() {
-            self.jitdump_manager.add_jitdump_path(jitdump_path, None);
-        }
-
         self.jitdump_manager.process_pending_records(
             jit_category_manager,
             profile,
@@ -565,11 +580,27 @@ impl TaskProfiler {
             self.jit_function_recycler.as_mut(),
             &self.timestamp_converter,
         );
+        let mut marker_spans = Vec::new();
+        for (thread_handle, marker_file_path) in self.marker_file_paths {
+            if let Ok(marker_spans_from_this_file) =
+                get_markers(&marker_file_path, self.timestamp_converter)
+            {
+                marker_spans.extend(marker_spans_from_this_file.into_iter().map(|span| {
+                    MarkerSpanOnThread {
+                        thread_handle,
+                        start_time: span.start_time,
+                        end_time: span.end_time,
+                        name: span.name,
+                    }
+                }));
+            }
+        }
         let process_sample_data = ProcessSampleData::new(
             self.unresolved_samples,
             self.lib_mapping_ops,
             jitdump_lib_ops,
             perf_map_mappings,
+            marker_spans,
         );
 
         let recycling_data = if let (Some(mut jit_function_recycler), Some(thread_recycler)) =

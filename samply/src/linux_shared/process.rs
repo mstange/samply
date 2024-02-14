@@ -149,6 +149,8 @@ where
             None
         };
 
+        // TODO: Load marker files
+
         let jitdump_manager = std::mem::replace(
             &mut self.jitdump_manager,
             JitDumpManager::new_for_process(self.threads.main_thread.profile_thread),
@@ -165,6 +167,7 @@ where
             std::mem::take(&mut self.lib_mapping_ops),
             jitdump_ops,
             perf_map_mappings,
+            Vec::new(),
         );
 
         let thread_recycler = self.threads.finish();

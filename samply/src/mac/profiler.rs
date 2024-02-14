@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use super::error::SamplingError;
 use super::process_launcher::{MachError, ReceivedStuff, TaskAccepter};
-use super::sampler::{Sampler, TaskInit};
+use super::sampler::{JitdumpOrMarkerPath, Sampler, TaskInit};
 use super::time::get_monotonic_timestamp;
 use crate::server::{start_server_main, ServerProps};
 use crate::shared::recording_props::{ConversionProps, RecordingProps};
@@ -71,7 +71,7 @@ pub fn start_recording(
         // A map of pids to channel senders, to notify existing tasks of Jitdump
         // paths. Having the mapping here lets us deliver the path to the right
         // task even in cases where a process execs into a new task with the same pid.
-        let mut jitdump_path_senders_per_pid = HashMap::new();
+        let mut path_senders_per_pid = HashMap::new();
 
         loop {
             if let Ok(()) = accepter_receiver.try_recv() {
@@ -81,23 +81,24 @@ pub fn start_recording(
             match task_accepter.next_message(timeout) {
                 Ok(ReceivedStuff::AcceptedTask(mut accepted_task)) => {
                     let pid = accepted_task.get_id();
-                    let (jitdump_path_sender, jitdump_path_receiver) = unbounded();
+                    let (path_sender, path_receiver) = unbounded();
                     let send_result = task_sender.send(TaskInit {
                         start_time_mono: get_monotonic_timestamp(),
                         task: accepted_task.take_task(),
                         pid,
-                        jitdump_path_receiver,
+                        path_receiver,
                     });
-                    jitdump_path_senders_per_pid.insert(pid, jitdump_path_sender);
+                    path_senders_per_pid.insert(pid, path_sender);
                     if send_result.is_err() {
                         // The sampler has already shut down. This task arrived too late.
                     }
                     accepted_task.start_execution();
                 }
                 Ok(ReceivedStuff::JitdumpPath(pid, path)) => {
-                    match jitdump_path_senders_per_pid.entry(pid) {
+                    match path_senders_per_pid.entry(pid) {
                         Entry::Occupied(mut entry) => {
-                            let send_result = entry.get_mut().send(path);
+                            let send_result =
+                                entry.get_mut().send(JitdumpOrMarkerPath::JitdumpPath(path));
                             if send_result.is_err() {
                                 // The task is probably already dead. The path arrived too late.
                                 entry.remove();
@@ -106,6 +107,24 @@ pub fn start_recording(
                         Entry::Vacant(_entry) => {
                             eprintln!(
                                 "Received a Jitdump path for pid {pid} which I don't have a task for."
+                            );
+                        }
+                    }
+                }
+                Ok(ReceivedStuff::MarkerFilePath(pid, path)) => {
+                    match path_senders_per_pid.entry(pid) {
+                        Entry::Occupied(mut entry) => {
+                            let send_result = entry
+                                .get_mut()
+                                .send(JitdumpOrMarkerPath::MarkerFilePath(path));
+                            if send_result.is_err() {
+                                // The task is probably already dead. The path arrived too late.
+                                entry.remove();
+                            }
+                        }
+                        Entry::Vacant(_entry) => {
+                            eprintln!(
+                                "Received a marker file path for pid {pid} which I don't have a task for."
                             );
                         }
                     }

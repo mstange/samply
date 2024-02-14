@@ -60,7 +60,12 @@ impl JitCategoryManager {
         ("BaselineIC: ", "BaselineIC", CategoryColor::Brown, false),
         ("IC: ", "IC", CategoryColor::Brown, false),
         ("Trampoline: ", "Trampoline", CategoryColor::DarkGray, false),
-        ("WasmTrampoline: ", "Trampoline", CategoryColor::DarkGray, false),
+        (
+            "WasmTrampoline: ",
+            "Trampoline",
+            CategoryColor::DarkGray,
+            false,
+        ),
         ("VMWrapper: ", "Trampoline", CategoryColor::DarkGray, false),
         (
             "Baseline JIT code for ",
@@ -84,8 +89,14 @@ impl JitCategoryManager {
                 CategoryColor::Magenta,
             ),
             ion_ic_category: LazilyCreatedCategory::new("IonIC", CategoryColor::Brown),
-            wasm_liftoff_category: LazilyCreatedCategory::new("Liftoff (wasm)", CategoryColor::Blue),
-            wasm_turbofan_category: LazilyCreatedCategory::new("Turbofan (wasm)", CategoryColor::Green),
+            wasm_liftoff_category: LazilyCreatedCategory::new(
+                "Liftoff (wasm)",
+                CategoryColor::Blue,
+            ),
+            wasm_turbofan_category: LazilyCreatedCategory::new(
+                "Turbofan (wasm)",
+                CategoryColor::Green,
+            ),
             generic_jit_category: LazilyCreatedCategory::new("JIT", CategoryColor::Purple),
         }
     }
@@ -151,17 +162,18 @@ impl JitCategoryManager {
         }
 
         if let Some(v8_wasm_name) = name.strip_prefix("JS:") {
-            let stripped_name = if let Some(v8_wasm_liftoff_name) = v8_wasm_name.strip_suffix("-liftoff") {
-                // "JS:wasm-function[5206]-5206-liftoff"
-                // "JS:StatefulElement.performRebuild-2761-liftoff"
-                Some((v8_wasm_liftoff_name, &mut self.wasm_liftoff_category))
-            } else if let Some(v8_wasm_turbofan_name) = v8_wasm_name.strip_suffix("-turbofan") {
-                // "JS:wasm-function[5307]-5307-turbofan"
-                // "JS:SceneBuilder._pushLayer-10063-turbofan"
-                Some((v8_wasm_turbofan_name, &mut self.wasm_turbofan_category))
-            } else {
-                None
-            };
+            let stripped_name =
+                if let Some(v8_wasm_liftoff_name) = v8_wasm_name.strip_suffix("-liftoff") {
+                    // "JS:wasm-function[5206]-5206-liftoff"
+                    // "JS:StatefulElement.performRebuild-2761-liftoff"
+                    Some((v8_wasm_liftoff_name, &mut self.wasm_liftoff_category))
+                } else if let Some(v8_wasm_turbofan_name) = v8_wasm_name.strip_suffix("-turbofan") {
+                    // "JS:wasm-function[5307]-5307-turbofan"
+                    // "JS:SceneBuilder._pushLayer-10063-turbofan"
+                    Some((v8_wasm_turbofan_name, &mut self.wasm_turbofan_category))
+                } else {
+                    None
+                };
             if let Some((v8_wasm_name_with_index, category)) = stripped_name {
                 // "SceneBuilder._pushLayer-10063"
                 if let Some((v8_wasm_name, func_index)) = v8_wasm_name_with_index.rsplit_once('-') {

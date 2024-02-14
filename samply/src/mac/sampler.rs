@@ -17,12 +17,17 @@ use super::error::SamplingError;
 use super::task_profiler::TaskProfiler;
 use super::time::get_monotonic_timestamp;
 
+pub enum JitdumpOrMarkerPath {
+    JitdumpPath(PathBuf),
+    MarkerFilePath(PathBuf),
+}
+
 #[derive(Debug, Clone)]
 pub struct TaskInit {
     pub start_time_mono: u64,
     pub task: mach_port_t,
     pub pid: u32,
-    pub jitdump_path_receiver: Receiver<PathBuf>,
+    pub path_receiver: Receiver<JitdumpOrMarkerPath>,
 }
 
 pub struct Sampler {
@@ -150,6 +155,7 @@ impl Sampler {
             let mut tasks = Vec::with_capacity(live_tasks.capacity());
             mem::swap(&mut live_tasks, &mut tasks);
             for mut task in tasks.into_iter() {
+                task.check_received_paths();
                 task.check_jitdump(&mut profile, &mut jit_category_manager);
                 let still_alive = task.sample(
                     sample_timestamp,
