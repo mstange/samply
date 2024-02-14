@@ -20,6 +20,9 @@ pub struct JitCategoryManager {
     categories: Vec<LazilyCreatedCategory>,
     baseline_interpreter_category: LazilyCreatedCategory,
     ion_ic_category: LazilyCreatedCategory,
+    wasm_liftoff_category: LazilyCreatedCategory,
+    wasm_turbofan_category: LazilyCreatedCategory,
+    generic_jit_category: LazilyCreatedCategory,
 }
 
 impl JitCategoryManager {
@@ -28,25 +31,46 @@ impl JitCategoryManager {
         ("JS:~", "Interpreter", CategoryColor::Magenta, true),
         ("Script:~", "Interpreter", CategoryColor::Magenta, true),
         ("JS:^", "Baseline", CategoryColor::Blue, true),
-        ("JS:+", "Maglev", CategoryColor::LightGreen, true),
+        ("JS:+", "Maglev", CategoryColor::Green, true),
         ("JS:*", "Turbofan", CategoryColor::Green, true),
         ("Builtin:", "Builtin", CategoryColor::Brown, false),
         ("BytecodeHandler:", "Interpreter", CategoryColor::Red, false),
         ("Interpreter: ", "Interpreter", CategoryColor::Red, true),
+        (
+            "BaselineThunk: ",
+            "Trampoline",
+            CategoryColor::DarkGray,
+            false,
+        ),
         ("Baseline: ", "Baseline", CategoryColor::Blue, true),
+        (
+            "PolymorphicCallStubBaseline: ",
+            "Trampoline",
+            CategoryColor::DarkGray,
+            true,
+        ),
+        (
+            "PolymorphicAccessStubBaseline: ",
+            "Trampoline",
+            CategoryColor::DarkGray,
+            true,
+        ),
         ("Ion: ", "Ion", CategoryColor::Green, true),
+        ("Wasm: ", "Wasm", CategoryColor::Blue, true),
         ("BaselineIC: ", "BaselineIC", CategoryColor::Brown, false),
         ("IC: ", "IC", CategoryColor::Brown, false),
         ("Trampoline: ", "Trampoline", CategoryColor::DarkGray, false),
+        ("WasmTrampoline: ", "Trampoline", CategoryColor::DarkGray, false),
+        ("VMWrapper: ", "Trampoline", CategoryColor::DarkGray, false),
         (
             "Baseline JIT code for ",
             "Baseline",
             CategoryColor::Blue,
             true,
         ),
-        ("DFG JIT code for ", "DFG", CategoryColor::LightGreen, true),
-        ("FTL B3 code for ", "FTL", CategoryColor::Green, true),
-        ("", "JIT", CategoryColor::Purple, false), // Generic fallback category for JIT code
+        ("DFG JIT code for DFG: ", "DFG", CategoryColor::Green, true),
+        ("FTL B3 code for FTL: ", "FTL", CategoryColor::Green, true),
+        ("LLInt: ", "LLInt", CategoryColor::Red, true),
     ];
 
     pub fn new() -> Self {
@@ -60,6 +84,9 @@ impl JitCategoryManager {
                 CategoryColor::Magenta,
             ),
             ion_ic_category: LazilyCreatedCategory::new("IonIC", CategoryColor::Brown),
+            wasm_liftoff_category: LazilyCreatedCategory::new("Liftoff (wasm)", CategoryColor::Blue),
+            wasm_turbofan_category: LazilyCreatedCategory::new("Turbofan (wasm)", CategoryColor::Green),
+            generic_jit_category: LazilyCreatedCategory::new("JIT", CategoryColor::Purple),
         }
     }
 
@@ -96,6 +123,15 @@ impl JitCategoryManager {
             return (category.into(), None);
         }
 
+        if let Some(ion_ic_rest) = name.strip_prefix("IonIC: ") {
+            let category = self.ion_ic_category.get(profile);
+            if let Some((_ic_type, js_func)) = ion_ic_rest.split_once(" : ") {
+                let js_func = JsFrame::Regular(Self::intern_js_name(profile, js_func));
+                return (category.into(), Some(js_func));
+            }
+            return (category.into(), None);
+        }
+
         for (&(prefix, _category_name, _color, is_js), lazy_category_handle) in
             Self::CATEGORIES.iter().zip(self.categories.iter_mut())
         {
@@ -113,12 +149,60 @@ impl JitCategoryManager {
                 return (category.into(), js_name);
             }
         }
-        panic!("the last category has prefix '' so it should always be hit")
+
+        if let Some(v8_wasm_name) = name.strip_prefix("JS:") {
+            let stripped_name = if let Some(v8_wasm_liftoff_name) = v8_wasm_name.strip_suffix("-liftoff") {
+                // "JS:wasm-function[5206]-5206-liftoff"
+                // "JS:StatefulElement.performRebuild-2761-liftoff"
+                Some((v8_wasm_liftoff_name, &mut self.wasm_liftoff_category))
+            } else if let Some(v8_wasm_turbofan_name) = v8_wasm_name.strip_suffix("-turbofan") {
+                // "JS:wasm-function[5307]-5307-turbofan"
+                // "JS:SceneBuilder._pushLayer-10063-turbofan"
+                Some((v8_wasm_turbofan_name, &mut self.wasm_turbofan_category))
+            } else {
+                None
+            };
+            if let Some((v8_wasm_name_with_index, category)) = stripped_name {
+                // "SceneBuilder._pushLayer-10063"
+                if let Some((v8_wasm_name, func_index)) = v8_wasm_name_with_index.rsplit_once('-') {
+                    let new_name = format!("{v8_wasm_name} (WASM:{func_index})");
+                    let category = category.get(profile);
+                    let js_func = JsFrame::Regular(Self::intern_js_name(profile, &new_name));
+                    return (category.into(), Some(js_func));
+                }
+            }
+        }
+
+        // "run_wasm_sm.js line 41 > WebAssembly.Module:916249: Function Element.updateChild"
+        // "run_wasm_sm.js line 41 > WebAssembly.Module:825626: Function wasm-function[1491]"
+
+        let category = self.generic_jit_category.get(profile);
+        (category.into(), None)
     }
 
     fn intern_js_name(profile: &mut Profile, func_name: &str) -> JsName {
+        if let Some((before, after)) = func_name
+            .split_once("[Call")
+            .or_else(|| func_name.split_once("[Construct"))
+        {
+            // Canonicalize JSC name, e.g. "diffProps[Call (StrictMode)] /home/.../index.js:123:12"
+            // and "diffProps[Call (DidTryToEnterInLoop) (StrictMode)] /home/.../index.js:123:12"
+            if let Some((_square_bracket_call_stuff, after)) = after.split_once(']') {
+                if after.is_empty() {
+                    // Nothing is following the closing square bracket, in particular no filename.
+                    // Example: "forEach[Call (StrictMode)]"
+                    // This is likely a self-hosted function.
+                    return JsName::SelfHosted(profile.intern_string(before));
+                }
+                return JsName::NonSelfHosted(profile.intern_string(&format!("{before}{after}")));
+            }
+        }
+
         let s = profile.intern_string(func_name);
-        match func_name.contains("(self-hosted:") {
+        match func_name.contains("(self-hosted:")
+            || func_name.ends_with("valueIsFalsey")
+            || func_name.ends_with("valueIsTruthy")
+        {
             true => JsName::SelfHosted(s),
             false => JsName::NonSelfHosted(s),
         }
