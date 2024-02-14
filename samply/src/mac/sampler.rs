@@ -4,6 +4,7 @@ use mach::port::mach_port_t;
 
 use std::mem;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 use std::time::SystemTime;
@@ -33,8 +34,8 @@ pub struct TaskInit {
 pub struct Sampler {
     command_name: String,
     task_receiver: Receiver<TaskInit>,
-    recording_props: RecordingProps,
-    conversion_props: ConversionProps,
+    recording_props: Arc<RecordingProps>,
+    conversion_props: Arc<ConversionProps>,
 }
 
 impl Sampler {
@@ -55,8 +56,8 @@ impl Sampler {
         Sampler {
             command_name,
             task_receiver,
-            recording_props,
-            conversion_props,
+            recording_props: Arc::new(recording_props),
+            conversion_props: Arc::new(conversion_props),
         }
     }
 
@@ -100,6 +101,8 @@ impl Sampler {
             &self.command_name,
             &mut profile,
             process_recycler.as_mut(),
+            self.recording_props.clone(),
+            self.conversion_props.clone(),
         )
         .expect("couldn't create root TaskProfiler");
 
@@ -129,6 +132,8 @@ impl Sampler {
                     &self.command_name,
                     &mut profile,
                     process_recycler.as_mut(),
+                    self.recording_props.clone(),
+                    self.conversion_props.clone(),
                 ) {
                     live_tasks.push(new_task);
                 } else {
@@ -164,7 +169,6 @@ impl Sampler {
                     &mut profile,
                     &mut stack_scratch_buffer,
                     &mut unresolved_stacks,
-                    self.conversion_props.fold_recursive_prefix,
                 )?;
                 if still_alive {
                     live_tasks.push(task);

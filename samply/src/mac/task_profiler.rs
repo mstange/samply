@@ -22,6 +22,7 @@ use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::ops::{Deref, Range};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::jit_function_recycler::JitFunctionRecycler;
@@ -31,6 +32,7 @@ use crate::shared::lib_mappings::{
 };
 use crate::shared::perf_map::try_load_perf_map;
 use crate::shared::process_sample_data::{MarkerSpanOnThread, ProcessSampleData};
+use crate::shared::recording_props::{ConversionProps, RecordingProps};
 use crate::shared::recycling::{ProcessRecycler, ProcessRecyclingData, ThreadRecycler};
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
@@ -109,6 +111,8 @@ pub struct TaskProfiler {
     thread_recycler: Option<ThreadRecycler>,
     jit_function_recycler: Option<JitFunctionRecycler>,
     timestamp_converter: TimestampConverter,
+    recording_props: Arc<RecordingProps>,
+    conversion_props: Arc<ConversionProps>,
 }
 
 impl TaskProfiler {
@@ -118,6 +122,8 @@ impl TaskProfiler {
         command_name: &str,
         profile: &mut Profile,
         mut process_recycler: Option<&mut ProcessRecycler>,
+        recording_props: Arc<RecordingProps>,
+        conversion_props: Arc<ConversionProps>,
     ) -> Result<Self, SamplingError> {
         let TaskInit {
             start_time_mono,
@@ -141,7 +147,7 @@ impl TaskProfiler {
             })
             .unwrap_or_else(|| command_name.to_string());
 
-        let thread_acts = get_thread_list(task)?;
+        let thread_acts = get_thread_list(task, recording_props.main_thread_only)?;
         if thread_acts.is_empty() {
             return Err(SamplingError::Ignorable(
                 "No threads",
@@ -255,6 +261,8 @@ impl TaskProfiler {
             thread_recycler,
             jit_function_recycler,
             timestamp_converter,
+            recording_props,
+            conversion_props,
         };
 
         task_profiler.process_lib_modifications(start_time_mono, initial_lib_mods, profile);
@@ -262,7 +270,6 @@ impl TaskProfiler {
         Ok(task_profiler)
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn sample(
         &mut self,
         now: Timestamp,
@@ -271,7 +278,6 @@ impl TaskProfiler {
         profile: &mut Profile,
         stack_scratch_buffer: &mut Vec<FrameAddress>,
         unresolved_stacks: &mut UnresolvedStacks,
-        fold_recursive_prefix: bool,
     ) -> Result<bool, SamplingError> {
         let result = self.sample_impl(
             now,
@@ -280,7 +286,6 @@ impl TaskProfiler {
             profile,
             stack_scratch_buffer,
             unresolved_stacks,
-            fold_recursive_prefix,
         );
         match result {
             Ok(()) => Ok(true),
@@ -303,7 +308,6 @@ impl TaskProfiler {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn sample_impl(
         &mut self,
         now: Timestamp,
@@ -312,7 +316,6 @@ impl TaskProfiler {
         profile: &mut Profile,
         stack_scratch_buffer: &mut Vec<FrameAddress>,
         unresolved_stacks: &mut UnresolvedStacks,
-        fold_recursive_prefix: bool,
     ) -> Result<(), SamplingError> {
         // First, check for any newly-loaded libraries.
         if let Ok(changes) = self.lib_info_manager.check_for_changes() {
@@ -320,7 +323,7 @@ impl TaskProfiler {
         }
 
         // Enumerate threads.
-        let thread_acts = get_thread_list(self.task)?;
+        let thread_acts = get_thread_list(self.task, self.recording_props.main_thread_only)?;
         let previously_live_threads: HashSet<_> = self.live_threads.keys().cloned().collect();
         let mut now_live_threads = HashSet::new();
         for thread_act in thread_acts {
@@ -368,7 +371,7 @@ impl TaskProfiler {
                 stack_scratch_buffer,
                 unresolved_stacks,
                 &mut self.unresolved_samples,
-                fold_recursive_prefix,
+                self.conversion_props.fold_recursive_prefix,
             )?;
             if still_alive {
                 now_live_threads.insert(thread_act);
@@ -677,7 +680,10 @@ fn get_debug_frame(file_path: &str) -> Option<UnwindSectionBytes> {
     }
 }
 
-fn get_thread_list(task: mach_port_t) -> Result<Vec<thread_act_t>, SamplingError> {
+fn get_thread_list(
+    task: mach_port_t,
+    main_thread_only: bool,
+) -> Result<Vec<thread_act_t>, SamplingError> {
     let mut thread_list: thread_act_port_array_t = std::ptr::null_mut();
     let mut thread_count: mach_msg_type_number_t = Default::default();
     unsafe { task_threads(task, &mut thread_list, &mut thread_count) }
@@ -691,7 +697,7 @@ fn get_thread_list(task: mach_port_t) -> Result<Vec<thread_act_t>, SamplingError
             err => SamplingError::Ignorable("task_threads in get_thread_list", err),
         })?;
 
-    let thread_acts =
+    let mut thread_acts =
         unsafe { std::slice::from_raw_parts(thread_list, thread_count as usize) }.to_owned();
 
     unsafe {
@@ -703,6 +709,11 @@ fn get_thread_list(task: mach_port_t) -> Result<Vec<thread_act_t>, SamplingError
     }
     .into_result()
     .map_err(|err| SamplingError::Fatal("mach_vm_deallocate in get_thread_list", err))?;
+
+    if main_thread_only {
+        // Keep only the main thread. It's always the first thread in the list.
+        thread_acts.truncate(1);
+    }
 
     Ok(thread_acts)
 }

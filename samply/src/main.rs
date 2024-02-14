@@ -104,6 +104,11 @@ struct RecordArgs {
     #[arg(long, default_value = "1")]
     iteration_count: u32,
 
+    /// Reduce profiling overhead by only recording the main thread.
+    /// This option is only respected on macOS.
+    #[arg(long)]
+    main_thread_only: bool,
+
     #[command(flatten)]
     conversion_args: ConversionArgs,
 
@@ -242,6 +247,7 @@ impl RecordArgs {
             output_file: self.output.clone(),
             time_limit,
             interval,
+            main_thread_only: self.main_thread_only,
         }
     }
 

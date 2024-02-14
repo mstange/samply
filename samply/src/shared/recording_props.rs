@@ -4,6 +4,7 @@ pub struct RecordingProps {
     pub output_file: PathBuf,
     pub time_limit: Option<Duration>,
     pub interval: Duration,
+    pub main_thread_only: bool,
 }
 
 pub struct ConversionProps {
