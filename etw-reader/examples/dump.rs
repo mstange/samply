@@ -62,7 +62,7 @@ fn main() {
         }
     } else {
         if pattern.is_none() {
-            println!("unknown event {:x?}:{}", e.EventHeader.ProviderId, e.EventHeader.EventDescriptor.Opcode);
+            println!("unknown event {:x?}:{} size: {}", e.EventHeader.ProviderId, e.EventHeader.EventDescriptor.Opcode, e.UserDataLength);
         }
     }
 

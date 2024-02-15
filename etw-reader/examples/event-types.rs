@@ -26,7 +26,7 @@ fn main() {
                 _ => ""
             };
 
-            let provider = format!("{}{:?}/{}", provider_name,  e.EventHeader.ProviderId, e.EventHeader.EventDescriptor.Opcode);
+            let provider = format!("{}{:?}/{}", provider_name,  e.EventHeader.ProviderId, e.EventHeader.EventDescriptor.Task);
             *event_counts.entry(provider).or_insert(0) += 1;
         }
     });
