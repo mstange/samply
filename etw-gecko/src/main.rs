@@ -917,6 +917,31 @@ fn main() {
                         }
 
                         profile.add_marker(thread.handle, s.name().trim_start_matches("Google.Chrome/"), TextMarker(text), timing)
+                    } else {
+                        let mut parser = Parser::create(&s);
+
+                        let timestamp = e.EventHeader.TimeStamp as u64;
+                        let timestamp = timestamp_converter.convert_time(timestamp);
+                        let thread_id = e.EventHeader.ThreadId;
+                        let thread = match threads.entry(thread_id) {
+                            Entry::Occupied(e) => e.into_mut(), 
+                            Entry::Vacant(_) => {
+                                dropped_sample_count += 1;
+                                // We don't know what process this will before so just drop it for now
+                                return;
+                            }
+                        };
+                        let mut text = String::new();
+                        for i in 0..s.property_count() {
+                            let property = s.property(i);
+                            //dbg!(&property);
+                            write_property(&mut text, &mut parser, &property, false);
+                            text += ", "
+                        }
+
+                        profile.add_marker(thread.handle, s.name(), TextMarker(text), MarkerTiming::Instant(timestamp))
+
+
                     }
                      //println!("unhandled {}", s.name()) 
                     }
