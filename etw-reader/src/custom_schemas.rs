@@ -131,6 +131,71 @@ impl EventSchema for DbgID {
     }
 }
 
+ // Info about EventInfo comes from SymbolTraceEventParser.cs in PerfView
+ // It contains an EVENT_DESCRIPTOR
+pub struct EventInfo {}
+const EventInfo_PROPS: [PropDesc; 9] = [
+    PropDesc{ name: "ProviderGuid", in_type: TdhInType::InTypeGuid, out_type: TdhOutType::OutTypeGuid},
+    PropDesc{ name: "EventGuid", in_type: TdhInType::InTypeGuid, out_type: TdhOutType::OutTypeGuid},
+    PropDesc{ name: "EventDescriptorId", in_type: TdhInType::InTypeUInt16, out_type: TdhOutType::OutTypeUInt16},
+    PropDesc{ name: "EventDescriptor.Version", in_type: TdhInType::InTypeUInt8, out_type: TdhOutType::OutTypeUInt8},
+    PropDesc{ name: "EventDescriptor.Channel", in_type: TdhInType::InTypeUInt8, out_type: TdhOutType::OutTypeUInt8},
+    PropDesc{ name: "EventDescriptor.Level", in_type: TdhInType::InTypeUInt8, out_type: TdhOutType::OutTypeUInt8},
+    PropDesc{ name: "EventDescriptor.Opcode", in_type: TdhInType::InTypeUInt8, out_type: TdhOutType::OutTypeUInt8},
+    PropDesc{ name: "EventDescriptor.Task", in_type: TdhInType::InTypeUInt16, out_type: TdhOutType::OutTypeUInt16},
+    PropDesc{ name: "EventDescriptor.Keyword", in_type: TdhInType::InTypeUInt64, out_type: TdhOutType::OutTypeHexInt64},
+
+    ];
+impl EventSchema for EventInfo {
+    fn provider_guid(&self) -> GUID {
+        GUID::from("bbccf6c1-6cd1-48c4-80ff-839482e37671")
+    }
+
+    fn event_id(&self) -> u16 {
+        0
+    }
+
+    fn opcode(&self) -> u8 {
+        32
+    }
+
+    fn event_version(&self) -> u8 {
+        0
+    }
+
+    fn level(&self) -> u8 { 0 }
+
+    fn decoding_source(&self) -> DecodingSource {
+        panic!()
+    }
+
+    fn provider_name(&self) -> String {
+        "KernelTraceControl".to_owned()
+    }
+
+    fn task_name(&self) -> String {
+        "MetaData".to_owned()
+    }
+
+    fn opcode_name(&self) -> String {
+        "EventInfo".to_string()
+    }
+    
+    fn property_count(&self) -> u32 {
+        EventInfo_PROPS.len() as u32
+    }
+    
+    fn property(&self, index: u32) -> Property {
+        let prop = &EventInfo_PROPS[index as usize];
+        Property { name: prop.name.to_owned(),
+            desc: PropertyDesc::Primitive(PrimitiveDesc{ in_type: prop.in_type,
+                out_type: prop.out_type,}),
+        count: 1,
+        length: PropertyLength::Length(0),
+        map_info: None,
+        flags: PropertyFlags::empty()}
+    }
+}
 // We could override ThreadStop using the same properties to get a ThreadName there too.
 pub struct ThreadStart {}
 
@@ -358,3 +423,4 @@ impl EventSchema for D3DUmdLogging_UnmapAllocation {
         flags: PropertyFlags::empty()}
     }
 }
+

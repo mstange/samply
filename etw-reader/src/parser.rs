@@ -192,6 +192,7 @@ impl<'a> Parser<'a> {
                             TdhInType::InTypeInt32 | TdhInType::InTypeUInt32 | TdhInType::InTypeHexInt32 => return Ok(4),
                             TdhInType::InTypeInt64 | TdhInType::InTypeUInt64 => return Ok(8),
                             TdhInType::InTypeInt8 | TdhInType::InTypeUInt8 => return Ok(1),
+                            TdhInType::InTypeInt16 | TdhInType::InTypeUInt16 => return Ok(2),
                             TdhInType::InTypePointer => return Ok(if (self.event.event_flags() & EVENT_HEADER_FLAG_32_BIT_HEADER) != 0 {
                                 4
                             } else {
