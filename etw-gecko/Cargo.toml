@@ -8,7 +8,7 @@ edition = "2021"
 
 [dependencies]
 serde_json = "1.0.53"
-fxprof-processed-profile = { git = "https://github.com/mstange/samply/", rev="4f8be184ebfc6a345238dd52ffe4917e23a176dd" }
+fxprof-processed-profile = { git = "https://github.com/mstange/samply/", rev="e0419395dbcc00aa2b86cb6fe56bf94e09d791a0" }
 uuid = "1" # We really want gecko_profile::debugid::uuid, but debugid doesn't re-export uuid
 etw-reader = { path = "../etw-reader" }
 pico-args = "0.4.2"
