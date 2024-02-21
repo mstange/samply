@@ -1,11 +1,13 @@
 //! ETW Event Schema locator and handler
 //!
 //! This module contains the means needed to locate and interact with the Schema of an ETW event
-use crate::etw_types::{DecodingSource, EventRecord};
+use crate::custom_schemas::EventInfo;
+use crate::etw_types::{DecodingSource, EventRecord, TraceEventInfoRaw};
 use crate::property::PropertyIter;
 use crate::tdh;
 use crate::tdh_types::Property;
 use crate::FastHashMap;
+use std::any::{Any, TypeId};
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use once_cell::unsync::OnceCell;
@@ -125,6 +127,7 @@ pub trait EventSchema {
     fn property(&self, index: u32) -> Property;
 
     fn event_message(&self) -> Option<String> { return None }
+    fn is_event_metadata(&self) -> bool { return false }
 }
 
 
@@ -181,9 +184,16 @@ impl SchemaLocator {
                 // TODO: Cloning for now, should be a reference at some point...
                 entry.insert(Arc::new(Schema::new(info)))
             }
-        };
+        }.clone();
 
-        Ok(TypedEvent::new(event, info.clone()))
+        // Some events contain schemas so add them when we find them.
+        if info.event_schema.is_event_metadata() {
+            let event_info = TraceEventInfoRaw { info: event.user_buffer().to_owned() };
+            println!("Adding custom schema for {}/{}/{}/{}", event_info.provider_name(), event_info.event_id(), event_info.task_name(), event_info.opcode_name());
+            self.add_custom_schema(Box::new(event_info));
+        }
+            
+        Ok(TypedEvent::new(event, info))
     }
 }
 

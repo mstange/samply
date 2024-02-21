@@ -184,6 +184,10 @@ impl EventSchema for EventInfo {
     fn property_count(&self) -> u32 {
         EventInfo_PROPS.len() as u32
     }
+
+    fn is_event_metadata(&self) -> bool {
+        true
+    }
     
     fn property(&self, index: u32) -> Property {
         let prop = &EventInfo_PROPS[index as usize];

@@ -110,7 +110,7 @@ impl std::ops::Deref for TraceEventInfo {
 #[repr(C)]
 #[derive(Debug, Clone, Default)]
 pub struct TraceEventInfoRaw {
-    info: Vec<u8>,
+    pub(crate) info: Vec<u8>,
 }
 
 impl std::ops::DerefMut for TraceEventInfo {
