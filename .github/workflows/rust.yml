@@ -25,3 +25,5 @@ jobs:
       run: xperf -d out.etl
     - run: cargo run --example event-types out.etl
     - run: cargo run out.etl xperf
+    - run: cargo run -- --merge-threads out.etl xperf
+
