@@ -8,7 +8,7 @@ fn main() {
     open_trace(Path::new(&std::env::args().nth(1).unwrap()), |e| {
         let s = schema_locator.event_schema(e);
         if let Ok(s) = s {
-            let name = format!("{} {:?}/{}", s.name(), e.EventHeader.ProviderId, e.EventHeader.EventDescriptor.Opcode);
+            let name = format!("{} {:?}/{}/{}", s.name(), e.EventHeader.ProviderId, e.EventHeader.EventDescriptor.Id, e.EventHeader.EventDescriptor.Opcode);
             if let Some(count) = event_counts.get_mut(&name) {
                 *count += 1;
             } else {
@@ -26,7 +26,7 @@ fn main() {
                 _ => ""
             };
 
-            let provider = format!("{}{:?}/{}", provider_name,  e.EventHeader.ProviderId, e.EventHeader.EventDescriptor.Task);
+            let provider = format!("{}{:?}/{}-{}/{}", provider_name,  e.EventHeader.ProviderId, e.EventHeader.EventDescriptor.Id, e.EventHeader.EventDescriptor.Version, e.EventHeader.EventDescriptor.Task);
             *event_counts.entry(provider).or_insert(0) += 1;
         }
     });
