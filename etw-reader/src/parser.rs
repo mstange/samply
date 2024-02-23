@@ -378,7 +378,6 @@ impl TryParse<bool> for Parser<'_> {
         use TdhInType::*;
         let indx = self.find_property(name)?;
         let prop_info = &self.cache[indx];
-        let prop_info: &PropertyInfo = prop_info.borrow();
         if let PropertyDesc::Primitive(desc) = &prop_info.property.desc {
             if desc.in_type != InTypeBoolean {
                 return Err(ParserError::InvalidType)
@@ -439,7 +438,6 @@ impl TryParse<String> for Parser<'_> {
     fn try_parse(&mut self, name: &str) -> ParserResult<String> {
         let indx = self.find_property(name)?;
         let prop_info = &self.cache[indx];
-        let prop_info: &PropertyInfo = prop_info.borrow();
 
         // TODO: Handle errors and type checking better
         if let PropertyDesc::Primitive(desc) = &prop_info.property.desc {
@@ -467,7 +465,6 @@ impl TryParse<GUID> for Parser<'_> {
     fn try_parse(&mut self, name: &str) -> Result<GUID, ParserError> {
         let indx = self.find_property(name)?;
         let prop_info = &self.cache[indx];
-        let prop_info: &PropertyInfo = prop_info.borrow();
         if let PropertyDesc::Primitive(desc) = &prop_info.property.desc {
             match desc.in_type {
                 TdhInType::InTypeUnicodeString => {
@@ -506,7 +503,6 @@ impl TryParse<IpAddr> for Parser<'_> {
     fn try_parse(&mut self, name: &str) -> ParserResult<IpAddr> {
         let indx = self.find_property(name)?;
         let prop_info = &self.cache[indx];
-        let prop_info: &PropertyInfo = prop_info.borrow();
         if let PropertyDesc::Primitive(desc) = &prop_info.property.desc {
 
             if desc.out_type != TdhOutType::OutTypeIpv4
@@ -579,7 +575,6 @@ impl TryParse<Pointer> for Parser<'_> {
     fn try_parse(&mut self, name: &str) -> ParserResult<Pointer> {
         let indx = self.find_property(name)?;
         let prop_info = &self.cache[indx];
-        let prop_info: &PropertyInfo = prop_info.borrow();
 
         let mut res = Pointer::default();
         if prop_info.buffer.len() == std::mem::size_of::<u32>() {
@@ -596,7 +591,6 @@ impl TryParse<Vec<u8>> for Parser<'_> {
     fn try_parse(&mut self, name: &str) -> Result<Vec<u8>, ParserError> {
         let indx = self.find_property(name)?;
         let prop_info = &self.cache[indx];
-        let prop_info: &PropertyInfo = prop_info.borrow();
 
         Ok(prop_info.buffer.to_vec())
     }

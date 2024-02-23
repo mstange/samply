@@ -245,7 +245,7 @@ pub fn start_trace<F: FnMut(&EventRecord)>(mut callback: F)  {
     }
 
     let prov = Provider::new().by_guid(guid_str);
-    let mut parameters = EnableTraceParameters::create(video_blt_guid, prov.trace_flags);
+    let parameters = EnableTraceParameters::create(video_blt_guid, prov.trace_flags);
     /*
     let status = unsafe { Etw::EnableTrace(1, 0xffffffff, Etw::TRACE_LEVEL_VERBOSE, &video_blt_guid, handle)};
     println!("EnableTrace = {}", status);

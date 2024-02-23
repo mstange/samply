@@ -660,7 +660,7 @@ fn main() {
                     counter.value += region_size as f64;
                     //println!("{}.{} VirtualAlloc({}) = {}",  e.EventHeader.ProcessId, thread_id, region_size, counter.value);
                     
-                    profile.add_counter_sample(counter.counter, timestamp, (region_size as f64), 1);
+                    profile.add_counter_sample(counter.counter, timestamp, region_size as f64, 1);
                     profile.add_marker(thread.handle, "VirtualAlloc", TextMarker(text), timing)
                 }
                 "KernelTraceControl/ImageID/" => {
@@ -793,7 +793,7 @@ fn main() {
                         }
                     }
 
-                    let mut gpu_thread = gpu_thread.get_or_insert_with(|| {
+                    let gpu_thread = gpu_thread.get_or_insert_with(|| {
                         let gpu = profile.add_process("GPU", 1, profile_start_instant);
                         profile.add_thread(gpu, 1, profile_start_instant, false)
                     });
