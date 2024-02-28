@@ -14,3 +14,4 @@ etw-reader = { path = "../etw-reader" }
 pico-args = "0.4.2"
 fxhash = "0.2.1"
 rangemap = "1.3.0"
+bitflags = "2.4.2"

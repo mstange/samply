@@ -6,6 +6,8 @@ use lib_mappings::{LibMappingOpQueue, LibMappingOp, LibMappingAdd};
 use serde_json::{Value, json, to_writer};
 use fxprof_processed_profile::{Timestamp, MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, ReferenceTimestamp, MarkerSchemaField, MarkerTiming, ProfilerMarker, ThreadHandle, Profile, debugid, SamplingInterval, CategoryPairHandle, ProcessHandle, LibraryInfo, CounterHandle, FrameInfo, FrameFlags, LibraryHandle, CpuDelta, SymbolTable, Symbol};
 use debugid::DebugId;
+use bitflags::bitflags;
+
 
 mod context_switch;
 mod jit_category_manager;
@@ -27,7 +29,7 @@ use unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
 use uuid::Uuid;
 use process_sample_data::ProcessSampleData;
 
-use crate::{timestamp_converter::TimestampConverter, context_switch::ContextSwitchHandler, marker_file::get_markers, jit_function_add_marker::JitFunctionAddMarker};
+use crate::{context_switch::ContextSwitchHandler, jit_function_add_marker::JitFunctionAddMarker, marker_file::get_markers, process_sample_data::UserTimingMarker, timestamp_converter::TimestampConverter};
 
 /// An example marker type with some text content.
 #[derive(Debug, Clone)]
@@ -218,6 +220,7 @@ fn main() {
         reference_raw: 0,
         raw_to_ns_factor: 1,
     };
+    let mut event_timestamps_are_qpc = false;
 
     let result = open_trace(Path::new(&trace_file), |e| {
         event_count += 1;
@@ -231,6 +234,9 @@ fn main() {
                     let clock_type: u32 = parser.parse("ReservedFlags");
                     if clock_type != 1 {
                         println!("WARNING: QPC not used as clock");
+                        event_timestamps_are_qpc = false;
+                    } else {
+                        event_timestamps_are_qpc = true;
                     }
                     let events_lost: u32 = parser.parse("EventsLost");
                     if events_lost != 0 {
@@ -291,7 +297,7 @@ fn main() {
                 "MSNT_SystemTrace/Thread/Start" |
                 "MSNT_SystemTrace/Thread/DCStart" => {
                     let timestamp = e.EventHeader.TimeStamp as u64;
-                    let timestamp = timestamp_converter.convert_time(timestamp);
+                    let timestamp = timestamp_converter.convert_raw(timestamp);
                     let mut parser = Parser::create(&s);
 
                     let thread_id: u32 = parser.parse("TThreadId");
@@ -361,7 +367,7 @@ fn main() {
                 "MSNT_SystemTrace/Thread/End" |
                 "MSNT_SystemTrace/Thread/DCEnd" => {
                     let timestamp = e.EventHeader.TimeStamp as u64;
-                    let timestamp = timestamp_converter.convert_time(timestamp);
+                    let timestamp = timestamp_converter.convert_raw(timestamp);
                     let mut parser = Parser::create(&s);
 
                     let thread_id: u32 = parser.parse("TThreadId");
@@ -380,7 +386,7 @@ fn main() {
                 "MSNT_SystemTrace/Process/DCStart" => {
                     if let Some(process_target_name) = &process_target_name {
                         let timestamp = e.EventHeader.TimeStamp as u64;
-                        let timestamp = timestamp_converter.convert_time(timestamp);
+                        let timestamp = timestamp_converter.convert_raw(timestamp);
                         let mut parser = Parser::create(&s);
 
 
@@ -459,7 +465,7 @@ fn main() {
                     // the pending stack with matching timestamp.
 
                     let mut add_sample = |thread: &ThreadState, process: &mut ProcessState, timestamp: u64, cpu_delta: CpuDelta, weight: i32, stack: Vec<StackFrame>| {
-                        let profile_timestamp = timestamp_converter.convert_time(timestamp);
+                        let profile_timestamp = timestamp_converter.convert_raw(timestamp);
                         let stack_index = unresolved_stacks.convert(stack.into_iter().rev());
                         let extra_label_frame = if let Some(global_thread) = global_thread {
                             let thread_name = thread.merge_name.as_ref().map(|x| strip_thread_numbers(x).to_owned()).unwrap_or_else(|| format!("thread {}", thread.thread_id));
@@ -528,7 +534,7 @@ fn main() {
                                         _ => "Other"
                                     };
                                     let timestamp = e.EventHeader.TimeStamp as u64;
-                                    let timestamp = timestamp_converter.convert_time(timestamp);
+                                    let timestamp = timestamp_converter.convert_raw(timestamp);
 
                                     frames.push(FrameInfo {
                                         frame: fxprof_processed_profile::Frame::Label(profile.intern_string(&thread_name)),
@@ -568,7 +574,7 @@ fn main() {
                                         _ => "Other"
                                     };
                                     let timestamp = e.EventHeader.TimeStamp as u64;
-                                    let timestamp = timestamp_converter.convert_time(timestamp);
+                                    let timestamp = timestamp_converter.convert_raw(timestamp);
 
                                     frames.push(FrameInfo {
                                         frame: fxprof_processed_profile::Frame::Label(profile.intern_string(&thread_name)),
@@ -593,7 +599,7 @@ fn main() {
                     }
                     let mut parser = Parser::create(&s);
                     let timestamp = e.EventHeader.TimeStamp as u64;
-                    let timestamp = timestamp_converter.convert_time(timestamp);
+                    let timestamp = timestamp_converter.convert_raw(timestamp);
                     let thread_id = e.EventHeader.ThreadId;
                     let counter = match memory_usage.entry(e.EventHeader.ProcessId) {
                         Entry::Occupied(e) => e.into_mut(),
@@ -614,7 +620,7 @@ fn main() {
                     let region_size: u64 = parser.parse("RegionSize");
                     counter.value -= region_size as f64;
 
-                    println!("{} VirtualFree({}) = {}", e.EventHeader.ProcessId, region_size, counter.value);
+                    //println!("{} VirtualFree({}) = {}", e.EventHeader.ProcessId, region_size, counter.value);
                     
                     profile.add_counter_sample(counter.counter, timestamp, -(region_size as f64), 1);
                     for i in 0..s.property_count() {
@@ -632,7 +638,7 @@ fn main() {
                     }
                     let mut parser = Parser::create(&s);
                     let timestamp = e.EventHeader.TimeStamp as u64;
-                    let timestamp = timestamp_converter.convert_time(timestamp);
+                    let timestamp = timestamp_converter.convert_raw(timestamp);
                     let thread_id = e.EventHeader.ThreadId;
                     let counter = match memory_usage.entry(e.EventHeader.ProcessId) {
                         Entry::Occupied(e) => e.into_mut(),
@@ -761,7 +767,7 @@ fn main() {
                 }
                 "Microsoft-Windows-DxgKrnl/VSyncDPC/Info " => {
                     let timestamp = e.EventHeader.TimeStamp as u64;
-                    let timestamp = timestamp_converter.convert_time(timestamp);
+                    let timestamp = timestamp_converter.convert_raw(timestamp);
 
                     #[derive(Debug, Clone)]
                     pub struct VSyncMarker;
@@ -851,7 +857,7 @@ fn main() {
                     process_jit_info.next_relative_address += method_size as u32;
 
                     let timestamp = e.EventHeader.TimeStamp as u64;
-                    let timestamp = timestamp_converter.convert_time(timestamp);
+                    let timestamp = timestamp_converter.convert_raw(timestamp);
 
                     if let Some(main_thread) = process.main_thread_handle {
                         profile.add_marker(
@@ -887,13 +893,96 @@ fn main() {
                     //dbg!(s.process_id(), jscript_symbols.keys());
 
                 }
+                "Mozilla.FirefoxTraceLogger/SimpleMarker/" => {
+                    let mut parser = Parser::create(&s);
+                    let marker_name: String = parser.try_parse("MarkerName").unwrap();
+
+
+                    let timestamp = e.EventHeader.TimeStamp as u64;
+                    let timestamp = timestamp_converter.convert_raw(timestamp);
+                    let thread_id = e.EventHeader.ThreadId;
+                    let thread = match threads.entry(thread_id) {
+                        Entry::Occupied(e) => e.into_mut(), 
+                        Entry::Vacant(_) => {
+                            dropped_sample_count += 1;
+                            // We don't know what process this will before so just drop it for now
+                            return;
+                        }
+                    };
+                    let mut text = String::new();
+                    for i in 0..s.property_count() {
+                        let property = s.property(i);
+                        if property.name == "MarkerName" {
+                            continue;
+                        }
+                        //dbg!(&property);
+                        write_property(&mut text, &mut parser, &property, false);
+                        text += ", "
+                    }
+
+                    profile.add_marker(thread.handle, &marker_name, TextMarker(text), MarkerTiming::Instant(timestamp))
+                }
                 _ => {
-                    if s.name().starts_with("Google.Chrome/") {
+                    if let Some(marker_name) = s.name().strip_prefix("Google.Chrome/").and_then(|s| s.strip_suffix("/")) {
+                        // a bitfield of keywords
+                        bitflags! {
+                            #[derive(PartialEq, Eq)]
+                            pub struct KeywordNames: u64 {
+                                const benchmark = 0x1;
+                                const blink = 0x2;
+                                const browser = 0x4;
+                                const cc = 0x8;
+                                const evdev = 0x10;
+                                const gpu = 0x20;
+                                const input = 0x40;
+                                const netlog = 0x80;
+                                const sequence_manager = 0x100;
+                                const toplevel = 0x200;
+                                const v8 = 0x400;
+                                const disabled_by_default_cc_debug = 0x800;
+                                const disabled_by_default_cc_debug_picture = 0x1000;
+                                const disabled_by_default_toplevel_flow = 0x2000;
+                                const startup = 0x4000;
+                                const latency = 0x8000;
+                                const blink_user_timing = 0x10000;
+                                const media = 0x20000;
+                                const loading = 0x40000;
+                                const base = 0x80000;
+                                const devtools_timeline = 0x100000;
+                                const unused_bit_21 = 0x200000;
+                                const unused_bit_22 = 0x400000;
+                                const unused_bit_23 = 0x800000;
+                                const unused_bit_24 = 0x1000000;
+                                const unused_bit_25 = 0x2000000;
+                                const unused_bit_26 = 0x4000000;
+                                const unused_bit_27 = 0x8000000;
+                                const unused_bit_28 = 0x10000000;
+                                const unused_bit_29 = 0x20000000;
+                                const unused_bit_30 = 0x40000000;
+                                const unused_bit_31 = 0x80000000;
+                                const unused_bit_32 = 0x100000000;
+                                const unused_bit_33 = 0x200000000;
+                                const unused_bit_34 = 0x400000000;
+                                const unused_bit_35 = 0x800000000;
+                                const unused_bit_36 = 0x1000000000;
+                                const unused_bit_37 = 0x2000000000;
+                                const unused_bit_38 = 0x4000000000;
+                                const unused_bit_39 = 0x8000000000;
+                                const unused_bit_40 = 0x10000000000;
+                                const unused_bit_41 = 0x20000000000;
+                                const navigation = 0x40000000000;
+                                const ServiceWorker = 0x80000000000;
+                                const edge_webview = 0x100000000000;
+                                const diagnostic_event = 0x200000000000;
+                                const __OTHER_EVENTS = 0x400000000000;
+                                const __DISABLED_OTHER_EVENTS = 0x800000000000;
+                            }
+                        }
+
                         let mut parser = Parser::create(&s);
-                        let timestamp = e.EventHeader.TimeStamp as u64;
-                        let timestamp = timestamp_converter.convert_time(timestamp);
                         let thread_id = e.EventHeader.ThreadId;
                         let phase: String = parser.try_parse("Phase").unwrap();
+
                         let thread = match threads.entry(thread_id) {
                             Entry::Occupied(e) => e.into_mut(), 
                             Entry::Vacant(_) => {
@@ -902,26 +991,37 @@ fn main() {
                                 return;
                             }
                         };
-                        let timing = match phase.as_str() {
-                            "Complete" => MarkerTiming::IntervalStart(timestamp),
-                            "Complete End" => MarkerTiming::IntervalEnd(timestamp),
-                            _ => MarkerTiming::Instant(timestamp),
-                        };
-
                         let mut text = String::new();
                         for i in 0..s.property_count() {
                             let property = s.property(i);
+                            if property.name == "Timestamp" || property.name == "Phase" || property.name == "Duration" {
+                                continue;
+                            }
                             //dbg!(&property);
                             write_property(&mut text, &mut parser, &property, false);
                             text += ", "
                         }
 
-                        profile.add_marker(thread.handle, s.name().trim_start_matches("Google.Chrome/"), TextMarker(text), timing)
+                        // We ignore e.EventHeader.TimeStamp and instead take the timestamp from the fields.
+                        let timestamp_us: u64 = parser.try_parse("Timestamp").unwrap();
+                        let timestamp = timestamp_converter.convert_us(timestamp_us);
+
+                        let timing = match phase.as_str() {
+                            "Begin" => MarkerTiming::IntervalStart(timestamp),
+                            "End" => MarkerTiming::IntervalEnd(timestamp),
+                            _ => MarkerTiming::Instant(timestamp),
+                        };
+                        let keyword = KeywordNames::from_bits(e.EventHeader.EventDescriptor.Keyword).unwrap();
+                        if keyword == KeywordNames::blink_user_timing {
+                            profile.add_marker(thread.handle, "UserTiming", UserTimingMarker(marker_name.to_owned()), timing);
+                        } else {
+                            profile.add_marker(thread.handle, marker_name, TextMarker(text.clone()), timing);
+                        }
                     } else {
                         let mut parser = Parser::create(&s);
 
                         let timestamp = e.EventHeader.TimeStamp as u64;
-                        let timestamp = timestamp_converter.convert_time(timestamp);
+                        let timestamp = timestamp_converter.convert_raw(timestamp);
                         let thread_id = e.EventHeader.ThreadId;
                         let thread = match threads.entry(thread_id) {
                             Entry::Occupied(e) => e.into_mut(), 

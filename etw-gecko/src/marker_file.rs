@@ -24,8 +24,8 @@ fn process_marker_span_line(
     if name.is_empty() {
         return None;
     }
-    let start_time = timestamp_converter.convert_time(start_time.parse::<u64>().ok()?);
-    let end_time = timestamp_converter.convert_time(end_time.parse::<u64>().ok()?);
+    let start_time = timestamp_converter.convert_raw(start_time.parse::<u64>().ok()?);
+    let end_time = timestamp_converter.convert_raw(end_time.parse::<u64>().ok()?);
     Some(MarkerSpan {
         start_time,
         end_time,
