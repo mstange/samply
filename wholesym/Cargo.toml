@@ -21,7 +21,7 @@ debugid = "0.8.0"
 samply-api = { version = "0.22.0", path = "../samply-api", features = ["send_futures"], optional = true }
 samply-symbols = { version = "0.21.0", path = "../samply-symbols", features = ["send_futures"] }
 # symsrv = { path = "../../symsrv" }
-symsrv = "0.3.0"
+symsrv = "0.4.0"
 yoke = "0.7"
 yoke-derive = "0.7"
 libc = "0.2.71"
@@ -36,7 +36,7 @@ reqwest = { version = "0.11.10", default-features = false, features = [
 bytes = "1.1.0"
 memmap2 = "0.9.4"
 tokio = { version = "1.17.0", features = ["fs"] }
-futures-util = "0.3.25"
+futures-util = "0.3.30"
 
 # Needed for moria_mac_spotlight, to find dSYM files
 [target.'cfg(target_os = "macos")'.dependencies]

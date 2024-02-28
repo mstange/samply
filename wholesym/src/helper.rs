@@ -3,6 +3,7 @@ use samply_symbols::{
     BreakpadIndex, BreakpadIndexParser, CandidatePathInfo, CodeId, ElfBuildId, FileAndPathHelper,
     FileAndPathHelperResult, FileLocation, LibraryInfo, OptionallySendFuture, PeCodeId,
 };
+use symsrv::{SymsrvDownloader, SymsrvObserver};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use uuid::Uuid;
 
@@ -46,7 +47,7 @@ impl std::ops::Deref for FileContents {
 #[derive(Debug, Clone)]
 pub enum WholesymFileLocation {
     LocalFile(PathBuf),
-    SymsrvFile(String),
+    SymsrvFile(String, String),
     LocalBreakpadFile(PathBuf, String),
     UrlForSourceFile(String),
     BreakpadSymbolServerFile(String),
@@ -198,7 +199,7 @@ impl<'h> FileAndPathHelper<'h> for FileReadOnlyHelper {
 }
 
 pub struct Helper {
-    win_symbol_cache: Option<symsrv::SymbolCache>,
+    symsrv_downloader: Option<SymsrvDownloader>,
     debuginfod_symbol_cache: Option<DebuginfodSymbolCache>,
     known_libs: Mutex<KnownLibs>,
     config: SymbolManagerConfig,
@@ -214,13 +215,15 @@ struct KnownLibs {
 
 impl Helper {
     pub fn with_config(config: SymbolManagerConfig) -> Self {
-        let default_downstream_store = symsrv::get_default_downstream_store();
-        let win_symbol_cache = match config.effective_nt_symbol_path() {
-            Some(nt_symbol_path) => Some(symsrv::SymbolCache::new(
-                nt_symbol_path,
-                default_downstream_store.as_deref(),
-                config.verbose,
-            )),
+        let symsrv_downloader = match config.effective_nt_symbol_path() {
+            Some(nt_symbol_path) => {
+                let mut downloader = SymsrvDownloader::new(nt_symbol_path);
+                downloader.set_default_downstream_store(symsrv::get_home_sym_dir());
+                if config.verbose {
+                    downloader.set_observer(Some(Arc::new(VerboseSymsrvObserver::new())));
+                }
+                Some(downloader)
+            }
             None => None,
         };
         let debuginfod_symbol_cache = if config.use_debuginfod {
@@ -233,7 +236,7 @@ impl Helper {
             None
         };
         Self {
-            win_symbol_cache,
+            symsrv_downloader,
             debuginfod_symbol_cache,
             known_libs: Mutex::new(Default::default()),
             config,
@@ -298,15 +301,15 @@ impl Helper {
                 let bytes = reqwest::get(&url).await?.bytes().await?;
                 Ok(FileContents::Bytes(bytes))
             }
-            WholesymFileLocation::SymsrvFile(path) => {
+            WholesymFileLocation::SymsrvFile(filename, hash) => {
                 if self.config.verbose {
-                    eprintln!("Trying to get file {path:?} from symbol cache");
+                    eprintln!("Trying to get file {filename} {hash} from symbol cache");
                 }
                 let file_path = self
-                    .win_symbol_cache
+                    .symsrv_downloader
                     .as_ref()
                     .unwrap()
-                    .get_file(Path::new(&path))
+                    .get_file(&filename, &hash)
                     .await?;
                 Ok(FileContents::Mmap(unsafe {
                     memmap2::MmapOptions::new().map(&File::open(file_path)?)?
@@ -638,15 +641,13 @@ impl<'h> FileAndPathHelper<'h> for Helper {
                 ));
             }
 
-            if debug_name.ends_with(".pdb") && self.win_symbol_cache.is_some() {
+            if debug_name.ends_with(".pdb") && self.symsrv_downloader.is_some() {
                 // We might find this pdb file with the help of a symbol server.
                 paths.push(CandidatePathInfo::SingleFile(
-                    WholesymFileLocation::SymsrvFile(format!(
-                        "{}/{}/{}",
-                        debug_name,
-                        debug_id.breakpad(),
-                        debug_name
-                    )),
+                    WholesymFileLocation::SymsrvFile(
+                        debug_name.clone(),
+                        debug_id.breakpad().to_string(),
+                    ),
                 ));
             }
         }
@@ -729,11 +730,11 @@ impl<'h> FileAndPathHelper<'h> for Helper {
         }
 
         if let (Some(_symbol_cache), Some(name), Some(CodeId::PeCodeId(code_id))) =
-            (&self.win_symbol_cache, &info.name, &info.code_id)
+            (&self.symsrv_downloader, &info.name, &info.code_id)
         {
             // We might find this exe / dll file with the help of a symbol server.
             paths.push(CandidatePathInfo::SingleFile(
-                WholesymFileLocation::SymsrvFile(format!("{name}/{code_id}/{name}")),
+                WholesymFileLocation::SymsrvFile(name.clone(), code_id.to_string()),
             ));
         }
 
@@ -850,4 +851,87 @@ fn get_dyld_shared_cache_paths(arch: Option<&str>) -> Vec<WholesymFileLocation> 
 /// Used to filter out files like `jitted-12345-12.so`, to avoid hammering debuginfod servers.
 fn might_be_perf_jit_so_file(info: &LibraryInfo) -> bool {
     matches!(&info.name, Some(name) if name.starts_with("jitted-") && name.ends_with(".so"))
+}
+
+struct VerboseSymsrvObserver {
+    urls: Mutex<HashMap<u64, String>>,
+}
+
+impl VerboseSymsrvObserver {
+    fn new() -> Self {
+        Self {
+            urls: Mutex::new(HashMap::new()),
+        }
+    }
+}
+
+impl SymsrvObserver for VerboseSymsrvObserver {
+    fn on_new_download_before_connect(&self, download_id: u64, url: &str) {
+        eprintln!("Connecting to {}...", url);
+        self.urls
+            .lock()
+            .unwrap()
+            .insert(download_id, url.to_owned());
+    }
+
+    fn on_download_started(&self, download_id: u64) {
+        let urls = self.urls.lock().unwrap();
+        let url = urls.get(&download_id).unwrap();
+        eprintln!("Downloading from {}...", url);
+    }
+
+    fn on_download_progress(
+        &self,
+        _download_id: u64,
+        _bytes_so_far: u64,
+        _total_bytes: Option<u64>,
+    ) {
+    }
+
+    fn on_download_completed(
+        &self,
+        download_id: u64,
+        _uncompressed_size_in_bytes: u64,
+        _time_until_headers: std::time::Duration,
+        _time_until_completed: std::time::Duration,
+    ) {
+        let url = self.urls.lock().unwrap().remove(&download_id).unwrap();
+        eprintln!("Finished download from {}.", url);
+    }
+
+    fn on_download_failed(&self, download_id: u64, reason: symsrv::DownloadError) {
+        let url = self.urls.lock().unwrap().remove(&download_id).unwrap();
+        eprintln!("Failed to download from {url}: {reason}.");
+    }
+
+    fn on_download_canceled(&self, download_id: u64) {
+        let url = self.urls.lock().unwrap().remove(&download_id).unwrap();
+        eprintln!("Canceled download from {}.", url);
+    }
+
+    fn on_new_cab_extraction(&self, _extraction_id: u64, _dest_path: &Path) {}
+    fn on_cab_extraction_progress(
+        &self,
+        _extraction_id: u64,
+        _bytes_so_far: u64,
+        _total_bytes: u64,
+    ) {
+    }
+    fn on_cab_extraction_completed(
+        &self,
+        _extraction_id: u64,
+        _uncompressed_size_in_bytes: u64,
+        _time_until_completed: std::time::Duration,
+    ) {
+    }
+    fn on_cab_extraction_failed(&self, _extraction_id: u64, _reason: symsrv::CabExtractionError) {}
+    fn on_cab_extraction_canceled(&self, _extraction_id: u64) {}
+
+    fn on_file_created(&self, _path: &Path, _size_in_bytes: u64) {}
+    fn on_file_accessed(&self, path: &Path) {
+        eprintln!("Checking if {path:?} exists... yes");
+    }
+    fn on_file_missed(&self, path: &Path) {
+        eprintln!("Checking if {path:?} exists... no");
+    }
 }
