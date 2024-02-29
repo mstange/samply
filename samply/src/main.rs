@@ -153,7 +153,7 @@ pub struct ConversionArgs {
 
     /// Merge non-overlapping threads of the same name.
     #[arg(long)]
-    merge_threads: bool,
+    reuse_threads: bool,
 
     /// Fold repeated frames at the base of the stack.
     #[arg(long)]
@@ -224,7 +224,7 @@ impl LoadArgs {
         };
         ConversionProps {
             profile_name,
-            merge_threads: self.conversion_args.merge_threads,
+            reuse_threads: self.conversion_args.reuse_threads,
             fold_recursive_prefix: self.conversion_args.fold_recursive_prefix,
         }
     }
@@ -261,7 +261,7 @@ impl RecordArgs {
         };
         ConversionProps {
             profile_name,
-            merge_threads: self.conversion_args.merge_threads,
+            reuse_threads: self.conversion_args.reuse_threads,
             fold_recursive_prefix: self.conversion_args.fold_recursive_prefix,
         }
     }

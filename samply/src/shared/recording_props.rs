@@ -10,7 +10,7 @@ pub struct RecordingProps {
 pub struct ConversionProps {
     pub profile_name: String,
     /// Merge non-overlapping threads of the same name.
-    pub merge_threads: bool,
+    pub reuse_threads: bool,
     /// Fold repeated frames at the base of the stack.
     pub fold_recursive_prefix: bool,
 }

@@ -115,7 +115,7 @@ where
         cache,
         extra_dir,
         interpretation.clone(),
-        conversion_props.merge_threads,
+        conversion_props.reuse_threads,
         conversion_props.fold_recursive_prefix,
     );
 

@@ -2,7 +2,7 @@ use fxprof_processed_profile::LibraryHandle;
 
 use super::types::FastHashMap;
 
-/// When running with --merge-threads, and we run a process multiple times, and each
+/// When running with --reuse-threads, and we run a process multiple times, and each
 /// of that invocations creates similar JIT functions, we want to collapse those "similar"
 /// JIT functions into the same JIT function so that the assembly view shows more hits.
 ///

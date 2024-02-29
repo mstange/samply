@@ -89,7 +89,7 @@ impl Sampler {
                 return Err(SamplingError::CouldNotObtainRootTask);
             }
         };
-        let mut process_recycler = if self.conversion_props.merge_threads {
+        let mut process_recycler = if self.conversion_props.reuse_threads {
             Some(ProcessRecycler::new())
         } else {
             None

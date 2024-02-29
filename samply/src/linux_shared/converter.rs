@@ -106,7 +106,7 @@ where
         cache: U::Cache,
         extra_binary_artifact_dir: Option<&Path>,
         interpretation: EventInterpretation,
-        merge_threads: bool,
+        reuse_threads: bool,
         fold_recursive_prefix: bool,
     ) -> Self {
         let interval = match interpretation.sampling_is_time_based {
@@ -138,7 +138,7 @@ where
         Self {
             profile,
             cache,
-            processes: Processes::new(merge_threads),
+            processes: Processes::new(reuse_threads),
             timestamp_converter,
             current_sample_time: first_sample_time,
             build_ids,
