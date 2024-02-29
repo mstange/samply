@@ -50,13 +50,13 @@ impl ProfilerMarker for TextMarker {
             type_name: Self::MARKER_TYPE_NAME,
             locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
             chart_label: Some("{marker.data.name}"),
-            tooltip_label: None,
+            tooltip_label: Some("{marker.data.name}"),
             table_label: Some("{marker.name} - {marker.data.name}"),
             fields: vec![MarkerSchemaField::Dynamic(MarkerDynamicField {
                 key: "name",
-                label: "Details",
+                label: "Name",
                 format: MarkerFieldFormat::String,
-                searchable: false,
+                searchable: true,
             })],
         }
     }
@@ -893,37 +893,71 @@ fn main() {
                     //dbg!(s.process_id(), jscript_symbols.keys());
 
                 }
-                "Mozilla.FirefoxTraceLogger/SimpleMarker/" => {
-                    let mut parser = Parser::create(&s);
-                    let marker_name: String = parser.try_parse("MarkerName").unwrap();
-
-
-                    let timestamp = e.EventHeader.TimeStamp as u64;
-                    let timestamp = timestamp_converter.convert_raw(timestamp);
-                    let thread_id = e.EventHeader.ThreadId;
-                    let thread = match threads.entry(thread_id) {
-                        Entry::Occupied(e) => e.into_mut(), 
-                        Entry::Vacant(_) => {
-                            dropped_sample_count += 1;
-                            // We don't know what process this will before so just drop it for now
-                            return;
-                        }
-                    };
-                    let mut text = String::new();
-                    for i in 0..s.property_count() {
-                        let property = s.property(i);
-                        if property.name == "MarkerName" {
-                            continue;
-                        }
-                        //dbg!(&property);
-                        write_property(&mut text, &mut parser, &property, false);
-                        text += ", "
-                    }
-
-                    profile.add_marker(thread.handle, &marker_name, TextMarker(text), MarkerTiming::Instant(timestamp))
-                }
                 _ => {
-                    if let Some(marker_name) = s.name().strip_prefix("Google.Chrome/").and_then(|s| s.strip_suffix("/")) {
+                    if let Some(marker_name) = s.name().strip_prefix("Mozilla.FirefoxTraceLogger/").and_then(|s| s.strip_suffix("/")) {
+                        let thread_id = e.EventHeader.ThreadId;
+                        let thread = match threads.entry(thread_id) {
+                            Entry::Occupied(e) => e.into_mut(), 
+                            Entry::Vacant(_) => {
+                                dropped_sample_count += 1;
+                                // We don't know what process this will before so just drop it for now
+                                return;
+                            }
+                        };
+                        let mut parser = Parser::create(&s);
+                        let mut text = String::new();
+                        for i in 0..s.property_count() {
+                            let property = s.property(i);
+                            if property.name == "MarkerName" {
+                                continue;
+                            }
+                            write_property(&mut text, &mut parser, &property, false);
+                            text += ", "
+                        }
+
+                        /// From https://searchfox.org/mozilla-central/rev/0e7394a77cdbe1df5e04a1d4171d6da67b57fa17/mozglue/baseprofiler/public/BaseProfilerMarkersPrerequisites.h#355-360
+                        const PHASE_INSTANT: u8 = 0;
+                        const PHASE_INTERVAL: u8 = 1;
+                        const PHASE_INTERVAL_START: u8 = 2;
+                        const PHASE_INTERVAL_END: u8 = 3;
+
+                        // We ignore e.EventHeader.TimeStamp and instead take the timestamp from the fields.
+                        let start_time_qpc: u64 = parser.try_parse("StartTime").unwrap();
+                        let end_time_qpc: u64 = parser.try_parse("EndTime").unwrap();
+                        assert!(event_timestamps_are_qpc, "Inconsistent timestamp formats! ETW traces with Firefox events should be captured with QPC timestamps (-ClockType PerfCounter) so that ETW sample timestamps are compatible with the QPC timestamps in Firefox ETW trace events, so that the markers appear in the right place.");
+                        let (phase, instant_time_qpc): (u8, u64) = match parser.try_parse("Phase") {
+                            Ok(phase) => (phase, start_time_qpc),
+                            Err(_) => {
+                                // Before the landing of https://bugzilla.mozilla.org/show_bug.cgi?id=1882640 ,
+                                // Firefox ETW trace events didn't have phase information, so we need to
+                                // guess a phase based on the timestamps.
+                                if start_time_qpc != 0 && end_time_qpc != 0 {
+                                    (PHASE_INTERVAL, 0)
+                                } else if start_time_qpc != 0 {
+                                    (PHASE_INSTANT, start_time_qpc)
+                                } else {
+                                    (PHASE_INSTANT, end_time_qpc)
+                                }
+                            }
+                        };
+                        let timing = match phase {
+                            PHASE_INSTANT => MarkerTiming::Instant(timestamp_converter.convert_raw(instant_time_qpc)),
+                            PHASE_INTERVAL => MarkerTiming::Interval(timestamp_converter.convert_raw(start_time_qpc), timestamp_converter.convert_raw(end_time_qpc)),
+                            PHASE_INTERVAL_START => MarkerTiming::IntervalStart(timestamp_converter.convert_raw(start_time_qpc)),
+                            PHASE_INTERVAL_END => MarkerTiming::IntervalEnd(timestamp_converter.convert_raw(end_time_qpc)),
+                            _ => panic!("Unexpected marker phase {phase}"),
+                        };
+
+                        if marker_name == "UserTiming" {
+                            let name: String = parser.try_parse("name").unwrap();
+                            profile.add_marker(thread.handle, "UserTiming", UserTimingMarker(name), timing);
+                        } else if marker_name == "SimpleMarker" {
+                            let marker_name: String = parser.try_parse("MarkerName").unwrap();
+                            profile.add_marker(thread.handle, &marker_name, TextMarker(text.clone()), timing);
+                        } else {
+                            profile.add_marker(thread.handle, marker_name, TextMarker(text.clone()), timing);
+                        }
+                    } else if let Some(marker_name) = s.name().strip_prefix("Google.Chrome/").and_then(|s| s.strip_suffix("/")) {
                         // a bitfield of keywords
                         bitflags! {
                             #[derive(PartialEq, Eq)]
