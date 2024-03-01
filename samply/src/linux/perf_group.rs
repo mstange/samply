@@ -239,10 +239,8 @@ impl PerfGroup {
 
         for ev in self.poll_events.iter() {
             if ev.is_read_closed() {
-                self.members
-                    .get_mut(&(ev.token().0 as RawFd))
-                    .unwrap()
-                    .is_closed = true;
+                let fd = ev.token().0 as RawFd;
+                self.members.get_mut(&fd).unwrap().is_closed = true;
             }
         }
     }
@@ -283,6 +281,11 @@ impl PerfGroup {
             }
 
             for fd in fds_to_remove.drain(..) {
+                let result = self.poll.registry().deregister(&mut SourceFd(&fd));
+                if let Err(err) = result {
+                    eprintln!("deregister failed: {}", err);
+                    continue;
+                }
                 self.members.remove(&fd);
             }
 
