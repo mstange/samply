@@ -6,7 +6,7 @@ extern crate bitflags;
 #[macro_use]
 extern crate num_derive;
 
-use windows::{Win32::{Foundation::{GetLastError, MAX_PATH, ERROR_SUCCESS}, System::Diagnostics::Etw::{EVENT_TRACE_FLAG, CONTROLTRACE_HANDLE}}, core::{PWSTR, HSTRING, h}};
+use windows::{core::{h, Error, HRESULT, HSTRING, PWSTR}, Win32::{Foundation::{GetLastError, ERROR_MORE_DATA, ERROR_SUCCESS, MAX_PATH}, System::Diagnostics::Etw::{EnumerateTraceGuids, EnumerateTraceGuidsEx, CONTROLTRACE_HANDLE, EVENT_TRACE_FLAG, TRACE_GUID_PROPERTIES}}};
 use crate::{parser::{Parser, ParserError, TryParse}, schema::SchemaLocator, tdh_types::{PropertyDesc, PrimitiveDesc, TdhInType}, traits::EncodeUtf16};
 
 #[macro_use]
@@ -382,4 +382,28 @@ pub fn add_custom_schemas(locator: &mut SchemaLocator) {
     locator.add_custom_schema(Box::new(custom_schemas::D3DUmdLogging_UnmapAllocation{}));
 }
 
+pub fn enumerate_trace_guids() {
+    let mut count = 1;
+    loop {
+        let mut guids: Vec<TRACE_GUID_PROPERTIES> = vec![unsafe { std::mem::zeroed() }; count as usize];
+        let mut ptrs: Vec<*mut TRACE_GUID_PROPERTIES> = Vec::new();
+        for guid in &mut guids {
+            ptrs.push(guid)
+        }
 
+        let result = unsafe { EnumerateTraceGuids(&mut ptrs.as_mut_slice(), &mut count) };
+        match result {
+            Ok(()) => {
+                for guid in guids[..count as usize].iter() {
+                    println!("{:?}", guid.Guid);
+                }
+                break;
+            }
+            Err(e) => {
+                if e.code() != ERROR_MORE_DATA.to_hresult() {
+                    break;
+                }
+            }
+        }
+    }
+}
