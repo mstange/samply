@@ -90,7 +90,11 @@ impl<'data, R: ReadRef<'data> + Send + Sync, FAC: FunctionAddressesComputer<'dat
 }
 
 enum FullSymbolListEntry<'a, Symbol: object::ObjectSymbol<'a>> {
+    /// A synthesized symbol for a function start address that's known
+    /// from some other information (not from the symbol table).
     Synthesized,
+    /// A synthesized symbol for the entry point of the object.
+    SynthesizedEntryPoint,
     Symbol(Symbol),
     Export(object::Export<'a>),
     EndAddress,
@@ -100,6 +104,7 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> std::fmt::Debug for FullSymbolListEnt
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Synthesized => write!(f, "Synthesized"),
+            Self::SynthesizedEntryPoint => write!(f, "SynthesizedEntryPoint"),
             Self::Symbol(arg0) => f
                 .debug_tuple("Symbol")
                 .field(&arg0.name().unwrap())
@@ -117,6 +122,7 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> FullSymbolListEntry<'a, Symbol> {
     fn name(&self, addr: u32) -> Result<Cow<'a, str>, ()> {
         match self {
             FullSymbolListEntry::Synthesized => Ok(format!("fun_{addr:x}").into()),
+            FullSymbolListEntry::SynthesizedEntryPoint => Ok("EntryPoint".into()),
             FullSymbolListEntry::Symbol(symbol) => match symbol.name_bytes() {
                 Ok(name) => Ok(String::from_utf8_lossy(name)),
                 Err(_) => Err(()),
@@ -304,7 +310,15 @@ where
             );
         }
 
-        // 5. End addresses from text section ends
+        // 5. A placeholder symbol for the entry point.
+        if let Some(entry_point) = object_file.entry().checked_sub(base_address) {
+            entries.push((
+                entry_point as u32,
+                FullSymbolListEntry::SynthesizedEntryPoint,
+            ));
+        }
+
+        // 6. End addresses from text section ends
         // These entries serve to "terminate" the last function of each section,
         // so that addresses in the following section are not considered
         // to be part of the last function of that previous section.
@@ -320,7 +334,7 @@ where
                 }),
         );
 
-        // 6. End addresses for sized symbols
+        // 7. End addresses for sized symbols
         // These addresses serve to "terminate" functions symbols.
         entries.extend(
             object_file
@@ -342,7 +356,7 @@ where
                 }),
         );
 
-        // 7. End addresses for known functions ends
+        // 8. End addresses for known functions ends
         // These addresses serve to "terminate" functions from function_start_addresses.
         // They come from .eh_frame or .pdata info, which has the function size.
         if let Some(function_end_addresses) = function_end_addresses {
