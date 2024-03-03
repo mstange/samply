@@ -15,13 +15,22 @@ pub enum KnownEvent {
     PageFault,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OffCpuIndicator {
+    /// We can see when threads go off-CPU and back with CONTEXT_SWITCH records.
+    ContextSwitches,
+    /// We can use sched_switch samples to see when threads go off-CPU, and
+    /// "main event" (e.g. cpu-cycles) samples to see when they come back on-CPU.
+    SchedSwitchAndSamples,
+}
+
 #[derive(Debug, Clone)]
 pub struct EventInterpretation {
     pub main_event_attr_index: usize,
     #[allow(unused)]
     pub main_event_name: String,
     pub sampling_is_time_based: Option<u64>,
-    pub have_context_switches: bool,
+    pub off_cpu_indicator: Option<OffCpuIndicator>,
     pub sched_switch_attr_index: Option<usize>,
     pub known_event_indices: HashMap<usize, KnownEvent>,
     pub event_names: Vec<String>,
@@ -59,6 +68,11 @@ impl EventInterpretation {
         let sched_switch_attr_index = attrs
             .iter()
             .position(|attr_desc| attr_desc.name.as_deref() == Some("sched:sched_switch"));
+        let off_cpu_indicator = match (have_context_switches, sched_switch_attr_index) {
+            (true, _) => Some(OffCpuIndicator::ContextSwitches),
+            (false, Some(_)) => Some(OffCpuIndicator::SchedSwitchAndSamples),
+            _ => None,
+        };
         let mut known_event_indices = HashMap::new();
 
         let known_events = [
@@ -93,7 +107,7 @@ impl EventInterpretation {
             main_event_attr_index,
             main_event_name,
             sampling_is_time_based,
-            have_context_switches,
+            off_cpu_indicator,
             sched_switch_attr_index,
             known_event_indices,
             event_names,

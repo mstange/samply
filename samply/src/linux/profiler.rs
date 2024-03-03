@@ -19,7 +19,9 @@ use super::perf_event::EventSource;
 use super::perf_group::{AttachMode, PerfGroup};
 use super::proc_maps;
 use super::process::SuspendedLaunchedProcess;
-use crate::linux_shared::{ConvertRegs, Converter, EventInterpretation, MmapRangeOrVec};
+use crate::linux_shared::{
+    ConvertRegs, Converter, EventInterpretation, MmapRangeOrVec, OffCpuIndicator,
+};
 use crate::server::{start_server_main, ServerProps};
 use crate::shared::recording_props::{ConversionProps, RecordingProps};
 
@@ -304,7 +306,7 @@ fn make_converter(
         main_event_attr_index: 0,
         main_event_name: "cycles".to_string(),
         sampling_is_time_based: Some(interval_nanos),
-        have_context_switches: true,
+        off_cpu_indicator: Some(OffCpuIndicator::ContextSwitches),
         sched_switch_attr_index: None,
         known_event_indices: HashMap::new(),
         event_names: vec!["cycles".to_string()],

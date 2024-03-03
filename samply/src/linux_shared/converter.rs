@@ -30,7 +30,7 @@ use std::{ops::Range, path::Path};
 
 use super::context_switch::{ContextSwitchHandler, OffCpuSampleGroup};
 use super::convert_regs::ConvertRegs;
-use super::event_interpretation::EventInterpretation;
+use super::event_interpretation::{EventInterpretation, OffCpuIndicator};
 use super::injected_jit_object::{correct_bad_perf_jit_so_file, jit_function_name};
 use super::kernel_symbols::{kernel_module_build_id, KernelSymbols};
 use super::mmap_range_or_vec::MmapRangeOrVec;
@@ -74,7 +74,7 @@ where
     context_switch_handler: ContextSwitchHandler,
     unresolved_stacks: UnresolvedStacks,
     off_cpu_weight_per_sample: i32,
-    have_context_switches: bool,
+    off_cpu_indicator: Option<OffCpuIndicator>,
     event_names: Vec<String>,
     kernel_symbols: Option<KernelSymbols>,
 
@@ -149,7 +149,7 @@ where
             off_cpu_weight_per_sample,
             context_switch_handler: ContextSwitchHandler::new(off_cpu_sampling_interval_ns),
             unresolved_stacks: UnresolvedStacks::default(),
-            have_context_switches: interpretation.have_context_switches,
+            off_cpu_indicator: interpretation.off_cpu_indicator,
             event_names: interpretation.event_names,
             kernel_symbols,
             suspected_pe_mappings: BTreeMap::new(),
@@ -230,7 +230,7 @@ where
             );
         }
 
-        let cpu_delta = if self.have_context_switches {
+        let cpu_delta = if self.off_cpu_indicator.is_some() {
             CpuDelta::from_nanos(
                 self.context_switch_handler
                     .consume_cpu_delta(&mut thread.context_switch_data),
@@ -282,6 +282,17 @@ where
             .convert_no_kernel(stack.iter().rev().cloned());
         let thread = process.threads.get_thread_by_tid(tid, &mut self.profile);
         thread.off_cpu_stack = Some(stack_index);
+
+        if self.off_cpu_indicator == Some(OffCpuIndicator::SchedSwitchAndSamples) {
+            // Treat this sched_switch sample as a switch-out.
+            // Sometimes we have sched_switch samples but no context switch records; for
+            // example when using `simpleperf record --trace-offcpu`.
+            let timestamp = e
+                .timestamp
+                .expect("Can't handle context switch without time");
+            self.context_switch_handler
+                .handle_switch_out(timestamp, &mut thread.context_switch_data);
+        }
     }
 
     pub fn handle_rss_stat_sample<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
