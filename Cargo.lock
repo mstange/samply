@@ -1073,9 +1073,9 @@ checksum = "bfae20f6b19ad527b550c223fddc3077a547fc70cda94b9b566575423fd303ee"
 
 [[package]]
 name = "linux-perf-data"
-version = "0.8.2"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51e5edc4ed86c4995d6fe86ed4153727d27b4f8be7167d14b05d74e41c16b087"
+checksum = "4533101fd9e7cdabbdb80e09b45cf200ee3c2252a5d4aadaae5325ab46769747"
 dependencies = [
  "byteorder",
  "linear-map",
@@ -1086,11 +1086,11 @@ dependencies = [
 
 [[package]]
 name = "linux-perf-event-reader"
-version = "0.9.0"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e93938b52460a3e539c9465592c5f645c7ca3847da1d7dbee20e3564d55c5a90"
+checksum = "41064623ecf100db029bd29e4a1cdec25fc513d45c15619ecd03504e2ffb1687"
 dependencies = [
- "bitflags 1.3.2",
+ "bitflags 2.4.2",
  "byteorder",
  "memchr",
  "thiserror",
