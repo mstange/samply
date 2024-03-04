@@ -44,7 +44,7 @@ wholesym = { version = "0.4.0", path = "../wholesym", features = ["api"]}
 dirs = "5.0.0"
 once_cell = "1.17"
 fxhash = "0.2.1"
-mio = { version = "0.8.6", features = ["os-ext", "os-poll"] }
+mio = { version = "0.8.11", features = ["os-ext", "os-poll"] }
 
 [target.'cfg(any(target_os = "android", target_os = "macos", target_os = "linux"))'.dependencies]
 
