@@ -569,11 +569,8 @@ where
 
     pub fn handle_mmap(&mut self, e: MmapRecord, timestamp: u64) {
         let mut path = e.path.as_slice();
-        if let Some(jitdump_path) = get_path_if_jitdump(&path) {
-            let process = self.processes.get_by_pid(e.pid, &mut self.profile);
-            process
-                .jitdump_manager
-                .add_jitdump_path(jitdump_path, self.extra_binary_artifact_dir.clone());
+        if self.check_jitdump_or_marker_file(&path, e.pid, e.tid) {
+            // Not a DSO.
             return;
         }
 
@@ -618,16 +615,13 @@ where
 
     pub fn handle_mmap2(&mut self, e: Mmap2Record, timestamp: u64) {
         let path = e.path.as_slice();
-        if let Some(jitdump_path) = get_path_if_jitdump(&path) {
-            let process = self.processes.get_by_pid(e.pid, &mut self.profile);
-            process
-                .jitdump_manager
-                .add_jitdump_path(jitdump_path, self.extra_binary_artifact_dir.clone());
+        if self.check_jitdump_or_marker_file(&path, e.pid, e.tid) {
+            // Not a DSO.
             return;
         }
 
         if e.page_offset == 0 {
-            self.check_for_pe_mapping(&e.path.as_slice(), e.address);
+            self.check_for_pe_mapping(&path, e.address);
         }
 
         const PROT_EXEC: u32 = 0b100;
@@ -658,6 +652,41 @@ where
             build_id.as_deref(),
             timestamp,
         );
+    }
+
+    fn check_jitdump_or_marker_file(&mut self, path: &[u8], pid: i32, tid: i32) -> bool {
+        let Ok(path) = std::str::from_utf8(path) else {
+            return false;
+        };
+
+        let filename = match path.rfind('/') {
+            Some(pos) => &path[pos + 1..],
+            None => path,
+        };
+
+        if filename.starts_with("jit-") && filename.ends_with(".dump") {
+            let jitdump_path = Path::new(path);
+            let process = self.processes.get_by_pid(pid, &mut self.profile);
+            process
+                .jitdump_manager
+                .add_jitdump_path(jitdump_path, self.extra_binary_artifact_dir.clone());
+            return true;
+        }
+
+        if filename.starts_with("marker-") && filename.ends_with(".txt") {
+            let marker_file_path = Path::new(path);
+            let process = self.processes.get_by_pid(pid, &mut self.profile);
+            let thread = process.threads.get_thread_by_tid(tid, &mut self.profile);
+            let profile_thread = thread.profile_thread;
+            process.add_marker_file_path(
+                profile_thread,
+                marker_file_path,
+                self.extra_binary_artifact_dir.clone(),
+            );
+            return true;
+        }
+
+        false
     }
 
     pub fn handle_context_switch(&mut self, e: ContextSwitchRecord, common: CommonData) {
@@ -1267,15 +1296,5 @@ fn get_pe_mapping_size(path_slice: &[u8]) -> Option<u64> {
         FileKind::Pe32 => inner::<ImageNtHeaders32>(&mmap),
         FileKind::Pe64 => inner::<ImageNtHeaders64>(&mmap),
         _ => None,
-    }
-}
-
-fn get_path_if_jitdump(path: &[u8]) -> Option<&Path> {
-    let path = Path::new(std::str::from_utf8(path).ok()?);
-    let filename = path.file_name()?.to_str()?;
-    if filename.starts_with("jit-") && filename.ends_with(".dump") {
-        Some(path)
-    } else {
-        None
     }
 }

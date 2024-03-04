@@ -3,6 +3,7 @@ pub mod jit_function_add_marker;
 pub mod jit_function_recycler;
 pub mod jitdump_manager;
 pub mod lib_mappings;
+pub mod marker_file;
 pub mod perf_map;
 pub mod process_sample_data;
 pub mod recording_props;

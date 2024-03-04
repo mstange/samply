@@ -4,7 +4,8 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Lines};
 use std::path::Path;
 
-use crate::shared::timestamp_converter::TimestampConverter;
+use super::timestamp_converter::TimestampConverter;
+use super::utils::open_file_with_fallback;
 
 #[derive(Debug, Clone)]
 pub struct MarkerSpan {
@@ -58,9 +59,10 @@ impl Iterator for MarkerFile {
 
 pub fn get_markers(
     marker_file: &Path,
+    extra_dir: Option<&Path>,
     timestamp_converter: TimestampConverter,
 ) -> Result<Vec<MarkerSpan>, std::io::Error> {
-    let f = std::fs::File::open(marker_file)?;
+    let (f, _true_path) = open_file_with_fallback(marker_file, extra_dir)?;
     let marker_file = MarkerFile::parse(f, timestamp_converter);
     let mut marker_spans: Vec<MarkerSpan> = marker_file.collect();
     marker_spans.sort_by_key(|m| m.start_time);

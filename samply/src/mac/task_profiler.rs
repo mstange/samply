@@ -30,6 +30,7 @@ use crate::shared::jitdump_manager::JitDumpManager;
 use crate::shared::lib_mappings::{
     LibMappingAdd, LibMappingInfo, LibMappingOp, LibMappingOpQueue, LibMappingRemove,
 };
+use crate::shared::marker_file::get_markers;
 use crate::shared::perf_map::try_load_perf_map;
 use crate::shared::process_sample_data::{MarkerSpanOnThread, ProcessSampleData};
 use crate::shared::recording_props::{ConversionProps, RecordingProps};
@@ -39,7 +40,6 @@ use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
 
 use super::error::SamplingError;
 use super::kernel_error::{IntoResult, KernelError};
-use super::marker_file::get_markers;
 use super::proc_maps::{
     DyldInfo, DyldInfoManager, Modification, ModuleSvmaInfo, StackwalkerRef, VmSubData,
 };
@@ -586,7 +586,7 @@ impl TaskProfiler {
         let mut marker_spans = Vec::new();
         for (thread_handle, marker_file_path) in self.marker_file_paths {
             if let Ok(marker_spans_from_this_file) =
-                get_markers(&marker_file_path, self.timestamp_converter)
+                get_markers(&marker_file_path, None, self.timestamp_converter)
             {
                 marker_spans.extend(marker_spans_from_this_file.into_iter().map(|span| {
                     MarkerSpanOnThread {

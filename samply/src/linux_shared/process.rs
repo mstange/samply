@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 use framehop::Unwinder;
 use fxprof_processed_profile::{
     CounterHandle, LibraryHandle, MarkerTiming, ProcessHandle, Profile, ThreadHandle, Timestamp,
@@ -11,8 +13,9 @@ use crate::shared::jit_function_add_marker::JitFunctionAddMarker;
 use crate::shared::jit_function_recycler::JitFunctionRecycler;
 use crate::shared::jitdump_manager::JitDumpManager;
 use crate::shared::lib_mappings::{LibMappingAdd, LibMappingInfo, LibMappingOp, LibMappingOpQueue};
+use crate::shared::marker_file::get_markers;
 use crate::shared::perf_map::try_load_perf_map;
-use crate::shared::process_sample_data::ProcessSampleData;
+use crate::shared::process_sample_data::{MarkerSpanOnThread, ProcessSampleData};
 use crate::shared::recycling::{ProcessRecyclingData, ThreadRecycler};
 use crate::shared::timestamp_converter::TimestampConverter;
 
@@ -31,6 +34,7 @@ where
     pub pid: i32,
     pub unresolved_samples: UnresolvedSamples,
     pub jit_function_recycler: Option<JitFunctionRecycler>,
+    marker_file_paths: Vec<(ThreadHandle, PathBuf, Option<PathBuf>)>,
     pub prev_mm_filepages_size: i64,
     pub prev_mm_anonpages_size: i64,
     pub prev_mm_swapents_size: i64,
@@ -58,8 +62,9 @@ where
             name,
             pid,
             threads: ProcessThreads::new(pid, process_handle, main_thread_handle, thread_recycler),
-            jit_function_recycler,
             unresolved_samples: Default::default(),
+            jit_function_recycler,
+            marker_file_paths: Vec::new(),
             prev_mm_filepages_size: 0,
             prev_mm_anonpages_size: 0,
             prev_mm_swapents_size: 0,
@@ -125,6 +130,16 @@ where
         );
     }
 
+    pub fn add_marker_file_path(
+        &mut self,
+        thread: ThreadHandle,
+        path: &Path,
+        fallback_dir: Option<PathBuf>,
+    ) {
+        self.marker_file_paths
+            .push((thread, path.to_owned(), fallback_dir));
+    }
+
     pub fn notify_dead(&mut self, end_time: Timestamp, profile: &mut Profile) {
         self.threads.notify_process_dead(end_time, profile);
         profile.set_process_end_time(self.profile_process, end_time);
@@ -162,12 +177,30 @@ where
             timestamp_converter,
         );
 
+        let mut marker_spans = Vec::new();
+        for (thread_handle, marker_file_path, fallback_dir) in self.marker_file_paths {
+            if let Ok(marker_spans_from_this_file) = get_markers(
+                &marker_file_path,
+                fallback_dir.as_deref(),
+                *timestamp_converter,
+            ) {
+                marker_spans.extend(marker_spans_from_this_file.into_iter().map(|span| {
+                    MarkerSpanOnThread {
+                        thread_handle,
+                        start_time: span.start_time,
+                        end_time: span.end_time,
+                        name: span.name,
+                    }
+                }));
+            }
+        }
+
         let process_sample_data = ProcessSampleData::new(
             std::mem::take(&mut self.unresolved_samples),
             std::mem::take(&mut self.lib_mapping_ops),
             jitdump_ops,
             perf_map_mappings,
-            Vec::new(),
+            marker_spans,
         );
 
         let thread_recycler = self.threads.finish();
