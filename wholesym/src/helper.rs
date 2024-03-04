@@ -570,6 +570,19 @@ impl<'h> FileAndPathHelper<'h> for Helper {
             }
         }
 
+        if let (Some(path), Some(debug_name)) = (&info.path, &info.debug_name) {
+            if info.name.as_deref() != Some(debug_name) {
+                // Also look for the debug file right next to the binary.
+                let binary_path = Path::new(path);
+                if let Some(parent) = binary_path.parent() {
+                    let debug_path = parent.join(debug_name);
+                    paths.push(CandidatePathInfo::SingleFile(
+                        WholesymFileLocation::LocalFile(debug_path),
+                    ));
+                }
+            }
+        }
+
         if !got_dsym && self.config.use_spotlight {
             if let Some(debug_id) = info.debug_id {
                 // Try a little harder to find a dSYM, just from the UUID. We can do this
