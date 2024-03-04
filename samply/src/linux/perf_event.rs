@@ -399,10 +399,9 @@ impl PerfBuilder {
         let attr_bytes_ptr = &attr as *const PerfEventAttr as *const u8;
         let attr_bytes_len = mem::size_of::<PerfEventAttr>();
         let attr_bytes = unsafe { slice::from_raw_parts(attr_bytes_ptr, attr_bytes_len) };
-        let attr2 = linux_perf_event_reader::PerfEventAttr::parse::<_, byteorder::NativeEndian>(
-            attr_bytes, None,
-        )
-        .unwrap();
+        let (attr2, _size) =
+            linux_perf_event_reader::PerfEventAttr::parse::<_, byteorder::NativeEndian>(attr_bytes)
+                .unwrap();
         let parse_info = RecordParseInfo::new(&attr2, Endianness::NATIVE);
 
         // debug!("Perf events open with fd={}", fd);
