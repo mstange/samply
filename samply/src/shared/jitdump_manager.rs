@@ -17,22 +17,26 @@ use super::utils::open_file_with_fallback;
 
 #[derive(Debug)]
 pub struct JitDumpManager {
-    pending_jitdump_paths: Vec<(PathBuf, Option<PathBuf>)>,
+    pending_jitdump_paths: Vec<(ThreadHandle, PathBuf, Option<PathBuf>)>,
     processors: Vec<SingleJitDumpProcessor>,
-    main_thread_handle: ThreadHandle,
 }
 
 impl JitDumpManager {
-    pub fn new_for_process(main_thread_handle: ThreadHandle) -> Self {
+    pub fn new() -> Self {
         JitDumpManager {
             pending_jitdump_paths: Vec::new(),
             processors: Vec::new(),
-            main_thread_handle,
         }
     }
 
-    pub fn add_jitdump_path(&mut self, path: impl Into<PathBuf>, fallback_dir: Option<PathBuf>) {
-        self.pending_jitdump_paths.push((path.into(), fallback_dir));
+    pub fn add_jitdump_path(
+        &mut self,
+        thread: ThreadHandle,
+        path: impl Into<PathBuf>,
+        fallback_dir: Option<PathBuf>,
+    ) {
+        self.pending_jitdump_paths
+            .push((thread, path.into(), fallback_dir));
     }
 
     pub fn process_pending_records(
@@ -43,7 +47,7 @@ impl JitDumpManager {
         timestamp_converter: &TimestampConverter,
     ) {
         self.pending_jitdump_paths
-            .retain_mut(|(path, fallback_dir)| {
+            .retain_mut(|(thread, path, fallback_dir)| {
                 fn jitdump_reader_for_path(
                     path: &Path,
                     fallback_dir: Option<&Path>,
@@ -62,11 +66,8 @@ impl JitDumpManager {
                     reader.header(),
                     profile,
                 );
-                self.processors.push(SingleJitDumpProcessor::new(
-                    reader,
-                    lib_handle,
-                    self.main_thread_handle,
-                ));
+                self.processors
+                    .push(SingleJitDumpProcessor::new(reader, lib_handle, *thread));
                 false // "Do not retain", i.e. remove from pending_jitdump_paths
             });
 
@@ -102,7 +103,7 @@ struct SingleJitDumpProcessor {
     lib_handle: LibraryHandle,
     lib_mapping_ops: LibMappingOpQueue,
     symbols: Vec<Symbol>,
-    main_thread_handle: ThreadHandle,
+    thread_handle: ThreadHandle,
 
     /// The relative_address of the next JIT function.
     ///
@@ -118,14 +119,14 @@ impl SingleJitDumpProcessor {
     pub fn new(
         reader: JitDumpReader<std::fs::File>,
         lib_handle: LibraryHandle,
-        main_thread_handle: ThreadHandle,
+        thread_handle: ThreadHandle,
     ) -> Self {
         Self {
             reader: Some(reader),
             lib_handle,
             lib_mapping_ops: Default::default(),
             symbols: Default::default(),
-            main_thread_handle,
+            thread_handle,
             cumulative_address: 0,
         }
     }
@@ -178,11 +179,10 @@ impl SingleJitDumpProcessor {
                         name: symbol_name.to_owned(),
                     });
 
-                    let main_thread = self.main_thread_handle;
                     let timestamp = timestamp_converter.convert_time(raw_jitdump_record.timestamp);
                     let timing = MarkerTiming::Instant(timestamp);
                     profile.add_marker(
-                        main_thread,
+                        self.thread_handle,
                         "JitFunctionAdd",
                         JitFunctionAddMarker(symbol_name.to_owned()),
                         timing,

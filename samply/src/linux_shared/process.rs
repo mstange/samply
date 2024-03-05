@@ -57,7 +57,7 @@ where
         Self {
             profile_process: process_handle,
             unwinder: U::default(),
-            jitdump_manager: JitDumpManager::new_for_process(main_thread_handle),
+            jitdump_manager: JitDumpManager::new(),
             lib_mapping_ops: Default::default(),
             name,
             pid,
@@ -164,12 +164,7 @@ where
             None
         };
 
-        // TODO: Load marker files
-
-        let jitdump_manager = std::mem::replace(
-            &mut self.jitdump_manager,
-            JitDumpManager::new_for_process(self.threads.main_thread.profile_thread),
-        );
+        let jitdump_manager = std::mem::replace(&mut self.jitdump_manager, JitDumpManager::new());
         let jitdump_ops = jitdump_manager.finish(
             jit_category_manager,
             profile,

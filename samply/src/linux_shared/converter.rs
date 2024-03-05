@@ -667,9 +667,13 @@ where
         if filename.starts_with("jit-") && filename.ends_with(".dump") {
             let jitdump_path = Path::new(path);
             let process = self.processes.get_by_pid(pid, &mut self.profile);
-            process
-                .jitdump_manager
-                .add_jitdump_path(jitdump_path, self.extra_binary_artifact_dir.clone());
+            let thread = process.threads.get_thread_by_tid(tid, &mut self.profile);
+            let profile_thread = thread.profile_thread;
+            process.jitdump_manager.add_jitdump_path(
+                profile_thread,
+                jitdump_path,
+                self.extra_binary_artifact_dir.clone(),
+            );
             return true;
         }
 

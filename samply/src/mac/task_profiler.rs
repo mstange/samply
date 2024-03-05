@@ -254,7 +254,7 @@ impl TaskProfiler {
             ignored_errors: Vec::new(),
             unwinder: UnwinderNative::new(),
             path_receiver,
-            jitdump_manager: JitDumpManager::new_for_process(main_thread_handle),
+            jitdump_manager: JitDumpManager::new(),
             marker_file_paths: Vec::new(),
             lib_mapping_ops: Default::default(),
             unresolved_samples: Default::default(),
@@ -524,7 +524,13 @@ impl TaskProfiler {
         while let Ok(jitdump_or_marker_file_path) = self.path_receiver.try_recv() {
             match jitdump_or_marker_file_path {
                 JitdumpOrMarkerPath::JitdumpPath(jitdump_path) => {
-                    self.jitdump_manager.add_jitdump_path(jitdump_path, None);
+                    // TODO: Detect which thread the jitdump file is opened on, and use that thread's
+                    // thread handle so that the JitFunctionAdd markers are put on that thread in the profile.
+                    self.jitdump_manager.add_jitdump_path(
+                        self.main_thread_handle,
+                        jitdump_path,
+                        None,
+                    );
                 }
                 JitdumpOrMarkerPath::MarkerFilePath(marker_file_path) => {
                     // TODO: Detect which thread the marker file is opened on, and use that thread's
