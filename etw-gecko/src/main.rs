@@ -908,8 +908,9 @@ fn main() {
                         let mut text = String::new();
                         for i in 0..s.property_count() {
                             let property = s.property(i);
-                            if property.name == "MarkerName" {
-                                continue;
+                            match property.name.as_str() {
+                                "MarkerName" | "StartTime" | "EndTime" | "Phase" | "InnerWindowId" | "CategoryPair" => { continue; }
+                                _ => {}
                             }
                             write_property(&mut text, &mut parser, &property, false);
                             text += ", "
