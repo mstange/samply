@@ -4,7 +4,7 @@ use context_switch::{OffCpuSampleGroup, ThreadContextSwitchData};
 use etw_reader::{GUID, open_trace, parser::{Parser, TryParse, Address}, print_property, schema::SchemaLocator, write_property};
 use lib_mappings::{LibMappingOpQueue, LibMappingOp, LibMappingAdd};
 use serde_json::{Value, json, to_writer};
-use fxprof_processed_profile::{debugid, CategoryHandle, CategoryPairHandle, CounterHandle, CpuDelta, FrameFlags, FrameInfo, LibraryHandle, LibraryInfo, MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerTiming, ProcessHandle, Profile, ProfilerMarker, ReferenceTimestamp, SamplingInterval, Symbol, SymbolTable, ThreadHandle, Timestamp};
+use fxprof_processed_profile::{debugid, CategoryColor, CategoryHandle, CategoryPairHandle, CounterHandle, CpuDelta, FrameFlags, FrameInfo, LibraryHandle, LibraryInfo, MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerTiming, ProcessHandle, Profile, ProfilerMarker, ReferenceTimestamp, SamplingInterval, Symbol, SymbolTable, ThreadHandle, Timestamp};
 use debugid::DebugId;
 use bitflags::bitflags;
 
@@ -222,6 +222,7 @@ fn main() {
     };
     let mut event_timestamps_are_qpc = false;
 
+    let mut categories = HashMap::<String, CategoryHandle>::new();
     let result = open_trace(Path::new(&trace_file), |e| {
         event_count += 1;
         let s = schema_locator.event_schema(e);
@@ -1076,9 +1077,16 @@ fn main() {
                             text += ", "
                         }
 
-                        profile.add_marker(thread.handle, CategoryHandle::OTHER, s.name(), TextMarker(text), MarkerTiming::Instant(timestamp))
+                        let timing = MarkerTiming::Instant(timestamp);
+                        let category = match categories.entry(s.provider_name()) {
+                            Entry::Occupied(e) => *e.get(),
+                            Entry::Vacant(e) => {
+                                let category = profile.add_category(e.key(), CategoryColor::Transparent);
+                                *e.insert(category)
+                            }
+                        };
 
-
+                        profile.add_marker(thread.handle, category, s.name().split_once("/").unwrap().1, TextMarker(text), timing)
                     }
                      //println!("unhandled {}", s.name()) 
                     }
