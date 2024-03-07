@@ -86,13 +86,21 @@ where
                 if let Some(name) = name.as_deref() {
                     profile.set_thread_name(main_thread_handle, name);
                 }
+                let (thread_recycler, jit_function_recycler) = if self.process_recycler.is_some() {
+                    (
+                        Some(ThreadRecycler::new()),
+                        Some(JitFunctionRecycler::default()),
+                    )
+                } else {
+                    (None, None)
+                };
                 let process = Process::new(
                     pid,
                     process_handle,
                     main_thread_handle,
                     name,
-                    Some(ThreadRecycler::new()),
-                    Some(JitFunctionRecycler::default()),
+                    thread_recycler,
+                    jit_function_recycler,
                 );
                 entry.insert(process)
             }
@@ -107,13 +115,21 @@ where
                 profile.add_process(&format!("<{pid}>"), pid as u32, fake_start_time);
             let main_thread_handle =
                 profile.add_thread(process_handle, pid as u32, fake_start_time, true);
+            let (thread_recycler, jit_function_recycler) = if self.process_recycler.is_some() {
+                (
+                    Some(ThreadRecycler::new()),
+                    Some(JitFunctionRecycler::default()),
+                )
+            } else {
+                (None, None)
+            };
             Process::new(
                 pid,
                 process_handle,
                 main_thread_handle,
-                None,
-                Some(ThreadRecycler::new()),
-                Some(JitFunctionRecycler::default()),
+                None, // no name
+                thread_recycler,
+                jit_function_recycler,
             )
         })
     }
