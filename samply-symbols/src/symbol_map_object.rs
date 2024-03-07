@@ -495,7 +495,7 @@ where
                 }
             };
 
-            let name = demangle::demangle_any(&name);
+            let name = demangle::demangle_any(&name).1;
             Some(AddressInfo {
                 symbol: SymbolInfo {
                     address: *start_addr,
