@@ -26,12 +26,18 @@ https://github.com/lallousx86/WinTools/tree/master/WEPExplorer is useful browser
 `xperf -start "NT Kernel Logger" -on latency -stackwalk profile -start "usersession" -on Microsoft-Windows-DxgKrnl:1:1`
 `xperf -stop "NT Kernel Logger" -stop "usersession" -d out.etl`
 
-
-# Tracing with Firefox events
+### Tracing with Firefox events
 ```
 xperf -start "NT Kernel Logger" -on latency -stackwalk profile -start "usersession" -on c923f508-96e4-5515-e32c-7539d1b10504
 xperf -stop "NT Kernel Logger" -stop "usersession" -d out.etl
 ```
+
+### Graphics tracing suggestions
+```
+xperf -start "NT Kernel Logger" -on latency -stackwalk profile -start "usersession" -on c923f508-96e4-5515-e32c-7539d1b10504 Microsoft-Windows-DxgKrnl:1:1 Microsoft-Windows-DirectComposition
+xperf -stop "NT Kernel Logger" -stop "usersession" -d out.etl
+```
+
 
 ### Stacks on page faults:
 e.g. `xperf -on latency+ALL_FAULTS -stackwalk PagefaultDemandZero`
