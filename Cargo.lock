@@ -1774,6 +1774,7 @@ dependencies = [
  "pdb-addr2line",
  "rangemap",
  "rustc-demangle",
+ "scala-native-demangle",
  "srcsrv",
  "thiserror",
  "uuid",
@@ -1782,6 +1783,12 @@ dependencies = [
  "zerocopy",
  "zerocopy-derive",
 ]
+
+[[package]]
+name = "scala-native-demangle"
+version = "0.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0a4416eddc0eaf31e04aa4039bd3db4288ea1ba613955d86cf9c310049c5d1e2"
 
 [[package]]
 name = "scopeguard"
