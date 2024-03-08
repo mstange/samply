@@ -742,18 +742,23 @@ where
         let is_main = e.pid == e.tid;
         let parent_process = self.processes.get_by_pid(e.ppid, &mut self.profile);
         if e.pid != e.ppid {
-            // We've created a new process.
+            // New process. The forking thread becomes the main thread of the new process.
+            // eprintln!("Process fork: old_pid={}, old_tid={}, new_pid={}", e.ppid, e.ptid, e.pid);
             if !is_main {
                 eprintln!("Unexpected data in FORK record: If we fork into a different process, the forked child thread should be the main thread of the new process");
             }
             let parent_process_name = parent_process.name.clone();
-            self.processes.recycle_or_get_new(
+            let fork_data = parent_process.clone_fork_data();
+            let child_process = self.processes.recycle_or_get_new(
                 e.pid,
                 parent_process_name,
                 start_time,
                 &mut self.profile,
             );
+            child_process.adopt_fork_data_from_parent(fork_data);
         } else {
+            // New thread within the same process.
+            // eprintln!("New thread: pid={}, old_tid={}, new_tid={}", e.pid, e.ptid, e.tid);
             let parent_thread = parent_process
                 .threads
                 .get_thread_by_tid(e.ptid, &mut self.profile);
@@ -807,6 +812,8 @@ where
         }
 
         if e.is_execve {
+            // eprintln!("Process execve: pid={}, tid={}, new name: {}", e.pid, e.tid, name);
+
             // Mark the old thread / process as ended.
             if is_main {
                 self.processes.remove(
@@ -839,9 +846,11 @@ where
                 );
             }
         } else if is_main {
+            // eprintln!("Process rename: pid={}, new name: {}", e.pid, name);
             self.processes
                 .rename_process(e.pid, timestamp, name.to_string(), &mut self.profile);
         } else {
+            // eprintln!("Thread rename: pid={}, tid={}, new name: {}", e.pid, e.tid, name);
             let process = self.processes.get_by_pid(e.pid, &mut self.profile);
             process.threads.rename_non_main_thread(
                 e.tid,

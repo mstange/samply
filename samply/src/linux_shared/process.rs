@@ -22,10 +22,7 @@ use crate::shared::timestamp_converter::TimestampConverter;
 
 use crate::shared::unresolved_samples::UnresolvedSamples;
 
-pub struct Process<U>
-where
-    U: Unwinder + Default,
-{
+pub struct Process<U> {
     pub profile_process: ProcessHandle,
     pub unwinder: U,
     pub jitdump_manager: JitDumpManager,
@@ -41,6 +38,11 @@ where
     pub prev_mm_swapents_size: i64,
     pub prev_mm_shmempages_size: i64,
     pub mem_counter: Option<CounterHandle>,
+}
+
+pub struct ProcessForkData<U> {
+    unwinder: U,
+    lib_mapping_ops: LibMappingOpQueue,
 }
 
 impl<U> Process<U>
@@ -72,6 +74,20 @@ where
             prev_mm_shmempages_size: 0,
             mem_counter: None,
         }
+    }
+
+    /// Called when this process forks and creates a child process.
+    pub fn clone_fork_data(&self) -> ProcessForkData<U> {
+        ProcessForkData {
+            unwinder: self.unwinder.clone(),
+            lib_mapping_ops: self.lib_mapping_ops.clone(),
+        }
+    }
+
+    /// Called on the child process that was created by the fork.
+    pub fn adopt_fork_data_from_parent(&mut self, fork_data: ProcessForkData<U>) {
+        self.unwinder = fork_data.unwinder;
+        self.lib_mapping_ops = fork_data.lib_mapping_ops;
     }
 
     pub fn swap_recycling_data(
