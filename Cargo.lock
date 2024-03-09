@@ -158,7 +158,7 @@ dependencies = [
  "cfg-if",
  "libc",
  "miniz_oxide",
- "object",
+ "object 0.32.2",
  "rustc-demangle",
 ]
 
@@ -1285,6 +1285,15 @@ version = "0.32.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6a622008b6e321afc04970976f62ee297fdbaa6f95318ca343e3eebb9648441"
 dependencies = [
+ "memchr",
+]
+
+[[package]]
+name = "object"
+version = "0.33.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d8dd6c0cdf9429bce006e1362bfce61fa1bfd8c898a643ed8d2b471934701d3d"
+dependencies = [
  "crc32fast",
  "flate2",
  "hashbrown",
@@ -1659,9 +1668,9 @@ dependencies = [
 
 [[package]]
 name = "ruzstd"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58c4eb8a81997cf040a091d1f7e1938aeab6749d3a0dfa73af43cdc32393483d"
+checksum = "5174a470eeb535a721ae9fdd6e291c2411a906b96592182d05217591d5c5cf7b"
 dependencies = [
  "byteorder",
  "derive_more",
@@ -1710,7 +1719,7 @@ dependencies = [
  "nix",
  "nix-base32",
  "num_cpus",
- "object",
+ "object 0.33.0",
  "once_cell",
  "opener",
  "parking_lot",
@@ -1770,7 +1779,7 @@ dependencies = [
  "memmap2",
  "msvc-demangler",
  "nom",
- "object",
+ "object 0.33.0",
  "pdb-addr2line",
  "rangemap",
  "rustc-demangle",

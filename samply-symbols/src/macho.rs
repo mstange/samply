@@ -8,8 +8,10 @@ use crate::symbol_map_object::{FunctionAddressesComputer, ObjectSymbolMapDataMid
 use crate::{debug_id_for_object, BinaryImage, FileLocation, MultiArchDisambiguator};
 use debugid::DebugId;
 use macho_unwind_info::UnwindInfo;
-use object::macho::{self, FatHeader, LinkeditDataCommand, MachHeader32, MachHeader64};
-use object::read::macho::{FatArch, LoadCommandIterator, MachHeader};
+use object::macho::{self, LinkeditDataCommand, MachHeader32, MachHeader64};
+use object::read::macho::{
+    FatArch, LoadCommandIterator, MachHeader, MachOFatFile32, MachOFatFile64,
+};
 use object::read::{File, Object, ObjectSection};
 use object::{Endianness, FileKind, ReadRef};
 use std::marker::PhantomData;
@@ -179,13 +181,13 @@ pub fn get_fat_archive_members(
     archive_kind: FileKind,
 ) -> Result<Vec<FatArchiveMember>, Error> {
     if archive_kind == FileKind::MachOFat64 {
-        let arches = FatHeader::parse_arch64(file_contents)
+        let fat_file = MachOFatFile64::parse(file_contents)
             .map_err(|e| Error::ObjectParseError(archive_kind, e))?;
-        get_fat_archive_members_impl(file_contents, arches)
+        get_fat_archive_members_impl(file_contents, fat_file.arches())
     } else {
-        let arches = FatHeader::parse_arch32(file_contents)
+        let fat_file = MachOFatFile32::parse(file_contents)
             .map_err(|e| Error::ObjectParseError(archive_kind, e))?;
-        get_fat_archive_members_impl(file_contents, arches)
+        get_fat_archive_members_impl(file_contents, fat_file.arches())
     }
 }
 
