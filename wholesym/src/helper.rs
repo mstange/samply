@@ -829,36 +829,45 @@ impl<'h> FileAndPathHelper<'h> for Helper {
     }
 }
 
+/// Return a Vec containing the potential paths where a dyld shared cache
+/// which contains an object of the given architecture might be found.
+///
+/// For example, the architecture might have been derived from the mach-O
+/// header of an object that was found in memory (e.g. the dyld images list
+/// of a profiled process).
 fn get_dyld_shared_cache_paths(arch: Option<&str>) -> Vec<WholesymFileLocation> {
-    if let Some(arch) = arch {
-        vec![
-            WholesymFileLocation::LocalFile(
-                format!(
-                "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_{arch}"
-            )
-                .into(),
-            ),
-            WholesymFileLocation::LocalFile(
-                format!("/System/Library/dyld/dyld_shared_cache_{arch}").into(),
-            ),
-        ]
-    } else {
-        vec![
-            WholesymFileLocation::LocalFile(
-                "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_arm64e"
-                    .into(),
-            ),
-            WholesymFileLocation::LocalFile(
-                "/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_x86_64"
-                    .into(),
-            ),
-            WholesymFileLocation::LocalFile("/System/Library/dyld/dyld_shared_cache_arm64e".into()),
-            WholesymFileLocation::LocalFile(
-                "/System/Library/dyld/dyld_shared_cache_x86_64h".into(),
-            ),
-            WholesymFileLocation::LocalFile("/System/Library/dyld/dyld_shared_cache_x86_64".into()),
-        ]
-    }
+    let mut vec = Vec::new();
+
+    let mut add_entries_in_dir = |dir: &str| {
+        let mut add_entry_for_arch = |arch: &str| {
+            let path = format!("{dir}/dyld_shared_cache_{arch}");
+            vec.push(WholesymFileLocation::LocalFile(PathBuf::from(path)));
+        };
+        match arch {
+            None => {
+                // Try all known architectures.
+                add_entry_for_arch("arm64e");
+                add_entry_for_arch("x86_64h");
+                add_entry_for_arch("x86_64");
+            }
+            Some("x86_64") => {
+                // x86_64 binaries can be either in the x86_64 or in the x86_64h cache.
+                add_entry_for_arch("x86_64h");
+                add_entry_for_arch("x86_64");
+            }
+            Some(arch) => {
+                // Use the cache that matches the CPU architecture of the object file.
+                add_entry_for_arch(arch);
+            }
+        }
+    };
+
+    // macOS 13+:
+    add_entries_in_dir("/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld");
+    // macOS 11 until macOS 13:
+    add_entries_in_dir("/System/Library/dyld");
+
+    vec
 }
 
 /// Used to filter out files like `jitted-12345-12.so`, to avoid hammering debuginfod servers.
