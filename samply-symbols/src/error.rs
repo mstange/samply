@@ -126,6 +126,9 @@ pub enum Error {
     #[error("No candidate path for binary, for {0:?}")]
     NoCandidatePathForDebugFile(Box<LibraryInfo>),
 
+    #[error("All candidate paths encountered failures:\n{}", .0.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("\n"))]
+    NoSuccessfulCandidate(Vec<Error>),
+
     #[error("No associated PDB file with the right debug ID was found for the PE (Windows) binary at path {0}")]
     NoMatchingPdbForBinary(String),
 
@@ -269,6 +272,7 @@ impl Error {
             Error::NoCandidatePathForDebugFile(_) => "NoCandidatePathForDebugFile",
             Error::NoCandidatePathForBinary(_, _) => "NoCandidatePathForBinary",
             Error::NoCandidatePathForDyldCache => "NoCandidatePathForDyldCache",
+            Error::NoSuccessfulCandidate(_) => "NoSuccessfulCandidate",
             Error::NoDebugInfoInPeBinary(_) => "NoDebugInfoInPeBinary",
             Error::NoMatchingPdbForBinary(_) => "NoMatchingPdbForBinary",
             Error::PdbPathNotUtf8(_) => "PdbPathNotUtf8",

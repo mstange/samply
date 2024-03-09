@@ -340,7 +340,7 @@ where
                 )
             })?;
 
-        let mut last_err = None;
+        let mut all_errors = Vec::new();
         for candidate_info in candidate_paths {
             let symbol_map = match candidate_info {
                 CandidatePathInfo::SingleFile(file_location) => {
@@ -362,15 +362,19 @@ where
             match symbol_map {
                 Ok(symbol_map) if symbol_map.debug_id() == debug_id => return Ok(symbol_map),
                 Ok(symbol_map) => {
-                    last_err = Some(Error::UnmatchedDebugId(symbol_map.debug_id(), debug_id));
+                    all_errors.push(Error::UnmatchedDebugId(symbol_map.debug_id(), debug_id));
                 }
                 Err(e) => {
-                    last_err = Some(e);
+                    all_errors.push(e);
                 }
             }
         }
-        Err(last_err
-            .unwrap_or_else(|| Error::NoCandidatePathForDebugFile(Box::new(library_info.clone()))))
+        let err = match all_errors.len() {
+            0 => Error::NoCandidatePathForDebugFile(Box::new(library_info.clone())),
+            1 => all_errors.pop().unwrap(),
+            _ => Error::NoSuccessfulCandidate(all_errors),
+        };
+        Err(err)
     }
 
     /// Load and return an external file which may contain additional debug info.
