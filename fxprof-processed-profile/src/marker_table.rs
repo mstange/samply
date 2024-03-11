@@ -1,14 +1,13 @@
 use serde::ser::{Serialize, SerializeMap, Serializer};
 use serde_json::Value;
 
-use crate::serialization_helpers::{
-    SerializableOptionalTimestampColumn, SerializableSingleValueColumn,
-};
+use crate::serialization_helpers::SerializableOptionalTimestampColumn;
 use crate::thread_string_table::ThreadInternalStringIndex;
-use crate::{MarkerTiming, Timestamp};
+use crate::{CategoryHandle, MarkerTiming, Timestamp};
 
 #[derive(Debug, Clone, Default)]
 pub struct MarkerTable {
+    marker_categories: Vec<CategoryHandle>,
     marker_name_string_indexes: Vec<ThreadInternalStringIndex>,
     marker_starts: Vec<Option<Timestamp>>,
     marker_ends: Vec<Option<Timestamp>>,
@@ -23,6 +22,7 @@ impl MarkerTable {
 
     pub fn add_marker(
         &mut self,
+        category: CategoryHandle,
         name: ThreadInternalStringIndex,
         timing: MarkerTiming,
         data: Value,
@@ -33,6 +33,7 @@ impl MarkerTable {
             MarkerTiming::IntervalStart(s) => (Some(s), None, Phase::IntervalStart),
             MarkerTiming::IntervalEnd(e) => (None, Some(e), Phase::IntervalEnd),
         };
+        self.marker_categories.push(category);
         self.marker_name_string_indexes.push(name);
         self.marker_starts.push(s);
         self.marker_ends.push(e);
@@ -46,7 +47,7 @@ impl Serialize for MarkerTable {
         let len = self.marker_name_string_indexes.len();
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry("length", &len)?;
-        map.serialize_entry("category", &SerializableSingleValueColumn(0, len))?;
+        map.serialize_entry("category", &self.marker_categories)?;
         map.serialize_entry("data", &self.marker_datas)?;
         map.serialize_entry(
             "endTime",

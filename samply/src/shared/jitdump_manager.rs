@@ -1,5 +1,5 @@
 use fxprof_processed_profile::{
-    LibraryHandle, MarkerTiming, Profile, Symbol, SymbolTable, ThreadHandle,
+    CategoryHandle, LibraryHandle, MarkerTiming, Profile, Symbol, SymbolTable, ThreadHandle,
 };
 use linux_perf_data::jitdump::{JitDumpReader, JitDumpRecord, JitDumpRecordType};
 
@@ -183,6 +183,7 @@ impl SingleJitDumpProcessor {
                     let timing = MarkerTiming::Instant(timestamp);
                     profile.add_marker(
                         self.thread_handle,
+                        CategoryHandle::OTHER,
                         "JitFunctionAdd",
                         JitFunctionAddMarker(symbol_name.to_owned()),
                         timing,

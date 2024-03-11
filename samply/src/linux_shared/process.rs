@@ -2,7 +2,8 @@ use std::path::{Path, PathBuf};
 
 use framehop::Unwinder;
 use fxprof_processed_profile::{
-    CounterHandle, LibraryHandle, MarkerTiming, ProcessHandle, Profile, ThreadHandle, Timestamp,
+    CategoryHandle, CounterHandle, LibraryHandle, MarkerTiming, ProcessHandle, Profile,
+    ThreadHandle, Timestamp,
 };
 
 use super::process_threads::ProcessThreads;
@@ -258,6 +259,7 @@ where
         let timing = MarkerTiming::Instant(profile_timestamp);
         profile.add_marker(
             main_thread,
+            CategoryHandle::OTHER,
             "JitFunctionAdd",
             JitFunctionAddMarker(symbol_name.unwrap_or("<unknown>").to_owned()),
             timing,
