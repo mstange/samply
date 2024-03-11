@@ -16,7 +16,7 @@ use crate::sample_table::SampleTable;
 use crate::stack_table::StackTable;
 use crate::string_table::{GlobalStringIndex, GlobalStringTable};
 use crate::thread_string_table::{ThreadInternalStringIndex, ThreadStringTable};
-use crate::{MarkerTiming, ProfilerMarker, Timestamp};
+use crate::{CategoryHandle, MarkerTiming, ProfilerMarker, Timestamp};
 
 /// A process. Can be created with [`Profile::add_process`](crate::Profile::add_process).
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
@@ -143,6 +143,7 @@ impl Thread {
 
     pub fn add_marker<T: ProfilerMarker>(
         &mut self,
+        category: CategoryHandle,
         name: &str,
         marker: T,
         timing: MarkerTiming,
@@ -155,7 +156,8 @@ impl Thread {
                 obj.insert("cause".to_string(), json!({ "stack": stack_index }));
             }
         }
-        self.markers.add_marker(name_string_index, timing, data);
+        self.markers
+            .add_marker(category, name_string_index, timing, data);
     }
 
     pub fn contains_js_function(&self) -> bool {

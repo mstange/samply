@@ -1,7 +1,7 @@
 use fxprof_processed_profile::{
-    CategoryPairHandle, LibMappings, MarkerDynamicField, MarkerFieldFormat, MarkerLocation,
-    MarkerSchema, MarkerSchemaField, MarkerStaticField, MarkerTiming, Profile, ProfilerMarker,
-    ThreadHandle, Timestamp,
+    CategoryHandle, CategoryPairHandle, LibMappings, MarkerDynamicField, MarkerFieldFormat,
+    MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerStaticField, MarkerTiming, Profile,
+    ProfilerMarker, ThreadHandle, Timestamp,
 };
 use serde_json::json;
 
@@ -125,6 +125,7 @@ impl ProcessSampleData {
                     };
                     profile.add_marker_with_stack(
                         thread_handle,
+                        CategoryHandle::OTHER,
                         name,
                         RssStatMarker(size, delta),
                         timing,
@@ -136,6 +137,7 @@ impl ProcessSampleData {
                         let timing = MarkerTiming::Instant(timestamp);
                         profile.add_marker_with_stack(
                             thread_handle,
+                            CategoryHandle::OTHER,
                             name,
                             OtherEventMarker,
                             timing,
@@ -149,6 +151,7 @@ impl ProcessSampleData {
         for marker in marker_spans {
             profile.add_marker(
                 marker.thread_handle,
+                CategoryHandle::OTHER,
                 "SimpleMarker",
                 SimpleMarker(marker.name.clone()),
                 MarkerTiming::Interval(marker.start_time, marker.end_time),

@@ -3,10 +3,10 @@ use debugid::DebugId;
 use serde_json::json;
 
 use fxprof_processed_profile::{
-    CategoryColor, CpuDelta, Frame, FrameFlags, FrameInfo, LibraryInfo, MarkerDynamicField,
-    MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerStaticField,
-    MarkerTiming, Profile, ProfilerMarker, ReferenceTimestamp, SamplingInterval, Symbol,
-    SymbolTable, Timestamp,
+    CategoryColor, CategoryHandle, CpuDelta, Frame, FrameFlags, FrameInfo, LibraryInfo,
+    MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField,
+    MarkerStaticField, MarkerTiming, Profile, ProfilerMarker, ReferenceTimestamp, SamplingInterval,
+    Symbol, SymbolTable, Timestamp,
 };
 
 use std::sync::Arc;
@@ -271,12 +271,14 @@ fn profile_without_js() {
 
     profile.add_marker(
         thread,
+        CategoryHandle::OTHER,
         "Experimental",
         TextMarker("Hello world!".to_string()),
         MarkerTiming::Instant(Timestamp::from_millis_since_reference(0.0)),
     );
     profile.add_marker(
         thread,
+        CategoryHandle::OTHER,
         "CustomName",
         CustomMarker {
             event_name: "My event".to_string(),
