@@ -7,8 +7,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-serde_json = "1.0.53"
-fxprof-processed-profile = { git = "https://github.com/mstange/samply/", rev="e0419395dbcc00aa2b86cb6fe56bf94e09d791a0" }
+serde_json = "1.0"
+fxprof-processed-profile = { git = "https://github.com/mstange/samply/", rev="c6cc82a7d2580a73fd7fa4831a2bf87d519a5f69" }
 uuid = "1" # We really want gecko_profile::debugid::uuid, but debugid doesn't re-export uuid
 etw-reader = { path = "../etw-reader" }
 pico-args = "0.4.2"

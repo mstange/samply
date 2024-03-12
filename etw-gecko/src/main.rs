@@ -4,7 +4,7 @@ use context_switch::{OffCpuSampleGroup, ThreadContextSwitchData};
 use etw_reader::{GUID, open_trace, parser::{Parser, TryParse, Address}, print_property, schema::SchemaLocator, write_property};
 use lib_mappings::{LibMappingOpQueue, LibMappingOp, LibMappingAdd};
 use serde_json::{Value, json, to_writer};
-use fxprof_processed_profile::{Timestamp, MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, ReferenceTimestamp, MarkerSchemaField, MarkerTiming, ProfilerMarker, ThreadHandle, Profile, debugid, SamplingInterval, CategoryPairHandle, ProcessHandle, LibraryInfo, CounterHandle, FrameInfo, FrameFlags, LibraryHandle, CpuDelta, SymbolTable, Symbol};
+use fxprof_processed_profile::{debugid, CategoryHandle, CategoryPairHandle, CounterHandle, CpuDelta, FrameFlags, FrameInfo, LibraryHandle, LibraryInfo, MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerTiming, ProcessHandle, Profile, ProfilerMarker, ReferenceTimestamp, SamplingInterval, Symbol, SymbolTable, ThreadHandle, Timestamp};
 use debugid::DebugId;
 use bitflags::bitflags;
 
@@ -630,7 +630,7 @@ fn main() {
                         text += ", "
                     }
 
-                    profile.add_marker(thread.handle, "VirtualFree", TextMarker(text), timing)
+                    profile.add_marker(thread.handle, CategoryHandle::OTHER, "VirtualFree", TextMarker(text), timing)
                 }
                 "MSNT_SystemTrace/PageFault/VirtualAlloc" => {
                     if !process_targets.contains(&e.EventHeader.ProcessId) {
@@ -667,7 +667,7 @@ fn main() {
                     //println!("{}.{} VirtualAlloc({}) = {}",  e.EventHeader.ProcessId, thread_id, region_size, counter.value);
                     
                     profile.add_counter_sample(counter.counter, timestamp, region_size as f64, 1);
-                    profile.add_marker(thread.handle, "VirtualAlloc", TextMarker(text), timing)
+                    profile.add_marker(thread.handle, CategoryHandle::OTHER, "VirtualAlloc", TextMarker(text), timing)
                 }
                 "KernelTraceControl/ImageID/" => {
 
@@ -804,6 +804,7 @@ fn main() {
                         profile.add_thread(gpu, 1, profile_start_instant, false)
                     });
                     profile.add_marker(*gpu_thread,
+                        CategoryHandle::OTHER,
                         "Vsync",
                         VSyncMarker{},
                         MarkerTiming::Instant(timestamp)
@@ -862,6 +863,7 @@ fn main() {
                     if let Some(main_thread) = process.main_thread_handle {
                         profile.add_marker(
                             main_thread,
+                            CategoryHandle::OTHER,
                             "JitFunctionAdd",
                             JitFunctionAddMarker(method_name.to_owned()),
                             MarkerTiming::Instant(timestamp),
@@ -951,12 +953,12 @@ fn main() {
 
                         if marker_name == "UserTiming" {
                             let name: String = parser.try_parse("name").unwrap();
-                            profile.add_marker(thread.handle, "UserTiming", UserTimingMarker(name), timing);
+                            profile.add_marker(thread.handle, CategoryHandle::OTHER, "UserTiming", UserTimingMarker(name), timing);
                         } else if marker_name == "SimpleMarker" {
                             let marker_name: String = parser.try_parse("MarkerName").unwrap();
-                            profile.add_marker(thread.handle, &marker_name, TextMarker(text.clone()), timing);
+                            profile.add_marker(thread.handle, CategoryHandle::OTHER, &marker_name, TextMarker(text.clone()), timing);
                         } else {
-                            profile.add_marker(thread.handle, marker_name, TextMarker(text.clone()), timing);
+                            profile.add_marker(thread.handle, CategoryHandle::OTHER, marker_name, TextMarker(text.clone()), timing);
                         }
                     } else if let Some(marker_name) = s.name().strip_prefix("Google.Chrome/").and_then(|s| s.strip_suffix("/")) {
                         // a bitfield of keywords
@@ -1048,9 +1050,9 @@ fn main() {
                         };
                         let keyword = KeywordNames::from_bits(e.EventHeader.EventDescriptor.Keyword).unwrap();
                         if keyword == KeywordNames::blink_user_timing {
-                            profile.add_marker(thread.handle, "UserTiming", UserTimingMarker(marker_name.to_owned()), timing);
+                            profile.add_marker(thread.handle, CategoryHandle::OTHER, "UserTiming", UserTimingMarker(marker_name.to_owned()), timing);
                         } else {
-                            profile.add_marker(thread.handle, marker_name, TextMarker(text.clone()), timing);
+                            profile.add_marker(thread.handle, CategoryHandle::OTHER, marker_name, TextMarker(text.clone()), timing);
                         }
                     } else {
                         let mut parser = Parser::create(&s);
@@ -1074,7 +1076,7 @@ fn main() {
                             text += ", "
                         }
 
-                        profile.add_marker(thread.handle, s.name(), TextMarker(text), MarkerTiming::Instant(timestamp))
+                        profile.add_marker(thread.handle, CategoryHandle::OTHER, s.name(), TextMarker(text), MarkerTiming::Instant(timestamp))
 
 
                     }
