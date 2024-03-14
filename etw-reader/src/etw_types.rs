@@ -1,5 +1,7 @@
 use std::ops::Deref;
+use std::rc::Rc;
 
+use once_cell::unsync::OnceCell;
 use windows::Win32::System::Diagnostics::Etw::{self, PropertyStruct};
 use crate::{tdh_types::PropertyMapInfo};
 use crate::schema::EventSchema;
@@ -111,6 +113,7 @@ impl std::ops::Deref for TraceEventInfo {
 #[derive(Debug, Clone, Default)]
 pub struct TraceEventInfoRaw {
     pub(crate) info: Vec<u8>,
+    property_maps: OnceCell<Vec<OnceCell<Option<Rc<PropertyMapInfo>>>>>,
 }
 
 impl std::ops::DerefMut for TraceEventInfo {
@@ -127,9 +130,16 @@ impl From<&TraceEventInfoRaw> for TraceEventInfo {
 
 
 impl TraceEventInfoRaw {
+    pub(crate) fn new(info: Vec<u8>) -> Self {
+        TraceEventInfoRaw {
+            info,
+            property_maps: OnceCell::new(),
+        }
+    }
     pub(crate) fn alloc(len: u32) -> Self {
         TraceEventInfoRaw {
             info: vec![0; len as usize],
+            property_maps: OnceCell::new(),
         }
     }
 
@@ -137,59 +147,64 @@ impl TraceEventInfoRaw {
         self.info.as_mut_ptr()
     }
 
-    fn property_map_info(&self, index: u32) -> Option<PropertyMapInfo> {
+    fn property_map_info(&self, index: u32) -> Option<Rc<PropertyMapInfo>> {
 
         // let's make sure index is not bigger thant the PropertyCount
         assert!(index <= TraceEventInfo::from(self).PropertyCount);
+        let property_maps = self.property_maps.get_or_init(|| {
+             vec![OnceCell::new(); TraceEventInfo::from(self).PropertyCount as usize]
+        });
+        let map = property_maps[index as usize].get_or_init(|| {
+            // We need to subtract the sizeof(EVENT_PROPERTY_INFO) due to how TRACE_EVENT_INFO is declared
+            // in the bindings, the last field `EventPropertyInfoArray[ANYSIZE_ARRAY]` is declared as
+            // [EVENT_PROPERTY_INFO; 1]
+            // https://microsoft.github.io/windows-docs-rs/doc/bindings/Windows/Win32/Etw/struct.TRACE_EVENT_INFO.html#structfield.EventPropertyInfoArray
+            let curr_prop_offset = index as usize * std::mem::size_of::<EventPropertyInfo>()
+                + (std::mem::size_of::<TraceEventInfo>() - std::mem::size_of::<EventPropertyInfo>());
 
-        // We need to subtract the sizeof(EVENT_PROPERTY_INFO) due to how TRACE_EVENT_INFO is declared
-        // in the bindings, the last field `EventPropertyInfoArray[ANYSIZE_ARRAY]` is declared as
-        // [EVENT_PROPERTY_INFO; 1]
-        // https://microsoft.github.io/windows-docs-rs/doc/bindings/Windows/Win32/Etw/struct.TRACE_EVENT_INFO.html#structfield.EventPropertyInfoArray
-        let curr_prop_offset = index as usize * std::mem::size_of::<EventPropertyInfo>()
-            + (std::mem::size_of::<TraceEventInfo>() - std::mem::size_of::<EventPropertyInfo>());
+            let curr_prop = EventPropertyInfo::from(&self.info[curr_prop_offset..]);
+            assert!((curr_prop.Flags.0 & PropertyStruct.0 == 0));
+            unsafe {
+                if curr_prop.Anonymous1.nonStructType.MapNameOffset != 0 {
+                    // build an empty event record that we can use to get the map info
+                    let mut event: Etw::EVENT_RECORD = std::mem::zeroed();
+                    event.EventHeader.ProviderId = self.provider_guid();
 
-        let curr_prop = EventPropertyInfo::from(&self.info[curr_prop_offset..]);
-        assert!((curr_prop.Flags.0 & PropertyStruct.0 == 0));
-        unsafe {
-            if curr_prop.Anonymous1.nonStructType.MapNameOffset != 0 {
-                // build an empty event record that we can use to get the map info
-                let mut event: Etw::EVENT_RECORD = std::mem::zeroed();
-                event.EventHeader.ProviderId = self.provider_guid();
-
-                let mut buffer_size = 0;
-                let map_name = PCWSTR(self.info[curr_prop.Anonymous1.nonStructType.MapNameOffset as usize..].as_ptr() as *mut u16);
-                use windows::Win32::Foundation::ERROR_INSUFFICIENT_BUFFER;
-                // println!("map_name {}", utils::parse_unk_size_null_utf16_string(&self.info[curr_prop.Anonymous1.nonStructType.MapNameOffset as usize..]));
-                if Etw::TdhGetEventMapInformation(&event, map_name, None, &mut buffer_size) != ERROR_INSUFFICIENT_BUFFER.0 {
-                    panic!("expected this to fail");
-                }
-                
-                let mut buffer = vec![0; buffer_size as usize];
-                if Etw::TdhGetEventMapInformation(&event, map_name, Some(buffer.as_mut_ptr() as *mut _), &mut buffer_size) != 0 {
-                    panic!();
-                }
-
-                let map_info: &crate::Etw::EVENT_MAP_INFO = &*(buffer.as_ptr() as *const _);
-                if map_info.Flag == crate::Etw::EVENTMAP_INFO_FLAG_MANIFEST_VALUEMAP || map_info.Flag == crate::Etw::EVENTMAP_INFO_FLAG_MANIFEST_BITMAP {
-                    let is_bitmap = map_info.Flag == crate::Etw::EVENTMAP_INFO_FLAG_MANIFEST_BITMAP;
-                    let mut map = crate::FastHashMap::default();
-                    assert!(map_info.Anonymous.MapEntryValueType == crate::Etw::EVENTMAP_ENTRY_VALUETYPE_ULONG);
-                    let entries = std::slice::from_raw_parts(map_info.MapEntryArray.as_ptr(), map_info.EntryCount as usize);
-                    for e in entries {
-                        let value = e.Anonymous.Value;
-                        let name = utils::parse_unk_size_null_utf16_string(&buffer[e.OutputOffset as usize..]);
-                        // println!("{} -> {:?}", value, name);
-                        map.insert(value, name);
+                    let mut buffer_size = 0;
+                    let map_name = PCWSTR(self.info[curr_prop.Anonymous1.nonStructType.MapNameOffset as usize..].as_ptr() as *mut u16);
+                    use windows::Win32::Foundation::ERROR_INSUFFICIENT_BUFFER;
+                    // println!("map_name {}", utils::parse_unk_size_null_utf16_string(&self.info[curr_prop.Anonymous1.nonStructType.MapNameOffset as usize..]));
+                    if Etw::TdhGetEventMapInformation(&event, map_name, None, &mut buffer_size) != ERROR_INSUFFICIENT_BUFFER.0 {
+                        panic!("expected this to fail");
                     }
-                    return Some(PropertyMapInfo { is_bitmap, map });
-                } else  {
-                    eprint!("unsupported map type {:?}", map_info.Flag);
-                }
+                    
+                    let mut buffer = vec![0; buffer_size as usize];
+                    if Etw::TdhGetEventMapInformation(&event, map_name, Some(buffer.as_mut_ptr() as *mut _), &mut buffer_size) != 0 {
+                        panic!();
+                    }
 
+                    let map_info: &crate::Etw::EVENT_MAP_INFO = &*(buffer.as_ptr() as *const _);
+                    if map_info.Flag == crate::Etw::EVENTMAP_INFO_FLAG_MANIFEST_VALUEMAP || map_info.Flag == crate::Etw::EVENTMAP_INFO_FLAG_MANIFEST_BITMAP {
+                        let is_bitmap = map_info.Flag == crate::Etw::EVENTMAP_INFO_FLAG_MANIFEST_BITMAP;
+                        let mut map = crate::FastHashMap::default();
+                        assert!(map_info.Anonymous.MapEntryValueType == crate::Etw::EVENTMAP_ENTRY_VALUETYPE_ULONG);
+                        let entries = std::slice::from_raw_parts(map_info.MapEntryArray.as_ptr(), map_info.EntryCount as usize);
+                        for e in entries {
+                            let value = e.Anonymous.Value;
+                            let name = utils::parse_unk_size_null_utf16_string(&buffer[e.OutputOffset as usize..]);
+                            // println!("{} -> {:?}", value, name);
+                            map.insert(value, name);
+                        }
+                        return Some(Rc::new(PropertyMapInfo { is_bitmap, map }));
+                    } else  {
+                        eprint!("unsupported map type {:?}", map_info.Flag);
+                    }
+
+                }
             }
-        }
-        return None;
+            return None;
+        });
+        map.clone()
     }
  
 }

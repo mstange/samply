@@ -10,6 +10,8 @@
 //!
 //! [TryParse]: crate::parser::TryParse
 //! [Property]: crate::native::tdh_types::Property
+use std::rc::Rc;
+
 use windows::Win32::System::Diagnostics::Etw;
 
 
@@ -56,13 +58,13 @@ pub struct Property {
     pub flags: PropertyFlags,
     pub length: PropertyLength,
     pub desc: PropertyDesc,
-    pub map_info: Option<PropertyMapInfo>,
+    pub map_info: Option<Rc<PropertyMapInfo>>,
     pub count: u16,
 }
 
 #[doc(hidden)]
 impl Property {
-    pub fn new(name: String, property: &EventPropertyInfo, map_info: Option<PropertyMapInfo>) -> Self {
+    pub fn new(name: String, property: &EventPropertyInfo, map_info: Option<Rc<PropertyMapInfo>>) -> Self {
         let flags = PropertyFlags::from(property.Flags);
         let length = if flags.contains(PropertyFlags::PROPERTY_PARAM_LENGTH) {
             // The property length is stored in another property, this is the index of that property
