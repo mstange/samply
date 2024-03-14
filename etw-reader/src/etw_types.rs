@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use windows::Win32::System::Diagnostics::Etw;
+use windows::Win32::System::Diagnostics::Etw::{self, PropertyStruct};
 use crate::{tdh_types::PropertyMapInfo};
 use crate::schema::EventSchema;
 use crate::utils;
@@ -150,16 +150,17 @@ impl TraceEventInfoRaw {
             + (std::mem::size_of::<TraceEventInfo>() - std::mem::size_of::<EventPropertyInfo>());
 
         let curr_prop = EventPropertyInfo::from(&self.info[curr_prop_offset..]);
+        assert!((curr_prop.Flags.0 & PropertyStruct.0 == 0));
         unsafe {
             if curr_prop.Anonymous1.nonStructType.MapNameOffset != 0 {
+                // build an empty event record that we can use to get the map info
                 let mut event: Etw::EVENT_RECORD = std::mem::zeroed();
                 event.EventHeader.ProviderId = self.provider_guid();
-                let mut buffer_size = 0;
 
+                let mut buffer_size = 0;
                 let map_name = PCWSTR(self.info[curr_prop.Anonymous1.nonStructType.MapNameOffset as usize..].as_ptr() as *mut u16);
                 use windows::Win32::Foundation::ERROR_INSUFFICIENT_BUFFER;
                 // println!("map_name {}", utils::parse_unk_size_null_utf16_string(&self.info[curr_prop.Anonymous1.nonStructType.MapNameOffset as usize..]));
-
                 if Etw::TdhGetEventMapInformation(&event, map_name, None, &mut buffer_size) != ERROR_INSUFFICIENT_BUFFER.0 {
                     panic!("expected this to fail");
                 }
