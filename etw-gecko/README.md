@@ -24,7 +24,7 @@ Start profiling session by running `xperf -on latency -stackwalk profile+cswitch
 Then run `cargo run --release out.etl [process-name]` to produce a gecko.json.
 
 Now set the `_NT_SYMBOL_PATH` environment variable: `set _NT_SYMBOL_PATH=srv*C:\symbols*http://msdl.microsoft.com/download/symbols*https://symbols.mozilla.org*https://chromium-browser-symsrv.commondatastorage.googleapis.com`
-(use `$Env:_NT_SYMBOL_PATH = "..."` when using powershell)
+(use `$Env:_NT_SYMBOL_PATH = "srv*C:\symbols*http://msdl.microsoft.com/download/symbols*https://symbols.mozilla.org*https://chromium-browser-symsrv.commondatastorage.googleapis.com"` when using powershell)
 
 Finally run `profiler-symbol-server gecko.json` to open the profile in profiler.firefox.com.
 
