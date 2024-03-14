@@ -1,3 +1,7 @@
 [workspace]
 members = ["etw-reader", "etw-gecko"]
 resolver = "2"
+
+[profile.profiling]
+inherits = "release"
+debug = true
