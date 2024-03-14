@@ -312,9 +312,9 @@ pub fn write_property(output: &mut dyn std::fmt::Write, parser: &mut Parser, pro
                 }
             }
             if cleared_value != 0 {
-                remaining_bits_str = cleared_value.to_string();
+                remaining_bits_str = format!("{:x}", cleared_value);
                 matches.push(&remaining_bits_str);
-                println!("unnamed bits {} {} {:?}", value, cleared_value, map_info.map);
+                //println!("unnamed bits {:x} {:x} {:x?}", value, cleared_value, map_info.map);
             }
             write!(output, "{}", matches.join(" | ")).unwrap();
         } else {
