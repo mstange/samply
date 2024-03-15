@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_till1, take_until1, take_while1};
 use nom::character::complete::one_of;
@@ -5,9 +7,7 @@ use nom::error::ErrorKind;
 use nom::sequence::{delimited, preceded, terminated, tuple};
 use nom::Err;
 
-use crate::MappedPath;
-
-use std::collections::HashMap;
+use crate::mapped_path::MappedPath;
 
 pub trait ExtraPathMapper {
     fn map_path(&mut self, path: &str) -> Option<MappedPath>;

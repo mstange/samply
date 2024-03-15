@@ -1,5 +1,6 @@
-use rangemap::RangeMap;
 use std::ops::Range;
+
+use rangemap::RangeMap;
 
 pub struct ChunkedReadBufferManager<const CHUNK_SIZE: u64> {
     file_len: u64,

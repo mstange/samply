@@ -1,8 +1,5 @@
 use std::marker::PhantomData;
 
-use crate::path_mapper::PathMapper;
-use crate::shared::FrameDebugInfo;
-use crate::{demangle, Error, SourceFilePath};
 use addr2line::fallible_iterator;
 use addr2line::gimli;
 use elsa::sync::FrozenVec;
@@ -10,6 +7,10 @@ use fallible_iterator::FallibleIterator;
 use gimli::{EndianSlice, Reader, RunTimeEndian, SectionId};
 use object::read::ReadRef;
 use object::{CompressedFileRange, CompressionFormat};
+
+use crate::path_mapper::PathMapper;
+use crate::shared::FrameDebugInfo;
+use crate::{demangle, Error, SourceFilePath};
 
 pub fn get_frames<R: Reader>(
     address: u64,

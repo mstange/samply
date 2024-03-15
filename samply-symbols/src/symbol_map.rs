@@ -4,7 +4,8 @@ use debugid::DebugId;
 use yoke::Yoke;
 use yoke_derive::Yokeable;
 
-use crate::{shared::AddressInfo, Error, FileLocation};
+use crate::error::Error;
+use crate::shared::{AddressInfo, FileLocation};
 
 pub struct SymbolMap<FL: FileLocation> {
     debug_file_location: FL,

@@ -1,11 +1,5 @@
-use crate::binary_image::BinaryImageInner;
-use crate::error::Error;
-use crate::shared::{FileAndPathHelper, FileContents, FileContentsWrapper, RangeReadRef};
-use crate::symbol_map::{
-    GenericSymbolMap, SymbolMap, SymbolMapDataMidTrait, SymbolMapDataOuterTrait,
-};
-use crate::symbol_map_object::{FunctionAddressesComputer, ObjectSymbolMapDataMid};
-use crate::{debug_id_for_object, BinaryImage, FileLocation, MultiArchDisambiguator};
+use std::marker::PhantomData;
+
 use debugid::DebugId;
 use macho_unwind_info::UnwindInfo;
 use object::macho::{self, LinkeditDataCommand, MachHeader32, MachHeader64};
@@ -14,8 +8,20 @@ use object::read::macho::{
 };
 use object::read::{File, Object, ObjectSection};
 use object::{Endianness, FileKind, ReadRef};
-use std::marker::PhantomData;
 use uuid::Uuid;
+
+use crate::binary_image::BinaryImage;
+use crate::binary_image::BinaryImageInner;
+use crate::debugid_util::debug_id_for_object;
+use crate::error::Error;
+use crate::shared::{
+    FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation, MultiArchDisambiguator,
+    RangeReadRef,
+};
+use crate::symbol_map::{
+    GenericSymbolMap, SymbolMap, SymbolMapDataMidTrait, SymbolMapDataOuterTrait,
+};
+use crate::symbol_map_object::{FunctionAddressesComputer, ObjectSymbolMapDataMid};
 
 /// Converts a cpu type/subtype pair into the architecture name.
 ///

@@ -4,12 +4,13 @@ use object::{read::archive::ArchiveFile, File, FileKind, ReadRef};
 use yoke::Yoke;
 use yoke_derive::Yokeable;
 
-use crate::{
-    dwarf::{get_frames, Addr2lineContextData},
-    macho,
-    path_mapper::PathMapper,
-    shared::{ExternalFileAddressInFileRef, ExternalFileRef, FileContentsWrapper, RangeReadRef},
-    Error, FileAndPathHelper, FileContents, FileLocation, FrameDebugInfo, MultiArchDisambiguator,
+use crate::dwarf::{get_frames, Addr2lineContextData};
+use crate::error::Error;
+use crate::macho;
+use crate::path_mapper::PathMapper;
+use crate::shared::{
+    ExternalFileAddressInFileRef, ExternalFileRef, FileAndPathHelper, FileContents,
+    FileContentsWrapper, FileLocation, FrameDebugInfo, MultiArchDisambiguator, RangeReadRef,
 };
 
 pub async fn load_external_file<'h, H>(

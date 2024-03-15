@@ -1,14 +1,15 @@
-use crate::error::Error;
-use crate::shared::{FileContents, FileContentsWrapper};
-use crate::symbol_map::{
-    GenericSymbolMap, SymbolMap, SymbolMapDataMidTrait, SymbolMapDataOuterTrait,
-};
-use crate::symbol_map_object::{FunctionAddressesComputer, ObjectSymbolMapDataMid};
-use crate::{debug_id_for_object, ElfBuildId, FileAndPathHelper, FileLocation};
 use debugid::DebugId;
 use gimli::{CieOrFde, EhFrame, UnwindSection};
 use object::{File, FileKind, Object, ObjectSection, ReadRef};
 use std::io::Cursor;
+
+use crate::error::Error;
+use crate::shared::{FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation};
+use crate::symbol_map::{
+    GenericSymbolMap, SymbolMap, SymbolMapDataMidTrait, SymbolMapDataOuterTrait,
+};
+use crate::symbol_map_object::{FunctionAddressesComputer, ObjectSymbolMapDataMid};
+use crate::{debug_id_for_object, ElfBuildId};
 
 pub async fn load_symbol_map_for_elf<'h, T, FL, H>(
     file_location: FL,
