@@ -5,6 +5,8 @@ members = [
     "samply-api",
     "samply-symbols",
     "samply",
+    "wholesym",
+    "wholesym-addr2line",
     "tools/benchmarks",
     "tools/dump_table",
     "tools/query_api"
