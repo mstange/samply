@@ -13,7 +13,8 @@ use yoke_derive::Yokeable;
 use crate::config::SymbolManagerConfig;
 use crate::helper::{FileReadOnlyHelper, Helper, WholesymFileLocation};
 
-/// Used in [`SymbolManager::lookup_external`] and [`SymbolManager::load_external_file`].
+/// Used in [`SymbolManager::lookup_external`] and [`SymbolManager::load_external_file`],
+/// and returned by [`SymbolMap::symbol_file_origin`].
 #[derive(Debug, Clone)]
 pub struct SymbolFileOrigin(WholesymFileLocation);
 
@@ -213,6 +214,8 @@ impl SymbolManager {
 
     /// Resolve a debug info lookup for which `SymbolMap::lookup_*` returned
     /// [`FramesLookupResult::External`](crate::FramesLookupResult::External).
+    ///
+    /// The first argument should be the return value from [`SymbolMap::symbol_file_origin`].
     ///
     /// This method is asynchronous because it may load a new external file.
     ///
