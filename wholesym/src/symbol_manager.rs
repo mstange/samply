@@ -236,12 +236,12 @@ impl SymbolManager {
     pub async fn lookup_external(
         &self,
         symbol_file_origin: &SymbolFileOrigin,
-        address: &ExternalFileAddressRef,
+        external: &ExternalFileAddressRef,
     ) -> Option<Vec<FrameDebugInfo>> {
         self.helper_with_symbol_manager
             .get()
             .0
-            .lookup_external(symbol_file_origin, address)
+            .lookup_external(symbol_file_origin, external)
             .await
     }
 
