@@ -12,12 +12,12 @@ use std::{
     sync::Mutex,
 };
 
-use crate::shared::FileContentsCursor;
-use crate::{
-    symbol_map::{SymbolMapInnerWrapper, SymbolMapTrait},
-    AddressInfo, Error, FileContents, FileContentsWrapper, FileLocation, FrameDebugInfo,
-    FramesLookupResult, SourceFilePath, SymbolInfo, SymbolMap,
+use crate::error::Error;
+use crate::shared::{
+    AddressInfo, FileContents, FileContentsCursor, FileContentsWrapper, FileLocation,
+    FrameDebugInfo, FramesLookupResult, SourceFilePath, SymbolInfo,
 };
+use crate::symbol_map::{SymbolMap, SymbolMapInnerWrapper, SymbolMapTrait};
 
 pub fn is_jitdump_file<T: FileContents>(file_contents: &FileContentsWrapper<T>) -> bool {
     const MAGIC_BYTES_BE: &[u8] = b"JiTD";

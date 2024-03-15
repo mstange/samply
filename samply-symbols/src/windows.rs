@@ -1,16 +1,8 @@
-use crate::debugid_util::debug_id_for_object;
-use crate::error::{Context, Error};
-use crate::path_mapper::{ExtraPathMapper, PathMapper};
-use crate::shared::{
-    AddressInfo, FileAndPathHelper, FileContents, FileContentsWrapper, FrameDebugInfo,
-    FramesLookupResult, SymbolInfo,
-};
-use crate::symbol_map::{
-    GenericSymbolMap, SymbolMap, SymbolMapDataMidTrait, SymbolMapDataOuterTrait,
-    SymbolMapInnerWrapper, SymbolMapTrait,
-};
-use crate::symbol_map_object::{FunctionAddressesComputer, ObjectSymbolMapDataMid};
-use crate::{demangle, FileLocation, MappedPath, SourceFilePath};
+use std::borrow::Cow;
+use std::collections::HashMap;
+use std::ops::Deref;
+use std::sync::Mutex;
+
 use debugid::DebugId;
 use nom::bytes::complete::{tag, take_until1};
 use nom::combinator::eof;
@@ -18,10 +10,21 @@ use nom::sequence::terminated;
 use object::{File, FileKind};
 use pdb::PDB;
 use pdb_addr2line::pdb;
-use std::borrow::Cow;
-use std::collections::HashMap;
-use std::ops::Deref;
-use std::sync::Mutex;
+
+use crate::debugid_util::debug_id_for_object;
+use crate::demangle;
+use crate::error::{Context, Error};
+use crate::mapped_path::MappedPath;
+use crate::path_mapper::{ExtraPathMapper, PathMapper};
+use crate::shared::{
+    AddressInfo, FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation,
+    FrameDebugInfo, FramesLookupResult, SourceFilePath, SymbolInfo,
+};
+use crate::symbol_map::{
+    GenericSymbolMap, SymbolMap, SymbolMapDataMidTrait, SymbolMapDataOuterTrait,
+    SymbolMapInnerWrapper, SymbolMapTrait,
+};
+use crate::symbol_map_object::{FunctionAddressesComputer, ObjectSymbolMapDataMid};
 
 pub async fn load_symbol_map_for_pdb_corresponding_to_binary<
     'h,

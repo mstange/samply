@@ -1,15 +1,15 @@
-use debugid::DebugId;
-use object::read::ReadRef;
-use object::FileFlags;
-use uuid::Uuid;
-
-use crate::MappedPath;
-
 use std::fmt::{Debug, Display};
 use std::future::Future;
 use std::ops::Range;
 use std::str::FromStr;
 use std::{marker::PhantomData, ops::Deref};
+
+use debugid::DebugId;
+use object::read::ReadRef;
+use object::FileFlags;
+use uuid::Uuid;
+
+use crate::mapped_path::MappedPath;
 
 #[cfg(feature = "partial_read_stats")]
 use bitvec::{bitvec, prelude::BitVec};

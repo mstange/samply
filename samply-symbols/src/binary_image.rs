@@ -5,14 +5,13 @@ use object::{
     FileKind, Object, ReadRef,
 };
 
-use crate::{
-    debug_id_and_code_id_for_jitdump, debug_id_for_object,
-    debugid_util::code_id_for_object,
-    jitdump::JitDumpIndex,
-    macho::{DyldCacheFileData, MachOData, MachOFatArchiveMemberData, ObjectAndMachOData},
-    relative_address_base,
-    shared::{FileContentsWrapper, LibraryInfo, PeCodeId, RangeReadRef},
-    CodeId, ElfBuildId, Error, FileAndPathHelperError, FileContents,
+use crate::debugid_util::{code_id_for_object, debug_id_for_object};
+use crate::error::Error;
+use crate::jitdump::{debug_id_and_code_id_for_jitdump, JitDumpIndex};
+use crate::macho::{DyldCacheFileData, MachOData, MachOFatArchiveMemberData, ObjectAndMachOData};
+use crate::shared::{
+    relative_address_base, CodeId, ElfBuildId, FileAndPathHelperError, FileContents,
+    FileContentsWrapper, LibraryInfo, PeCodeId, RangeReadRef,
 };
 
 #[derive(thiserror::Error, Debug)]

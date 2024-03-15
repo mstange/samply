@@ -6,18 +6,15 @@ use object::{
     SectionKind, SymbolKind,
 };
 
-use crate::ExternalFileAddressRef;
-use crate::{
-    demangle,
-    dwarf::{get_frames, Addr2lineContextData},
-    path_mapper::PathMapper,
-    shared::{
-        relative_address_base, AddressInfo, ExternalFileAddressInFileRef, ExternalFileRef,
-        SymbolInfo,
-    },
-    symbol_map::{SymbolMapDataMidTrait, SymbolMapInnerWrapper, SymbolMapTrait},
-    Error, FramesLookupResult,
+use crate::demangle;
+use crate::dwarf::{get_frames, Addr2lineContextData};
+use crate::error::Error;
+use crate::path_mapper::PathMapper;
+use crate::shared::{
+    relative_address_base, AddressInfo, ExternalFileAddressInFileRef, ExternalFileAddressRef,
+    ExternalFileRef, FramesLookupResult, SymbolInfo,
 };
+use crate::symbol_map::{SymbolMapDataMidTrait, SymbolMapInnerWrapper, SymbolMapTrait};
 
 pub trait FunctionAddressesComputer<'data> {
     fn compute_function_addresses<'file, O>(
