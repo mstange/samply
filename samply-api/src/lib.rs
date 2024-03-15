@@ -25,7 +25,7 @@
 //!     let helper = ExampleHelper {
 //!         artifact_directory: this_dir.join("..").join("fixtures").join("win64-ci")
 //!     };
-//!     let symbol_manager = SymbolManager::with_helper(&helper);
+//!     let symbol_manager = SymbolManager::with_helper(helper);
 //!     let api = samply_api::Api::new(&symbol_manager);
 //!
 //!     api.query_api(
@@ -53,12 +53,9 @@
 //!     artifact_directory: std::path::PathBuf,
 //! }
 //!
-//! impl<'h> FileAndPathHelper<'h> for ExampleHelper {
+//! impl FileAndPathHelper for ExampleHelper {
 //!     type F = Vec<u8>;
 //!     type FL = ExampleFileLocation;
-//!     type OpenFileFuture = std::pin::Pin<
-//!         Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>,
-//!     >;
 //!
 //!     fn get_candidate_paths_for_debug_file(
 //!         &self,
@@ -93,17 +90,11 @@
 //!        Ok(vec![])
 //!    }
 //!
-//!     fn load_file(
-//!         &'h self,
+//!     async fn load_file(
+//!         &self,
 //!         location: ExampleFileLocation,
-//!     ) -> std::pin::Pin<
-//!         Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>,
-//!     > {
-//!         async fn load_file_impl(path: std::path::PathBuf) -> FileAndPathHelperResult<Vec<u8>> {
-//!             Ok(std::fs::read(&path)?)
-//!         }
-//!
-//!         Box::pin(load_file_impl(location.0))
+//!     ) -> FileAndPathHelperResult<Self::F> {
+//!         Ok(std::fs::read(&location.0)?)
 //!     }
 //! }
 //!
@@ -164,13 +155,13 @@ pub(crate) fn to_debug_id(breakpad_id: &str) -> Result<DebugId, samply_symbols::
 }
 
 #[derive(Clone, Copy)]
-pub struct Api<'a, 'h: 'a, H: FileAndPathHelper<'h>> {
-    symbol_manager: &'a SymbolManager<'h, H>,
+pub struct Api<'a, H: FileAndPathHelper> {
+    symbol_manager: &'a SymbolManager<H>,
 }
 
-impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> Api<'a, 'h, H> {
+impl<'a, H: FileAndPathHelper> Api<'a, H> {
     /// Create a [`Api`] instance which uses the provided [`SymbolManager`].
-    pub fn new(symbol_manager: &'a SymbolManager<'h, H>) -> Self {
+    pub fn new(symbol_manager: &'a SymbolManager<H>) -> Self {
         Self { symbol_manager }
     }
 

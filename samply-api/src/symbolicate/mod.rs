@@ -12,13 +12,13 @@ use looked_up_addresses::{AddressResults, LookedUpAddresses};
 use request_json::Lib;
 use serde_json::json;
 
-pub struct SymbolicateApi<'a, 'h: 'a, H: FileAndPathHelper<'h>> {
-    symbol_manager: &'a SymbolManager<'h, H>,
+pub struct SymbolicateApi<'a, H: FileAndPathHelper> {
+    symbol_manager: &'a SymbolManager<H>,
 }
 
-impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> SymbolicateApi<'a, 'h, H> {
+impl<'a, H: FileAndPathHelper> SymbolicateApi<'a, H> {
     /// Create a [`SymbolicateApi`] instance which uses the provided [`SymbolManager`].
-    pub fn new(symbol_manager: &'a SymbolManager<'h, H>) -> Self {
+    pub fn new(symbol_manager: &'a SymbolManager<H>) -> Self {
         Self { symbol_manager }
     }
 

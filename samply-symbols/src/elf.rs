@@ -11,15 +11,15 @@ use crate::symbol_map::{
 use crate::symbol_map_object::{FunctionAddressesComputer, ObjectSymbolMapDataMid};
 use crate::{debug_id_for_object, ElfBuildId};
 
-pub async fn load_symbol_map_for_elf<'h, T, FL, H>(
+pub async fn load_symbol_map_for_elf<T, FL, H>(
     file_location: FL,
     file_contents: FileContentsWrapper<T>,
     file_kind: FileKind,
-    helper: &'h H,
+    helper: &H,
 ) -> Result<SymbolMap<FL>, Error>
 where
     T: FileContents + 'static,
-    H: FileAndPathHelper<'h, F = T, FL = FL>,
+    H: FileAndPathHelper<F = T, FL = FL>,
     FL: FileLocation,
 {
     let elf_file =
@@ -51,14 +51,14 @@ where
     Ok(SymbolMap::new(file_location, Box::new(symbol_map)))
 }
 
-async fn try_to_get_symbol_map_from_debug_link<'h, 'data, H, R, FL>(
+async fn try_to_get_symbol_map_from_debug_link<'data, H, R, FL>(
     original_file_location: &H::FL,
     elf_file: &File<'data, R>,
     file_kind: FileKind,
-    helper: &'h H,
+    helper: &H,
 ) -> Option<SymbolMap<FL>>
 where
-    H: FileAndPathHelper<'h, FL = FL>,
+    H: FileAndPathHelper<FL = FL>,
     R: ReadRef<'data>,
     FL: FileLocation,
 {
@@ -87,16 +87,16 @@ where
     None
 }
 
-async fn get_symbol_map_for_debug_link_candidate<'h, H, FL>(
+async fn get_symbol_map_for_debug_link_candidate<H, FL>(
     original_file_location: &FL,
     path: &FL,
     debug_id: DebugId,
     expected_crc: u32,
     file_kind: FileKind,
-    helper: &'h H,
+    helper: &H,
 ) -> Result<SymbolMap<FL>, Error>
 where
-    H: FileAndPathHelper<'h, FL = FL>,
+    H: FileAndPathHelper<FL = FL>,
     FL: FileLocation,
 {
     let file_contents = helper
@@ -217,13 +217,13 @@ fn compute_debug_link_crc_of_file_contents<T: FileContents>(
     Ok(computer.0)
 }
 
-async fn try_to_load_supplementary_file<'h, 'data, H, F, R>(
+async fn try_to_load_supplementary_file<'data, H, F, R>(
     original_file_location: &H::FL,
     elf_file: &File<'data, R>,
-    helper: &'h H,
+    helper: &H,
 ) -> Option<FileContentsWrapper<F>>
 where
-    H: FileAndPathHelper<'h, F = F>,
+    H: FileAndPathHelper<F = F>,
     R: ReadRef<'data>,
     F: FileContents + 'static,
 {

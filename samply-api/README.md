@@ -57,7 +57,7 @@ struct ExampleHelper {
     artifact_directory: std::path::PathBuf,
 }
 
-impl<'h> FileAndPathHelper<'h> for ExampleHelper {
+impl FileAndPathHelper for ExampleHelper {
     type F = Vec<u8>;
     type FL = ExampleFileLocation;
     type OpenFileFuture = std::pin::Pin<

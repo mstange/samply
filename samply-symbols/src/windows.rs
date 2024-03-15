@@ -28,13 +28,13 @@ use crate::symbol_map_object::{FunctionAddressesComputer, ObjectSymbolMapDataMid
 
 pub async fn load_symbol_map_for_pdb_corresponding_to_binary<
     'h,
-    H: FileAndPathHelper<'h, FL = FL>,
+    H: FileAndPathHelper<FL = FL>,
     FL: FileLocation,
 >(
     file_kind: FileKind,
     file_contents: &FileContentsWrapper<impl FileContents + 'static>,
     file_location: FL,
-    helper: &'h H,
+    helper: &H,
 ) -> Result<SymbolMap<FL>, Error> {
     use object::Object;
     let pe =

@@ -1,16 +1,15 @@
 pub use samply_api::debugid::{CodeId, DebugId};
 use samply_api::samply_symbols::{
     CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation, LibraryInfo,
-    OptionallySendFuture, SymbolManager,
+    SymbolManager,
 };
 use samply_api::Api;
 use std::fs::File;
 use std::path::PathBuf;
-use std::pin::Pin;
 
 pub async fn query_api(request_url: &str, request_json: &str, symbol_directory: PathBuf) -> String {
     let helper = Helper { symbol_directory };
-    let symbol_manager = SymbolManager::with_helper(&helper);
+    let symbol_manager = SymbolManager::with_helper(helper);
     let api = Api::new(&symbol_manager);
     api.query_api(request_url, request_json).await
 }
@@ -19,11 +18,9 @@ struct Helper {
     symbol_directory: PathBuf,
 }
 
-impl<'h> FileAndPathHelper<'h> for Helper {
+impl FileAndPathHelper for Helper {
     type F = memmap2::Mmap;
     type FL = FileLocationType;
-    type OpenFileFuture =
-        Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>>;
 
     fn get_candidate_paths_for_debug_file(
         &self,
@@ -102,16 +99,7 @@ impl<'h> FileAndPathHelper<'h> for Helper {
         ])
     }
 
-    fn load_file(
-        &'h self,
-        location: FileLocationType,
-    ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>> {
-        async fn load_file_impl(path: PathBuf) -> FileAndPathHelperResult<memmap2::Mmap> {
-            eprintln!("Reading file {:?}", &path);
-            let file = File::open(&path)?;
-            Ok(unsafe { memmap2::MmapOptions::new().map(&file)? })
-        }
-
+    async fn load_file(&self, location: FileLocationType) -> FileAndPathHelperResult<Self::F> {
         let mut path = location.0;
 
         if !path.starts_with(&self.symbol_directory) {
@@ -129,7 +117,9 @@ impl<'h> FileAndPathHelper<'h> for Helper {
             }
         }
 
-        Box::pin(load_file_impl(path))
+        eprintln!("Reading file {:?}", &path);
+        let file = File::open(&path)?;
+        Ok(unsafe { memmap2::MmapOptions::new().map(&file)? })
     }
 
     fn get_candidate_paths_for_binary(
