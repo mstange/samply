@@ -1,16 +1,14 @@
 use samply_symbols::debugid::DebugId;
 use samply_symbols::{
     self, CandidatePathInfo, CompactSymbolTable, Error, FileAndPathHelper, FileAndPathHelperResult,
-    FileLocation, LibraryInfo, MultiArchDisambiguator, OptionallySendFuture, SymbolManager,
-    SymbolMap,
+    FileLocation, LibraryInfo, MultiArchDisambiguator, SymbolManager, SymbolMap,
 };
 use std::fs::File;
 use std::io::{BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
-use std::pin::Pin;
 
-async fn get_symbol_map_with_dyld_cache_fallback<'h>(
-    symbol_manager: &SymbolManager<'h, Helper>,
+async fn get_symbol_map_with_dyld_cache_fallback(
+    symbol_manager: &SymbolManager<Helper>,
     path: &Path,
     debug_id: Option<DebugId>,
 ) -> Result<SymbolMap<FileLocationType>, Error> {
@@ -42,7 +40,7 @@ pub async fn get_table(
     let helper = Helper {
         symbol_directory: symbol_file_path.parent().unwrap().to_path_buf(),
     };
-    let symbol_manager = SymbolManager::with_helper(&helper);
+    let symbol_manager = SymbolManager::with_helper(helper);
     let symbol_map =
         get_symbol_map_with_dyld_cache_fallback(&symbol_manager, symbol_file_path, debug_id)
             .await?;
@@ -125,12 +123,9 @@ fn mmap_to_file_contents(m: memmap2::Mmap) -> FileContentsType {
     m
 }
 
-impl<'h> FileAndPathHelper<'h> for Helper {
+impl FileAndPathHelper for Helper {
     type F = FileContentsType;
     type FL = FileLocationType;
-
-    type OpenFileFuture =
-        Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>>;
 
     fn get_candidate_paths_for_debug_file(
         &self,
@@ -171,18 +166,12 @@ impl<'h> FileAndPathHelper<'h> for Helper {
         Ok(paths)
     }
 
-    fn load_file(
-        &'h self,
-        location: Self::FL,
-    ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>> {
-        async fn open_file_impl(path: PathBuf) -> FileAndPathHelperResult<FileContentsType> {
-            eprintln!("Opening file {:?}", &path);
-            let file = File::open(&path)?;
-            let mmap = unsafe { memmap2::MmapOptions::new().map(&file)? };
-            Ok(mmap_to_file_contents(mmap))
-        }
-
-        Box::pin(open_file_impl(location.0))
+    async fn load_file(&self, location: Self::FL) -> FileAndPathHelperResult<Self::F> {
+        let path = location.0;
+        eprintln!("Opening file {:?}", &path);
+        let file = File::open(&path)?;
+        let mmap = unsafe { memmap2::MmapOptions::new().map(&file)? };
+        Ok(mmap_to_file_contents(mmap))
     }
 
     fn get_candidate_paths_for_binary(
@@ -418,7 +407,7 @@ fn linux_nonzero_base_address() {
     let helper = Helper {
         symbol_directory: fixtures_dir().join("linux64-ci"),
     };
-    let symbol_manager = SymbolManager::with_helper(&helper);
+    let symbol_manager = SymbolManager::with_helper(helper);
     let symbol_map = futures::executor::block_on(symbol_manager.load_symbol_map_from_location(
         FileLocationType(fixtures_dir().join("linux64-ci").join("firefox")),
         None,
@@ -481,7 +470,7 @@ fn example_linux() {
     let helper = Helper {
         symbol_directory: fixtures_dir().join("other"),
     };
-    let symbol_manager = SymbolManager::with_helper(&helper);
+    let symbol_manager = SymbolManager::with_helper(helper);
     let symbol_map = futures::executor::block_on(symbol_manager.load_symbol_map_from_location(
         FileLocationType(fixtures_dir().join("other").join("example-linux")),
         None,
@@ -519,7 +508,7 @@ fn example_linux_fallback() {
     let helper = Helper {
         symbol_directory: fixtures_dir().join("other"),
     };
-    let symbol_manager = SymbolManager::with_helper(&helper);
+    let symbol_manager = SymbolManager::with_helper(helper);
     let symbol_map = futures::executor::block_on(symbol_manager.load_symbol_map_from_location(
         FileLocationType(fixtures_dir().join("other").join("example-linux-fallback")),
         None,

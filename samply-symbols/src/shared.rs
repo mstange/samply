@@ -275,11 +275,9 @@ impl LibraryInfo {
 /// the main entry points of this crate. This crate contains no direct file
 /// access - all access to the file system is via this trait, and its associated
 /// trait `FileContents`.
-pub trait FileAndPathHelper<'h> {
+pub trait FileAndPathHelper {
     type F: FileContents + 'static;
     type FL: FileLocation + 'static;
-
-    type OpenFileFuture: OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h;
 
     /// Given a "debug name" and a "breakpad ID", return a list of file paths
     /// which may potentially have artifacts containing symbol data for the
@@ -342,7 +340,10 @@ pub trait FileAndPathHelper<'h> {
     /// available synchronously because the `FileContents` methods are synchronous.
     /// If there is no file at the requested path, an error should be returned (or in any
     /// other error case).
-    fn load_file(&'h self, location: Self::FL) -> Self::OpenFileFuture;
+    fn load_file(
+        &self,
+        location: Self::FL,
+    ) -> impl OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>>;
 }
 
 /// Provides synchronous access to the raw bytes of a file.

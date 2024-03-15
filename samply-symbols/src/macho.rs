@@ -197,19 +197,19 @@ pub fn get_fat_archive_members(
     }
 }
 
-struct DyldCacheLoader<'a, 'h, H>
+struct DyldCacheLoader<'a, H>
 where
-    H: FileAndPathHelper<'h>,
+    H: FileAndPathHelper,
 {
-    helper: &'h H,
+    helper: &'a H,
     dyld_cache_path: &'a H::FL,
 }
 
-impl<'a, 'h, H, F> DyldCacheLoader<'a, 'h, H>
+impl<'a, H, F> DyldCacheLoader<'a, H>
 where
-    H: FileAndPathHelper<'h, F = F>,
+    H: FileAndPathHelper<F = F>,
 {
-    pub fn new(helper: &'h H, dyld_cache_path: &'a H::FL) -> Self {
+    pub fn new(helper: &'a H, dyld_cache_path: &'a H::FL) -> Self {
         Self {
             helper,
             dyld_cache_path,
@@ -235,13 +235,13 @@ where
     }
 }
 
-async fn load_file_data_for_dyld_cache<'h, H, F>(
+async fn load_file_data_for_dyld_cache<H, F>(
     dyld_cache_path: H::FL,
     dylib_path: String,
-    helper: &'h H,
+    helper: &H,
 ) -> Result<DyldCacheFileData<F>, Error>
 where
-    H: FileAndPathHelper<'h, F = F>,
+    H: FileAndPathHelper<F = F>,
     F: FileContents + 'static,
 {
     let dcl = DyldCacheLoader::new(helper, &dyld_cache_path);
@@ -273,13 +273,13 @@ where
     ))
 }
 
-pub async fn load_symbol_map_for_dyld_cache<'h, H, FL>(
+pub async fn load_symbol_map_for_dyld_cache<H, FL>(
     dyld_cache_path: H::FL,
     dylib_path: String,
-    helper: &'h H,
+    helper: &H,
 ) -> Result<SymbolMap<FL>, Error>
 where
-    H: FileAndPathHelper<'h, FL = FL>,
+    H: FileAndPathHelper<FL = FL>,
     FL: FileLocation,
 {
     let owner = load_file_data_for_dyld_cache(dyld_cache_path.clone(), dylib_path, helper).await?;
@@ -478,14 +478,14 @@ impl<T: FileContents + 'static> SymbolMapDataOuterTrait for MachOFatArchiveMembe
     }
 }
 
-pub async fn load_binary_from_dyld_cache<'h, F, H>(
+pub async fn load_binary_from_dyld_cache<F, H>(
     dyld_cache_path: H::FL,
     dylib_path: String,
-    helper: &'h H,
+    helper: &H,
 ) -> Result<BinaryImage<F>, Error>
 where
     F: FileContents + 'static,
-    H: FileAndPathHelper<'h, F = F>,
+    H: FileAndPathHelper<F = F>,
 {
     let file_data =
         load_file_data_for_dyld_cache(dyld_cache_path, dylib_path.clone(), helper).await?;

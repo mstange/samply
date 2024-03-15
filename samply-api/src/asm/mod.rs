@@ -39,13 +39,13 @@ enum AsmError {
     FileIO(#[from] FileAndPathHelperError),
 }
 
-pub struct AsmApi<'a, 'h: 'a, H: FileAndPathHelper<'h>> {
-    symbol_manager: &'a SymbolManager<'h, H>,
+pub struct AsmApi<'a, H: FileAndPathHelper> {
+    symbol_manager: &'a SymbolManager<H>,
 }
 
-impl<'a, 'h: 'a, H: FileAndPathHelper<'h>> AsmApi<'a, 'h, H> {
+impl<'a, H: FileAndPathHelper> AsmApi<'a, H> {
     /// Create an [`AsmApi`] instance which uses the provided [`SymbolManager`].
-    pub fn new(symbol_manager: &'a SymbolManager<'h, H>) -> Self {
+    pub fn new(symbol_manager: &'a SymbolManager<H>) -> Self {
         Self { symbol_manager }
     }
 

@@ -1,7 +1,7 @@
 use debugid::DebugId;
 use samply_symbols::{
     BreakpadIndex, BreakpadIndexParser, CandidatePathInfo, CodeId, ElfBuildId, FileAndPathHelper,
-    FileAndPathHelperResult, FileLocation, LibraryInfo, OptionallySendFuture, PeCodeId,
+    FileAndPathHelperResult, FileLocation, LibraryInfo, PeCodeId,
 };
 use symsrv::{SymsrvDownloader, SymsrvObserver};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -11,7 +11,6 @@ use std::{
     collections::HashMap,
     fs::{self, File},
     path::{Path, PathBuf},
-    pin::Pin,
     sync::{Arc, Mutex},
 };
 
@@ -163,11 +162,9 @@ impl FileReadOnlyHelper {
     }
 }
 
-impl<'h> FileAndPathHelper<'h> for FileReadOnlyHelper {
+impl FileAndPathHelper for FileReadOnlyHelper {
     type F = FileContents;
     type FL = WholesymFileLocation;
-    type OpenFileFuture =
-        Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>>;
 
     fn get_candidate_paths_for_debug_file(
         &self,
@@ -183,11 +180,8 @@ impl<'h> FileAndPathHelper<'h> for FileReadOnlyHelper {
         panic!("Should not be called");
     }
 
-    fn load_file(
-        &'h self,
-        location: WholesymFileLocation,
-    ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>> {
-        Box::pin(self.load_file_impl(location))
+    async fn load_file(&self, location: WholesymFileLocation) -> FileAndPathHelperResult<Self::F> {
+        self.load_file_impl(location).await
     }
 
     fn get_dyld_shared_cache_paths(
@@ -515,11 +509,9 @@ impl Helper {
     }
 }
 
-impl<'h> FileAndPathHelper<'h> for Helper {
+impl FileAndPathHelper for Helper {
     type F = FileContents;
     type FL = WholesymFileLocation;
-    type OpenFileFuture =
-        Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>>;
 
     fn get_candidate_paths_for_debug_file(
         &self,
@@ -781,11 +773,8 @@ impl<'h> FileAndPathHelper<'h> for Helper {
         Ok(get_dyld_shared_cache_paths(arch))
     }
 
-    fn load_file(
-        &'h self,
-        location: WholesymFileLocation,
-    ) -> Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>> {
-        Box::pin(self.load_file_impl(location))
+    async fn load_file(&self, location: WholesymFileLocation) -> FileAndPathHelperResult<Self::F> {
+        self.load_file_impl(location).await
     }
 
     fn get_candidate_paths_for_supplementary_debug_file(

@@ -13,13 +13,13 @@ use crate::shared::{
     FileContentsWrapper, FileLocation, FrameDebugInfo, MultiArchDisambiguator, RangeReadRef,
 };
 
-pub async fn load_external_file<'h, H>(
-    helper: &'h H,
+pub async fn load_external_file<H>(
+    helper: &H,
     original_file_location: &H::FL,
     external_file_ref: &ExternalFileRef,
 ) -> Result<ExternalFileSymbolMap, Error>
 where
-    H: FileAndPathHelper<'h>,
+    H: FileAndPathHelper,
 {
     let file = helper
         .load_file(

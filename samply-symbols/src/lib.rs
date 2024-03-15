@@ -71,7 +71,7 @@
 //!         artifact_directory: this_dir.join("..").join("fixtures").join("win64-ci"),
 //!     };
 //!
-//!     let symbol_manager = SymbolManager::with_helper(&helper);
+//!     let symbol_manager = SymbolManager::with_helper(helper);
 //!
 //!     let library_info = LibraryInfo {
 //!         debug_name: Some("firefox.pdb".to_string()),
@@ -132,12 +132,9 @@
 //!     artifact_directory: std::path::PathBuf,
 //! }
 //!
-//! impl<'h> FileAndPathHelper<'h> for ExampleHelper {
+//! impl FileAndPathHelper for ExampleHelper {
 //!     type F = Vec<u8>;
 //!     type FL = ExampleFileLocation;
-//!     type OpenFileFuture = std::pin::Pin<
-//!         Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>,
-//!     >;
 //!
 //!     fn get_candidate_paths_for_debug_file(
 //!         &self,
@@ -172,17 +169,11 @@
 //!        Ok(vec![])
 //!    }
 //!
-//!     fn load_file(
-//!         &'h self,
+//!     async fn load_file(
+//!         &self,
 //!         location: ExampleFileLocation,
-//!     ) -> std::pin::Pin<
-//!         Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + 'h>,
-//!     > {
-//!         async fn load_file_impl(path: std::path::PathBuf) -> FileAndPathHelperResult<Vec<u8>> {
-//!             Ok(std::fs::read(&path)?)
-//!         }
-//!
-//!         Box::pin(load_file_impl(location.0))
+//!     ) -> FileAndPathHelperResult<Self::F> {
+//!         Ok(std::fs::read(&location.0)?)
 //!     }
 //! }
 //!
@@ -274,19 +265,19 @@ pub use crate::shared::{
 };
 pub use crate::symbol_map::SymbolMap;
 
-pub struct SymbolManager<'h, H: FileAndPathHelper<'h>> {
-    helper: &'h H,
+pub struct SymbolManager<H: FileAndPathHelper> {
+    helper: H,
     cached_external_file: Mutex<Option<ExternalFileSymbolMap>>,
 }
 
-impl<'h, H, F, FL> SymbolManager<'h, H>
+impl<H, F, FL> SymbolManager<H>
 where
-    H: FileAndPathHelper<'h, F = F, FL = FL>,
+    H: FileAndPathHelper<F = F, FL = FL>,
     F: FileContents + 'static,
     FL: FileLocation,
 {
     // Create a new `SymbolManager`.
-    pub fn with_helper(helper: &'h H) -> Self {
+    pub fn with_helper(helper: H) -> Self {
         Self {
             helper,
             cached_external_file: Mutex::new(None),
@@ -294,8 +285,8 @@ where
     }
 
     /// Exposes the helper.
-    pub fn helper(&self) -> &'h H {
-        self.helper
+    pub fn helper(&self) -> &H {
+        &self.helper
     }
 
     pub async fn load_source_file(
@@ -354,7 +345,7 @@ where
                     dyld_cache_path,
                     dylib_path,
                 } => {
-                    macho::load_symbol_map_for_dyld_cache(dyld_cache_path, dylib_path, self.helper)
+                    macho::load_symbol_map_for_dyld_cache(dyld_cache_path, dylib_path, &self.helper)
                         .await
                 }
             };
@@ -393,7 +384,8 @@ where
         debug_file_location: &H::FL,
         external_file_ref: &ExternalFileRef,
     ) -> Result<ExternalFileSymbolMap, Error> {
-        external_file::load_external_file(self.helper, debug_file_location, external_file_ref).await
+        external_file::load_external_file(&self.helper, debug_file_location, external_file_ref)
+            .await
     }
 
     /// Resolve a debug info lookup for which `SymbolMap::lookup_*` returned a
@@ -435,7 +427,7 @@ where
         dyld_cache_path: FL,
         dylib_path: String,
     ) -> Result<BinaryImage<F>, Error> {
-        macho::load_binary_from_dyld_cache(dyld_cache_path, dylib_path, self.helper).await
+        macho::load_binary_from_dyld_cache(dyld_cache_path, dylib_path, &self.helper).await
     }
 
     /// Returns the binary for the given (partial) [`LibraryInfo`].
@@ -563,7 +555,7 @@ where
             let symbol_map_res = macho::load_symbol_map_for_dyld_cache(
                 dyld_cache_path,
                 dylib_path.to_owned(),
-                self.helper,
+                &self.helper,
             )
             .await;
             match (&multi_arch_disambiguator, symbol_map_res) {
@@ -603,7 +595,7 @@ where
                         file_location,
                         file_contents,
                         file_kind,
-                        self.helper,
+                        &self.helper,
                     )
                     .await
                 }
@@ -627,7 +619,7 @@ where
                         file_kind,
                         &file_contents,
                         file_location.clone(),
-                        self.helper,
+                        &self.helper,
                     )
                     .await
                     {
