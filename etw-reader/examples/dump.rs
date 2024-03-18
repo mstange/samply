@@ -1,4 +1,4 @@
-use etw_reader::{open_trace, parser::{Parser, TryParse}, print_property, schema::SchemaLocator};
+use etw_reader::{open_trace, parser::{Parser, TryParse}, print_property, schema::SchemaLocator, GUID};
 use windows::Win32::System::Diagnostics::Etw;
 use std::{path::Path, collections::HashMap};
 
@@ -33,6 +33,9 @@ fn main() {
         }
         println!("{:?} {} {} {}-{} {} {}", e.EventHeader.ProviderId, s.name(), s.provider_name(), e.EventHeader.EventDescriptor.Opcode, e.EventHeader.EventDescriptor.Id, s.property_count(), e.EventHeader.TimeStamp);
         println!("pid: {} {:?}", s.process_id(), processes.get(&s.process_id()));
+        if e.EventHeader.ActivityId != GUID::zeroed() {
+            println!("ActivityId: {:?}", e.EventHeader.ActivityId);
+        }
         if e.ExtendedDataCount > 0 {
             let items = unsafe { std::slice::from_raw_parts(e.ExtendedData, e.ExtendedDataCount as usize) };
             for i in items {
