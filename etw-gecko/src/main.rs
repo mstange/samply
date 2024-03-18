@@ -955,7 +955,7 @@ fn main() {
                         if marker_name == "UserTiming" {
                             let name: String = parser.try_parse("name").unwrap();
                             profile.add_marker(thread.handle, CategoryHandle::OTHER, "UserTiming", UserTimingMarker(name), timing);
-                        } else if marker_name == "SimpleMarker" {
+                        } else if marker_name == "SimpleMarker" || marker_name == "Text" || marker_name == "tracing" {
                             let marker_name: String = parser.try_parse("MarkerName").unwrap();
                             profile.add_marker(thread.handle, CategoryHandle::OTHER, &marker_name, TextMarker(text.clone()), timing);
                         } else {
