@@ -15,5 +15,5 @@ chunked_caching = []
 samply-symbols = { path = "../../samply-symbols" }
 clap = { version = "4", features = ["derive"] }
 memmap2 = "0.9.4"
-anyhow = "1.0.80"
+anyhow = "1.0.81"
 futures = "0.3.5"
