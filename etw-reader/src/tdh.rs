@@ -101,10 +101,11 @@ pub fn list_etw_providers() {
         }
         if status == ERROR_SUCCESS.0 {
             let provider_info = unsafe { &*(provider_info.as_ptr() as *const PROVIDER_ENUMERATION_INFO) };
+            let provider_info_array = provider_info.TraceProviderInfoArray.as_ptr();
 
             for i in 0..provider_info.NumberOfProviders {
                 // windows-rs defines TraceProviderInfoArray as a fixed size array of 1 so we need to use get_unchecked to get the other things
-                let provider_name_offset = unsafe { provider_info.TraceProviderInfoArray.get_unchecked(i as usize) }.ProviderNameOffset as usize;
+                let provider_name_offset = unsafe { *provider_info_array.offset(i as isize) }.ProviderNameOffset as usize;
                 let provider_name_ptr = provider_info as *const PROVIDER_ENUMERATION_INFO as usize + provider_name_offset;
                 // Find the length of the null-terminated string
                 let mut len = 0;
@@ -114,8 +115,8 @@ pub fn list_etw_providers() {
                 let provider_name = unsafe { OsString::from_wide(std::slice::from_raw_parts(provider_name_ptr as *const u16, len))
                     .into_string().unwrap_or_else(|_| "Error converting to string".to_string()) };
                 
-                let provider_guid = unsafe { &provider_info.TraceProviderInfoArray.get_unchecked(i as usize).ProviderGuid };
-                let schema_source = unsafe { provider_info.TraceProviderInfoArray.get_unchecked(i as usize).SchemaSource };
+                let provider_guid = &unsafe { *provider_info_array.offset(i as isize) }.ProviderGuid;
+                let schema_source = unsafe { *provider_info_array.offset(i as isize) }.SchemaSource;
 
 
                 println!("  {:?} - {} - {}", provider_guid,  provider_name, if schema_source == 0 { "XML manifest" } else { "MOF" });
