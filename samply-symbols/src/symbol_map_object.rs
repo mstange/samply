@@ -2,19 +2,18 @@ use std::{borrow::Cow, slice, sync::Mutex};
 
 use debugid::DebugId;
 use object::{
-    File, ObjectMap, ObjectSection, ObjectSegment, ReadRef, SectionFlags, SectionIndex,
-    SectionKind, SymbolKind,
+    ObjectMap, ObjectSection, ObjectSegment, ReadRef, SectionFlags, SectionIndex, SectionKind,
+    SymbolKind,
 };
 
 use crate::demangle;
 use crate::dwarf::{get_frames, Addr2lineContextData};
-use crate::error::Error;
 use crate::path_mapper::PathMapper;
 use crate::shared::{
     relative_address_base, AddressInfo, ExternalFileAddressInFileRef, ExternalFileAddressRef,
     ExternalFileRef, FramesLookupResult, SymbolInfo,
 };
-use crate::symbol_map::{SymbolMapDataMidTrait, SymbolMapInnerWrapper, SymbolMapTrait};
+use crate::symbol_map::SymbolMapTrait;
 
 pub trait FunctionAddressesComputer<'data> {
     fn compute_function_addresses<'file, O>(
@@ -24,66 +23,6 @@ pub trait FunctionAddressesComputer<'data> {
     where
         'data: 'file,
         O: object::Object<'data, 'file>;
-}
-
-pub struct ObjectSymbolMapDataMid<'data, R: ReadRef<'data>, FAC: FunctionAddressesComputer<'data>> {
-    object: File<'data, R>,
-    supplementary_object: Option<File<'data, R>>,
-    function_addresses_computer: FAC,
-    file_data: R,
-    supplementary_file_data: Option<R>,
-    addr2line_context_data: Addr2lineContextData,
-    arch: Option<&'static str>,
-    debug_id: DebugId,
-}
-
-impl<'data, R: ReadRef<'data>, FAC: FunctionAddressesComputer<'data>>
-    ObjectSymbolMapDataMid<'data, R, FAC>
-{
-    pub fn new(
-        object: File<'data, R>,
-        supplementary_object: Option<File<'data, R>>,
-        function_addresses_computer: FAC,
-        file_data: R,
-        supplementary_file_data: Option<R>,
-        arch: Option<&'static str>,
-        debug_id: DebugId,
-    ) -> Self {
-        Self {
-            object,
-            supplementary_object,
-            function_addresses_computer,
-            file_data,
-            supplementary_file_data,
-            addr2line_context_data: Addr2lineContextData::new(),
-            arch,
-            debug_id,
-        }
-    }
-}
-
-impl<'data, R: ReadRef<'data> + Send + Sync, FAC: FunctionAddressesComputer<'data>>
-    SymbolMapDataMidTrait for ObjectSymbolMapDataMid<'data, R, FAC>
-{
-    fn make_symbol_map_inner(&self) -> Result<SymbolMapInnerWrapper<'_>, Error> {
-        let (function_starts, function_ends) = self
-            .function_addresses_computer
-            .compute_function_addresses(&self.object);
-
-        let symbol_map = ObjectSymbolMapInner::new(
-            &self.object,
-            self.supplementary_object.as_ref(),
-            self.file_data,
-            self.supplementary_file_data,
-            self.debug_id,
-            function_starts.as_deref(),
-            function_ends.as_deref(),
-            self.arch,
-            &self.addr2line_context_data,
-        );
-        let symbol_map = SymbolMapInnerWrapper(Box::new(symbol_map));
-        Ok(symbol_map)
-    }
 }
 
 enum FullSymbolListEntry<'a, Symbol: object::ObjectSymbol<'a>> {
@@ -171,16 +110,13 @@ impl std::fmt::Debug for SvmaFileRange {
     }
 }
 
-pub struct ObjectSymbolMapInner<'data, 'file, Symbol: object::ObjectSymbol<'data>>
-where
-    'data: 'file,
-{
-    entries: Vec<(u32, FullSymbolListEntry<'data, Symbol>)>,
+pub struct ObjectSymbolMapInner<'a, Symbol: object::ObjectSymbol<'a>> {
+    entries: Vec<(u32, FullSymbolListEntry<'a, Symbol>)>,
     debug_id: DebugId,
     arch: Option<&'static str>,
     path_mapper: Mutex<PathMapper<()>>,
-    object_map: ObjectMap<'data>,
-    context: Option<addr2line::Context<gimli::EndianSlice<'file, gimli::RunTimeEndian>>>,
+    object_map: ObjectMap<'a>,
+    context: Option<addr2line::Context<gimli::EndianSlice<'a, gimli::RunTimeEndian>>>,
     svma_file_ranges: Vec<SvmaFileRange>,
     image_base_address: u64,
 }
@@ -195,12 +131,9 @@ fn test_symbolmap_is_send() {
     }
 }
 
-impl<'data, 'file, Symbol: object::ObjectSymbol<'data>> ObjectSymbolMapInner<'data, 'file, Symbol>
-where
-    'data: 'file,
-{
+impl<'a, Symbol: object::ObjectSymbol<'a>> ObjectSymbolMapInner<'a, Symbol> {
     #[allow(clippy::too_many_arguments)]
-    pub fn new<O, R>(
+    pub fn new<'file, O, R>(
         object_file: &'file O,
         sup_object_file: Option<&'file O>,
         data: R,
@@ -209,12 +142,12 @@ where
         function_start_addresses: Option<&[u32]>,
         function_end_addresses: Option<&[u32]>,
         arch: Option<&'static str>,
-        addr2line_context_data: &'file Addr2lineContextData,
+        addr2line_context_data: Option<&'a Addr2lineContextData>,
     ) -> Self
     where
-        'data: 'file,
-        O: object::Object<'data, 'file, Symbol = Symbol>,
-        R: ReadRef<'data>,
+        'a: 'file,
+        O: object::Object<'a, 'file, Symbol = Symbol>,
+        R: ReadRef<'a>,
     {
         let mut entries: Vec<_> = Vec::new();
 
@@ -375,9 +308,10 @@ where
         entries.sort_by_key(|(address, _)| *address);
         entries.dedup_by_key(|(address, _)| *address);
 
-        let context = addr2line_context_data
-            .make_context(data, object_file, sup_data, sup_object_file)
-            .ok();
+        let context = addr2line_context_data.and_then(|d| {
+            d.make_context(data, object_file, sup_data, sup_object_file)
+                .ok()
+        });
 
         let path_mapper = Mutex::new(PathMapper::new());
 
@@ -420,11 +354,7 @@ where
     }
 }
 
-impl<'data, 'file, Symbol: object::ObjectSymbol<'data>> SymbolMapTrait
-    for ObjectSymbolMapInner<'data, 'file, Symbol>
-where
-    'data: 'file,
-{
+impl<'a, Symbol: object::ObjectSymbol<'a>> SymbolMapTrait for ObjectSymbolMapInner<'a, Symbol> {
     fn debug_id(&self) -> DebugId {
         self.debug_id
     }

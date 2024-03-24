@@ -150,7 +150,7 @@ impl<F: FileContents> BinaryImageInner<F> {
                 let debug_id = debug_id_for_object(&object);
                 let code_id = code_id_for_object(&object);
                 let (debug_path, debug_name) = (path.clone(), name.clone());
-                let arch = member.arch.clone();
+                let arch = member.arch();
                 (debug_id, code_id, debug_path, debug_name, arch)
             }
             BinaryImageInner::MemberOfDyldSharedCache(dyld_cache_file_data) => {
