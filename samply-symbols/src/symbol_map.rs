@@ -62,50 +62,25 @@ pub trait SymbolMapTrait {
 }
 
 pub trait SymbolMapDataOuterTrait {
-    fn make_symbol_map_data_mid(&self)
-        -> Result<Box<dyn SymbolMapDataMidTrait + Send + '_>, Error>;
-}
-
-pub trait SymbolMapDataMidTrait {
     fn make_symbol_map_inner(&self) -> Result<SymbolMapInnerWrapper<'_>, Error>;
 }
 
 #[derive(Yokeable)]
-pub struct SymbolMapDataMidWrapper<'data>(Box<dyn SymbolMapDataMidTrait + Send + 'data>);
-
-struct SymbolMapDataOuterAndMid<SMDO: SymbolMapDataOuterTrait>(
-    Yoke<SymbolMapDataMidWrapper<'static>, Box<SMDO>>,
-);
+pub struct SymbolMapInnerWrapper<'data>(pub Box<dyn SymbolMapTrait + Send + 'data>);
 
 pub struct GenericSymbolMap<SMDO: SymbolMapDataOuterTrait>(
-    Yoke<SymbolMapInnerWrapper<'static>, Box<SymbolMapDataOuterAndMid<SMDO>>>,
+    Yoke<SymbolMapInnerWrapper<'static>, Box<SMDO>>,
 );
 
 impl<SMDO: SymbolMapDataOuterTrait + 'static> GenericSymbolMap<SMDO> {
     pub fn new(outer: SMDO) -> Result<Self, Error> {
-        let outer_and_mid = SymbolMapDataOuterAndMid(
-            Yoke::<SymbolMapDataMidWrapper<'static>, _>::try_attach_to_cart(
-                Box::new(outer),
-                |outer| {
-                    outer
-                        .make_symbol_map_data_mid()
-                        .map(SymbolMapDataMidWrapper)
-                },
-            )?,
-        );
-        let outer_and_mid_and_inner = Yoke::<SymbolMapInnerWrapper, _>::try_attach_to_cart(
-            Box::new(outer_and_mid),
-            |outer_and_mid| {
-                let mid = outer_and_mid.0.get();
-                mid.0.make_symbol_map_inner()
-            },
-        )?;
-        Ok(GenericSymbolMap(outer_and_mid_and_inner))
+        let outer_and_inner =
+            Yoke::<SymbolMapInnerWrapper, _>::try_attach_to_cart(Box::new(outer), |outer| {
+                outer.make_symbol_map_inner()
+            })?;
+        Ok(GenericSymbolMap(outer_and_inner))
     }
 }
-
-#[derive(Yokeable)]
-pub struct SymbolMapInnerWrapper<'data>(pub Box<dyn SymbolMapTrait + Send + 'data>);
 
 impl<SMDO: SymbolMapDataOuterTrait> SymbolMapTrait for GenericSymbolMap<SMDO> {
     fn debug_id(&self) -> debugid::DebugId {

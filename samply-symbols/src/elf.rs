@@ -2,13 +2,16 @@ use debugid::DebugId;
 use gimli::{CieOrFde, EhFrame, UnwindSection};
 use object::{File, FileKind, Object, ObjectSection, ReadRef};
 use std::io::Cursor;
+use yoke::Yoke;
+use yoke_derive::Yokeable;
 
+use crate::dwarf::Addr2lineContextData;
 use crate::error::Error;
 use crate::shared::{FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation};
 use crate::symbol_map::{
-    GenericSymbolMap, SymbolMap, SymbolMapDataMidTrait, SymbolMapDataOuterTrait,
+    GenericSymbolMap, SymbolMap, SymbolMapDataOuterTrait, SymbolMapInnerWrapper,
 };
-use crate::symbol_map_object::{FunctionAddressesComputer, ObjectSymbolMapDataMid};
+use crate::symbol_map_object::{FunctionAddressesComputer, ObjectSymbolMapInner};
 use crate::{debug_id_for_object, ElfBuildId};
 
 pub async fn load_symbol_map_for_elf<T, FL, H>(
@@ -34,7 +37,12 @@ where
     if let Some(supplementary_file) =
         try_to_load_supplementary_file(&file_location, &elf_file, helper).await
     {
-        let owner = ElfSymbolMapData::new(file_contents, Some(supplementary_file), file_kind, None);
+        let owner = ElfSymbolMapDataAndObjects::new(
+            file_contents,
+            Some(supplementary_file),
+            file_kind,
+            None,
+        )?;
         let symbol_map = GenericSymbolMap::new(owner)?;
         return Ok(SymbolMap::new(file_location, Box::new(symbol_map)));
     }
@@ -46,7 +54,7 @@ where
         return Ok(symbol_map);
     }
 
-    let owner = ElfSymbolMapData::new(file_contents, None, file_kind, None);
+    let owner = ElfSymbolMapDataAndObjects::new(file_contents, None, file_kind, None)?;
     let symbol_map = GenericSymbolMap::new(owner)?;
     Ok(SymbolMap::new(file_location, Box::new(symbol_map)))
 }
@@ -110,7 +118,7 @@ where
         return Err(Error::DebugLinkCrcMismatch(actual_crc, expected_crc));
     }
 
-    let owner = ElfSymbolMapData::new(file_contents, None, file_kind, Some(debug_id));
+    let owner = ElfSymbolMapDataAndObjects::new(file_contents, None, file_kind, Some(debug_id))?;
     let symbol_map = GenericSymbolMap::new(owner)?;
     Ok(SymbolMap::new(
         original_file_location.clone(),
@@ -266,7 +274,7 @@ fn try_get_symbol_map_from_mini_debug_info<'data, R: ReadRef<'data>, FL: FileLoc
     let mut objdata = Vec::new();
     lzma_rs::xz_decompress(&mut cursor, &mut objdata).ok()?;
     let file_contents = FileContentsWrapper::new(objdata);
-    let owner = ElfSymbolMapData::new(file_contents, None, file_kind, None);
+    let owner = ElfSymbolMapDataAndObjects::new(file_contents, None, file_kind, None).ok()?;
     let symbol_map = GenericSymbolMap::new(owner).ok()?;
     Some(SymbolMap::new(
         debug_file_location.clone(),
@@ -280,56 +288,82 @@ where
 {
     file_data: FileContentsWrapper<T>,
     supplementary_file_data: Option<FileContentsWrapper<T>>,
-    file_kind: FileKind,
     override_debug_id: Option<DebugId>,
+    addr2line_context_data: Addr2lineContextData,
 }
 
-impl<T: FileContents> ElfSymbolMapData<T> {
+#[derive(Yokeable)]
+struct ElfObjects<'data, T: FileContents> {
+    object: File<'data, &'data FileContentsWrapper<T>>,
+    supplementary_object: Option<File<'data, &'data FileContentsWrapper<T>>>,
+}
+
+struct ElfSymbolMapDataAndObjects<T: FileContents + 'static>(
+    Yoke<ElfObjects<'static, T>, Box<ElfSymbolMapData<T>>>,
+);
+
+impl<T: FileContents + 'static> ElfSymbolMapDataAndObjects<T> {
     pub fn new(
         file_data: FileContentsWrapper<T>,
         supplementary_file_data: Option<FileContentsWrapper<T>>,
         file_kind: FileKind,
         override_debug_id: Option<DebugId>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, Error> {
+        let data = ElfSymbolMapData {
             file_data,
             supplementary_file_data,
-            file_kind,
             override_debug_id,
-        }
+            addr2line_context_data: Addr2lineContextData::new(),
+        };
+        let data_and_objects = Yoke::try_attach_to_cart(
+            Box::new(data),
+            move |data: &ElfSymbolMapData<T>| -> Result<ElfObjects<'_, T>, Error> {
+                let object = File::parse(&data.file_data)
+                    .map_err(|e| Error::ObjectParseError(file_kind, e))?;
+                let supplementary_object = match data.supplementary_file_data.as_ref() {
+                    Some(supplementary_file_data) => Some(
+                        File::parse(supplementary_file_data)
+                            .map_err(|e| Error::ObjectParseError(file_kind, e))?,
+                    ),
+                    None => None,
+                };
+                Ok(ElfObjects {
+                    object,
+                    supplementary_object,
+                })
+            },
+        )?;
+        Ok(Self(data_and_objects))
     }
 }
 
-impl<T: FileContents + 'static> SymbolMapDataOuterTrait for ElfSymbolMapData<T> {
-    fn make_symbol_map_data_mid(
-        &self,
-    ) -> Result<Box<dyn SymbolMapDataMidTrait + Send + '_>, Error> {
-        let object =
-            File::parse(&self.file_data).map_err(|e| Error::ObjectParseError(self.file_kind, e))?;
-        let supplementary_object = match self.supplementary_file_data.as_ref() {
-            Some(supplementary_file_data) => Some(
-                File::parse(supplementary_file_data)
-                    .map_err(|e| Error::ObjectParseError(self.file_kind, e))?,
-            ),
-            None => None,
-        };
-        let debug_id = if let Some(debug_id) = self.override_debug_id {
+impl<T: FileContents + 'static> SymbolMapDataOuterTrait for ElfSymbolMapDataAndObjects<T> {
+    fn make_symbol_map_inner(&self) -> Result<SymbolMapInnerWrapper<'_>, Error> {
+        let data = self.0.backing_cart().as_ref();
+        let object = &self.0.get().object;
+        let supplementary_object = self.0.get().supplementary_object.as_ref();
+        let debug_id = if let Some(debug_id) = data.override_debug_id {
             debug_id
         } else {
-            debug_id_for_object(&object)
+            debug_id_for_object(object)
                 .ok_or(Error::InvalidInputError("debug ID cannot be read"))?
         };
-        let object = ObjectSymbolMapDataMid::new(
+        let (function_starts, function_ends) =
+            ElfFunctionAddressesComputer.compute_function_addresses(object);
+
+        let symbol_map = ObjectSymbolMapInner::new(
             object,
             supplementary_object,
-            ElfFunctionAddressesComputer,
-            &self.file_data,
-            self.supplementary_file_data.as_ref(),
-            None,
+            &data.file_data,
+            data.supplementary_file_data.as_ref(),
             debug_id,
+            function_starts.as_deref(),
+            function_ends.as_deref(),
+            None,
+            Some(&data.addr2line_context_data),
         );
 
-        Ok(Box::new(object))
+        Ok(SymbolMapInnerWrapper(Box::new(symbol_map)))
     }
 }
 
