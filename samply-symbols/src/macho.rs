@@ -23,7 +23,7 @@ use crate::shared::{
 use crate::symbol_map::{
     GenericSymbolMap, SymbolMap, SymbolMapDataOuterTrait, SymbolMapInnerWrapper,
 };
-use crate::symbol_map_object::{FunctionAddressesComputer, ObjectSymbolMapInner};
+use crate::symbol_map_object::ObjectSymbolMapInner;
 
 /// Converts a cpu type/subtype pair into the architecture name.
 ///
@@ -374,12 +374,8 @@ impl<T: FileContents + 'static> FileDataAndObject<T> {
 
 impl<T: FileContents + 'static> SymbolMapDataOuterTrait for FileDataAndObject<T> {
     fn make_symbol_map_inner(&self) -> Result<SymbolMapInnerWrapper<'_>, Error> {
-        let &ObjectAndMachOData {
-            ref object,
-            macho_data,
-        } = self.0.get();
-        let (function_starts, function_ends) =
-            MachOFunctionAddressesComputer { macho_data }.compute_function_addresses(object);
+        let ObjectAndMachOData { object, macho_data } = self.0.get();
+        let (function_starts, function_ends) = compute_function_addresses_macho(macho_data, object);
         let debug_id = debug_id_for_object(object)
             .ok_or(Error::InvalidInputError("debug ID cannot be read"))?;
         let symbol_map = ObjectSymbolMapInner::new(
@@ -496,39 +492,32 @@ where
     Ok(image)
 }
 
-struct MachOFunctionAddressesComputer<'data, R: ReadRef<'data>> {
-    macho_data: MachOData<'data, R>,
-}
-
-impl<'data, R: ReadRef<'data>> FunctionAddressesComputer<'data>
-    for MachOFunctionAddressesComputer<'data, R>
+fn compute_function_addresses_macho<'data, 'file, O, R>(
+    macho_data: &'file MachOData<'data, R>,
+    object_file: &'file O,
+) -> (Option<Vec<u32>>, Option<Vec<u32>>)
+where
+    'data: 'file,
+    O: object::Object<'data, 'file>,
+    R: ReadRef<'data>,
 {
-    fn compute_function_addresses<'file, O>(
-        &'file self,
-        object_file: &'file O,
-    ) -> (Option<Vec<u32>>, Option<Vec<u32>>)
-    where
-        'data: 'file,
-        O: object::Object<'data, 'file>,
+    // Get function start addresses from LC_FUNCTION_STARTS
+    let mut function_starts = macho_data.get_function_starts().ok().flatten();
+
+    // and from __unwind_info.
+    if let Some(unwind_info) = object_file
+        .section_by_name_bytes(b"__unwind_info")
+        .and_then(|s| s.data().ok())
+        .and_then(|d| UnwindInfo::parse(d).ok())
     {
-        // Get function start addresses from LC_FUNCTION_STARTS
-        let mut function_starts = self.macho_data.get_function_starts().ok().flatten();
-
-        // and from __unwind_info.
-        if let Some(unwind_info) = object_file
-            .section_by_name_bytes(b"__unwind_info")
-            .and_then(|s| s.data().ok())
-            .and_then(|d| UnwindInfo::parse(d).ok())
-        {
-            let function_starts = function_starts.get_or_insert_with(Vec::new);
-            let mut iter = unwind_info.functions();
-            while let Ok(Some(function)) = iter.next() {
-                function_starts.push(function.start_address);
-            }
+        let function_starts = function_starts.get_or_insert_with(Vec::new);
+        let mut iter = unwind_info.functions();
+        while let Ok(Some(function)) = iter.next() {
+            function_starts.push(function.start_address);
         }
-
-        (function_starts, None)
     }
+
+    (function_starts, None)
 }
 
 #[derive(Clone, Copy)]

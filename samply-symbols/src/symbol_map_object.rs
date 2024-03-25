@@ -15,16 +15,6 @@ use crate::shared::{
 };
 use crate::symbol_map::SymbolMapTrait;
 
-pub trait FunctionAddressesComputer<'data> {
-    fn compute_function_addresses<'file, O>(
-        &'file self,
-        object_file: &'file O,
-    ) -> (Option<Vec<u32>>, Option<Vec<u32>>)
-    where
-        'data: 'file,
-        O: object::Object<'data, 'file>;
-}
-
 enum FullSymbolListEntry<'a, Symbol: object::ObjectSymbol<'a>> {
     /// A synthesized symbol for a function start address that's known
     /// from some other information (not from the symbol table).
