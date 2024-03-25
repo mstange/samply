@@ -17,7 +17,7 @@ use crate::shared::{
     AddressInfo, FileContents, FileContentsCursor, FileContentsWrapper, FileLocation,
     FrameDebugInfo, FramesLookupResult, SourceFilePath, SymbolInfo,
 };
-use crate::symbol_map::{SymbolMap, SymbolMapInnerWrapper, SymbolMapTrait};
+use crate::symbol_map::{GetInnerSymbolMap, SymbolMap, SymbolMapInnerWrapper, SymbolMapTrait};
 
 pub fn is_jitdump_file<T: FileContents>(file_contents: &FileContentsWrapper<T>) -> bool {
     const MAGIC_BYTES_BE: &[u8] = b"JiTD";
@@ -180,29 +180,9 @@ pub struct JitDumpSymbolMap<T: FileContents>(
     Yoke<SymbolMapInnerWrapper<'static>, Box<JitDumpSymbolMapOuter<T>>>,
 );
 
-impl<T: FileContents> SymbolMapTrait for JitDumpSymbolMap<T> {
-    fn debug_id(&self) -> debugid::DebugId {
-        self.0.get().0.debug_id()
-    }
-
-    fn symbol_count(&self) -> usize {
-        self.0.get().0.symbol_count()
-    }
-
-    fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {
-        self.0.get().0.iter_symbols()
-    }
-
-    fn lookup_relative_address(&self, address: u32) -> Option<AddressInfo> {
-        self.0.get().0.lookup_relative_address(address)
-    }
-
-    fn lookup_svma(&self, svma: u64) -> Option<AddressInfo> {
-        self.0.get().0.lookup_svma(svma)
-    }
-
-    fn lookup_offset(&self, offset: u64) -> Option<AddressInfo> {
-        self.0.get().0.lookup_offset(offset)
+impl<T: FileContents> GetInnerSymbolMap for JitDumpSymbolMap<T> {
+    fn get_inner_symbol_map<'a>(&'a self) -> &'a (dyn SymbolMapTrait + 'a) {
+        self.0.get().0.as_ref()
     }
 }
 
