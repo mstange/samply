@@ -102,7 +102,6 @@ impl<T: FileContents + 'static> PeSymbolMapDataAndObject<T> {
 
 impl<T: FileContents + 'static> SymbolMapDataOuterTrait for PeSymbolMapDataAndObject<T> {
     fn make_symbol_map_inner(&self) -> Result<SymbolMapInnerWrapper<'_>, Error> {
-        let file_data = self.0.backing_cart().as_ref();
         let object = &self.0.get().0;
         let debug_id = debug_id_for_object(object)
             .ok_or(Error::InvalidInputError("debug ID cannot be read"))?;
@@ -111,12 +110,9 @@ impl<T: FileContents + 'static> SymbolMapDataOuterTrait for PeSymbolMapDataAndOb
         let symbol_map = ObjectSymbolMapInner::new(
             object,
             None,
-            file_data,
-            None,
             debug_id,
             function_starts.as_deref(),
             function_ends.as_deref(),
-            None,
             None,
         );
 
