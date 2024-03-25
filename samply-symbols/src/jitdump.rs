@@ -5,6 +5,7 @@ use linux_perf_data::jitdump::{
 };
 use linux_perf_data::{linux_perf_event_reader::RawData, Endianness};
 use yoke::Yoke;
+use yoke_derive::Yokeable;
 
 use std::{
     borrow::Cow,
@@ -17,7 +18,7 @@ use crate::shared::{
     AddressInfo, FileContents, FileContentsCursor, FileContentsWrapper, FileLocation,
     FrameDebugInfo, FramesLookupResult, SourceFilePath, SymbolInfo,
 };
-use crate::symbol_map::{GetInnerSymbolMap, SymbolMap, SymbolMapInnerWrapper, SymbolMapTrait};
+use crate::symbol_map::{GetInnerSymbolMap, SymbolMap, SymbolMapTrait};
 
 pub fn is_jitdump_file<T: FileContents>(file_contents: &FileContentsWrapper<T>) -> bool {
     const MAGIC_BYTES_BE: &[u8] = b"JiTD";
@@ -177,7 +178,7 @@ where
 }
 
 pub struct JitDumpSymbolMap<T: FileContents>(
-    Yoke<SymbolMapInnerWrapper<'static>, Box<JitDumpSymbolMapOuter<T>>>,
+    Yoke<JitDumpSymbolMapInnerWrapper<'static>, Box<JitDumpSymbolMapOuter<T>>>,
 );
 
 impl<T: FileContents> GetInnerSymbolMap for JitDumpSymbolMap<T> {
@@ -199,12 +200,12 @@ impl<T: FileContents> JitDumpSymbolMapOuter<T> {
         Ok(Self { data, index })
     }
 
-    pub fn make_symbol_map(&self) -> SymbolMapInnerWrapper<'_> {
+    pub fn make_symbol_map(&self) -> JitDumpSymbolMapInnerWrapper<'_> {
         let inner = JitDumpSymbolMapInner {
             index: &self.index,
             cache: Mutex::new(JitDumpSymbolMapCache::new(&self.data, &self.index)),
         };
-        SymbolMapInnerWrapper(Box::new(inner))
+        JitDumpSymbolMapInnerWrapper(Box::new(inner))
     }
 }
 
@@ -212,6 +213,9 @@ struct JitDumpSymbolMapInner<'a, T: FileContents> {
     index: &'a JitDumpIndex,
     cache: Mutex<JitDumpSymbolMapCache<'a, T>>,
 }
+
+#[derive(Yokeable)]
+pub struct JitDumpSymbolMapInnerWrapper<'data>(pub Box<dyn SymbolMapTrait + Send + 'data>);
 
 #[derive(Debug)]
 struct JitDumpSymbolMapCache<'a, T: FileContents> {

@@ -22,10 +22,8 @@ use crate::shared::{
     AddressInfo, FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation,
     FrameDebugInfo, FramesLookupResult, SourceFilePath, SymbolInfo,
 };
-use crate::symbol_map::{
-    GenericSymbolMap, SymbolMap, SymbolMapDataOuterTrait, SymbolMapInnerWrapper, SymbolMapTrait,
-};
-use crate::symbol_map_object::ObjectSymbolMapInner;
+use crate::symbol_map::{GetInnerSymbolMap, SymbolMap, SymbolMapTrait};
+use crate::symbol_map_object::{ObjectSymbolMap, ObjectSymbolMapInner, ObjectSymbolMapOuter};
 
 pub async fn load_symbol_map_for_pdb_corresponding_to_binary<
     'h,
@@ -76,7 +74,7 @@ where
     FL: FileLocation,
 {
     let owner = PeSymbolMapDataAndObject::new(file_contents, file_kind)?;
-    let symbol_map = GenericSymbolMap::new(owner)?;
+    let symbol_map = ObjectSymbolMap::new(owner)?;
     Ok(SymbolMap::new(file_location, Box::new(symbol_map)))
 }
 
@@ -100,8 +98,8 @@ impl<T: FileContents + 'static> PeSymbolMapDataAndObject<T> {
     }
 }
 
-impl<T: FileContents + 'static> SymbolMapDataOuterTrait for PeSymbolMapDataAndObject<T> {
-    fn make_symbol_map_inner(&self) -> Result<SymbolMapInnerWrapper<'_>, Error> {
+impl<T: FileContents + 'static> ObjectSymbolMapOuter for PeSymbolMapDataAndObject<T> {
+    fn make_symbol_map_inner(&self) -> Result<ObjectSymbolMapInner<'_>, Error> {
         let object = &self.0.get().0;
         let debug_id = debug_id_for_object(object)
             .ok_or(Error::InvalidInputError("debug ID cannot be read"))?;
@@ -115,7 +113,7 @@ impl<T: FileContents + 'static> SymbolMapDataOuterTrait for PeSymbolMapDataAndOb
             None,
         );
 
-        Ok(SymbolMapInnerWrapper(Box::new(symbol_map)))
+        Ok(symbol_map)
     }
 }
 
@@ -212,6 +210,9 @@ impl<'a, 's> PdbAddr2lineContextTrait for pdb_addr2line::Context<'a, 's> {
     }
 }
 
+#[derive(Yokeable)]
+pub struct PdbSymbolMapInnerWrapper<'data>(Box<dyn SymbolMapTrait + Send + 'data>);
+
 struct PdbSymbolMapInner<'object> {
     context: Box<dyn PdbAddr2lineContextTrait + Send + 'object>,
     debug_id: DebugId,
@@ -298,7 +299,7 @@ where
 
 struct PdbFileData<T: FileContents + 'static>(FileContentsWrapper<T>);
 
-struct PdbObjectWithFileData<T: FileContents + 'static>(
+pub struct PdbObjectWithFileData<T: FileContents + 'static>(
     Yoke<PdbObjectWrapper<'static>, Box<PdbFileData<T>>>,
 );
 
@@ -332,10 +333,27 @@ impl<T: FileContents + 'static> PdbObjectWithFileData<T> {
     }
 }
 
-impl<T: FileContents> SymbolMapDataOuterTrait for PdbObjectWithFileData<T> {
-    fn make_symbol_map_inner(&self) -> Result<SymbolMapInnerWrapper<'_>, Error> {
-        let symbol_map = self.0.get().0.make_pdb_symbol_map()?;
-        Ok(SymbolMapInnerWrapper(Box::new(symbol_map)))
+pub struct PdbSymbolMap<T: FileContents + 'static>(
+    Yoke<PdbSymbolMapInnerWrapper<'static>, Box<PdbObjectWithFileData<T>>>,
+);
+
+impl<T: FileContents> PdbSymbolMap<T> {
+    pub fn new(outer: PdbObjectWithFileData<T>) -> Result<Self, Error> {
+        let outer_and_inner = Yoke::try_attach_to_cart(
+            Box::new(outer),
+            |outer| -> Result<PdbSymbolMapInnerWrapper<'_>, Error> {
+                let maker = outer.0.get().0.as_ref();
+                let symbol_map = maker.make_pdb_symbol_map()?;
+                Ok(PdbSymbolMapInnerWrapper(Box::new(symbol_map)))
+            },
+        )?;
+        Ok(PdbSymbolMap(outer_and_inner))
+    }
+}
+
+impl<T: FileContents> GetInnerSymbolMap for PdbSymbolMap<T> {
+    fn get_inner_symbol_map<'a>(&'a self) -> &'a (dyn SymbolMapTrait + 'a) {
+        self.0.get().0.as_ref()
     }
 }
 
@@ -348,7 +366,7 @@ where
     FL: FileLocation,
 {
     let file_data_and_object = PdbObjectWithFileData::new(PdbFileData(file_contents))?;
-    let symbol_map = GenericSymbolMap::new(file_data_and_object)?;
+    let symbol_map = PdbSymbolMap::new(file_data_and_object)?;
     Ok(SymbolMap::new(debug_file_location, Box::new(symbol_map)))
 }
 
