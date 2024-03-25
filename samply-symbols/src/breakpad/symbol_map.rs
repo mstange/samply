@@ -7,7 +7,7 @@ use std::{
 use yoke::Yoke;
 
 use crate::{
-    symbol_map::{SymbolMapInnerWrapper, SymbolMapTrait},
+    symbol_map::{GetInnerSymbolMap, SymbolMapInnerWrapper, SymbolMapTrait},
     AddressInfo, Error, FileContents, FileContentsWrapper, FileLocation, FrameDebugInfo,
     FramesLookupResult, SourceFilePath, SymbolInfo, SymbolMap,
 };
@@ -38,29 +38,9 @@ pub struct BreakpadSymbolMap<T: FileContents>(
     Yoke<SymbolMapInnerWrapper<'static>, Box<BreakpadSymbolMapOuter<T>>>,
 );
 
-impl<T: FileContents> SymbolMapTrait for BreakpadSymbolMap<T> {
-    fn debug_id(&self) -> debugid::DebugId {
-        self.0.get().0.debug_id()
-    }
-
-    fn symbol_count(&self) -> usize {
-        self.0.get().0.symbol_count()
-    }
-
-    fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {
-        self.0.get().0.iter_symbols()
-    }
-
-    fn lookup_relative_address(&self, address: u32) -> Option<AddressInfo> {
-        self.0.get().0.lookup_relative_address(address)
-    }
-
-    fn lookup_svma(&self, svma: u64) -> Option<AddressInfo> {
-        self.0.get().0.lookup_svma(svma)
-    }
-
-    fn lookup_offset(&self, offset: u64) -> Option<AddressInfo> {
-        self.0.get().0.lookup_offset(offset)
+impl<T: FileContents> GetInnerSymbolMap for BreakpadSymbolMap<T> {
+    fn get_inner_symbol_map<'a>(&'a self) -> &'a (dyn SymbolMapTrait + 'a) {
+        self.0.get().0.as_ref()
     }
 }
 
