@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 dump-table = { path = "../dump_table" }
 query-api = { path = "../query_api" }
-reqwest = { version = "0.11.26", default-features = false, features = [
+reqwest = { version = "0.12.2", default-features = false, features = [
   "rustls-tls",
   "gzip",
   "blocking"
