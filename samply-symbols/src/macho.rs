@@ -20,10 +20,8 @@ use crate::shared::{
     FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation, MultiArchDisambiguator,
     RangeReadRef,
 };
-use crate::symbol_map::{
-    GenericSymbolMap, SymbolMap, SymbolMapDataOuterTrait, SymbolMapInnerWrapper,
-};
-use crate::symbol_map_object::ObjectSymbolMapInner;
+use crate::symbol_map::SymbolMap;
+use crate::symbol_map_object::{ObjectSymbolMap, ObjectSymbolMapInner, ObjectSymbolMapOuter};
 
 /// Converts a cpu type/subtype pair into the architecture name.
 ///
@@ -286,7 +284,7 @@ where
 {
     let owner = load_file_data_for_dyld_cache(dyld_cache_path.clone(), dylib_path, helper).await?;
     let owner = FileDataAndObject::new(Box::new(owner))?;
-    let symbol_map = GenericSymbolMap::new(owner)?;
+    let symbol_map = ObjectSymbolMap::new(owner)?;
     Ok(SymbolMap::new(dyld_cache_path, Box::new(symbol_map)))
 }
 
@@ -372,8 +370,8 @@ impl<T: FileContents + 'static> FileDataAndObject<T> {
     }
 }
 
-impl<T: FileContents + 'static> SymbolMapDataOuterTrait for FileDataAndObject<T> {
-    fn make_symbol_map_inner(&self) -> Result<SymbolMapInnerWrapper<'_>, Error> {
+impl<T: FileContents + 'static> ObjectSymbolMapOuter for FileDataAndObject<T> {
+    fn make_symbol_map_inner(&self) -> Result<ObjectSymbolMapInner<'_>, Error> {
         let ObjectAndMachOData { object, macho_data } = self.0.get();
         let (function_starts, function_ends) = compute_function_addresses_macho(macho_data, object);
         let debug_id = debug_id_for_object(object)
@@ -387,7 +385,7 @@ impl<T: FileContents + 'static> SymbolMapDataOuterTrait for FileDataAndObject<T>
             macho_data.get_arch(),
         );
 
-        Ok(SymbolMapInnerWrapper(Box::new(symbol_map)))
+        Ok(symbol_map)
     }
 }
 
@@ -396,7 +394,7 @@ pub fn get_symbol_map_for_macho<F: FileContents + 'static, FL: FileLocation>(
     file_contents: FileContentsWrapper<F>,
 ) -> Result<SymbolMap<FL>, Error> {
     let owner = FileDataAndObject::new(Box::new(MachSymbolMapData(file_contents)))?;
-    let symbol_map = GenericSymbolMap::new(owner)?;
+    let symbol_map = ObjectSymbolMap::new(owner)?;
     Ok(SymbolMap::new(debug_file_location, Box::new(symbol_map)))
 }
 
@@ -409,7 +407,7 @@ pub fn get_symbol_map_for_fat_archive_member<F: FileContents + 'static, FL: File
     let owner =
         MachOFatArchiveMemberData::new(file_contents, start_offset, range_size, member.arch);
     let owner = FileDataAndObject::new(Box::new(owner))?;
-    let symbol_map = GenericSymbolMap::new(owner)?;
+    let symbol_map = ObjectSymbolMap::new(owner)?;
     Ok(SymbolMap::new(debug_file_location, Box::new(symbol_map)))
 }
 

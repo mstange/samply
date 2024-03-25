@@ -8,10 +8,8 @@ use yoke_derive::Yokeable;
 use crate::dwarf::Addr2lineContextData;
 use crate::error::Error;
 use crate::shared::{FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation};
-use crate::symbol_map::{
-    GenericSymbolMap, SymbolMap, SymbolMapDataOuterTrait, SymbolMapInnerWrapper,
-};
-use crate::symbol_map_object::ObjectSymbolMapInner;
+use crate::symbol_map::SymbolMap;
+use crate::symbol_map_object::{ObjectSymbolMap, ObjectSymbolMapInner, ObjectSymbolMapOuter};
 use crate::{debug_id_for_object, ElfBuildId};
 
 pub async fn load_symbol_map_for_elf<T, FL, H>(
@@ -43,7 +41,7 @@ where
             file_kind,
             None,
         )?;
-        let symbol_map = GenericSymbolMap::new(owner)?;
+        let symbol_map = ObjectSymbolMap::new(owner)?;
         return Ok(SymbolMap::new(file_location, Box::new(symbol_map)));
     }
 
@@ -55,7 +53,7 @@ where
     }
 
     let owner = ElfSymbolMapDataAndObjects::new(file_contents, None, file_kind, None)?;
-    let symbol_map = GenericSymbolMap::new(owner)?;
+    let symbol_map = ObjectSymbolMap::new(owner)?;
     Ok(SymbolMap::new(file_location, Box::new(symbol_map)))
 }
 
@@ -119,7 +117,7 @@ where
     }
 
     let owner = ElfSymbolMapDataAndObjects::new(file_contents, None, file_kind, Some(debug_id))?;
-    let symbol_map = GenericSymbolMap::new(owner)?;
+    let symbol_map = ObjectSymbolMap::new(owner)?;
     Ok(SymbolMap::new(
         original_file_location.clone(),
         Box::new(symbol_map),
@@ -275,7 +273,7 @@ fn try_get_symbol_map_from_mini_debug_info<'data, R: ReadRef<'data>, FL: FileLoc
     lzma_rs::xz_decompress(&mut cursor, &mut objdata).ok()?;
     let file_contents = FileContentsWrapper::new(objdata);
     let owner = ElfSymbolMapDataAndObjects::new(file_contents, None, file_kind, None).ok()?;
-    let symbol_map = GenericSymbolMap::new(owner).ok()?;
+    let symbol_map = ObjectSymbolMap::new(owner).ok()?;
     Some(SymbolMap::new(
         debug_file_location.clone(),
         Box::new(symbol_map),
@@ -358,8 +356,8 @@ impl<T: FileContents + 'static> ElfSymbolMapDataAndObjects<T> {
     }
 }
 
-impl<T: FileContents + 'static> SymbolMapDataOuterTrait for ElfSymbolMapDataAndObjects<T> {
-    fn make_symbol_map_inner(&self) -> Result<SymbolMapInnerWrapper<'_>, Error> {
+impl<T: FileContents + 'static> ObjectSymbolMapOuter for ElfSymbolMapDataAndObjects<T> {
+    fn make_symbol_map_inner(&self) -> Result<ObjectSymbolMapInner<'_>, Error> {
         let data = self.0.backing_cart().as_ref();
         let object = &self.0.get().object;
         let debug_id = if let Some(debug_id) = data.override_debug_id {
@@ -379,7 +377,7 @@ impl<T: FileContents + 'static> SymbolMapDataOuterTrait for ElfSymbolMapDataAndO
             None,
         );
 
-        Ok(SymbolMapInnerWrapper(Box::new(symbol_map)))
+        Ok(symbol_map)
     }
 }
 

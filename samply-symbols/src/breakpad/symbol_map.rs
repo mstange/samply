@@ -5,9 +5,10 @@ use std::{
 };
 
 use yoke::Yoke;
+use yoke_derive::Yokeable;
 
 use crate::{
-    symbol_map::{GetInnerSymbolMap, SymbolMapInnerWrapper, SymbolMapTrait},
+    symbol_map::{GetInnerSymbolMap, SymbolMapTrait},
     AddressInfo, Error, FileContents, FileContentsWrapper, FileLocation, FrameDebugInfo,
     FramesLookupResult, SourceFilePath, SymbolInfo, SymbolMap,
 };
@@ -34,8 +35,8 @@ where
     Ok(SymbolMap::new(file_location, Box::new(symbol_map)))
 }
 
-pub struct BreakpadSymbolMap<T: FileContents>(
-    Yoke<SymbolMapInnerWrapper<'static>, Box<BreakpadSymbolMapOuter<T>>>,
+pub struct BreakpadSymbolMap<T: FileContents + 'static>(
+    Yoke<BreakpadSymbolMapInnerWrapper<'static>, Box<BreakpadSymbolMapOuter<T>>>,
 );
 
 impl<T: FileContents> GetInnerSymbolMap for BreakpadSymbolMap<T> {
@@ -85,15 +86,18 @@ impl<T: FileContents> BreakpadSymbolMapOuter<T> {
         Ok(Self { data, index })
     }
 
-    pub fn make_symbol_map(&self) -> SymbolMapInnerWrapper<'_> {
-        let inner = BreakpadSymbolMapInner {
+    pub fn make_symbol_map(&self) -> BreakpadSymbolMapInnerWrapper<'_> {
+        let inner_impl = BreakpadSymbolMapInner {
             data: &self.data,
             index: &self.index,
             cache: Mutex::new(BreakpadSymbolMapCache::new(&self.data, &self.index)),
         };
-        SymbolMapInnerWrapper(Box::new(inner))
+        BreakpadSymbolMapInnerWrapper(Box::new(inner_impl))
     }
 }
+
+#[derive(Yokeable)]
+pub struct BreakpadSymbolMapInnerWrapper<'a>(Box<dyn SymbolMapTrait + Send + 'a>);
 
 struct BreakpadSymbolMapInner<'a, T: FileContents> {
     data: &'a FileContentsWrapper<T>,

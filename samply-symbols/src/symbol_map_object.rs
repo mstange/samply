@@ -5,15 +5,17 @@ use gimli::{EndianSlice, RunTimeEndian};
 use object::{
     ObjectMap, ObjectSection, ObjectSegment, SectionFlags, SectionIndex, SectionKind, SymbolKind,
 };
+use yoke::Yoke;
+use yoke_derive::Yokeable;
 
-use crate::demangle;
 use crate::dwarf::get_frames;
 use crate::path_mapper::PathMapper;
 use crate::shared::{
     relative_address_base, AddressInfo, ExternalFileAddressInFileRef, ExternalFileAddressRef,
     ExternalFileRef, FramesLookupResult, SymbolInfo,
 };
-use crate::symbol_map::SymbolMapTrait;
+use crate::symbol_map::{GetInnerSymbolMap, SymbolMapTrait};
+use crate::{demangle, Error};
 
 enum FullSymbolListEntry<'a, Symbol: object::ObjectSymbol<'a>> {
     /// A synthesized symbol for a function start address that's known
@@ -100,7 +102,7 @@ impl std::fmt::Debug for SvmaFileRange {
     }
 }
 
-pub struct ObjectSymbolMapInner<'a, Symbol: object::ObjectSymbol<'a>> {
+pub struct ObjectSymbolMapInnerImpl<'a, Symbol: object::ObjectSymbol<'a>> {
     entries: Vec<(u32, FullSymbolListEntry<'a, Symbol>)>,
     debug_id: DebugId,
     arch: Option<&'static str>,
@@ -111,19 +113,41 @@ pub struct ObjectSymbolMapInner<'a, Symbol: object::ObjectSymbol<'a>> {
     image_base_address: u64,
 }
 
-#[test]
-fn test_symbolmap_is_send() {
-    use object::ReadRef;
-    fn assert_is_send<T: Send>() {}
-    #[allow(unused)]
-    fn wrapper<'a, R: ReadRef<'a> + Send + Sync>() {
-        assert_is_send::<ObjectSymbolMapInner<<object::read::File<'a, R> as object::Object>::Symbol>>(
-        );
+pub trait ObjectSymbolMapOuter {
+    fn make_symbol_map_inner(&self) -> Result<ObjectSymbolMapInner<'_>, Error>;
+}
+
+#[derive(Yokeable)]
+pub struct ObjectSymbolMapInner<'data>(pub Box<dyn SymbolMapTrait + Send + 'data>);
+
+pub struct ObjectSymbolMap<OSMO: ObjectSymbolMapOuter>(
+    Yoke<ObjectSymbolMapInner<'static>, Box<OSMO>>,
+);
+
+impl<OSMO: ObjectSymbolMapOuter + 'static> ObjectSymbolMap<OSMO> {
+    pub fn new(outer: OSMO) -> Result<Self, Error> {
+        let outer_and_inner =
+            Yoke::<ObjectSymbolMapInner, _>::try_attach_to_cart(Box::new(outer), |outer| {
+                outer.make_symbol_map_inner()
+            })?;
+        Ok(ObjectSymbolMap(outer_and_inner))
     }
 }
 
-impl<'a, Symbol: object::ObjectSymbol<'a>> ObjectSymbolMapInner<'a, Symbol> {
-    pub fn new<'file, O>(
+impl<OSMO: ObjectSymbolMapOuter> GetInnerSymbolMap for ObjectSymbolMap<OSMO> {
+    fn get_inner_symbol_map<'a>(&'a self) -> &'a (dyn SymbolMapTrait + 'a) {
+        self.0.get().0.as_ref()
+    }
+}
+
+#[test]
+fn test_symbolmap_is_send() {
+    fn assert_is_send<T: Send>() {}
+    assert_is_send::<ObjectSymbolMapInner<'static>>();
+}
+
+impl<'a> ObjectSymbolMapInner<'a> {
+    pub fn new<'file, O, Symbol: object::ObjectSymbol<'a> + Send + 'a>(
         object_file: &'file O,
         addr2line_context: Option<addr2line::Context<EndianSlice<'a, RunTimeEndian>>>,
         debug_id: DebugId,
@@ -309,7 +333,7 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> ObjectSymbolMapInner<'a, Symbol> {
                 .collect();
         }
 
-        Self {
+        let inner_impl = ObjectSymbolMapInnerImpl {
             entries,
             debug_id,
             path_mapper,
@@ -318,9 +342,12 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> ObjectSymbolMapInner<'a, Symbol> {
             arch,
             image_base_address: base_address,
             svma_file_ranges,
-        }
+        };
+        ObjectSymbolMapInner(Box::new(inner_impl))
     }
+}
 
+impl<'a, Symbol: object::ObjectSymbol<'a>> ObjectSymbolMapInnerImpl<'a, Symbol> {
     fn file_offset_to_svma(&self, offset: u64) -> Option<u64> {
         for svma_file_range in &self.svma_file_ranges {
             if svma_file_range.file_offset <= offset
@@ -335,7 +362,7 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> ObjectSymbolMapInner<'a, Symbol> {
     }
 }
 
-impl<'a, Symbol: object::ObjectSymbol<'a>> SymbolMapTrait for ObjectSymbolMapInner<'a, Symbol> {
+impl<'a, Symbol: object::ObjectSymbol<'a>> SymbolMapTrait for ObjectSymbolMapInnerImpl<'a, Symbol> {
     fn debug_id(&self) -> DebugId {
         self.debug_id
     }
