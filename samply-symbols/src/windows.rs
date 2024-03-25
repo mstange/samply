@@ -25,7 +25,7 @@ use crate::shared::{
 use crate::symbol_map::{
     GenericSymbolMap, SymbolMap, SymbolMapDataOuterTrait, SymbolMapInnerWrapper, SymbolMapTrait,
 };
-use crate::symbol_map_object::{FunctionAddressesComputer, ObjectSymbolMapInner};
+use crate::symbol_map_object::ObjectSymbolMapInner;
 
 pub async fn load_symbol_map_for_pdb_corresponding_to_binary<
     'h,
@@ -105,8 +105,7 @@ impl<T: FileContents + 'static> SymbolMapDataOuterTrait for PeSymbolMapDataAndOb
         let object = &self.0.get().0;
         let debug_id = debug_id_for_object(object)
             .ok_or(Error::InvalidInputError("debug ID cannot be read"))?;
-        let (function_starts, function_ends) =
-            PeFunctionAddressesComputer.compute_function_addresses(object);
+        let (function_starts, function_ends) = compute_function_addresses_pe(object);
         let symbol_map = ObjectSymbolMapInner::new(
             object,
             None,
@@ -120,28 +119,23 @@ impl<T: FileContents + 'static> SymbolMapDataOuterTrait for PeSymbolMapDataAndOb
     }
 }
 
-struct PeFunctionAddressesComputer;
-
-impl<'data> FunctionAddressesComputer<'data> for PeFunctionAddressesComputer {
-    fn compute_function_addresses<'file, O>(
-        &'file self,
-        object_file: &'file O,
-    ) -> (Option<Vec<u32>>, Option<Vec<u32>>)
-    where
-        'data: 'file,
-        O: object::Object<'data, 'file>,
+fn compute_function_addresses_pe<'data, 'file, O>(
+    object_file: &'file O,
+) -> (Option<Vec<u32>>, Option<Vec<u32>>)
+where
+    'data: 'file,
+    O: object::Object<'data, 'file>,
+{
+    // Get function start and end addresses from the function list in .pdata.
+    use object::ObjectSection;
+    if let Some(pdata) = object_file
+        .section_by_name_bytes(b".pdata")
+        .and_then(|s| s.data().ok())
     {
-        // Get function start and end addresses from the function list in .pdata.
-        use object::ObjectSection;
-        if let Some(pdata) = object_file
-            .section_by_name_bytes(b".pdata")
-            .and_then(|s| s.data().ok())
-        {
-            let (s, e) = function_start_and_end_addresses(pdata);
-            (Some(s), Some(e))
-        } else {
-            (None, None)
-        }
+        let (s, e) = function_start_and_end_addresses(pdata);
+        (Some(s), Some(e))
+    } else {
+        (None, None)
     }
 }
 
