@@ -374,12 +374,10 @@ impl<T: FileContents + 'static> FileDataAndObject<T> {
 
 impl<T: FileContents + 'static> SymbolMapDataOuterTrait for FileDataAndObject<T> {
     fn make_symbol_map_inner(&self) -> Result<SymbolMapInnerWrapper<'_>, Error> {
-        let root_file_data = self.0.backing_cart().file_data();
         let &ObjectAndMachOData {
             ref object,
             macho_data,
         } = self.0.get();
-        let arch = macho_data.get_arch();
         let (function_starts, function_ends) =
             MachOFunctionAddressesComputer { macho_data }.compute_function_addresses(object);
         let debug_id = debug_id_for_object(object)
@@ -387,13 +385,10 @@ impl<T: FileContents + 'static> SymbolMapDataOuterTrait for FileDataAndObject<T>
         let symbol_map = ObjectSymbolMapInner::new(
             object,
             None,
-            root_file_data,
-            None,
             debug_id,
             function_starts.as_deref(),
             function_ends.as_deref(),
-            arch,
-            None,
+            macho_data.get_arch(),
         );
 
         Ok(SymbolMapInnerWrapper(Box::new(symbol_map)))

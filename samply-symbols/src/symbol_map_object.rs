@@ -1,13 +1,13 @@
 use std::{borrow::Cow, slice, sync::Mutex};
 
 use debugid::DebugId;
+use gimli::{EndianSlice, RunTimeEndian};
 use object::{
-    ObjectMap, ObjectSection, ObjectSegment, ReadRef, SectionFlags, SectionIndex, SectionKind,
-    SymbolKind,
+    ObjectMap, ObjectSection, ObjectSegment, SectionFlags, SectionIndex, SectionKind, SymbolKind,
 };
 
 use crate::demangle;
-use crate::dwarf::{get_frames, Addr2lineContextData};
+use crate::dwarf::get_frames;
 use crate::path_mapper::PathMapper;
 use crate::shared::{
     relative_address_base, AddressInfo, ExternalFileAddressInFileRef, ExternalFileAddressRef,
@@ -123,6 +123,7 @@ pub struct ObjectSymbolMapInner<'a, Symbol: object::ObjectSymbol<'a>> {
 
 #[test]
 fn test_symbolmap_is_send() {
+    use object::ReadRef;
     fn assert_is_send<T: Send>() {}
     #[allow(unused)]
     fn wrapper<'a, R: ReadRef<'a> + Send + Sync>() {
@@ -132,22 +133,17 @@ fn test_symbolmap_is_send() {
 }
 
 impl<'a, Symbol: object::ObjectSymbol<'a>> ObjectSymbolMapInner<'a, Symbol> {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new<'file, O, R>(
+    pub fn new<'file, O>(
         object_file: &'file O,
-        sup_object_file: Option<&'file O>,
-        data: R,
-        sup_data: Option<R>,
+        addr2line_context: Option<addr2line::Context<EndianSlice<'a, RunTimeEndian>>>,
         debug_id: DebugId,
         function_start_addresses: Option<&[u32]>,
         function_end_addresses: Option<&[u32]>,
         arch: Option<&'static str>,
-        addr2line_context_data: Option<&'a Addr2lineContextData>,
     ) -> Self
     where
         'a: 'file,
         O: object::Object<'a, 'file, Symbol = Symbol>,
-        R: ReadRef<'a>,
     {
         let mut entries: Vec<_> = Vec::new();
 
@@ -308,11 +304,6 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> ObjectSymbolMapInner<'a, Symbol> {
         entries.sort_by_key(|(address, _)| *address);
         entries.dedup_by_key(|(address, _)| *address);
 
-        let context = addr2line_context_data.and_then(|d| {
-            d.make_context(data, object_file, sup_data, sup_object_file)
-                .ok()
-        });
-
         let path_mapper = Mutex::new(PathMapper::new());
 
         let mut svma_file_ranges: Vec<SvmaFileRange> = object_file
@@ -333,7 +324,7 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> ObjectSymbolMapInner<'a, Symbol> {
             debug_id,
             path_mapper,
             object_map: object_file.object_map(),
-            context,
+            context: addr2line_context,
             arch,
             image_base_address: base_address,
             svma_file_ranges,

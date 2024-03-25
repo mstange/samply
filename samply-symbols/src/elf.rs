@@ -1,5 +1,5 @@
 use debugid::DebugId;
-use gimli::{CieOrFde, EhFrame, UnwindSection};
+use gimli::{CieOrFde, EhFrame, EndianSlice, RunTimeEndian, UnwindSection};
 use object::{File, FileKind, Object, ObjectSection, ReadRef};
 use std::io::Cursor;
 use yoke::Yoke;
@@ -335,13 +335,33 @@ impl<T: FileContents + 'static> ElfSymbolMapDataAndObjects<T> {
         )?;
         Ok(Self(data_and_objects))
     }
+
+    pub fn make_addr2line_context(
+        &self,
+    ) -> Result<addr2line::Context<EndianSlice<'_, RunTimeEndian>>, Error> {
+        let ElfSymbolMapData {
+            file_data,
+            supplementary_file_data,
+            addr2line_context_data,
+            ..
+        } = self.0.backing_cart().as_ref();
+        let ElfObjects {
+            object,
+            supplementary_object,
+        } = &self.0.get();
+        addr2line_context_data.make_context(
+            file_data,
+            object,
+            supplementary_file_data.as_ref(),
+            supplementary_object.as_ref(),
+        )
+    }
 }
 
 impl<T: FileContents + 'static> SymbolMapDataOuterTrait for ElfSymbolMapDataAndObjects<T> {
     fn make_symbol_map_inner(&self) -> Result<SymbolMapInnerWrapper<'_>, Error> {
         let data = self.0.backing_cart().as_ref();
         let object = &self.0.get().object;
-        let supplementary_object = self.0.get().supplementary_object.as_ref();
         let debug_id = if let Some(debug_id) = data.override_debug_id {
             debug_id
         } else {
@@ -353,14 +373,11 @@ impl<T: FileContents + 'static> SymbolMapDataOuterTrait for ElfSymbolMapDataAndO
 
         let symbol_map = ObjectSymbolMapInner::new(
             object,
-            supplementary_object,
-            &data.file_data,
-            data.supplementary_file_data.as_ref(),
+            self.make_addr2line_context().ok(),
             debug_id,
             function_starts.as_deref(),
             function_ends.as_deref(),
             None,
-            Some(&data.addr2line_context_data),
         );
 
         Ok(SymbolMapInnerWrapper(Box::new(symbol_map)))
