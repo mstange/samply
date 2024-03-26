@@ -1,5 +1,8 @@
+use std::marker::PhantomData;
+use std::sync::Arc;
 use std::{borrow::Cow, slice, sync::Mutex};
 
+use addr2line::{LookupResult, SplitDwarfLoad};
 use debugid::DebugId;
 use gimli::{EndianSlice, RunTimeEndian};
 use object::{
@@ -8,14 +11,17 @@ use object::{
 use yoke::Yoke;
 use yoke_derive::Yokeable;
 
-use crate::dwarf::get_frames;
+use crate::dwarf::convert_frames;
 use crate::path_mapper::PathMapper;
 use crate::shared::{
-    relative_address_base, AddressInfo, ExternalFileAddressInFileRef, ExternalFileAddressRef,
-    ExternalFileRef, FramesLookupResult, SymbolInfo,
+    relative_address_base, AddressInfo, DwoRef, ExternalFileAddressInFileRef,
+    ExternalFileAddressRef, ExternalFileRef, FramesLookupResult, SymbolInfo,
 };
-use crate::symbol_map::{GetInnerSymbolMap, SymbolMapTrait};
-use crate::{demangle, Error};
+use crate::symbol_map::{
+    FramesLookupResult2, GetInnerSymbolMap, GetInnerSymbolMapWithLookupFramesExt, SymbolMapTrait,
+    SymbolMapTraitWithLookupFramesExt,
+};
+use crate::{demangle, Error, FileContents};
 
 enum FullSymbolListEntry<'a, Symbol: object::ObjectSymbol<'a>> {
     /// A synthesized symbol for a function start address that's known
@@ -158,6 +164,32 @@ impl<'a> ObjectSymbolMapInner<'a> {
     where
         'a: 'file,
         O: object::Object<'a, 'file, Symbol = Symbol>,
+    {
+        let inner_impl = ObjectSymbolMapInnerImpl::new(
+            object_file,
+            addr2line_context,
+            debug_id,
+            function_start_addresses,
+            function_end_addresses,
+            arch,
+        );
+        ObjectSymbolMapInner(Box::new(inner_impl))
+    }
+}
+
+impl<'a, Symbol: object::ObjectSymbol<'a>> ObjectSymbolMapInnerImpl<'a, Symbol> {
+    pub fn new<'file, O>(
+        object_file: &'file O,
+        addr2line_context: Option<addr2line::Context<EndianSlice<'a, RunTimeEndian>>>,
+        debug_id: DebugId,
+        function_start_addresses: Option<&[u32]>,
+        function_end_addresses: Option<&[u32]>,
+        arch: Option<&'static str>,
+    ) -> Self
+    where
+        'a: 'file,
+        O: object::Object<'a, 'file, Symbol = Symbol>,
+        Symbol: object::ObjectSymbol<'a> + Send + 'a,
     {
         let mut entries: Vec<_> = Vec::new();
 
@@ -333,7 +365,7 @@ impl<'a> ObjectSymbolMapInner<'a> {
                 .collect();
         }
 
-        let inner_impl = ObjectSymbolMapInnerImpl {
+        ObjectSymbolMapInnerImpl {
             entries,
             debug_id,
             path_mapper,
@@ -342,12 +374,9 @@ impl<'a> ObjectSymbolMapInner<'a> {
             arch,
             image_base_address: base_address,
             svma_file_ranges,
-        };
-        ObjectSymbolMapInner(Box::new(inner_impl))
+        }
     }
-}
 
-impl<'a, Symbol: object::ObjectSymbol<'a>> ObjectSymbolMapInnerImpl<'a, Symbol> {
     fn file_offset_to_svma(&self, offset: u64) -> Option<u64> {
         for svma_file_range in &self.svma_file_ranges {
             if svma_file_range.file_offset <= offset
@@ -405,9 +434,23 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> SymbolMapTrait for ObjectSymbolMapInn
             let mut path_mapper = self.path_mapper.lock().unwrap();
 
             let svma = self.image_base_address + u64::from(address);
-            let frames = match get_frames(svma, self.context.as_ref(), &mut path_mapper) {
-                Some(frames) => FramesLookupResult::Available(frames),
-                None => {
+            let frames = match self.context.as_ref().map(|ctx| ctx.find_frames(svma)) {
+                Some(LookupResult::Load { load, .. }) => {
+                    let requested_dwo_ref = DwoRef::from_split_dwarf_load(&load);
+                    FramesLookupResult::NeedDwo {
+                        svma,
+                        dwo_ref: requested_dwo_ref,
+                        partial_frames: None,
+                    }
+                }
+                Some(LookupResult::Output(Ok(frame_iter))) => {
+                    if let Some(frames) = convert_frames(frame_iter, &mut path_mapper) {
+                        FramesLookupResult::Available(frames)
+                    } else {
+                        FramesLookupResult::Unavailable
+                    }
+                }
+                _ => {
                     if let Some(entry) = self.object_map.get(svma) {
                         let external_file_name = entry.object(&self.object_map);
                         let external_file_name = std::str::from_utf8(external_file_name).unwrap();
@@ -487,6 +530,223 @@ impl<'data, 'map, Symbol: object::ObjectSymbol<'data>> Iterator
                 Err(_) => continue,
             };
             return Some((address, name));
+        }
+    }
+}
+
+pub struct ObjectSymbolMapWithDwoSupportInnerImpl<
+    'a,
+    Symbol: object::ObjectSymbol<'a>,
+    FC,
+    ADAMD: AddDwoAndMakeDwarf<FC>,
+> {
+    regular_inner: ObjectSymbolMapInnerImpl<'a, Symbol>,
+    adamd: &'a ADAMD,
+    _phantom: PhantomData<FC>,
+}
+
+pub trait ObjectSymbolMapWithDwoSupportOuter<FC> {
+    fn make_symbol_map_inner(&self) -> Result<ObjectSymbolMapWithDwoSupportInner<'_, FC>, Error>;
+}
+
+#[derive(Yokeable)]
+pub struct ObjectSymbolMapWithDwoSupportInner<'data, FC>(
+    pub Box<dyn SymbolMapTraitWithLookupFramesExt<FC> + Send + 'data>,
+);
+
+pub struct ObjectSymbolMapWithDwoSupport<
+    FC: 'static,
+    OSMWDSO: ObjectSymbolMapWithDwoSupportOuter<FC>,
+>(Yoke<ObjectSymbolMapWithDwoSupportInner<'static, FC>, Box<OSMWDSO>>);
+
+impl<FC, OSMWDSO: ObjectSymbolMapWithDwoSupportOuter<FC> + 'static>
+    ObjectSymbolMapWithDwoSupport<FC, OSMWDSO>
+{
+    pub fn new(outer: OSMWDSO) -> Result<Self, Error> {
+        let outer_and_inner =
+            Yoke::<ObjectSymbolMapWithDwoSupportInner<FC>, _>::try_attach_to_cart(
+                Box::new(outer),
+                |outer| outer.make_symbol_map_inner(),
+            )?;
+        Ok(ObjectSymbolMapWithDwoSupport(outer_and_inner))
+    }
+}
+
+impl<FC: FileContents + 'static, OSMWDSO: ObjectSymbolMapWithDwoSupportOuter<FC>>
+    GetInnerSymbolMapWithLookupFramesExt<FC> for ObjectSymbolMapWithDwoSupport<FC, OSMWDSO>
+{
+    fn get_inner_symbol_map<'a>(&'a self) -> &'a (dyn SymbolMapTraitWithLookupFramesExt<FC> + 'a) {
+        self.0.get().0.as_ref()
+    }
+}
+
+impl<'a, Symbol: object::ObjectSymbol<'a>, FC, ADAMD: AddDwoAndMakeDwarf<FC>>
+    ObjectSymbolMapWithDwoSupportInnerImpl<'a, Symbol, FC, ADAMD>
+{
+    pub fn new<'file, O>(
+        object_file: &'file O,
+        addr2line_context: Option<addr2line::Context<EndianSlice<'a, RunTimeEndian>>>,
+        debug_id: DebugId,
+        function_start_addresses: Option<&[u32]>,
+        function_end_addresses: Option<&[u32]>,
+        arch: Option<&'static str>,
+        adamd: &'a ADAMD,
+    ) -> Self
+    where
+        'a: 'file,
+        O: object::Object<'a, 'file, Symbol = Symbol>,
+        Symbol: object::ObjectSymbol<'a> + Send + 'a,
+    {
+        let regular_inner = ObjectSymbolMapInnerImpl::new(
+            object_file,
+            addr2line_context,
+            debug_id,
+            function_start_addresses,
+            function_end_addresses,
+            arch,
+        );
+        Self {
+            regular_inner,
+            adamd,
+            _phantom: PhantomData,
+        }
+    }
+
+    fn convert_lookup_result<
+        's,
+        ALC: addr2line::LookupContinuation<
+                Buf = EndianSlice<'a, RunTimeEndian>,
+                Output = Result<
+                    addr2line::FrameIter<'s, EndianSlice<'a, RunTimeEndian>>,
+                    addr2line::gimli::Error,
+                >,
+            > + 's,
+    >(
+        &'s self,
+        lookup_result: addr2line::LookupResult<ALC>,
+    ) -> FramesLookupResult2
+    where
+        'a: 's,
+    {
+        match lookup_result {
+            LookupResult::Load { load, .. } => {
+                let requested_dwo_ref = DwoRef::from_split_dwarf_load(&load);
+                FramesLookupResult2::NeedDwo(requested_dwo_ref)
+            }
+            LookupResult::Output(Ok(frame_iter)) => {
+                let mut path_mapper = self.regular_inner.path_mapper.lock().unwrap();
+                FramesLookupResult2::Done(convert_frames(frame_iter, &mut path_mapper))
+            }
+            LookupResult::Output(Err(_err)) => FramesLookupResult2::Done(None),
+        }
+    }
+}
+
+impl<'a, Symbol: object::ObjectSymbol<'a>, FC, ADAMD: AddDwoAndMakeDwarf<FC>> SymbolMapTrait
+    for ObjectSymbolMapWithDwoSupportInnerImpl<'a, Symbol, FC, ADAMD>
+{
+    fn debug_id(&self) -> DebugId {
+        self.regular_inner.debug_id()
+    }
+
+    fn symbol_count(&self) -> usize {
+        self.regular_inner.symbol_count()
+    }
+
+    fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {
+        self.regular_inner.iter_symbols()
+    }
+
+    fn lookup_relative_address(&self, address: u32) -> Option<AddressInfo> {
+        self.regular_inner.lookup_relative_address(address)
+    }
+
+    fn lookup_svma(&self, svma: u64) -> Option<AddressInfo> {
+        self.regular_inner.lookup_svma(svma)
+    }
+
+    fn lookup_offset(&self, offset: u64) -> Option<AddressInfo> {
+        self.regular_inner.lookup_offset(offset)
+    }
+}
+
+pub trait AddDwoAndMakeDwarf<FC> {
+    fn add_dwo_and_make_dwarf(
+        &self,
+        file_contents: FC,
+    ) -> Result<
+        addr2line::gimli::Dwarf<addr2line::gimli::EndianSlice<'_, addr2line::gimli::RunTimeEndian>>,
+        Error,
+    >;
+}
+
+impl<
+        'a,
+        Symbol: object::ObjectSymbol<'a>,
+        FC: FileContents + 'static,
+        ADAMD: AddDwoAndMakeDwarf<FC>,
+    > SymbolMapTraitWithLookupFramesExt<FC>
+    for ObjectSymbolMapWithDwoSupportInnerImpl<'a, Symbol, FC, ADAMD>
+{
+    fn get_as_symbol_map(&self) -> &dyn SymbolMapTrait {
+        self
+    }
+
+    fn lookup_frames_again(&self, svma: u64) -> FramesLookupResult2 {
+        let Some(ctx) = self.regular_inner.context.as_ref() else {
+            return FramesLookupResult2::Done(None);
+        };
+        let lookup_result = ctx.find_frames(svma);
+        self.convert_lookup_result(lookup_result)
+    }
+
+    fn lookup_frames_more(
+        &self,
+        svma: u64,
+        dwo_ref: &DwoRef,
+        file_contents: Option<FC>,
+    ) -> FramesLookupResult2 {
+        let Some(ctx) = self.regular_inner.context.as_ref() else {
+            return FramesLookupResult2::Done(None);
+        };
+        let lookup_result = ctx.find_frames(svma);
+        match lookup_result {
+            LookupResult::Load { load, continuation } => {
+                let requested_dwo_ref = DwoRef::from_split_dwarf_load(&load);
+                if &requested_dwo_ref == dwo_ref {
+                    let maybe_dwarf = file_contents
+                        .and_then(|file_contents| {
+                            self.adamd.add_dwo_and_make_dwarf(file_contents).ok()
+                        })
+                        .map(|mut dwo_dwarf| {
+                            dwo_dwarf.make_dwo(&*load.parent);
+                            Arc::new(dwo_dwarf)
+                        });
+                    use addr2line::LookupContinuation;
+                    let lookup_result = continuation.resume(maybe_dwarf);
+                    self.convert_lookup_result(lookup_result)
+                } else {
+                    FramesLookupResult2::NeedDwo(requested_dwo_ref)
+                }
+            }
+            LookupResult::Output(Ok(frame_iter)) => {
+                let mut path_mapper = self.regular_inner.path_mapper.lock().unwrap();
+                FramesLookupResult2::Done(convert_frames(frame_iter, &mut path_mapper))
+            }
+            LookupResult::Output(Err(_err)) => FramesLookupResult2::Done(None),
+        }
+    }
+}
+
+impl DwoRef {
+    fn from_split_dwarf_load(load: &SplitDwarfLoad<EndianSlice<RunTimeEndian>>) -> Self {
+        let comp_dir = String::from_utf8_lossy(load.comp_dir.unwrap().slice()).to_string();
+        let path = String::from_utf8_lossy(load.path.unwrap().slice()).to_string();
+        let dwo_id = load.dwo_id.0;
+        Self {
+            comp_dir,
+            path,
+            dwo_id,
         }
     }
 }

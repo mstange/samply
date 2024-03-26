@@ -1,7 +1,8 @@
 use samply_symbols::debugid::DebugId;
 use samply_symbols::{
-    self, CandidatePathInfo, CompactSymbolTable, Error, FileAndPathHelper, FileAndPathHelperResult,
-    FileLocation, LibraryInfo, MultiArchDisambiguator, SymbolManager, SymbolMap,
+    self, CandidatePathInfo, CompactSymbolTable, DwoRef, Error, FileAndPathHelper,
+    FileAndPathHelperResult, FileLocation, LibraryInfo, MultiArchDisambiguator, SymbolManager,
+    SymbolMap,
 };
 use std::fs::File;
 use std::io::{BufWriter, Read, Write};
@@ -11,7 +12,7 @@ async fn get_symbol_map_with_dyld_cache_fallback(
     symbol_manager: &SymbolManager<Helper>,
     path: &Path,
     debug_id: Option<DebugId>,
-) -> Result<SymbolMap<FileLocationType>, Error> {
+) -> Result<SymbolMap<FileLocationType, FileContentsType>, Error> {
     let might_be_in_dyld_shared_cache = path.starts_with("/usr/") || path.starts_with("/System/");
 
     let disambiguator = debug_id.map(MultiArchDisambiguator::DebugId);
@@ -116,6 +117,10 @@ impl FileLocation for FileLocationType {
 
     fn location_for_breakpad_symindex(&self) -> Option<Self> {
         Some(Self(self.0.with_extension("symindex")))
+    }
+
+    fn location_for_dwo(&self, _dwo_ref: &DwoRef) -> Option<Self> {
+        None // TODO
     }
 }
 

@@ -61,19 +61,16 @@ impl<'a, H: FileAndPathHelper> SourceApi<'a, H> {
         let debug_id = to_debug_id(debug_id)?;
 
         // Look up the address to see which file paths we are allowed to read.
-        let (debug_file_location, frames) = {
-            let info = LibraryInfo {
-                debug_name: Some(debug_name.to_string()),
-                debug_id: Some(debug_id),
-                ..Default::default()
-            };
-            let symbol_map = self.symbol_manager.load_symbol_map(&info).await?;
-            let debug_file_location = symbol_map.debug_file_location().clone();
-            let frames = match symbol_map.lookup_relative_address(*module_offset) {
-                Some(address_info) => address_info.frames,
-                None => FramesLookupResult::Unavailable,
-            };
-            (debug_file_location, frames)
+        let info = LibraryInfo {
+            debug_name: Some(debug_name.to_string()),
+            debug_id: Some(debug_id),
+            ..Default::default()
+        };
+        let symbol_map = self.symbol_manager.load_symbol_map(&info).await?;
+        let debug_file_location = symbol_map.debug_file_location().clone();
+        let frames = match symbol_map.lookup_relative_address(*module_offset) {
+            Some(address_info) => address_info.frames,
+            None => FramesLookupResult::Unavailable,
         };
 
         let frames = match frames {
@@ -89,6 +86,15 @@ impl<'a, H: FileAndPathHelper> SourceApi<'a, H> {
                 }
             }
             FramesLookupResult::Unavailable => return Err(SourceError::NoDebugInfo),
+            FramesLookupResult::NeedDwo { svma, .. } => {
+                match symbol_map
+                    .lookup_frames_async(svma, self.symbol_manager.helper())
+                    .await
+                {
+                    Some(frames) => frames,
+                    None => return Err(SourceError::NoDebugInfo),
+                }
+            }
         };
 
         // Find the SourceFilePath whose "api file path" matches the requested file.

@@ -145,6 +145,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let config = wholesym::SymbolManagerConfig::new()
         .use_spotlight(true)
+        .verbose(true)
         .respect_nt_symbol_path(true);
     let symbol_manager = wholesym::SymbolManager::with_config(config);
     let symbol_map = symbol_manager
@@ -176,6 +177,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(address_info) = symbol_map.lookup_relative_address(probe) {
             let frames = match address_info.frames {
                 wholesym::FramesLookupResult::Available(frames) => Some(frames),
+                wholesym::FramesLookupResult::NeedDwo { svma, .. } => {
+                    symbol_map.lookup_ext(svma, &symbol_manager).await
+                }
                 wholesym::FramesLookupResult::External(external) => {
                     symbol_manager
                         .lookup_external(&symbol_file_origin, &external)

@@ -432,6 +432,8 @@ pub trait FileLocation: Clone + Display {
     /// Called on the location of a Breakpad sym file, to get a location for its
     /// corresponding symindex file.
     fn location_for_breakpad_symindex(&self) -> Option<Self>;
+
+    fn location_for_dwo(&self, dwo_ref: &DwoRef) -> Option<Self>;
 }
 
 /// The path of a source file, as found in the debug info.
@@ -631,6 +633,12 @@ pub enum FramesLookupResult {
     /// its caller, and so on. The last element is always the outer function.
     Available(Vec<FrameDebugInfo>),
 
+    NeedDwo {
+        svma: u64,
+        dwo_ref: DwoRef,
+        partial_frames: Option<Vec<FrameDebugInfo>>,
+    },
+
     /// Debug info for this address was not found in the symbol map, but can
     /// potentially be found in a different file, with the help of
     /// `SymbolManager::lookup_external`.
@@ -644,6 +652,13 @@ pub enum FramesLookupResult {
 
     /// No debug info is available.
     Unavailable,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct DwoRef {
+    pub comp_dir: String,
+    pub path: String,
+    pub dwo_id: u64,
 }
 
 /// Information to find an external file and an address within that file, to be

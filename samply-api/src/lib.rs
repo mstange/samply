@@ -15,7 +15,7 @@
 //!
 //! ```rust
 //! use samply_api::samply_symbols::{
-//!     FileContents, FileAndPathHelper, FileAndPathHelperResult, OptionallySendFuture,
+//!     DwoRef, FileContents, FileAndPathHelper, FileAndPathHelperResult, OptionallySendFuture,
 //!     CandidatePathInfo, FileLocation, LibraryInfo, SymbolManager,
 //! };
 //! use samply_api::samply_symbols::debugid::{CodeId, DebugId};
@@ -128,6 +128,10 @@
 //!
 //!     fn location_for_breakpad_symindex(&self) -> Option<Self> {
 //!         Some(Self(self.0.with_extension("symindex")))
+//!     }
+//!
+//!     fn location_for_dwo(&self, dwo_ref: &DwoRef) -> Option<Self> {
+//!         Some(Self(std::path::Path::new(&dwo_ref.path).into()))
 //!     }
 //! }
 //! ```

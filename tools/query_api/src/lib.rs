@@ -1,7 +1,7 @@
 pub use samply_api::debugid::{CodeId, DebugId};
 use samply_api::samply_symbols::{
-    CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation, LibraryInfo,
-    SymbolManager,
+    CandidatePathInfo, DwoRef, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
+    LibraryInfo, SymbolManager,
 };
 use samply_api::Api;
 use std::fs::File;
@@ -195,5 +195,9 @@ impl FileLocation for FileLocationType {
 
     fn location_for_breakpad_symindex(&self) -> Option<Self> {
         Some(Self(self.0.with_extension("symindex")))
+    }
+
+    fn location_for_dwo(&self, _dwo_ref: &DwoRef) -> Option<Self> {
+        None // TODO
     }
 }

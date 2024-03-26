@@ -1,7 +1,7 @@
 use debugid::DebugId;
 use samply_symbols::{
-    BreakpadIndex, BreakpadIndexParser, CandidatePathInfo, CodeId, ElfBuildId, FileAndPathHelper,
-    FileAndPathHelperResult, FileLocation, LibraryInfo, PeCodeId,
+    BreakpadIndex, BreakpadIndexParser, CandidatePathInfo, CodeId, DwoRef, ElfBuildId,
+    FileAndPathHelper, FileAndPathHelperResult, FileLocation, LibraryInfo, PeCodeId,
 };
 use symsrv::{SymsrvDownloader, SymsrvObserver};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -24,21 +24,21 @@ use bytes::Bytes;
 /// into memory and return a `Bytes` wrapper of that memory.
 ///
 /// This type can be coerced to a [u8] slice with `&file_contents[..]`.
-pub enum FileContents {
+pub enum WholesymFileContents {
     /// A mapped file.
     Mmap(memmap2::Mmap),
     /// Bytes in memory.
     Bytes(Bytes),
 }
 
-impl std::ops::Deref for FileContents {
+impl std::ops::Deref for WholesymFileContents {
     type Target = [u8];
 
     #[inline]
     fn deref(&self) -> &[u8] {
         match self {
-            FileContents::Mmap(mmap) => mmap,
-            FileContents::Bytes(bytes) => bytes,
+            WholesymFileContents::Mmap(mmap) => mmap,
+            WholesymFileContents::Bytes(bytes) => bytes,
         }
     }
 }
@@ -131,6 +131,30 @@ impl FileLocation for WholesymFileLocation {
             _ => None,
         }
     }
+
+    fn location_for_dwo(&self, dwo_ref: &DwoRef) -> Option<Self> {
+        // Dwo files are referred to by absolute file path, so we only
+        // load them if those paths were found in a local file.
+        match self {
+            Self::LocalFile(debug_file_path) => {
+                let mut dwo_file_path = Path::new(&dwo_ref.path).to_owned();
+                if dwo_file_path.is_absolute() {
+                    return Some(Self::LocalFile(dwo_file_path));
+                }
+                // Resolve relative paths with respect to comp_dir.
+                let comp_dir_path = Path::new(&dwo_ref.comp_dir);
+                dwo_file_path = comp_dir_path.join(dwo_file_path);
+                if dwo_file_path.is_absolute() {
+                    return Some(Self::LocalFile(dwo_file_path));
+                }
+                // Resolve relative paths with respect to the location of the debug file.
+                debug_file_path
+                    .parent()
+                    .map(|base_path| Self::LocalFile(base_path.join(dwo_file_path)))
+            }
+            _ => None,
+        }
+    }
 }
 
 impl std::fmt::Display for WholesymFileLocation {
@@ -147,11 +171,11 @@ impl FileReadOnlyHelper {
     async fn load_file_impl(
         &self,
         location: WholesymFileLocation,
-    ) -> FileAndPathHelperResult<FileContents> {
+    ) -> FileAndPathHelperResult<WholesymFileContents> {
         match location {
             WholesymFileLocation::LocalFile(path) => {
                 let file = File::open(path)?;
-                Ok(FileContents::Mmap(unsafe {
+                Ok(WholesymFileContents::Mmap(unsafe {
                     memmap2::MmapOptions::new().map(&file)?
                 }))
             }
@@ -163,7 +187,7 @@ impl FileReadOnlyHelper {
 }
 
 impl FileAndPathHelper for FileReadOnlyHelper {
-    type F = FileContents;
+    type F = WholesymFileContents;
     type FL = WholesymFileLocation;
 
     fn get_candidate_paths_for_debug_file(
@@ -266,7 +290,7 @@ impl Helper {
     async fn load_file_impl(
         &self,
         location: WholesymFileLocation,
-    ) -> FileAndPathHelperResult<FileContents> {
+    ) -> FileAndPathHelperResult<WholesymFileContents> {
         match location {
             WholesymFileLocation::LocalFile(path) => {
                 if self.config.verbose {
@@ -274,7 +298,7 @@ impl Helper {
                 }
                 let path = self.config.redirect_paths.get(&path).unwrap_or(&path);
                 let file = File::open(path)?;
-                Ok(FileContents::Mmap(unsafe {
+                Ok(WholesymFileContents::Mmap(unsafe {
                     memmap2::MmapOptions::new().map(&file)?
                 }))
             }
@@ -284,7 +308,7 @@ impl Helper {
                 }
                 self.ensure_symindex(&path, &rel_path).await?;
                 let file = File::open(path)?;
-                Ok(FileContents::Mmap(unsafe {
+                Ok(WholesymFileContents::Mmap(unsafe {
                     memmap2::MmapOptions::new().map(&file)?
                 }))
             }
@@ -293,7 +317,7 @@ impl Helper {
                     eprintln!("Trying to get file {url} from a URL");
                 }
                 let bytes = reqwest::get(&url).await?.bytes().await?;
-                Ok(FileContents::Bytes(bytes))
+                Ok(WholesymFileContents::Bytes(bytes))
             }
             WholesymFileLocation::SymsrvFile(filename, hash) => {
                 if self.config.verbose {
@@ -305,7 +329,7 @@ impl Helper {
                     .unwrap()
                     .get_file(&filename, &hash)
                     .await?;
-                Ok(FileContents::Mmap(unsafe {
+                Ok(WholesymFileContents::Mmap(unsafe {
                     memmap2::MmapOptions::new().map(&File::open(file_path)?)?
                 }))
             }
@@ -321,7 +345,7 @@ impl Helper {
                         eprintln!("Opening file {:?}", symindex_path.to_string_lossy());
                     }
                     let file = File::open(symindex_path)?;
-                    Ok(FileContents::Mmap(unsafe {
+                    Ok(WholesymFileContents::Mmap(unsafe {
                         memmap2::MmapOptions::new().map(&file)?
                     }))
                 } else {
@@ -337,7 +361,7 @@ impl Helper {
                     .await
                     .ok_or("Debuginfod could not find debuginfo")?;
 
-                Ok(FileContents::Mmap(unsafe {
+                Ok(WholesymFileContents::Mmap(unsafe {
                     memmap2::MmapOptions::new().map(&File::open(file_path)?)?
                 }))
             }
@@ -350,14 +374,17 @@ impl Helper {
                     .await
                     .ok_or("Debuginfod could not find debuginfo")?;
 
-                Ok(FileContents::Mmap(unsafe {
+                Ok(WholesymFileContents::Mmap(unsafe {
                     memmap2::MmapOptions::new().map(&File::open(file_path)?)?
                 }))
             }
         }
     }
 
-    async fn get_bp_sym_file(&self, rel_path: &str) -> FileAndPathHelperResult<FileContents> {
+    async fn get_bp_sym_file(
+        &self,
+        rel_path: &str,
+    ) -> FileAndPathHelperResult<WholesymFileContents> {
         for (server_base_url, cache_dir) in &self.config.breakpad_servers {
             if let Ok(file) = self
                 .get_bp_sym_file_from_server(rel_path, server_base_url, cache_dir)
@@ -374,7 +401,7 @@ impl Helper {
         rel_path: &str,
         server_base_url: &str,
         cache_dir: &Path,
-    ) -> FileAndPathHelperResult<FileContents> {
+    ) -> FileAndPathHelperResult<WholesymFileContents> {
         let url = format!("{server_base_url}/{rel_path}");
         if self.config.verbose {
             eprintln!("Downloading {url}...");
@@ -413,7 +440,7 @@ impl Helper {
             eprintln!("Opening file {:?}", dest_path.to_string_lossy());
         }
         let file = File::open(&dest_path)?;
-        Ok(FileContents::Mmap(unsafe {
+        Ok(WholesymFileContents::Mmap(unsafe {
             memmap2::MmapOptions::new().map(&file)?
         }))
     }
@@ -510,7 +537,7 @@ impl Helper {
 }
 
 impl FileAndPathHelper for Helper {
-    type F = FileContents;
+    type F = WholesymFileContents;
     type FL = WholesymFileLocation;
 
     fn get_candidate_paths_for_debug_file(

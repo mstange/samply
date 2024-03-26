@@ -51,6 +51,7 @@ fn for_docs() {
                         .await
                 }
                 FramesLookupResult::Unavailable => None,
+                _ => todo!("NeedDwo"),
             };
             if let Some(frames) = frames {
                 for (i, frame) in frames.into_iter().enumerate() {
