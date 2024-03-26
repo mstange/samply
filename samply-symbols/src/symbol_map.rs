@@ -2,7 +2,10 @@ use std::borrow::Cow;
 
 use debugid::DebugId;
 
-use crate::shared::{AddressInfo, FileLocation};
+use crate::{
+    shared::{AddressInfo, FileLocation},
+    FileContents,
+};
 
 pub trait SymbolMapTrait {
     fn debug_id(&self) -> DebugId;
@@ -16,25 +19,56 @@ pub trait SymbolMapTrait {
     fn lookup_offset(&self, offset: u64) -> Option<AddressInfo>;
 }
 
+pub trait SymbolMapTraitWithAddDebugFile<FC: FileContents>: SymbolMapTrait {
+    fn add_debug_file(&self, file_contents: FC);
+}
+
 pub trait GetInnerSymbolMap {
     fn get_inner_symbol_map<'a>(&'a self) -> &'a (dyn SymbolMapTrait + 'a);
 }
 
-pub struct SymbolMap<FL: FileLocation> {
-    debug_file_location: FL,
-    inner: Box<dyn GetInnerSymbolMap + Send>,
+pub trait GetInnerSymbolMapWithAddDebugFile<FC> {
+    fn get_inner_symbol_map_with<'a>(&'a self)
+        -> &'a (dyn SymbolMapTraitWithAddDebugFile<FC> + 'a);
+    fn get_inner_symbol_map_without<'a>(&'a self) -> &'a (dyn SymbolMapTrait + 'a);
 }
 
-impl<FL: FileLocation> SymbolMap<FL> {
-    pub(crate) fn new(debug_file_location: FL, inner: Box<dyn GetInnerSymbolMap + Send>) -> Self {
+enum InnerSymbolMap<FC> {
+    WithoutAddFile(Box<dyn GetInnerSymbolMap + Send>),
+    WithAddFile(Box<dyn GetInnerSymbolMapWithAddDebugFile<FC> + Send>),
+}
+
+pub struct SymbolMap<FL: FileLocation, FC> {
+    debug_file_location: FL,
+    inner: InnerSymbolMap<FC>,
+}
+
+impl<FL: FileLocation, FC> SymbolMap<FL, FC> {
+    pub(crate) fn new_without(
+        debug_file_location: FL,
+        inner: Box<dyn GetInnerSymbolMap + Send>,
+    ) -> Self {
         Self {
             debug_file_location,
-            inner,
+            inner: InnerSymbolMap::WithoutAddFile(inner),
+        }
+    }
+
+    pub(crate) fn new_with(
+        debug_file_location: FL,
+        inner: Box<dyn GetInnerSymbolMapWithAddDebugFile<FC> + Send>,
+    ) -> Self {
+        Self {
+            debug_file_location,
+            inner: InnerSymbolMap::WithAddFile(inner),
         }
     }
 
     fn inner(&self) -> &(dyn SymbolMapTrait + '_) {
-        self.inner.get_inner_symbol_map()
+        match &self.inner {
+            InnerSymbolMap::WithoutAddFile(inner) => inner.get_inner_symbol_map(),
+            InnerSymbolMap::WithAddFile(inner) => inner.get_inner_symbol_map_without(),
+        }
     }
 
     pub fn debug_file_location(&self) -> &FL {

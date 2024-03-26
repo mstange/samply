@@ -18,6 +18,13 @@ pub fn get_frames<R: Reader>(
     path_mapper: &mut PathMapper<()>,
 ) -> Option<Vec<FrameDebugInfo>> {
     let frame_iter = context?.find_frames(address).skip_all_loads().ok()?;
+    convert_frames(frame_iter, path_mapper)
+}
+
+pub fn convert_frames<'a, R: gimli::Reader>(
+    frame_iter: impl FallibleIterator<Item = addr2line::Frame<'a, R>>,
+    path_mapper: &mut PathMapper<()>,
+) -> Option<Vec<FrameDebugInfo>> {
     let frames: Vec<_> = frame_iter
         .map(|f| Ok(convert_stack_frame(f, &mut *path_mapper)))
         .collect()

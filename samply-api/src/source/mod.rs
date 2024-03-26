@@ -89,6 +89,7 @@ impl<'a, H: FileAndPathHelper> SourceApi<'a, H> {
                 }
             }
             FramesLookupResult::Unavailable => return Err(SourceError::NoDebugInfo),
+            _ => todo!("NeedDwo impl"),
         };
 
         // Find the SourceFilePath whose "api file path" matches the requested file.

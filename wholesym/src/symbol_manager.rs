@@ -8,7 +8,7 @@ use samply_symbols::{
 };
 
 use crate::config::SymbolManagerConfig;
-use crate::helper::{FileReadOnlyHelper, Helper, WholesymFileLocation};
+use crate::helper::{FileReadOnlyHelper, Helper, WholesymFileContents, WholesymFileLocation};
 
 /// Used in [`SymbolManager::lookup_external`] and [`SymbolManager::load_external_file`],
 /// and returned by [`SymbolMap::symbol_file_origin`].
@@ -43,7 +43,7 @@ pub struct SymbolFileOrigin(WholesymFileLocation);
 /// For example, in this file, the file offset `0x9ea` falls into the second segment and
 /// corresponds to the relative address `0x19ea` and to the SVMA `0x2019ea`.
 /// The image base address is `0x200000`.
-pub struct SymbolMap(samply_symbols::SymbolMap<WholesymFileLocation>);
+pub struct SymbolMap(samply_symbols::SymbolMap<WholesymFileLocation, WholesymFileContents>);
 
 impl SymbolMap {
     /// Look up symbol information by "relative address". This is the preferred lookup

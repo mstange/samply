@@ -315,7 +315,7 @@ where
     pub async fn load_symbol_map(
         &self,
         library_info: &LibraryInfo,
-    ) -> Result<SymbolMap<FL>, Error> {
+    ) -> Result<SymbolMap<FL, F>, Error> {
         let debug_id = match library_info.debug_id {
             Some(debug_id) => debug_id,
             None => return Err(Error::NotEnoughInformationToIdentifySymbolMap),
@@ -540,7 +540,7 @@ where
         &self,
         dylib_path: &str,
         multi_arch_disambiguator: Option<MultiArchDisambiguator>,
-    ) -> Result<SymbolMap<FL>, Error> {
+    ) -> Result<SymbolMap<FL, F>, Error> {
         let arch = match &multi_arch_disambiguator {
             Some(MultiArchDisambiguator::Arch(arch)) => Some(arch.as_str()),
             _ => None,
@@ -579,7 +579,7 @@ where
         &self,
         file_location: FL,
         multi_arch_disambiguator: Option<MultiArchDisambiguator>,
-    ) -> Result<SymbolMap<FL>, Error> {
+    ) -> Result<SymbolMap<FL, F>, Error> {
         let file_contents = self
             .helper
             .load_file(file_location.clone())

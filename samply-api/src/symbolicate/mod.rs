@@ -108,6 +108,7 @@ impl<'a, H: FileAndPathHelper> SymbolicateApi<'a, H> {
                             external_addresses.push((address, ext_address));
                         }
                         FramesLookupResult::Unavailable => {}
+                        _ => todo!("NeedDwo impl"),
                     }
                 }
             }

@@ -1,5 +1,6 @@
 use std::{borrow::Cow, slice, sync::Mutex};
 
+use addr2line::LookupResult;
 use debugid::DebugId;
 use gimli::{EndianSlice, RunTimeEndian};
 use object::{
@@ -8,7 +9,7 @@ use object::{
 use yoke::Yoke;
 use yoke_derive::Yokeable;
 
-use crate::dwarf::get_frames;
+use crate::dwarf::{convert_frames, get_frames};
 use crate::path_mapper::PathMapper;
 use crate::shared::{
     relative_address_base, AddressInfo, ExternalFileAddressInFileRef, ExternalFileAddressRef,
@@ -405,9 +406,35 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> SymbolMapTrait for ObjectSymbolMapInn
             let mut path_mapper = self.path_mapper.lock().unwrap();
 
             let svma = self.image_base_address + u64::from(address);
-            let frames = match get_frames(svma, self.context.as_ref(), &mut path_mapper) {
-                Some(frames) => FramesLookupResult::Available(frames),
-                None => {
+            let frames = match self.context.as_ref().map(|ctx| ctx.find_frames(svma)) {
+                Some(LookupResult::Load { load, continuation }) => {
+                    let mut next_continuation = continuation;
+                    let output = loop {
+                        use addr2line::LookupContinuation;
+                        match next_continuation.resume(None) {
+                            LookupResult::Output(t) => break t,
+                            LookupResult::Load { continuation, .. } => {
+                                next_continuation = continuation
+                            }
+                        };
+                    };
+                    if let Some(frames) = output
+                        .ok()
+                        .and_then(|frame_iter| convert_frames(frame_iter, &mut path_mapper))
+                    {
+                        FramesLookupResult::Available(frames)
+                    } else {
+                        FramesLookupResult::Unavailable
+                    }
+                }
+                Some(LookupResult::Output(Ok(frame_iter))) => {
+                    if let Some(frames) = convert_frames(frame_iter, &mut path_mapper) {
+                        FramesLookupResult::Available(frames)
+                    } else {
+                        FramesLookupResult::Unavailable
+                    }
+                }
+                _ => {
                     if let Some(entry) = self.object_map.get(svma) {
                         let external_file_name = entry.object(&self.object_map);
                         let external_file_name = std::str::from_utf8(external_file_name).unwrap();

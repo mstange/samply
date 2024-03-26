@@ -631,6 +631,11 @@ pub enum FramesLookupResult {
     /// its caller, and so on. The last element is always the outer function.
     Available(Vec<FrameDebugInfo>),
 
+    NeedDwo {
+        dwo_path: String,
+        partial_frames: Option<Vec<FrameDebugInfo>>,
+    },
+
     /// Debug info for this address was not found in the symbol map, but can
     /// potentially be found in a different file, with the help of
     /// `SymbolManager::lookup_external`.

@@ -26,15 +26,15 @@ use crate::symbol_map::{GetInnerSymbolMap, SymbolMap, SymbolMapTrait};
 use crate::symbol_map_object::{ObjectSymbolMap, ObjectSymbolMapInner, ObjectSymbolMapOuter};
 
 pub async fn load_symbol_map_for_pdb_corresponding_to_binary<
-    'h,
-    H: FileAndPathHelper<FL = FL>,
+    H: FileAndPathHelper<FL = FL, F = FC>,
     FL: FileLocation,
+    FC: FileContents + 'static,
 >(
     file_kind: FileKind,
-    file_contents: &FileContentsWrapper<impl FileContents + 'static>,
+    file_contents: &FileContentsWrapper<FC>,
     file_location: FL,
     helper: &H,
-) -> Result<SymbolMap<FL>, Error> {
+) -> Result<SymbolMap<FL, FC>, Error> {
     use object::Object;
     let pe =
         object::File::parse(file_contents).map_err(|e| Error::ObjectParseError(file_kind, e))?;
@@ -68,14 +68,14 @@ pub fn get_symbol_map_for_pe<F, FL>(
     file_contents: FileContentsWrapper<F>,
     file_kind: FileKind,
     file_location: FL,
-) -> Result<SymbolMap<FL>, Error>
+) -> Result<SymbolMap<FL, F>, Error>
 where
     F: FileContents + 'static,
     FL: FileLocation,
 {
     let owner = PeSymbolMapDataAndObject::new(file_contents, file_kind)?;
     let symbol_map = ObjectSymbolMap::new(owner)?;
-    Ok(SymbolMap::new(file_location, Box::new(symbol_map)))
+    Ok(SymbolMap::new_without(file_location, Box::new(symbol_map)))
 }
 
 #[derive(Yokeable)]
@@ -360,14 +360,17 @@ impl<T: FileContents> GetInnerSymbolMap for PdbSymbolMap<T> {
 pub fn get_symbol_map_for_pdb<F, FL>(
     file_contents: FileContentsWrapper<F>,
     debug_file_location: FL,
-) -> Result<SymbolMap<FL>, Error>
+) -> Result<SymbolMap<FL, F>, Error>
 where
     F: FileContents + 'static,
     FL: FileLocation,
 {
     let file_data_and_object = PdbObjectWithFileData::new(PdbFileData(file_contents))?;
     let symbol_map = PdbSymbolMap::new(file_data_and_object)?;
-    Ok(SymbolMap::new(debug_file_location, Box::new(symbol_map)))
+    Ok(SymbolMap::new_without(
+        debug_file_location,
+        Box::new(symbol_map),
+    ))
 }
 
 /// Map raw file paths to special "permalink" paths, using the srcsrv stream.

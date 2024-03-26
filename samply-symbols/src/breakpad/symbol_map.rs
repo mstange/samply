@@ -23,7 +23,7 @@ pub fn get_symbol_map_for_breakpad_sym<F, FL>(
     file_contents: FileContentsWrapper<F>,
     file_location: FL,
     index_file_contents: Option<FileContentsWrapper<F>>,
-) -> Result<SymbolMap<FL>, Error>
+) -> Result<SymbolMap<FL, F>, Error>
 where
     F: FileContents + 'static,
     FL: FileLocation,
@@ -32,7 +32,7 @@ where
     let symbol_map = BreakpadSymbolMap(Yoke::attach_to_cart(Box::new(outer), |outer| {
         outer.make_symbol_map()
     }));
-    Ok(SymbolMap::new(file_location, Box::new(symbol_map)))
+    Ok(SymbolMap::new_without(file_location, Box::new(symbol_map)))
 }
 
 pub struct BreakpadSymbolMap<T: FileContents + 'static>(
