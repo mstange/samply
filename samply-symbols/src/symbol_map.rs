@@ -16,8 +16,7 @@ pub trait SymbolMapTrait {
     fn lookup_offset(&self, offset: u64) -> Option<AddressInfo>;
 }
 
-pub trait SymbolMapTraitWithAddDebugFile<FC>: SymbolMapTrait {
-    fn add_debug_file(&self, file_contents: FC);
+pub trait SymbolMapTraitWithAsyncLookup<FC>: SymbolMapTrait {
     fn get_as_symbol_map(&self) -> &dyn SymbolMapTrait;
 }
 
@@ -25,13 +24,13 @@ pub trait GetInnerSymbolMap {
     fn get_inner_symbol_map<'a>(&'a self) -> &'a (dyn SymbolMapTrait + 'a);
 }
 
-pub trait GetInnerSymbolMapWithAddDebugFile<FC> {
-    fn get_inner_symbol_map<'a>(&'a self) -> &'a (dyn SymbolMapTraitWithAddDebugFile<FC> + 'a);
+pub trait GetInnerSymbolMapWithAsyncLookup<FC> {
+    fn get_inner_symbol_map<'a>(&'a self) -> &'a (dyn SymbolMapTraitWithAsyncLookup<FC> + 'a);
 }
 
 enum InnerSymbolMap<FC> {
     WithoutAddFile(Box<dyn GetInnerSymbolMap + Send>),
-    WithAddFile(Box<dyn GetInnerSymbolMapWithAddDebugFile<FC> + Send>),
+    WithAddFile(Box<dyn GetInnerSymbolMapWithAsyncLookup<FC> + Send>),
 }
 
 pub struct SymbolMap<FL: FileLocation, FC> {
@@ -52,7 +51,7 @@ impl<FL: FileLocation, FC> SymbolMap<FL, FC> {
 
     pub(crate) fn new_with(
         debug_file_location: FL,
-        inner: Box<dyn GetInnerSymbolMapWithAddDebugFile<FC> + Send>,
+        inner: Box<dyn GetInnerSymbolMapWithAsyncLookup<FC> + Send>,
     ) -> Self {
         Self {
             debug_file_location,

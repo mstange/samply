@@ -15,7 +15,10 @@ use crate::shared::{
     relative_address_base, AddressInfo, DwoRef, ExternalFileAddressInFileRef,
     ExternalFileAddressRef, ExternalFileRef, FramesLookupResult, SymbolInfo,
 };
-use crate::symbol_map::{GetInnerSymbolMap, GetInnerSymbolMapWithAddDebugFile, SymbolMapTrait, SymbolMapTraitWithAddDebugFile};
+use crate::symbol_map::{
+    GetInnerSymbolMap, GetInnerSymbolMapWithAsyncLookup, SymbolMapTrait,
+    SymbolMapTraitWithAsyncLookup,
+};
 use crate::{demangle, Error, FileContents};
 
 enum FullSymbolListEntry<'a, Symbol: object::ObjectSymbol<'a>> {
@@ -184,7 +187,7 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> ObjectSymbolMapInnerImpl<'a, Symbol> 
     where
         'a: 'file,
         O: object::Object<'a, 'file, Symbol = Symbol>,
-        Symbol: object::ObjectSymbol<'a> + Send + 'a
+        Symbol: object::ObjectSymbol<'a> + Send + 'a,
     {
         let mut entries: Vec<_> = Vec::new();
 
@@ -558,26 +561,33 @@ pub trait ObjectSymbolMapWithDwoSupportOuter<FC> {
 }
 
 #[derive(Yokeable)]
-pub struct ObjectSymbolMapWithDwoSupportInner<'data, FC>(pub Box<dyn SymbolMapTraitWithAddDebugFile<FC> + Send + 'data>);
-
-pub struct ObjectSymbolMapWithDwoSupport<FC: 'static, OSMWDSO: ObjectSymbolMapWithDwoSupportOuter<FC>>(
-    Yoke<ObjectSymbolMapWithDwoSupportInner<'static, FC>, Box<OSMWDSO>>,
+pub struct ObjectSymbolMapWithDwoSupportInner<'data, FC>(
+    pub Box<dyn SymbolMapTraitWithAsyncLookup<FC> + Send + 'data>,
 );
 
-impl<FC, OSMWDSO: ObjectSymbolMapWithDwoSupportOuter<FC> + 'static> ObjectSymbolMapWithDwoSupport<FC, OSMWDSO> {
+pub struct ObjectSymbolMapWithDwoSupport<
+    FC: 'static,
+    OSMWDSO: ObjectSymbolMapWithDwoSupportOuter<FC>,
+>(Yoke<ObjectSymbolMapWithDwoSupportInner<'static, FC>, Box<OSMWDSO>>);
+
+impl<FC, OSMWDSO: ObjectSymbolMapWithDwoSupportOuter<FC> + 'static>
+    ObjectSymbolMapWithDwoSupport<FC, OSMWDSO>
+{
     pub fn new(outer: OSMWDSO) -> Result<Self, Error> {
         let outer_and_inner =
-            Yoke::<ObjectSymbolMapWithDwoSupportInner<FC>, _>::try_attach_to_cart(Box::new(outer), |outer| {
-                outer.make_symbol_map_inner()
-            })?;
+            Yoke::<ObjectSymbolMapWithDwoSupportInner<FC>, _>::try_attach_to_cart(
+                Box::new(outer),
+                |outer| outer.make_symbol_map_inner(),
+            )?;
         Ok(ObjectSymbolMapWithDwoSupport(outer_and_inner))
     }
 }
 
-impl<FC: FileContents + 'static, OSMWDSO: ObjectSymbolMapWithDwoSupportOuter<FC>> GetInnerSymbolMapWithAddDebugFile<FC> for ObjectSymbolMapWithDwoSupport<FC, OSMWDSO> {
-    fn get_inner_symbol_map<'a>(&'a self)
-        -> &'a (dyn SymbolMapTraitWithAddDebugFile<FC> + 'a) {
-            self.0.get().0.as_ref()
+impl<FC: FileContents + 'static, OSMWDSO: ObjectSymbolMapWithDwoSupportOuter<FC>>
+    GetInnerSymbolMapWithAsyncLookup<FC> for ObjectSymbolMapWithDwoSupport<FC, OSMWDSO>
+{
+    fn get_inner_symbol_map<'a>(&'a self) -> &'a (dyn SymbolMapTraitWithAsyncLookup<FC> + 'a) {
+        self.0.get().0.as_ref()
     }
 }
 
@@ -618,7 +628,7 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> ObjectSymbolMapWithDwoSupportInnerImp
     where
         'a: 'file,
         O: object::Object<'a, 'file, Symbol = Symbol>,
-        Symbol: object::ObjectSymbol<'a> + Send + 'a
+        Symbol: object::ObjectSymbol<'a> + Send + 'a,
     {
         let regular_inner = ObjectSymbolMapInnerImpl::new(
             object_file,
@@ -632,7 +642,9 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> ObjectSymbolMapWithDwoSupportInnerImp
     }
 }
 
-impl<'a, Symbol: object::ObjectSymbol<'a>> SymbolMapTrait for ObjectSymbolMapWithDwoSupportInnerImpl<'a, Symbol> {
+impl<'a, Symbol: object::ObjectSymbol<'a>> SymbolMapTrait
+    for ObjectSymbolMapWithDwoSupportInnerImpl<'a, Symbol>
+{
     fn debug_id(&self) -> DebugId {
         self.regular_inner.debug_id()
     }
@@ -658,11 +670,19 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> SymbolMapTrait for ObjectSymbolMapWit
     }
 }
 
-impl<'a, Symbol: object::ObjectSymbol<'a>, FC: FileContents + 'static> SymbolMapTraitWithAddDebugFile<FC> for ObjectSymbolMapWithDwoSupportInnerImpl<'a, Symbol> {
-    fn add_debug_file(&self, _file_contents: FC) {
-        todo!()
-    }
+pub trait AddDwoAndMakeDwarf<FC> {
+    fn add_dwo_and_make_dwarf(
+        &self,
+        file_contents: FC,
+    ) -> Result<
+        addr2line::gimli::Dwarf<addr2line::gimli::EndianSlice<'_, addr2line::gimli::RunTimeEndian>>,
+        Error,
+    >;
+}
 
+impl<'a, Symbol: object::ObjectSymbol<'a>, FC: FileContents + 'static>
+    SymbolMapTraitWithAsyncLookup<FC> for ObjectSymbolMapWithDwoSupportInnerImpl<'a, Symbol>
+{
     fn get_as_symbol_map(&self) -> &dyn SymbolMapTrait {
         self
     }
