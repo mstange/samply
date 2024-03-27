@@ -13,7 +13,7 @@ use crate::symbol_map::SymbolMap;
 use crate::symbol_map_object::{
     AddDwoAndMakeDwarf, ObjectSymbolMap, ObjectSymbolMapInner, ObjectSymbolMapOuter,
     ObjectSymbolMapWithDwoSupport, ObjectSymbolMapWithDwoSupportInner,
-    ObjectSymbolMapWithDwoSupportOuter,
+    ObjectSymbolMapWithDwoSupportInnerImpl, ObjectSymbolMapWithDwoSupportOuter,
 };
 use crate::{debug_id_for_object, ElfBuildId};
 
@@ -300,6 +300,10 @@ where
 struct ElfObjectsWrapper<'data, T: FileContents>(Box<dyn ElfObjectsTrait<T> + Send + 'data>);
 
 trait ElfObjectsTrait<T: FileContents> {
+    fn add_dwo_and_make_dwarf(
+        &self,
+        dwo_file_data: T,
+    ) -> Result<Dwarf<EndianSlice<'_, RunTimeEndian>>, Error>;
     fn make_symbol_map_inner(&self) -> Result<ObjectSymbolMapInner<'_>, Error>;
     fn make_symbol_map_with_dwo_support_inner(
         &self,
@@ -367,6 +371,15 @@ impl<'data, T: FileContents + 'static> AddDwoAndMakeDwarf<T> for ElfObjects<'dat
 }
 
 impl<'data, T: FileContents + 'static> ElfObjectsTrait<T> for ElfObjects<'data, T> {
+    fn add_dwo_and_make_dwarf(
+        &self,
+        dwo_file_data: T,
+    ) -> Result<Dwarf<EndianSlice<'_, RunTimeEndian>>, Error> {
+        let (data, obj) = self.add_dwo_file_and_make_object(dwo_file_data)?;
+        let obj = self.dwo_objects.push_get(Box::new(obj));
+        self.addr2line_context_data.make_dwarf(data, obj)
+    }
+
     fn make_symbol_map_inner(&self) -> Result<ObjectSymbolMapInner<'_>, Error> {
         let debug_id = if let Some(debug_id) = self.override_debug_id {
             debug_id
@@ -399,16 +412,19 @@ impl<'data, T: FileContents + 'static> ElfObjectsTrait<T> for ElfObjects<'data, 
         };
         let (function_starts, function_ends) = self.function_addresses();
 
-        let symbol_map = ObjectSymbolMapWithDwoSupportInner::new(
+        let inner_impl = ObjectSymbolMapWithDwoSupportInnerImpl::new(
             &self.object,
             self.make_addr2line_context().ok(),
             debug_id,
             function_starts.as_deref(),
             function_ends.as_deref(),
             None,
+            self,
         );
 
-        Ok(symbol_map)
+        let inner = ObjectSymbolMapWithDwoSupportInner(Box::new(inner_impl));
+
+        Ok(inner)
     }
 }
 
@@ -466,6 +482,13 @@ impl<T: FileContents + 'static> ObjectSymbolMapOuter for ElfSymbolMapDataAndObje
 impl<T: FileContents + 'static> ObjectSymbolMapWithDwoSupportOuter<T>
     for ElfSymbolMapDataAndObjects<T>
 {
+    fn add_dwo_and_make_dwarf(
+        &self,
+        dwo_file_data: T,
+    ) -> Result<Dwarf<EndianSlice<'_, RunTimeEndian>>, Error> {
+        self.0.get().0.add_dwo_and_make_dwarf(dwo_file_data)
+    }
+
     fn make_symbol_map_inner(&self) -> Result<ObjectSymbolMapWithDwoSupportInner<'_, T>, Error> {
         self.0.get().0.make_symbol_map_with_dwo_support_inner()
     }

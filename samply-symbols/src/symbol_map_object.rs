@@ -1,3 +1,4 @@
+use std::marker::PhantomData;
 use std::{borrow::Cow, slice, sync::Mutex};
 
 use addr2line::LookupResult;
@@ -552,11 +553,25 @@ impl<'data, 'map, Symbol: object::ObjectSymbol<'data>> Iterator
     }
 }
 
-pub struct ObjectSymbolMapWithDwoSupportInnerImpl<'a, Symbol: object::ObjectSymbol<'a>> {
+pub struct ObjectSymbolMapWithDwoSupportInnerImpl<
+    'a,
+    Symbol: object::ObjectSymbol<'a>,
+    FC,
+    ADAMD: AddDwoAndMakeDwarf<FC>,
+> {
     regular_inner: ObjectSymbolMapInnerImpl<'a, Symbol>,
+    adamd: &'a ADAMD,
+    _phantom: PhantomData<FC>,
 }
 
 pub trait ObjectSymbolMapWithDwoSupportOuter<FC> {
+    fn add_dwo_and_make_dwarf(
+        &self,
+        file_contents: FC,
+    ) -> Result<
+        addr2line::gimli::Dwarf<addr2line::gimli::EndianSlice<'_, addr2line::gimli::RunTimeEndian>>,
+        Error,
+    >;
     fn make_symbol_map_inner(&self) -> Result<ObjectSymbolMapWithDwoSupportInner<'_, FC>, Error>;
 }
 
@@ -591,32 +606,9 @@ impl<FC: FileContents + 'static, OSMWDSO: ObjectSymbolMapWithDwoSupportOuter<FC>
     }
 }
 
-impl<'a, FC: FileContents + 'static> ObjectSymbolMapWithDwoSupportInner<'a, FC> {
-    pub fn new<'file, O, Symbol: object::ObjectSymbol<'a> + Send + 'a>(
-        object_file: &'file O,
-        addr2line_context: Option<addr2line::Context<EndianSlice<'a, RunTimeEndian>>>,
-        debug_id: DebugId,
-        function_start_addresses: Option<&[u32]>,
-        function_end_addresses: Option<&[u32]>,
-        arch: Option<&'static str>,
-    ) -> Self
-    where
-        'a: 'file,
-        O: object::Object<'a, 'file, Symbol = Symbol>,
-    {
-        let inner_impl = ObjectSymbolMapWithDwoSupportInnerImpl::new(
-            object_file,
-            addr2line_context,
-            debug_id,
-            function_start_addresses,
-            function_end_addresses,
-            arch,
-        );
-        ObjectSymbolMapWithDwoSupportInner(Box::new(inner_impl))
-    }
-}
-
-impl<'a, Symbol: object::ObjectSymbol<'a>> ObjectSymbolMapWithDwoSupportInnerImpl<'a, Symbol> {
+impl<'a, Symbol: object::ObjectSymbol<'a>, FC, ADAMD: AddDwoAndMakeDwarf<FC>>
+    ObjectSymbolMapWithDwoSupportInnerImpl<'a, Symbol, FC, ADAMD>
+{
     pub fn new<'file, O>(
         object_file: &'file O,
         addr2line_context: Option<addr2line::Context<EndianSlice<'a, RunTimeEndian>>>,
@@ -624,6 +616,7 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> ObjectSymbolMapWithDwoSupportInnerImp
         function_start_addresses: Option<&[u32]>,
         function_end_addresses: Option<&[u32]>,
         arch: Option<&'static str>,
+        adamd: &'a ADAMD,
     ) -> Self
     where
         'a: 'file,
@@ -638,12 +631,16 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> ObjectSymbolMapWithDwoSupportInnerImp
             function_end_addresses,
             arch,
         );
-        Self { regular_inner }
+        Self {
+            regular_inner,
+            adamd,
+            _phantom: PhantomData,
+        }
     }
 }
 
-impl<'a, Symbol: object::ObjectSymbol<'a>> SymbolMapTrait
-    for ObjectSymbolMapWithDwoSupportInnerImpl<'a, Symbol>
+impl<'a, Symbol: object::ObjectSymbol<'a>, FC, ADAMD: AddDwoAndMakeDwarf<FC>> SymbolMapTrait
+    for ObjectSymbolMapWithDwoSupportInnerImpl<'a, Symbol, FC, ADAMD>
 {
     fn debug_id(&self) -> DebugId {
         self.regular_inner.debug_id()
@@ -680,8 +677,19 @@ pub trait AddDwoAndMakeDwarf<FC> {
     >;
 }
 
-impl<'a, Symbol: object::ObjectSymbol<'a>, FC: FileContents + 'static>
-    SymbolMapTraitWithAsyncLookup<FC> for ObjectSymbolMapWithDwoSupportInnerImpl<'a, Symbol>
+// trait SymbolMapTraitWithExtraStuff<FC, OSMWDS: ObjectSymbolMapWithDwoSupportOuter<FC>> {
+//     fn set_osmwds(&mut self, )
+//     fn get_as_symbol_map(&self) -> &dyn SymbolMapTrait;
+//     fn get_as_symbol_map_with_async_lookup(&self) -> &dyn SymbolMapTraitWithAsyncLookup<FC>;
+// }
+
+impl<
+        'a,
+        Symbol: object::ObjectSymbol<'a>,
+        FC: FileContents + 'static,
+        ADAMD: AddDwoAndMakeDwarf<FC>,
+    > SymbolMapTraitWithAsyncLookup<FC>
+    for ObjectSymbolMapWithDwoSupportInnerImpl<'a, Symbol, FC, ADAMD>
 {
     fn get_as_symbol_map(&self) -> &dyn SymbolMapTrait {
         self
