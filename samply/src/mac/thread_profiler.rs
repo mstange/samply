@@ -5,8 +5,8 @@ use mach::port::mach_port_t;
 use time::get_monotonic_timestamp;
 
 use std::mem;
-use crate::mac::time;
 
+use crate::mac::time;
 use crate::shared::recycling::ThreadRecycler;
 use crate::shared::types::{StackFrame, StackMode};
 use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
