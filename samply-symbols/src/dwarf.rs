@@ -77,6 +77,7 @@ pub fn try_get_section_data<'data, 'file, O, T>(
     data: T,
     file: &'file O,
     section_id: SectionId,
+    is_for_dwo_dwp: bool,
 ) -> Option<SingleSectionData<'data, T>>
 where
     'data: 'file,
@@ -84,7 +85,11 @@ where
     T: ReadRef<'data>,
 {
     use object::ObjectSection;
-    let section_name = section_id.name();
+    let section_name = if is_for_dwo_dwp {
+        section_id.dwo_name()?
+    } else {
+        section_id.name()
+    };
     let (section, used_manual_zdebug_path) =
         if let Some(section) = file.section_by_name(section_name) {
             (section, false)
@@ -174,6 +179,7 @@ impl Addr2lineContextData {
         obj: &'file O,
         section_id: SectionId,
         endian: RunTimeEndian,
+        is_for_dwo_dwp: bool,
     ) -> EndianSlice<'ctxdata, RunTimeEndian>
     where
         'data: 'file,
@@ -182,7 +188,7 @@ impl Addr2lineContextData {
         O: object::Object<'data, 'file>,
         R: ReadRef<'data>,
     {
-        let slice: &[u8] = match try_get_section_data(data, obj, section_id) {
+        let slice: &[u8] = match try_get_section_data(data, obj, section_id, is_for_dwo_dwp) {
             Some(SingleSectionData::Owned(section_data)) => {
                 self.uncompressed_section_data.push_get(section_data)
             }
@@ -213,11 +219,11 @@ impl Addr2lineContextData {
         } else {
             gimli::RunTimeEndian::Big
         };
-        let mut dwarf = gimli::Dwarf::load(|s| Ok(self.sect(data, obj, s, e)))
+        let mut dwarf = gimli::Dwarf::load(|s| Ok(self.sect(data, obj, s, e, false)))
             .map_err(Error::Addr2lineContextCreationError)?;
         if let (Some(sup_obj), Some(sup_data)) = (sup_obj, sup_data) {
             dwarf
-                .load_sup(|s| Ok(self.sect(sup_data, sup_obj, s, e)))
+                .load_sup(|s| Ok(self.sect(sup_data, sup_obj, s, e, false)))
                 .map_err(Error::Addr2lineContextCreationError)?;
         }
         let context =
@@ -225,7 +231,7 @@ impl Addr2lineContextData {
         Ok(context)
     }
 
-    pub fn make_dwarf<'data, 'ctxdata, 'file, O, R>(
+    pub fn make_dwarf_for_dwo<'data, 'ctxdata, 'file, O, R>(
         &'ctxdata self,
         data: R,
         obj: &'file O,
@@ -242,7 +248,7 @@ impl Addr2lineContextData {
         } else {
             gimli::RunTimeEndian::Big
         };
-        let dwarf = gimli::Dwarf::load(|s| Ok(self.sect(data, obj, s, e)))
+        let dwarf = gimli::Dwarf::load(|s| Ok(self.sect(data, obj, s, e, true)))
             .map_err(Error::Addr2lineContextCreationError)?;
         Ok(dwarf)
     }

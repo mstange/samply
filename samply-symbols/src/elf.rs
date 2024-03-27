@@ -300,10 +300,6 @@ where
 struct ElfObjectsWrapper<'data, T: FileContents>(Box<dyn ElfObjectsTrait<T> + Send + 'data>);
 
 trait ElfObjectsTrait<T: FileContents> {
-    fn add_dwo_and_make_dwarf(
-        &self,
-        dwo_file_data: T,
-    ) -> Result<Dwarf<EndianSlice<'_, RunTimeEndian>>, Error>;
     fn make_symbol_map_inner(&self) -> Result<ObjectSymbolMapInner<'_>, Error>;
     fn make_symbol_map_with_dwo_support_inner(
         &self,
@@ -366,20 +362,11 @@ impl<'data, T: FileContents + 'static> AddDwoAndMakeDwarf<T> for ElfObjects<'dat
     ) -> Result<Dwarf<EndianSlice<'_, RunTimeEndian>>, Error> {
         let (data, obj) = self.add_dwo_file_and_make_object(dwo_file_data)?;
         let obj = self.dwo_objects.push_get(Box::new(obj));
-        self.addr2line_context_data.make_dwarf(data, obj)
+        self.addr2line_context_data.make_dwarf_for_dwo(data, obj)
     }
 }
 
 impl<'data, T: FileContents + 'static> ElfObjectsTrait<T> for ElfObjects<'data, T> {
-    fn add_dwo_and_make_dwarf(
-        &self,
-        dwo_file_data: T,
-    ) -> Result<Dwarf<EndianSlice<'_, RunTimeEndian>>, Error> {
-        let (data, obj) = self.add_dwo_file_and_make_object(dwo_file_data)?;
-        let obj = self.dwo_objects.push_get(Box::new(obj));
-        self.addr2line_context_data.make_dwarf(data, obj)
-    }
-
     fn make_symbol_map_inner(&self) -> Result<ObjectSymbolMapInner<'_>, Error> {
         let debug_id = if let Some(debug_id) = self.override_debug_id {
             debug_id
@@ -482,13 +469,6 @@ impl<T: FileContents + 'static> ObjectSymbolMapOuter for ElfSymbolMapDataAndObje
 impl<T: FileContents + 'static> ObjectSymbolMapWithDwoSupportOuter<T>
     for ElfSymbolMapDataAndObjects<T>
 {
-    fn add_dwo_and_make_dwarf(
-        &self,
-        dwo_file_data: T,
-    ) -> Result<Dwarf<EndianSlice<'_, RunTimeEndian>>, Error> {
-        self.0.get().0.add_dwo_and_make_dwarf(dwo_file_data)
-    }
-
     fn make_symbol_map_inner(&self) -> Result<ObjectSymbolMapWithDwoSupportInner<'_, T>, Error> {
         self.0.get().0.make_symbol_map_with_dwo_support_inner()
     }

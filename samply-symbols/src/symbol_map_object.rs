@@ -554,13 +554,6 @@ pub struct ObjectSymbolMapWithDwoSupportInnerImpl<
 }
 
 pub trait ObjectSymbolMapWithDwoSupportOuter<FC> {
-    fn add_dwo_and_make_dwarf(
-        &self,
-        file_contents: FC,
-    ) -> Result<
-        addr2line::gimli::Dwarf<addr2line::gimli::EndianSlice<'_, addr2line::gimli::RunTimeEndian>>,
-        Error,
-    >;
     fn make_symbol_map_inner(&self) -> Result<ObjectSymbolMapWithDwoSupportInner<'_, FC>, Error>;
 }
 
