@@ -2,10 +2,7 @@ use std::borrow::Cow;
 
 use debugid::DebugId;
 
-use crate::{
-    shared::{AddressInfo, FileLocation},
-    FileContents,
-};
+use crate::shared::{AddressInfo, FileLocation};
 
 pub trait SymbolMapTrait {
     fn debug_id(&self) -> DebugId;
@@ -19,8 +16,9 @@ pub trait SymbolMapTrait {
     fn lookup_offset(&self, offset: u64) -> Option<AddressInfo>;
 }
 
-pub trait SymbolMapTraitWithAddDebugFile<FC: FileContents>: SymbolMapTrait {
+pub trait SymbolMapTraitWithAddDebugFile<FC>: SymbolMapTrait {
     fn add_debug_file(&self, file_contents: FC);
+    fn get_as_symbol_map(&self) -> &dyn SymbolMapTrait;
 }
 
 pub trait GetInnerSymbolMap {
@@ -28,9 +26,7 @@ pub trait GetInnerSymbolMap {
 }
 
 pub trait GetInnerSymbolMapWithAddDebugFile<FC> {
-    fn get_inner_symbol_map_with<'a>(&'a self)
-        -> &'a (dyn SymbolMapTraitWithAddDebugFile<FC> + 'a);
-    fn get_inner_symbol_map_without<'a>(&'a self) -> &'a (dyn SymbolMapTrait + 'a);
+    fn get_inner_symbol_map<'a>(&'a self) -> &'a (dyn SymbolMapTraitWithAddDebugFile<FC> + 'a);
 }
 
 enum InnerSymbolMap<FC> {
@@ -67,7 +63,7 @@ impl<FL: FileLocation, FC> SymbolMap<FL, FC> {
     fn inner(&self) -> &(dyn SymbolMapTrait + '_) {
         match &self.inner {
             InnerSymbolMap::WithoutAddFile(inner) => inner.get_inner_symbol_map(),
-            InnerSymbolMap::WithAddFile(inner) => inner.get_inner_symbol_map_without(),
+            InnerSymbolMap::WithAddFile(inner) => inner.get_inner_symbol_map().get_as_symbol_map(),
         }
     }
 

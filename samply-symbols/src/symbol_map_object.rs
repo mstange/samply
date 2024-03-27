@@ -9,14 +9,14 @@ use object::{
 use yoke::Yoke;
 use yoke_derive::Yokeable;
 
-use crate::dwarf::{convert_frames, get_frames};
+use crate::dwarf::convert_frames;
 use crate::path_mapper::PathMapper;
 use crate::shared::{
-    relative_address_base, AddressInfo, ExternalFileAddressInFileRef, ExternalFileAddressRef,
-    ExternalFileRef, FramesLookupResult, SymbolInfo,
+    relative_address_base, AddressInfo, DwoRef, ExternalFileAddressInFileRef,
+    ExternalFileAddressRef, ExternalFileRef, FramesLookupResult, SymbolInfo,
 };
-use crate::symbol_map::{GetInnerSymbolMap, SymbolMapTrait};
-use crate::{demangle, Error};
+use crate::symbol_map::{GetInnerSymbolMap, GetInnerSymbolMapWithAddDebugFile, SymbolMapTrait, SymbolMapTraitWithAddDebugFile};
+use crate::{demangle, Error, FileContents};
 
 enum FullSymbolListEntry<'a, Symbol: object::ObjectSymbol<'a>> {
     /// A synthesized symbol for a function start address that's known
@@ -159,6 +159,32 @@ impl<'a> ObjectSymbolMapInner<'a> {
     where
         'a: 'file,
         O: object::Object<'a, 'file, Symbol = Symbol>,
+    {
+        let inner_impl = ObjectSymbolMapInnerImpl::new(
+            object_file,
+            addr2line_context,
+            debug_id,
+            function_start_addresses,
+            function_end_addresses,
+            arch,
+        );
+        ObjectSymbolMapInner(Box::new(inner_impl))
+    }
+}
+
+impl<'a, Symbol: object::ObjectSymbol<'a>> ObjectSymbolMapInnerImpl<'a, Symbol> {
+    pub fn new<'file, O>(
+        object_file: &'file O,
+        addr2line_context: Option<addr2line::Context<EndianSlice<'a, RunTimeEndian>>>,
+        debug_id: DebugId,
+        function_start_addresses: Option<&[u32]>,
+        function_end_addresses: Option<&[u32]>,
+        arch: Option<&'static str>,
+    ) -> Self
+    where
+        'a: 'file,
+        O: object::Object<'a, 'file, Symbol = Symbol>,
+        Symbol: object::ObjectSymbol<'a> + Send + 'a
     {
         let mut entries: Vec<_> = Vec::new();
 
@@ -334,7 +360,7 @@ impl<'a> ObjectSymbolMapInner<'a> {
                 .collect();
         }
 
-        let inner_impl = ObjectSymbolMapInnerImpl {
+        ObjectSymbolMapInnerImpl {
             entries,
             debug_id,
             path_mapper,
@@ -343,12 +369,9 @@ impl<'a> ObjectSymbolMapInner<'a> {
             arch,
             image_base_address: base_address,
             svma_file_ranges,
-        };
-        ObjectSymbolMapInner(Box::new(inner_impl))
+        }
     }
-}
 
-impl<'a, Symbol: object::ObjectSymbol<'a>> ObjectSymbolMapInnerImpl<'a, Symbol> {
     fn file_offset_to_svma(&self, offset: u64) -> Option<u64> {
         for svma_file_range in &self.svma_file_ranges {
             if svma_file_range.file_offset <= offset
@@ -408,6 +431,11 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> SymbolMapTrait for ObjectSymbolMapInn
             let svma = self.image_base_address + u64::from(address);
             let frames = match self.context.as_ref().map(|ctx| ctx.find_frames(svma)) {
                 Some(LookupResult::Load { load, continuation }) => {
+                    let comp_dir =
+                        String::from_utf8_lossy(load.comp_dir.unwrap().slice()).to_string();
+                    let path = String::from_utf8_lossy(load.path.unwrap().slice()).to_string();
+                    let dwo_id = load.dwo_id.0;
+                    println!("need dwo: {comp_dir} {path} {dwo_id}");
                     let mut next_continuation = continuation;
                     let output = loop {
                         use addr2line::LookupContinuation;
@@ -418,13 +446,16 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> SymbolMapTrait for ObjectSymbolMapInn
                             }
                         };
                     };
-                    if let Some(frames) = output
+                    let partial_frames = output
                         .ok()
-                        .and_then(|frame_iter| convert_frames(frame_iter, &mut path_mapper))
-                    {
-                        FramesLookupResult::Available(frames)
-                    } else {
-                        FramesLookupResult::Unavailable
+                        .and_then(|frame_iter| convert_frames(frame_iter, &mut path_mapper));
+                    FramesLookupResult::NeedDwo {
+                        dwo_ref: DwoRef {
+                            comp_dir,
+                            path,
+                            dwo_id,
+                        },
+                        partial_frames,
                     }
                 }
                 Some(LookupResult::Output(Ok(frame_iter))) => {
@@ -515,5 +546,124 @@ impl<'data, 'map, Symbol: object::ObjectSymbol<'data>> Iterator
             };
             return Some((address, name));
         }
+    }
+}
+
+pub struct ObjectSymbolMapWithDwoSupportInnerImpl<'a, Symbol: object::ObjectSymbol<'a>> {
+    regular_inner: ObjectSymbolMapInnerImpl<'a, Symbol>,
+}
+
+pub trait ObjectSymbolMapWithDwoSupportOuter<FC> {
+    fn make_symbol_map_inner(&self) -> Result<ObjectSymbolMapWithDwoSupportInner<'_, FC>, Error>;
+}
+
+#[derive(Yokeable)]
+pub struct ObjectSymbolMapWithDwoSupportInner<'data, FC>(pub Box<dyn SymbolMapTraitWithAddDebugFile<FC> + Send + 'data>);
+
+pub struct ObjectSymbolMapWithDwoSupport<FC: 'static, OSMWDSO: ObjectSymbolMapWithDwoSupportOuter<FC>>(
+    Yoke<ObjectSymbolMapWithDwoSupportInner<'static, FC>, Box<OSMWDSO>>,
+);
+
+impl<FC, OSMWDSO: ObjectSymbolMapWithDwoSupportOuter<FC> + 'static> ObjectSymbolMapWithDwoSupport<FC, OSMWDSO> {
+    pub fn new(outer: OSMWDSO) -> Result<Self, Error> {
+        let outer_and_inner =
+            Yoke::<ObjectSymbolMapWithDwoSupportInner<FC>, _>::try_attach_to_cart(Box::new(outer), |outer| {
+                outer.make_symbol_map_inner()
+            })?;
+        Ok(ObjectSymbolMapWithDwoSupport(outer_and_inner))
+    }
+}
+
+impl<FC: FileContents + 'static, OSMWDSO: ObjectSymbolMapWithDwoSupportOuter<FC>> GetInnerSymbolMapWithAddDebugFile<FC> for ObjectSymbolMapWithDwoSupport<FC, OSMWDSO> {
+    fn get_inner_symbol_map<'a>(&'a self)
+        -> &'a (dyn SymbolMapTraitWithAddDebugFile<FC> + 'a) {
+            self.0.get().0.as_ref()
+    }
+}
+
+impl<'a, FC: FileContents + 'static> ObjectSymbolMapWithDwoSupportInner<'a, FC> {
+    pub fn new<'file, O, Symbol: object::ObjectSymbol<'a> + Send + 'a>(
+        object_file: &'file O,
+        addr2line_context: Option<addr2line::Context<EndianSlice<'a, RunTimeEndian>>>,
+        debug_id: DebugId,
+        function_start_addresses: Option<&[u32]>,
+        function_end_addresses: Option<&[u32]>,
+        arch: Option<&'static str>,
+    ) -> Self
+    where
+        'a: 'file,
+        O: object::Object<'a, 'file, Symbol = Symbol>,
+    {
+        let inner_impl = ObjectSymbolMapWithDwoSupportInnerImpl::new(
+            object_file,
+            addr2line_context,
+            debug_id,
+            function_start_addresses,
+            function_end_addresses,
+            arch,
+        );
+        ObjectSymbolMapWithDwoSupportInner(Box::new(inner_impl))
+    }
+}
+
+impl<'a, Symbol: object::ObjectSymbol<'a>> ObjectSymbolMapWithDwoSupportInnerImpl<'a, Symbol> {
+    pub fn new<'file, O>(
+        object_file: &'file O,
+        addr2line_context: Option<addr2line::Context<EndianSlice<'a, RunTimeEndian>>>,
+        debug_id: DebugId,
+        function_start_addresses: Option<&[u32]>,
+        function_end_addresses: Option<&[u32]>,
+        arch: Option<&'static str>,
+    ) -> Self
+    where
+        'a: 'file,
+        O: object::Object<'a, 'file, Symbol = Symbol>,
+        Symbol: object::ObjectSymbol<'a> + Send + 'a
+    {
+        let regular_inner = ObjectSymbolMapInnerImpl::new(
+            object_file,
+            addr2line_context,
+            debug_id,
+            function_start_addresses,
+            function_end_addresses,
+            arch,
+        );
+        Self { regular_inner }
+    }
+}
+
+impl<'a, Symbol: object::ObjectSymbol<'a>> SymbolMapTrait for ObjectSymbolMapWithDwoSupportInnerImpl<'a, Symbol> {
+    fn debug_id(&self) -> DebugId {
+        self.regular_inner.debug_id()
+    }
+
+    fn symbol_count(&self) -> usize {
+        self.regular_inner.symbol_count()
+    }
+
+    fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {
+        self.regular_inner.iter_symbols()
+    }
+
+    fn lookup_relative_address(&self, address: u32) -> Option<AddressInfo> {
+        self.regular_inner.lookup_relative_address(address)
+    }
+
+    fn lookup_svma(&self, svma: u64) -> Option<AddressInfo> {
+        self.regular_inner.lookup_svma(svma)
+    }
+
+    fn lookup_offset(&self, offset: u64) -> Option<AddressInfo> {
+        self.regular_inner.lookup_offset(offset)
+    }
+}
+
+impl<'a, Symbol: object::ObjectSymbol<'a>, FC: FileContents + 'static> SymbolMapTraitWithAddDebugFile<FC> for ObjectSymbolMapWithDwoSupportInnerImpl<'a, Symbol> {
+    fn add_debug_file(&self, _file_contents: FC) {
+        todo!()
+    }
+
+    fn get_as_symbol_map(&self) -> &dyn SymbolMapTrait {
+        self
     }
 }

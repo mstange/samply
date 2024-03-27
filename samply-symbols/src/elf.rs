@@ -1,4 +1,5 @@
 use debugid::DebugId;
+use elsa::sync::FrozenVec;
 use gimli::{CieOrFde, EhFrame, EndianSlice, RunTimeEndian, UnwindSection};
 use object::{File, FileKind, Object, ObjectSection, ReadRef};
 use std::io::Cursor;
@@ -9,7 +10,10 @@ use crate::dwarf::Addr2lineContextData;
 use crate::error::Error;
 use crate::shared::{FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation};
 use crate::symbol_map::SymbolMap;
-use crate::symbol_map_object::{ObjectSymbolMap, ObjectSymbolMapInner, ObjectSymbolMapOuter};
+use crate::symbol_map_object::{
+    ObjectSymbolMap, ObjectSymbolMapInner, ObjectSymbolMapOuter, ObjectSymbolMapWithDwoSupport,
+    ObjectSymbolMapWithDwoSupportInner, ObjectSymbolMapWithDwoSupportOuter,
+};
 use crate::{debug_id_for_object, ElfBuildId};
 
 pub async fn load_symbol_map_for_elf<T, FL, H>(
@@ -53,8 +57,8 @@ where
     }
 
     let owner = ElfSymbolMapDataAndObjects::new(file_contents, None, file_kind, None)?;
-    let symbol_map = ObjectSymbolMap::new(owner)?;
-    Ok(SymbolMap::new_without(file_location, Box::new(symbol_map)))
+    let symbol_map = ObjectSymbolMapWithDwoSupport::new(owner)?;
+    Ok(SymbolMap::new_with(file_location, Box::new(symbol_map)))
 }
 
 async fn try_to_get_symbol_map_from_debug_link<'data, H, R, FL, FC>(
@@ -288,18 +292,112 @@ where
 {
     file_data: FileContentsWrapper<T>,
     supplementary_file_data: Option<FileContentsWrapper<T>>,
+    dwo_file_data: FrozenVec<Box<FileContentsWrapper<T>>>,
     override_debug_id: Option<DebugId>,
     addr2line_context_data: Addr2lineContextData,
 }
 
 #[derive(Yokeable)]
+struct ElfObjectsWrapper<'data, T: FileContents>(Box<dyn ElfObjectsTrait<'data, T> + Send + 'data>);
+
+trait ElfObjectsTrait<'data, T: FileContents> {
+    fn make_context(&self) -> Result<addr2line::Context<EndianSlice<'data, RunTimeEndian>>, Error>;
+
+    fn add_dwo_object(
+        &self,
+        obj: File<'data, &'data FileContentsWrapper<T>>,
+    ) -> &File<'data, &'data FileContentsWrapper<T>>;
+
+    fn debug_id_for_object(&self) -> Option<DebugId>;
+    fn function_addresses(&self) -> (Option<Vec<u32>>, Option<Vec<u32>>);
+    fn make_symbol_map_inner(&self) -> Result<ObjectSymbolMapInner<'_>, Error>;
+    fn make_symbol_map_with_dwo_support_inner(
+        &self,
+    ) -> Result<ObjectSymbolMapWithDwoSupportInner<'_, T>, Error>;
+}
+
 struct ElfObjects<'data, T: FileContents> {
+    file_data: &'data FileContentsWrapper<T>,
+    supplementary_file_data: Option<&'data FileContentsWrapper<T>>,
+    override_debug_id: Option<DebugId>,
+    addr2line_context_data: &'data Addr2lineContextData,
     object: File<'data, &'data FileContentsWrapper<T>>,
     supplementary_object: Option<File<'data, &'data FileContentsWrapper<T>>>,
+    dwo_objects: FrozenVec<Box<File<'data, &'data FileContentsWrapper<T>>>>,
+}
+
+impl<'data, T: FileContents + 'static> ElfObjectsTrait<'data, T> for ElfObjects<'data, T> {
+    fn make_context(&self) -> Result<addr2line::Context<EndianSlice<'data, RunTimeEndian>>, Error> {
+        self.addr2line_context_data.make_context(
+            self.file_data,
+            &self.object,
+            self.supplementary_file_data,
+            self.supplementary_object.as_ref(),
+        )
+    }
+
+    fn add_dwo_object(
+        &self,
+        obj: File<'data, &'data FileContentsWrapper<T>>,
+    ) -> &File<'data, &'data FileContentsWrapper<T>> {
+        self.dwo_objects.push_get(Box::new(obj))
+    }
+
+    fn debug_id_for_object(&self) -> Option<DebugId> {
+        debug_id_for_object(&self.object)
+    }
+
+    fn function_addresses(&self) -> (Option<Vec<u32>>, Option<Vec<u32>>) {
+        compute_function_addresses_elf(&self.object)
+    }
+
+    fn make_symbol_map_inner(&self) -> Result<ObjectSymbolMapInner<'_>, Error> {
+        let debug_id = if let Some(debug_id) = self.override_debug_id {
+            debug_id
+        } else {
+            self.debug_id_for_object()
+                .ok_or(Error::InvalidInputError("debug ID cannot be read"))?
+        };
+        let (function_starts, function_ends) = self.function_addresses();
+
+        let symbol_map = ObjectSymbolMapInner::new(
+            &self.object,
+            self.make_context().ok(),
+            debug_id,
+            function_starts.as_deref(),
+            function_ends.as_deref(),
+            None,
+        );
+
+        Ok(symbol_map)
+    }
+
+    fn make_symbol_map_with_dwo_support_inner(
+        &self,
+    ) -> Result<ObjectSymbolMapWithDwoSupportInner<'_, T>, Error> {
+        let debug_id = if let Some(debug_id) = self.override_debug_id {
+            debug_id
+        } else {
+            self.debug_id_for_object()
+                .ok_or(Error::InvalidInputError("debug ID cannot be read"))?
+        };
+        let (function_starts, function_ends) = self.function_addresses();
+
+        let symbol_map = ObjectSymbolMapWithDwoSupportInner::new(
+            &self.object,
+            self.make_context().ok(),
+            debug_id,
+            function_starts.as_deref(),
+            function_ends.as_deref(),
+            None,
+        );
+
+        Ok(symbol_map)
+    }
 }
 
 struct ElfSymbolMapDataAndObjects<T: FileContents + 'static>(
-    Yoke<ElfObjects<'static, T>, Box<ElfSymbolMapData<T>>>,
+    Yoke<ElfObjectsWrapper<'static, T>, Box<ElfSymbolMapData<T>>>,
 );
 
 impl<T: FileContents + 'static> ElfSymbolMapDataAndObjects<T> {
@@ -312,12 +410,13 @@ impl<T: FileContents + 'static> ElfSymbolMapDataAndObjects<T> {
         let data = ElfSymbolMapData {
             file_data,
             supplementary_file_data,
+            dwo_file_data: FrozenVec::new(),
             override_debug_id,
             addr2line_context_data: Addr2lineContextData::new(),
         };
         let data_and_objects = Yoke::try_attach_to_cart(
             Box::new(data),
-            move |data: &ElfSymbolMapData<T>| -> Result<ElfObjects<'_, T>, Error> {
+            move |data: &ElfSymbolMapData<T>| -> Result<ElfObjectsWrapper<'_, T>, Error> {
                 let object = File::parse(&data.file_data)
                     .map_err(|e| Error::ObjectParseError(file_kind, e))?;
                 let supplementary_object = match data.supplementary_file_data.as_ref() {
@@ -327,59 +426,68 @@ impl<T: FileContents + 'static> ElfSymbolMapDataAndObjects<T> {
                     ),
                     None => None,
                 };
-                Ok(ElfObjects {
+                let elf_objects = ElfObjects {
                     object,
                     supplementary_object,
-                })
+                    dwo_objects: FrozenVec::new(),
+                    file_data: &data.file_data,
+                    supplementary_file_data: data.supplementary_file_data.as_ref(),
+                    override_debug_id,
+                    addr2line_context_data: &data.addr2line_context_data,
+                };
+                Ok(ElfObjectsWrapper(Box::new(elf_objects)))
             },
         )?;
         Ok(Self(data_and_objects))
     }
 
+    pub fn add_dwo_file_and_make_object(
+        &self,
+        dwo_file_data: T,
+    ) -> Option<(
+        &'_ FileContentsWrapper<T>,
+        File<'_, &'_ FileContentsWrapper<T>>,
+    )> {
+        let data = self
+            .0
+            .backing_cart()
+            .dwo_file_data
+            .push_get(Box::new(FileContentsWrapper::new(dwo_file_data)));
+        let obj = File::parse(data).ok()?;
+        Some((data, obj))
+    }
+
+    pub fn add_dwo_file_and_make_dwarf(
+        &self,
+        dwo_file_data: T,
+    ) -> Option<gimli::Dwarf<EndianSlice<'_, RunTimeEndian>>> {
+        let (data, obj) = self.add_dwo_file_and_make_object(dwo_file_data)?;
+        let obj = self.0.get().0.add_dwo_object(obj);
+        self.0
+            .backing_cart()
+            .addr2line_context_data
+            .make_dwarf(data, obj)
+            .ok()
+    }
+
     pub fn make_addr2line_context(
         &self,
     ) -> Result<addr2line::Context<EndianSlice<'_, RunTimeEndian>>, Error> {
-        let ElfSymbolMapData {
-            file_data,
-            supplementary_file_data,
-            addr2line_context_data,
-            ..
-        } = self.0.backing_cart().as_ref();
-        let ElfObjects {
-            object,
-            supplementary_object,
-        } = &self.0.get();
-        addr2line_context_data.make_context(
-            file_data,
-            object,
-            supplementary_file_data.as_ref(),
-            supplementary_object.as_ref(),
-        )
+        self.0.get().0.make_context()
     }
 }
 
 impl<T: FileContents + 'static> ObjectSymbolMapOuter for ElfSymbolMapDataAndObjects<T> {
     fn make_symbol_map_inner(&self) -> Result<ObjectSymbolMapInner<'_>, Error> {
-        let data = self.0.backing_cart().as_ref();
-        let object = &self.0.get().object;
-        let debug_id = if let Some(debug_id) = data.override_debug_id {
-            debug_id
-        } else {
-            debug_id_for_object(object)
-                .ok_or(Error::InvalidInputError("debug ID cannot be read"))?
-        };
-        let (function_starts, function_ends) = compute_function_addresses_elf(object);
+        self.0.get().0.make_symbol_map_inner()
+    }
+}
 
-        let symbol_map = ObjectSymbolMapInner::new(
-            object,
-            self.make_addr2line_context().ok(),
-            debug_id,
-            function_starts.as_deref(),
-            function_ends.as_deref(),
-            None,
-        );
-
-        Ok(symbol_map)
+impl<T: FileContents + 'static> ObjectSymbolMapWithDwoSupportOuter<T>
+    for ElfSymbolMapDataAndObjects<T>
+{
+    fn make_symbol_map_inner(&self) -> Result<ObjectSymbolMapWithDwoSupportInner<'_, T>, Error> {
+        self.0.get().0.make_symbol_map_with_dwo_support_inner()
     }
 }
 

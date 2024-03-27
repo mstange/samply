@@ -632,7 +632,7 @@ pub enum FramesLookupResult {
     Available(Vec<FrameDebugInfo>),
 
     NeedDwo {
-        dwo_path: String,
+        dwo_ref: DwoRef,
         partial_frames: Option<Vec<FrameDebugInfo>>,
     },
 
@@ -649,6 +649,13 @@ pub enum FramesLookupResult {
 
     /// No debug info is available.
     Unavailable,
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct DwoRef {
+    pub comp_dir: String,
+    pub path: String,
+    pub dwo_id: u64,
 }
 
 /// Information to find an external file and an address within that file, to be

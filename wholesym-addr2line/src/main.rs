@@ -176,6 +176,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(address_info) = symbol_map.lookup_relative_address(probe) {
             let frames = match address_info.frames {
                 wholesym::FramesLookupResult::Available(frames) => Some(frames),
+                wholesym::FramesLookupResult::NeedDwo{ partial_frames, .. } => partial_frames,
                 wholesym::FramesLookupResult::External(external) => {
                     symbol_manager
                         .lookup_external(&symbol_file_origin, &external)

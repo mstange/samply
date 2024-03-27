@@ -224,4 +224,26 @@ impl Addr2lineContextData {
             addr2line::Context::from_dwarf(dwarf).map_err(Error::Addr2lineContextCreationError)?;
         Ok(context)
     }
+
+    pub fn make_dwarf<'data, 'ctxdata, 'file, O, R>(
+        &'ctxdata self,
+        data: R,
+        obj: &'file O,
+    ) -> Result<addr2line::gimli::Dwarf<EndianSlice<'ctxdata, RunTimeEndian>>, Error>
+    where
+        'data: 'file,
+        'data: 'ctxdata,
+        'ctxdata: 'file,
+        O: object::Object<'data, 'file>,
+        R: ReadRef<'data>,
+    {
+        let e = if obj.is_little_endian() {
+            gimli::RunTimeEndian::Little
+        } else {
+            gimli::RunTimeEndian::Big
+        };
+        let dwarf = gimli::Dwarf::load(|s| Ok(self.sect(data, obj, s, e)))
+            .map_err(Error::Addr2lineContextCreationError)?;
+        Ok(dwarf)
+    }
 }
