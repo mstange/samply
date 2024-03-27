@@ -257,7 +257,7 @@ pub use crate::jitdump::debug_id_and_code_id_for_jitdump;
 pub use crate::macho::FatArchiveMember;
 pub use crate::mapped_path::MappedPath;
 pub use crate::shared::{
-    relative_address_base, AddressInfo, CandidatePathInfo, CodeId, ElfBuildId,
+    relative_address_base, AddressInfo, CandidatePathInfo, CodeId, DwoRef, ElfBuildId,
     ExternalFileAddressInFileRef, ExternalFileAddressRef, ExternalFileRef, FileAndPathHelper,
     FileAndPathHelperError, FileAndPathHelperResult, FileContents, FileContentsWrapper,
     FileLocation, FrameDebugInfo, FramesLookupResult, LibraryInfo, MultiArchDisambiguator,

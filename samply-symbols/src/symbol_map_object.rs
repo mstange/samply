@@ -1,9 +1,10 @@
 use std::marker::PhantomData;
+use std::sync::Arc;
 use std::{borrow::Cow, slice, sync::Mutex};
 
 use addr2line::LookupResult;
 use debugid::DebugId;
-use gimli::{EndianSlice, RunTimeEndian};
+use gimli::{Dwarf, EndianSlice, RunTimeEndian};
 use object::{
     ObjectMap, ObjectSection, ObjectSegment, SectionFlags, SectionIndex, SectionKind, SymbolKind,
 };
@@ -17,8 +18,8 @@ use crate::shared::{
     ExternalFileAddressRef, ExternalFileRef, FramesLookupResult, SymbolInfo,
 };
 use crate::symbol_map::{
-    GetInnerSymbolMap, GetInnerSymbolMapWithAsyncLookup, SymbolMapTrait,
-    SymbolMapTraitWithAsyncLookup,
+    FramesLookupContinuation, FramesLookupWithContinuationResult, GetInnerSymbolMap,
+    GetInnerSymbolMapWithAsyncLookup, SymbolMapTrait, SymbolMapTraitWithAsyncLookup,
 };
 use crate::{demangle, Error, FileContents};
 
@@ -434,32 +435,20 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> SymbolMapTrait for ObjectSymbolMapInn
 
             let svma = self.image_base_address + u64::from(address);
             let frames = match self.context.as_ref().map(|ctx| ctx.find_frames(svma)) {
-                Some(LookupResult::Load { load, continuation }) => {
+                Some(LookupResult::Load { load, .. }) => {
                     let comp_dir =
                         String::from_utf8_lossy(load.comp_dir.unwrap().slice()).to_string();
                     let path = String::from_utf8_lossy(load.path.unwrap().slice()).to_string();
                     let dwo_id = load.dwo_id.0;
                     println!("need dwo: {comp_dir} {path} {dwo_id}");
-                    let mut next_continuation = continuation;
-                    let output = loop {
-                        use addr2line::LookupContinuation;
-                        match next_continuation.resume(None) {
-                            LookupResult::Output(t) => break t,
-                            LookupResult::Load { continuation, .. } => {
-                                next_continuation = continuation
-                            }
-                        };
-                    };
-                    let partial_frames = output
-                        .ok()
-                        .and_then(|frame_iter| convert_frames(frame_iter, &mut path_mapper));
                     FramesLookupResult::NeedDwo {
+                        svma,
                         dwo_ref: DwoRef {
                             comp_dir,
                             path,
                             dwo_id,
                         },
-                        partial_frames,
+                        partial_frames: None,
                     }
                 }
                 Some(LookupResult::Output(Ok(frame_iter))) => {
@@ -637,6 +626,53 @@ impl<'a, Symbol: object::ObjectSymbol<'a>, FC, ADAMD: AddDwoAndMakeDwarf<FC>>
             _phantom: PhantomData,
         }
     }
+
+    fn convert_lookup_result<
+        's,
+        ALC: addr2line::LookupContinuation<
+                Buf = EndianSlice<'a, RunTimeEndian>,
+                Output = Result<
+                    addr2line::FrameIter<'s, EndianSlice<'a, RunTimeEndian>>,
+                    addr2line::gimli::Error,
+                >,
+            > + 's,
+    >(
+        &'s self,
+        lookup_result: addr2line::LookupResult<ALC>,
+    ) -> FramesLookupWithContinuationResult<'s, FC>
+    where
+        'a: 's,
+    {
+        match lookup_result {
+            LookupResult::Load { load, continuation } => {
+                let comp_dir = String::from_utf8_lossy(load.comp_dir.unwrap().slice()).to_string();
+                let path = String::from_utf8_lossy(load.path.unwrap().slice()).to_string();
+                let dwo_id = load.dwo_id.0;
+                println!("need dwo: {comp_dir} {path} {dwo_id}");
+                let dwo_ref = DwoRef {
+                    comp_dir,
+                    path,
+                    dwo_id,
+                };
+                let continuation = ObjectSymbolMapWithDwoSupportInnerImplLookupContinuation {
+                    addr2line_continuation: Mutex::new(Some(continuation)),
+                    parent: load.parent,
+                    adamd: self.adamd,
+                    symbol_map_inner: self,
+                    _phantom: PhantomData,
+                };
+                FramesLookupWithContinuationResult::NeedDwo(dwo_ref, Box::new(continuation))
+            }
+            LookupResult::Output(Ok(frame_iter)) => {
+                let mut path_mapper = self.regular_inner.path_mapper.lock().unwrap();
+                FramesLookupWithContinuationResult::Done(convert_frames(
+                    frame_iter,
+                    &mut path_mapper,
+                ))
+            }
+            LookupResult::Output(Err(_err)) => FramesLookupWithContinuationResult::Done(None),
+        }
+    }
 }
 
 impl<'a, Symbol: object::ObjectSymbol<'a>, FC, ADAMD: AddDwoAndMakeDwarf<FC>> SymbolMapTrait
@@ -693,5 +729,63 @@ impl<
 {
     fn get_as_symbol_map(&self) -> &dyn SymbolMapTrait {
         self
+    }
+
+    fn lookup_frames_with_continuation(
+        &self,
+        svma: u64,
+    ) -> FramesLookupWithContinuationResult<'_, FC> {
+        let Some(ctx) = self.regular_inner.context.as_ref() else {
+            return FramesLookupWithContinuationResult::Done(None);
+        };
+        let lookup_result = ctx.find_frames(svma);
+        self.convert_lookup_result(lookup_result)
+    }
+}
+
+struct ObjectSymbolMapWithDwoSupportInnerImplLookupContinuation<
+    'a,
+    's,
+    Symbol: object::ObjectSymbol<'a>,
+    FC,
+    ADAMD: AddDwoAndMakeDwarf<FC>,
+    ALC: addr2line::LookupContinuation<Buf = EndianSlice<'a, RunTimeEndian>> + 's,
+> {
+    addr2line_continuation: Mutex<Option<ALC>>,
+    parent: Arc<Dwarf<EndianSlice<'a, RunTimeEndian>>>,
+    adamd: &'a ADAMD,
+    symbol_map_inner: &'s ObjectSymbolMapWithDwoSupportInnerImpl<'a, Symbol, FC, ADAMD>,
+    _phantom: PhantomData<FC>,
+}
+
+impl<
+        'a,
+        's,
+        Symbol: object::ObjectSymbol<'a>,
+        FC,
+        ADAMD: AddDwoAndMakeDwarf<FC>,
+        ALC: addr2line::LookupContinuation<
+                Buf = EndianSlice<'a, RunTimeEndian>,
+                Output = Result<
+                    addr2line::FrameIter<'s, EndianSlice<'a, RunTimeEndian>>,
+                    addr2line::gimli::Error,
+                >,
+            > + 's,
+    > FramesLookupContinuation<'s, FC>
+    for ObjectSymbolMapWithDwoSupportInnerImplLookupContinuation<'a, 's, Symbol, FC, ADAMD, ALC>
+{
+    fn resume(&self, file_contents: Option<FC>) -> FramesLookupWithContinuationResult<'s, FC> {
+        let addr2line_continuation = self.addr2line_continuation.lock().unwrap().take().unwrap();
+        let maybe_dwarf = match file_contents {
+            Some(file_contents) => dbg!(self.adamd.add_dwo_and_make_dwarf(file_contents))
+                .ok()
+                .map(|mut dwo_dwarf| {
+                    dwo_dwarf.make_dwo(&*self.parent);
+                    Arc::new(dbg!(dwo_dwarf))
+                }),
+            None => None,
+        };
+        let lookup_result = addr2line_continuation.resume(maybe_dwarf);
+        self.symbol_map_inner.convert_lookup_result(lookup_result)
     }
 }

@@ -432,6 +432,8 @@ pub trait FileLocation: Clone + Display {
     /// Called on the location of a Breakpad sym file, to get a location for its
     /// corresponding symindex file.
     fn location_for_breakpad_symindex(&self) -> Option<Self>;
+
+    fn location_for_dwo(&self, dwo_ref: DwoRef) -> Option<Self>;
 }
 
 /// The path of a source file, as found in the debug info.
@@ -632,6 +634,7 @@ pub enum FramesLookupResult {
     Available(Vec<FrameDebugInfo>),
 
     NeedDwo {
+        svma: u64,
         dwo_ref: DwoRef,
         partial_frames: Option<Vec<FrameDebugInfo>>,
     },

@@ -1,7 +1,7 @@
 use debugid::DebugId;
 use samply_symbols::{
-    BreakpadIndex, BreakpadIndexParser, CandidatePathInfo, CodeId, ElfBuildId, FileAndPathHelper,
-    FileAndPathHelperResult, FileLocation, LibraryInfo, PeCodeId,
+    BreakpadIndex, BreakpadIndexParser, CandidatePathInfo, CodeId, DwoRef, ElfBuildId,
+    FileAndPathHelper, FileAndPathHelperResult, FileLocation, LibraryInfo, PeCodeId,
 };
 use symsrv::{SymsrvDownloader, SymsrvObserver};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -127,6 +127,30 @@ impl FileLocation for WholesymFileLocation {
         match self {
             Self::BreakpadSymbolServerFile(rel_path) | Self::LocalBreakpadFile(_, rel_path) => {
                 Some(Self::BreakpadSymindexFile(rel_path.clone()))
+            }
+            _ => None,
+        }
+    }
+
+    fn location_for_dwo(&self, dwo_ref: DwoRef) -> Option<Self> {
+        // Dwo files are referred to by absolute file path, so we only
+        // load them if those paths were found in a local file.
+        match self {
+            Self::LocalFile(debug_file_path) => {
+                let mut dwo_file_path = Path::new(&dwo_ref.path).to_owned();
+                if dwo_file_path.is_absolute() {
+                    return Some(Self::LocalFile(dwo_file_path));
+                }
+                // Resolve relative paths with respect to comp_dir.
+                let comp_dir_path = Path::new(&dwo_ref.comp_dir);
+                dwo_file_path = comp_dir_path.join(dwo_file_path);
+                if dwo_file_path.is_absolute() {
+                    return Some(Self::LocalFile(dwo_file_path));
+                }
+                // Resolve relative paths with respect to the location of the debug file.
+                debug_file_path
+                    .parent()
+                    .map(|base_path| Self::LocalFile(base_path.join(dwo_file_path)))
             }
             _ => None,
         }

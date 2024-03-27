@@ -71,6 +71,16 @@ impl SymbolMap {
         self.0.lookup_offset(offset)
     }
 
+    pub async fn lookup_ext(
+        &self,
+        svma: u64,
+        symbol_manager: &SymbolManager,
+    ) -> Option<Vec<FrameDebugInfo>> {
+        self.0
+            .lookup_frames_async(svma, symbol_manager.helper())
+            .await
+    }
+
     /// Returns an abstract "origin token" which needs to be passed to [`SymbolManager::lookup_external`]
     /// when resolving [`FramesLookupResult::External`](crate::FramesLookupResult::External) addresses.
     ///
@@ -246,6 +256,10 @@ impl SymbolManager {
         self.symbol_manager
             .load_external_file(&symbol_file_origin.0, external_file_ref)
             .await
+    }
+
+    pub(crate) fn helper(&self) -> &Helper {
+        self.symbol_manager.helper()
     }
 
     /// Run a symbolication query with the "Tecken" JSON API.

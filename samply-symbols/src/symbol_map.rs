@@ -2,7 +2,10 @@ use std::borrow::Cow;
 
 use debugid::DebugId;
 
-use crate::shared::{AddressInfo, FileLocation};
+use crate::{
+    shared::{AddressInfo, DwoRef, FileLocation},
+    FileAndPathHelper, FrameDebugInfo,
+};
 
 pub trait SymbolMapTrait {
     fn debug_id(&self) -> DebugId;
@@ -18,6 +21,7 @@ pub trait SymbolMapTrait {
 
 pub trait SymbolMapTraitWithAsyncLookup<FC>: SymbolMapTrait {
     fn get_as_symbol_map(&self) -> &dyn SymbolMapTrait;
+    fn lookup_frames_with_continuation(&self, svma: u64) -> FramesLookupWithContinuationResult<FC>;
 }
 
 pub trait GetInnerSymbolMap {
@@ -31,6 +35,15 @@ pub trait GetInnerSymbolMapWithAsyncLookup<FC> {
 enum InnerSymbolMap<FC> {
     WithoutAddFile(Box<dyn GetInnerSymbolMap + Send>),
     WithAddFile(Box<dyn GetInnerSymbolMapWithAsyncLookup<FC> + Send>),
+}
+
+pub trait FramesLookupContinuation<'s, FC> {
+    fn resume(&self, file_contents: Option<FC>) -> FramesLookupWithContinuationResult<'s, FC>;
+}
+
+pub enum FramesLookupWithContinuationResult<'s, FC> {
+    Done(Option<Vec<FrameDebugInfo>>),
+    NeedDwo(DwoRef, Box<dyn FramesLookupContinuation<'s, FC> + 's>),
 }
 
 pub struct SymbolMap<FL: FileLocation, FC> {
@@ -92,5 +105,34 @@ impl<FL: FileLocation, FC> SymbolMap<FL, FC> {
 
     pub fn lookup_offset(&self, offset: u64) -> Option<AddressInfo> {
         self.inner().lookup_offset(offset)
+    }
+
+    pub async fn lookup_frames_async<H: FileAndPathHelper<F = FC, FL = FL>>(
+        &self,
+        svma: u64,
+        helper: &H,
+    ) -> Option<Vec<FrameDebugInfo>> {
+        let inner = match &self.inner {
+            InnerSymbolMap::WithoutAddFile(_) => {
+                println!("without add file");
+                return None;
+            }
+            InnerSymbolMap::WithAddFile(inner) => inner.get_inner_symbol_map(),
+        };
+        let mut lookup_result = inner.lookup_frames_with_continuation(svma);
+        loop {
+            match lookup_result {
+                FramesLookupWithContinuationResult::Done(frames) => return frames,
+                FramesLookupWithContinuationResult::NeedDwo(dwo_ref, continuation) => {
+                    println!("wanting to load dwo_ref {dwo_ref:?}");
+                    let location = self.debug_file_location.location_for_dwo(dwo_ref);
+                    let file_contents = match location {
+                        Some(location) => helper.load_file(location).await.ok(),
+                        None => None,
+                    };
+                    lookup_result = continuation.resume(file_contents);
+                }
+            }
+        }
     }
 }

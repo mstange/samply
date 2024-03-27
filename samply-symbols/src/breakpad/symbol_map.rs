@@ -358,6 +358,10 @@ mod test {
         fn location_for_breakpad_symindex(&self) -> Option<Self> {
             None
         }
+
+        fn location_for_dwo(&self, _dwo_ref: crate::shared::DwoRef) -> Option<Self> {
+            None
+        }
     }
     impl std::fmt::Display for DummyLocation {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
