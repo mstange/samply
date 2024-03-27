@@ -2,8 +2,10 @@ use framehop::FrameAddress;
 use fxprof_processed_profile::{CpuDelta, Profile, ThreadHandle, Timestamp};
 use mach::mach_types::thread_act_t;
 use mach::port::mach_port_t;
+use time::get_monotonic_timestamp;
 
 use std::mem;
+use crate::mac::time;
 
 use crate::shared::recycling::ThreadRecycler;
 use crate::shared::types::{StackFrame, StackMode};
@@ -140,6 +142,10 @@ impl ThreadProfiler {
                 stack_scratch_buffer,
                 fold_recursive_prefix,
             )?;
+            // make sure to use the time immediately after the stack is sampled so that any
+            // jitdump records emitted in the interval between samply starting to sample
+            // all tasks and actually stopping the thread are properly used
+            let sample_time_mono = get_monotonic_timestamp();
 
             let frames = stack_scratch_buffer.iter().rev().map(|f| match f {
                 FrameAddress::InstructionPointer(address) => {
@@ -153,7 +159,7 @@ impl ThreadProfiler {
             unresolved_samples.add_sample(
                 self.profile_thread,
                 now,
-                now_mono,
+                sample_time_mono,
                 stack,
                 cpu_delta,
                 1,
