@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use std::{borrow::Cow, slice, sync::Mutex};
 
-use addr2line::LookupResult;
+use addr2line::{LookupResult, SplitDwarfLoad};
 use debugid::DebugId;
 use gimli::{EndianSlice, RunTimeEndian};
 use object::{
@@ -436,18 +436,10 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> SymbolMapTrait for ObjectSymbolMapInn
             let svma = self.image_base_address + u64::from(address);
             let frames = match self.context.as_ref().map(|ctx| ctx.find_frames(svma)) {
                 Some(LookupResult::Load { load, .. }) => {
-                    let comp_dir =
-                        String::from_utf8_lossy(load.comp_dir.unwrap().slice()).to_string();
-                    let path = String::from_utf8_lossy(load.path.unwrap().slice()).to_string();
-                    let dwo_id = load.dwo_id.0;
-                    println!("need dwo: {comp_dir} {path} {dwo_id}");
+                    let requested_dwo_ref = DwoRef::from_split_dwarf_load(&load);
                     FramesLookupResult::NeedDwo {
                         svma,
-                        dwo_ref: DwoRef {
-                            comp_dir,
-                            path,
-                            dwo_id,
-                        },
+                        dwo_ref: requested_dwo_ref,
                         partial_frames: None,
                     }
                 }
@@ -638,16 +630,8 @@ impl<'a, Symbol: object::ObjectSymbol<'a>, FC, ADAMD: AddDwoAndMakeDwarf<FC>>
     {
         match lookup_result {
             LookupResult::Load { load, .. } => {
-                let comp_dir = String::from_utf8_lossy(load.comp_dir.unwrap().slice()).to_string();
-                let path = String::from_utf8_lossy(load.path.unwrap().slice()).to_string();
-                let dwo_id = load.dwo_id.0;
-                println!("need dwo: {comp_dir} {path} {dwo_id}");
-                let dwo_ref = DwoRef {
-                    comp_dir,
-                    path,
-                    dwo_id,
-                };
-                FramesLookupWithContinuationResult::NeedDwo(dwo_ref)
+                let requested_dwo_ref = DwoRef::from_split_dwarf_load(&load);
+                FramesLookupWithContinuationResult::NeedDwo(requested_dwo_ref)
             }
             LookupResult::Output(Ok(frame_iter)) => {
                 let mut path_mapper = self.regular_inner.path_mapper.lock().unwrap();
@@ -748,15 +732,7 @@ impl<
         let lookup_result = ctx.find_frames(svma);
         match lookup_result {
             LookupResult::Load { load, continuation } => {
-                let comp_dir = String::from_utf8_lossy(load.comp_dir.unwrap().slice()).to_string();
-                let path = String::from_utf8_lossy(load.path.unwrap().slice()).to_string();
-                let dwo_id = load.dwo_id.0;
-                println!("need dwo: {comp_dir} {path} {dwo_id}");
-                let requested_dwo_ref = DwoRef {
-                    comp_dir,
-                    path,
-                    dwo_id,
-                };
+                let requested_dwo_ref = DwoRef::from_split_dwarf_load(&load);
                 if &requested_dwo_ref == dwo_ref {
                     let maybe_dwarf = file_contents
                         .and_then(|file_contents| {
@@ -764,7 +740,7 @@ impl<
                         })
                         .map(|mut dwo_dwarf| {
                             dwo_dwarf.make_dwo(&*load.parent);
-                            Arc::new(dbg!(dwo_dwarf))
+                            Arc::new(dwo_dwarf)
                         });
                     use addr2line::LookupContinuation;
                     let lookup_result = continuation.resume(maybe_dwarf);
@@ -781,6 +757,19 @@ impl<
                 ))
             }
             LookupResult::Output(Err(_err)) => FramesLookupWithContinuationResult::Done(None),
+        }
+    }
+}
+
+impl DwoRef {
+    fn from_split_dwarf_load(load: &SplitDwarfLoad<EndianSlice<RunTimeEndian>>) -> Self {
+        let comp_dir = String::from_utf8_lossy(load.comp_dir.unwrap().slice()).to_string();
+        let path = String::from_utf8_lossy(load.path.unwrap().slice()).to_string();
+        let dwo_id = load.dwo_id.0;
+        Self {
+            comp_dir,
+            path,
+            dwo_id,
         }
     }
 }

@@ -178,7 +178,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let frames = match address_info.frames {
                 wholesym::FramesLookupResult::Available(frames) => Some(frames),
                 wholesym::FramesLookupResult::NeedDwo { svma, .. } => {
-                    println!("calling lookup_ext");
                     symbol_map.lookup_ext(svma, &symbol_manager).await
                 }
                 wholesym::FramesLookupResult::External(external) => {

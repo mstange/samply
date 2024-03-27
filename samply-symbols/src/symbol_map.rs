@@ -128,7 +128,6 @@ impl<FL: FileLocation, FC> SymbolMap<FL, FC> {
     ) -> Option<Vec<FrameDebugInfo>> {
         let mut lookup_result = match &*self.inner.lock().unwrap() {
             InnerSymbolMap::WithoutAddFile(_) => {
-                println!("without add file");
                 return None;
             }
             InnerSymbolMap::WithAddFile(inner) => {
@@ -139,7 +138,6 @@ impl<FL: FileLocation, FC> SymbolMap<FL, FC> {
             match lookup_result {
                 FramesLookupWithContinuationResult::Done(frames) => return frames,
                 FramesLookupWithContinuationResult::NeedDwo(dwo_ref) => {
-                    println!("wanting to load dwo_ref {dwo_ref:?}");
                     let location = self.debug_file_location.location_for_dwo(&dwo_ref);
                     let file_contents = match location {
                         Some(location) => helper.load_file(location).await.ok(),
