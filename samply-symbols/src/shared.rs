@@ -433,7 +433,7 @@ pub trait FileLocation: Clone + Display {
     /// corresponding symindex file.
     fn location_for_breakpad_symindex(&self) -> Option<Self>;
 
-    fn location_for_dwo(&self, dwo_ref: DwoRef) -> Option<Self>;
+    fn location_for_dwo(&self, dwo_ref: &DwoRef) -> Option<Self>;
 }
 
 /// The path of a source file, as found in the debug info.

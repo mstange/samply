@@ -119,7 +119,7 @@ impl FileLocation for FileLocationType {
         Some(Self(self.0.with_extension("symindex")))
     }
 
-    fn location_for_dwo(&self, _dwo_ref: DwoRef) -> Option<Self> {
+    fn location_for_dwo(&self, _dwo_ref: &DwoRef) -> Option<Self> {
         None // TODO
     }
 }

@@ -333,6 +333,8 @@ impl<'a, T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'a, T> {
 mod test {
     use debugid::DebugId;
 
+    use crate::DwoRef;
+
     use super::*;
 
     #[derive(Clone)]
@@ -359,7 +361,7 @@ mod test {
             None
         }
 
-        fn location_for_dwo(&self, _dwo_ref: crate::shared::DwoRef) -> Option<Self> {
+        fn location_for_dwo(&self, _dwo_ref: &DwoRef) -> Option<Self> {
             None
         }
     }

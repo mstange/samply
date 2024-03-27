@@ -132,7 +132,7 @@ impl FileLocation for WholesymFileLocation {
         }
     }
 
-    fn location_for_dwo(&self, dwo_ref: DwoRef) -> Option<Self> {
+    fn location_for_dwo(&self, dwo_ref: &DwoRef) -> Option<Self> {
         // Dwo files are referred to by absolute file path, so we only
         // load them if those paths were found in a local file.
         match self {

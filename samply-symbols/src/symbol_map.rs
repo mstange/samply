@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, sync::Mutex};
 
 use debugid::DebugId;
 
@@ -21,7 +21,13 @@ pub trait SymbolMapTrait {
 
 pub trait SymbolMapTraitWithAsyncLookup<FC>: SymbolMapTrait {
     fn get_as_symbol_map(&self) -> &dyn SymbolMapTrait;
-    fn lookup_frames_with_continuation(&self, svma: u64) -> FramesLookupWithContinuationResult<FC>;
+    fn lookup_frames_again(&self, svma: u64) -> FramesLookupWithContinuationResult;
+    fn lookup_frames_more(
+        &self,
+        svma: u64,
+        dwo_ref: &DwoRef,
+        file_contents: Option<FC>,
+    ) -> FramesLookupWithContinuationResult;
 }
 
 pub trait GetInnerSymbolMap {
@@ -37,18 +43,14 @@ enum InnerSymbolMap<FC> {
     WithAddFile(Box<dyn GetInnerSymbolMapWithAsyncLookup<FC> + Send>),
 }
 
-pub trait FramesLookupContinuation<'s, FC> {
-    fn resume(&self, file_contents: Option<FC>) -> FramesLookupWithContinuationResult<'s, FC>;
-}
-
-pub enum FramesLookupWithContinuationResult<'s, FC> {
+pub enum FramesLookupWithContinuationResult {
     Done(Option<Vec<FrameDebugInfo>>),
-    NeedDwo(DwoRef, Box<dyn FramesLookupContinuation<'s, FC> + 's>),
+    NeedDwo(DwoRef),
 }
 
 pub struct SymbolMap<FL: FileLocation, FC> {
     debug_file_location: FL,
-    inner: InnerSymbolMap<FC>,
+    inner: Mutex<InnerSymbolMap<FC>>,
 }
 
 impl<FL: FileLocation, FC> SymbolMap<FL, FC> {
@@ -58,7 +60,7 @@ impl<FL: FileLocation, FC> SymbolMap<FL, FC> {
     ) -> Self {
         Self {
             debug_file_location,
-            inner: InnerSymbolMap::WithoutAddFile(inner),
+            inner: Mutex::new(InnerSymbolMap::WithoutAddFile(inner)),
         }
     }
 
@@ -68,14 +70,19 @@ impl<FL: FileLocation, FC> SymbolMap<FL, FC> {
     ) -> Self {
         Self {
             debug_file_location,
-            inner: InnerSymbolMap::WithAddFile(inner),
+            inner: Mutex::new(InnerSymbolMap::WithAddFile(inner)),
         }
     }
 
-    fn inner(&self) -> &(dyn SymbolMapTrait + '_) {
-        match &self.inner {
-            InnerSymbolMap::WithoutAddFile(inner) => inner.get_inner_symbol_map(),
-            InnerSymbolMap::WithAddFile(inner) => inner.get_inner_symbol_map().get_as_symbol_map(),
+    fn with_inner<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&dyn SymbolMapTrait) -> R,
+    {
+        match &*self.inner.lock().unwrap() {
+            InnerSymbolMap::WithoutAddFile(inner) => f(inner.get_inner_symbol_map()),
+            InnerSymbolMap::WithAddFile(inner) => {
+                f(inner.get_inner_symbol_map().get_as_symbol_map())
+            }
         }
     }
 
@@ -84,27 +91,34 @@ impl<FL: FileLocation, FC> SymbolMap<FL, FC> {
     }
 
     pub fn debug_id(&self) -> debugid::DebugId {
-        self.inner().debug_id()
+        self.with_inner(|inner| inner.debug_id())
     }
 
     pub fn symbol_count(&self) -> usize {
-        self.inner().symbol_count()
+        self.with_inner(|inner| inner.symbol_count())
     }
 
     pub fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {
-        self.inner().iter_symbols()
+        let vec = self.with_inner(|inner| {
+            let vec: Vec<_> = inner
+                .iter_symbols()
+                .map(|(addr, s)| (addr, s.to_string()))
+                .collect();
+            vec
+        });
+        Box::new(vec.into_iter().map(|(addr, s)| (addr, Cow::Owned(s))))
     }
 
     pub fn lookup_relative_address(&self, address: u32) -> Option<AddressInfo> {
-        self.inner().lookup_relative_address(address)
+        self.with_inner(|inner| inner.lookup_relative_address(address))
     }
 
     pub fn lookup_svma(&self, svma: u64) -> Option<AddressInfo> {
-        self.inner().lookup_svma(svma)
+        self.with_inner(|inner| inner.lookup_svma(svma))
     }
 
     pub fn lookup_offset(&self, offset: u64) -> Option<AddressInfo> {
-        self.inner().lookup_offset(offset)
+        self.with_inner(|inner| inner.lookup_offset(offset))
     }
 
     pub async fn lookup_frames_async<H: FileAndPathHelper<F = FC, FL = FL>>(
@@ -112,25 +126,31 @@ impl<FL: FileLocation, FC> SymbolMap<FL, FC> {
         svma: u64,
         helper: &H,
     ) -> Option<Vec<FrameDebugInfo>> {
-        let inner = match &self.inner {
+        let mut lookup_result = match &*self.inner.lock().unwrap() {
             InnerSymbolMap::WithoutAddFile(_) => {
                 println!("without add file");
                 return None;
             }
-            InnerSymbolMap::WithAddFile(inner) => inner.get_inner_symbol_map(),
+            InnerSymbolMap::WithAddFile(inner) => {
+                inner.get_inner_symbol_map().lookup_frames_again(svma)
+            }
         };
-        let mut lookup_result = inner.lookup_frames_with_continuation(svma);
         loop {
             match lookup_result {
                 FramesLookupWithContinuationResult::Done(frames) => return frames,
-                FramesLookupWithContinuationResult::NeedDwo(dwo_ref, continuation) => {
+                FramesLookupWithContinuationResult::NeedDwo(dwo_ref) => {
                     println!("wanting to load dwo_ref {dwo_ref:?}");
-                    let location = self.debug_file_location.location_for_dwo(dwo_ref);
+                    let location = self.debug_file_location.location_for_dwo(&dwo_ref);
                     let file_contents = match location {
                         Some(location) => helper.load_file(location).await.ok(),
                         None => None,
                     };
-                    lookup_result = continuation.resume(file_contents);
+                    lookup_result = match &*self.inner.lock().unwrap() {
+                        InnerSymbolMap::WithoutAddFile(_) => panic!(),
+                        InnerSymbolMap::WithAddFile(inner) => inner
+                            .get_inner_symbol_map()
+                            .lookup_frames_more(svma, &dwo_ref, file_contents),
+                    };
                 }
             }
         }
