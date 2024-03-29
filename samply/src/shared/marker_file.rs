@@ -57,6 +57,29 @@ impl Iterator for MarkerFile {
     }
 }
 
+pub struct MarkerFileInfo {
+    pub prefix: String,
+    pub pid: u32,
+    pub tid: Option<u32>,
+}
+
+pub fn parse_marker_file_path(
+    path: &Path,
+) -> MarkerFileInfo {
+    let filename = path.file_name().unwrap().to_str().unwrap();
+    // strip .txt extension
+    let filename = &filename[..filename.len() - 4];
+    let mut parts = filename.splitn(3, '-');
+    let prefix = parts.next().unwrap().to_owned();
+    let pid = parts.next().unwrap().parse().unwrap();
+    let tid = parts.next().map(|tid| tid.parse().unwrap());
+    MarkerFileInfo {
+        prefix,
+        pid,
+        tid,
+    }
+}
+
 pub fn get_markers(
     marker_file: &Path,
     extra_dir: Option<&Path>,

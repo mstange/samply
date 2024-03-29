@@ -30,6 +30,7 @@ use crate::shared::jitdump_manager::JitDumpManager;
 use crate::shared::lib_mappings::{
     LibMappingAdd, LibMappingInfo, LibMappingOp, LibMappingOpQueue, LibMappingRemove,
 };
+use crate::shared::marker_file;
 use crate::shared::marker_file::get_markers;
 use crate::shared::perf_map::try_load_perf_map;
 use crate::shared::process_sample_data::{MarkerSpanOnThread, ProcessSampleData};
@@ -533,10 +534,18 @@ impl TaskProfiler {
                     );
                 }
                 JitdumpOrMarkerPath::MarkerFilePath(marker_file_path) => {
-                    // TODO: Detect which thread the marker file is opened on, and use that thread's
-                    // thread handle so that the markers are put on that thread in the profile.
+                    // count the number of - characters in marker_file_path
+                    let marker_info = marker_file::parse_marker_file_path(&marker_file_path);
+                    let thread_handle = if marker_info.tid.is_some() {
+                        self.live_threads.iter()
+                            .find(|(_, thread)| thread.tid == marker_info.tid.unwrap())
+                            .map(|(_, thread)| thread.profile_thread)
+                            .unwrap_or(self.main_thread_handle)
+                    } else {
+                        self.main_thread_handle
+                    };
                     self.marker_file_paths
-                        .push((self.main_thread_handle, marker_file_path));
+                        .push((thread_handle, marker_file_path));
                 }
             }
         }

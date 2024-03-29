@@ -25,8 +25,8 @@ use super::thread_info::{
 pub struct ThreadProfiler {
     thread_act: thread_act_t,
     name: Option<String>,
-    tid: u32,
-    profile_thread: ThreadHandle,
+    pub(crate) tid: u32,
+    pub(crate) profile_thread: ThreadHandle,
     tick_count: usize,
     stack_memory: ForeignMemory,
     previous_sample_cpu_time_us: u64,
