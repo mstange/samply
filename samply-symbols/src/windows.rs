@@ -102,7 +102,6 @@ impl<T: FileContents + 'static> ObjectSymbolMapOuter for PeSymbolMapDataAndObjec
             debug_id,
             function_starts.as_deref(),
             function_ends.as_deref(),
-            None,
         );
 
         Ok(symbol_map)

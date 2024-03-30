@@ -41,6 +41,9 @@ pub enum Error {
     #[error("External file has an unexpected FileKind: {0:?}")]
     UnexpectedExternalFileFileKind(FileKind),
 
+    #[error("Error parsing external archive file: {0}")]
+    ParseErrorInExternalArchive(#[source] object::read::Error),
+
     #[error("Not enough information was supplied to identify the requested symbol map. The debug ID is required.")]
     NotEnoughInformationToIdentifySymbolMap,
 
@@ -241,6 +244,7 @@ impl Error {
             Error::InvalidBreakpadId(_) => "InvalidBreakpadId",
             Error::EmptyFatArchive => "EmptyFatArchive",
             Error::CouldNotDetermineExternalFileFileKind => "CouldNotDetermineExternalFileFileKind",
+            Error::ParseErrorInExternalArchive(_) => "ParseErrorInExternalArchive",
             Error::FileLocationRefusedSubcacheLocation => "FileLocationRefusedSubcacheLocation",
             Error::FileLocationRefusedExternalObjectLocation => {
                 "FileLocationRefusedExternalObjectLocation"

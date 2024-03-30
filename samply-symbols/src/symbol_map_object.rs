@@ -111,7 +111,6 @@ impl std::fmt::Debug for SvmaFileRange {
 pub struct ObjectSymbolMapInnerImpl<'a, Symbol: object::ObjectSymbol<'a>> {
     entries: Vec<(u32, FullSymbolListEntry<'a, Symbol>)>,
     debug_id: DebugId,
-    arch: Option<&'static str>,
     path_mapper: Mutex<PathMapper<()>>,
     object_map: ObjectMap<'a>,
     context: Option<addr2line::Context<gimli::EndianSlice<'a, gimli::RunTimeEndian>>>,
@@ -159,7 +158,6 @@ impl<'a> ObjectSymbolMapInner<'a> {
         debug_id: DebugId,
         function_start_addresses: Option<&[u32]>,
         function_end_addresses: Option<&[u32]>,
-        arch: Option<&'static str>,
     ) -> Self
     where
         'a: 'file,
@@ -171,7 +169,6 @@ impl<'a> ObjectSymbolMapInner<'a> {
             debug_id,
             function_start_addresses,
             function_end_addresses,
-            arch,
         );
         ObjectSymbolMapInner(Box::new(inner_impl))
     }
@@ -184,7 +181,6 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> ObjectSymbolMapInnerImpl<'a, Symbol> 
         debug_id: DebugId,
         function_start_addresses: Option<&[u32]>,
         function_end_addresses: Option<&[u32]>,
-        arch: Option<&'static str>,
     ) -> Self
     where
         'a: 'file,
@@ -371,7 +367,6 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> ObjectSymbolMapInnerImpl<'a, Symbol> 
             path_mapper,
             object_map: object_file.object_map(),
             context: addr2line_context,
-            arch,
             image_base_address: base_address,
             svma_file_ranges,
         }
@@ -455,31 +450,40 @@ impl<'a, Symbol: object::ObjectSymbol<'a>> SymbolMapTrait for ObjectSymbolMapInn
                         let external_file_name = entry.object(&self.object_map);
                         let external_file_name = std::str::from_utf8(external_file_name).unwrap();
                         let offset_from_symbol = (svma - entry.address()) as u32;
-                        let (file_name, name_in_archive) = match external_file_name.find('(') {
+                        let symbol_name = entry.name().to_owned();
+                        let (file_name, address_in_file) = match external_file_name.find('(') {
                             Some(index) => {
                                 // This is an "archive" reference of the form
                                 // "/Users/mstange/code/obj-m-opt/toolkit/library/build/../../../js/src/build/libjs_static.a(Unified_cpp_js_src13.o)"
                                 let (path, paren_rest) = external_file_name.split_at(index);
-                                let name_in_archive =
-                                    paren_rest.trim_start_matches('(').trim_end_matches(')');
-                                (path, Some(name_in_archive))
+                                let name_in_archive = paren_rest
+                                    .trim_start_matches('(')
+                                    .trim_end_matches(')')
+                                    .to_owned();
+                                let address_in_file =
+                                    ExternalFileAddressInFileRef::MachoOsoArchive {
+                                        name_in_archive,
+                                        symbol_name,
+                                        offset_from_symbol,
+                                    };
+                                (path, address_in_file)
                             }
                             None => {
                                 // This is a reference to a regular object file. Example:
                                 // "/Users/mstange/code/obj-m-opt/toolkit/library/build/../../components/sessionstore/Unified_cpp_sessionstore0.o"
-                                (external_file_name, None)
+                                let address_in_file =
+                                    ExternalFileAddressInFileRef::MachoOsoObject {
+                                        symbol_name,
+                                        offset_from_symbol,
+                                    };
+                                (external_file_name, address_in_file)
                             }
                         };
                         FramesLookupResult::External(ExternalFileAddressRef {
                             file_ref: ExternalFileRef {
                                 file_name: file_name.to_owned(),
-                                arch: self.arch.map(ToOwned::to_owned),
                             },
-                            address_in_file: ExternalFileAddressInFileRef {
-                                name_in_archive: name_in_archive.map(ToOwned::to_owned),
-                                symbol_name: entry.name().to_owned(),
-                                offset_from_symbol,
-                            },
+                            address_in_file,
                         })
                     } else {
                         FramesLookupResult::Unavailable
@@ -589,7 +593,6 @@ impl<'a, Symbol: object::ObjectSymbol<'a>, FC, ADAMD: AddDwoAndMakeDwarf<FC>>
         debug_id: DebugId,
         function_start_addresses: Option<&[u32]>,
         function_end_addresses: Option<&[u32]>,
-        arch: Option<&'static str>,
         adamd: &'a ADAMD,
     ) -> Self
     where
@@ -603,7 +606,6 @@ impl<'a, Symbol: object::ObjectSymbol<'a>, FC, ADAMD: AddDwoAndMakeDwarf<FC>>
             debug_id,
             function_start_addresses,
             function_end_addresses,
-            arch,
         );
         Self {
             regular_inner,

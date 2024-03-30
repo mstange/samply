@@ -381,7 +381,6 @@ impl<T: FileContents + 'static> ObjectSymbolMapOuter for FileDataAndObject<T> {
             debug_id,
             function_starts.as_deref(),
             function_ends.as_deref(),
-            macho_data.get_arch(),
         );
 
         Ok(symbol_map)

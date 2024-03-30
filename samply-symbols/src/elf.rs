@@ -378,7 +378,6 @@ impl<'data, T: FileContents + 'static> ElfObjectsTrait<T> for ElfObjects<'data, 
             debug_id,
             function_starts.as_deref(),
             function_ends.as_deref(),
-            None,
         );
 
         Ok(symbol_map)
@@ -401,7 +400,6 @@ impl<'data, T: FileContents + 'static> ElfObjectsTrait<T> for ElfObjects<'data, 
             debug_id,
             function_starts.as_deref(),
             function_ends.as_deref(),
-            None,
             self,
         );
 

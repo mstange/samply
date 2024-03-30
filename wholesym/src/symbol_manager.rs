@@ -3,12 +3,12 @@ use std::path::Path;
 
 use debugid::DebugId;
 use samply_symbols::{
-    self, AddressInfo, Error, ExternalFileAddressRef, ExternalFileRef, ExternalFileSymbolMap,
-    FrameDebugInfo, LibraryInfo, MultiArchDisambiguator,
+    self, AddressInfo, Error, ExternalFileAddressInFileRef, ExternalFileAddressRef,
+    ExternalFileRef, FrameDebugInfo, LibraryInfo, MultiArchDisambiguator,
 };
 
 use crate::config::SymbolManagerConfig;
-use crate::helper::{FileReadOnlyHelper, Helper, WholesymFileLocation};
+use crate::helper::{FileReadOnlyHelper, Helper, WholesymFileContents, WholesymFileLocation};
 
 /// Used in [`SymbolManager::lookup_external`] and [`SymbolManager::load_external_file`],
 /// and returned by [`SymbolMap::symbol_file_origin`].
@@ -100,6 +100,31 @@ impl SymbolMap {
     /// This iterator yields the relative address and the name of each symbol.
     pub fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {
         self.0.iter_symbols()
+    }
+}
+
+pub struct ExternalFileSymbolMap(samply_symbols::ExternalFileSymbolMap<WholesymFileContents>);
+
+impl ExternalFileSymbolMap {
+    /// The string which identifies this external file. This is usually an absolute
+    /// path. (XXX does this contain the `archive.a(membername)` stuff or no?)
+    pub fn name(&self) -> &str {
+        self.0.name()
+    }
+
+    /// Checks whether `external_file_ref` refers to this external file.
+    ///
+    /// Used to avoid repeated loading of the same external file.
+    pub fn is_same_file(&self, external_file_ref: &ExternalFileRef) -> bool {
+        self.0.is_same_file(external_file_ref)
+    }
+
+    /// Look up the debug info for the given [`ExternalFileAddressInFileRef`].
+    pub fn lookup(
+        &self,
+        external_file_address: &ExternalFileAddressInFileRef,
+    ) -> Option<Vec<FrameDebugInfo>> {
+        self.0.lookup(external_file_address)
     }
 }
 
@@ -247,9 +272,11 @@ impl SymbolManager {
         symbol_file_origin: &SymbolFileOrigin,
         external_file_ref: &ExternalFileRef,
     ) -> Result<ExternalFileSymbolMap, Error> {
-        self.symbol_manager
+        let symbol_map = self
+            .symbol_manager
             .load_external_file(&symbol_file_origin.0, external_file_ref)
-            .await
+            .await?;
+        Ok(ExternalFileSymbolMap(symbol_map))
     }
 
     /// Run a symbolication query with the "Tecken" JSON API.

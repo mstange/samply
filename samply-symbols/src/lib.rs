@@ -267,7 +267,7 @@ pub use crate::symbol_map::SymbolMap;
 
 pub struct SymbolManager<H: FileAndPathHelper> {
     helper: Arc<H>,
-    cached_external_file: Mutex<Option<ExternalFileSymbolMap>>,
+    cached_external_file: Mutex<Option<ExternalFileSymbolMap<H::F>>>,
 }
 
 impl<H, F, FL> SymbolManager<H>
@@ -384,7 +384,7 @@ where
         &self,
         debug_file_location: &H::FL,
         external_file_ref: &ExternalFileRef,
-    ) -> Result<ExternalFileSymbolMap, Error> {
+    ) -> Result<ExternalFileSymbolMap<H::F>, Error> {
         external_file::load_external_file(&*self.helper, debug_file_location, external_file_ref)
             .await
     }

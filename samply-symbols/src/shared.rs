@@ -676,23 +676,29 @@ pub struct ExternalFileAddressRef {
 pub struct ExternalFileRef {
     /// The path to the file, as specified in the linked binary's object map.
     pub file_name: String,
-    /// A mach-O arch string ("x86_64", "arm64" etc.) which is needed in the rare case
-    /// that the external file is a fat binary.
-    pub arch: Option<String>,
 }
 
 /// Information to find an address within an external file, for debug info lookup.
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ExternalFileAddressInFileRef {
-    /// If the external file is an archive file (e.g. `libjs_static.a`, created with `ar`),
-    /// then this is the name of the archive member (e.g. `Unified_cpp_js_src23.o`),
-    /// otherwise `None`.
-    pub name_in_archive: Option<String>,
-    /// The name of the function symbol, as bytes, for the function which contains the
-    /// address we want to look up.
-    pub symbol_name: Vec<u8>,
-    /// The address to look up, as a relative offset from the function symbol address.
-    pub offset_from_symbol: u32,
+pub enum ExternalFileAddressInFileRef {
+    MachoOsoObject {
+        /// The name of the function symbol, as bytes, for the function which contains the
+        /// address we want to look up.
+        symbol_name: Vec<u8>,
+        /// The address to look up, as a relative offset from the function symbol address.
+        offset_from_symbol: u32,
+    },
+    MachoOsoArchive {
+        /// If the external file is an archive file (e.g. `libjs_static.a`, created with `ar`),
+        /// then this is the name of the archive member (e.g. `Unified_cpp_js_src23.o`),
+        /// otherwise `None`.
+        name_in_archive: String,
+        /// The name of the function symbol, as bytes, for the function which contains the
+        /// address we want to look up.
+        symbol_name: Vec<u8>,
+        /// The address to look up, as a relative offset from the function symbol address.
+        offset_from_symbol: u32,
+    },
 }
 
 /// Implementation for slices.
