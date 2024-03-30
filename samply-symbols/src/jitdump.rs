@@ -15,10 +15,11 @@ use std::{
 
 use crate::error::Error;
 use crate::shared::{
-    AddressInfo, FileContents, FileContentsCursor, FileContentsWrapper, FileLocation,
-    FrameDebugInfo, FramesLookupResult, SourceFilePath, SymbolInfo,
+    AddressInfo, FileContents, FileContentsCursor, FileContentsWrapper, FrameDebugInfo,
+    FramesLookupResult, SourceFilePath, SymbolInfo,
 };
 use crate::symbol_map::{GetInnerSymbolMap, SymbolMap, SymbolMapTrait};
+use crate::FileAndPathHelper;
 
 pub fn is_jitdump_file<T: FileContents>(file_contents: &FileContentsWrapper<T>) -> bool {
     const MAGIC_BYTES_BE: &[u8] = b"JiTD";
@@ -162,19 +163,15 @@ pub struct JitDumpIndexEntry {
     pub code_bytes_len: u64,
 }
 
-pub fn get_symbol_map_for_jitdump<F, FL>(
-    file_contents: FileContentsWrapper<F>,
-    file_location: FL,
-) -> Result<SymbolMap<FL, F>, Error>
-where
-    F: FileContents + 'static,
-    FL: FileLocation,
-{
+pub fn get_symbol_map_for_jitdump<H: FileAndPathHelper>(
+    file_contents: FileContentsWrapper<H::F>,
+    file_location: H::FL,
+) -> Result<SymbolMap<H>, Error> {
     let outer = JitDumpSymbolMapOuter::new(file_contents)?;
     let symbol_map = JitDumpSymbolMap(Yoke::attach_to_cart(Box::new(outer), |outer| {
         outer.make_symbol_map()
     }));
-    Ok(SymbolMap::new_without(file_location, Box::new(symbol_map)))
+    Ok(SymbolMap::new_plain(file_location, Box::new(symbol_map)))
 }
 
 pub struct JitDumpSymbolMap<T: FileContents>(

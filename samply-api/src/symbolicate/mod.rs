@@ -132,10 +132,7 @@ impl<'a, H: FileAndPathHelper> SymbolicateApi<'a, H> {
         }
 
         for (address, svma, _) in external_addresses_dwo {
-            if let Some(frames) = symbol_map
-                .lookup_frames_async(svma, self.symbol_manager.helper())
-                .await
-            {
+            if let Some(frames) = symbol_map.lookup_frames_async(svma).await {
                 symbolication_result.add_address_debug_info(address, frames);
             }
         }

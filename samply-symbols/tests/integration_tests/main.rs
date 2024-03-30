@@ -12,7 +12,7 @@ async fn get_symbol_map_with_dyld_cache_fallback(
     symbol_manager: &SymbolManager<Helper>,
     path: &Path,
     debug_id: Option<DebugId>,
-) -> Result<SymbolMap<FileLocationType, FileContentsType>, Error> {
+) -> Result<SymbolMap<Helper>, Error> {
     let might_be_in_dyld_shared_cache = path.starts_with("/usr/") || path.starts_with("/System/");
 
     let disambiguator = debug_id.map(MultiArchDisambiguator::DebugId);

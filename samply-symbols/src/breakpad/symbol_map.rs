@@ -9,8 +9,8 @@ use yoke_derive::Yokeable;
 
 use crate::{
     symbol_map::{GetInnerSymbolMap, SymbolMapTrait},
-    AddressInfo, Error, FileContents, FileContentsWrapper, FileLocation, FrameDebugInfo,
-    FramesLookupResult, SourceFilePath, SymbolInfo, SymbolMap,
+    AddressInfo, Error, FileContents, FileContentsWrapper, FrameDebugInfo, FramesLookupResult,
+    SourceFilePath, SymbolInfo,
 };
 
 use super::index::{
@@ -19,20 +19,15 @@ use super::index::{
     BreakpadSymbolType, FileOrInlineOrigin, ItemMap,
 };
 
-pub fn get_symbol_map_for_breakpad_sym<F, FL>(
-    file_contents: FileContentsWrapper<F>,
-    file_location: FL,
-    index_file_contents: Option<FileContentsWrapper<F>>,
-) -> Result<SymbolMap<FL, F>, Error>
-where
-    F: FileContents + 'static,
-    FL: FileLocation,
-{
+pub fn get_symbol_map_for_breakpad_sym<FC: FileContents + 'static>(
+    file_contents: FileContentsWrapper<FC>,
+    index_file_contents: Option<FileContentsWrapper<FC>>,
+) -> Result<BreakpadSymbolMap<FC>, Error> {
     let outer = BreakpadSymbolMapOuter::new(file_contents, index_file_contents)?;
     let symbol_map = BreakpadSymbolMap(Yoke::attach_to_cart(Box::new(outer), |outer| {
         outer.make_symbol_map()
     }));
-    Ok(SymbolMap::new_without(file_location, Box::new(symbol_map)))
+    Ok(symbol_map)
 }
 
 pub struct BreakpadSymbolMap<T: FileContents + 'static>(
@@ -333,51 +328,16 @@ impl<'a, T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'a, T> {
 mod test {
     use debugid::DebugId;
 
-    use crate::DwoRef;
-
     use super::*;
-
-    #[derive(Clone)]
-    struct DummyLocation;
-
-    impl FileLocation for DummyLocation {
-        fn location_for_dyld_subcache(&self, _suffix: &str) -> Option<Self> {
-            None
-        }
-
-        fn location_for_external_object_file(&self, _object_file: &str) -> Option<Self> {
-            None
-        }
-
-        fn location_for_pdb_from_binary(&self, _pdb_path: &str) -> Option<Self> {
-            None
-        }
-
-        fn location_for_source_file(&self, _source_file_path: &str) -> Option<Self> {
-            None
-        }
-
-        fn location_for_breakpad_symindex(&self) -> Option<Self> {
-            None
-        }
-
-        fn location_for_dwo(&self, _dwo_ref: &DwoRef) -> Option<Self> {
-            None
-        }
-    }
-    impl std::fmt::Display for DummyLocation {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            "DummyLocation".fmt(f)
-        }
-    }
 
     #[test]
     fn overeager_demangle() {
         let sym = b"MODULE Linux x86_64 BE4E976C325246EE9D6B7847A670B2A90 example-linux\nFILE 0 filename\nFUNC 1160 45 0 f\n1160 c 16 0";
         let fc = FileContentsWrapper::new(&sym[..]);
-        let symbol_map = get_symbol_map_for_breakpad_sym(fc, DummyLocation, None).unwrap();
+        let symbol_map = get_symbol_map_for_breakpad_sym(fc, None).unwrap();
         assert_eq!(
             symbol_map
+                .get_inner_symbol_map()
                 .lookup_relative_address(0x1160)
                 .unwrap()
                 .symbol
@@ -416,15 +376,17 @@ mod test {
         let full_sym_contents = data_slices.concat();
         let sym_fc = FileContentsWrapper::new(full_sym_contents);
         let symindex_fc = FileContentsWrapper::new(index_bytes);
-        let symbol_map =
-            get_symbol_map_for_breakpad_sym(sym_fc, DummyLocation, Some(symindex_fc)).unwrap();
+        let symbol_map = get_symbol_map_for_breakpad_sym(sym_fc, Some(symindex_fc)).unwrap();
 
         assert_eq!(
-            symbol_map.debug_id(),
+            symbol_map.get_inner_symbol_map().debug_id(),
             DebugId::from_breakpad("F1E853FD662672044C4C44205044422E1").unwrap()
         );
 
-        let lookup_result = symbol_map.lookup_relative_address(0x2b7ed).unwrap();
+        let lookup_result = symbol_map
+            .get_inner_symbol_map()
+            .lookup_relative_address(0x2b7ed)
+            .unwrap();
         assert_eq!(
             lookup_result.symbol.name,
             "DloadAcquireSectionWriteAccess()"

@@ -87,10 +87,7 @@ impl<'a, H: FileAndPathHelper> SourceApi<'a, H> {
             }
             FramesLookupResult::Unavailable => return Err(SourceError::NoDebugInfo),
             FramesLookupResult::NeedDwo { svma, .. } => {
-                match symbol_map
-                    .lookup_frames_async(svma, self.symbol_manager.helper())
-                    .await
-                {
+                match symbol_map.lookup_frames_async(svma).await {
                     Some(frames) => frames,
                     None => return Err(SourceError::NoDebugInfo),
                 }

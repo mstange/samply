@@ -273,22 +273,18 @@ where
     ))
 }
 
-pub async fn load_symbol_map_for_dyld_cache<H, FL, FC>(
+pub async fn load_symbol_map_for_dyld_cache<H>(
     dyld_cache_path: H::FL,
     dylib_path: String,
     helper: &H,
-) -> Result<SymbolMap<FL, FC>, Error>
+) -> Result<SymbolMap<H>, Error>
 where
-    H: FileAndPathHelper<FL = FL>,
-    FL: FileLocation,
+    H: FileAndPathHelper,
 {
     let owner = load_file_data_for_dyld_cache(dyld_cache_path.clone(), dylib_path, helper).await?;
     let owner = FileDataAndObject::new(Box::new(owner))?;
     let symbol_map = ObjectSymbolMap::new(owner)?;
-    Ok(SymbolMap::new_without(
-        dyld_cache_path,
-        Box::new(symbol_map),
-    ))
+    Ok(SymbolMap::new_plain(dyld_cache_path, Box::new(symbol_map)))
 }
 
 pub struct DyldCacheFileData<T>
@@ -392,29 +388,29 @@ impl<T: FileContents + 'static> ObjectSymbolMapOuter for FileDataAndObject<T> {
     }
 }
 
-pub fn get_symbol_map_for_macho<F: FileContents + 'static, FL: FileLocation>(
-    debug_file_location: FL,
-    file_contents: FileContentsWrapper<F>,
-) -> Result<SymbolMap<FL, F>, Error> {
+pub fn get_symbol_map_for_macho<H: FileAndPathHelper>(
+    debug_file_location: H::FL,
+    file_contents: FileContentsWrapper<H::F>,
+) -> Result<SymbolMap<H>, Error> {
     let owner = FileDataAndObject::new(Box::new(MachSymbolMapData(file_contents)))?;
     let symbol_map = ObjectSymbolMap::new(owner)?;
-    Ok(SymbolMap::new_without(
+    Ok(SymbolMap::new_plain(
         debug_file_location,
         Box::new(symbol_map),
     ))
 }
 
-pub fn get_symbol_map_for_fat_archive_member<F: FileContents + 'static, FL: FileLocation>(
-    debug_file_location: FL,
-    file_contents: FileContentsWrapper<F>,
+pub fn get_symbol_map_for_fat_archive_member<H: FileAndPathHelper>(
+    debug_file_location: H::FL,
+    file_contents: FileContentsWrapper<H::F>,
     member: FatArchiveMember,
-) -> Result<SymbolMap<FL, F>, Error> {
+) -> Result<SymbolMap<H>, Error> {
     let (start_offset, range_size) = member.offset_and_size;
     let owner =
         MachOFatArchiveMemberData::new(file_contents, start_offset, range_size, member.arch);
     let owner = FileDataAndObject::new(Box::new(owner))?;
     let symbol_map = ObjectSymbolMap::new(owner)?;
-    Ok(SymbolMap::new_without(
+    Ok(SymbolMap::new_plain(
         debug_file_location,
         Box::new(symbol_map),
     ))

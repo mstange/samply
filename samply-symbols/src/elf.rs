@@ -3,12 +3,13 @@ use elsa::sync::FrozenVec;
 use gimli::{CieOrFde, Dwarf, EhFrame, EndianSlice, RunTimeEndian, UnwindSection};
 use object::{File, FileKind, Object, ObjectSection, ReadRef};
 use std::io::Cursor;
+use std::sync::Arc;
 use yoke::Yoke;
 use yoke_derive::Yokeable;
 
 use crate::dwarf::Addr2lineContextData;
 use crate::error::Error;
-use crate::shared::{FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation};
+use crate::shared::{FileAndPathHelper, FileContents, FileContentsWrapper};
 use crate::symbol_map::SymbolMap;
 use crate::symbol_map_object::{
     AddDwoAndMakeDwarf, ObjectSymbolMap, ObjectSymbolMapInner, ObjectSymbolMapOuter,
@@ -17,28 +18,23 @@ use crate::symbol_map_object::{
 };
 use crate::{debug_id_for_object, ElfBuildId};
 
-pub async fn load_symbol_map_for_elf<T, FL, H>(
-    file_location: FL,
-    file_contents: FileContentsWrapper<T>,
+pub async fn load_symbol_map_for_elf<H: FileAndPathHelper>(
+    file_location: H::FL,
+    file_contents: FileContentsWrapper<H::F>,
     file_kind: FileKind,
-    helper: &H,
-) -> Result<SymbolMap<FL, T>, Error>
-where
-    T: FileContents + 'static,
-    H: FileAndPathHelper<F = T, FL = FL>,
-    FL: FileLocation,
-{
+    helper: Arc<H>,
+) -> Result<SymbolMap<H>, Error> {
     let elf_file =
         File::parse(&file_contents).map_err(|e| Error::ObjectParseError(file_kind, e))?;
 
     if let Some(symbol_map) =
-        try_to_get_symbol_map_from_debug_link(&file_location, &elf_file, file_kind, helper).await
+        try_to_get_symbol_map_from_debug_link(&file_location, &elf_file, file_kind, &*helper).await
     {
         return Ok(symbol_map);
     }
 
     if let Some(supplementary_file) =
-        try_to_load_supplementary_file(&file_location, &elf_file, helper).await
+        try_to_load_supplementary_file(&file_location, &elf_file, &*helper).await
     {
         let owner = ElfSymbolMapDataAndObjects::new(
             file_contents,
@@ -47,7 +43,7 @@ where
             None,
         )?;
         let symbol_map = ObjectSymbolMap::new(owner)?;
-        return Ok(SymbolMap::new_without(file_location, Box::new(symbol_map)));
+        return Ok(SymbolMap::new_plain(file_location, Box::new(symbol_map)));
     }
 
     // If this file has a .gnu_debugdata section, use the uncompressed object from that section instead.
@@ -59,20 +55,22 @@ where
 
     let owner = ElfSymbolMapDataAndObjects::new(file_contents, None, file_kind, None)?;
     let symbol_map = ObjectSymbolMapWithDwoSupport::new(owner)?;
-    Ok(SymbolMap::new_with(file_location, Box::new(symbol_map)))
+    Ok(SymbolMap::new_with(
+        file_location,
+        Box::new(symbol_map),
+        helper,
+    ))
 }
 
-async fn try_to_get_symbol_map_from_debug_link<'data, H, R, FL, FC>(
-    original_file_location: &FL,
+async fn try_to_get_symbol_map_from_debug_link<'data, H, R>(
+    original_file_location: &H::FL,
     elf_file: &File<'data, R>,
     file_kind: FileKind,
     helper: &H,
-) -> Option<SymbolMap<FL, FC>>
+) -> Option<SymbolMap<H>>
 where
-    H: FileAndPathHelper<FL = FL, F = FC>,
     R: ReadRef<'data>,
-    FL: FileLocation,
-    FC: FileContents + 'static,
+    H: FileAndPathHelper,
 {
     let (name, crc) = elf_file.gnu_debuglink().ok().flatten()?;
     let debug_id = debug_id_for_object(elf_file)?;
@@ -99,18 +97,16 @@ where
     None
 }
 
-async fn get_symbol_map_for_debug_link_candidate<H, FL, FC>(
-    original_file_location: &FL,
-    path: &FL,
+async fn get_symbol_map_for_debug_link_candidate<H>(
+    original_file_location: &H::FL,
+    path: &H::FL,
     debug_id: DebugId,
     expected_crc: u32,
     file_kind: FileKind,
     helper: &H,
-) -> Result<SymbolMap<FL, FC>, Error>
+) -> Result<SymbolMap<H>, Error>
 where
-    H: FileAndPathHelper<FL = FL, F = FC>,
-    FL: FileLocation,
-    FC: FileContents + 'static,
+    H: FileAndPathHelper,
 {
     let file_contents = helper
         .load_file(path.clone())
@@ -125,7 +121,7 @@ where
 
     let owner = ElfSymbolMapDataAndObjects::new(file_contents, None, file_kind, Some(debug_id))?;
     let symbol_map = ObjectSymbolMap::new(owner)?;
-    Ok(SymbolMap::new_without(
+    Ok(SymbolMap::new_plain(
         original_file_location.clone(),
         Box::new(symbol_map),
     ))
@@ -268,11 +264,11 @@ where
     None
 }
 
-fn try_get_symbol_map_from_mini_debug_info<'data, R: ReadRef<'data>, FL: FileLocation, FC>(
+fn try_get_symbol_map_from_mini_debug_info<'data, R: ReadRef<'data>, H: FileAndPathHelper>(
     elf_file: &File<'data, R>,
     file_kind: FileKind,
-    debug_file_location: &FL,
-) -> Option<SymbolMap<FL, FC>> {
+    debug_file_location: &H::FL,
+) -> Option<SymbolMap<H>> {
     let debugdata = elf_file.section_by_name(".gnu_debugdata")?;
     let data = debugdata.data().ok()?;
     let mut cursor = Cursor::new(data);
@@ -281,7 +277,7 @@ fn try_get_symbol_map_from_mini_debug_info<'data, R: ReadRef<'data>, FL: FileLoc
     let file_contents = FileContentsWrapper::new(objdata);
     let owner = ElfSymbolMapDataAndObjects::new(file_contents, None, file_kind, None).ok()?;
     let symbol_map = ObjectSymbolMap::new(owner).ok()?;
-    Some(SymbolMap::new_without(
+    Some(SymbolMap::new_plain(
         debug_file_location.clone(),
         Box::new(symbol_map),
     ))

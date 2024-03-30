@@ -211,7 +211,7 @@
 //! }
 //! ```
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use binary_image::BinaryImageInner;
 pub use debugid;
@@ -266,7 +266,7 @@ pub use crate::shared::{
 pub use crate::symbol_map::SymbolMap;
 
 pub struct SymbolManager<H: FileAndPathHelper> {
-    helper: H,
+    helper: Arc<H>,
     cached_external_file: Mutex<Option<ExternalFileSymbolMap>>,
 }
 
@@ -279,14 +279,14 @@ where
     // Create a new `SymbolManager`.
     pub fn with_helper(helper: H) -> Self {
         Self {
-            helper,
+            helper: Arc::new(helper),
             cached_external_file: Mutex::new(None),
         }
     }
 
     /// Exposes the helper.
-    pub fn helper(&self) -> &H {
-        &self.helper
+    pub fn helper(&self) -> Arc<H> {
+        self.helper.clone()
     }
 
     pub async fn load_source_file(
@@ -312,10 +312,7 @@ where
 
     /// Obtain a symbol map for the library, given the (partial) `LibraryInfo`.
     /// At least the debug_id has to be given.
-    pub async fn load_symbol_map(
-        &self,
-        library_info: &LibraryInfo,
-    ) -> Result<SymbolMap<FL, F>, Error> {
+    pub async fn load_symbol_map(&self, library_info: &LibraryInfo) -> Result<SymbolMap<H>, Error> {
         let debug_id = match library_info.debug_id {
             Some(debug_id) => debug_id,
             None => return Err(Error::NotEnoughInformationToIdentifySymbolMap),
@@ -345,8 +342,12 @@ where
                     dyld_cache_path,
                     dylib_path,
                 } => {
-                    macho::load_symbol_map_for_dyld_cache(dyld_cache_path, dylib_path, &self.helper)
-                        .await
+                    macho::load_symbol_map_for_dyld_cache(
+                        dyld_cache_path,
+                        dylib_path,
+                        &*self.helper,
+                    )
+                    .await
                 }
             };
 
@@ -384,7 +385,7 @@ where
         debug_file_location: &H::FL,
         external_file_ref: &ExternalFileRef,
     ) -> Result<ExternalFileSymbolMap, Error> {
-        external_file::load_external_file(&self.helper, debug_file_location, external_file_ref)
+        external_file::load_external_file(&*self.helper, debug_file_location, external_file_ref)
             .await
     }
 
@@ -427,7 +428,7 @@ where
         dyld_cache_path: FL,
         dylib_path: String,
     ) -> Result<BinaryImage<F>, Error> {
-        macho::load_binary_from_dyld_cache(dyld_cache_path, dylib_path, &self.helper).await
+        macho::load_binary_from_dyld_cache(dyld_cache_path, dylib_path, &*self.helper).await
     }
 
     /// Returns the binary for the given (partial) [`LibraryInfo`].
@@ -540,7 +541,7 @@ where
         &self,
         dylib_path: &str,
         multi_arch_disambiguator: Option<MultiArchDisambiguator>,
-    ) -> Result<SymbolMap<FL, F>, Error> {
+    ) -> Result<SymbolMap<H>, Error> {
         let arch = match &multi_arch_disambiguator {
             Some(MultiArchDisambiguator::Arch(arch)) => Some(arch.as_str()),
             _ => None,
@@ -555,7 +556,7 @@ where
             let symbol_map_res = macho::load_symbol_map_for_dyld_cache(
                 dyld_cache_path,
                 dylib_path.to_owned(),
-                &self.helper,
+                &*self.helper,
             )
             .await;
             match (&multi_arch_disambiguator, symbol_map_res) {
@@ -579,7 +580,7 @@ where
         &self,
         file_location: FL,
         multi_arch_disambiguator: Option<MultiArchDisambiguator>,
-    ) -> Result<SymbolMap<FL, F>, Error> {
+    ) -> Result<SymbolMap<H>, Error> {
         let file_contents = self
             .helper
             .load_file(file_location.clone())
@@ -595,7 +596,7 @@ where
                         file_location,
                         file_contents,
                         file_kind,
-                        &self.helper,
+                        self.helper.clone(),
                     )
                     .await
                 }
@@ -619,7 +620,7 @@ where
                         file_kind,
                         &file_contents,
                         file_location.clone(),
-                        &self.helper,
+                        &*self.helper,
                     )
                     .await
                     {
@@ -646,11 +647,9 @@ where
                 } else {
                     None
                 };
-            breakpad::get_symbol_map_for_breakpad_sym(
-                file_contents,
-                file_location,
-                index_file_contents,
-            )
+            let symbol_map =
+                breakpad::get_symbol_map_for_breakpad_sym(file_contents, index_file_contents)?;
+            Ok(SymbolMap::new_plain(file_location, Box::new(symbol_map)))
         } else if jitdump::is_jitdump_file(&file_contents) {
             jitdump::get_symbol_map_for_jitdump(file_contents, file_location)
         } else {

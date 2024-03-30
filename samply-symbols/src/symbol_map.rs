@@ -1,4 +1,7 @@
-use std::{borrow::Cow, sync::Mutex};
+use std::{
+    borrow::Cow,
+    sync::{Arc, Mutex},
+};
 
 use debugid::DebugId;
 
@@ -48,29 +51,33 @@ pub enum FramesLookupResult2 {
     NeedDwo(DwoRef),
 }
 
-pub struct SymbolMap<FL: FileLocation, FC> {
-    debug_file_location: FL,
-    inner: Mutex<InnerSymbolMap<FC>>,
+pub struct SymbolMap<H: FileAndPathHelper> {
+    debug_file_location: H::FL,
+    inner: Mutex<InnerSymbolMap<H::F>>,
+    helper: Option<Arc<H>>,
 }
 
-impl<FL: FileLocation, FC> SymbolMap<FL, FC> {
-    pub(crate) fn new_without(
-        debug_file_location: FL,
+impl<H: FileAndPathHelper> SymbolMap<H> {
+    pub(crate) fn new_plain(
+        debug_file_location: H::FL,
         inner: Box<dyn GetInnerSymbolMap + Send>,
     ) -> Self {
         Self {
             debug_file_location,
             inner: Mutex::new(InnerSymbolMap::WithoutAddFile(inner)),
+            helper: None,
         }
     }
 
     pub(crate) fn new_with(
-        debug_file_location: FL,
-        inner: Box<dyn GetInnerSymbolMapWithLookupFramesExt<FC> + Send>,
+        debug_file_location: H::FL,
+        inner: Box<dyn GetInnerSymbolMapWithLookupFramesExt<H::F> + Send>,
+        helper: Arc<H>,
     ) -> Self {
         Self {
             debug_file_location,
             inner: Mutex::new(InnerSymbolMap::WithAddFile(inner)),
+            helper: Some(helper),
         }
     }
 
@@ -86,7 +93,7 @@ impl<FL: FileLocation, FC> SymbolMap<FL, FC> {
         }
     }
 
-    pub fn debug_file_location(&self) -> &FL {
+    pub fn debug_file_location(&self) -> &H::FL {
         &self.debug_file_location
     }
 
@@ -121,11 +128,10 @@ impl<FL: FileLocation, FC> SymbolMap<FL, FC> {
         self.with_inner(|inner| inner.lookup_offset(offset))
     }
 
-    pub async fn lookup_frames_async<H: FileAndPathHelper<F = FC, FL = FL>>(
-        &self,
-        svma: u64,
-        helper: &H,
-    ) -> Option<Vec<FrameDebugInfo>> {
+    pub async fn lookup_frames_async(&self, svma: u64) -> Option<Vec<FrameDebugInfo>> {
+        let Some(helper) = self.helper.as_deref() else {
+            return None;
+        };
         let mut lookup_result = match &*self.inner.lock().unwrap() {
             InnerSymbolMap::WithoutAddFile(_) => {
                 return None;
