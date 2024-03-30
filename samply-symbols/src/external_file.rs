@@ -304,10 +304,10 @@ impl<F: FileContents> ExternalFileData<F> {
                     .archive_members_by_name
                     .get(name_in_archive.as_bytes())
                     .ok_or_else(|| Error::FileNotInArchive(name_in_archive.to_owned()))?;
-                RangeReadRef::new(data, *start, *size)
+                data.range(*start, *size)
             }
-            (None, Some((offset, size))) => RangeReadRef::new(data, offset, size),
-            (None, None) => RangeReadRef::new(data, 0, data.len()),
+            (None, Some((offset, size))) => data.range(offset, size),
+            (None, None) => data.full_range(),
         };
         let object_file = File::parse(data).map_err(Error::MachOHeaderParseError)?;
         Ok(ArchiveMemberObject { data, object_file })
