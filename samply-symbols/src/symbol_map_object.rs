@@ -356,11 +356,60 @@ pub struct ObjectSymbolMapInner<'a, Symbol, FC, DDM> {
     debug_id: DebugId,
     path_mapper: Mutex<PathMapper<()>>,
     object_map: ObjectMap<'a>,
-    context: Option<addr2line::Context<gimli::EndianSlice<'a, gimli::RunTimeEndian>>>,
+    context: Option<Mutex<addr2line::Context<gimli::EndianSlice<'a, gimli::RunTimeEndian>>>>,
     svma_file_ranges: SvmaFileRanges,
     image_base_address: u64,
     dwo_dwarf_maker: &'a DDM,
     _phantom: PhantomData<FC>,
+}
+
+impl<'a, Symbol, FC, DDM> ObjectSymbolMapInner<'a, Symbol, FC, DDM>
+where
+    Symbol: object::ObjectSymbol<'a> + 'a,
+    FC: FileContents + 'static,
+    DDM: DwoDwarfMaker<FC>,
+{
+    fn frames_lookup_for_object_map_references(&self, svma: u64) -> FramesLookupResult {
+        let Some(entry) = self.object_map.get(svma) else {
+            return FramesLookupResult::Unavailable;
+        };
+        let external_file_name = entry.object(&self.object_map);
+        let external_file_name = std::str::from_utf8(external_file_name).unwrap();
+        let offset_from_symbol = (svma - entry.address()) as u32;
+        let symbol_name = entry.name().to_owned();
+        let (file_name, address_in_file) = match external_file_name.find('(') {
+            Some(index) => {
+                // This is an "archive" reference of the form
+                // "/Users/mstange/code/obj-m-opt/toolkit/library/build/../../../js/src/build/libjs_static.a(Unified_cpp_js_src13.o)"
+                let (path, paren_rest) = external_file_name.split_at(index);
+                let name_in_archive = paren_rest
+                    .trim_start_matches('(')
+                    .trim_end_matches(')')
+                    .to_owned();
+                let address_in_file = ExternalFileAddressInFileRef::MachoOsoArchive {
+                    name_in_archive,
+                    symbol_name,
+                    offset_from_symbol,
+                };
+                (path, address_in_file)
+            }
+            None => {
+                // This is a reference to a regular object file. Example:
+                // "/Users/mstange/code/obj-m-opt/toolkit/library/build/../../components/sessionstore/Unified_cpp_sessionstore0.o"
+                let address_in_file = ExternalFileAddressInFileRef::MachoOsoObject {
+                    symbol_name,
+                    offset_from_symbol,
+                };
+                (external_file_name, address_in_file)
+            }
+        };
+        FramesLookupResult::External(ExternalFileAddressRef {
+            file_ref: ExternalFileRef {
+                file_name: file_name.to_owned(),
+            },
+            address_in_file,
+        })
+    }
 }
 
 impl<'a, Symbol, FC, DDM> SymbolMapTrait for ObjectSymbolMapInner<'a, Symbol, FC, DDM>
@@ -386,77 +435,43 @@ where
     }
 
     fn lookup_relative_address(&self, address: u32) -> Option<AddressInfo> {
+        let svma = self.image_base_address + u64::from(address);
         let (start_addr, end_addr, name) = self.list.lookup_relative_address(address)?;
         let function_size = end_addr - start_addr;
+        let name = demangle::demangle_any(&name);
+        let symbol = SymbolInfo {
+            address: start_addr,
+            size: Some(function_size),
+            name,
+        };
 
-        let mut path_mapper = self.path_mapper.lock().unwrap();
+        let Some(context) = self.context.as_ref() else {
+            let frames = self.frames_lookup_for_object_map_references(svma);
+            return Some(AddressInfo { symbol, frames });
+        };
 
-        let svma = self.image_base_address + u64::from(address);
-        let frames = match self.context.as_ref().map(|ctx| ctx.find_frames(svma)) {
-            Some(LookupResult::Load { load, .. }) => {
+        let context = context.lock().unwrap();
+        let lookup_result = context.find_frames(svma);
+        let frames = match lookup_result {
+            LookupResult::Load { load, .. } => {
                 let dwo_ref = DwoRef::from_split_dwarf_load(&load);
                 FramesLookupResult::NeedDwo { svma, dwo_ref }
             }
-            Some(LookupResult::Output(Ok(frame_iter))) => {
+            LookupResult::Output(Ok(frame_iter)) => {
+                let mut path_mapper = self.path_mapper.lock().unwrap();
                 if let Some(frames) = convert_frames(frame_iter, &mut path_mapper) {
                     FramesLookupResult::Available(frames)
                 } else {
                     FramesLookupResult::Unavailable
                 }
             }
-            _ => {
-                if let Some(entry) = self.object_map.get(svma) {
-                    let external_file_name = entry.object(&self.object_map);
-                    let external_file_name = std::str::from_utf8(external_file_name).unwrap();
-                    let offset_from_symbol = (svma - entry.address()) as u32;
-                    let symbol_name = entry.name().to_owned();
-                    let (file_name, address_in_file) = match external_file_name.find('(') {
-                        Some(index) => {
-                            // This is an "archive" reference of the form
-                            // "/Users/mstange/code/obj-m-opt/toolkit/library/build/../../../js/src/build/libjs_static.a(Unified_cpp_js_src13.o)"
-                            let (path, paren_rest) = external_file_name.split_at(index);
-                            let name_in_archive = paren_rest
-                                .trim_start_matches('(')
-                                .trim_end_matches(')')
-                                .to_owned();
-                            let address_in_file = ExternalFileAddressInFileRef::MachoOsoArchive {
-                                name_in_archive,
-                                symbol_name,
-                                offset_from_symbol,
-                            };
-                            (path, address_in_file)
-                        }
-                        None => {
-                            // This is a reference to a regular object file. Example:
-                            // "/Users/mstange/code/obj-m-opt/toolkit/library/build/../../components/sessionstore/Unified_cpp_sessionstore0.o"
-                            let address_in_file = ExternalFileAddressInFileRef::MachoOsoObject {
-                                symbol_name,
-                                offset_from_symbol,
-                            };
-                            (external_file_name, address_in_file)
-                        }
-                    };
-                    FramesLookupResult::External(ExternalFileAddressRef {
-                        file_ref: ExternalFileRef {
-                            file_name: file_name.to_owned(),
-                        },
-                        address_in_file,
-                    })
-                } else {
-                    FramesLookupResult::Unavailable
-                }
+            LookupResult::Output(Err(_)) => {
+                drop(lookup_result);
+                drop(context);
+                self.frames_lookup_for_object_map_references(svma)
             }
         };
-
-        let name = demangle::demangle_any(&name);
-        Some(AddressInfo {
-            symbol: SymbolInfo {
-                address: start_addr,
-                size: Some(function_size),
-                name,
-            },
-            frames,
-        })
+        Some(AddressInfo { symbol, frames })
     }
 
     fn lookup_svma(&self, svma: u64) -> Option<AddressInfo> {
@@ -527,7 +542,7 @@ impl<FC: FileContents + 'static, OSMO: ObjectSymbolMapOuter<FC>>
 
 #[derive(Yokeable)]
 pub struct ObjectSymbolMapInnerWrapper<'data, FC>(
-    pub Box<dyn SymbolMapTraitWithLookupFramesExt<FC> + Send + 'data>,
+    pub Box<dyn SymbolMapTraitWithLookupFramesExt<FC> + Send + Sync + 'data>,
 );
 
 impl<'a, FC: FileContents + 'static> ObjectSymbolMapInnerWrapper<'a, FC> {
@@ -542,7 +557,7 @@ impl<'a, FC: FileContents + 'static> ObjectSymbolMapInnerWrapper<'a, FC> {
     where
         'a: 'file,
         O: object::Object<'a, 'file, Symbol = Symbol>,
-        Symbol: object::ObjectSymbol<'a> + Send + 'a,
+        Symbol: object::ObjectSymbol<'a> + Send + Sync + 'a,
     {
         let base_address = relative_address_base(object_file);
         let list = SymbolList::new(
@@ -557,7 +572,7 @@ impl<'a, FC: FileContents + 'static> ObjectSymbolMapInnerWrapper<'a, FC> {
             debug_id,
             path_mapper: Mutex::new(PathMapper::new()),
             object_map: object_file.object_map(),
-            context: addr2line_context,
+            context: addr2line_context.map(Mutex::new),
             image_base_address: base_address,
             svma_file_ranges: SvmaFileRanges::from_object(object_file),
             dwo_dwarf_maker,
@@ -595,6 +610,7 @@ where
         let Some(ctx) = self.context.as_ref() else {
             return FramesLookupResult2::Done(None);
         };
+        let ctx = ctx.lock().unwrap();
         let lookup_result = ctx.find_frames(svma);
         match lookup_result {
             LookupResult::Load { load, .. } => {
@@ -618,6 +634,7 @@ where
         let Some(ctx) = self.context.as_ref() else {
             return FramesLookupResult2::Done(None);
         };
+        let ctx = ctx.lock().unwrap();
         let lookup_result = ctx.find_frames(svma);
         match lookup_result {
             LookupResult::Load { load, continuation } => {

@@ -361,11 +361,11 @@ impl<T: FileContents + 'static> MakeMachObject<T> for DyldCacheFileData<T> {
 }
 
 struct FileDataAndObject<T: FileContents + 'static>(
-    Yoke<ObjectAndMachOData<'static, T>, Box<dyn MakeMachObject<T> + Send>>,
+    Yoke<ObjectAndMachOData<'static, T>, Box<dyn MakeMachObject<T> + Send + Sync>>,
 );
 
 impl<T: FileContents + 'static> FileDataAndObject<T> {
-    pub fn new(data: Box<dyn MakeMachObject<T> + Send>) -> Result<Self, Error> {
+    pub fn new(data: Box<dyn MakeMachObject<T> + Send + Sync>) -> Result<Self, Error> {
         let owner_and_object = Yoke::try_attach_to_cart(data, |data| data.make_dependent_object())?;
         Ok(Self(owner_and_object))
     }

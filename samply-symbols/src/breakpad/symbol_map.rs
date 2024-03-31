@@ -92,7 +92,7 @@ impl<T: FileContents> BreakpadSymbolMapOuter<T> {
 }
 
 #[derive(Yokeable)]
-pub struct BreakpadSymbolMapInnerWrapper<'a>(Box<dyn SymbolMapTrait + Send + 'a>);
+pub struct BreakpadSymbolMapInnerWrapper<'a>(Box<dyn SymbolMapTrait + Send + Sync + 'a>);
 
 struct BreakpadSymbolMapInner<'a, T: FileContents> {
     data: &'a FileContentsWrapper<T>,

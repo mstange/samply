@@ -212,7 +212,7 @@ struct JitDumpSymbolMapInner<'a, T: FileContents> {
 }
 
 #[derive(Yokeable)]
-pub struct JitDumpSymbolMapInnerWrapper<'data>(pub Box<dyn SymbolMapTrait + Send + 'data>);
+pub struct JitDumpSymbolMapInnerWrapper<'data>(pub Box<dyn SymbolMapTrait + Send + Sync + 'data>);
 
 #[derive(Debug)]
 struct JitDumpSymbolMapCache<'a, T: FileContents> {

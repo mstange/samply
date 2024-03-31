@@ -291,7 +291,7 @@ where
 }
 
 #[derive(Yokeable)]
-struct ElfObjectsWrapper<'data, T: FileContents>(Box<dyn ElfObjectsTrait<T> + Send + 'data>);
+struct ElfObjectsWrapper<'data, T: FileContents>(Box<dyn ElfObjectsTrait<T> + Send + Sync + 'data>);
 
 trait ElfObjectsTrait<T: FileContents> {
     fn make_inner(&self) -> Result<ObjectSymbolMapInnerWrapper<'_, T>, Error>;

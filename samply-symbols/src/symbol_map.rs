@@ -43,8 +43,8 @@ pub trait GetInnerSymbolMapWithLookupFramesExt<FC> {
 }
 
 enum InnerSymbolMap<FC> {
-    WithoutAddFile(Box<dyn GetInnerSymbolMap + Send>),
-    WithAddFile(Box<dyn GetInnerSymbolMapWithLookupFramesExt<FC> + Send>),
+    WithoutAddFile(Box<dyn GetInnerSymbolMap + Send + Sync>),
+    WithAddFile(Box<dyn GetInnerSymbolMapWithLookupFramesExt<FC> + Send + Sync>),
 }
 
 pub enum FramesLookupResult2 {
@@ -54,7 +54,7 @@ pub enum FramesLookupResult2 {
 
 pub struct SymbolMap<H: FileAndPathHelper> {
     debug_file_location: H::FL,
-    inner: Mutex<InnerSymbolMap<H::F>>,
+    inner: InnerSymbolMap<H::F>,
     helper: Option<Arc<H>>,
     cached_external_file: Mutex<Option<ExternalFileSymbolMap<H::F>>>,
 }
@@ -62,11 +62,11 @@ pub struct SymbolMap<H: FileAndPathHelper> {
 impl<H: FileAndPathHelper> SymbolMap<H> {
     pub(crate) fn new_plain(
         debug_file_location: H::FL,
-        inner: Box<dyn GetInnerSymbolMap + Send>,
+        inner: Box<dyn GetInnerSymbolMap + Send + Sync>,
     ) -> Self {
         Self {
             debug_file_location,
-            inner: Mutex::new(InnerSymbolMap::WithoutAddFile(inner)),
+            inner: InnerSymbolMap::WithoutAddFile(inner),
             helper: None,
             cached_external_file: Mutex::new(None),
         }
@@ -74,26 +74,21 @@ impl<H: FileAndPathHelper> SymbolMap<H> {
 
     pub(crate) fn new_with(
         debug_file_location: H::FL,
-        inner: Box<dyn GetInnerSymbolMapWithLookupFramesExt<H::F> + Send>,
+        inner: Box<dyn GetInnerSymbolMapWithLookupFramesExt<H::F> + Send + Sync>,
         helper: Arc<H>,
     ) -> Self {
         Self {
             debug_file_location,
-            inner: Mutex::new(InnerSymbolMap::WithAddFile(inner)),
+            inner: InnerSymbolMap::WithAddFile(inner),
             helper: Some(helper),
             cached_external_file: Mutex::new(None),
         }
     }
 
-    fn with_inner<F, R>(&self, f: F) -> R
-    where
-        F: FnOnce(&dyn SymbolMapTrait) -> R,
-    {
-        match &*self.inner.lock().unwrap() {
-            InnerSymbolMap::WithoutAddFile(inner) => f(inner.get_inner_symbol_map()),
-            InnerSymbolMap::WithAddFile(inner) => {
-                f(inner.get_inner_symbol_map().get_as_symbol_map())
-            }
+    fn inner(&self) -> &dyn SymbolMapTrait {
+        match &self.inner {
+            InnerSymbolMap::WithoutAddFile(inner) => inner.get_inner_symbol_map(),
+            InnerSymbolMap::WithAddFile(inner) => inner.get_inner_symbol_map().get_as_symbol_map(),
         }
     }
 
@@ -102,34 +97,27 @@ impl<H: FileAndPathHelper> SymbolMap<H> {
     }
 
     pub fn debug_id(&self) -> debugid::DebugId {
-        self.with_inner(|inner| inner.debug_id())
+        self.inner().debug_id()
     }
 
     pub fn symbol_count(&self) -> usize {
-        self.with_inner(|inner| inner.symbol_count())
+        self.inner().symbol_count()
     }
 
     pub fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {
-        let vec = self.with_inner(|inner| {
-            let vec: Vec<_> = inner
-                .iter_symbols()
-                .map(|(addr, s)| (addr, s.to_string()))
-                .collect();
-            vec
-        });
-        Box::new(vec.into_iter().map(|(addr, s)| (addr, Cow::Owned(s))))
+        self.inner().iter_symbols()
     }
 
     pub fn lookup_relative_address(&self, address: u32) -> Option<AddressInfo> {
-        self.with_inner(|inner| inner.lookup_relative_address(address))
+        self.inner().lookup_relative_address(address)
     }
 
     pub fn lookup_svma(&self, svma: u64) -> Option<AddressInfo> {
-        self.with_inner(|inner| inner.lookup_svma(svma))
+        self.inner().lookup_svma(svma)
     }
 
     pub fn lookup_offset(&self, offset: u64) -> Option<AddressInfo> {
-        self.with_inner(|inner| inner.lookup_offset(offset))
+        self.inner().lookup_offset(offset)
     }
 
     /// Resolve a debug info lookup for which `SymbolMap::lookup_*` returned a
@@ -170,7 +158,7 @@ impl<H: FileAndPathHelper> SymbolMap<H> {
         let Some(helper) = self.helper.as_deref() else {
             return None;
         };
-        let mut lookup_result = match &*self.inner.lock().unwrap() {
+        let mut lookup_result = match &self.inner {
             InnerSymbolMap::WithoutAddFile(_) => {
                 return None;
             }
@@ -187,7 +175,7 @@ impl<H: FileAndPathHelper> SymbolMap<H> {
                         Some(location) => helper.load_file(location).await.ok(),
                         None => None,
                     };
-                    lookup_result = match &*self.inner.lock().unwrap() {
+                    lookup_result = match &self.inner {
                         InnerSymbolMap::WithoutAddFile(_) => panic!(),
                         InnerSymbolMap::WithAddFile(inner) => inner
                             .get_inner_symbol_map()

@@ -328,7 +328,7 @@ impl<T: FileContents + 'static> PdbObjectWithFileData<T> {
 }
 
 pub struct PdbSymbolMap<T: FileContents + 'static>(
-    Yoke<PdbSymbolMapInnerWrapper<'static>, Box<PdbObjectWithFileData<T>>>,
+    Mutex<Yoke<PdbSymbolMapInnerWrapper<'static>, Box<PdbObjectWithFileData<T>>>>,
 );
 
 impl<T: FileContents> PdbSymbolMap<T> {
@@ -341,13 +341,53 @@ impl<T: FileContents> PdbSymbolMap<T> {
                 Ok(PdbSymbolMapInnerWrapper(Box::new(symbol_map)))
             },
         )?;
-        Ok(PdbSymbolMap(outer_and_inner))
+        Ok(PdbSymbolMap(Mutex::new(outer_and_inner)))
+    }
+
+    fn with_inner<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&dyn SymbolMapTrait) -> R,
+    {
+        f(&*self.0.lock().unwrap().get().0)
     }
 }
 
 impl<T: FileContents> GetInnerSymbolMap for PdbSymbolMap<T> {
     fn get_inner_symbol_map<'a>(&'a self) -> &'a (dyn SymbolMapTrait + 'a) {
-        self.0.get().0.as_ref()
+        self
+    }
+}
+
+impl<T: FileContents> SymbolMapTrait for PdbSymbolMap<T> {
+    fn debug_id(&self) -> debugid::DebugId {
+        self.with_inner(|inner| inner.debug_id())
+    }
+
+    fn symbol_count(&self) -> usize {
+        self.with_inner(|inner| inner.symbol_count())
+    }
+
+    fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {
+        let vec = self.with_inner(|inner| {
+            let vec: Vec<_> = inner
+                .iter_symbols()
+                .map(|(addr, s)| (addr, s.to_string()))
+                .collect();
+            vec
+        });
+        Box::new(vec.into_iter().map(|(addr, s)| (addr, Cow::Owned(s))))
+    }
+
+    fn lookup_relative_address(&self, address: u32) -> Option<AddressInfo> {
+        self.with_inner(|inner| inner.lookup_relative_address(address))
+    }
+
+    fn lookup_svma(&self, svma: u64) -> Option<AddressInfo> {
+        self.with_inner(|inner| inner.lookup_svma(svma))
+    }
+
+    fn lookup_offset(&self, offset: u64) -> Option<AddressInfo> {
+        self.with_inner(|inner| inner.lookup_offset(offset))
     }
 }
 
