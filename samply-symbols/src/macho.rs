@@ -21,7 +21,9 @@ use crate::shared::{
     RangeReadRef,
 };
 use crate::symbol_map::SymbolMap;
-use crate::symbol_map_object::{ObjectSymbolMap, ObjectSymbolMapInner, ObjectSymbolMapOuter};
+use crate::symbol_map_object::{
+    ObjectSymbolMap, ObjectSymbolMapInnerWrapper, ObjectSymbolMapOuter,
+};
 
 /// Converts a cpu type/subtype pair into the architecture name.
 ///
@@ -369,18 +371,19 @@ impl<T: FileContents + 'static> FileDataAndObject<T> {
     }
 }
 
-impl<T: FileContents + 'static> ObjectSymbolMapOuter for FileDataAndObject<T> {
-    fn make_symbol_map_inner(&self) -> Result<ObjectSymbolMapInner<'_>, Error> {
+impl<T: FileContents + 'static> ObjectSymbolMapOuter<T> for FileDataAndObject<T> {
+    fn make_symbol_map_inner(&self) -> Result<ObjectSymbolMapInnerWrapper<'_, T>, Error> {
         let ObjectAndMachOData { object, macho_data } = self.0.get();
         let (function_starts, function_ends) = compute_function_addresses_macho(macho_data, object);
         let debug_id = debug_id_for_object(object)
             .ok_or(Error::InvalidInputError("debug ID cannot be read"))?;
-        let symbol_map = ObjectSymbolMapInner::new(
+        let symbol_map = ObjectSymbolMapInnerWrapper::new(
             object,
             None,
             debug_id,
             function_starts.as_deref(),
             function_ends.as_deref(),
+            &(),
         );
 
         Ok(symbol_map)

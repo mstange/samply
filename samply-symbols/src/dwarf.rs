@@ -93,15 +93,16 @@ where
     let (section, used_manual_zdebug_path) =
         if let Some(section) = file.section_by_name(section_name) {
             (section, false)
-        } else {
+        } else if section_name.as_bytes().starts_with(b".debug_") {
             // Also detect old-style compressed section which start with .zdebug / __zdebug
             // in case object did not detect them.
-            assert!(section_name.as_bytes().starts_with(b".debug_"));
             let mut name = Vec::with_capacity(section_name.len() + 1);
             name.extend_from_slice(b".zdebug_");
             name.extend_from_slice(&section_name.as_bytes()[7..]);
             let section = file.section_by_name_bytes(&name)?;
             (section, true)
+        } else {
+            return None;
         };
 
     // Handle sections which are not compressed.

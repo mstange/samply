@@ -23,7 +23,9 @@ use crate::shared::{
     FrameDebugInfo, FramesLookupResult, SourceFilePath, SymbolInfo,
 };
 use crate::symbol_map::{GetInnerSymbolMap, SymbolMap, SymbolMapTrait};
-use crate::symbol_map_object::{ObjectSymbolMap, ObjectSymbolMapInner, ObjectSymbolMapOuter};
+use crate::symbol_map_object::{
+    ObjectSymbolMap, ObjectSymbolMapInnerWrapper, ObjectSymbolMapOuter,
+};
 
 pub async fn load_symbol_map_for_pdb_corresponding_to_binary<H: FileAndPathHelper>(
     file_kind: FileKind,
@@ -90,18 +92,19 @@ impl<T: FileContents + 'static> PeSymbolMapDataAndObject<T> {
     }
 }
 
-impl<T: FileContents + 'static> ObjectSymbolMapOuter for PeSymbolMapDataAndObject<T> {
-    fn make_symbol_map_inner(&self) -> Result<ObjectSymbolMapInner<'_>, Error> {
+impl<T: FileContents + 'static> ObjectSymbolMapOuter<T> for PeSymbolMapDataAndObject<T> {
+    fn make_symbol_map_inner(&self) -> Result<ObjectSymbolMapInnerWrapper<T>, Error> {
         let object = &self.0.get().0;
         let debug_id = debug_id_for_object(object)
             .ok_or(Error::InvalidInputError("debug ID cannot be read"))?;
         let (function_starts, function_ends) = compute_function_addresses_pe(object);
-        let symbol_map = ObjectSymbolMapInner::new(
+        let symbol_map = ObjectSymbolMapInnerWrapper::new(
             object,
             None,
             debug_id,
             function_starts.as_deref(),
             function_ends.as_deref(),
+            &(),
         );
 
         Ok(symbol_map)
