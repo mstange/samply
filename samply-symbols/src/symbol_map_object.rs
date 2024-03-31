@@ -394,12 +394,8 @@ where
         let svma = self.image_base_address + u64::from(address);
         let frames = match self.context.as_ref().map(|ctx| ctx.find_frames(svma)) {
             Some(LookupResult::Load { load, .. }) => {
-                let requested_dwo_ref = DwoRef::from_split_dwarf_load(&load);
-                FramesLookupResult::NeedDwo {
-                    svma,
-                    dwo_ref: requested_dwo_ref,
-                    partial_frames: None,
-                }
+                let dwo_ref = DwoRef::from_split_dwarf_load(&load);
+                FramesLookupResult::NeedDwo { svma, dwo_ref }
             }
             Some(LookupResult::Output(Ok(frame_iter))) => {
                 if let Some(frames) = convert_frames(frame_iter, &mut path_mapper) {

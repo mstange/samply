@@ -636,7 +636,6 @@ pub enum FramesLookupResult {
     NeedDwo {
         svma: u64,
         dwo_ref: DwoRef,
-        partial_frames: Option<Vec<FrameDebugInfo>>,
     },
 
     /// Debug info for this address was not found in the symbol map, but can
