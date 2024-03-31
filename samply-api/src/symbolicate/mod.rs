@@ -75,7 +75,6 @@ impl<'a, H: FileAndPathHelper> SymbolicateApi<'a, H> {
         let mut symbolication_result = LookedUpAddresses::for_addresses(&addresses);
         let mut external_addresses = Vec::new();
         let mut external_addresses_dwo = Vec::new();
-        let debug_file_location;
 
         // Do the synchronous work first, and accumulate external_addresses which need
         // to be handled asynchronously. This allows us to group async file loads by
@@ -87,7 +86,6 @@ impl<'a, H: FileAndPathHelper> SymbolicateApi<'a, H> {
             ..Default::default()
         };
         let symbol_map = self.symbol_manager.load_symbol_map(&info).await?;
-        debug_file_location = symbol_map.debug_file_location().clone();
 
         symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
 
@@ -122,11 +120,7 @@ impl<'a, H: FileAndPathHelper> SymbolicateApi<'a, H> {
         external_addresses_dwo.sort_unstable_by(|(_, _, a), (_, _, b)| a.cmp(b));
 
         for (address, ext_address) in external_addresses {
-            if let Some(frames) = self
-                .symbol_manager
-                .lookup_external(&debug_file_location, &ext_address)
-                .await
-            {
+            if let Some(frames) = symbol_map.lookup_external(&ext_address).await {
                 symbolication_result.add_address_debug_info(address, frames);
             }
         }

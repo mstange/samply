@@ -6,8 +6,9 @@ use std::{
 use debugid::DebugId;
 
 use crate::{
+    external_file,
     shared::{AddressInfo, DwoRef, FileLocation},
-    FileAndPathHelper, FrameDebugInfo,
+    ExternalFileAddressRef, ExternalFileSymbolMap, FileAndPathHelper, FrameDebugInfo,
 };
 
 pub trait SymbolMapTrait {
@@ -55,6 +56,7 @@ pub struct SymbolMap<H: FileAndPathHelper> {
     debug_file_location: H::FL,
     inner: Mutex<InnerSymbolMap<H::F>>,
     helper: Option<Arc<H>>,
+    cached_external_file: Mutex<Option<ExternalFileSymbolMap<H::F>>>,
 }
 
 impl<H: FileAndPathHelper> SymbolMap<H> {
@@ -66,6 +68,7 @@ impl<H: FileAndPathHelper> SymbolMap<H> {
             debug_file_location,
             inner: Mutex::new(InnerSymbolMap::WithoutAddFile(inner)),
             helper: None,
+            cached_external_file: Mutex::new(None),
         }
     }
 
@@ -78,6 +81,7 @@ impl<H: FileAndPathHelper> SymbolMap<H> {
             debug_file_location,
             inner: Mutex::new(InnerSymbolMap::WithAddFile(inner)),
             helper: Some(helper),
+            cached_external_file: Mutex::new(None),
         }
     }
 
@@ -126,6 +130,40 @@ impl<H: FileAndPathHelper> SymbolMap<H> {
 
     pub fn lookup_offset(&self, offset: u64) -> Option<AddressInfo> {
         self.with_inner(|inner| inner.lookup_offset(offset))
+    }
+
+    /// Resolve a debug info lookup for which `SymbolMap::lookup_*` returned a
+    /// `FramesLookupResult::External`.
+    ///
+    /// This method is asynchronous because it may load a new external file.
+    ///
+    /// This keeps the most recent external file cached, so that repeated lookups
+    /// for the same external file are fast.
+    pub async fn lookup_external(
+        &self,
+        address: &ExternalFileAddressRef,
+    ) -> Option<Vec<FrameDebugInfo>> {
+        {
+            let cached_external_file = self.cached_external_file.lock().ok()?;
+            match &*cached_external_file {
+                Some(external_file) if external_file.is_same_file(&address.file_ref) => {
+                    return external_file.lookup(&address.address_in_file);
+                }
+                _ => {}
+            }
+        }
+
+        let helper = self.helper.as_deref()?;
+        let external_file =
+            external_file::load_external_file(helper, &self.debug_file_location, &address.file_ref)
+                .await
+                .ok()?;
+        let lookup_result = external_file.lookup(&address.address_in_file);
+
+        if let Ok(mut guard) = self.cached_external_file.lock() {
+            *guard = Some(external_file);
+        }
+        lookup_result
     }
 
     pub async fn lookup_frames_async(&self, svma: u64) -> Option<Vec<FrameDebugInfo>> {

@@ -45,11 +45,7 @@ fn for_docs() {
             );
             let frames = match address_info.frames {
                 FramesLookupResult::Available(frames) => Some(frames),
-                FramesLookupResult::External(ext_ref) => {
-                    symbol_manager
-                        .lookup_external(&symbol_map.symbol_file_origin(), &ext_ref)
-                        .await
-                }
+                FramesLookupResult::External(ext_ref) => symbol_map.lookup_external(&ext_ref).await,
                 FramesLookupResult::Unavailable => None,
                 _ => todo!("NeedDwo"),
             };

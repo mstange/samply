@@ -75,6 +75,32 @@ impl SymbolMap {
         self.0.lookup_frames_async(svma).await
     }
 
+    /// Resolve a debug info lookup for which `SymbolMap::lookup_*` returned
+    /// [`FramesLookupResult::External`](crate::FramesLookupResult::External).
+    ///
+    /// This method is asynchronous because it may load a new external file.
+    ///
+    /// This is used on macOS: When linking multiple `.o` files together into a library or
+    /// an executable, the linker does not copy the dwarf sections into the linked output.
+    /// Instead, it stores the paths to those original `.o` files, using OSO stabs entries.
+    ///
+    /// A `SymbolMap` for such a linked file will not contain debug info, and will return
+    /// `FramesLookupResult::External` from the lookups. Then the address needs to be
+    /// looked up in the external file.
+    ///
+    /// In the future, this may also be used for loading `.dwo` or `.dwp` files on Linux.
+    ///
+    /// The `SymbolManager` keeps the most recent external file cached, so that repeated
+    /// calls to `lookup_external` for the same external file are fast. If the set of
+    /// addresses for lookup is known ahead-of-time, sorting these addresses upfront can
+    /// achieve a very good hit rate.
+    pub async fn lookup_external(
+        &self,
+        external: &ExternalFileAddressRef,
+    ) -> Option<Vec<FrameDebugInfo>> {
+        self.0.lookup_external(external).await
+    }
+
     /// Returns an abstract "origin token" which needs to be passed to [`SymbolManager::lookup_external`]
     /// when resolving [`FramesLookupResult::External`](crate::FramesLookupResult::External) addresses.
     ///
@@ -231,37 +257,6 @@ impl SymbolManager {
             ..Default::default()
         };
         Ok(SymbolMap(self.symbol_manager.load_symbol_map(&info).await?))
-    }
-
-    /// Resolve a debug info lookup for which `SymbolMap::lookup_*` returned
-    /// [`FramesLookupResult::External`](crate::FramesLookupResult::External).
-    ///
-    /// The first argument should be the return value from [`SymbolMap::symbol_file_origin`].
-    ///
-    /// This method is asynchronous because it may load a new external file.
-    ///
-    /// This is used on macOS: When linking multiple `.o` files together into a library or
-    /// an executable, the linker does not copy the dwarf sections into the linked output.
-    /// Instead, it stores the paths to those original `.o` files, using OSO stabs entries.
-    ///
-    /// A `SymbolMap` for such a linked file will not contain debug info, and will return
-    /// `FramesLookupResult::External` from the lookups. Then the address needs to be
-    /// looked up in the external file.
-    ///
-    /// In the future, this may also be used for loading `.dwo` or `.dwp` files on Linux.
-    ///
-    /// The `SymbolManager` keeps the most recent external file cached, so that repeated
-    /// calls to `lookup_external` for the same external file are fast. If the set of
-    /// addresses for lookup is known ahead-of-time, sorting these addresses upfront can
-    /// achieve a very good hit rate.
-    pub async fn lookup_external(
-        &self,
-        symbol_file_origin: &SymbolFileOrigin,
-        external: &ExternalFileAddressRef,
-    ) -> Option<Vec<FrameDebugInfo>> {
-        self.symbol_manager
-            .lookup_external(&symbol_file_origin.0, external)
-            .await
     }
 
     /// Manually load and return an external file with additional debug info.

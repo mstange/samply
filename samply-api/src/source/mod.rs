@@ -76,11 +76,7 @@ impl<'a, H: FileAndPathHelper> SourceApi<'a, H> {
         let frames = match frames {
             FramesLookupResult::Available(frames) => frames,
             FramesLookupResult::External(address) => {
-                match self
-                    .symbol_manager
-                    .lookup_external(&debug_file_location, &address)
-                    .await
-                {
+                match symbol_map.lookup_external(&address).await {
                     Some(frames) => frames,
                     None => return Err(SourceError::NoDebugInfo),
                 }

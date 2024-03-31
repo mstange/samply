@@ -211,7 +211,7 @@
 //! }
 //! ```
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use binary_image::BinaryImageInner;
 pub use debugid;
@@ -267,7 +267,6 @@ pub use crate::symbol_map::SymbolMap;
 
 pub struct SymbolManager<H: FileAndPathHelper> {
     helper: Arc<H>,
-    cached_external_file: Mutex<Option<ExternalFileSymbolMap<H::F>>>,
 }
 
 impl<H, F, FL> SymbolManager<H>
@@ -280,7 +279,6 @@ where
     pub fn with_helper(helper: H) -> Self {
         Self {
             helper: Arc::new(helper),
-            cached_external_file: Mutex::new(None),
         }
     }
 
@@ -379,7 +377,7 @@ where
     /// `FramesLookupResult::External` from the lookups. Then the address needs to be
     /// looked up in the external file.
     ///
-    /// Also see `SymbolManager::lookup_external`.
+    /// Also see `SymbolMap::lookup_external`.
     pub async fn load_external_file(
         &self,
         debug_file_location: &H::FL,
@@ -387,40 +385,6 @@ where
     ) -> Result<ExternalFileSymbolMap<H::F>, Error> {
         external_file::load_external_file(&*self.helper, debug_file_location, external_file_ref)
             .await
-    }
-
-    /// Resolve a debug info lookup for which `SymbolMap::lookup_*` returned a
-    /// `FramesLookupResult::External`.
-    ///
-    /// This method is asynchronous because it may load a new external file.
-    ///
-    /// This keeps the most recent external file cached, so that repeated lookups
-    /// for the same external file are fast.
-    pub async fn lookup_external(
-        &self,
-        debug_file_location: &H::FL,
-        address: &ExternalFileAddressRef,
-    ) -> Option<Vec<FrameDebugInfo>> {
-        {
-            let cached_external_file = self.cached_external_file.lock().ok()?;
-            match &*cached_external_file {
-                Some(external_file) if external_file.is_same_file(&address.file_ref) => {
-                    return external_file.lookup(&address.address_in_file);
-                }
-                _ => {}
-            }
-        }
-
-        let external_file = self
-            .load_external_file(debug_file_location, &address.file_ref)
-            .await
-            .ok()?;
-        let lookup_result = external_file.lookup(&address.address_in_file);
-
-        if let Ok(mut guard) = self.cached_external_file.lock() {
-            *guard = Some(external_file);
-        }
-        lookup_result
     }
 
     async fn load_binary_from_dyld_cache(

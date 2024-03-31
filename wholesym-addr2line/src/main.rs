@@ -151,7 +151,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let symbol_map = symbol_manager
         .load_symbol_map_for_binary_at_path(path, None)
         .await?;
-    let symbol_file_origin = symbol_map.symbol_file_origin();
 
     let stdin = std::io::stdin();
     let addrs = matches
@@ -181,9 +180,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     symbol_map.lookup_ext(svma).await
                 }
                 wholesym::FramesLookupResult::External(external) => {
-                    symbol_manager
-                        .lookup_external(&symbol_file_origin, &external)
-                        .await
+                    symbol_map.lookup_external(&external).await
                 }
                 wholesym::FramesLookupResult::Unavailable => None,
             };
