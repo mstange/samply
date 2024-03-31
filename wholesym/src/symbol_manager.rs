@@ -3,8 +3,8 @@ use std::path::Path;
 
 use debugid::DebugId;
 use samply_symbols::{
-    self, AddressInfo, Error, ExternalFileAddressInFileRef, ExternalFileAddressRef,
-    ExternalFileRef, FrameDebugInfo, LibraryInfo, MultiArchDisambiguator,
+    self, AddressInfo, Error, ExternalFileAddressInFileRef, ExternalFileAddressRef, FrameDebugInfo,
+    LibraryInfo, MultiArchDisambiguator,
 };
 
 use crate::config::SymbolManagerConfig;
@@ -71,10 +71,6 @@ impl SymbolMap {
         self.0.lookup_offset(offset)
     }
 
-    pub async fn lookup_ext(&self, svma: u64) -> Option<Vec<FrameDebugInfo>> {
-        self.0.lookup_frames_async(svma).await
-    }
-
     /// Resolve a debug info lookup for which `SymbolMap::lookup_*` returned
     /// [`FramesLookupResult::External`](crate::FramesLookupResult::External).
     ///
@@ -133,16 +129,9 @@ pub struct ExternalFileSymbolMap(samply_symbols::ExternalFileSymbolMap<WholesymF
 
 impl ExternalFileSymbolMap {
     /// The string which identifies this external file. This is usually an absolute
-    /// path. (XXX does this contain the `archive.a(membername)` stuff or no?)
-    pub fn name(&self) -> &str {
-        self.0.name()
-    }
-
-    /// Checks whether `external_file_ref` refers to this external file.
-    ///
-    /// Used to avoid repeated loading of the same external file.
-    pub fn is_same_file(&self, external_file_ref: &ExternalFileRef) -> bool {
-        self.0.is_same_file(external_file_ref)
+    /// path.
+    pub fn file_path(&self) -> &str {
+        self.0.file_path()
     }
 
     /// Look up the debug info for the given [`ExternalFileAddressInFileRef`].
@@ -265,11 +254,11 @@ impl SymbolManager {
     pub async fn load_external_file(
         &self,
         symbol_file_origin: &SymbolFileOrigin,
-        external_file_ref: &ExternalFileRef,
+        external_file_path: &str,
     ) -> Result<ExternalFileSymbolMap, Error> {
         let symbol_map = self
             .symbol_manager
-            .load_external_file(&symbol_file_origin.0, external_file_ref)
+            .load_external_file(&symbol_file_origin.0, external_file_path)
             .await?;
         Ok(ExternalFileSymbolMap(symbol_map))
     }

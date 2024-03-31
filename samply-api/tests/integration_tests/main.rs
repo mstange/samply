@@ -2,7 +2,6 @@ use assert_json_diff::assert_json_eq;
 pub use samply_api::debugid::DebugId;
 use samply_api::samply_symbols;
 use samply_api::Api;
-use samply_symbols::DwoRef;
 use samply_symbols::{
     CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation, LibraryInfo,
     SymbolManager,
@@ -197,7 +196,7 @@ impl FileLocation for FileLocationType {
         Some(Self(self.0.with_extension("symindex")))
     }
 
-    fn location_for_dwo(&self, _dwo_ref: &DwoRef) -> Option<Self> {
+    fn location_for_dwo(&self, _comp_dir: &str, _path: &str) -> Option<Self> {
         None // TODO
     }
 }

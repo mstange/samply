@@ -32,13 +32,11 @@
 //!         address_info.symbol.address, address_info.symbol.name
 //!     );
 //!     let frames = match address_info.frames {
-//!         FramesLookupResult::Available(frames) => Some(frames),
-//!         FramesLookupResult::External(ext_ref) => {
-//!             symbol_manager
-//!                 .lookup_external(&symbol_map.symbol_file_origin(), &ext_ref)
-//!                 .await
+//!         Some(FramesLookupResult::Available(frames)) => Some(frames),
+//!         Some(FramesLookupResult::External(ext_ref)) => {
+//!             symbol_map.lookup_external(&ext_ref).await
 //!         }
-//!         FramesLookupResult::Unavailable => None,
+//!         None => None,
 //!     };
 //!     if let Some(frames) = frames {
 //!         for (i, frame) in frames.into_iter().enumerate() {

@@ -74,7 +74,6 @@ impl<'a, H: FileAndPathHelper> SymbolicateApi<'a, H> {
 
         let mut symbolication_result = LookedUpAddresses::for_addresses(&addresses);
         let mut external_addresses = Vec::new();
-        let mut external_addresses_dwo = Vec::new();
 
         // Do the synchronous work first, and accumulate external_addresses which need
         // to be handled asynchronously. This allows us to group async file loads by
@@ -98,16 +97,13 @@ impl<'a, H: FileAndPathHelper> SymbolicateApi<'a, H> {
                     address_info.symbol.size,
                 );
                 match address_info.frames {
-                    FramesLookupResult::Available(frames) => {
+                    Some(FramesLookupResult::Available(frames)) => {
                         symbolication_result.add_address_debug_info(address, frames)
                     }
-                    FramesLookupResult::External(ext_address) => {
+                    Some(FramesLookupResult::External(ext_address)) => {
                         external_addresses.push((address, ext_address));
                     }
-                    FramesLookupResult::Unavailable => {}
-                    FramesLookupResult::NeedDwo { svma, dwo_ref, .. } => {
-                        external_addresses_dwo.push((address, svma, dwo_ref));
-                    }
+                    None => {}
                 }
             }
         }
@@ -117,16 +113,9 @@ impl<'a, H: FileAndPathHelper> SymbolicateApi<'a, H> {
         // external addresses by ExternalFileAddressRef before we do the lookup,
         // in order to get the best hit rate in lookup_external.
         external_addresses.sort_unstable_by(|(_, a), (_, b)| a.cmp(b));
-        external_addresses_dwo.sort_unstable_by(|(_, _, a), (_, _, b)| a.cmp(b));
 
         for (address, ext_address) in external_addresses {
             if let Some(frames) = symbol_map.lookup_external(&ext_address).await {
-                symbolication_result.add_address_debug_info(address, frames);
-            }
-        }
-
-        for (address, svma, _) in external_addresses_dwo {
-            if let Some(frames) = symbol_map.lookup_frames_async(svma).await {
                 symbolication_result.add_address_debug_info(address, frames);
             }
         }

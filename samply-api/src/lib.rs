@@ -15,7 +15,7 @@
 //!
 //! ```rust
 //! use samply_api::samply_symbols::{
-//!     DwoRef, FileContents, FileAndPathHelper, FileAndPathHelperResult, OptionallySendFuture,
+//!     FileContents, FileAndPathHelper, FileAndPathHelperResult, OptionallySendFuture,
 //!     CandidatePathInfo, FileLocation, LibraryInfo, SymbolManager,
 //! };
 //! use samply_api::samply_symbols::debugid::{CodeId, DebugId};
@@ -130,8 +130,8 @@
 //!         Some(Self(self.0.with_extension("symindex")))
 //!     }
 //!
-//!     fn location_for_dwo(&self, dwo_ref: &DwoRef) -> Option<Self> {
-//!         Some(Self(std::path::Path::new(&dwo_ref.path).into()))
+//!     fn location_for_dwo(&self, _comp_dir: &str, path: &str) -> Option<Self> {
+//!         Some(Self(std::path::Path::new(path).into()))
 //!     }
 //! }
 //! ```

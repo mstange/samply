@@ -175,14 +175,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut printed_anything = false;
         if let Some(address_info) = symbol_map.lookup_relative_address(probe) {
             let frames = match address_info.frames {
-                wholesym::FramesLookupResult::Available(frames) => Some(frames),
-                wholesym::FramesLookupResult::NeedDwo { svma, .. } => {
-                    symbol_map.lookup_ext(svma).await
-                }
-                wholesym::FramesLookupResult::External(external) => {
+                Some(wholesym::FramesLookupResult::Available(frames)) => Some(frames),
+                Some(wholesym::FramesLookupResult::External(external)) => {
                     symbol_map.lookup_external(&external).await
                 }
-                wholesym::FramesLookupResult::Unavailable => None,
+                None => None,
             };
 
             if let Some(frames) = frames {

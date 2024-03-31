@@ -433,7 +433,7 @@ pub trait FileLocation: Clone + Display {
     /// corresponding symindex file.
     fn location_for_breakpad_symindex(&self) -> Option<Self>;
 
-    fn location_for_dwo(&self, dwo_ref: &DwoRef) -> Option<Self>;
+    fn location_for_dwo(&self, comp_dir: &str, path: &str) -> Option<Self>;
 }
 
 /// The path of a source file, as found in the debug info.
@@ -615,7 +615,7 @@ pub struct AddressInfo {
     /// Information about the symbol which contains the looked up address.
     pub symbol: SymbolInfo,
     /// Information about the frames at the looked up address, from the debug info.
-    pub frames: FramesLookupResult,
+    pub frames: Option<FramesLookupResult>,
 }
 
 /// Contains address debug info (inlined functions, file names, line numbers) if
@@ -633,11 +633,6 @@ pub enum FramesLookupResult {
     /// its caller, and so on. The last element is always the outer function.
     Available(Vec<FrameDebugInfo>),
 
-    NeedDwo {
-        svma: u64,
-        dwo_ref: DwoRef,
-    },
-
     /// Debug info for this address was not found in the symbol map, but can
     /// potentially be found in a different file, with the help of
     /// `SymbolManager::lookup_external`.
@@ -648,16 +643,6 @@ pub enum FramesLookupResult {
     /// paths to those original `.o` files, using 'OSO' stabs entries, and debug
     /// info must be obtained from those original files.
     External(ExternalFileAddressRef),
-
-    /// No debug info is available.
-    Unavailable,
-}
-
-#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct DwoRef {
-    pub comp_dir: String,
-    pub path: String,
-    pub dwo_id: u64,
 }
 
 /// Information to find an external file and an address within that file, to be
@@ -672,9 +657,15 @@ pub struct ExternalFileAddressRef {
 
 /// Information to find an external file with debug information.
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ExternalFileRef {
-    /// The path to the file, as specified in the linked binary's object map.
-    pub file_name: String,
+pub enum ExternalFileRef {
+    MachoExternalObject {
+        /// The path to the file, as specified in the linked binary's object map.
+        file_path: String,
+    },
+    ElfExternalDwo {
+        comp_dir: String,
+        path: String,
+    },
 }
 
 /// Information to find an address within an external file, for debug info lookup.
@@ -697,6 +688,10 @@ pub enum ExternalFileAddressInFileRef {
         symbol_name: Vec<u8>,
         /// The address to look up, as a relative offset from the function symbol address.
         offset_from_symbol: u32,
+    },
+    ElfDwo {
+        dwo_id: u64,
+        svma: u64,
     },
 }
 

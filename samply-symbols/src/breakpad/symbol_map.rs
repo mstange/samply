@@ -257,7 +257,7 @@ impl<'a, T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'a, T> {
                         }),
                         name: info.name.to_string(),
                     },
-                    frames: FramesLookupResult::Unavailable,
+                    frames: None,
                 })
             }
             BreakpadSymbolType::Func(func) => {
@@ -307,7 +307,7 @@ impl<'a, T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'a, T> {
                         size: Some(info.size),
                         name: info.name.to_string(),
                     },
-                    frames: FramesLookupResult::Available(frames),
+                    frames: Some(FramesLookupResult::Available(frames)),
                 })
             }
         }
@@ -395,7 +395,7 @@ mod test {
         assert_eq!(lookup_result.symbol.size, Some(0xaa));
 
         let frames = match lookup_result.frames {
-            FramesLookupResult::Available(frames) => frames,
+            Some(FramesLookupResult::Available(frames)) => frames,
             _ => panic!("Frames should be available"),
         };
         assert_eq!(frames.len(), 4);

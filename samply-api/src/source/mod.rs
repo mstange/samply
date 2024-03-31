@@ -68,26 +68,19 @@ impl<'a, H: FileAndPathHelper> SourceApi<'a, H> {
         };
         let symbol_map = self.symbol_manager.load_symbol_map(&info).await?;
         let debug_file_location = symbol_map.debug_file_location().clone();
-        let frames = match symbol_map.lookup_relative_address(*module_offset) {
-            Some(address_info) => address_info.frames,
-            None => FramesLookupResult::Unavailable,
-        };
+        let frames = symbol_map
+            .lookup_relative_address(*module_offset)
+            .and_then(|address_info| address_info.frames);
 
         let frames = match frames {
-            FramesLookupResult::Available(frames) => frames,
-            FramesLookupResult::External(address) => {
+            Some(FramesLookupResult::Available(frames)) => frames,
+            Some(FramesLookupResult::External(address)) => {
                 match symbol_map.lookup_external(&address).await {
                     Some(frames) => frames,
                     None => return Err(SourceError::NoDebugInfo),
                 }
             }
-            FramesLookupResult::Unavailable => return Err(SourceError::NoDebugInfo),
-            FramesLookupResult::NeedDwo { svma, .. } => {
-                match symbol_map.lookup_frames_async(svma).await {
-                    Some(frames) => frames,
-                    None => return Err(SourceError::NoDebugInfo),
-                }
-            }
+            None => return Err(SourceError::NoDebugInfo),
         };
 
         // Find the SourceFilePath whose "api file path" matches the requested file.

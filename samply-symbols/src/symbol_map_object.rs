@@ -14,14 +14,14 @@ use yoke_derive::Yokeable;
 use crate::dwarf::convert_frames;
 use crate::path_mapper::PathMapper;
 use crate::shared::{
-    relative_address_base, AddressInfo, DwoRef, ExternalFileAddressInFileRef,
-    ExternalFileAddressRef, ExternalFileRef, FramesLookupResult, SymbolInfo,
+    relative_address_base, AddressInfo, ExternalFileAddressInFileRef, ExternalFileAddressRef,
+    ExternalFileRef, FramesLookupResult, SymbolInfo,
 };
 use crate::symbol_map::{
-    FramesLookupResult2, GetInnerSymbolMap, GetInnerSymbolMapWithLookupFramesExt, SymbolMapTrait,
-    SymbolMapTraitWithLookupFramesExt,
+    GetInnerSymbolMap, GetInnerSymbolMapWithLookupFramesExt, SymbolMapTrait,
+    SymbolMapTraitWithExternalFileSupport,
 };
-use crate::{demangle, Error, FileContents};
+use crate::{demangle, Error, ExternalFileSymbolMap, FileContents};
 
 enum FullSymbolListEntry<'a, Symbol> {
     /// A synthesized symbol for a function start address that's known
@@ -351,7 +351,7 @@ impl std::fmt::Debug for SvmaFileRange {
     }
 }
 
-pub struct ObjectSymbolMapInner<'a, Symbol, FC, DDM> {
+pub struct ObjectSymbolMapInner<'a, Symbol, FC: FileContents + 'static, DDM> {
     list: SymbolList<'a, Symbol>,
     debug_id: DebugId,
     path_mapper: Mutex<PathMapper<()>>,
@@ -360,6 +360,7 @@ pub struct ObjectSymbolMapInner<'a, Symbol, FC, DDM> {
     svma_file_ranges: SvmaFileRanges,
     image_base_address: u64,
     dwo_dwarf_maker: &'a DDM,
+    cached_external_file: Mutex<Option<ExternalFileSymbolMap<FC>>>,
     _phantom: PhantomData<FC>,
 }
 
@@ -369,19 +370,17 @@ where
     FC: FileContents + 'static,
     DDM: DwoDwarfMaker<FC>,
 {
-    fn frames_lookup_for_object_map_references(&self, svma: u64) -> FramesLookupResult {
-        let Some(entry) = self.object_map.get(svma) else {
-            return FramesLookupResult::Unavailable;
-        };
-        let external_file_name = entry.object(&self.object_map);
-        let external_file_name = std::str::from_utf8(external_file_name).unwrap();
+    fn frames_lookup_for_object_map_references(&self, svma: u64) -> Option<FramesLookupResult> {
+        let entry = self.object_map.get(svma)?;
+        let external_file_path = entry.object(&self.object_map);
+        let external_file_path = std::str::from_utf8(external_file_path).unwrap();
         let offset_from_symbol = (svma - entry.address()) as u32;
         let symbol_name = entry.name().to_owned();
-        let (file_name, address_in_file) = match external_file_name.find('(') {
+        let (file_path, address_in_file) = match external_file_path.find('(') {
             Some(index) => {
                 // This is an "archive" reference of the form
                 // "/Users/mstange/code/obj-m-opt/toolkit/library/build/../../../js/src/build/libjs_static.a(Unified_cpp_js_src13.o)"
-                let (path, paren_rest) = external_file_name.split_at(index);
+                let (path, paren_rest) = external_file_path.split_at(index);
                 let name_in_archive = paren_rest
                     .trim_start_matches('(')
                     .trim_end_matches(')')
@@ -400,15 +399,100 @@ where
                     symbol_name,
                     offset_from_symbol,
                 };
-                (external_file_name, address_in_file)
+                (external_file_path, address_in_file)
             }
         };
-        FramesLookupResult::External(ExternalFileAddressRef {
-            file_ref: ExternalFileRef {
-                file_name: file_name.to_owned(),
+        Some(FramesLookupResult::External(ExternalFileAddressRef {
+            file_ref: ExternalFileRef::MachoExternalObject {
+                file_path: file_path.to_owned(),
             },
             address_in_file,
-        })
+        }))
+    }
+
+    fn try_lookup_external_impl(
+        &self,
+        external: &ExternalFileAddressRef,
+        mut request: ExternalLookupRequest<FC>,
+    ) -> Option<FramesLookupResult> {
+        match &external.file_ref {
+            ExternalFileRef::MachoExternalObject { file_path } => {
+                {
+                    let cached_external_file = self.cached_external_file.lock().unwrap();
+                    match &*cached_external_file {
+                        Some(external_file) if external_file.file_path() == file_path => {
+                            return external_file
+                                .lookup(&external.address_in_file)
+                                .map(FramesLookupResult::Available);
+                        }
+                        _ => {}
+                    }
+                }
+                let file_contents = match request {
+                    ExternalLookupRequest::ReplyIfYouHaveOrTellMeWhatYouNeed => {
+                        return Some(FramesLookupResult::External(external.clone()))
+                    }
+                    ExternalLookupRequest::UseThisMaybeAndReplyOrTellMeWhatElseYouNeed(
+                        maybe_file_contents,
+                    ) => maybe_file_contents?,
+                };
+                let external_file = ExternalFileSymbolMap::new(file_path, file_contents).ok()?;
+                let lookup_result = external_file
+                    .lookup(&external.address_in_file)
+                    .map(FramesLookupResult::Available);
+
+                *self.cached_external_file.lock().unwrap() = Some(external_file);
+
+                lookup_result
+            }
+            ExternalFileRef::ElfExternalDwo { .. } => {
+                let ctx = self.context.as_ref()?;
+                let ExternalFileAddressInFileRef::ElfDwo { svma, .. } = &external.address_in_file
+                else {
+                    return None;
+                };
+                let ctx = ctx.lock().unwrap();
+                let mut lookup_result = ctx.find_frames(*svma);
+                loop {
+                    let _all_match_branches_diverge: u32 = match lookup_result {
+                        LookupResult::Load { load, continuation } => {
+                            if !external.matches_split_dwarf_load(&load) {
+                                request = ExternalLookupRequest::ReplyIfYouHaveOrTellMeWhatYouNeed;
+                            }
+                            let file_contents = match request {
+                                ExternalLookupRequest::ReplyIfYouHaveOrTellMeWhatYouNeed => {
+                                    return Some(FramesLookupResult::External(
+                                        ExternalFileAddressRef::with_split_dwarf_load(&load, *svma),
+                                    ))
+                                }
+                                ExternalLookupRequest::UseThisMaybeAndReplyOrTellMeWhatElseYouNeed(file_contents) => file_contents,
+                            };
+                            let maybe_dwarf = file_contents
+                                .and_then(|file_contents| {
+                                    self.dwo_dwarf_maker
+                                        .add_dwo_and_make_dwarf(file_contents)
+                                        .ok()
+                                        .flatten()
+                                })
+                                .map(|mut dwo_dwarf| {
+                                    dwo_dwarf.make_dwo(&*load.parent);
+                                    Arc::new(dwo_dwarf)
+                                });
+                            use addr2line::LookupContinuation;
+                            request = ExternalLookupRequest::ReplyIfYouHaveOrTellMeWhatYouNeed;
+                            lookup_result = continuation.resume(maybe_dwarf);
+                            continue;
+                        }
+                        LookupResult::Output(Ok(frame_iter)) => {
+                            let mut path_mapper = self.path_mapper.lock().unwrap();
+                            return convert_frames(frame_iter, &mut path_mapper)
+                                .map(FramesLookupResult::Available);
+                        }
+                        LookupResult::Output(Err(_)) => return None,
+                    };
+                }
+            }
+        }
     }
 }
 
@@ -453,17 +537,12 @@ where
         let context = context.lock().unwrap();
         let lookup_result = context.find_frames(svma);
         let frames = match lookup_result {
-            LookupResult::Load { load, .. } => {
-                let dwo_ref = DwoRef::from_split_dwarf_load(&load);
-                FramesLookupResult::NeedDwo { svma, dwo_ref }
-            }
+            LookupResult::Load { load, .. } => Some(FramesLookupResult::External(
+                ExternalFileAddressRef::with_split_dwarf_load(&load, svma),
+            )),
             LookupResult::Output(Ok(frame_iter)) => {
                 let mut path_mapper = self.path_mapper.lock().unwrap();
-                if let Some(frames) = convert_frames(frame_iter, &mut path_mapper) {
-                    FramesLookupResult::Available(frames)
-                } else {
-                    FramesLookupResult::Unavailable
-                }
+                convert_frames(frame_iter, &mut path_mapper).map(FramesLookupResult::Available)
             }
             LookupResult::Output(Err(_)) => {
                 drop(lookup_result);
@@ -535,14 +614,16 @@ impl<FC: FileContents + 'static, OSMO: ObjectSymbolMapOuter<FC>> GetInnerSymbolM
 impl<FC: FileContents + 'static, OSMO: ObjectSymbolMapOuter<FC>>
     GetInnerSymbolMapWithLookupFramesExt<FC> for ObjectSymbolMap<FC, OSMO>
 {
-    fn get_inner_symbol_map<'a>(&'a self) -> &'a (dyn SymbolMapTraitWithLookupFramesExt<FC> + 'a) {
+    fn get_inner_symbol_map<'a>(
+        &'a self,
+    ) -> &'a (dyn SymbolMapTraitWithExternalFileSupport<FC> + Send + Sync + 'a) {
         self.0.get().0.as_ref()
     }
 }
 
 #[derive(Yokeable)]
 pub struct ObjectSymbolMapInnerWrapper<'data, FC>(
-    pub Box<dyn SymbolMapTraitWithLookupFramesExt<FC> + Send + Sync + 'data>,
+    pub Box<dyn SymbolMapTraitWithExternalFileSupport<FC> + Send + Sync + 'data>,
 );
 
 impl<'a, FC: FileContents + 'static> ObjectSymbolMapInnerWrapper<'a, FC> {
@@ -576,10 +657,16 @@ impl<'a, FC: FileContents + 'static> ObjectSymbolMapInnerWrapper<'a, FC> {
             image_base_address: base_address,
             svma_file_ranges: SvmaFileRanges::from_object(object_file),
             dwo_dwarf_maker,
+            cached_external_file: Mutex::new(None),
             _phantom: PhantomData,
         };
         Self(Box::new(inner))
     }
+}
+
+enum ExternalLookupRequest<FC> {
+    ReplyIfYouHaveOrTellMeWhatYouNeed,
+    UseThisMaybeAndReplyOrTellMeWhatElseYouNeed(Option<FC>),
 }
 
 type Dwarf<'a> =
@@ -595,7 +682,7 @@ impl<FC> DwoDwarfMaker<FC> for () {
     }
 }
 
-impl<'a, Symbol, FC, DDM> SymbolMapTraitWithLookupFramesExt<FC>
+impl<'a, Symbol, FC, DDM> SymbolMapTraitWithExternalFileSupport<FC>
     for ObjectSymbolMapInner<'a, Symbol, FC, DDM>
 where
     Symbol: object::ObjectSymbol<'a> + 'a,
@@ -606,85 +693,47 @@ where
         self
     }
 
-    fn lookup_frames_again(&self, svma: u64) -> FramesLookupResult2 {
-        let Some(ctx) = self.context.as_ref() else {
-            return FramesLookupResult2::Done(None);
-        };
-        let ctx = ctx.lock().unwrap();
-        let lookup_result = ctx.find_frames(svma);
-        match lookup_result {
-            LookupResult::Load { load, .. } => {
-                let requested_dwo_ref = DwoRef::from_split_dwarf_load(&load);
-                FramesLookupResult2::NeedDwo(requested_dwo_ref)
-            }
-            LookupResult::Output(Ok(frame_iter)) => {
-                let mut path_mapper = self.path_mapper.lock().unwrap();
-                FramesLookupResult2::Done(convert_frames(frame_iter, &mut path_mapper))
-            }
-            LookupResult::Output(Err(_err)) => FramesLookupResult2::Done(None),
-        }
+    fn try_lookup_external(&self, external: &ExternalFileAddressRef) -> Option<FramesLookupResult> {
+        self.try_lookup_external_impl(
+            external,
+            ExternalLookupRequest::ReplyIfYouHaveOrTellMeWhatYouNeed,
+        )
     }
 
-    fn lookup_frames_more(
+    fn try_lookup_external_with_file_contents(
         &self,
-        svma: u64,
-        dwo_ref: &DwoRef,
+        external: &ExternalFileAddressRef,
         file_contents: Option<FC>,
-    ) -> FramesLookupResult2 {
-        let Some(ctx) = self.context.as_ref() else {
-            return FramesLookupResult2::Done(None);
-        };
-        let ctx = ctx.lock().unwrap();
-        let lookup_result = ctx.find_frames(svma);
-        match lookup_result {
-            LookupResult::Load { load, continuation } => {
-                let requested_dwo_ref = DwoRef::from_split_dwarf_load(&load);
-                if &requested_dwo_ref == dwo_ref {
-                    let maybe_dwarf = file_contents
-                        .and_then(|file_contents| {
-                            self.dwo_dwarf_maker
-                                .add_dwo_and_make_dwarf(file_contents)
-                                .ok()
-                                .flatten()
-                        })
-                        .map(|mut dwo_dwarf| {
-                            dwo_dwarf.make_dwo(&*load.parent);
-                            Arc::new(dwo_dwarf)
-                        });
-                    use addr2line::LookupContinuation;
-                    match continuation.resume(maybe_dwarf) {
-                        LookupResult::Load { load, .. } => {
-                            let requested_dwo_ref = DwoRef::from_split_dwarf_load(&load);
-                            FramesLookupResult2::NeedDwo(requested_dwo_ref)
-                        }
-                        LookupResult::Output(Ok(frame_iter)) => {
-                            let mut path_mapper = self.path_mapper.lock().unwrap();
-                            FramesLookupResult2::Done(convert_frames(frame_iter, &mut path_mapper))
-                        }
-                        LookupResult::Output(Err(_err)) => FramesLookupResult2::Done(None),
-                    }
-                } else {
-                    FramesLookupResult2::NeedDwo(requested_dwo_ref)
-                }
-            }
-            LookupResult::Output(Ok(frame_iter)) => {
-                let mut path_mapper = self.path_mapper.lock().unwrap();
-                FramesLookupResult2::Done(convert_frames(frame_iter, &mut path_mapper))
-            }
-            LookupResult::Output(Err(_err)) => FramesLookupResult2::Done(None),
-        }
+    ) -> Option<FramesLookupResult> {
+        self.try_lookup_external_impl(
+            external,
+            ExternalLookupRequest::UseThisMaybeAndReplyOrTellMeWhatElseYouNeed(file_contents),
+        )
     }
 }
 
-impl DwoRef {
-    fn from_split_dwarf_load(load: &SplitDwarfLoad<EndianSlice<RunTimeEndian>>) -> Self {
+impl ExternalFileAddressRef {
+    fn with_split_dwarf_load(load: &SplitDwarfLoad<EndianSlice<RunTimeEndian>>, svma: u64) -> Self {
         let comp_dir = String::from_utf8_lossy(load.comp_dir.unwrap().slice()).to_string();
         let path = String::from_utf8_lossy(load.path.unwrap().slice()).to_string();
         let dwo_id = load.dwo_id.0;
-        Self {
-            comp_dir,
-            path,
-            dwo_id,
+        ExternalFileAddressRef {
+            file_ref: ExternalFileRef::ElfExternalDwo { comp_dir, path },
+            address_in_file: ExternalFileAddressInFileRef::ElfDwo { dwo_id, svma },
+        }
+    }
+
+    fn matches_split_dwarf_load(&self, load: &SplitDwarfLoad<EndianSlice<RunTimeEndian>>) -> bool {
+        match (&self.file_ref, &self.address_in_file) {
+            (
+                ExternalFileRef::ElfExternalDwo { comp_dir, path },
+                ExternalFileAddressInFileRef::ElfDwo { dwo_id, .. },
+            ) => {
+                Some(comp_dir.as_bytes()) == load.comp_dir.map(|r| r.slice())
+                    && Some(path.as_bytes()) == load.path.map(|r| r.slice())
+                    && *dwo_id == load.dwo_id.0
+            }
+            _ => false,
         }
     }
 }

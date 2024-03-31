@@ -95,31 +95,21 @@
 //!             println!("0x1f98f: {}", address_info.symbol.name);
 //!
 //!             // See if we have debug info (file name + line, and inlined frames):
-//!             match address_info.frames {
-//!                 FramesLookupResult::Available(frames) => {
-//!                     println!("Debug info:");
-//!                     for frame in frames {
-//!                         println!(
-//!                             " - {:?} ({:?}:{:?})",
-//!                             frame.function, frame.file_path, frame.line_number
-//!                         );
-//!                     }
+//!             let frames = match address_info.frames {
+//!                 Some(FramesLookupResult::Available(frames)) => Some(frames),
+//!                 Some(FramesLookupResult::External(external)) => {
+//!                     symbol_map.lookup_external(&external).await
 //!                 }
-//!                 FramesLookupResult::External(ext_address) => {
-//!                     // Debug info is located in a different file.
-//!                     if let Some(frames) =
-//!                         symbol_manager.lookup_external(&symbol_map.debug_file_location(), &ext_address).await
-//!                     {
-//!                         println!("Debug info:");
-//!                         for frame in frames {
-//!                             println!(
-//!                                 " - {:?} ({:?}:{:?})",
-//!                                 frame.function, frame.file_path, frame.line_number
-//!                             );
-//!                         }
-//!                     }
+//!                 None => None,
+//!             };
+//!             if let Some(frames) = frames {
+//!                 println!("Debug info:");
+//!                 for frame in frames {
+//!                     println!(
+//!                         " - {:?} ({:?}:{:?})",
+//!                         frame.function, frame.file_path, frame.line_number
+//!                     );
 //!                 }
-//!                 FramesLookupResult::Unavailable => {}
 //!             }
 //!         }
 //!         None => {
@@ -208,6 +198,10 @@
 //!     fn location_for_breakpad_symindex(&self) -> Option<Self> {
 //!         Some(Self(self.0.with_extension("symindex")))
 //!     }
+//!
+//!     fn location_for_dwo(&self, _comp_dir: &str, path: &str) -> Option<Self> {
+//!         Some(Self(path.into()))
+//!     }
 //! }
 //! ```
 
@@ -257,7 +251,7 @@ pub use crate::jitdump::debug_id_and_code_id_for_jitdump;
 pub use crate::macho::FatArchiveMember;
 pub use crate::mapped_path::MappedPath;
 pub use crate::shared::{
-    relative_address_base, AddressInfo, CandidatePathInfo, CodeId, DwoRef, ElfBuildId,
+    relative_address_base, AddressInfo, CandidatePathInfo, CodeId, ElfBuildId,
     ExternalFileAddressInFileRef, ExternalFileAddressRef, ExternalFileRef, FileAndPathHelper,
     FileAndPathHelperError, FileAndPathHelperResult, FileContents, FileContentsWrapper,
     FileLocation, FrameDebugInfo, FramesLookupResult, LibraryInfo, MultiArchDisambiguator,
@@ -381,9 +375,12 @@ where
     pub async fn load_external_file(
         &self,
         debug_file_location: &H::FL,
-        external_file_ref: &ExternalFileRef,
+        external_file_path: &str,
     ) -> Result<ExternalFileSymbolMap<H::F>, Error> {
-        external_file::load_external_file(&*self.helper, debug_file_location, external_file_ref)
+        let external_file_location = debug_file_location
+            .location_for_external_object_file(external_file_path)
+            .ok_or(Error::FileLocationRefusedExternalObjectLocation)?;
+        external_file::load_external_file(&*self.helper, external_file_location, external_file_path)
             .await
     }
 

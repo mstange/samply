@@ -264,9 +264,9 @@ impl<'object> SymbolMapTrait for PdbSymbolMapInner<'object> {
                     line_number: frame.line,
                 })
                 .collect();
-            FramesLookupResult::Available(frames)
+            Some(FramesLookupResult::Available(frames))
         } else {
-            FramesLookupResult::Unavailable
+            None
         };
 
         Some(AddressInfo { symbol, frames })

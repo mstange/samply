@@ -278,25 +278,17 @@ impl<'a, T: FileContents> JitDumpSymbolMapInner<'a, T> {
         let name_bytes = cache.get_function_name(index)?;
         let name = String::from_utf8_lossy(name_bytes).into_owned();
         let debug_info = cache.get_debug_info(index);
-        let frames = match debug_info {
-            Some(debug_info) => {
-                let lookup_avma = debug_info.code_addr + offset_relative_to_symbol;
-                match debug_info.lookup(lookup_avma) {
-                    Some(entry) => {
-                        let file_path =
-                            String::from_utf8_lossy(&entry.file_path.as_slice()).into_owned();
-                        let frame = FrameDebugInfo {
-                            function: Some(name.clone()),
-                            file_path: Some(SourceFilePath::new(file_path, None)),
-                            line_number: Some(entry.line),
-                        };
-                        FramesLookupResult::Available(vec![frame])
-                    }
-                    None => FramesLookupResult::Unavailable,
-                }
-            }
-            None => FramesLookupResult::Unavailable,
-        };
+        let frames = debug_info.and_then(|debug_info| {
+            let lookup_avma = debug_info.code_addr + offset_relative_to_symbol;
+            let entry = debug_info.lookup(lookup_avma)?;
+            let file_path = String::from_utf8_lossy(&entry.file_path.as_slice()).into_owned();
+            let frame = FrameDebugInfo {
+                function: Some(name.clone()),
+                file_path: Some(SourceFilePath::new(file_path, None)),
+                line_number: Some(entry.line),
+            };
+            Some(FramesLookupResult::Available(vec![frame]))
+        });
         Some(AddressInfo {
             symbol: SymbolInfo {
                 address: symbol_address,

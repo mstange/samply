@@ -44,10 +44,11 @@ fn for_docs() {
                 address_info.symbol.address, address_info.symbol.name
             );
             let frames = match address_info.frames {
-                FramesLookupResult::Available(frames) => Some(frames),
-                FramesLookupResult::External(ext_ref) => symbol_map.lookup_external(&ext_ref).await,
-                FramesLookupResult::Unavailable => None,
-                _ => todo!("NeedDwo"),
+                Some(FramesLookupResult::Available(frames)) => Some(frames),
+                Some(FramesLookupResult::External(ext_ref)) => {
+                    symbol_map.lookup_external(&ext_ref).await
+                }
+                None => None,
             };
             if let Some(frames) = frames {
                 for (i, frame) in frames.into_iter().enumerate() {
@@ -142,7 +143,7 @@ fn dwz_symbolication() {
     let sym = symbol_map.lookup_relative_address(0xd6f4).unwrap();
 
     let frames = match &sym.frames {
-        FramesLookupResult::Available(frames) => frames,
+        Some(FramesLookupResult::Available(frames)) => frames,
         _ => panic!("failed to obtain debug info"),
     };
 

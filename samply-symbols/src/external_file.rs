@@ -8,48 +8,44 @@ use crate::dwarf::{get_frames, Addr2lineContextData};
 use crate::error::Error;
 use crate::path_mapper::PathMapper;
 use crate::shared::{
-    ExternalFileAddressInFileRef, ExternalFileRef, FileAndPathHelper, FileContents,
-    FileContentsWrapper, FileLocation, FrameDebugInfo,
+    ExternalFileAddressInFileRef, FileAndPathHelper, FileContents, FileContentsWrapper,
+    FrameDebugInfo,
 };
 
 pub async fn load_external_file<H>(
     helper: &H,
-    original_file_location: &H::FL,
-    external_file_ref: &ExternalFileRef,
+    external_file_location: H::FL,
+    external_file_path: &str,
 ) -> Result<ExternalFileSymbolMap<H::F>, Error>
 where
     H: FileAndPathHelper,
 {
     let file = helper
-        .load_file(
-            original_file_location
-                .location_for_external_object_file(&external_file_ref.file_name)
-                .ok_or(Error::FileLocationRefusedExternalObjectLocation)?,
-        )
+        .load_file(external_file_location)
         .await
-        .map_err(|e| Error::HelperErrorDuringOpenFile(external_file_ref.file_name.clone(), e))?;
-    let symbol_map = ExternalFileSymbolMap::new(&external_file_ref.file_name, file)?;
+        .map_err(|e| Error::HelperErrorDuringOpenFile(external_file_path.to_string(), e))?;
+    let symbol_map = ExternalFileSymbolMap::new(external_file_path, file)?;
     Ok(symbol_map)
 }
 
 struct ExternalFileOuter<F: FileContents> {
-    name: String,
+    file_path: String,
     file_contents: FileContentsWrapper<F>,
     addr2line_context_data: Addr2lineContextData,
 }
 
 impl<F: FileContents> ExternalFileOuter<F> {
-    pub fn new(file_name: &str, file: F) -> Self {
+    pub fn new(file_path: &str, file: F) -> Self {
         let file_contents = FileContentsWrapper::new(file);
         Self {
-            name: file_name.to_owned(),
+            file_path: file_path.to_owned(),
             file_contents,
             addr2line_context_data: Addr2lineContextData::new(),
         }
     }
 
-    pub fn name(&self) -> &str {
-        &self.name
+    pub fn file_path(&self) -> &str {
+        &self.file_path
     }
 
     fn make_member_context(
@@ -74,9 +70,9 @@ impl<F: FileContents> ExternalFileOuter<F> {
         let symbol_addresses = object_file
             .symbols()
             .filter_map(|symbol| {
-                let name = symbol.name_bytes().ok()?;
+                let file_path = symbol.name_bytes().ok()?;
                 let address = symbol.address();
-                Some((name, address))
+                Some((file_path, address))
             })
             .collect();
         let member_context = ExternalFileMemberContext {
@@ -102,8 +98,8 @@ impl<F: FileContents> ExternalFileOuter<F> {
                 let mut member_ranges = HashMap::new();
                 for member in archive.members() {
                     let member = member.map_err(Error::ParseErrorInExternalArchive)?;
-                    let name = member.name().to_owned();
-                    member_ranges.insert(name, member.file_range());
+                    let file_path = member.name().to_owned();
+                    member_ranges.insert(file_path, member.file_range());
                 }
                 ExternalFileMemberContexts::Archive {
                     member_ranges,
@@ -127,7 +123,7 @@ impl<F: FileContents> ExternalFileOuter<F> {
 
 enum ExternalFileMemberContexts<'a> {
     SingleObject(ExternalFileMemberContext<'a>),
-    /// member name -> context
+    /// member file_path -> context
     Archive {
         member_ranges: HashMap<Vec<u8>, (u64, u64)>,
         contexts: Mutex<HashMap<String, ExternalFileMemberContext<'a>>>,
@@ -201,7 +197,8 @@ impl<'a, F: FileContents> ExternalFileInnerTrait for ExternalFileInner<'a, F> {
             | (
                 ExternalFileMemberContexts::Archive { .. },
                 ExternalFileAddressInFileRef::MachoOsoObject { .. },
-            ) => None,
+            )
+            | (_, ExternalFileAddressInFileRef::ElfDwo { .. }) => None,
         }
     }
 }
@@ -229,8 +226,8 @@ pub struct ExternalFileSymbolMap<F: FileContents + 'static>(
 );
 
 impl<F: FileContents + 'static> ExternalFileSymbolMap<F> {
-    fn new(file_name: &str, file: F) -> Result<Self, Error> {
-        let outer = ExternalFileOuter::new(file_name, file);
+    pub fn new(file_path: &str, file: F) -> Result<Self, Error> {
+        let outer = ExternalFileOuter::new(file_path, file);
         let inner = Yoke::try_attach_to_cart(
             Box::new(outer),
             |outer| -> Result<ExternalFileInnerWrapper<'_>, Error> {
@@ -243,15 +240,8 @@ impl<F: FileContents + 'static> ExternalFileSymbolMap<F> {
 
     /// The string which identifies this external file. This is usually an absolute
     /// path.
-    pub fn name(&self) -> &str {
-        self.0.backing_cart().name()
-    }
-
-    /// Checks whether `external_file_ref` refers to this external file.
-    ///
-    /// Used to avoid repeated loading of the same external file.
-    pub fn is_same_file(&self, external_file_ref: &ExternalFileRef) -> bool {
-        self.name() == external_file_ref.file_name
+    pub fn file_path(&self) -> &str {
+        self.0.backing_cart().file_path()
     }
 
     /// Look up the debug info for the given [`ExternalFileAddressInFileRef`].

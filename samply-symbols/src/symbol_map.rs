@@ -1,14 +1,10 @@
-use std::{
-    borrow::Cow,
-    sync::{Arc, Mutex},
-};
+use std::{borrow::Cow, sync::Arc};
 
 use debugid::DebugId;
 
 use crate::{
-    external_file,
-    shared::{AddressInfo, DwoRef, FileLocation},
-    ExternalFileAddressRef, ExternalFileSymbolMap, FileAndPathHelper, FrameDebugInfo,
+    AddressInfo, ExternalFileAddressRef, ExternalFileRef, FileAndPathHelper, FileLocation,
+    FrameDebugInfo, FramesLookupResult,
 };
 
 pub trait SymbolMapTrait {
@@ -23,15 +19,14 @@ pub trait SymbolMapTrait {
     fn lookup_offset(&self, offset: u64) -> Option<AddressInfo>;
 }
 
-pub trait SymbolMapTraitWithLookupFramesExt<FC>: SymbolMapTrait {
+pub trait SymbolMapTraitWithExternalFileSupport<FC>: SymbolMapTrait {
     fn get_as_symbol_map(&self) -> &dyn SymbolMapTrait;
-    fn lookup_frames_again(&self, svma: u64) -> FramesLookupResult2;
-    fn lookup_frames_more(
+    fn try_lookup_external(&self, external: &ExternalFileAddressRef) -> Option<FramesLookupResult>;
+    fn try_lookup_external_with_file_contents(
         &self,
-        svma: u64,
-        dwo_ref: &DwoRef,
+        external: &ExternalFileAddressRef,
         file_contents: Option<FC>,
-    ) -> FramesLookupResult2;
+    ) -> Option<FramesLookupResult>;
 }
 
 pub trait GetInnerSymbolMap {
@@ -39,7 +34,9 @@ pub trait GetInnerSymbolMap {
 }
 
 pub trait GetInnerSymbolMapWithLookupFramesExt<FC> {
-    fn get_inner_symbol_map<'a>(&'a self) -> &'a (dyn SymbolMapTraitWithLookupFramesExt<FC> + 'a);
+    fn get_inner_symbol_map<'a>(
+        &'a self,
+    ) -> &'a (dyn SymbolMapTraitWithExternalFileSupport<FC> + Send + Sync + 'a);
 }
 
 enum InnerSymbolMap<FC> {
@@ -47,16 +44,10 @@ enum InnerSymbolMap<FC> {
     WithAddFile(Box<dyn GetInnerSymbolMapWithLookupFramesExt<FC> + Send + Sync>),
 }
 
-pub enum FramesLookupResult2 {
-    Done(Option<Vec<FrameDebugInfo>>),
-    NeedDwo(DwoRef),
-}
-
 pub struct SymbolMap<H: FileAndPathHelper> {
     debug_file_location: H::FL,
     inner: InnerSymbolMap<H::F>,
     helper: Option<Arc<H>>,
-    cached_external_file: Mutex<Option<ExternalFileSymbolMap<H::F>>>,
 }
 
 impl<H: FileAndPathHelper> SymbolMap<H> {
@@ -68,7 +59,6 @@ impl<H: FileAndPathHelper> SymbolMap<H> {
             debug_file_location,
             inner: InnerSymbolMap::WithoutAddFile(inner),
             helper: None,
-            cached_external_file: Mutex::new(None),
         }
     }
 
@@ -81,7 +71,6 @@ impl<H: FileAndPathHelper> SymbolMap<H> {
             debug_file_location,
             inner: InnerSymbolMap::WithAddFile(inner),
             helper: Some(helper),
-            cached_external_file: Mutex::new(None),
         }
     }
 
@@ -129,60 +118,34 @@ impl<H: FileAndPathHelper> SymbolMap<H> {
     /// for the same external file are fast.
     pub async fn lookup_external(
         &self,
-        address: &ExternalFileAddressRef,
+        external: &ExternalFileAddressRef,
     ) -> Option<Vec<FrameDebugInfo>> {
-        {
-            let cached_external_file = self.cached_external_file.lock().ok()?;
-            match &*cached_external_file {
-                Some(external_file) if external_file.is_same_file(&address.file_ref) => {
-                    return external_file.lookup(&address.address_in_file);
-                }
-                _ => {}
-            }
-        }
-
         let helper = self.helper.as_deref()?;
-        let external_file =
-            external_file::load_external_file(helper, &self.debug_file_location, &address.file_ref)
-                .await
-                .ok()?;
-        let lookup_result = external_file.lookup(&address.address_in_file);
-
-        if let Ok(mut guard) = self.cached_external_file.lock() {
-            *guard = Some(external_file);
-        }
-        lookup_result
-    }
-
-    pub async fn lookup_frames_async(&self, svma: u64) -> Option<Vec<FrameDebugInfo>> {
-        let Some(helper) = self.helper.as_deref() else {
-            return None;
+        let inner = match &self.inner {
+            InnerSymbolMap::WithoutAddFile(_) => return None,
+            InnerSymbolMap::WithAddFile(inner) => inner.get_inner_symbol_map(),
         };
-        let mut lookup_result = match &self.inner {
-            InnerSymbolMap::WithoutAddFile(_) => {
-                return None;
-            }
-            InnerSymbolMap::WithAddFile(inner) => {
-                inner.get_inner_symbol_map().lookup_frames_again(svma)
-            }
-        };
+
+        let mut lookup_result: Option<FramesLookupResult> = inner.try_lookup_external(external);
         loop {
-            match lookup_result {
-                FramesLookupResult2::Done(frames) => return frames,
-                FramesLookupResult2::NeedDwo(dwo_ref) => {
-                    let location = self.debug_file_location.location_for_dwo(&dwo_ref);
-                    let file_contents = match location {
-                        Some(location) => helper.load_file(location).await.ok(),
-                        None => None,
-                    };
-                    lookup_result = match &self.inner {
-                        InnerSymbolMap::WithoutAddFile(_) => panic!(),
-                        InnerSymbolMap::WithAddFile(inner) => inner
-                            .get_inner_symbol_map()
-                            .lookup_frames_more(svma, &dwo_ref, file_contents),
-                    };
+            let external = match lookup_result {
+                Some(FramesLookupResult::Available(frames)) => return Some(frames),
+                None => return None,
+                Some(FramesLookupResult::External(external)) => external,
+            };
+            let maybe_file_location = match &external.file_ref {
+                ExternalFileRef::MachoExternalObject { file_path } => self
+                    .debug_file_location
+                    .location_for_external_object_file(file_path),
+                ExternalFileRef::ElfExternalDwo { comp_dir, path } => {
+                    self.debug_file_location.location_for_dwo(comp_dir, path)
                 }
-            }
+            };
+            let file_contents = match maybe_file_location {
+                Some(location) => helper.load_file(location).await.ok(),
+                None => None,
+            };
+            lookup_result = inner.try_lookup_external_with_file_contents(&external, file_contents);
         }
     }
 }

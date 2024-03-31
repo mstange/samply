@@ -1,8 +1,8 @@
 pub use samply_symbols::debugid;
 use samply_symbols::debugid::DebugId;
 use samply_symbols::{
-    self, CandidatePathInfo, CompactSymbolTable, DwoRef, Error, FileAndPathHelper,
-    FileAndPathHelperResult, FileLocation, LibraryInfo, MultiArchDisambiguator, SymbolManager,
+    self, CandidatePathInfo, CompactSymbolTable, Error, FileAndPathHelper, FileAndPathHelperResult,
+    FileLocation, LibraryInfo, MultiArchDisambiguator, SymbolManager,
 };
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -302,7 +302,7 @@ impl FileLocation for FileLocationType {
         Some(Self(self.0.with_extension("symindex")))
     }
 
-    fn location_for_dwo(&self, _dwo_ref: &DwoRef) -> Option<Self> {
+    fn location_for_dwo(&self, _comp_dir: &str, _path: &str) -> Option<Self> {
         None // TODO
     }
 }
