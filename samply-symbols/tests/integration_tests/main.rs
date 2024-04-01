@@ -121,6 +121,12 @@ impl FileLocation for FileLocationType {
     fn location_for_dwo(&self, _comp_dir: &str, _path: &str) -> Option<Self> {
         None // TODO
     }
+
+    fn location_for_dwp(&self) -> Option<Self> {
+        let mut s = self.0.as_os_str().to_os_string();
+        s.push(".dwp");
+        Some(Self(s.into()))
+    }
 }
 
 fn mmap_to_file_contents(m: memmap2::Mmap) -> FileContentsType {

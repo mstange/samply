@@ -4,6 +4,7 @@ use addr2line::fallible_iterator;
 use addr2line::gimli;
 use elsa::sync::FrozenVec;
 use fallible_iterator::FallibleIterator;
+use gimli::DwarfPackage;
 use gimli::{EndianSlice, Reader, RunTimeEndian, SectionId};
 use object::read::ReadRef;
 use object::{CompressedFileRange, CompressionFormat};
@@ -230,6 +231,43 @@ impl Addr2lineContextData {
         let context =
             addr2line::Context::from_dwarf(dwarf).map_err(Error::Addr2lineContextCreationError)?;
         Ok(context)
+    }
+
+    pub fn make_package<'data, 'ctxdata, 'file, O, R>(
+        &'ctxdata self,
+        data: R,
+        obj: &'file O,
+        dwp_data: Option<R>,
+        dwp_obj: Option<&'file O>,
+    ) -> Result<Option<DwarfPackage<EndianSlice<'ctxdata, RunTimeEndian>>>, Error>
+    where
+        'data: 'file,
+        'data: 'ctxdata,
+        'ctxdata: 'file,
+        O: object::Object<'data, 'file>,
+        R: ReadRef<'data>,
+    {
+        let e = if obj.is_little_endian() {
+            gimli::RunTimeEndian::Little
+        } else {
+            gimli::RunTimeEndian::Big
+        };
+        let mut package = None;
+        if let (Some(dwp_obj), Some(dwp_data)) = (dwp_obj, dwp_data) {
+            package = DwarfPackage::load::<_, gimli::Error>(
+                |s| Ok(self.sect(dwp_data, dwp_obj, s, e, true)),
+                EndianSlice::new(&[], e),
+            )
+            .ok();
+        }
+        if package.is_none() && obj.section_by_name(".debug_cu_index").is_some() {
+            package = DwarfPackage::load::<_, gimli::Error>(
+                |s| Ok(self.sect(data, obj, s, e, true)),
+                EndianSlice::new(&[], e),
+            )
+            .ok();
+        }
+        Ok(package)
     }
 
     pub fn make_dwarf_for_dwo<'data, 'ctxdata, 'file, O, R>(

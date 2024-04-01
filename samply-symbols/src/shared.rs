@@ -434,6 +434,8 @@ pub trait FileLocation: Clone + Display {
     fn location_for_breakpad_symindex(&self) -> Option<Self>;
 
     fn location_for_dwo(&self, comp_dir: &str, path: &str) -> Option<Self>;
+
+    fn location_for_dwp(&self) -> Option<Self>;
 }
 
 /// The path of a source file, as found in the debug info.

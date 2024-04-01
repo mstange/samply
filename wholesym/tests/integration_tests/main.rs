@@ -326,6 +326,12 @@ mod simple_example {
         .await;
     }
 
+    // This test is currently disabled.
+    // main.dwp has an empty unit index, so this test runs into https://github.com/gimli-rs/gimli/issues/705
+    // and fails.
+    // Most normal DWP files will work, but the one in this test does not.
+    // We can enable this test once we update to a gimli release which
+    // includes https://github.com/gimli-rs/gimli/pull/706 .
     #[ignore]
     #[tokio::test]
     async fn run_test_with_dwp() {
@@ -339,6 +345,7 @@ mod simple_example {
         .await;
     }
 
+    // This test is disabled for the same reason as the previous test.
     #[ignore]
     #[tokio::test]
     async fn run_test_dwp_debuglink() {

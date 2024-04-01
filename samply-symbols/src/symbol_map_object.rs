@@ -357,6 +357,8 @@ pub struct ObjectSymbolMapInner<'a, Symbol, FC: FileContents + 'static, DDM> {
     path_mapper: Mutex<PathMapper<()>>,
     object_map: ObjectMap<'a>,
     context: Option<Mutex<addr2line::Context<gimli::EndianSlice<'a, gimli::RunTimeEndian>>>>,
+    dwp_package:
+        Option<addr2line::gimli::DwarfPackage<gimli::EndianSlice<'a, gimli::RunTimeEndian>>>,
     svma_file_ranges: SvmaFileRanges,
     image_base_address: u64,
     dwo_dwarf_maker: &'a DDM,
@@ -453,8 +455,10 @@ where
                 };
                 let ctx = ctx.lock().unwrap();
                 let mut lookup_result = ctx.find_frames(*svma);
+                // We use a loop here so that we can retry the lookup with a "continue"
+                // after we've fed the DWO data into the addr2line context.
                 loop {
-                    let _all_match_branches_diverge: u32 = match lookup_result {
+                    break match lookup_result {
                         LookupResult::Load { load, continuation } => {
                             if !external.matches_split_dwarf_load(&load) {
                                 request = ExternalLookupRequest::ReplyIfYouHaveOrTellMeWhatYouNeed;
@@ -485,10 +489,10 @@ where
                         }
                         LookupResult::Output(Ok(frame_iter)) => {
                             let mut path_mapper = self.path_mapper.lock().unwrap();
-                            return convert_frames(frame_iter, &mut path_mapper)
-                                .map(FramesLookupResult::Available);
+                            convert_frames(frame_iter, &mut path_mapper)
+                                .map(FramesLookupResult::Available)
                         }
-                        LookupResult::Output(Err(_)) => return None,
+                        LookupResult::Output(Err(_)) => None,
                     };
                 }
             }
@@ -532,21 +536,36 @@ where
         let mut frames = None;
         if let Some(context) = self.context.as_ref() {
             let context = context.lock().unwrap();
-            let lookup_result = context.find_frames(svma);
-            frames = match lookup_result {
-                LookupResult::Load { load, .. } => Some(FramesLookupResult::External(
-                    ExternalFileAddressRef::with_split_dwarf_load(&load, svma),
-                )),
-                LookupResult::Output(Ok(frame_iter)) => {
-                    let mut path_mapper = self.path_mapper.lock().unwrap();
-                    convert_frames(frame_iter, &mut path_mapper).map(FramesLookupResult::Available)
-                }
-                LookupResult::Output(Err(_)) => {
-                    drop(lookup_result);
-                    drop(context);
-                    self.frames_lookup_for_object_map_references(svma)
-                }
-            };
+            let mut lookup_result = context.find_frames(svma);
+
+            // We use a loop here so that we can retry the lookup with a "continue"
+            // after we've fed the DWP data into the addr2line context.
+            frames = loop {
+                break match lookup_result {
+                    LookupResult::Load { load, continuation } => {
+                        if let Some(dwp) = self.dwp_package.as_ref() {
+                            if let Ok(maybe_cu) = dwp.find_cu(load.dwo_id, &*load.parent) {
+                                use addr2line::LookupContinuation;
+                                lookup_result = continuation.resume(maybe_cu.map(Arc::new));
+                                continue;
+                            }
+                        }
+                        Some(FramesLookupResult::External(
+                            ExternalFileAddressRef::with_split_dwarf_load(&load, svma),
+                        ))
+                    }
+                    LookupResult::Output(Ok(frame_iter)) => {
+                        let mut path_mapper = self.path_mapper.lock().unwrap();
+                        convert_frames(frame_iter, &mut path_mapper)
+                            .map(FramesLookupResult::Available)
+                    }
+                    LookupResult::Output(Err(_)) => {
+                        drop(lookup_result);
+                        drop(context);
+                        self.frames_lookup_for_object_map_references(svma)
+                    }
+                };
+            }
         }
         if frames.is_none() {
             frames = self.frames_lookup_for_object_map_references(svma);
@@ -631,6 +650,7 @@ impl<'a, FC: FileContents + 'static> ObjectSymbolMapInnerWrapper<'a, FC> {
     pub fn new<'file, O, Symbol, DDM: DwoDwarfMaker<FC> + Sync>(
         object_file: &'file O,
         addr2line_context: Option<addr2line::Context<EndianSlice<'a, RunTimeEndian>>>,
+        dwp_package: Option<addr2line::gimli::DwarfPackage<EndianSlice<'a, RunTimeEndian>>>,
         debug_id: DebugId,
         function_start_addresses: Option<&[u32]>,
         function_end_addresses: Option<&[u32]>,
@@ -655,6 +675,7 @@ impl<'a, FC: FileContents + 'static> ObjectSymbolMapInnerWrapper<'a, FC> {
             path_mapper: Mutex::new(PathMapper::new()),
             object_map: object_file.object_map(),
             context: addr2line_context.map(Mutex::new),
+            dwp_package,
             image_base_address: base_address,
             svma_file_ranges: SvmaFileRanges::from_object(object_file),
             dwo_dwarf_maker,

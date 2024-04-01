@@ -154,6 +154,25 @@ impl FileLocation for WholesymFileLocation {
             _ => None,
         }
     }
+
+    fn location_for_dwp(&self) -> Option<Self> {
+        // DWP files are only used locally; by convention they are named
+        // "<binaryname>.dwp" and placed next to the corresponding binary.
+        // The original binary does not have a pointer to the DWP file.
+        // DWP files also do not have a build ID, they cannot be looked up
+        // from a symbol server. The debug information inside a DWP file is
+        // only useful in combination with the debug info inside the binary
+        // (the "skeleton units"); a DWP file by itself cannot be used to
+        // look up symbols if the binary has been stripped of debug info.
+        match self {
+            Self::LocalFile(binary_path) => {
+                let mut dwp_path = binary_path.as_os_str().to_os_string();
+                dwp_path.push(".dwp");
+                Some(Self::LocalFile(dwp_path.into()))
+            }
+            _ => None,
+        }
+    }
 }
 
 impl std::fmt::Display for WholesymFileLocation {

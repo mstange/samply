@@ -9,7 +9,7 @@ use yoke_derive::Yokeable;
 
 use crate::dwarf::Addr2lineContextData;
 use crate::error::Error;
-use crate::shared::{FileAndPathHelper, FileContents, FileContentsWrapper};
+use crate::shared::{FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation};
 use crate::symbol_map::SymbolMap;
 use crate::symbol_map_object::{
     DwoDwarfMaker, ObjectSymbolMap, ObjectSymbolMapInnerWrapper, ObjectSymbolMapOuter,
@@ -31,12 +31,23 @@ pub async fn load_symbol_map_for_elf<H: FileAndPathHelper>(
         return Ok(symbol_map);
     }
 
+    let dwp_file_contents = if let Some(dwp_file_location) = file_location.location_for_dwp() {
+        helper
+            .load_file(dwp_file_location)
+            .await
+            .ok()
+            .map(FileContentsWrapper::new)
+    } else {
+        None
+    };
+
     if let Some(supplementary_file) =
         try_to_load_supplementary_file(&file_location, &elf_file, &*helper).await
     {
         let owner = ElfSymbolMapDataAndObjects::new(
             file_contents,
             Some(supplementary_file),
+            dwp_file_contents,
             file_kind,
             None,
         )?;
@@ -51,7 +62,8 @@ pub async fn load_symbol_map_for_elf<H: FileAndPathHelper>(
         return Ok(symbol_map);
     }
 
-    let owner = ElfSymbolMapDataAndObjects::new(file_contents, None, file_kind, None)?;
+    let owner =
+        ElfSymbolMapDataAndObjects::new(file_contents, None, dwp_file_contents, file_kind, None)?;
     let symbol_map = ObjectSymbolMap::new(owner)?;
     Ok(SymbolMap::new_with_external_file_support(
         file_location,
@@ -117,7 +129,22 @@ where
         return Err(Error::DebugLinkCrcMismatch(actual_crc, expected_crc));
     }
 
-    let owner = ElfSymbolMapDataAndObjects::new(file_contents, None, file_kind, Some(debug_id))?;
+    let dwp_file_contents = if let Some(dwp_file_location) = path.location_for_dwp() {
+        helper
+            .load_file(dwp_file_location)
+            .await
+            .ok()
+            .map(FileContentsWrapper::new)
+    } else {
+        None
+    };
+    let owner = ElfSymbolMapDataAndObjects::new(
+        file_contents,
+        None,
+        dwp_file_contents,
+        file_kind,
+        Some(debug_id),
+    )?;
     let symbol_map = ObjectSymbolMap::new(owner)?;
     Ok(SymbolMap::new_plain(
         original_file_location.clone(),
@@ -273,7 +300,7 @@ fn try_get_symbol_map_from_mini_debug_info<'data, R: ReadRef<'data>, H: FileAndP
     let mut objdata = Vec::new();
     lzma_rs::xz_decompress(&mut cursor, &mut objdata).ok()?;
     let file_contents = FileContentsWrapper::new(objdata);
-    let owner = ElfSymbolMapDataAndObjects::new(file_contents, None, file_kind, None).ok()?;
+    let owner = ElfSymbolMapDataAndObjects::new(file_contents, None, None, file_kind, None).ok()?;
     let symbol_map = ObjectSymbolMap::new(owner).ok()?;
     Some(SymbolMap::new_plain(
         debug_file_location.clone(),
@@ -287,6 +314,7 @@ where
 {
     file_data: FileContentsWrapper<T>,
     supplementary_file_data: Option<FileContentsWrapper<T>>,
+    dwp_file_data: Option<FileContentsWrapper<T>>,
     dwo_file_data: FrozenVec<Box<FileContentsWrapper<T>>>,
 }
 
@@ -300,11 +328,13 @@ trait ElfObjectsTrait<T: FileContents> {
 struct ElfObjects<'data, T: FileContents> {
     file_data: &'data FileContentsWrapper<T>,
     supplementary_file_data: Option<&'data FileContentsWrapper<T>>,
+    dwp_file_data: Option<&'data FileContentsWrapper<T>>,
     dwo_file_data: &'data FrozenVec<Box<FileContentsWrapper<T>>>,
     override_debug_id: Option<DebugId>,
     addr2line_context_data: Addr2lineContextData,
     object: File<'data, &'data FileContentsWrapper<T>>,
     supplementary_object: Option<File<'data, &'data FileContentsWrapper<T>>>,
+    dwp_object: Option<File<'data, &'data FileContentsWrapper<T>>>,
 }
 
 impl<'data, T: FileContents + 'static> ElfObjects<'data, T> {
@@ -333,6 +363,17 @@ impl<'data, T: FileContents + 'static> ElfObjects<'data, T> {
             &self.object,
             self.supplementary_file_data,
             self.supplementary_object.as_ref(),
+        )
+    }
+
+    fn make_dwp_package(
+        &self,
+    ) -> Result<Option<addr2line::gimli::DwarfPackage<EndianSlice<'_, RunTimeEndian>>>, Error> {
+        self.addr2line_context_data.make_package(
+            self.file_data,
+            &self.object,
+            self.dwp_file_data,
+            self.dwp_object.as_ref(),
         )
     }
 
@@ -369,6 +410,7 @@ impl<'data, T: FileContents + 'static> ElfObjectsTrait<T> for ElfObjects<'data, 
         let inner = ObjectSymbolMapInnerWrapper::new(
             &self.object,
             self.make_addr2line_context().ok(),
+            self.make_dwp_package().ok().flatten(),
             debug_id,
             function_starts.as_deref(),
             function_ends.as_deref(),
@@ -387,12 +429,14 @@ impl<T: FileContents + 'static> ElfSymbolMapDataAndObjects<T> {
     pub fn new(
         file_data: FileContentsWrapper<T>,
         supplementary_file_data: Option<FileContentsWrapper<T>>,
+        dwp_file_data: Option<FileContentsWrapper<T>>,
         file_kind: FileKind,
         override_debug_id: Option<DebugId>,
     ) -> Result<Self, Error> {
         let data = ElfSymbolMapData {
             file_data,
             supplementary_file_data,
+            dwp_file_data,
             dwo_file_data: FrozenVec::new(),
         };
         let data_and_objects = Yoke::try_attach_to_cart(
@@ -407,12 +451,21 @@ impl<T: FileContents + 'static> ElfSymbolMapDataAndObjects<T> {
                     ),
                     None => None,
                 };
+                let dwp_object = match data.dwp_file_data.as_ref() {
+                    Some(dwp_file_data) => Some(
+                        File::parse(dwp_file_data)
+                            .map_err(|e| Error::ObjectParseError(file_kind, e))?,
+                    ),
+                    None => None,
+                };
                 let elf_objects = ElfObjects {
                     object,
                     supplementary_object,
+                    dwp_object,
                     dwo_file_data: &data.dwo_file_data,
                     file_data: &data.file_data,
                     supplementary_file_data: data.supplementary_file_data.as_ref(),
+                    dwp_file_data: data.dwp_file_data.as_ref(),
                     override_debug_id,
                     addr2line_context_data: Addr2lineContextData::new(),
                 };

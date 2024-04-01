@@ -413,6 +413,7 @@ impl<T: FileContents + 'static> ObjectSymbolMapOuter<T> for FileDataAndObject<T>
             addr2line_context
                 .make_context(macho_data.data, object, None, None)
                 .ok(),
+            None,
             debug_id,
             function_starts.as_deref(),
             function_ends.as_deref(),

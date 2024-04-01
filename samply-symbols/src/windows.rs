@@ -130,6 +130,7 @@ impl<T: FileContents + 'static> ObjectSymbolMapOuter<T> for PeSymbolMapDataAndOb
             addr2line_context
                 .make_context(*file_data, object, None, None)
                 .ok(),
+            None,
             debug_id,
             function_starts.as_deref(),
             function_ends.as_deref(),
