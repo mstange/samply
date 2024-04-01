@@ -117,10 +117,11 @@ Supported symbol file sources:
  - [x] Breakpad symbol files, local or on a server
  - [x] Symbols from the regular symbol table
  - [x] Fallback symbols from exported functions and function start addresses
+ - [x] Split DWARF with .dwo files
 
-Unsupported for now (patches accepted):
+Work in progress:
 
- - [ ] Split DWARF (.dwo and .dwp files)
+ - [ ] Split DWARF with .dwp files
 
 # Performance
 
