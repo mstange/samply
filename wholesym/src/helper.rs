@@ -137,20 +137,19 @@ impl FileLocation for WholesymFileLocation {
         // load them if those paths were found in a local file.
         match self {
             Self::LocalFile(debug_file_path) => {
-                let mut dwo_file_path = Path::new(path).to_owned();
-                if dwo_file_path.is_absolute() {
-                    return Some(Self::LocalFile(dwo_file_path));
+                if path.starts_with('/') {
+                    return Some(Self::LocalFile(path.into()));
                 }
                 // Resolve relative paths with respect to comp_dir.
-                let comp_dir_path = Path::new(comp_dir);
-                dwo_file_path = comp_dir_path.join(dwo_file_path);
-                if dwo_file_path.is_absolute() {
-                    return Some(Self::LocalFile(dwo_file_path));
+                if comp_dir.starts_with('/') {
+                    let comp_dir = comp_dir.trim_end_matches('/');
+                    let dwo_path = format!("{comp_dir}/{path}");
+                    return Some(Self::LocalFile(Path::new(&dwo_path).into()));
                 }
                 // Resolve relative paths with respect to the location of the debug file.
                 debug_file_path
                     .parent()
-                    .map(|base_path| Self::LocalFile(base_path.join(dwo_file_path)))
+                    .map(|base_path| Self::LocalFile(base_path.join(comp_dir).join(path)))
             }
             _ => None,
         }
