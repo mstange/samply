@@ -1,8 +1,9 @@
-use std::{path::PathBuf, str::FromStr};
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 use debugid::DebugId;
 
-use wholesym::{CodeId, FramesLookupResult, LibraryInfo};
+use wholesym::{CodeId, FramesLookupResult};
 
 fn fixtures_dir() -> PathBuf {
     let this_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -167,25 +168,271 @@ fn dwz_symbolication() {
     assert_eq!(frames[1].function.as_ref().unwrap(), "gobble_file");
 }
 
-// This test only works on macOS 13.0.1.
-#[ignore]
-#[test]
-fn disassemble_libcrypto() {
-    let lib_info = LibraryInfo {
-        debug_name: Some("libcorecrypto.dylib".into()),
-        debug_id: DebugId::from_breakpad("6A5FFEB0E606324EB687DA95C362CE050").ok(),
-        path: Some("/usr/lib/system/libcorecrypto.dylib".into()),
-        arch: Some("arm64e".into()),
-        ..Default::default()
-    };
+mod simple_example {
+    use std::pin::Pin;
 
-    let mut symbol_manager = wholesym::SymbolManager::with_config(Default::default());
-    symbol_manager.add_known_library(lib_info);
-    let response_json = futures::executor::block_on(
-        symbol_manager.query_json_api("/asm/v1", r#"{"debugName":"libcorecrypto.dylib","debugId":"6A5FFEB0E606324EB687DA95C362CE050","name":"libcorecrypto.dylib","codeId":null,"startAddress":"0x5844","size":"0x1c"}"#),
-    );
-    assert_eq!(
-        response_json,
-        r#"{"startAddress":"0x5844","size":"0x1c","instructions":[[0,"hint #0x1b"],[4,"stp x29, x30, [sp, #-0x10]!"],[8,"mov x29, sp"],[12,"adrp x0, $+0x593f3000"],[16,"add x0, x0, #0x340"],[20,"ldr x8, [x0]"],[24,"blraaz x8"]]}"#
-    );
+    use futures::Future;
+
+    use super::*;
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct TestAddressInfo<'a> {
+        symbol: (&'a str, u32, u32),
+        frames: &'a [(&'a str, &'a str, u32)],
+    }
+
+    async fn test_address<F: FnOnce(TestAddressInfo)>(
+        symbol_map: &wholesym::SymbolMap,
+        relative_address: u32,
+        f: F,
+    ) {
+        let address_info = symbol_map
+            .lookup_relative_address(relative_address)
+            .unwrap();
+
+        let frames = match address_info.frames {
+            Some(FramesLookupResult::Available(frames)) => Some(frames),
+            Some(FramesLookupResult::External(external)) => {
+                symbol_map.lookup_external(&external).await
+            }
+            None => None,
+        };
+        let frames = frames.unwrap();
+        let test_frames: Vec<_> = frames
+            .iter()
+            .map(|frame| {
+                (
+                    frame.function.as_deref().unwrap(),
+                    frame.file_path.as_ref().unwrap().raw_path(),
+                    frame.line_number.unwrap(),
+                )
+            })
+            .collect();
+        let test_address_info = TestAddressInfo {
+            symbol: (
+                &address_info.symbol.name,
+                address_info.symbol.address,
+                address_info.symbol.size.unwrap(),
+            ),
+            frames: &test_frames,
+        };
+        f(test_address_info);
+    }
+
+    async fn run_single_test<
+        F: FnOnce(&wholesym::SymbolMap) -> Pin<Box<dyn Future<Output = ()> + '_>>,
+    >(
+        bin_path: &Path,
+        redirect_paths: &[(&str, PathBuf)],
+        expected_debug_id: DebugId,
+        test_fn: F,
+    ) {
+        let mut config = wholesym::SymbolManagerConfig::default().verbose(true);
+        for (s, path) in redirect_paths {
+            config = config.redirect_path_for_testing(s, path);
+        }
+        let symbol_manager = wholesym::SymbolManager::with_config(config);
+        let symbol_map = symbol_manager
+            .load_symbol_map_for_binary_at_path(bin_path, None)
+            .await
+            .unwrap();
+
+        assert_eq!(symbol_map.debug_id(), expected_debug_id);
+        test_fn(&symbol_map).await;
+    }
+
+    async fn linux_simple_example_test_fn(symbol_map: &wholesym::SymbolMap) {
+        test_address(symbol_map, 0xb14, |t| {
+            assert_eq!(
+                t,
+                TestAddressInfo {
+                    symbol: ("file1_func2(int)", 0xafc, 0x2c),
+                    frames: &[
+                        (
+                            "file1_func3(int, int)",
+                            "/home/ubuntu/code/samply/fixtures/other/simple-example/src/file1.h",
+                            5,
+                        ),
+                        (
+                            "file1_func2(int)",
+                            "/home/ubuntu/code/samply/fixtures/other/simple-example/src/file1.cpp",
+                            13,
+                        ),
+                    ],
+                }
+            )
+        })
+        .await;
+
+        test_address(symbol_map, 0xb98, |t| {
+            assert_eq!(
+                t,
+                TestAddressInfo {
+                    symbol: ("file2_func1(int)", 0xb74, 0x38),
+                    frames: &[
+                        (
+                            "file2_func3(int, int)",
+                            "/home/ubuntu/code/samply/fixtures/other/simple-example/src/file2.h",
+                            5,
+                        ),
+                        (
+                            "file2_func2(int)",
+                            "/home/ubuntu/code/samply/fixtures/other/simple-example/src/file2.cpp",
+                            11,
+                        ),
+                        (
+                            "file2_func1(int)",
+                            "/home/ubuntu/code/samply/fixtures/other/simple-example/src/file2.cpp",
+                            7,
+                        ),
+                    ],
+                }
+            )
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn run_test_regular_debuglink() {
+        let regular_debuglink_dir =
+            fixtures_dir().join("other/simple-example/out/regular-debuglink");
+        run_single_test(
+            &regular_debuglink_dir.join("main"),
+            &[],
+            DebugId::from_breakpad("0C3E1D589F360C231BC06257AD3D38270").unwrap(),
+            |sm| Box::pin(linux_simple_example_test_fn(sm)),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn run_test_with_dwo() {
+        let dwo_obj_dir = fixtures_dir().join("other/simple-example/out/with-dwo");
+        run_single_test(
+            &dwo_obj_dir.join("main"),
+            &[
+                (
+                    "/home/ubuntu/code/samply/fixtures/other/simple-example/out/with-dwo/file1.dwo",
+                    dwo_obj_dir.join("file1.dwo"),
+                ),
+                (
+                    "/home/ubuntu/code/samply/fixtures/other/simple-example/out/with-dwo/file2.dwo",
+                    dwo_obj_dir.join("file2.dwo"),
+                ),
+            ],
+            DebugId::from_breakpad("64EC1ADF3B4779940896B95FEDD58FB20").unwrap(),
+            |sm| Box::pin(linux_simple_example_test_fn(sm)),
+        )
+        .await;
+    }
+
+    #[ignore]
+    #[tokio::test]
+    async fn run_test_with_dwp() {
+        let dwp_obj_dir = fixtures_dir().join("other/simple-example/out/with-dwp");
+        run_single_test(
+            &dwp_obj_dir.join("main"),
+            &[],
+            DebugId::from_breakpad("AA203F622728BC24591A89512845E0900").unwrap(),
+            |sm| Box::pin(linux_simple_example_test_fn(sm)),
+        )
+        .await;
+    }
+
+    #[ignore]
+    #[tokio::test]
+    async fn run_test_dwp_debuglink() {
+        let dwp_debuglink_obj_dir = fixtures_dir().join("other/simple-example/out/dwp-debuglink");
+        run_single_test(
+            &dwp_debuglink_obj_dir.join("main"),
+            &[],
+            DebugId::from_breakpad("057C5D3DF90D23FDE7A32D40698479AC0").unwrap(),
+            |sm| Box::pin(linux_simple_example_test_fn(sm)),
+        )
+        .await;
+    }
+
+    async fn mac_simple_example_test_fn(symbol_map: &wholesym::SymbolMap) {
+        test_address(symbol_map, 0x3ac0, |t| {
+            assert_eq!(
+                t,
+                TestAddressInfo {
+                    symbol: ("file1_func1(int)", 0x3a7c, 0x60),
+                    frames: &[
+                        (
+                            "file1_func2(int)",
+                            "/Users/mstange/code/samply/fixtures/other/simple-example/src/file1.cpp",
+                            13,
+                        ),
+                        (
+                            "file1_func1(int)",
+                            "/Users/mstange/code/samply/fixtures/other/simple-example/src/file1.cpp",
+                            9,
+                        ),
+                    ],
+                }
+            )
+        })
+        .await;
+
+        test_address(symbol_map, 0x3b30, |t| {
+            assert_eq!(
+                t,
+                TestAddressInfo {
+                    symbol: ("file2_func1(int)", 0x3b08, 0x3c),
+                    frames: &[
+                        (
+                            "file2_func3(int, int)",
+                            "/Users/mstange/code/samply/fixtures/other/simple-example/src/file2.h",
+                            5,
+                        ),
+                        (
+                            "file2_func2(int)",
+                            "/Users/mstange/code/samply/fixtures/other/simple-example/src/file2.cpp",
+                            11,
+                        ),
+                        (
+                            "file2_func1(int)",
+                            "/Users/mstange/code/samply/fixtures/other/simple-example/src/file2.cpp",
+                            7,
+                        ),
+                    ],
+                }
+            )
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn run_test_mac_oso() {
+        let mac_oso_dir = fixtures_dir().join("other/simple-example/out/mac-oso");
+        run_single_test(
+            &mac_oso_dir.join("main"),
+            &[(
+                "/Users/mstange/code/samply/fixtures/other/simple-example/out/mac-oso/file1.o",
+                mac_oso_dir.join("file1.o"),
+            ), (
+                "/Users/mstange/code/samply/fixtures/other/simple-example/out/mac-oso/libfile23.a",
+                mac_oso_dir.join("libfile23.a"),
+            )],
+            DebugId::from_breakpad("FF78692C66BD35DB9476D5060EA5BD830").unwrap(),
+            |sm| Box::pin(mac_simple_example_test_fn(sm))
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn run_test_mac_dsym() {
+        let mac_dsym_dir = fixtures_dir().join("other/simple-example/out/mac-dsym");
+        run_single_test(
+            &mac_dsym_dir.join("main"),
+            &[(
+                "/Users/mstange/code/samply/fixtures/other/simple-example/out/mac-dsym/main.dSYM/Contents/Resources/DWARF/main",
+                mac_dsym_dir.join("main.dSYM/Contents/Resources/DWARF/main"),
+            )],
+            DebugId::from_breakpad("CF441AF5BB7E35678D44451D69214D920").unwrap(),
+            |sm| Box::pin(mac_simple_example_test_fn(sm))
+        )
+        .await;
+    }
 }
