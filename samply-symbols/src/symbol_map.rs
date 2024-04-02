@@ -62,7 +62,7 @@ impl<H: FileAndPathHelper> SymbolMap<H> {
         }
     }
 
-    pub(crate) fn new_with(
+    pub(crate) fn new_with_external_file_support(
         debug_file_location: H::FL,
         inner: Box<dyn GetInnerSymbolMapWithLookupFramesExt<H::F> + Send + Sync>,
         helper: Arc<H>,

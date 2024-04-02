@@ -529,27 +529,28 @@ where
             name,
         };
 
-        let Some(context) = self.context.as_ref() else {
-            let frames = self.frames_lookup_for_object_map_references(svma);
-            return Some(AddressInfo { symbol, frames });
-        };
-
-        let context = context.lock().unwrap();
-        let lookup_result = context.find_frames(svma);
-        let frames = match lookup_result {
-            LookupResult::Load { load, .. } => Some(FramesLookupResult::External(
-                ExternalFileAddressRef::with_split_dwarf_load(&load, svma),
-            )),
-            LookupResult::Output(Ok(frame_iter)) => {
-                let mut path_mapper = self.path_mapper.lock().unwrap();
-                convert_frames(frame_iter, &mut path_mapper).map(FramesLookupResult::Available)
-            }
-            LookupResult::Output(Err(_)) => {
-                drop(lookup_result);
-                drop(context);
-                self.frames_lookup_for_object_map_references(svma)
-            }
-        };
+        let mut frames = None;
+        if let Some(context) = self.context.as_ref() {
+            let context = context.lock().unwrap();
+            let lookup_result = context.find_frames(svma);
+            frames = match lookup_result {
+                LookupResult::Load { load, .. } => Some(FramesLookupResult::External(
+                    ExternalFileAddressRef::with_split_dwarf_load(&load, svma),
+                )),
+                LookupResult::Output(Ok(frame_iter)) => {
+                    let mut path_mapper = self.path_mapper.lock().unwrap();
+                    convert_frames(frame_iter, &mut path_mapper).map(FramesLookupResult::Available)
+                }
+                LookupResult::Output(Err(_)) => {
+                    drop(lookup_result);
+                    drop(context);
+                    self.frames_lookup_for_object_map_references(svma)
+                }
+            };
+        }
+        if frames.is_none() {
+            frames = self.frames_lookup_for_object_map_references(svma);
+        }
         Some(AddressInfo { symbol, frames })
     }
 

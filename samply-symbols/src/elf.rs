@@ -53,7 +53,7 @@ pub async fn load_symbol_map_for_elf<H: FileAndPathHelper>(
 
     let owner = ElfSymbolMapDataAndObjects::new(file_contents, None, file_kind, None)?;
     let symbol_map = ObjectSymbolMap::new(owner)?;
-    Ok(SymbolMap::new_with(
+    Ok(SymbolMap::new_with_external_file_support(
         file_location,
         Box::new(symbol_map),
         helper,

@@ -557,7 +557,7 @@ where
                         file_location,
                         file_contents,
                         file_kind,
-                        self.helper.clone(),
+                        self.helper(),
                     )
                     .await
                 }
@@ -571,10 +571,11 @@ where
                         file_location,
                         file_contents,
                         member,
+                        self.helper(),
                     )
                 }
                 FileKind::MachO32 | FileKind::MachO64 => {
-                    macho::get_symbol_map_for_macho(file_location, file_contents)
+                    macho::get_symbol_map_for_macho(file_location, file_contents, self.helper())
                 }
                 FileKind::Pe32 | FileKind::Pe64 => {
                     match windows::load_symbol_map_for_pdb_corresponding_to_binary(
@@ -586,9 +587,12 @@ where
                     .await
                     {
                         Ok(symbol_map) => Ok(symbol_map),
-                        Err(_) => {
-                            windows::get_symbol_map_for_pe(file_contents, file_kind, file_location)
-                        }
+                        Err(_) => windows::get_symbol_map_for_pe(
+                            file_contents,
+                            file_kind,
+                            file_location,
+                            self.helper(),
+                        ),
                     }
                 }
                 _ => Err(Error::InvalidInputError(

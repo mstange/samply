@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ops::Deref;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use debugid::DebugId;
 use nom::bytes::complete::{tag, take_until1};
@@ -15,6 +15,7 @@ use yoke_derive::Yokeable;
 
 use crate::debugid_util::debug_id_for_object;
 use crate::demangle;
+use crate::dwarf::Addr2lineContextData;
 use crate::error::{Context, Error};
 use crate::mapped_path::MappedPath;
 use crate::path_mapper::{ExtraPathMapper, PathMapper};
@@ -66,14 +67,36 @@ pub fn get_symbol_map_for_pe<H: FileAndPathHelper>(
     file_contents: FileContentsWrapper<H::F>,
     file_kind: FileKind,
     file_location: H::FL,
+    helper: Arc<H>,
 ) -> Result<SymbolMap<H>, Error> {
     let owner = PeSymbolMapDataAndObject::new(file_contents, file_kind)?;
     let symbol_map = ObjectSymbolMap::new(owner)?;
-    Ok(SymbolMap::new_plain(file_location, Box::new(symbol_map)))
+    Ok(SymbolMap::new_with_external_file_support(
+        file_location,
+        Box::new(symbol_map),
+        helper,
+    ))
 }
 
 #[derive(Yokeable)]
-struct PeObject<'data, T: FileContents>(File<'data, &'data FileContentsWrapper<T>>);
+struct PeObject<'data, T: FileContents> {
+    file_data: &'data FileContentsWrapper<T>,
+    object: File<'data, &'data FileContentsWrapper<T>>,
+    addr2line_context: Addr2lineContextData,
+}
+
+impl<'data, T: FileContents> PeObject<'data, T> {
+    pub fn new(
+        file_data: &'data FileContentsWrapper<T>,
+        object: File<'data, &'data FileContentsWrapper<T>>,
+    ) -> Self {
+        Self {
+            file_data,
+            object,
+            addr2line_context: Addr2lineContextData::new(),
+        }
+    }
+}
 
 struct PeSymbolMapDataAndObject<T: FileContents + 'static>(
     Yoke<PeObject<'static, T>, Box<FileContentsWrapper<T>>>,
@@ -85,7 +108,7 @@ impl<T: FileContents + 'static> PeSymbolMapDataAndObject<T> {
             move |file_data| -> Result<PeObject<'_, T>, Error> {
                 let object =
                     File::parse(file_data).map_err(|e| Error::ObjectParseError(file_kind, e))?;
-                Ok(PeObject(object))
+                Ok(PeObject::new(file_data, object))
             },
         )?;
         Ok(Self(data_and_object))
@@ -94,13 +117,19 @@ impl<T: FileContents + 'static> PeSymbolMapDataAndObject<T> {
 
 impl<T: FileContents + 'static> ObjectSymbolMapOuter<T> for PeSymbolMapDataAndObject<T> {
     fn make_symbol_map_inner(&self) -> Result<ObjectSymbolMapInnerWrapper<T>, Error> {
-        let object = &self.0.get().0;
+        let PeObject {
+            file_data,
+            object,
+            addr2line_context,
+        } = &self.0.get();
         let debug_id = debug_id_for_object(object)
             .ok_or(Error::InvalidInputError("debug ID cannot be read"))?;
         let (function_starts, function_ends) = compute_function_addresses_pe(object);
         let symbol_map = ObjectSymbolMapInnerWrapper::new(
             object,
-            None,
+            addr2line_context
+                .make_context(*file_data, object, None, None)
+                .ok(),
             debug_id,
             function_starts.as_deref(),
             function_ends.as_deref(),
