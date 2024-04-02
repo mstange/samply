@@ -729,19 +729,24 @@ impl FileAndPathHelper for Helper {
         };
 
         // https://www-zeuthen.desy.de/unix/unixguide/infohtml/gdb/Separate-Debug-Files.html
-        Ok(vec![
-            WholesymFileLocation::LocalFile(absolute_original_file_parent.join(debug_link_name)),
+        let mut candidates = vec![
+            WholesymFileLocation::LocalFile(dbg!(
+                absolute_original_file_parent.join(debug_link_name)
+            )),
             WholesymFileLocation::LocalFile(
                 absolute_original_file_parent
                     .join(".debug")
                     .join(debug_link_name),
             ),
-            WholesymFileLocation::LocalFile(
+        ];
+        if let Ok(relative_bin_path) = absolute_original_file_parent.strip_prefix("/") {
+            candidates.push(WholesymFileLocation::LocalFile(
                 Path::new("/usr/lib/debug")
-                    .join(absolute_original_file_parent.strip_prefix("/")?)
+                    .join(relative_bin_path)
                     .join(debug_link_name),
-            ),
-        ])
+            ));
+        }
+        Ok(candidates)
     }
 
     fn get_candidate_paths_for_binary(
