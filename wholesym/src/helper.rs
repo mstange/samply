@@ -730,9 +730,7 @@ impl FileAndPathHelper for Helper {
 
         // https://www-zeuthen.desy.de/unix/unixguide/infohtml/gdb/Separate-Debug-Files.html
         let mut candidates = vec![
-            WholesymFileLocation::LocalFile(dbg!(
-                absolute_original_file_parent.join(debug_link_name)
-            )),
+            WholesymFileLocation::LocalFile(absolute_original_file_parent.join(debug_link_name)),
             WholesymFileLocation::LocalFile(
                 absolute_original_file_parent
                     .join(".debug")
