@@ -1,12 +1,10 @@
 use libc::execvp;
-use nix::sys::wait::WaitStatus;
 use nix::unistd::Pid;
 
 use std::ffi::{CString, OsStr, OsString};
 use std::os::fd::{AsFd, AsRawFd, IntoRawFd, OwnedFd};
 use std::os::raw::c_char;
-use std::os::unix::prelude::{ExitStatusExt, OsStrExt};
-use std::process::ExitStatus;
+use std::os::unix::prelude::OsStrExt;
 
 /// Allows launching a command in a suspended state, so that we can know its
 /// pid and initialize profiling before proceeding to execute the command.
@@ -173,14 +171,7 @@ pub struct RunningProcess {
 }
 
 impl RunningProcess {
-    pub fn wait(self) -> Result<std::process::ExitStatus, nix::errno::Errno> {
-        let wait_status = nix::sys::wait::waitpid(self.pid, None)?;
-        let exit_status = match wait_status {
-            WaitStatus::Exited(_pid, exit_code) => ExitStatus::from_raw(exit_code),
-            wait_status => {
-                panic!("Unexpected waitpid result: {wait_status:?}");
-            }
-        };
-        Ok(exit_status)
+    pub fn wait(self) -> Result<nix::sys::wait::WaitStatus, nix::errno::Errno> {
+        nix::sys::wait::waitpid(self.pid, None)
     }
 }

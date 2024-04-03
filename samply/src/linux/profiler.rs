@@ -3,11 +3,13 @@ use linux_perf_data::linux_perf_event_reader::EventRecord;
 use linux_perf_data::linux_perf_event_reader::{
     CpuMode, Endianness, Mmap2FileId, Mmap2InodeAndVersion, Mmap2Record, RawData,
 };
+use nix::sys::wait::WaitStatus;
 
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::BufWriter;
+use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::ExitStatus;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -129,13 +131,16 @@ pub fn start_recording(
 
     // Wait for the child process to quit.
     // This is where the main thread spends all its time during profiling.
-    let mut exit_status = process.wait().unwrap();
+    let mut wait_status = process.wait().unwrap();
 
     for i in 2..=iteration_count {
-        if !exit_status.success() {
+        let previous_run_exited_with_success = match &wait_status {
+            WaitStatus::Exited(_pid, exit_code) => ExitStatus::from_raw(*exit_code).success(),
+            _ => false,
+        };
+        if !previous_run_exited_with_success {
             eprintln!(
-                "Skipping remaining iterations due to non-success exit status: \"{}\"",
-                exit_status
+                "Skipping remaining iterations due to non-success exit status: {wait_status:?}"
             );
             break;
         }
@@ -166,7 +171,7 @@ pub fn start_recording(
             }
         };
 
-        exit_status = process.wait().expect("couldn't wait for child");
+        wait_status = process.wait().expect("couldn't wait for child");
     }
 
     profile_another_pid_request_sender
@@ -188,6 +193,10 @@ pub fn start_recording(
         start_server_main(&recording_props.output_file, server_props);
     }
 
+    let exit_status = match wait_status {
+        WaitStatus::Exited(_pid, exit_code) => ExitStatus::from_raw(exit_code),
+        _ => ExitStatus::default(),
+    };
     Ok(exit_status)
 }
 
