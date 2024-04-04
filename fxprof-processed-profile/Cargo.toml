@@ -2,7 +2,7 @@
 name = "fxprof-processed-profile"
 version = "0.6.0"
 edition = "2021"
-rust-version = "1.58"
+rust-version = "1.60" # needed by bytesize
 authors = ["Markus Stange <mstange.moz@gmail.com>"]
 license = "MIT OR Apache-2.0"
 description = "Create profiles in the Firefox Profiler's processed profile JSON format."
