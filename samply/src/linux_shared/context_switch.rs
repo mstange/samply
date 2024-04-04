@@ -236,17 +236,16 @@ pub struct ThreadContextSwitchData {
     off_cpu_duration_since_last_off_cpu_sample: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 enum ThreadState {
+    #[default]
     Unknown,
-    Off { off_switch_timestamp: u64 },
-    On { last_observed_on_timestamp: u64 },
-}
-
-impl Default for ThreadState {
-    fn default() -> Self {
-        ThreadState::Unknown
-    }
+    Off {
+        off_switch_timestamp: u64,
+    },
+    On {
+        last_observed_on_timestamp: u64,
+    },
 }
 
 #[cfg(test)]
