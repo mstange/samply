@@ -1,7 +1,7 @@
 use debugid::DebugId;
 use samply_symbols::{
     BreakpadIndex, BreakpadIndexParser, CandidatePathInfo, CodeId, ElfBuildId, FileAndPathHelper,
-    FileAndPathHelperResult, FileLocation, LibraryInfo, PeCodeId,
+    FileAndPathHelperResult, FileLocation, LibraryInfo, OptionallySendFuture, PeCodeId,
 };
 use symsrv::{SymsrvDownloader, SymsrvObserver};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -222,8 +222,12 @@ impl FileAndPathHelper for FileReadOnlyHelper {
         panic!("Should not be called");
     }
 
-    async fn load_file(&self, location: WholesymFileLocation) -> FileAndPathHelperResult<Self::F> {
-        self.load_file_impl(location).await
+    fn load_file(
+        &self,
+        location: WholesymFileLocation,
+    ) -> std::pin::Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + '_>>
+    {
+        Box::pin(self.load_file_impl(location))
     }
 
     fn get_dyld_shared_cache_paths(
@@ -821,8 +825,12 @@ impl FileAndPathHelper for Helper {
         Ok(get_dyld_shared_cache_paths(arch))
     }
 
-    async fn load_file(&self, location: WholesymFileLocation) -> FileAndPathHelperResult<Self::F> {
-        self.load_file_impl(location).await
+    fn load_file(
+        &self,
+        location: WholesymFileLocation,
+    ) -> std::pin::Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + '_>>
+    {
+        Box::pin(self.load_file_impl(location))
     }
 
     fn get_candidate_paths_for_supplementary_debug_file(

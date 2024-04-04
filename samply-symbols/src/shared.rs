@@ -343,7 +343,7 @@ pub trait FileAndPathHelper {
     fn load_file(
         &self,
         location: Self::FL,
-    ) -> impl OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>>;
+    ) -> std::pin::Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + '_>>;
 }
 
 /// Provides synchronous access to the raw bytes of a file.

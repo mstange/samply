@@ -2,6 +2,7 @@ use assert_json_diff::assert_json_eq;
 pub use samply_api::debugid::DebugId;
 use samply_api::samply_symbols;
 use samply_api::Api;
+use samply_symbols::OptionallySendFuture;
 use samply_symbols::{
     CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation, LibraryInfo,
     SymbolManager,
@@ -92,27 +93,33 @@ impl FileAndPathHelper for Helper {
         ])
     }
 
-    async fn load_file(&self, location: FileLocationType) -> FileAndPathHelperResult<Self::F> {
-        let mut path = location.0;
+    fn load_file(
+        &self,
+        location: FileLocationType,
+    ) -> std::pin::Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + '_>>
+    {
+        Box::pin(async {
+            let mut path = location.0;
 
-        if !path.starts_with(&self.symbol_directory) {
-            // See if this file exists in self.symbol_directory.
-            // For example, when looking up object files referenced by mach-O binaries,
-            // we want to take the object files from the symbol directory if they exist,
-            // rather than from the original path.
-            if let Some(filename) = path.file_name() {
-                let redirected_path = self.symbol_directory.join(filename);
-                if std::fs::metadata(&redirected_path).is_ok() {
-                    // redirected_path exists!
-                    eprintln!("Redirecting {:?} to {:?}", &path, &redirected_path);
-                    path = redirected_path;
+            if !path.starts_with(&self.symbol_directory) {
+                // See if this file exists in self.symbol_directory.
+                // For example, when looking up object files referenced by mach-O binaries,
+                // we want to take the object files from the symbol directory if they exist,
+                // rather than from the original path.
+                if let Some(filename) = path.file_name() {
+                    let redirected_path = self.symbol_directory.join(filename);
+                    if std::fs::metadata(&redirected_path).is_ok() {
+                        // redirected_path exists!
+                        eprintln!("Redirecting {:?} to {:?}", &path, &redirected_path);
+                        path = redirected_path;
+                    }
                 }
             }
-        }
 
-        eprintln!("Reading file {:?}", &path);
-        let file = File::open(&path)?;
-        Ok(unsafe { memmap2::MmapOptions::new().map(&file)? })
+            eprintln!("Reading file {:?}", &path);
+            let file = File::open(&path)?;
+            Ok(unsafe { memmap2::MmapOptions::new().map(&file)? })
+        })
     }
 
     fn get_candidate_paths_for_binary(

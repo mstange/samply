@@ -1,7 +1,8 @@
 use samply_symbols::debugid::DebugId;
 use samply_symbols::{
     self, CandidatePathInfo, CompactSymbolTable, Error, FileAndPathHelper, FileAndPathHelperResult,
-    FileLocation, LibraryInfo, MultiArchDisambiguator, SymbolManager, SymbolMap,
+    FileLocation, LibraryInfo, MultiArchDisambiguator, OptionallySendFuture, SymbolManager,
+    SymbolMap,
 };
 use std::fs::File;
 use std::io::{BufWriter, Read, Write};
@@ -176,12 +177,18 @@ impl FileAndPathHelper for Helper {
         Ok(paths)
     }
 
-    async fn load_file(&self, location: Self::FL) -> FileAndPathHelperResult<Self::F> {
-        let path = location.0;
-        eprintln!("Opening file {:?}", &path);
-        let file = File::open(&path)?;
-        let mmap = unsafe { memmap2::MmapOptions::new().map(&file)? };
-        Ok(mmap_to_file_contents(mmap))
+    fn load_file(
+        &self,
+        location: Self::FL,
+    ) -> std::pin::Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + '_>>
+    {
+        Box::pin(async {
+            let path = location.0;
+            eprintln!("Opening file {:?}", &path);
+            let file = File::open(&path)?;
+            let mmap = unsafe { memmap2::MmapOptions::new().map(&file)? };
+            Ok(mmap_to_file_contents(mmap))
+        })
     }
 
     fn get_candidate_paths_for_binary(

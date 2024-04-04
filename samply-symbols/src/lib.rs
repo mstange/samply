@@ -159,11 +159,11 @@
 //!        Ok(vec![])
 //!    }
 //!
-//!     async fn load_file(
+//!     fn load_file(
 //!         &self,
 //!         location: ExampleFileLocation,
-//!     ) -> FileAndPathHelperResult<Self::F> {
-//!         Ok(std::fs::read(&location.0)?)
+//!     ) -> std::pin::Pin<Box<dyn OptionallySendFuture<Output = FileAndPathHelperResult<Self::F>> + '_>> {
+//!         Box::pin(async move { Ok(std::fs::read(&location.0)?) })
 //!     }
 //! }
 //!
