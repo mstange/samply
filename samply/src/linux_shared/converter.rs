@@ -1,5 +1,5 @@
 use byteorder::LittleEndian;
-use debugid::{CodeId, DebugId};
+use debugid::DebugId;
 
 use framehop::{ExplicitModuleSectionInfo, FrameAddress, Module, Unwinder};
 use fxprof_processed_profile::{
@@ -13,30 +13,28 @@ use linux_perf_event_reader::{
     MmapRecord, RawDataU64, SampleRecord,
 };
 use memmap2::Mmap;
-use object::pe::{ImageNtHeaders32, ImageNtHeaders64};
-use object::read::pe::{ImageNtHeaders, ImageOptionalHeader, PeFile};
-use object::{
-    CompressedFileRange, CompressionFormat, FileKind, Object, ObjectSection, ObjectSegment,
-};
+use object::{CompressedFileRange, CompressionFormat, Object, ObjectSection};
 use samply_symbols::{debug_id_for_object, DebugIdExt};
-use wholesym::samply_symbols;
+use wholesym::{samply_symbols, CodeId, ElfBuildId};
 
-use std::collections::{BTreeMap, HashMap};
-use std::fmt::Debug;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
 use std::{ops::Range, path::Path};
 
+use super::avma_range::AvmaRange;
 use super::context_switch::{ContextSwitchHandler, OffCpuSampleGroup};
 use super::convert_regs::ConvertRegs;
 use super::event_interpretation::{EventInterpretation, OffCpuIndicator};
 use super::injected_jit_object::{correct_bad_perf_jit_so_file, jit_function_name};
 use super::kernel_symbols::{kernel_module_build_id, KernelSymbols};
 use super::mmap_range_or_vec::MmapRangeOrVec;
+use super::pe_mappings::{PeMappings, SuspectedPeMapping};
 use super::processes::Processes;
 use super::rss_stat::{RssStat, MM_ANONPAGES, MM_FILEPAGES, MM_SHMEMPAGES, MM_SWAPENTS};
 use super::svma_file_range::compute_vma_bias;
+use super::vdso::VdsoObject;
 
 use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::process_sample_data::RssStatMember;
@@ -48,14 +46,6 @@ use crate::shared::unresolved_samples::{
 use crate::shared::utils::open_file_with_fallback;
 
 pub type BoxedProductNameGenerator = Box<dyn FnOnce(&str) -> String>;
-
-/// See [`Converter::check_for_pe_mapping`].
-#[derive(Debug, Clone)]
-struct SuspectedPeMapping {
-    path: Vec<u8>,
-    start: u64,
-    size: u64,
-}
 
 pub struct Converter<U>
 where
@@ -77,11 +67,7 @@ where
     off_cpu_indicator: Option<OffCpuIndicator>,
     event_names: Vec<String>,
     kernel_symbols: Option<KernelSymbols>,
-
-    /// Mapping of start address to potential mapped PE binaries.
-    /// The key is equal to the start field of the value.
-    suspected_pe_mappings: BTreeMap<u64, SuspectedPeMapping>,
-
+    pe_mappings: PeMappings,
     jit_category_manager: JitCategoryManager,
 
     /// Whether repeated frames at the base of the stack should be folded
@@ -152,7 +138,7 @@ where
             off_cpu_indicator: interpretation.off_cpu_indicator,
             event_names: interpretation.event_names,
             kernel_symbols,
-            suspected_pe_mappings: BTreeMap::new(),
+            pe_mappings: PeMappings::new(),
             jit_category_manager: JitCategoryManager::new(),
             fold_recursive_prefix,
         }
@@ -516,57 +502,6 @@ where
         }
     }
 
-    /// This is a terrible hack to get binary correlation working with apps on Wine.
-    ///
-    /// Unlike ELF, PE has the notion of "file alignment" that is different from page alignment.
-    /// Hence, even if the virtual address is page aligned, its on-disk offset may not be. This
-    /// leads to obvious trouble with using mmap, since mmap requires the file offset to be page
-    /// aligned. Wine's workaround is straightforward: for misaligned sections, Wine will simply
-    /// copy the image from disk instead of mmapping them. For example, `/proc/<pid>/maps` can look
-    /// like this:
-    ///
-    /// ```plain
-    /// <PE header> 140000000-140001000 r--p 00000000 00:25 272185   game.exe
-    /// <.text>     140001000-143be8000 r-xp 00000000 00:00 0
-    ///             143be8000-144c0c000 r--p 00000000 00:00 0
-    /// ```
-    ///
-    /// When this misalignment happens, most of the sections in the memory will not be a file
-    /// mapping. However, the PE header is always mapped, and it resides at the beginning of the
-    /// file, which means it's also always *aligned*. Finally, it's always mapped first, because
-    /// the information from the header is required to determine the load address of the other
-    /// sections. Hence, if we find a mapping that seems to pointing to a PE file, and has a file
-    /// offset of 0, we'll add it to the list of "suspected PE images". When we see a later mapping
-    /// that belongs to one of the suspected PE ranges, we'll match the mapping with the file,
-    /// which allows binary correlation and unwinding to work.
-    fn check_for_pe_mapping(&mut self, path_slice: &[u8], mapping_start_avma: u64) {
-        // Do a quick extension check first, to avoid end up trying to parse every mmapped file.
-        let filename_is_pe = path_slice.ends_with(b".exe")
-            || path_slice.ends_with(b".dll")
-            || path_slice.ends_with(b".EXE")
-            || path_slice.ends_with(b".DLL");
-        if !filename_is_pe {
-            return;
-        }
-
-        // There are a few assumptions here:
-        // - The SizeOfImage field in the PE header is defined to be a multiple of SectionAlignment.
-        //   SectionAlignment is usually the page size. When it's not the page size, additional
-        //   layout restrictions apply and Wine will always map the file in its entirety, which
-        //   means we're safe without the workaround. So we can safely assume it to be page aligned
-        //   here.
-        // - VirtualAddress of the sections are defined to be adjacent after page-alignment. This
-        //   means that we can treat the image as a contiguous region.
-        if let Some(size) = get_pe_mapping_size(path_slice) {
-            let mapping = SuspectedPeMapping {
-                path: path_slice.to_owned(),
-                start: mapping_start_avma,
-                size,
-            };
-            self.suspected_pe_mappings.insert(mapping.start, mapping);
-        }
-    }
-
     pub fn handle_mmap(&mut self, e: MmapRecord, timestamp: u64) {
         let mut path = e.path.as_slice();
         if self.check_jitdump_or_marker_file(&path, e.pid, e.tid) {
@@ -575,7 +510,7 @@ where
         }
 
         if e.page_offset == 0 {
-            self.check_for_pe_mapping(&e.path.as_slice(), e.address);
+            self.pe_mappings.check_mmap(&path, e.address);
         }
 
         if !e.is_executable {
@@ -621,7 +556,7 @@ where
         }
 
         if e.page_offset == 0 {
-            self.check_for_pe_mapping(&path, e.address);
+            self.pe_mappings.check_mmap(&path, e.address);
         }
 
         const PROT_EXEC: u32 = 0b100;
@@ -937,7 +872,8 @@ where
             debug_id: debug_id.unwrap_or_default(),
             path,
             debug_path,
-            code_id: build_id.map(|build_id| CodeId::from_binary(&build_id).to_string()),
+            code_id: build_id
+                .map(|build_id| CodeId::ElfBuildId(ElfBuildId::from_bytes(&build_id)).to_string()),
             name: dso_key.name().to_string(),
             debug_name: dso_key.name().to_string(),
             arch: None,
@@ -947,8 +883,7 @@ where
             .add_kernel_lib_mapping(lib_handle, base_address, base_address + len, 0);
     }
 
-    /// Tell the unwinder about this module, and alsos create a ProfileModule
-    /// and add it to the profile.
+    /// Tell the unwinder and the profile about this module.
     ///
     /// The unwinder needs to know about it in case we need to do DWARF stack
     /// unwinding - it needs to get the unwinding information from the binary.
@@ -966,59 +901,45 @@ where
         build_id: Option<&[u8]>,
         timestamp: u64,
     ) {
-        let process = self.processes.get_by_pid(process_pid, &mut self.profile);
+        let avma_range = AvmaRange::with_start_size(mapping_start_avma, mapping_size);
+        let expected_code_id =
+            build_id.map(|build_id| CodeId::ElfBuildId(ElfBuildId::from_bytes(build_id)));
 
-        let path = std::str::from_utf8(path_slice).unwrap();
-        let (mut file, mut path): (Option<_>, String) = match open_file_with_fallback(
-            Path::new(path),
-            self.extra_binary_artifact_dir.as_deref(),
-        ) {
-            Ok((file, path)) => (Some(file), path.to_string_lossy().to_string()),
-            _ => (None, path.to_owned()),
+        let Some(path) = path_from_unix_bytes(path_slice) else {
+            return;
         };
 
-        let mut suspected_pe_mapping = None;
-        if file.is_none() {
-            suspected_pe_mapping = self
-                .suspected_pe_mappings
-                .range(..=mapping_start_avma)
-                .next_back()
-                .map(|(_, m)| m)
-                .filter(|m| {
-                    mapping_start_avma >= m.start
-                        && mapping_start_avma + mapping_size <= m.start + m.size
-                });
-            if let Some(mapping) = suspected_pe_mapping {
-                if let Ok((pe_file, pe_path)) = open_file_with_fallback(
-                    Path::new(std::str::from_utf8(&mapping.path).unwrap()),
-                    self.extra_binary_artifact_dir.as_deref(),
-                ) {
-                    file = Some(pe_file);
-                    path = pe_path.to_string_lossy().to_string();
-                }
+        let mut mapping_info = MappingInfo::new_elf(path, avma_range);
+        if path_slice.is_empty() {
+            if let Some(pe_mapping) = self.pe_mappings.find_mapping(&avma_range) {
+                mapping_info = MappingInfo::new_pe(pe_mapping);
             }
         }
 
-        if file.is_none() && !path.starts_with('[') {
-            // eprintln!("Could not open file {:?}", objpath);
-        }
+        let mut file = None;
+        let mut path = mapping_info.path.to_string_lossy().to_string();
 
-        // Fix up bad files from `perf inject --jit`.
-        if let Some(file_inner) = &file {
-            if let Some((fixed_file, fixed_path)) = correct_bad_perf_jit_so_file(file_inner, &path)
-            {
+        if let Ok((f, p)) = open_file_with_fallback(
+            &mapping_info.path,
+            self.extra_binary_artifact_dir.as_deref(),
+        ) {
+            // Fix up bad files from `perf inject --jit`.
+            if let Some((fixed_file, fixed_path)) = correct_bad_perf_jit_so_file(&f, &path) {
                 file = Some(fixed_file);
                 path = fixed_path;
+            } else {
+                file = Some(f);
+                path = p.to_string_lossy().to_string();
             }
         }
-
-        let mapping_end_avma = mapping_start_avma + mapping_size;
-        let avma_range = mapping_start_avma..mapping_end_avma;
 
         let name = Path::new(&path)
             .file_name()
             .map_or("<unknown>".into(), |f| f.to_string_lossy().to_string());
 
+        let process = self.processes.get_by_pid(process_pid, &mut self.profile);
+
+        // Case 1: We have access to the file that was loaded into the process.
         if let Some(file) = file {
             let mmap = match unsafe { memmap2::MmapOptions::new().map(&file) } {
                 Ok(mmap) => Arc::new(mmap),
@@ -1028,26 +949,6 @@ where
                 }
             };
 
-            fn section_data<'a>(
-                section: &impl ObjectSection<'a>,
-                mmap: Arc<Mmap>,
-            ) -> Option<MmapRangeOrVec> {
-                let CompressedFileRange {
-                    format,
-                    offset,
-                    compressed_size: _,
-                    uncompressed_size,
-                } = section.compressed_file_range().ok()?;
-                match format {
-                    CompressionFormat::None => {
-                        MmapRangeOrVec::new_mmap_range(mmap, offset, uncompressed_size)
-                    }
-                    _ => Some(MmapRangeOrVec::Vec(Arc::new(
-                        section.uncompressed_data().ok()?.to_vec(),
-                    ))),
-                }
-            }
-
             let file = match object::File::parse(&mmap[..]) {
                 Ok(file) => file,
                 Err(_) => {
@@ -1056,131 +957,39 @@ where
                 }
             };
 
-            // Verify build ID.
-            if let Some(build_id) = build_id {
-                match file.build_id().ok().flatten() {
-                    Some(file_build_id) if build_id == file_build_id => {
-                        // Build IDs match. Good.
-                    }
-                    Some(file_build_id) => {
-                        let file_build_id = CodeId::from_binary(file_build_id);
-                        let expected_build_id = CodeId::from_binary(build_id);
-                        eprintln!(
-                            "File {path} has non-matching build ID {file_build_id} (expected {expected_build_id})"
-                        );
-                        return;
-                    }
-                    None => {
-                        eprintln!(
-                            "File {path} does not contain a build ID, but we expected it to have one"
-                        );
-                        return;
-                    }
-                }
+            let file_code_id = mapping_info.code_id.clone().or_else(|| {
+                Some(CodeId::ElfBuildId(ElfBuildId::from_bytes(
+                    file.build_id().ok()??,
+                )))
+            });
+            if expected_code_id.as_ref().is_some_and(|expected_code_id| {
+                !Self::code_id_matches(file_code_id.as_ref(), expected_code_id, &path)
+            }) {
+                return;
             }
 
-            let base_svma = samply_symbols::relative_address_base(&file);
-            let base_avma = if let Some(mapping) = suspected_pe_mapping {
-                // For the PE correlation hack, we can't use the mapping offsets as they correspond to
-                // an anonymous mapping. Instead, the base address is pre-determined from the PE header
-                // mapping.
-                mapping.start
-            } else if let Some(bias) = compute_vma_bias(
-                &file,
-                mapping_start_file_offset,
-                mapping_start_avma,
-                mapping_size,
-            ) {
-                base_svma.wrapping_add(bias)
-            } else {
+            let module_section_info =
+                Self::module_section_info_with_object(Some(mmap.clone()), &file);
+            let Some(library_info) =
+                Self::library_info_with_object(&name, &path, &file, file_code_id)
+            else {
                 return;
             };
 
-            let text = file.section_by_name(".text");
-            let eh_frame = file.section_by_name(".eh_frame");
-            let got = file.section_by_name(".got");
-            let eh_frame_hdr = file.section_by_name(".eh_frame_hdr");
-
-            let eh_frame_data = eh_frame
-                .as_ref()
-                .and_then(|s| section_data(s, mmap.clone()));
-            let eh_frame_hdr_data = eh_frame_hdr
-                .as_ref()
-                .and_then(|s| section_data(s, mmap.clone()));
-
-            let (text_segment, text_segment_svma) = if let Some(text_segment) = file
-                .segments()
-                .find(|segment| segment.name_bytes() == Ok(Some(b"__TEXT")))
-            {
-                let text_segment_svma =
-                    Some(text_segment.address()..text_segment.address() + text_segment.size());
-                let (start, size) = text_segment.file_range();
-                let text_segment = MmapRangeOrVec::new_mmap_range(mmap.clone(), start, size);
-                (text_segment, text_segment_svma)
-            } else {
-                (None, None)
+            let Some(base_avma) = mapping_info.compute_base_avma(&file, mapping_start_file_offset)
+            else {
+                return;
             };
-            let text_section_data = if let Some(text_section) = &text {
-                if let Some((start, size)) = text_section.file_range() {
-                    MmapRangeOrVec::new_mmap_range(mmap.clone(), start, size)
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
-
-            fn svma_range<'a>(section: &impl ObjectSection<'a>) -> Range<u64> {
-                section.address()..section.address() + section.size()
-            }
-
-            let module_section_info = ExplicitModuleSectionInfo {
-                base_svma,
-                text_svma: text.as_ref().map(svma_range),
-                text: text_section_data,
-                stubs_svma: None,
-                stub_helper_svma: None,
-                got_svma: got.as_ref().map(svma_range),
-                unwind_info: None,
-                eh_frame_svma: eh_frame.as_ref().map(svma_range),
-                eh_frame: eh_frame_data,
-                eh_frame_hdr_svma: eh_frame_hdr.as_ref().map(svma_range),
-                eh_frame_hdr: eh_frame_hdr_data,
-                debug_frame: None,
-                text_segment_svma,
-                text_segment,
-            };
-
             let module = Module::new(
                 path.to_string(),
-                avma_range.clone(),
+                avma_range.start()..avma_range.end(),
                 base_avma,
                 module_section_info,
             );
+
+            let relative_address_at_start = (mapping_start_avma - module.base_avma()) as u32;
             process.unwinder.add_module(module);
-
-            let debug_id = if let Some(debug_id) = debug_id_for_object(&file) {
-                debug_id
-            } else {
-                return;
-            };
-            let code_id = file
-                .build_id()
-                .ok()
-                .flatten()
-                .map(|build_id| CodeId::from_binary(build_id).to_string());
-            let lib_handle = self.profile.add_lib(LibraryInfo {
-                debug_id,
-                code_id,
-                path: path.clone(),
-                debug_path: path,
-                debug_name: name.clone(),
-                name: name.clone(),
-                arch: None,
-                symbol_table: None,
-            });
-
-            let relative_address_at_start = (avma_range.start - base_avma) as u32;
+            let lib_handle = self.profile.add_lib(library_info);
 
             if name.starts_with("jitted-") && name.ends_with(".so") {
                 let symbol_name = jit_function_name(&file);
@@ -1188,8 +997,8 @@ where
                     timestamp,
                     self.timestamp_converter.convert_time(timestamp),
                     symbol_name,
-                    mapping_start_avma,
-                    mapping_end_avma,
+                    avma_range.start(),
+                    avma_range.end(),
                     relative_address_at_start,
                     lib_handle,
                     &mut self.jit_category_manager,
@@ -1198,43 +1007,193 @@ where
             } else {
                 process.add_regular_lib_mapping(
                     timestamp,
-                    mapping_start_avma,
-                    mapping_end_avma,
+                    avma_range.start(),
+                    avma_range.end(),
                     relative_address_at_start,
                     lib_handle,
                 );
             }
-        } else {
-            // Without access to the binary file, make some guesses. We can't really
-            // know what the right base address is because we don't have the section
-            // information which lets us map between addresses and file offsets, but
-            // often svmas and file offsets are the same, so this is a reasonable guess.
-            let base_avma = mapping_start_avma - mapping_start_file_offset;
-            let relative_address_at_start = (mapping_start_avma - base_avma) as u32;
+            return;
+        }
 
-            // If we have a build ID, convert it to a debug_id and a code_id.
-            let debug_id = build_id
-                .map(|id| DebugId::from_identifier(id, true)) // TODO: endian
-                .unwrap_or_default();
-            let code_id = build_id.map(|build_id| CodeId::from_binary(build_id).to_string());
+        // Case 2: This is the VDSO mapping.
+        if name == "[vdso]" {
+            if let Some(vdso) = VdsoObject::shared_instance_for_this_process() {
+                if expected_code_id.as_ref().is_some_and(|expected_code_id| {
+                    !Self::code_id_matches(Some(vdso.code_id()), expected_code_id, &path)
+                }) {
+                    return;
+                }
 
-            let lib_handle = self.profile.add_lib(LibraryInfo {
-                debug_id,
-                code_id,
-                path: path.clone(),
-                debug_path: path,
-                debug_name: name.clone(),
-                name,
-                arch: None,
-                symbol_table: None,
-            });
-            process.add_regular_lib_mapping(
-                timestamp,
-                mapping_start_avma,
-                mapping_end_avma,
-                relative_address_at_start,
-                lib_handle,
-            );
+                let module_section_info =
+                    Self::module_section_info_with_object(None, vdso.object());
+                let code_id = vdso.code_id().clone();
+                let Some(library_info) =
+                    Self::library_info_with_object(&name, &path, vdso.object(), Some(code_id))
+                else {
+                    return;
+                };
+
+                let Some(base_avma) =
+                    mapping_info.compute_base_avma(vdso.object(), mapping_start_file_offset)
+                else {
+                    return;
+                };
+                let module = Module::new(
+                    path.clone(),
+                    avma_range.start()..avma_range.end(),
+                    base_avma,
+                    module_section_info,
+                );
+
+                let relative_address_at_start = (mapping_start_avma - module.base_avma()) as u32;
+                process.unwinder.add_module(module);
+                let lib_handle = self.profile.add_lib(library_info);
+
+                process.add_regular_lib_mapping(
+                    timestamp,
+                    avma_range.start(),
+                    avma_range.end(),
+                    relative_address_at_start,
+                    lib_handle,
+                );
+                return;
+            }
+        }
+
+        // Case 3: We don't have access to the file.
+
+        // Without access to the binary file, make some guesses. We can't really
+        // know what the right base address is because we don't have the section
+        // information which lets us map between addresses and file offsets, but
+        // often svmas and file offsets are the same, so this is a reasonable guess.
+        let base_avma = mapping_start_avma - mapping_start_file_offset;
+        let relative_address_at_start = (mapping_start_avma - base_avma) as u32;
+
+        // If we have a build ID, convert it to a debug_id and a code_id.
+        let debug_id = build_id
+            .map(|id| DebugId::from_identifier(id, true)) // TODO: endian
+            .unwrap_or_default();
+        let code_id = build_id
+            .map(|build_id| CodeId::ElfBuildId(ElfBuildId::from_bytes(build_id)).to_string());
+
+        let lib_handle = self.profile.add_lib(LibraryInfo {
+            debug_id,
+            code_id,
+            path: path.clone(),
+            debug_path: path,
+            debug_name: name.clone(),
+            name,
+            arch: None,
+            symbol_table: None,
+        });
+        process.add_regular_lib_mapping(
+            timestamp,
+            avma_range.start(),
+            avma_range.end(),
+            relative_address_at_start,
+            lib_handle,
+        );
+    }
+
+    fn code_id_matches(
+        file_code_id: Option<&CodeId>,
+        expected_code_id: &CodeId,
+        path: &str,
+    ) -> bool {
+        match file_code_id {
+            Some(file_code_id) if expected_code_id == file_code_id => {
+                // Build IDs match. Good.
+                true
+            }
+            Some(file_code_id) => {
+                eprintln!(
+                        "File {path} has non-matching build ID {file_code_id} (expected {expected_code_id})"
+                    );
+                false
+            }
+            None => {
+                eprintln!(
+                    "File {path} does not contain a build ID, but we expected it to have one"
+                );
+                false
+            }
+        }
+    }
+
+    fn library_info_with_object<'data, R: object::ReadRef<'data>>(
+        name: &str,
+        path: &str,
+        file: &object::File<'data, R>,
+        code_id: Option<CodeId>,
+    ) -> Option<LibraryInfo> {
+        let debug_id = debug_id_for_object(file)?;
+        Some(LibraryInfo {
+            debug_id,
+            code_id: code_id.map(|ci| ci.to_string()),
+            path: path.to_owned(),
+            debug_path: path.to_owned(),
+            debug_name: name.to_owned(),
+            name: name.to_owned(),
+            arch: None,
+            symbol_table: None,
+        })
+    }
+
+    fn module_section_info_with_object<'data, R: object::ReadRef<'data>>(
+        mmap_arc: Option<Arc<Mmap>>,
+        file: &object::File<'data, R>,
+    ) -> ExplicitModuleSectionInfo<MmapRangeOrVec> {
+        let mmap = mmap_arc.as_ref();
+
+        fn section_data<'a>(
+            section: &impl ObjectSection<'a>,
+            mmap: Option<&Arc<Mmap>>,
+        ) -> Option<MmapRangeOrVec> {
+            let CompressedFileRange {
+                format,
+                offset,
+                compressed_size: _,
+                uncompressed_size,
+            } = section.compressed_file_range().ok()?;
+            match (format, mmap) {
+                (CompressionFormat::None, Some(mmap)) => {
+                    MmapRangeOrVec::new_mmap_range(mmap.clone(), offset, uncompressed_size)
+                }
+                _ => Some(MmapRangeOrVec::Vec(Arc::new(
+                    section.uncompressed_data().ok()?.to_vec(),
+                ))),
+            }
+        }
+
+        let base_svma = samply_symbols::relative_address_base(file);
+        let text = file.section_by_name(".text");
+        let eh_frame = file.section_by_name(".eh_frame");
+        let got = file.section_by_name(".got");
+        let eh_frame_hdr = file.section_by_name(".eh_frame_hdr");
+
+        let eh_frame_data = eh_frame.as_ref().and_then(|s| section_data(s, mmap));
+        let eh_frame_hdr_data = eh_frame_hdr.as_ref().and_then(|s| section_data(s, mmap));
+        let text_data = text.as_ref().and_then(|s| section_data(s, mmap));
+        fn svma_range<'a>(section: &impl ObjectSection<'a>) -> Range<u64> {
+            section.address()..section.address() + section.size()
+        }
+
+        ExplicitModuleSectionInfo {
+            base_svma,
+            text_svma: text.as_ref().map(svma_range),
+            text: text_data,
+            stubs_svma: None,
+            stub_helper_svma: None,
+            got_svma: got.as_ref().map(svma_range),
+            unwind_info: None,
+            eh_frame_svma: eh_frame.as_ref().map(svma_range),
+            eh_frame: eh_frame_data,
+            eh_frame_hdr_svma: eh_frame_hdr.as_ref().map(svma_range),
+            eh_frame_hdr: eh_frame_hdr_data,
+            debug_frame: None,
+            text_segment_svma: None,
+            text_segment: None,
         }
     }
 }
@@ -1294,20 +1253,71 @@ fn process_off_cpu_sample_group(
     }
 }
 
-fn get_pe_mapping_size(path_slice: &[u8]) -> Option<u64> {
-    fn inner<T: ImageNtHeaders>(data: &[u8]) -> Option<u64> {
-        let file = PeFile::<T>::parse(data).ok()?;
-        let size = file.nt_headers().optional_header().size_of_image();
-        Some(size as u64)
+struct MappingInfo {
+    path: PathBuf,
+    code_id: Option<CodeId>,
+    avma_range: AvmaRange,
+    mapping_type: MappingType,
+}
+
+impl MappingInfo {
+    pub fn new_elf(path: &Path, avma_range: AvmaRange) -> Self {
+        Self {
+            path: path.to_owned(),
+            code_id: None,
+            avma_range,
+            mapping_type: MappingType::Elf,
+        }
     }
 
-    let path = Path::new(std::str::from_utf8(path_slice).ok()?);
-    let file = std::fs::File::open(path).ok()?;
-    let mmap = unsafe { Mmap::map(&file).ok()? };
-
-    match FileKind::parse(&mmap[..]).ok()? {
-        FileKind::Pe32 => inner::<ImageNtHeaders32>(&mmap),
-        FileKind::Pe64 => inner::<ImageNtHeaders64>(&mmap),
-        _ => None,
+    pub fn new_pe(pe_mapping: &SuspectedPeMapping) -> Self {
+        Self {
+            path: pe_mapping.path.clone(),
+            code_id: Some(pe_mapping.code_id.clone()),
+            avma_range: pe_mapping.avma_range,
+            mapping_type: MappingType::Pe,
+        }
     }
+
+    pub fn compute_base_avma<'data, O: Object<'data>>(
+        &self,
+        file: &O,
+        mapping_start_file_offset: u64,
+    ) -> Option<u64> {
+        let base_avma = match self.mapping_type {
+            MappingType::Pe => {
+                // For the PE correlation hack, we can't use the mapping offsets as they correspond to
+                // an anonymous mapping. Instead, the base address is pre-determined from the PE header
+                // mapping.
+                self.avma_range.start()
+            }
+            MappingType::Elf => {
+                let bias = compute_vma_bias(
+                    file,
+                    mapping_start_file_offset,
+                    self.avma_range.start(),
+                    self.avma_range.size(),
+                )?;
+                let base_svma = samply_symbols::relative_address_base(file);
+                base_svma.wrapping_add(bias)
+            }
+        };
+        Some(base_avma)
+    }
+}
+
+enum MappingType {
+    Elf,
+    Pe,
+}
+
+#[cfg(unix)]
+fn path_from_unix_bytes(path_slice: &[u8]) -> Option<&Path> {
+    use std::os::unix::ffi::OsStrExt;
+    Some(Path::new(std::ffi::OsStr::from_bytes(path_slice)))
+}
+
+#[cfg(not(unix))]
+fn path_from_unix_bytes(path_slice: &[u8]) -> Option<&Path> {
+    Some(Path::new(std::str::from_utf8(path_slice).ok()?))
 }

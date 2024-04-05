@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::BufWriter;
+use std::ops::Deref;
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::ExitStatus;
@@ -21,6 +22,7 @@ use super::perf_event::EventSource;
 use super::perf_group::{AttachMode, PerfGroup};
 use super::proc_maps;
 use super::process::SuspendedLaunchedProcess;
+use crate::linux_shared::vdso::VdsoObject;
 use crate::linux_shared::{
     ConvertRegs, Converter, EventInterpretation, MmapRangeOrVec, OffCpuIndicator,
 };
@@ -426,6 +428,9 @@ fn init_profiler(
     let maps = read_string_lossy(format!("/proc/{pid}/maps")).expect("couldn't read proc maps");
     let maps = proc_maps::parse(&maps);
 
+    let vdso_file_id = VdsoObject::shared_instance_for_this_process()
+        .map(|vdso| Mmap2FileId::BuildId(vdso.build_id().to_owned()));
+
     for region in maps {
         let mut protection = 0;
         if region.is_read {
@@ -445,6 +450,16 @@ fn init_profiler(
             flags |= libc::MAP_PRIVATE;
         }
 
+        let file_id = match (region.name.deref(), vdso_file_id.as_ref()) {
+            ("[vdso]", Some(vdso_file_id)) => vdso_file_id.clone(),
+            _ => Mmap2FileId::InodeAndVersion(Mmap2InodeAndVersion {
+                major: region.major,
+                minor: region.minor,
+                inode: region.inode,
+                inode_generation: 0,
+            }),
+        };
+
         converter.handle_mmap2(
             Mmap2Record {
                 pid: pid as i32,
@@ -452,12 +467,7 @@ fn init_profiler(
                 address: region.start,
                 length: region.end - region.start,
                 page_offset: region.file_offset,
-                file_id: Mmap2FileId::InodeAndVersion(Mmap2InodeAndVersion {
-                    major: region.major,
-                    minor: region.minor,
-                    inode: region.inode,
-                    inode_generation: 0,
-                }),
+                file_id,
                 protection: protection as _,
                 flags: flags as _,
                 path: RawData::Single(&region.name.into_bytes()),

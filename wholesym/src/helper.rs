@@ -14,7 +14,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::{config::SymbolManagerConfig, debuginfod::DebuginfodSymbolCache};
+use crate::{config::SymbolManagerConfig, debuginfod::DebuginfodSymbolCache, vdso::get_vdso_data};
 
 use bytes::Bytes;
 
@@ -53,6 +53,7 @@ pub enum WholesymFileLocation {
     BreakpadSymindexFile(String),
     DebuginfodDebugFile(ElfBuildId),
     DebuginfodExecutable(ElfBuildId),
+    VdsoLoadedIntoThisProcess,
 }
 
 impl FileLocation for WholesymFileLocation {
@@ -400,6 +401,19 @@ impl Helper {
                     memmap2::MmapOptions::new().map(&File::open(file_path)?)?
                 }))
             }
+            WholesymFileLocation::VdsoLoadedIntoThisProcess => {
+                if let Some(vdso) = get_vdso_data() {
+                    // Pretend that the VDSO data came from a file.
+                    // This works more or less by accident; object's parsing is made for
+                    // objects stored on disk, not for objects loaded into memory.
+                    // However, the VDSO in-memory image happens to be similar enough to its
+                    // equivalent on-disk image that this works fine. Most importantly, the
+                    // VDSO's section SVMAs match the section file offsets.
+                    Ok(WholesymFileContents::Bytes(Bytes::copy_from_slice(vdso)))
+                } else {
+                    Err("No vdso in this process".into())
+                }
+            }
         }
     }
 
@@ -733,6 +747,12 @@ impl FileAndPathHelper for Helper {
             }
         }
 
+        if info.name.as_deref() == Some("[vdso]") {
+            paths.push(CandidatePathInfo::SingleFile(
+                WholesymFileLocation::VdsoLoadedIntoThisProcess,
+            ));
+        }
+
         Ok(paths)
     }
 
@@ -783,6 +803,12 @@ impl FileAndPathHelper for Helper {
         if let Some(path) = &info.path {
             paths.push(CandidatePathInfo::SingleFile(
                 WholesymFileLocation::LocalFile(path.into()),
+            ));
+        }
+
+        if info.name.as_deref() == Some("[vdso]") {
+            paths.push(CandidatePathInfo::SingleFile(
+                WholesymFileLocation::VdsoLoadedIntoThisProcess,
             ));
         }
 

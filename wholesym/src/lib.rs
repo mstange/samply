@@ -146,6 +146,7 @@ mod moria_mac;
 #[cfg(target_os = "macos")]
 mod moria_mac_spotlight;
 mod symbol_manager;
+mod vdso;
 
 pub use config::SymbolManagerConfig;
 pub use samply_symbols;
