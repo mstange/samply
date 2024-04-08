@@ -16,7 +16,7 @@ reqwest = { version = "0.12.2", default-features = false, features = [
 anyhow = "1.0.81"
 tempfile = "3.10.1"
 futures = "0.3.5"
-cab = "0.5.0"
+cab = "0.6.0"
 flate2 = "1.0.14"
 tar = "0.4.26"
 bzip2 = "0.4.3"

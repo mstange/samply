@@ -174,7 +174,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bzip2",
- "cab",
+ "cab 0.6.0",
  "dump-table",
  "flate2",
  "futures",
@@ -308,6 +308,18 @@ name = "cab"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e8636d870cf15918e416b7904f0db1cbd06de0ffe392986c3b16662552df00c"
+dependencies = [
+ "byteorder",
+ "flate2",
+ "lzxd",
+ "time",
+]
+
+[[package]]
+name = "cab"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "171228650e6721d5acc0868a462cd864f49ac5f64e4a42cde270406e64e404d2"
 dependencies = [
  "byteorder",
  "flate2",
@@ -2074,7 +2086,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2a01649eee4ef62854ec22e6f98be071271f93b144690e68090808aacb9ac5f8"
 dependencies = [
  "async-compression",
- "cab",
+ "cab 0.5.0",
  "dirs",
  "fs4",
  "futures-util",
