@@ -427,6 +427,36 @@ impl Profile {
         self.threads[thread.0].add_sample(timestamp, stack_index, cpu_delta, weight);
     }
 
+    /// Add a sample to the given thread.
+    ///
+    /// The sample has a timestamp, a stack, a CPU delta, and a weight.
+    ///
+    /// The stack frames are supplied as an iterator. Every frame has an associated
+    /// category pair.
+    ///
+    /// You can can also set the weight to something negative, such as -1, to create a
+    /// "diff profile". For example, if you have partitioned your samples into "before"
+    /// and "after" groups, you can use -1 for all "before" samples and 1 for all "after"
+    /// samples, and the call tree will show you which stacks occur more frequently in
+    /// the "after" part of the profile, by sorting those stacks to the top.
+    pub fn add_memory_sample(
+        &mut self,
+        thread: ThreadHandle,
+        timestamp: Timestamp,
+        frames: impl Iterator<Item = FrameInfo>,
+        memory_address: Option<usize>,
+        weight: i32,
+    ) {
+        let stack_index = self.stack_index_for_frames(thread, frames);
+        self.threads[thread.0].add_memory_sample(
+            timestamp,
+            stack_index,
+            memory_address,
+            thread.0,
+            weight,
+        );
+    }
+
     /// Add a sample with a CPU delta of zero. Internally, multiple consecutive
     /// samples with a delta of zero will be combined into one sample with an accumulated
     /// weight.
