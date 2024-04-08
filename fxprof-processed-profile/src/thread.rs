@@ -12,7 +12,7 @@ use crate::global_lib_table::GlobalLibTable;
 use crate::marker_table::MarkerTable;
 use crate::native_symbols::NativeSymbols;
 use crate::resource_table::ResourceTable;
-use crate::sample_table::SampleTable;
+use crate::sample_table::{NativeAllocations, SampleTable};
 use crate::stack_table::StackTable;
 use crate::string_table::{GlobalStringIndex, GlobalStringTable};
 use crate::thread_string_table::{ThreadInternalStringIndex, ThreadStringTable};
@@ -37,6 +37,7 @@ pub struct Thread {
     frame_table: FrameTable,
     func_table: FuncTable,
     samples: SampleTable,
+    native_allocations: Option<NativeAllocations>,
     markers: MarkerTable,
     resources: ResourceTable,
     native_symbols: NativeSymbols,
@@ -58,6 +59,7 @@ impl Thread {
             frame_table: FrameTable::new(),
             func_table: FuncTable::new(),
             samples: SampleTable::new(),
+            native_allocations: None,
             markers: MarkerTable::new(),
             resources: ResourceTable::new(),
             native_symbols: NativeSymbols::new(),
@@ -128,6 +130,31 @@ impl Thread {
             .add_sample(timestamp, stack_index, cpu_delta, weight);
         self.last_sample_stack = stack_index;
         self.last_sample_was_zero_cpu = cpu_delta == CpuDelta::ZERO;
+    }
+
+    pub fn add_memory_sample(
+        &mut self,
+        timestamp: Timestamp,
+        stack_index: Option<usize>,
+        memory_address: Option<usize>,
+        thread_id: usize,
+        weight: i32,
+    ) {
+        // TODO: figure out how to unify the `string` definition of tid:
+        // // The Tid is most often a number. However in some cases such as merged profiles
+        // // we could generate a string.
+        // export type Tid = number | string;
+        //
+        // and the `number` definition of thread_id in nativeAllocations:
+        // threadId: number[],
+        //
+        // This way we could reuse the `tid` field of `Thread`, and it would not need to be a
+        // parameter in this method.
+
+        // initialize allocations if it doesn't exist
+        let mut allocations = self.native_allocations.take().unwrap_or_default();
+        allocations.add_sample(timestamp, stack_index, memory_address, thread_id, weight);
+        self.native_allocations = Some(allocations);
     }
 
     pub fn add_sample_same_stack_zero_cpu(&mut self, timestamp: Timestamp, weight: i32) {
@@ -213,6 +240,9 @@ impl Thread {
         map.serialize_entry("registerTime", &thread_register_time)?;
         map.serialize_entry("resourceTable", &self.resources)?;
         map.serialize_entry("samples", &self.samples)?;
+        if let Some(allocations) = &self.native_allocations {
+            map.serialize_entry("nativeAllocations", &allocations)?;
+        }
         map.serialize_entry(
             "stackTable",
             &self.stack_table.serialize_with_categories(categories),
