@@ -163,43 +163,47 @@ impl TraceEventInfoRaw {
                 + (std::mem::size_of::<TraceEventInfo>() - std::mem::size_of::<EventPropertyInfo>());
 
             let curr_prop = EventPropertyInfo::from(&self.info[curr_prop_offset..]);
-            assert!((curr_prop.Flags.0 & PropertyStruct.0 == 0));
-            unsafe {
-                if curr_prop.Anonymous1.nonStructType.MapNameOffset != 0 {
-                    // build an empty event record that we can use to get the map info
-                    let mut event: Etw::EVENT_RECORD = std::mem::zeroed();
-                    event.EventHeader.ProviderId = self.provider_guid();
+            if curr_prop.Flags.0 & PropertyStruct.0 == 0 {
+                // This property is a struct so it has no map info
+                return None;
+            } else {
+                unsafe {
+                    if curr_prop.Anonymous1.nonStructType.MapNameOffset != 0 {
+                        // build an empty event record that we can use to get the map info
+                        let mut event: Etw::EVENT_RECORD = std::mem::zeroed();
+                        event.EventHeader.ProviderId = self.provider_guid();
 
-                    let mut buffer_size = 0;
-                    let map_name = PCWSTR(self.info[curr_prop.Anonymous1.nonStructType.MapNameOffset as usize..].as_ptr() as *mut u16);
-                    use windows::Win32::Foundation::ERROR_INSUFFICIENT_BUFFER;
-                    // println!("map_name {}", utils::parse_unk_size_null_utf16_string(&self.info[curr_prop.Anonymous1.nonStructType.MapNameOffset as usize..]));
-                    if Etw::TdhGetEventMapInformation(&event, map_name, None, &mut buffer_size) != ERROR_INSUFFICIENT_BUFFER.0 {
-                        panic!("expected this to fail");
-                    }
-                    
-                    let mut buffer = vec![0; buffer_size as usize];
-                    if Etw::TdhGetEventMapInformation(&event, map_name, Some(buffer.as_mut_ptr() as *mut _), &mut buffer_size) != 0 {
-                        panic!();
-                    }
-
-                    let map_info: &crate::Etw::EVENT_MAP_INFO = &*(buffer.as_ptr() as *const _);
-                    if map_info.Flag == crate::Etw::EVENTMAP_INFO_FLAG_MANIFEST_VALUEMAP || map_info.Flag == crate::Etw::EVENTMAP_INFO_FLAG_MANIFEST_BITMAP {
-                        let is_bitmap = map_info.Flag == crate::Etw::EVENTMAP_INFO_FLAG_MANIFEST_BITMAP;
-                        let mut map = crate::FastHashMap::default();
-                        assert!(map_info.Anonymous.MapEntryValueType == crate::Etw::EVENTMAP_ENTRY_VALUETYPE_ULONG);
-                        let entries = std::slice::from_raw_parts(map_info.MapEntryArray.as_ptr(), map_info.EntryCount as usize);
-                        for e in entries {
-                            let value = e.Anonymous.Value;
-                            let name = utils::parse_unk_size_null_utf16_string(&buffer[e.OutputOffset as usize..]);
-                            // println!("{} -> {:?}", value, name);
-                            map.insert(value, name);
+                        let mut buffer_size = 0;
+                        let map_name = PCWSTR(self.info[curr_prop.Anonymous1.nonStructType.MapNameOffset as usize..].as_ptr() as *mut u16);
+                        use windows::Win32::Foundation::ERROR_INSUFFICIENT_BUFFER;
+                        // println!("map_name {}", utils::parse_unk_size_null_utf16_string(&self.info[curr_prop.Anonymous1.nonStructType.MapNameOffset as usize..]));
+                        if Etw::TdhGetEventMapInformation(&event, map_name, None, &mut buffer_size) != ERROR_INSUFFICIENT_BUFFER.0 {
+                            panic!("expected this to fail");
                         }
-                        return Some(Rc::new(PropertyMapInfo { is_bitmap, map }));
-                    } else  {
-                        eprint!("unsupported map type {:?}", map_info.Flag);
-                    }
+                        
+                        let mut buffer = vec![0; buffer_size as usize];
+                        if Etw::TdhGetEventMapInformation(&event, map_name, Some(buffer.as_mut_ptr() as *mut _), &mut buffer_size) != 0 {
+                            panic!();
+                        }
 
+                        let map_info: &crate::Etw::EVENT_MAP_INFO = &*(buffer.as_ptr() as *const _);
+                        if map_info.Flag == crate::Etw::EVENTMAP_INFO_FLAG_MANIFEST_VALUEMAP || map_info.Flag == crate::Etw::EVENTMAP_INFO_FLAG_MANIFEST_BITMAP {
+                            let is_bitmap = map_info.Flag == crate::Etw::EVENTMAP_INFO_FLAG_MANIFEST_BITMAP;
+                            let mut map = crate::FastHashMap::default();
+                            assert!(map_info.Anonymous.MapEntryValueType == crate::Etw::EVENTMAP_ENTRY_VALUETYPE_ULONG);
+                            let entries = std::slice::from_raw_parts(map_info.MapEntryArray.as_ptr(), map_info.EntryCount as usize);
+                            for e in entries {
+                                let value = e.Anonymous.Value;
+                                let name = utils::parse_unk_size_null_utf16_string(&buffer[e.OutputOffset as usize..]);
+                                // println!("{} -> {:?}", value, name);
+                                map.insert(value, name);
+                            }
+                            return Some(Rc::new(PropertyMapInfo { is_bitmap, map }));
+                        } else  {
+                            eprint!("unsupported map type {:?}", map_info.Flag);
+                        }
+
+                    }
                 }
             }
             return None;
