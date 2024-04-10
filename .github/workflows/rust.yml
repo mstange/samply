@@ -20,9 +20,10 @@ jobs:
     - name: Run tests
       run: cargo test --verbose --lib
     - name: Run xperf
-      run: xperf -on latency -stackwalk profile
+      run: xperf -start "NT Kernel Logger" -on latency -stackwalk profile+cswitch -start "usersession" -on Microsoft-Windows-Win32k
     - name: Stop xperf
-      run: xperf -d out.etl
+      run: xperf -stop "NT Kernel Logger" -stop "usersession" -d out.etl
     - run: cargo run --example event-types out.etl
+    - run: cargo run --example dump out.etl
     - run: cargo run out.etl xperf
     #- run: cargo run -- --merge-threads out.etl xperf
