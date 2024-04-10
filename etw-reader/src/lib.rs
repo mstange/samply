@@ -6,7 +6,7 @@ extern crate bitflags;
 #[macro_use]
 extern crate num_derive;
 
-use windows::{core::{h, Error, HRESULT, HSTRING, PWSTR}, Win32::{Foundation::{GetLastError, ERROR_MORE_DATA, ERROR_SUCCESS, MAX_PATH}, System::Diagnostics::Etw::{EnumerateTraceGuids, EnumerateTraceGuidsEx, CONTROLTRACE_HANDLE, EVENT_TRACE_FLAG, TRACE_GUID_PROPERTIES}}};
+use windows::{core::{h, Error, HRESULT, HSTRING, PWSTR}, Win32::{Foundation::{GetLastError, ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA, ERROR_SUCCESS, MAX_PATH}, System::Diagnostics::Etw::{EnumerateTraceGuids, EnumerateTraceGuidsEx, TraceGuidQueryInfo, TraceGuidQueryList, CONTROLTRACE_HANDLE, EVENT_TRACE_FLAG, TRACE_GUID_INFO, TRACE_GUID_PROPERTIES, TRACE_PROVIDER_INSTANCE_INFO}}};
 use crate::{parser::{Parser, ParserError, TryParse}, schema::SchemaLocator, tdh_types::{PropertyDesc, PrimitiveDesc, TdhInType}, traits::EncodeUtf16};
 
 #[macro_use]
@@ -14,7 +14,7 @@ extern crate memoffset;
 
 use etw_types::EventRecord;
 use tdh_types::{Property, TdhOutType};
-use std::{borrow::Cow, collections::HashMap, hash::BuildHasherDefault, path::Path};
+use std::{borrow::Cow, collections::HashMap, hash::BuildHasherDefault, mem, path::Path};
 use windows::Win32::System::Diagnostics::Etw;
 use fxhash::FxHasher;
 
@@ -402,6 +402,69 @@ pub fn enumerate_trace_guids() {
             Err(e) => {
                 if e.code() != ERROR_MORE_DATA.to_hresult() {
                     break;
+                }
+            }
+        }
+    }
+}
+
+pub fn enumerate_trace_guids_ex(print_instances: bool) {
+    let mut required_size: u32 = 0;
+
+    loop {
+        let mut guids: Vec<GUID> = vec![GUID::zeroed(); required_size as usize/mem::size_of::<GUID>()];
+
+        let size = (guids.len() * mem::size_of::<GUID>()) as u32;
+        println!("get {}", required_size);
+
+        let result = unsafe { EnumerateTraceGuidsEx(TraceGuidQueryList, None, 0, Some(guids.as_mut_ptr() as *mut _), size, &mut required_size as *mut _) };
+        match result {
+            Ok(()) => {
+                for guid in guids.iter() {
+
+                    println!("{:?}", guid);
+                    let info = get_provider_info(guid);
+                    let instance_count= unsafe { *(info.as_ptr() as *const TRACE_GUID_INFO) }.InstanceCount;
+                    let mut instance_ptr: *const TRACE_PROVIDER_INSTANCE_INFO = unsafe { (info.as_ptr().add(mem::size_of::<TRACE_GUID_INFO>()) as *const TRACE_PROVIDER_INSTANCE_INFO) };
+
+                    for _ in 0..instance_count {
+                        let instance = unsafe { &*instance_ptr };
+                        if print_instances { 
+                            println!("enable_count {}, pid {}, flags {}", instance.EnableCount, instance.Pid, instance.Flags, )
+                        }
+                        instance_ptr = unsafe {((instance_ptr as *const TRACE_PROVIDER_INSTANCE_INFO as *const u8).add(instance.NextOffset as usize) as *const TRACE_PROVIDER_INSTANCE_INFO)};
+                    } 
+                }
+                break;
+            }
+            Err(e) => {
+                if e.code() != ERROR_INSUFFICIENT_BUFFER.to_hresult() {
+                    println!("some other error");
+                    break;
+                }
+            }
+        }
+    }
+}
+
+
+pub fn get_provider_info(guid: &GUID) -> Vec<u8> {
+    let mut required_size: u32 = 0;
+
+    loop {
+        let mut info: Vec<u8> = vec![0; required_size as usize];
+
+        let size = info.len() as u32;
+
+        let result = unsafe { EnumerateTraceGuidsEx(TraceGuidQueryInfo, Some(guid as *const GUID as *const _), mem::size_of::<GUID>() as u32, Some(info.as_mut_ptr() as *mut _), size, &mut required_size as *mut _) };
+        match result {
+            Ok(()) => {
+
+                return info;
+            }
+            Err(e) => {
+                if e.code() != ERROR_INSUFFICIENT_BUFFER.to_hresult() {
+                    panic!("{:?}", e);
                 }
             }
         }
