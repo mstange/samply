@@ -21,7 +21,7 @@ debugid = "0.8.0"
 samply-api = { version = "0.22.0", path = "../samply-api", features = ["send_futures"], optional = true }
 samply-symbols = { version = "0.21.0", path = "../samply-symbols", features = ["send_futures"] }
 # symsrv = { path = "../../symsrv" }
-symsrv = "0.4.0"
+symsrv = "0.5.1"
 yoke = "0.7"
 yoke-derive = "0.7"
 libc = "0.2.71"
