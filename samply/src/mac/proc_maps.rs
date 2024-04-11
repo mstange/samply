@@ -466,7 +466,7 @@ fn with_suspended_thread<R>(
 
 pub struct StackwalkerRef<'a> {
     unwinder: &'a framehop::UnwinderNative<UnwindSectionBytes, framehop::MayAllocateDuringUnwind>,
-    cache: &'a mut framehop::CacheNative<UnwindSectionBytes, framehop::MayAllocateDuringUnwind>,
+    cache: &'a mut framehop::CacheNative<framehop::MayAllocateDuringUnwind>,
 }
 
 impl<'a> StackwalkerRef<'a> {
@@ -475,7 +475,7 @@ impl<'a> StackwalkerRef<'a> {
             UnwindSectionBytes,
             framehop::MayAllocateDuringUnwind,
         >,
-        cache: &'a mut framehop::CacheNative<UnwindSectionBytes, framehop::MayAllocateDuringUnwind>,
+        cache: &'a mut framehop::CacheNative<framehop::MayAllocateDuringUnwind>,
     ) -> Self {
         Self { unwinder, cache }
     }

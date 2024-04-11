@@ -535,13 +535,12 @@ where
     Ok(image)
 }
 
-fn compute_function_addresses_macho<'data, 'file, O, R>(
-    macho_data: &'file MachOData<'data, R>,
-    object_file: &'file O,
+fn compute_function_addresses_macho<'data, O, R>(
+    macho_data: &MachOData<'data, R>,
+    object_file: &O,
 ) -> (Option<Vec<u32>>, Option<Vec<u32>>)
 where
-    'data: 'file,
-    O: object::Object<'data, 'file>,
+    O: object::Object<'data>,
     R: ReadRef<'data>,
 {
     // Get function start addresses from LC_FUNCTION_STARTS

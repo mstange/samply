@@ -91,7 +91,7 @@ impl Deref for MmapSubData {
     }
 }
 
-pub type UnwinderCache = CacheNative<UnwindSectionBytes, MayAllocateDuringUnwind>;
+pub type UnwinderCache = CacheNative<MayAllocateDuringUnwind>;
 
 pub struct TaskProfiler {
     task: mach_port_t,

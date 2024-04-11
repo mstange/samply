@@ -89,7 +89,7 @@ impl<'a, Symbol: object::ObjectSymbol<'a> + 'a> SymbolList<'a, Symbol> {
     ) -> Self
     where
         'a: 'file,
-        O: object::Object<'a, 'file, Symbol = Symbol>,
+        O: object::Object<'a, Symbol<'file> = Symbol>,
     {
         let mut entries: Vec<_> = Vec::new();
 
@@ -308,9 +308,7 @@ impl SvmaFileRange {
 struct SvmaFileRanges(Vec<SvmaFileRange>);
 
 impl SvmaFileRanges {
-    pub fn from_object<'data: 'file, 'file, O: object::Object<'data, 'file>>(
-        object_file: &'file O,
-    ) -> Self {
+    pub fn from_object<'data, O: object::Object<'data>>(object_file: &O) -> Self {
         let mut svma_file_ranges: Vec<SvmaFileRange> = object_file
             .segments()
             .map(SvmaFileRange::from_segment)
@@ -647,7 +645,7 @@ pub struct ObjectSymbolMapInnerWrapper<'data, FC>(
 );
 
 impl<'a, FC: FileContents + 'static> ObjectSymbolMapInnerWrapper<'a, FC> {
-    pub fn new<'file, O, Symbol, DDM: DwoDwarfMaker<FC> + Sync>(
+    pub fn new<'file, O, Symbol, DDM>(
         object_file: &'file O,
         addr2line_context: Option<addr2line::Context<EndianSlice<'a, RunTimeEndian>>>,
         dwp_package: Option<addr2line::gimli::DwarfPackage<EndianSlice<'a, RunTimeEndian>>>,
@@ -658,8 +656,9 @@ impl<'a, FC: FileContents + 'static> ObjectSymbolMapInnerWrapper<'a, FC> {
     ) -> Self
     where
         'a: 'file,
-        O: object::Object<'a, 'file, Symbol = Symbol>,
+        O: object::Object<'a, Symbol<'file> = Symbol>,
         Symbol: object::ObjectSymbol<'a> + Send + Sync + 'a,
+        DDM: DwoDwarfMaker<FC> + Sync,
     {
         let base_address = relative_address_base(object_file);
         let list = SymbolList::new(

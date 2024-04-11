@@ -575,9 +575,7 @@ impl SourceFilePath {
 ///    0xffffffff81000000. Moreover, the base address seems to coincide with the
 ///    vmaddr of the .text section, which is readily-available in perf.data files
 ///    (in a synthetic mapping called "[kernel.kallsyms]_text").
-pub fn relative_address_base<'data: 'file, 'file>(
-    object_file: &'file impl object::Object<'data, 'file>,
-) -> u64 {
+pub fn relative_address_base<'data>(object_file: &impl object::Object<'data>) -> u64 {
     use object::read::ObjectSegment;
     if let Some(text_segment) = object_file
         .segments()

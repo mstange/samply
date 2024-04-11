@@ -13,7 +13,7 @@ readme = "README.md"
 
 fxprof-processed-profile = { version = "0.6", path = "../fxprof-processed-profile" }
 # framehop = { path = "../../framehop" }
-framehop = "0.9.0"
+framehop = "0.11.0"
 # linux-perf-data = { path = "../../linux-perf-data" }
 linux-perf-data = "0.9.0"
 
@@ -69,4 +69,4 @@ nix = { version = "0.28", features = ["fs", "process"] }
 [dependencies.object]
 default-features = false
 features = ["std", "read_core", "elf", "unaligned", "write"]
-version = "0.34"
+version = "0.35"

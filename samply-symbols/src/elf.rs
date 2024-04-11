@@ -482,13 +482,9 @@ impl<T: FileContents + 'static> ObjectSymbolMapOuter<T> for ElfSymbolMapDataAndO
     }
 }
 
-fn compute_function_addresses_elf<'data, 'file, O>(
-    object_file: &'file O,
-) -> (Option<Vec<u32>>, Option<Vec<u32>>)
-where
-    'data: 'file,
-    O: object::Object<'data, 'file>,
-{
+fn compute_function_addresses_elf<'data, O: object::Object<'data>>(
+    object_file: &O,
+) -> (Option<Vec<u32>>, Option<Vec<u32>>) {
     // Get an approximation of the list of function start addresses by
     // iterating over the exception handling info. Every FDE roughly
     // maps to one function.

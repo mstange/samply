@@ -74,15 +74,14 @@ pub enum SingleSectionData<'data, T: ReadRef<'data>> {
     Owned(Vec<u8>),
 }
 
-pub fn try_get_section_data<'data, 'file, O, T>(
+pub fn try_get_section_data<'data, O, T>(
     data: T,
-    file: &'file O,
+    file: &O,
     section_id: SectionId,
     is_for_dwo_dwp: bool,
 ) -> Option<SingleSectionData<'data, T>>
 where
-    'data: 'file,
-    O: object::Object<'data, 'file>,
+    O: object::Object<'data>,
     T: ReadRef<'data>,
 {
     use object::ObjectSection;
@@ -175,19 +174,17 @@ impl Addr2lineContextData {
         }
     }
 
-    fn sect<'data, 'ctxdata, 'file, O, R>(
+    fn sect<'data, 'ctxdata, O, R>(
         &'ctxdata self,
         data: R,
-        obj: &'file O,
+        obj: &O,
         section_id: SectionId,
         endian: RunTimeEndian,
         is_for_dwo_dwp: bool,
     ) -> EndianSlice<'ctxdata, RunTimeEndian>
     where
-        'data: 'file,
         'data: 'ctxdata,
-        'ctxdata: 'file,
-        O: object::Object<'data, 'file>,
+        O: object::Object<'data>,
         R: ReadRef<'data>,
     {
         let slice: &[u8] = match try_get_section_data(data, obj, section_id, is_for_dwo_dwp) {
@@ -202,18 +199,16 @@ impl Addr2lineContextData {
         EndianSlice::new(slice, endian)
     }
 
-    pub fn make_context<'data, 'ctxdata, 'file, O, R>(
+    pub fn make_context<'data, 'ctxdata, O, R>(
         &'ctxdata self,
         data: R,
-        obj: &'file O,
+        obj: &O,
         sup_data: Option<R>,
-        sup_obj: Option<&'file O>,
+        sup_obj: Option<&O>,
     ) -> Result<addr2line::Context<EndianSlice<'ctxdata, RunTimeEndian>>, Error>
     where
-        'data: 'file,
         'data: 'ctxdata,
-        'ctxdata: 'file,
-        O: object::Object<'data, 'file>,
+        O: object::Object<'data>,
         R: ReadRef<'data>,
     {
         let e = if obj.is_little_endian() {
@@ -233,18 +228,16 @@ impl Addr2lineContextData {
         Ok(context)
     }
 
-    pub fn make_package<'data, 'ctxdata, 'file, O, R>(
+    pub fn make_package<'data, 'ctxdata, O, R>(
         &'ctxdata self,
         data: R,
-        obj: &'file O,
+        obj: &O,
         dwp_data: Option<R>,
-        dwp_obj: Option<&'file O>,
+        dwp_obj: Option<&O>,
     ) -> Result<Option<DwarfPackage<EndianSlice<'ctxdata, RunTimeEndian>>>, Error>
     where
-        'data: 'file,
         'data: 'ctxdata,
-        'ctxdata: 'file,
-        O: object::Object<'data, 'file>,
+        O: object::Object<'data>,
         R: ReadRef<'data>,
     {
         let e = if obj.is_little_endian() {
@@ -270,16 +263,14 @@ impl Addr2lineContextData {
         Ok(package)
     }
 
-    pub fn make_dwarf_for_dwo<'data, 'ctxdata, 'file, O, R>(
+    pub fn make_dwarf_for_dwo<'data, 'ctxdata, O, R>(
         &'ctxdata self,
         data: R,
-        obj: &'file O,
+        obj: &O,
     ) -> Result<addr2line::gimli::Dwarf<EndianSlice<'ctxdata, RunTimeEndian>>, Error>
     where
-        'data: 'file,
         'data: 'ctxdata,
-        'ctxdata: 'file,
-        O: object::Object<'data, 'file>,
+        O: object::Object<'data>,
         R: ReadRef<'data>,
     {
         let e = if obj.is_little_endian() {

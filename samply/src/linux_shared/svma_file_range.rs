@@ -125,16 +125,12 @@ impl Debug for SvmaFileRange {
 /// mapping. We also tried a solution where we just check for overlap between the segment
 /// and the mapping, but this sometimes got the wrong segment, because the mapping is
 /// larger than the segment due to alignment, and can extend into other segments.
-pub fn compute_vma_bias<'data, 'file, O>(
-    file: &'file O,
+pub fn compute_vma_bias<'data, O: Object<'data>>(
+    file: &O,
     mapping_start_file_offset: u64,
     mapping_start_avma: u64,
     mapping_size: u64,
-) -> Option<u64>
-where
-    'data: 'file,
-    O: Object<'data, 'file>,
-{
+) -> Option<u64> {
     let mut contributions: Vec<SvmaFileRange> =
         file.segments().map(SvmaFileRange::from_segment).collect();
 

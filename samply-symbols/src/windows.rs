@@ -141,13 +141,9 @@ impl<T: FileContents + 'static> ObjectSymbolMapOuter<T> for PeSymbolMapDataAndOb
     }
 }
 
-fn compute_function_addresses_pe<'data, 'file, O>(
-    object_file: &'file O,
-) -> (Option<Vec<u32>>, Option<Vec<u32>>)
-where
-    'data: 'file,
-    O: object::Object<'data, 'file>,
-{
+fn compute_function_addresses_pe<'data, O: object::Object<'data>>(
+    object_file: &O,
+) -> (Option<Vec<u32>>, Option<Vec<u32>>) {
     // Get function start and end addresses from the function list in .pdata.
     use object::ObjectSection;
     if let Some(pdata) = object_file

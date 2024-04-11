@@ -8,8 +8,17 @@ version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a30b2e23b9e17a9f90641c7ab1549cd9b44f296d3ccbf309d2863cfe398a0cb"
 dependencies = [
+ "gimli 0.28.1",
+]
+
+[[package]]
+name = "addr2line"
+version = "0.22.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e4503c46a5c0c7844e948c9a4d6acd9f50cccb4de1c48eb9e291ea17470c678"
+dependencies = [
  "fallible-iterator 0.3.0",
- "gimli",
+ "gimli 0.29.0",
 ]
 
 [[package]]
@@ -142,7 +151,7 @@ version = "0.3.71"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "26b05800d2e817c8b3b4b54abd461726265fa9789ae34330622f2db9ee696f9d"
 dependencies = [
- "addr2line",
+ "addr2line 0.21.0",
  "cc",
  "cfg-if",
  "libc",
@@ -587,16 +596,18 @@ dependencies = [
 
 [[package]]
 name = "framehop"
-version = "0.9.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38bb3ea0d42943711eafa7a6182b47a21d51247d2ecad6641ff61d9213d099ea"
+checksum = "74977d188c58f236abdd55c600402f2ec35f6cc427ad57420f415c1093acb1b7"
 dependencies = [
  "arrayvec",
+ "cfg-if",
  "fallible-iterator 0.3.0",
- "gimli",
+ "gimli 0.29.0",
  "macho-unwind-info",
  "pe-unwind-info",
  "thiserror",
+ "thiserror-no-std",
 ]
 
 [[package]]
@@ -759,6 +770,12 @@ name = "gimli"
 version = "0.28.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4271d37baee1b8c7e4b708028c57d816cf9d2434acb33a549475f78c181f6253"
+
+[[package]]
+name = "gimli"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "40ecd4077b5ae9fd2e9e169b102c6c330d0605168eb0e8bf79952b256dbefffd"
 dependencies = [
  "fallible-iterator 0.3.0",
  "indexmap",
@@ -1212,9 +1229,9 @@ dependencies = [
 
 [[package]]
 name = "object"
-version = "0.34.0"
+version = "0.35.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7090bae93f8585aad99e595b7073c5de9ba89fbd6b4e9f0cdd7a10177273ac8"
+checksum = "b8ec7ab813848ba4522158d5517a6093db1ded27575b070f4177b8d12b41db5e"
 dependencies = [
  "crc32fast",
  "flate2",
@@ -1673,7 +1690,7 @@ dependencies = [
  "nix",
  "nix-base32",
  "num_cpus",
- "object 0.34.0",
+ "object 0.35.0",
  "once_cell",
  "opener",
  "parking_lot",
@@ -1715,7 +1732,7 @@ dependencies = [
 name = "samply-symbols"
 version = "0.21.0"
 dependencies = [
- "addr2line",
+ "addr2line 0.22.0",
  "anyhow",
  "bitflags 2.5.0",
  "bitvec 1.0.1",
@@ -1725,7 +1742,7 @@ dependencies = [
  "elsa",
  "flate2",
  "futures",
- "gimli",
+ "gimli 0.29.0",
  "linux-perf-data",
  "lzma-rs",
  "macho-unwind-info",
@@ -1733,7 +1750,7 @@ dependencies = [
  "memmap2",
  "msvc-demangler",
  "nom",
- "object 0.34.0",
+ "object 0.35.0",
  "pdb-addr2line",
  "rangemap",
  "rustc-demangle",
@@ -2010,6 +2027,26 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.58",
+]
+
+[[package]]
+name = "thiserror-impl-no-std"
+version = "2.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "58e6318948b519ba6dc2b442a6d0b904ebfb8d411a3ad3e07843615a72249758"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
+name = "thiserror-no-std"
+version = "2.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a3ad459d94dd517257cc96add8a43190ee620011bb6e6cdc82dafd97dfafafea"
+dependencies = [
+ "thiserror-impl-no-std",
 ]
 
 [[package]]
