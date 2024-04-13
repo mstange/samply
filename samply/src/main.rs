@@ -13,6 +13,7 @@ use clap::{Args, Parser, Subcommand};
 use shared::recording_props::{ConversionProps, RecordingProps};
 use tempfile::NamedTempFile;
 
+use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
@@ -195,9 +196,11 @@ fn main() {
             if let Some(pid) = record_args.pid {
                 profiler::start_profiling_pid(pid, recording_props, conversion_props, server_props);
             } else {
+                let (env_vars, command_name, args) = parse_command(&record_args.command);
                 let exit_status = match profiler::start_recording(
-                    record_args.command[0].clone(),
-                    &record_args.command[1..],
+                    command_name,
+                    args,
+                    &env_vars,
                     record_args.iteration_count,
                     recording_props,
                     conversion_props,
@@ -286,6 +289,45 @@ impl ServerArgs {
             open_in_browser,
         }
     }
+}
+
+fn split_at_first_equals(s: &OsStr) -> Option<(&OsStr, &OsStr)> {
+    let bytes = s.as_encoded_bytes();
+    let pos = bytes.iter().position(|b| *b == b'=')?;
+    let name = &bytes[..pos];
+    let val = &bytes[(pos + 1)..];
+    // SAFETY:
+    // - `name` and `val` only contain content that originated from `OsStr::as_encoded_bytes`
+    // - Only split with ASCII '=' which is a non-empty UTF-8 substring
+    let (name, val) = unsafe {
+        (
+            OsStr::from_encoded_bytes_unchecked(name),
+            OsStr::from_encoded_bytes_unchecked(val),
+        )
+    };
+    Some((name, val))
+}
+
+#[allow(unused)]
+fn parse_command(command: &[OsString]) -> (Vec<(OsString, OsString)>, OsString, &[OsString]) {
+    assert!(
+        !command.is_empty(),
+        "CLI parsing should have ensured that we have at least one command name"
+    );
+
+    let mut env_vars = Vec::new();
+    let mut i = 0;
+    while let Some((var_name, var_val)) = command.get(i).and_then(|s| split_at_first_equals(s)) {
+        env_vars.push((var_name.to_owned(), var_val.to_owned()));
+        i += 1;
+    }
+    if i == command.len() {
+        eprintln!("Error: No command name found. Every item looks like an environment variable (contains '='): {command:?}");
+        std::process::exit(1);
+    }
+    let command_name = command[i].clone();
+    let args = &command[(i + 1)..];
+    (env_vars, command_name, args)
 }
 
 fn attempt_conversion(

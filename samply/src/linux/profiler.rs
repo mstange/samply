@@ -39,6 +39,7 @@ pub type ConvertRegsNative = crate::linux_shared::ConvertRegsAarch64;
 pub fn start_recording(
     command_name: OsString,
     command_args: &[OsString],
+    env_vars: &[(OsString, OsString)],
     iteration_count: u32,
     recording_props: RecordingProps,
     conversion_props: ConversionProps,
@@ -60,7 +61,8 @@ pub fn start_recording(
     // Start a new process for the launched command and get its pid.
     // The command will not start running until we tell it to.
     let process =
-        SuspendedLaunchedProcess::launch_in_suspended_state(&command_name, command_args).unwrap();
+        SuspendedLaunchedProcess::launch_in_suspended_state(&command_name, command_args, env_vars)
+            .unwrap();
     let pid = process.pid();
 
     // Create a channel for the observer thread to notify the main thread once
@@ -156,9 +158,12 @@ pub fn start_recording(
             break;
         }
         eprintln!("Running iteration {i} of {iteration_count}...");
-        let process =
-            SuspendedLaunchedProcess::launch_in_suspended_state(&command_name, command_args)
-                .unwrap();
+        let process = SuspendedLaunchedProcess::launch_in_suspended_state(
+            &command_name,
+            command_args,
+            env_vars,
+        )
+        .unwrap();
         let pid = process.pid();
 
         // Tell the sampler to start profiling another pid, and wait for it to signal us to go ahead.

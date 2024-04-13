@@ -33,6 +33,7 @@ pub fn start_profiling_pid(
 pub fn start_recording(
     command_name: OsString,
     command_args: &[OsString],
+    env_vars: &[(OsString, OsString)],
     iteration_count: u32,
     recording_props: RecordingProps,
     conversion_props: ConversionProps,
@@ -62,7 +63,8 @@ pub fn start_recording(
     )
     .expect("cannot register signal handler");
 
-    let (mut task_accepter, task_launcher) = TaskAccepter::new(&command_name, command_args)?;
+    let (mut task_accepter, task_launcher) =
+        TaskAccepter::new(&command_name, command_args, env_vars)?;
 
     let (accepter_sender, accepter_receiver) = unbounded();
     let accepter_thread = thread::spawn(move || {

@@ -1,6 +1,7 @@
-use libc::execvp;
+use libc::{execvp, execvpe};
 use nix::unistd::Pid;
 
+use std::collections::BTreeMap;
 use std::ffi::{CString, OsStr, OsString};
 use std::os::fd::{AsFd, AsRawFd, IntoRawFd, OwnedFd};
 use std::os::raw::c_char;
@@ -18,6 +19,7 @@ impl SuspendedLaunchedProcess {
     pub fn launch_in_suspended_state(
         command_name: &OsStr,
         command_args: &[OsString],
+        env_vars: &[(OsString, OsString)],
     ) -> std::io::Result<Self> {
         let argv: Vec<CString> = std::iter::once(command_name)
             .chain(command_args.iter().map(|s| s.as_os_str()))
@@ -28,6 +30,24 @@ impl SuspendedLaunchedProcess {
             .map(|c_str| c_str.as_ptr())
             .chain(std::iter::once(std::ptr::null()))
             .collect();
+        let envp = if !env_vars.is_empty() {
+            let mut vars_os: BTreeMap<OsString, OsString> = std::env::vars_os().collect();
+            for (name, val) in env_vars {
+                vars_os.insert(name.to_owned(), val.to_owned());
+            }
+            let mut saw_nul = false;
+            let envp = construct_envp(vars_os, &mut saw_nul);
+
+            if saw_nul {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "nul byte found in environment variables",
+                ));
+            }
+            Some(envp)
+        } else {
+            None
+        };
 
         let (resume_rp, resume_sp) = nix::unistd::pipe2(nix::fcntl::OFlag::O_CLOEXEC).unwrap();
         let (execerr_rp, execerr_sp) = nix::unistd::pipe2(nix::fcntl::OFlag::O_CLOEXEC).unwrap();
@@ -37,7 +57,7 @@ impl SuspendedLaunchedProcess {
                 // std::panic::always_abort();
                 nix::unistd::close(resume_sp.into_raw_fd()).unwrap();
                 nix::unistd::close(execerr_rp.into_raw_fd()).unwrap();
-                Self::run_child(resume_rp, execerr_sp, &argv)
+                Self::run_child(resume_rp, execerr_sp, &argv, envp)
             }
             nix::unistd::ForkResult::Parent { child } => {
                 nix::unistd::close(resume_rp.into_raw_fd())?;
@@ -114,6 +134,7 @@ impl SuspendedLaunchedProcess {
         recv_end_of_resume_pipe: OwnedFd,
         send_end_of_execerr_pipe: OwnedFd,
         argv: &[*const c_char],
+        envp: Option<CStringArray>,
     ) -> ! {
         // Wait for the parent to send us a byte through the pipe.
         // This will signal us to start executing.
@@ -134,7 +155,11 @@ impl SuspendedLaunchedProcess {
                 }
                 Ok(_) => {
                     // The parent signaled that we can start. Exec!
-                    let _ = unsafe { execvp(argv[0], argv.as_ptr()) };
+                    if let Some(envp) = envp {
+                        let _ = unsafe { execvpe(argv[0], argv.as_ptr(), envp.as_ptr()) };
+                    } else {
+                        let _ = unsafe { execvp(argv[0], argv.as_ptr()) };
+                    }
 
                     // If executing went well, we don't get here. In that case, `send_end_of_execerr_pipe`
                     // is now closed, and the parent will notice this and proceed.
@@ -174,4 +199,50 @@ impl RunningProcess {
     pub fn wait(self) -> Result<nix::sys::wait::WaitStatus, nix::errno::Errno> {
         nix::sys::wait::waitpid(self.pid, None)
     }
+}
+
+// Helper type to manage ownership of the strings within a C-style array.
+pub struct CStringArray {
+    items: Vec<CString>,
+    ptrs: Vec<*const c_char>,
+}
+
+impl CStringArray {
+    pub fn with_capacity(capacity: usize) -> Self {
+        let mut result = CStringArray {
+            items: Vec::with_capacity(capacity),
+            ptrs: Vec::with_capacity(capacity + 1),
+        };
+        result.ptrs.push(core::ptr::null());
+        result
+    }
+    pub fn push(&mut self, item: CString) {
+        let l = self.ptrs.len();
+        self.ptrs[l - 1] = item.as_ptr();
+        self.ptrs.push(core::ptr::null());
+        self.items.push(item);
+    }
+    pub fn as_ptr(&self) -> *const *const c_char {
+        self.ptrs.as_ptr()
+    }
+}
+
+fn construct_envp(env: BTreeMap<OsString, OsString>, saw_nul: &mut bool) -> CStringArray {
+    let mut result = CStringArray::with_capacity(env.len());
+    for (mut k, v) in env {
+        // Reserve additional space for '=' and null terminator
+        k.reserve_exact(v.len() + 2);
+        k.push("=");
+        k.push(&v);
+
+        // Add the new entry into the array
+        use std::os::unix::ffi::OsStringExt;
+        if let Ok(item) = CString::new(k.into_vec()) {
+            result.push(item);
+        } else {
+            *saw_nul = true;
+        }
+    }
+
+    result
 }
