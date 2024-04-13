@@ -29,10 +29,12 @@ impl TaskLauncher {
         {
             Ok(child) => child,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                eprintln!(
-                    "Error: Could not find an executable with the name {}.",
-                    self.program.to_string_lossy()
-                );
+                let command_name = self.program.to_string_lossy();
+                if command_name.starts_with('-') {
+                    eprintln!("error: unexpected argument '{command_name}' found");
+                } else {
+                    eprintln!("Error: Could not find an executable with the name {command_name}.");
+                }
                 std::process::exit(1)
             }
             Err(err) => {

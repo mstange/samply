@@ -123,6 +123,15 @@ pub fn start_recording(
     // Now tell the child process to start executing.
     let process = match process.unsuspend_and_run() {
         Ok(process) => process,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            let command_name = command_name.to_string_lossy();
+            if command_name.starts_with('-') {
+                eprintln!("error: unexpected argument '{command_name}' found");
+            } else {
+                eprintln!("Error: Could not find an executable with the name {command_name}.");
+            }
+            std::process::exit(1)
+        }
         Err(run_err) => {
             eprintln!("Could not launch child process: {run_err}");
             std::process::exit(1)
@@ -167,6 +176,11 @@ pub fn start_recording(
         // Now tell the child process to start executing.
         let process = match process.unsuspend_and_run() {
             Ok(process) => process,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                let command_name = command_name.to_string_lossy();
+                eprintln!("Error: Could not find an executable with the name {command_name}.");
+                std::process::exit(1)
+            }
             Err(run_err) => {
                 eprintln!("Could not launch child process: {run_err}");
                 break;
