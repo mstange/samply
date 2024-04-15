@@ -6,12 +6,13 @@ mod linux;
 
 mod import;
 mod linux_shared;
+mod profile_json_preparse;
 mod server;
 mod shared;
 
 use clap::{Args, Parser, Subcommand};
-use shared::recording_props::{ConversionProps, RecordingProps};
-use tempfile::NamedTempFile;
+use profile_json_preparse::parse_libinfo_map_from_profile_file;
+use shared::recording_props::{ProfileCreationProps, RecordingProps};
 
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
@@ -52,7 +53,7 @@ EXAMPLES:
     samply load prof.json # Opens in the browser and supplies symbols
 
     # Import perf.data files from Linux perf:
-    samply load perf.data
+    samply import perf.data
 "#
 )]
 struct Opt {
@@ -62,12 +63,15 @@ struct Opt {
 
 #[derive(Debug, Subcommand)]
 enum Action {
-    /// Load a profile from a file and display it.
-    Load(LoadArgs),
-
     #[cfg(any(target_os = "android", target_os = "macos", target_os = "linux"))]
     /// Record a profile and display it.
     Record(RecordArgs),
+
+    /// Load a profile from a file and display it.
+    Load(LoadArgs),
+
+    /// Import a perf.data file and display the profile.
+    Import(ImportArgs),
 }
 
 #[derive(Debug, Args)]
@@ -76,7 +80,24 @@ struct LoadArgs {
     file: PathBuf,
 
     #[command(flatten)]
-    conversion_args: ConversionArgs,
+    server_args: ServerArgs,
+}
+
+#[derive(Debug, Args)]
+struct ImportArgs {
+    /// Path to the profile file that should be imported.
+    file: PathBuf,
+
+    #[command(flatten)]
+    profile_creation_args: ProfileCreationArgs,
+
+    /// Do not run a local server after recording.
+    #[arg(short, long)]
+    save_only: bool,
+
+    /// Output filename.
+    #[arg(short, long, default_value = "profile.json")]
+    output: PathBuf,
 
     #[command(flatten)]
     server_args: ServerArgs,
@@ -85,10 +106,6 @@ struct LoadArgs {
 #[allow(unused)]
 #[derive(Debug, Args)]
 struct RecordArgs {
-    /// Do not run a local server after recording.
-    #[arg(short, long)]
-    save_only: bool,
-
     /// Sampling rate, in Hz
     #[arg(short, long, default_value = "1000")]
     rate: f64,
@@ -96,10 +113,6 @@ struct RecordArgs {
     /// Limit the recorded time to the specified number of seconds
     #[arg(short, long)]
     duration: Option<f64>,
-
-    /// Output filename.
-    #[arg(short, long, default_value = "profile.json")]
-    output: PathBuf,
 
     /// How many times to run the profiled command.
     #[arg(long, default_value = "1")]
@@ -111,7 +124,15 @@ struct RecordArgs {
     main_thread_only: bool,
 
     #[command(flatten)]
-    conversion_args: ConversionArgs,
+    profile_creation_args: ProfileCreationArgs,
+
+    /// Do not run a local server after recording.
+    #[arg(short, long)]
+    save_only: bool,
+
+    /// Output filename.
+    #[arg(short, long, default_value = "profile.json")]
+    output: PathBuf,
 
     #[command(flatten)]
     server_args: ServerArgs,
@@ -146,7 +167,7 @@ struct ServerArgs {
 }
 
 #[derive(Debug, Args, Clone)]
-pub struct ConversionArgs {
+pub struct ProfileCreationArgs {
     /// Set a custom name for the recorded profile.
     /// By default it is either the command that was run or the process pid.
     #[arg(long)]
@@ -165,36 +186,68 @@ fn main() {
     let opt = Opt::parse();
     match opt.action {
         Action::Load(load_args) => {
-            let input_file = match File::open(&load_args.file) {
+            let profile_filename = &load_args.file;
+            let input_file = match File::open(profile_filename) {
                 Ok(file) => file,
                 Err(err) => {
                     eprintln!("Could not open file {:?}: {}", load_args.file, err);
                     std::process::exit(1)
                 }
             };
-            let conversion_props = load_args.conversion_props();
-            let converted_temp_file =
-                attempt_conversion(&load_args.file, &input_file, conversion_props);
-            let filename = match &converted_temp_file {
-                Some(temp_file) => temp_file.path(),
-                None => &load_args.file,
+
+            let libinfo_map =
+                match parse_libinfo_map_from_profile_file(input_file, profile_filename) {
+                    Ok(libinfo_map) => libinfo_map,
+                    Err(err) => {
+                        eprintln!("Could not parse the input file as JSON: {}", err);
+                        eprintln!(
+                            "If this is a perf.data file, please use `samply import` instead."
+                        );
+                        std::process::exit(1)
+                    }
+                };
+            start_server_main(profile_filename, load_args.server_props(), libinfo_map);
+        }
+
+        Action::Import(import_args) => {
+            let input_file = match File::open(&import_args.file) {
+                Ok(file) => file,
+                Err(err) => {
+                    eprintln!("Could not open file {:?}: {}", import_args.file, err);
+                    std::process::exit(1)
+                }
             };
-            start_server_main(filename, load_args.server_args.server_props());
+            let profile_creation_props = import_args.profile_creation_props();
+            convert_file_to_profile(
+                &import_args.file,
+                &input_file,
+                &import_args.output,
+                profile_creation_props,
+            );
+            if let Some(server_props) = import_args.server_props() {
+                let profile_filename = &import_args.output;
+                let libinfo_map = profile_json_preparse::parse_libinfo_map_from_profile_file(
+                    File::open(profile_filename).expect("Couldn't open file we just wrote"),
+                    profile_filename,
+                )
+                .expect("Couldn't parse libinfo map from profile file");
+                start_server_main(profile_filename, server_props, libinfo_map);
+            }
         }
 
         #[cfg(any(target_os = "android", target_os = "macos", target_os = "linux"))]
         Action::Record(record_args) => {
-            let server_props = if record_args.save_only {
-                None
-            } else {
-                Some(record_args.server_args.server_props())
-            };
-
             let recording_props = record_args.recording_props();
-            let conversion_props = record_args.conversion_props();
+            let profile_creation_props = record_args.profile_creation_props();
+            let server_props = record_args.server_props();
 
             if let Some(pid) = record_args.pid {
-                profiler::start_profiling_pid(pid, recording_props, conversion_props, server_props);
+                profiler::start_profiling_pid(
+                    pid,
+                    recording_props,
+                    profile_creation_props,
+                    server_props,
+                );
             } else {
                 let (env_vars, command_name, args) = parse_command(&record_args.command);
                 let exit_status = match profiler::start_recording(
@@ -203,7 +256,7 @@ fn main() {
                     &env_vars,
                     record_args.iteration_count,
                     recording_props,
-                    conversion_props,
+                    profile_creation_props,
                     server_props,
                 ) {
                     Ok(exit_status) => exit_status,
@@ -219,21 +272,44 @@ fn main() {
 }
 
 impl LoadArgs {
-    fn conversion_props(&self) -> ConversionProps {
-        let profile_name = if let Some(profile_name) = &self.conversion_args.profile_name {
+    fn server_props(&self) -> ServerProps {
+        self.server_args.server_props()
+    }
+}
+
+impl ImportArgs {
+    fn server_props(&self) -> Option<ServerProps> {
+        if self.save_only {
+            None
+        } else {
+            Some(self.server_args.server_props())
+        }
+    }
+
+    fn profile_creation_props(&self) -> ProfileCreationProps {
+        let profile_name = if let Some(profile_name) = &self.profile_creation_args.profile_name {
             profile_name.clone()
         } else {
             "Imported perf profile".to_string()
         };
-        ConversionProps {
+        ProfileCreationProps {
             profile_name,
-            reuse_threads: self.conversion_args.reuse_threads,
-            fold_recursive_prefix: self.conversion_args.fold_recursive_prefix,
+            reuse_threads: self.profile_creation_args.reuse_threads,
+            fold_recursive_prefix: self.profile_creation_args.fold_recursive_prefix,
         }
     }
 }
 
 impl RecordArgs {
+    #[allow(unused)]
+    fn server_props(&self) -> Option<ServerProps> {
+        if self.save_only {
+            None
+        } else {
+            Some(self.server_args.server_props())
+        }
+    }
+
     #[allow(unused)]
     pub fn recording_props(&self) -> RecordingProps {
         let time_limit = self.duration.map(Duration::from_secs_f64);
@@ -255,17 +331,17 @@ impl RecordArgs {
     }
 
     #[allow(unused)]
-    pub fn conversion_props(&self) -> ConversionProps {
-        let profile_name = match (self.conversion_args.profile_name.clone(), self.pid, self.command.first()) {
+    pub fn profile_creation_props(&self) -> ProfileCreationProps {
+        let profile_name = match (self.profile_creation_args.profile_name.clone(), self.pid, self.command.first()) {
             (Some(profile_name), _, _) => profile_name,
             (None, Some(pid), _) => format!("PID {pid}"),
             (None, None, Some(command)) => command.to_string_lossy().to_string(),
             (None, None, None) => panic!("Either pid or command is guaranteed to be present (clap should have done the validation)"),
         };
-        ConversionProps {
+        ProfileCreationProps {
             profile_name,
-            reuse_threads: self.conversion_args.reuse_threads,
-            fold_recursive_prefix: self.conversion_args.fold_recursive_prefix,
+            reuse_threads: self.profile_creation_args.reuse_threads,
+            fold_recursive_prefix: self.profile_creation_args.fold_recursive_prefix,
         }
     }
 }
@@ -330,20 +406,32 @@ fn parse_command(command: &[OsString]) -> (Vec<(OsString, OsString)>, OsString, 
     (env_vars, command_name, args)
 }
 
-fn attempt_conversion(
+fn convert_file_to_profile(
     filename: &Path,
     input_file: &File,
-    conversion_props: ConversionProps,
-) -> Option<NamedTempFile> {
+    output_filename: &Path,
+    profile_creation_props: ProfileCreationProps,
+) {
     let path = Path::new(filename)
         .canonicalize()
         .expect("Couldn't form absolute path");
     let reader = BufReader::new(input_file);
-    let output_file = tempfile::NamedTempFile::new().ok()?;
-    let profile = import::perf::convert(reader, path.parent(), conversion_props).ok()?;
-    let writer = BufWriter::new(output_file.as_file());
-    serde_json::to_writer(writer, &profile).ok()?;
-    Some(output_file)
+    let profile = match import::perf::convert(reader, path.parent(), profile_creation_props) {
+        Ok(profile) => profile,
+        Err(error) => {
+            eprintln!("Error importing perf.data file: {:?}", error);
+            std::process::exit(1);
+        }
+    };
+    let output_file = match File::create(output_filename) {
+        Ok(file) => file,
+        Err(err) => {
+            eprintln!("Couldn't create output file {:?}: {}", output_filename, err);
+            std::process::exit(1);
+        }
+    };
+    let writer = BufWriter::new(output_file);
+    serde_json::to_writer(writer, &profile).expect("Couldn't write converted profile JSON");
 }
 
 #[cfg(test)]

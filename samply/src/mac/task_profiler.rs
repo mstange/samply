@@ -33,7 +33,7 @@ use crate::shared::lib_mappings::{
 use crate::shared::marker_file::get_markers;
 use crate::shared::perf_map::try_load_perf_map;
 use crate::shared::process_sample_data::{MarkerSpanOnThread, ProcessSampleData};
-use crate::shared::recording_props::{ConversionProps, RecordingProps};
+use crate::shared::recording_props::{ProfileCreationProps, RecordingProps};
 use crate::shared::recycling::{ProcessRecycler, ProcessRecyclingData, ThreadRecycler};
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
@@ -112,7 +112,7 @@ pub struct TaskProfiler {
     jit_function_recycler: Option<JitFunctionRecycler>,
     timestamp_converter: TimestampConverter,
     recording_props: Arc<RecordingProps>,
-    conversion_props: Arc<ConversionProps>,
+    profile_creation_props: Arc<ProfileCreationProps>,
 }
 
 impl TaskProfiler {
@@ -123,7 +123,7 @@ impl TaskProfiler {
         profile: &mut Profile,
         mut process_recycler: Option<&mut ProcessRecycler>,
         recording_props: Arc<RecordingProps>,
-        conversion_props: Arc<ConversionProps>,
+        profile_creation_props: Arc<ProfileCreationProps>,
     ) -> Result<Self, SamplingError> {
         let TaskInit {
             start_time_mono,
@@ -262,7 +262,7 @@ impl TaskProfiler {
             jit_function_recycler,
             timestamp_converter,
             recording_props,
-            conversion_props,
+            profile_creation_props,
         };
 
         task_profiler.process_lib_modifications(start_time_mono, initial_lib_mods, profile);
@@ -371,7 +371,7 @@ impl TaskProfiler {
                 stack_scratch_buffer,
                 unresolved_stacks,
                 &mut self.unresolved_samples,
-                self.conversion_props.fold_recursive_prefix,
+                self.profile_creation_props.fold_recursive_prefix,
             )?;
             if still_alive {
                 now_live_threads.insert(thread_act);

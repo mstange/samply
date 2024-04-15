@@ -9,7 +9,7 @@ use std::thread;
 use std::time::Duration;
 use std::time::SystemTime;
 
-use crate::shared::recording_props::{ConversionProps, RecordingProps};
+use crate::shared::recording_props::{ProfileCreationProps, RecordingProps};
 use crate::shared::recycling::ProcessRecycler;
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::unresolved_samples::UnresolvedStacks;
@@ -35,7 +35,7 @@ pub struct Sampler {
     command_name: String,
     task_receiver: Receiver<TaskInit>,
     recording_props: Arc<RecordingProps>,
-    conversion_props: Arc<ConversionProps>,
+    profile_creation_props: Arc<ProfileCreationProps>,
 }
 
 impl Sampler {
@@ -43,7 +43,7 @@ impl Sampler {
         command: String,
         task_receiver: Receiver<TaskInit>,
         recording_props: RecordingProps,
-        conversion_props: ConversionProps,
+        profile_creation_props: ProfileCreationProps,
     ) -> Self {
         let command_name = Path::new(&command)
             .components()
@@ -57,7 +57,7 @@ impl Sampler {
             command_name,
             task_receiver,
             recording_props: Arc::new(recording_props),
-            conversion_props: Arc::new(conversion_props),
+            profile_creation_props: Arc::new(profile_creation_props),
         }
     }
 
@@ -71,7 +71,7 @@ impl Sampler {
         };
 
         let mut profile = Profile::new(
-            &self.conversion_props.profile_name,
+            &self.profile_creation_props.profile_name,
             ReferenceTimestamp::from_system_time(reference_system_time),
             self.recording_props.interval.into(),
         );
@@ -89,7 +89,7 @@ impl Sampler {
                 return Err(SamplingError::CouldNotObtainRootTask);
             }
         };
-        let mut process_recycler = if self.conversion_props.reuse_threads {
+        let mut process_recycler = if self.profile_creation_props.reuse_threads {
             Some(ProcessRecycler::new())
         } else {
             None
@@ -102,7 +102,7 @@ impl Sampler {
             &mut profile,
             process_recycler.as_mut(),
             self.recording_props.clone(),
-            self.conversion_props.clone(),
+            self.profile_creation_props.clone(),
         )
         .expect("couldn't create root TaskProfiler");
 
@@ -133,7 +133,7 @@ impl Sampler {
                     &mut profile,
                     process_recycler.as_mut(),
                     self.recording_props.clone(),
-                    self.conversion_props.clone(),
+                    self.profile_creation_props.clone(),
                 ) {
                     live_tasks.push(new_task);
                 } else {

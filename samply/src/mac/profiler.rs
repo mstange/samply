@@ -17,12 +17,12 @@ use super::process_launcher::{MachError, ReceivedStuff, TaskAccepter};
 use super::sampler::{JitdumpOrMarkerPath, Sampler, TaskInit};
 use super::time::get_monotonic_timestamp;
 use crate::server::{start_server_main, ServerProps};
-use crate::shared::recording_props::{ConversionProps, RecordingProps};
+use crate::shared::recording_props::{ProfileCreationProps, RecordingProps};
 
 pub fn start_profiling_pid(
     _pid: u32,
     _recording_props: RecordingProps,
-    _conversion_props: ConversionProps,
+    _profile_creation_props: ProfileCreationProps,
     _server_props: Option<ServerProps>,
 ) {
     eprintln!("Profiling existing processes is currently not supported on macOS.");
@@ -36,7 +36,7 @@ pub fn start_recording(
     env_vars: &[(OsString, OsString)],
     iteration_count: u32,
     recording_props: RecordingProps,
-    conversion_props: ConversionProps,
+    profile_creation_props: ProfileCreationProps,
     server_props: Option<ServerProps>,
 ) -> Result<ExitStatus, MachError> {
     let (task_sender, task_receiver) = unbounded();
@@ -47,7 +47,7 @@ pub fn start_recording(
             command_name_copy,
             task_receiver,
             recording_props,
-            conversion_props,
+            profile_creation_props,
         );
         sampler.run()
     });
@@ -187,12 +187,21 @@ pub fn start_recording(
         }
     };
 
-    let file = File::create(&output_file).unwrap();
-    let writer = BufWriter::new(file);
-    to_writer(writer, &profile).expect("Couldn't write JSON");
+    {
+        // Write the profile to a file.
+        let file = File::create(&output_file).unwrap();
+        let writer = BufWriter::new(file);
+        to_writer(writer, &profile).expect("Couldn't write JSON");
+    }
 
     if let Some(server_props) = server_props {
-        start_server_main(&output_file, server_props);
+        let libinfo_map = crate::profile_json_preparse::parse_libinfo_map_from_profile_file(
+            File::open(&output_file).expect("Couldn't open file we just wrote"),
+            &output_file,
+        )
+        .expect("Couldn't parse libinfo map from profile file");
+
+        start_server_main(&output_file, server_props, libinfo_map);
     }
 
     Ok(exit_status)

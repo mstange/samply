@@ -30,7 +30,6 @@ memchr = "2.7.2"
 memmap2 = "0.9.4"
 serde_json = "1.0.115"
 thiserror = "1.0.58"
-tempfile = "3.10.1"
 uuid = "1.8.0"
 percent-encoding = "2.1.0"
 libc = "0.2.71"
@@ -58,6 +57,7 @@ mach = "0.3.2"
 lazy_static = "1.4.0"
 flate2 = "1.0.23"
 sysctl = "0.5.4"
+tempfile = "3.10.1"
 
 [target.'cfg(any(target_os = "android", target_os = "linux"))'.dependencies]
 

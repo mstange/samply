@@ -7,7 +7,7 @@ pub struct RecordingProps {
     pub main_thread_only: bool,
 }
 
-pub struct ConversionProps {
+pub struct ProfileCreationProps {
     pub profile_name: String,
     /// Merge non-overlapping threads of the same name.
     pub reuse_threads: bool,

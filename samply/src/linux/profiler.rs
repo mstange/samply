@@ -27,7 +27,7 @@ use crate::linux_shared::{
     ConvertRegs, Converter, EventInterpretation, MmapRangeOrVec, OffCpuIndicator,
 };
 use crate::server::{start_server_main, ServerProps};
-use crate::shared::recording_props::{ConversionProps, RecordingProps};
+use crate::shared::recording_props::{ProfileCreationProps, RecordingProps};
 
 #[cfg(target_arch = "x86_64")]
 pub type ConvertRegsNative = crate::linux_shared::ConvertRegsX86_64;
@@ -42,7 +42,7 @@ pub fn start_recording(
     env_vars: &[(OsString, OsString)],
     iteration_count: u32,
     recording_props: RecordingProps,
-    conversion_props: ConversionProps,
+    profile_creation_props: ProfileCreationProps,
     server_props: Option<ServerProps>,
 ) -> Result<ExitStatus, ()> {
     // We want to profile a child process which we are about to launch.
@@ -77,7 +77,7 @@ pub fn start_recording(
     let interval = recording_props.interval;
     let time_limit = recording_props.time_limit;
     let observer_thread = thread::spawn(move || {
-        let mut converter = make_converter(interval, conversion_props);
+        let mut converter = make_converter(interval, profile_creation_props);
 
         // Wait for the initial pid to profile.
         let SamplerRequest::StartProfilingAnotherProcess(pid, attach_mode) =
@@ -211,7 +211,14 @@ pub fn start_recording(
         .expect("couldn't join observer thread");
 
     if let Some(server_props) = server_props {
-        start_server_main(&recording_props.output_file, server_props);
+        let profile_filename = &recording_props.output_file;
+        let libinfo_map = crate::profile_json_preparse::parse_libinfo_map_from_profile_file(
+            File::open(profile_filename).expect("Couldn't open file we just wrote"),
+            profile_filename,
+        )
+        .expect("Couldn't parse libinfo map from profile file");
+
+        start_server_main(profile_filename, server_props, libinfo_map);
     }
 
     let exit_status = match wait_status {
@@ -224,7 +231,7 @@ pub fn start_recording(
 pub fn start_profiling_pid(
     pid: u32,
     recording_props: RecordingProps,
-    conversion_props: ConversionProps,
+    profile_creation_props: ProfileCreationProps,
     server_props: Option<ServerProps>,
 ) {
     // When the first Ctrl+C is received, stop recording.
@@ -250,7 +257,7 @@ pub fn start_profiling_pid(
         move || {
             let interval = recording_props.interval;
             let time_limit = recording_props.time_limit;
-            let mut converter = make_converter(interval, conversion_props);
+            let mut converter = make_converter(interval, profile_creation_props);
             let SamplerRequest::StartProfilingAnotherProcess(pid, attach_mode) =
                 profile_another_pid_request_receiver.recv().unwrap()
             else {
@@ -304,7 +311,13 @@ pub fn start_profiling_pid(
     stop.store(true, Ordering::SeqCst);
 
     if let Some(server_props) = server_props {
-        start_server_main(&output_file, server_props);
+        let libinfo_map = crate::profile_json_preparse::parse_libinfo_map_from_profile_file(
+            File::open(&output_file).expect("Couldn't open file we just wrote"),
+            &output_file,
+        )
+        .expect("Couldn't parse libinfo map from profile file");
+
+        start_server_main(&output_file, server_props, libinfo_map);
     }
 }
 
@@ -316,7 +329,7 @@ fn paranoia_level() -> Option<u32> {
 
 fn make_converter(
     interval: Duration,
-    conversion_props: ConversionProps,
+    profile_creation_props: ProfileCreationProps,
 ) -> Converter<framehop::UnwinderNative<MmapRangeOrVec, framehop::MayAllocateDuringUnwind>> {
     let interval_nanos = if interval.as_nanos() > 0 {
         interval.as_nanos() as u64
@@ -343,7 +356,7 @@ fn make_converter(
     };
 
     Converter::<framehop::UnwinderNative<MmapRangeOrVec, framehop::MayAllocateDuringUnwind>>::new(
-        &conversion_props.profile_name,
+        &profile_creation_props.profile_name,
         None,
         HashMap::new(),
         machine_info.as_ref().map(|info| info.release.as_str()),
@@ -352,8 +365,8 @@ fn make_converter(
         framehop::CacheNative::new(),
         None,
         interpretation,
-        conversion_props.reuse_threads,
-        conversion_props.fold_recursive_prefix,
+        profile_creation_props.reuse_threads,
+        profile_creation_props.fold_recursive_prefix,
     )
 }
 
