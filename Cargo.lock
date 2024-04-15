@@ -732,7 +732,7 @@ dependencies = [
 
 [[package]]
 name = "fxprof-processed-profile"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "assert-json-diff",
  "bitflags 2.5.0",
