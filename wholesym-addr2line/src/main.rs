@@ -6,11 +6,11 @@ use clap::parser::ValuesRef;
 use clap::{value_parser, Arg, ArgAction, Command};
 use wholesym::LookupAddress;
 
-fn parse_uint_from_hex_string(string: &str) -> u32 {
+fn parse_uint_from_hex_string(string: &str) -> u64 {
     if string.len() > 2 && string.starts_with("0x") {
-        u32::from_str_radix(&string[2..], 16).expect("Failed to parse address")
+        u64::from_str_radix(&string[2..], 16).expect("Failed to parse address")
     } else {
-        u32::from_str_radix(string, 16).expect("Failed to parse address")
+        u64::from_str_radix(string, 16).expect("Failed to parse address")
     }
 }
 
@@ -20,9 +20,9 @@ enum Addrs<'a> {
 }
 
 impl<'a> Iterator for Addrs<'a> {
-    type Item = u32;
+    type Item = u64;
 
-    fn next(&mut self) -> Option<u32> {
+    fn next(&mut self) -> Option<u64> {
         let text = match *self {
             Addrs::Args(ref mut vals) => vals.next().map(Cow::from),
             Addrs::Stdin(ref mut lines) => lines.next().map(Result::unwrap).map(Cow::from),
@@ -64,9 +64,9 @@ fn print_loc(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let matches = Command::new("pdb-addr2line")
+    let matches = Command::new("wholesym-addr2line")
         .version("0.1")
-        .about("A fast addr2line port for PDBs")
+        .about("A fast addr2line equivalent which supports lots of platforms.")
         .args(&[
             Arg::new("exe")
                 .short('e')
@@ -77,10 +77,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "Specify the name of the executable for which addresses should be translated.",
                 )
                 .required(true),
-            Arg::new("sup")
-                .long("sup")
-                .value_name("filename")
-                .help("Path to supplementary object file."),
             Arg::new("functions")
                 .action(ArgAction::SetTrue)
                 .short('f')
@@ -122,9 +118,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .long("demangle")
                 .help(
                     "Demangle function names. \
-             Specifying a specific demangling style (like GNU addr2line) \
-             is not supported. (TODO)",
+                    We are currently demangling all function names even if this flag is not set.",
                 ),
+            Arg::new("relative")
+                .action(ArgAction::SetTrue)
+                .long("relative")
+                .conflicts_with("file-offsets")
+                .help("Interpret the passed addresses as being relative to the image base address"),
+            Arg::new("file-offsets")
+                .action(ArgAction::SetTrue)
+                .long("file-offsets")
+                .conflicts_with("relative")
+                .help("Interpret the passed addresses as being raw file offsets"),
             Arg::new("llvm")
                 .action(ArgAction::SetTrue)
                 .long("llvm")
@@ -141,6 +146,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let print_addrs = matches.get_flag("addresses");
     let basenames = matches.get_flag("basenames");
     let _demangle = matches.get_flag("demangle");
+    let relative = matches.get_flag("relative");
+    let file_offsets = matches.get_flag("file-offsets");
     let llvm = matches.get_flag("llvm");
     let path = matches.get_one::<PathBuf>("exe").unwrap();
 
@@ -174,7 +181,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         let mut printed_anything = false;
-        if let Some(address_info) = symbol_map.lookup(LookupAddress::Relative(probe)).await {
+        let address = if relative {
+            LookupAddress::Relative(probe as u32)
+        } else if file_offsets {
+            LookupAddress::FileOffset(probe)
+        } else {
+            LookupAddress::Svma(probe)
+        };
+        if let Some(address_info) = symbol_map.lookup(address).await {
             if let Some(frames) = address_info.frames {
                 if do_functions || do_inlines {
                     for (i, frame) in frames.iter().enumerate() {
