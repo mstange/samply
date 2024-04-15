@@ -114,10 +114,7 @@
 //!  - [x] Symbols from the regular symbol table
 //!  - [x] Fallback symbols from exported functions and function start addresses
 //!  - [x] Split DWARF with .dwo files
-//!
-//!  Work in progress:
-//!  
-//!   - [ ] Split DWARF with .dwp files
+//!  - [x] Split DWARF with .dwp files
 //!
 //! # Performance
 //!
