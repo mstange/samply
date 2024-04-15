@@ -37,7 +37,7 @@ pub fn jit_function_name<'data>(obj: &object::File<'data>) -> Option<&'data str>
 /// 4.19.215+, 5.4.215+, 5.10.145+, 5.15.71+, 5.19.12+, probably 6.0.16, and 6.1.2
 ///
 /// The bug in the first commit means that, if you load the jit-ified perf.data file using
-/// `samply load` and use the `jitted-12345-12.so` files as-is, the opened profile will
+/// `samply import` and use the `jitted-12345-12.so` files as-is, the opened profile will
 /// contain no useful information about JIT functions.
 ///
 /// The broken files have a PT_LOAD command with file offset 0 and address 0, and a

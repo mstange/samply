@@ -18,7 +18,7 @@ samply record --save-only -o prof.json -- ./yourcommand args
 samply load prof.json
 
 # You can also import Linux perf profiles:
-samply load perf.data
+samply import perf.data
 ```
 
 See [the repo](https://github.com/mstange/samply/) for more information.
