@@ -33,7 +33,6 @@ use wholesym::{CodeId, PeCodeId};
 
 use super::avma_range::AvmaRange;
 
-/// See [`Converter::check_for_pe_mapping`].
 #[derive(Debug, Clone)]
 pub struct SuspectedPeMapping {
     pub path: PathBuf,
