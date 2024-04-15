@@ -472,8 +472,23 @@ impl Profile {
         allocation_address: u64,
         allocation_size: i64,
     ) {
-        let stack_index = self.stack_index_for_frames(thread, frames);
-        self.threads[thread.0].add_allocation_sample(
+        // The profile format strictly separates sample data from different threads.
+        // For allocation samples, this separation is a bit unfortunate, especially
+        // when it comes to the "Retained Memory" panel which shows allocation stacks
+        // for just objects that haven't been deallocated yet. This panel is per-thread,
+        // and it needs to know about deallocations even if they happened on a different
+        // thread from the allocation.
+        // To resolve this conundrum, for now, we will put all allocation and deallocation
+        // samples on a single thread per process, regardless of what thread they actually
+        // happened on.
+        // The Gecko profiler puts all allocation samples on the main thread, for example.
+        // Here in fxprof-processed-profile, we just deem the first thread of each process
+        // as the processes "allocation thread".
+        let process_handle = self.threads[thread.0].process();
+        let process = &self.processes[process_handle.0];
+        let allocation_thread_handle = process.thread_handle_for_allocations().unwrap();
+        let stack_index = self.stack_index_for_frames(allocation_thread_handle, frames);
+        self.threads[allocation_thread_handle.0].add_allocation_sample(
             timestamp,
             stack_index,
             allocation_address,

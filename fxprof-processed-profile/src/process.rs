@@ -32,6 +32,10 @@ impl Process {
         }
     }
 
+    pub fn thread_handle_for_allocations(&self) -> Option<ThreadHandle> {
+        self.threads.first().cloned()
+    }
+
     pub fn set_start_time(&mut self, start_time: Timestamp) {
         self.start_time = start_time;
     }
