@@ -14,19 +14,19 @@ use yoke::Yoke;
 use yoke_derive::Yokeable;
 
 use crate::debugid_util::debug_id_for_object;
-use crate::demangle;
 use crate::dwarf::Addr2lineContextData;
 use crate::error::{Context, Error};
 use crate::mapped_path::MappedPath;
 use crate::path_mapper::{ExtraPathMapper, PathMapper};
 use crate::shared::{
-    AddressInfo, FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation,
-    FrameDebugInfo, FramesLookupResult, SourceFilePath, SymbolInfo,
+    FileAndPathHelper, FileContents, FileContentsWrapper, FileLocation, FrameDebugInfo,
+    FramesLookupResult, LookupAddress, SourceFilePath, SymbolInfo,
 };
 use crate::symbol_map::{GetInnerSymbolMap, SymbolMap, SymbolMapTrait};
 use crate::symbol_map_object::{
     ObjectSymbolMap, ObjectSymbolMapInnerWrapper, ObjectSymbolMapOuter,
 };
+use crate::{demangle, SyncAddressInfo};
 
 pub async fn load_symbol_map_for_pdb_corresponding_to_binary<H: FileAndPathHelper>(
     file_kind: FileKind,
@@ -259,8 +259,21 @@ impl<'object> SymbolMapTrait for PdbSymbolMapInner<'object> {
         Box::new(iter)
     }
 
-    fn lookup_relative_address(&self, address: u32) -> Option<AddressInfo> {
-        let function_frames = self.context.find_frames(address).ok()??;
+    fn lookup_sync(&self, address: LookupAddress) -> Option<SyncAddressInfo> {
+        let rva = match address {
+            LookupAddress::Relative(rva) => rva,
+            LookupAddress::Svma(_) => {
+                // TODO: Convert svma into rva by subtracting the image base address.
+                // Does the PDB know about the image base address?
+                return None;
+            }
+            LookupAddress::FileOffset(_) => {
+                // TODO
+                // Does the PDB know at which file offsets the sections are stored in the binary?
+                return None;
+            }
+        };
+        let function_frames = self.context.find_frames(rva).ok()??;
         let symbol_address = function_frames.start_rva;
         let symbol_name = match &function_frames.frames.last().unwrap().function {
             Some(name) => demangle::demangle_any(name),
@@ -295,18 +308,7 @@ impl<'object> SymbolMapTrait for PdbSymbolMapInner<'object> {
             None
         };
 
-        Some(AddressInfo { symbol, frames })
-    }
-
-    fn lookup_svma(&self, _svma: u64) -> Option<AddressInfo> {
-        // TODO: Convert svma into rva by subtracting the image base address.
-        // Does the PDB know about the image base address?
-        None
-    }
-
-    fn lookup_offset(&self, _offset: u64) -> Option<AddressInfo> {
-        // TODO
-        None
+        Some(SyncAddressInfo { symbol, frames })
     }
 }
 
@@ -404,16 +406,8 @@ impl<T: FileContents> SymbolMapTrait for PdbSymbolMap<T> {
         Box::new(vec.into_iter().map(|(addr, s)| (addr, Cow::Owned(s))))
     }
 
-    fn lookup_relative_address(&self, address: u32) -> Option<AddressInfo> {
-        self.with_inner(|inner| inner.lookup_relative_address(address))
-    }
-
-    fn lookup_svma(&self, svma: u64) -> Option<AddressInfo> {
-        self.with_inner(|inner| inner.lookup_svma(svma))
-    }
-
-    fn lookup_offset(&self, offset: u64) -> Option<AddressInfo> {
-        self.with_inner(|inner| inner.lookup_offset(offset))
+    fn lookup_sync(&self, address: LookupAddress) -> Option<SyncAddressInfo> {
+        self.with_inner(|inner| inner.lookup_sync(address))
     }
 }
 

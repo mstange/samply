@@ -6,7 +6,7 @@
 //!
 //!  1. Create a [`SymbolManager`] using [`SymbolManager::with_config`].
 //!  2. Load a [`SymbolMap`] with [`SymbolManager::load_symbol_map_for_binary_at_path`].
-//!  3. Look up an address with [`SymbolMap::lookup_relative_address`].
+//!  3. Look up an address with [`SymbolMap::lookup`].
 //!  4. Inspect the returned [`AddressInfo`], which gives you the symbol name, and
 //!     potentially file and line information, along with inlined function info.
 //!
@@ -17,7 +17,7 @@
 //! # Example
 //!
 //! ```
-//! use wholesym::{SymbolManager, SymbolManagerConfig, FramesLookupResult};
+//! use wholesym::{SymbolManager, SymbolManagerConfig, LookupAddress};
 //! use std::path::Path;
 //!
 //! # async fn run() -> Result<(), wholesym::Error> {
@@ -26,19 +26,12 @@
 //!     .load_symbol_map_for_binary_at_path(Path::new("/usr/bin/ls"), None)
 //!     .await?;
 //! println!("Looking up 0xd6f4 in /usr/bin/ls. Results:");
-//! if let Some(address_info) = symbol_map.lookup_relative_address(0xd6f4) {
+//! if let Some(address_info) = symbol_map.lookup(LookupAddress::Relative(0xd6f4)).await {
 //!     println!(
 //!         "Symbol: {:#x} {}",
 //!         address_info.symbol.address, address_info.symbol.name
 //!     );
-//!     let frames = match address_info.frames {
-//!         Some(FramesLookupResult::Available(frames)) => Some(frames),
-//!         Some(FramesLookupResult::External(ext_ref)) => {
-//!             symbol_map.lookup_external(&ext_ref).await
-//!         }
-//!         None => None,
-//!     };
-//!     if let Some(frames) = frames {
+//!     if let Some(frames) = address_info.frames {
 //!         for (i, frame) in frames.into_iter().enumerate() {
 //!             let function = frame.function.unwrap();
 //!             let file = frame.file_path.unwrap().display_path();
@@ -150,6 +143,7 @@ pub use samply_symbols;
 pub use samply_symbols::{
     AddressInfo, CodeId, ElfBuildId, Error, ExternalFileAddressInFileRef, ExternalFileAddressRef,
     ExternalFileRef, ExternalFileSymbolMap, FrameDebugInfo, FramesLookupResult, LibraryInfo,
-    MappedPath, MultiArchDisambiguator, PeCodeId, SourceFilePath, SymbolInfo,
+    LookupAddress, MappedPath, MultiArchDisambiguator, PeCodeId, SourceFilePath, SymbolInfo,
+    SyncAddressInfo,
 };
 pub use symbol_manager::{SymbolFileOrigin, SymbolManager, SymbolMap};

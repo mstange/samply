@@ -3,8 +3,8 @@ use std::{borrow::Cow, sync::Arc};
 use debugid::DebugId;
 
 use crate::{
-    AddressInfo, ExternalFileAddressRef, ExternalFileRef, FileAndPathHelper, FileLocation,
-    FrameDebugInfo, FramesLookupResult,
+    shared::LookupAddress, AddressInfo, ExternalFileAddressRef, ExternalFileRef, FileAndPathHelper,
+    FileLocation, FrameDebugInfo, FramesLookupResult, SyncAddressInfo,
 };
 
 pub trait SymbolMapTrait {
@@ -14,9 +14,7 @@ pub trait SymbolMapTrait {
 
     fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_>;
 
-    fn lookup_relative_address(&self, address: u32) -> Option<AddressInfo>;
-    fn lookup_svma(&self, svma: u64) -> Option<AddressInfo>;
-    fn lookup_offset(&self, offset: u64) -> Option<AddressInfo>;
+    fn lookup_sync(&self, address: LookupAddress) -> Option<SyncAddressInfo>;
 }
 
 pub trait SymbolMapTraitWithExternalFileSupport<FC>: SymbolMapTrait {
@@ -97,16 +95,62 @@ impl<H: FileAndPathHelper> SymbolMap<H> {
         self.inner().iter_symbols()
     }
 
-    pub fn lookup_relative_address(&self, address: u32) -> Option<AddressInfo> {
-        self.inner().lookup_relative_address(address)
+    pub fn lookup_sync(&self, address: LookupAddress) -> Option<SyncAddressInfo> {
+        self.inner().lookup_sync(address)
     }
 
-    pub fn lookup_svma(&self, svma: u64) -> Option<AddressInfo> {
-        self.inner().lookup_svma(svma)
-    }
-
-    pub fn lookup_offset(&self, offset: u64) -> Option<AddressInfo> {
-        self.inner().lookup_offset(offset)
+    pub async fn lookup(&self, address: LookupAddress) -> Option<AddressInfo> {
+        let address_info = self.inner().lookup_sync(address)?;
+        let symbol = address_info.symbol;
+        let (mut external, inner) = match (address_info.frames, &self.inner) {
+            (Some(FramesLookupResult::Available(frames)), _) => {
+                return Some(AddressInfo {
+                    symbol,
+                    frames: Some(frames),
+                });
+            }
+            (None, _) | (_, InnerSymbolMap::WithoutAddFile(_)) => {
+                return Some(AddressInfo {
+                    symbol,
+                    frames: None,
+                });
+            }
+            (Some(FramesLookupResult::External(external)), InnerSymbolMap::WithAddFile(inner)) => {
+                (external, inner.get_inner_symbol_map())
+            }
+        };
+        let helper = self.helper.as_deref()?;
+        loop {
+            let maybe_file_location = match &external.file_ref {
+                ExternalFileRef::MachoExternalObject { file_path } => self
+                    .debug_file_location
+                    .location_for_external_object_file(file_path),
+                ExternalFileRef::ElfExternalDwo { comp_dir, path } => {
+                    self.debug_file_location.location_for_dwo(comp_dir, path)
+                }
+            };
+            let file_contents = match maybe_file_location {
+                Some(location) => helper.load_file(location).await.ok(),
+                None => None,
+            };
+            let lookup_result =
+                inner.try_lookup_external_with_file_contents(&external, file_contents);
+            external = match lookup_result {
+                Some(FramesLookupResult::Available(frames)) => {
+                    return Some(AddressInfo {
+                        symbol,
+                        frames: Some(frames),
+                    });
+                }
+                None => {
+                    return Some(AddressInfo {
+                        symbol,
+                        frames: None,
+                    });
+                }
+                Some(FramesLookupResult::External(external)) => external,
+            };
+        }
     }
 
     /// Resolve a debug info lookup for which `SymbolMap::lookup_*` returned a

@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use clap::parser::ValuesRef;
 use clap::{value_parser, Arg, ArgAction, Command};
+use wholesym::LookupAddress;
 
 fn parse_uint_from_hex_string(string: &str) -> u32 {
     if string.len() > 2 && string.starts_with("0x") {
@@ -173,16 +174,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         let mut printed_anything = false;
-        if let Some(address_info) = symbol_map.lookup_relative_address(probe) {
-            let frames = match address_info.frames {
-                Some(wholesym::FramesLookupResult::Available(frames)) => Some(frames),
-                Some(wholesym::FramesLookupResult::External(external)) => {
-                    symbol_map.lookup_external(&external).await
-                }
-                None => None,
-            };
-
-            if let Some(frames) = frames {
+        if let Some(address_info) = symbol_map.lookup(LookupAddress::Relative(probe)).await {
+            if let Some(frames) = address_info.frames {
                 if do_functions || do_inlines {
                     for (i, frame) in frames.iter().enumerate() {
                         if pretty && i != 0 {

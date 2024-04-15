@@ -7,10 +7,10 @@ use std::{
 use yoke::Yoke;
 use yoke_derive::Yokeable;
 
+use crate::symbol_map::{GetInnerSymbolMap, SymbolMapTrait};
 use crate::{
-    symbol_map::{GetInnerSymbolMap, SymbolMapTrait},
-    AddressInfo, Error, FileContents, FileContentsWrapper, FrameDebugInfo, FramesLookupResult,
-    SourceFilePath, SymbolInfo,
+    Error, FileContents, FileContentsWrapper, FrameDebugInfo, FramesLookupResult, LookupAddress,
+    SourceFilePath, SymbolInfo, SyncAddressInfo,
 };
 
 use super::index::{
@@ -232,7 +232,18 @@ impl<'a, T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'a, T> {
         Box::new(iter)
     }
 
-    fn lookup_relative_address(&self, address: u32) -> Option<AddressInfo> {
+    fn lookup_sync(&self, address: LookupAddress) -> Option<SyncAddressInfo> {
+        let address = match address {
+            LookupAddress::Relative(relative_address) => relative_address,
+            LookupAddress::Svma(_) => {
+                // Breakpad symbol files have no information about the image base address.
+                return None;
+            }
+            LookupAddress::FileOffset(_) => {
+                // Breakpad symbol files have no information about file offsets.
+                return None;
+            }
+        };
         let index = match self.index.symbol_addresses.binary_search(&address) {
             Ok(i) => i,
             Err(0) => return None,
@@ -249,7 +260,7 @@ impl<'a, T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'a, T> {
         match &self.index.symbol_offsets[index] {
             BreakpadSymbolType::Public(public) => {
                 let info = symbols.get_public_info(public, self.data).ok()?;
-                Some(AddressInfo {
+                Some(SyncAddressInfo {
                     symbol: SymbolInfo {
                         address: symbol_address,
                         size: next_symbol_address.and_then(|next_symbol_address| {
@@ -301,7 +312,7 @@ impl<'a, T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'a, T> {
                 });
                 frames.reverse();
 
-                Some(AddressInfo {
+                Some(SyncAddressInfo {
                     symbol: SymbolInfo {
                         address: symbol_address,
                         size: Some(info.size),
@@ -311,16 +322,6 @@ impl<'a, T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'a, T> {
                 })
             }
         }
-    }
-
-    fn lookup_svma(&self, _svma: u64) -> Option<AddressInfo> {
-        // Breakpad symbol files have no information about the image base address.
-        None
-    }
-
-    fn lookup_offset(&self, _offset: u64) -> Option<AddressInfo> {
-        // Breakpad symbol files have no information about file offsets.
-        None
     }
 }
 
@@ -338,7 +339,7 @@ mod test {
         assert_eq!(
             symbol_map
                 .get_inner_symbol_map()
-                .lookup_relative_address(0x1160)
+                .lookup_sync(LookupAddress::Relative(0x1160))
                 .unwrap()
                 .symbol
                 .name,
@@ -385,7 +386,7 @@ mod test {
 
         let lookup_result = symbol_map
             .get_inner_symbol_map()
-            .lookup_relative_address(0x2b7ed)
+            .lookup_sync(LookupAddress::Relative(0x2b7ed))
             .unwrap();
         assert_eq!(
             lookup_result.symbol.name,

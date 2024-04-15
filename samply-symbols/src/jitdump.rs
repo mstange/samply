@@ -15,11 +15,11 @@ use std::{
 
 use crate::error::Error;
 use crate::shared::{
-    AddressInfo, FileContents, FileContentsCursor, FileContentsWrapper, FrameDebugInfo,
-    FramesLookupResult, SourceFilePath, SymbolInfo,
+    FileContents, FileContentsCursor, FileContentsWrapper, FrameDebugInfo, FramesLookupResult,
+    LookupAddress, SourceFilePath, SymbolInfo,
 };
 use crate::symbol_map::{GetInnerSymbolMap, SymbolMap, SymbolMapTrait};
-use crate::FileAndPathHelper;
+use crate::{FileAndPathHelper, SyncAddressInfo};
 
 pub fn is_jitdump_file<T: FileContents>(file_contents: &FileContentsWrapper<T>) -> bool {
     const MAGIC_BYTES_BE: &[u8] = b"JiTD";
@@ -273,7 +273,7 @@ impl<'a, T: FileContents> JitDumpSymbolMapInner<'a, T> {
         index: usize,
         symbol_address: u32,
         offset_relative_to_symbol: u64,
-    ) -> Option<AddressInfo> {
+    ) -> Option<SyncAddressInfo> {
         let mut cache = self.cache.lock().unwrap();
         let name_bytes = cache.get_function_name(index)?;
         let name = String::from_utf8_lossy(name_bytes).into_owned();
@@ -289,7 +289,7 @@ impl<'a, T: FileContents> JitDumpSymbolMapInner<'a, T> {
             };
             Some(FramesLookupResult::Available(vec![frame]))
         });
-        Some(AddressInfo {
+        Some(SyncAddressInfo {
             symbol: SymbolInfo {
                 address: symbol_address,
                 size: Some(self.index.entries[index].code_bytes_len as u32),
@@ -319,19 +319,15 @@ impl<'a, T: FileContents> SymbolMapTrait for JitDumpSymbolMapInner<'a, T> {
         Box::new(iter)
     }
 
-    fn lookup_relative_address(&self, address: u32) -> Option<AddressInfo> {
-        let (index, symbol_address, offset_from_symbol) =
-            self.index.lookup_relative_address(address)?;
-        self.lookup_by_entry_index(index, symbol_address, offset_from_symbol)
-    }
-
-    fn lookup_svma(&self, _svma: u64) -> Option<AddressInfo> {
-        // SVMAs are not meaningful for JitDump files.
-        None
-    }
-
-    fn lookup_offset(&self, offset: u64) -> Option<AddressInfo> {
-        let (index, symbol_address, offset_from_symbol) = self.index.lookup_offset(offset)?;
+    fn lookup_sync(&self, address: LookupAddress) -> Option<SyncAddressInfo> {
+        let (index, symbol_address, offset_from_symbol) = match address {
+            LookupAddress::Relative(address) => self.index.lookup_relative_address(address)?,
+            LookupAddress::Svma(_) => {
+                // SVMAs are not meaningful for JitDump files.
+                return None;
+            }
+            LookupAddress::FileOffset(offset) => self.index.lookup_offset(offset)?,
+        };
         self.lookup_by_entry_index(index, symbol_address, offset_from_symbol)
     }
 }

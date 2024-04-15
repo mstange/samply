@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use samply_symbols::{
     debugid::DebugId, object, CodeByteReadingError, CodeId, FileAndPathHelper,
-    FileAndPathHelperError, LibraryInfo, SymbolManager,
+    FileAndPathHelperError, LibraryInfo, LookupAddress, SymbolManager,
 };
 use serde_json::json;
 use yaxpeax_arch::{Arch, DecodeError, LengthedInstruction, Reader, U8Reader};
@@ -159,7 +159,7 @@ impl<'a, H: FileAndPathHelper> AsmApi<'a, H> {
         let symbol_map_res = self.symbol_manager.load_symbol_map(library_info).await;
         let symbol = symbol_map_res
             .ok()?
-            .lookup_relative_address(address_within_function)?
+            .lookup_sync(LookupAddress::Relative(address_within_function))?
             .symbol;
         symbol.address.checked_add(symbol.size?)
     }

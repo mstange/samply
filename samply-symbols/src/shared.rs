@@ -50,6 +50,65 @@ pub enum CandidatePathInfo<FL: FileLocation> {
     },
 }
 
+/// An address that can be looked up in a `SymbolMap`.
+///
+/// You'll usually want to use `LookupAddress::Relative`, i.e. addresses that
+/// are relative to some "image base address". This form works with all types
+/// of symbol maps across all platforms.
+///
+/// When testing, be aware that many binaries are laid out in such a way that
+/// all three representations of addresses are the same: The image base address
+/// is often zero and the sections are often laid out so that each section's
+/// address matches its file offset. So if you misrepresent an address in
+/// the wrong form, you might not notice it because it still works until you
+/// encounter a more complex binary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum LookupAddress {
+    /// A relative address is relative to the image base address.
+    ///
+    /// What this means depends on the format of the binary:
+    ///
+    /// - On Windows, a "relative address" is the same as a RVA ("relative virtual
+    ///   address") in the PE file.
+    /// - On macOS, a "relative address" is relative to the start of the `__TEXT`
+    ///   segment.
+    /// - On Linux / ELF, a "relative address" is relative to the address of the
+    ///   first LOAD command in the program header table. In other words, it's
+    ///   relative to the start of the first segment.
+    /// - For Jitdump files, the "relative address" space is a conceptual space
+    ///   in which the code from all `JIT_CODE_LOAD` records is laid out
+    ///   sequentially, starting at 0.
+    ///   So the relative address of an instruction inside a `JIT_CODE_LOAD` record
+    ///   is the sum of the `code_size` fields of all previous `JIT_CODE_LOAD`
+    ///   records plus the offset of the instruction within the code of this
+    ///   `JIT_CODE_LOAD` record.
+    ///
+    /// See [`relative_address_base`] for more information.
+    Relative(u32),
+    /// A "stated virtual memory address", i.e. a virtual memory address as
+    /// written down in the binary. In mach-O and ELF, this is the space that
+    /// section addresses and symbol addresses are in. It's the type of address
+    /// you'd pass to the Linux `addr2line` tool.
+    ///
+    /// This type of lookup address is not supported by symbol maps for PDB
+    /// files or Breakpad files.
+    Svma(u64),
+    /// A raw file offset to the point in the binary file where the bytes of the
+    /// instruction are stored for which symbols should be looked up.
+    ///
+    /// On Linux, if you have an "AVMA" (absolute virtual memory address) and
+    /// the `/proc/<pid>/maps` for the process, this is probably the easiest
+    /// form of address to compute, because the process maps give you the file offsets.
+    ///
+    /// However, if you do this, be aware that the file offset often is not
+    /// the same as an SVMA, so expect wrong results if you end up using it in
+    /// places where SVMAs are expected - it might work fine with some binaries
+    /// and then break with others.
+    ///
+    /// File offsets are not supported by symbol maps for PDB files or Breakpad files.
+    FileOffset(u64),
+}
+
 /// In case the loaded binary contains multiple architectures, this specifies
 /// how to resolve the ambiguity. This is only needed on macOS.
 #[derive(Debug, Clone)]
@@ -539,13 +598,9 @@ impl SourceFilePath {
     }
 }
 
-/// In calls to [`SymbolMap::lookup_relative_address`](crate::SymbolMap::lookup_relative_address), the requested addresses
-/// are in "relative address" form.
-/// This is in contrast to the u64 SVMA ("stated virtual memory address") form
-/// which is used by section addresses, symbol addresses and DWARF pc offset
-/// information.
-///
-/// Relative addresses are u32 offsets which are relative to some "base address".
+/// The "relative address base" is the base address which [`LookupAddress::Relative`]
+/// addresses are relative to. You start with an SVMA (a stated virtual memory address),
+/// you subtract the relative address base, and out comes a relative address.
 ///
 /// This function computes that base address. It is defined as follows:
 ///
@@ -612,6 +667,23 @@ pub struct SymbolInfo {
 /// The lookup result for an address.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AddressInfo {
+    /// Information about the symbol which contains the looked up address.
+    pub symbol: SymbolInfo,
+    /// Information about the frames at the looked up address, if found in the debug info.
+    ///
+    /// This Vec contains the file name and line number of the address.
+    /// If the compiler inlined a function call at this address, then this Vec
+    /// also contains the function name of the inlined function, along with the
+    /// file and line information inside that function.
+    ///
+    /// The Vec begins with the callee-most ("innermost") inlinee, followed by
+    /// its caller, and so on. The last element is always the outer function.
+    pub frames: Option<Vec<FrameDebugInfo>>,
+}
+
+/// The lookup result from `lookup_sync`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyncAddressInfo {
     /// Information about the symbol which contains the looked up address.
     pub symbol: SymbolInfo,
     /// Information about the frames at the looked up address, from the debug info.

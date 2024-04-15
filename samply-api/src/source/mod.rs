@@ -1,6 +1,6 @@
 use crate::{api_file_path::to_api_file_path, to_debug_id};
 use samply_symbols::{
-    FileAndPathHelper, FileAndPathHelperError, FramesLookupResult, LibraryInfo, SymbolManager,
+    FileAndPathHelper, FileAndPathHelperError, LibraryInfo, LookupAddress, SymbolManager,
 };
 use serde_json::json;
 
@@ -68,20 +68,12 @@ impl<'a, H: FileAndPathHelper> SourceApi<'a, H> {
         };
         let symbol_map = self.symbol_manager.load_symbol_map(&info).await?;
         let debug_file_location = symbol_map.debug_file_location().clone();
-        let frames = symbol_map
-            .lookup_relative_address(*module_offset)
-            .and_then(|address_info| address_info.frames);
-
-        let frames = match frames {
-            Some(FramesLookupResult::Available(frames)) => frames,
-            Some(FramesLookupResult::External(address)) => {
-                match symbol_map.lookup_external(&address).await {
-                    Some(frames) => frames,
-                    None => return Err(SourceError::NoDebugInfo),
-                }
-            }
-            None => return Err(SourceError::NoDebugInfo),
-        };
+        let address_info = symbol_map
+            .lookup(LookupAddress::Relative(*module_offset))
+            .await;
+        let frames = address_info
+            .and_then(|ai| ai.frames)
+            .ok_or(SourceError::NoDebugInfo)?;
 
         // Find the SourceFilePath whose "api file path" matches the requested file.
         // This is where we check that the requested file path is permissible.

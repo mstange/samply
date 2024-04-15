@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use debugid::DebugId;
 
-use wholesym::{CodeId, FramesLookupResult};
+use wholesym::{CodeId, FramesLookupResult, LookupAddress};
 
 fn fixtures_dir() -> PathBuf {
     let this_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -14,7 +14,7 @@ fn fixtures_dir() -> PathBuf {
 #[test]
 #[ignore]
 fn for_docs() {
-    use wholesym::{FramesLookupResult, SymbolManager, SymbolManagerConfig};
+    use wholesym::{SymbolManager, SymbolManagerConfig};
 
     async fn run() -> Result<(), wholesym::Error> {
         // let symbol_map = symbol_manager
@@ -39,19 +39,12 @@ fn for_docs() {
             .load_symbol_map_for_binary_at_path(&ls_bin_path, None)
             .await?;
         println!("Looking up 0xd6f4 in /usr/bin/ls. Results:");
-        if let Some(address_info) = symbol_map.lookup_relative_address(0xd6f4) {
+        if let Some(address_info) = symbol_map.lookup(LookupAddress::Relative(0xd6f4)).await {
             println!(
                 "Symbol: {:#x} {}",
                 address_info.symbol.address, address_info.symbol.name
             );
-            let frames = match address_info.frames {
-                Some(FramesLookupResult::Available(frames)) => Some(frames),
-                Some(FramesLookupResult::External(ext_ref)) => {
-                    symbol_map.lookup_external(&ext_ref).await
-                }
-                None => None,
-            };
-            if let Some(frames) = frames {
+            if let Some(frames) = address_info.frames {
                 for (i, frame) in frames.into_iter().enumerate() {
                     let function = frame.function.unwrap();
                     let file = frame.file_path.unwrap().display_path();
@@ -141,7 +134,9 @@ fn dwz_symbolication() {
         DebugId::from_breakpad("3E0A2663466E57DBABF718F6A3562C6E0").unwrap()
     );
 
-    let sym = symbol_map.lookup_relative_address(0xd6f4).unwrap();
+    let sym = symbol_map
+        .lookup_sync(LookupAddress::Relative(0xd6f4))
+        .unwrap();
 
     let frames = match &sym.frames {
         Some(FramesLookupResult::Available(frames)) => frames,
@@ -187,17 +182,10 @@ mod simple_example {
         f: F,
     ) {
         let address_info = symbol_map
-            .lookup_relative_address(relative_address)
+            .lookup(LookupAddress::Relative(relative_address))
+            .await
             .unwrap();
-
-        let frames = match address_info.frames {
-            Some(FramesLookupResult::Available(frames)) => Some(frames),
-            Some(FramesLookupResult::External(external)) => {
-                symbol_map.lookup_external(&external).await
-            }
-            None => None,
-        };
-        let frames = frames.unwrap();
+        let frames = address_info.frames.unwrap();
         let test_frames: Vec<_> = frames
             .iter()
             .map(|frame| {

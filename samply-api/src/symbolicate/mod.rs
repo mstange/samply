@@ -1,6 +1,8 @@
 use crate::to_debug_id;
 use crate::{api_file_path::to_api_file_path, error::Error};
-use samply_symbols::{FileAndPathHelper, FramesLookupResult, LibraryInfo, SymbolManager};
+use samply_symbols::{
+    FileAndPathHelper, FramesLookupResult, LibraryInfo, LookupAddress, SymbolManager,
+};
 use std::collections::HashMap;
 use std::num::NonZeroU32;
 
@@ -89,7 +91,7 @@ impl<'a, H: FileAndPathHelper> SymbolicateApi<'a, H> {
         symbolication_result.set_total_symbol_count(symbol_map.symbol_count() as u32);
 
         for &address in &addresses {
-            if let Some(address_info) = symbol_map.lookup_relative_address(address) {
+            if let Some(address_info) = symbol_map.lookup_sync(LookupAddress::Relative(address)) {
                 symbolication_result.add_address_symbol(
                     address,
                     address_info.symbol.address,

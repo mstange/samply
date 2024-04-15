@@ -62,7 +62,7 @@
 //! use samply_symbols::debugid::DebugId;
 //! use samply_symbols::{
 //!     CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation,
-//!     FramesLookupResult, LibraryInfo, OptionallySendFuture, SymbolManager,
+//!     FramesLookupResult, LibraryInfo, LookupAddress, OptionallySendFuture, SymbolManager,
 //! };
 //!
 //! async fn run_query() {
@@ -87,7 +87,7 @@
 //!     };
 //!
 //!     // Look up the symbol for an address.
-//!     let lookup_result = symbol_map.lookup_relative_address(0x1f98f);
+//!     let lookup_result = symbol_map.lookup(LookupAddress::Relative(0x1f98f)).await;
 //!
 //!     match lookup_result {
 //!         Some(address_info) => {
@@ -95,14 +95,7 @@
 //!             println!("0x1f98f: {}", address_info.symbol.name);
 //!
 //!             // See if we have debug info (file name + line, and inlined frames):
-//!             let frames = match address_info.frames {
-//!                 Some(FramesLookupResult::Available(frames)) => Some(frames),
-//!                 Some(FramesLookupResult::External(external)) => {
-//!                     symbol_map.lookup_external(&external).await
-//!                 }
-//!                 None => None,
-//!             };
-//!             if let Some(frames) = frames {
+//!             if let Some(frames) = address_info.frames {
 //!                 println!("Debug info:");
 //!                 for frame in frames {
 //!                     println!(
@@ -260,8 +253,9 @@ pub use crate::shared::{
     relative_address_base, AddressInfo, CandidatePathInfo, CodeId, ElfBuildId,
     ExternalFileAddressInFileRef, ExternalFileAddressRef, ExternalFileRef, FileAndPathHelper,
     FileAndPathHelperError, FileAndPathHelperResult, FileContents, FileContentsWrapper,
-    FileLocation, FrameDebugInfo, FramesLookupResult, LibraryInfo, MultiArchDisambiguator,
-    OptionallySendFuture, PeCodeId, SourceFilePath, SymbolInfo,
+    FileLocation, FrameDebugInfo, FramesLookupResult, LibraryInfo, LookupAddress,
+    MultiArchDisambiguator, OptionallySendFuture, PeCodeId, SourceFilePath, SymbolInfo,
+    SyncAddressInfo,
 };
 pub use crate::symbol_map::SymbolMap;
 

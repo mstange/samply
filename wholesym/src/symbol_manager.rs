@@ -4,7 +4,7 @@ use std::path::Path;
 use debugid::DebugId;
 use samply_symbols::{
     self, AddressInfo, Error, ExternalFileAddressInFileRef, ExternalFileAddressRef, FrameDebugInfo,
-    LibraryInfo, MultiArchDisambiguator,
+    LibraryInfo, LookupAddress, MultiArchDisambiguator, SyncAddressInfo,
 };
 
 use crate::config::SymbolManagerConfig;
@@ -45,29 +45,36 @@ pub struct SymbolFileOrigin(WholesymFileLocation);
 pub struct SymbolMap(samply_symbols::SymbolMap<Helper>);
 
 impl SymbolMap {
-    /// Look up symbol information by "relative address". This is the preferred lookup
-    /// and supported by all symbol map types.
+    /// Look up symbol information for the specified [`LookupAddress`].
     ///
-    /// A relative address is relative to the image base address. See
-    /// [`relative_address_base`](https://docs.rs/samply-symbols/latest/samply_symbols/fn.relative_address_base.html)
-    /// for more information.
-    pub fn lookup_relative_address(&self, address: u32) -> Option<AddressInfo> {
-        self.0.lookup_relative_address(address)
+    /// This method is asynchronous because it might need to load additional files,
+    /// for example `.dwo` files on Linux or `.o` files on macOS. You can use
+    /// [`SymbolMap::lookup_sync`] if you're calling this in a context where
+    /// you cannot await, or if you don't care about the `.dwo` / `.o` cases.
+    pub async fn lookup(&self, address: LookupAddress) -> Option<AddressInfo> {
+        self.0.lookup(address).await
     }
 
-    /// Look up symbol information by "stated virtual memory address", i.e. a virtual
-    /// memory address as written down in the binary, e.g. as used by symbol addresses.
+    /// Look up symbol information, using only files that have already been loaded.
     ///
-    /// This is not supported by symbol maps for PDB files or Breakpad files.
-    pub fn lookup_svma(&self, address: u64) -> Option<AddressInfo> {
-        self.0.lookup_svma(address)
-    }
-
-    /// Look up symbol information by file offset. This is used when you have an absolute
-    /// code address in process memory and map this address to a file offset with the help
-    /// of process maps.
-    pub fn lookup_offset(&self, offset: u64) -> Option<AddressInfo> {
-        self.0.lookup_offset(offset)
+    /// If additional files are needed to fully resolve the frame information, this
+    /// will be indicated in the returned [`SyncAddressInfo`]: [`SyncAddressInfo::frames`]
+    /// will be `Some(FramesLookupResult::External(...))`.
+    /// Then you can use [`SymbolMap::lookup_external`] to resolve lookups for these addresses.
+    ///
+    /// Usually you would just use [`SymbolMap::lookup`] instead of `lookup_sync` +
+    /// `lookup_external`. However, there exists a case where doing it manually can perform
+    /// better: If you have many addresses you need to batch-lookup, and you're on macOS
+    /// where some addresses will have to be resolved by loading `.o` files, then you can
+    /// reorder the `lookup_external` calls and avoid reloading the same `.o` file
+    /// multiple times. You'd do this by doing the lookup in two passes: First, call
+    /// `lookup_sync` for every address, and collect all the `ExternalFileAddressRef`s.
+    /// Then, sort the collected `ExternalFileAddressRef`s. This will make it so that all
+    /// addresses that need the same `.o` file are grouped together. Then, call
+    /// `lookup_external` for each `ExternalFileAddressRef` in the sorted order.
+    /// The `SymbolMap` only caches a single `.o` file at a time.
+    pub fn lookup_sync(&self, address: LookupAddress) -> Option<SyncAddressInfo> {
+        self.0.lookup_sync(address)
     }
 
     /// Resolve a debug info lookup for which `SymbolMap::lookup_*` returned

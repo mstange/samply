@@ -14,14 +14,14 @@ use yoke_derive::Yokeable;
 use crate::dwarf::convert_frames;
 use crate::path_mapper::PathMapper;
 use crate::shared::{
-    relative_address_base, AddressInfo, ExternalFileAddressInFileRef, ExternalFileAddressRef,
-    ExternalFileRef, FramesLookupResult, SymbolInfo,
+    relative_address_base, ExternalFileAddressInFileRef, ExternalFileAddressRef, ExternalFileRef,
+    FramesLookupResult, LookupAddress, SymbolInfo,
 };
 use crate::symbol_map::{
     GetInnerSymbolMap, GetInnerSymbolMapWithLookupFramesExt, SymbolMapTrait,
     SymbolMapTraitWithExternalFileSupport,
 };
-use crate::{demangle, Error, ExternalFileSymbolMap, FileContents};
+use crate::{demangle, Error, ExternalFileSymbolMap, FileContents, SyncAddressInfo};
 
 enum FullSymbolListEntry<'a, Symbol> {
     /// A synthesized symbol for a function start address that's known
@@ -520,9 +520,26 @@ where
         })
     }
 
-    fn lookup_relative_address(&self, address: u32) -> Option<AddressInfo> {
-        let svma = self.image_base_address + u64::from(address);
-        let (start_addr, end_addr, name) = self.list.lookup_relative_address(address)?;
+    fn lookup_sync(&self, address: LookupAddress) -> Option<SyncAddressInfo> {
+        let (svma, relative_address) = match address {
+            LookupAddress::Relative(relative_address) => (
+                self.image_base_address
+                    .checked_add(u64::from(relative_address))?,
+                relative_address,
+            ),
+            LookupAddress::Svma(svma) => (
+                svma,
+                u32::try_from(svma.checked_sub(self.image_base_address)?).ok()?,
+            ),
+            LookupAddress::FileOffset(offset) => {
+                let svma = self.svma_file_ranges.file_offset_to_svma(offset)?;
+                (
+                    svma,
+                    u32::try_from(svma.checked_sub(self.image_base_address)?).ok()?,
+                )
+            }
+        };
+        let (start_addr, end_addr, name) = self.list.lookup_relative_address(relative_address)?;
         let function_size = end_addr - start_addr;
         let name = demangle::demangle_any(&name);
         let symbol = SymbolInfo {
@@ -568,18 +585,7 @@ where
         if frames.is_none() {
             frames = self.frames_lookup_for_object_map_references(svma);
         }
-        Some(AddressInfo { symbol, frames })
-    }
-
-    fn lookup_svma(&self, svma: u64) -> Option<AddressInfo> {
-        let relative_address = svma.checked_sub(self.image_base_address)?.try_into().ok()?;
-        // 4200608 2103456 2097152
-        self.lookup_relative_address(relative_address)
-    }
-
-    fn lookup_offset(&self, offset: u64) -> Option<AddressInfo> {
-        let svma = self.svma_file_ranges.file_offset_to_svma(offset)?;
-        self.lookup_svma(svma)
+        Some(SyncAddressInfo { symbol, frames })
     }
 }
 
