@@ -111,8 +111,8 @@ where
             };
         let kernel_symbols = match KernelSymbols::new_for_running_kernel() {
             Ok(kernel_symbols) => Some(kernel_symbols),
-            Err(err) => {
-                eprintln!("Could not obtain kernel symbols: {err}");
+            Err(_err) => {
+                // eprintln!("Could not obtain kernel symbols: {err}");
                 None
             }
         };
