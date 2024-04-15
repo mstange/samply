@@ -539,7 +539,7 @@ impl SourceFilePath {
     }
 }
 
-/// In calls to `SymbolMap::lookup_relative_address`, the requested addresses
+/// In calls to [`SymbolMap::lookup_relative_address`](crate::SymbolMap::lookup_relative_address), the requested addresses
 /// are in "relative address" form.
 /// This is in contrast to the u64 SVMA ("stated virtual memory address") form
 /// which is used by section addresses, symbol addresses and DWARF pc offset
@@ -635,7 +635,7 @@ pub enum FramesLookupResult {
 
     /// Debug info for this address was not found in the symbol map, but can
     /// potentially be found in a different file, with the help of
-    /// `SymbolManager::lookup_external`.
+    /// [`SymbolMap::lookup_external`](crate::SymbolMap::lookup_external).
     ///
     /// This case can currently only be hit on macOS: On macOS, linking multiple
     /// `.o` files together into a library or an executable does not copy the
@@ -646,7 +646,8 @@ pub enum FramesLookupResult {
 }
 
 /// Information to find an external file and an address within that file, to be
-/// passed to `SymbolManager::lookup_external`.
+/// passed to [`SymbolMap::lookup_external`](crate::SymbolMap::lookup_external) or
+/// [`ExternalFileSymbolMap::lookup`](crate::ExternalFileSymbolMap::lookup).
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ExternalFileAddressRef {
     /// Information needed to find the external file.

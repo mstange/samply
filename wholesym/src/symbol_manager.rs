@@ -10,8 +10,7 @@ use samply_symbols::{
 use crate::config::SymbolManagerConfig;
 use crate::helper::{FileReadOnlyHelper, Helper, WholesymFileContents, WholesymFileLocation};
 
-/// Used in [`SymbolManager::lookup_external`] and [`SymbolManager::load_external_file`],
-/// and returned by [`SymbolMap::symbol_file_origin`].
+/// Used in [`SymbolManager::load_external_file`] and returned by [`SymbolMap::symbol_file_origin`].
 #[derive(Debug, Clone)]
 pub struct SymbolFileOrigin(WholesymFileLocation);
 
@@ -76,20 +75,14 @@ impl SymbolMap {
     ///
     /// This method is asynchronous because it may load a new external file.
     ///
-    /// This is used on macOS: When linking multiple `.o` files together into a library or
-    /// an executable, the linker does not copy the dwarf sections into the linked output.
-    /// Instead, it stores the paths to those original `.o` files, using OSO stabs entries.
+    /// This is used on macOS and on Linux with "unpacked" debuginfo: On macOS it is used
+    /// whenever there is no dSYM, and on Linux it is used to support `-gsplit-dwarf`.
+    /// The debug info is obtained from `.o`/`.a` and `.dwo` files, respectively.
     ///
-    /// A `SymbolMap` for such a linked file will not contain debug info, and will return
-    /// `FramesLookupResult::External` from the lookups. Then the address needs to be
-    /// looked up in the external file.
-    ///
-    /// In the future, this may also be used for loading `.dwo` or `.dwp` files on Linux.
-    ///
-    /// The `SymbolManager` keeps the most recent external file cached, so that repeated
-    /// calls to `lookup_external` for the same external file are fast. If the set of
-    /// addresses for lookup is known ahead-of-time, sorting these addresses upfront can
-    /// achieve a very good hit rate.
+    /// For the macOS case, the `SymbolMap` keeps the most recent external file cached,
+    /// so that repeated calls to `lookup_external` for the same external file are fast.
+    /// For the Linux `.dwo` case, the `SymbolMap` accumulates all `.dwo` files that have
+    /// been loaded for `lookup_external` calls.
     pub async fn lookup_external(
         &self,
         external: &ExternalFileAddressRef,
@@ -97,12 +90,12 @@ impl SymbolMap {
         self.0.lookup_external(external).await
     }
 
-    /// Returns an abstract "origin token" which needs to be passed to [`SymbolManager::lookup_external`]
+    /// Returns an abstract "origin token" which can be passed to [`SymbolManager::load_external_file`]
     /// when resolving [`FramesLookupResult::External`](crate::FramesLookupResult::External) addresses.
     ///
-    /// Internally, this is used to ensure that we only follow absolute paths to external object files
-    /// which were found in local symbol files, not those which were found in symbol files which were
-    /// downloaded from a symbol server.
+    /// Internally, this is used to ensure that we don't follow random paths found in symbol
+    /// files which were downloaded from a symbol server - we only want to load files from
+    /// these paths if the file that contained these paths is also a local file.
     pub fn symbol_file_origin(&self) -> SymbolFileOrigin {
         SymbolFileOrigin(self.0.debug_file_location().clone())
     }
@@ -249,7 +242,7 @@ impl SymbolManager {
     }
 
     /// Manually load and return an external file with additional debug info.
-    /// This is a lower-level alternative to [`lookup_external`](SymbolManager::lookup_external)
+    /// This is a lower-level alternative to [`lookup_external`](SymbolMap::lookup_external)
     /// and can be used if more control over caching is desired.
     pub async fn load_external_file(
         &self,
