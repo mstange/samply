@@ -266,7 +266,7 @@ impl Profile {
         self.processes[process.0].set_name(name);
     }
 
-    /// Get the `LibraryHandle` for a library. This handle is used in [`Profile::add_lib_mapping`]
+    /// Get the [`LibraryHandle`] for a library. This handle is used in [`Profile::add_lib_mapping`]
     /// and in the pre-resolved [`Frame`] variants.
     ///
     /// Knowing the library information allows symbolication of native stacks once the
@@ -507,9 +507,11 @@ impl Profile {
     /// counter sample. Both numbers are deltas.
     ///
     /// The graph in the profiler UI will connect subsequent data points with diagonal lines.
-    /// Counters are intended for values that are measured at a certain sample rate. You can
-    /// also use them for instrumented events and emit a new data point at every discrete change,
-    /// but in that case you probably want to emit two values per change: one right before (with
+    /// Counters are intended for values that are measured at a time-based sample rate; for example,
+    /// you could add a counter sample once every millisecond with the current memory usage.
+    ///
+    /// Alternatively, you can emit a new data point only whenever the value changes.
+    /// In that case you probably want to emit two values per change: one right before (with
     /// the old value) and one right at the timestamp of change (with the new value). This way
     /// you'll get more horizontal lines, and the diagonal line will be very short.
     pub fn add_counter_sample(
