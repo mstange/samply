@@ -1,28 +1,21 @@
-use crate::cpu_delta::CpuDelta;
 use crate::Timestamp;
+use crate::{cpu_delta::CpuDelta, serialization_helpers::SerializableSingleValueColumn};
 use serde::ser::{Serialize, SerializeMap, Serializer};
 use std::fmt::{Display, Formatter};
 
-// The Gecko Profiler records samples of what function was currently being executed, and the
-// callstack that is associated with it. This is done at a fixed but configurable rate, e.g. every
-// 1 millisecond. This table represents the minimal amount of information that is needed to
-// represent that sampled function. Most of the entries are indices into other tables.
+/// The sample table contains stacks with timestamps and some extra information.
+///
+/// In the most common case, this is used for time-based sampling: At a fixed but
+/// configurable rate, a profiler samples the current stack of each thread and records
+/// it in the profile.
 #[derive(Debug, Clone, Default)]
 pub struct SampleTable {
     sample_type: WeightType,
-    /// An optional weight array.
-    ///
-    /// If not present, then the weight is assumed to be 1. See the [WeightType] type for more
-    /// information.
     sample_weights: Vec<i32>,
     sample_timestamps: Vec<Timestamp>,
+    /// An index into the thread's stack table for each sample. `None` means the empty stack.
     sample_stack_indexes: Vec<Option<usize>>,
-    /// CPU usage value of the current thread. Its values are null only if the back-end fails to
-    /// get the CPU usage from operating system.
-    ///
-    /// It's landed in Firefox 86, and it is optional because older profile versions may not have
-    /// it or that feature could be disabled. No upgrader was written for this change because it's
-    /// a completely new data source.
+    /// CPU usage delta since the previous sample for this thread, for each sample.
     sample_cpu_deltas: Vec<CpuDelta>,
 }
 
@@ -63,7 +56,7 @@ pub struct SampleTable {
 /// ```
 ///
 /// JS type definition:
-/// ```ignore
+/// ```ts
 /// export type WeightType = 'samples' | 'tracing-ms' | 'bytes';
 /// ```
 ///
@@ -71,9 +64,15 @@ pub struct SampleTable {
 /// <https://github.com/firefox-devtools/profiler/blob/7bf02b3f747a33a8c166c533dc29304fde725517/src/types/profile.js#L127>
 #[derive(Debug, Clone)]
 pub enum WeightType {
-    /// Each sample will have a weight of 1.
+    /// The weight is an integer multiplier.
+    ///
+    /// This affects the total + self score of each call node in the call tree,
+    /// and the order in the tree because the tree is ordered from large "totals"
+    /// to small "totals".
+    /// It also affects the width of the sample's stack's box in the flame graph.
     Samples,
-    /// Each sample will have a weight in terms of milliseconds.
+    /// Each sample will have a weight in terms of (fractional) milliseconds.
+    /// Not supported by fxprof-processed-profile at the moment.
     #[allow(dead_code)]
     TracingMs,
     /// Each sample will have a weight in terms of bytes allocated.
@@ -92,6 +91,16 @@ impl Display for WeightType {
             WeightType::Samples => write!(f, "samples"),
             WeightType::TracingMs => write!(f, "tracing-ms"),
             WeightType::Bytes => write!(f, "bytes"),
+        }
+    }
+}
+
+impl Serialize for WeightType {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            WeightType::Samples => serializer.serialize_str("samples"),
+            WeightType::TracingMs => serializer.serialize_str("tracing-ms"),
+            WeightType::Bytes => serializer.serialize_str("bytes"),
         }
     }
 }
@@ -134,7 +143,8 @@ impl Serialize for SampleTable {
     }
 }
 
-/// js documentation on `NativeAllocations`:
+/// JS documentation of the native allocations table:
+///
 /// ```ignore
 /// /**
 ///  * This variant is the original version of the table, before the memory address
@@ -158,75 +168,53 @@ impl Serialize for SampleTable {
 ///   memoryAddress: number[],
 ///   threadId: number[],
 /// |};
-///
-/// /**
-///  * Native allocations are recorded as a marker payload, but in profile processing they
-///  * are moved to the Thread. This allows them to be part of the stack processing pipeline.
-///  * Currently they include native allocations and deallocations. However, both
-///  * of them are sampled independently, so they will be unbalanced if summed togther.
-///  */
-/// export type NativeAllocationsTable =
-///   | UnbalancedNativeAllocationsTable
-///   | BalancedNativeAllocationsTable;
 /// ```
-/// Example of `NativeAllocations` table:
-#[derive(Debug, Clone)]
-pub struct NativeAllocations {
+///
+/// In this crate we always create a `BalancedNativeAllocationsTable`. We require
+/// a memory address for each allocation / deallocation sample.
+#[derive(Debug, Clone, Default)]
+pub struct NativeAllocationsTable {
     /// The timstamps for each sample
     time: Vec<Timestamp>,
-    /// The weight for each sample
-    weight: Vec<i32>,
-    /// The type of sample
-    weight_type: WeightType,
     /// The stack index for each sample
     stack: Vec<Option<usize>>,
-    /// The memory address for each sample
-    memory_address: Vec<Option<usize>>,
-    /// The thread id for each sample
-    thread_id: Vec<usize>,
+    /// The size in bytes (positive for allocations, negative for deallocations) for each sample
+    allocation_size: Vec<i64>,
+    /// The memory address of the allocation for each sample
+    allocation_address: Vec<u64>,
 }
 
-impl Default for NativeAllocations {
-    fn default() -> Self {
-        Self {
-            time: Vec::new(),
-            weight: Vec::new(),
-            weight_type: WeightType::Bytes,
-            stack: Vec::new(),
-            memory_address: Vec::new(),
-            thread_id: Vec::new(),
-        }
-    }
-}
-
-impl NativeAllocations {
+impl NativeAllocationsTable {
     /// Add a sample to the [`NativeAllocations`] table.
     pub fn add_sample(
         &mut self,
         timestamp: Timestamp,
         stack_index: Option<usize>,
-        memory_address: Option<usize>,
-        thread_id: usize,
-        weight: i32,
+        allocation_address: u64,
+        allocation_size: i64,
     ) {
         self.time.push(timestamp);
         self.stack.push(stack_index);
-        self.memory_address.push(memory_address);
-        self.thread_id.push(thread_id);
-        self.weight.push(weight);
+        self.allocation_address.push(allocation_address);
+        self.allocation_size.push(allocation_size);
     }
 }
 
-impl Serialize for NativeAllocations {
+impl Serialize for NativeAllocationsTable {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let len = self.time.len();
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry("time", &self.time)?;
-        map.serialize_entry("weight", &self.weight)?;
-        map.serialize_entry("weightType", &self.weight_type.to_string())?;
+        map.serialize_entry("weight", &self.allocation_size)?;
+        map.serialize_entry("weightType", &WeightType::Bytes)?;
         map.serialize_entry("stack", &self.stack)?;
-        map.serialize_entry("memoryAddress", &self.memory_address)?;
-        map.serialize_entry("threadId", &self.thread_id)?;
+        map.serialize_entry("memoryAddress", &self.allocation_address)?;
+
+        // The threadId column is currently unused by the Firefox Profiler.
+        // Fill the column with zeros because the type definitions require it to be a number.
+        // A better alternative would be to use thread indexes or the threads' string TIDs.
+        map.serialize_entry("threadId", &SerializableSingleValueColumn(0, len))?;
+
         map.serialize_entry("length", &len)?;
         map.end()
     }
@@ -235,6 +223,8 @@ impl Serialize for NativeAllocations {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert_json_diff::assert_json_eq;
+    use serde_json::json;
 
     #[test]
     fn test_serialize_native_allocations() {
@@ -287,50 +277,48 @@ mod tests {
         //         4377576256
         //     ],
         //     "threadId": [
-        //         24940007,
-        //         24940007,
-        //         24940007,
-        //         24940007,
-        //         24965431,
-        //         24940007,
-        //         24940007,
-        //         24939992,
-        //         24939992
+        //         0,
+        //         0,
+        //         0,
+        //         0,
+        //         0,
+        //         0,
+        //         0,
+        //         0,
+        //         0
         //     ],
         //     "length": 9
         // },
-        let native_allocations = r#"{
-  "time": [
-    274363.248375
-  ],
-  "weight": [
-    147456
-  ],
-  "weightType": "bytes",
-  "stack": [
-    null
-  ],
-  "memoryAddress": [
-    5969772544
-  ],
-  "threadId": [
-    24965427
-  ],
-  "length": 1
-}"#;
 
-        let mut native_allocations_table = NativeAllocations::default();
+        let mut native_allocations_table = NativeAllocationsTable::default();
         native_allocations_table.add_sample(
             Timestamp::from_millis_since_reference(274_363.248_375),
             None,
-            Some(5969772544),
-            24965427,
+            5969772544,
             147456,
         );
 
-        let serialized = serde_json::to_string_pretty(&native_allocations_table).unwrap();
-        println!("{}", serialized);
-        println!("{}", native_allocations);
-        assert_eq!(serialized, native_allocations);
+        assert_json_eq!(
+            native_allocations_table,
+            json!({
+              "time": [
+                274363.248375
+              ],
+              "weight": [
+                147456
+              ],
+              "weightType": "bytes",
+              "stack": [
+                null
+              ],
+              "memoryAddress": [
+                5969772544u64
+              ],
+              "threadId": [
+                0
+              ],
+              "length": 1
+            })
+        );
     }
 }

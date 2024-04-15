@@ -12,7 +12,7 @@ use crate::global_lib_table::GlobalLibTable;
 use crate::marker_table::MarkerTable;
 use crate::native_symbols::NativeSymbols;
 use crate::resource_table::ResourceTable;
-use crate::sample_table::{NativeAllocations, SampleTable};
+use crate::sample_table::{NativeAllocationsTable, SampleTable};
 use crate::stack_table::StackTable;
 use crate::string_table::{GlobalStringIndex, GlobalStringTable};
 use crate::thread_string_table::{ThreadInternalStringIndex, ThreadStringTable};
@@ -37,7 +37,7 @@ pub struct Thread {
     frame_table: FrameTable,
     func_table: FuncTable,
     samples: SampleTable,
-    native_allocations: Option<NativeAllocations>,
+    native_allocations: Option<NativeAllocationsTable>,
     markers: MarkerTable,
     resources: ResourceTable,
     native_symbols: NativeSymbols,
@@ -132,29 +132,18 @@ impl Thread {
         self.last_sample_was_zero_cpu = cpu_delta == CpuDelta::ZERO;
     }
 
-    pub fn add_memory_sample(
+    pub fn add_allocation_sample(
         &mut self,
         timestamp: Timestamp,
         stack_index: Option<usize>,
-        memory_address: Option<usize>,
-        thread_id: usize,
-        weight: i32,
+        allocation_address: u64,
+        allocation_size: i64,
     ) {
-        // TODO: figure out how to unify the `string` definition of tid:
-        // // The Tid is most often a number. However in some cases such as merged profiles
-        // // we could generate a string.
-        // export type Tid = number | string;
-        //
-        // and the `number` definition of thread_id in nativeAllocations:
-        // threadId: number[],
-        //
-        // This way we could reuse the `tid` field of `Thread`, and it would not need to be a
-        // parameter in this method.
+        // Create allocations table, if it doesn't exist yet.
+        let allocations = self.native_allocations.get_or_insert_with(Default::default);
 
-        // initialize allocations if it doesn't exist
-        let mut allocations = self.native_allocations.take().unwrap_or_default();
-        allocations.add_sample(timestamp, stack_index, memory_address, thread_id, weight);
-        self.native_allocations = Some(allocations);
+        // Add the allocation sample.
+        allocations.add_sample(timestamp, stack_index, allocation_address, allocation_size);
     }
 
     pub fn add_sample_same_stack_zero_cpu(&mut self, timestamp: Timestamp, weight: i32) {

@@ -427,36 +427,6 @@ impl Profile {
         self.threads[thread.0].add_sample(timestamp, stack_index, cpu_delta, weight);
     }
 
-    /// Add a sample to the given thread.
-    ///
-    /// The sample has a timestamp, a stack, a CPU delta, and a weight.
-    ///
-    /// The stack frames are supplied as an iterator. Every frame has an associated
-    /// category pair.
-    ///
-    /// You can can also set the weight to something negative, such as -1, to create a
-    /// "diff profile". For example, if you have partitioned your samples into "before"
-    /// and "after" groups, you can use -1 for all "before" samples and 1 for all "after"
-    /// samples, and the call tree will show you which stacks occur more frequently in
-    /// the "after" part of the profile, by sorting those stacks to the top.
-    pub fn add_memory_sample(
-        &mut self,
-        thread: ThreadHandle,
-        timestamp: Timestamp,
-        frames: impl Iterator<Item = FrameInfo>,
-        memory_address: Option<usize>,
-        weight: i32,
-    ) {
-        let stack_index = self.stack_index_for_frames(thread, frames);
-        self.threads[thread.0].add_memory_sample(
-            timestamp,
-            stack_index,
-            memory_address,
-            thread.0,
-            weight,
-        );
-    }
-
     /// Add a sample with a CPU delta of zero. Internally, multiple consecutive
     /// samples with a delta of zero will be combined into one sample with an accumulated
     /// weight.
@@ -467,6 +437,48 @@ impl Profile {
         weight: i32,
     ) {
         self.threads[thread.0].add_sample_same_stack_zero_cpu(timestamp, weight);
+    }
+
+    /// Add an allocation or deallocation sample to the given thread. This is used
+    /// to collect stacks showing where allocations and deallocations happened.
+    ///
+    /// When loading profiles with allocation samples in the Firefox Profiler, the
+    /// UI will display a dropdown above the call tree to switch between regular
+    /// samples and allocation samples.
+    ///
+    /// An allocation sample has a timestamp, a stack, a memory address, and an allocation size.
+    ///
+    /// The size should be in bytes, with positive values for allocations and negative
+    /// values for deallocations.
+    ///
+    /// The memory address allows correlating the allocation and deallocation stacks of the
+    /// same object. This lets the UI display just the stacks for objects which haven't
+    /// been deallocated yet ("Retained memory").
+    ///
+    /// To avoid having to capture stacks for every single allocation, you can sample just
+    /// a subset of allocations. The sampling should be done based on the allocation size
+    /// ("probability per byte"). The decision whether to sample should be done at
+    /// allocation time and remembered for the lifetime of the allocation, so that for
+    /// each allocated object you either sample both its allocation and deallocation, or
+    /// neither.
+    ///
+    /// The stack frames are supplied as an iterator. Every frame has an associated
+    /// category pair.
+    pub fn add_allocation_sample(
+        &mut self,
+        thread: ThreadHandle,
+        timestamp: Timestamp,
+        frames: impl Iterator<Item = FrameInfo>,
+        allocation_address: u64,
+        allocation_size: i64,
+    ) {
+        let stack_index = self.stack_index_for_frames(thread, frames);
+        self.threads[thread.0].add_allocation_sample(
+            timestamp,
+            stack_index,
+            allocation_address,
+            allocation_size,
+        );
     }
 
     /// Add a marker to the given thread.
