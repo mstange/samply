@@ -26,12 +26,6 @@ You have the following options to install samply:
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/mstange/samply/releases/download/samply-v0.12.0/samply-installer.sh | sh
 ```
 
-### Install prebuilt binaries via powershell script
-
-```sh
-powershell -c "irm https://github.com/mstange/samply/releases/download/samply-v0.12.0/samply-installer.ps1 | iex"
-```
-
 ### Install from crates.io with cargo
 
 ```sh
