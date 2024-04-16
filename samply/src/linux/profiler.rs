@@ -6,7 +6,6 @@ use linux_perf_data::linux_perf_event_reader::{
 use nix::sys::wait::WaitStatus;
 
 use std::collections::HashMap;
-use std::ffi::OsString;
 use std::fs::File;
 use std::io::BufWriter;
 use std::ops::Deref;
@@ -27,7 +26,7 @@ use crate::linux_shared::{
     ConvertRegs, Converter, EventInterpretation, MmapRangeOrVec, OffCpuIndicator,
 };
 use crate::server::{start_server_main, ServerProps};
-use crate::shared::recording_props::{ProfileCreationProps, RecordingProps};
+use crate::shared::recording_props::{ProcessLaunchProps, ProfileCreationProps, RecordingProps};
 
 #[cfg(target_arch = "x86_64")]
 pub type ConvertRegsNative = crate::linux_shared::ConvertRegsX86_64;
@@ -37,15 +36,19 @@ pub type ConvertRegsNative = crate::linux_shared::ConvertRegsAarch64;
 
 #[allow(clippy::too_many_arguments)]
 pub fn start_recording(
-    command_name: OsString,
-    command_args: &[OsString],
-    env_vars: &[(OsString, OsString)],
-    iteration_count: u32,
+    process_launch_props: ProcessLaunchProps,
     recording_props: RecordingProps,
     profile_creation_props: ProfileCreationProps,
     server_props: Option<ServerProps>,
 ) -> Result<ExitStatus, ()> {
     // We want to profile a child process which we are about to launch.
+
+    let ProcessLaunchProps {
+        env_vars,
+        command_name,
+        args,
+        iteration_count,
+    } = process_launch_props;
 
     // Ignore SIGINT in our process while the child process is running. The
     // signal will still reach the child process, because Ctrl+C sends the
@@ -61,7 +64,7 @@ pub fn start_recording(
     // Start a new process for the launched command and get its pid.
     // The command will not start running until we tell it to.
     let process =
-        SuspendedLaunchedProcess::launch_in_suspended_state(&command_name, command_args, env_vars)
+        SuspendedLaunchedProcess::launch_in_suspended_state(&command_name, &args, &env_vars)
             .unwrap();
     let pid = process.pid();
 
@@ -158,12 +161,9 @@ pub fn start_recording(
             break;
         }
         eprintln!("Running iteration {i} of {iteration_count}...");
-        let process = SuspendedLaunchedProcess::launch_in_suspended_state(
-            &command_name,
-            command_args,
-            env_vars,
-        )
-        .unwrap();
+        let process =
+            SuspendedLaunchedProcess::launch_in_suspended_state(&command_name, &args, &env_vars)
+                .unwrap();
         let pid = process.pid();
 
         // Tell the sampler to start profiling another pid, and wait for it to signal us to go ahead.

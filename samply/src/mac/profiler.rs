@@ -3,7 +3,6 @@ use serde_json::to_writer;
 
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::ffi::OsString;
 use std::fs::File;
 use std::io::BufWriter;
 use std::process::ExitStatus;
@@ -17,7 +16,7 @@ use super::process_launcher::{MachError, ReceivedStuff, TaskAccepter};
 use super::sampler::{JitdumpOrMarkerPath, Sampler, TaskInit};
 use super::time::get_monotonic_timestamp;
 use crate::server::{start_server_main, ServerProps};
-use crate::shared::recording_props::{ProfileCreationProps, RecordingProps};
+use crate::shared::recording_props::{ProcessLaunchProps, ProfileCreationProps, RecordingProps};
 
 pub fn start_profiling_pid(
     _pid: u32,
@@ -31,17 +30,22 @@ pub fn start_profiling_pid(
 }
 
 pub fn start_recording(
-    command_name: OsString,
-    command_args: &[OsString],
-    env_vars: &[(OsString, OsString)],
-    iteration_count: u32,
+    process_launch_props: ProcessLaunchProps,
     recording_props: RecordingProps,
     profile_creation_props: ProfileCreationProps,
     server_props: Option<ServerProps>,
 ) -> Result<ExitStatus, MachError> {
-    let (task_sender, task_receiver) = unbounded();
+    let ProcessLaunchProps {
+        env_vars,
+        command_name,
+        args,
+        iteration_count,
+    } = process_launch_props;
     let command_name_copy = command_name.to_string_lossy().to_string();
     let output_file = recording_props.output_file.clone();
+
+    let (task_sender, task_receiver) = unbounded();
+
     let sampler_thread = thread::spawn(move || {
         let sampler = Sampler::new(
             command_name_copy,
@@ -63,8 +67,7 @@ pub fn start_recording(
     )
     .expect("cannot register signal handler");
 
-    let (mut task_accepter, task_launcher) =
-        TaskAccepter::new(&command_name, command_args, env_vars)?;
+    let (mut task_accepter, task_launcher) = TaskAccepter::new(&command_name, &args, &env_vars)?;
 
     let (accepter_sender, accepter_receiver) = unbounded();
     let accepter_thread = thread::spawn(move || {
