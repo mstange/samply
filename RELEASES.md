@@ -4,6 +4,8 @@
 
 ## Unreleased - ReleaseDate
 
+## 0.12.0 - 2024-04-16
+
 ### Breaking changes
 
  - The minimum supported Rust version is now 1.74.
