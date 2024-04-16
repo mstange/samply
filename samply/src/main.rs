@@ -12,9 +12,9 @@ mod shared;
 
 use clap::{Args, Parser, Subcommand};
 use profile_json_preparse::parse_libinfo_map_from_profile_file;
-use shared::recording_props::{ProfileCreationProps, RecordingProps};
+use shared::recording_props::{ProcessLaunchProps, ProfileCreationProps, RecordingProps};
 
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
@@ -237,6 +237,7 @@ fn main() {
 
         #[cfg(any(target_os = "android", target_os = "macos", target_os = "linux"))]
         Action::Record(record_args) => {
+            let process_launch_props = record_args.process_launch_props();
             let recording_props = record_args.recording_props();
             let profile_creation_props = record_args.profile_creation_props();
             let server_props = record_args.server_props();
@@ -249,12 +250,8 @@ fn main() {
                     server_props,
                 );
             } else {
-                let (env_vars, command_name, args) = parse_command(&record_args.command);
                 let exit_status = match profiler::start_recording(
-                    command_name,
-                    args,
-                    &env_vars,
-                    record_args.iteration_count,
+                    process_launch_props,
                     recording_props,
                     profile_creation_props,
                     server_props,
@@ -330,13 +327,45 @@ impl RecordArgs {
         }
     }
 
+    pub fn process_launch_props(&self) -> ProcessLaunchProps {
+        let command = &self.command;
+        let iteration_count = self.iteration_count;
+        assert!(
+            !command.is_empty(),
+            "CLI parsing should have ensured that we have at least one command name"
+        );
+
+        let mut env_vars = Vec::new();
+        let mut i = 0;
+        while let Some((var_name, var_val)) = command.get(i).and_then(|s| split_at_first_equals(s))
+        {
+            env_vars.push((var_name.to_owned(), var_val.to_owned()));
+            i += 1;
+        }
+        if i == command.len() {
+            eprintln!("Error: No command name found. Every item looks like an environment variable (contains '='): {command:?}");
+            std::process::exit(1);
+        }
+        let command_name = command[i].clone();
+        let args = command[(i + 1)..].to_owned();
+        ProcessLaunchProps {
+            env_vars,
+            command_name,
+            args,
+            iteration_count,
+        }
+    }
+
     #[allow(unused)]
     pub fn profile_creation_props(&self) -> ProfileCreationProps {
-        let profile_name = match (self.profile_creation_args.profile_name.clone(), self.pid, self.command.first()) {
-            (Some(profile_name), _, _) => profile_name,
-            (None, Some(pid), _) => format!("PID {pid}"),
-            (None, None, Some(command)) => command.to_string_lossy().to_string(),
-            (None, None, None) => panic!("Either pid or command is guaranteed to be present (clap should have done the validation)"),
+        let profile_name = match (self.profile_creation_args.profile_name.clone(), self.pid) {
+            (Some(profile_name), _) => profile_name,
+            (None, Some(pid)) => format!("PID {pid}"),
+            _ => self
+                .process_launch_props()
+                .command_name
+                .to_string_lossy()
+                .to_string(),
         };
         ProfileCreationProps {
             profile_name,
@@ -382,28 +411,6 @@ fn split_at_first_equals(s: &OsStr) -> Option<(&OsStr, &OsStr)> {
         )
     };
     Some((name, val))
-}
-
-#[allow(unused)]
-fn parse_command(command: &[OsString]) -> (Vec<(OsString, OsString)>, OsString, &[OsString]) {
-    assert!(
-        !command.is_empty(),
-        "CLI parsing should have ensured that we have at least one command name"
-    );
-
-    let mut env_vars = Vec::new();
-    let mut i = 0;
-    while let Some((var_name, var_val)) = command.get(i).and_then(|s| split_at_first_equals(s)) {
-        env_vars.push((var_name.to_owned(), var_val.to_owned()));
-        i += 1;
-    }
-    if i == command.len() {
-        eprintln!("Error: No command name found. Every item looks like an environment variable (contains '='): {command:?}");
-        std::process::exit(1);
-    }
-    let command_name = command[i].clone();
-    let args = &command[(i + 1)..];
-    (env_vars, command_name, args)
 }
 
 fn convert_file_to_profile(
