@@ -1,6 +1,8 @@
 # Releases
 
-## Unreleased
+<!-- next-header -->
+
+## Unreleased - ReleaseDate
 
 ### Breaking changes
 

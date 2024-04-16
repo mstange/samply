@@ -1,0 +1,5 @@
+pre-release-replacements = [
+  {file="../RELEASES.md", search="Unreleased", replace="{{version}}"},
+  {file="../RELEASES.md", search="ReleaseDate", replace="{{date}}"},
+  {file="../RELEASES.md", search="<!-- next-header -->", replace="<!-- next-header -->\n\n## Unreleased - ReleaseDate", exactly=1},
+]
