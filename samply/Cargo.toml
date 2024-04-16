@@ -30,7 +30,8 @@ memchr = "2.7.2"
 memmap2 = "0.9.4"
 serde_json = "1.0.115"
 thiserror = "1.0.58"
-uuid = "1.8.0"
+tempfile = "3.10.1"
+uuid = {  version = "1.8.0", features = ["v4"] }
 percent-encoding = "2.1.0"
 libc = "0.2.71"
 flate2 = "1.0"
@@ -65,6 +66,13 @@ parking_lot = "0.12.1"
 num_cpus = "1.13.1"
 uname = "0.1.1"
 nix = { version = "0.28", features = ["fs", "process"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = {  version = "0.56.0", features = ["Win32", "Win32_System_Diagnostics_Etw", "Win32_System", "Win32_System_WindowsProgramming",
+    "Win32_Storage", "Win32_Storage_FileSystem", "Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_Security", "Win32_System_SystemInformation"] }
+ferrisetw = "1.1.0"
+num-traits = "0.2"
+num-derive = "0.4"
 
 [dependencies.object]
 default-features = false
