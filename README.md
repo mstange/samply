@@ -2,16 +2,58 @@
 
 samply is a command line CPU profiler which uses the [Firefox profiler](https://profiler.firefox.com/) as its UI.
 
-At the moment it runs on macOS and Linux. Windows support is planned. samply is still under development and far from finished, but works quite well already.
+samply works on macOS and Linux. Windows support is planned.
 
-Give it a try:
+In order to profile the execution of `./my-application`, prepend `samply record` to the command invocation:
 
+```sh
+samply record ./my-application my-arguments
 ```
-% cargo install samply
-% samply record ./your-command your-arguments
+
+On Linux, samply uses perf events. You can grant temporary access by running:
+
+```sh
+echo '1' | sudo tee /proc/sys/kernel/perf_event_paranoid
 ```
 
-This spawns `./your-command your-arguments` in a subprocess and records a profile of its execution. When the command finishes, samply opens
+## Installation
+
+You have the following options to install samply:
+
+### Install prebuilt binaries via shell script
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/mstange/samply/releases/download/samply-v0.12.0/samply-installer.sh | sh
+```
+
+### Install prebuilt binaries via powershell script
+
+```sh
+powershell -c "irm https://github.com/mstange/samply/releases/download/samply-v0.12.0/samply-installer.ps1 | iex"
+```
+
+### Install from crates.io with cargo
+
+```sh
+cargo install --locked samply
+```
+
+### Build from source
+
+```sh
+git clone https://github.com/mstange/samply
+cd samply
+cargo build --release
+./target/release/samply ...
+```
+
+## Description
+
+```sh
+samply record ./my-application my-arguments
+```
+
+This spawns `./my-application my-arguments` in a subprocess and records a profile of its execution. When the command finishes, samply opens
 [profiler.firefox.com](https://profiler.firefox.com/) in your default browser, loads the recorded profile in it, and starts a local webserver which serves symbol information and source code.
 
 Then you can inspect the profile. And you can upload it.
@@ -32,16 +74,22 @@ samply is a sampling profiler and collects stack traces, per thread, at some sam
 
 On Linux, samply needs access to performance events system for unprivileged users. For this, you can either:
 
- - if using Linux 5.8 or later, set the `CAP_PERFMON` capability as effective and permitted for samply (recommended):
+ - Grant access until reboot:
+
+   ```sh
+   echo '1' | sudo tee /proc/sys/kernel/perf_event_paranoid
+   ```
+
+ - Grant access more permanently:
+
+   ```sh
+   sudo sysctl kernel.perf_event_paranoid=1
+   ```
+
+ - If using Linux 5.8 or later, you can try setting the `CAP_PERFMON` capability as effective and permitted for samply, though people have reported mixed results with this approach:
 
    ```
    sudo setcap 'cap_perfmon+ep' `which samply`
-   ```
-
- - allow use of (almost) all events by changing the `perf_event_paranoid` kernel variable (not recommended):
-
-   ```
-   sudo sysctl kernel.perf_event_paranoid=-1 
    ```
 
 If you still get a `mmap failed` error (an `EPERM`), you might also need to increase the `mlock` limit, e.g.:
