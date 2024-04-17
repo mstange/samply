@@ -56,8 +56,9 @@ impl ProcessThreads {
         }
         match self.threads_by_tid.entry(tid) {
             Entry::Vacant(entry) => {
-                if let (Some(name), Some(thread_recycler)) = (name, self.thread_recycler.as_mut()) {
-                    if let Some(thread_handle) = thread_recycler.recycle_by_name(&name) {
+                if let (Some(name), Some(thread_recycler)) = (&name, self.thread_recycler.as_mut())
+                {
+                    if let Some(thread_handle) = thread_recycler.recycle_by_name(name) {
                         let thread = Thread::new(thread_handle);
                         return entry.insert(thread);
                     }
@@ -65,6 +66,9 @@ impl ProcessThreads {
 
                 let thread_handle =
                     profile.add_thread(self.profile_process, tid as u32, start_time, false);
+                if let Some(name) = &name {
+                    profile.set_thread_name(thread_handle, name);
+                }
                 let thread = Thread::new(thread_handle);
                 entry.insert(thread)
             }
