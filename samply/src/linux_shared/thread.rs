@@ -1,4 +1,4 @@
-use fxprof_processed_profile::{FrameInfo, Profile, ThreadHandle, Timestamp};
+use fxprof_processed_profile::{Frame, FrameInfo, Profile, StringHandle, ThreadHandle, Timestamp};
 
 use std::fmt::Debug;
 
@@ -33,6 +33,13 @@ impl Thread {
             off_cpu_stack: None,
             name,
             thread_label_frame,
+        }
+    }
+
+    pub fn thread_label(&self) -> StringHandle {
+        match self.thread_label_frame.frame {
+            Frame::Label(s) => s,
+            _ => panic!(),
         }
     }
 

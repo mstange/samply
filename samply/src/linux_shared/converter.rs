@@ -712,19 +712,36 @@ where
                     );
                 }
                 if let (Some(cpus), Some(cpu_index)) = (&mut self.cpus, common.cpu) {
+                    let combined_thread = cpus.combined_thread_handle();
                     let cpu = cpus.get_mut(cpu_index as usize, &mut self.profile);
                     let _idle_cpu_sample = self
                         .context_switch_handler
                         .handle_switch_in(timestamp, &mut cpu.context_switch_data);
+                    cpu.notify_switch_in(
+                        tid,
+                        thread.thread_label(),
+                        timestamp,
+                        &self.timestamp_converter,
+                        &[cpu.thread_handle, combined_thread],
+                        &mut self.profile,
+                    );
                 }
             }
             ContextSwitchRecord::Out { .. } => {
                 self.context_switch_handler
                     .handle_switch_out(timestamp, &mut thread.context_switch_data);
-                if let (Some(cpus), Some(cpu_index)) = (&mut self.cpus, common.cpu) {
+                if let (Some(cpus), Some(cpu_index)) = (&mut self.cpus, Some(common.cpu.unwrap())) {
+                    let combined_thread = cpus.combined_thread_handle();
                     let cpu = cpus.get_mut(cpu_index as usize, &mut self.profile);
                     self.context_switch_handler
                         .handle_switch_out(timestamp, &mut cpu.context_switch_data);
+                    cpu.notify_switch_out(
+                        tid,
+                        timestamp,
+                        &self.timestamp_converter,
+                        &[cpu.thread_handle, combined_thread],
+                        &mut self.profile,
+                    );
                 }
             }
         }
