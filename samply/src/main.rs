@@ -187,6 +187,10 @@ pub struct ProfileCreationArgs {
     /// numbers will be missing for JIT frames.
     #[arg(long)]
     unlink_aux_files: bool,
+
+    /// Create a separate thread for each CPU. Not supported         on macOS
+    #[arg(long)]
+    per_cpu_threads: bool,
 }
 
 fn main() {
@@ -301,6 +305,7 @@ impl ImportArgs {
             reuse_threads: self.profile_creation_args.reuse_threads,
             fold_recursive_prefix: self.profile_creation_args.fold_recursive_prefix,
             unlink_aux_files: self.profile_creation_args.unlink_aux_files,
+            create_per_cpu_threads: self.profile_creation_args.per_cpu_threads,
         }
     }
 }
@@ -380,6 +385,7 @@ impl RecordArgs {
             reuse_threads: self.profile_creation_args.reuse_threads,
             fold_recursive_prefix: self.profile_creation_args.fold_recursive_prefix,
             unlink_aux_files: self.profile_creation_args.unlink_aux_files,
+            create_per_cpu_threads: self.profile_creation_args.per_cpu_threads,
         }
     }
 }

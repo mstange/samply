@@ -19,6 +19,8 @@ pub struct ProfileCreationProps {
     pub fold_recursive_prefix: bool,
     /// Unlink jitdump/marker files
     pub unlink_aux_files: bool,
+    /// Create a separate thread for each CPU.
+    pub create_per_cpu_threads: bool,
 }
 
 /// Properties which are meaningful for launching and recording a fresh process.
