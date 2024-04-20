@@ -68,7 +68,12 @@ struct Opt {
 
 #[derive(Debug, Subcommand)]
 enum Action {
-    #[cfg(any(target_os = "android", target_os = "macos", target_os = "linux", target_os = "windows"))]
+    #[cfg(any(
+        target_os = "android",
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "windows"
+    ))]
     /// Record a profile and display it.
     Record(RecordArgs),
 
@@ -240,7 +245,12 @@ fn main() {
             }
         }
 
-        #[cfg(any(target_os = "android", target_os = "macos", target_os = "linux", target_os = "windows"))]
+        #[cfg(any(
+            target_os = "android",
+            target_os = "macos",
+            target_os = "linux",
+            target_os = "windows"
+        ))]
         Action::Record(record_args) => {
             let process_launch_props = record_args.process_launch_props();
             let recording_props = record_args.recording_props();

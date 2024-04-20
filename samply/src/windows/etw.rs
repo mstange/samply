@@ -74,7 +74,8 @@ create_etw_schema_type!(ThreadSetNameEvent {
     ThreadName: String,
 });
 
-const StackWalkGuid: ::windows::core::GUID = ::windows::core::GUID::from_u128(0xdef2fe46_7bd6_4b80_bd94_f57fe20d0ce3);
+const StackWalkGuid: ::windows::core::GUID =
+    ::windows::core::GUID::from_u128(0xdef2fe46_7bd6_4b80_bd94_f57fe20d0ce3);
 
 const Event_StackWalk_Stack: u8 = 32;
 const Event_StackWalk_KeyCreate: u8 = 34;
@@ -132,7 +133,8 @@ pub struct StackWalkEvent_Stack {
 }
 
 // I see opcode 15, service information (ServiceName, ProcessName, ProcessId)
-const SystemConfigGuid: ::windows::core::GUID = ::windows::core::GUID::from_u128(0x01853a65_418f_4f36_aefc_dc0f1d2fd235);
+const SystemConfigGuid: ::windows::core::GUID =
+    ::windows::core::GUID::from_u128(0x01853a65_418f_4f36_aefc_dc0f1d2fd235);
 
 // PerfInfoGuid, 51=SysClEnter
 create_etw_schema_type!(PerfInfoEvent_SysCallEnter {
@@ -158,12 +160,16 @@ pub enum TracingEvent {
     StackWalk(StackWalkEvent_Stack),
 }
 
-const ObjectManagerGuid: ::windows::core::GUID = ::windows::core::GUID::from_u128(0x89497f50_effe_4440_8cf2_ce6b1cdcaca7);
+const ObjectManagerGuid: ::windows::core::GUID =
+    ::windows::core::GUID::from_u128(0x89497f50_effe_4440_8cf2_ce6b1cdcaca7);
 // 32=CreateHandle, 33=CloseHandle, 34=DuplicateHandle, 36=TypeDCStart, 37=TypeDCEnd, 38=HandleDCStart, 39=HandleDCEnd,
 // 48=CreateObject, 49=DeleteObject
 // the .mof file has 32-bit handles/objects but that's not correct, not sure what the right is
 
-pub fn get_tracing_event(ev: &EventRecord, schema_locator: &SchemaLocator) -> Option<(u64, TracingEvent)> {
+pub fn get_tracing_event(
+    ev: &EventRecord,
+    schema_locator: &SchemaLocator,
+) -> Option<(u64, TracingEvent)> {
     let provider = ::windows::core::GUID::from(ev.provider_id().to_u128());
     let opcode = ev.opcode();
     let event = match provider {

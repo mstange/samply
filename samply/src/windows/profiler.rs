@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
 
+use debugid::DebugId;
+use serde_json::to_writer;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::fs::File;
@@ -12,27 +14,26 @@ use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
 use std::ptr::null_mut;
 use std::sync::{Arc, Mutex};
-use debugid::DebugId;
-use serde_json::to_writer;
 use tokio::runtime;
 
-use crate::server::{ServerProps, start_server_main};
-use crate::shared::recording_props::{ProfileCreationProps, ProcessLaunchProps, RecordingProps};
+use crate::server::{start_server_main, ServerProps};
+use crate::shared::recording_props::{ProcessLaunchProps, ProfileCreationProps, RecordingProps};
 
-use fxprof_processed_profile::{CategoryColor, CategoryPairHandle, CpuDelta, Frame, FrameFlags, FrameInfo,
-                               LibraryHandle, LibraryInfo, ProcessHandle, Profile,
-                               ReferenceTimestamp, ThreadHandle, Timestamp};
+use fxprof_processed_profile::{
+    CategoryColor, CategoryPairHandle, CpuDelta, Frame, FrameFlags, FrameInfo, LibraryHandle,
+    LibraryInfo, ProcessHandle, Profile, ReferenceTimestamp, ThreadHandle, Timestamp,
+};
 
-use ferrisetw::{EventRecord, FileTrace, SchemaLocator};
 use ferrisetw::trace::TraceTrait;
+use ferrisetw::{EventRecord, FileTrace, SchemaLocator};
 use uuid::Uuid;
 
+use wholesym::SymbolManager;
+use windows::Win32::System::Diagnostics::Etw::QueryTraceProcessingHandle;
 use windows::{
     Win32::Foundation::MAX_PATH,
     Win32::System::ProcessStatus::{EnumDeviceDrivers, GetDeviceDriverFileNameW},
 };
-use windows::Win32::System::Diagnostics::Etw::QueryTraceProcessingHandle;
-use wholesym::SymbolManager;
 
 use super::etw::*;
 
@@ -63,7 +64,6 @@ use crate::windows::winutils;
 //     But it seems to only contain "32-bit" versions of events (e.g. addresses are u32, not u64). I can't find
 //     a fully up to date .mof.
 //   - There are some more complex StackWalk events (see etw.rs for info) but I haven't seen them.
-
 
 pub fn start_profiling_pid(
     _pid: u32,
@@ -138,7 +138,9 @@ pub fn start_recording(
     let etl_file = context.etl_file.clone().unwrap();
     let (trace, handle) = FileTrace::new(etl_file.clone(), move |ev, sl| {
         trace_callback(ev, sl, &mut context);
-    }).start().unwrap();
+    })
+    .start()
+    .unwrap();
 
     // TODO: grab the header info, so that we can pull out StartTime (and PerfFreq). Not really important.
     // QueryTraceProcessingHandle(handle, EtwQueryLogFileHeader, None, 0, &ptr to TRACE_LOGFILE_HEADER)
@@ -149,7 +151,8 @@ pub fn start_recording(
     eprintln!("Read {} events from file", n_events);
 
     // delete etl_file
-    std::fs::remove_file(&etl_file).expect(format!("Failed to delete ETL file {:?}", etl_file.to_str().unwrap()).as_str());
+    std::fs::remove_file(&etl_file)
+        .expect(format!("Failed to delete ETL file {:?}", etl_file.to_str().unwrap()).as_str());
 
     // write the profile to a json file
     let output_file = recording_props.output_file.clone();
@@ -164,7 +167,7 @@ pub fn start_recording(
             File::open(&output_file).expect("Couldn't open file we just wrote"),
             &output_file,
         )
-            .expect("Couldn't parse libinfo map from profile file");
+        .expect("Couldn't parse libinfo map from profile file");
 
         start_server_main(&output_file, server_props, libinfo_map);
     }
@@ -211,8 +214,18 @@ struct ProfileContext {
 
 impl ProfileContext {
     fn new(profile: Arc<Mutex<Profile>>, rt: runtime::Handle) -> Self {
-        let default_category = CategoryPairHandle::from(profile.lock().unwrap().add_category("User", CategoryColor::Yellow));
-        let kernel_category = CategoryPairHandle::from(profile.lock().unwrap().add_category("Kernel", CategoryColor::Red));
+        let default_category = CategoryPairHandle::from(
+            profile
+                .lock()
+                .unwrap()
+                .add_category("User", CategoryColor::Yellow),
+        );
+        let kernel_category = CategoryPairHandle::from(
+            profile
+                .lock()
+                .unwrap()
+                .add_category("Kernel", CategoryColor::Red),
+        );
         Self {
             profile,
             rt,
@@ -244,7 +257,11 @@ impl ProfileContext {
         self.processes.contains_key(&pid)
     }
 
-    fn new_with_existing_recording(profile: Arc<Mutex<Profile>>, rt: runtime::Handle, etl_file: &Path) -> Self {
+    fn new_with_existing_recording(
+        profile: Arc<Mutex<Profile>>,
+        rt: runtime::Handle,
+        etl_file: &Path,
+    ) -> Self {
         let mut context = Self::new(profile, rt);
         context.etl_file = Some(PathBuf::from(etl_file));
         context
@@ -252,7 +269,7 @@ impl ProfileContext {
 
     fn add_kernel_drivers(&mut self) {
         for (path, start_avma, end_avma) in winutils::iter_kernel_drivers() {
-            if self.kernel_min == u64::MAX  {
+            if self.kernel_min == u64::MAX {
                 // take the first as the start; iter_kernel_drivers is sorted
                 self.kernel_min = start_avma;
             }
@@ -261,7 +278,10 @@ impl ProfileContext {
             eprintln!("kernel driver: {} {:x} {:x}", path, start_avma, end_avma);
             let lib_info = self.library_info_for_path(&path);
             let lib_handle = self.profile.lock().unwrap().add_lib(lib_info);
-            self.profile.lock().unwrap().add_kernel_lib_mapping(lib_handle, start_avma, end_avma, 0);
+            self.profile
+                .lock()
+                .unwrap()
+                .add_kernel_lib_mapping(lib_handle, start_avma, end_avma, 0);
         }
     }
 
@@ -280,7 +300,13 @@ impl ProfileContext {
 
         // TODO -- I'm not happy about this. I'd like to be able to just reprocess these before we write out the profile,
         // instead of blocking during processing the samples. But we're postprocessing anyway, so not a big deal.
-        if let Ok(info) = self.rt.block_on(SymbolManager::library_info_for_binary_at_path(path.as_ref(), None)) {
+        if let Ok(info) = self
+            .rt
+            .block_on(SymbolManager::library_info_for_binary_at_path(
+                path.as_ref(),
+                None,
+            ))
+        {
             LibraryInfo {
                 name: info.name.unwrap(),
                 path: info.path.unwrap(),
@@ -323,7 +349,8 @@ impl ProfileContext {
         xperf.arg("-f");
         xperf.arg(&etl_file);
 
-        let _ = xperf.spawn()
+        let _ = xperf
+            .spawn()
             .unwrap_or_else(|err| {
                 panic!("failed to execute xperf: {}", err);
             })
@@ -344,7 +371,8 @@ impl ProfileContext {
         let mut xperf = std::process::Command::new("xperf");
         xperf.arg("-stop");
 
-        xperf.spawn()
+        xperf
+            .spawn()
             .unwrap_or_else(|err| {
                 panic!("failed to execute xperf: {}", err);
             })
@@ -355,8 +383,7 @@ impl ProfileContext {
     }
 }
 
-fn trace_callback(ev: &EventRecord, sl: &SchemaLocator, context: &mut ProfileContext)
-{
+fn trace_callback(ev: &EventRecord, sl: &SchemaLocator, context: &mut ProfileContext) {
     let mut profile = context.profile.lock().unwrap();
 
     // For the first event we see, use its time as the reference. Maybe there's something
@@ -366,18 +393,19 @@ fn trace_callback(ev: &EventRecord, sl: &SchemaLocator, context: &mut ProfileCon
         context.timebase_nanos = ev.raw_timestamp() as u64;
     }
 
-    let Some((ts, event)) = get_tracing_event(ev, sl) else { return };
+    let Some((ts, event)) = get_tracing_event(ev, sl) else {
+        return;
+    };
 
     let timestamp = Timestamp::from_nanos_since_reference(ts - context.timebase_nanos);
     //eprintln!("{} {:?}", ts, event);
     match event {
-        TracingEvent::ProcessDCStart(e) |
-        TracingEvent::ProcessStart(e) => {
+        TracingEvent::ProcessDCStart(e) | TracingEvent::ProcessStart(e) => {
             let exe = e.ImageFileName.unwrap();
             let pid = e.ProcessId.unwrap();
             let ppid = e.ParentId.unwrap_or(0);
 
-            if context.is_interesting_pid(pid)  || context.is_interesting_pid(ppid) {
+            if context.is_interesting_pid(pid) || context.is_interesting_pid(ppid) {
                 let handle = profile.add_process(&exe, pid, timestamp);
                 context.processes.insert(pid, handle);
             }
@@ -389,8 +417,7 @@ fn trace_callback(ev: &EventRecord, sl: &SchemaLocator, context: &mut ProfileCon
                 context.seen_first_thread_for_process.remove(&pid);
             }
         }
-        TracingEvent::ThreadDCStart(e) |
-        TracingEvent::ThreadStart(e) => {
+        TracingEvent::ThreadDCStart(e) | TracingEvent::ThreadStart(e) => {
             let pid = e.ProcessId.unwrap();
             let tid = e.TThreadId.unwrap();
 
@@ -410,23 +437,21 @@ fn trace_callback(ev: &EventRecord, sl: &SchemaLocator, context: &mut ProfileCon
                 profile.set_thread_end_time(handle, timestamp);
             }
         }
-        TracingEvent::ImageDCLoad(e) |
-        TracingEvent::ImageLoad(e) => {
+        TracingEvent::ImageDCLoad(e) | TracingEvent::ImageLoad(e) => {
             let pid = e.ProcessId.unwrap();
             let base = e.ImageBase.unwrap();
             let size = e.ImageSize.unwrap();
             let filename = e.FileName.unwrap();
 
             if let Some(process_handle) = context.processes.get(&pid) {
-                let lib_handle =
-                    if let Some(&lib_handle) = context.libs.get(&filename) {
-                        lib_handle
-                    } else {
-                        let lib_handle = profile.add_lib(context.library_info_for_path(&filename));
-                        //eprintln!("image: {} {} {:x} {:x}", pid, filename, base, size);
-                        context.libs.insert(filename.clone(), lib_handle);
-                        lib_handle
-                    };
+                let lib_handle = if let Some(&lib_handle) = context.libs.get(&filename) {
+                    lib_handle
+                } else {
+                    let lib_handle = profile.add_lib(context.library_info_for_path(&filename));
+                    //eprintln!("image: {} {} {:x} {:x}", pid, filename, base, size);
+                    context.libs.insert(filename.clone(), lib_handle);
+                    lib_handle
+                };
 
                 profile.add_lib_mapping(*process_handle, lib_handle, base, base + size, 0);
             }
@@ -444,18 +469,27 @@ fn trace_callback(ev: &EventRecord, sl: &SchemaLocator, context: &mut ProfileCon
             let tid = e.StackThread;
 
             if let Some(&thread_handle) = context.threads.get(&tid) {
-                let frames = e.Stack.iter()
+                let frames = e
+                    .Stack
+                    .iter()
                     .take_while(|&&frame| frame != 0)
-                    .map(|&frame| {
-                        FrameInfo {
-                            frame: Frame::InstructionPointer(frame),
-                            flags: FrameFlags::empty(),
-                            category_pair: if frame >= context.kernel_min { context.kernel_category } else { context.default_category },
-                        }
+                    .map(|&frame| FrameInfo {
+                        frame: Frame::InstructionPointer(frame),
+                        flags: FrameFlags::empty(),
+                        category_pair: if frame >= context.kernel_min {
+                            context.kernel_category
+                        } else {
+                            context.default_category
+                        },
                     });
 
-                profile.add_sample(thread_handle, timestamp, frames.into_iter(),
-                                   CpuDelta::ZERO, 1);
+                profile.add_sample(
+                    thread_handle,
+                    timestamp,
+                    frames.into_iter(),
+                    CpuDelta::ZERO,
+                    1,
+                );
             }
         }
     }

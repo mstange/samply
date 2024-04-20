@@ -1,15 +1,18 @@
-use windows::Win32::Foundation::{CloseHandle, FALSE, GetLastError, HANDLE, LUID, MAX_PATH};
-use windows::Win32::Security::{AdjustTokenPrivileges, GetTokenInformation, LookupPrivilegeValueW, SE_PRIVILEGE_ENABLED, TOKEN_ADJUST_PRIVILEGES, TOKEN_ELEVATION, TOKEN_PRIVILEGES, TOKEN_QUERY, TokenElevation};
-use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
-use std::ffi::{OsStr, OsString};
-use windows::core::{PCWSTR, PWSTR};
 use std::collections::HashMap;
+use std::ffi::{OsStr, OsString};
 use std::mem::size_of;
-use windows::Win32::Storage::FileSystem::QueryDosDeviceW;
-use windows::Win32::System::SystemInformation::GetSystemDirectoryW;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::ptr::null_mut;
+use windows::core::{PCWSTR, PWSTR};
+use windows::Win32::Foundation::{CloseHandle, GetLastError, FALSE, HANDLE, LUID, MAX_PATH};
+use windows::Win32::Security::{
+    AdjustTokenPrivileges, GetTokenInformation, LookupPrivilegeValueW, TokenElevation,
+    SE_PRIVILEGE_ENABLED, TOKEN_ADJUST_PRIVILEGES, TOKEN_ELEVATION, TOKEN_PRIVILEGES, TOKEN_QUERY,
+};
+use windows::Win32::Storage::FileSystem::QueryDosDeviceW;
 use windows::Win32::System::ProcessStatus::{EnumDeviceDrivers, GetDeviceDriverFileNameW};
+use windows::Win32::System::SystemInformation::GetSystemDirectoryW;
+use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
 pub fn is_elevated() -> bool {
     unsafe {
@@ -18,18 +21,26 @@ pub fn is_elevated() -> bool {
 
         let mut elevation = TOKEN_ELEVATION::default();
         let mut size = std::mem::size_of::<TOKEN_ELEVATION>() as u32;
-        GetTokenInformation(handle, TokenElevation, Some(&mut elevation as *mut _ as *mut std::ffi::c_void) , size, &mut size).ok();
+        GetTokenInformation(
+            handle,
+            TokenElevation,
+            Some(&mut elevation as *mut _ as *mut std::ffi::c_void),
+            size,
+            &mut size,
+        )
+        .ok();
 
         elevation.TokenIsElevated != 0
     }
 }
 
-pub fn enable_debug_privilege()
-{
+pub fn enable_debug_privilege() {
     if !is_elevated() {
         // TODO elevate with "runas" verb to pop up UAC dialog.
-        eprintln!("You must run samply as an Administrator so that it can enable SeDebugPrivilege. \
-            Try using 'sudo' on recent Windows.");
+        eprintln!(
+            "You must run samply as an Administrator so that it can enable SeDebugPrivilege. \
+            Try using 'sudo' on recent Windows."
+        );
         std::process::exit(1);
     }
 
@@ -37,12 +48,21 @@ pub fn enable_debug_privilege()
         let mut h_token: HANDLE = Default::default();
         let mut tp: TOKEN_PRIVILEGES = std::mem::zeroed();
 
-        if OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &mut h_token).is_err() {
+        if OpenProcessToken(
+            GetCurrentProcess(),
+            TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
+            &mut h_token,
+        )
+        .is_err()
+        {
             panic!("OpenProcessToken failed. Error: {:?}", GetLastError());
         }
 
         let mut luid: LUID = std::mem::zeroed();
-        let name = OsString::from("SeDebugPrivilege").encode_wide().chain(Some(0)).collect::<Vec<_>>();
+        let name = OsString::from("SeDebugPrivilege")
+            .encode_wide()
+            .chain(Some(0))
+            .collect::<Vec<_>>();
         if LookupPrivilegeValueW(PCWSTR::null(), PCWSTR(&name[0]), &mut luid).is_err() {
             panic!("LookupPrivilegeValue failed. Error: {:?}", GetLastError());
         }
@@ -51,14 +71,26 @@ pub fn enable_debug_privilege()
         tp.Privileges[0].Luid = luid;
         tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
 
-        if AdjustTokenPrivileges(h_token, FALSE, Some(&mut tp), std::mem::size_of::<TOKEN_PRIVILEGES>() as u32, None, None).is_err() {
+        if AdjustTokenPrivileges(
+            h_token,
+            FALSE,
+            Some(&mut tp),
+            std::mem::size_of::<TOKEN_PRIVILEGES>() as u32,
+            None,
+            None,
+        )
+        .is_err()
+        {
             panic!("AdjustTokenPrivileges failed. Error: {:?}", GetLastError());
         }
 
         if !GetLastError().is_ok() {
-            eprintln!("AdjustTokenPrivileges succeeded, but the error result is failure. Likely \
+            eprintln!(
+                "AdjustTokenPrivileges succeeded, but the error result is failure. Likely \
                 the token does not have the specified privilege, which means you are not running \
-                as Administrator. GetLastError: {:?}", GetLastError());
+                as Administrator. GetLastError: {:?}",
+                GetLastError()
+            );
             std::process::exit(1);
         }
 
@@ -83,8 +115,12 @@ pub fn get_dos_device_mappings() -> HashMap<String, String> {
         let drive_str = format!("{}:", drive_letter as char);
 
         unsafe {
-            let wide_drive_str: Vec<u16> = OsStr::new(&drive_str).encode_wide().chain(std::iter::once(0)).collect();
-            let result = QueryDosDeviceW(PWSTR(wide_drive_str.as_ptr() as *mut _), Some(&mut buffer));
+            let wide_drive_str: Vec<u16> = OsStr::new(&drive_str)
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
+            let result =
+                QueryDosDeviceW(PWSTR(wide_drive_str.as_ptr() as *mut _), Some(&mut buffer));
 
             if result != 0 {
                 // Success, process the returned multi-sz string
@@ -100,10 +136,16 @@ pub fn get_dos_device_mappings() -> HashMap<String, String> {
         // Annoyingly, this return path includes System32, and the NT SystemRoot is to the Windows
         // directory, so we need to strip this.
         let end = buffer.iter().position(|&c| c == 0).unwrap();
-        let slash = buffer[..end].iter().rposition(|&c| c == '\\' as u16).unwrap();
+        let slash = buffer[..end]
+            .iter()
+            .rposition(|&c| c == '\\' as u16)
+            .unwrap();
         buffer[slash] = 0;
 
-        mappings.insert("\\SystemRoot".to_string(), from_zero_terminated_wstr(&buffer));
+        mappings.insert(
+            "\\SystemRoot".to_string(),
+            from_zero_terminated_wstr(&buffer),
+        );
     }
 
     mappings
@@ -119,7 +161,12 @@ pub fn iter_kernel_drivers() -> impl Iterator<Item = (String, u64, u64)> {
         EnumDeviceDrivers(null_mut(), 0, &mut cb_needed).ok();
 
         let mut drivers = vec![null_mut(); cb_needed as usize / size_of::<usize>()];
-        EnumDeviceDrivers(drivers.as_mut_ptr(), (drivers.len() * size_of::<usize>()) as u32, &mut cb_needed).ok();
+        EnumDeviceDrivers(
+            drivers.as_mut_ptr(),
+            (drivers.len() * size_of::<usize>()) as u32,
+            &mut cb_needed,
+        )
+        .ok();
 
         drivers.sort();
 
@@ -144,12 +191,16 @@ pub fn iter_kernel_drivers() -> impl Iterator<Item = (String, u64, u64)> {
 
                 let start_avma = driver_addr as u64;
                 // note that i was already incremented above, so this is the next address
-                let end_avma = if i < count { drivers[i] as u64 } else { 0xffff_ffff_ffff_ffff };
+                let end_avma = if i < count {
+                    drivers[i] as u64
+                } else {
+                    0xffff_ffff_ffff_ffff
+                };
 
                 return Some((path, start_avma, end_avma));
             }
 
             None
-        })
+        });
     }
 }

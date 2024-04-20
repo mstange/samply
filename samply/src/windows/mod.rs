@@ -1,3 +1,3 @@
-pub mod profiler;
 mod etw;
+pub mod profiler;
 mod winutils;
