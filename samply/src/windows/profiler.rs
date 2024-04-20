@@ -17,7 +17,7 @@ use serde_json::to_writer;
 use tokio::runtime;
 
 use crate::server::{ServerProps, start_server_main};
-use crate::shared::recording_props::{ConversionProps, RecordingProps};
+use crate::shared::recording_props::{ProfileCreationProps, ProcessLaunchProps, RecordingProps};
 
 use fxprof_processed_profile::{CategoryColor, CategoryPairHandle, CpuDelta, Frame, FrameFlags, FrameInfo,
                                LibraryHandle, LibraryInfo, ProcessHandle, Profile,
@@ -68,19 +68,19 @@ use crate::windows::winutils;
 pub fn start_profiling_pid(
     _pid: u32,
     _recording_props: RecordingProps,
-    _conversion_props: ConversionProps,
+    _profile_creation_props: ProfileCreationProps,
     _server_props: Option<ServerProps>,
 ) {
     // we need the debug privilege token in order to get the kernel's address and run xperf.
     winutils::enable_debug_privilege();
+
+    // TODO
 }
 
 pub fn start_recording(
-    command_name: OsString,
-    command_args: &[OsString],
-    iteration_count: u32,
+    process_launch_props: ProcessLaunchProps,
     recording_props: RecordingProps,
-    conversion_props: ConversionProps,
+    profile_creation_props: ProfileCreationProps,
     server_props: Option<ServerProps>,
 ) -> Result<ExitStatus, i32> {
     // we need the debug privilege token in order to get the kernel's address and run xperf.
@@ -92,7 +92,7 @@ pub fn start_recording(
     //let mut jit_category_manager = crate::shared::jit_category_manager::JitCategoryManager::new();
 
     let profile = Profile::new(
-        &conversion_props.profile_name,
+        &profile_creation_props.profile_name,
         timebase,
         recording_props.interval.into(),
     );
@@ -118,9 +118,10 @@ pub fn start_recording(
     // I think what we need to do is have the _initial_ samply session stick
     // around and act as the command executor, passing us the pids it spawns.
     // That way the command will get executed in exactly the context the user intended.
-    for _ in 0..iteration_count {
-        let mut child = std::process::Command::new(&command_name);
-        child.args(command_args);
+    for _ in 0..process_launch_props.iteration_count {
+        let mut child = std::process::Command::new(&process_launch_props.command_name);
+        child.args(&process_launch_props.args);
+        child.envs(process_launch_props.env_vars.iter().map(|(k, v)| (k, v)));
         let mut child = child.spawn().unwrap();
 
         context.add_interesting_pid(child.id());
@@ -159,7 +160,13 @@ pub fn start_recording(
 
     // then fire up the server for the profiler front end, if not save-only
     if let Some(server_props) = server_props {
-        start_server_main(&output_file, server_props);
+        let libinfo_map = crate::profile_json_preparse::parse_libinfo_map_from_profile_file(
+            File::open(&output_file).expect("Couldn't open file we just wrote"),
+            &output_file,
+        )
+            .expect("Couldn't parse libinfo map from profile file");
+
+        start_server_main(&output_file, server_props, libinfo_map);
     }
 
     Ok(ExitStatus::from_raw(0))
