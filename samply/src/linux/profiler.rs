@@ -356,7 +356,7 @@ fn make_converter(
     };
 
     Converter::<framehop::UnwinderNative<MmapRangeOrVec, framehop::MayAllocateDuringUnwind>>::new(
-        &profile_creation_props.profile_name,
+        &profile_creation_props,
         None,
         HashMap::new(),
         machine_info.as_ref().map(|info| info.release.as_str()),
@@ -365,8 +365,6 @@ fn make_converter(
         framehop::CacheNative::new(),
         None,
         interpretation,
-        profile_creation_props.reuse_threads,
-        profile_creation_props.fold_recursive_prefix,
     )
 }
 

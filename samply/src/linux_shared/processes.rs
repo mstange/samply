@@ -25,13 +25,16 @@ where
 
     /// The sample data for all removed processes.
     process_sample_datas: Vec<ProcessSampleData>,
+
+    /// Whether aux files (like jitdump) should be unlinked on open
+    unlink_aux_data: bool,
 }
 
 impl<U> Processes<U>
 where
     U: Unwinder + Default,
 {
-    pub fn new(allow_reuse: bool) -> Self {
+    pub fn new(allow_reuse: bool, unlink_aux_data: bool) -> Self {
         let process_recycler = if allow_reuse {
             Some(ProcessRecycler::new())
         } else {
@@ -41,6 +44,7 @@ where
             processes_by_pid: HashMap::new(),
             process_recycler,
             process_sample_datas: Vec::new(),
+            unlink_aux_data,
         }
     }
 
@@ -70,6 +74,7 @@ where
                             name,
                             Some(thread_recycler),
                             Some(jit_function_recycler),
+                            self.unlink_aux_data,
                         );
                         return entry.insert(process);
                     }
@@ -101,6 +106,7 @@ where
                     name,
                     thread_recycler,
                     jit_function_recycler,
+                    self.unlink_aux_data,
                 );
                 entry.insert(process)
             }
@@ -130,6 +136,7 @@ where
                 None, // no name
                 thread_recycler,
                 jit_function_recycler,
+                self.unlink_aux_data,
             )
         })
     }

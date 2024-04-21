@@ -38,6 +38,7 @@ use super::vdso::VdsoObject;
 
 use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::process_sample_data::RssStatMember;
+use crate::shared::recording_props::ProfileCreationProps;
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::types::{StackFrame, StackMode};
 use crate::shared::unresolved_samples::{
@@ -83,7 +84,7 @@ where
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        product: &str,
+        profile_creation_props: &ProfileCreationProps,
         delayed_product_name_generator: Option<BoxedProductNameGenerator>,
         build_ids: HashMap<DsoKey, DsoInfo>,
         linux_version: Option<&str>,
@@ -92,15 +93,13 @@ where
         cache: U::Cache,
         extra_binary_artifact_dir: Option<&Path>,
         interpretation: EventInterpretation,
-        reuse_threads: bool,
-        fold_recursive_prefix: bool,
     ) -> Self {
         let interval = match interpretation.sampling_is_time_based {
             Some(nanos) => SamplingInterval::from_nanos(nanos),
             None => SamplingInterval::from_millis(1),
         };
         let profile = Profile::new(
-            product,
+            &profile_creation_props.profile_name,
             ReferenceTimestamp::from_system_time(SystemTime::now()),
             interval,
         );
@@ -124,7 +123,10 @@ where
         Self {
             profile,
             cache,
-            processes: Processes::new(reuse_threads),
+            processes: Processes::new(
+                profile_creation_props.reuse_threads,
+                profile_creation_props.unlink_aux_files,
+            ),
             timestamp_converter,
             current_sample_time: first_sample_time,
             build_ids,
@@ -140,7 +142,7 @@ where
             kernel_symbols,
             pe_mappings: PeMappings::new(),
             jit_category_manager: JitCategoryManager::new(),
-            fold_recursive_prefix,
+            fold_recursive_prefix: profile_creation_props.fold_recursive_prefix,
         }
     }
 

@@ -183,7 +183,8 @@ pub struct ProfileCreationArgs {
 
     /// If a process produces jitdump or marker files, unlink them after
     /// opening. This ensures that the files will not be left in /tmp,
-    /// but it will also be impossible to look at JIT disassembly.
+    /// but it will also be impossible to look at JIT disassembly, and line
+    /// numbers will be missing for JIT frames.
     #[arg(long)]
     unlink_aux_files: bool,
 }
