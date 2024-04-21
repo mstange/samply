@@ -104,7 +104,7 @@ where
     let interpretation = EventInterpretation::divine_from_attrs(attributes);
 
     let mut converter = Converter::<U>::new(
-        &profile_creation_props.profile_name,
+        &profile_creation_props,
         Some(Box::new(move |name| {
             format!("{name} on {host} (perf version {perf_version})")
         })),
@@ -115,8 +115,6 @@ where
         cache,
         extra_dir,
         interpretation.clone(),
-        profile_creation_props.reuse_threads,
-        profile_creation_props.fold_recursive_prefix,
     );
 
     let mut last_timestamp = 0;

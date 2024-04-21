@@ -254,7 +254,7 @@ impl TaskProfiler {
             ignored_errors: Vec::new(),
             unwinder: UnwinderNative::new(),
             path_receiver,
-            jitdump_manager: JitDumpManager::new(),
+            jitdump_manager: JitDumpManager::new(profile_creation_props.unlink_aux_files),
             marker_file_paths: Vec::new(),
             lib_mapping_ops: Default::default(),
             unresolved_samples: Default::default(),
@@ -602,6 +602,9 @@ impl TaskProfiler {
                         name: span.name,
                     }
                 }));
+                if self.profile_creation_props.unlink_aux_files {
+                    std::fs::remove_file(marker_file_path).ok();
+                }
             }
         }
         let process_sample_data = ProcessSampleData::new(

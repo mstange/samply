@@ -180,6 +180,13 @@ pub struct ProfileCreationArgs {
     /// Fold repeated frames at the base of the stack.
     #[arg(long)]
     fold_recursive_prefix: bool,
+
+    /// If a process produces jitdump or marker files, unlink them after
+    /// opening. This ensures that the files will not be left in /tmp,
+    /// but it will also be impossible to look at JIT disassembly, and line
+    /// numbers will be missing for JIT frames.
+    #[arg(long)]
+    unlink_aux_files: bool,
 }
 
 fn main() {
@@ -293,6 +300,7 @@ impl ImportArgs {
             profile_name,
             reuse_threads: self.profile_creation_args.reuse_threads,
             fold_recursive_prefix: self.profile_creation_args.fold_recursive_prefix,
+            unlink_aux_files: self.profile_creation_args.unlink_aux_files,
         }
     }
 }
@@ -371,6 +379,7 @@ impl RecordArgs {
             profile_name,
             reuse_threads: self.profile_creation_args.reuse_threads,
             fold_recursive_prefix: self.profile_creation_args.fold_recursive_prefix,
+            unlink_aux_files: self.profile_creation_args.unlink_aux_files,
         }
     }
 }

@@ -56,11 +56,12 @@ where
         name: Option<String>,
         thread_recycler: Option<ThreadRecycler>,
         jit_function_recycler: Option<JitFunctionRecycler>,
+        unlink_aux_files: bool,
     ) -> Self {
         Self {
             profile_process: process_handle,
             unwinder: U::default(),
-            jitdump_manager: JitDumpManager::new(),
+            jitdump_manager: JitDumpManager::new(unlink_aux_files),
             lib_mapping_ops: Default::default(),
             name,
             pid,
@@ -181,7 +182,8 @@ where
             None
         };
 
-        let jitdump_manager = std::mem::replace(&mut self.jitdump_manager, JitDumpManager::new());
+        let jitdump_manager =
+            std::mem::replace(&mut self.jitdump_manager, JitDumpManager::new(false));
         let jitdump_ops = jitdump_manager.finish(
             jit_category_manager,
             profile,
