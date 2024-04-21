@@ -537,7 +537,8 @@ impl TaskProfiler {
                     // count the number of - characters in marker_file_path
                     let marker_info = marker_file::parse_marker_file_path(&marker_file_path);
                     let thread_handle = if marker_info.tid.is_some() {
-                        self.live_threads.iter()
+                        self.live_threads
+                            .iter()
                             .find(|(_, thread)| thread.tid == marker_info.tid.unwrap())
                             .map(|(_, thread)| thread.profile_thread)
                             .unwrap_or(self.main_thread_handle)

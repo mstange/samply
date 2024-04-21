@@ -63,9 +63,7 @@ pub struct MarkerFileInfo {
     pub tid: Option<u32>,
 }
 
-pub fn parse_marker_file_path(
-    path: &Path,
-) -> MarkerFileInfo {
+pub fn parse_marker_file_path(path: &Path) -> MarkerFileInfo {
     let filename = path.file_name().unwrap().to_str().unwrap();
     // strip .txt extension
     let filename = &filename[..filename.len() - 4];
@@ -73,11 +71,7 @@ pub fn parse_marker_file_path(
     let prefix = parts.next().unwrap().to_owned();
     let pid = parts.next().unwrap().parse().unwrap();
     let tid = parts.next().map(|tid| tid.parse().unwrap());
-    MarkerFileInfo {
-        prefix,
-        pid,
-        tid,
-    }
+    MarkerFileInfo { prefix, pid, tid }
 }
 
 pub fn get_markers(
