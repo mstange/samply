@@ -63,6 +63,7 @@ pub struct MarkerFileInfo {
     pub tid: Option<u32>,
 }
 
+#[allow(unused)]
 pub fn parse_marker_file_path(path: &Path) -> MarkerFileInfo {
     let filename = path.file_name().unwrap().to_str().unwrap();
     // strip .txt extension
