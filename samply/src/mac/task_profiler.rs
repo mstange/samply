@@ -4,7 +4,10 @@ use framehop::{
     Unwinder, UnwinderNative,
 };
 use fxprof_processed_profile::debugid::DebugId;
-use fxprof_processed_profile::{LibraryInfo, ProcessHandle, Profile, ThreadHandle, Timestamp};
+use fxprof_processed_profile::{
+    CategoryHandle, Frame, FrameFlags, FrameInfo, LibraryInfo, ProcessHandle, Profile,
+    ThreadHandle, Timestamp,
+};
 use mach::mach_types::thread_act_port_array_t;
 use mach::mach_types::thread_act_t;
 use mach::message::mach_msg_type_number_t;
@@ -102,6 +105,7 @@ pub struct TaskProfiler {
     executable_name: String,
     profile_process: ProcessHandle,
     main_thread_handle: ThreadHandle,
+    main_thread_label_frame: FrameInfo,
     ignored_errors: Vec<SamplingError>,
     unwinder: UnwinderNative<UnwindSectionBytes, MayAllocateDuringUnwind>,
     path_receiver: Receiver<JitdumpOrMarkerPath>,
@@ -170,46 +174,63 @@ impl TaskProfiler {
             .map_err(|e| SamplingError::Ignorable("Could not get main thread tid", e))?;
         let main_thread_name = get_thread_name(main_thread_act)?;
 
-        let (profile_process, main_thread_handle, mut thread_recycler, jit_function_recycler) =
-            match recycling_data {
-                Some(ProcessRecyclingData {
+        let (
+            profile_process,
+            main_thread_handle,
+            main_thread_label_frame,
+            mut thread_recycler,
+            jit_function_recycler,
+        ) = match recycling_data {
+            Some(ProcessRecyclingData {
+                process_handle,
+                main_thread_recycling_data,
+                thread_recycler,
+                jit_function_recycler,
+            }) => {
+                let (main_thread_handle, main_thread_label_frame) = main_thread_recycling_data;
+                (
                     process_handle,
                     main_thread_handle,
-                    thread_recycler,
-                    jit_function_recycler,
-                }) => (
-                    process_handle,
-                    main_thread_handle,
+                    main_thread_label_frame,
                     Some(thread_recycler),
                     Some(jit_function_recycler),
-                ),
-                None => {
-                    let profile_process = profile.add_process(&executable_name, pid, start_time);
-                    let main_thread_handle =
-                        profile.add_thread(profile_process, main_thread_tid, start_time, true);
-                    if let Some(main_thread_name) = &main_thread_name {
-                        profile.set_thread_name(main_thread_handle, main_thread_name);
-                    }
-                    let (thread_recycler, jit_function_recycler) = match process_recycler {
-                        Some(_) => (
-                            Some(ThreadRecycler::new()),
-                            Some(JitFunctionRecycler::default()),
-                        ),
-                        None => (None, None),
-                    };
-                    (
-                        profile_process,
-                        main_thread_handle,
-                        thread_recycler,
-                        jit_function_recycler,
-                    )
+                )
+            }
+            None => {
+                let profile_process = profile.add_process(&executable_name, pid, start_time);
+                let main_thread_handle =
+                    profile.add_thread(profile_process, main_thread_tid, start_time, true);
+                if let Some(main_thread_name) = &main_thread_name {
+                    profile.set_thread_name(main_thread_handle, main_thread_name);
                 }
-            };
+                let main_thread_label_frame = make_thread_label_frame(
+                    profile,
+                    main_thread_name.as_deref(),
+                    pid,
+                    main_thread_tid,
+                );
+                let (thread_recycler, jit_function_recycler) = match process_recycler {
+                    Some(_) => (
+                        Some(ThreadRecycler::new()),
+                        Some(JitFunctionRecycler::default()),
+                    ),
+                    None => (None, None),
+                };
+                (
+                    profile_process,
+                    main_thread_handle,
+                    main_thread_label_frame,
+                    thread_recycler,
+                    jit_function_recycler,
+                )
+            }
+        };
 
         let main_thread = ThreadProfiler::new(
             task,
             main_thread_tid,
             main_thread_handle,
+            main_thread_label_frame.clone(),
             main_thread_act,
             main_thread_name,
         );
@@ -219,16 +240,22 @@ impl TaskProfiler {
             if let (Ok((tid, _is_libdispatch_thread)), Ok(name)) =
                 (get_thread_id(thread_act), get_thread_name(thread_act))
             {
-                let profile_thread = if let (Some(name), Some(thread_recycler)) =
-                    (&name, thread_recycler.as_mut())
+                let (profile_thread, thread_label_frame) = if let (
+                    Some(name),
+                    Some(thread_recycler),
+                ) = (&name, thread_recycler.as_mut())
                 {
-                    if let Some(profile_thread) = thread_recycler.recycle_by_name(name) {
-                        profile_thread
+                    if let Some((profile_thread, thread_label_frame)) =
+                        thread_recycler.recycle_by_name(name)
+                    {
+                        (profile_thread, thread_label_frame)
                     } else {
                         let profile_thread =
                             profile.add_thread(profile_process, tid, start_time, false);
                         profile.set_thread_name(profile_thread, name);
-                        profile_thread
+                        let thread_label_frame =
+                            make_thread_label_frame(profile, Some(name), pid, tid);
+                        (profile_thread, thread_label_frame)
                     }
                 } else {
                     let profile_thread =
@@ -236,10 +263,19 @@ impl TaskProfiler {
                     if let Some(name) = &name {
                         profile.set_thread_name(profile_thread, name);
                     }
-                    profile_thread
+                    let thread_label_frame =
+                        make_thread_label_frame(profile, name.as_deref(), pid, tid);
+                    (profile_thread, thread_label_frame)
                 };
 
-                let thread = ThreadProfiler::new(task, tid, profile_thread, thread_act, name);
+                let thread = ThreadProfiler::new(
+                    task,
+                    tid,
+                    profile_thread,
+                    thread_label_frame,
+                    thread_act,
+                    name,
+                );
                 live_threads.insert(thread_act, thread);
             }
         }
@@ -252,6 +288,7 @@ impl TaskProfiler {
             executable_name,
             profile_process,
             main_thread_handle,
+            main_thread_label_frame,
             ignored_errors: Vec::new(),
             unwinder: UnwinderNative::new(),
             path_receiver,
@@ -335,27 +372,43 @@ impl TaskProfiler {
                     if let (Ok((tid, _is_libdispatch_thread)), Ok(name)) =
                         (get_thread_id(thread_act), get_thread_name(thread_act))
                     {
-                        let profile_thread = if let (Some(name), Some(thread_recycler)) =
-                            (&name, self.thread_recycler.as_mut())
-                        {
-                            if let Some(profile_thread) = thread_recycler.recycle_by_name(name) {
-                                profile_thread
+                        let (profile_thread, thread_label_frame) =
+                            if let (Some(name), Some(thread_recycler)) =
+                                (&name, self.thread_recycler.as_mut())
+                            {
+                                if let Some(profile_thread) = thread_recycler.recycle_by_name(name)
+                                {
+                                    profile_thread
+                                } else {
+                                    let profile_thread =
+                                        profile.add_thread(self.profile_process, tid, now, false);
+                                    profile.set_thread_name(profile_thread, name);
+                                    let thread_label_frame =
+                                        make_thread_label_frame(profile, Some(name), self.pid, tid);
+                                    (profile_thread, thread_label_frame)
+                                }
                             } else {
                                 let profile_thread =
                                     profile.add_thread(self.profile_process, tid, now, false);
-                                profile.set_thread_name(profile_thread, name);
-                                profile_thread
-                            }
-                        } else {
-                            let profile_thread =
-                                profile.add_thread(self.profile_process, tid, now, false);
-                            if let Some(name) = &name {
-                                profile.set_thread_name(profile_thread, name);
-                            }
-                            profile_thread
-                        };
-                        let thread =
-                            ThreadProfiler::new(self.task, tid, profile_thread, thread_act, name);
+                                if let Some(name) = &name {
+                                    profile.set_thread_name(profile_thread, name);
+                                }
+                                let thread_label_frame = make_thread_label_frame(
+                                    profile,
+                                    name.as_deref(),
+                                    self.pid,
+                                    tid,
+                                );
+                                (profile_thread, thread_label_frame)
+                            };
+                        let thread = ThreadProfiler::new(
+                            self.task,
+                            tid,
+                            profile_thread,
+                            thread_label_frame,
+                            thread_act,
+                            name,
+                        );
                         entry.insert(thread)
                     } else {
                         continue;
@@ -382,11 +435,11 @@ impl TaskProfiler {
         for thread_act in dead_threads {
             let mut thread = self.live_threads.remove(thread_act).unwrap();
             thread.notify_dead(now, profile);
-            let (thread_name, thread_handle) = thread.finish();
+            let (thread_name, thread_handle, thread_label_frame) = thread.finish();
             if let (Some(thread_name), Some(thread_recycler)) =
                 (thread_name, self.thread_recycler.as_mut())
             {
-                thread_recycler.add_to_pool(&thread_name, thread_handle);
+                thread_recycler.add_to_pool(&thread_name, (thread_handle, thread_label_frame));
             }
         }
         Ok(())
@@ -570,12 +623,12 @@ impl TaskProfiler {
     pub fn notify_dead(&mut self, end_time: Timestamp, profile: &mut Profile) {
         for (_, mut thread) in self.live_threads.drain() {
             thread.notify_dead(end_time, profile);
-            let (thread_name, thread_handle) = thread.finish();
+            let (thread_name, thread_handle, thread_label_frame) = thread.finish();
 
             if let (Some(thread_name), Some(thread_recycler)) =
                 (thread_name, self.thread_recycler.as_mut())
             {
-                thread_recycler.add_to_pool(&thread_name, thread_handle);
+                thread_recycler.add_to_pool(&thread_name, (thread_handle, thread_label_frame));
             }
         }
         profile.set_process_end_time(self.profile_process, end_time);
@@ -633,7 +686,10 @@ impl TaskProfiler {
                 self.executable_name,
                 ProcessRecyclingData {
                     process_handle: self.profile_process,
-                    main_thread_handle: self.main_thread_handle,
+                    main_thread_recycling_data: (
+                        self.main_thread_handle,
+                        self.main_thread_label_frame,
+                    ),
                     thread_recycler,
                     jit_function_recycler,
                 },
@@ -746,4 +802,22 @@ fn compute_debug_id_from_text_section(
     let rel_end = text_section_svma.end.checked_sub(base_svma)?;
     let text_section = text_segment.get((rel_start as usize)..(rel_end as usize))?;
     Some(DebugId::from_text_first_page(text_section, true))
+}
+
+fn make_thread_label_frame(
+    profile: &mut Profile,
+    name: Option<&str>,
+    pid: u32,
+    tid: u32,
+) -> FrameInfo {
+    let s = match name {
+        Some(name) => format!("{name} (pid: {pid}, tid: {tid})"),
+        None => format!("Thread {tid} (pid: {pid}, tid: {tid})"),
+    };
+    let thread_label = profile.intern_string(&s);
+    FrameInfo {
+        frame: Frame::Label(thread_label),
+        category_pair: CategoryHandle::OTHER.into(),
+        flags: FrameFlags::empty(),
+    }
 }

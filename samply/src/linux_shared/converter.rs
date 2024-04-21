@@ -31,6 +31,7 @@ use super::injected_jit_object::{correct_bad_perf_jit_so_file, jit_function_name
 use super::kernel_symbols::{kernel_module_build_id, KernelSymbols};
 use super::mmap_range_or_vec::MmapRangeOrVec;
 use super::pe_mappings::{PeMappings, SuspectedPeMapping};
+use super::per_cpu::Cpus;
 use super::processes::Processes;
 use super::rss_stat::{RssStat, MM_ANONPAGES, MM_FILEPAGES, MM_SHMEMPAGES, MM_SWAPENTS};
 use super::svma_file_range::compute_vma_bias;
@@ -70,6 +71,7 @@ where
     kernel_symbols: Option<KernelSymbols>,
     pe_mappings: PeMappings,
     jit_category_manager: JitCategoryManager,
+    cpus: Option<Cpus>,
 
     /// Whether repeated frames at the base of the stack should be folded
     /// into one frame.
@@ -98,7 +100,7 @@ where
             Some(nanos) => SamplingInterval::from_nanos(nanos),
             None => SamplingInterval::from_millis(1),
         };
-        let profile = Profile::new(
+        let mut profile = Profile::new(
             &profile_creation_props.profile_name,
             ReferenceTimestamp::from_system_time(SystemTime::now()),
             interval,
@@ -118,6 +120,13 @@ where
         let timestamp_converter = TimestampConverter {
             reference_raw: first_sample_time,
             raw_to_ns_factor: 1,
+        };
+
+        let cpus = if profile_creation_props.create_per_cpu_threads {
+            let start_timestamp = timestamp_converter.convert_time(first_sample_time);
+            Some(Cpus::new(start_timestamp, &mut profile))
+        } else {
+            None
         };
 
         Self {
@@ -143,6 +152,7 @@ where
             pe_mappings: PeMappings::new(),
             jit_category_manager: JitCategoryManager::new(),
             fold_recursive_prefix: profile_creation_props.fold_recursive_prefix,
+            cpus,
         }
     }
 
@@ -241,6 +251,46 @@ where
             1,
             None,
         );
+
+        if let (Some(cpu_index), Some(cpus)) = (e.cpu, &mut self.cpus) {
+            let cpu = cpus.get_mut(cpu_index as usize, &mut self.profile);
+
+            let thread_handle = cpu.thread_handle;
+
+            // Consume idle cpu time.
+            let _idle_cpu_sample = self
+                .context_switch_handler
+                .handle_on_cpu_sample(timestamp, &mut cpu.context_switch_data);
+
+            let cpu_delta = if self.off_cpu_indicator.is_some() {
+                CpuDelta::from_nanos(
+                    self.context_switch_handler
+                        .consume_cpu_delta(&mut cpu.context_switch_data),
+                )
+            } else {
+                CpuDelta::from_nanos(0)
+            };
+
+            process.unresolved_samples.add_sample(
+                thread_handle,
+                profile_timestamp,
+                timestamp,
+                stack_index,
+                cpu_delta,
+                1,
+                Some(thread.thread_label_frame.clone()),
+            );
+
+            process.unresolved_samples.add_sample(
+                cpus.combined_thread_handle(),
+                profile_timestamp,
+                timestamp,
+                stack_index,
+                CpuDelta::ZERO,
+                1,
+                Some(thread.thread_label_frame.clone()),
+            );
+        }
     }
 
     pub fn handle_sched_switch_sample<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
@@ -661,10 +711,38 @@ where
                         &mut process.unresolved_samples,
                     );
                 }
+                if let (Some(cpus), Some(cpu_index)) = (&mut self.cpus, common.cpu) {
+                    let combined_thread = cpus.combined_thread_handle();
+                    let cpu = cpus.get_mut(cpu_index as usize, &mut self.profile);
+                    let _idle_cpu_sample = self
+                        .context_switch_handler
+                        .handle_switch_in(timestamp, &mut cpu.context_switch_data);
+                    cpu.notify_switch_in(
+                        tid,
+                        thread.thread_label(),
+                        timestamp,
+                        &self.timestamp_converter,
+                        &[cpu.thread_handle, combined_thread],
+                        &mut self.profile,
+                    );
+                }
             }
             ContextSwitchRecord::Out { .. } => {
                 self.context_switch_handler
                     .handle_switch_out(timestamp, &mut thread.context_switch_data);
+                if let (Some(cpus), Some(cpu_index)) = (&mut self.cpus, Some(common.cpu.unwrap())) {
+                    let combined_thread = cpus.combined_thread_handle();
+                    let cpu = cpus.get_mut(cpu_index as usize, &mut self.profile);
+                    self.context_switch_handler
+                        .handle_switch_out(timestamp, &mut cpu.context_switch_data);
+                    cpu.notify_switch_out(
+                        tid,
+                        timestamp,
+                        &self.timestamp_converter,
+                        &[cpu.thread_handle, combined_thread],
+                        &mut self.profile,
+                    );
+                }
             }
         }
     }
