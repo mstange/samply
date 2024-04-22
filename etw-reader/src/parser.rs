@@ -176,8 +176,8 @@ impl<'a> Parser<'a> {
     // TODO: Find a cleaner way to do this, not very happy with it rn
     fn find_property_size(&self, property: &Property) -> ParserResult<usize> {
         match property.length {
-            PropertyLength::Index(index) => {
-                assert_ne!(index, 0);
+            PropertyLength::Index(_) => {
+                // fallback to Tdh
                 return Ok(tdh::property_size(self.event.record(), &property.name).unwrap() as usize);
             }
             PropertyLength::Length(length) => {
