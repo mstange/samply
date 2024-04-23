@@ -1,66 +1,27 @@
 use std::{collections::{HashMap, HashSet, hash_map::Entry, VecDeque}, convert::TryInto, fs::File, io::BufWriter, path::Path, time::{Duration, Instant, SystemTime}, sync::Arc};
+use std::process::ExitStatus;
 
-use context_switch::{OffCpuSampleGroup, ThreadContextSwitchData};
-use etw_reader::{GUID, open_trace, parser::{Parser, TryParse, Address}, print_property, schema::SchemaLocator, write_property};
-use lib_mappings::{LibMappingOpQueue, LibMappingOp, LibMappingAdd};
+use super::context_switch::{OffCpuSampleGroup, ThreadContextSwitchData};
+use super::etw_reader::{GUID, open_trace, parser::{Parser, TryParse, Address}, print_property, schema::SchemaLocator, write_property};
+use crate::shared::lib_mappings::{LibMappingOpQueue, LibMappingOp, LibMappingAdd};
 use serde_json::{Value, json, to_writer};
 use fxprof_processed_profile::{debugid, CategoryColor, CategoryHandle, CategoryPairHandle, CounterHandle, CpuDelta, FrameFlags, FrameInfo, LibraryHandle, LibraryInfo, MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerTiming, ProcessHandle, Profile, ProfilerMarker, ReferenceTimestamp, SamplingInterval, Symbol, SymbolTable, ThreadHandle, Timestamp};
 use debugid::DebugId;
 use bitflags::bitflags;
-
-
-mod context_switch;
-mod jit_category_manager;
-mod jit_function_add_marker;
-mod lib_mappings;
-mod marker_file;
-mod process_sample_data;
-mod stack_converter;
-mod stack_depth_limiting_frame_iter;
-mod timestamp_converter;
-mod types;
-mod unresolved_samples;
-
-use jit_category_manager::JitCategoryManager;
-use stack_converter::StackConverter;
-use lib_mappings::LibMappingInfo;
-use types::{StackFrame, StackMode};
-use unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
 use uuid::Uuid;
-use process_sample_data::ProcessSampleData;
 
-use crate::{context_switch::ContextSwitchHandler, jit_function_add_marker::JitFunctionAddMarker, marker_file::get_markers, process_sample_data::UserTimingMarker, timestamp_converter::TimestampConverter};
+use crate::shared::jit_category_manager::JitCategoryManager;
+use crate::shared::stack_converter::StackConverter;
+use crate::shared::lib_mappings::LibMappingInfo;
+use crate::shared::types::{StackFrame, StackMode};
+use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
+use crate::shared::process_sample_data::ProcessSampleData;
 
-/// An example marker type with some text content.
-#[derive(Debug, Clone)]
-pub struct TextMarker(pub String);
+use super::{context_switch::ContextSwitchHandler};
+use crate::shared::{jit_function_add_marker::JitFunctionAddMarker, marker_file::get_markers, process_sample_data::UserTimingMarker, timestamp_converter::TimestampConverter};
 
-impl ProfilerMarker for TextMarker {
-    const MARKER_TYPE_NAME: &'static str = "Text";
-
-    fn json_marker_data(&self) -> serde_json::Value {
-        json!({
-            "type": Self::MARKER_TYPE_NAME,
-            "name": self.0
-        })
-    }
-
-    fn schema() -> MarkerSchema {
-        MarkerSchema {
-            type_name: Self::MARKER_TYPE_NAME,
-            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
-            chart_label: Some("{marker.data.name}"),
-            tooltip_label: Some("{marker.data.name}"),
-            table_label: Some("{marker.name} - {marker.data.name}"),
-            fields: vec![MarkerSchemaField::Dynamic(MarkerDynamicField {
-                key: "name",
-                label: "Name",
-                format: MarkerFieldFormat::String,
-                searchable: true,
-            })],
-        }
-    }
-}
+use crate::server::{start_server_main, ServerProps};
+use crate::shared::recording_props::{ProcessLaunchProps, ProfileCreationProps, RecordingProps};
 
 fn is_kernel_address(ip: u64, pointer_size: u32) -> bool {
     if pointer_size == 4 {
@@ -153,6 +114,12 @@ impl ProcessState {
     }
 }
 
+pub fn start_recording(
+    process_launch_props: ProcessLaunchProps,
+    recording_props: RecordingProps,
+    profile_creation_props: ProfileCreationProps,
+    server_props: Option<ServerProps>,
+) -> Result<ExitStatus, i32> {
 fn main() {
     let profile_start_instant = Timestamp::from_nanos_since_reference(0);
     let profile_start_system = SystemTime::now();

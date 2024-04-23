@@ -1,8 +1,10 @@
+use rangemap::RangeSet;
 use fxprof_processed_profile::{
     CategoryHandle, CategoryPairHandle, LibMappings, MarkerDynamicField, MarkerFieldFormat,
     MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerStaticField, MarkerTiming, Profile,
     ProfilerMarker, ThreadHandle, Timestamp,
 };
+
 use serde_json::json;
 
 use super::{
@@ -71,6 +73,7 @@ impl ProcessSampleData {
         stack_frame_scratch_buf: &mut Vec<StackFrame>,
         stacks: &UnresolvedStacks,
         event_names: &[String],
+        sample_range_set: Option<&RangeSet<Timestamp>>,
     ) {
         let ProcessSampleData {
             unresolved_samples,
@@ -98,6 +101,12 @@ impl ProcessSampleData {
                 extra_label_frame,
                 ..
             } = sample;
+
+            if sample_range_set.is_some()
+                && !sample_range_set.as_ref().unwrap().contains(&timestamp)
+            {
+                continue;
+            }
 
             stack_frame_scratch_buf.clear();
             stacks.convert_back(stack, stack_frame_scratch_buf);
@@ -230,12 +239,47 @@ impl ProfilerMarker for OtherEventMarker {
         }
     }
 }
+#[derive(Debug, Clone)]
+pub struct UserTimingMarker(pub String);
+
+impl ProfilerMarker for UserTimingMarker {
+    const MARKER_TYPE_NAME: &'static str = "UserTiming";
+
+    fn json_marker_data(&self) -> serde_json::Value {
+        json!({
+            "type": Self::MARKER_TYPE_NAME,
+            "name": self.0,
+        })
+    }
+
+    fn schema() -> MarkerSchema {
+        MarkerSchema {
+            type_name: Self::MARKER_TYPE_NAME,
+            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
+            chart_label: Some("{marker.data.name}"),
+            tooltip_label: Some("{marker.data.name}"),
+            table_label: Some("{marker.data.name}"),
+            fields: vec![
+                MarkerSchemaField::Dynamic(MarkerDynamicField {
+                    key: "name",
+                    label: "Name",
+                    format: MarkerFieldFormat::String,
+                    searchable: true,
+                }),
+                MarkerSchemaField::Static(MarkerStaticField {
+                    label: "Description",
+                    value: "Emitted for performance.mark and performance.measure.",
+                }),
+            ],
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct SimpleMarker(pub String);
 
 impl ProfilerMarker for SimpleMarker {
-    const MARKER_TYPE_NAME: &'static str = "UserTiming";
+    const MARKER_TYPE_NAME: &'static str = "SimpleMarker";
 
     fn json_marker_data(&self) -> serde_json::Value {
         json!({
