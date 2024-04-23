@@ -1,28 +1,28 @@
 use std::{collections::{HashMap, HashSet, hash_map::Entry, VecDeque}, convert::TryInto, fs::File, io::BufWriter, path::Path, time::{Duration, Instant, SystemTime}, sync::Arc};
 use std::process::ExitStatus;
 
-use super::context_switch::{OffCpuSampleGroup, ThreadContextSwitchData};
-use super::etw_reader::{GUID, open_trace, parser::{Parser, TryParse, Address}, print_property, schema::SchemaLocator, write_property};
-use super::{etw_reader, winutils};
-use crate::shared::lib_mappings::{LibMappingOpQueue, LibMappingOp, LibMappingAdd};
 use serde_json::{Value, json, to_writer};
 use fxprof_processed_profile::{debugid, CategoryColor, CategoryHandle, CategoryPairHandle, CounterHandle, CpuDelta, FrameFlags, FrameInfo, LibraryHandle, LibraryInfo, MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerTiming, ProcessHandle, Profile, ProfilerMarker, ReferenceTimestamp, SamplingInterval, Symbol, SymbolTable, ThreadHandle, Timestamp};
 use debugid::DebugId;
 use bitflags::bitflags;
 use uuid::Uuid;
 
+use crate::shared::lib_mappings::{LibMappingOpQueue, LibMappingOp, LibMappingAdd};
 use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::stack_converter::StackConverter;
 use crate::shared::lib_mappings::LibMappingInfo;
 use crate::shared::types::{StackFrame, StackMode};
 use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
 use crate::shared::process_sample_data::{MarkerSpanOnThread, ProcessSampleData, SimpleMarker};
+use crate::shared::context_switch::{OffCpuSampleGroup, ThreadContextSwitchData, ContextSwitchHandler};
 
-use super::{context_switch::ContextSwitchHandler};
 use crate::shared::{jit_function_add_marker::JitFunctionAddMarker, marker_file::get_markers, process_sample_data::UserTimingMarker, timestamp_converter::TimestampConverter};
 
 use crate::server::{start_server_main, ServerProps};
 use crate::shared::recording_props::{ProcessLaunchProps, ProfileCreationProps, RecordingProps};
+
+use super::etw_reader::{GUID, open_trace, parser::{Parser, TryParse, Address}, print_property, schema::SchemaLocator, write_property};
+use super::etw_reader;
 
 fn is_kernel_address(ip: u64, pointer_size: u32) -> bool {
     if pointer_size == 4 {
@@ -1068,15 +1068,14 @@ pub fn profile_pid_from_etl_file(
         std::process::exit(1);
     }
 
-    let (marker_spans, sample_ranges) = match marker_file {
+    let marker_spans = match marker_file {
         Some(marker_file) => get_markers(
             &Path::new(&marker_file),
-            marker_prefix.as_deref(),
             None, // extra_dir?
             timestamp_converter,
         )
         .expect("Could not get markers"),
-        None => (Vec::new(), None),
+        None => Vec::new(),
     };
 
     // Push queued samples into the profile.
@@ -1110,7 +1109,7 @@ pub fn profile_pid_from_etl_file(
                                                          jitdump_lib_mapping_op_queues,
                                                          None, marker_spans_on_thread);
                                                          //main_thread_handle.unwrap_or_else(|| panic!("process no main thread {:?}", process_id)));
-        process_sample_data.flush_samples_to_profile(&mut profile, user_category, kernel_category, &mut stack_frame_scratch_buf, &mut unresolved_stacks, &[], sample_ranges.as_ref())
+        process_sample_data.flush_samples_to_profile(&mut profile, user_category, kernel_category, &mut stack_frame_scratch_buf, &mut unresolved_stacks, &[])
     }
 
     /*if merge_threads {

@@ -1,10 +1,8 @@
-use rangemap::RangeSet;
 use fxprof_processed_profile::{
     CategoryHandle, CategoryPairHandle, LibMappings, MarkerDynamicField, MarkerFieldFormat,
     MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerStaticField, MarkerTiming, Profile,
     ProfilerMarker, ThreadHandle, Timestamp,
 };
-
 use serde_json::json;
 
 use super::{
@@ -73,7 +71,6 @@ impl ProcessSampleData {
         stack_frame_scratch_buf: &mut Vec<StackFrame>,
         stacks: &UnresolvedStacks,
         event_names: &[String],
-        sample_range_set: Option<&RangeSet<Timestamp>>,
     ) {
         let ProcessSampleData {
             unresolved_samples,
@@ -101,12 +98,6 @@ impl ProcessSampleData {
                 extra_label_frame,
                 ..
             } = sample;
-
-            if sample_range_set.is_some()
-                && !sample_range_set.as_ref().unwrap().contains(&timestamp)
-            {
-                continue;
-            }
 
             stack_frame_scratch_buf.clear();
             stacks.convert_back(stack, stack_frame_scratch_buf);
@@ -239,6 +230,7 @@ impl ProfilerMarker for OtherEventMarker {
         }
     }
 }
+
 #[derive(Debug, Clone)]
 pub struct UserTimingMarker(pub String);
 

@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 
 use framehop::Unwinder;
-use rangemap::RangeSet;
 use fxprof_processed_profile::{
     CategoryHandle, CounterHandle, LibraryHandle, MarkerTiming, ProcessHandle, Profile,
     ThreadHandle, Timestamp,
@@ -168,7 +167,7 @@ where
         profile: &mut Profile,
         jit_category_manager: &mut JitCategoryManager,
         timestamp_converter: &TimestampConverter,
-    ) -> (ProcessSampleData, Option<(String, ProcessRecyclingData)>, Option<RangeSet<Timestamp>>) {
+    ) -> (ProcessSampleData, Option<(String, ProcessRecyclingData)>) {
         self.unwinder = U::default();
 
         let perf_map_mappings = if !self.unresolved_samples.is_empty() {
@@ -190,18 +189,13 @@ where
             timestamp_converter,
         );
 
-        let mut marker_ranges: Option<RangeSet<Timestamp>> = None;
         let mut marker_spans = Vec::new();
         for (thread_handle, marker_file_path, fallback_dir) in self.marker_file_paths {
-            if let Ok((marker_spans_from_this_file, maybe_ranges)) = get_markers(
+            if let Ok(marker_spans_from_this_file) = get_markers(
                 &marker_file_path,
-                None,
                 fallback_dir.as_deref(),
                 *timestamp_converter,
             ) {
-                if let Some(ranges) = maybe_ranges {
-                    marker_ranges.get_or_insert_with(|| RangeSet::new()).extend(ranges);
-                }
                 marker_spans.extend(marker_spans_from_this_file.into_iter().map(|span| {
                     MarkerSpanOnThread {
                         thread_handle,
@@ -241,7 +235,7 @@ where
             None
         };
 
-        (process_sample_data, process_recycling_data, marker_ranges)
+        (process_sample_data, process_recycling_data)
     }
 
     #[allow(clippy::too_many_arguments)]

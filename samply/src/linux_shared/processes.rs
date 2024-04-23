@@ -3,7 +3,6 @@ use fxprof_processed_profile::{CategoryColor, Profile, Timestamp};
 
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use rangemap::RangeSet;
 
 use super::process::Process;
 
@@ -149,7 +148,7 @@ where
 
         process.notify_dead(time, profile);
 
-        let (process_sample_data, process_recycling_data, _process_range_data) =
+        let (process_sample_data, process_recycling_data) =
             process.finish(profile, jit_category_manager, timestamp_converter);
         if !process_sample_data.is_empty() {
             self.process_sample_datas.push(process_sample_data);
@@ -202,17 +201,12 @@ where
         jit_category_manager: &mut JitCategoryManager,
         timestamp_converter: &TimestampConverter,
     ) {
-        let mut full_marker_ranges = None;
-
         // Gather the ProcessSampleData from any processes which are still alive at the end of profiling.
         for process in self.processes_by_pid.into_values() {
-            let (process_sample_data, _process_recycling_data, process_range_data) =
+            let (process_sample_data, _process_recycling_data) =
                 process.finish(profile, jit_category_manager, timestamp_converter);
             if !process_sample_data.is_empty() {
                 self.process_sample_datas.push(process_sample_data);
-            }
-            if let Some(process_range_data) = process_range_data {
-                full_marker_ranges.get_or_insert_with(|| RangeSet::new()).extend(process_range_data);
             }
         }
 
@@ -227,7 +221,6 @@ where
                 &mut stack_frame_scratch_buf,
                 unresolved_stacks,
                 event_names,
-                full_marker_ranges.as_ref(),
             );
         }
     }

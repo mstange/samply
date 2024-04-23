@@ -1,5 +1,4 @@
 mod avma_range;
-mod context_switch;
 mod convert_regs;
 mod converter;
 mod event_interpretation;
