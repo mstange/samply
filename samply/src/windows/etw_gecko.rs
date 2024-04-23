@@ -355,7 +355,7 @@ pub fn profile_pid_from_etl_file(
 
                     //eprintln!("process {} parent {}", process_id, parent_id);
                     if all_processes
-                        || process_targets.contains(&parent_id)
+                        || process_targets.contains(&process_id) || process_targets.contains(&parent_id)
                         || process_target_name.is_some_and(|name| image_file_name.contains(name))
                     {
                         let timestamp = e.EventHeader.TimeStamp as u64;
