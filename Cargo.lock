@@ -597,7 +597,7 @@ dependencies = [
  "bitflags 1.3.2",
  "com",
  "log",
- "memoffset",
+ "memoffset 0.8.0",
  "num",
  "num-derive 0.3.3",
  "num-traits",
@@ -1162,6 +1162,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fe751422e4a8caa417e13c3ea66452215d7d63e19e604f4980461212f3ae1322"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "memoffset"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5aa361d4faea93603064a027415f07bd8e1d5c88c9fbf68bf56a285428fd79ce"
+dependencies = [
+ "autocfg",
 ]
 
 [[package]]
@@ -1814,6 +1823,7 @@ dependencies = [
 name = "samply"
 version = "0.12.0"
 dependencies = [
+ "bitflags 2.5.0",
  "byteorder",
  "clap",
  "crossbeam-channel",
@@ -1834,6 +1844,7 @@ dependencies = [
  "mach",
  "memchr",
  "memmap2",
+ "memoffset 0.6.5",
  "mio",
  "nix",
  "nix-base32",
@@ -1846,6 +1857,7 @@ dependencies = [
  "parking_lot",
  "percent-encoding",
  "rand",
+ "rangemap",
  "serde",
  "serde_derive",
  "serde_json",

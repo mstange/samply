@@ -1,5 +1,5 @@
 use windows::{core::{h, Error, HRESULT, HSTRING, PWSTR}, Win32::{Foundation::{GetLastError, ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA, ERROR_SUCCESS, MAX_PATH}, System::Diagnostics::Etw::{EnumerateTraceGuids, EnumerateTraceGuidsEx, TraceGuidQueryInfo, TraceGuidQueryList, CONTROLTRACE_HANDLE, EVENT_TRACE_FLAG, TRACE_GUID_INFO, TRACE_GUID_PROPERTIES, TRACE_PROVIDER_INSTANCE_INFO}}};
-use super::{parser::{Parser, ParserError, TryParse}, schema::SchemaLocator, tdh_types::{PropertyDesc, PrimitiveDesc, TdhInType}, traits::EncodeUtf16};
+use {parser::{Parser, ParserError, TryParse}, schema::SchemaLocator, tdh_types::{PropertyDesc, PrimitiveDesc, TdhInType}, traits::EncodeUtf16};
 
 use etw_types::EventRecord;
 use tdh_types::{Property, TdhOutType};
@@ -73,7 +73,7 @@ pub fn open_trace<F: FnMut(&EventRecord)>(path: &Path, mut callback: F) -> Resul
 
     let session_handle = unsafe { Etw::OpenTraceW(&mut *log_file) };
     let result = unsafe { Etw::ProcessTrace(&[session_handle], None, None) };
-    result.map_err(|e| std::io::Error::from_raw_os_error(e.code().0))
+    result.ok().map_err(|e| std::io::Error::from_raw_os_error(e.code().0))
 }
 
 /// Complete Trace Properties struct
@@ -387,7 +387,7 @@ pub fn enumerate_trace_guids() {
         }
 
         let result = unsafe { EnumerateTraceGuids(&mut ptrs.as_mut_slice(), &mut count) };
-        match result {
+        match result.ok() {
             Ok(()) => {
                 for guid in guids[..count as usize].iter() {
                     println!("{:?}", guid.Guid);
@@ -413,7 +413,7 @@ pub fn enumerate_trace_guids_ex(print_instances: bool) {
         println!("get {}", required_size);
 
         let result = unsafe { EnumerateTraceGuidsEx(TraceGuidQueryList, None, 0, Some(guids.as_mut_ptr() as *mut _), size, &mut required_size as *mut _) };
-        match result {
+        match result.ok() {
             Ok(()) => {
                 for guid in guids.iter() {
 
@@ -452,7 +452,7 @@ pub fn get_provider_info(guid: &GUID) -> Vec<u8> {
         let size = info.len() as u32;
 
         let result = unsafe { EnumerateTraceGuidsEx(TraceGuidQueryInfo, Some(guid as *const GUID as *const _), mem::size_of::<GUID>() as u32, Some(info.as_mut_ptr() as *mut _), size, &mut required_size as *mut _) };
-        match result {
+        match result.ok() {
             Ok(()) => {
 
                 return info;
