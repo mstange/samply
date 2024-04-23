@@ -177,7 +177,10 @@ impl<'a> Parser<'a> {
     fn find_property_size(&self, property: &Property) -> ParserResult<usize> {
         match property.length {
             PropertyLength::Index(_) => {
-                // fallback to Tdh
+                // e.g. Microsoft-Windows-Kernel-Power/SystemTimerResolutionStackRundown uses the AppNameLength property
+                // as the size of AppName
+
+                // Fallback to Tdh
                 return Ok(tdh::property_size(self.event.record(), &property.name).unwrap() as usize);
             }
             PropertyLength::Length(length) => {
