@@ -263,7 +263,7 @@ pub fn profile_pid_from_etl_file(
                     let thread_id: u32 = parser.parse("TThreadId");
                     let process_id: u32 = parser.parse("ProcessId");
                     //assert_eq!(process_id,s.process_id());
-                    eprintln!("thread_name pid: {} tid: {}", process_id, thread_id);
+                    //eprintln!("thread_name pid: {} tid: {}", process_id, thread_id);
 
                     if !process_targets.contains(&process_id) {
                         return;
@@ -347,30 +347,28 @@ pub fn profile_pid_from_etl_file(
                     let mut parser = Parser::create(&s);
                     let process_id: u32 = parser.parse("ProcessId");
                     let parent_id: u32 = parser.parse("ParentId");
+                    let image_file_name: String = parser.parse("ImageFileName");
 
-                    eprintln!("process {} parent {}", process_id, parent_id);
-                    if all_processes || process_targets.contains(&parent_id) {
-                        process_targets.insert(process_id);
+                    if process_id == 0 || parent_id == 0 {
+                        return;
                     }
 
-                    if let Some(process_target_name) = &process_target_name {
+                    //eprintln!("process {} parent {}", process_id, parent_id);
+                    if all_processes
+                        || process_targets.contains(&parent_id)
+                        || process_target_name.is_some_and(|name| image_file_name.contains(name))
+                    {
                         let timestamp = e.EventHeader.TimeStamp as u64;
                         let timestamp = timestamp_converter.convert_time(timestamp);
 
+                        process_targets.insert(process_id);
+                        println!("tracing {} - {}", process_id, image_file_name);
+                        let process_handle = match global_process {
+                            Some(global_process) => global_process,
+                            None => profile.add_process(&image_file_name, process_id, timestamp),
+                        };
 
-                        let image_file_name: String = parser.parse("ImageFileName");
-                        println!("process start {}", image_file_name);
-
-                        if image_file_name.contains(process_target_name) {
-                            process_targets.insert(process_id);
-                            println!("tracing {}", process_id);
-                            let process_handle = match global_process {
-                                Some(global_process) => global_process,
-                                None => profile.add_process(&image_file_name, process_id, timestamp),
-                            };
-
-                            processes.insert(process_id, ProcessState::new(process_handle));
-                        }
+                        processes.insert(process_id, ProcessState::new(process_handle));
                     }
                 }
                 // TODO End -- remove from process_targets

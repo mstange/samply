@@ -14,4 +14,11 @@ impl TimestampConverter {
             ktime_ns.saturating_sub(self.reference_raw) * self.raw_to_ns_factor,
         )
     }
+
+    #[allow(unused)]
+    pub fn convert_us(&self, time_us: u64) -> Timestamp {
+        Timestamp::from_nanos_since_reference(
+            (time_us * 1000).saturating_sub(self.reference_raw * self.raw_to_ns_factor),
+        )
+    }
 }
