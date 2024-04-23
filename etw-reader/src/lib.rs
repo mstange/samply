@@ -342,6 +342,10 @@ pub fn write_property(output: &mut dyn std::fmt::Write, parser: &mut Parser, pro
                             i.map(|x| x.to_string())
                         }
                     },
+                    TdhInType::InTypeHexInt64 => {
+                        let i = TryParse::<i64>::try_parse(parser, &property.name);
+                        i.map(|x| format!("0x{:x}", x))
+                    },
                     TdhInType::InTypePointer | TdhInType::InTypeSizeT => TryParse::<u64>::try_parse(parser, &property.name).map(|x| format!("0x{:x}", x)),
                     TdhInType::InTypeGuid => TryParse::<GUID>::try_parse(parser, &property.name).map(|x| format!("{:?}", x)),
                     TdhInType::InTypeInt32 => {
@@ -350,7 +354,7 @@ pub fn write_property(output: &mut dyn std::fmt::Write, parser: &mut Parser, pro
                     TdhInType::InTypeFloat => {
                         TryParse::<f32>::try_parse(parser, &property.name).map(|x| x.to_string())
                     }
-                    _ => Ok(format!("Unknown {:?}", desc.in_type))
+                    _ => Ok(format!("Unknown {:?} -> {:?}", desc.in_type, desc.out_type))
                 }
             }
             PropertyDesc::Struct(desc) => Ok(format!("unhandled struct {} {}", desc.start_index, desc.num_members)),

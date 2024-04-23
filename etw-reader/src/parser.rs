@@ -298,7 +298,7 @@ impl_try_parse_primitive!(u16, InTypeUInt16);
 impl_try_parse_primitive!(i16, InTypeInt16);
 impl_try_parse_primitive!(u32, InTypeUInt32);
 //impl_try_parse_primitive!(u64, InTypeUInt64);
-impl_try_parse_primitive!(i64, InTypeInt64);
+//impl_try_parse_primitive!(i64, InTypeInt64);
 
 impl TryParse<u64> for Parser<'_> {
     fn try_parse(&mut self, name: &str) -> ParserResult<u64> {
@@ -323,6 +323,23 @@ impl TryParse<u64> for Parser<'_> {
                     return Err(ParserError::LengthMismatch);
                 }
                 return Ok(u64::from_ne_bytes(prop_info.buffer.try_into()?));
+            }
+        }
+        return Err(ParserError::InvalidType)
+    }
+}
+
+impl TryParse<i64> for Parser<'_> {
+    fn try_parse(&mut self, name: &str) -> ParserResult<i64> {
+        use TdhInType::*;
+        let indx = self.find_property(name)?;
+        let prop_info = &self.cache[indx];
+        if let PropertyDesc::Primitive(desc) = &prop_info.property.desc {
+            if desc.in_type == InTypeInt64 || desc.in_type == InTypeHexInt64 {
+                if std::mem::size_of::<i64>() != prop_info.buffer.len() {
+                    return Err(ParserError::LengthMismatch);
+                }
+                return Ok(i64::from_ne_bytes(prop_info.buffer.try_into()?));
             }
         }
         return Err(ParserError::InvalidType)
