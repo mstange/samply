@@ -37,7 +37,7 @@ use windows::{
 
 use super::etw::*;
 
-use crate::windows::winutils;
+use crate::windows::{etw_gecko, winutils};
 
 // Hello intrepid explorer! You may be in this code because you'd like to extend something,
 // or are trying to figure out how various ETW things work. It's not the easiest API!
@@ -106,57 +106,72 @@ pub fn start_recording(
     let profile = Arc::new(Mutex::new(profile));
 
     let mut context = ProfileContext::new(profile.clone(), rt.handle().clone());
-
     context.add_kernel_drivers();
 
-    context.start_xperf(&recording_props.output_file);
+    let mut main_pid = 0;
 
-    // Run the command.
-    // !!!FIXME!!! We are in an elevated context right now. Running this will run
-    // the command as Administrator, which is almost definitely not what the
-    // user wanted. We could drop privileges before running the command, but
-    // I think what we need to do is have the _initial_ samply session stick
-    // around and act as the command executor, passing us the pids it spawns.
-    // That way the command will get executed in exactly the context the user intended.
-    for _ in 0..process_launch_props.iteration_count {
-        let mut child = std::process::Command::new(&process_launch_props.command_name);
-        child.args(&process_launch_props.args);
-        child.envs(process_launch_props.env_vars.iter().map(|(k, v)| (k, v)));
-        let mut child = child.spawn().unwrap();
+    let (etl_file, existing_etl) = if !process_launch_props.command_name.to_str().unwrap().ends_with(".etl") {
+        // Start xperf.
+        context.start_xperf(&recording_props.output_file);
 
-        context.add_interesting_pid(child.id());
+        // Run the command.
+        // !!!FIXME!!! We are in an elevated context right now. Running this will run
+        // the command as Administrator, which is almost definitely not what the
+        // user wanted. We could drop privileges before running the command, but
+        // I think what we need to do is have the _initial_ samply session stick
+        // around and act as the command executor, passing us the pids it spawns.
+        // That way the command will get executed in exactly the context the user intended.
+        for _ in 0..process_launch_props.iteration_count {
+            let mut child = std::process::Command::new(&process_launch_props.command_name);
+            child.args(&process_launch_props.args);
+            child.envs(process_launch_props.env_vars.iter().map(|(k, v)| (k, v)));
+            let mut child = child.spawn().unwrap();
 
-        let exit_status = child.wait().unwrap();
-        if !exit_status.success() {
-            eprintln!("Child process exited with {:?}", exit_status);
+            main_pid = child.id();
+            context.add_interesting_pid(child.id());
+
+            let exit_status = child.wait().unwrap();
+            if !exit_status.success() {
+                eprintln!("Child process exited with {:?}", exit_status);
+            }
         }
-    }
+        context.stop_xperf();
 
-    context.stop_xperf();
+        (context.etl_file.clone().unwrap(), false)
+    } else {
+        eprintln!("Existing ETL");
+        (PathBuf::from(&process_launch_props.command_name), true)
+    };
 
     eprintln!("Processing ETL trace...");
-    let etl_file = context.etl_file.clone().unwrap();
-    let (trace, handle) = FileTrace::new(etl_file.clone(), move |ev, sl| {
-        trace_callback(ev, sl, &mut context);
-    })
-    .start()
-    .unwrap();
 
-    // TODO: grab the header info, so that we can pull out StartTime (and PerfFreq). Not really important.
-    // QueryTraceProcessingHandle(handle, EtwQueryLogFileHeader, None, 0, &ptr to TRACE_LOGFILE_HEADER)
-
-    FileTrace::process_from_handle(handle).unwrap();
-
-    let n_events = trace.events_handled();
-    eprintln!("Read {} events from file", n_events);
-
-    // delete etl_file
-    std::fs::remove_file(&etl_file)
-        .expect(format!("Failed to delete ETL file {:?}", etl_file.to_str().unwrap()).as_str());
-
-    // write the profile to a json file
     let output_file = recording_props.output_file.clone();
 
+    let old_processing = false;
+    if old_processing {
+        let (trace, handle) = FileTrace::new(etl_file.clone(), move |ev, sl| {
+            trace_callback(ev, sl, &mut context);
+        })
+            .start()
+            .unwrap();
+
+        // TODO: grab the header info, so that we can pull out StartTime (and PerfFreq). Not really important.
+        // QueryTraceProcessingHandle(handle, EtwQueryLogFileHeader, None, 0, &ptr to TRACE_LOGFILE_HEADER)
+
+        FileTrace::process_from_handle(handle).unwrap();
+
+        let n_events = trace.events_handled();
+        eprintln!("Read {} events from file", n_events);
+    } else {
+        etw_gecko::profile_pid_from_etl_file(main_pid, recording_props, profile_creation_props, &Path::new(&etl_file));
+    }
+
+    // delete etl_file
+    if !existing_etl {
+        std::fs::remove_file(&etl_file).expect(format!("Failed to delete ETL file {:?}", etl_file.to_str().unwrap()).as_str());
+    }
+
+    // write the profile to a json file
     let file = File::create(&output_file).unwrap();
     let writer = BufWriter::new(file);
     to_writer(writer, profile.lock().unwrap().deref_mut()).expect("Couldn't write JSON");
@@ -337,15 +352,14 @@ impl ProfileContext {
         // extension.
         let etl_file = format!("{}.etl", output_file.to_str().unwrap());
         let mut xperf = std::process::Command::new("xperf");
-        xperf.arg("-on");
-        xperf.arg("PROC_THREAD+LOADER+PROFILE");
-        xperf.arg("-stackwalk");
-        xperf.arg("profile");
         // Virtualised ARM64 Windows crashes out on PROFILE tracing, and that's what I'm developing
         // on, so these are hacky args to get me a useful profile that I can work with.
-        //xperf.arg("PROC_THREAD+LOADER+CSWITCH+SYSCALL+VIRT_ALLOC+OB_HANDLE");
-        //xperf.arg("-stackwalk");
-        //xperf.arg("VirtualAlloc+VirtualFree+HandleCreate+HandleClose");
+        xperf.arg("-on");
+        //xperf.arg("PROC_THREAD+LOADER+PROFILE");
+        xperf.arg("PROC_THREAD+LOADER+CSWITCH+SYSCALL+VIRT_ALLOC+OB_HANDLE");
+        xperf.arg("-stackwalk");
+        //xperf.arg("profile");
+        xperf.arg("VirtualAlloc+VirtualFree+HandleCreate+HandleClose");
         xperf.arg("-f");
         xperf.arg(&etl_file);
 

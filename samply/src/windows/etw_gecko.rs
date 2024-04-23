@@ -3,6 +3,7 @@ use std::process::ExitStatus;
 
 use super::context_switch::{OffCpuSampleGroup, ThreadContextSwitchData};
 use super::etw_reader::{GUID, open_trace, parser::{Parser, TryParse, Address}, print_property, schema::SchemaLocator, write_property};
+use super::{etw_reader, winutils};
 use crate::shared::lib_mappings::{LibMappingOpQueue, LibMappingOp, LibMappingAdd};
 use serde_json::{Value, json, to_writer};
 use fxprof_processed_profile::{debugid, CategoryColor, CategoryHandle, CategoryPairHandle, CounterHandle, CpuDelta, FrameFlags, FrameInfo, LibraryHandle, LibraryInfo, MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerTiming, ProcessHandle, Profile, ProfilerMarker, ReferenceTimestamp, SamplingInterval, Symbol, SymbolTable, ThreadHandle, Timestamp};
@@ -15,7 +16,7 @@ use crate::shared::stack_converter::StackConverter;
 use crate::shared::lib_mappings::LibMappingInfo;
 use crate::shared::types::{StackFrame, StackMode};
 use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
-use crate::shared::process_sample_data::ProcessSampleData;
+use crate::shared::process_sample_data::{MarkerSpanOnThread, ProcessSampleData, SimpleMarker};
 
 use super::{context_switch::ContextSwitchHandler};
 use crate::shared::{jit_function_add_marker::JitFunctionAddMarker, marker_file::get_markers, process_sample_data::UserTimingMarker, timestamp_converter::TimestampConverter};
@@ -114,13 +115,12 @@ impl ProcessState {
     }
 }
 
-pub fn start_recording(
-    process_launch_props: ProcessLaunchProps,
+pub fn profile_pid_from_etl_file(
+    pid: u32,
     recording_props: RecordingProps,
     profile_creation_props: ProfileCreationProps,
-    server_props: Option<ServerProps>,
-) -> Result<ExitStatus, i32> {
-fn main() {
+    etl_file: &Path,
+) {
     let profile_start_instant = Timestamp::from_nanos_since_reference(0);
     let profile_start_system = SystemTime::now();
 
@@ -133,31 +133,23 @@ fn main() {
 
     let mut libs: HashMap<u64, (String, u32, u32)> = HashMap::new();
     let start = Instant::now();
-    let mut pargs = pico_args::Arguments::from_env();
-    let merge_threads = pargs.contains("--merge-threads");
-    let include_idle = pargs.contains("--idle");
-    let demand_zero_faults = pargs.contains("--demand-zero-faults");
-    let marker_file: Option<String> = pargs.opt_value_from_str("--marker-file").unwrap();
-    let marker_prefix: Option<String> = pargs.opt_value_from_str("--filter-by-marker-prefix").unwrap();
-
-    let trace_file: String = pargs.free_from_str().unwrap();
+    let merge_threads = profile_creation_props.reuse_threads; // --merge-threads?
+    let include_idle = false; //pargs.contains("--idle");
+    let demand_zero_faults = false; //pargs.contains("--demand-zero-faults");
+    let marker_file: Option<String> = None; //pargs.opt_value_from_str("--marker-file").unwrap();
+    let marker_prefix: Option<String> = None; //pargs.opt_value_from_str("--filter-by-marker-prefix").unwrap();
 
     let mut process_targets = HashSet::new();
-    let mut process_target_name = None;
-    if let Ok(process_filter) = pargs.free_from_str::<String>() {
-        if let Ok(process_id) = process_filter.parse() {
-            process_targets.insert(process_id);
-        } else {
-            println!("targeting {}", process_filter);
-            process_target_name = Some(process_filter);
-        }
-    } else {
-        println!("No process specified");
-        std::process::exit(1);
+    if pid != 0 {
+        process_targets.insert(pid);
     }
-    
-    let command_name = process_target_name.as_deref().unwrap_or("firefox");
-    let mut profile = Profile::new(command_name, ReferenceTimestamp::from_system_time(profile_start_system),  SamplingInterval::from_nanos(122100)); // 8192Hz
+    let all_processes = process_targets.is_empty();
+
+    let process_target_name: Option<&str> = None;
+
+    let mut profile = Profile::new(&profile_creation_props.profile_name,
+                                   ReferenceTimestamp::from_system_time(profile_start_system),
+                                   SamplingInterval::from_nanos(122100)); // 8192Hz // only with the higher recording rate?
 
     let user_category: CategoryPairHandle = profile.add_category("User", fxprof_processed_profile::CategoryColor::Yellow).into();
     let kernel_category: CategoryPairHandle = profile.add_category("Kernel", fxprof_processed_profile::CategoryColor::Orange).into();
@@ -190,7 +182,7 @@ fn main() {
     let mut event_timestamps_are_qpc = false;
 
     let mut categories = HashMap::<String, CategoryHandle>::new();
-    let result = open_trace(Path::new(&trace_file), |e| {
+    let result = open_trace(&etl_file, |e| {
         event_count += 1;
         let s = schema_locator.event_schema(e);
         if let Ok(s) = s {
@@ -265,13 +257,13 @@ fn main() {
                 "MSNT_SystemTrace/Thread/Start" |
                 "MSNT_SystemTrace/Thread/DCStart" => {
                     let timestamp = e.EventHeader.TimeStamp as u64;
-                    let timestamp = timestamp_converter.convert_raw(timestamp);
+                    let timestamp = timestamp_converter.convert_time(timestamp);
                     let mut parser = Parser::create(&s);
 
                     let thread_id: u32 = parser.parse("TThreadId");
                     let process_id: u32 = parser.parse("ProcessId");
                     //assert_eq!(process_id,s.process_id());
-                    //println!("thread_name pid: {} tid: {} name: {:?}", process_id, thread_id, thread_name);
+                    eprintln!("thread_name pid: {} tid: {}", process_id, thread_id);
 
                     if !process_targets.contains(&process_id) {
                         return;
@@ -335,7 +327,7 @@ fn main() {
                 "MSNT_SystemTrace/Thread/End" |
                 "MSNT_SystemTrace/Thread/DCEnd" => {
                     let timestamp = e.EventHeader.TimeStamp as u64;
-                    let timestamp = timestamp_converter.convert_raw(timestamp);
+                    let timestamp = timestamp_converter.convert_time(timestamp);
                     let mut parser = Parser::create(&s);
 
                     let thread_id: u32 = parser.parse("TThreadId");
@@ -352,16 +344,23 @@ fn main() {
                 }
                 "MSNT_SystemTrace/Process/Start" |
                 "MSNT_SystemTrace/Process/DCStart" => {
+                    let mut parser = Parser::create(&s);
+                    let process_id: u32 = parser.parse("ProcessId");
+                    let parent_id: u32 = parser.parse("ParentId");
+
+                    eprintln!("process {} parent {}", process_id, parent_id);
+                    if all_processes || process_targets.contains(&parent_id) {
+                        process_targets.insert(process_id);
+                    }
+
                     if let Some(process_target_name) = &process_target_name {
                         let timestamp = e.EventHeader.TimeStamp as u64;
-                        let timestamp = timestamp_converter.convert_raw(timestamp);
-                        let mut parser = Parser::create(&s);
+                        let timestamp = timestamp_converter.convert_time(timestamp);
 
 
                         let image_file_name: String = parser.parse("ImageFileName");
                         println!("process start {}", image_file_name);
 
-                        let process_id: u32 = parser.parse("ProcessId");
                         if image_file_name.contains(process_target_name) {
                             process_targets.insert(process_id);
                             println!("tracing {}", process_id);
@@ -374,6 +373,8 @@ fn main() {
                         }
                     }
                 }
+                // TODO End -- remove from process_targets
+
                 "MSNT_SystemTrace/StackWalk/Stack" => {
                     let mut parser = Parser::create(&s);
 
@@ -433,7 +434,7 @@ fn main() {
                     // the pending stack with matching timestamp.
 
                     let mut add_sample = |thread: &ThreadState, process: &mut ProcessState, timestamp: u64, cpu_delta: CpuDelta, weight: i32, stack: Vec<StackFrame>| {
-                        let profile_timestamp = timestamp_converter.convert_raw(timestamp);
+                        let profile_timestamp = timestamp_converter.convert_time(timestamp);
                         let stack_index = unresolved_stacks.convert(stack.into_iter().rev());
                         let extra_label_frame = if let Some(global_thread) = global_thread {
                             let thread_name = thread.merge_name.as_ref().map(|x| strip_thread_numbers(x).to_owned()).unwrap_or_else(|| format!("thread {}", thread.thread_id));
@@ -502,7 +503,7 @@ fn main() {
                                         _ => "Other"
                                     };
                                     let timestamp = e.EventHeader.TimeStamp as u64;
-                                    let timestamp = timestamp_converter.convert_raw(timestamp);
+                                    let timestamp = timestamp_converter.convert_time(timestamp);
 
                                     frames.push(FrameInfo {
                                         frame: fxprof_processed_profile::Frame::Label(profile.intern_string(&thread_name)),
@@ -542,7 +543,7 @@ fn main() {
                                         _ => "Other"
                                     };
                                     let timestamp = e.EventHeader.TimeStamp as u64;
-                                    let timestamp = timestamp_converter.convert_raw(timestamp);
+                                    let timestamp = timestamp_converter.convert_time(timestamp);
 
                                     frames.push(FrameInfo {
                                         frame: fxprof_processed_profile::Frame::Label(profile.intern_string(&thread_name)),
@@ -567,7 +568,7 @@ fn main() {
                     }
                     let mut parser = Parser::create(&s);
                     let timestamp = e.EventHeader.TimeStamp as u64;
-                    let timestamp = timestamp_converter.convert_raw(timestamp);
+                    let timestamp = timestamp_converter.convert_time(timestamp);
                     let thread_id = e.EventHeader.ThreadId;
                     let counter = match memory_usage.entry(e.EventHeader.ProcessId) {
                         Entry::Occupied(e) => e.into_mut(),
@@ -598,7 +599,7 @@ fn main() {
                         text += ", "
                     }
 
-                    profile.add_marker(thread.handle, CategoryHandle::OTHER, "VirtualFree", TextMarker(text), timing)
+                    profile.add_marker(thread.handle, CategoryHandle::OTHER, "VirtualFree", SimpleMarker(text), timing)
                 }
                 "MSNT_SystemTrace/PageFault/VirtualAlloc" => {
                     if !process_targets.contains(&e.EventHeader.ProcessId) {
@@ -606,7 +607,7 @@ fn main() {
                     }
                     let mut parser = Parser::create(&s);
                     let timestamp = e.EventHeader.TimeStamp as u64;
-                    let timestamp = timestamp_converter.convert_raw(timestamp);
+                    let timestamp = timestamp_converter.convert_time(timestamp);
                     let thread_id = e.EventHeader.ThreadId;
                     let counter = match memory_usage.entry(e.EventHeader.ProcessId) {
                         Entry::Occupied(e) => e.into_mut(),
@@ -635,7 +636,7 @@ fn main() {
                     //println!("{}.{} VirtualAlloc({}) = {}",  e.EventHeader.ProcessId, thread_id, region_size, counter.value);
                     
                     profile.add_counter_sample(counter.counter, timestamp, region_size as f64, 1);
-                    profile.add_marker(thread.handle, CategoryHandle::OTHER, "VirtualAlloc", TextMarker(text), timing)
+                    profile.add_marker(thread.handle, CategoryHandle::OTHER, "VirtualAlloc", SimpleMarker(text), timing)
                 }
                 "KernelTraceControl/ImageID/" => {
 
@@ -735,7 +736,7 @@ fn main() {
                 }
                 "Microsoft-Windows-DxgKrnl/VSyncDPC/Info " => {
                     let timestamp = e.EventHeader.TimeStamp as u64;
-                    let timestamp = timestamp_converter.convert_raw(timestamp);
+                    let timestamp = timestamp_converter.convert_time(timestamp);
 
                     #[derive(Debug, Clone)]
                     pub struct VSyncMarker;
@@ -826,7 +827,7 @@ fn main() {
                     process_jit_info.next_relative_address += method_size as u32;
 
                     let timestamp = e.EventHeader.TimeStamp as u64;
-                    let timestamp = timestamp_converter.convert_raw(timestamp);
+                    let timestamp = timestamp_converter.convert_time(timestamp);
 
                     if let Some(main_thread) = process.main_thread_handle {
                         profile.add_marker(
@@ -912,10 +913,10 @@ fn main() {
                             }
                         };
                         let timing = match phase {
-                            PHASE_INSTANT => MarkerTiming::Instant(timestamp_converter.convert_raw(instant_time_qpc)),
-                            PHASE_INTERVAL => MarkerTiming::Interval(timestamp_converter.convert_raw(start_time_qpc), timestamp_converter.convert_raw(end_time_qpc)),
-                            PHASE_INTERVAL_START => MarkerTiming::IntervalStart(timestamp_converter.convert_raw(start_time_qpc)),
-                            PHASE_INTERVAL_END => MarkerTiming::IntervalEnd(timestamp_converter.convert_raw(end_time_qpc)),
+                            PHASE_INSTANT => MarkerTiming::Instant(timestamp_converter.convert_time(instant_time_qpc)),
+                            PHASE_INTERVAL => MarkerTiming::Interval(timestamp_converter.convert_time(start_time_qpc), timestamp_converter.convert_time(end_time_qpc)),
+                            PHASE_INTERVAL_START => MarkerTiming::IntervalStart(timestamp_converter.convert_time(start_time_qpc)),
+                            PHASE_INTERVAL_END => MarkerTiming::IntervalEnd(timestamp_converter.convert_time(end_time_qpc)),
                             _ => panic!("Unexpected marker phase {phase}"),
                         };
 
@@ -924,9 +925,9 @@ fn main() {
                             profile.add_marker(thread.handle, CategoryHandle::OTHER, "UserTiming", UserTimingMarker(name), timing);
                         } else if marker_name == "SimpleMarker" || marker_name == "Text" || marker_name == "tracing" {
                             let marker_name: String = parser.try_parse("MarkerName").unwrap();
-                            profile.add_marker(thread.handle, CategoryHandle::OTHER, &marker_name, TextMarker(text.clone()), timing);
+                            profile.add_marker(thread.handle, CategoryHandle::OTHER, &marker_name, SimpleMarker(text.clone()), timing);
                         } else {
-                            profile.add_marker(thread.handle, CategoryHandle::OTHER, marker_name, TextMarker(text.clone()), timing);
+                            profile.add_marker(thread.handle, CategoryHandle::OTHER, marker_name, SimpleMarker(text.clone()), timing);
                         }
                     } else if let Some(marker_name) = s.name().strip_prefix("Google.Chrome/").and_then(|s| s.strip_suffix("/")) {
                         // a bitfield of keywords
@@ -1020,13 +1021,13 @@ fn main() {
                         if keyword == KeywordNames::blink_user_timing {
                             profile.add_marker(thread.handle, CategoryHandle::OTHER, "UserTiming", UserTimingMarker(marker_name.to_owned()), timing);
                         } else {
-                            profile.add_marker(thread.handle, CategoryHandle::OTHER, marker_name, TextMarker(text.clone()), timing);
+                            profile.add_marker(thread.handle, CategoryHandle::OTHER, marker_name, SimpleMarker(text.clone()), timing);
                         }
                     } else {
                         let mut parser = Parser::create(&s);
 
                         let timestamp = e.EventHeader.TimeStamp as u64;
-                        let timestamp = timestamp_converter.convert_raw(timestamp);
+                        let timestamp = timestamp_converter.convert_time(timestamp);
                         let thread_id = e.EventHeader.ThreadId;
                         let thread = match threads.entry(thread_id) {
                             Entry::Occupied(e) => e.into_mut(), 
@@ -1053,7 +1054,7 @@ fn main() {
                             }
                         };
 
-                        profile.add_marker(thread.handle, category, s.name().split_once("/").unwrap().1, TextMarker(text), timing)
+                        profile.add_marker(thread.handle, category, s.name().split_once("/").unwrap().1, SimpleMarker(text), timing)
                     }
                      //println!("unhandled {}", s.name()) 
                     }
@@ -1069,8 +1070,9 @@ fn main() {
 
     let (marker_spans, sample_ranges) = match marker_file {
         Some(marker_file) => get_markers(
-            &marker_file,
+            &Path::new(&marker_file),
             marker_prefix.as_deref(),
+            None, // extra_dir?
             timestamp_converter,
         )
         .expect("Could not get markers"),
@@ -1094,8 +1096,21 @@ fn main() {
             },
             None => Vec::new(),
         };
-        let process_sample_data = ProcessSampleData::new(unresolved_samples, regular_lib_mapping_ops, jitdump_lib_mapping_op_queues, None, main_thread_handle.unwrap_or_else(|| panic!("process no main thread {:?}", process_id)));
-        process_sample_data.flush_samples_to_profile(&mut profile, user_category, kernel_category, &mut stack_frame_scratch_buf, &mut unresolved_stacks, &[], &marker_spans, sample_ranges.as_ref())
+        // TODO proper threads, not main thread
+        let marker_spans_on_thread = marker_spans.iter().map(|marker_span| {
+            MarkerSpanOnThread {
+                thread_handle: main_thread_handle.unwrap(),
+                name: marker_span.name.clone(),
+                start_time: marker_span.start_time,
+                end_time: marker_span.end_time,
+            }
+        }).collect();
+
+        let process_sample_data = ProcessSampleData::new(unresolved_samples, regular_lib_mapping_ops,
+                                                         jitdump_lib_mapping_op_queues,
+                                                         None, marker_spans_on_thread);
+                                                         //main_thread_handle.unwrap_or_else(|| panic!("process no main thread {:?}", process_id)));
+        process_sample_data.flush_samples_to_profile(&mut profile, user_category, kernel_category, &mut stack_frame_scratch_buf, &mut unresolved_stacks, &[], sample_ranges.as_ref())
     }
 
     /*if merge_threads {
