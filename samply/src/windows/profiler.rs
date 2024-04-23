@@ -355,11 +355,11 @@ impl ProfileContext {
         // Virtualised ARM64 Windows crashes out on PROFILE tracing, and that's what I'm developing
         // on, so these are hacky args to get me a useful profile that I can work with.
         xperf.arg("-on");
-        //xperf.arg("PROC_THREAD+LOADER+PROFILE");
-        xperf.arg("PROC_THREAD+LOADER+CSWITCH+SYSCALL+VIRT_ALLOC+OB_HANDLE");
+        xperf.arg("PROC_THREAD+LOADER+PROFILE");
+        //xperf.arg("PROC_THREAD+LOADER+CSWITCH+SYSCALL+VIRT_ALLOC+OB_HANDLE");
         xperf.arg("-stackwalk");
-        //xperf.arg("profile");
-        xperf.arg("VirtualAlloc+VirtualFree+HandleCreate+HandleClose");
+        xperf.arg("profile");
+        //xperf.arg("VirtualAlloc+VirtualFree+HandleCreate+HandleClose");
         xperf.arg("-f");
         xperf.arg(&etl_file);
 
