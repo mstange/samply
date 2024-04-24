@@ -182,6 +182,17 @@ pub fn profile_pid_from_etl_file(
     };
     let mut event_timestamps_are_qpc = false;
 
+    let thread_state_for_thread_id = |thread_id| -> Option<&mut ThreadState> {
+        match threads.entry(thread_id) {
+            Entry::Occupied(e) => Some(e.into_mut()),
+            Entry::Vacant(_) => {
+                dropped_sample_count += 1;
+                // We don't know what process this will before so just drop it for now
+                None
+            }
+        }
+    };
+
     let mut categories = HashMap::<String, CategoryHandle>::new();
     let result = open_trace(&etl_file, |e| {
         event_count += 1;
@@ -560,81 +571,42 @@ pub fn profile_pid_from_etl_file(
                     let timestamp = e.EventHeader.TimeStamp as u64;
                     thread.pending_stacks.push_back(PendingStack { timestamp, kernel_stack: None, off_cpu_sample_group: None, on_cpu_sample_cpu_delta: Some(CpuDelta::from_millis(1.0)) });
                 }
+                "MSNT_SystemTrace/PageFault/VirtualAlloc" |
                 "MSNT_SystemTrace/PageFault/VirtualFree" => {
                     if !process_targets.contains(&e.EventHeader.ProcessId) {
                         return;
                     }
+
                     let mut parser = Parser::create(&s);
                     let timestamp = e.EventHeader.TimeStamp as u64;
                     let timestamp = timestamp_converter.convert_time(timestamp);
                     let thread_id = e.EventHeader.ThreadId;
-                    let counter = match memory_usage.entry(e.EventHeader.ProcessId) {
-                        Entry::Occupied(e) => e.into_mut(),
-                        Entry::Vacant(entry) => {
-                            entry.insert(MemoryUsage { counter: profile.add_counter(processes[&e.EventHeader.ProcessId].process_handle, "VirtualAlloc", "Memory", "Amount of VirtualAlloc allocated memory"), value: 0. })
-                        }
-                    };
-                    let thread = match threads.entry(thread_id) {
-                        Entry::Occupied(e) => e.into_mut(),
-                        Entry::Vacant(_) => {
-                            dropped_sample_count += 1;
-                            // We don't know what process this will before so just drop it for now
-                            return;
-                        }
-                    };
-                    let timing =  MarkerTiming::Instant(timestamp);
-                    let mut text = String::new();
+
+                    let counter = memory_usage.entry(e.EventHeader.ProcessId).or_insert_with(|| {
+                        let process = processes.get_mut(&e.EventHeader.ProcessId).unwrap();
+                        MemoryUsage { counter: profile.add_counter(process.process_handle, "VirtualAlloc", "Memory", "Amount of VirtualAlloc allocated memory"), value: 0. }
+                    });
+
+                    let Some(thread) = thread_state_for_thread_id(thread_id) else { return };
+
+                    let is_free = s.name() == "MSNT_SystemTrace/PageFault/VirtualFree";
+
                     let region_size: u64 = parser.parse("RegionSize");
-                    counter.value -= region_size as f64;
+
+                    let delta_size = if is_free { -(region_size as f64) } else { region_size as f64 };
+                    let op_name = if is_free { "VirtualFree" } else { "VirtualAlloc" };
 
                     //println!("{} VirtualFree({}) = {}", e.EventHeader.ProcessId, region_size, counter.value);
-                    
-                    profile.add_counter_sample(counter.counter, timestamp, -(region_size as f64), 1);
+
+                    let mut text = String::new();
                     for i in 0..s.property_count() {
                         let property = s.property(i);
-                        //dbg!(&property);
                         write_property(&mut text, &mut parser, &property, false);
                         text += ", "
                     }
 
-                    profile.add_marker(thread.handle, CategoryHandle::OTHER, "VirtualFree", SimpleMarker(text), timing)
-                }
-                "MSNT_SystemTrace/PageFault/VirtualAlloc" => {
-                    if !process_targets.contains(&e.EventHeader.ProcessId) {
-                        return;
-                    }
-                    let mut parser = Parser::create(&s);
-                    let timestamp = e.EventHeader.TimeStamp as u64;
-                    let timestamp = timestamp_converter.convert_time(timestamp);
-                    let thread_id = e.EventHeader.ThreadId;
-                    let counter = match memory_usage.entry(e.EventHeader.ProcessId) {
-                        Entry::Occupied(e) => e.into_mut(),
-                        Entry::Vacant(entry) => {
-                            entry.insert(MemoryUsage { counter: profile.add_counter(processes[&e.EventHeader.ProcessId].process_handle, "VirtualAlloc", "Memory", "Amount of VirtualAlloc allocated memory"), value: 0. })
-                        }
-                    };
-                    let thread = match threads.entry(thread_id) {
-                        Entry::Occupied(e) => e.into_mut(),
-                        Entry::Vacant(_) => {
-                            dropped_sample_count += 1;
-                            // We don't know what process this will before so just drop it for now
-                            return;
-                        }
-                    };
-                    let timing =  MarkerTiming::Instant(timestamp);
-                    let mut text = String::new();
-                    let region_size: u64 = parser.parse("RegionSize");
-                    for i in 0..s.property_count() {
-                        let property = s.property(i);
-                        //dbg!(&property);
-                        write_property(&mut text, &mut parser, &property, false);
-                        text += ", "
-                    }
-                    counter.value += region_size as f64;
-                    //println!("{}.{} VirtualAlloc({}) = {}",  e.EventHeader.ProcessId, thread_id, region_size, counter.value);
-                    
-                    profile.add_counter_sample(counter.counter, timestamp, region_size as f64, 1);
-                    profile.add_marker(thread.handle, CategoryHandle::OTHER, "VirtualAlloc", SimpleMarker(text), timing)
+                    profile.add_counter_sample(counter.counter, timestamp, delta_size, 1);
+                    profile.add_marker(thread.handle, CategoryHandle::OTHER, op_name, SimpleMarker(text), MarkerTiming::Instant(timestamp));
                 }
                 "KernelTraceControl/ImageID/" => {
 
