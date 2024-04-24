@@ -1,6 +1,6 @@
 use windows::core::GUID;
 
-use crate::{etw_types::DecodingSource, schema::EventSchema, tdh_types::{Property, PropertyDesc, PrimitiveDesc, PropertyFlags, TdhInType, TdhOutType, PropertyLength}};
+use super::{etw_types::DecodingSource, schema::EventSchema, tdh_types::{Property, PropertyDesc, PrimitiveDesc, PropertyFlags, TdhInType, TdhOutType, PropertyLength}};
 
 struct PropDesc {
     name: &'static str,

@@ -2,9 +2,9 @@
 //!
 //! The `property` module expose the basic structures that represent the Properties an Event contains
 //! based on it's Schema. This Properties can then be used to parse accordingly their values.
-use crate::FastHashMap;
-use crate::tdh_types::Property;
-use crate::schema::Schema;
+use super::FastHashMap;
+use super::tdh_types::Property;
+use super::schema::Schema;
 
 /// Event Property information
 #[derive(Clone, Debug)]

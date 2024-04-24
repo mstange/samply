@@ -1,22 +1,13 @@
-extern crate num_traits;
-
-#[macro_use]
-extern crate bitflags;
-
-#[macro_use]
-extern crate num_derive;
-
 use windows::{core::{h, Error, HRESULT, HSTRING, PWSTR}, Win32::{Foundation::{GetLastError, ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA, ERROR_SUCCESS, MAX_PATH}, System::Diagnostics::Etw::{EnumerateTraceGuids, EnumerateTraceGuidsEx, TraceGuidQueryInfo, TraceGuidQueryList, CONTROLTRACE_HANDLE, EVENT_TRACE_FLAG, TRACE_GUID_INFO, TRACE_GUID_PROPERTIES, TRACE_PROVIDER_INSTANCE_INFO}}};
-use crate::{parser::{Parser, ParserError, TryParse}, schema::SchemaLocator, tdh_types::{PropertyDesc, PrimitiveDesc, TdhInType}, traits::EncodeUtf16};
-
-#[macro_use]
-extern crate memoffset;
+use super::{parser::{Parser, ParserError, TryParse}, schema::SchemaLocator, tdh_types::{PropertyDesc, PrimitiveDesc, TdhInType}, traits::EncodeUtf16};
 
 use etw_types::EventRecord;
 use tdh_types::{Property, TdhOutType};
 use std::{borrow::Cow, collections::HashMap, hash::BuildHasherDefault, mem, path::Path};
 use windows::Win32::System::Diagnostics::Etw;
 use fxhash::FxHasher;
+use bitflags::bitflags;
+use memoffset::offset_of;
 
 // typedef ULONG64 TRACEHANDLE, *PTRACEHANDLE;
 pub(crate) type TraceHandle = u64;

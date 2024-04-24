@@ -10,9 +10,9 @@ use windows::Win32::System::Diagnostics::Etw;
 use windows::Win32::Foundation::ERROR_INSUFFICIENT_BUFFER;
 use windows::Win32::System::Diagnostics::Etw::TdhEnumerateProviders;
 use windows::Win32::System::Diagnostics::Etw::PROVIDER_ENUMERATION_INFO;
-use crate::etw_types::*;
+use super::etw_types::*;
 
-use crate::traits::*;
+use super::traits::*;
 
 #[derive(Debug)]
 pub enum TdhNativeError {

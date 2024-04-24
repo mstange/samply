@@ -3,10 +3,10 @@ use std::rc::Rc;
 
 use once_cell::unsync::OnceCell;
 use windows::Win32::System::Diagnostics::Etw::{self, PropertyStruct};
-use crate::{tdh_types::PropertyMapInfo};
-use crate::schema::EventSchema;
-use crate::utils;
-use crate::tdh_types::Property;
+use super::{tdh_types::PropertyMapInfo};
+use super::schema::EventSchema;
+use super::utils;
+use super::tdh_types::Property;
 use windows::core::{GUID, PCWSTR};
 
 #[repr(transparent)]
@@ -186,11 +186,11 @@ impl TraceEventInfoRaw {
                             panic!();
                         }
 
-                        let map_info: &crate::Etw::EVENT_MAP_INFO = &*(buffer.as_ptr() as *const _);
-                        if map_info.Flag == crate::Etw::EVENTMAP_INFO_FLAG_MANIFEST_VALUEMAP || map_info.Flag == crate::Etw::EVENTMAP_INFO_FLAG_MANIFEST_BITMAP {
-                            let is_bitmap = map_info.Flag == crate::Etw::EVENTMAP_INFO_FLAG_MANIFEST_BITMAP;
-                            let mut map = crate::FastHashMap::default();
-                            assert!(map_info.Anonymous.MapEntryValueType == crate::Etw::EVENTMAP_ENTRY_VALUETYPE_ULONG);
+                        let map_info: &super::Etw::EVENT_MAP_INFO = &*(buffer.as_ptr() as *const _);
+                        if map_info.Flag == super::Etw::EVENTMAP_INFO_FLAG_MANIFEST_VALUEMAP || map_info.Flag == super::Etw::EVENTMAP_INFO_FLAG_MANIFEST_BITMAP {
+                            let is_bitmap = map_info.Flag == super::Etw::EVENTMAP_INFO_FLAG_MANIFEST_BITMAP;
+                            let mut map = super::FastHashMap::default();
+                            assert!(map_info.Anonymous.MapEntryValueType == super::Etw::EVENTMAP_ENTRY_VALUETYPE_ULONG);
                             let entries = std::slice::from_raw_parts(map_info.MapEntryArray.as_ptr(), map_info.EntryCount as usize);
                             for e in entries {
                                 let value = e.Anonymous.Value;

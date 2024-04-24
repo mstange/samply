@@ -1,12 +1,12 @@
 //! ETW Event Schema locator and handler
 //!
 //! This module contains the means needed to locate and interact with the Schema of an ETW event
-use crate::custom_schemas::EventInfo;
-use crate::etw_types::{DecodingSource, EventRecord, TraceEventInfoRaw};
-use crate::property::PropertyIter;
-use crate::tdh;
-use crate::tdh_types::Property;
-use crate::FastHashMap;
+use super::custom_schemas::EventInfo;
+use super::etw_types::{DecodingSource, EventRecord, TraceEventInfoRaw};
+use super::property::PropertyIter;
+use super::tdh;
+use super::tdh_types::Property;
+use super::FastHashMap;
 use std::any::{Any, TypeId};
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
@@ -358,7 +358,7 @@ impl<'a> TypedEvent<'a> {
     ///     let activity_id = schema.activity_id();
     /// };
     /// ```
-    /// [TraceEventInfo]: crate::native::etw_types::TraceEventInfo
+    /// [TraceEventInfo]: super::native::etw_types::TraceEventInfo
     pub fn activity_id(&self) -> GUID {
         self.record.EventHeader.ActivityId
     }
@@ -375,7 +375,7 @@ impl<'a> TypedEvent<'a> {
     ///     let decoding_source = schema.decoding_source();
     /// };
     /// ```
-    /// [TraceEventInfo]: crate::native::etw_types::TraceEventInfo
+    /// [TraceEventInfo]: super::native::etw_types::TraceEventInfo
     pub fn decoding_source(&self) -> DecodingSource {
         self.schema.event_schema.decoding_source()
     }
@@ -389,7 +389,7 @@ impl<'a> TypedEvent<'a> {
     ///     let provider_name = schema.provider_name();
     /// };
     /// ```
-    /// [TraceEventInfo]: crate::native::etw_types::TraceEventInfo
+    /// [TraceEventInfo]: super::native::etw_types::TraceEventInfo
     pub fn provider_name(&self) -> String {
         self.schema.event_schema.provider_name()
     }
@@ -404,7 +404,7 @@ impl<'a> TypedEvent<'a> {
     ///     let task_name = schema.task_name();
     /// };
     /// ```
-    /// [TraceEventInfo]: crate::native::etw_types::TraceEventInfo
+    /// [TraceEventInfo]: super::native::etw_types::TraceEventInfo
     pub fn task_name(&self) -> String {
         self.schema.event_schema.task_name()
     }
@@ -419,7 +419,7 @@ impl<'a> TypedEvent<'a> {
     ///     let opcode_name = schema.opcode_name();
     /// };
     /// ```
-    /// [TraceEventInfo]: crate::native::etw_types::TraceEventInfo
+    /// [TraceEventInfo]: super::native::etw_types::TraceEventInfo
     pub fn opcode_name(&self) -> String {
         self.schema.event_schema.opcode_name()
     }

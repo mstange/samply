@@ -8,20 +8,24 @@
 //! rust naming convention, it can also come in handy when implementing the [TryParse] trait for a type
 //! to determine how to handle a [Property] based on this values
 //!
-//! [TryParse]: crate::parser::TryParse
-//! [Property]: crate::native::tdh_types::Property
+//! [TryParse]: super::parser::TryParse
+//! [Property]: super::native::tdh_types::Property
+use num_derive::ToPrimitive;
+use num_derive::FromPrimitive;
+use bitflags::bitflags;
+
 use std::rc::Rc;
 
 use windows::Win32::System::Diagnostics::Etw;
 
 
-use crate::etw_types::EventPropertyInfo;
+use super::etw_types::EventPropertyInfo;
 use num_traits::FromPrimitive;
 
 #[derive(Debug, Clone, Default)]
 pub struct PropertyMapInfo {
     pub is_bitmap: bool,
-    pub map: crate::FastHashMap<u32, String>
+    pub map: super::FastHashMap<u32, String>
 }
 #[derive(Debug, Clone)]
 pub struct PrimitiveDesc {
@@ -197,7 +201,7 @@ bitflags! {
     /// Represents the Property flags
     ///
     /// See: [Property Flags enum](https://docs.microsoft.com/en-us/windows/win32/api/tdh/ne-tdh-property_flags)
-    #[derive(Default)]
+    #[derive(Default, Debug, Clone)]
     pub struct PropertyFlags: u32 {
         const PROPERTY_STRUCT = 0x1;
         const PROPERTY_PARAM_LENGTH = 0x2;
