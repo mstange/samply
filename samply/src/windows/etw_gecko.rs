@@ -1,4 +1,5 @@
 use std::{collections::{HashMap, HashSet, hash_map::Entry, VecDeque}, convert::TryInto, fs::File, io::BufWriter, path::Path, time::{Duration, Instant, SystemTime}, sync::Arc};
+use std::ops::{Deref, DerefMut};
 use std::process::ExitStatus;
 
 use serde_json::{Value, json, to_writer};
@@ -23,6 +24,8 @@ use crate::shared::recording_props::{ProcessLaunchProps, ProfileCreationProps, R
 
 use super::etw_reader::{GUID, open_trace, parser::{Parser, TryParse, Address}, print_property, schema::SchemaLocator, write_property};
 use super::etw_reader;
+
+use super::profiler::ProfileContext;
 
 fn is_kernel_address(ip: u64, pointer_size: u32) -> bool {
     if pointer_size == 4 {
@@ -116,13 +119,13 @@ impl ProcessState {
 }
 
 pub fn profile_pid_from_etl_file(
+    context: &mut ProfileContext,
     pid: u32,
     recording_props: RecordingProps,
     profile_creation_props: ProfileCreationProps,
     etl_file: &Path,
 ) {
     let profile_start_instant = Timestamp::from_nanos_since_reference(0);
-    let profile_start_system = SystemTime::now();
 
     let mut schema_locator = SchemaLocator::new();
     etw_reader::add_custom_schemas(&mut schema_locator);
@@ -133,7 +136,7 @@ pub fn profile_pid_from_etl_file(
 
     let mut libs: HashMap<u64, (String, u32, u32)> = HashMap::new();
     let start = Instant::now();
-    let merge_threads = profile_creation_props.reuse_threads; // --merge-threads?
+    let merge_threads = false; // --merge-threads? (merge samples from all interesting apps into a single thread)
     let include_idle = false; //pargs.contains("--idle");
     let demand_zero_faults = false; //pargs.contains("--demand-zero-faults");
     let marker_file: Option<String> = None; //pargs.opt_value_from_str("--marker-file").unwrap();
@@ -147,9 +150,7 @@ pub fn profile_pid_from_etl_file(
 
     let process_target_name: Option<&str> = None;
 
-    let mut profile = Profile::new(&profile_creation_props.profile_name,
-                                   ReferenceTimestamp::from_system_time(profile_start_system),
-                                   SamplingInterval::from_nanos(122100)); // 8192Hz // only with the higher recording rate?
+    let mut profile = context.profile.lock().unwrap();
 
     let user_category: CategoryPairHandle = profile.add_category("User", fxprof_processed_profile::CategoryColor::Yellow).into();
     let kernel_category: CategoryPairHandle = profile.add_category("Kernel", fxprof_processed_profile::CategoryColor::Orange).into();
@@ -263,13 +264,12 @@ pub fn profile_pid_from_etl_file(
                     let thread_id: u32 = parser.parse("TThreadId");
                     let process_id: u32 = parser.parse("ProcessId");
                     //assert_eq!(process_id,s.process_id());
-                    //eprintln!("thread_name pid: {} tid: {}", process_id, thread_id);
 
                     if !process_targets.contains(&process_id) {
                         return;
                     }
+                    eprintln!("thread_name pid: {} tid: {}", process_id, thread_id);
 
-                    let thread_start_instant = profile_start_instant;
                     let handle = match global_thread {
                         Some(global_thread) => global_thread,
                         None => {
@@ -384,7 +384,7 @@ pub fn profile_pid_from_etl_file(
                         // eprintln!("not watching");
                         return;
                     }
-                    
+
                     let thread = match threads.entry(thread_id) {
                         Entry::Occupied(e) => e.into_mut(),
                         Entry::Vacant(e) => {
@@ -1116,8 +1116,6 @@ pub fn profile_pid_from_etl_file(
         for (_, thread) in threads.drain() { profile.add_thread(thread.builder); }
     }*/
 
-    let f = File::create("gecko.json").unwrap();
-    to_writer(BufWriter::new(f), &profile).unwrap();
     println!("Took {} seconds", (Instant::now()-start).as_secs_f32());
     println!("{} events, {} samples, {} dropped, {} stack-samples", event_count, sample_count, dropped_sample_count, stack_sample_count);
 }

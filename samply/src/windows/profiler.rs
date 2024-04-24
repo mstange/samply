@@ -19,10 +19,7 @@ use tokio::runtime;
 use crate::server::{start_server_main, ServerProps};
 use crate::shared::recording_props::{ProcessLaunchProps, ProfileCreationProps, RecordingProps};
 
-use fxprof_processed_profile::{
-    CategoryColor, CategoryPairHandle, CpuDelta, Frame, FrameFlags, FrameInfo, LibraryHandle,
-    LibraryInfo, ProcessHandle, Profile, ReferenceTimestamp, ThreadHandle, Timestamp,
-};
+use fxprof_processed_profile::{CategoryColor, CategoryPairHandle, CpuDelta, Frame, FrameFlags, FrameInfo, LibraryHandle, LibraryInfo, ProcessHandle, Profile, ReferenceTimestamp, SamplingInterval, ThreadHandle, Timestamp};
 
 use ferrisetw::trace::TraceTrait;
 use ferrisetw::{EventRecord, FileTrace, SchemaLocator};
@@ -91,10 +88,11 @@ pub fn start_recording(
 
     //let mut jit_category_manager = crate::shared::jit_category_manager::JitCategoryManager::new();
 
+    let interval_8khz = SamplingInterval::from_nanos(122100); // 8192Hz // only with the higher recording rate?
     let profile = Profile::new(
         &profile_creation_props.profile_name,
         timebase,
-        recording_props.interval.into(),
+        interval_8khz, // recording_props.interval.into(),
     );
 
     let rt = runtime::Builder::new_multi_thread()
@@ -163,12 +161,12 @@ pub fn start_recording(
         let n_events = trace.events_handled();
         eprintln!("Read {} events from file", n_events);
     } else {
-        etw_gecko::profile_pid_from_etl_file(main_pid, recording_props, profile_creation_props, &Path::new(&etl_file));
+        etw_gecko::profile_pid_from_etl_file(&mut context, main_pid, recording_props, profile_creation_props, &Path::new(&etl_file));
     }
 
     // delete etl_file
     if !existing_etl {
-        std::fs::remove_file(&etl_file).expect(format!("Failed to delete ETL file {:?}", etl_file.to_str().unwrap()).as_str());
+        //std::fs::remove_file(&etl_file).expect(format!("Failed to delete ETL file {:?}", etl_file.to_str().unwrap()).as_str());
     }
 
     // write the profile to a json file
@@ -190,8 +188,9 @@ pub fn start_recording(
     Ok(ExitStatus::from_raw(0))
 }
 
-struct ProfileContext {
-    profile: Arc<Mutex<Profile>>,
+pub(crate) struct ProfileContext {
+    pub(crate) profile: Arc<Mutex<Profile>>,
+
     rt: runtime::Handle,
     timebase_nanos: u64,
 
@@ -355,11 +354,11 @@ impl ProfileContext {
         // Virtualised ARM64 Windows crashes out on PROFILE tracing, and that's what I'm developing
         // on, so these are hacky args to get me a useful profile that I can work with.
         xperf.arg("-on");
-        xperf.arg("PROC_THREAD+LOADER+PROFILE");
-        //xperf.arg("PROC_THREAD+LOADER+CSWITCH+SYSCALL+VIRT_ALLOC+OB_HANDLE");
+        //xperf.arg("PROC_THREAD+LOADER+PROFILE");
+        xperf.arg("PROC_THREAD+LOADER+CSWITCH+SYSCALL+VIRT_ALLOC+OB_HANDLE");
         xperf.arg("-stackwalk");
-        xperf.arg("profile");
-        //xperf.arg("VirtualAlloc+VirtualFree+HandleCreate+HandleClose");
+        //xperf.arg("profile");
+        xperf.arg("VirtualAlloc+VirtualFree+HandleCreate+HandleClose");
         xperf.arg("-f");
         xperf.arg(&etl_file);
 
