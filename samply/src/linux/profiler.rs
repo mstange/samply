@@ -357,6 +357,7 @@ fn make_converter(
 
     Converter::<framehop::UnwinderNative<MmapRangeOrVec, framehop::MayAllocateDuringUnwind>>::new(
         &profile_creation_props,
+        ReferenceTimestamp::from_system_time(SystemTime::now()),
         None,
         HashMap::new(),
         machine_info.as_ref().map(|info| info.release.as_str()),

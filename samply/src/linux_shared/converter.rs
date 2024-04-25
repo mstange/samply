@@ -25,7 +25,6 @@ use wholesym::{samply_symbols, CodeId, ElfBuildId};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::SystemTime;
 use std::{ops::Range, path::Path};
 
 use super::avma_range::AvmaRange;
@@ -97,6 +96,7 @@ where
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         profile_creation_props: &ProfileCreationProps,
+        reference_timestamp: ReferenceTimestamp,
         delayed_product_name_generator: Option<BoxedProductNameGenerator>,
         build_ids: HashMap<DsoKey, DsoInfo>,
         linux_version: Option<&str>,
@@ -113,7 +113,7 @@ where
         };
         let mut profile = Profile::new(
             &profile_creation_props.profile_name,
-            ReferenceTimestamp::from_system_time(SystemTime::now()),
+            reference_timestamp,
             interval,
         );
         let (off_cpu_sampling_interval_ns, off_cpu_weight_per_sample) =
@@ -798,7 +798,8 @@ where
                     {
                         // Add two samples with a stack saying "<Idle>", with zero weight.
                         // This will correctly break up the stack chart to show that nothing was running in the idle time.
-                        // This "first sample" will carry any leftover accumulated running time ("cpu delta").
+                        // This first sample will carry any leftover accumulated running time ("cpu delta"),
+                        // and the second sample is placed at the end of the paused time.
                         let cpu_delta_ns = self
                             .context_switch_handler
                             .consume_cpu_delta(&mut cpu.context_switch_data);

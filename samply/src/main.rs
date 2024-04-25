@@ -437,14 +437,17 @@ fn convert_file_to_profile(
     let path = Path::new(filename)
         .canonicalize()
         .expect("Couldn't form absolute path");
+    let file_meta = input_file.metadata().ok();
+    let file_mod_time = file_meta.and_then(|metadata| metadata.modified().ok());
     let reader = BufReader::new(input_file);
-    let profile = match import::perf::convert(reader, path.parent(), profile_creation_props) {
-        Ok(profile) => profile,
-        Err(error) => {
-            eprintln!("Error importing perf.data file: {:?}", error);
-            std::process::exit(1);
-        }
-    };
+    let profile =
+        match import::perf::convert(reader, file_mod_time, path.parent(), profile_creation_props) {
+            Ok(profile) => profile,
+            Err(error) => {
+                eprintln!("Error importing perf.data file: {:?}", error);
+                std::process::exit(1);
+            }
+        };
     let output_file = match File::create(output_filename) {
         Ok(file) => file,
         Err(err) => {
