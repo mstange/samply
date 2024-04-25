@@ -1,7 +1,7 @@
 use fxprof_processed_profile::{
-    CategoryHandle, MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema,
-    MarkerSchemaField, MarkerTiming, ProcessHandle, Profile, ProfilerMarker, StringHandle,
-    ThreadHandle, Timestamp,
+    CategoryHandle, Frame, FrameFlags, FrameInfo, MarkerDynamicField, MarkerFieldFormat,
+    MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerTiming, ProcessHandle, Profile,
+    ProfilerMarker, StringHandle, ThreadHandle, Timestamp,
 };
 use serde_json::json;
 
@@ -14,6 +14,7 @@ pub struct Cpus {
     process_handle: ProcessHandle,
     combined_thread_handle: ThreadHandle,
     cpus: Vec<Cpu>,
+    idle_frame_label: FrameInfo,
 }
 
 pub struct Cpu {
@@ -105,16 +106,27 @@ impl Cpus {
     pub fn new(start_time: Timestamp, profile: &mut Profile) -> Self {
         let process_handle = profile.add_process("CPU", 0, start_time);
         let combined_thread_handle = profile.add_thread(process_handle, 0, start_time, true);
+        let idle_string = profile.intern_string("<Idle>");
+        let idle_frame_label = FrameInfo {
+            frame: Frame::Label(idle_string),
+            category_pair: CategoryHandle::OTHER.into(),
+            flags: FrameFlags::empty(),
+        };
         Self {
             start_time,
             process_handle,
             combined_thread_handle,
             cpus: Vec::new(),
+            idle_frame_label,
         }
     }
 
     pub fn combined_thread_handle(&self) -> ThreadHandle {
         self.combined_thread_handle
+    }
+
+    pub fn idle_frame_label(&self) -> FrameInfo {
+        self.idle_frame_label.clone()
     }
 
     pub fn get_mut(&mut self, cpu: usize, profile: &mut Profile) -> &mut Cpu {
