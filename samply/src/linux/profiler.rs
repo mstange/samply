@@ -1,4 +1,5 @@
 use crossbeam_channel::{Receiver, Sender};
+use fxprof_processed_profile::ReferenceTimestamp;
 use linux_perf_data::linux_perf_event_reader::EventRecord;
 use linux_perf_data::linux_perf_event_reader::{
     CpuMode, Endianness, Mmap2FileId, Mmap2InodeAndVersion, Mmap2Record, RawData,
@@ -15,7 +16,7 @@ use std::process::ExitStatus;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use super::perf_event::EventSource;
 use super::perf_group::{AttachMode, PerfGroup};
