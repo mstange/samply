@@ -9,6 +9,15 @@ pub struct LibMappingInfo {
     pub lib_handle: LibraryHandle,
     pub category: Option<CategoryPairHandle>,
     pub js_frame: Option<JsFrame>,
+    pub art_info: Option<AndroidArtInfo>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AndroidArtInfo {
+    /// Set when the lib mapping is for `libart.so`.
+    LibArt,
+    /// Set on Android `OAT` and `DEX` mappings.
+    DexOrOat,
 }
 
 impl LibMappingInfo {
@@ -17,6 +26,7 @@ impl LibMappingInfo {
             lib_handle,
             category: None,
             js_frame: None,
+            art_info: None,
         }
     }
 
@@ -29,6 +39,28 @@ impl LibMappingInfo {
             lib_handle,
             category: Some(category),
             js_frame,
+            art_info: None,
+        }
+    }
+
+    pub fn new_libart_mapping(lib_handle: LibraryHandle) -> Self {
+        Self {
+            lib_handle,
+            category: None,
+            js_frame: None,
+            art_info: Some(AndroidArtInfo::LibArt),
+        }
+    }
+
+    pub fn new_dex_or_oat_mapping(
+        lib_handle: LibraryHandle,
+        category: Option<CategoryPairHandle>,
+    ) -> Self {
+        Self {
+            lib_handle,
+            category,
+            js_frame: None,
+            art_info: Some(AndroidArtInfo::DexOrOat),
         }
     }
 }

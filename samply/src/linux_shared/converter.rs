@@ -3,11 +3,11 @@ use debugid::DebugId;
 
 use framehop::{ExplicitModuleSectionInfo, FrameAddress, Module, Unwinder};
 use fxprof_processed_profile::{
-    CpuDelta, LibraryHandle, LibraryInfo, Profile, ReferenceTimestamp, SamplingInterval,
-    SymbolTable, ThreadHandle,
+    CategoryColor, CategoryPairHandle, CpuDelta, LibraryHandle, LibraryInfo, Profile,
+    ReferenceTimestamp, SamplingInterval, SymbolTable, ThreadHandle,
 };
 use linux_perf_data::linux_perf_event_reader;
-use linux_perf_data::simpleperf_dso_type::{DSO_KERNEL, DSO_KERNEL_MODULE};
+use linux_perf_data::simpleperf_dso_type::{DSO_DEX_FILE, DSO_KERNEL, DSO_KERNEL_MODULE};
 use linux_perf_data::{
     DsoInfo, DsoKey, Endianness, SimpleperfFileRecord, SimpleperfSymbol, SimpleperfTypeSpecificInfo,
 };
@@ -43,6 +43,7 @@ use super::svma_file_range::compute_vma_bias;
 use super::vdso::VdsoObject;
 
 use crate::shared::jit_category_manager::JitCategoryManager;
+use crate::shared::lib_mappings::{AndroidArtInfo, LibMappingInfo};
 use crate::shared::process_sample_data::RssStatMember;
 use crate::shared::recording_props::ProfileCreationProps;
 use crate::shared::timestamp_converter::TimestampConverter;
@@ -132,8 +133,21 @@ where
         let mut simpleperf_symbol_tables_kernel_image = None;
         let mut simpleperf_symbol_tables_kernel_modules = HashMap::new();
         if let Some(simpleperf_symbol_tables) = simpleperf_symbol_tables {
+            let dex_category: CategoryPairHandle =
+                profile.add_category("DEX", CategoryColor::Green).into();
+            let oat_category: CategoryPairHandle =
+                profile.add_category("OAT", CategoryColor::Green).into();
             for f in simpleperf_symbol_tables {
                 let path = f.path.clone().into_bytes();
+                let (category, art_info) = if f.path.ends_with(".oat") {
+                    (Some(oat_category), Some(AndroidArtInfo::DexOrOat))
+                } else if f.r#type == DSO_DEX_FILE {
+                    (Some(dex_category), Some(AndroidArtInfo::DexOrOat))
+                } else if f.path.ends_with("libart.so") {
+                    (None, Some(AndroidArtInfo::LibArt))
+                } else {
+                    (None, None)
+                };
                 if f.r#type == DSO_KERNEL {
                     simpleperf_symbol_tables_kernel_image = Some(f.symbol);
                 } else {
@@ -157,6 +171,8 @@ where
                         file_offset_of_min_vaddr_in_elf_file,
                         min_vaddr: f.min_vaddr,
                         symbol_table: Arc::new(symbol_table),
+                        category,
+                        art_info,
                     };
                     if f.r#type == DSO_KERNEL_MODULE {
                         simpleperf_symbol_tables_kernel_modules.insert(path, symbol_table);
@@ -1189,12 +1205,19 @@ where
                 arch: None,
                 symbol_table: Some(symbol_table.symbol_table.clone()),
             });
+            let info = match symbol_table.art_info {
+                Some(AndroidArtInfo::LibArt) => LibMappingInfo::new_libart_mapping(lib_handle),
+                Some(AndroidArtInfo::DexOrOat) => {
+                    LibMappingInfo::new_dex_or_oat_mapping(lib_handle, symbol_table.category)
+                }
+                None => LibMappingInfo::new_lib(lib_handle),
+            };
             process.add_regular_lib_mapping(
                 timestamp,
                 avma_range.start(),
                 avma_range.end(),
                 relative_address_at_start,
-                lib_handle,
+                info,
             );
             return;
         }
@@ -1270,7 +1293,7 @@ where
                     avma_range.start(),
                     avma_range.end(),
                     relative_address_at_start,
-                    lib_handle,
+                    LibMappingInfo::new_lib(lib_handle),
                 );
             }
             return;
@@ -1315,7 +1338,7 @@ where
                     avma_range.start(),
                     avma_range.end(),
                     relative_address_at_start,
-                    lib_handle,
+                    LibMappingInfo::new_lib(lib_handle),
                 );
                 return;
             }
@@ -1352,7 +1375,7 @@ where
             avma_range.start(),
             avma_range.end(),
             relative_address_at_start,
-            lib_handle,
+            LibMappingInfo::new_lib(lib_handle),
         );
     }
 
@@ -1575,6 +1598,8 @@ struct SymbolTableFromSimpleperf {
     min_vaddr: u64,
     file_offset_of_min_vaddr_in_elf_file: Option<u64>,
     symbol_table: Arc<SymbolTable>,
+    category: Option<CategoryPairHandle>,
+    art_info: Option<AndroidArtInfo>,
 }
 
 struct KernelImageMapping {

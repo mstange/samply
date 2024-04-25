@@ -271,7 +271,7 @@ where
         start_address: u64,
         end_address: u64,
         relative_address_at_start: u32,
-        lib_handle: LibraryHandle,
+        info: LibMappingInfo,
     ) {
         self.lib_mapping_ops.push(
             timestamp,
@@ -279,7 +279,7 @@ where
                 start_avma: start_address,
                 end_avma: end_address,
                 relative_address_at_start,
-                info: LibMappingInfo::new_lib(lib_handle),
+                info,
             }),
         );
     }
