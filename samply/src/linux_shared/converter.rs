@@ -790,10 +790,46 @@ where
                 }
                 if let (Some(cpus), Some(cpu_index)) = (&mut self.cpus, common.cpu) {
                     let combined_thread = cpus.combined_thread_handle();
+                    let idle_frame_label = cpus.idle_frame_label();
                     let cpu = cpus.get_mut(cpu_index as usize, &mut self.profile);
-                    let _idle_cpu_sample = self
+                    if let Some(idle_cpu_sample) = self
                         .context_switch_handler
-                        .handle_switch_in(timestamp, &mut cpu.context_switch_data);
+                        .handle_switch_in(timestamp, &mut cpu.context_switch_data)
+                    {
+                        // Add two samples with a stack saying "<Idle>", with zero weight.
+                        // This will correctly break up the stack chart to show that nothing was running in the idle time.
+                        // This "first sample" will carry any leftover accumulated running time ("cpu delta").
+                        let cpu_delta_ns = self
+                            .context_switch_handler
+                            .consume_cpu_delta(&mut cpu.context_switch_data);
+                        let cpu_delta = CpuDelta::from_nanos(cpu_delta_ns);
+                        let begin_timestamp = self
+                            .timestamp_converter
+                            .convert_time(idle_cpu_sample.begin_timestamp);
+                        process.unresolved_samples.add_sample(
+                            cpu.thread_handle,
+                            begin_timestamp,
+                            idle_cpu_sample.begin_timestamp,
+                            UnresolvedStackHandle::EMPTY,
+                            cpu_delta,
+                            0,
+                            Some(idle_frame_label.clone()),
+                        );
+
+                        // Emit a "rest sample" with a CPU delta of zero covering the rest of the paused range.
+                        let end_timestamp = self
+                            .timestamp_converter
+                            .convert_time(idle_cpu_sample.end_timestamp);
+                        process.unresolved_samples.add_sample(
+                            cpu.thread_handle,
+                            end_timestamp,
+                            idle_cpu_sample.end_timestamp,
+                            UnresolvedStackHandle::EMPTY,
+                            CpuDelta::from_nanos(0),
+                            0,
+                            Some(idle_frame_label),
+                        );
+                    }
                     cpu.notify_switch_in(
                         tid,
                         thread.thread_label(),
