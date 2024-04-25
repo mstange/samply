@@ -3,6 +3,7 @@ use fxprof_processed_profile::{
     MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerTiming, ProcessHandle, Profile,
     ProfilerMarker, StringHandle, ThreadHandle, Timestamp,
 };
+use linux_perf_data::linux_perf_event_reader::TaskWasPreempted;
 use serde_json::json;
 
 use crate::shared::context_switch::ThreadContextSwitchData;
@@ -33,6 +34,7 @@ impl Cpu {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn notify_switch_in(
         &mut self,
         tid: i32,
@@ -62,12 +64,15 @@ impl Cpu {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn notify_switch_out(
         &mut self,
         tid: i32,
         timestamp: u64,
         converter: &TimestampConverter,
         thread_handles: &[ThreadHandle],
+        thread_handle: ThreadHandle,
+        preempted: TaskWasPreempted,
         profile: &mut Profile,
     ) {
         let previous_tid = self.current_tid.take();
@@ -85,6 +90,16 @@ impl Cpu {
                     timing.clone(),
                 );
             }
+            profile.add_marker(
+                thread_handle,
+                CategoryHandle::OTHER,
+                "Running on CPU",
+                OnCpuMarkerForThreadTrack {
+                    cpu_name: self.name.clone(),
+                    preempted: Some(preempted),
+                },
+                timing.clone(),
+            );
             if previous_tid != tid {
                 // eprintln!("Missing switch-out (noticed during switch-out) on {}: {previous_tid}, {switch_in_timestamp}", self.name);
                 // eprintln!(
@@ -167,6 +182,56 @@ impl ProfilerMarker for ThreadNameMarkerForCpuTrack {
                 format: MarkerFieldFormat::String,
                 searchable: true,
             })],
+        }
+    }
+}
+
+/// An example marker type with some text content.
+#[derive(Debug, Clone)]
+pub struct OnCpuMarkerForThreadTrack {
+    cpu_name: String,
+    preempted: Option<TaskWasPreempted>,
+}
+
+impl ProfilerMarker for OnCpuMarkerForThreadTrack {
+    const MARKER_TYPE_NAME: &'static str = "OnCpu";
+
+    fn json_marker_data(&self) -> serde_json::Value {
+        let switch_out_reason = match self.preempted {
+            Some(TaskWasPreempted::Yes) => "preempted",
+            Some(TaskWasPreempted::No) => "blocked",
+            None => "unknown",
+        };
+        json!({
+            "type": Self::MARKER_TYPE_NAME,
+            "cpu": self.cpu_name,
+            "outwhy": switch_out_reason,
+        })
+    }
+
+    fn schema() -> MarkerSchema {
+        MarkerSchema {
+            type_name: Self::MARKER_TYPE_NAME,
+            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
+            chart_label: Some("{marker.data.cpu}"),
+            tooltip_label: Some("{marker.data.cpu}"),
+            table_label: Some(
+                "{marker.name} - {marker.data.cpu}, switch-out reason: {marker.data.outwhy}",
+            ),
+            fields: vec![
+                MarkerSchemaField::Dynamic(MarkerDynamicField {
+                    key: "cpu",
+                    label: "CPU",
+                    format: MarkerFieldFormat::String,
+                    searchable: true,
+                }),
+                MarkerSchemaField::Dynamic(MarkerDynamicField {
+                    key: "outwhy",
+                    label: "Switch-out reason",
+                    format: MarkerFieldFormat::String,
+                    searchable: true,
+                }),
+            ],
         }
     }
 }
