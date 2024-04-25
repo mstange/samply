@@ -7,6 +7,7 @@ use fxprof_processed_profile::{
     SymbolTable, ThreadHandle,
 };
 use linux_perf_data::linux_perf_event_reader;
+use linux_perf_data::simpleperf_dso_type::{DSO_KERNEL, DSO_KERNEL_MODULE};
 use linux_perf_data::{
     DsoInfo, DsoKey, Endianness, SimpleperfFileRecord, SimpleperfSymbol, SimpleperfTypeSpecificInfo,
 };
@@ -75,7 +76,8 @@ where
     kernel_symbols: Option<KernelSymbols>,
     kernel_image_mapping: Option<KernelImageMapping>,
     simpleperf_symbol_tables_user: HashMap<Vec<u8>, SymbolTableFromSimpleperf>,
-    simpleperf_symbol_tables_kernel: HashMap<Vec<u8>, Vec<SimpleperfSymbol>>,
+    simpleperf_symbol_tables_kernel_image: Option<Vec<SimpleperfSymbol>>,
+    simpleperf_symbol_tables_kernel_modules: HashMap<Vec<u8>, SymbolTableFromSimpleperf>,
     pe_mappings: PeMappings,
     jit_category_manager: JitCategoryManager,
     cpus: Option<Cpus>,
@@ -127,17 +129,13 @@ where
         };
 
         let mut simpleperf_symbol_tables_user = HashMap::new();
-        let mut simpleperf_symbol_tables_kernel = HashMap::new();
+        let mut simpleperf_symbol_tables_kernel_image = None;
+        let mut simpleperf_symbol_tables_kernel_modules = HashMap::new();
         if let Some(simpleperf_symbol_tables) = simpleperf_symbol_tables {
             for f in simpleperf_symbol_tables {
                 let path = f.path.clone().into_bytes();
-                if f.path == "[kernel.kallsyms]"
-                    || matches!(
-                        f.type_specific_msg,
-                        Some(SimpleperfTypeSpecificInfo::KernelModule(_))
-                    )
-                {
-                    simpleperf_symbol_tables_kernel.insert(path, f.symbol);
+                if f.r#type == DSO_KERNEL {
+                    simpleperf_symbol_tables_kernel_image = Some(f.symbol);
                 } else {
                     let file_offset_of_min_vaddr_in_elf_file = match f.type_specific_msg {
                         Some(SimpleperfTypeSpecificInfo::ElfFile(elf)) => {
@@ -160,7 +158,11 @@ where
                         min_vaddr: f.min_vaddr,
                         symbol_table: Arc::new(symbol_table),
                     };
-                    simpleperf_symbol_tables_user.insert(path, symbol_table);
+                    if f.r#type == DSO_KERNEL_MODULE {
+                        simpleperf_symbol_tables_kernel_modules.insert(path, symbol_table);
+                    } else {
+                        simpleperf_symbol_tables_user.insert(path, symbol_table);
+                    }
                 }
             }
         }
@@ -199,7 +201,8 @@ where
             kernel_symbols,
             kernel_image_mapping: None,
             simpleperf_symbol_tables_user,
-            simpleperf_symbol_tables_kernel,
+            simpleperf_symbol_tables_kernel_image,
+            simpleperf_symbol_tables_kernel_modules,
             pe_mappings: PeMappings::new(),
             jit_category_manager: JitCategoryManager::new(),
             fold_recursive_prefix: profile_creation_props.fold_recursive_prefix,
@@ -975,7 +978,6 @@ where
         build_id: Option<&[u8]>,
         path_slice: &[u8],
     ) {
-        let original_path = path_slice;
         let path = std::str::from_utf8(path_slice).unwrap().to_string();
         let build_id: Option<Vec<u8>> = match (build_id, self.kernel_symbols.as_ref()) {
             (None, Some(kernel_symbols)) if kernel_symbols.base_avma == base_address => {
@@ -991,34 +993,46 @@ where
             .map(|id| DebugId::from_identifier(id, self.endian == Endianness::LittleEndian));
 
         let debug_path = match self.linux_version.as_deref() {
-            Some(linux_version) if path.starts_with("[kernel.kallsyms]") => {
+            Some(linux_version) if dso_key == DsoKey::Kernel => {
                 // Take a guess at the vmlinux debug file path.
                 format!("/usr/lib/debug/boot/vmlinux-{linux_version}")
             }
             _ => path.clone(),
         };
-        let symbol_table = if let Some(symbols) =
-            self.simpleperf_symbol_tables_kernel.remove(original_path)
-        {
-            let symbols: Vec<_> = symbols
-                .into_iter()
-                .map(|s| fxprof_processed_profile::Symbol {
-                    address: (s.vaddr - base_address) as u32,
-                    size: Some(s.len),
-                    name: s.name,
-                })
-                .collect();
-            Some(Arc::new(SymbolTable::new(symbols)))
-        } else {
-            match (&dso_key, &build_id, self.kernel_symbols.as_ref()) {
-                (DsoKey::Kernel, Some(build_id), Some(kernel_symbols))
+
+        let symbol_table = if dso_key == DsoKey::Kernel {
+            match (&build_id, self.kernel_symbols.as_ref()) {
+                (Some(build_id), Some(kernel_symbols))
                     if build_id == &kernel_symbols.build_id && kernel_symbols.base_avma != 0 =>
                 {
                     // Run `echo '0' | sudo tee /proc/sys/kernel/kptr_restrict` to get here without root.
                     Some(kernel_symbols.symbol_table.clone())
                 }
-                _ => None,
+                _ => {
+                    if let Some(symbols) = self.simpleperf_symbol_tables_kernel_image.take() {
+                        let symbols: Vec<_> = symbols
+                            .into_iter()
+                            .filter_map(|s| {
+                                let address = s.vaddr.checked_sub(base_address)?;
+                                let address = u32::try_from(address).ok()?;
+                                let sym = fxprof_processed_profile::Symbol {
+                                    address,
+                                    size: Some(s.len),
+                                    name: s.name,
+                                };
+                                Some(sym)
+                            })
+                            .collect();
+                        Some(Arc::new(SymbolTable::new(symbols)))
+                    } else {
+                        None
+                    }
+                }
             }
+        } else {
+            self.simpleperf_symbol_tables_kernel_modules
+                .get(path_slice)
+                .map(|s| s.symbol_table.clone())
         };
 
         let lib_handle = self.profile.add_lib(LibraryInfo {
@@ -1036,7 +1050,7 @@ where
         self.profile
             .add_kernel_lib_mapping(lib_handle, base_address, end_address, 0);
 
-        if path_slice == b"[kernel.kallsyms]" {
+        if dso_key == DsoKey::Kernel {
             // Store information about this mapping so that we can later adjust the mapping,
             // if we find that other kernel modules overlap with it.
             self.kernel_image_mapping = Some(KernelImageMapping {
@@ -1139,14 +1153,16 @@ where
             let relative_address_at_start = if let Some(file_offset_of_min_vaddr) =
                 &symbol_table.file_offset_of_min_vaddr_in_elf_file
             {
+                let min_vaddr = symbol_table.min_vaddr;
                 // Example:
                 //  - start_avma: 0x721e13c000
                 //  - mapping_start_file_offset: 0x4535000
                 //  - file_offset_of_min_vaddr: 0x45357e0
                 //  - min_vaddr: 0x45367e0,
+                // println!("file_offset_of_min_vaddr={file_offset_of_min_vaddr:x}, mapping_start_file_offset={mapping_start_file_offset:x}, min_vaddr={min_vaddr:x}, path={path}");
                 let min_vaddr_offset_from_mapping_start =
-                    file_offset_of_min_vaddr - mapping_start_file_offset;
-                let vaddr_at_start = symbol_table.min_vaddr - min_vaddr_offset_from_mapping_start;
+                    file_offset_of_min_vaddr.wrapping_sub(mapping_start_file_offset);
+                let vaddr_at_start = min_vaddr.wrapping_sub(min_vaddr_offset_from_mapping_start);
 
                 // Assume vaddr = SVMA == relative address
                 vaddr_at_start as u32
