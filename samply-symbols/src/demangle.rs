@@ -1,6 +1,7 @@
 use super::demangle_ocaml;
 use msvc_demangler::DemangleFlags;
 
+/// Attempt to demangle the passed-in string. This tries a bunch of different demangling schemes.
 pub fn demangle_any(name: &str) -> String {
     if name.starts_with('?') {
         let flags = DemangleFlags::NO_ACCESS_SPECIFIERS

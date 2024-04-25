@@ -102,6 +102,7 @@ where
         eprintln!("event {event_name}");
     }
     let interpretation = EventInterpretation::divine_from_attrs(attributes);
+    let simpleperf_symbol_tables = perf_file.simpleperf_symbol_tables().ok().flatten();
 
     let mut converter = Converter::<U>::new(
         &profile_creation_props,
@@ -115,6 +116,7 @@ where
         cache,
         extra_dir,
         interpretation.clone(),
+        simpleperf_symbol_tables,
     );
 
     let mut last_timestamp = 0;
