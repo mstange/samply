@@ -3,10 +3,13 @@ use debugid::DebugId;
 
 use framehop::{ExplicitModuleSectionInfo, FrameAddress, Module, Unwinder};
 use fxprof_processed_profile::{
-    CpuDelta, LibraryInfo, Profile, ReferenceTimestamp, SamplingInterval, ThreadHandle,
+    CpuDelta, LibraryHandle, LibraryInfo, Profile, ReferenceTimestamp, SamplingInterval,
+    SymbolTable, ThreadHandle,
 };
 use linux_perf_data::linux_perf_event_reader;
-use linux_perf_data::{DsoInfo, DsoKey, Endianness};
+use linux_perf_data::{
+    DsoInfo, DsoKey, Endianness, SimpleperfFileRecord, SimpleperfSymbol, SimpleperfTypeSpecificInfo,
+};
 use linux_perf_event_reader::constants::PERF_CONTEXT_MAX;
 use linux_perf_event_reader::{
     CommOrExecRecord, CommonData, ContextSwitchRecord, ForkOrExitRecord, Mmap2FileId, Mmap2Record,
@@ -15,6 +18,7 @@ use linux_perf_event_reader::{
 use memmap2::Mmap;
 use object::{CompressedFileRange, CompressionFormat, Object, ObjectSection};
 use samply_symbols::{debug_id_for_object, DebugIdExt};
+use wholesym::samply_symbols::demangle_any;
 use wholesym::{samply_symbols, CodeId, ElfBuildId};
 
 use std::collections::HashMap;
@@ -69,6 +73,9 @@ where
     off_cpu_indicator: Option<OffCpuIndicator>,
     event_names: Vec<String>,
     kernel_symbols: Option<KernelSymbols>,
+    kernel_image_mapping: Option<KernelImageMapping>,
+    simpleperf_symbol_tables_user: HashMap<Vec<u8>, SymbolTableFromSimpleperf>,
+    simpleperf_symbol_tables_kernel: HashMap<Vec<u8>, Vec<SimpleperfSymbol>>,
     pe_mappings: PeMappings,
     jit_category_manager: JitCategoryManager,
     cpus: Option<Cpus>,
@@ -95,6 +102,7 @@ where
         cache: U::Cache,
         extra_binary_artifact_dir: Option<&Path>,
         interpretation: EventInterpretation,
+        simpleperf_symbol_tables: Option<Vec<SimpleperfFileRecord>>,
     ) -> Self {
         let interval = match interpretation.sampling_is_time_based {
             Some(nanos) => SamplingInterval::from_nanos(nanos),
@@ -117,6 +125,46 @@ where
                 None
             }
         };
+
+        let mut simpleperf_symbol_tables_user = HashMap::new();
+        let mut simpleperf_symbol_tables_kernel = HashMap::new();
+        if let Some(simpleperf_symbol_tables) = simpleperf_symbol_tables {
+            for f in simpleperf_symbol_tables {
+                let path = f.path.clone().into_bytes();
+                if f.path == "[kernel.kallsyms]"
+                    || matches!(
+                        f.type_specific_msg,
+                        Some(SimpleperfTypeSpecificInfo::KernelModule(_))
+                    )
+                {
+                    simpleperf_symbol_tables_kernel.insert(path, f.symbol);
+                } else {
+                    let file_offset_of_min_vaddr_in_elf_file = match f.type_specific_msg {
+                        Some(SimpleperfTypeSpecificInfo::ElfFile(elf)) => {
+                            Some(elf.file_offset_of_min_vaddr)
+                        }
+                        _ => None,
+                    };
+                    let symbols: Vec<_> = f
+                        .symbol
+                        .iter()
+                        .map(|s| fxprof_processed_profile::Symbol {
+                            address: s.vaddr as u32,
+                            size: Some(s.len),
+                            name: demangle_any(&s.name),
+                        })
+                        .collect();
+                    let symbol_table = SymbolTable::new(symbols);
+                    let symbol_table = SymbolTableFromSimpleperf {
+                        file_offset_of_min_vaddr_in_elf_file,
+                        min_vaddr: f.min_vaddr,
+                        symbol_table: Arc::new(symbol_table),
+                    };
+                    simpleperf_symbol_tables_user.insert(path, symbol_table);
+                }
+            }
+        }
+
         let timestamp_converter = TimestampConverter {
             reference_raw: first_sample_time,
             raw_to_ns_factor: 1,
@@ -149,6 +197,9 @@ where
             off_cpu_indicator: interpretation.off_cpu_indicator,
             event_names: interpretation.event_names,
             kernel_symbols,
+            kernel_image_mapping: None,
+            simpleperf_symbol_tables_user,
+            simpleperf_symbol_tables_kernel,
             pe_mappings: PeMappings::new(),
             jit_category_manager: JitCategoryManager::new(),
             fold_recursive_prefix: profile_creation_props.fold_recursive_prefix,
@@ -612,8 +663,15 @@ where
         }
 
         const PROT_EXEC: u32 = 0b100;
-        if e.protection & PROT_EXEC == 0 {
+        if e.protection & PROT_EXEC == 0 && !self.simpleperf_symbol_tables_user.contains_key(&*path)
+        {
             // Ignore non-executable mappings.
+            // Don't ignore mappings that simpleperf found symbols for, even if they're
+            // non-executable. TODO: Find out why .vdex and .jar mappings with symbols aren't
+            // marked as executable in the simpleperf perf.data files. Is simpleperf simply
+            // forgetting to set the right flag? Or are these mappings synthetic? Are we
+            // actually running code from inside these mappings? Surely then the memory must
+            // be executable?
             return;
         }
 
@@ -915,9 +973,10 @@ where
         len: u64,
         dso_key: DsoKey,
         build_id: Option<&[u8]>,
-        path: &[u8],
+        path_slice: &[u8],
     ) {
-        let path = std::str::from_utf8(path).unwrap().to_string();
+        let original_path = path_slice;
+        let path = std::str::from_utf8(path_slice).unwrap().to_string();
         let build_id: Option<Vec<u8>> = match (build_id, self.kernel_symbols.as_ref()) {
             (None, Some(kernel_symbols)) if kernel_symbols.base_avma == base_address => {
                 Some(kernel_symbols.build_id.clone())
@@ -938,14 +997,28 @@ where
             }
             _ => path.clone(),
         };
-        let symbol_table = match (&dso_key, &build_id, self.kernel_symbols.as_ref()) {
-            (DsoKey::Kernel, Some(build_id), Some(kernel_symbols))
-                if build_id == &kernel_symbols.build_id && kernel_symbols.base_avma != 0 =>
-            {
-                // Run `echo '0' | sudo tee /proc/sys/kernel/kptr_restrict` to get here without root.
-                Some(kernel_symbols.symbol_table.clone())
+        let symbol_table = if let Some(symbols) =
+            self.simpleperf_symbol_tables_kernel.remove(original_path)
+        {
+            let symbols: Vec<_> = symbols
+                .into_iter()
+                .map(|s| fxprof_processed_profile::Symbol {
+                    address: (s.vaddr - base_address) as u32,
+                    size: Some(s.len),
+                    name: s.name,
+                })
+                .collect();
+            Some(Arc::new(SymbolTable::new(symbols)))
+        } else {
+            match (&dso_key, &build_id, self.kernel_symbols.as_ref()) {
+                (DsoKey::Kernel, Some(build_id), Some(kernel_symbols))
+                    if build_id == &kernel_symbols.build_id && kernel_symbols.base_avma != 0 =>
+                {
+                    // Run `echo '0' | sudo tee /proc/sys/kernel/kptr_restrict` to get here without root.
+                    Some(kernel_symbols.symbol_table.clone())
+                }
+                _ => None,
             }
-            _ => None,
         };
 
         let lib_handle = self.profile.add_lib(LibraryInfo {
@@ -959,8 +1032,47 @@ where
             arch: None,
             symbol_table,
         });
+        let end_address = base_address + len;
         self.profile
-            .add_kernel_lib_mapping(lib_handle, base_address, base_address + len, 0);
+            .add_kernel_lib_mapping(lib_handle, base_address, end_address, 0);
+
+        if path_slice == b"[kernel.kallsyms]" {
+            // Store information about this mapping so that we can later adjust the mapping,
+            // if we find that other kernel modules overlap with it.
+            self.kernel_image_mapping = Some(KernelImageMapping {
+                lib_handle,
+                base_address,
+                end_address,
+            });
+        } else if let Some(kernel_image_mapping) = &self.kernel_image_mapping {
+            // We added a kernel module which is not the main kernel image.
+            // See if the module overlaps with it. This can happen when the main kernel
+            // image is advertised with a bad address range. For example, in profiles from
+            // simpleperf, [kernel.kallsyms] might have the following range:
+            // ffffffdc99610000 - ffffffffffffffff
+            // And then there are kernel modules at ranges that overlap, like this:
+            // ffffffdc9d7d6000 - ffffffdc9d7db000
+            // Whenever we encounter such overlap, we adjust the end_address of the
+            // main kernel image downwards so that there is no overlap.
+            if base_address > kernel_image_mapping.base_address
+                && base_address < kernel_image_mapping.end_address
+            {
+                // This mapping overlaps with the kernel image lib mapping.
+                // This means that the call to `add_kernel_lib_mapping` above caused the main kernel
+                // image mapping to be evicted.
+                //
+                // Adjust the mapping and put it back in.
+                let mut kernel_image_mapping = self.kernel_image_mapping.take().unwrap();
+                kernel_image_mapping.end_address = base_address;
+                self.profile.add_kernel_lib_mapping(
+                    kernel_image_mapping.lib_handle,
+                    kernel_image_mapping.base_address,
+                    kernel_image_mapping.end_address,
+                    0,
+                );
+                self.kernel_image_mapping = Some(kernel_image_mapping);
+            }
+        }
     }
 
     /// Tell the unwinder and the profile about this module.
@@ -985,6 +1097,7 @@ where
         let expected_code_id =
             build_id.map(|build_id| CodeId::ElfBuildId(ElfBuildId::from_bytes(build_id)));
 
+        let original_path = path_slice;
         let Some(path) = path_from_unix_bytes(path_slice) else {
             return;
         };
@@ -1013,13 +1126,64 @@ where
             }
         }
 
-        let name = Path::new(&path)
-            .file_name()
-            .map_or("<unknown>".into(), |f| f.to_string_lossy().to_string());
+        let name = match path.rfind('/') {
+            Some(pos) => path[pos + 1..].to_owned(),
+            None => path.clone(),
+        };
 
         let process = self.processes.get_by_pid(process_pid, &mut self.profile);
 
-        // Case 1: We have access to the file that was loaded into the process.
+        // Case 1: There are symbols in the file, if we are importing a perf.data file
+        // that was recorded with simpleperf.
+        if let Some(symbol_table) = self.simpleperf_symbol_tables_user.get(original_path) {
+            let relative_address_at_start = if let Some(file_offset_of_min_vaddr) =
+                &symbol_table.file_offset_of_min_vaddr_in_elf_file
+            {
+                // Example:
+                //  - start_avma: 0x721e13c000
+                //  - mapping_start_file_offset: 0x4535000
+                //  - file_offset_of_min_vaddr: 0x45357e0
+                //  - min_vaddr: 0x45367e0,
+                let min_vaddr_offset_from_mapping_start =
+                    file_offset_of_min_vaddr - mapping_start_file_offset;
+                let vaddr_at_start = symbol_table.min_vaddr - min_vaddr_offset_from_mapping_start;
+
+                // Assume vaddr = SVMA == relative address
+                vaddr_at_start as u32
+            } else {
+                // If it's not an ELF file, then this is probably a DEX file.
+                // In a DEX file, SVMA == file offset == relative address
+                mapping_start_file_offset as u32
+            };
+
+            // If we have a build ID, convert it to a debug_id and a code_id.
+            let debug_id = build_id
+                .map(|id| DebugId::from_identifier(id, true)) // TODO: endian
+                .unwrap_or_default();
+            let code_id = build_id
+                .map(|build_id| CodeId::ElfBuildId(ElfBuildId::from_bytes(build_id)).to_string());
+
+            let lib_handle = self.profile.add_lib(LibraryInfo {
+                debug_id,
+                code_id,
+                path: path.clone(),
+                debug_path: path,
+                debug_name: name.clone(),
+                name,
+                arch: None,
+                symbol_table: Some(symbol_table.symbol_table.clone()),
+            });
+            process.add_regular_lib_mapping(
+                timestamp,
+                avma_range.start(),
+                avma_range.end(),
+                relative_address_at_start,
+                lib_handle,
+            );
+            return;
+        }
+
+        // Case 2: We have access to the file that was loaded into the process.
         if let Some(file) = file {
             let mmap = match unsafe { memmap2::MmapOptions::new().map(&file) } {
                 Ok(mmap) => Arc::new(mmap),
@@ -1096,7 +1260,7 @@ where
             return;
         }
 
-        // Case 2: This is the VDSO mapping.
+        // Case 3: This is the VDSO mapping.
         if name == "[vdso]" {
             if let Some(vdso) = VdsoObject::shared_instance_for_this_process() {
                 if expected_code_id.as_ref().is_some_and(|expected_code_id| {
@@ -1141,7 +1305,7 @@ where
             }
         }
 
-        // Case 3: We don't have access to the file.
+        // Case 4: We don't have access to the file.
 
         // Without access to the binary file, make some guesses. We can't really
         // know what the right base address is because we don't have the section
@@ -1391,12 +1555,25 @@ enum MappingType {
     Pe,
 }
 
+struct SymbolTableFromSimpleperf {
+    min_vaddr: u64,
+    file_offset_of_min_vaddr_in_elf_file: Option<u64>,
+    symbol_table: Arc<SymbolTable>,
+}
+
+struct KernelImageMapping {
+    lib_handle: LibraryHandle,
+    base_address: u64,
+    end_address: u64,
+}
+
 #[cfg(unix)]
 fn path_from_unix_bytes(path_slice: &[u8]) -> Option<&Path> {
     use std::os::unix::ffi::OsStrExt;
     Some(Path::new(std::ffi::OsStr::from_bytes(path_slice)))
 }
 
+// Returns None on Windows if path_slice is not valid utf-8.
 #[cfg(not(unix))]
 fn path_from_unix_bytes(path_slice: &[u8]) -> Option<&Path> {
     Some(Path::new(std::str::from_utf8(path_slice).ok()?))
