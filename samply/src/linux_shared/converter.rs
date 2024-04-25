@@ -48,7 +48,7 @@ use crate::shared::recording_props::ProfileCreationProps;
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::types::{StackFrame, StackMode};
 use crate::shared::unresolved_samples::{
-    UnresolvedSamples, UnresolvedStackHandle, UnresolvedStacks,
+    SampleOrMarker, UnresolvedSamples, UnresolvedStackHandle, UnresolvedStacks,
 };
 use crate::shared::utils::open_file_with_fallback;
 
@@ -391,15 +391,35 @@ where
         let thread = process.threads.get_thread_by_tid(tid, &mut self.profile);
         thread.off_cpu_stack = Some(stack_index);
 
+        let timestamp_mono = e
+            .timestamp
+            .expect("Can't handle context switch without time");
         if self.off_cpu_indicator == Some(OffCpuIndicator::SchedSwitchAndSamples) {
             // Treat this sched_switch sample as a switch-out.
             // Sometimes we have sched_switch samples but no context switch records; for
             // example when using `simpleperf record --trace-offcpu`.
-            let timestamp = e
-                .timestamp
-                .expect("Can't handle context switch without time");
             self.context_switch_handler
-                .handle_switch_out(timestamp, &mut thread.context_switch_data);
+                .handle_switch_out(timestamp_mono, &mut thread.context_switch_data);
+        }
+
+        if let (Some(cpu_index), Some(cpus)) = (e.cpu, &mut self.cpus) {
+            let stack_index = self.unresolved_stacks.convert(stack.iter().rev().cloned());
+            let cpu = cpus.get_mut(cpu_index as usize, &mut self.profile);
+            let timestamp = self.timestamp_converter.convert_time(timestamp_mono);
+            process.unresolved_samples.add_sample_or_marker(
+                cpu.thread_handle,
+                timestamp,
+                timestamp_mono,
+                stack_index,
+                SampleOrMarker::SchedSwitchMarkerOnCpuTrack,
+            );
+            process.unresolved_samples.add_sample_or_marker(
+                thread.profile_thread,
+                timestamp,
+                timestamp_mono,
+                stack_index,
+                SampleOrMarker::SchedSwitchMarkerOnThreadTrack(cpu_index),
+            );
         }
     }
 
@@ -841,7 +861,7 @@ where
                     );
                 }
             }
-            ContextSwitchRecord::Out { .. } => {
+            ContextSwitchRecord::Out { preempted, .. } => {
                 self.context_switch_handler
                     .handle_switch_out(timestamp, &mut thread.context_switch_data);
                 if let (Some(cpus), Some(cpu_index)) = (&mut self.cpus, Some(common.cpu.unwrap())) {
@@ -854,6 +874,8 @@ where
                         timestamp,
                         &self.timestamp_converter,
                         &[cpu.thread_handle, combined_thread],
+                        thread.profile_thread,
+                        preempted,
                         &mut self.profile,
                     );
                 }
