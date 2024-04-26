@@ -79,11 +79,13 @@ pub fn profile_pid_from_etl_file(
     let result = open_trace(&etl_file, |e| {
         event_count += 1;
         let s = schema_locator.event_schema(e);
+
         if let Ok(s) = s {
+            let mut parser = Parser::create(&s);
+
             //eprintln!("{}", s.name());
             match s.name() {
                 "MSNT_SystemTrace/EventTrace/Header" => {
-                    let mut parser = Parser::create(&s);
                     timer_resolution = parser.parse("TimerResolution");
                     let perf_freq: u64 = parser.parse("PerfFreq");
                     let clock_type: u32 = parser.parse("ReservedFlags");
@@ -109,7 +111,6 @@ pub fn profile_pid_from_etl_file(
                     }
                 }
                 "MSNT_SystemTrace/PerfInfo/CollectionStart" => {
-                    let mut parser = Parser::create(&s);
                     let interval_raw: u32 = parser.parse("NewInterval");
                     let interval_nanos = interval_raw as u64 * 100;
                     let interval = SamplingInterval::from_nanos(interval_nanos);
@@ -118,7 +119,6 @@ pub fn profile_pid_from_etl_file(
                     context_switch_handler = ContextSwitchHandler::new(interval_raw as u64);
                 }
                 "MSNT_SystemTrace/Thread/SetName" => {
-                    let mut parser = Parser::create(&s);
 
                     let thread_id: u32 = parser.parse("ThreadId");
                     let thread_name: String = parser.parse("ThreadName");
@@ -129,7 +129,6 @@ pub fn profile_pid_from_etl_file(
                 "MSNT_SystemTrace/Thread/DCStart" => {
                     let timestamp = e.EventHeader.TimeStamp as u64;
                     let timestamp = timestamp_converter.convert_time(timestamp);
-                    let mut parser = Parser::create(&s);
 
                     let thread_id: u32 = parser.parse("TThreadId");
                     let process_id: u32 = parser.parse("ProcessId");
@@ -151,7 +150,6 @@ pub fn profile_pid_from_etl_file(
                 "MSNT_SystemTrace/Thread/DCEnd" => {
                     let timestamp = e.EventHeader.TimeStamp as u64;
                     let timestamp = timestamp_converter.convert_time(timestamp);
-                    let mut parser = Parser::create(&s);
 
                     let thread_id: u32 = parser.parse("TThreadId");
 
@@ -159,7 +157,6 @@ pub fn profile_pid_from_etl_file(
                 }
                 "MSNT_SystemTrace/Process/Start" |
                 "MSNT_SystemTrace/Process/DCStart" => {
-                    let mut parser = Parser::create(&s);
                     let process_id: u32 = parser.parse("ProcessId");
                     let parent_id: u32 = parser.parse("ParentId");
                     let image_file_name: String = parser.parse("ImageFileName");
@@ -175,7 +172,6 @@ pub fn profile_pid_from_etl_file(
                 }
                 "MSNT_SystemTrace/Process/End" |
                 "MSNT_SystemTrace/Process/DCEnd" => {
-                    let mut parser = Parser::create(&s);
                     let process_id: u32 = parser.parse("ProcessId");
 
                     let timestamp = e.EventHeader.TimeStamp as u64;
@@ -184,7 +180,6 @@ pub fn profile_pid_from_etl_file(
                     //context.end_process(...);
                 }
                 "MSNT_SystemTrace/StackWalk/Stack" => {
-                    let mut parser = Parser::create(&s);
 
                     let thread_id: u32 = parser.parse("StackThread");
                     let process_id: u32 = parser.parse("StackProcess");
@@ -296,8 +291,6 @@ pub fn profile_pid_from_etl_file(
                     }
                 }
                 "MSNT_SystemTrace/PerfInfo/SampleProf" => {
-                    let mut parser = Parser::create(&s);
-
                     let thread_id: u32 = parser.parse("ThreadId");
                     let timestamp = e.EventHeader.TimeStamp as u64;
 
@@ -350,7 +343,6 @@ pub fn profile_pid_from_etl_file(
                         return;
                     }
 
-                    let mut parser = Parser::create(&s);
                     let timestamp = e.EventHeader.TimeStamp as u64;
                     let timestamp = timestamp_converter.convert_time(timestamp);
                     let thread_id = e.EventHeader.ThreadId;
@@ -381,8 +373,6 @@ pub fn profile_pid_from_etl_file(
                     assert!(process_id == e.EventHeader.ProcessId);
                     if !context.is_interesting_process(e.EventHeader.ProcessId, None, None) { return }
 
-                    let mut parser = Parser::create(&s);
-
                     let image_base: u64 = parser.try_parse("ImageBase").unwrap();
                     let timestamp = parser.try_parse("TimeDateStamp").unwrap();
                     let image_size: u32 = parser.try_parse("ImageSize").unwrap();
@@ -391,8 +381,6 @@ pub fn profile_pid_from_etl_file(
                     libs.insert(image_base, (path, image_size, timestamp));
                 }
                 "KernelTraceControl/ImageID/DbgID_RSDS" => {
-                    let mut parser = Parser::create(&s);
-
                     let process_id = s.process_id();
                     if !context.is_interesting_process(process_id, None, None) {
                         return;
@@ -431,7 +419,6 @@ pub fn profile_pid_from_etl_file(
                     // but don't contain the full path of the binary. We go through a bit of a dance to store the information from those events
                     // in pending_libraries and deal with it here. We assume that the KernelTraceControl events come before the Image/Load event.
 
-                    let mut parser = Parser::create(&s);
                     // the ProcessId field doesn't necessarily match s.process_id();
                     let process_id = parser.try_parse("ProcessId").unwrap();
                     if !context.is_interesting_process(process_id, None, None) { return }
@@ -512,7 +499,6 @@ pub fn profile_pid_from_etl_file(
                     );
                 }
                 "MSNT_SystemTrace/Thread/CSwitch" => {
-                    let mut parser = Parser::create(&s);
                     let new_thread: u32 = parser.parse("NewThreadId");
                     let old_thread: u32 = parser.parse("OldThreadId");
                     let timestamp = e.EventHeader.TimeStamp as u64;
@@ -530,13 +516,11 @@ pub fn profile_pid_from_etl_file(
                 }
                 "MSNT_SystemTrace/Thread/ReadyThread" => {
                     // these events can give us the unblocking stack
-                    let mut parser = Parser::create(&s);
                     let _thread_id: u32 = parser.parse("TThreadId");
                 }
                 "V8.js/MethodLoad/" |
                 "Microsoft-JScript/MethodRuntime/MethodDCStart" |
                 "Microsoft-JScript/MethodRuntime/MethodLoad" => {
-                    let mut parser = Parser::create(&s);
                     let method_name: String = parser.parse("MethodName");
                     let method_start_address: Address = parser.parse("MethodStartAddress");
                     let method_size: u64 = parser.parse("MethodSize");
@@ -582,7 +566,6 @@ pub fn profile_pid_from_etl_file(
                 "V8.js/SourceLoad/" /*|
                 "Microsoft-JScript/MethodRuntime/MethodDCStart" |
                 "Microsoft-JScript/MethodRuntime/MethodLoad"*/ => {
-                    let mut parser = Parser::create(&s);
                     let source_id: u64 = parser.parse("SourceID");
                     let url: String = parser.parse("Url");
                     //if s.process_id() == 6736 { dbg!(s.process_id(), &method_name, method_start_address, method_size); }
@@ -594,7 +577,6 @@ pub fn profile_pid_from_etl_file(
                     if let Some(marker_name) = s.name().strip_prefix("Mozilla.FirefoxTraceLogger/").and_then(|s| s.strip_suffix("/")) {
                         let thread_id = e.EventHeader.ThreadId;
                         let Some(thread) = context.get_thread(thread_id) else { return };
-                        let mut parser = Parser::create(&s);
                         let mut text = String::new();
                         for i in 0..s.property_count() {
                             let property = s.property(i);
@@ -704,7 +686,6 @@ pub fn profile_pid_from_etl_file(
                             }
                         }
 
-                        let mut parser = Parser::create(&s);
                         let thread_id = e.EventHeader.ThreadId;
                         let phase: String = parser.try_parse("Phase").unwrap();
 
@@ -736,8 +717,6 @@ pub fn profile_pid_from_etl_file(
                             context.profile.borrow_mut().add_marker(thread.handle, CategoryHandle::OTHER, marker_name, SimpleMarker(text.clone()), timing);
                         }
                     } else {
-                        let mut parser = Parser::create(&s);
-
                         let timestamp = e.EventHeader.TimeStamp as u64;
                         let timestamp = timestamp_converter.convert_time(timestamp);
                         let thread_id = e.EventHeader.ThreadId;
