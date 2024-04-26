@@ -95,8 +95,6 @@ pub fn start_recording(
     let mut context = ProfileContext::new(profile, rt.handle().clone(), merge_threads, include_idle_time);
     context.add_kernel_drivers();
 
-    let mut main_pid = 0;
-
     let (etl_file, existing_etl) = if !process_launch_props.command_name.to_str().unwrap().ends_with(".etl") {
         // Start xperf.
         context.start_xperf(&recording_props.output_file);
@@ -114,7 +112,6 @@ pub fn start_recording(
             child.envs(process_launch_props.env_vars.iter().map(|(k, v)| (k, v)));
             let mut child = child.spawn().unwrap();
 
-            main_pid = child.id();
             context.add_interesting_process_id(child.id());
 
             let exit_status = child.wait().unwrap();
@@ -155,7 +152,7 @@ pub fn start_recording(
             eprintln!("Read {} events from file", n_events);
         }
     } else {
-        etw_gecko::profile_pid_from_etl_file(&mut context, main_pid, recording_props, profile_creation_props, &Path::new(&etl_file));
+        etw_gecko::profile_pid_from_etl_file(&mut context, recording_props, profile_creation_props, "aarch64", &Path::new(&etl_file));
     }
 
     // delete etl_file

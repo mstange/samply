@@ -17,7 +17,7 @@ use fxprof_processed_profile::{CategoryColor, CategoryPairHandle, CounterHandle,
 use wholesym::SymbolManager;
 use crate::shared::context_switch::{OffCpuSampleGroup, ThreadContextSwitchData};
 use crate::shared::lib_mappings::LibMappingOpQueue;
-use crate::shared::types::StackFrame;
+use crate::shared::types::{StackFrame, StackMode};
 use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
 
 /// An on- or off-cpu-sample for which the user stack is not known yet.
@@ -414,6 +414,15 @@ impl ProfileContext {
                 .add_kernel_lib_mapping(lib_handle, start_avma, end_avma, 0);
         }
     }
+
+    fn stack_mode_for_address(&self, address: u64) -> StackMode {
+        if address >= self.kernel_min {
+            StackMode::Kernel
+        } else {
+            StackMode::User
+        }
+    }
+
 
     // The filename is a NT kernel path (https://chrisdenton.github.io/omnipath/NT.html) which isn't direclty
     // usable from user space.  perfview goes through a dance to convert it to a regular user space path

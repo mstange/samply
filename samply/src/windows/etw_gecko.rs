@@ -27,40 +27,17 @@ use super::*;
 
 use super::ProfileContext;
 
-fn is_kernel_address(ip: u64, pointer_size: u32) -> bool {
-    if pointer_size == 4 {
-        return ip >= 0x80000000;
-    }
-    return ip >= 0xFFFF000000000000;        // TODO I don't know what the true cutoff is.
-}
-
-fn stack_mode_for_address(address: u64, pointer_size: u32) -> StackMode {
-    if is_kernel_address(address, pointer_size) {
-        StackMode::Kernel
-    } else {
-        StackMode::User
-    }
-}
-
-
-fn strip_thread_numbers(name: &str) -> &str {
-    if let Some(hash) = name.find('#') {
-        let (prefix, suffix) = name.split_at(hash);
-        if suffix[1..].parse::<i32>().is_ok() {
-            return prefix.trim();
-        }
-    }
-    return name;
-}
-
 pub fn profile_pid_from_etl_file(
     context: &mut ProfileContext,
-    pid: u32,
     recording_props: RecordingProps,
     profile_creation_props: ProfileCreationProps,
+    arch: &str,
     etl_file: &Path,
 ) {
     let profile_start_instant = Timestamp::from_nanos_since_reference(0);
+
+    let is_x86 = arch == "x86" || arch == "x86_64";
+    let is_aarch64 = arch == "aarch64";
 
     let mut schema_locator = SchemaLocator::new();
     etw_reader::add_custom_schemas(&mut schema_locator);
@@ -75,14 +52,6 @@ pub fn profile_pid_from_etl_file(
     let demand_zero_faults = false; //pargs.contains("--demand-zero-faults");
     let marker_file: Option<String> = None; //pargs.opt_value_from_str("--marker-file").unwrap();
     let marker_prefix: Option<String> = None; //pargs.opt_value_from_str("--filter-by-marker-prefix").unwrap();
-
-    let mut process_targets = HashSet::new();
-    if pid != 0 {
-        process_targets.insert(pid);
-    }
-    let all_processes = process_targets.is_empty();
-
-    let process_target_name: Option<&str> = None;
 
     let user_category: CategoryPairHandle = context.profile.borrow_mut().add_category("User", fxprof_processed_profile::CategoryColor::Yellow).into();
     let kernel_category: CategoryPairHandle = context.profile.borrow_mut().add_category("Kernel", fxprof_processed_profile::CategoryColor::Orange).into();
@@ -111,6 +80,7 @@ pub fn profile_pid_from_etl_file(
         event_count += 1;
         let s = schema_locator.event_schema(e);
         if let Ok(s) = s {
+            //eprintln!("{}", s.name());
             match s.name() {
                 "MSNT_SystemTrace/EventTrace/Header" => {
                     let mut parser = Parser::create(&s);
@@ -219,28 +189,52 @@ pub fn profile_pid_from_etl_file(
 
                     let thread_id: u32 = parser.parse("StackThread");
                     let process_id: u32 = parser.parse("StackProcess");
-
                     let timestamp: u64 = parser.parse("EventTimeStamp");
-                    if !process_targets.contains(&process_id) {
-                        // eprintln!("not watching");
+
+                    if !context.threads.contains_key(&thread_id) { return }
+
+                    // eprint!("{} {} {}", thread_id, e.EventHeader.TimeStamp, timestamp);
+
+                    // TODO vlad -- the stacks are just in parser.buffer? From my reading the StackWalk event has
+                    // EventTimeStamp: u64, StackProcess: u32, StackThread: u32, so 16 bytes shifted.
+
+                    if is_aarch64 {
+                        // On ARM64, this is simpler -- stacks come in with full kernel and user frames.
+                        // On x86_64 they seem to be split
+
+                        // Iterate over the stack addresses, starting with the instruction pointer
+                        let stack: Vec<StackFrame> = parser.buffer.chunks_exact(8) // iterate over 8 byte items
+                            .map(|a| u64::from_ne_bytes(a.try_into().unwrap())) // parse into u64 (really we should just walk over u64 here, the world is LE)
+                            .enumerate()
+                            .map(|(i, addr)| {
+                                if i == 0 {
+                                    StackFrame::InstructionPointer(addr, context.stack_mode_for_address(addr))
+                                } else {
+                                    StackFrame::ReturnAddress(addr, context.stack_mode_for_address(addr))
+                                }
+                            })
+                            .collect();
+
+                        // TODO figure out how the on-cpu/off-cpu stuff works
+                        let timestamp_cvt = timestamp_converter.convert_time(timestamp);
+                        context.add_sample(thread_id, process_id, timestamp_cvt, timestamp, CpuDelta::ZERO, 1, stack);
                         return;
                     }
 
-                    let Some(mut thread) = context.get_thread_mut(thread_id) else { return };
-                    // eprint!("{} {} {}", thread_id, e.EventHeader.TimeStamp, timestamp);
+                    assert!(is_x86);
 
-                    // Iterate over the stack addresses, starting with the instruction pointer
                     let mut stack: Vec<StackFrame> = Vec::with_capacity(parser.buffer.len() / 8);
                     let mut address_iter = parser.buffer.chunks_exact(8).map(|a| u64::from_ne_bytes(a.try_into().unwrap()));
                     let Some(first_frame_address) = address_iter.next() else { return };
-                    let first_frame_stack_mode = stack_mode_for_address(first_frame_address, 8);
+                    let first_frame_stack_mode = context.stack_mode_for_address(first_frame_address);
                     stack.push(StackFrame::InstructionPointer(first_frame_address, first_frame_stack_mode));
                     for frame_address in address_iter {
-                        let stack_mode = stack_mode_for_address(first_frame_address, 8);
+                        let stack_mode = context.stack_mode_for_address(first_frame_address);
                         stack.push(StackFrame::ReturnAddress(frame_address, stack_mode));
                     }
 
                     if first_frame_stack_mode == StackMode::Kernel {
+                        let mut thread = context.get_thread_mut(thread_id).unwrap();
                         if let Some(pending_stack ) = thread.pending_stacks.iter_mut().rev().find(|s| s.timestamp == timestamp) {
                             if let Some(kernel_stack) = pending_stack.kernel_stack.as_mut() {
                                 eprintln!("Multiple kernel stacks for timestamp {timestamp} on thread {thread_id}");
@@ -255,19 +249,28 @@ pub fn profile_pid_from_etl_file(
                     // We now know that we have a user stack. User stacks always come last. Consume
                     // the pending stack with matching timestamp.
 
+                    // the number of pending stacks at or before our timestamp
+                    let num_pending_stacks = context.get_thread(thread_id).unwrap()
+                        .pending_stacks.iter().take_while(|s| s.timestamp <= timestamp).count();
+
+                    let pending_stacks: VecDeque<_> = context.get_thread_mut(thread_id).unwrap().pending_stacks.drain(..num_pending_stacks).collect();
+
                     // Use this user stack for all pending stacks from this thread.
-                    while thread.pending_stacks.front().is_some_and(|s| s.timestamp <= timestamp) {
+                    for pending_stack in pending_stacks {
                         let PendingStack {
                             timestamp,
                             kernel_stack,
                             off_cpu_sample_group,
                             on_cpu_sample_cpu_delta,
-                        } = thread.pending_stacks.pop_front().unwrap();
+                        } = pending_stack;
 
                         if let Some(off_cpu_sample_group) = off_cpu_sample_group {
                             let OffCpuSampleGroup { begin_timestamp, end_timestamp, sample_count } = off_cpu_sample_group;
 
-                            let cpu_delta_raw = context_switch_handler.consume_cpu_delta(&mut thread.context_switch_data);
+                            let cpu_delta_raw = {
+                                let mut thread = context.get_thread_mut(thread_id).unwrap();
+                                context_switch_handler.consume_cpu_delta(&mut thread.context_switch_data)
+                            };
                             let cpu_delta = CpuDelta::from_nanos(cpu_delta_raw as u64 * timestamp_converter.raw_to_ns_factor);
 
                             // Add a sample at the beginning of the paused range.
@@ -344,7 +347,7 @@ pub fn profile_pid_from_etl_file(
                 }
                 "MSNT_SystemTrace/PageFault/VirtualAlloc" |
                 "MSNT_SystemTrace/PageFault/VirtualFree" => {
-                    if !process_targets.contains(&e.EventHeader.ProcessId) || context.merge_threads {
+                    if !context.is_interesting_process(e.EventHeader.ProcessId, None, None) || context.merge_threads {
                         return;
                     }
 
@@ -375,11 +378,10 @@ pub fn profile_pid_from_etl_file(
                     context.profile.borrow_mut().add_marker(thread_handle, CategoryHandle::OTHER, op_name, SimpleMarker(text), MarkerTiming::Instant(timestamp));
                 }
                 "KernelTraceControl/ImageID/" => {
-
                     let process_id = s.process_id();
-                    if !process_targets.contains(&process_id) && process_id != 0 {
-                        return;
-                    }
+                    assert!(process_id == e.EventHeader.ProcessId);
+                    if !context.is_interesting_process(e.EventHeader.ProcessId, None, None) { return }
+
                     let mut parser = Parser::create(&s);
 
                     let image_base: u64 = parser.try_parse("ImageBase").unwrap();
@@ -433,9 +435,8 @@ pub fn profile_pid_from_etl_file(
                     let mut parser = Parser::create(&s);
                     // the ProcessId field doesn't necessarily match s.process_id();
                     let process_id = parser.try_parse("ProcessId").unwrap();
-                    if !process_targets.contains(&process_id) && process_id != 0 {
-                        return;
-                    }
+                    if !context.is_interesting_process(process_id, None, None) { return }
+
                     let image_base: u64 = parser.try_parse("ImageBase").unwrap();
                     let image_size: u64 = parser.try_parse("ImageSize").unwrap();
 
