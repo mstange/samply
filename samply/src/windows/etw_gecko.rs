@@ -133,7 +133,6 @@ pub fn profile_pid_from_etl_file(
 
                     let thread_id: u32 = parser.parse("TThreadId");
                     let process_id: u32 = parser.parse("ProcessId");
-                    //assert_eq!(process_id,s.process_id());
 
                     if !context.is_interesting_process(process_id, None, None) {
                         return;
@@ -141,8 +140,8 @@ pub fn profile_pid_from_etl_file(
 
                     // if there's an existing thread, remove it, assume we dropped an end thread event
                     context.remove_thread(thread_id, Some(timestamp));
+                    context.add_thread(process_id, thread_id, timestamp);
 
-                    let thread = context.add_thread(process_id, thread_id, timestamp);
                     let thread_name: Option<String> = parser.try_parse("ThreadName").ok();
                     if let Some(thread_name) = thread_name {
                         context.set_thread_name(thread_id, &thread_name);
