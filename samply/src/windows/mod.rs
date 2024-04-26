@@ -4,7 +4,7 @@ mod etw_gecko;
 mod etw_reader;
 mod etw_simple;
 
-use std::cell::RefCell;
+use std::cell::{RefCell, Ref, RefMut};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::collections::hash_map::Entry;
 use std::path::{Path, PathBuf};
@@ -119,11 +119,11 @@ struct ProfileContext {
 
     // state -- keep track of the processes etc we've seen as we're processing,
     // and their associated handles in the json profile
-    processes: HashMap<u32, ProcessState>,
-    threads: HashMap<u32, ThreadState>,
-    memory_usage: HashMap<u32, MemoryUsage>,
+    processes: HashMap<u32, RefCell<ProcessState>>,
+    threads: HashMap<u32, RefCell<ThreadState>>,
+    memory_usage: HashMap<u32, RefCell<MemoryUsage>>,
 
-    unresolved_stacks: UnresolvedStacks,
+    unresolved_stacks: RefCell<UnresolvedStacks>,
 
     // If process and threads are being squished into one global one, here's the squished handles.
     // We still allocate a ThreadState/ProcessState per thread
@@ -169,28 +169,18 @@ impl ProfileContext {
     const K_GLOBAL_IDLE_THREAD_ID: u32 = 0;
     const K_GLOBAL_OTHER_THREAD_ID: u32 = u32::MAX;
 
-    fn new(profile: Arc<Mutex<Profile>>, rt: runtime::Handle, merge_threads: bool, include_idle: bool) -> Self {
-        let default_category = CategoryPairHandle::from(
-            profile
-                .lock()
-                .unwrap()
-                .add_category("User", CategoryColor::Yellow),
-        );
-        let kernel_category = CategoryPairHandle::from(
-            profile
-                .lock()
-                .unwrap()
-                .add_category("Kernel", CategoryColor::Orange),
-        );
+    fn new(mut profile: Profile, rt: runtime::Handle, merge_threads: bool, include_idle: bool) -> Self {
+        let default_category = CategoryPairHandle::from(profile.add_category("User", CategoryColor::Yellow));
+        let kernel_category = CategoryPairHandle::from(profile.add_category("Kernel", CategoryColor::Orange));
 
         let mut result = Self {
-            profile,
+            profile: RefCell::new(profile),
             rt,
             timebase_nanos: 0,
             processes: HashMap::new(),
             threads: HashMap::new(),
             memory_usage: HashMap::new(),
-            unresolved_stacks: UnresolvedStacks::default(),
+            unresolved_stacks: RefCell::new(UnresolvedStacks::default()),
             global_process_handle: None,
             global_thread_handle: None,
             idle_thread_handle: None,
@@ -209,7 +199,7 @@ impl ProfileContext {
 
         if merge_threads {
             let start_instant = Timestamp::from_nanos_since_reference(0);
-            let mut profile = result.profile.lock().unwrap();
+            let mut profile = result.profile.borrow_mut();
 
             let global_process_handle = profile.add_process("All processes", Self::K_GLOBAL_MERGED_PROCESS_ID, start_instant);
             let global_thread_handle = profile.add_thread(global_process_handle, Self::K_GLOBAL_MERGED_THREAD_ID, start_instant, true);
@@ -237,20 +227,21 @@ impl ProfileContext {
     }
 
     // add_process and add_thread always add a process/thread (and thread expects process to exist)
-    fn add_process(&mut self, pid: u32, parent_id: u32, name: &str, start_time: Timestamp) -> &mut ProcessState {
+    fn add_process(&mut self, pid: u32, parent_id: u32, name: &str, start_time: Timestamp) {
         let process_handle = if self.merge_threads {
             self.global_process_handle.unwrap()
         } else {
-            self.profile.lock().unwrap().add_process(name, pid, start_time)
+            self.profile.borrow_mut().add_process(name, pid, start_time)
         };
         let process = ProcessState::new(process_handle, pid, parent_id);
-        self.processes.insert(pid, process).as_mut().unwrap()
+        self.processes.insert(pid, RefCell::new(process));
     }
 
     fn remove_process(&mut self, pid: u32, timestamp: Option<Timestamp>) -> Option<ProcessHandle> {
         if let Some(process) = self.processes.remove(&pid) {
+            let process = process.into_inner();
             if let Some(timestamp) = timestamp {
-                self.profile.lock().unwrap().set_process_end_time(process.handle, timestamp);
+                self.profile.borrow_mut().set_process_end_time(process.handle, timestamp);
             }
 
             Some(process.handle)
@@ -259,26 +250,27 @@ impl ProfileContext {
         }
     }
 
-    fn get_process(&self, pid: u32) -> Option<&ProcessState> {
-        self.processes.get(&pid)
+    fn get_process(&self, pid: u32) -> Option<Ref<'_, ProcessState>> {
+        self.processes.get(&pid).map(|p| p.borrow())
     }
 
-    fn get_process_mut(&mut self, pid: u32) -> Option<&mut ProcessState> {
-        self.processes.get_mut(&pid)
+    fn get_process_mut(&self, pid: u32) -> Option<RefMut<'_, ProcessState>> {
+        self.processes.get(&pid).map(|p| p.borrow_mut())
     }
 
     fn get_process_handle(&self, pid: u32) -> Option<ProcessHandle> {
         self.get_process(pid).map(|p| p.handle)
     }
 
-    fn add_thread(&mut self, pid: u32, tid: u32, start_time: Timestamp) -> &mut ThreadState {
-        let process = self.processes.get_mut(&pid).unwrap();
+    fn add_thread(&mut self, pid: u32, tid: u32, start_time: Timestamp) {
+        assert!(self.processes.contains_key(&pid), "Should've checked sooner");
 
         let thread_handle = if self.merge_threads {
             self.global_thread_handle.unwrap()
         } else {
+            let mut process = self.processes.get_mut(&pid).unwrap().borrow_mut();
             let is_main = process.main_thread_handle.is_none();
-            let thread_handle = self.profile.lock().unwrap().add_thread(process.handle, tid, start_time, is_main);
+            let thread_handle = self.profile.borrow_mut().add_thread(process.handle, tid, start_time, is_main);
             if is_main {
                 process.main_thread_handle = Some(thread_handle);
             }
@@ -286,13 +278,14 @@ impl ProfileContext {
         };
 
         let thread = ThreadState::new(thread_handle, pid, tid);
-        self.threads.insert(tid, thread).as_mut().unwrap()
+        self.threads.insert(tid, RefCell::new(thread));
     }
 
     fn remove_thread(&mut self, tid: u32, timestamp: Option<Timestamp>) -> Option<ThreadHandle> {
         if let Some(thread) = self.threads.remove(&tid) {
+            let thread = thread.into_inner();
             if let Some(timestamp) = timestamp {
-                self.profile.lock().unwrap().set_thread_end_time(thread.handle, timestamp);
+                self.profile.borrow_mut().set_thread_end_time(thread.handle, timestamp);
             }
 
             Some(thread.handle)
@@ -301,20 +294,20 @@ impl ProfileContext {
         }
     }
 
-    fn get_process_for_thread(&self, tid: u32) -> Option<&ProcessState> {
-        let thread = self.threads.get(&tid)?;
-        self.processes.get(&thread.process_id)
+    fn get_process_for_thread(&self, tid: u32) -> Option<Ref<'_, ProcessState>> {
+        let pid = self.threads.get(&tid)?.borrow().process_id;
+        self.processes.get(&pid).map(|p| p.borrow())
     }
 
-    fn get_thread(&self, tid: u32) -> Option<&ThreadState> {
-        self.threads.get(&tid)
+    fn get_thread(&self, tid: u32) -> Option<Ref<'_, ThreadState>> {
+        self.threads.get(&tid).map(|p| p.borrow())
     }
 
-    fn get_thread_mut(&mut self, tid: u32) -> Option<&mut ThreadState> {
-        self.threads.get_mut(&tid)
+    fn get_thread_mut(&self, tid: u32) -> Option<RefMut<'_, ThreadState>> {
+        self.threads.get(&tid).map(|p| p.borrow_mut())
     }
 
-    fn get_thread_handle(&mut self, tid: u32) -> Option<ThreadHandle> {
+    fn get_thread_handle(&self, tid: u32) -> Option<ThreadHandle> {
         self.get_thread(tid).map(|t| t.handle)
     }
 
@@ -330,30 +323,30 @@ impl ProfileContext {
         }
     }
 
-    fn set_thread_name(&mut self, tid: u32, name: &str) {
-        if let Some(thread) = self.threads.get_mut(&tid) {
-            self.profile.lock().unwrap().set_thread_name(thread.handle, name);
+    fn set_thread_name(&self, tid: u32, name: &str) {
+        if let Some(mut thread) = self.get_thread_mut(tid) {
+            self.profile.borrow_mut().set_thread_name(thread.handle, name);
             thread.merge_name = Some(name.to_string());
         }
     }
 
-    fn get_or_create_memory_usage(&mut self, tid: u32) -> Option<&mut MemoryUsage> {
+    fn get_or_create_memory_usage_counter(&mut self, tid: u32) -> Option<CounterHandle> {
         let process_handle = if let Some(process) = self.get_process_for_thread(tid) { process.handle } else { return None };
-        let thread = self.threads.get_mut(&tid).unwrap();
+        let mut thread = self.get_thread_mut(tid).unwrap();
 
         Some(thread.memory_usage.get_or_insert_with(|| {
-            let counter = self.profile.lock().unwrap().add_counter(process_handle, "VM", "Memory", "Amount of VirtualAlloc allocated memory");
+            let counter = self.profile.borrow_mut().add_counter(process_handle, "VM", "Memory", "Amount of VirtualAlloc allocated memory");
             MemoryUsage {
                 counter,
                 value: 0.0
             }
-        }))
+        }).counter)
     }
 
-    fn add_sample(&mut self, tid: u32, pid: u32, timestamp: Timestamp, timestamp_raw: u64, cpu_delta: CpuDelta, weight: i32, stack: Vec<StackFrame>) {
-        let profile = self.profile.lock().unwrap();
-        let stack_index = self.unresolved_stacks.convert(stack.into_iter().rev());
-        let thread = self.threads.get(&tid).unwrap();
+    fn add_sample(&self, tid: u32, pid: u32, timestamp: Timestamp, timestamp_raw: u64, cpu_delta: CpuDelta, weight: i32, stack: Vec<StackFrame>) {
+        let mut profile = self.profile.borrow_mut();
+        let stack_index = self.unresolved_stacks.borrow_mut().convert(stack.into_iter().rev());
+        let thread = self.get_thread(tid).unwrap();
         let extra_label_frame = if self.merge_threads {
             let display_name = thread.display_name();
             Some(FrameInfo {
@@ -363,7 +356,17 @@ impl ProfileContext {
             })
         } else { None };
         let thread = thread.handle;
-        self.get_process(pid).unwrap().unresolved_samples.add_sample(thread, timestamp, timestamp_raw, stack_index, cpu_delta, weight, extra_label_frame);
+        self.get_process_mut(pid).unwrap().unresolved_samples.add_sample(thread, timestamp, timestamp_raw, stack_index, cpu_delta, weight, extra_label_frame);
+    }
+
+    fn get_or_add_lib_simple(&mut self, filename: &str) -> LibraryHandle {
+        if let Some(&handle) = self.libs.get(filename) {
+            handle
+        } else {
+            let handle = self.profile.borrow_mut().add_lib(self.library_info_for_path(filename));
+            self.libs.insert(filename.to_string(), handle);
+            handle
+        }
     }
 
     fn add_interesting_process_id(&mut self, pid: u32) {
@@ -386,7 +389,7 @@ impl ProfileContext {
     }
 
     fn new_with_existing_recording(
-        profile: Arc<Mutex<Profile>>,
+        mut profile: Profile,
         rt: runtime::Handle,
         etl_file: &Path,
     ) -> Self {
@@ -405,10 +408,9 @@ impl ProfileContext {
             let path = self.map_device_path(&path);
             eprintln!("kernel driver: {} {:x} {:x}", path, start_avma, end_avma);
             let lib_info = self.library_info_for_path(&path);
-            let lib_handle = self.profile.lock().unwrap().add_lib(lib_info);
+            let lib_handle = self.profile.borrow_mut().add_lib(lib_info);
             self.profile
-                .lock()
-                .unwrap()
+                .borrow_mut()
                 .add_kernel_lib_mapping(lib_handle, start_avma, end_avma, 0);
         }
     }
@@ -469,10 +471,6 @@ impl ProfileContext {
                 symbol_table: None,
             }
         }
-    }
-
-    fn thread_state_for_thread_id(&mut self, thread_id: u32) -> Option<&mut ThreadState> {
-        self.threads.get_mut(&thread_id)
     }
 
     fn start_xperf(&mut self, output_file: &Path) {

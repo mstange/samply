@@ -8,6 +8,7 @@ use std::ops::DerefMut;
 use std::os::windows::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
+use std::sync::atomic::AtomicPtr;
 use std::sync::{Arc, Mutex};
 use tokio::runtime;
 
@@ -87,11 +88,11 @@ pub fn start_recording(
         .build()
         .unwrap();
 
-    let profile = Arc::new(Mutex::new(profile));
+    //let profile = Arc::new(Mutex::new(profile));
 
     let merge_threads = false;
     let include_idle_time = false;
-    let mut context = ProfileContext::new(profile.clone(), rt.handle().clone(), merge_threads, include_idle_time);
+    let mut context = ProfileContext::new(profile, rt.handle().clone(), merge_threads, include_idle_time);
     context.add_kernel_drivers();
 
     let mut main_pid = 0;
@@ -135,19 +136,24 @@ pub fn start_recording(
 
     let old_processing = false;
     if old_processing {
-        let (trace, handle) = FileTrace::new(etl_file.clone(), move |ev, sl| {
-            etw_simple::trace_callback(ev, sl, &mut context);
-        })
-            .start()
-            .unwrap();
+        unsafe {
+            // let's get rid of that pesky Sync trait requirement
+            let context_ptr = AtomicPtr::new(&mut context as *mut _);
+            let (trace, handle) = FileTrace::new(etl_file.clone(), move |ev, sl| {
+                let context = context_ptr.load(std::sync::atomic::Ordering::Relaxed);
+                etw_simple::trace_callback(ev, sl, &mut *context);
+            })
+                .start()
+                .unwrap();
 
-        // TODO: grab the header info, so that we can pull out StartTime (and PerfFreq). Not really important.
-        // QueryTraceProcessingHandle(handle, EtwQueryLogFileHeader, None, 0, &ptr to TRACE_LOGFILE_HEADER)
+            // TODO: grab the header info, so that we can pull out StartTime (and PerfFreq). Not really important.
+            // QueryTraceProcessingHandle(handle, EtwQueryLogFileHeader, None, 0, &ptr to TRACE_LOGFILE_HEADER)
 
-        FileTrace::process_from_handle(handle).unwrap();
+            FileTrace::process_from_handle(handle).unwrap();
 
-        let n_events = trace.events_handled();
-        eprintln!("Read {} events from file", n_events);
+            let n_events = trace.events_handled();
+            eprintln!("Read {} events from file", n_events);
+        }
     } else {
         etw_gecko::profile_pid_from_etl_file(&mut context, main_pid, recording_props, profile_creation_props, &Path::new(&etl_file));
     }
@@ -160,7 +166,10 @@ pub fn start_recording(
     // write the profile to a json file
     let file = File::create(&output_file).unwrap();
     let writer = BufWriter::new(file);
-    to_writer(writer, profile.lock().unwrap().deref_mut()).expect("Couldn't write JSON");
+    {
+        let mut profile = context.profile.borrow_mut();
+        to_writer(writer, &*profile).expect("Couldn't write JSON");
+    }
 
     // then fire up the server for the profiler front end, if not save-only
     if let Some(server_props) = server_props {

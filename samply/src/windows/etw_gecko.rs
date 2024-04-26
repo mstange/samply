@@ -84,10 +84,8 @@ pub fn profile_pid_from_etl_file(
 
     let process_target_name: Option<&str> = None;
 
-    let mut profile = context.profile.lock().unwrap();
-
-    let user_category: CategoryPairHandle = profile.add_category("User", fxprof_processed_profile::CategoryColor::Yellow).into();
-    let kernel_category: CategoryPairHandle = profile.add_category("Kernel", fxprof_processed_profile::CategoryColor::Orange).into();
+    let user_category: CategoryPairHandle = context.profile.borrow_mut().add_category("User", fxprof_processed_profile::CategoryColor::Yellow).into();
+    let kernel_category: CategoryPairHandle = context.profile.borrow_mut().add_category("Kernel", fxprof_processed_profile::CategoryColor::Orange).into();
 
     let mut jit_category_manager = JitCategoryManager::new();
     let mut context_switch_handler = ContextSwitchHandler::new(122100);
@@ -146,7 +144,7 @@ pub fn profile_pid_from_etl_file(
                     let interval_nanos = interval_raw as u64 * 100;
                     let interval = SamplingInterval::from_nanos(interval_nanos);
                     println!("Sample rate {}ms", interval.as_secs_f64() * 1000.);
-                    profile.set_interval(interval);
+                    context.profile.borrow_mut().set_interval(interval);
                     context_switch_handler = ContextSwitchHandler::new(interval_raw as u64);
                 }
                 "MSNT_SystemTrace/Thread/SetName" => {
@@ -228,7 +226,7 @@ pub fn profile_pid_from_etl_file(
                         return;
                     }
 
-                    let Some(thread) = context.get_thread_mut(thread_id) else { return };
+                    let Some(mut thread) = context.get_thread_mut(thread_id) else { return };
                     // eprint!("{} {} {}", thread_id, e.EventHeader.TimeStamp, timestamp);
 
                     // Iterate over the stack addresses, starting with the instruction pointer
@@ -306,15 +304,15 @@ pub fn profile_pid_from_etl_file(
                     if let Some(idle_handle) = context.get_idle_handle_if_appropriate(thread_id) {
                         let mut frames = Vec::new();
                         frames.push(FrameInfo {
-                            frame: fxprof_processed_profile::Frame::Label(profile.intern_string(if thread_id == 0 { "Idle" } else { "Other" })),
+                            frame: fxprof_processed_profile::Frame::Label(context.profile.borrow_mut().intern_string(if thread_id == 0 { "Idle" } else { "Other" })),
                             category_pair: user_category,
                             flags: FrameFlags::empty()
                         });
                         let timestamp = timestamp_converter.convert_time(timestamp);
-                        profile.add_sample(idle_handle, timestamp, frames.into_iter(), Duration::ZERO.into(), 1);
+                        context.profile.borrow_mut().add_sample(idle_handle, timestamp, frames.into_iter(), Duration::ZERO.into(), 1);
                     }
 
-                    let Some(thread) = context.get_thread(thread_id) else { return };
+                    let Some(mut thread) = context.get_thread_mut(thread_id) else { return };
 
                     let off_cpu_sample_group = context_switch_handler.handle_on_cpu_sample(timestamp, &mut thread.context_switch_data);
                     let delta = context_switch_handler.consume_cpu_delta(&mut thread.context_switch_data);
@@ -332,15 +330,15 @@ pub fn profile_pid_from_etl_file(
                     if let Some(idle_handle) = context.get_idle_handle_if_appropriate(thread_id) {
                         let mut frames = Vec::new();
                         frames.push(FrameInfo {
-                            frame: fxprof_processed_profile::Frame::Label(profile.intern_string(if thread_id == 0 { "Idle" } else { "Other" })),
+                            frame: fxprof_processed_profile::Frame::Label(context.profile.borrow_mut().intern_string(if thread_id == 0 { "Idle" } else { "Other" })),
                             category_pair: user_category,
                             flags: FrameFlags::empty()
                         });
                         let timestamp = timestamp_converter.convert_time(timestamp);
-                        profile.add_sample(idle_handle, timestamp, frames.into_iter(), Duration::ZERO.into(), 1);
+                        context.profile.borrow_mut().add_sample(idle_handle, timestamp, frames.into_iter(), Duration::ZERO.into(), 1);
                     }
 
-                    let Some(thread) = context.get_thread(thread_id) else { return };
+                    let Some(mut thread) = context.get_thread_mut(thread_id) else { return };
 
                     thread.pending_stacks.push_back(PendingStack { timestamp, kernel_stack: None, off_cpu_sample_group: None, on_cpu_sample_cpu_delta: Some(CpuDelta::from_millis(1.0)) });
                 }
@@ -355,7 +353,7 @@ pub fn profile_pid_from_etl_file(
                     let timestamp = timestamp_converter.convert_time(timestamp);
                     let thread_id = e.EventHeader.ThreadId;
 
-                    let Some(memory_usage_counter) = context.get_or_create_memory_usage(thread_id).map(|mu| mu.counter) else { return };
+                    let Some(memory_usage_counter) = context.get_or_create_memory_usage_counter(thread_id) else { return };
                     let Some(thread_handle) = context.get_thread(thread_id).map(|t| t.handle) else { return };
 
                     let region_size: u64 = parser.parse("RegionSize");
@@ -373,8 +371,8 @@ pub fn profile_pid_from_etl_file(
                         text += ", "
                     }
 
-                    profile.add_counter_sample(memory_usage_counter, timestamp, delta_size, 1);
-                    profile.add_marker(thread_handle, CategoryHandle::OTHER, op_name, SimpleMarker(text), MarkerTiming::Instant(timestamp));
+                    context.profile.borrow_mut().add_counter_sample(memory_usage_counter, timestamp, delta_size, 1);
+                    context.profile.borrow_mut().add_marker(thread_handle, CategoryHandle::OTHER, op_name, SimpleMarker(text), MarkerTiming::Instant(timestamp));
                 }
                 "KernelTraceControl/ImageID/" => {
 
@@ -422,7 +420,7 @@ pub fn profile_pid_from_etl_file(
                     if process_id == 0 {
                         kernel_pending_libraries.insert(image_base, info);
                     } else {
-                        let process = context.get_process(process_id).unwrap();
+                        let mut process = context.get_process_mut(process_id).unwrap();
                         process.pending_libraries.insert(image_base, info);
                     }
 
@@ -447,18 +445,18 @@ pub fn profile_pid_from_etl_file(
                     let info = if process_id == 0 {
                         kernel_pending_libraries.remove(&image_base)
                     } else {
-                        let process = context.get_process(process_id).unwrap();
+                        let mut process = context.get_process_mut(process_id).unwrap();
                         process.pending_libraries.remove(&image_base)
                     };
                     // If the file doesn't exist on disk we won't have KernelTraceControl/ImageID events
                     // This happens for the ghost drivers mentioned here: https://devblogs.microsoft.com/oldnewthing/20160913-00/?p=94305
                     if let Some(mut info) = info {
                         info.path = path;
-                        let lib_handle = profile.add_lib(info);
+                        let lib_handle = context.profile.borrow_mut().add_lib(info);
                         if process_id == 0 {
-                            profile.add_kernel_lib_mapping(lib_handle, image_base, image_base + image_size as u64, 0);
+                            context.profile.borrow_mut().add_kernel_lib_mapping(lib_handle, image_base, image_base + image_size as u64, 0);
                         } else {
-                            let process = context.get_process(process_id).unwrap();
+                            let mut process = context.get_process_mut(process_id).unwrap();
                             process.regular_lib_mapping_ops.push(e.EventHeader.TimeStamp as u64, LibMappingOp::Add(LibMappingAdd {
                                 start_avma: image_base,
                                 end_avma: image_base + image_size as u64,
@@ -503,10 +501,10 @@ pub fn profile_pid_from_etl_file(
                     }
 
                     let gpu_thread = gpu_thread.get_or_insert_with(|| {
-                        let gpu = profile.add_process("GPU", 1, profile_start_instant);
-                        profile.add_thread(gpu, 1, profile_start_instant, false)
+                        let gpu = context.profile.borrow_mut().add_process("GPU", 1, profile_start_instant);
+                        context.profile.borrow_mut().add_thread(gpu, 1, profile_start_instant, false)
                     });
-                    profile.add_marker(*gpu_thread,
+                    context.profile.borrow_mut().add_marker(*gpu_thread,
                         CategoryHandle::OTHER,
                         "Vsync",
                         VSyncMarker{},
@@ -520,10 +518,10 @@ pub fn profile_pid_from_etl_file(
                     let timestamp = e.EventHeader.TimeStamp as u64;
                     // println!("CSwitch {} -> {} @ {} on {}", old_thread, new_thread, e.EventHeader.TimeStamp, unsafe { e.BufferContext.Anonymous.ProcessorIndex });
 
-                    if let Some(old_thread) = context.get_thread(old_thread) {
+                    if let Some(mut old_thread) = context.get_thread_mut(old_thread) {
                         context_switch_handler.handle_switch_out(timestamp, &mut old_thread.context_switch_data);
                     }
-                    if let Some(new_thread) = context.get_thread(new_thread) {
+                    if let Some(mut new_thread) = context.get_thread_mut(new_thread) {
                         let off_cpu_sample_group = context_switch_handler.handle_switch_in(timestamp, &mut new_thread.context_switch_data);
                         if let Some(off_cpu_sample_group) = off_cpu_sample_group {
                             new_thread.pending_stacks.push_back(PendingStack { timestamp, kernel_stack: None, off_cpu_sample_group: Some(off_cpu_sample_group), on_cpu_sample_cpu_delta: None });
@@ -547,7 +545,7 @@ pub fn profile_pid_from_etl_file(
                     let Some(process) = context.get_process(process_id) else { return; };
 
                     let process_jit_info = jscript_symbols.entry(s.process_id()).or_insert_with(|| {
-                        let lib_handle = profile.add_lib(LibraryInfo { name: format!("JIT-{process_id}"), debug_name: format!("JIT-{process_id}"), path: format!("JIT-{process_id}"), debug_path: format!("JIT-{process_id}"), debug_id: DebugId::nil(), code_id: None, arch: None, symbol_table: None });
+                        let lib_handle = context.profile.borrow_mut().add_lib(LibraryInfo { name: format!("JIT-{process_id}"), debug_name: format!("JIT-{process_id}"), path: format!("JIT-{process_id}"), debug_path: format!("JIT-{process_id}"), debug_id: DebugId::nil(), code_id: None, arch: None, symbol_table: None });
                         ProcessJitInfo { lib_handle, jit_mapping_ops: LibMappingOpQueue::default(), next_relative_address: 0, symbols: Vec::new() }
                     });
                     let start_address = method_start_address.as_u64();
@@ -558,7 +556,7 @@ pub fn profile_pid_from_etl_file(
                     let timestamp = timestamp_converter.convert_time(timestamp);
 
                     if let Some(main_thread) = process.main_thread_handle {
-                        profile.add_marker(
+                        context.profile.borrow_mut().add_marker(
                             main_thread,
                             CategoryHandle::OTHER,
                             "JitFunctionAdd",
@@ -567,7 +565,7 @@ pub fn profile_pid_from_etl_file(
                         );
                     }
                     
-                    let (category, js_frame) = jit_category_manager.classify_jit_symbol(&method_name, &mut profile);
+                    let (category, js_frame) = jit_category_manager.classify_jit_symbol(&method_name, &mut *context.profile.borrow_mut());
                     let info = LibMappingInfo::new_jit_function(process_jit_info.lib_handle, category, js_frame);
                     process_jit_info.jit_mapping_ops.push(e.EventHeader.TimeStamp as u64, LibMappingOp::Add(LibMappingAdd {
                         start_avma: start_address,
@@ -595,14 +593,7 @@ pub fn profile_pid_from_etl_file(
                 _ => {
                     if let Some(marker_name) = s.name().strip_prefix("Mozilla.FirefoxTraceLogger/").and_then(|s| s.strip_suffix("/")) {
                         let thread_id = e.EventHeader.ThreadId;
-                        let thread = match context.threads.entry(thread_id) {
-                            Entry::Occupied(e) => e.into_mut(), 
-                            Entry::Vacant(_) => {
-                                dropped_sample_count += 1;
-                                // We don't know what process this will before so just drop it for now
-                                return;
-                            }
-                        };
+                        let Some(thread) = context.get_thread(thread_id) else { return };
                         let mut parser = Parser::create(&s);
                         let mut text = String::new();
                         for i in 0..s.property_count() {
@@ -650,12 +641,12 @@ pub fn profile_pid_from_etl_file(
 
                         if marker_name == "UserTiming" {
                             let name: String = parser.try_parse("name").unwrap();
-                            profile.add_marker(thread.handle, CategoryHandle::OTHER, "UserTiming", UserTimingMarker(name), timing);
+                            context.profile.borrow_mut().add_marker(thread.handle, CategoryHandle::OTHER, "UserTiming", UserTimingMarker(name), timing);
                         } else if marker_name == "SimpleMarker" || marker_name == "Text" || marker_name == "tracing" {
                             let marker_name: String = parser.try_parse("MarkerName").unwrap();
-                            profile.add_marker(thread.handle, CategoryHandle::OTHER, &marker_name, SimpleMarker(text.clone()), timing);
+                            context.profile.borrow_mut().add_marker(thread.handle, CategoryHandle::OTHER, &marker_name, SimpleMarker(text.clone()), timing);
                         } else {
-                            profile.add_marker(thread.handle, CategoryHandle::OTHER, marker_name, SimpleMarker(text.clone()), timing);
+                            context.profile.borrow_mut().add_marker(thread.handle, CategoryHandle::OTHER, marker_name, SimpleMarker(text.clone()), timing);
                         }
                     } else if let Some(marker_name) = s.name().strip_prefix("Google.Chrome/").and_then(|s| s.strip_suffix("/")) {
                         // a bitfield of keywords
@@ -740,9 +731,9 @@ pub fn profile_pid_from_etl_file(
                         };
                         let keyword = KeywordNames::from_bits(e.EventHeader.EventDescriptor.Keyword).unwrap();
                         if keyword == KeywordNames::blink_user_timing {
-                            profile.add_marker(thread.handle, CategoryHandle::OTHER, "UserTiming", UserTimingMarker(marker_name.to_owned()), timing);
+                            context.profile.borrow_mut().add_marker(thread.handle, CategoryHandle::OTHER, "UserTiming", UserTimingMarker(marker_name.to_owned()), timing);
                         } else {
-                            profile.add_marker(thread.handle, CategoryHandle::OTHER, marker_name, SimpleMarker(text.clone()), timing);
+                            context.profile.borrow_mut().add_marker(thread.handle, CategoryHandle::OTHER, marker_name, SimpleMarker(text.clone()), timing);
                         }
                     } else {
                         let mut parser = Parser::create(&s);
@@ -763,12 +754,12 @@ pub fn profile_pid_from_etl_file(
                         let category = match categories.entry(s.provider_name()) {
                             Entry::Occupied(e) => *e.get(),
                             Entry::Vacant(e) => {
-                                let category = profile.add_category(e.key(), CategoryColor::Transparent);
+                                let category = context.profile.borrow_mut().add_category(e.key(), CategoryColor::Transparent);
                                 *e.insert(category)
                             }
                         };
 
-                        profile.add_marker(thread.handle, category, s.name().split_once("/").unwrap().1, SimpleMarker(text), timing)
+                        context.profile.borrow_mut().add_marker(thread.handle, category, s.name().split_once("/").unwrap().1, SimpleMarker(text), timing)
                     }
                      //println!("unhandled {}", s.name()) 
                     }
@@ -800,11 +791,12 @@ pub fn profile_pid_from_etl_file(
     // samply does on Linux and macOS, where the queued samples also want to respect JIT function names from
     // a /tmp/perf-1234.map file, and this file may not exist until the profiled process finishes.)
     let mut stack_frame_scratch_buf = Vec::new();
-    for (process_id, process) in &context.processes {
-        let ProcessState { unresolved_samples, regular_lib_mapping_ops, main_thread_handle, .. } = process;
+    for (process_id, process) in context.processes.iter() {
+        let mut process = process.borrow_mut();
+        ///let ProcessState { unresolved_samples, regular_lib_mapping_ops, main_thread_handle, .. } = process;
         let jitdump_lib_mapping_op_queues = match jscript_symbols.remove(&process_id) {
             Some(jit_info) => {
-                profile.set_lib_symbol_table(jit_info.lib_handle, Arc::new(SymbolTable::new(jit_info.symbols)));
+                context.profile.borrow_mut().set_lib_symbol_table(jit_info.lib_handle, Arc::new(SymbolTable::new(jit_info.symbols)));
                 vec![jit_info.jit_mapping_ops]
             },
             None => Vec::new(),
@@ -812,19 +804,19 @@ pub fn profile_pid_from_etl_file(
         // TODO proper threads, not main thread
         let marker_spans_on_thread = marker_spans.iter().map(|marker_span| {
             MarkerSpanOnThread {
-                thread_handle: main_thread_handle.unwrap(),
+                thread_handle: process.main_thread_handle.unwrap(),
                 name: marker_span.name.clone(),
                 start_time: marker_span.start_time,
                 end_time: marker_span.end_time,
             }
         }).collect();
 
-        let process_sample_data = ProcessSampleData::new(unresolved_samples.clone(),
-                                                         regular_lib_mapping_ops.clone(),
+        let process_sample_data = ProcessSampleData::new(process.unresolved_samples.clone(),
+                                                         process.regular_lib_mapping_ops.clone(),
                                                          jitdump_lib_mapping_op_queues,
                                                          None, marker_spans_on_thread);
                                                          //main_thread_handle.unwrap_or_else(|| panic!("process no main thread {:?}", process_id)));
-        process_sample_data.flush_samples_to_profile(&mut profile, user_category, kernel_category, &mut stack_frame_scratch_buf, &mut context.unresolved_stacks, &[])
+        process_sample_data.flush_samples_to_profile(&mut *context.profile.borrow_mut(), user_category, kernel_category, &mut stack_frame_scratch_buf, &mut context.unresolved_stacks.borrow_mut(), &[])
     }
 
     /*if merge_threads {

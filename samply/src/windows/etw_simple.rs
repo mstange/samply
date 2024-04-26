@@ -290,15 +290,7 @@ pub fn trace_callback(ev: &EventRecord, sl: &SchemaLocator, context: &mut Profil
             let filename = e.FileName.unwrap();
 
             if let Some(process_handle) = context.get_process_handle(pid) {
-                let lib_handle = if let Some(&lib_handle) = context.libs.get(&filename) {
-                    lib_handle
-                } else {
-                    context.with_profile(|profile| {
-                        let lib_handle = profile.add_lib(context.library_info_for_path(&filename));
-                        context.libs.insert(filename.clone(), lib_handle);
-                        lib_handle
-                    })
-                };
+                let lib_handle = context.get_or_add_lib_simple(&filename);
 
                 context.with_profile(|profile| {
                     profile.add_lib_mapping(process_handle, lib_handle, base, base + size, 0);
