@@ -270,6 +270,23 @@ pub fn start_trace<F: FnMut(&EventRecord)>(mut callback: F)  {
     println!("status: {:?}", status);
 }
 
+pub fn event_properties_to_string(s: &schema::TypedEvent, parser: &mut Parser, skip_properties: Option<&[&str]>) -> String {
+    let mut text = String::new();
+    for i in 0..s.property_count() {
+        let property = s.property(i);
+        if let Some(propfilter) = skip_properties {
+            if propfilter.iter().any(|&s| s == property.name) {
+                continue;
+            }
+        }
+
+        write_property(&mut text, parser, &property, false);
+        text += ", "
+    }
+
+    text
+}
+
 pub fn write_property(output: &mut dyn std::fmt::Write, parser: &mut Parser, property: &Property, write_types: bool) {
     if write_types {
         let type_name = if let PropertyDesc::Primitive(prim) = &property.desc {

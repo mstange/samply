@@ -22,7 +22,8 @@ use crate::shared::{jit_function_add_marker::JitFunctionAddMarker, marker_file::
 use crate::server::{ServerProps, start_server_main};
 use crate::shared::recording_props::{ProcessLaunchProps, ProfileCreationProps, RecordingProps};
 
-use super::etw_reader::{GUID, open_trace, parser::{Address, Parser, TryParse}, print_property, schema::SchemaLocator, write_property};
+use super::etw_reader;
+use super::etw_reader::{GUID, open_trace, parser::{Address, Parser, TryParse}, print_property, schema::SchemaLocator, write_property, event_properties_to_string};
 use super::*;
 
 use super::ProfileContext;
@@ -82,6 +83,8 @@ pub fn profile_pid_from_etl_file(
 
         if let Ok(s) = s {
             let mut parser = Parser::create(&s);
+            let timestamp_raw = e.EventHeader.TimeStamp as u64;
+            let timestamp = timestamp_converter.convert_time(timestamp_raw);
 
             //eprintln!("{}", s.name());
             match s.name() {
@@ -127,9 +130,6 @@ pub fn profile_pid_from_etl_file(
                 }
                 "MSNT_SystemTrace/Thread/Start" |
                 "MSNT_SystemTrace/Thread/DCStart" => {
-                    let timestamp = e.EventHeader.TimeStamp as u64;
-                    let timestamp = timestamp_converter.convert_time(timestamp);
-
                     let thread_id: u32 = parser.parse("TThreadId");
                     let process_id: u32 = parser.parse("ProcessId");
 
@@ -148,9 +148,6 @@ pub fn profile_pid_from_etl_file(
                 }
                 "MSNT_SystemTrace/Thread/End" |
                 "MSNT_SystemTrace/Thread/DCEnd" => {
-                    let timestamp = e.EventHeader.TimeStamp as u64;
-                    let timestamp = timestamp_converter.convert_time(timestamp);
-
                     let thread_id: u32 = parser.parse("TThreadId");
 
                     context.remove_thread(thread_id, Some(timestamp));
@@ -161,12 +158,12 @@ pub fn profile_pid_from_etl_file(
                     let parent_id: u32 = parser.parse("ParentId");
                     let image_file_name: String = parser.parse("ImageFileName");
 
+                    // note: the event's e.EventHeader.process_id here is the parent (i.e. the process that spawned
+                    // a new one. The process_id in ProcessId is the new process id.
+
                     if !context.is_interesting_process(process_id, Some(parent_id), Some(&image_file_name)) {
                         return;
                     }
-
-                    let timestamp = e.EventHeader.TimeStamp as u64;
-                    let timestamp = timestamp_converter.convert_time(timestamp);
 
                     context.add_process(process_id, parent_id, &context.map_device_path(&image_file_name), timestamp);
                 }
@@ -174,16 +171,15 @@ pub fn profile_pid_from_etl_file(
                 "MSNT_SystemTrace/Process/DCEnd" => {
                     let process_id: u32 = parser.parse("ProcessId");
 
-                    let timestamp = e.EventHeader.TimeStamp as u64;
-                    let timestamp = timestamp_converter.convert_time(timestamp);
-
                     //context.end_process(...);
                 }
                 "MSNT_SystemTrace/StackWalk/Stack" => {
-
                     let thread_id: u32 = parser.parse("StackThread");
                     let process_id: u32 = parser.parse("StackProcess");
-                    let timestamp: u64 = parser.parse("EventTimeStamp");
+                    // The EventTimeStamp here indicates thea ccurate time the stack was collected, and
+                    // not the time the ETW event was emitted (which is in the header). Use it instead.
+                    let timestamp_raw: u64 = parser.parse("EventTimeStamp");
+                    let timestamp = timestamp_converter.convert_time(timestamp_raw);
 
                     if !context.threads.contains_key(&thread_id) { return }
 
@@ -210,8 +206,7 @@ pub fn profile_pid_from_etl_file(
                             .collect();
 
                         // TODO figure out how the on-cpu/off-cpu stuff works
-                        let timestamp_cvt = timestamp_converter.convert_time(timestamp);
-                        context.add_sample(thread_id, process_id, timestamp_cvt, timestamp, CpuDelta::ZERO, 1, stack);
+                        context.add_sample(thread_id, process_id, timestamp, timestamp_raw, CpuDelta::ZERO, 1, stack);
                         return;
                     }
 
@@ -229,9 +224,9 @@ pub fn profile_pid_from_etl_file(
 
                     if first_frame_stack_mode == StackMode::Kernel {
                         let mut thread = context.get_thread_mut(thread_id).unwrap();
-                        if let Some(pending_stack ) = thread.pending_stacks.iter_mut().rev().find(|s| s.timestamp == timestamp) {
+                        if let Some(pending_stack ) = thread.pending_stacks.iter_mut().rev().find(|s| s.timestamp == timestamp_raw) {
                             if let Some(kernel_stack) = pending_stack.kernel_stack.as_mut() {
-                                eprintln!("Multiple kernel stacks for timestamp {timestamp} on thread {thread_id}");
+                                eprintln!("Multiple kernel stacks for timestamp {timestamp_raw} on thread {thread_id}");
                                 kernel_stack.extend(&stack);
                             } else {
                                 pending_stack.kernel_stack = Some(stack);
@@ -245,7 +240,7 @@ pub fn profile_pid_from_etl_file(
 
                     // the number of pending stacks at or before our timestamp
                     let num_pending_stacks = context.get_thread(thread_id).unwrap()
-                        .pending_stacks.iter().take_while(|s| s.timestamp <= timestamp).count();
+                        .pending_stacks.iter().take_while(|s| s.timestamp <= timestamp_raw).count();
 
                     let pending_stacks: VecDeque<_> = context.get_thread_mut(thread_id).unwrap().pending_stacks.drain(..num_pending_stacks).collect();
 
@@ -292,7 +287,6 @@ pub fn profile_pid_from_etl_file(
                 }
                 "MSNT_SystemTrace/PerfInfo/SampleProf" => {
                     let thread_id: u32 = parser.parse("ThreadId");
-                    let timestamp = e.EventHeader.TimeStamp as u64;
 
                     sample_count += 1;
 
@@ -303,22 +297,20 @@ pub fn profile_pid_from_etl_file(
                             category_pair: user_category,
                             flags: FrameFlags::empty()
                         });
-                        let timestamp = timestamp_converter.convert_time(timestamp);
                         context.profile.borrow_mut().add_sample(idle_handle, timestamp, frames.into_iter(), Duration::ZERO.into(), 1);
                     }
 
                     let Some(mut thread) = context.get_thread_mut(thread_id) else { return };
 
-                    let off_cpu_sample_group = context_switch_handler.handle_on_cpu_sample(timestamp, &mut thread.context_switch_data);
+                    let off_cpu_sample_group = context_switch_handler.handle_on_cpu_sample(timestamp_raw, &mut thread.context_switch_data);
                     let delta = context_switch_handler.consume_cpu_delta(&mut thread.context_switch_data);
                     let cpu_delta = CpuDelta::from_nanos(delta as u64 * timestamp_converter.raw_to_ns_factor);
-                    thread.pending_stacks.push_back(PendingStack { timestamp, kernel_stack: None, off_cpu_sample_group, on_cpu_sample_cpu_delta: Some(cpu_delta) });
+                    thread.pending_stacks.push_back(PendingStack { timestamp: timestamp_raw, kernel_stack: None, off_cpu_sample_group, on_cpu_sample_cpu_delta: Some(cpu_delta) });
                 }
                 "MSNT_SystemTrace/PageFault/DemandZeroFault" => {
                     if !demand_zero_faults { return }
 
                     let thread_id: u32 = s.thread_id();
-                    let timestamp = e.EventHeader.TimeStamp as u64;
                     //println!("sample {}", thread_id);
                     sample_count += 1;
 
@@ -329,13 +321,12 @@ pub fn profile_pid_from_etl_file(
                             category_pair: user_category,
                             flags: FrameFlags::empty()
                         });
-                        let timestamp = timestamp_converter.convert_time(timestamp);
                         context.profile.borrow_mut().add_sample(idle_handle, timestamp, frames.into_iter(), Duration::ZERO.into(), 1);
                     }
 
                     let Some(mut thread) = context.get_thread_mut(thread_id) else { return };
 
-                    thread.pending_stacks.push_back(PendingStack { timestamp, kernel_stack: None, off_cpu_sample_group: None, on_cpu_sample_cpu_delta: Some(CpuDelta::from_millis(1.0)) });
+                    thread.pending_stacks.push_back(PendingStack { timestamp: timestamp_raw, kernel_stack: None, off_cpu_sample_group: None, on_cpu_sample_cpu_delta: Some(CpuDelta::from_millis(1.0)) });
                 }
                 "MSNT_SystemTrace/PageFault/VirtualAlloc" |
                 "MSNT_SystemTrace/PageFault/VirtualFree" => {
@@ -343,8 +334,6 @@ pub fn profile_pid_from_etl_file(
                         return;
                     }
 
-                    let timestamp = e.EventHeader.TimeStamp as u64;
-                    let timestamp = timestamp_converter.convert_time(timestamp);
                     let thread_id = e.EventHeader.ThreadId;
 
                     let Some(memory_usage_counter) = context.get_or_create_memory_usage_counter(thread_id) else { return };
@@ -358,27 +347,19 @@ pub fn profile_pid_from_etl_file(
 
                     //println!("{} VirtualFree({}) = {}", e.EventHeader.ProcessId, region_size, counter.value);
 
-                    let mut text = String::new();
-                    for i in 0..s.property_count() {
-                        let property = s.property(i);
-                        write_property(&mut text, &mut parser, &property, false);
-                        text += ", "
-                    }
-
+                    let text = event_properties_to_string(&s, &mut parser, None);
                     context.profile.borrow_mut().add_counter_sample(memory_usage_counter, timestamp, delta_size, 1);
                     context.profile.borrow_mut().add_marker(thread_handle, CategoryHandle::OTHER, op_name, SimpleMarker(text), MarkerTiming::Instant(timestamp));
                 }
                 "KernelTraceControl/ImageID/" => {
                     let process_id = s.process_id();
-                    assert!(process_id == e.EventHeader.ProcessId);
-                    if !context.is_interesting_process(e.EventHeader.ProcessId, None, None) { return }
+                    if !context.is_interesting_process(process_id, None, None) { return }
 
                     let image_base: u64 = parser.try_parse("ImageBase").unwrap();
-                    let timestamp = parser.try_parse("TimeDateStamp").unwrap();
+                    let image_timestamp = parser.try_parse("TimeDateStamp").unwrap();
                     let image_size: u32 = parser.try_parse("ImageSize").unwrap();
-                    let binary_path: String = parser.try_parse("OriginalFileName").unwrap();
-                    let path = binary_path;
-                    libs.insert(image_base, (path, image_size, timestamp));
+                    let image_path: String = parser.try_parse("OriginalFileName").unwrap();
+                    libs.insert(image_base, (image_path, image_size, image_timestamp));
                 }
                 "KernelTraceControl/ImageID/DbgID_RSDS" => {
                     let process_id = s.process_id();
@@ -573,177 +554,154 @@ pub fn profile_pid_from_etl_file(
                     //dbg!(s.process_id(), jscript_symbols.keys());
 
                 }
-                _ => {
-                    if let Some(marker_name) = s.name().strip_prefix("Mozilla.FirefoxTraceLogger/").and_then(|s| s.strip_suffix("/")) {
-                        let thread_id = e.EventHeader.ThreadId;
-                        let Some(thread) = context.get_thread(thread_id) else { return };
-                        let mut text = String::new();
-                        for i in 0..s.property_count() {
-                            let property = s.property(i);
-                            match property.name.as_str() {
-                                "MarkerName" | "StartTime" | "EndTime" | "Phase" | "InnerWindowId" | "CategoryPair" => { continue; }
-                                _ => {}
-                            }
-                            write_property(&mut text, &mut parser, &property, false);
-                            text += ", "
-                        }
+                marker_name if marker_name.starts_with("Mozilla.FirefoxTraceLogger/") =>  {
+                    let Some(marker_name) = marker_name.strip_prefix("Mozilla.FirefoxTraceLogger/").and_then(|s| s.strip_suffix("/")) else { return };
 
-                        /// From https://searchfox.org/mozilla-central/rev/0e7394a77cdbe1df5e04a1d4171d6da67b57fa17/mozglue/baseprofiler/public/BaseProfilerMarkersPrerequisites.h#355-360
-                        const PHASE_INSTANT: u8 = 0;
-                        const PHASE_INTERVAL: u8 = 1;
-                        const PHASE_INTERVAL_START: u8 = 2;
-                        const PHASE_INTERVAL_END: u8 = 3;
+                    let thread_id = e.EventHeader.ThreadId;
+                    let Some(thread) = context.get_thread(thread_id) else { return };
 
-                        // We ignore e.EventHeader.TimeStamp and instead take the timestamp from the fields.
-                        let start_time_qpc: u64 = parser.try_parse("StartTime").unwrap();
-                        let end_time_qpc: u64 = parser.try_parse("EndTime").unwrap();
-                        assert!(event_timestamps_are_qpc, "Inconsistent timestamp formats! ETW traces with Firefox events should be captured with QPC timestamps (-ClockType PerfCounter) so that ETW sample timestamps are compatible with the QPC timestamps in Firefox ETW trace events, so that the markers appear in the right place.");
-                        let (phase, instant_time_qpc): (u8, u64) = match parser.try_parse("Phase") {
-                            Ok(phase) => (phase, start_time_qpc),
-                            Err(_) => {
-                                // Before the landing of https://bugzilla.mozilla.org/show_bug.cgi?id=1882640 ,
-                                // Firefox ETW trace events didn't have phase information, so we need to
-                                // guess a phase based on the timestamps.
-                                if start_time_qpc != 0 && end_time_qpc != 0 {
-                                    (PHASE_INTERVAL, 0)
-                                } else if start_time_qpc != 0 {
-                                    (PHASE_INSTANT, start_time_qpc)
-                                } else {
-                                    (PHASE_INSTANT, end_time_qpc)
-                                }
-                            }
-                        };
-                        let timing = match phase {
-                            PHASE_INSTANT => MarkerTiming::Instant(timestamp_converter.convert_time(instant_time_qpc)),
-                            PHASE_INTERVAL => MarkerTiming::Interval(timestamp_converter.convert_time(start_time_qpc), timestamp_converter.convert_time(end_time_qpc)),
-                            PHASE_INTERVAL_START => MarkerTiming::IntervalStart(timestamp_converter.convert_time(start_time_qpc)),
-                            PHASE_INTERVAL_END => MarkerTiming::IntervalEnd(timestamp_converter.convert_time(end_time_qpc)),
-                            _ => panic!("Unexpected marker phase {phase}"),
-                        };
+                    let text = event_properties_to_string(&s, &mut parser, Some(&["MarkerName", "StartTime", "EndTime", "Phase", "InnerWindowId", "CategoryPair"]));
 
-                        if marker_name == "UserTiming" {
-                            let name: String = parser.try_parse("name").unwrap();
-                            context.profile.borrow_mut().add_marker(thread.handle, CategoryHandle::OTHER, "UserTiming", UserTimingMarker(name), timing);
-                        } else if marker_name == "SimpleMarker" || marker_name == "Text" || marker_name == "tracing" {
-                            let marker_name: String = parser.try_parse("MarkerName").unwrap();
-                            context.profile.borrow_mut().add_marker(thread.handle, CategoryHandle::OTHER, &marker_name, SimpleMarker(text.clone()), timing);
-                        } else {
-                            context.profile.borrow_mut().add_marker(thread.handle, CategoryHandle::OTHER, marker_name, SimpleMarker(text.clone()), timing);
-                        }
-                    } else if let Some(marker_name) = s.name().strip_prefix("Google.Chrome/").and_then(|s| s.strip_suffix("/")) {
-                        // a bitfield of keywords
-                        bitflags! {
-                            #[derive(PartialEq, Eq)]
-                            pub struct KeywordNames: u64 {
-                                const benchmark = 0x1;
-                                const blink = 0x2;
-                                const browser = 0x4;
-                                const cc = 0x8;
-                                const evdev = 0x10;
-                                const gpu = 0x20;
-                                const input = 0x40;
-                                const netlog = 0x80;
-                                const sequence_manager = 0x100;
-                                const toplevel = 0x200;
-                                const v8 = 0x400;
-                                const disabled_by_default_cc_debug = 0x800;
-                                const disabled_by_default_cc_debug_picture = 0x1000;
-                                const disabled_by_default_toplevel_flow = 0x2000;
-                                const startup = 0x4000;
-                                const latency = 0x8000;
-                                const blink_user_timing = 0x10000;
-                                const media = 0x20000;
-                                const loading = 0x40000;
-                                const base = 0x80000;
-                                const devtools_timeline = 0x100000;
-                                const unused_bit_21 = 0x200000;
-                                const unused_bit_22 = 0x400000;
-                                const unused_bit_23 = 0x800000;
-                                const unused_bit_24 = 0x1000000;
-                                const unused_bit_25 = 0x2000000;
-                                const unused_bit_26 = 0x4000000;
-                                const unused_bit_27 = 0x8000000;
-                                const unused_bit_28 = 0x10000000;
-                                const unused_bit_29 = 0x20000000;
-                                const unused_bit_30 = 0x40000000;
-                                const unused_bit_31 = 0x80000000;
-                                const unused_bit_32 = 0x100000000;
-                                const unused_bit_33 = 0x200000000;
-                                const unused_bit_34 = 0x400000000;
-                                const unused_bit_35 = 0x800000000;
-                                const unused_bit_36 = 0x1000000000;
-                                const unused_bit_37 = 0x2000000000;
-                                const unused_bit_38 = 0x4000000000;
-                                const unused_bit_39 = 0x8000000000;
-                                const unused_bit_40 = 0x10000000000;
-                                const unused_bit_41 = 0x20000000000;
-                                const navigation = 0x40000000000;
-                                const ServiceWorker = 0x80000000000;
-                                const edge_webview = 0x100000000000;
-                                const diagnostic_event = 0x200000000000;
-                                const __OTHER_EVENTS = 0x400000000000;
-                                const __DISABLED_OTHER_EVENTS = 0x800000000000;
+                    /// From https://searchfox.org/mozilla-central/rev/0e7394a77cdbe1df5e04a1d4171d6da67b57fa17/mozglue/baseprofiler/public/BaseProfilerMarkersPrerequisites.h#355-360
+                    const PHASE_INSTANT: u8 = 0;
+                    const PHASE_INTERVAL: u8 = 1;
+                    const PHASE_INTERVAL_START: u8 = 2;
+                    const PHASE_INTERVAL_END: u8 = 3;
+
+                    // We ignore e.EventHeader.TimeStamp and instead take the timestamp from the fields.
+                    let start_time_qpc: u64 = parser.try_parse("StartTime").unwrap();
+                    let end_time_qpc: u64 = parser.try_parse("EndTime").unwrap();
+                    assert!(event_timestamps_are_qpc, "Inconsistent timestamp formats! ETW traces with Firefox events should be captured with QPC timestamps (-ClockType PerfCounter) so that ETW sample timestamps are compatible with the QPC timestamps in Firefox ETW trace events, so that the markers appear in the right place.");
+                    let (phase, instant_time_qpc): (u8, u64) = match parser.try_parse("Phase") {
+                        Ok(phase) => (phase, start_time_qpc),
+                        Err(_) => {
+                            // Before the landing of https://bugzilla.mozilla.org/show_bug.cgi?id=1882640 ,
+                            // Firefox ETW trace events didn't have phase information, so we need to
+                            // guess a phase based on the timestamps.
+                            if start_time_qpc != 0 && end_time_qpc != 0 {
+                                (PHASE_INTERVAL, 0)
+                            } else if start_time_qpc != 0 {
+                                (PHASE_INSTANT, start_time_qpc)
+                            } else {
+                                (PHASE_INSTANT, end_time_qpc)
                             }
                         }
+                    };
+                    let timing = match phase {
+                        PHASE_INSTANT => MarkerTiming::Instant(timestamp_converter.convert_time(instant_time_qpc)),
+                        PHASE_INTERVAL => MarkerTiming::Interval(timestamp_converter.convert_time(start_time_qpc), timestamp_converter.convert_time(end_time_qpc)),
+                        PHASE_INTERVAL_START => MarkerTiming::IntervalStart(timestamp_converter.convert_time(start_time_qpc)),
+                        PHASE_INTERVAL_END => MarkerTiming::IntervalEnd(timestamp_converter.convert_time(end_time_qpc)),
+                        _ => panic!("Unexpected marker phase {phase}"),
+                    };
 
-                        let thread_id = e.EventHeader.ThreadId;
-                        let phase: String = parser.try_parse("Phase").unwrap();
-
-                        let Some(thread) = context.get_thread(thread_id)  else { return };
-                        let mut text = String::new();
-                        for i in 0..s.property_count() {
-                            let property = s.property(i);
-                            if property.name == "Timestamp" || property.name == "Phase" || property.name == "Duration" {
-                                continue;
-                            }
-                            //dbg!(&property);
-                            write_property(&mut text, &mut parser, &property, false);
-                            text += ", "
-                        }
-
-                        // We ignore e.EventHeader.TimeStamp and instead take the timestamp from the fields.
-                        let timestamp_us: u64 = parser.try_parse("Timestamp").unwrap();
-                        let timestamp = timestamp_converter.convert_us(timestamp_us);
-
-                        let timing = match phase.as_str() {
-                            "Begin" => MarkerTiming::IntervalStart(timestamp),
-                            "End" => MarkerTiming::IntervalEnd(timestamp),
-                            _ => MarkerTiming::Instant(timestamp),
-                        };
-                        let keyword = KeywordNames::from_bits(e.EventHeader.EventDescriptor.Keyword).unwrap();
-                        if keyword == KeywordNames::blink_user_timing {
-                            context.profile.borrow_mut().add_marker(thread.handle, CategoryHandle::OTHER, "UserTiming", UserTimingMarker(marker_name.to_owned()), timing);
-                        } else {
-                            context.profile.borrow_mut().add_marker(thread.handle, CategoryHandle::OTHER, marker_name, SimpleMarker(text.clone()), timing);
-                        }
+                    if marker_name == "UserTiming" {
+                        let name: String = parser.try_parse("name").unwrap();
+                        context.profile.borrow_mut().add_marker(thread.handle, CategoryHandle::OTHER, "UserTiming", UserTimingMarker(name), timing);
+                    } else if marker_name == "SimpleMarker" || marker_name == "Text" || marker_name == "tracing" {
+                        let marker_name: String = parser.try_parse("MarkerName").unwrap();
+                        context.profile.borrow_mut().add_marker(thread.handle, CategoryHandle::OTHER, &marker_name, SimpleMarker(text.clone()), timing);
                     } else {
-                        let timestamp = e.EventHeader.TimeStamp as u64;
-                        let timestamp = timestamp_converter.convert_time(timestamp);
-                        let thread_id = e.EventHeader.ThreadId;
-                        let Some(thread) = context.get_thread(thread_id) else { return };
-                        let mut text = String::new();
-                        for i in 0..s.property_count() {
-                            let property = s.property(i);
-                            //dbg!(&property);
-                            write_property(&mut text, &mut parser, &property, false);
-                            text += ", "
+                        context.profile.borrow_mut().add_marker(thread.handle, CategoryHandle::OTHER, marker_name, SimpleMarker(text.clone()), timing);
+                    }
+                }
+                marker_name if marker_name.starts_with("Google.Chrome/") => {
+                    let Some(marker_name) = marker_name.strip_prefix("Google.Chrome/").and_then(|s| s.strip_suffix("/")) else { return };
+                    // a bitfield of keywords
+                    bitflags! {
+                        #[derive(PartialEq, Eq)]
+                        pub struct KeywordNames: u64 {
+                            const benchmark = 0x1;
+                            const blink = 0x2;
+                            const browser = 0x4;
+                            const cc = 0x8;
+                            const evdev = 0x10;
+                            const gpu = 0x20;
+                            const input = 0x40;
+                            const netlog = 0x80;
+                            const sequence_manager = 0x100;
+                            const toplevel = 0x200;
+                            const v8 = 0x400;
+                            const disabled_by_default_cc_debug = 0x800;
+                            const disabled_by_default_cc_debug_picture = 0x1000;
+                            const disabled_by_default_toplevel_flow = 0x2000;
+                            const startup = 0x4000;
+                            const latency = 0x8000;
+                            const blink_user_timing = 0x10000;
+                            const media = 0x20000;
+                            const loading = 0x40000;
+                            const base = 0x80000;
+                            const devtools_timeline = 0x100000;
+                            const unused_bit_21 = 0x200000;
+                            const unused_bit_22 = 0x400000;
+                            const unused_bit_23 = 0x800000;
+                            const unused_bit_24 = 0x1000000;
+                            const unused_bit_25 = 0x2000000;
+                            const unused_bit_26 = 0x4000000;
+                            const unused_bit_27 = 0x8000000;
+                            const unused_bit_28 = 0x10000000;
+                            const unused_bit_29 = 0x20000000;
+                            const unused_bit_30 = 0x40000000;
+                            const unused_bit_31 = 0x80000000;
+                            const unused_bit_32 = 0x100000000;
+                            const unused_bit_33 = 0x200000000;
+                            const unused_bit_34 = 0x400000000;
+                            const unused_bit_35 = 0x800000000;
+                            const unused_bit_36 = 0x1000000000;
+                            const unused_bit_37 = 0x2000000000;
+                            const unused_bit_38 = 0x4000000000;
+                            const unused_bit_39 = 0x8000000000;
+                            const unused_bit_40 = 0x10000000000;
+                            const unused_bit_41 = 0x20000000000;
+                            const navigation = 0x40000000000;
+                            const ServiceWorker = 0x80000000000;
+                            const edge_webview = 0x100000000000;
+                            const diagnostic_event = 0x200000000000;
+                            const __OTHER_EVENTS = 0x400000000000;
+                            const __DISABLED_OTHER_EVENTS = 0x800000000000;
                         }
-
-                        let timing = MarkerTiming::Instant(timestamp);
-                        let category = match categories.entry(s.provider_name()) {
-                            Entry::Occupied(e) => *e.get(),
-                            Entry::Vacant(e) => {
-                                let category = context.profile.borrow_mut().add_category(e.key(), CategoryColor::Transparent);
-                                *e.insert(category)
-                            }
-                        };
-
-                        context.profile.borrow_mut().add_marker(thread.handle, category, s.name().split_once("/").unwrap().1, SimpleMarker(text), timing)
                     }
-                     //println!("unhandled {}", s.name()) 
+
+                    let thread_id = e.EventHeader.ThreadId;
+                    let phase: String = parser.try_parse("Phase").unwrap();
+
+                    let Some(thread) = context.get_thread(thread_id)  else { return };
+                    let text = event_properties_to_string(&s, &mut parser, Some(&["Timestamp", "Phase", "Duration"]));
+
+                    // We ignore e.EventHeader.TimeStamp and instead take the timestamp from the fields.
+                    let timestamp_raw: u64 = parser.try_parse("Timestamp").unwrap();
+                    let timestamp = timestamp_converter.convert_us(timestamp_raw);
+
+                    let timing = match phase.as_str() {
+                        "Begin" => MarkerTiming::IntervalStart(timestamp),
+                        "End" => MarkerTiming::IntervalEnd(timestamp),
+                        _ => MarkerTiming::Instant(timestamp),
+                    };
+                    let keyword = KeywordNames::from_bits(e.EventHeader.EventDescriptor.Keyword).unwrap();
+                    if keyword == KeywordNames::blink_user_timing {
+                        context.profile.borrow_mut().add_marker(thread.handle, CategoryHandle::OTHER, "UserTiming", UserTimingMarker(marker_name.to_owned()), timing);
+                    } else {
+                        context.profile.borrow_mut().add_marker(thread.handle, CategoryHandle::OTHER, marker_name, SimpleMarker(text.clone()), timing);
                     }
+                }
+                _ => {
+                    let thread_id = e.EventHeader.ThreadId;
+                    let Some(thread) = context.get_thread(thread_id) else { return };
+
+                    let text = event_properties_to_string(&s, &mut parser, None);
+                    let timing = MarkerTiming::Instant(timestamp);
+                    let category = match categories.entry(s.provider_name()) {
+                        Entry::Occupied(e) => *e.get(),
+                        Entry::Vacant(e) => {
+                            let category = context.profile.borrow_mut().add_category(e.key(), CategoryColor::Transparent);
+                            *e.insert(category)
+                        }
+                    };
+
+                    context.profile.borrow_mut().add_marker(thread.handle, category, s.name().split_once("/").unwrap().1, SimpleMarker(text), timing)
+                    //println!("unhandled {}", s.name()) 
+                }
             }
-            //println!("{}", name);
         }
     });
 
