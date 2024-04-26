@@ -6,6 +6,8 @@
 use windows::Win32::System::Diagnostics::Etw;
 
 use ferrisetw::{EventRecord, SchemaLocator};
+use fxprof_processed_profile::{CpuDelta, Frame, FrameFlags, FrameInfo, Timestamp};
+use crate::windows::ProfileContext;
 
 // generate schema property lookups based on the name and type of each field
 macro_rules! create_etw_schema_type {
@@ -65,7 +67,7 @@ create_etw_schema_type!(ThreadEvent {
     ProcessId: u32,
     TThreadId: u32, // not a typo, at least not in this code!
     ParentProcessID: u32,
-    ImageName: String,
+    ThreadName: String,
 });
 
 create_etw_schema_type!(ThreadSetNameEvent {
@@ -235,4 +237,113 @@ pub fn get_tracing_event(
     };
 
     Some((ev.raw_timestamp() as u64, event))
+}
+
+pub fn trace_callback(ev: &EventRecord, sl: &SchemaLocator, context: &mut ProfileContext) {
+    // For the first event we see, use its time as the reference. Maybe there's something
+    // on the trace itself we can use.
+    // TODO see comment earlier about using QueryTraceProcessingHandle
+    if context.timebase_nanos == 0 {
+        context.timebase_nanos = ev.raw_timestamp() as u64;
+    }
+
+    let Some((ts, event)) = get_tracing_event(ev, sl) else {
+        return;
+    };
+
+    let timestamp = Timestamp::from_nanos_since_reference(ts - context.timebase_nanos);
+    //eprintln!("{} {:?}", ts, event);
+    match event {
+        TracingEvent::ProcessDCStart(e) | TracingEvent::ProcessStart(e) => {
+            let exe = e.ImageFileName.unwrap();
+            let pid = e.ProcessId.unwrap();
+            let ppid = e.ParentId.unwrap_or(0);
+
+            if context.is_interesting_process(pid, Some(ppid), None) {
+                context.add_process(pid, ppid, &exe, timestamp);
+            }
+        }
+        TracingEvent::ProcessStop(e) => {
+            let pid = e.ProcessId.unwrap();
+            context.remove_process(pid, Some(timestamp));
+        }
+        TracingEvent::ThreadDCStart(e) | TracingEvent::ThreadStart(e) => {
+            let pid = e.ProcessId.unwrap();
+            let tid = e.TThreadId.unwrap();
+
+            if context.is_interesting_process(pid, None, None) {
+                context.add_thread(tid, pid, timestamp);
+                if let Some(thread_name) = e.ThreadName {
+                    context.set_thread_name(tid, &thread_name);
+                }
+            }
+        }
+        TracingEvent::ThreadStop(e) => {
+            let tid = e.TThreadId.unwrap();
+
+            context.remove_thread(tid, Some(timestamp));
+        }
+        TracingEvent::ImageDCLoad(e) | TracingEvent::ImageLoad(e) => {
+            let pid = e.ProcessId.unwrap();
+            let base = e.ImageBase.unwrap();
+            let size = e.ImageSize.unwrap();
+            let filename = e.FileName.unwrap();
+
+            if let Some(process_handle) = context.get_process_handle(pid) {
+                let lib_handle = if let Some(&lib_handle) = context.libs.get(&filename) {
+                    lib_handle
+                } else {
+                    context.with_profile(|profile| {
+                        let lib_handle = profile.add_lib(context.library_info_for_path(&filename));
+                        context.libs.insert(filename.clone(), lib_handle);
+                        lib_handle
+                    })
+                };
+
+                context.with_profile(|profile| {
+                    profile.add_lib_mapping(process_handle, lib_handle, base, base + size, 0);
+                });
+            }
+        }
+        TracingEvent::ImageUnload(e) => {
+            let pid = e.ProcessId.unwrap();
+            let base = e.ImageBase.unwrap();
+
+            if let Some(process) = context.get_process(pid) {
+                context.with_profile(|profile| {
+                    profile.remove_lib_mapping(process.handle, base);
+                });
+            }
+        }
+        TracingEvent::StackWalk(e) => {
+            let _pid = e.StackProcess;
+            let tid = e.StackThread;
+
+            if let Some(thread) = context.get_thread(tid) {
+                let frames = e
+                    .Stack
+                    .iter()
+                    .take_while(|&&frame| frame != 0)
+                    .enumerate()
+                    .map(|(i, &frame)| FrameInfo {
+                        frame: if i == 0 { Frame::InstructionPointer(frame) } else { Frame::ReturnAddress(frame) },
+                        flags: FrameFlags::empty(),
+                        category_pair: if frame >= context.kernel_min {
+                            context.kernel_category
+                        } else {
+                            context.default_category
+                        },
+                    });
+
+                context.with_profile(|profile| {
+                    profile.add_sample(thread.handle, timestamp, frames, CpuDelta::ZERO, 1);
+                });
+            }
+        }
+    }
+
+    // Haven't seen extended data in anything yet. Not used by kernel logger I don't think.
+    //for edata in ev.extended_data().iter() {
+    //    eprintln!("extended data: {:?} {:?}", edata.data_type(), edata.to_extended_data_item());
+    //}
 }

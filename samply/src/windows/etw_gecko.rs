@@ -1,31 +1,31 @@
-use std::{collections::{HashMap, HashSet, hash_map::Entry, VecDeque}, convert::TryInto, fs::File, io::BufWriter, path::Path, time::{Duration, Instant, SystemTime}, sync::Arc};
+use std::{collections::{hash_map::Entry, HashMap, HashSet, VecDeque}, convert::TryInto, fs::File, io::BufWriter, path::Path, sync::Arc, time::{Duration, Instant, SystemTime}};
 use std::ops::{Deref, DerefMut};
 use std::process::ExitStatus;
 
-use serde_json::{Value, json, to_writer};
-use fxprof_processed_profile::{debugid, CategoryColor, CategoryHandle, CategoryPairHandle, CounterHandle, CpuDelta, FrameFlags, FrameInfo, LibraryHandle, LibraryInfo, MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerTiming, ProcessHandle, Profile, ProfilerMarker, ReferenceTimestamp, SamplingInterval, Symbol, SymbolTable, ThreadHandle, Timestamp};
+use serde_json::{json, to_writer, Value};
+use fxprof_processed_profile::{CategoryColor, CategoryHandle, CategoryPairHandle, CounterHandle, CpuDelta, debugid, FrameFlags, FrameInfo, LibraryHandle, LibraryInfo, MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerTiming, ProcessHandle, Profile, ProfilerMarker, ReferenceTimestamp, SamplingInterval, Symbol, SymbolTable, ThreadHandle, Timestamp};
 use debugid::DebugId;
 use bitflags::bitflags;
 use uuid::Uuid;
 
-use crate::shared::lib_mappings::{LibMappingOpQueue, LibMappingOp, LibMappingAdd};
+use crate::shared::lib_mappings::{LibMappingAdd, LibMappingOp, LibMappingOpQueue};
 use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::stack_converter::StackConverter;
 use crate::shared::lib_mappings::LibMappingInfo;
 use crate::shared::types::{StackFrame, StackMode};
 use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
 use crate::shared::process_sample_data::{MarkerSpanOnThread, ProcessSampleData, SimpleMarker};
-use crate::shared::context_switch::{OffCpuSampleGroup, ThreadContextSwitchData, ContextSwitchHandler};
+use crate::shared::context_switch::{ContextSwitchHandler, OffCpuSampleGroup, ThreadContextSwitchData};
 
 use crate::shared::{jit_function_add_marker::JitFunctionAddMarker, marker_file::get_markers, process_sample_data::UserTimingMarker, timestamp_converter::TimestampConverter};
 
-use crate::server::{start_server_main, ServerProps};
+use crate::server::{ServerProps, start_server_main};
 use crate::shared::recording_props::{ProcessLaunchProps, ProfileCreationProps, RecordingProps};
 
-use super::etw_reader::{GUID, open_trace, parser::{Parser, TryParse, Address}, print_property, schema::SchemaLocator, write_property};
-use super::etw_reader;
+use super::etw_reader::{GUID, open_trace, parser::{Address, Parser, TryParse}, print_property, schema::SchemaLocator, write_property};
+use super::*;
 
-use super::profiler::ProfileContext;
+use super::ProfileContext;
 
 fn is_kernel_address(ip: u64, pointer_size: u32) -> bool {
     if pointer_size == 4 {
@@ -42,39 +42,6 @@ fn stack_mode_for_address(address: u64, pointer_size: u32) -> StackMode {
     }
 }
 
-/// An on- or off-cpu-sample for which the user stack is not known yet.
-/// Consumed once the user stack arrives.
-#[derive(Debug, Clone)]
-struct PendingStack {
-    /// The timestamp of the SampleProf or CSwitch event
-    timestamp: u64,
-    /// Starts out as None. Once we encounter the kernel stack (if any), we put it here.
-    kernel_stack: Option<Vec<StackFrame>>,
-    off_cpu_sample_group: Option<OffCpuSampleGroup>,
-    on_cpu_sample_cpu_delta: Option<CpuDelta>,
-}
-
-struct ThreadState {
-    // When merging threads `handle` is the global thread handle and we use `merge_name` to store the name
-    handle: ThreadHandle,
-    merge_name: Option<String>,
-    pending_stacks: VecDeque<PendingStack>,
-    context_switch_data: ThreadContextSwitchData,
-    thread_id: u32
-}
-
-impl ThreadState {
-    fn new(handle: ThreadHandle, tid: u32) -> Self {
-        ThreadState {
-            handle,
-            pending_stacks: VecDeque::new(),
-            context_switch_data: ThreadContextSwitchData::default(),
-            merge_name: None,
-            thread_id: tid
-        }
-    }
-}
-
 
 fn strip_thread_numbers(name: &str) -> &str {
     if let Some(hash) = name.find('#') {
@@ -84,38 +51,6 @@ fn strip_thread_numbers(name: &str) -> &str {
         }
     }
     return name;
-}
-
-struct MemoryUsage {
-    counter: CounterHandle,
-    value: f64
-}
-
-struct ProcessJitInfo {
-    lib_handle: LibraryHandle,
-    jit_mapping_ops: LibMappingOpQueue,
-    next_relative_address: u32,
-    symbols: Vec<Symbol>,
-}
-
-struct ProcessState {
-    process_handle: ProcessHandle,
-    unresolved_samples: UnresolvedSamples,
-    regular_lib_mapping_ops: LibMappingOpQueue,
-    main_thread_handle: Option<ThreadHandle>,
-    pending_libraries: HashMap<u64, LibraryInfo>,
-}
-
-impl ProcessState {
-    pub fn new(process_handle: ProcessHandle) -> Self {
-        Self {
-            process_handle,
-            unresolved_samples: UnresolvedSamples::default(),
-            regular_lib_mapping_ops: LibMappingOpQueue::default(),
-            main_thread_handle: None,
-            pending_libraries: HashMap::new(),
-        }
-    }
 }
 
 pub fn profile_pid_from_etl_file(
@@ -129,14 +64,13 @@ pub fn profile_pid_from_etl_file(
 
     let mut schema_locator = SchemaLocator::new();
     etw_reader::add_custom_schemas(&mut schema_locator);
-    let mut threads: HashMap<u32, ThreadState> = HashMap::new();
-    let mut processes: HashMap<u32, ProcessState> = HashMap::new();
     let mut kernel_pending_libraries: HashMap<u64, LibraryInfo> = HashMap::new();
-    let mut memory_usage: HashMap<u32, MemoryUsage> = HashMap::new();
 
     let mut libs: HashMap<u64, (String, u32, u32)> = HashMap::new();
-    let start = Instant::now();
-    let merge_threads = false; // --merge-threads? (merge samples from all interesting apps into a single thread)
+
+    let processing_start_timestamp = Instant::now();
+
+    //let merge_threads = false; // --merge-threads? (merge samples from all interesting apps into a single thread)
     let include_idle = false; //pargs.contains("--idle");
     let demand_zero_faults = false; //pargs.contains("--demand-zero-faults");
     let marker_file: Option<String> = None; //pargs.opt_value_from_str("--marker-file").unwrap();
@@ -156,21 +90,13 @@ pub fn profile_pid_from_etl_file(
     let kernel_category: CategoryPairHandle = profile.add_category("Kernel", fxprof_processed_profile::CategoryColor::Orange).into();
 
     let mut jit_category_manager = JitCategoryManager::new();
-    let mut unresolved_stacks = UnresolvedStacks::default();
     let mut context_switch_handler = ContextSwitchHandler::new(122100);
 
-    let mut thread_index = 0;
     let mut sample_count = 0;
     let mut stack_sample_count = 0;
     let mut dropped_sample_count = 0;
     let mut timer_resolution: u32 = 0; // Resolution of the hardware timer, in units of 100 nanoseconds.
     let mut event_count = 0;
-    let (global_thread, global_process) = if merge_threads {
-        let global_process = profile.add_process("All processes", 1, profile_start_instant);
-        (Some(profile.add_thread(global_process, 1, profile_start_instant, true)), Some(global_process))
-    } else {
-        (None, None)
-    };
     let mut gpu_thread = None;
     let mut jscript_symbols: HashMap<u32, ProcessJitInfo> = HashMap::new();
     let mut jscript_sources: HashMap<u64, String> = HashMap::new();
@@ -181,17 +107,6 @@ pub fn profile_pid_from_etl_file(
         raw_to_ns_factor: 1,
     };
     let mut event_timestamps_are_qpc = false;
-
-    let thread_state_for_thread_id = |thread_id| -> Option<&mut ThreadState> {
-        match threads.entry(thread_id) {
-            Entry::Occupied(e) => Some(e.into_mut()),
-            Entry::Vacant(_) => {
-                dropped_sample_count += 1;
-                // We don't know what process this will before so just drop it for now
-                None
-            }
-        }
-    };
 
     let mut categories = HashMap::<String, CategoryHandle>::new();
     let result = open_trace(&etl_file, |e| {
@@ -237,34 +152,10 @@ pub fn profile_pid_from_etl_file(
                 "MSNT_SystemTrace/Thread/SetName" => {
                     let mut parser = Parser::create(&s);
 
-                    let process_id: u32 = parser.parse("ProcessId");
-                    if !process_targets.contains(&process_id) {
-                        return;
-                    }
                     let thread_id: u32 = parser.parse("ThreadId");
                     let thread_name: String = parser.parse("ThreadName");
-                    let thread = match threads.entry(thread_id) {
-                        Entry::Occupied(e) => e.into_mut(),
-                        Entry::Vacant(e) => {
-                            let thread_start_instant = profile_start_instant;
-                            let handle = match global_thread {
-                                Some(global_thread) => global_thread,
-                                None => {
-                                    let process = processes[&process_id].process_handle;
-                                    profile.add_thread(process, thread_id, thread_start_instant, false)
-                                }
-                            };
-                            let tb = e.insert(
-                                ThreadState::new(handle, thread_id)
-                            );
-                            thread_index += 1;
-                            tb
-                         }
-                    };
-                    if Some(thread.handle) != global_thread {
-                        profile.set_thread_name(thread.handle, &thread_name);
-                    }
-                    thread.merge_name = Some(thread_name);
+
+                    context.set_thread_name(thread_id, &thread_name);
                 }
                 "MSNT_SystemTrace/Thread/Start" |
                 "MSNT_SystemTrace/Thread/DCStart" => {
@@ -276,63 +167,17 @@ pub fn profile_pid_from_etl_file(
                     let process_id: u32 = parser.parse("ProcessId");
                     //assert_eq!(process_id,s.process_id());
 
-                    if !process_targets.contains(&process_id) {
+                    if !context.is_interesting_process(process_id, None, None) {
                         return;
                     }
-                    eprintln!("thread_name pid: {} tid: {}", process_id, thread_id);
 
-                    let handle = match global_thread {
-                        Some(global_thread) => global_thread,
-                        None => {
-                            let process = processes.get_mut(&process_id).unwrap();
+                    // if there's an existing thread, remove it, assume we dropped an end thread event
+                    context.remove_thread(thread_id, Some(timestamp));
 
-                            let is_main = process.main_thread_handle.is_none();
-                            let thread_handle = profile.add_thread(process.process_handle, thread_id, timestamp, is_main);
-                            if is_main {
-                                process.main_thread_handle = Some(thread_handle);
-                            }
-                            thread_handle
-                        }
-                    };
-                    let thread = ThreadState::new(handle, thread_id);
-
-                    let thread = match threads.entry(thread_id) {
-                        Entry::Occupied(e) => {
-                            // Clobber the existing thread. We don't rely on thread end events to remove threads
-                            // because they can be dropped and there can be subsequent events that refer to an ended thread.
-                            // eg.
-                            // MSNT_SystemTrace/Thread/End MSNT_SystemTrace 2-0 14 7369515373
-                            //     ProcessId: InTypeUInt32 = 4532
-                            //     TThreadId: InTypeUInt32 = 17524
-                            // MSNT_SystemTrace/Thread/ReadyThread MSNT_SystemTrace 50-0 5 7369515411
-                            //     TThreadId: InTypeUInt32 = 1644
-                            // MSNT_SystemTrace/StackWalk/Stack MSNT_SystemTrace 32-0 35 7369515425
-                            //     EventTimeStamp: InTypeUInt64 = 7369515411
-                            //     StackProcess: InTypeUInt32 = 4532
-                            //     StackThread: InTypeUInt32 = 17524
-                            // MSNT_SystemTrace/Thread/CSwitch MSNT_SystemTrace 36-0 12 7369515482
-                            //     NewThreadId: InTypeUInt32 = 1644
-                            //     OldThreadId: InTypeUInt32 = 0
-
-                            let existing = e.into_mut();
-                            *existing = thread;
-                            existing
-                        }
-                        Entry::Vacant(e) => {
-                            e.insert(thread)
-                        }
-                    };
-
-                    let thread_name: Result<String, _> = parser.try_parse("ThreadName");
-
-                    match thread_name {
-                        Ok(thread_name) if !thread_name.is_empty() => {
-                            if Some(thread.handle) != global_thread {
-                                profile.set_thread_name(thread.handle, &thread_name);
-                            }
-                            thread.merge_name = Some(thread_name)
-                        },
-                        _ => {}
+                    let thread = context.add_thread(process_id, thread_id, timestamp);
+                    let thread_name: Option<String> = parser.try_parse("ThreadName").ok();
+                    if let Some(thread_name) = thread_name {
+                        context.set_thread_name(thread_id, &thread_name);
                     }
                 }
                 "MSNT_SystemTrace/Thread/End" |
@@ -342,16 +187,8 @@ pub fn profile_pid_from_etl_file(
                     let mut parser = Parser::create(&s);
 
                     let thread_id: u32 = parser.parse("TThreadId");
-                    let process_id: u32 = parser.parse("ProcessId");
 
-                    let thread = match threads.entry(thread_id) {
-                        Entry::Occupied(e) => {
-                            profile.set_thread_end_time(e.get().handle, timestamp);
-                        }
-                        Entry::Vacant(e) => {
-                        }
-                    };
-
+                    context.remove_thread(thread_id, Some(timestamp));
                 }
                 "MSNT_SystemTrace/Process/Start" |
                 "MSNT_SystemTrace/Process/DCStart" => {
@@ -360,30 +197,25 @@ pub fn profile_pid_from_etl_file(
                     let parent_id: u32 = parser.parse("ParentId");
                     let image_file_name: String = parser.parse("ImageFileName");
 
-                    if process_id == 0 || parent_id == 0 {
+                    if !context.is_interesting_process(process_id, Some(parent_id), Some(&image_file_name)) {
                         return;
                     }
 
-                    //eprintln!("process {} parent {}", process_id, parent_id);
-                    if all_processes
-                        || process_targets.contains(&process_id) || process_targets.contains(&parent_id)
-                        || process_target_name.is_some_and(|name| image_file_name.contains(name))
-                    {
-                        let timestamp = e.EventHeader.TimeStamp as u64;
-                        let timestamp = timestamp_converter.convert_time(timestamp);
+                    let timestamp = e.EventHeader.TimeStamp as u64;
+                    let timestamp = timestamp_converter.convert_time(timestamp);
 
-                        process_targets.insert(process_id);
-                        println!("tracing {} - {}", process_id, image_file_name);
-                        let process_handle = match global_process {
-                            Some(global_process) => global_process,
-                            None => profile.add_process(&image_file_name, process_id, timestamp),
-                        };
-
-                        processes.insert(process_id, ProcessState::new(process_handle));
-                    }
+                    context.add_process(process_id, parent_id, &context.map_device_path(&image_file_name), timestamp);
                 }
-                // TODO End -- remove from process_targets
+                "MSNT_SystemTrace/Process/End" |
+                "MSNT_SystemTrace/Process/DCEnd" => {
+                    let mut parser = Parser::create(&s);
+                    let process_id: u32 = parser.parse("ProcessId");
 
+                    let timestamp = e.EventHeader.TimeStamp as u64;
+                    let timestamp = timestamp_converter.convert_time(timestamp);
+
+                    //context.end_process(...);
+                }
                 "MSNT_SystemTrace/StackWalk/Stack" => {
                     let mut parser = Parser::create(&s);
 
@@ -396,24 +228,7 @@ pub fn profile_pid_from_etl_file(
                         return;
                     }
 
-                    let thread = match threads.entry(thread_id) {
-                        Entry::Occupied(e) => e.into_mut(),
-                        Entry::Vacant(e) => {
-                            let thread_start_instant = profile_start_instant;
-                            let handle = match global_thread {
-                                Some(global_thread) => global_thread,
-                                None => {
-                                    let process = processes[&process_id].process_handle;
-                                    profile.add_thread(process, thread_id, thread_start_instant, false)
-                                }
-                            };
-                            let tb = e.insert(
-                                ThreadState::new(handle, thread_id)
-                            );
-                            thread_index += 1;
-                            tb
-                        }
-                    };
+                    let Some(thread) = context.get_thread_mut(thread_id) else { return };
                     // eprint!("{} {} {}", thread_id, e.EventHeader.TimeStamp, timestamp);
 
                     // Iterate over the stack addresses, starting with the instruction pointer
@@ -442,20 +257,6 @@ pub fn profile_pid_from_etl_file(
                     // We now know that we have a user stack. User stacks always come last. Consume
                     // the pending stack with matching timestamp.
 
-                    let mut add_sample = |thread: &ThreadState, process: &mut ProcessState, timestamp: u64, cpu_delta: CpuDelta, weight: i32, stack: Vec<StackFrame>| {
-                        let profile_timestamp = timestamp_converter.convert_time(timestamp);
-                        let stack_index = unresolved_stacks.convert(stack.into_iter().rev());
-                        let extra_label_frame = if let Some(global_thread) = global_thread {
-                            let thread_name = thread.merge_name.as_ref().map(|x| strip_thread_numbers(x).to_owned()).unwrap_or_else(|| format!("thread {}", thread.thread_id));
-                            Some(FrameInfo {
-                                frame: fxprof_processed_profile::Frame::Label(profile.intern_string(&thread_name)),
-                                category_pair: user_category,
-                                flags: FrameFlags::empty(),
-                            })
-                        } else { None };
-                        process.unresolved_samples.add_sample(thread.handle, profile_timestamp, timestamp, stack_index, cpu_delta, weight, extra_label_frame);
-                    };
-
                     // Use this user stack for all pending stacks from this thread.
                     while thread.pending_stacks.front().is_some_and(|s| s.timestamp <= timestamp) {
                         let PendingStack {
@@ -464,7 +265,6 @@ pub fn profile_pid_from_etl_file(
                             off_cpu_sample_group,
                             on_cpu_sample_cpu_delta,
                         } = thread.pending_stacks.pop_front().unwrap();
-                        let process = processes.get_mut(&process_id).unwrap();
 
                         if let Some(off_cpu_sample_group) = off_cpu_sample_group {
                             let OffCpuSampleGroup { begin_timestamp, end_timestamp, sample_count } = off_cpu_sample_group;
@@ -474,21 +274,22 @@ pub fn profile_pid_from_etl_file(
 
                             // Add a sample at the beginning of the paused range.
                             // This "first sample" will carry any leftover accumulated running time ("cpu delta").
-                            add_sample(thread, process, begin_timestamp, cpu_delta, 1, stack.clone());
+                            context.add_sample(thread_id, process_id, timestamp_converter.convert_time(begin_timestamp), begin_timestamp, cpu_delta, 1, stack.clone());
 
                             if sample_count > 1 {
                                 // Emit a "rest sample" with a CPU delta of zero covering the rest of the paused range.
                                 let weight = i32::try_from(sample_count - 1).unwrap_or(0) * 1;
-                                add_sample(thread, process, end_timestamp, CpuDelta::ZERO, weight, stack.clone());
+                                context.add_sample(thread_id, process_id, timestamp_converter.convert_time(end_timestamp), end_timestamp, CpuDelta::ZERO, weight, stack.clone());
                             }
                         }
 
                         if let Some(cpu_delta) = on_cpu_sample_cpu_delta {
+                            let timestamp_cvt = timestamp_converter.convert_time(timestamp);
                             if let Some(mut combined_stack) = kernel_stack {
                                 combined_stack.extend_from_slice(&stack[..]);
-                                add_sample(thread, process, timestamp, cpu_delta, 1, combined_stack);
+                                context.add_sample(thread_id, process_id, timestamp_cvt, timestamp, cpu_delta, 1, combined_stack);
                             } else {
-                                add_sample(thread, process, timestamp, cpu_delta, 1, stack.clone());
+                                context.add_sample(thread_id, process_id, timestamp_cvt, timestamp, cpu_delta, 1, stack.clone());
                             }
                             stack_sample_count += 1;
                         }
@@ -498,37 +299,23 @@ pub fn profile_pid_from_etl_file(
                     let mut parser = Parser::create(&s);
 
                     let thread_id: u32 = parser.parse("ThreadId");
-                    //println!("sample {}", thread_id);
+                    let timestamp = e.EventHeader.TimeStamp as u64;
+
                     sample_count += 1;
 
-                    let thread = match threads.entry(thread_id) {
-                        Entry::Occupied(e) => e.into_mut(), 
-                        Entry::Vacant(_) => {
-                            if include_idle {
-                                if let Some(global_thread) = global_thread {
-                                    let mut frames = Vec::new();
-                                    let thread_name = match thread_id {
-                                        0 => "Idle",
-                                        _ => "Other"
-                                    };
-                                    let timestamp = e.EventHeader.TimeStamp as u64;
-                                    let timestamp = timestamp_converter.convert_time(timestamp);
+                    if let Some(idle_handle) = context.get_idle_handle_if_appropriate(thread_id) {
+                        let mut frames = Vec::new();
+                        frames.push(FrameInfo {
+                            frame: fxprof_processed_profile::Frame::Label(profile.intern_string(if thread_id == 0 { "Idle" } else { "Other" })),
+                            category_pair: user_category,
+                            flags: FrameFlags::empty()
+                        });
+                        let timestamp = timestamp_converter.convert_time(timestamp);
+                        profile.add_sample(idle_handle, timestamp, frames.into_iter(), Duration::ZERO.into(), 1);
+                    }
 
-                                    frames.push(FrameInfo {
-                                        frame: fxprof_processed_profile::Frame::Label(profile.intern_string(&thread_name)),
-                                        category_pair: user_category,
-                                        flags: FrameFlags::empty()
-                                    });
-                                    profile.add_sample(global_thread, timestamp, frames.into_iter(), Duration::ZERO.into(), 1);
-                                }
-                            }
-                            dropped_sample_count += 1;
-                            // We don't know what process this will before so just drop it for now
-                            return;
-                        }
-                    };
+                    let Some(thread) = context.get_thread(thread_id) else { return };
 
-                    let timestamp = e.EventHeader.TimeStamp as u64;
                     let off_cpu_sample_group = context_switch_handler.handle_on_cpu_sample(timestamp, &mut thread.context_switch_data);
                     let delta = context_switch_handler.consume_cpu_delta(&mut thread.context_switch_data);
                     let cpu_delta = CpuDelta::from_nanos(delta as u64 * timestamp_converter.raw_to_ns_factor);
@@ -538,42 +325,28 @@ pub fn profile_pid_from_etl_file(
                     if !demand_zero_faults { return }
 
                     let thread_id: u32 = s.thread_id();
+                    let timestamp = e.EventHeader.TimeStamp as u64;
                     //println!("sample {}", thread_id);
                     sample_count += 1;
 
-                    let thread = match threads.entry(thread_id) {
-                        Entry::Occupied(e) => e.into_mut(),
-                        Entry::Vacant(_) => {
-                            if include_idle {
-                                if let Some(global_thread) = global_thread {
-                                    let mut frames = Vec::new();
-                                    let thread_name = match thread_id {
-                                        0 => "Idle",
-                                        _ => "Other"
-                                    };
-                                    let timestamp = e.EventHeader.TimeStamp as u64;
-                                    let timestamp = timestamp_converter.convert_time(timestamp);
+                    if let Some(idle_handle) = context.get_idle_handle_if_appropriate(thread_id) {
+                        let mut frames = Vec::new();
+                        frames.push(FrameInfo {
+                            frame: fxprof_processed_profile::Frame::Label(profile.intern_string(if thread_id == 0 { "Idle" } else { "Other" })),
+                            category_pair: user_category,
+                            flags: FrameFlags::empty()
+                        });
+                        let timestamp = timestamp_converter.convert_time(timestamp);
+                        profile.add_sample(idle_handle, timestamp, frames.into_iter(), Duration::ZERO.into(), 1);
+                    }
 
-                                    frames.push(FrameInfo {
-                                        frame: fxprof_processed_profile::Frame::Label(profile.intern_string(&thread_name)),
-                                        category_pair: user_category,
-                                        flags: FrameFlags::empty(),
-                                    });
+                    let Some(thread) = context.get_thread(thread_id) else { return };
 
-                                    profile.add_sample(global_thread, timestamp, frames.into_iter(), Duration::ZERO.into(), 1);
-                                }
-                            }
-                            dropped_sample_count += 1;
-                            // We don't know what process this will before so just drop it for now
-                            return;
-                        }
-                    };
-                    let timestamp = e.EventHeader.TimeStamp as u64;
                     thread.pending_stacks.push_back(PendingStack { timestamp, kernel_stack: None, off_cpu_sample_group: None, on_cpu_sample_cpu_delta: Some(CpuDelta::from_millis(1.0)) });
                 }
                 "MSNT_SystemTrace/PageFault/VirtualAlloc" |
                 "MSNT_SystemTrace/PageFault/VirtualFree" => {
-                    if !process_targets.contains(&e.EventHeader.ProcessId) {
+                    if !process_targets.contains(&e.EventHeader.ProcessId) || context.merge_threads {
                         return;
                     }
 
@@ -582,17 +355,12 @@ pub fn profile_pid_from_etl_file(
                     let timestamp = timestamp_converter.convert_time(timestamp);
                     let thread_id = e.EventHeader.ThreadId;
 
-                    let counter = memory_usage.entry(e.EventHeader.ProcessId).or_insert_with(|| {
-                        let process = processes.get_mut(&e.EventHeader.ProcessId).unwrap();
-                        MemoryUsage { counter: profile.add_counter(process.process_handle, "VirtualAlloc", "Memory", "Amount of VirtualAlloc allocated memory"), value: 0. }
-                    });
-
-                    let Some(thread) = thread_state_for_thread_id(thread_id) else { return };
-
-                    let is_free = s.name() == "MSNT_SystemTrace/PageFault/VirtualFree";
+                    let Some(memory_usage_counter) = context.get_or_create_memory_usage(thread_id).map(|mu| mu.counter) else { return };
+                    let Some(thread_handle) = context.get_thread(thread_id).map(|t| t.handle) else { return };
 
                     let region_size: u64 = parser.parse("RegionSize");
 
+                    let is_free = s.name() == "MSNT_SystemTrace/PageFault/VirtualFree";
                     let delta_size = if is_free { -(region_size as f64) } else { region_size as f64 };
                     let op_name = if is_free { "VirtualFree" } else { "VirtualAlloc" };
 
@@ -605,8 +373,8 @@ pub fn profile_pid_from_etl_file(
                         text += ", "
                     }
 
-                    profile.add_counter_sample(counter.counter, timestamp, delta_size, 1);
-                    profile.add_marker(thread.handle, CategoryHandle::OTHER, op_name, SimpleMarker(text), MarkerTiming::Instant(timestamp));
+                    profile.add_counter_sample(memory_usage_counter, timestamp, delta_size, 1);
+                    profile.add_marker(thread_handle, CategoryHandle::OTHER, op_name, SimpleMarker(text), MarkerTiming::Instant(timestamp));
                 }
                 "KernelTraceControl/ImageID/" => {
 
@@ -627,11 +395,11 @@ pub fn profile_pid_from_etl_file(
                     let mut parser = Parser::create(&s);
 
                     let process_id = s.process_id();
-                    if !process_targets.contains(&process_id) && process_id != 0 {
+                    if !context.is_interesting_process(process_id, None, None) {
                         return;
                     }
-                    let image_base: u64 = parser.try_parse("ImageBase").unwrap();
 
+                    let image_base: u64 = parser.try_parse("ImageBase").unwrap();
                     let guid: GUID = parser.try_parse("GuidSig").unwrap();
                     let age: u32 = parser.try_parse("Age").unwrap();
                     let debug_id = DebugId::from_parts(Uuid::from_fields(guid.data1, guid.data2, guid.data3, &guid.data4), age);
@@ -649,12 +417,12 @@ pub fn profile_pid_from_etl_file(
                         symbol_table: None, 
                         debug_path: pdb_path,
                         debug_id, 
-                        arch: Some("x86_64".into())
+                        arch: Some("x86_64".into()) // TODO arch
                     };
                     if process_id == 0 {
                         kernel_pending_libraries.insert(image_base, info);
                     } else {
-                        let process = processes.get_mut(&process_id).unwrap();
+                        let process = context.get_process(process_id).unwrap();
                         process.pending_libraries.insert(image_base, info);
                     }
 
@@ -674,16 +442,12 @@ pub fn profile_pid_from_etl_file(
                     let image_size: u64 = parser.try_parse("ImageSize").unwrap();
 
                     let path: String = parser.try_parse("FileName").unwrap();
-                    // The filename is a NT kernel path (https://chrisdenton.github.io/omnipath/NT.html) which isn't direclty usable from user space.
-                    // perfview goes through a dance to convert it to a regular user space path
-                    // https://github.com/microsoft/perfview/blob/4fb9ec6947cb4e68ac7cb5e80f50ae3757d0ede4/src/TraceEvent/Parsers/KernelTraceEventParser.cs#L3461
-                    // We'll just concatenate \\?\GLOBALROOT\
-                    let path = format!("\\\\?\\GLOBALROOT{}", path);
+                    let path = context.map_device_path(&path);
 
                     let info = if process_id == 0 {
                         kernel_pending_libraries.remove(&image_base)
                     } else {
-                        let process = processes.get_mut(&process_id).unwrap();
+                        let process = context.get_process(process_id).unwrap();
                         process.pending_libraries.remove(&image_base)
                     };
                     // If the file doesn't exist on disk we won't have KernelTraceControl/ImageID events
@@ -694,7 +458,7 @@ pub fn profile_pid_from_etl_file(
                         if process_id == 0 {
                             profile.add_kernel_lib_mapping(lib_handle, image_base, image_base + image_size as u64, 0);
                         } else {
-                            let process = processes.get_mut(&process_id).unwrap();
+                            let process = context.get_process(process_id).unwrap();
                             process.regular_lib_mapping_ops.push(e.EventHeader.TimeStamp as u64, LibMappingOp::Add(LibMappingAdd {
                                 start_avma: image_base,
                                 end_avma: image_base + image_size as u64,
@@ -755,16 +519,16 @@ pub fn profile_pid_from_etl_file(
                     let old_thread: u32 = parser.parse("OldThreadId");
                     let timestamp = e.EventHeader.TimeStamp as u64;
                     // println!("CSwitch {} -> {} @ {} on {}", old_thread, new_thread, e.EventHeader.TimeStamp, unsafe { e.BufferContext.Anonymous.ProcessorIndex });
-                    if let Some(old_thread) = threads.get_mut(&old_thread) {
+
+                    if let Some(old_thread) = context.get_thread(old_thread) {
                         context_switch_handler.handle_switch_out(timestamp, &mut old_thread.context_switch_data);
-                    };
-                    if let Some(new_thread) = threads.get_mut(&new_thread) {
+                    }
+                    if let Some(new_thread) = context.get_thread(new_thread) {
                         let off_cpu_sample_group = context_switch_handler.handle_switch_in(timestamp, &mut new_thread.context_switch_data);
                         if let Some(off_cpu_sample_group) = off_cpu_sample_group {
                             new_thread.pending_stacks.push_back(PendingStack { timestamp, kernel_stack: None, off_cpu_sample_group: Some(off_cpu_sample_group), on_cpu_sample_cpu_delta: None });
                         }
-                    };
-
+                    }
                 }
                 "MSNT_SystemTrace/Thread/ReadyThread" => {
                     // these events can give us the unblocking stack
@@ -780,14 +544,8 @@ pub fn profile_pid_from_etl_file(
                     let method_size: u64 = parser.parse("MethodSize");
                     // let source_id: u64 = parser.parse("SourceID");
                     let process_id = s.process_id();
-                    let process = match processes.get_mut(&process_id) {
-                        Some(process) => process,
-                        None => {
-                            // This event is probably from a process which doesn't match our name filter.
-                            // Ignore it.
-                            return;
-                        }
-                    };
+                    let Some(process) = context.get_process(process_id) else { return; };
+
                     let process_jit_info = jscript_symbols.entry(s.process_id()).or_insert_with(|| {
                         let lib_handle = profile.add_lib(LibraryInfo { name: format!("JIT-{process_id}"), debug_name: format!("JIT-{process_id}"), path: format!("JIT-{process_id}"), debug_path: format!("JIT-{process_id}"), debug_id: DebugId::nil(), code_id: None, arch: None, symbol_table: None });
                         ProcessJitInfo { lib_handle, jit_mapping_ops: LibMappingOpQueue::default(), next_relative_address: 0, symbols: Vec::new() }
@@ -837,7 +595,7 @@ pub fn profile_pid_from_etl_file(
                 _ => {
                     if let Some(marker_name) = s.name().strip_prefix("Mozilla.FirefoxTraceLogger/").and_then(|s| s.strip_suffix("/")) {
                         let thread_id = e.EventHeader.ThreadId;
-                        let thread = match threads.entry(thread_id) {
+                        let thread = match context.threads.entry(thread_id) {
                             Entry::Occupied(e) => e.into_mut(), 
                             Entry::Vacant(_) => {
                                 dropped_sample_count += 1;
@@ -959,14 +717,7 @@ pub fn profile_pid_from_etl_file(
                         let thread_id = e.EventHeader.ThreadId;
                         let phase: String = parser.try_parse("Phase").unwrap();
 
-                        let thread = match threads.entry(thread_id) {
-                            Entry::Occupied(e) => e.into_mut(), 
-                            Entry::Vacant(_) => {
-                                dropped_sample_count += 1;
-                                // We don't know what process this will before so just drop it for now
-                                return;
-                            }
-                        };
+                        let Some(thread) = context.get_thread(thread_id)  else { return };
                         let mut text = String::new();
                         for i in 0..s.property_count() {
                             let property = s.property(i);
@@ -999,14 +750,7 @@ pub fn profile_pid_from_etl_file(
                         let timestamp = e.EventHeader.TimeStamp as u64;
                         let timestamp = timestamp_converter.convert_time(timestamp);
                         let thread_id = e.EventHeader.ThreadId;
-                        let thread = match threads.entry(thread_id) {
-                            Entry::Occupied(e) => e.into_mut(), 
-                            Entry::Vacant(_) => {
-                                dropped_sample_count += 1;
-                                // We don't know what process this will before so just drop it for now
-                                return;
-                            }
-                        };
+                        let Some(thread) = context.get_thread(thread_id) else { return };
                         let mut text = String::new();
                         for i in 0..s.property_count() {
                             let property = s.property(i);
@@ -1056,7 +800,7 @@ pub fn profile_pid_from_etl_file(
     // samply does on Linux and macOS, where the queued samples also want to respect JIT function names from
     // a /tmp/perf-1234.map file, and this file may not exist until the profiled process finishes.)
     let mut stack_frame_scratch_buf = Vec::new();
-    for (process_id, process) in processes {
+    for (process_id, process) in &context.processes {
         let ProcessState { unresolved_samples, regular_lib_mapping_ops, main_thread_handle, .. } = process;
         let jitdump_lib_mapping_op_queues = match jscript_symbols.remove(&process_id) {
             Some(jit_info) => {
@@ -1075,11 +819,12 @@ pub fn profile_pid_from_etl_file(
             }
         }).collect();
 
-        let process_sample_data = ProcessSampleData::new(unresolved_samples, regular_lib_mapping_ops,
+        let process_sample_data = ProcessSampleData::new(unresolved_samples.clone(),
+                                                         regular_lib_mapping_ops.clone(),
                                                          jitdump_lib_mapping_op_queues,
                                                          None, marker_spans_on_thread);
                                                          //main_thread_handle.unwrap_or_else(|| panic!("process no main thread {:?}", process_id)));
-        process_sample_data.flush_samples_to_profile(&mut profile, user_category, kernel_category, &mut stack_frame_scratch_buf, &mut unresolved_stacks, &[])
+        process_sample_data.flush_samples_to_profile(&mut profile, user_category, kernel_category, &mut stack_frame_scratch_buf, &mut context.unresolved_stacks, &[])
     }
 
     /*if merge_threads {
@@ -1088,6 +833,6 @@ pub fn profile_pid_from_etl_file(
         for (_, thread) in threads.drain() { profile.add_thread(thread.builder); }
     }*/
 
-    println!("Took {} seconds", (Instant::now()-start).as_secs_f32());
+    println!("Took {} seconds", (Instant::now()-processing_start_timestamp).as_secs_f32());
     println!("{} events, {} samples, {} dropped, {} stack-samples", event_count, sample_count, dropped_sample_count, stack_sample_count);
 }

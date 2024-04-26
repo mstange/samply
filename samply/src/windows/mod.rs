@@ -1,5 +1,526 @@
 pub mod profiler;
-mod etw;
 mod winutils;
 mod etw_gecko;
 mod etw_reader;
+mod etw_simple;
+
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::hash_map::Entry;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::thread::Thread;
+use debugid::DebugId;
+use tokio::runtime;
+use uuid::Uuid;
+use fxprof_processed_profile::{CategoryColor, CategoryPairHandle, CounterHandle, CpuDelta, FrameFlags, FrameInfo, LibraryHandle, LibraryInfo, ProcessHandle, Profile, Symbol, ThreadHandle, Timestamp};
+use wholesym::SymbolManager;
+use crate::shared::context_switch::{OffCpuSampleGroup, ThreadContextSwitchData};
+use crate::shared::lib_mappings::LibMappingOpQueue;
+use crate::shared::types::StackFrame;
+use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
+
+/// An on- or off-cpu-sample for which the user stack is not known yet.
+/// Consumed once the user stack arrives.
+#[derive(Debug, Clone)]
+struct PendingStack {
+    /// The timestamp of the SampleProf or CSwitch event
+    timestamp: u64,
+    /// Starts out as None. Once we encounter the kernel stack (if any), we put it here.
+    kernel_stack: Option<Vec<StackFrame>>,
+    off_cpu_sample_group: Option<OffCpuSampleGroup>,
+    on_cpu_sample_cpu_delta: Option<CpuDelta>,
+}
+
+#[derive(Debug)]
+struct MemoryUsage {
+    counter: CounterHandle,
+    value: f64
+}
+
+#[derive(Debug)]
+struct ProcessJitInfo {
+    lib_handle: LibraryHandle,
+    jit_mapping_ops: LibMappingOpQueue,
+    next_relative_address: u32,
+    symbols: Vec<Symbol>,
+}
+
+#[derive(Debug)]
+struct ThreadState {
+    // When merging threads `handle` is the global thread handle and we use `merge_name` to store the name
+    handle: ThreadHandle,
+    merge_name: Option<String>,
+    pending_stacks: VecDeque<PendingStack>,
+    context_switch_data: ThreadContextSwitchData,
+    memory_usage: Option<MemoryUsage>,
+    thread_id: u32,
+    process_id: u32,
+}
+
+impl ThreadState {
+    fn new(handle: ThreadHandle, pid: u32, tid: u32) -> Self {
+        ThreadState {
+            handle,
+            merge_name: None,
+            pending_stacks: VecDeque::new(),
+            context_switch_data: Default::default(),
+            memory_usage: None,
+            thread_id: tid,
+            process_id: pid,
+        }
+    }
+
+    fn display_name(&self) -> String {
+        self.merge_name.as_ref().map(|x| strip_thread_numbers(x).to_owned()).unwrap_or_else(|| format!("thread {}", self.thread_id))
+    }
+}
+
+struct ProcessState {
+    handle: ProcessHandle,
+    unresolved_samples: UnresolvedSamples,
+    regular_lib_mapping_ops: LibMappingOpQueue,
+    main_thread_handle: Option<ThreadHandle>,
+    pending_libraries: HashMap<u64, LibraryInfo>,
+    process_id: u32,
+    parent_id: u32,
+}
+
+impl ProcessState {
+    pub fn new(handle: ProcessHandle, pid: u32, ppid: u32) -> Self {
+        Self {
+            handle,
+            unresolved_samples: UnresolvedSamples::default(),
+            regular_lib_mapping_ops: LibMappingOpQueue::default(),
+            main_thread_handle: None,
+            pending_libraries: HashMap::new(),
+            process_id: pid,
+            parent_id: ppid,
+        }
+    }
+}
+
+fn strip_thread_numbers(name: &str) -> &str {
+    if let Some(hash) = name.find('#') {
+        let (prefix, suffix) = name.split_at(hash);
+        if suffix[1..].parse::<i32>().is_ok() {
+            return prefix.trim();
+        }
+    }
+    return name;
+}
+
+struct ProfileContext {
+    //profile: Arc<Mutex<Profile>>,
+    profile: RefCell<Profile>,
+
+    rt: runtime::Handle,
+    timebase_nanos: u64,
+
+    // state -- keep track of the processes etc we've seen as we're processing,
+    // and their associated handles in the json profile
+    processes: HashMap<u32, ProcessState>,
+    threads: HashMap<u32, ThreadState>,
+    memory_usage: HashMap<u32, MemoryUsage>,
+
+    unresolved_stacks: UnresolvedStacks,
+
+    // If process and threads are being squished into one global one, here's the squished handles.
+    // We still allocate a ThreadState/ProcessState per thread
+    merge_threads: bool,
+    global_process_handle: Option<ProcessHandle>,
+    global_thread_handle: Option<ThreadHandle>,
+    idle_thread_handle: Option<ThreadHandle>,
+    other_thread_handle: Option<ThreadHandle>,
+
+    // some special threads
+    gpu_thread_handle: Option<ThreadHandle>,
+
+    libs: HashMap<String, LibraryHandle>,
+
+    // These are the processes + their children that we want to write into
+    // the profile.json. If it's empty, trace everything.
+    interesting_processes: HashSet<u32>,
+
+    // default categories
+    default_category: CategoryPairHandle,
+    kernel_category: CategoryPairHandle,
+
+    // cache of device mappings
+    device_mappings: HashMap<String, String>, // map of \Device\HarddiskVolume4 -> C:\
+
+    // the minimum address for kernel drivers, so that we can assign kernel_category to the frame
+    // TODO why is this needed -- kernel libs are at global addresses, why do I need to indicate
+    // this per-frame; shouldn't there be some kernel override?
+    kernel_min: u64,
+
+    // architecture to record in the trace. will be the system architecture for now.
+    // TODO no idea how to handle "I'm on aarch64 windows but I'm recording a win64 process".
+    // I have no idea how stack traces work in that case anyway, so this is probably moot.
+    arch: String,
+
+    // the ETL file we're either recording to or parsing from
+    etl_file: Option<PathBuf>,
+}
+
+impl ProfileContext {
+    const K_GLOBAL_MERGED_PROCESS_ID: u32 = 0;
+    const K_GLOBAL_MERGED_THREAD_ID: u32 = 1;
+    const K_GLOBAL_IDLE_THREAD_ID: u32 = 0;
+    const K_GLOBAL_OTHER_THREAD_ID: u32 = u32::MAX;
+
+    fn new(profile: Arc<Mutex<Profile>>, rt: runtime::Handle, merge_threads: bool, include_idle: bool) -> Self {
+        let default_category = CategoryPairHandle::from(
+            profile
+                .lock()
+                .unwrap()
+                .add_category("User", CategoryColor::Yellow),
+        );
+        let kernel_category = CategoryPairHandle::from(
+            profile
+                .lock()
+                .unwrap()
+                .add_category("Kernel", CategoryColor::Orange),
+        );
+
+        let mut result = Self {
+            profile,
+            rt,
+            timebase_nanos: 0,
+            processes: HashMap::new(),
+            threads: HashMap::new(),
+            memory_usage: HashMap::new(),
+            unresolved_stacks: UnresolvedStacks::default(),
+            global_process_handle: None,
+            global_thread_handle: None,
+            idle_thread_handle: None,
+            other_thread_handle: None,
+            gpu_thread_handle: None,
+            merge_threads,
+            libs: HashMap::new(),
+            interesting_processes: HashSet::new(),
+            default_category,
+            kernel_category,
+            device_mappings: winutils::get_dos_device_mappings(),
+            kernel_min: u64::MAX,
+            arch: "aarch64".to_string(),
+            etl_file: None,
+        };
+
+        if merge_threads {
+            let start_instant = Timestamp::from_nanos_since_reference(0);
+            let mut profile = result.profile.lock().unwrap();
+
+            let global_process_handle = profile.add_process("All processes", Self::K_GLOBAL_MERGED_PROCESS_ID, start_instant);
+            let global_thread_handle = profile.add_thread(global_process_handle, Self::K_GLOBAL_MERGED_THREAD_ID, start_instant, true);
+            profile.set_thread_name(global_thread_handle, "All threads");
+
+            result.global_process_handle = Some(global_process_handle);
+            result.global_thread_handle = Some(global_thread_handle);
+
+            if include_idle {
+                let idle_thread_handle = profile.add_thread(global_process_handle, Self::K_GLOBAL_IDLE_THREAD_ID, start_instant, false);
+                profile.set_thread_name(idle_thread_handle, "Idle");
+                let other_thread_handle = profile.add_thread(global_process_handle, Self::K_GLOBAL_OTHER_THREAD_ID, start_instant, false);
+                profile.set_thread_name(other_thread_handle, "Other");
+
+                result.idle_thread_handle = Some(idle_thread_handle);
+                result.other_thread_handle = Some(other_thread_handle);
+            }
+        }
+
+        result
+    }
+
+    fn with_profile<F, T>(&self, func: F) -> T where F: FnOnce(&mut Profile) -> T {
+        func(&mut self.profile.borrow_mut())
+    }
+
+    // add_process and add_thread always add a process/thread (and thread expects process to exist)
+    fn add_process(&mut self, pid: u32, parent_id: u32, name: &str, start_time: Timestamp) -> &mut ProcessState {
+        let process_handle = if self.merge_threads {
+            self.global_process_handle.unwrap()
+        } else {
+            self.profile.lock().unwrap().add_process(name, pid, start_time)
+        };
+        let process = ProcessState::new(process_handle, pid, parent_id);
+        self.processes.insert(pid, process).as_mut().unwrap()
+    }
+
+    fn remove_process(&mut self, pid: u32, timestamp: Option<Timestamp>) -> Option<ProcessHandle> {
+        if let Some(process) = self.processes.remove(&pid) {
+            if let Some(timestamp) = timestamp {
+                self.profile.lock().unwrap().set_process_end_time(process.handle, timestamp);
+            }
+
+            Some(process.handle)
+        } else {
+            None
+        }
+    }
+
+    fn get_process(&self, pid: u32) -> Option<&ProcessState> {
+        self.processes.get(&pid)
+    }
+
+    fn get_process_mut(&mut self, pid: u32) -> Option<&mut ProcessState> {
+        self.processes.get_mut(&pid)
+    }
+
+    fn get_process_handle(&self, pid: u32) -> Option<ProcessHandle> {
+        self.get_process(pid).map(|p| p.handle)
+    }
+
+    fn add_thread(&mut self, pid: u32, tid: u32, start_time: Timestamp) -> &mut ThreadState {
+        let process = self.processes.get_mut(&pid).unwrap();
+
+        let thread_handle = if self.merge_threads {
+            self.global_thread_handle.unwrap()
+        } else {
+            let is_main = process.main_thread_handle.is_none();
+            let thread_handle = self.profile.lock().unwrap().add_thread(process.handle, tid, start_time, is_main);
+            if is_main {
+                process.main_thread_handle = Some(thread_handle);
+            }
+            thread_handle
+        };
+
+        let thread = ThreadState::new(thread_handle, pid, tid);
+        self.threads.insert(tid, thread).as_mut().unwrap()
+    }
+
+    fn remove_thread(&mut self, tid: u32, timestamp: Option<Timestamp>) -> Option<ThreadHandle> {
+        if let Some(thread) = self.threads.remove(&tid) {
+            if let Some(timestamp) = timestamp {
+                self.profile.lock().unwrap().set_thread_end_time(thread.handle, timestamp);
+            }
+
+            Some(thread.handle)
+        } else {
+            None
+        }
+    }
+
+    fn get_process_for_thread(&self, tid: u32) -> Option<&ProcessState> {
+        let thread = self.threads.get(&tid)?;
+        self.processes.get(&thread.process_id)
+    }
+
+    fn get_thread(&self, tid: u32) -> Option<&ThreadState> {
+        self.threads.get(&tid)
+    }
+
+    fn get_thread_mut(&mut self, tid: u32) -> Option<&mut ThreadState> {
+        self.threads.get_mut(&tid)
+    }
+
+    fn get_thread_handle(&mut self, tid: u32) -> Option<ThreadHandle> {
+        self.get_thread(tid).map(|t| t.handle)
+    }
+
+    // If we should use an
+    // an Idle/Other thread)
+    fn get_idle_handle_if_appropriate(&self, tid: u32) -> Option<ThreadHandle> {
+        if self.threads.contains_key(&tid) || !self.merge_threads {
+            None
+        } else if tid == Self::K_GLOBAL_IDLE_THREAD_ID {
+            self.idle_thread_handle
+        } else {
+            self.other_thread_handle
+        }
+    }
+
+    fn set_thread_name(&mut self, tid: u32, name: &str) {
+        if let Some(thread) = self.threads.get_mut(&tid) {
+            self.profile.lock().unwrap().set_thread_name(thread.handle, name);
+            thread.merge_name = Some(name.to_string());
+        }
+    }
+
+    fn get_or_create_memory_usage(&mut self, tid: u32) -> Option<&mut MemoryUsage> {
+        let process_handle = if let Some(process) = self.get_process_for_thread(tid) { process.handle } else { return None };
+        let thread = self.threads.get_mut(&tid).unwrap();
+
+        Some(thread.memory_usage.get_or_insert_with(|| {
+            let counter = self.profile.lock().unwrap().add_counter(process_handle, "VM", "Memory", "Amount of VirtualAlloc allocated memory");
+            MemoryUsage {
+                counter,
+                value: 0.0
+            }
+        }))
+    }
+
+    fn add_sample(&mut self, tid: u32, pid: u32, timestamp: Timestamp, timestamp_raw: u64, cpu_delta: CpuDelta, weight: i32, stack: Vec<StackFrame>) {
+        let profile = self.profile.lock().unwrap();
+        let stack_index = self.unresolved_stacks.convert(stack.into_iter().rev());
+        let thread = self.threads.get(&tid).unwrap();
+        let extra_label_frame = if self.merge_threads {
+            let display_name = thread.display_name();
+            Some(FrameInfo {
+                frame: fxprof_processed_profile::Frame::Label(profile.intern_string(&display_name)),
+                category_pair: self.default_category,
+                flags: FrameFlags::empty(),
+            })
+        } else { None };
+        let thread = thread.handle;
+        self.get_process(pid).unwrap().unresolved_samples.add_sample(thread, timestamp, timestamp_raw, stack_index, cpu_delta, weight, extra_label_frame);
+    }
+
+    fn add_interesting_process_id(&mut self, pid: u32) {
+        self.interesting_processes.insert(pid);
+    }
+
+    fn is_interesting_process(&self, pid: u32, ppid: Option<u32>, name: Option<&str>) -> bool {
+        if pid == 0 {
+            return false;
+        }
+        // TODO name
+
+        // if we didn't flag anything as interesting, trace everything
+        self.interesting_processes.is_empty() ||
+            // or if we have explicit ones, trace those
+            self.interesting_processes.contains(&pid) ||
+            // or if we've already decided to trace it or its parent
+            self.processes.contains_key(&pid) ||
+            ppid.is_some_and(|k| self.processes.contains_key(&k))
+    }
+
+    fn new_with_existing_recording(
+        profile: Arc<Mutex<Profile>>,
+        rt: runtime::Handle,
+        etl_file: &Path,
+    ) -> Self {
+        let mut context = Self::new(profile, rt, false, false);
+        context.etl_file = Some(PathBuf::from(etl_file));
+        context
+    }
+
+    fn add_kernel_drivers(&mut self) {
+        for (path, start_avma, end_avma) in winutils::iter_kernel_drivers() {
+            if self.kernel_min == u64::MAX {
+                // take the first as the start; iter_kernel_drivers is sorted
+                self.kernel_min = start_avma;
+            }
+
+            let path = self.map_device_path(&path);
+            eprintln!("kernel driver: {} {:x} {:x}", path, start_avma, end_avma);
+            let lib_info = self.library_info_for_path(&path);
+            let lib_handle = self.profile.lock().unwrap().add_lib(lib_info);
+            self.profile
+                .lock()
+                .unwrap()
+                .add_kernel_lib_mapping(lib_handle, start_avma, end_avma, 0);
+        }
+    }
+
+    // The filename is a NT kernel path (https://chrisdenton.github.io/omnipath/NT.html) which isn't direclty
+    // usable from user space.  perfview goes through a dance to convert it to a regular user space path
+    // https://github.com/microsoft/perfview/blob/4fb9ec6947cb4e68ac7cb5e80f50ae3757d0ede4/src/TraceEvent/Parsers/KernelTraceEventParser.cs#L3461
+    // and we do a bit of it here, just for dos drive mappings. Everything else we prefix with \\?\GLOBALROOT\
+    fn map_device_path(&self, path: &str) -> String {
+        for (k, v) in &self.device_mappings {
+            if path.starts_with(k) {
+                let r = format!("{}{}", v, path.split_at(k.len()).1);
+                return r;
+            }
+        }
+
+        // if we didn't translate (still have a \\ path), prefix with GLOBALROOT as
+        // an escape
+        if path.starts_with("\\\\") {
+            format!("\\\\?\\GLOBALROOT{}", path)
+        } else {
+            path.into()
+        }
+    }
+
+    fn library_info_for_path(&self, path: &str) -> LibraryInfo {
+        let path = self.map_device_path(path);
+
+        // TODO -- I'm not happy about this. I'd like to be able to just reprocess these before we write out the profile,
+        // instead of blocking during processing the samples. But we're postprocessing anyway, so not a big deal.
+        if let Ok(info) = self
+            .rt
+            .block_on(SymbolManager::library_info_for_binary_at_path(
+                path.as_ref(),
+                None,
+            ))
+        {
+            LibraryInfo {
+                name: info.name.unwrap(),
+                path: info.path.unwrap(),
+                debug_name: info.debug_name.unwrap_or(path.to_string()),
+                debug_path: info.debug_path.unwrap_or(path.to_string()),
+                debug_id: info.debug_id.unwrap_or(Default::default()),
+                code_id: None,
+                arch: info.arch,
+                symbol_table: None,
+            }
+        } else {
+            // Not found; put in a dummy
+            LibraryInfo {
+                name: path.to_string(),
+                path: path.to_string(),
+                debug_name: path.to_string(),
+                debug_path: path.to_string(),
+                debug_id: DebugId::from_uuid(Uuid::new_v4()),
+                code_id: None,
+                arch: Some(self.arch.clone()),
+                symbol_table: None,
+            }
+        }
+    }
+
+    fn thread_state_for_thread_id(&mut self, thread_id: u32) -> Option<&mut ThreadState> {
+        self.threads.get_mut(&thread_id)
+    }
+
+    fn start_xperf(&mut self, output_file: &Path) {
+        // start xperf.exe, logging to the same location as the output file, just with a .etl
+        // extension.
+        let etl_file = format!("{}.etl", output_file.to_str().unwrap());
+        let mut xperf = std::process::Command::new("xperf");
+        // Virtualised ARM64 Windows crashes out on PROFILE tracing, and that's what I'm developing
+        // on, so these are hacky args to get me a useful profile that I can work with.
+        xperf.arg("-on");
+        //xperf.arg("PROC_THREAD+LOADER+PROFILE");
+        xperf.arg("PROC_THREAD+LOADER+CSWITCH+SYSCALL+VIRT_ALLOC+OB_HANDLE");
+        xperf.arg("-stackwalk");
+        //xperf.arg("profile");
+        xperf.arg("VirtualAlloc+VirtualFree+HandleCreate+HandleClose");
+        xperf.arg("-f");
+        xperf.arg(&etl_file);
+
+        let _ = xperf
+            .spawn()
+            .unwrap_or_else(|err| {
+                panic!("failed to execute xperf: {}", err);
+            })
+            .wait()
+            .is_ok_and(|exitstatus| {
+                if !exitstatus.success() {
+                    panic!("xperf exited with: {:?}", exitstatus);
+                }
+                true
+            });
+
+        eprintln!("xperf session running...");
+
+        self.etl_file = Some(PathBuf::from(&etl_file));
+    }
+
+    fn stop_xperf(&mut self) {
+        let mut xperf = std::process::Command::new("xperf");
+        xperf.arg("-stop");
+
+        xperf
+            .spawn()
+            .unwrap_or_else(|err| {
+                panic!("failed to execute xperf: {}", err);
+            })
+            .wait()
+            .expect("Failed to wait on xperf");
+
+        eprintln!("xperf session stopped.");
+    }
+}
