@@ -116,6 +116,9 @@ struct ProfileContext {
     //profile: Arc<Mutex<Profile>>,
     profile: RefCell<Profile>,
 
+    // optional tokio runtime handle
+    rt: Option<runtime::Handle>,
+
     timebase_nanos: u64,
 
     // state -- keep track of the processes etc we've seen as we're processing,
@@ -166,6 +169,9 @@ struct ProfileContext {
 
     // the ETL file we're either recording to or parsing from
     etl_file: Option<PathBuf>,
+
+    // if xperf is currently running
+    xperf_running: bool,
 }
 
 impl ProfileContext {
@@ -189,6 +195,7 @@ impl ProfileContext {
 
         let mut result = Self {
             profile: RefCell::new(profile),
+            rt: None,
             timebase_nanos: 0,
             processes: HashMap::new(),
             threads: HashMap::new(),
@@ -209,6 +216,7 @@ impl ProfileContext {
             kernel_min,
             arch: arch.to_string(),
             etl_file: None,
+            xperf_running: false,
         };
 
         if merge_threads {
@@ -395,19 +403,44 @@ impl ProfileContext {
         if let Some(&handle) = self.libs.get(filename) {
             handle
         } else {
-            let lib_info = LibraryInfo {
-                name: "".to_string(),
-                debug_name: "".to_string(),
-                path: "".to_string(),
-                debug_path: "".to_string(),
-                debug_id: DebugId::nil(),
-                code_id: None,
-                arch: None,
-                symbol_table: None,
-            };
+            let lib_info = self.slow_library_info_for_path(filename);
             let handle = self.profile.borrow_mut().add_lib(lib_info);
             self.libs.insert(filename.to_string(), handle);
             handle
+        }
+    }
+
+    fn slow_library_info_for_path(&self, path: &str) -> LibraryInfo {
+        let path = self.map_device_path(path);
+
+        if let Some(rt) = self.rt.as_ref() {
+            // TODO -- I'm not happy about this. I'd like to be able to just reprocess these before we write out the profile,
+            // instead of blocking during processing the samples. But we're postprocessing anyway, so not a big deal.
+            if let Ok(info) = rt.block_on(SymbolManager::library_info_for_binary_at_path(path.as_ref(), None,))
+            {
+                return LibraryInfo {
+                    name: info.name.unwrap(),
+                    path: info.path.unwrap(),
+                    debug_name: info.debug_name.unwrap_or(path.to_string()),
+                    debug_path: info.debug_path.unwrap_or(path.to_string()),
+                    debug_id: info.debug_id.unwrap_or(Default::default()),
+                    code_id: None,
+                    arch: info.arch,
+                    symbol_table: None,
+                }
+            }
+        }
+
+        // Not found; dummy
+        LibraryInfo {
+            name: path.to_string(),
+            path: path.to_string(),
+            debug_name: path.to_string(),
+            debug_path: path.to_string(),
+            debug_id: DebugId::from_uuid(Uuid::new_v4()),
+            code_id: None,
+            arch: Some(self.arch.clone()),
+            symbol_table: None,
         }
     }
 
@@ -432,7 +465,6 @@ impl ProfileContext {
 
     fn new_with_existing_recording(
         mut profile: Profile,
-        rt: runtime::Handle,
         arch: &str,
         etl_file: &Path,
     ) -> Self {
@@ -445,11 +477,9 @@ impl ProfileContext {
         for (path, start_avma, end_avma) in winutils::iter_kernel_drivers() {
             let path = self.map_device_path(&path);
             eprintln!("kernel driver: {} {:x} {:x}", path, start_avma, end_avma);
-            // let lib_info = self.library_info_for_path(&path);
-            // let lib_handle = self.profile.borrow_mut().add_lib(lib_info);
-            // self.profile
-            //     .borrow_mut()
-            //     .add_kernel_lib_mapping(lib_handle, start_avma, end_avma, 0);
+            let lib_info = self.slow_library_info_for_path(&path);
+            let lib_handle = self.profile.borrow_mut().add_lib(lib_info);
+            self.profile.borrow_mut().add_kernel_lib_mapping(lib_handle, start_avma, end_avma, 0);
         }
     }
 
@@ -520,6 +550,7 @@ impl ProfileContext {
         eprintln!("xperf session running...");
 
         self.etl_file = Some(PathBuf::from(&etl_file));
+        self.xperf_running = true;
     }
 
     fn stop_xperf(&mut self) {
@@ -535,5 +566,15 @@ impl ProfileContext {
             .expect("Failed to wait on xperf");
 
         eprintln!("xperf session stopped.");
+
+        self.xperf_running = false;
+    }
+}
+
+impl Drop for ProfileContext {
+    fn drop(&mut self) {
+        if self.xperf_running {
+            self.stop_xperf();
+        }
     }
 }

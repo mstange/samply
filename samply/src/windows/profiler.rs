@@ -84,10 +84,23 @@ pub fn start_recording(
     let arch = get_native_arch();  // TODO: Detect from file if reading from file
     let mut context = ProfileContext::new(profile, arch, merge_threads, include_idle_time);
 
+    let old_processing = std::env::var_os("OLD").is_some();
+
+    let mut rt = None;
+
     let (etl_file, existing_etl) = if !process_launch_props.command_name.to_str().unwrap().ends_with(".etl") {
-        // we need the debug privilege token in order to get the kernel's address and run xperf.
-        winutils::enable_debug_privilege();
-        context.add_kernel_drivers();
+        if old_processing {
+            rt = Some(runtime::Builder::new_multi_thread()
+                .worker_threads(4)
+                .enable_all()
+                .build()
+                .unwrap());
+            context.rt = Some(rt.as_ref().unwrap().handle().clone());
+
+            // we need the debug privilege token in order to get the kernel's address and run xperf.
+            winutils::enable_debug_privilege();
+            context.add_kernel_drivers();
+        }
 
         // Start xperf.
         context.start_xperf(&recording_props.output_file);
@@ -124,7 +137,6 @@ pub fn start_recording(
 
     let output_file = recording_props.output_file.clone();
 
-    let old_processing = std::env::var_os("OLD").is_some();
     if old_processing {
         unsafe {
             // let's get rid of that pesky Sync trait requirement
