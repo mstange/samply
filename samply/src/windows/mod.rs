@@ -114,7 +114,6 @@ struct ProfileContext {
     //profile: Arc<Mutex<Profile>>,
     profile: RefCell<Profile>,
 
-    rt: runtime::Handle,
     timebase_nanos: u64,
 
     // state -- keep track of the processes etc we've seen as we're processing,
@@ -169,13 +168,12 @@ impl ProfileContext {
     const K_GLOBAL_IDLE_THREAD_ID: u32 = 0;
     const K_GLOBAL_OTHER_THREAD_ID: u32 = u32::MAX;
 
-    fn new(mut profile: Profile, rt: runtime::Handle, merge_threads: bool, include_idle: bool) -> Self {
+    fn new(mut profile: Profile, merge_threads: bool, include_idle: bool) -> Self {
         let default_category = CategoryPairHandle::from(profile.add_category("User", CategoryColor::Yellow));
         let kernel_category = CategoryPairHandle::from(profile.add_category("Kernel", CategoryColor::Orange));
 
         let mut result = Self {
             profile: RefCell::new(profile),
-            rt,
             timebase_nanos: 0,
             processes: HashMap::new(),
             threads: HashMap::new(),
@@ -192,7 +190,7 @@ impl ProfileContext {
             default_category,
             kernel_category,
             device_mappings: winutils::get_dos_device_mappings(),
-            kernel_min: u64::MAX,
+            kernel_min: 0xFFFF000000000000, // TODO: Compute from file, don't require admin privileges
             arch: "aarch64".to_string(),
             etl_file: None,
         };
@@ -363,7 +361,17 @@ impl ProfileContext {
         if let Some(&handle) = self.libs.get(filename) {
             handle
         } else {
-            let handle = self.profile.borrow_mut().add_lib(self.library_info_for_path(filename));
+            let lib_info = LibraryInfo {
+                name: "".to_string(),
+                debug_name: "".to_string(),
+                path: "".to_string(),
+                debug_path: "".to_string(),
+                debug_id: DebugId::nil(),
+                code_id: None,
+                arch: None,
+                symbol_table: None,
+            };
+            let handle = self.profile.borrow_mut().add_lib(lib_info);
             self.libs.insert(filename.to_string(), handle);
             handle
         }
@@ -393,7 +401,7 @@ impl ProfileContext {
         rt: runtime::Handle,
         etl_file: &Path,
     ) -> Self {
-        let mut context = Self::new(profile, rt, false, false);
+        let mut context = Self::new(profile, false, false);
         context.etl_file = Some(PathBuf::from(etl_file));
         context
     }
@@ -407,11 +415,11 @@ impl ProfileContext {
 
             let path = self.map_device_path(&path);
             eprintln!("kernel driver: {} {:x} {:x}", path, start_avma, end_avma);
-            let lib_info = self.library_info_for_path(&path);
-            let lib_handle = self.profile.borrow_mut().add_lib(lib_info);
-            self.profile
-                .borrow_mut()
-                .add_kernel_lib_mapping(lib_handle, start_avma, end_avma, 0);
+            // let lib_info = self.library_info_for_path(&path);
+            // let lib_handle = self.profile.borrow_mut().add_lib(lib_info);
+            // self.profile
+            //     .borrow_mut()
+            //     .add_kernel_lib_mapping(lib_handle, start_avma, end_avma, 0);
         }
     }
 
@@ -442,43 +450,6 @@ impl ProfileContext {
             format!("\\\\?\\GLOBALROOT{}", path)
         } else {
             path.into()
-        }
-    }
-
-    fn library_info_for_path(&self, path: &str) -> LibraryInfo {
-        let path = self.map_device_path(path);
-
-        // TODO -- I'm not happy about this. I'd like to be able to just reprocess these before we write out the profile,
-        // instead of blocking during processing the samples. But we're postprocessing anyway, so not a big deal.
-        if let Ok(info) = self
-            .rt
-            .block_on(SymbolManager::library_info_for_binary_at_path(
-                path.as_ref(),
-                None,
-            ))
-        {
-            LibraryInfo {
-                name: info.name.unwrap(),
-                path: info.path.unwrap(),
-                debug_name: info.debug_name.unwrap_or(path.to_string()),
-                debug_path: info.debug_path.unwrap_or(path.to_string()),
-                debug_id: info.debug_id.unwrap_or(Default::default()),
-                code_id: None,
-                arch: info.arch,
-                symbol_table: None,
-            }
-        } else {
-            // Not found; put in a dummy
-            LibraryInfo {
-                name: path.to_string(),
-                path: path.to_string(),
-                debug_name: path.to_string(),
-                debug_path: path.to_string(),
-                debug_id: DebugId::from_uuid(Uuid::new_v4()),
-                code_id: None,
-                arch: Some(self.arch.clone()),
-                symbol_table: None,
-            }
         }
     }
 

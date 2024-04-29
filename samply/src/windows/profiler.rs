@@ -67,9 +67,6 @@ pub fn start_recording(
     profile_creation_props: ProfileCreationProps,
     server_props: Option<ServerProps>,
 ) -> Result<ExitStatus, i32> {
-    // we need the debug privilege token in order to get the kernel's address and run xperf.
-    winutils::enable_debug_privilege();
-
     let timebase = std::time::SystemTime::now();
     let timebase = ReferenceTimestamp::from_system_time(timebase);
 
@@ -82,20 +79,16 @@ pub fn start_recording(
         interval_8khz, // recording_props.interval.into(),
     );
 
-    let rt = runtime::Builder::new_multi_thread()
-        .worker_threads(4)
-        .enable_all()
-        .build()
-        .unwrap();
-
-    //let profile = Arc::new(Mutex::new(profile));
-
     let merge_threads = false;
     let include_idle_time = false;
-    let mut context = ProfileContext::new(profile, rt.handle().clone(), merge_threads, include_idle_time);
-    context.add_kernel_drivers();
+    let mut context = ProfileContext::new(profile, merge_threads, include_idle_time);
 
     let (etl_file, existing_etl) = if !process_launch_props.command_name.to_str().unwrap().ends_with(".etl") {
+        // we need the debug privilege token in order to get the kernel's address and run xperf.
+        winutils::enable_debug_privilege();
+        //let profile = Arc::new(Mutex::new(profile));
+    
+        context.add_kernel_drivers();
         // Start xperf.
         context.start_xperf(&recording_props.output_file);
 
@@ -152,7 +145,8 @@ pub fn start_recording(
             eprintln!("Read {} events from file", n_events);
         }
     } else {
-        etw_gecko::profile_pid_from_etl_file(&mut context, recording_props, profile_creation_props, "aarch64", &Path::new(&etl_file));
+        let arch = get_native_arch();  // TODO: Detect from file
+        etw_gecko::profile_pid_from_etl_file(&mut context, recording_props, profile_creation_props, arch, &Path::new(&etl_file));
     }
 
     // delete etl_file
@@ -181,3 +175,12 @@ pub fn start_recording(
 
     Ok(ExitStatus::from_raw(0))
 }
+
+#[cfg(target_arch="x86")]
+fn get_native_arch() -> &'static str { "x86" }
+
+#[cfg(target_arch="x86_64")]
+fn get_native_arch() -> &'static str { "x86_64" }
+
+#[cfg(target_arch="aarch64")]
+fn get_native_arch() -> &'static str { "aarch64" }
