@@ -202,17 +202,18 @@ pub fn get_tracing_event(
         StackWalkGuid => {
             match opcode {
                 Event_StackWalk_Stack => {
+                    let schema = schema_locator.event_schema(ev).unwrap();
+                    let parser = ferrisetw::parser::Parser::create(ev, &schema);
+
+                    assert_eq!(self.0.UserDataLength % 8, 0);
+                    let user_buf = std::slice::from_raw_parts(self.0.UserData as *mut u64, self.0.UserDataLength / 8);
+                    //eprintln!("Stackwalk parser buffer size: {}", ev.0.UserDataLength);
                     let raw = StackWalkEvent_StackRaw::from_record(ev, schema_locator);
                     let stack = StackWalkEvent_Stack {
                         EventTimeStamp: raw.EventTimeStamp.unwrap(),
                         StackProcess: raw.StackProcess.unwrap(),
                         StackThread: raw.StackThread.unwrap(),
-                        Stack: [
-                            raw.Stack1.unwrap_or_default(), raw.Stack2.unwrap_or_default(), raw.Stack3.unwrap_or_default(), raw.Stack4.unwrap_or_default(), raw.Stack5.unwrap_or_default(), raw.Stack6.unwrap_or_default(), raw.Stack7.unwrap_or_default(), raw.Stack8.unwrap_or_default(),
-                            raw.Stack9.unwrap_or_default(), raw.Stack10.unwrap_or_default(), raw.Stack11.unwrap_or_default(), raw.Stack12.unwrap_or_default(), raw.Stack13.unwrap_or_default(), raw.Stack14.unwrap_or_default(), raw.Stack15.unwrap_or_default(), raw.Stack16.unwrap_or_default(),
-                            raw.Stack17.unwrap_or_default(), raw.Stack18.unwrap_or_default(), raw.Stack19.unwrap_or_default(), raw.Stack20.unwrap_or_default(), raw.Stack21.unwrap_or_default(), raw.Stack22.unwrap_or_default(), raw.Stack23.unwrap_or_default(), raw.Stack24.unwrap_or_default(),
-                            raw.Stack25.unwrap_or_default(), raw.Stack26.unwrap_or_default(), raw.Stack27.unwrap_or_default(), raw.Stack28.unwrap_or_default(), raw.Stack29.unwrap_or_default(), raw.Stack30.unwrap_or_default(), raw.Stack31.unwrap_or_default(), raw.Stack32.unwrap_or_default(),
-                        ],
+                        Stack: user_buf.clone(),
                     };
                     TracingEvent::StackWalk(stack)
                 },
@@ -272,7 +273,7 @@ pub fn trace_callback(ev: &EventRecord, sl: &SchemaLocator, context: &mut Profil
             let tid = e.TThreadId.unwrap();
 
             if context.is_interesting_process(pid, None, None) {
-                context.add_thread(tid, pid, timestamp);
+                context.add_thread(pid, tid, timestamp);
                 if let Some(thread_name) = e.ThreadName {
                     context.set_thread_name(tid, &thread_name);
                 }
@@ -312,7 +313,7 @@ pub fn trace_callback(ev: &EventRecord, sl: &SchemaLocator, context: &mut Profil
             let tid = e.StackThread;
 
             if let Some(thread) = context.get_thread(tid) {
-                let frames = e
+                let frames: Vec<FrameInfo> = e
                     .Stack
                     .iter()
                     .take_while(|&&frame| frame != 0)
@@ -325,10 +326,11 @@ pub fn trace_callback(ev: &EventRecord, sl: &SchemaLocator, context: &mut Profil
                         } else {
                             context.default_category
                         },
-                    });
+                    })
+                    .collect();
 
                 context.with_profile(|profile| {
-                    profile.add_sample(thread.handle, timestamp, frames, CpuDelta::ZERO, 1);
+                    profile.add_sample(thread.handle, timestamp, frames.into_iter().rev(), CpuDelta::ZERO, 1);
                 });
             }
         }

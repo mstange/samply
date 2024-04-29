@@ -88,11 +88,9 @@ pub fn start_recording(
         .build()
         .unwrap();
 
-    //let profile = Arc::new(Mutex::new(profile));
-
     let merge_threads = false;
     let include_idle_time = false;
-    let mut context = ProfileContext::new(profile, rt.handle().clone(), merge_threads, include_idle_time);
+    let mut context = ProfileContext::new(profile, rt.handle().clone(), "aarch64", merge_threads, include_idle_time);
     context.add_kernel_drivers();
 
     let (etl_file, existing_etl) = if !process_launch_props.command_name.to_str().unwrap().ends_with(".etl") {
@@ -131,7 +129,7 @@ pub fn start_recording(
 
     let output_file = recording_props.output_file.clone();
 
-    let old_processing = false;
+    let old_processing = std::env::var_os("OLD").is_some();
     if old_processing {
         unsafe {
             // let's get rid of that pesky Sync trait requirement

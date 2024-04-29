@@ -122,11 +122,12 @@ pub fn profile_pid_from_etl_file(
                     context_switch_handler = ContextSwitchHandler::new(interval_raw as u64);
                 }
                 "MSNT_SystemTrace/Thread/SetName" => {
-
                     let thread_id: u32 = parser.parse("ThreadId");
                     let thread_name: String = parser.parse("ThreadName");
 
-                    context.set_thread_name(thread_id, &thread_name);
+                    if !thread_name.is_empty() {
+                        context.set_thread_name(thread_id, &thread_name);
+                    }
                 }
                 "MSNT_SystemTrace/Thread/Start" |
                 "MSNT_SystemTrace/Thread/DCStart" => {
@@ -143,7 +144,9 @@ pub fn profile_pid_from_etl_file(
 
                     let thread_name: Option<String> = parser.try_parse("ThreadName").ok();
                     if let Some(thread_name) = thread_name {
-                        context.set_thread_name(thread_id, &thread_name);
+                        if !thread_name.is_empty() {
+                            context.set_thread_name(thread_id, &thread_name);
+                        }
                     }
                 }
                 "MSNT_SystemTrace/Thread/End" |
@@ -206,7 +209,7 @@ pub fn profile_pid_from_etl_file(
                             .collect();
 
                         // TODO figure out how the on-cpu/off-cpu stuff works
-                        context.add_sample(thread_id, process_id, timestamp, timestamp_raw, CpuDelta::ZERO, 1, stack);
+                        context.add_sample(process_id, thread_id, timestamp, timestamp_raw, CpuDelta::ZERO, 1, stack);
                         return;
                     }
 
@@ -264,12 +267,12 @@ pub fn profile_pid_from_etl_file(
 
                             // Add a sample at the beginning of the paused range.
                             // This "first sample" will carry any leftover accumulated running time ("cpu delta").
-                            context.add_sample(thread_id, process_id, timestamp_converter.convert_time(begin_timestamp), begin_timestamp, cpu_delta, 1, stack.clone());
+                            context.add_sample(process_id, thread_id, timestamp_converter.convert_time(begin_timestamp), begin_timestamp, cpu_delta, 1, stack.clone());
 
                             if sample_count > 1 {
                                 // Emit a "rest sample" with a CPU delta of zero covering the rest of the paused range.
                                 let weight = i32::try_from(sample_count - 1).unwrap_or(0) * 1;
-                                context.add_sample(thread_id, process_id, timestamp_converter.convert_time(end_timestamp), end_timestamp, CpuDelta::ZERO, weight, stack.clone());
+                                context.add_sample(process_id, thread_id, timestamp_converter.convert_time(end_timestamp), end_timestamp, CpuDelta::ZERO, weight, stack.clone());
                             }
                         }
 
@@ -277,9 +280,9 @@ pub fn profile_pid_from_etl_file(
                             let timestamp_cvt = timestamp_converter.convert_time(timestamp);
                             if let Some(mut combined_stack) = kernel_stack {
                                 combined_stack.extend_from_slice(&stack[..]);
-                                context.add_sample(thread_id, process_id, timestamp_cvt, timestamp, cpu_delta, 1, combined_stack);
+                                context.add_sample(process_id, thread_id, timestamp_cvt, timestamp, cpu_delta, 1, combined_stack);
                             } else {
-                                context.add_sample(thread_id, process_id, timestamp_cvt, timestamp, cpu_delta, 1, stack.clone());
+                                context.add_sample(process_id, thread_id, timestamp_cvt, timestamp, cpu_delta, 1, stack.clone());
                             }
                             stack_sample_count += 1;
                         }

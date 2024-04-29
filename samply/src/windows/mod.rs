@@ -82,6 +82,7 @@ struct ProcessState {
     regular_lib_mapping_ops: LibMappingOpQueue,
     main_thread_handle: Option<ThreadHandle>,
     pending_libraries: HashMap<u64, LibraryInfo>,
+    memory_usage: Option<MemoryUsage>,
     process_id: u32,
     parent_id: u32,
 }
@@ -94,6 +95,7 @@ impl ProcessState {
             regular_lib_mapping_ops: LibMappingOpQueue::default(),
             main_thread_handle: None,
             pending_libraries: HashMap::new(),
+            memory_usage: None,
             process_id: pid,
             parent_id: ppid,
         }
@@ -124,6 +126,10 @@ struct ProfileContext {
     memory_usage: HashMap<u32, RefCell<MemoryUsage>>,
 
     unresolved_stacks: RefCell<UnresolvedStacks>,
+
+    // track VM alloc/frees per thread? counter may be inaccurate because memory
+    // can be allocated on one thread and freed on another
+    per_thread_memory: bool,
 
     // If process and threads are being squished into one global one, here's the squished handles.
     // We still allocate a ThreadState/ProcessState per thread
@@ -169,7 +175,7 @@ impl ProfileContext {
     const K_GLOBAL_IDLE_THREAD_ID: u32 = 0;
     const K_GLOBAL_OTHER_THREAD_ID: u32 = u32::MAX;
 
-    fn new(mut profile: Profile, rt: runtime::Handle, merge_threads: bool, include_idle: bool) -> Self {
+    fn new(mut profile: Profile, rt: runtime::Handle, arch: &str, merge_threads: bool, include_idle: bool) -> Self {
         let default_category = CategoryPairHandle::from(profile.add_category("User", CategoryColor::Yellow));
         let kernel_category = CategoryPairHandle::from(profile.add_category("Kernel", CategoryColor::Orange));
 
@@ -186,6 +192,7 @@ impl ProfileContext {
             idle_thread_handle: None,
             other_thread_handle: None,
             gpu_thread_handle: None,
+            per_thread_memory: false,
             merge_threads,
             libs: HashMap::new(),
             interesting_processes: HashSet::new(),
@@ -193,7 +200,7 @@ impl ProfileContext {
             kernel_category,
             device_mappings: winutils::get_dos_device_mappings(),
             kernel_min: u64::MAX,
-            arch: "aarch64".to_string(),
+            arch: arch.to_string(),
             etl_file: None,
         };
 
@@ -263,7 +270,7 @@ impl ProfileContext {
     }
 
     fn add_thread(&mut self, pid: u32, tid: u32, start_time: Timestamp) {
-        assert!(self.processes.contains_key(&pid), "Should've checked sooner");
+        assert!(self.processes.contains_key(&pid), "Adding thread for non-existent process");
 
         let thread_handle = if self.merge_threads {
             self.global_thread_handle.unwrap()
@@ -299,6 +306,11 @@ impl ProfileContext {
         self.processes.get(&pid).map(|p| p.borrow())
     }
 
+    fn get_process_for_thread_mut(&self, tid: u32) -> Option<RefMut<'_, ProcessState>> {
+        let pid = self.threads.get(&tid)?.borrow().process_id;
+        self.processes.get(&pid).map(|p| p.borrow_mut())
+    }
+
     fn get_thread(&self, tid: u32) -> Option<Ref<'_, ThreadState>> {
         self.threads.get(&tid).map(|p| p.borrow())
     }
@@ -331,19 +343,32 @@ impl ProfileContext {
     }
 
     fn get_or_create_memory_usage_counter(&mut self, tid: u32) -> Option<CounterHandle> {
-        let process_handle = if let Some(process) = self.get_process_for_thread(tid) { process.handle } else { return None };
-        let mut thread = self.get_thread_mut(tid).unwrap();
+        // kinda hate this. ProfileContext should really manage adjusting the counter,
+        // so that it can do things like keep global + per-thread in sync
 
-        Some(thread.memory_usage.get_or_insert_with(|| {
-            let counter = self.profile.borrow_mut().add_counter(process_handle, "VM", "Memory", "Amount of VirtualAlloc allocated memory");
-            MemoryUsage {
-                counter,
-                value: 0.0
-            }
-        }).counter)
+        if self.per_thread_memory {
+            let Some(process) = self.get_process_for_thread(tid) else { return None };
+            let process_handle = process.handle;
+            let mut thread = self.get_thread_mut(tid).unwrap();
+            let memory_usage = thread.memory_usage.get_or_insert_with(|| {
+                let counter = self.profile.borrow_mut().add_counter(process_handle, "VM",
+                    &format!("Memory (Thread {})", tid), "Amount of VirtualAlloc allocated memory");
+                    MemoryUsage { counter, value: 0.0 }
+                });
+            Some(memory_usage.counter)
+        } else {
+            let Some(mut process) = self.get_process_for_thread_mut(tid) else { return None };
+            let process_handle = process.handle;
+            let memory_usage = process.memory_usage.get_or_insert_with(|| {
+                let counter = self.profile.borrow_mut().add_counter(process_handle, "VM",
+                    "Memory", "Amount of VirtualAlloc allocated memory");
+                    MemoryUsage { counter, value: 0.0 }
+                });
+            Some(memory_usage.counter)
+        }
     }
 
-    fn add_sample(&self, tid: u32, pid: u32, timestamp: Timestamp, timestamp_raw: u64, cpu_delta: CpuDelta, weight: i32, stack: Vec<StackFrame>) {
+    fn add_sample(&self, pid: u32, tid: u32, timestamp: Timestamp, timestamp_raw: u64, cpu_delta: CpuDelta, weight: i32, stack: Vec<StackFrame>) {
         let mut profile = self.profile.borrow_mut();
         let stack_index = self.unresolved_stacks.borrow_mut().convert(stack.into_iter().rev());
         let thread = self.get_thread(tid).unwrap();
@@ -391,9 +416,10 @@ impl ProfileContext {
     fn new_with_existing_recording(
         mut profile: Profile,
         rt: runtime::Handle,
+        arch: &str,
         etl_file: &Path,
     ) -> Self {
-        let mut context = Self::new(profile, rt, false, false);
+        let mut context = Self::new(profile, rt, arch, false, false);
         context.etl_file = Some(PathBuf::from(etl_file));
         context
     }
