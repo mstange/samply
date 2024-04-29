@@ -11,7 +11,7 @@ use std::process::ExitStatus;
 use std::sync::atomic::AtomicPtr;
 use std::sync::{Arc, Mutex};
 
-use crate::server::{ServerProps, start_server_main};
+use crate::server::{start_server_main, ServerProps};
 use crate::shared::recording_props::{ProcessLaunchProps, ProfileCreationProps, RecordingProps};
 
 use fxprof_processed_profile::{Profile, ReferenceTimestamp, SamplingInterval};
@@ -78,14 +78,19 @@ pub fn start_recording(
 
     let merge_threads = false;
     let include_idle_time = false;
-    let arch = get_native_arch();  // TODO: Detect from file if reading from file
+    let arch = get_native_arch(); // TODO: Detect from file if reading from file
     let mut context = ProfileContext::new(profile, arch, merge_threads, include_idle_time);
 
     // we need the debug privilege token in order to get the kernel's address and run xperf.
     ////winutils::enable_debug_privilege();
     ////context.add_kernel_drivers();
 
-    let (etl_file, existing_etl) = if !process_launch_props.command_name.to_str().unwrap().ends_with(".etl") {
+    let (etl_file, existing_etl) = if !process_launch_props
+        .command_name
+        .to_str()
+        .unwrap()
+        .ends_with(".etl")
+    {
         // Start xperf.
         context.start_xperf(&recording_props.output_file);
 
@@ -160,11 +165,17 @@ pub fn start_recording(
     Ok(ExitStatus::from_raw(0))
 }
 
-#[cfg(target_arch="x86")]
-fn get_native_arch() -> &'static str { "x86" }
+#[cfg(target_arch = "x86")]
+fn get_native_arch() -> &'static str {
+    "x86"
+}
 
-#[cfg(target_arch="x86_64")]
-fn get_native_arch() -> &'static str { "x86_64" }
+#[cfg(target_arch = "x86_64")]
+fn get_native_arch() -> &'static str {
+    "x86_64"
+}
 
-#[cfg(target_arch="aarch64")]
-fn get_native_arch() -> &'static str { "arm64" }
+#[cfg(target_arch = "aarch64")]
+fn get_native_arch() -> &'static str {
+    "arm64"
+}

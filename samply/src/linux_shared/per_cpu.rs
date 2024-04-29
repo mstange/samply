@@ -5,8 +5,8 @@ use fxprof_processed_profile::{
 };
 use serde_json::json;
 
-use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::context_switch::ThreadContextSwitchData;
+use crate::shared::timestamp_converter::TimestampConverter;
 
 pub struct Cpus {
     start_time: Timestamp,

@@ -1,7 +1,10 @@
-use windows::{Win32::{
-    Security,
-    Foundation::{PSID, HLOCAL, LocalFree},
-}, core::PSTR};
+use windows::{
+    core::PSTR,
+    Win32::{
+        Foundation::{LocalFree, HLOCAL, PSID},
+        Security,
+    },
+};
 //use super::traits::*;
 use std::str::Utf8Error;
 
@@ -31,10 +34,14 @@ impl From<Utf8Error> for SddlNativeError {
 pub(crate) type SddlResult<T> = Result<T, SddlNativeError>;
 
 pub fn convert_sid_to_string(sid: *const u8) -> SddlResult<String> {
-    
     let mut tmp = PSTR::null();
     unsafe {
-        if !Security::Authorization::ConvertSidToStringSidA(PSID(sid as *const _ as *mut _), &mut tmp).is_ok() {
+        if !Security::Authorization::ConvertSidToStringSidA(
+            PSID(sid as *const _ as *mut _),
+            &mut tmp,
+        )
+        .is_ok()
+        {
             return Err(SddlNativeError::IoError(std::io::Error::last_os_error()));
         }
 

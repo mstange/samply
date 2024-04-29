@@ -1,9 +1,8 @@
-
 fn is_aligned<T>(ptr: *const T) -> bool
 where
     T: Sized,
 {
-    ptr as usize & (std::mem::align_of::<T>() - 1) == 0 
+    ptr as usize & (std::mem::align_of::<T>() - 1) == 0
 }
 
 pub fn parse_unk_size_null_utf16_string(v: &[u8]) -> String {
@@ -32,14 +31,15 @@ pub fn parse_unk_size_null_utf16_string(v: &[u8]) -> String {
     String::from_utf16_lossy(slice)
 }
 
-
 pub fn parse_unk_size_null_unicode_size(v: &[u8]) -> usize {
     // TODO: Make sure is aligned
     v.chunks_exact(2)
-    .into_iter()
-    .take_while(|&a| a != &[0, 0]) // Take until null terminator
-    .map(|a| u16::from_ne_bytes([a[0], a[1]]))
-    .count() * 2 + 2
+        .into_iter()
+        .take_while(|&a| a != &[0, 0]) // Take until null terminator
+        .map(|a| u16::from_ne_bytes([a[0], a[1]]))
+        .count()
+        * 2
+        + 2
 }
 
 pub fn parse_unk_size_null_unicode_vec(v: &[u8]) -> Vec<u16> {
@@ -54,13 +54,14 @@ pub fn parse_unk_size_null_unicode_vec(v: &[u8]) -> Vec<u16> {
 pub fn parse_unk_size_null_ansi_size(v: &[u8]) -> usize {
     v.into_iter()
         .take_while(|&&a| a != 0) // Take until null terminator
-        .count() + 1
+        .count()
+        + 1
 }
 
 pub fn parse_unk_size_null_ansi_vec(v: &[u8]) -> Vec<u8> {
     v.into_iter()
-        .take_while(|&&a| a != 0)// Take until null terminator
-        .map(|&a| a) 
+        .take_while(|&&a| a != 0) // Take until null terminator
+        .map(|&a| a)
         .collect::<Vec<u8>>()
 }
 

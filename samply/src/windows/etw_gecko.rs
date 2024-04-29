@@ -1,30 +1,52 @@
-use std::{collections::{hash_map::Entry, HashMap, HashSet, VecDeque}, convert::TryInto, fs::File, io::BufWriter, path::Path, sync::Arc, time::{Duration, Instant, SystemTime}};
+use std::{
+    collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
+    convert::TryInto,
+    fs::File,
+    io::BufWriter,
+    path::Path,
+    sync::Arc,
+    time::{Duration, Instant, SystemTime},
+};
 
-use serde_json::{json, to_writer, Value};
-use fxprof_processed_profile::{CategoryColor, CategoryHandle, CategoryPairHandle, CounterHandle, CpuDelta, debugid, FrameFlags, FrameInfo, LibraryHandle, LibraryInfo, MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerTiming, ProcessHandle, Profile, ProfilerMarker, ReferenceTimestamp, SamplingInterval, Symbol, SymbolTable, ThreadHandle, Timestamp};
-use debugid::DebugId;
 use bitflags::bitflags;
+use debugid::DebugId;
+use fxprof_processed_profile::{
+    debugid, CategoryColor, CategoryHandle, CategoryPairHandle, CounterHandle, CpuDelta,
+    FrameFlags, FrameInfo, LibraryHandle, LibraryInfo, MarkerDynamicField, MarkerFieldFormat,
+    MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerTiming, ProcessHandle, Profile,
+    ProfilerMarker, ReferenceTimestamp, SamplingInterval, Symbol, SymbolTable, ThreadHandle,
+    Timestamp,
+};
+use serde_json::{json, to_writer, Value};
 use uuid::Uuid;
 
-use crate::shared::lib_mappings::{LibMappingAdd, LibMappingOp, LibMappingOpQueue};
+use crate::shared::context_switch::{
+    ContextSwitchHandler, OffCpuSampleGroup, ThreadContextSwitchData,
+};
 use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::lib_mappings::LibMappingInfo;
-use crate::shared::types::{StackFrame, StackMode};
+use crate::shared::lib_mappings::{LibMappingAdd, LibMappingOp, LibMappingOpQueue};
 use crate::shared::process_sample_data::{MarkerSpanOnThread, ProcessSampleData, SimpleMarker};
-use crate::shared::context_switch::{ContextSwitchHandler, OffCpuSampleGroup, ThreadContextSwitchData};
+use crate::shared::types::{StackFrame, StackMode};
 
-use crate::shared::{jit_function_add_marker::JitFunctionAddMarker, marker_file::get_markers, process_sample_data::UserTimingMarker, timestamp_converter::TimestampConverter};
+use crate::shared::{
+    jit_function_add_marker::JitFunctionAddMarker, marker_file::get_markers,
+    process_sample_data::UserTimingMarker, timestamp_converter::TimestampConverter,
+};
 
 use super::etw_reader;
-use super::etw_reader::{GUID, open_trace, parser::{Address, Parser, TryParse}, print_property, schema::SchemaLocator, write_property, event_properties_to_string};
+use super::etw_reader::{
+    event_properties_to_string, open_trace,
+    parser::{Address, Parser, TryParse},
+    print_property,
+    schema::SchemaLocator,
+    write_property, GUID,
+};
 use super::*;
 
 use super::ProfileContext;
 
-pub fn profile_pid_from_etl_file(
-    context: &mut ProfileContext,
-    etl_file: &Path,
-) {
+pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) {
     let profile_start_instant = Timestamp::from_nanos_since_reference(0);
 
     let arch = &context.arch;
@@ -45,8 +67,16 @@ pub fn profile_pid_from_etl_file(
     let marker_file: Option<String> = None; //pargs.opt_value_from_str("--marker-file").unwrap();
     let marker_prefix: Option<String> = None; //pargs.opt_value_from_str("--filter-by-marker-prefix").unwrap();
 
-    let user_category: CategoryPairHandle = context.profile.borrow_mut().add_category("User", fxprof_processed_profile::CategoryColor::Yellow).into();
-    let kernel_category: CategoryPairHandle = context.profile.borrow_mut().add_category("Kernel", fxprof_processed_profile::CategoryColor::Orange).into();
+    let user_category: CategoryPairHandle = context
+        .profile
+        .borrow_mut()
+        .add_category("User", fxprof_processed_profile::CategoryColor::Yellow)
+        .into();
+    let kernel_category: CategoryPairHandle = context
+        .profile
+        .borrow_mut()
+        .add_category("Kernel", fxprof_processed_profile::CategoryColor::Orange)
+        .into();
 
     let mut jit_category_manager = JitCategoryManager::new();
     let mut context_switch_handler = ContextSwitchHandler::new(122100);
@@ -391,14 +421,14 @@ pub fn profile_pid_from_etl_file(
                     let code_id = Some(format!("{timestamp:08X}{image_size:x}"));
                     let name = Path::new(path).file_name().unwrap().to_str().unwrap().to_owned();
                     let debug_name = Path::new(&pdb_path).file_name().unwrap().to_str().unwrap().to_owned();
-                    let info = LibraryInfo { 
+                    let info = LibraryInfo {
                         name,
                         debug_name,
-                        path: path.clone(), 
+                        path: path.clone(),
                         code_id,
-                        symbol_table: None, 
+                        symbol_table: None,
                         debug_path: pdb_path,
-                        debug_id, 
+                        debug_id,
                         arch: Some(context.arch.to_owned()),
                     };
                     if process_id == 0 || image_base >= context.kernel_min {
@@ -552,7 +582,7 @@ pub fn profile_pid_from_etl_file(
                             MarkerTiming::Instant(timestamp),
                         );
                     }
-                    
+
                     let (category, js_frame) = jit_category_manager.classify_jit_symbol(&method_name, &mut *context.profile.borrow_mut());
                     let info = LibMappingInfo::new_jit_function(process_jit_info.lib_handle, category, js_frame);
                     process_jit_info.jit_mapping_ops.push(e.EventHeader.TimeStamp as u64, LibMappingOp::Add(LibMappingAdd {
@@ -722,7 +752,7 @@ pub fn profile_pid_from_etl_file(
                     };
 
                     context.profile.borrow_mut().add_marker(thread.handle, category, s.name().split_once("/").unwrap().1, SimpleMarker(text), timing)
-                    //println!("unhandled {}", s.name()) 
+                    //println!("unhandled {}", s.name())
                 }
             }
         }
@@ -756,27 +786,41 @@ pub fn profile_pid_from_etl_file(
         ///let ProcessState { unresolved_samples, regular_lib_mapping_ops, main_thread_handle, .. } = process;
         let jitdump_lib_mapping_op_queues = match jscript_symbols.remove(&process_id) {
             Some(jit_info) => {
-                context.profile.borrow_mut().set_lib_symbol_table(jit_info.lib_handle, Arc::new(SymbolTable::new(jit_info.symbols)));
+                context.profile.borrow_mut().set_lib_symbol_table(
+                    jit_info.lib_handle,
+                    Arc::new(SymbolTable::new(jit_info.symbols)),
+                );
                 vec![jit_info.jit_mapping_ops]
-            },
+            }
             None => Vec::new(),
         };
         // TODO proper threads, not main thread
-        let marker_spans_on_thread = marker_spans.iter().map(|marker_span| {
-            MarkerSpanOnThread {
+        let marker_spans_on_thread = marker_spans
+            .iter()
+            .map(|marker_span| MarkerSpanOnThread {
                 thread_handle: process.main_thread_handle.unwrap(),
                 name: marker_span.name.clone(),
                 start_time: marker_span.start_time,
                 end_time: marker_span.end_time,
-            }
-        }).collect();
+            })
+            .collect();
 
-        let process_sample_data = ProcessSampleData::new(process.unresolved_samples.clone(),
-                                                         process.regular_lib_mapping_ops.clone(),
-                                                         jitdump_lib_mapping_op_queues,
-                                                         None, marker_spans_on_thread);
-                                                         //main_thread_handle.unwrap_or_else(|| panic!("process no main thread {:?}", process_id)));
-        process_sample_data.flush_samples_to_profile(&mut *context.profile.borrow_mut(), user_category, kernel_category, &mut stack_frame_scratch_buf, &mut context.unresolved_stacks.borrow_mut(), &[])
+        let process_sample_data = ProcessSampleData::new(
+            process.unresolved_samples.clone(),
+            process.regular_lib_mapping_ops.clone(),
+            jitdump_lib_mapping_op_queues,
+            None,
+            marker_spans_on_thread,
+        );
+        //main_thread_handle.unwrap_or_else(|| panic!("process no main thread {:?}", process_id)));
+        process_sample_data.flush_samples_to_profile(
+            &mut *context.profile.borrow_mut(),
+            user_category,
+            kernel_category,
+            &mut stack_frame_scratch_buf,
+            &mut context.unresolved_stacks.borrow_mut(),
+            &[],
+        )
     }
 
     /*if merge_threads {
@@ -785,6 +829,12 @@ pub fn profile_pid_from_etl_file(
         for (_, thread) in threads.drain() { profile.add_thread(thread.builder); }
     }*/
 
-    println!("Took {} seconds", (Instant::now()-processing_start_timestamp).as_secs_f32());
-    println!("{} events, {} samples, {} dropped, {} stack-samples", event_count, sample_count, dropped_sample_count, stack_sample_count);
+    println!(
+        "Took {} seconds",
+        (Instant::now() - processing_start_timestamp).as_secs_f32()
+    );
+    println!(
+        "{} events, {} samples, {} dropped, {} stack-samples",
+        event_count, sample_count, dropped_sample_count, stack_sample_count
+    );
 }

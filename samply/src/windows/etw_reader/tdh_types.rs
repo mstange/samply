@@ -10,14 +10,13 @@
 //!
 //! [TryParse]: super::parser::TryParse
 //! [Property]: super::native::tdh_types::Property
-use num_derive::ToPrimitive;
-use num_derive::FromPrimitive;
 use bitflags::bitflags;
+use num_derive::FromPrimitive;
+use num_derive::ToPrimitive;
 
 use std::rc::Rc;
 
 use windows::Win32::System::Diagnostics::Etw;
-
 
 use super::etw_types::EventPropertyInfo;
 use num_traits::FromPrimitive;
@@ -25,7 +24,7 @@ use num_traits::FromPrimitive;
 #[derive(Debug, Clone, Default)]
 pub struct PropertyMapInfo {
     pub is_bitmap: bool,
-    pub map: super::FastHashMap<u32, String>
+    pub map: super::FastHashMap<u32, String>,
 }
 #[derive(Debug, Clone)]
 pub struct PrimitiveDesc {
@@ -68,7 +67,11 @@ pub struct Property {
 
 #[doc(hidden)]
 impl Property {
-    pub fn new(name: String, property: &EventPropertyInfo, map_info: Option<Rc<PropertyMapInfo>>) -> Self {
+    pub fn new(
+        name: String,
+        property: &EventPropertyInfo,
+        map_info: Option<Rc<PropertyMapInfo>>,
+    ) -> Self {
         let flags = PropertyFlags::from(property.Flags);
         let length = if flags.contains(PropertyFlags::PROPERTY_PARAM_LENGTH) {
             // The property length is stored in another property, this is the index of that property
@@ -85,7 +88,10 @@ impl Property {
                     name,
                     flags: PropertyFlags::from(property.Flags),
                     length,
-                    desc: PropertyDesc::Struct(StructDesc{start_index, num_members}),
+                    desc: PropertyDesc::Struct(StructDesc {
+                        start_index,
+                        num_members,
+                    }),
                     map_info,
                     count: property.Anonymous2.count,
                 }
@@ -96,12 +102,12 @@ impl Property {
                     .unwrap_or(TdhOutType::OutTypeNull);
                 let in_type = FromPrimitive::from_u16(property.Anonymous1.nonStructType.InType)
                     .unwrap_or_else(|| panic!("{:?}", property.Anonymous1.nonStructType.InType));
-                
+
                 Property {
                     name,
                     flags: PropertyFlags::from(property.Flags),
                     length,
-                    desc: PropertyDesc::Primitive(PrimitiveDesc{in_type, out_type}),
+                    desc: PropertyDesc::Primitive(PrimitiveDesc { in_type, out_type }),
                     map_info,
                     count: property.Anonymous2.count,
                 }
@@ -149,8 +155,6 @@ pub enum TdhInType {
     InTypeHexdump,
     InTypeWBEMSID,
 }
-
-
 
 /// Represent a TDH_OUT_TYPE
 #[repr(u16)]

@@ -1,21 +1,24 @@
-pub mod profiler;
-mod winutils;
 mod etw_gecko;
 mod etw_reader;
+pub mod profiler;
+mod winutils;
 
-use std::cell::{RefCell, Ref, RefMut};
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::collections::hash_map::Entry;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
-use std::thread::Thread;
-use debugid::DebugId;
-use uuid::Uuid;
-use fxprof_processed_profile::{CategoryColor, CategoryPairHandle, CounterHandle, CpuDelta, FrameFlags, FrameInfo, LibraryHandle, LibraryInfo, ProcessHandle, Profile, Symbol, ThreadHandle, Timestamp};
 use crate::shared::context_switch::{OffCpuSampleGroup, ThreadContextSwitchData};
 use crate::shared::lib_mappings::LibMappingOpQueue;
 use crate::shared::types::{StackFrame, StackMode};
 use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
+use debugid::DebugId;
+use fxprof_processed_profile::{
+    CategoryColor, CategoryPairHandle, CounterHandle, CpuDelta, FrameFlags, FrameInfo,
+    LibraryHandle, LibraryInfo, ProcessHandle, Profile, Symbol, ThreadHandle, Timestamp,
+};
+use std::cell::{Ref, RefCell, RefMut};
+use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::thread::Thread;
+use uuid::Uuid;
 
 use runas;
 
@@ -34,7 +37,7 @@ struct PendingStack {
 #[derive(Debug)]
 struct MemoryUsage {
     counter: CounterHandle,
-    value: f64
+    value: f64,
 }
 
 #[derive(Debug)]
@@ -71,7 +74,10 @@ impl ThreadState {
     }
 
     fn display_name(&self) -> String {
-        self.merge_name.as_ref().map(|x| strip_thread_numbers(x).to_owned()).unwrap_or_else(|| format!("thread {}", self.thread_id))
+        self.merge_name
+            .as_ref()
+            .map(|x| strip_thread_numbers(x).to_owned())
+            .unwrap_or_else(|| format!("thread {}", self.thread_id))
     }
 }
 
@@ -188,8 +194,10 @@ impl ProfileContext {
     const K_GLOBAL_OTHER_THREAD_ID: u32 = u32::MAX;
 
     fn new(mut profile: Profile, arch: &str, merge_threads: bool, include_idle: bool) -> Self {
-        let default_category = CategoryPairHandle::from(profile.add_category("User", CategoryColor::Yellow));
-        let kernel_category = CategoryPairHandle::from(profile.add_category("Kernel", CategoryColor::Orange));
+        let default_category =
+            CategoryPairHandle::from(profile.add_category("User", CategoryColor::Yellow));
+        let kernel_category =
+            CategoryPairHandle::from(profile.add_category("Kernel", CategoryColor::Orange));
 
         // On 64-bit systems, the kernel address space always has 0xF in the first 16 bits.
         // The actual kernel address space is much higher, but we just need this to disambiguate kernel and user
@@ -230,17 +238,36 @@ impl ProfileContext {
             let start_instant = Timestamp::from_nanos_since_reference(0);
             let mut profile = result.profile.borrow_mut();
 
-            let global_process_handle = profile.add_process("All processes", Self::K_GLOBAL_MERGED_PROCESS_ID, start_instant);
-            let global_thread_handle = profile.add_thread(global_process_handle, Self::K_GLOBAL_MERGED_THREAD_ID, start_instant, true);
+            let global_process_handle = profile.add_process(
+                "All processes",
+                Self::K_GLOBAL_MERGED_PROCESS_ID,
+                start_instant,
+            );
+            let global_thread_handle = profile.add_thread(
+                global_process_handle,
+                Self::K_GLOBAL_MERGED_THREAD_ID,
+                start_instant,
+                true,
+            );
             profile.set_thread_name(global_thread_handle, "All threads");
 
             result.global_process_handle = Some(global_process_handle);
             result.global_thread_handle = Some(global_thread_handle);
 
             if include_idle {
-                let idle_thread_handle = profile.add_thread(global_process_handle, Self::K_GLOBAL_IDLE_THREAD_ID, start_instant, false);
+                let idle_thread_handle = profile.add_thread(
+                    global_process_handle,
+                    Self::K_GLOBAL_IDLE_THREAD_ID,
+                    start_instant,
+                    false,
+                );
                 profile.set_thread_name(idle_thread_handle, "Idle");
-                let other_thread_handle = profile.add_thread(global_process_handle, Self::K_GLOBAL_OTHER_THREAD_ID, start_instant, false);
+                let other_thread_handle = profile.add_thread(
+                    global_process_handle,
+                    Self::K_GLOBAL_OTHER_THREAD_ID,
+                    start_instant,
+                    false,
+                );
                 profile.set_thread_name(other_thread_handle, "Other");
 
                 result.idle_thread_handle = Some(idle_thread_handle);
@@ -251,7 +278,10 @@ impl ProfileContext {
         result
     }
 
-    fn with_profile<F, T>(&self, func: F) -> T where F: FnOnce(&mut Profile) -> T {
+    fn with_profile<F, T>(&self, func: F) -> T
+    where
+        F: FnOnce(&mut Profile) -> T,
+    {
         func(&mut self.profile.borrow_mut())
     }
 
@@ -270,7 +300,9 @@ impl ProfileContext {
         if let Some(process) = self.processes.remove(&pid) {
             let process = process.into_inner();
             if let Some(timestamp) = timestamp {
-                self.profile.borrow_mut().set_process_end_time(process.handle, timestamp);
+                self.profile
+                    .borrow_mut()
+                    .set_process_end_time(process.handle, timestamp);
             }
 
             Some(process.handle)
@@ -292,14 +324,20 @@ impl ProfileContext {
     }
 
     fn add_thread(&mut self, pid: u32, tid: u32, start_time: Timestamp) {
-        assert!(self.processes.contains_key(&pid), "Adding thread for non-existent process");
+        assert!(
+            self.processes.contains_key(&pid),
+            "Adding thread for non-existent process"
+        );
 
         let thread_handle = if self.merge_threads {
             self.global_thread_handle.unwrap()
         } else {
             let mut process = self.processes.get_mut(&pid).unwrap().borrow_mut();
             let is_main = process.main_thread_handle.is_none();
-            let thread_handle = self.profile.borrow_mut().add_thread(process.handle, tid, start_time, is_main);
+            let thread_handle =
+                self.profile
+                    .borrow_mut()
+                    .add_thread(process.handle, tid, start_time, is_main);
             if is_main {
                 process.main_thread_handle = Some(thread_handle);
             }
@@ -314,7 +352,9 @@ impl ProfileContext {
         if let Some(thread) = self.threads.remove(&tid) {
             let thread = thread.into_inner();
             if let Some(timestamp) = timestamp {
-                self.profile.borrow_mut().set_thread_end_time(thread.handle, timestamp);
+                self.profile
+                    .borrow_mut()
+                    .set_thread_end_time(thread.handle, timestamp);
             }
 
             Some(thread.handle)
@@ -359,7 +399,9 @@ impl ProfileContext {
 
     fn set_thread_name(&self, tid: u32, name: &str) {
         if let Some(mut thread) = self.get_thread_mut(tid) {
-            self.profile.borrow_mut().set_thread_name(thread.handle, name);
+            self.profile
+                .borrow_mut()
+                .set_thread_name(thread.handle, name);
             thread.merge_name = Some(name.to_string());
         }
     }
@@ -369,30 +411,60 @@ impl ProfileContext {
         // so that it can do things like keep global + per-thread in sync
 
         if self.per_thread_memory {
-            let Some(process) = self.get_process_for_thread(tid) else { return None };
+            let Some(process) = self.get_process_for_thread(tid) else {
+                return None;
+            };
             let process_handle = process.handle;
             let mut thread = self.get_thread_mut(tid).unwrap();
             let memory_usage = thread.memory_usage.get_or_insert_with(|| {
-                let counter = self.profile.borrow_mut().add_counter(process_handle, "VM",
-                    &format!("Memory (Thread {})", tid), "Amount of VirtualAlloc allocated memory");
-                    MemoryUsage { counter, value: 0.0 }
-                });
+                let counter = self.profile.borrow_mut().add_counter(
+                    process_handle,
+                    "VM",
+                    &format!("Memory (Thread {})", tid),
+                    "Amount of VirtualAlloc allocated memory",
+                );
+                MemoryUsage {
+                    counter,
+                    value: 0.0,
+                }
+            });
             Some(memory_usage.counter)
         } else {
-            let Some(mut process) = self.get_process_for_thread_mut(tid) else { return None };
+            let Some(mut process) = self.get_process_for_thread_mut(tid) else {
+                return None;
+            };
             let process_handle = process.handle;
             let memory_usage = process.memory_usage.get_or_insert_with(|| {
-                let counter = self.profile.borrow_mut().add_counter(process_handle, "VM",
-                    "Memory", "Amount of VirtualAlloc allocated memory");
-                    MemoryUsage { counter, value: 0.0 }
-                });
+                let counter = self.profile.borrow_mut().add_counter(
+                    process_handle,
+                    "VM",
+                    "Memory",
+                    "Amount of VirtualAlloc allocated memory",
+                );
+                MemoryUsage {
+                    counter,
+                    value: 0.0,
+                }
+            });
             Some(memory_usage.counter)
         }
     }
 
-    fn add_sample(&self, pid: u32, tid: u32, timestamp: Timestamp, timestamp_raw: u64, cpu_delta: CpuDelta, weight: i32, stack: Vec<StackFrame>) {
+    fn add_sample(
+        &self,
+        pid: u32,
+        tid: u32,
+        timestamp: Timestamp,
+        timestamp_raw: u64,
+        cpu_delta: CpuDelta,
+        weight: i32,
+        stack: Vec<StackFrame>,
+    ) {
         let mut profile = self.profile.borrow_mut();
-        let stack_index = self.unresolved_stacks.borrow_mut().convert(stack.into_iter().rev());
+        let stack_index = self
+            .unresolved_stacks
+            .borrow_mut()
+            .convert(stack.into_iter().rev());
         let thread = self.get_thread(tid).unwrap();
         let extra_label_frame = if self.merge_threads {
             let display_name = thread.display_name();
@@ -401,9 +473,22 @@ impl ProfileContext {
                 category_pair: self.default_category,
                 flags: FrameFlags::empty(),
             })
-        } else { None };
+        } else {
+            None
+        };
         let thread = thread.handle;
-        self.get_process_mut(pid).unwrap().unresolved_samples.add_sample(thread, timestamp, timestamp_raw, stack_index, cpu_delta, weight, extra_label_frame);
+        self.get_process_mut(pid)
+            .unwrap()
+            .unresolved_samples
+            .add_sample(
+                thread,
+                timestamp,
+                timestamp_raw,
+                stack_index,
+                cpu_delta,
+                weight,
+                extra_label_frame,
+            );
     }
 
     fn get_or_add_lib_simple(&mut self, filename: &str) -> LibraryHandle {
@@ -419,14 +504,16 @@ impl ProfileContext {
 
     fn try_get_library_info_for_path(&self, path: &str) -> Option<LibraryInfo> {
         let path = self.map_device_path(path);
-        let name = PathBuf::from(&path).file_name()?.to_string_lossy().to_string();
+        let name = PathBuf::from(&path)
+            .file_name()?
+            .to_string_lossy()
+            .to_string();
         let file = std::fs::File::open(&path).ok()?;
         let mmap = unsafe { memmap2::MmapOptions::new().map(&file) }.ok()?;
         let object = object::File::parse(&mmap[..]).ok()?;
         let debug_id = wholesym::samply_symbols::debug_id_for_object(&object);
         use object::Object;
-        let arch =
-            object_arch_to_string(object.architecture()).map(ToOwned::to_owned);
+        let arch = object_arch_to_string(object.architecture()).map(ToOwned::to_owned);
         let pe_info = match &object {
             object::File::Pe32(pe_file) => Some(pe_info(pe_file)),
             object::File::Pe64(pe_file) => Some(pe_info(pe_file)),
@@ -435,8 +522,14 @@ impl ProfileContext {
         let info = LibraryInfo {
             name: name.to_string(),
             path: path.to_string(),
-            debug_name: pe_info.as_ref().and_then(|pi| pi.pdb_name.clone()).unwrap_or_else(|| name.to_string()),
-            debug_path: pe_info.as_ref().and_then(|pi| pi.pdb_path.clone()).unwrap_or_else(|| path.to_string()),
+            debug_name: pe_info
+                .as_ref()
+                .and_then(|pi| pi.pdb_name.clone())
+                .unwrap_or_else(|| name.to_string()),
+            debug_path: pe_info
+                .as_ref()
+                .and_then(|pi| pi.pdb_path.clone())
+                .unwrap_or_else(|| path.to_string()),
             debug_id: debug_id.unwrap_or_else(|| debugid::DebugId::nil()),
             code_id: pe_info.as_ref().map(|pi| pi.code_id.to_string()),
             arch,
@@ -451,7 +544,11 @@ impl ProfileContext {
         } else {
             // Not found; dummy
             LibraryInfo {
-                name: PathBuf::from(path).file_name().unwrap().to_string_lossy().into_owned(),
+                name: PathBuf::from(path)
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
                 path: path.to_string(),
                 debug_name: "".to_owned(),
                 debug_path: "".to_owned(),
@@ -473,22 +570,24 @@ impl ProfileContext {
 
     fn is_interesting_process(&self, pid: u32, ppid: Option<u32>, name: Option<&str>) -> bool {
         if pid == 0 {
-            return false
+            return false;
         }
 
         // already tracking?
         if self.processes.contains_key(&pid) {
-            return true
+            return true;
         }
 
         // all processes if nothing specified
         if self.interesting_process_ids.is_empty() && self.interesting_process_names.is_empty() {
-            return true
+            return true;
         }
 
         // if pid or ppid are explicitly interesting
-        if self.interesting_process_ids.contains(&pid) || ppid.is_some_and(|k| self.processes.contains_key(&k)) {
-            return true
+        if self.interesting_process_ids.contains(&pid)
+            || ppid.is_some_and(|k| self.processes.contains_key(&k))
+        {
+            return true;
         }
 
         // if the name contains any of the interesting names
@@ -496,7 +595,7 @@ impl ProfileContext {
             let name = name.to_lowercase();
             for target in &self.interesting_process_names {
                 if name.contains(target) {
-                    return true
+                    return true;
                 }
             }
         }
@@ -505,11 +604,7 @@ impl ProfileContext {
         false
     }
 
-    fn new_with_existing_recording(
-        mut profile: Profile,
-        arch: &str,
-        etl_file: &Path,
-    ) -> Self {
+    fn new_with_existing_recording(mut profile: Profile, arch: &str, etl_file: &Path) -> Self {
         let mut context = Self::new(profile, arch, false, false);
         context.etl_file = Some(PathBuf::from(etl_file));
         context
@@ -521,7 +616,9 @@ impl ProfileContext {
             eprintln!("kernel driver: {} {:x} {:x}", path, start_avma, end_avma);
             let lib_info = self.get_library_info_for_path(&path);
             let lib_handle = self.profile.borrow_mut().add_lib(lib_info);
-            self.profile.borrow_mut().add_kernel_lib_mapping(lib_handle, start_avma, end_avma, 0);
+            self.profile
+                .borrow_mut()
+                .add_kernel_lib_mapping(lib_handle, start_avma, end_avma, 0);
         }
     }
 
@@ -578,9 +675,7 @@ impl ProfileContext {
         xperf.arg("-f");
         xperf.arg(expand_full_filename_with_cwd(&etl_file));
 
-        let _ = xperf
-            .status()
-            .expect("failed to execute xperf");
+        let _ = xperf.status().expect("failed to execute xperf");
 
         eprintln!("xperf session running...");
 
@@ -603,7 +698,13 @@ impl ProfileContext {
 
         eprintln!("xperf session stopped.");
 
-        std::fs::remove_file(&unmerged_etl).expect(format!("Failed to delete unmerged ETL file {:?}", unmerged_etl.to_str().unwrap()).as_str());
+        std::fs::remove_file(&unmerged_etl).expect(
+            format!(
+                "Failed to delete unmerged ETL file {:?}",
+                unmerged_etl.to_str().unwrap()
+            )
+            .as_str(),
+        );
 
         self.etl_file = Some(merged_etl);
         self.xperf_running = false;
@@ -624,7 +725,9 @@ struct PeInfo {
     pdb_name: Option<String>,
 }
 
-fn pe_info<'a, Pe: object::read::pe::ImageNtHeaders, R: object::ReadRef<'a>>(pe: &object::read::pe::PeFile<'a, Pe, R>) -> PeInfo {
+fn pe_info<'a, Pe: object::read::pe::ImageNtHeaders, R: object::ReadRef<'a>>(
+    pe: &object::read::pe::PeFile<'a, Pe, R>,
+) -> PeInfo {
     // The code identifier consists of the `time_date_stamp` field id the COFF header, followed by
     // the `size_of_image` field in the optional header. If the optional PE header is not present,
     // this identifier is `None`.

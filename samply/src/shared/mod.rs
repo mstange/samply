@@ -1,3 +1,4 @@
+pub mod context_switch;
 pub mod jit_category_manager;
 pub mod jit_function_add_marker;
 pub mod jit_function_recycler;
@@ -14,4 +15,3 @@ pub mod timestamp_converter;
 pub mod types;
 pub mod unresolved_samples;
 pub mod utils;
-pub mod context_switch;
