@@ -178,6 +178,15 @@ impl ProfileContext {
         let default_category = CategoryPairHandle::from(profile.add_category("User", CategoryColor::Yellow));
         let kernel_category = CategoryPairHandle::from(profile.add_category("Kernel", CategoryColor::Orange));
 
+        // On 64-bit systems, the kernel address space always has 0xF in the first 16 bits.
+        // The actual kernel address space is much higher, but we just need this to disambiguate kernel and user
+        // stacks. Use add_kernel_drivers to get accurate mappings.
+        let kernel_min: u64 = if arch == "x86" {
+            0x8000_0000
+        } else {
+            0xF000_0000_0000_0000
+        };
+
         let mut result = Self {
             profile: RefCell::new(profile),
             timebase_nanos: 0,
@@ -197,8 +206,7 @@ impl ProfileContext {
             default_category,
             kernel_category,
             device_mappings: winutils::get_dos_device_mappings(),
-            kernel_min: u64::MAX,
-            //kernel_min: 0xFFFF000000000000, // TODO: Compute from file, don't require admin privileges
+            kernel_min,
             arch: arch.to_string(),
             etl_file: None,
         };
@@ -435,11 +443,6 @@ impl ProfileContext {
 
     fn add_kernel_drivers(&mut self) {
         for (path, start_avma, end_avma) in winutils::iter_kernel_drivers() {
-            if self.kernel_min == u64::MAX {
-                // take the first as the start; iter_kernel_drivers is sorted
-                self.kernel_min = start_avma;
-            }
-
             let path = self.map_device_path(&path);
             eprintln!("kernel driver: {} {:x} {:x}", path, start_avma, end_avma);
             // let lib_info = self.library_info_for_path(&path);
@@ -457,7 +460,6 @@ impl ProfileContext {
             StackMode::User
         }
     }
-
 
     // The filename is a NT kernel path (https://chrisdenton.github.io/omnipath/NT.html) which isn't direclty
     // usable from user space.  perfview goes through a dance to convert it to a regular user space path

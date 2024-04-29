@@ -81,15 +81,14 @@ pub fn start_recording(
 
     let merge_threads = false;
     let include_idle_time = false;
-    let mut context = ProfileContext::new(profile, "aarch64", merge_threads, include_idle_time);
-    context.add_kernel_drivers();
+    let arch = get_native_arch();  // TODO: Detect from file if reading from file
+    let mut context = ProfileContext::new(profile, arch, merge_threads, include_idle_time);
 
     let (etl_file, existing_etl) = if !process_launch_props.command_name.to_str().unwrap().ends_with(".etl") {
         // we need the debug privilege token in order to get the kernel's address and run xperf.
         winutils::enable_debug_privilege();
-        //let profile = Arc::new(Mutex::new(profile));
-    
         context.add_kernel_drivers();
+
         // Start xperf.
         context.start_xperf(&recording_props.output_file);
 
@@ -146,8 +145,7 @@ pub fn start_recording(
             eprintln!("Read {} events from file", n_events);
         }
     } else {
-        let arch = get_native_arch();  // TODO: Detect from file
-        etw_gecko::profile_pid_from_etl_file(&mut context, recording_props, profile_creation_props, arch, &Path::new(&etl_file));
+        etw_gecko::profile_pid_from_etl_file(&mut context, &Path::new(&etl_file));
     }
 
     // delete etl_file
@@ -159,7 +157,7 @@ pub fn start_recording(
     let file = File::create(&output_file).unwrap();
     let writer = BufWriter::new(file);
     {
-        let mut profile = context.profile.borrow_mut();
+        let profile = context.profile.borrow();
         to_writer(writer, &*profile).expect("Couldn't write JSON");
     }
 

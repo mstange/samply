@@ -1,6 +1,4 @@
 use std::{collections::{hash_map::Entry, HashMap, HashSet, VecDeque}, convert::TryInto, fs::File, io::BufWriter, path::Path, sync::Arc, time::{Duration, Instant, SystemTime}};
-use std::ops::{Deref, DerefMut};
-use std::process::ExitStatus;
 
 use serde_json::{json, to_writer, Value};
 use fxprof_processed_profile::{CategoryColor, CategoryHandle, CategoryPairHandle, CounterHandle, CpuDelta, debugid, FrameFlags, FrameInfo, LibraryHandle, LibraryInfo, MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerTiming, ProcessHandle, Profile, ProfilerMarker, ReferenceTimestamp, SamplingInterval, Symbol, SymbolTable, ThreadHandle, Timestamp};
@@ -10,17 +8,12 @@ use uuid::Uuid;
 
 use crate::shared::lib_mappings::{LibMappingAdd, LibMappingOp, LibMappingOpQueue};
 use crate::shared::jit_category_manager::JitCategoryManager;
-use crate::shared::stack_converter::StackConverter;
 use crate::shared::lib_mappings::LibMappingInfo;
 use crate::shared::types::{StackFrame, StackMode};
-use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
 use crate::shared::process_sample_data::{MarkerSpanOnThread, ProcessSampleData, SimpleMarker};
 use crate::shared::context_switch::{ContextSwitchHandler, OffCpuSampleGroup, ThreadContextSwitchData};
 
 use crate::shared::{jit_function_add_marker::JitFunctionAddMarker, marker_file::get_markers, process_sample_data::UserTimingMarker, timestamp_converter::TimestampConverter};
-
-use crate::server::{ServerProps, start_server_main};
-use crate::shared::recording_props::{ProcessLaunchProps, ProfileCreationProps, RecordingProps};
 
 use super::etw_reader;
 use super::etw_reader::{GUID, open_trace, parser::{Address, Parser, TryParse}, print_property, schema::SchemaLocator, write_property, event_properties_to_string};
@@ -30,13 +23,11 @@ use super::ProfileContext;
 
 pub fn profile_pid_from_etl_file(
     context: &mut ProfileContext,
-    recording_props: RecordingProps,
-    profile_creation_props: ProfileCreationProps,
-    arch: &str,
     etl_file: &Path,
 ) {
     let profile_start_instant = Timestamp::from_nanos_since_reference(0);
 
+    let arch = &context.arch;
     let is_x86 = arch == "x86" || arch == "x86_64";
     let is_aarch64 = arch == "aarch64";
 
