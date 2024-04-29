@@ -29,7 +29,7 @@ pub fn profile_pid_from_etl_file(
 
     let arch = &context.arch;
     let is_x86 = arch == "x86" || arch == "x86_64";
-    let is_aarch64 = arch == "aarch64";
+    let is_arm64 = arch == "arm64";
 
     let mut schema_locator = SchemaLocator::new();
     etw_reader::add_custom_schemas(&mut schema_locator);
@@ -182,7 +182,7 @@ pub fn profile_pid_from_etl_file(
                     // TODO vlad -- the stacks are just in parser.buffer? From my reading the StackWalk event has
                     // EventTimeStamp: u64, StackProcess: u32, StackThread: u32, so 16 bytes shifted.
 
-                    if is_aarch64 {
+                    if is_arm64 {
                         // On ARM64, this is simpler -- stacks come in with full kernel and user frames.
                         // On x86_64 they seem to be split
 

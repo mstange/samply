@@ -10,7 +10,6 @@ use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
 use std::sync::atomic::AtomicPtr;
 use std::sync::{Arc, Mutex};
-use tokio::runtime;
 
 use crate::server::{ServerProps, start_server_main};
 use crate::shared::recording_props::{ProcessLaunchProps, ProfileCreationProps, RecordingProps};
@@ -86,20 +85,11 @@ pub fn start_recording(
 
     let old_processing = std::env::var_os("OLD").is_some();
 
-    let mut rt = None;
-
-        if old_processing {
-            rt = Some(runtime::Builder::new_multi_thread()
-                .worker_threads(4)
-                .enable_all()
-                .build()
-                .unwrap());
-            context.rt = Some(rt.as_ref().unwrap().handle().clone());
-
-            // we need the debug privilege token in order to get the kernel's address and run xperf.
-            winutils::enable_debug_privilege();
-            context.add_kernel_drivers();
-        }
+    if old_processing {
+        // we need the debug privilege token in order to get the kernel's address and run xperf.
+        winutils::enable_debug_privilege();
+        context.add_kernel_drivers();
+    }
 
     let (etl_file, existing_etl) = if !process_launch_props.command_name.to_str().unwrap().ends_with(".etl") {
         // Start xperf.
@@ -194,4 +184,4 @@ fn get_native_arch() -> &'static str { "x86" }
 fn get_native_arch() -> &'static str { "x86_64" }
 
 #[cfg(target_arch="aarch64")]
-fn get_native_arch() -> &'static str { "aarch64" }
+fn get_native_arch() -> &'static str { "arm64" }

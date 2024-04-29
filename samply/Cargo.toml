@@ -95,5 +95,5 @@ features =  ["Win32",
 
 [dependencies.object]
 default-features = false
-features = ["std", "read_core", "elf", "unaligned", "write"]
+features = ["std", "read_core", "elf", "pe", "unaligned", "write"]
 version = "0.35"

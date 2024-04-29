@@ -11,10 +11,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::thread::Thread;
 use debugid::DebugId;
-use tokio::runtime;
 use uuid::Uuid;
 use fxprof_processed_profile::{CategoryColor, CategoryPairHandle, CounterHandle, CpuDelta, FrameFlags, FrameInfo, LibraryHandle, LibraryInfo, ProcessHandle, Profile, Symbol, ThreadHandle, Timestamp};
-use wholesym::SymbolManager;
 use crate::shared::context_switch::{OffCpuSampleGroup, ThreadContextSwitchData};
 use crate::shared::lib_mappings::LibMappingOpQueue;
 use crate::shared::types::{StackFrame, StackMode};
@@ -116,9 +114,6 @@ struct ProfileContext {
     //profile: Arc<Mutex<Profile>>,
     profile: RefCell<Profile>,
 
-    // optional tokio runtime handle
-    rt: Option<runtime::Handle>,
-
     timebase_nanos: u64,
 
     // state -- keep track of the processes etc we've seen as we're processing,
@@ -195,7 +190,6 @@ impl ProfileContext {
 
         let mut result = Self {
             profile: RefCell::new(profile),
-            rt: None,
             timebase_nanos: 0,
             processes: HashMap::new(),
             threads: HashMap::new(),
@@ -403,44 +397,56 @@ impl ProfileContext {
         if let Some(&handle) = self.libs.get(filename) {
             handle
         } else {
-            let lib_info = self.slow_library_info_for_path(filename);
+            let lib_info = self.get_library_info_for_path(filename);
             let handle = self.profile.borrow_mut().add_lib(lib_info);
             self.libs.insert(filename.to_string(), handle);
             handle
         }
     }
 
-    fn slow_library_info_for_path(&self, path: &str) -> LibraryInfo {
+    fn try_get_library_info_for_path(&self, path: &str) -> Option<LibraryInfo> {
         let path = self.map_device_path(path);
-
-        if let Some(rt) = self.rt.as_ref() {
-            // TODO -- I'm not happy about this. I'd like to be able to just reprocess these before we write out the profile,
-            // instead of blocking during processing the samples. But we're postprocessing anyway, so not a big deal.
-            if let Ok(info) = rt.block_on(SymbolManager::library_info_for_binary_at_path(path.as_ref(), None,))
-            {
-                return LibraryInfo {
-                    name: info.name.unwrap(),
-                    path: info.path.unwrap(),
-                    debug_name: info.debug_name.unwrap_or(path.to_string()),
-                    debug_path: info.debug_path.unwrap_or(path.to_string()),
-                    debug_id: info.debug_id.unwrap_or(Default::default()),
-                    code_id: None,
-                    arch: info.arch,
-                    symbol_table: None,
-                }
-            }
-        }
-
-        // Not found; dummy
-        LibraryInfo {
-            name: path.to_string(),
+        let name = PathBuf::from(&path).file_name()?.to_string_lossy().to_string();
+        let file = std::fs::File::open(&path).ok()?;
+        let mmap = unsafe { memmap2::MmapOptions::new().map(&file) }.ok()?;
+        let object = object::File::parse(&mmap[..]).ok()?;
+        let debug_id = wholesym::samply_symbols::debug_id_for_object(&object);
+        use object::Object;
+        let arch =
+            object_arch_to_string(object.architecture()).map(ToOwned::to_owned);
+        let pe_info = match &object {
+            object::File::Pe32(pe_file) => Some(pe_info(pe_file)),
+            object::File::Pe64(pe_file) => Some(pe_info(pe_file)),
+            _ => None,
+        };
+        let info = LibraryInfo {
+            name: name.to_string(),
             path: path.to_string(),
-            debug_name: path.to_string(),
-            debug_path: path.to_string(),
-            debug_id: DebugId::from_uuid(Uuid::new_v4()),
-            code_id: None,
-            arch: Some(self.arch.clone()),
+            debug_name: pe_info.as_ref().and_then(|pi| pi.pdb_name.clone()).unwrap_or_else(|| name.to_string()),
+            debug_path: pe_info.as_ref().and_then(|pi| pi.pdb_path.clone()).unwrap_or_else(|| path.to_string()),
+            debug_id: debug_id.unwrap_or_else(|| debugid::DebugId::nil()),
+            code_id: pe_info.as_ref().map(|pi| pi.code_id.to_string()),
+            arch,
             symbol_table: None,
+        };
+        Some(info)
+    }
+
+    fn get_library_info_for_path(&self, path: &str) -> LibraryInfo {
+        if let Some(info) = self.try_get_library_info_for_path(path) {
+            info
+        } else {
+            // Not found; dummy
+            LibraryInfo {
+                name: PathBuf::from(path).file_name().unwrap().to_string_lossy().into_owned(),
+                path: path.to_string(),
+                debug_name: "".to_owned(),
+                debug_path: "".to_owned(),
+                debug_id: DebugId::from_uuid(Uuid::new_v4()),
+                code_id: None,
+                arch: Some(self.arch.clone()),
+                symbol_table: None,
+            }
         }
     }
 
@@ -477,7 +483,7 @@ impl ProfileContext {
         for (path, start_avma, end_avma) in winutils::iter_kernel_drivers() {
             let path = self.map_device_path(&path);
             eprintln!("kernel driver: {} {:x} {:x}", path, start_avma, end_avma);
-            let lib_info = self.slow_library_info_for_path(&path);
+            let lib_info = self.get_library_info_for_path(&path);
             let lib_handle = self.profile.borrow_mut().add_lib(lib_info);
             self.profile.borrow_mut().add_kernel_lib_mapping(lib_handle, start_avma, end_avma, 0);
         }
@@ -584,4 +590,57 @@ impl Drop for ProfileContext {
             self.stop_xperf();
         }
     }
+}
+
+struct PeInfo {
+    code_id: wholesym::CodeId,
+    pdb_path: Option<String>,
+    pdb_name: Option<String>,
+}
+
+fn pe_info<'a, Pe: object::read::pe::ImageNtHeaders, R: object::ReadRef<'a>>(pe: &object::read::pe::PeFile<'a, Pe, R>) -> PeInfo {
+    // The code identifier consists of the `time_date_stamp` field id the COFF header, followed by
+    // the `size_of_image` field in the optional header. If the optional PE header is not present,
+    // this identifier is `None`.
+    let header = pe.nt_headers();
+    let timestamp = header
+        .file_header()
+        .time_date_stamp
+        .get(object::LittleEndian);
+    use object::read::pe::ImageOptionalHeader;
+    let image_size = header.optional_header().size_of_image();
+    let code_id = wholesym::CodeId::PeCodeId(wholesym::PeCodeId {
+        timestamp,
+        image_size,
+    });
+
+    use object::Object;
+    let pdb_path: Option<String> = pe.pdb_info().ok().and_then(|pdb_info| {
+        let pdb_path = std::str::from_utf8(pdb_info?.path()).ok()?;
+        Some(pdb_path.to_string())
+    });
+
+    let pdb_name = pdb_path
+        .as_deref()
+        .map(|pdb_path| match pdb_path.rsplit_once(['/', '\\']) {
+            Some((_base, file_name)) => file_name.to_string(),
+            None => pdb_path.to_string(),
+        });
+
+    PeInfo {
+        code_id,
+        pdb_path,
+        pdb_name,
+    }
+}
+
+fn object_arch_to_string(arch: object::Architecture) -> Option<&'static str> {
+    let s = match arch {
+        object::Architecture::Arm => "arm",
+        object::Architecture::Aarch64 => "arm64",
+        object::Architecture::I386 => "x86",
+        object::Architecture::X86_64 => "x86_64",
+        _ => return None,
+    };
+    Some(s)
 }
