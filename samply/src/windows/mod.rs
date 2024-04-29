@@ -515,7 +515,7 @@ impl ProfileContext {
     fn start_xperf(&mut self, output_file: &Path) {
         // start xperf.exe, logging to the same location as the output file, just with a .etl
         // extension.
-        let etl_file = format!("{}.etl", output_file.to_str().unwrap());
+        let etl_file = format!("{}.unmerged-etl", output_file.to_str().unwrap());
         let mut xperf = std::process::Command::new("xperf");
         // Virtualised ARM64 Windows crashes out on PROFILE tracing, and that's what I'm developing
         // on, so these are hacky args to get me a useful profile that I can work with.
@@ -531,7 +531,8 @@ impl ProfileContext {
         } else {
             xperf.arg("VirtualAlloc+VirtualFree+HandleCreate+HandleClose");
         }
-        //xperf.arg("-f"); xperf.arg(&etl_file);
+        xperf.arg("-f");
+        xperf.arg(&etl_file);
 
         let _ = xperf
             .spawn()
@@ -553,9 +554,13 @@ impl ProfileContext {
     }
 
     fn stop_xperf(&mut self) {
+        let unmerged_etl = self.etl_file.take().unwrap();
+        self.etl_file = Some(unmerged_etl.with_extension("etl"));
+
         let mut xperf = std::process::Command::new("xperf");
         xperf.arg("-stop");
-        xperf.arg("-d"); xperf.arg(&self.etl_file.as_ref().unwrap());
+        xperf.arg("-d");
+        xperf.arg(&self.etl_file.as_ref().unwrap());
 
         xperf
             .spawn()
@@ -566,6 +571,8 @@ impl ProfileContext {
             .expect("Failed to wait on xperf");
 
         eprintln!("xperf session stopped.");
+
+        std::fs::remove_file(&unmerged_etl).expect(format!("Failed to delete unmerged ETL file {:?}", unmerged_etl.to_str().unwrap()).as_str());
 
         self.xperf_running = false;
     }
