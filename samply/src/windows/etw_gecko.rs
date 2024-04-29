@@ -212,7 +212,7 @@ pub fn profile_pid_from_etl_file(
                     let first_frame_stack_mode = context.stack_mode_for_address(first_frame_address);
                     stack.push(StackFrame::InstructionPointer(first_frame_address, first_frame_stack_mode));
                     for frame_address in address_iter {
-                        let stack_mode = context.stack_mode_for_address(first_frame_address);
+                        let stack_mode = context.stack_mode_for_address(frame_address);
                         stack.push(StackFrame::ReturnAddress(frame_address, stack_mode));
                     }
 
