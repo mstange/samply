@@ -267,7 +267,7 @@ pub fn trace_callback(ev: &EventRecord, sl: &SchemaLocator, context: &mut Profil
             let pid = e.ProcessId.unwrap();
             let ppid = e.ParentId.unwrap_or(0);
 
-            if context.is_interesting_process(pid, Some(ppid), None) {
+            if context.is_interesting_process(pid, Some(ppid), Some(&exe)) {
                 context.add_process(pid, ppid, &exe, timestamp);
             }
         }

@@ -120,6 +120,16 @@ pub fn start_recording(
         (context.etl_file.clone().unwrap(), false)
     } else {
         eprintln!("Existing ETL");
+        if let Some(names) = &profile_creation_props.include_process_names {
+            for name in names {
+                context.add_interesting_process_name(name);
+            }
+        }
+        if let Some(ids) = &profile_creation_props.include_process_ids {
+            for id in ids {
+                context.add_interesting_process_id(*id);
+            }
+        }
         (PathBuf::from(&process_launch_props.command_name), true)
     };
 

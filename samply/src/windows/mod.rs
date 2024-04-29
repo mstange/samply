@@ -143,7 +143,8 @@ struct ProfileContext {
 
     // These are the processes + their children that we want to write into
     // the profile.json. If it's empty, trace everything.
-    interesting_processes: HashSet<u32>,
+    interesting_process_ids: HashSet<u32>,
+    interesting_process_names: HashSet<String>,
 
     // default categories
     default_category: CategoryPairHandle,
@@ -203,7 +204,8 @@ impl ProfileContext {
             per_thread_memory: false,
             merge_threads,
             libs: HashMap::new(),
-            interesting_processes: HashSet::new(),
+            interesting_process_ids: HashSet::new(),
+            interesting_process_names: HashSet::new(),
             default_category,
             kernel_category,
             device_mappings: winutils::get_dos_device_mappings(),
@@ -450,23 +452,46 @@ impl ProfileContext {
         }
     }
 
+    fn add_interesting_process_name(&mut self, name: &str) {
+        self.interesting_process_names.insert(name.to_lowercase());
+    }
+
     fn add_interesting_process_id(&mut self, pid: u32) {
-        self.interesting_processes.insert(pid);
+        self.interesting_process_ids.insert(pid);
     }
 
     fn is_interesting_process(&self, pid: u32, ppid: Option<u32>, name: Option<&str>) -> bool {
         if pid == 0 {
-            return false;
+            return false
         }
-        // TODO name
 
-        // if we didn't flag anything as interesting, trace everything
-        self.interesting_processes.is_empty() ||
-            // or if we have explicit ones, trace those
-            self.interesting_processes.contains(&pid) ||
-            // or if we've already decided to trace it or its parent
-            self.processes.contains_key(&pid) ||
-            ppid.is_some_and(|k| self.processes.contains_key(&k))
+        // already tracking?
+        if self.processes.contains_key(&pid) {
+            return true
+        }
+
+        // all processes if nothing specified
+        if self.interesting_process_ids.is_empty() && self.interesting_process_names.is_empty() {
+            return true
+        }
+
+        // if pid or ppid are explicitly interesting
+        if self.interesting_process_ids.contains(&pid) || ppid.is_some_and(|k| self.processes.contains_key(&k)) {
+            return true
+        }
+
+        // if the name contains any of the interesting names
+        if let Some(name) = name {
+            let name = name.to_lowercase();
+            for target in &self.interesting_process_names {
+                if name.contains(target) {
+                    return true
+                }
+            }
+        }
+
+        // nope, boring process
+        false
     }
 
     fn new_with_existing_recording(
