@@ -17,6 +17,10 @@ pub struct ProfileCreationProps {
     pub reuse_threads: bool,
     /// Fold repeated frames at the base of the stack.
     pub fold_recursive_prefix: bool,
+    /// Unlink jitdump/marker files
+    pub unlink_aux_files: bool,
+    /// Create a separate thread for each CPU.
+    pub create_per_cpu_threads: bool,
 }
 
 /// Properties which are meaningful for launching and recording a fresh process.

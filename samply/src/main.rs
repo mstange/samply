@@ -190,6 +190,17 @@ pub struct ProfileCreationArgs {
     /// Fold repeated frames at the base of the stack.
     #[arg(long)]
     fold_recursive_prefix: bool,
+
+    /// If a process produces jitdump or marker files, unlink them after
+    /// opening. This ensures that the files will not be left in /tmp,
+    /// but it will also be impossible to look at JIT disassembly, and line
+    /// numbers will be missing for JIT frames.
+    #[arg(long)]
+    unlink_aux_files: bool,
+
+    /// Create a separate thread for each CPU. Not supported         on macOS
+    #[arg(long)]
+    per_cpu_threads: bool,
 }
 
 fn main() {
@@ -308,6 +319,8 @@ impl ImportArgs {
             profile_name,
             reuse_threads: self.profile_creation_args.reuse_threads,
             fold_recursive_prefix: self.profile_creation_args.fold_recursive_prefix,
+            unlink_aux_files: self.profile_creation_args.unlink_aux_files,
+            create_per_cpu_threads: self.profile_creation_args.per_cpu_threads,
         }
     }
 }
@@ -386,6 +399,8 @@ impl RecordArgs {
             profile_name,
             reuse_threads: self.profile_creation_args.reuse_threads,
             fold_recursive_prefix: self.profile_creation_args.fold_recursive_prefix,
+            unlink_aux_files: self.profile_creation_args.unlink_aux_files,
+            create_per_cpu_threads: self.profile_creation_args.per_cpu_threads,
         }
     }
 }
@@ -437,14 +452,17 @@ fn convert_file_to_profile(
     let path = Path::new(filename)
         .canonicalize()
         .expect("Couldn't form absolute path");
+    let file_meta = input_file.metadata().ok();
+    let file_mod_time = file_meta.and_then(|metadata| metadata.modified().ok());
     let reader = BufReader::new(input_file);
-    let profile = match import::perf::convert(reader, path.parent(), profile_creation_props) {
-        Ok(profile) => profile,
-        Err(error) => {
-            eprintln!("Error importing perf.data file: {:?}", error);
-            std::process::exit(1);
-        }
-    };
+    let profile =
+        match import::perf::convert(reader, file_mod_time, path.parent(), profile_creation_props) {
+            Ok(profile) => profile,
+            Err(error) => {
+                eprintln!("Error importing perf.data file: {:?}", error);
+                std::process::exit(1);
+            }
+        };
     let output_file = match File::create(output_filename) {
         Ok(file) => file,
         Err(err) => {

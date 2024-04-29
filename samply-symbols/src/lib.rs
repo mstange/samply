@@ -244,6 +244,7 @@ pub use crate::breakpad::{
 pub use crate::cache::{FileByteSource, FileContentsWithChunkedCaching};
 pub use crate::compact_symbol_table::CompactSymbolTable;
 pub use crate::debugid_util::{debug_id_for_object, DebugIdExt};
+pub use crate::demangle::demangle_any;
 pub use crate::error::Error;
 pub use crate::external_file::{load_external_file, ExternalFileSymbolMap};
 pub use crate::jitdump::debug_id_and_code_id_for_jitdump;
