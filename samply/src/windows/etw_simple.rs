@@ -239,7 +239,7 @@ pub fn get_tracing_event(
             return None;
         },
         _ => {
-            eprintln!("Unknown provider: {:?} opcode: {}", provider, opcode);
+            //eprintln!("Unknown provider: {:?} opcode: {}", provider, opcode);
             return None;
         }
     };

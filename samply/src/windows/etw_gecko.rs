@@ -353,6 +353,7 @@ pub fn profile_pid_from_etl_file(
                     let image_timestamp = parser.try_parse("TimeDateStamp").unwrap();
                     let image_size: u32 = parser.try_parse("ImageSize").unwrap();
                     let image_path: String = parser.try_parse("OriginalFileName").unwrap();
+                    //eprintln!("ImageID {} {} {} {}", image_base, image_path, image_size, image_timestamp);
                     libs.insert(image_base, (image_path, image_size, image_timestamp));
                 }
                 "KernelTraceControl/ImageID/DbgID_RSDS" => {
@@ -368,6 +369,7 @@ pub fn profile_pid_from_etl_file(
                     let pdb_path: String = parser.try_parse("PdbFileName").unwrap();
                     //let pdb_path = Path::new(&pdb_path);
                     let (ref path, image_size, timestamp) = libs[&image_base];
+                    //eprintln!("DbgID_RSDS {} {} {} {} {}", image_base, path, debug_id, pdb_path, age);
                     let code_id = Some(format!("{timestamp:08X}{image_size:x}"));
                     let name = Path::new(path).file_name().unwrap().to_str().unwrap().to_owned();
                     let debug_name = Path::new(&pdb_path).file_name().unwrap().to_str().unwrap().to_owned();
@@ -379,7 +381,7 @@ pub fn profile_pid_from_etl_file(
                         symbol_table: None, 
                         debug_path: pdb_path,
                         debug_id, 
-                        arch: Some("x86_64".into()) // TODO arch
+                        arch: Some(context.arch.to_owned()),
                     };
                     if process_id == 0 {
                         kernel_pending_libraries.insert(image_base, info);

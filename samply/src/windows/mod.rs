@@ -521,18 +521,17 @@ impl ProfileContext {
         // on, so these are hacky args to get me a useful profile that I can work with.
         xperf.arg("-on");
         if self.arch != "aarch64" {
-            xperf.arg("PROC_THREAD+LOADER+PROFILE");
+            xperf.arg("PROC_THREAD+LOADER+PROFILE+CSWITCH");
         } else {
             xperf.arg("PROC_THREAD+LOADER+CSWITCH+SYSCALL+VIRT_ALLOC+OB_HANDLE");
         }
         xperf.arg("-stackwalk");
         if self.arch != "aarch64" {
-            xperf.arg("profile");
+            xperf.arg("PROFILE+CSWITCH");
         } else {
             xperf.arg("VirtualAlloc+VirtualFree+HandleCreate+HandleClose");
         }
-        xperf.arg("-f");
-        xperf.arg(&etl_file);
+        //xperf.arg("-f"); xperf.arg(&etl_file);
 
         let _ = xperf
             .spawn()
@@ -556,6 +555,7 @@ impl ProfileContext {
     fn stop_xperf(&mut self) {
         let mut xperf = std::process::Command::new("xperf");
         xperf.arg("-stop");
+        xperf.arg("-d"); xperf.arg(&self.etl_file.as_ref().unwrap());
 
         xperf
             .spawn()
