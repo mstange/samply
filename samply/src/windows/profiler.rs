@@ -16,11 +16,9 @@ use crate::shared::recording_props::{ProcessLaunchProps, ProfileCreationProps, R
 
 use fxprof_processed_profile::{Profile, ReferenceTimestamp, SamplingInterval};
 
-use ferrisetw::trace::TraceTrait;
-use ferrisetw::FileTrace;
 use super::*;
 
-use crate::windows::{etw_gecko, etw_simple, winutils};
+use crate::windows::{etw_gecko, winutils};
 
 // Hello intrepid explorer! You may be in this code because you'd like to extend something,
 // or are trying to figure out how various ETW things work. It's not the easiest API!
@@ -83,13 +81,9 @@ pub fn start_recording(
     let arch = get_native_arch();  // TODO: Detect from file if reading from file
     let mut context = ProfileContext::new(profile, arch, merge_threads, include_idle_time);
 
-    let old_processing = std::env::var_os("OLD").is_some();
-
-    if old_processing {
-        // we need the debug privilege token in order to get the kernel's address and run xperf.
-        winutils::enable_debug_privilege();
-        context.add_kernel_drivers();
-    }
+    // we need the debug privilege token in order to get the kernel's address and run xperf.
+    ////winutils::enable_debug_privilege();
+    ////context.add_kernel_drivers();
 
     let (etl_file, existing_etl) = if !process_launch_props.command_name.to_str().unwrap().ends_with(".etl") {
         // Start xperf.
@@ -137,28 +131,7 @@ pub fn start_recording(
 
     let output_file = recording_props.output_file.clone();
 
-    if old_processing {
-        unsafe {
-            // let's get rid of that pesky Sync trait requirement
-            let context_ptr = AtomicPtr::new(&mut context as *mut _);
-            let (trace, handle) = FileTrace::new(etl_file.clone(), move |ev, sl| {
-                let context = context_ptr.load(std::sync::atomic::Ordering::Relaxed);
-                etw_simple::trace_callback(ev, sl, &mut *context);
-            })
-                .start()
-                .unwrap();
-
-            // TODO: grab the header info, so that we can pull out StartTime (and PerfFreq). Not really important.
-            // QueryTraceProcessingHandle(handle, EtwQueryLogFileHeader, None, 0, &ptr to TRACE_LOGFILE_HEADER)
-
-            FileTrace::process_from_handle(handle).unwrap();
-
-            let n_events = trace.events_handled();
-            eprintln!("Read {} events from file", n_events);
-        }
-    } else {
-        etw_gecko::profile_pid_from_etl_file(&mut context, &Path::new(&etl_file));
-    }
+    etw_gecko::profile_pid_from_etl_file(&mut context, &Path::new(&etl_file));
 
     // delete etl_file
     if !existing_etl {

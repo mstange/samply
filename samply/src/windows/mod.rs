@@ -2,7 +2,6 @@ pub mod profiler;
 mod winutils;
 mod etw_gecko;
 mod etw_reader;
-mod etw_simple;
 
 use std::cell::{RefCell, Ref, RefMut};
 use std::collections::{HashMap, HashSet, VecDeque};
