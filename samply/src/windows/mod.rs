@@ -17,6 +17,8 @@ use crate::shared::lib_mappings::LibMappingOpQueue;
 use crate::shared::types::{StackFrame, StackMode};
 use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
 
+use runas;
+
 /// An on- or off-cpu-sample for which the user stack is not known yet.
 /// Consumed once the user stack arrives.
 #[derive(Debug, Clone)]
@@ -107,6 +109,16 @@ fn strip_thread_numbers(name: &str) -> &str {
         }
     }
     return name;
+}
+
+fn expand_full_filename_with_cwd(filename: &Path) -> PathBuf {
+    if filename.is_absolute() {
+        filename.to_path_buf()
+    } else {
+        let mut fullpath = std::env::current_dir().unwrap();
+        fullpath.push(filename);
+        fullpath
+    }
 }
 
 struct ProfileContext {
@@ -545,8 +557,10 @@ impl ProfileContext {
     fn start_xperf(&mut self, output_file: &Path) {
         // start xperf.exe, logging to the same location as the output file, just with a .etl
         // extension.
-        let etl_file = format!("{}.unmerged-etl", output_file.to_str().unwrap());
-        let mut xperf = std::process::Command::new("xperf");
+        let mut etl_file = output_file.to_path_buf();
+        etl_file.set_extension("unmerged-etl");
+
+        let mut xperf = runas::Command::new("xperf");
         // Virtualised ARM64 Windows crashes out on PROFILE tracing, and that's what I'm developing
         // on, so these are hacky args to get me a useful profile that I can work with.
         xperf.arg("-on");
@@ -562,20 +576,11 @@ impl ProfileContext {
             xperf.arg("VirtualAlloc+VirtualFree+HandleCreate+HandleClose");
         }
         xperf.arg("-f");
-        xperf.arg(&etl_file);
+        xperf.arg(expand_full_filename_with_cwd(&etl_file));
 
         let _ = xperf
-            .spawn()
-            .unwrap_or_else(|err| {
-                panic!("failed to execute xperf: {}", err);
-            })
-            .wait()
-            .is_ok_and(|exitstatus| {
-                if !exitstatus.success() {
-                    panic!("xperf exited with: {:?}", exitstatus);
-                }
-                true
-            });
+            .status()
+            .expect("failed to execute xperf");
 
         eprintln!("xperf session running...");
 
@@ -585,25 +590,22 @@ impl ProfileContext {
 
     fn stop_xperf(&mut self) {
         let unmerged_etl = self.etl_file.take().unwrap();
-        self.etl_file = Some(unmerged_etl.with_extension("etl"));
+        let merged_etl = unmerged_etl.with_extension("etl");
 
-        let mut xperf = std::process::Command::new("xperf");
+        let mut xperf = runas::Command::new("xperf");
         xperf.arg("-stop");
         xperf.arg("-d");
-        xperf.arg(&self.etl_file.as_ref().unwrap());
+        xperf.arg(expand_full_filename_with_cwd(&merged_etl));
 
-        xperf
-            .spawn()
-            .unwrap_or_else(|err| {
-                panic!("failed to execute xperf: {}", err);
-            })
-            .wait()
-            .expect("Failed to wait on xperf");
+        let _ = xperf
+            .status()
+            .expect("Failed to execute xperf -stop! xperf may still be recording.");
 
         eprintln!("xperf session stopped.");
 
         std::fs::remove_file(&unmerged_etl).expect(format!("Failed to delete unmerged ETL file {:?}", unmerged_etl.to_str().unwrap()).as_str());
 
+        self.etl_file = Some(merged_etl);
         self.xperf_running = false;
     }
 }
