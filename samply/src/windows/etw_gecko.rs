@@ -35,7 +35,7 @@ pub fn profile_pid_from_etl_file(
     etw_reader::add_custom_schemas(&mut schema_locator);
     let mut kernel_pending_libraries: HashMap<u64, LibraryInfo> = HashMap::new();
 
-    let mut libs: HashMap<u64, (String, u32, u32)> = HashMap::new();
+    let mut libs: HashMap<(u32, u64), (String, u32, u32)> = HashMap::new();
 
     let processing_start_timestamp = Instant::now();
 
@@ -346,20 +346,35 @@ pub fn profile_pid_from_etl_file(
                     context.profile.borrow_mut().add_marker(thread_handle, CategoryHandle::OTHER, op_name, SimpleMarker(text), MarkerTiming::Instant(timestamp));
                 }
                 "KernelTraceControl/ImageID/" => {
-                    let process_id = s.process_id();
-                    if !context.is_interesting_process(process_id, None, None) { return }
+                    // KernelTraceControl/ImageID/ and KernelTraceControl/ImageID/DbgID_RSDS are synthesized during merge from
+                    // from MSNT_SystemTrace/Image/Load but don't contain the full path of the binary, or the full debug info in one go.
+                    // We go through "ImageID/" to capture pid/address + the original filename, then expect to see a "DbgID_RSDS" event
+                    // with pdb and debug info. We link those up through the "libs" hash, and then finally add them to the process
+                    // in Image/Load.
+
+                    let process_id = s.process_id(); // there isn't a ProcessId field here
+                    if !context.is_interesting_process(process_id, None, None) && process_id != 0 {
+                        return
+                    }
 
                     let image_base: u64 = parser.try_parse("ImageBase").unwrap();
                     let image_timestamp = parser.try_parse("TimeDateStamp").unwrap();
                     let image_size: u32 = parser.try_parse("ImageSize").unwrap();
                     let image_path: String = parser.try_parse("OriginalFileName").unwrap();
-                    //eprintln!("ImageID {} {} {} {}", image_base, image_path, image_size, image_timestamp);
-                    libs.insert(image_base, (image_path, image_size, image_timestamp));
+                    //eprintln!("ImageID pid: {} 0x{:x} {} {} {}", process_id, image_base, image_path, image_size, image_timestamp);
+                    // "libs" is used as a cache to store the image path and size until we get the DbgID_RSDS event
+                    if libs.contains_key(&(process_id, image_base)) {
+                        // I see odd entries like this with no corresponding DbgID_RSDS:
+                        //   ImageID pid: 3156 0xf70000 com.docker.cli.exe 49819648 0
+                        // they all come from something docker-related. So don't panic on the duplicate.
+                        //panic!("libs already contains key 0x{:x} for pid {}", image_base, process_id);
+                    }
+                    libs.insert((process_id, image_base), (image_path, image_size, image_timestamp));
                 }
                 "KernelTraceControl/ImageID/DbgID_RSDS" => {
-                    let process_id = s.process_id();
-                    if !context.is_interesting_process(process_id, None, None) {
-                        return;
+                    let process_id = parser.try_parse("ProcessId").unwrap();
+                    if !context.is_interesting_process(process_id, None, None) && process_id != 0 {
+                        return
                     }
 
                     let image_base: u64 = parser.try_parse("ImageBase").unwrap();
@@ -368,8 +383,11 @@ pub fn profile_pid_from_etl_file(
                     let debug_id = DebugId::from_parts(Uuid::from_fields(guid.data1, guid.data2, guid.data3, &guid.data4), age);
                     let pdb_path: String = parser.try_parse("PdbFileName").unwrap();
                     //let pdb_path = Path::new(&pdb_path);
-                    let (ref path, image_size, timestamp) = libs[&image_base];
-                    //eprintln!("DbgID_RSDS {} {} {} {} {}", image_base, path, debug_id, pdb_path, age);
+                    let Some((ref path, image_size, timestamp)) = libs.remove(&(process_id, image_base)) else {
+                        eprintln!("DbID_RSDS for image at 0x{:x} for pid {}, but has no entry in libs", image_base, process_id);
+                        return
+                    };
+                    //eprintln!("DbgID_RSDS pid: {} 0x{:x} {} {} {} {}", process_id, image_base, path, debug_id, pdb_path, age);
                     let code_id = Some(format!("{timestamp:08X}{image_size:x}"));
                     let name = Path::new(path).file_name().unwrap().to_str().unwrap().to_owned();
                     let debug_name = Path::new(&pdb_path).file_name().unwrap().to_str().unwrap().to_owned();
@@ -383,8 +401,12 @@ pub fn profile_pid_from_etl_file(
                         debug_id, 
                         arch: Some(context.arch.to_owned()),
                     };
-                    if process_id == 0 {
-                        kernel_pending_libraries.insert(image_base, info);
+                    if process_id == 0 || image_base >= context.kernel_min {
+                        if let Some(oldinfo) = kernel_pending_libraries.get(&image_base) {
+                            assert_eq!(*oldinfo, info);
+                        } else {
+                            kernel_pending_libraries.insert(image_base, info);
+                        }
                     } else {
                         if let Some(mut process) = context.get_process_mut(process_id) {
                             process.pending_libraries.insert(image_base, info);
@@ -401,7 +423,9 @@ pub fn profile_pid_from_etl_file(
 
                     // the ProcessId field doesn't necessarily match s.process_id();
                     let process_id = parser.try_parse("ProcessId").unwrap();
-                    if !context.is_interesting_process(process_id, None, None) { return }
+                    if !context.is_interesting_process(process_id, None, None) && process_id != 0 {
+                        return
+                    }
 
                     let image_base: u64 = parser.try_parse("ImageBase").unwrap();
                     let image_size: u64 = parser.try_parse("ImageSize").unwrap();
@@ -420,11 +444,11 @@ pub fn profile_pid_from_etl_file(
                     if let Some(mut info) = info {
                         info.path = path;
                         let lib_handle = context.profile.borrow_mut().add_lib(info);
-                        if process_id == 0 {
+                        if process_id == 0 || image_base >= context.kernel_min {
                             context.profile.borrow_mut().add_kernel_lib_mapping(lib_handle, image_base, image_base + image_size as u64, 0);
                         } else {
                             let mut process = context.get_process_mut(process_id).unwrap();
-                            process.regular_lib_mapping_ops.push(e.EventHeader.TimeStamp as u64, LibMappingOp::Add(LibMappingAdd {
+                            process.regular_lib_mapping_ops.push(timestamp_raw, LibMappingOp::Add(LibMappingAdd {
                                 start_avma: image_base,
                                 end_avma: image_base + image_size as u64,
                                 relative_address_at_start: 0,

@@ -88,7 +88,6 @@ pub fn start_recording(
 
     let mut rt = None;
 
-    let (etl_file, existing_etl) = if !process_launch_props.command_name.to_str().unwrap().ends_with(".etl") {
         if old_processing {
             rt = Some(runtime::Builder::new_multi_thread()
                 .worker_threads(4)
@@ -102,6 +101,7 @@ pub fn start_recording(
             context.add_kernel_drivers();
         }
 
+    let (etl_file, existing_etl) = if !process_launch_props.command_name.to_str().unwrap().ends_with(".etl") {
         // Start xperf.
         context.start_xperf(&recording_props.output_file);
 
