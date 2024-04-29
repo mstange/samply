@@ -1,4 +1,5 @@
 use crossbeam_channel::{Receiver, Sender};
+use fxprof_processed_profile::ReferenceTimestamp;
 use linux_perf_data::linux_perf_event_reader::EventRecord;
 use linux_perf_data::linux_perf_event_reader::{
     CpuMode, Endianness, Mmap2FileId, Mmap2InodeAndVersion, Mmap2Record, RawData,
@@ -15,7 +16,7 @@ use std::process::ExitStatus;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use super::perf_event::EventSource;
 use super::perf_group::{AttachMode, PerfGroup};
@@ -356,7 +357,8 @@ fn make_converter(
     };
 
     Converter::<framehop::UnwinderNative<MmapRangeOrVec, framehop::MayAllocateDuringUnwind>>::new(
-        &profile_creation_props.profile_name,
+        &profile_creation_props,
+        ReferenceTimestamp::from_system_time(SystemTime::now()),
         None,
         HashMap::new(),
         machine_info.as_ref().map(|info| info.release.as_str()),
@@ -365,8 +367,7 @@ fn make_converter(
         framehop::CacheNative::new(),
         None,
         interpretation,
-        profile_creation_props.reuse_threads,
-        profile_creation_props.fold_recursive_prefix,
+        None,
     )
 }
 

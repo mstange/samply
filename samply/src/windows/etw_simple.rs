@@ -205,15 +205,22 @@ pub fn get_tracing_event(
                     let schema = schema_locator.event_schema(ev).unwrap();
                     let parser = ferrisetw::parser::Parser::create(ev, &schema);
 
-                    assert_eq!(self.0.UserDataLength % 8, 0);
-                    let user_buf = std::slice::from_raw_parts(self.0.UserData as *mut u64, self.0.UserDataLength / 8);
+                    assert_eq!(ev.0.UserDataLength % 8, 0);
+                    let mut stack_buf: [u64; 32] = [0; 32];
+                    unsafe {
+                        let user_buf = std::slice::from_raw_parts(ev.0.UserData as *mut u64, (ev.0.UserDataLength / 8) as usize);
+                        for (i, &item) in user_buf.iter().enumerate().take(32) {
+                            stack_buf[i] = item;
+                        }
+                    }
+
                     //eprintln!("Stackwalk parser buffer size: {}", ev.0.UserDataLength);
                     let raw = StackWalkEvent_StackRaw::from_record(ev, schema_locator);
                     let stack = StackWalkEvent_Stack {
                         EventTimeStamp: raw.EventTimeStamp.unwrap(),
                         StackProcess: raw.StackProcess.unwrap(),
                         StackThread: raw.StackThread.unwrap(),
-                        Stack: user_buf.clone(),
+                        Stack: stack_buf,
                     };
                     TracingEvent::StackWalk(stack)
                 },

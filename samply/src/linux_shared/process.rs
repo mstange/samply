@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use framehop::Unwinder;
 use fxprof_processed_profile::{
-    CategoryHandle, CounterHandle, LibraryHandle, MarkerTiming, ProcessHandle, Profile,
+    CategoryHandle, CounterHandle, FrameInfo, LibraryHandle, MarkerTiming, ProcessHandle, Profile,
     ThreadHandle, Timestamp,
 };
 
@@ -49,22 +49,32 @@ impl<U> Process<U>
 where
     U: Unwinder + Default,
 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         pid: i32,
         process_handle: ProcessHandle,
         main_thread_handle: ThreadHandle,
+        main_thread_label_frame: FrameInfo,
         name: Option<String>,
         thread_recycler: Option<ThreadRecycler>,
         jit_function_recycler: Option<JitFunctionRecycler>,
+        unlink_aux_files: bool,
     ) -> Self {
         Self {
             profile_process: process_handle,
             unwinder: U::default(),
-            jitdump_manager: JitDumpManager::new(),
+            jitdump_manager: JitDumpManager::new(unlink_aux_files),
             lib_mapping_ops: Default::default(),
-            name,
+            name: name.clone(),
             pid,
-            threads: ProcessThreads::new(pid, process_handle, main_thread_handle, thread_recycler),
+            threads: ProcessThreads::new(
+                pid,
+                process_handle,
+                main_thread_handle,
+                main_thread_label_frame,
+                name,
+                thread_recycler,
+            ),
             unresolved_samples: Default::default(),
             jit_function_recycler,
             marker_file_paths: Vec::new(),
@@ -90,35 +100,50 @@ where
         self.lib_mapping_ops = fork_data.lib_mapping_ops;
     }
 
-    pub fn swap_recycling_data(
+    pub fn rename_with_recycling(
         &mut self,
+        name: String,
         recycling_data: ProcessRecyclingData,
-    ) -> Option<ProcessRecyclingData> {
+    ) -> (ProcessRecyclingData, Option<String>) {
         let ProcessRecyclingData {
             process_handle,
-            main_thread_handle,
+            main_thread_recycling_data,
             thread_recycler,
             jit_function_recycler,
         } = recycling_data;
         let old_process_handle = std::mem::replace(&mut self.profile_process, process_handle);
         let old_jit_function_recycler =
             std::mem::replace(&mut self.jit_function_recycler, Some(jit_function_recycler));
-        let (old_main_thread_handle, old_thread_recycler) = self.threads.swap_recycling_data(
-            process_handle,
-            main_thread_handle,
-            thread_recycler,
-        )?;
-        Some(ProcessRecyclingData {
+        let (old_thread_recycler, old_main_thread_recycling_data) =
+            self.threads.rename_process_with_recycling(
+                name.clone(),
+                process_handle,
+                main_thread_recycling_data,
+                thread_recycler,
+            );
+        let old_name = std::mem::replace(&mut self.name, Some(name));
+        let recycling_data = ProcessRecyclingData {
             process_handle: old_process_handle,
-            main_thread_handle: old_main_thread_handle,
+            main_thread_recycling_data: old_main_thread_recycling_data,
             thread_recycler: old_thread_recycler,
-            jit_function_recycler: old_jit_function_recycler?,
-        })
+            jit_function_recycler: old_jit_function_recycler
+                .expect("jit_function_recycler should be Some"),
+        };
+        (recycling_data, old_name)
     }
 
-    pub fn set_name(&mut self, name: String, profile: &mut Profile) {
+    pub fn rename_without_recycling(
+        &mut self,
+        name: String,
+        main_thread_label_frame: FrameInfo,
+        profile: &mut Profile,
+    ) {
         profile.set_process_name(self.profile_process, &name);
-        self.threads.main_thread.set_name(name.clone(), profile);
+        self.threads.main_thread.rename_without_recycling(
+            name.clone(),
+            main_thread_label_frame,
+            profile,
+        );
         self.name = Some(name);
     }
 
@@ -181,7 +206,8 @@ where
             None
         };
 
-        let jitdump_manager = std::mem::replace(&mut self.jitdump_manager, JitDumpManager::new());
+        let jitdump_manager =
+            std::mem::replace(&mut self.jitdump_manager, JitDumpManager::new(false));
         let jitdump_ops = jitdump_manager.finish(
             jit_category_manager,
             profile,
@@ -220,13 +246,13 @@ where
         let process_recycling_data = if let (
             Some(name),
             Some(mut jit_function_recycler),
-            (main_thread_handle, Some(thread_recycler)),
+            (Some(thread_recycler), main_thread_recycling_data),
         ) = (self.name, self.jit_function_recycler, thread_recycler)
         {
             jit_function_recycler.finish_round();
             let recycling_data = ProcessRecyclingData {
                 process_handle: self.profile_process,
-                main_thread_handle,
+                main_thread_recycling_data,
                 thread_recycler,
                 jit_function_recycler,
             };
@@ -245,7 +271,7 @@ where
         start_address: u64,
         end_address: u64,
         relative_address_at_start: u32,
-        lib_handle: LibraryHandle,
+        info: LibMappingInfo,
     ) {
         self.lib_mapping_ops.push(
             timestamp,
@@ -253,7 +279,7 @@ where
                 start_avma: start_address,
                 end_avma: end_address,
                 relative_address_at_start,
-                info: LibMappingInfo::new_lib(lib_handle),
+                info,
             }),
         );
     }

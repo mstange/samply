@@ -110,11 +110,7 @@ pub fn try_load_perf_map(
             start_address,
             end_address,
             relative_address,
-            LibMappingInfo {
-                lib_handle,
-                category: Some(category),
-                js_frame,
-            },
+            LibMappingInfo::new_jit_function(lib_handle, category, js_frame),
         );
     }
 

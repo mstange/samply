@@ -393,8 +393,11 @@ pub fn profile_pid_from_etl_file(
                     if process_id == 0 {
                         kernel_pending_libraries.insert(image_base, info);
                     } else {
-                        let mut process = context.get_process_mut(process_id).unwrap();
-                        process.pending_libraries.insert(image_base, info);
+                        if let Some(mut process) = context.get_process_mut(process_id) {
+                            process.pending_libraries.insert(image_base, info);
+                        } else {
+                            eprintln!("No process for pid {process_id}");
+                        }
                     }
 
                 }
