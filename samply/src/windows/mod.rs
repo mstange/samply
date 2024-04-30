@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 mod etw_gecko;
 mod etw_reader;
 pub mod profiler;
@@ -13,11 +15,8 @@ use fxprof_processed_profile::{
     LibraryHandle, LibraryInfo, ProcessHandle, Profile, Symbol, ThreadHandle, Timestamp,
 };
 use std::cell::{Ref, RefCell, RefMut};
-use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
-use std::thread::Thread;
 use uuid::Uuid;
 
 use runas;
@@ -604,7 +603,7 @@ impl ProfileContext {
         false
     }
 
-    fn new_with_existing_recording(mut profile: Profile, arch: &str, etl_file: &Path) -> Self {
+    fn new_with_existing_recording(profile: Profile, arch: &str, etl_file: &Path) -> Self {
         let mut context = Self::new(profile, arch, false, false);
         context.etl_file = Some(PathBuf::from(etl_file));
         context

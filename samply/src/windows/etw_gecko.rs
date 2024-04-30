@@ -62,10 +62,10 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
     let processing_start_timestamp = Instant::now();
 
     //let merge_threads = false; // --merge-threads? (merge samples from all interesting apps into a single thread)
-    let include_idle = false; //pargs.contains("--idle");
+    let _include_idle = false; //pargs.contains("--idle");
     let demand_zero_faults = false; //pargs.contains("--demand-zero-faults");
     let marker_file: Option<String> = None; //pargs.opt_value_from_str("--marker-file").unwrap();
-    let marker_prefix: Option<String> = None; //pargs.opt_value_from_str("--filter-by-marker-prefix").unwrap();
+    let _marker_prefix: Option<String> = None; //pargs.opt_value_from_str("--filter-by-marker-prefix").unwrap();
 
     let user_category: CategoryPairHandle = context
         .profile
@@ -83,7 +83,6 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
 
     let mut sample_count = 0;
     let mut stack_sample_count = 0;
-    let mut dropped_sample_count = 0;
     let mut timer_resolution: u32 = 0; // Resolution of the hardware timer, in units of 100 nanoseconds.
     let mut event_count = 0;
     let mut gpu_thread = None;
@@ -193,8 +192,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                 }
                 "MSNT_SystemTrace/Process/End" |
                 "MSNT_SystemTrace/Process/DCEnd" => {
-                    let process_id: u32 = parser.parse("ProcessId");
-
+                    //let process_id: u32 = parser.parse("ProcessId");
                     //context.end_process(...);
                 }
                 "MSNT_SystemTrace/StackWalk/Stack" => {
@@ -782,7 +780,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
     // a /tmp/perf-1234.map file, and this file may not exist until the profiled process finishes.)
     let mut stack_frame_scratch_buf = Vec::new();
     for (process_id, process) in context.processes.iter() {
-        let mut process = process.borrow_mut();
+        let process = process.borrow_mut();
         ///let ProcessState { unresolved_samples, regular_lib_mapping_ops, main_thread_handle, .. } = process;
         let jitdump_lib_mapping_op_queues = match jscript_symbols.remove(&process_id) {
             Some(jit_info) => {
@@ -834,7 +832,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
         (Instant::now() - processing_start_timestamp).as_secs_f32()
     );
     println!(
-        "{} events, {} samples, {} dropped, {} stack-samples",
-        event_count, sample_count, dropped_sample_count, stack_sample_count
+        "{} events, {} samples, {} stack-samples",
+        event_count, sample_count, stack_sample_count
     );
 }

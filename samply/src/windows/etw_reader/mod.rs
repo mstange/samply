@@ -1,3 +1,5 @@
+#![allow(warnings)]
+
 use windows::{
     core::{h, Error, HRESULT, HSTRING, PWSTR},
     Win32::{
