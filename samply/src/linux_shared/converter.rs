@@ -3,8 +3,9 @@ use debugid::DebugId;
 
 use framehop::{ExplicitModuleSectionInfo, FrameAddress, Module, Unwinder};
 use fxprof_processed_profile::{
-    CategoryColor, CategoryPairHandle, CpuDelta, LibraryHandle, LibraryInfo, Profile,
-    ReferenceTimestamp, SamplingInterval, SymbolTable, ThreadHandle,
+    CategoryColor, CategoryHandle, CategoryPairHandle, CpuDelta, LibraryHandle, LibraryInfo,
+    MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchemaField, MarkerTiming,
+    Profile, ProfilerMarker, ReferenceTimestamp, SamplingInterval, SymbolTable, ThreadHandle,
 };
 use linux_perf_data::linux_perf_event_reader;
 use linux_perf_data::simpleperf_dso_type::{DSO_DEX_FILE, DSO_KERNEL, DSO_KERNEL_MODULE};
@@ -19,6 +20,7 @@ use linux_perf_event_reader::{
 use memmap2::Mmap;
 use object::{CompressedFileRange, CompressionFormat, Object, ObjectSection};
 use samply_symbols::{debug_id_for_object, DebugIdExt};
+use serde_json::json;
 use wholesym::samply_symbols::demangle_any;
 use wholesym::{samply_symbols, CodeId, ElfBuildId};
 
@@ -650,6 +652,8 @@ where
 
     pub fn handle_mmap(&mut self, e: MmapRecord, timestamp: u64) {
         let mut path = e.path.as_slice();
+        self.add_mmap_marker(e.pid, e.tid, &path, timestamp);
+
         if self.check_jitdump_or_marker_file(&path, e.pid, e.tid) {
             // Not a DSO.
             return;
@@ -696,6 +700,8 @@ where
 
     pub fn handle_mmap2(&mut self, e: Mmap2Record, timestamp: u64) {
         let path = e.path.as_slice();
+        self.add_mmap_marker(e.pid, e.tid, &path, timestamp);
+
         if self.check_jitdump_or_marker_file(&path, e.pid, e.tid) {
             // Not a DSO.
             return;
@@ -1546,6 +1552,31 @@ where
             text_segment: None,
         }
     }
+
+    fn add_mmap_marker(&mut self, pid: i32, tid: i32, path_slice: &[u8], timestamp: u64) {
+        if self.current_sample_time == self.timestamp_converter.reference_raw {
+            // Ignore mmap events before the first sample. These events often
+            // have timestamps long in the past.
+            return;
+        }
+        if path_slice.is_empty() {
+            // Ignore mmaps that are not from files.
+            return;
+        }
+        let process = self.processes.get_by_pid(pid, &mut self.profile);
+        let thread = process.threads.get_thread_by_tid(tid, &mut self.profile);
+        let timestamp = timestamp.max(self.timestamp_converter.reference_raw);
+        let timestamp = self.timestamp_converter.convert_time(timestamp);
+        let path = String::from_utf8_lossy(path_slice).into_owned();
+        let marker = MmapMarker(path);
+        self.profile.add_marker(
+            thread.profile_thread,
+            CategoryHandle::OTHER,
+            "mmap",
+            marker,
+            MarkerTiming::Instant(timestamp),
+        );
+    }
 }
 
 // #[test]
@@ -1685,4 +1716,33 @@ fn path_from_unix_bytes(path_slice: &[u8]) -> Option<&Path> {
 #[cfg(not(unix))]
 fn path_from_unix_bytes(path_slice: &[u8]) -> Option<&Path> {
     Some(Path::new(std::str::from_utf8(path_slice).ok()?))
+}
+
+struct MmapMarker(String);
+
+impl ProfilerMarker for MmapMarker {
+    const MARKER_TYPE_NAME: &'static str = "mmap";
+
+    fn json_marker_data(&self) -> serde_json::Value {
+        json!({
+            "type": Self::MARKER_TYPE_NAME,
+            "name": self.0
+        })
+    }
+
+    fn schema() -> fxprof_processed_profile::MarkerSchema {
+        fxprof_processed_profile::MarkerSchema {
+            type_name: Self::MARKER_TYPE_NAME,
+            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
+            chart_label: Some("{marker.data.name}"),
+            tooltip_label: Some("{marker.name} - {marker.data.name}"),
+            table_label: Some("{marker.name} - {marker.data.name}"),
+            fields: vec![MarkerSchemaField::Dynamic(MarkerDynamicField {
+                key: "name",
+                label: "Details",
+                format: MarkerFieldFormat::String,
+                searchable: true,
+            })],
+        }
+    }
 }
