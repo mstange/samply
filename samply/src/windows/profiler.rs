@@ -136,7 +136,7 @@ pub fn start_recording(
 
     let output_file = recording_props.output_file.clone();
 
-    etw_gecko::profile_pid_from_etl_file(&mut context, &Path::new(&etl_file));
+    etw_gecko::profile_pid_from_etl_file(&mut context, Path::new(&etl_file));
 
     // delete etl_file
     if !existing_etl {

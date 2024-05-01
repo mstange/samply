@@ -19,8 +19,6 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
-use runas;
-
 /// An on- or off-cpu-sample for which the user stack is not known yet.
 /// Consumed once the user stack arrives.
 #[derive(Debug, Clone)]
@@ -113,7 +111,7 @@ fn strip_thread_numbers(name: &str) -> &str {
             return prefix.trim();
         }
     }
-    return name;
+    name
 }
 
 fn expand_full_filename_with_cwd(filename: &Path) -> PathBuf {
@@ -410,9 +408,7 @@ impl ProfileContext {
         // so that it can do things like keep global + per-thread in sync
 
         if self.per_thread_memory {
-            let Some(process) = self.get_process_for_thread(tid) else {
-                return None;
-            };
+            let process = self.get_process_for_thread(tid)?;
             let process_handle = process.handle;
             let mut thread = self.get_thread_mut(tid).unwrap();
             let memory_usage = thread.memory_usage.get_or_insert_with(|| {
@@ -429,9 +425,7 @@ impl ProfileContext {
             });
             Some(memory_usage.counter)
         } else {
-            let Some(mut process) = self.get_process_for_thread_mut(tid) else {
-                return None;
-            };
+            let mut process = self.get_process_for_thread_mut(tid)?;
             let process_handle = process.handle;
             let memory_usage = process.memory_usage.get_or_insert_with(|| {
                 let counter = self.profile.borrow_mut().add_counter(
@@ -449,6 +443,7 @@ impl ProfileContext {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn add_sample(
         &self,
         pid: u32,
@@ -529,7 +524,7 @@ impl ProfileContext {
                 .as_ref()
                 .and_then(|pi| pi.pdb_path.clone())
                 .unwrap_or_else(|| path.to_string()),
-            debug_id: debug_id.unwrap_or_else(|| debugid::DebugId::nil()),
+            debug_id: debug_id.unwrap_or_else(debugid::DebugId::nil),
             code_id: pe_info.as_ref().map(|pi| pi.code_id.to_string()),
             arch,
             symbol_table: None,
@@ -697,13 +692,11 @@ impl ProfileContext {
 
         eprintln!("xperf session stopped.");
 
-        std::fs::remove_file(&unmerged_etl).expect(
-            format!(
+        std::fs::remove_file(&unmerged_etl).unwrap_or_else(|_|
+            panic!(
                 "Failed to delete unmerged ETL file {:?}",
                 unmerged_etl.to_str().unwrap()
-            )
-            .as_str(),
-        );
+            ));
 
         self.etl_file = Some(merged_etl);
         self.xperf_running = false;

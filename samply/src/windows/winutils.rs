@@ -74,7 +74,7 @@ pub fn enable_debug_privilege() {
         if AdjustTokenPrivileges(
             h_token,
             FALSE,
-            Some(&mut tp),
+            Some(&tp),
             std::mem::size_of::<TOKEN_PRIVILEGES>() as u32,
             None,
             None,
@@ -174,7 +174,7 @@ pub fn iter_kernel_drivers() -> impl Iterator<Item = (String, u64, u64)> {
 
         let mut name_buffer = vec![0u16; MAX_PATH as usize];
         let mut i = 0;
-        return std::iter::from_fn(move || {
+        std::iter::from_fn(move || {
             while i < count {
                 let driver_addr = drivers[i];
                 i += 1;
@@ -201,6 +201,6 @@ pub fn iter_kernel_drivers() -> impl Iterator<Item = (String, u64, u64)> {
             }
 
             None
-        });
+        })
     }
 }

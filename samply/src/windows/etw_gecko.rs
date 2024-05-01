@@ -97,7 +97,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
     let mut event_timestamps_are_qpc = false;
 
     let mut categories = HashMap::<String, CategoryHandle>::new();
-    let result = open_trace(&etl_file, |e| {
+    let result = open_trace(etl_file, |e| {
         event_count += 1;
         let s = schema_locator.event_schema(e);
 
@@ -282,7 +282,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                                 let mut thread = context.get_thread_mut(thread_id).unwrap();
                                 context_switch_handler.consume_cpu_delta(&mut thread.context_switch_data)
                             };
-                            let cpu_delta = CpuDelta::from_nanos(cpu_delta_raw as u64 * timestamp_converter.raw_to_ns_factor);
+                            let cpu_delta = CpuDelta::from_nanos(cpu_delta_raw * timestamp_converter.raw_to_ns_factor);
 
                             // Add a sample at the beginning of the paused range.
                             // This "first sample" will carry any leftover accumulated running time ("cpu delta").
@@ -290,7 +290,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
 
                             if sample_count > 1 {
                                 // Emit a "rest sample" with a CPU delta of zero covering the rest of the paused range.
-                                let weight = i32::try_from(sample_count - 1).unwrap_or(0) * 1;
+                                let weight = i32::try_from(sample_count - 1).unwrap_or(0);
                                 context.add_sample(process_id, thread_id, timestamp_converter.convert_time(end_timestamp), end_timestamp, CpuDelta::ZERO, weight, stack.clone());
                             }
                         }
@@ -326,7 +326,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
 
                     let off_cpu_sample_group = context_switch_handler.handle_on_cpu_sample(timestamp_raw, &mut thread.context_switch_data);
                     let delta = context_switch_handler.consume_cpu_delta(&mut thread.context_switch_data);
-                    let cpu_delta = CpuDelta::from_nanos(delta as u64 * timestamp_converter.raw_to_ns_factor);
+                    let cpu_delta = CpuDelta::from_nanos(delta * timestamp_converter.raw_to_ns_factor);
                     thread.pending_stacks.push_back(PendingStack { timestamp: timestamp_raw, kernel_stack: None, off_cpu_sample_group, on_cpu_sample_cpu_delta: Some(cpu_delta) });
                 }
                 "MSNT_SystemTrace/PageFault/DemandZeroFault" => {
@@ -435,12 +435,10 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                         } else {
                             kernel_pending_libraries.insert(image_base, info);
                         }
+                    } else if let Some(mut process) = context.get_process_mut(process_id) {
+                        process.pending_libraries.insert(image_base, info);
                     } else {
-                        if let Some(mut process) = context.get_process_mut(process_id) {
-                            process.pending_libraries.insert(image_base, info);
-                        } else {
-                            eprintln!("No process for pid {process_id}");
-                        }
+                        eprintln!("No process for pid {process_id}");
                     }
 
                 }
@@ -473,12 +471,12 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                         info.path = path;
                         let lib_handle = context.profile.borrow_mut().add_lib(info);
                         if process_id == 0 || image_base >= context.kernel_min {
-                            context.profile.borrow_mut().add_kernel_lib_mapping(lib_handle, image_base, image_base + image_size as u64, 0);
+                            context.profile.borrow_mut().add_kernel_lib_mapping(lib_handle, image_base, image_base + image_size, 0);
                         } else {
                             let mut process = context.get_process_mut(process_id).unwrap();
                             process.regular_lib_mapping_ops.push(timestamp_raw, LibMappingOp::Add(LibMappingAdd {
                                 start_avma: image_base,
-                                end_avma: image_base + image_size as u64,
+                                end_avma: image_base + image_size,
                                 relative_address_at_start: 0,
                                 info: LibMappingInfo::new_lib(lib_handle),
                             }));
@@ -581,7 +579,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                         );
                     }
 
-                    let (category, js_frame) = jit_category_manager.classify_jit_symbol(&method_name, &mut *context.profile.borrow_mut());
+                    let (category, js_frame) = jit_category_manager.classify_jit_symbol(&method_name, &mut context.profile.borrow_mut());
                     let info = LibMappingInfo::new_jit_function(process_jit_info.lib_handle, category, js_frame);
                     process_jit_info.jit_mapping_ops.push(e.EventHeader.TimeStamp as u64, LibMappingOp::Add(LibMappingAdd {
                         start_avma: start_address,
@@ -606,7 +604,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
 
                 }
                 marker_name if marker_name.starts_with("Mozilla.FirefoxTraceLogger/") =>  {
-                    let Some(marker_name) = marker_name.strip_prefix("Mozilla.FirefoxTraceLogger/").and_then(|s| s.strip_suffix("/")) else { return };
+                    let Some(marker_name) = marker_name.strip_prefix("Mozilla.FirefoxTraceLogger/").and_then(|s| s.strip_suffix('/')) else { return };
 
                     let thread_id = e.EventHeader.ThreadId;
                     let Some(thread) = context.get_thread(thread_id) else { return };
@@ -657,7 +655,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                     }
                 }
                 marker_name if marker_name.starts_with("Google.Chrome/") => {
-                    let Some(marker_name) = marker_name.strip_prefix("Google.Chrome/").and_then(|s| s.strip_suffix("/")) else { return };
+                    let Some(marker_name) = marker_name.strip_prefix("Google.Chrome/").and_then(|s| s.strip_suffix('/')) else { return };
                     // a bitfield of keywords
                     bitflags! {
                         #[derive(PartialEq, Eq)]
@@ -749,21 +747,21 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                         }
                     };
 
-                    context.profile.borrow_mut().add_marker(thread.handle, category, s.name().split_once("/").unwrap().1, SimpleMarker(text), timing)
+                    context.profile.borrow_mut().add_marker(thread.handle, category, s.name().split_once('/').unwrap().1, SimpleMarker(text), timing)
                     //println!("unhandled {}", s.name())
                 }
             }
         }
     });
 
-    if !result.is_ok() {
+    if result.is_err() {
         dbg!(&result);
         std::process::exit(1);
     }
 
     let marker_spans = match marker_file {
         Some(marker_file) => get_markers(
-            &Path::new(&marker_file),
+            Path::new(&marker_file),
             None, // extra_dir?
             timestamp_converter,
         )
@@ -782,7 +780,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
     for (process_id, process) in context.processes.iter() {
         let process = process.borrow_mut();
         ///let ProcessState { unresolved_samples, regular_lib_mapping_ops, main_thread_handle, .. } = process;
-        let jitdump_lib_mapping_op_queues = match jscript_symbols.remove(&process_id) {
+        let jitdump_lib_mapping_op_queues = match jscript_symbols.remove(process_id) {
             Some(jit_info) => {
                 context.profile.borrow_mut().set_lib_symbol_table(
                     jit_info.lib_handle,
@@ -812,11 +810,11 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
         );
         //main_thread_handle.unwrap_or_else(|| panic!("process no main thread {:?}", process_id)));
         process_sample_data.flush_samples_to_profile(
-            &mut *context.profile.borrow_mut(),
+            &mut context.profile.borrow_mut(),
             user_category,
             kernel_category,
             &mut stack_frame_scratch_buf,
-            &mut context.unresolved_stacks.borrow_mut(),
+            &context.unresolved_stacks.borrow(),
             &[],
         )
     }
