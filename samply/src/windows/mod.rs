@@ -692,11 +692,12 @@ impl ProfileContext {
 
         eprintln!("xperf session stopped.");
 
-        std::fs::remove_file(&unmerged_etl).unwrap_or_else(|_|
+        std::fs::remove_file(&unmerged_etl).unwrap_or_else(|_| {
             panic!(
                 "Failed to delete unmerged ETL file {:?}",
                 unmerged_etl.to_str().unwrap()
-            ));
+            )
+        });
 
         self.etl_file = Some(merged_etl);
         self.xperf_running = false;
