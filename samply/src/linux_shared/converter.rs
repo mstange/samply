@@ -244,6 +244,10 @@ where
     ) {
         let pid = e.pid.expect("Can't handle samples without pids");
         let tid = e.tid.expect("Can't handle samples without tids");
+        if tid == 0 {
+            // Ignore samples in the idle thread.
+            return;
+        }
         let timestamp = e
             .timestamp
             .expect("Can't handle samples without timestamps");
@@ -780,6 +784,10 @@ where
     pub fn handle_context_switch(&mut self, e: ContextSwitchRecord, common: CommonData) {
         let pid = common.pid.expect("Can't handle samples without pids");
         let tid = common.tid.expect("Can't handle samples without tids");
+        if tid == 0 {
+            // Thread 0 is the idle thread. Ignore switch-in and switch-outs.
+            return;
+        }
         let timestamp = common
             .timestamp
             .expect("Can't handle context switch without time");
