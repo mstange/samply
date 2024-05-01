@@ -232,10 +232,46 @@ impl ProfilerMarker for OtherEventMarker {
 }
 
 #[derive(Debug, Clone)]
+pub struct UserTimingMarker(pub String);
+
+impl ProfilerMarker for UserTimingMarker {
+    const MARKER_TYPE_NAME: &'static str = "UserTiming";
+
+    fn json_marker_data(&self) -> serde_json::Value {
+        json!({
+            "type": Self::MARKER_TYPE_NAME,
+            "name": self.0,
+        })
+    }
+
+    fn schema() -> MarkerSchema {
+        MarkerSchema {
+            type_name: Self::MARKER_TYPE_NAME,
+            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
+            chart_label: Some("{marker.data.name}"),
+            tooltip_label: Some("{marker.data.name}"),
+            table_label: Some("{marker.data.name}"),
+            fields: vec![
+                MarkerSchemaField::Dynamic(MarkerDynamicField {
+                    key: "name",
+                    label: "Name",
+                    format: MarkerFieldFormat::String,
+                    searchable: true,
+                }),
+                MarkerSchemaField::Static(MarkerStaticField {
+                    label: "Description",
+                    value: "Emitted for performance.mark and performance.measure.",
+                }),
+            ],
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct SimpleMarker(pub String);
 
 impl ProfilerMarker for SimpleMarker {
-    const MARKER_TYPE_NAME: &'static str = "UserTiming";
+    const MARKER_TYPE_NAME: &'static str = "SimpleMarker";
 
     fn json_marker_data(&self) -> serde_json::Value {
         json!({

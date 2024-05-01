@@ -2,8 +2,7 @@ use fxprof_processed_profile::{Frame, FrameInfo, Profile, StringHandle, ThreadHa
 
 use std::fmt::Debug;
 
-use super::context_switch::ThreadContextSwitchData;
-
+use crate::shared::context_switch::ThreadContextSwitchData;
 use crate::shared::unresolved_samples::UnresolvedStackHandle;
 
 #[derive(Debug)]

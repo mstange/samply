@@ -28,7 +28,6 @@ use std::sync::Arc;
 use std::{ops::Range, path::Path};
 
 use super::avma_range::AvmaRange;
-use super::context_switch::{ContextSwitchHandler, OffCpuSampleGroup};
 use super::convert_regs::ConvertRegs;
 use super::event_interpretation::{EventInterpretation, OffCpuIndicator};
 use super::injected_jit_object::{correct_bad_perf_jit_so_file, jit_function_name};
@@ -41,6 +40,7 @@ use super::rss_stat::{RssStat, MM_ANONPAGES, MM_FILEPAGES, MM_SHMEMPAGES, MM_SWA
 use super::svma_file_range::compute_vma_bias;
 use super::vdso::VdsoObject;
 
+use crate::shared::context_switch::{ContextSwitchHandler, OffCpuSampleGroup};
 use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::lib_mappings::{AndroidArtInfo, LibMappingInfo};
 use crate::shared::process_sample_data::RssStatMember;

@@ -4,6 +4,9 @@ mod mac;
 #[cfg(any(target_os = "android", target_os = "linux"))]
 mod linux;
 
+#[cfg(target_os = "windows")]
+mod windows;
+
 mod import;
 mod linux_shared;
 mod profile_json_preparse;
@@ -28,6 +31,8 @@ pub use mac::{kernel_error, thread_act, thread_info};
 use linux::profiler;
 #[cfg(target_os = "macos")]
 use mac::profiler;
+#[cfg(target_os = "windows")]
+use windows::profiler;
 
 use server::{start_server_main, PortSelection, ServerProps};
 
@@ -63,7 +68,12 @@ struct Opt {
 
 #[derive(Debug, Subcommand)]
 enum Action {
-    #[cfg(any(target_os = "android", target_os = "macos", target_os = "linux"))]
+    #[cfg(any(
+        target_os = "android",
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "windows"
+    ))]
     /// Record a profile and display it.
     Record(RecordArgs),
 
@@ -149,6 +159,14 @@ struct RecordArgs {
     /// Process ID of existing process to attach to (Linux only).
     #[arg(short, long)]
     pid: Option<u32>,
+
+    /// Names of processes to include from either a pre-recorded profile or live recording
+    #[arg(long)]
+    names: Option<Vec<String>>,
+
+    /// Process IDs to include from a pre-recorded profile
+    #[arg(long)]
+    pids: Option<Vec<u32>>,
 }
 
 #[derive(Debug, Args)]
@@ -188,7 +206,7 @@ pub struct ProfileCreationArgs {
     #[arg(long)]
     unlink_aux_files: bool,
 
-    /// Create a separate thread for each CPU. Not supported         on macOS
+    /// Create a separate thread for each CPU. Not supported on macOS
     #[arg(long)]
     per_cpu_threads: bool,
 }
@@ -246,7 +264,12 @@ fn main() {
             }
         }
 
-        #[cfg(any(target_os = "android", target_os = "macos", target_os = "linux"))]
+        #[cfg(any(
+            target_os = "android",
+            target_os = "macos",
+            target_os = "linux",
+            target_os = "windows"
+        ))]
         Action::Record(record_args) => {
             let process_launch_props = record_args.process_launch_props();
             let recording_props = record_args.recording_props();
@@ -306,6 +329,8 @@ impl ImportArgs {
             fold_recursive_prefix: self.profile_creation_args.fold_recursive_prefix,
             unlink_aux_files: self.profile_creation_args.unlink_aux_files,
             create_per_cpu_threads: self.profile_creation_args.per_cpu_threads,
+            include_process_names: None,
+            include_process_ids: None,
         }
     }
 }
@@ -386,6 +411,8 @@ impl RecordArgs {
             fold_recursive_prefix: self.profile_creation_args.fold_recursive_prefix,
             unlink_aux_files: self.profile_creation_args.unlink_aux_files,
             create_per_cpu_threads: self.profile_creation_args.per_cpu_threads,
+            include_process_names: self.names.clone(),
+            include_process_ids: self.pids.clone(),
         }
     }
 }
