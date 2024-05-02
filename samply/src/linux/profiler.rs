@@ -5,6 +5,7 @@ use linux_perf_data::linux_perf_event_reader::{
     CpuMode, Endianness, Mmap2FileId, Mmap2InodeAndVersion, Mmap2Record, RawData,
 };
 use nix::sys::wait::WaitStatus;
+use tokio::sync::oneshot;
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -13,8 +14,6 @@ use std::ops::Deref;
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::ExitStatus;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, SystemTime};
 
@@ -27,6 +26,7 @@ use crate::linux_shared::{
     ConvertRegs, Converter, EventInterpretation, MmapRangeOrVec, OffCpuIndicator,
 };
 use crate::server::{start_server_main, ServerProps};
+use crate::shared::ctrl_c::CtrlC;
 use crate::shared::recording_props::{ProcessLaunchProps, ProfileCreationProps, RecordingProps};
 
 #[cfg(target_arch = "x86_64")]
@@ -51,16 +51,10 @@ pub fn start_recording(
         iteration_count,
     } = process_launch_props;
 
-    // Ignore SIGINT in our process while the child process is running. The
-    // signal will still reach the child process, because Ctrl+C sends the
-    // SIGINT signal to all processes in the foreground process group.
-    let should_terminate_on_ctrl_c = Arc::new(AtomicBool::new(false));
-    #[cfg(unix)]
-    signal_hook::flag::register_conditional_default(
-        signal_hook::consts::SIGINT,
-        should_terminate_on_ctrl_c.clone(),
-    )
-    .expect("cannot register signal handler");
+    // Ignore Ctrl+C while the subcommand is running. The signal still reaches the process
+    // under observation while we continue to record it. (ctrl+c will send the SIGINT signal
+    // to all processes in the foreground process group).
+    let mut ctrl_c_receiver = CtrlC::observe_oneshot();
 
     // Start a new process for the launched command and get its pid.
     // The command will not start running until we tell it to.
@@ -96,12 +90,12 @@ pub fn start_recording(
         // Tell the main thread to tell the child process to begin executing.
         profile_another_pid_reply_sender.send(true).unwrap();
 
-        // Create a stop flag which always stays false. We won't stop profiling until the
+        // Create a stop receiver which is never notified. We won't stop profiling until the
         // child process is done.
         // If Ctrl+C is pressed, it will reach the child process, and the child process
         // will act on it and maybe terminate. If it does, profiling stops too because
         // the main thread's wait() call below will exit.
-        let stop_flag = Arc::new(AtomicBool::new(false));
+        let (_stop_sender, stop_receiver) = oneshot::channel();
 
         // Start profiling the process.
         run_profiler(
@@ -111,7 +105,7 @@ pub fn start_recording(
             time_limit,
             profile_another_pid_request_receiver,
             profile_another_pid_reply_sender,
-            stop_flag,
+            stop_receiver,
         );
     });
 
@@ -200,9 +194,8 @@ pub fn start_recording(
         .send(SamplerRequest::StopProfilingOncePerfEventsExhausted)
         .unwrap();
 
-    // The child has quit.
-    // From now on, we want to terminate if the user presses Ctrl+C.
-    should_terminate_on_ctrl_c.store(true, std::sync::atomic::Ordering::SeqCst);
+    // The launched subprocess is done. From now on, we want to terminate if the user presses Ctrl+C.
+    ctrl_c_receiver.close();
 
     // Now wait for the observer thread to quit. It will keep running until all
     // perf events are closed, which happens if all processes which the events
@@ -236,14 +229,7 @@ pub fn start_profiling_pid(
     server_props: Option<ServerProps>,
 ) {
     // When the first Ctrl+C is received, stop recording.
-    // The server launches after the recording finishes. On the second Ctrl+C, terminate the server.
-    let stop = Arc::new(AtomicBool::new(false));
-    #[cfg(unix)]
-    signal_hook::flag::register_conditional_default(signal_hook::consts::SIGINT, stop.clone())
-        .expect("cannot register signal handler");
-    #[cfg(unix)]
-    signal_hook::flag::register(signal_hook::consts::SIGINT, stop.clone())
-        .expect("cannot register signal handler");
+    let ctrl_c_receiver = CtrlC::observe_oneshot();
 
     // Create a channel for the observer thread to notify the main thread once
     // profiling has been initialized.
@@ -254,7 +240,6 @@ pub fn start_profiling_pid(
 
     let output_file = recording_props.output_file.clone();
     let observer_thread = thread::spawn({
-        let stop = stop.clone();
         move || {
             let interval = recording_props.interval;
             let time_limit = recording_props.time_limit;
@@ -277,7 +262,7 @@ pub fn start_profiling_pid(
                 time_limit,
                 profile_another_pid_request_receiver,
                 profile_another_pid_reply_sender,
-                stop,
+                ctrl_c_receiver,
             )
         }
     });
@@ -301,15 +286,14 @@ pub fn start_profiling_pid(
         .unwrap();
 
     // Now wait for the observer thread to quit. It will keep running until the
-    // stop flag has been set to true by Ctrl+C, or until all perf events are closed,
+    // CtrlC receiver has been notified, or until all perf events are closed,
     // which happens if all processes which the events are attached to have quit.
     observer_thread
         .join()
         .expect("couldn't join observer thread");
 
-    // From now on we want Ctrl+C to always quit our process. The stop flag might still be
-    // false if the observer thread finished because the observed processes terminated.
-    stop.store(true, Ordering::SeqCst);
+    // From now on, pressing Ctrl+C will kill our process, because the observer will have
+    // dropped its CtrlC receiver by now.
 
     if let Some(server_props) = server_props {
         let libinfo_map = crate::profile_json_preparse::parse_libinfo_map_from_profile_file(
@@ -535,7 +519,7 @@ fn run_profiler(
     _time_limit: Option<Duration>,
     more_processes_request_receiver: Receiver<SamplerRequest>,
     more_processes_reply_sender: Sender<bool>,
-    stop: Arc<AtomicBool>,
+    mut stop_receiver: oneshot::Receiver<()>,
 ) {
     // eprintln!("Running...");
 
@@ -544,7 +528,7 @@ fn run_profiler(
     let mut total_lost_events = 0;
     let mut last_timestamp = 0;
     loop {
-        if stop.load(Ordering::SeqCst) {
+        if stop_receiver.try_recv().is_ok() {
             break;
         }
 
