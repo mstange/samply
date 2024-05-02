@@ -50,13 +50,6 @@ use super::task_profiler::UnwindSectionBytes;
 
 pub const TASK_DYLD_INFO_COUNT: mach_msg_type_number_t = 5;
 
-#[derive(Debug, Clone)]
-pub struct ThreadInfo {
-    pub tid: u64,
-    pub name: String,
-    pub backtrace: Option<Vec<u64>>,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DyldInfo {
     pub is_executable: bool,

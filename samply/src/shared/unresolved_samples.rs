@@ -214,20 +214,6 @@ pub struct OtherEventMarkerData {
     pub attr_index: usize,
 }
 
-#[derive(Debug, Clone)]
-pub struct SchedSwitchMarkerData {
-    pub pid: i32,
-    pub tid: i32,
-}
-
-#[derive(Debug, Clone)]
-pub struct UnresolvedRssStatMarker {
-    pub thread_handle: ThreadHandle,
-    pub timestamp: Timestamp,
-    pub timestamp_mono: u64,
-    pub stack: UnresolvedStackHandle,
-}
-
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct UnresolvedStackHandle(u32);
 

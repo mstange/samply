@@ -12,6 +12,8 @@ use linux_perf_event_reader::Regs;
 pub trait ConvertRegs {
     type UnwindRegs;
     fn convert_regs(regs: &Regs) -> (u64, u64, Self::UnwindRegs);
+
+    #[allow(unused)]
     fn regs_mask() -> u64;
 }
 
