@@ -254,7 +254,7 @@ impl InstructionDecoding for yaxpeax_x86::amd64::Arch {
                         + inst.len().to_const() as i64
                         + rel as i64;
                     intel_insn = format!("{} 0x{:x}", inst.opcode(), dest);
-                    c_insn = intel_insn.clone();
+                    c_insn.clone_from(&intel_insn);
                 }
                 Operand::ImmediateI32(rel) => {
                     let dest = rel_address as i64
@@ -262,7 +262,7 @@ impl InstructionDecoding for yaxpeax_x86::amd64::Arch {
                         + inst.len().to_const() as i64
                         + rel as i64;
                     intel_insn = format!("{} 0x{:x}", inst.opcode(), dest);
-                    c_insn = intel_insn.clone();
+                    c_insn.clone_from(&intel_insn);
                 }
                 _ => {}
             };

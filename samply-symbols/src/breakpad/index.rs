@@ -738,7 +738,7 @@ impl BreakpadIndexParserInner {
                     debug_name.to_string(),
                 ));
             }
-            self.module_info_bytes = input.to_owned();
+            input.clone_into(&mut self.module_info_bytes);
             return;
         }
         let line_length = input.len() as u32;
