@@ -21,6 +21,8 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 
+use crate::shared::ctrl_c::CtrlC;
+
 #[derive(Clone, Debug)]
 pub struct ServerProps {
     pub port_selection: PortSelection,
@@ -146,7 +148,7 @@ async fn start_server(
         }
     }
 
-    // Run this server for... forever!
+    // Run this server until it stops.
     if let Err(e) = server.await {
         eprintln!("server error: {e}");
     }
@@ -232,9 +234,16 @@ async fn run_server(
     template_values: Arc<HashMap<&'static str, String>>,
     path_prefix: String,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let mut ctrl_c_receiver = CtrlC::observe_oneshot();
+
     // We start a loop to continuously accept incoming connections
     loop {
-        let (stream, _) = listener.accept().await?;
+        let (stream, _) = tokio::select! {
+            stream_and_addr_res = listener.accept() => stream_and_addr_res?,
+            ctrl_c_result = &mut ctrl_c_receiver => {
+                return Ok(ctrl_c_result?);
+            }
+        };
 
         // Use an adapter to access something implementing `tokio::io` traits as if they implement
         // `hyper::rt` IO traits.

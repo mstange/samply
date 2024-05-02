@@ -6,8 +6,6 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufWriter;
 use std::process::ExitStatus;
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
@@ -16,6 +14,7 @@ use super::process_launcher::{MachError, ReceivedStuff, TaskAccepter};
 use super::sampler::{JitdumpOrMarkerPath, Sampler, TaskInit};
 use super::time::get_monotonic_timestamp;
 use crate::server::{start_server_main, ServerProps};
+use crate::shared::ctrl_c::CtrlC;
 use crate::shared::recording_props::{ProcessLaunchProps, ProfileCreationProps, RecordingProps};
 
 pub fn start_profiling_pid(
@@ -56,16 +55,10 @@ pub fn start_recording(
         sampler.run()
     });
 
-    // Ignore SIGINT while the subcommand is running. The signal still reaches the process
+    // Ignore Ctrl+C while the subcommand is running. The signal still reaches the process
     // under observation while we continue to record it. (ctrl+c will send the SIGINT signal
     // to all processes in the foreground process group).
-    let should_terminate_on_ctrl_c = Arc::new(AtomicBool::new(false));
-    #[cfg(unix)]
-    signal_hook::flag::register_conditional_default(
-        signal_hook::consts::SIGINT,
-        should_terminate_on_ctrl_c.clone(),
-    )
-    .expect("cannot register signal handler");
+    let mut ctrl_c_receiver = CtrlC::observe_oneshot();
 
     let (mut task_accepter, task_launcher) = TaskAccepter::new(&command_name, &args, &env_vars)?;
 
@@ -161,7 +154,7 @@ pub fn start_recording(
     }
 
     // The launched subprocess is done. From now on, we want to terminate if the user presses Ctrl+C.
-    should_terminate_on_ctrl_c.store(true, std::sync::atomic::Ordering::SeqCst);
+    ctrl_c_receiver.close();
 
     accepter_sender
         .send(())
