@@ -1,13 +1,17 @@
 name: Rust
 
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - main
+  pull_request:
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   format:
-    name: Format
+    name: format
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -17,7 +21,7 @@ jobs:
         run: cargo fmt --all --check --verbose
 
   build:
-    name: Build & Test
+    name: build & test
     strategy:
       matrix:
         target:
@@ -57,7 +61,7 @@ jobs:
         run: cargo clippy --workspace --verbose --target=${{ matrix.target }} -- -Dwarnings
 
   cross-compile:
-    name: With Cross
+    name: cross
     strategy:
       matrix:
         target:
@@ -86,7 +90,7 @@ jobs:
         run: cross clippy --workspace --verbose --target=${{ matrix.target }} -- -Dwarnings
 
   aarch64-win:
-    name: Aarch64 Windows
+    name: windows aarch64
     strategy:
       matrix:
         target:
