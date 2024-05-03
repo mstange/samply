@@ -35,6 +35,7 @@ pub fn is_elevated() -> bool {
     }
 }
 
+#[allow(unused)]
 pub fn enable_debug_privilege() {
     if !is_elevated() {
         // TODO elevate with "runas" verb to pop up UAC dialog.
