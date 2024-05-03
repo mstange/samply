@@ -149,24 +149,20 @@ struct RecordArgs {
 
     /// Profile the execution of this command.
     #[arg(
-        required_unless_present = "pid",
-        conflicts_with = "pid",
+        required_unless_present_any = ["pid", "all"],
+        conflicts_with_all = ["pid", "all"],
         allow_hyphen_values = true,
         trailing_var_arg = true
     )]
     command: Vec<std::ffi::OsString>,
 
     /// Process ID of existing process to attach to (Linux only).
-    #[arg(short, long)]
+    #[arg(short, long, conflicts_with = "all")]
     pid: Option<u32>,
 
-    /// Names of processes to include from either a pre-recorded profile or live recording
-    #[arg(long)]
-    names: Option<Vec<String>>,
-
-    /// Process IDs to include from a pre-recorded profile
-    #[arg(long)]
-    pids: Option<Vec<u32>>,
+    /// Profile entire system (all processes). Not supported on macOS.
+    #[arg(short, long, conflicts_with = "all")]
+    all: Option<u32>,
 }
 
 #[derive(Debug, Args)]
@@ -209,6 +205,14 @@ pub struct ProfileCreationArgs {
     /// Create a separate thread for each CPU. Not supported on macOS
     #[arg(long)]
     per_cpu_threads: bool,
+
+    /// Only include processes with these names
+    #[arg(long)]
+    process_names: Option<Vec<String>>,
+
+    /// Only include processes with these PIDs
+    #[arg(long)]
+    pids: Option<Vec<u32>>,
 }
 
 fn main() {
@@ -411,8 +415,8 @@ impl RecordArgs {
             fold_recursive_prefix: self.profile_creation_args.fold_recursive_prefix,
             unlink_aux_files: self.profile_creation_args.unlink_aux_files,
             create_per_cpu_threads: self.profile_creation_args.per_cpu_threads,
-            include_process_names: self.names.clone(),
-            include_process_ids: self.pids.clone(),
+            include_process_names: self.profile_creation_args.process_names.clone(),
+            include_process_ids: self.profile_creation_args.pids.clone(),
         }
     }
 }
@@ -456,6 +460,55 @@ fn split_at_first_equals(s: &OsStr) -> Option<(&OsStr, &OsStr)> {
 }
 
 fn convert_file_to_profile(
+    filename: &Path,
+    input_file: &File,
+    output_filename: &Path,
+    profile_creation_props: ProfileCreationProps,
+) {
+    if filename.extension() == Some(OsStr::new("etl")) {
+        convert_etl_file_to_profile(
+            filename,
+            input_file,
+            output_filename,
+            profile_creation_props,
+        );
+        return;
+    }
+
+    convert_perf_data_file_to_profile(
+        filename,
+        input_file,
+        output_filename,
+        profile_creation_props,
+    );
+}
+
+#[cfg(target_os = "windows")]
+fn convert_etl_file_to_profile(
+    filename: &Path,
+    _input_file: &File,
+    output_filename: &Path,
+    profile_creation_props: ProfileCreationProps,
+) {
+    windows::import::convert_etl_file_to_profile(filename, output_filename, profile_creation_props);
+}
+
+#[cfg(not(target_os = "windows"))]
+fn convert_etl_file_to_profile(
+    filename: &Path,
+    _input_file: &File,
+    _output_filename: &Path,
+    _profile_creation_props: ProfileCreationProps,
+) {
+    eprintln!(
+        "Error: Could not import ETW trace from file {}",
+        filename.to_string_lossy()
+    );
+    eprintln!("Importing ETW traces is only supported on Windows.");
+    std::process::exit(1);
+}
+
+fn convert_perf_data_file_to_profile(
     filename: &Path,
     input_file: &File,
     output_filename: &Path,
