@@ -20,14 +20,15 @@ use fxprof_processed_profile::{
 use serde_json::{json, to_writer, Value};
 use uuid::Uuid;
 
-use crate::shared::context_switch::{
-    ContextSwitchHandler, OffCpuSampleGroup, ThreadContextSwitchData,
-};
 use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::lib_mappings::LibMappingInfo;
 use crate::shared::lib_mappings::{LibMappingAdd, LibMappingOp, LibMappingOpQueue};
 use crate::shared::process_sample_data::{MarkerSpanOnThread, ProcessSampleData, SimpleMarker};
 use crate::shared::types::{StackFrame, StackMode};
+use crate::{
+    shared::context_switch::{ContextSwitchHandler, OffCpuSampleGroup, ThreadContextSwitchData},
+    windows::profile_context::{PendingStack, ProcessJitInfo},
+};
 
 use crate::shared::{
     jit_function_add_marker::JitFunctionAddMarker, marker_file::get_markers,
@@ -42,9 +43,7 @@ use super::etw_reader::{
     schema::SchemaLocator,
     write_property, GUID,
 };
-use super::*;
-
-use super::ProfileContext;
+use super::profile_context::ProfileContext;
 
 pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) {
     let profile_start_instant = Timestamp::from_nanos_since_reference(0);

@@ -16,8 +16,7 @@ use crate::shared::recording_props::{ProcessLaunchProps, ProfileCreationProps, R
 
 use fxprof_processed_profile::{Profile, ReferenceTimestamp, SamplingInterval};
 
-use super::*;
-
+use crate::windows::profile_context::ProfileContext;
 use crate::windows::{etw_gecko, winutils};
 
 // Hello intrepid explorer! You may be in this code because you'd like to extend something,
