@@ -58,7 +58,6 @@ impl<'a> Iterator for JobIterator<'a> {
 
 #[cfg(test)]
 mod test {
-
     use serde_json::Result;
 
     use super::super::request_json::Request;
