@@ -32,7 +32,6 @@ pub struct Request {
 
 #[cfg(test)]
 mod test {
-
     use serde_json::Result;
 
     use super::Request;
