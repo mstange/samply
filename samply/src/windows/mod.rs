@@ -2,6 +2,7 @@
 
 mod etw_gecko;
 mod etw_reader;
+pub mod import;
 pub mod profiler;
 mod winutils;
 
