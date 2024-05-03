@@ -1,34 +1,28 @@
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::convert::TryInto;
-use std::fs::File;
-use std::io::BufWriter;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 use bitflags::bitflags;
 use debugid::DebugId;
 use fxprof_processed_profile::{
-    debugid, CategoryColor, CategoryHandle, CategoryPairHandle, CounterHandle, CpuDelta,
-    FrameFlags, FrameInfo, LibraryHandle, LibraryInfo, MarkerDynamicField, MarkerFieldFormat,
-    MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerTiming, ProcessHandle, Profile,
-    ProfilerMarker, ReferenceTimestamp, SamplingInterval, Symbol, SymbolTable, ThreadHandle,
+    debugid, CategoryColor, CategoryHandle, CategoryPairHandle, CpuDelta, FrameFlags, FrameInfo,
+    LibraryInfo, MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema,
+    MarkerSchemaField, MarkerTiming, ProfilerMarker, SamplingInterval, Symbol, SymbolTable,
     Timestamp,
 };
-use serde_json::{json, to_writer, Value};
+use serde_json::{json, Value};
 use uuid::Uuid;
 
 use super::etw_reader::parser::{Address, Parser, TryParse};
 use super::etw_reader::schema::SchemaLocator;
 use super::etw_reader::{
-    add_custom_schemas, event_properties_to_string, open_trace, print_property, write_property,
-    GUID,
+    add_custom_schemas, event_properties_to_string, open_trace, print_property, GUID,
 };
 use super::profile_context::ProfileContext;
-use crate::shared::context_switch::{
-    ContextSwitchHandler, OffCpuSampleGroup, ThreadContextSwitchData,
-};
+use crate::shared::context_switch::{ContextSwitchHandler, OffCpuSampleGroup};
 use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::jit_function_add_marker::JitFunctionAddMarker;
 use crate::shared::lib_mappings::{LibMappingAdd, LibMappingInfo, LibMappingOp, LibMappingOpQueue};
@@ -773,7 +767,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
     let mut stack_frame_scratch_buf = Vec::new();
     for (process_id, process) in context.processes.iter() {
         let process = process.borrow_mut();
-        ///let ProcessState { unresolved_samples, regular_lib_mapping_ops, main_thread_handle, .. } = process;
+        // let ProcessState { unresolved_samples, regular_lib_mapping_ops, main_thread_handle, .. } = process;
         let jitdump_lib_mapping_op_queues = match jscript_symbols.remove(process_id) {
             Some(jit_info) => {
                 context.profile.borrow_mut().set_lib_symbol_table(

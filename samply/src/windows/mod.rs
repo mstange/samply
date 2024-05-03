@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 mod etw_gecko;
 mod etw_reader;
 pub mod import;
