@@ -140,11 +140,6 @@ pub struct ProfileContext {
     // can be allocated on one thread and freed on another
     per_thread_memory: bool,
 
-    // If process and threads are being squished into one global one, here's the squished handles.
-    // We still allocate a ThreadState/ProcessState per thread
-    pub merge_threads: bool,
-    global_process_handle: Option<ProcessHandle>,
-    global_thread_handle: Option<ThreadHandle>,
     idle_thread_handle: Option<ThreadHandle>,
     other_thread_handle: Option<ThreadHandle>,
 
@@ -183,12 +178,7 @@ pub struct ProfileContext {
 }
 
 impl ProfileContext {
-    const K_GLOBAL_MERGED_PROCESS_ID: u32 = 0;
-    const K_GLOBAL_MERGED_THREAD_ID: u32 = 1;
-    const K_GLOBAL_IDLE_THREAD_ID: u32 = 0;
-    const K_GLOBAL_OTHER_THREAD_ID: u32 = u32::MAX;
-
-    pub fn new(mut profile: Profile, arch: &str, merge_threads: bool, include_idle: bool) -> Self {
+    pub fn new(mut profile: Profile, arch: &str) -> Self {
         let default_category =
             CategoryPairHandle::from(profile.add_category("User", CategoryColor::Yellow));
         let kernel_category =
@@ -203,20 +193,17 @@ impl ProfileContext {
             0xF000_0000_0000_0000
         };
 
-        let mut result = Self {
+        Self {
             profile: RefCell::new(profile),
             timebase_nanos: 0,
             processes: HashMap::new(),
             threads: HashMap::new(),
             memory_usage: HashMap::new(),
             unresolved_stacks: RefCell::new(UnresolvedStacks::default()),
-            global_process_handle: None,
-            global_thread_handle: None,
             idle_thread_handle: None,
             other_thread_handle: None,
             gpu_thread_handle: None,
             per_thread_memory: false,
-            merge_threads,
             libs: HashMap::new(),
             interesting_process_ids: HashSet::new(),
             interesting_process_names: HashSet::new(),
@@ -227,50 +214,7 @@ impl ProfileContext {
             arch: arch.to_string(),
             etl_file: None,
             xperf_running: false,
-        };
-
-        if merge_threads {
-            let start_instant = Timestamp::from_nanos_since_reference(0);
-            let mut profile = result.profile.borrow_mut();
-
-            let global_process_handle = profile.add_process(
-                "All processes",
-                Self::K_GLOBAL_MERGED_PROCESS_ID,
-                start_instant,
-            );
-            let global_thread_handle = profile.add_thread(
-                global_process_handle,
-                Self::K_GLOBAL_MERGED_THREAD_ID,
-                start_instant,
-                true,
-            );
-            profile.set_thread_name(global_thread_handle, "All threads");
-
-            result.global_process_handle = Some(global_process_handle);
-            result.global_thread_handle = Some(global_thread_handle);
-
-            if include_idle {
-                let idle_thread_handle = profile.add_thread(
-                    global_process_handle,
-                    Self::K_GLOBAL_IDLE_THREAD_ID,
-                    start_instant,
-                    false,
-                );
-                profile.set_thread_name(idle_thread_handle, "Idle");
-                let other_thread_handle = profile.add_thread(
-                    global_process_handle,
-                    Self::K_GLOBAL_OTHER_THREAD_ID,
-                    start_instant,
-                    false,
-                );
-                profile.set_thread_name(other_thread_handle, "Other");
-
-                result.idle_thread_handle = Some(idle_thread_handle);
-                result.other_thread_handle = Some(other_thread_handle);
-            }
         }
-
-        result
     }
 
     fn with_profile<F, T>(&self, func: F) -> T
@@ -282,11 +226,7 @@ impl ProfileContext {
 
     // add_process and add_thread always add a process/thread (and thread expects process to exist)
     pub fn add_process(&mut self, pid: u32, parent_id: u32, name: &str, start_time: Timestamp) {
-        let process_handle = if self.merge_threads {
-            self.global_process_handle.unwrap()
-        } else {
-            self.profile.borrow_mut().add_process(name, pid, start_time)
-        };
+        let process_handle = self.profile.borrow_mut().add_process(name, pid, start_time);
         let process = ProcessState::new(process_handle, pid, parent_id);
         self.processes.insert(pid, RefCell::new(process));
     }
@@ -328,20 +268,15 @@ impl ProfileContext {
             "Adding thread for non-existent process"
         );
 
-        let thread_handle = if self.merge_threads {
-            self.global_thread_handle.unwrap()
-        } else {
-            let mut process = self.processes.get_mut(&pid).unwrap().borrow_mut();
-            let is_main = process.main_thread_handle.is_none();
-            let thread_handle =
-                self.profile
-                    .borrow_mut()
-                    .add_thread(process.handle, tid, start_time, is_main);
-            if is_main {
-                process.main_thread_handle = Some(thread_handle);
-            }
-            thread_handle
-        };
+        let mut process = self.processes.get_mut(&pid).unwrap().borrow_mut();
+        let is_main = process.main_thread_handle.is_none();
+        let thread_handle =
+            self.profile
+                .borrow_mut()
+                .add_thread(process.handle, tid, start_time, is_main);
+        if is_main {
+            process.main_thread_handle = Some(thread_handle);
+        }
 
         let thread = ThreadState::new(thread_handle, pid, tid);
         self.threads.insert(tid, RefCell::new(thread));
@@ -386,18 +321,6 @@ impl ProfileContext {
 
     pub fn get_thread_handle(&self, tid: u32) -> Option<ThreadHandle> {
         self.get_thread(tid).map(|t| t.handle)
-    }
-
-    // If we should use an
-    // an Idle/Other thread)
-    pub fn get_idle_handle_if_appropriate(&self, tid: u32) -> Option<ThreadHandle> {
-        if self.threads.contains_key(&tid) || !self.merge_threads {
-            None
-        } else if tid == Self::K_GLOBAL_IDLE_THREAD_ID {
-            self.idle_thread_handle
-        } else {
-            self.other_thread_handle
-        }
     }
 
     pub fn set_thread_name(&self, tid: u32, name: &str) {
@@ -466,16 +389,6 @@ impl ProfileContext {
             .borrow_mut()
             .convert(stack.into_iter().rev());
         let thread = self.get_thread(tid).unwrap();
-        let extra_label_frame = if self.merge_threads {
-            let display_name = thread.display_name();
-            Some(FrameInfo {
-                frame: fxprof_processed_profile::Frame::Label(profile.intern_string(&display_name)),
-                category_pair: self.default_category,
-                flags: FrameFlags::empty(),
-            })
-        } else {
-            None
-        };
         let thread = thread.handle;
         self.get_process_mut(pid)
             .unwrap()
@@ -487,7 +400,7 @@ impl ProfileContext {
                 stack_index,
                 cpu_delta,
                 weight,
-                extra_label_frame,
+                None,
             );
     }
 
@@ -605,7 +518,7 @@ impl ProfileContext {
     }
 
     fn new_with_existing_recording(profile: Profile, arch: &str, etl_file: &Path) -> Self {
-        let mut context = Self::new(profile, arch, false, false);
+        let mut context = Self::new(profile, arch);
         context.etl_file = Some(PathBuf::from(etl_file));
         context
     }

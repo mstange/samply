@@ -74,14 +74,12 @@ pub fn start_recording(
         interval_8khz, // recording_props.interval.into(),
     );
 
-    let merge_threads = false;
-    let include_idle_time = false;
     let arch = get_native_arch(); // TODO: Detect from file if reading from file
-    let mut context = ProfileContext::new(profile, arch, merge_threads, include_idle_time);
 
     // we need the debug privilege token in order to get the kernel's address and run xperf.
     ////winutils::enable_debug_privilege();
     ////context.add_kernel_drivers();
+    let mut context = ProfileContext::new(profile, arch);
 
     let (etl_file, existing_etl) = if !process_launch_props
         .command_name
