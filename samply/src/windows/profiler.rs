@@ -50,9 +50,6 @@ pub fn start_profiling_pid(
     _profile_creation_props: ProfileCreationProps,
     _server_props: Option<ServerProps>,
 ) {
-    // we need the debug privilege token in order to get the kernel's address and run xperf.
-    winutils::enable_debug_privilege();
-
     // TODO
 }
 
@@ -76,9 +73,6 @@ pub fn start_recording(
 
     let arch = get_native_arch(); // TODO: Detect from file if reading from file
 
-    // we need the debug privilege token in order to get the kernel's address and run xperf.
-    ////winutils::enable_debug_privilege();
-    ////context.add_kernel_drivers();
     let mut context = ProfileContext::new(profile, arch);
 
     let (etl_file, existing_etl) = if !process_launch_props
@@ -90,13 +84,6 @@ pub fn start_recording(
         // Start xperf.
         context.start_xperf(&recording_props.output_file);
 
-        // Run the command.
-        // !!!FIXME!!! We are in an elevated context right now. Running this will run
-        // the command as Administrator, which is almost definitely not what the
-        // user wanted. We could drop privileges before running the command, but
-        // I think what we need to do is have the _initial_ samply session stick
-        // around and act as the command executor, passing us the pids it spawns.
-        // That way the command will get executed in exactly the context the user intended.
         for _ in 0..process_launch_props.iteration_count {
             let mut child = std::process::Command::new(&process_launch_props.command_name);
             child.args(&process_launch_props.args);
