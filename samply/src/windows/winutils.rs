@@ -154,6 +154,7 @@ pub fn get_dos_device_mappings() -> HashMap<String, String> {
 
 // Iterator returning pathname + start/end range for every kernel driver. These are global in every process
 // in the same location.
+#[allow(unused)]
 pub fn iter_kernel_drivers() -> impl Iterator<Item = (String, u64, u64)> {
     unsafe {
         // Starting in Windows 11 Version 24H2, EnumDeviceDrivers will require SeDebugPrivilege to return valid ImageBase values.
