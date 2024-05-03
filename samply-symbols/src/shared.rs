@@ -1,20 +1,19 @@
+#[cfg(feature = "partial_read_stats")]
+use std::cell::RefCell;
 use std::fmt::{Debug, Display};
 use std::future::Future;
-use std::ops::Range;
+use std::marker::PhantomData;
+use std::ops::{Deref, Range};
 use std::str::FromStr;
-use std::{marker::PhantomData, ops::Deref};
 
+#[cfg(feature = "partial_read_stats")]
+use bitvec::{bitvec, prelude::BitVec};
 use debugid::DebugId;
 use object::read::ReadRef;
 use object::FileFlags;
 use uuid::Uuid;
 
 use crate::mapped_path::MappedPath;
-
-#[cfg(feature = "partial_read_stats")]
-use bitvec::{bitvec, prelude::BitVec};
-#[cfg(feature = "partial_read_stats")]
-use std::cell::RefCell;
 
 pub type FileAndPathHelperError = Box<dyn std::error::Error + Send + Sync + 'static>;
 pub type FileAndPathHelperResult<T> = std::result::Result<T, FileAndPathHelperError>;

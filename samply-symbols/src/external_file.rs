@@ -1,6 +1,8 @@
-use std::{collections::HashMap, sync::Mutex};
+use std::collections::HashMap;
+use std::sync::Mutex;
 
-use object::{read::archive::ArchiveFile, File, FileKind, ReadRef};
+use object::read::archive::ArchiveFile;
+use object::{File, FileKind, ReadRef};
 use yoke::Yoke;
 use yoke_derive::Yokeable;
 

@@ -1,14 +1,13 @@
-use framehop::{Module, Unwinder};
-use fxprof_processed_profile::{Profile, ReferenceTimestamp};
-use linux_perf_data::linux_perf_event_reader;
-use linux_perf_data::{DsoInfo, DsoKey, PerfFileReader, PerfFileRecord};
-use linux_perf_event_reader::EventRecord;
-
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::io::{Read, Seek};
 use std::path::Path;
 use std::time::SystemTime;
+
+use framehop::{Module, Unwinder};
+use fxprof_processed_profile::{Profile, ReferenceTimestamp};
+use linux_perf_data::{linux_perf_event_reader, DsoInfo, DsoKey, PerfFileReader, PerfFileRecord};
+use linux_perf_event_reader::EventRecord;
 
 use crate::linux_shared::{
     ConvertRegs, ConvertRegsAarch64, ConvertRegsX86_64, Converter, EventInterpretation, KnownEvent,

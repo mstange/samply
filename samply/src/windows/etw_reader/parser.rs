@@ -1,20 +1,19 @@
 //! ETW Types Parser
 //!
 //! This module act as a helper to parse the Buffer from an ETW Event
-use super::etw_types::EVENT_HEADER_FLAG_32_BIT_HEADER;
-use super::property::{PropertyInfo, PropertyIter};
-use super::schema::TypedEvent;
-use super::sddl;
-use super::tdh;
-use super::tdh_types::PrimitiveDesc;
-use super::tdh_types::PropertyDesc;
-use super::tdh_types::PropertyLength;
-use super::tdh_types::{Property, PropertyFlags, TdhInType, TdhOutType};
-use super::utils;
 use std::borrow::Borrow;
 use std::convert::TryInto;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
 use windows::core::GUID;
+
+use super::etw_types::EVENT_HEADER_FLAG_32_BIT_HEADER;
+use super::property::{PropertyInfo, PropertyIter};
+use super::schema::TypedEvent;
+use super::tdh_types::{
+    PrimitiveDesc, Property, PropertyDesc, PropertyFlags, PropertyLength, TdhInType, TdhOutType,
+};
+use super::{sddl, tdh, utils};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Address {

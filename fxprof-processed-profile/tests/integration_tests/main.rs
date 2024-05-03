@@ -1,16 +1,15 @@
+use std::sync::Arc;
+use std::time::Duration;
+
 use assert_json_diff::assert_json_eq;
 use debugid::DebugId;
-use serde_json::json;
-
 use fxprof_processed_profile::{
     CategoryColor, CategoryHandle, CpuDelta, Frame, FrameFlags, FrameInfo, LibraryInfo,
     MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField,
     MarkerStaticField, MarkerTiming, Profile, ProfilerMarker, ReferenceTimestamp, SamplingInterval,
     Symbol, SymbolTable, Timestamp,
 };
-
-use std::sync::Arc;
-use std::time::Duration;
+use serde_json::json;
 
 // TODO: Add tests for CategoryPairHandle, ProcessHandle, ThreadHandle
 

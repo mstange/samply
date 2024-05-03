@@ -207,14 +207,12 @@
 use std::sync::Arc;
 
 use binary_image::BinaryImageInner;
-pub use debugid;
 use jitdump::JitDumpIndex;
 use linux_perf_data::jitdump::JitDumpReader;
-pub use object;
-pub use pdb_addr2line::pdb;
-
 use object::read::FileKind;
+pub use pdb_addr2line::pdb;
 use shared::FileContentsCursor;
+pub use {debugid, object};
 
 mod binary_image;
 mod breakpad;

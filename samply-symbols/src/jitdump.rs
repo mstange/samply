@@ -1,17 +1,17 @@
+use std::borrow::Cow;
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
+use std::sync::Mutex;
+
 use debugid::DebugId;
 use linux_perf_data::jitdump::{
     JitCodeDebugInfoRecord, JitCodeLoadRecord, JitDumpReader, JitDumpRecord, JitDumpRecordHeader,
     JitDumpRecordType,
 };
-use linux_perf_data::{linux_perf_event_reader::RawData, Endianness};
+use linux_perf_data::linux_perf_event_reader::RawData;
+use linux_perf_data::Endianness;
 use yoke::Yoke;
 use yoke_derive::Yokeable;
-
-use std::{
-    borrow::Cow,
-    collections::{hash_map::Entry, HashMap},
-    sync::Mutex,
-};
 
 use crate::error::Error;
 use crate::shared::{

@@ -1,10 +1,8 @@
-use byteorder::ByteOrder;
-use linux_perf_data::linux_perf_event_reader;
-use linux_perf_data::Endianness;
-
-use linux_perf_event_reader::RawData;
-
 use std::fmt::Debug;
+
+use byteorder::ByteOrder;
+use linux_perf_data::{linux_perf_event_reader, Endianness};
+use linux_perf_event_reader::RawData;
 
 /// Resident file mapping pages
 #[allow(unused)]

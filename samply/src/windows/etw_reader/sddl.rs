@@ -1,12 +1,9 @@
-use windows::{
-    core::PSTR,
-    Win32::{
-        Foundation::{LocalFree, HLOCAL, PSID},
-        Security,
-    },
-};
 //use super::traits::*;
 use std::str::Utf8Error;
+
+use windows::core::PSTR;
+use windows::Win32::Foundation::{LocalFree, HLOCAL, PSID};
+use windows::Win32::Security;
 
 /// SDDL native error
 #[derive(Debug)]

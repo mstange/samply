@@ -3,15 +3,12 @@ use std::ops::Deref;
 use std::os::windows::ffi::OsStringExt;
 use std::ptr;
 
-use super::etw_types::*;
 use windows::core::HRESULT;
-use windows::Win32::Foundation::ERROR_INSUFFICIENT_BUFFER;
-use windows::Win32::Foundation::ERROR_SUCCESS;
-use windows::Win32::Foundation::S_OK;
+use windows::Win32::Foundation::{ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS, S_OK};
 use windows::Win32::System::Diagnostics::Etw;
-use windows::Win32::System::Diagnostics::Etw::TdhEnumerateProviders;
-use windows::Win32::System::Diagnostics::Etw::PROVIDER_ENUMERATION_INFO;
+use windows::Win32::System::Diagnostics::Etw::{TdhEnumerateProviders, PROVIDER_ENUMERATION_INFO};
 
+use super::etw_types::*;
 use super::traits::*;
 
 #[derive(Debug)]

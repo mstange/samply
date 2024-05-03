@@ -1,13 +1,12 @@
+use std::collections::hash_map::Entry;
+
 use fxprof_processed_profile::{
     CategoryHandle, Frame, FrameFlags, FrameInfo, ProcessHandle, Profile, ThreadHandle, Timestamp,
 };
 
-use std::collections::hash_map::Entry;
-
+use super::thread::Thread;
 use crate::shared::recycling::ThreadRecycler;
 use crate::shared::types::FastHashMap;
-
-use super::thread::Thread;
 
 pub struct ProcessThreads {
     pub pid: i32,

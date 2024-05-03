@@ -3,10 +3,9 @@ use std::sync::Arc;
 use debugid::DebugId;
 use fxprof_processed_profile::{LibMappings, LibraryInfo, Profile, Symbol, SymbolTable};
 
-use super::{
-    jit_category_manager::JitCategoryManager, jit_function_recycler::JitFunctionRecycler,
-    lib_mappings::LibMappingInfo,
-};
+use super::jit_category_manager::JitCategoryManager;
+use super::jit_function_recycler::JitFunctionRecycler;
+use super::lib_mappings::LibMappingInfo;
 
 fn process_perf_map_line(line: &str) -> Option<(u64, u64, &str)> {
     let mut split = line.splitn(3, ' ');

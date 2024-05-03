@@ -142,12 +142,11 @@
 //! }
 //! ```
 
+use asm::AsmApi;
+use debugid::DebugId;
 pub use samply_symbols;
 pub use samply_symbols::debugid;
 use samply_symbols::{FileAndPathHelper, SymbolManager};
-
-use asm::AsmApi;
-use debugid::DebugId;
 use serde_json::json;
 use source::SourceApi;
 use symbolicate::SymbolicateApi;

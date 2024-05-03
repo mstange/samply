@@ -59,8 +59,9 @@ impl<'a> Iterator for JobIterator<'a> {
 #[cfg(test)]
 mod test {
 
-    use super::super::request_json::Request;
     use serde_json::Result;
+
+    use super::super::request_json::Request;
 
     #[test]
     fn parse_job() -> Result<()> {

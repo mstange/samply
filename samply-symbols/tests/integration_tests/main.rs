@@ -1,12 +1,13 @@
+use std::fs::File;
+use std::io::{BufWriter, Read, Write};
+use std::path::{Path, PathBuf};
+
 use samply_symbols::debugid::DebugId;
 use samply_symbols::{
     self, CandidatePathInfo, CompactSymbolTable, Error, FileAndPathHelper, FileAndPathHelperResult,
     FileLocation, LibraryInfo, LookupAddress, MultiArchDisambiguator, OptionallySendFuture,
     SymbolManager, SymbolMap,
 };
-use std::fs::File;
-use std::io::{BufWriter, Read, Write};
-use std::path::{Path, PathBuf};
 
 async fn get_symbol_map_with_dyld_cache_fallback(
     symbol_manager: &SymbolManager<Helper>,

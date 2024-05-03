@@ -1,3 +1,7 @@
+use std::fmt::Debug;
+use std::str::FromStr;
+use std::{mem, str};
+
 use debugid::DebugId;
 use memchr::memchr;
 use nom::bytes::complete::{tag, take_while};
@@ -9,10 +13,6 @@ use nom::sequence::{terminated, tuple};
 use nom::{Err, IResult};
 use zerocopy::{AsBytes, LittleEndian, Ref, U32, U64};
 use zerocopy_derive::{AsBytes, FromBytes, FromZeroes, Unaligned};
-
-use std::fmt::Debug;
-use std::str::FromStr;
-use std::{mem, str};
 
 use crate::CodeId;
 
@@ -1188,9 +1188,8 @@ fn inline_line(input: &[u8]) -> IResult<&[u8], impl Iterator<Item = Inlinee>> {
 mod test {
     use std::str::FromStr;
 
-    use crate::{ElfBuildId, PeCodeId};
-
     use super::*;
+    use crate::{ElfBuildId, PeCodeId};
 
     #[test]
     fn test1() {

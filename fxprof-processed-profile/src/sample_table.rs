@@ -1,7 +1,10 @@
-use crate::Timestamp;
-use crate::{cpu_delta::CpuDelta, serialization_helpers::SerializableSingleValueColumn};
-use serde::ser::{Serialize, SerializeMap, Serializer};
 use std::fmt::{Display, Formatter};
+
+use serde::ser::{Serialize, SerializeMap, Serializer};
+
+use crate::cpu_delta::CpuDelta;
+use crate::serialization_helpers::SerializableSingleValueColumn;
+use crate::Timestamp;
 
 /// The sample table contains stacks with timestamps and some extra information.
 ///
@@ -263,9 +266,10 @@ impl Serialize for NativeAllocationsTable {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use assert_json_diff::assert_json_eq;
     use serde_json::json;
+
+    use super::*;
 
     #[test]
     fn test_serialize_native_allocations() {

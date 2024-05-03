@@ -1,10 +1,12 @@
-use std::{borrow::Cow, sync::Arc};
+use std::borrow::Cow;
+use std::sync::Arc;
 
 use debugid::DebugId;
 
+use crate::shared::LookupAddress;
 use crate::{
-    shared::LookupAddress, AddressInfo, ExternalFileAddressRef, ExternalFileRef, FileAndPathHelper,
-    FileLocation, FrameDebugInfo, FramesLookupResult, SyncAddressInfo,
+    AddressInfo, ExternalFileAddressRef, ExternalFileRef, FileAndPathHelper, FileLocation,
+    FrameDebugInfo, FramesLookupResult, SyncAddressInfo,
 };
 
 pub trait SymbolMapTrait {

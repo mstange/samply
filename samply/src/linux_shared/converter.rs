@@ -1,16 +1,20 @@
+use std::collections::HashMap;
+use std::ops::Range;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
 use byteorder::LittleEndian;
 use debugid::DebugId;
-
 use framehop::{ExplicitModuleSectionInfo, FrameAddress, Module, Unwinder};
 use fxprof_processed_profile::{
     CategoryColor, CategoryHandle, CategoryPairHandle, CpuDelta, LibraryHandle, LibraryInfo,
     MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchemaField, MarkerTiming,
     Profile, ProfilerMarker, ReferenceTimestamp, SamplingInterval, SymbolTable, ThreadHandle,
 };
-use linux_perf_data::linux_perf_event_reader;
 use linux_perf_data::simpleperf_dso_type::{DSO_DEX_FILE, DSO_KERNEL, DSO_KERNEL_MODULE};
 use linux_perf_data::{
-    DsoInfo, DsoKey, Endianness, SimpleperfFileRecord, SimpleperfSymbol, SimpleperfTypeSpecificInfo,
+    linux_perf_event_reader, DsoInfo, DsoKey, Endianness, SimpleperfFileRecord, SimpleperfSymbol,
+    SimpleperfTypeSpecificInfo,
 };
 use linux_perf_event_reader::constants::PERF_CONTEXT_MAX;
 use linux_perf_event_reader::{
@@ -24,11 +28,6 @@ use serde_json::json;
 use wholesym::samply_symbols::demangle_any;
 use wholesym::{samply_symbols, CodeId, ElfBuildId};
 
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::{ops::Range, path::Path};
-
 use super::avma_range::AvmaRange;
 use super::convert_regs::ConvertRegs;
 use super::event_interpretation::{EventInterpretation, OffCpuIndicator};
@@ -41,7 +40,6 @@ use super::processes::Processes;
 use super::rss_stat::{RssStat, MM_ANONPAGES, MM_FILEPAGES, MM_SHMEMPAGES, MM_SWAPENTS};
 use super::svma_file_range::compute_vma_bias;
 use super::vdso::VdsoObject;
-
 use crate::shared::context_switch::{ContextSwitchHandler, OffCpuSampleGroup};
 use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::lib_mappings::{AndroidArtInfo, LibMappingInfo};

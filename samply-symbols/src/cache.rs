@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::ops::Range;
-use std::sync::{atomic::AtomicUsize, Mutex};
+use std::sync::atomic::AtomicUsize;
+use std::sync::Mutex;
 
 use elsa::sync::FrozenVec;
 

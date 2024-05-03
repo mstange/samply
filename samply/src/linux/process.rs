@@ -1,11 +1,11 @@
-use libc::{execvp, execvpe};
-use nix::unistd::Pid;
-
 use std::collections::BTreeMap;
 use std::ffi::{CString, OsStr, OsString};
 use std::os::fd::{AsFd, AsRawFd, IntoRawFd, OwnedFd};
 use std::os::raw::c_char;
 use std::os::unix::prelude::OsStrExt;
+
+use libc::{execvp, execvpe};
+use nix::unistd::Pid;
 
 /// Allows launching a command in a suspended state, so that we can know its
 /// pid and initialize profiling before proceeding to execute the command.

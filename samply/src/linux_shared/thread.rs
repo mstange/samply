@@ -1,6 +1,6 @@
-use fxprof_processed_profile::{Frame, FrameInfo, Profile, StringHandle, ThreadHandle, Timestamp};
-
 use std::fmt::Debug;
+
+use fxprof_processed_profile::{Frame, FrameInfo, Profile, StringHandle, ThreadHandle, Timestamp};
 
 use crate::shared::context_switch::ThreadContextSwitchData;
 use crate::shared::unresolved_samples::UnresolvedStackHandle;

@@ -1,5 +1,6 @@
-use serde::ser::{Serialize, Serializer};
 use std::time::Duration;
+
+use serde::ser::{Serialize, Serializer};
 
 /// The amount of CPU time between thread samples.
 ///

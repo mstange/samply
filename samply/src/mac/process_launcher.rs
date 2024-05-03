@@ -9,10 +9,11 @@ use std::process::{Child, Command};
 use std::sync::Arc;
 use std::time::Duration;
 
-pub use super::mach_ipc::{mach_port_t, MachError, OsIpcSender};
-use super::mach_ipc::{BlockingMode, OsIpcMultiShotServer, MACH_PORT_NULL};
 use flate2::write::GzDecoder;
 use tempfile::tempdir;
+
+pub use super::mach_ipc::{mach_port_t, MachError, OsIpcSender};
+use super::mach_ipc::{BlockingMode, OsIpcMultiShotServer, MACH_PORT_NULL};
 
 pub struct TaskLauncher {
     program: OsString,

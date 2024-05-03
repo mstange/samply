@@ -1,13 +1,13 @@
 use std::ops::Deref;
 use std::rc::Rc;
 
-use super::schema::EventSchema;
-use super::tdh_types::Property;
-use super::tdh_types::PropertyMapInfo;
-use super::utils;
 use once_cell::unsync::OnceCell;
 use windows::core::{GUID, PCWSTR};
 use windows::Win32::System::Diagnostics::Etw::{self, PropertyStruct};
+
+use super::schema::EventSchema;
+use super::tdh_types::{Property, PropertyMapInfo};
+use super::utils;
 
 #[repr(transparent)]
 pub struct EventRecord(Etw::EVENT_RECORD);

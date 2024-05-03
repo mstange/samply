@@ -1,32 +1,29 @@
 #![allow(warnings)]
 
-use windows::{
-    core::{h, Error, HRESULT, HSTRING, PWSTR},
-    Win32::{
-        Foundation::{
-            GetLastError, ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA, ERROR_SUCCESS, MAX_PATH,
-        },
-        System::Diagnostics::Etw::{
-            EnumerateTraceGuids, EnumerateTraceGuidsEx, TraceGuidQueryInfo, TraceGuidQueryList,
-            CONTROLTRACE_HANDLE, EVENT_TRACE_FLAG, TRACE_GUID_INFO, TRACE_GUID_PROPERTIES,
-            TRACE_PROVIDER_INSTANCE_INFO,
-        },
-    },
-};
-use {
-    parser::{Parser, ParserError, TryParse},
-    schema::SchemaLocator,
-    tdh_types::{PrimitiveDesc, PropertyDesc, TdhInType},
-    traits::EncodeUtf16,
-};
+use std::borrow::Cow;
+use std::collections::HashMap;
+use std::hash::BuildHasherDefault;
+use std::mem;
+use std::path::Path;
 
 use bitflags::bitflags;
 use etw_types::EventRecord;
 use fxhash::FxHasher;
 use memoffset::offset_of;
-use std::{borrow::Cow, collections::HashMap, hash::BuildHasherDefault, mem, path::Path};
-use tdh_types::{Property, TdhOutType};
+use parser::{Parser, ParserError, TryParse};
+use schema::SchemaLocator;
+use tdh_types::{PrimitiveDesc, Property, PropertyDesc, TdhInType, TdhOutType};
+use traits::EncodeUtf16;
+use windows::core::{h, Error, HRESULT, HSTRING, PWSTR};
+use windows::Win32::Foundation::{
+    GetLastError, ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA, ERROR_SUCCESS, MAX_PATH,
+};
 use windows::Win32::System::Diagnostics::Etw;
+use windows::Win32::System::Diagnostics::Etw::{
+    EnumerateTraceGuids, EnumerateTraceGuidsEx, TraceGuidQueryInfo, TraceGuidQueryList,
+    CONTROLTRACE_HANDLE, EVENT_TRACE_FLAG, TRACE_GUID_INFO, TRACE_GUID_PROPERTIES,
+    TRACE_PROVIDER_INSTANCE_INFO,
+};
 
 // typedef ULONG64 TRACEHANDLE, *PTRACEHANDLE;
 pub(crate) type TraceHandle = u64;

@@ -1,12 +1,11 @@
-use std::{
-    collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
-    convert::TryInto,
-    fs::File,
-    io::BufWriter,
-    path::Path,
-    sync::Arc,
-    time::{Duration, Instant, SystemTime},
-};
+use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::convert::TryInto;
+use std::fs::File;
+use std::io::BufWriter;
+use std::path::Path;
+use std::sync::Arc;
+use std::time::{Duration, Instant, SystemTime};
 
 use bitflags::bitflags;
 use debugid::DebugId;
@@ -20,27 +19,26 @@ use fxprof_processed_profile::{
 use serde_json::{json, to_writer, Value};
 use uuid::Uuid;
 
+use super::etw_reader::parser::{Address, Parser, TryParse};
+use super::etw_reader::schema::SchemaLocator;
 use super::etw_reader::{
-    add_custom_schemas, event_properties_to_string, open_trace,
-    parser::{Address, Parser, TryParse},
-    print_property,
-    schema::SchemaLocator,
-    write_property, GUID,
+    add_custom_schemas, event_properties_to_string, open_trace, print_property, write_property,
+    GUID,
 };
 use super::profile_context::ProfileContext;
+use crate::shared::context_switch::{
+    ContextSwitchHandler, OffCpuSampleGroup, ThreadContextSwitchData,
+};
 use crate::shared::jit_category_manager::JitCategoryManager;
-use crate::shared::lib_mappings::LibMappingInfo;
-use crate::shared::lib_mappings::{LibMappingAdd, LibMappingOp, LibMappingOpQueue};
-use crate::shared::process_sample_data::{MarkerSpanOnThread, ProcessSampleData, SimpleMarker};
+use crate::shared::jit_function_add_marker::JitFunctionAddMarker;
+use crate::shared::lib_mappings::{LibMappingAdd, LibMappingInfo, LibMappingOp, LibMappingOpQueue};
+use crate::shared::marker_file::get_markers;
+use crate::shared::process_sample_data::{
+    MarkerSpanOnThread, ProcessSampleData, SimpleMarker, UserTimingMarker,
+};
+use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::types::{StackFrame, StackMode};
-use crate::shared::{
-    jit_function_add_marker::JitFunctionAddMarker, marker_file::get_markers,
-    process_sample_data::UserTimingMarker, timestamp_converter::TimestampConverter,
-};
-use crate::{
-    shared::context_switch::{ContextSwitchHandler, OffCpuSampleGroup, ThreadContextSwitchData},
-    windows::profile_context::{PendingStack, ProcessJitInfo},
-};
+use crate::windows::profile_context::{PendingStack, ProcessJitInfo};
 
 pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) {
     let profile_start_instant = Timestamp::from_nanos_since_reference(0);
