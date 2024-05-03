@@ -20,30 +20,27 @@ use fxprof_processed_profile::{
 use serde_json::{json, to_writer, Value};
 use uuid::Uuid;
 
-use crate::shared::jit_category_manager::JitCategoryManager;
-use crate::shared::lib_mappings::LibMappingInfo;
-use crate::shared::lib_mappings::{LibMappingAdd, LibMappingOp, LibMappingOpQueue};
-use crate::shared::process_sample_data::{MarkerSpanOnThread, ProcessSampleData, SimpleMarker};
-use crate::shared::types::{StackFrame, StackMode};
-use crate::{
-    shared::context_switch::{ContextSwitchHandler, OffCpuSampleGroup, ThreadContextSwitchData},
-    windows::profile_context::{PendingStack, ProcessJitInfo},
-};
-
-use crate::shared::{
-    jit_function_add_marker::JitFunctionAddMarker, marker_file::get_markers,
-    process_sample_data::UserTimingMarker, timestamp_converter::TimestampConverter,
-};
-
-use super::etw_reader;
 use super::etw_reader::{
-    event_properties_to_string, open_trace,
+    add_custom_schemas, event_properties_to_string, open_trace,
     parser::{Address, Parser, TryParse},
     print_property,
     schema::SchemaLocator,
     write_property, GUID,
 };
 use super::profile_context::ProfileContext;
+use crate::shared::jit_category_manager::JitCategoryManager;
+use crate::shared::lib_mappings::LibMappingInfo;
+use crate::shared::lib_mappings::{LibMappingAdd, LibMappingOp, LibMappingOpQueue};
+use crate::shared::process_sample_data::{MarkerSpanOnThread, ProcessSampleData, SimpleMarker};
+use crate::shared::types::{StackFrame, StackMode};
+use crate::shared::{
+    jit_function_add_marker::JitFunctionAddMarker, marker_file::get_markers,
+    process_sample_data::UserTimingMarker, timestamp_converter::TimestampConverter,
+};
+use crate::{
+    shared::context_switch::{ContextSwitchHandler, OffCpuSampleGroup, ThreadContextSwitchData},
+    windows::profile_context::{PendingStack, ProcessJitInfo},
+};
 
 pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) {
     let profile_start_instant = Timestamp::from_nanos_since_reference(0);
@@ -53,7 +50,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
     let is_arm64 = arch == "arm64";
 
     let mut schema_locator = SchemaLocator::new();
-    etw_reader::add_custom_schemas(&mut schema_locator);
+    add_custom_schemas(&mut schema_locator);
     let mut kernel_pending_libraries: HashMap<u64, LibraryInfo> = HashMap::new();
 
     let mut libs: HashMap<(u32, u64), (String, u32, u32)> = HashMap::new();

@@ -1,17 +1,18 @@
-use crate::shared::context_switch::{OffCpuSampleGroup, ThreadContextSwitchData};
-use crate::shared::lib_mappings::LibMappingOpQueue;
-use crate::shared::types::{StackFrame, StackMode};
-use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
+use std::cell::{Ref, RefCell, RefMut};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::path::{Path, PathBuf};
+
 use debugid::DebugId;
 use fxprof_processed_profile::{
     CategoryColor, CategoryPairHandle, CounterHandle, CpuDelta, FrameFlags, FrameInfo,
     LibraryHandle, LibraryInfo, ProcessHandle, Profile, Symbol, ThreadHandle, Timestamp,
 };
-use std::cell::{Ref, RefCell, RefMut};
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
+use crate::shared::context_switch::{OffCpuSampleGroup, ThreadContextSwitchData};
+use crate::shared::lib_mappings::LibMappingOpQueue;
+use crate::shared::types::{StackFrame, StackMode};
+use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
 use super::winutils;
 
 /// An on- or off-cpu-sample for which the user stack is not known yet.
