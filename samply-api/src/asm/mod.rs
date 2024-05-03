@@ -1,16 +1,16 @@
 use std::str::FromStr;
 
+use samply_symbols::debugid::DebugId;
 use samply_symbols::{
-    debugid::DebugId, object, CodeByteReadingError, CodeId, FileAndPathHelper,
-    FileAndPathHelperError, LibraryInfo, LookupAddress, SymbolManager,
+    object, CodeByteReadingError, CodeId, FileAndPathHelper, FileAndPathHelperError, LibraryInfo,
+    LookupAddress, SymbolManager,
 };
 use serde_json::json;
 use yaxpeax_arch::{Arch, DecodeError, LengthedInstruction, Reader, U8Reader};
 use yaxpeax_x86::amd64::{Opcode, Operand};
 
-use crate::asm::response_json::DecodedInstruction;
-
 use self::response_json::Response;
+use crate::asm::response_json::DecodedInstruction;
 
 mod request_json;
 mod response_json;

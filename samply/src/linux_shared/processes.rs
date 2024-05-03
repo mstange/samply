@@ -1,12 +1,11 @@
-use framehop::Unwinder;
-use fxprof_processed_profile::{CategoryColor, Profile, Timestamp};
-
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
+use framehop::Unwinder;
+use fxprof_processed_profile::{CategoryColor, Profile, Timestamp};
+
 use super::process::Process;
 use super::process_threads::make_thread_label_frame;
-
 use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::jit_function_recycler::JitFunctionRecycler;
 use crate::shared::process_sample_data::ProcessSampleData;

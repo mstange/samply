@@ -1,3 +1,10 @@
+use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
+use std::mem;
+use std::ops::{Deref, Range};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
 use crossbeam_channel::Receiver;
 use framehop::{
     CacheNative, ExplicitModuleSectionInfo, FrameAddress, MayAllocateDuringUnwind, Module,
@@ -8,8 +15,7 @@ use fxprof_processed_profile::{
     CategoryHandle, Frame, FrameFlags, FrameInfo, LibraryInfo, ProcessHandle, Profile,
     ThreadHandle, Timestamp,
 };
-use mach::mach_types::thread_act_port_array_t;
-use mach::mach_types::thread_act_t;
+use mach::mach_types::{thread_act_port_array_t, thread_act_t};
 use mach::message::mach_msg_type_number_t;
 use mach::port::mach_port_t;
 use mach::task::task_threads;
@@ -20,13 +26,13 @@ use object::{CompressedFileRange, CompressionFormat, Object, ObjectSection};
 use samply_symbols::{object, DebugIdExt};
 use wholesym::samply_symbols;
 
-use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
-use std::mem;
-use std::ops::{Deref, Range};
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-
+use super::error::SamplingError;
+use super::kernel_error::{IntoResult, KernelError};
+use super::proc_maps::{
+    DyldInfo, DyldInfoManager, Modification, ModuleSvmaInfo, StackwalkerRef, VmSubData,
+};
+use super::sampler::{JitdumpOrMarkerPath, TaskInit};
+use super::thread_profiler::{get_thread_id, get_thread_name, ThreadProfiler};
 use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::jit_function_recycler::JitFunctionRecycler;
 use crate::shared::jitdump_manager::JitDumpManager;
@@ -41,14 +47,6 @@ use crate::shared::recording_props::{ProfileCreationProps, RecordingProps};
 use crate::shared::recycling::{ProcessRecycler, ProcessRecyclingData, ThreadRecycler};
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
-
-use super::error::SamplingError;
-use super::kernel_error::{IntoResult, KernelError};
-use super::proc_maps::{
-    DyldInfo, DyldInfoManager, Modification, ModuleSvmaInfo, StackwalkerRef, VmSubData,
-};
-use super::sampler::{JitdumpOrMarkerPath, TaskInit};
-use super::thread_profiler::{get_thread_id, get_thread_name, ThreadProfiler};
 
 #[derive(Debug)]
 pub enum UnwindSectionBytes {

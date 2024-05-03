@@ -1,6 +1,9 @@
 // This code was taken from https://github.com/gimli-rs/moria/ , which is currently
 // not released on crates.io.
 
+use std::path::{Path, PathBuf};
+use std::ptr;
+
 use core_foundation::array::{CFArray, CFArrayRef};
 use core_foundation::base::{CFType, CFTypeRef, TCFType, TCFTypeRef};
 use core_foundation::impl_TCFType;
@@ -10,8 +13,6 @@ use core_foundation_sys::base::{
 };
 use core_foundation_sys::string::CFStringRef;
 use libc::c_void;
-use std::path::{Path, PathBuf};
-use std::ptr;
 use uuid::Uuid;
 
 type Boolean = ::std::os::raw::c_uchar;

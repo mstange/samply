@@ -1,8 +1,8 @@
-use fxprof_processed_profile::Timestamp;
-
 use std::fs::File;
 use std::io::{BufRead, BufReader, Lines};
 use std::path::Path;
+
+use fxprof_processed_profile::Timestamp;
 
 use super::timestamp_converter::TimestampConverter;
 use super::utils::open_file_with_fallback;

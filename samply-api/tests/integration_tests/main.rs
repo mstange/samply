@@ -1,16 +1,14 @@
-use assert_json_diff::assert_json_eq;
-pub use samply_api::debugid::DebugId;
-use samply_api::samply_symbols;
-use samply_api::Api;
-use samply_symbols::OptionallySendFuture;
-use samply_symbols::{
-    CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation, LibraryInfo,
-    SymbolManager,
-};
-
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::PathBuf;
+
+use assert_json_diff::assert_json_eq;
+pub use samply_api::debugid::DebugId;
+use samply_api::{samply_symbols, Api};
+use samply_symbols::{
+    CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation, LibraryInfo,
+    OptionallySendFuture, SymbolManager,
+};
 
 pub async fn query_api(request_url: &str, request_json: &str, symbol_directory: PathBuf) -> String {
     let helper = Helper { symbol_directory };

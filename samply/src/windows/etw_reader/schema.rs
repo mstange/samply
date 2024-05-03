@@ -1,18 +1,19 @@
 //! ETW Event Schema locator and handler
 //!
 //! This module contains the means needed to locate and interact with the Schema of an ETW event
-use super::custom_schemas::EventInfo;
-use super::etw_types::{DecodingSource, EventRecord, TraceEventInfoRaw};
-use super::property::PropertyIter;
-use super::tdh;
-use super::tdh_types::Property;
-use super::FastHashMap;
-use once_cell::unsync::OnceCell;
 use std::any::{Any, TypeId};
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
+
+use once_cell::unsync::OnceCell;
 use windows::core::GUID;
 use windows::Win32::System::Diagnostics::Etw::{self, EVENT_HEADER_FLAG_64_BIT_HEADER};
+
+use super::custom_schemas::EventInfo;
+use super::etw_types::{DecodingSource, EventRecord, TraceEventInfoRaw};
+use super::property::PropertyIter;
+use super::tdh_types::Property;
+use super::{tdh, FastHashMap};
 
 /// Schema module errors
 #[derive(Debug)]

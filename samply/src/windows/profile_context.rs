@@ -9,11 +9,11 @@ use fxprof_processed_profile::{
 };
 use uuid::Uuid;
 
+use super::winutils;
 use crate::shared::context_switch::{OffCpuSampleGroup, ThreadContextSwitchData};
 use crate::shared::lib_mappings::LibMappingOpQueue;
 use crate::shared::types::{StackFrame, StackMode};
 use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
-use super::winutils;
 
 /// An on- or off-cpu-sample for which the user stack is not known yet.
 /// Consumed once the user stack arrives.

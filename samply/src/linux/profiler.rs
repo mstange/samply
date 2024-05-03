@@ -1,12 +1,3 @@
-use crossbeam_channel::{Receiver, Sender};
-use fxprof_processed_profile::ReferenceTimestamp;
-use linux_perf_data::linux_perf_event_reader::EventRecord;
-use linux_perf_data::linux_perf_event_reader::{
-    CpuMode, Endianness, Mmap2FileId, Mmap2InodeAndVersion, Mmap2Record, RawData,
-};
-use nix::sys::wait::WaitStatus;
-use tokio::sync::oneshot;
-
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufWriter;
@@ -16,6 +7,14 @@ use std::path::Path;
 use std::process::ExitStatus;
 use std::thread;
 use std::time::{Duration, SystemTime};
+
+use crossbeam_channel::{Receiver, Sender};
+use fxprof_processed_profile::ReferenceTimestamp;
+use linux_perf_data::linux_perf_event_reader::{
+    CpuMode, Endianness, EventRecord, Mmap2FileId, Mmap2InodeAndVersion, Mmap2Record, RawData,
+};
+use nix::sys::wait::WaitStatus;
+use tokio::sync::oneshot;
 
 use super::perf_event::EventSource;
 use super::perf_group::{AttachMode, PerfGroup};

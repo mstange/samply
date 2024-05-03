@@ -13,28 +13,25 @@ mod profile_json_preparse;
 mod server;
 mod shared;
 
-use clap::{Args, Parser, Subcommand};
-use profile_json_preparse::parse_libinfo_map_from_profile_file;
-use shared::recording_props::{ProcessLaunchProps, ProfileCreationProps, RecordingProps};
-
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-// To avoid warnings about unused declarations
-#[cfg(target_os = "macos")]
-pub use mac::{kernel_error, thread_act, thread_info};
-
+use clap::{Args, Parser, Subcommand};
 #[cfg(any(target_os = "android", target_os = "linux"))]
 use linux::profiler;
 #[cfg(target_os = "macos")]
 use mac::profiler;
+// To avoid warnings about unused declarations
+#[cfg(target_os = "macos")]
+pub use mac::{kernel_error, thread_act, thread_info};
+use profile_json_preparse::parse_libinfo_map_from_profile_file;
+use server::{start_server_main, PortSelection, ServerProps};
+use shared::recording_props::{ProcessLaunchProps, ProfileCreationProps, RecordingProps};
 #[cfg(target_os = "windows")]
 use windows::profiler;
-
-use server::{start_server_main, PortSelection, ServerProps};
 
 #[derive(Debug, Parser)]
 #[command(

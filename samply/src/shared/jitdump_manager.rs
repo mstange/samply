@@ -1,10 +1,10 @@
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
 use fxprof_processed_profile::{
     CategoryHandle, LibraryHandle, MarkerTiming, Profile, Symbol, SymbolTable, ThreadHandle,
 };
 use linux_perf_data::jitdump::{JitDumpReader, JitDumpRecord, JitDumpRecordType};
-
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use super::jit_category_manager::JitCategoryManager;
 use super::jit_function_add_marker::JitFunctionAddMarker;

@@ -1,10 +1,13 @@
-use crate::to_debug_id;
-use crate::{api_file_path::to_api_file_path, error::Error};
+use std::collections::HashMap;
+use std::num::NonZeroU32;
+
 use samply_symbols::{
     FileAndPathHelper, FramesLookupResult, LibraryInfo, LookupAddress, SymbolManager,
 };
-use std::collections::HashMap;
-use std::num::NonZeroU32;
+
+use crate::api_file_path::to_api_file_path;
+use crate::error::Error;
+use crate::to_debug_id;
 
 pub mod looked_up_addresses;
 pub mod request_json;

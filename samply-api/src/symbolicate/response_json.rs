@@ -1,4 +1,5 @@
-use std::{collections::HashMap, num::NonZeroU32};
+use std::collections::HashMap;
+use std::num::NonZeroU32;
 
 use serde_derive::Serialize;
 
@@ -101,8 +102,9 @@ impl From<&samply_symbols::Error> for Error {
 mod test {
     use std::collections::HashMap;
 
-    use super::super::response_json;
     use serde_json::Result;
+
+    use super::super::response_json;
 
     #[test]
     fn serialize_correctly() -> Result<()> {

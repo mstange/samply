@@ -3,7 +3,6 @@
 #![allow(non_camel_case_types)]
 #![allow(non_upper_case_globals)]
 
-use super::thread_info::{policy_t, thread_info_t};
 use mach::exception_types::{
     exception_behavior_array_t, exception_behavior_t, exception_flavor_array_t,
     exception_mask_array_t, exception_mask_t,
@@ -14,6 +13,8 @@ use mach::message::mach_msg_type_number_t;
 use mach::port::mach_port_t;
 use mach::thread_status::{thread_state_flavor_t, thread_state_t};
 use mach::vm_types::{integer_t, natural_t};
+
+use super::thread_info::{policy_t, thread_info_t};
 
 pub type mach_voucher_t = mach_port_t;
 pub type ipc_voucher_t = mach_voucher_t;

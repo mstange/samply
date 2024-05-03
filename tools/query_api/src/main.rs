@@ -1,6 +1,6 @@
-use clap::Parser;
 use std::path::PathBuf;
 
+use clap::Parser;
 use query_api::query_api;
 
 #[derive(Parser)]

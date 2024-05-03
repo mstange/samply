@@ -64,8 +64,9 @@ impl serde::Serialize for DecodedInstruction {
 
 #[cfg(test)]
 mod test {
-    use super::{DecodedInstruction, Response};
     use serde_json::Result;
+
+    use super::{DecodedInstruction, Response};
 
     #[test]
     fn serialize_correctly() -> Result<()> {

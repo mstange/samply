@@ -1,9 +1,10 @@
+use std::io::Cursor;
+use std::sync::Arc;
+
 use debugid::DebugId;
 use elsa::sync::FrozenVec;
 use gimli::{CieOrFde, Dwarf, EhFrame, EndianSlice, RunTimeEndian, UnwindSection};
 use object::{File, FileKind, Object, ObjectSection, ReadRef};
-use std::io::Cursor;
-use std::sync::Arc;
 use yoke::Yoke;
 use yoke_derive::Yokeable;
 

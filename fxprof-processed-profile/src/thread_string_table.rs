@@ -1,7 +1,7 @@
 use serde::ser::{Serialize, Serializer};
 
-use crate::string_table::{GlobalStringIndex, GlobalStringTable, StringIndex};
-use crate::{fast_hash_map::FastHashMap, string_table::StringTable};
+use crate::fast_hash_map::FastHashMap;
+use crate::string_table::{GlobalStringIndex, GlobalStringTable, StringIndex, StringTable};
 
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct ThreadInternalStringIndex(pub StringIndex);

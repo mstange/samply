@@ -1,3 +1,9 @@
+use std::collections::HashMap;
+use std::fs::{self, File};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+
+use bytes::Bytes;
 use debugid::DebugId;
 use samply_symbols::{
     BreakpadIndex, BreakpadIndexParser, CandidatePathInfo, CodeId, ElfBuildId, FileAndPathHelper,
@@ -7,16 +13,9 @@ use symsrv::{SymsrvDownloader, SymsrvObserver};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use uuid::Uuid;
 
-use std::{
-    collections::HashMap,
-    fs::{self, File},
-    path::{Path, PathBuf},
-    sync::{Arc, Mutex},
-};
-
-use crate::{config::SymbolManagerConfig, debuginfod::DebuginfodSymbolCache, vdso::get_vdso_data};
-
-use bytes::Bytes;
+use crate::config::SymbolManagerConfig;
+use crate::debuginfod::DebuginfodSymbolCache;
+use crate::vdso::get_vdso_data;
 
 /// This is how the symbol file contents are returned. If there's an uncompressed file
 /// in the store, then we return an Mmap of that uncompressed file. If there is no

@@ -1,4 +1,6 @@
-use std::{fmt::Debug, path::Path, sync::Arc};
+use std::fmt::Debug;
+use std::path::Path;
+use std::sync::Arc;
 
 use fxprof_processed_profile::{Symbol, SymbolTable};
 use object::{elf, read, NativeEndian, Object};
@@ -175,9 +177,8 @@ pub fn kernel_module_build_id(
 mod test {
     use debugid::CodeId;
 
-    use crate::linux_shared::kernel_symbols::parse_kallsyms;
-
     use super::build_id_from_notes_section_data;
+    use crate::linux_shared::kernel_symbols::parse_kallsyms;
 
     #[test]
     fn test() {

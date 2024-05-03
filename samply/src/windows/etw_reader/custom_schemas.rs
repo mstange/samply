@@ -1,11 +1,9 @@
 use windows::core::GUID;
 
-use super::{
-    etw_types::DecodingSource,
-    schema::EventSchema,
-    tdh_types::{
-        PrimitiveDesc, Property, PropertyDesc, PropertyFlags, PropertyLength, TdhInType, TdhOutType,
-    },
+use super::etw_types::DecodingSource;
+use super::schema::EventSchema;
+use super::tdh_types::{
+    PrimitiveDesc, Property, PropertyDesc, PropertyFlags, PropertyLength, TdhInType, TdhOutType,
 };
 
 struct PropDesc {

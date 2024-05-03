@@ -1,4 +1,6 @@
-use std::{ffi::OsString, path::PathBuf, time::Duration};
+use std::ffi::OsString;
+use std::path::PathBuf;
+use std::time::Duration;
 
 /// Properties which are meaningful both for recording a fresh process
 /// as well as for recording an existing process.

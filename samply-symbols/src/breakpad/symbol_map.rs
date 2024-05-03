@@ -1,22 +1,20 @@
-use std::{
-    borrow::Cow,
-    collections::{hash_map::Entry, HashMap},
-    sync::Mutex,
-};
+use std::borrow::Cow;
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
+use std::sync::Mutex;
 
 use yoke::Yoke;
 use yoke_derive::Yokeable;
-
-use crate::symbol_map::{GetInnerSymbolMap, SymbolMapTrait};
-use crate::{
-    Error, FileContents, FileContentsWrapper, FrameDebugInfo, FramesLookupResult, LookupAddress,
-    SourceFilePath, SymbolInfo, SyncAddressInfo,
-};
 
 use super::index::{
     BreakpadFileLine, BreakpadFuncSymbol, BreakpadFuncSymbolInfo, BreakpadIndex,
     BreakpadIndexParser, BreakpadInlineOriginLine, BreakpadPublicSymbol, BreakpadPublicSymbolInfo,
     BreakpadSymbolType, FileOrInlineOrigin, ItemMap,
+};
+use crate::symbol_map::{GetInnerSymbolMap, SymbolMapTrait};
+use crate::{
+    Error, FileContents, FileContentsWrapper, FrameDebugInfo, FramesLookupResult, LookupAddress,
+    SourceFilePath, SymbolInfo, SyncAddressInfo,
 };
 
 pub fn get_symbol_map_for_breakpad_sym<FC: FileContents + 'static>(

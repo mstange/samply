@@ -1,5 +1,6 @@
-use serde::ser::{Serialize, Serializer};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use serde::ser::{Serialize, Serializer};
 
 /// A timestamp which anchors the profile in absolute time.
 ///

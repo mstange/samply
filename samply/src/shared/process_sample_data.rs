@@ -5,15 +5,13 @@ use fxprof_processed_profile::{
 };
 use serde_json::json;
 
-use super::{
-    lib_mappings::{LibMappingInfo, LibMappingOpQueue, LibMappingsHierarchy},
-    stack_converter::StackConverter,
-    stack_depth_limiting_frame_iter::StackDepthLimitingFrameIter,
-    types::StackFrame,
-    unresolved_samples::{
-        OtherEventMarkerData, RssStatMarkerData, SampleData, SampleOrMarker,
-        UnresolvedSampleOrMarker, UnresolvedSamples, UnresolvedStacks,
-    },
+use super::lib_mappings::{LibMappingInfo, LibMappingOpQueue, LibMappingsHierarchy};
+use super::stack_converter::StackConverter;
+use super::stack_depth_limiting_frame_iter::StackDepthLimitingFrameIter;
+use super::types::StackFrame;
+use super::unresolved_samples::{
+    OtherEventMarkerData, RssStatMarkerData, SampleData, SampleOrMarker, UnresolvedSampleOrMarker,
+    UnresolvedSamples, UnresolvedStacks,
 };
 
 #[derive(Debug, Clone)]

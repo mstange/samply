@@ -1,8 +1,6 @@
 use framehop::aarch64::UnwindRegsAarch64;
 use framehop::x86_64::UnwindRegsX86_64;
-
 use linux_perf_data::linux_perf_event_reader;
-
 use linux_perf_event_reader::constants::{
     PERF_REG_ARM64_LR, PERF_REG_ARM64_PC, PERF_REG_ARM64_SP, PERF_REG_ARM64_X29, PERF_REG_X86_BP,
     PERF_REG_X86_IP, PERF_REG_X86_SP,

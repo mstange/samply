@@ -8,7 +8,6 @@ use fxprof_processed_profile::{
 
 use super::process_threads::ProcessThreads;
 use super::thread::Thread;
-
 use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::jit_function_add_marker::JitFunctionAddMarker;
 use crate::shared::jit_function_recycler::JitFunctionRecycler;
@@ -19,7 +18,6 @@ use crate::shared::perf_map::try_load_perf_map;
 use crate::shared::process_sample_data::{MarkerSpanOnThread, ProcessSampleData};
 use crate::shared::recycling::{ProcessRecyclingData, ThreadRecycler};
 use crate::shared::timestamp_converter::TimestampConverter;
-
 use crate::shared::unresolved_samples::UnresolvedSamples;
 
 pub struct Process<U> {

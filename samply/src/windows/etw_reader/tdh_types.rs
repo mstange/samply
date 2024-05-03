@@ -10,16 +10,14 @@
 //!
 //! [TryParse]: super::parser::TryParse
 //! [Property]: super::native::tdh_types::Property
-use bitflags::bitflags;
-use num_derive::FromPrimitive;
-use num_derive::ToPrimitive;
-
 use std::rc::Rc;
 
+use bitflags::bitflags;
+use num_derive::{FromPrimitive, ToPrimitive};
+use num_traits::FromPrimitive;
 use windows::Win32::System::Diagnostics::Etw;
 
 use super::etw_types::EventPropertyInfo;
-use num_traits::FromPrimitive;
 
 #[derive(Debug, Clone, Default)]
 pub struct PropertyMapInfo {

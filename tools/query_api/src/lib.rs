@@ -1,11 +1,12 @@
+use std::fs::File;
+use std::path::PathBuf;
+
 pub use samply_api::debugid::{CodeId, DebugId};
 use samply_api::samply_symbols::{
     CandidatePathInfo, FileAndPathHelper, FileAndPathHelperResult, FileLocation, LibraryInfo,
     OptionallySendFuture, SymbolManager,
 };
 use samply_api::Api;
-use std::fs::File;
-use std::path::PathBuf;
 
 pub async fn query_api(request_url: &str, request_json: &str, symbol_directory: PathBuf) -> String {
     let helper = Helper { symbol_directory };

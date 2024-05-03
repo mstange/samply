@@ -7,29 +7,27 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use self::mach_sys::mach_port_deallocate;
-use self::mach_sys::{kern_return_t, mach_msg_body_t, mach_msg_header_t, mach_msg_return_t};
-use self::mach_sys::{mach_msg_ool_descriptor_t, mach_msg_port_descriptor_t, mach_msg_type_name_t};
-use self::mach_sys::{mach_msg_timeout_t, mach_port_limits_t, mach_port_msgcount_t};
-use self::mach_sys::{mach_port_right_t, mach_task_self_, vm_inherit_t};
-
-pub use self::mach_sys::mach_port_t;
-
-use lazy_static::lazy_static;
-use libc::{self, c_char, c_uint, c_void, size_t};
-use rand::{self, Rng};
 use std::cell::Cell;
 use std::ffi::CString;
 use std::fmt::{self, Debug, Formatter};
 use std::io::{Error, ErrorKind};
 use std::marker::PhantomData;
-use std::mem;
 use std::ops::Deref;
-use std::ptr;
-use std::slice;
 use std::sync::RwLock;
 use std::time::Duration;
-use std::usize;
+use std::{mem, ptr, slice, usize};
+
+use lazy_static::lazy_static;
+use libc::{self, c_char, c_uint, c_void, size_t};
+use rand::{self, Rng};
+
+pub use self::mach_sys::mach_port_t;
+use self::mach_sys::{
+    kern_return_t, mach_msg_body_t, mach_msg_header_t, mach_msg_ool_descriptor_t,
+    mach_msg_port_descriptor_t, mach_msg_return_t, mach_msg_timeout_t, mach_msg_type_name_t,
+    mach_port_deallocate, mach_port_limits_t, mach_port_msgcount_t, mach_port_right_t,
+    mach_task_self_, vm_inherit_t,
+};
 
 mod mach_sys;
 

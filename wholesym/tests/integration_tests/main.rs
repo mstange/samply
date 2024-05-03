@@ -2,7 +2,6 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use debugid::DebugId;
-
 use wholesym::{CodeId, FramesLookupResult, LookupAddress};
 
 fn fixtures_dir() -> PathBuf {

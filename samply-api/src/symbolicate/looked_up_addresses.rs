@@ -1,5 +1,6 @@
-use samply_symbols::FrameDebugInfo;
 use std::collections::BTreeMap;
+
+use samply_symbols::FrameDebugInfo;
 
 pub struct AddressResult {
     pub symbol_address: u32,

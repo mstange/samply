@@ -1,12 +1,13 @@
-use bzip2::read::BzDecoder;
-use dump_table::get_table_for_debug_name_and_id;
-use flate2::read::GzDecoder;
-use query_api::{query_api, DebugId};
 use std::collections::HashSet;
 use std::ffi::OsString;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
+
+use bzip2::read::BzDecoder;
+use dump_table::get_table_for_debug_name_and_id;
+use flate2::read::GzDecoder;
+use query_api::{query_api, DebugId};
 use tar::Archive;
 use tempfile::tempdir;
 

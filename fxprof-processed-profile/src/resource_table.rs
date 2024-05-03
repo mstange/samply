@@ -3,8 +3,7 @@ use serde::ser::{Serialize, SerializeMap, Serializer};
 use crate::fast_hash_map::FastHashMap;
 use crate::global_lib_table::{GlobalLibIndex, GlobalLibTable};
 use crate::serialization_helpers::SerializableSingleValueColumn;
-use crate::thread_string_table::ThreadInternalStringIndex;
-use crate::thread_string_table::ThreadStringTable;
+use crate::thread_string_table::{ThreadInternalStringIndex, ThreadStringTable};
 
 #[derive(Debug, Clone, Default)]
 pub struct ResourceTable {

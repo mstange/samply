@@ -3,7 +3,8 @@ use std::collections::BinaryHeap;
 
 use fxprof_processed_profile::{FrameInfo, ProcessHandle, ThreadHandle};
 
-use crate::shared::{jit_function_recycler::JitFunctionRecycler, types::FastHashMap};
+use crate::shared::jit_function_recycler::JitFunctionRecycler;
+use crate::shared::types::FastHashMap;
 
 pub struct ProcessRecyclingData {
     pub process_handle: ProcessHandle,

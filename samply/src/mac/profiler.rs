@@ -1,6 +1,3 @@
-use crossbeam_channel::unbounded;
-use serde_json::to_writer;
-
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fs::File;
@@ -8,6 +5,9 @@ use std::io::BufWriter;
 use std::process::ExitStatus;
 use std::thread;
 use std::time::Duration;
+
+use crossbeam_channel::unbounded;
+use serde_json::to_writer;
 
 use super::error::SamplingError;
 use super::process_launcher::{MachError, ReceivedStuff, TaskAccepter};
