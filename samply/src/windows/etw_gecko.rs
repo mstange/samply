@@ -3,15 +3,14 @@ use std::collections::{HashMap, VecDeque};
 use std::convert::TryInto;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use bitflags::bitflags;
 use debugid::DebugId;
 use fxprof_processed_profile::{
-    debugid, CategoryColor, CategoryHandle, CategoryPairHandle, CpuDelta, FrameFlags, FrameInfo,
-    LibraryInfo, MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema,
-    MarkerSchemaField, MarkerTiming, ProfilerMarker, SamplingInterval, Symbol, SymbolTable,
-    Timestamp,
+    debugid, CategoryColor, CategoryHandle, CategoryPairHandle, CpuDelta, LibraryInfo,
+    MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField,
+    MarkerTiming, ProfilerMarker, SamplingInterval, Symbol, SymbolTable, Timestamp,
 };
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -49,8 +48,6 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
 
     let processing_start_timestamp = Instant::now();
 
-    //let merge_threads = false; // --merge-threads? (merge samples from all interesting apps into a single thread)
-    let _include_idle = false; //pargs.contains("--idle");
     let demand_zero_faults = false; //pargs.contains("--demand-zero-faults");
     let marker_file: Option<String> = None; //pargs.opt_value_from_str("--marker-file").unwrap();
     let _marker_prefix: Option<String> = None; //pargs.opt_value_from_str("--filter-by-marker-prefix").unwrap();
@@ -300,16 +297,6 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
 
                     sample_count += 1;
 
-                    if let Some(idle_handle) = context.get_idle_handle_if_appropriate(thread_id) {
-                        let mut frames = Vec::new();
-                        frames.push(FrameInfo {
-                            frame: fxprof_processed_profile::Frame::Label(context.profile.borrow_mut().intern_string(if thread_id == 0 { "Idle" } else { "Other" })),
-                            category_pair: user_category,
-                            flags: FrameFlags::empty()
-                        });
-                        context.profile.borrow_mut().add_sample(idle_handle, timestamp, frames.into_iter(), Duration::ZERO.into(), 1);
-                    }
-
                     let Some(mut thread) = context.get_thread_mut(thread_id) else { return };
 
                     let off_cpu_sample_group = context_switch_handler.handle_on_cpu_sample(timestamp_raw, &mut thread.context_switch_data);
@@ -324,23 +311,13 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                     //println!("sample {}", thread_id);
                     sample_count += 1;
 
-                    if let Some(idle_handle) = context.get_idle_handle_if_appropriate(thread_id) {
-                        let mut frames = Vec::new();
-                        frames.push(FrameInfo {
-                            frame: fxprof_processed_profile::Frame::Label(context.profile.borrow_mut().intern_string(if thread_id == 0 { "Idle" } else { "Other" })),
-                            category_pair: user_category,
-                            flags: FrameFlags::empty()
-                        });
-                        context.profile.borrow_mut().add_sample(idle_handle, timestamp, frames.into_iter(), Duration::ZERO.into(), 1);
-                    }
-
                     let Some(mut thread) = context.get_thread_mut(thread_id) else { return };
 
                     thread.pending_stacks.push_back(PendingStack { timestamp: timestamp_raw, kernel_stack: None, off_cpu_sample_group: None, on_cpu_sample_cpu_delta: Some(CpuDelta::from_millis(1.0)) });
                 }
                 "MSNT_SystemTrace/PageFault/VirtualAlloc" |
                 "MSNT_SystemTrace/PageFault/VirtualFree" => {
-                    if !context.is_interesting_process(e.EventHeader.ProcessId, None, None) || context.merge_threads {
+                    if !context.is_interesting_process(e.EventHeader.ProcessId, None, None) {
                         return;
                     }
 
