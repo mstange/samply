@@ -219,7 +219,7 @@ impl TraceEventInfoRaw {
                     }
                 }
             }
-            return None;
+            None
         });
         map.clone()
     }
@@ -264,7 +264,14 @@ impl EventSchema for TraceEventInfoRaw {
     fn opcode_name(&self) -> String {
         let opcode_name_offset = TraceEventInfo::from(self).OpcodeNameOffset as usize;
         if opcode_name_offset == 0 {
-            return String::from("");
+            return String::from(match self.opcode() {
+                0 => "Info",
+                1 => "Start",
+                2 => "Stop",
+                3 => "DCStart",
+                4 => "DCStop",
+                _ => "",
+            });
         }
         utils::parse_unk_size_null_utf16_string(&self.info[opcode_name_offset..])
     }

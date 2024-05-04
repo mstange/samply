@@ -156,8 +156,9 @@ pub enum TdhInType {
 
 /// Represent a TDH_OUT_TYPE
 #[repr(u16)]
-#[derive(Debug, Clone, Copy, FromPrimitive, ToPrimitive, PartialEq)]
+#[derive(Debug, Clone, Copy, FromPrimitive, ToPrimitive, PartialEq, Default)]
 pub enum TdhOutType {
+    #[default]
     OutTypeNull,
     OutTypeString,
     OutTypeDateTime,
@@ -191,12 +192,6 @@ pub enum TdhOutType {
     OutTypePkcs7 = 36,
     OutTypeCodePointer = 37,
     OutTypeDatetimeUtc = 38,
-}
-
-impl Default for TdhOutType {
-    fn default() -> TdhOutType {
-        TdhOutType::OutTypeNull
-    }
 }
 
 bitflags! {

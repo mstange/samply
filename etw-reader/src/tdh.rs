@@ -1,10 +1,6 @@
-use std::ffi::OsString;
 use std::ops::Deref;
-use std::os::windows::ffi::OsStringExt;
-use std::ptr;
 
-use windows::core::HRESULT;
-use windows::Win32::Foundation::{ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS, S_OK};
+use windows::Win32::Foundation::{ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS};
 use windows::Win32::System::Diagnostics::Etw;
 use windows::Win32::System::Diagnostics::Etw::{TdhEnumerateProviders, PROVIDER_ENUMERATION_INFO};
 
@@ -52,10 +48,12 @@ pub fn schema_from_tdh(event: &Etw::EVENT_RECORD) -> TdhNativeResult<TraceEventI
 pub(crate) fn property_size(event: &EventRecord, name: &str) -> TdhNativeResult<u32> {
     let mut property_size = 0;
 
-    let mut desc = Etw::PROPERTY_DATA_DESCRIPTOR::default();
-    desc.ArrayIndex = u32::MAX;
-    let utf16_name = name.as_utf16();
-    desc.PropertyName = utf16_name.as_ptr() as u64;
+    let utf16_name = name.to_utf16();
+    let desc = Etw::PROPERTY_DATA_DESCRIPTOR {
+        ArrayIndex: u32::MAX,
+        PropertyName: utf16_name.as_ptr() as u64,
+        ..Default::default()
+    };
 
     unsafe {
         let status = Etw::TdhGetPropertySize(event.deref(), None, &[desc], &mut property_size);
@@ -105,11 +103,10 @@ pub fn list_etw_providers() {
                     len += 1;
                 }
                 let provider_name = unsafe {
-                    OsString::from_wide(std::slice::from_raw_parts(
+                    String::from_utf16(std::slice::from_raw_parts(
                         provider_name_ptr as *const u16,
                         len,
                     ))
-                    .into_string()
                     .unwrap_or_else(|_| "Error converting to string".to_string())
                 };
 

@@ -1,4 +1,20 @@
-#![allow(warnings)]
+use windows::core::{h, HSTRING, PWSTR};
+use windows::Win32::Foundation::{
+    GetLastError, ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA, MAX_PATH,
+};
+use windows::Win32::System::Diagnostics::Etw::{
+    EnumerateTraceGuids, EnumerateTraceGuidsEx, TraceGuidQueryInfo, TraceGuidQueryList,
+    CONTROLTRACE_HANDLE, EVENT_TRACE_FLAG, TRACE_GUID_INFO, TRACE_GUID_PROPERTIES,
+    TRACE_PROVIDER_INSTANCE_INFO,
+};
+
+use crate::parser::{Parser, ParserError, TryParse};
+use crate::schema::SchemaLocator;
+use crate::tdh_types::{PrimitiveDesc, PropertyDesc, TdhInType};
+use crate::traits::EncodeUtf16;
+
+#[macro_use]
+extern crate memoffset;
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -6,30 +22,17 @@ use std::hash::BuildHasherDefault;
 use std::mem;
 use std::path::Path;
 
-use bitflags::bitflags;
 use etw_types::EventRecord;
 use fxhash::FxHasher;
-use memoffset::offset_of;
-use parser::{Parser, ParserError, TryParse};
-use schema::SchemaLocator;
-use tdh_types::{PrimitiveDesc, Property, PropertyDesc, TdhInType, TdhOutType};
-use traits::EncodeUtf16;
-use windows::core::{h, Error, HRESULT, HSTRING, PWSTR};
-use windows::Win32::Foundation::{
-    GetLastError, ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA, ERROR_SUCCESS, MAX_PATH,
-};
+use tdh_types::{Property, TdhOutType};
 use windows::Win32::System::Diagnostics::Etw;
-use windows::Win32::System::Diagnostics::Etw::{
-    EnumerateTraceGuids, EnumerateTraceGuidsEx, TraceGuidQueryInfo, TraceGuidQueryList,
-    CONTROLTRACE_HANDLE, EVENT_TRACE_FLAG, TRACE_GUID_INFO, TRACE_GUID_PROPERTIES,
-    TRACE_PROVIDER_INSTANCE_INFO,
-};
 
 // typedef ULONG64 TRACEHANDLE, *PTRACEHANDLE;
 pub(crate) type TraceHandle = u64;
 pub const INVALID_TRACE_HANDLE: TraceHandle = u64::MAX;
 //, WindowsProgramming};
 
+#[allow(non_upper_case_globals, non_camel_case_types)]
 pub mod custom_schemas;
 pub mod etw_types;
 pub mod parser;
@@ -70,8 +73,9 @@ impl std::ops::DerefMut for EventTraceLogfile {
 }
 
 unsafe extern "system" fn trace_callback_thunk(event_record: *mut Etw::EVENT_RECORD) {
-    let f: &mut &mut dyn FnMut(&EventRecord) = std::mem::transmute((*event_record).UserContext);
-    f(std::mem::transmute(event_record))
+    let f: &mut &mut dyn FnMut(&EventRecord) = &mut *((*event_record).UserContext
+        as *mut &mut dyn for<'a> std::ops::FnMut(&'a etw_types::EventRecord));
+    f(&*(event_record as *const etw_types::EventRecord))
 }
 
 pub fn open_trace<F: FnMut(&EventRecord)>(
@@ -83,7 +87,7 @@ pub fn open_trace<F: FnMut(&EventRecord)>(
     #[cfg(windows)]
     let path = HSTRING::from(path.as_os_str());
     #[cfg(not(windows))]
-    let path: HSTRING = panic!();
+    let path = HSTRING::from(path.to_string_lossy().to_string());
     log_file.0.LogFileName = PWSTR(path.as_wide().as_ptr() as *mut _);
     log_file.0.Anonymous1.ProcessTraceMode =
         Etw::PROCESS_TRACE_MODE_EVENT_RECORD | Etw::PROCESS_TRACE_MODE_RAW_TIMESTAMP;
@@ -148,7 +152,7 @@ impl TraceInfo {
         // it doesn't seem like it matters if we fill in trace_name
         self.properties.LoggerNameOffset = offset_of!(TraceInfo, trace_name) as u32;
         self.properties.LogFileNameOffset = offset_of!(TraceInfo, log_file_name) as u32;
-        self.trace_name[..trace_name.len() + 1].copy_from_slice(&trace_name.as_utf16())
+        self.trace_name[..trace_name.len() + 1].copy_from_slice(&trace_name.to_utf16())
     }
 }
 
@@ -183,6 +187,12 @@ impl std::ops::Deref for EnableTraceParameters {
 impl std::ops::DerefMut for EnableTraceParameters {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+impl Default for Provider {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -231,9 +241,9 @@ pub struct Provider {
 }
 
 pub fn start_trace<F: FnMut(&EventRecord)>(mut callback: F) {
-    let guid_str = "22fb2cd6-0e7b-422b-a0c7-2fad1fd0e716";
+    // let guid_str = "22fb2cd6-0e7b-422b-a0c7-2fad1fd0e716";
     let guid_str = "DB6F6DDB-AC77-4E88-8253-819DF9BBF140";
-    let mut video_blt_guid = GUID::from(guid_str); //GUID::from("DB6F6DDB-AC77-4E88-8253-819DF9BBF140");
+    let video_blt_guid = GUID::from(guid_str); //GUID::from("DB6F6DDB-AC77-4E88-8253-819DF9BBF140");
 
     let session_name = h!("aaaaaa");
 
@@ -277,9 +287,9 @@ pub fn start_trace<F: FnMut(&EventRecord)>(mut callback: F) {
     println!("EnableTrace = {}", status);
     */
     unsafe {
-        Etw::EnableTraceEx2(
+        let _ = Etw::EnableTraceEx2(
             handle,
-            &mut video_blt_guid,
+            &video_blt_guid,
             1, // Fixme: EVENT_CONTROL_CODE_ENABLE_PROVIDER
             prov.level,
             prov.any,
@@ -375,7 +385,7 @@ pub fn write_property(
             _ => panic!("{:?}", property.desc),
         };
         if map_info.is_bitmap {
-            let mut remaining_bits_str = String::new();
+            let remaining_bits_str;
             let mut matches: Vec<&str> = Vec::new();
             let mut cleared_value = value;
             for (k, v) in &map_info.map {
@@ -397,7 +407,7 @@ pub fn write_property(
                 map_info
                     .map
                     .get(&value)
-                    .map(|x| Cow::from(x))
+                    .map(Cow::from)
                     .unwrap_or_else(|| Cow::from(format!("Unknown: {}", value)))
             )
             .unwrap();
@@ -507,7 +517,7 @@ pub fn enumerate_trace_guids() {
             ptrs.push(guid)
         }
 
-        let result = unsafe { EnumerateTraceGuids(&mut ptrs.as_mut_slice(), &mut count) };
+        let result = unsafe { EnumerateTraceGuids(ptrs.as_mut_slice(), &mut count) };
         match result.ok() {
             Ok(()) => {
                 for guid in guids[..count as usize].iter() {
@@ -552,8 +562,8 @@ pub fn enumerate_trace_guids_ex(print_instances: bool) {
                     let instance_count =
                         unsafe { *(info.as_ptr() as *const TRACE_GUID_INFO) }.InstanceCount;
                     let mut instance_ptr: *const TRACE_PROVIDER_INSTANCE_INFO = unsafe {
-                        (info.as_ptr().add(mem::size_of::<TRACE_GUID_INFO>())
-                            as *const TRACE_PROVIDER_INSTANCE_INFO)
+                        info.as_ptr().add(mem::size_of::<TRACE_GUID_INFO>())
+                            as *const TRACE_PROVIDER_INSTANCE_INFO
                     };
 
                     for _ in 0..instance_count {
@@ -565,9 +575,8 @@ pub fn enumerate_trace_guids_ex(print_instances: bool) {
                             )
                         }
                         instance_ptr = unsafe {
-                            ((instance_ptr as *const TRACE_PROVIDER_INSTANCE_INFO as *const u8)
-                                .add(instance.NextOffset as usize)
-                                as *const TRACE_PROVIDER_INSTANCE_INFO)
+                            (instance_ptr as *const u8).add(instance.NextOffset as usize)
+                                as *const TRACE_PROVIDER_INSTANCE_INFO
                         };
                     }
                 }

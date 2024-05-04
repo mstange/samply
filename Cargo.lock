@@ -556,6 +556,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "etw-reader"
+version = "0.1.0"
+dependencies = [
+ "bitflags 2.5.0",
+ "fxhash",
+ "memoffset 0.9.1",
+ "num-derive",
+ "num-traits",
+ "once_cell",
+ "windows",
+]
+
+[[package]]
 name = "fallible-iterator"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1154,6 +1167,15 @@ name = "memoffset"
 version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5aa361d4faea93603064a027415f07bd8e1d5c88c9fbf68bf56a285428fd79ce"
+dependencies = [
+ "autocfg",
+]
+
+[[package]]
+name = "memoffset"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
 dependencies = [
  "autocfg",
 ]
@@ -1763,6 +1785,7 @@ dependencies = [
  "ctrlc",
  "debugid",
  "dirs",
+ "etw-reader",
  "flate2",
  "framehop",
  "futures-util",
@@ -1777,7 +1800,7 @@ dependencies = [
  "mach",
  "memchr",
  "memmap2",
- "memoffset",
+ "memoffset 0.6.5",
  "mio",
  "nix",
  "nix-base32",
