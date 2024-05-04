@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 pub struct Xperf {
     arch: String,
-
+    xperf_path: PathBuf,
     state: XperfState,
 }
 
@@ -12,11 +12,13 @@ enum XperfState {
 }
 
 impl Xperf {
-    pub fn new(arch: String) -> Self {
-        Self {
+    pub fn new(arch: String) -> Result<Self, which::Error> {
+        let xperf_path = which::which("xperf")?;
+        Ok(Self {
+            xperf_path,
             arch,
             state: XperfState::Stopped,
-        }
+        })
     }
 
     pub fn start_xperf(&mut self, output_file: &Path) {
@@ -29,7 +31,7 @@ impl Xperf {
         let mut etl_file = output_file.to_path_buf();
         etl_file.set_extension("unmerged-etl");
 
-        let mut xperf = runas::Command::new("xperf");
+        let mut xperf = runas::Command::new(&self.xperf_path);
         // Virtualised ARM64 Windows crashes out on PROFILE tracing, and that's what I'm developing
         // on, so these are hacky args to get me a useful profile that I can work with.
         xperf.arg("-on");
@@ -62,7 +64,7 @@ impl Xperf {
         };
         let merged_etl = unmerged_etl.with_extension("etl");
 
-        let mut xperf = runas::Command::new("xperf");
+        let mut xperf = runas::Command::new(&self.xperf_path);
         xperf.arg("-stop");
         xperf.arg("-d");
         xperf.arg(expand_full_filename_with_cwd(&merged_etl));

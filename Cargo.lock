@@ -1662,7 +1662,7 @@ checksum = "b96d6b6c505282b007a9b009f2aa38b2fd0359b81a0430ceacc60f69ade4c6a0"
 dependencies = [
  "libc",
  "security-framework-sys",
- "which",
+ "which 4.4.2",
  "windows-sys 0.48.0",
 ]
 
@@ -1802,6 +1802,7 @@ dependencies = [
  "tokio-util",
  "uname",
  "uuid",
+ "which 6.0.1",
  "wholesym",
  "windows",
 ]
@@ -2491,6 +2492,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "which"
+version = "6.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8211e4f58a2b2805adfbefbc07bab82958fc91e3836339b1ab7ae32465dce0d7"
+dependencies = [
+ "either",
+ "home",
+ "rustix",
+ "winsafe",
+]
+
+[[package]]
 name = "wholesym"
 version = "0.5.0"
 dependencies = [
@@ -2753,6 +2766,12 @@ dependencies = [
  "cfg-if",
  "windows-sys 0.48.0",
 ]
+
+[[package]]
+name = "winsafe"
+version = "0.0.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d135d17ab770252ad95e9a872d365cf3090e3be864a34ab46f48555993efc904"
 
 [[package]]
 name = "wyz"

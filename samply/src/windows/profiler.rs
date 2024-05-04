@@ -76,7 +76,8 @@ pub fn start_recording(
     let mut pids = Vec::new();
 
     // Start xperf.
-    let mut xperf = Xperf::new(arch.to_string());
+    let mut xperf =
+        Xperf::new(arch.to_string()).unwrap_or_else(|e| panic!("Couldn't find xperf: {e:?}"));
     xperf.start_xperf(&recording_props.output_file);
 
     for _ in 0..process_launch_props.iteration_count {
