@@ -169,12 +169,6 @@ pub struct ProfileContext {
     // TODO no idea how to handle "I'm on aarch64 windows but I'm recording a win64 process".
     // I have no idea how stack traces work in that case anyway, so this is probably moot.
     pub arch: String,
-
-    // the ETL file we're either recording to or parsing from
-    pub etl_file: Option<PathBuf>,
-
-    // if xperf is currently running
-    xperf_running: bool,
 }
 
 impl ProfileContext {
@@ -212,8 +206,6 @@ impl ProfileContext {
             device_mappings: winutils::get_dos_device_mappings(),
             kernel_min,
             arch: arch.to_string(),
-            etl_file: None,
-            xperf_running: false,
         }
     }
 
@@ -517,12 +509,6 @@ impl ProfileContext {
         false
     }
 
-    fn new_with_existing_recording(profile: Profile, arch: &str, etl_file: &Path) -> Self {
-        let mut context = Self::new(profile, arch);
-        context.etl_file = Some(PathBuf::from(etl_file));
-        context
-    }
-
     fn add_kernel_drivers(&mut self) {
         for (path, start_avma, end_avma) in winutils::iter_kernel_drivers() {
             let path = self.map_device_path(&path);
@@ -561,72 +547,6 @@ impl ProfileContext {
             format!("\\\\?\\GLOBALROOT{}", path)
         } else {
             path.into()
-        }
-    }
-
-    pub fn start_xperf(&mut self, output_file: &Path) {
-        // start xperf.exe, logging to the same location as the output file, just with a .etl
-        // extension.
-        let mut etl_file = output_file.to_path_buf();
-        etl_file.set_extension("unmerged-etl");
-
-        let mut xperf = runas::Command::new("xperf");
-        // Virtualised ARM64 Windows crashes out on PROFILE tracing, and that's what I'm developing
-        // on, so these are hacky args to get me a useful profile that I can work with.
-        xperf.arg("-on");
-        if self.arch != "aarch64" {
-            xperf.arg("PROC_THREAD+LOADER+PROFILE+CSWITCH");
-        } else {
-            xperf.arg("PROC_THREAD+LOADER+CSWITCH+SYSCALL+VIRT_ALLOC+OB_HANDLE");
-        }
-        xperf.arg("-stackwalk");
-        if self.arch != "aarch64" {
-            xperf.arg("PROFILE+CSWITCH");
-        } else {
-            xperf.arg("VirtualAlloc+VirtualFree+HandleCreate+HandleClose");
-        }
-        xperf.arg("-f");
-        xperf.arg(expand_full_filename_with_cwd(&etl_file));
-
-        let _ = xperf.status().expect("failed to execute xperf");
-
-        eprintln!("xperf session running...");
-
-        self.etl_file = Some(PathBuf::from(&etl_file));
-        self.xperf_running = true;
-    }
-
-    pub fn stop_xperf(&mut self) {
-        let unmerged_etl = self.etl_file.take().unwrap();
-        let merged_etl = unmerged_etl.with_extension("etl");
-
-        let mut xperf = runas::Command::new("xperf");
-        xperf.arg("-stop");
-        xperf.arg("-d");
-        xperf.arg(expand_full_filename_with_cwd(&merged_etl));
-
-        let _ = xperf
-            .status()
-            .expect("Failed to execute xperf -stop! xperf may still be recording.");
-
-        eprintln!("xperf session stopped.");
-
-        std::fs::remove_file(&unmerged_etl).unwrap_or_else(|_| {
-            panic!(
-                "Failed to delete unmerged ETL file {:?}",
-                unmerged_etl.to_str().unwrap()
-            )
-        });
-
-        self.etl_file = Some(merged_etl);
-        self.xperf_running = false;
-    }
-}
-
-impl Drop for ProfileContext {
-    fn drop(&mut self) {
-        if self.xperf_running {
-            self.stop_xperf();
         }
     }
 }

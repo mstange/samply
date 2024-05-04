@@ -17,6 +17,7 @@ use super::profile_context::ProfileContext;
 use super::{etw_gecko, winutils};
 use crate::server::{start_server_main, ServerProps};
 use crate::shared::recording_props::{ProcessLaunchProps, ProfileCreationProps, RecordingProps};
+use crate::windows::xperf::Xperf;
 
 // Hello intrepid explorer! You may be in this code because you'd like to extend something,
 // or are trying to figure out how various ETW things work. It's not the easiest API!
@@ -82,7 +83,8 @@ pub fn start_recording(
         .ends_with(".etl")
     {
         // Start xperf.
-        context.start_xperf(&recording_props.output_file);
+        let mut xperf = Xperf::new(arch.to_string());
+        xperf.start_xperf(&recording_props.output_file);
 
         for _ in 0..process_launch_props.iteration_count {
             let mut child = std::process::Command::new(&process_launch_props.command_name);
@@ -97,9 +99,11 @@ pub fn start_recording(
                 eprintln!("Child process exited with {:?}", exit_status);
             }
         }
-        context.stop_xperf();
+        let merged_etl = xperf
+            .stop_xperf()
+            .expect("Should have produced a merged ETL file");
 
-        (context.etl_file.clone().unwrap(), false)
+        (merged_etl, false)
     } else {
         eprintln!("Existing ETL");
         if let Some(names) = &profile_creation_props.include_process_names {
