@@ -1,6 +1,6 @@
-use object::{Object, ObjectSection, ObjectSegment, SectionKind};
-
 use std::fmt::Debug;
+
+use object::{Object, ObjectSection, ObjectSegment, SectionKind};
 
 // A file range in an object file, such as a segment or a section,
 // for which we know the corresponding Stated Virtual Memory Address (SVMA).

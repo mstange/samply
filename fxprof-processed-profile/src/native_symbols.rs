@@ -1,11 +1,9 @@
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
-use crate::{
-    fast_hash_map::FastHashMap,
-    global_lib_table::GlobalLibIndex,
-    library_info::Symbol,
-    thread_string_table::{ThreadInternalStringIndex, ThreadStringTable},
-};
+use crate::fast_hash_map::FastHashMap;
+use crate::global_lib_table::GlobalLibIndex;
+use crate::library_info::Symbol;
+use crate::thread_string_table::{ThreadInternalStringIndex, ThreadStringTable};
 
 /// The native symbols that are used by frames in a thread's `FrameTable`.
 /// They can be from different libraries. Only used symbols are included.

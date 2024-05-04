@@ -1,20 +1,19 @@
+#[cfg(feature = "partial_read_stats")]
+use std::cell::RefCell;
 use std::fmt::{Debug, Display};
 use std::future::Future;
-use std::ops::Range;
+use std::marker::PhantomData;
+use std::ops::{Deref, Range};
 use std::str::FromStr;
-use std::{marker::PhantomData, ops::Deref};
 
+#[cfg(feature = "partial_read_stats")]
+use bitvec::{bitvec, prelude::BitVec};
 use debugid::DebugId;
 use object::read::ReadRef;
 use object::FileFlags;
 use uuid::Uuid;
 
 use crate::mapped_path::MappedPath;
-
-#[cfg(feature = "partial_read_stats")]
-use bitvec::{bitvec, prelude::BitVec};
-#[cfg(feature = "partial_read_stats")]
-use std::cell::RefCell;
 
 pub type FileAndPathHelperError = Box<dyn std::error::Error + Send + Sync + 'static>;
 pub type FileAndPathHelperResult<T> = std::result::Result<T, FileAndPathHelperError>;
@@ -307,25 +306,25 @@ impl LibraryInfo {
     /// matches.
     pub fn absorb(&mut self, other: &LibraryInfo) {
         if self.debug_name.is_none() && other.debug_name.is_some() {
-            self.debug_name = other.debug_name.clone();
+            self.debug_name.clone_from(&other.debug_name);
         }
         if self.debug_id.is_none() && other.debug_id.is_some() {
             self.debug_id = other.debug_id;
         }
         if self.debug_path.is_none() && other.debug_path.is_some() {
-            self.debug_path = other.debug_path.clone();
+            self.debug_path.clone_from(&other.debug_path);
         }
         if self.name.is_none() && other.name.is_some() {
-            self.name = other.name.clone();
+            self.name.clone_from(&other.name);
         }
         if self.code_id.is_none() && other.code_id.is_some() {
-            self.code_id = other.code_id.clone();
+            self.code_id.clone_from(&other.code_id);
         }
         if self.path.is_none() && other.path.is_some() {
-            self.path = other.path.clone();
+            self.path.clone_from(&other.path);
         }
         if self.arch.is_none() && other.arch.is_some() {
-            self.arch = other.arch.clone();
+            self.arch.clone_from(&other.arch);
         }
     }
 }

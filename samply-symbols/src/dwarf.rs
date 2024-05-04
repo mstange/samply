@@ -1,11 +1,9 @@
 use std::marker::PhantomData;
 
-use addr2line::fallible_iterator;
-use addr2line::gimli;
+use addr2line::{fallible_iterator, gimli};
 use elsa::sync::FrozenVec;
 use fallible_iterator::FallibleIterator;
-use gimli::DwarfPackage;
-use gimli::{EndianSlice, Reader, RunTimeEndian, SectionId};
+use gimli::{DwarfPackage, EndianSlice, Reader, RunTimeEndian, SectionId};
 use object::read::ReadRef;
 use object::{CompressedFileRange, CompressionFormat};
 

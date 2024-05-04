@@ -1,12 +1,21 @@
+use std::collections::HashMap;
+use std::ops::Range;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
 use byteorder::LittleEndian;
 use debugid::DebugId;
-
 use framehop::{ExplicitModuleSectionInfo, FrameAddress, Module, Unwinder};
 use fxprof_processed_profile::{
-    CpuDelta, LibraryInfo, Profile, ReferenceTimestamp, SamplingInterval, ThreadHandle,
+    CategoryColor, CategoryHandle, CategoryPairHandle, CpuDelta, LibraryHandle, LibraryInfo,
+    MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchemaField, MarkerTiming,
+    Profile, ProfilerMarker, ReferenceTimestamp, SamplingInterval, SymbolTable, ThreadHandle,
 };
-use linux_perf_data::linux_perf_event_reader;
-use linux_perf_data::{DsoInfo, DsoKey, Endianness};
+use linux_perf_data::simpleperf_dso_type::{DSO_DEX_FILE, DSO_KERNEL, DSO_KERNEL_MODULE};
+use linux_perf_data::{
+    linux_perf_event_reader, DsoInfo, DsoKey, Endianness, SimpleperfFileRecord, SimpleperfSymbol,
+    SimpleperfTypeSpecificInfo,
+};
 use linux_perf_event_reader::constants::PERF_CONTEXT_MAX;
 use linux_perf_event_reader::{
     CommOrExecRecord, CommonData, ContextSwitchRecord, ForkOrExitRecord, Mmap2FileId, Mmap2Record,
@@ -15,33 +24,31 @@ use linux_perf_event_reader::{
 use memmap2::Mmap;
 use object::{CompressedFileRange, CompressionFormat, Object, ObjectSection};
 use samply_symbols::{debug_id_for_object, DebugIdExt};
+use serde_json::json;
+use wholesym::samply_symbols::demangle_any;
 use wholesym::{samply_symbols, CodeId, ElfBuildId};
 
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::SystemTime;
-use std::{ops::Range, path::Path};
-
 use super::avma_range::AvmaRange;
-use super::context_switch::{ContextSwitchHandler, OffCpuSampleGroup};
 use super::convert_regs::ConvertRegs;
 use super::event_interpretation::{EventInterpretation, OffCpuIndicator};
 use super::injected_jit_object::{correct_bad_perf_jit_so_file, jit_function_name};
 use super::kernel_symbols::{kernel_module_build_id, KernelSymbols};
 use super::mmap_range_or_vec::MmapRangeOrVec;
 use super::pe_mappings::{PeMappings, SuspectedPeMapping};
+use super::per_cpu::Cpus;
 use super::processes::Processes;
 use super::rss_stat::{RssStat, MM_ANONPAGES, MM_FILEPAGES, MM_SHMEMPAGES, MM_SWAPENTS};
 use super::svma_file_range::compute_vma_bias;
 use super::vdso::VdsoObject;
-
+use crate::shared::context_switch::{ContextSwitchHandler, OffCpuSampleGroup};
 use crate::shared::jit_category_manager::JitCategoryManager;
+use crate::shared::lib_mappings::{AndroidArtInfo, LibMappingInfo};
 use crate::shared::process_sample_data::RssStatMember;
+use crate::shared::recording_props::ProfileCreationProps;
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::types::{StackFrame, StackMode};
 use crate::shared::unresolved_samples::{
-    UnresolvedSamples, UnresolvedStackHandle, UnresolvedStacks,
+    SampleOrMarker, UnresolvedSamples, UnresolvedStackHandle, UnresolvedStacks,
 };
 use crate::shared::utils::open_file_with_fallback;
 
@@ -67,8 +74,13 @@ where
     off_cpu_indicator: Option<OffCpuIndicator>,
     event_names: Vec<String>,
     kernel_symbols: Option<KernelSymbols>,
+    kernel_image_mapping: Option<KernelImageMapping>,
+    simpleperf_symbol_tables_user: HashMap<Vec<u8>, SymbolTableFromSimpleperf>,
+    simpleperf_symbol_tables_kernel_image: Option<Vec<SimpleperfSymbol>>,
+    simpleperf_symbol_tables_kernel_modules: HashMap<Vec<u8>, SymbolTableFromSimpleperf>,
     pe_mappings: PeMappings,
     jit_category_manager: JitCategoryManager,
+    cpus: Option<Cpus>,
 
     /// Whether repeated frames at the base of the stack should be folded
     /// into one frame.
@@ -83,7 +95,8 @@ where
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        product: &str,
+        profile_creation_props: &ProfileCreationProps,
+        reference_timestamp: ReferenceTimestamp,
         delayed_product_name_generator: Option<BoxedProductNameGenerator>,
         build_ids: HashMap<DsoKey, DsoInfo>,
         linux_version: Option<&str>,
@@ -92,16 +105,15 @@ where
         cache: U::Cache,
         extra_binary_artifact_dir: Option<&Path>,
         interpretation: EventInterpretation,
-        reuse_threads: bool,
-        fold_recursive_prefix: bool,
+        simpleperf_symbol_tables: Option<Vec<SimpleperfFileRecord>>,
     ) -> Self {
         let interval = match interpretation.sampling_is_time_based {
             Some(nanos) => SamplingInterval::from_nanos(nanos),
             None => SamplingInterval::from_millis(1),
         };
-        let profile = Profile::new(
-            product,
-            ReferenceTimestamp::from_system_time(SystemTime::now()),
+        let mut profile = Profile::new(
+            &profile_creation_props.profile_name,
+            reference_timestamp,
             interval,
         );
         let (off_cpu_sampling_interval_ns, off_cpu_weight_per_sample) =
@@ -116,15 +128,80 @@ where
                 None
             }
         };
+
+        let mut simpleperf_symbol_tables_user = HashMap::new();
+        let mut simpleperf_symbol_tables_kernel_image = None;
+        let mut simpleperf_symbol_tables_kernel_modules = HashMap::new();
+        if let Some(simpleperf_symbol_tables) = simpleperf_symbol_tables {
+            let dex_category: CategoryPairHandle =
+                profile.add_category("DEX", CategoryColor::Green).into();
+            let oat_category: CategoryPairHandle =
+                profile.add_category("OAT", CategoryColor::Green).into();
+            for f in simpleperf_symbol_tables {
+                let path = f.path.clone().into_bytes();
+                let (category, art_info) = if f.path.ends_with(".oat") {
+                    (Some(oat_category), Some(AndroidArtInfo::DexOrOat))
+                } else if f.r#type == DSO_DEX_FILE {
+                    (Some(dex_category), Some(AndroidArtInfo::DexOrOat))
+                } else if f.path.ends_with("libart.so") {
+                    (None, Some(AndroidArtInfo::LibArt))
+                } else {
+                    (None, None)
+                };
+                if f.r#type == DSO_KERNEL {
+                    simpleperf_symbol_tables_kernel_image = Some(f.symbol);
+                } else {
+                    let file_offset_of_min_vaddr_in_elf_file = match f.type_specific_msg {
+                        Some(SimpleperfTypeSpecificInfo::ElfFile(elf)) => {
+                            Some(elf.file_offset_of_min_vaddr)
+                        }
+                        _ => None,
+                    };
+                    let symbols: Vec<_> = f
+                        .symbol
+                        .iter()
+                        .map(|s| fxprof_processed_profile::Symbol {
+                            address: s.vaddr as u32,
+                            size: Some(s.len),
+                            name: demangle_any(&s.name),
+                        })
+                        .collect();
+                    let symbol_table = SymbolTable::new(symbols);
+                    let symbol_table = SymbolTableFromSimpleperf {
+                        file_offset_of_min_vaddr_in_elf_file,
+                        min_vaddr: f.min_vaddr,
+                        symbol_table: Arc::new(symbol_table),
+                        category,
+                        art_info,
+                    };
+                    if f.r#type == DSO_KERNEL_MODULE {
+                        simpleperf_symbol_tables_kernel_modules.insert(path, symbol_table);
+                    } else {
+                        simpleperf_symbol_tables_user.insert(path, symbol_table);
+                    }
+                }
+            }
+        }
+
         let timestamp_converter = TimestampConverter {
             reference_raw: first_sample_time,
             raw_to_ns_factor: 1,
         };
 
+        let cpus = if profile_creation_props.create_per_cpu_threads {
+            let start_timestamp = timestamp_converter.convert_time(first_sample_time);
+            Some(Cpus::new(start_timestamp, &mut profile))
+        } else {
+            None
+        };
+
         Self {
             profile,
             cache,
-            processes: Processes::new(reuse_threads),
+            processes: Processes::new(
+                profile_creation_props.reuse_threads,
+                profile_creation_props.unlink_aux_files,
+            ),
             timestamp_converter,
             current_sample_time: first_sample_time,
             build_ids,
@@ -138,9 +215,14 @@ where
             off_cpu_indicator: interpretation.off_cpu_indicator,
             event_names: interpretation.event_names,
             kernel_symbols,
+            kernel_image_mapping: None,
+            simpleperf_symbol_tables_user,
+            simpleperf_symbol_tables_kernel_image,
+            simpleperf_symbol_tables_kernel_modules,
             pe_mappings: PeMappings::new(),
             jit_category_manager: JitCategoryManager::new(),
-            fold_recursive_prefix,
+            fold_recursive_prefix: profile_creation_props.fold_recursive_prefix,
+            cpus,
         }
     }
 
@@ -162,6 +244,10 @@ where
     ) {
         let pid = e.pid.expect("Can't handle samples without pids");
         let tid = e.tid.expect("Can't handle samples without tids");
+        if tid == 0 {
+            // Ignore samples in the idle thread.
+            return;
+        }
         let timestamp = e
             .timestamp
             .expect("Can't handle samples without timestamps");
@@ -239,6 +325,46 @@ where
             1,
             None,
         );
+
+        if let (Some(cpu_index), Some(cpus)) = (e.cpu, &mut self.cpus) {
+            let cpu = cpus.get_mut(cpu_index as usize, &mut self.profile);
+
+            let thread_handle = cpu.thread_handle;
+
+            // Consume idle cpu time.
+            let _idle_cpu_sample = self
+                .context_switch_handler
+                .handle_on_cpu_sample(timestamp, &mut cpu.context_switch_data);
+
+            let cpu_delta = if self.off_cpu_indicator.is_some() {
+                CpuDelta::from_nanos(
+                    self.context_switch_handler
+                        .consume_cpu_delta(&mut cpu.context_switch_data),
+                )
+            } else {
+                CpuDelta::from_nanos(0)
+            };
+
+            process.unresolved_samples.add_sample(
+                thread_handle,
+                profile_timestamp,
+                timestamp,
+                stack_index,
+                cpu_delta,
+                1,
+                Some(thread.thread_label_frame.clone()),
+            );
+
+            process.unresolved_samples.add_sample(
+                cpus.combined_thread_handle(),
+                profile_timestamp,
+                timestamp,
+                stack_index,
+                CpuDelta::ZERO,
+                1,
+                Some(thread.thread_label_frame.clone()),
+            );
+        }
     }
 
     pub fn handle_sched_switch_sample<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
@@ -269,15 +395,35 @@ where
         let thread = process.threads.get_thread_by_tid(tid, &mut self.profile);
         thread.off_cpu_stack = Some(stack_index);
 
+        let timestamp_mono = e
+            .timestamp
+            .expect("Can't handle context switch without time");
         if self.off_cpu_indicator == Some(OffCpuIndicator::SchedSwitchAndSamples) {
             // Treat this sched_switch sample as a switch-out.
             // Sometimes we have sched_switch samples but no context switch records; for
             // example when using `simpleperf record --trace-offcpu`.
-            let timestamp = e
-                .timestamp
-                .expect("Can't handle context switch without time");
             self.context_switch_handler
-                .handle_switch_out(timestamp, &mut thread.context_switch_data);
+                .handle_switch_out(timestamp_mono, &mut thread.context_switch_data);
+        }
+
+        if let (Some(cpu_index), Some(cpus)) = (e.cpu, &mut self.cpus) {
+            let stack_index = self.unresolved_stacks.convert(stack.iter().rev().cloned());
+            let cpu = cpus.get_mut(cpu_index as usize, &mut self.profile);
+            let timestamp = self.timestamp_converter.convert_time(timestamp_mono);
+            process.unresolved_samples.add_sample_or_marker(
+                cpu.thread_handle,
+                timestamp,
+                timestamp_mono,
+                stack_index,
+                SampleOrMarker::SchedSwitchMarkerOnCpuTrack,
+            );
+            process.unresolved_samples.add_sample_or_marker(
+                thread.profile_thread,
+                timestamp,
+                timestamp_mono,
+                stack_index,
+                SampleOrMarker::SchedSwitchMarkerOnThreadTrack(cpu_index),
+            );
         }
     }
 
@@ -504,6 +650,8 @@ where
 
     pub fn handle_mmap(&mut self, e: MmapRecord, timestamp: u64) {
         let mut path = e.path.as_slice();
+        self.add_mmap_marker(e.pid, e.tid, &path, timestamp);
+
         if self.check_jitdump_or_marker_file(&path, e.pid, e.tid) {
             // Not a DSO.
             return;
@@ -550,6 +698,8 @@ where
 
     pub fn handle_mmap2(&mut self, e: Mmap2Record, timestamp: u64) {
         let path = e.path.as_slice();
+        self.add_mmap_marker(e.pid, e.tid, &path, timestamp);
+
         if self.check_jitdump_or_marker_file(&path, e.pid, e.tid) {
             // Not a DSO.
             return;
@@ -560,8 +710,15 @@ where
         }
 
         const PROT_EXEC: u32 = 0b100;
-        if e.protection & PROT_EXEC == 0 {
+        if e.protection & PROT_EXEC == 0 && !self.simpleperf_symbol_tables_user.contains_key(&*path)
+        {
             // Ignore non-executable mappings.
+            // Don't ignore mappings that simpleperf found symbols for, even if they're
+            // non-executable. TODO: Find out why .vdex and .jar mappings with symbols aren't
+            // marked as executable in the simpleperf perf.data files. Is simpleperf simply
+            // forgetting to set the right flag? Or are these mappings synthetic? Are we
+            // actually running code from inside these mappings? Surely then the memory must
+            // be executable?
             return;
         }
 
@@ -631,6 +788,10 @@ where
     pub fn handle_context_switch(&mut self, e: ContextSwitchRecord, common: CommonData) {
         let pid = common.pid.expect("Can't handle samples without pids");
         let tid = common.tid.expect("Can't handle samples without tids");
+        if tid == 0 {
+            // Thread 0 is the idle thread. Ignore switch-in and switch-outs.
+            return;
+        }
         let timestamp = common
             .timestamp
             .expect("Can't handle context switch without time");
@@ -659,10 +820,77 @@ where
                         &mut process.unresolved_samples,
                     );
                 }
+                if let (Some(cpus), Some(cpu_index)) = (&mut self.cpus, common.cpu) {
+                    let combined_thread = cpus.combined_thread_handle();
+                    let idle_frame_label = cpus.idle_frame_label();
+                    let cpu = cpus.get_mut(cpu_index as usize, &mut self.profile);
+                    if let Some(idle_cpu_sample) = self
+                        .context_switch_handler
+                        .handle_switch_in(timestamp, &mut cpu.context_switch_data)
+                    {
+                        // Add two samples with a stack saying "<Idle>", with zero weight.
+                        // This will correctly break up the stack chart to show that nothing was running in the idle time.
+                        // This first sample will carry any leftover accumulated running time ("cpu delta"),
+                        // and the second sample is placed at the end of the paused time.
+                        let cpu_delta_ns = self
+                            .context_switch_handler
+                            .consume_cpu_delta(&mut cpu.context_switch_data);
+                        let cpu_delta = CpuDelta::from_nanos(cpu_delta_ns);
+                        let begin_timestamp = self
+                            .timestamp_converter
+                            .convert_time(idle_cpu_sample.begin_timestamp);
+                        process.unresolved_samples.add_sample(
+                            cpu.thread_handle,
+                            begin_timestamp,
+                            idle_cpu_sample.begin_timestamp,
+                            UnresolvedStackHandle::EMPTY,
+                            cpu_delta,
+                            0,
+                            Some(idle_frame_label.clone()),
+                        );
+
+                        // Emit a "rest sample" with a CPU delta of zero covering the rest of the paused range.
+                        let end_timestamp = self
+                            .timestamp_converter
+                            .convert_time(idle_cpu_sample.end_timestamp);
+                        process.unresolved_samples.add_sample(
+                            cpu.thread_handle,
+                            end_timestamp,
+                            idle_cpu_sample.end_timestamp,
+                            UnresolvedStackHandle::EMPTY,
+                            CpuDelta::from_nanos(0),
+                            0,
+                            Some(idle_frame_label),
+                        );
+                    }
+                    cpu.notify_switch_in(
+                        tid,
+                        thread.thread_label(),
+                        timestamp,
+                        &self.timestamp_converter,
+                        &[cpu.thread_handle, combined_thread],
+                        &mut self.profile,
+                    );
+                }
             }
-            ContextSwitchRecord::Out { .. } => {
+            ContextSwitchRecord::Out { preempted, .. } => {
                 self.context_switch_handler
                     .handle_switch_out(timestamp, &mut thread.context_switch_data);
+                if let (Some(cpus), Some(cpu_index)) = (&mut self.cpus, Some(common.cpu.unwrap())) {
+                    let combined_thread = cpus.combined_thread_handle();
+                    let cpu = cpus.get_mut(cpu_index as usize, &mut self.profile);
+                    self.context_switch_handler
+                        .handle_switch_out(timestamp, &mut cpu.context_switch_data);
+                    cpu.notify_switch_out(
+                        tid,
+                        timestamp,
+                        &self.timestamp_converter,
+                        &[cpu.thread_handle, combined_thread],
+                        thread.profile_thread,
+                        preempted,
+                        &mut self.profile,
+                    );
+                }
             }
         }
     }
@@ -835,9 +1063,9 @@ where
         len: u64,
         dso_key: DsoKey,
         build_id: Option<&[u8]>,
-        path: &[u8],
+        path_slice: &[u8],
     ) {
-        let path = std::str::from_utf8(path).unwrap().to_string();
+        let path = std::str::from_utf8(path_slice).unwrap().to_string();
         let build_id: Option<Vec<u8>> = match (build_id, self.kernel_symbols.as_ref()) {
             (None, Some(kernel_symbols)) if kernel_symbols.base_avma == base_address => {
                 Some(kernel_symbols.build_id.clone())
@@ -852,20 +1080,46 @@ where
             .map(|id| DebugId::from_identifier(id, self.endian == Endianness::LittleEndian));
 
         let debug_path = match self.linux_version.as_deref() {
-            Some(linux_version) if path.starts_with("[kernel.kallsyms]") => {
+            Some(linux_version) if dso_key == DsoKey::Kernel => {
                 // Take a guess at the vmlinux debug file path.
                 format!("/usr/lib/debug/boot/vmlinux-{linux_version}")
             }
             _ => path.clone(),
         };
-        let symbol_table = match (&dso_key, &build_id, self.kernel_symbols.as_ref()) {
-            (DsoKey::Kernel, Some(build_id), Some(kernel_symbols))
-                if build_id == &kernel_symbols.build_id && kernel_symbols.base_avma != 0 =>
-            {
-                // Run `echo '0' | sudo tee /proc/sys/kernel/kptr_restrict` to get here without root.
-                Some(kernel_symbols.symbol_table.clone())
+
+        let symbol_table = if dso_key == DsoKey::Kernel {
+            match (&build_id, self.kernel_symbols.as_ref()) {
+                (Some(build_id), Some(kernel_symbols))
+                    if build_id == &kernel_symbols.build_id && kernel_symbols.base_avma != 0 =>
+                {
+                    // Run `echo '0' | sudo tee /proc/sys/kernel/kptr_restrict` to get here without root.
+                    Some(kernel_symbols.symbol_table.clone())
+                }
+                _ => {
+                    if let Some(symbols) = self.simpleperf_symbol_tables_kernel_image.take() {
+                        let symbols: Vec<_> = symbols
+                            .into_iter()
+                            .filter_map(|s| {
+                                let address = s.vaddr.checked_sub(base_address)?;
+                                let address = u32::try_from(address).ok()?;
+                                let sym = fxprof_processed_profile::Symbol {
+                                    address,
+                                    size: Some(s.len),
+                                    name: s.name,
+                                };
+                                Some(sym)
+                            })
+                            .collect();
+                        Some(Arc::new(SymbolTable::new(symbols)))
+                    } else {
+                        None
+                    }
+                }
             }
-            _ => None,
+        } else {
+            self.simpleperf_symbol_tables_kernel_modules
+                .get(path_slice)
+                .map(|s| s.symbol_table.clone())
         };
 
         let lib_handle = self.profile.add_lib(LibraryInfo {
@@ -879,8 +1133,47 @@ where
             arch: None,
             symbol_table,
         });
+        let end_address = base_address + len;
         self.profile
-            .add_kernel_lib_mapping(lib_handle, base_address, base_address + len, 0);
+            .add_kernel_lib_mapping(lib_handle, base_address, end_address, 0);
+
+        if dso_key == DsoKey::Kernel {
+            // Store information about this mapping so that we can later adjust the mapping,
+            // if we find that other kernel modules overlap with it.
+            self.kernel_image_mapping = Some(KernelImageMapping {
+                lib_handle,
+                base_address,
+                end_address,
+            });
+        } else if let Some(kernel_image_mapping) = &self.kernel_image_mapping {
+            // We added a kernel module which is not the main kernel image.
+            // See if the module overlaps with it. This can happen when the main kernel
+            // image is advertised with a bad address range. For example, in profiles from
+            // simpleperf, [kernel.kallsyms] might have the following range:
+            // ffffffdc99610000 - ffffffffffffffff
+            // And then there are kernel modules at ranges that overlap, like this:
+            // ffffffdc9d7d6000 - ffffffdc9d7db000
+            // Whenever we encounter such overlap, we adjust the end_address of the
+            // main kernel image downwards so that there is no overlap.
+            if base_address > kernel_image_mapping.base_address
+                && base_address < kernel_image_mapping.end_address
+            {
+                // This mapping overlaps with the kernel image lib mapping.
+                // This means that the call to `add_kernel_lib_mapping` above caused the main kernel
+                // image mapping to be evicted.
+                //
+                // Adjust the mapping and put it back in.
+                let mut kernel_image_mapping = self.kernel_image_mapping.take().unwrap();
+                kernel_image_mapping.end_address = base_address;
+                self.profile.add_kernel_lib_mapping(
+                    kernel_image_mapping.lib_handle,
+                    kernel_image_mapping.base_address,
+                    kernel_image_mapping.end_address,
+                    0,
+                );
+                self.kernel_image_mapping = Some(kernel_image_mapping);
+            }
+        }
     }
 
     /// Tell the unwinder and the profile about this module.
@@ -905,6 +1198,7 @@ where
         let expected_code_id =
             build_id.map(|build_id| CodeId::ElfBuildId(ElfBuildId::from_bytes(build_id)));
 
+        let original_path = path_slice;
         let Some(path) = path_from_unix_bytes(path_slice) else {
             return;
         };
@@ -933,13 +1227,73 @@ where
             }
         }
 
-        let name = Path::new(&path)
-            .file_name()
-            .map_or("<unknown>".into(), |f| f.to_string_lossy().to_string());
+        let name = match path.rfind('/') {
+            Some(pos) => path[pos + 1..].to_owned(),
+            None => path.clone(),
+        };
 
         let process = self.processes.get_by_pid(process_pid, &mut self.profile);
 
-        // Case 1: We have access to the file that was loaded into the process.
+        // Case 1: There are symbols in the file, if we are importing a perf.data file
+        // that was recorded with simpleperf.
+        if let Some(symbol_table) = self.simpleperf_symbol_tables_user.get(original_path) {
+            let relative_address_at_start = if let Some(file_offset_of_min_vaddr) =
+                &symbol_table.file_offset_of_min_vaddr_in_elf_file
+            {
+                let min_vaddr = symbol_table.min_vaddr;
+                // Example:
+                //  - start_avma: 0x721e13c000
+                //  - mapping_start_file_offset: 0x4535000
+                //  - file_offset_of_min_vaddr: 0x45357e0
+                //  - min_vaddr: 0x45367e0,
+                // println!("file_offset_of_min_vaddr={file_offset_of_min_vaddr:x}, mapping_start_file_offset={mapping_start_file_offset:x}, min_vaddr={min_vaddr:x}, path={path}");
+                let min_vaddr_offset_from_mapping_start =
+                    file_offset_of_min_vaddr.wrapping_sub(mapping_start_file_offset);
+                let vaddr_at_start = min_vaddr.wrapping_sub(min_vaddr_offset_from_mapping_start);
+
+                // Assume vaddr = SVMA == relative address
+                vaddr_at_start as u32
+            } else {
+                // If it's not an ELF file, then this is probably a DEX file.
+                // In a DEX file, SVMA == file offset == relative address
+                mapping_start_file_offset as u32
+            };
+
+            // If we have a build ID, convert it to a debug_id and a code_id.
+            let debug_id = build_id
+                .map(|id| DebugId::from_identifier(id, true)) // TODO: endian
+                .unwrap_or_default();
+            let code_id = build_id
+                .map(|build_id| CodeId::ElfBuildId(ElfBuildId::from_bytes(build_id)).to_string());
+
+            let lib_handle = self.profile.add_lib(LibraryInfo {
+                debug_id,
+                code_id,
+                path: path.clone(),
+                debug_path: path,
+                debug_name: name.clone(),
+                name,
+                arch: None,
+                symbol_table: Some(symbol_table.symbol_table.clone()),
+            });
+            let info = match symbol_table.art_info {
+                Some(AndroidArtInfo::LibArt) => LibMappingInfo::new_libart_mapping(lib_handle),
+                Some(AndroidArtInfo::DexOrOat) => {
+                    LibMappingInfo::new_dex_or_oat_mapping(lib_handle, symbol_table.category)
+                }
+                None => LibMappingInfo::new_lib(lib_handle),
+            };
+            process.add_regular_lib_mapping(
+                timestamp,
+                avma_range.start(),
+                avma_range.end(),
+                relative_address_at_start,
+                info,
+            );
+            return;
+        }
+
+        // Case 2: We have access to the file that was loaded into the process.
         if let Some(file) = file {
             let mmap = match unsafe { memmap2::MmapOptions::new().map(&file) } {
                 Ok(mmap) => Arc::new(mmap),
@@ -1010,13 +1364,13 @@ where
                     avma_range.start(),
                     avma_range.end(),
                     relative_address_at_start,
-                    lib_handle,
+                    LibMappingInfo::new_lib(lib_handle),
                 );
             }
             return;
         }
 
-        // Case 2: This is the VDSO mapping.
+        // Case 3: This is the VDSO mapping.
         if name == "[vdso]" {
             if let Some(vdso) = VdsoObject::shared_instance_for_this_process() {
                 if expected_code_id.as_ref().is_some_and(|expected_code_id| {
@@ -1055,13 +1409,13 @@ where
                     avma_range.start(),
                     avma_range.end(),
                     relative_address_at_start,
-                    lib_handle,
+                    LibMappingInfo::new_lib(lib_handle),
                 );
                 return;
             }
         }
 
-        // Case 3: We don't have access to the file.
+        // Case 4: We don't have access to the file.
 
         // Without access to the binary file, make some guesses. We can't really
         // know what the right base address is because we don't have the section
@@ -1092,7 +1446,7 @@ where
             avma_range.start(),
             avma_range.end(),
             relative_address_at_start,
-            lib_handle,
+            LibMappingInfo::new_lib(lib_handle),
         );
     }
 
@@ -1195,6 +1549,31 @@ where
             text_segment_svma: None,
             text_segment: None,
         }
+    }
+
+    fn add_mmap_marker(&mut self, pid: i32, tid: i32, path_slice: &[u8], timestamp: u64) {
+        if self.current_sample_time == self.timestamp_converter.reference_raw {
+            // Ignore mmap events before the first sample. These events often
+            // have timestamps long in the past.
+            return;
+        }
+        if path_slice.is_empty() {
+            // Ignore mmaps that are not from files.
+            return;
+        }
+        let process = self.processes.get_by_pid(pid, &mut self.profile);
+        let thread = process.threads.get_thread_by_tid(tid, &mut self.profile);
+        let timestamp = timestamp.max(self.timestamp_converter.reference_raw);
+        let timestamp = self.timestamp_converter.convert_time(timestamp);
+        let path = String::from_utf8_lossy(path_slice).into_owned();
+        let marker = MmapMarker(path);
+        self.profile.add_marker(
+            thread.profile_thread,
+            CategoryHandle::OTHER,
+            "mmap",
+            marker,
+            MarkerTiming::Instant(timestamp),
+        );
     }
 }
 
@@ -1311,13 +1690,57 @@ enum MappingType {
     Pe,
 }
 
+struct SymbolTableFromSimpleperf {
+    min_vaddr: u64,
+    file_offset_of_min_vaddr_in_elf_file: Option<u64>,
+    symbol_table: Arc<SymbolTable>,
+    category: Option<CategoryPairHandle>,
+    art_info: Option<AndroidArtInfo>,
+}
+
+struct KernelImageMapping {
+    lib_handle: LibraryHandle,
+    base_address: u64,
+    end_address: u64,
+}
+
 #[cfg(unix)]
 fn path_from_unix_bytes(path_slice: &[u8]) -> Option<&Path> {
     use std::os::unix::ffi::OsStrExt;
     Some(Path::new(std::ffi::OsStr::from_bytes(path_slice)))
 }
 
+// Returns None on Windows if path_slice is not valid utf-8.
 #[cfg(not(unix))]
 fn path_from_unix_bytes(path_slice: &[u8]) -> Option<&Path> {
     Some(Path::new(std::str::from_utf8(path_slice).ok()?))
+}
+
+struct MmapMarker(String);
+
+impl ProfilerMarker for MmapMarker {
+    const MARKER_TYPE_NAME: &'static str = "mmap";
+
+    fn json_marker_data(&self) -> serde_json::Value {
+        json!({
+            "type": Self::MARKER_TYPE_NAME,
+            "name": self.0
+        })
+    }
+
+    fn schema() -> fxprof_processed_profile::MarkerSchema {
+        fxprof_processed_profile::MarkerSchema {
+            type_name: Self::MARKER_TYPE_NAME,
+            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
+            chart_label: Some("{marker.data.name}"),
+            tooltip_label: Some("{marker.name} - {marker.data.name}"),
+            table_label: Some("{marker.name} - {marker.data.name}"),
+            fields: vec![MarkerSchemaField::Dynamic(MarkerDynamicField {
+                key: "name",
+                label: "Details",
+                format: MarkerFieldFormat::String,
+                searchable: true,
+            })],
+        }
+    }
 }

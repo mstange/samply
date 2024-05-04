@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::hash::BuildHasherDefault;
+
 use fxhash::FxHasher;
 use linux_perf_data::linux_perf_event_reader;
 use linux_perf_event_reader::constants::{
@@ -5,9 +8,6 @@ use linux_perf_event_reader::constants::{
     PERF_CONTEXT_USER,
 };
 use linux_perf_event_reader::CpuMode;
-
-use std::collections::HashMap;
-use std::hash::BuildHasherDefault;
 
 pub type FastHashMap<K, V> = HashMap<K, V, BuildHasherDefault<FxHasher>>;
 

@@ -1,8 +1,9 @@
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
-use std::{collections::HashMap, str::FromStr};
+use std::str::FromStr;
 
 use debugid::DebugId;
 use flate2::bufread::GzDecoder;

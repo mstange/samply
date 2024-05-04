@@ -1,7 +1,8 @@
 #![allow(unused)]
 
-use libc::{c_int, c_ulong, pid_t, syscall, SYS_perf_event_open};
 use std::fmt;
+
+use libc::{c_int, c_ulong, pid_t, syscall, SYS_perf_event_open};
 
 #[cfg(target_endian = "big")]
 macro_rules! flag {

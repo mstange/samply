@@ -13,28 +13,28 @@ mod profile_json_preparse;
 mod server;
 mod shared;
 
-use clap::{Args, Parser, Subcommand};
-use profile_json_preparse::parse_libinfo_map_from_profile_file;
-use shared::recording_props::{ProcessLaunchProps, ProfileCreationProps, RecordingProps};
-
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-// To avoid warnings about unused declarations
-#[cfg(target_os = "macos")]
-pub use mac::{kernel_error, thread_act, thread_info};
-
+use clap::{Args, Parser, Subcommand};
 #[cfg(any(target_os = "android", target_os = "linux"))]
 use linux::profiler;
 #[cfg(target_os = "macos")]
 use mac::profiler;
+// To avoid warnings about unused declarations
+#[cfg(target_os = "macos")]
+pub use mac::{kernel_error, thread_act, thread_info};
+use profile_json_preparse::parse_libinfo_map_from_profile_file;
+use server::{start_server_main, PortSelection, ServerProps};
+use shared::included_processes::IncludedProcesses;
+use shared::recording_props::{
+    ProcessLaunchProps, ProfileCreationProps, RecordingMode, RecordingProps,
+};
 #[cfg(target_os = "windows")]
 use windows::profiler;
-
-use server::{start_server_main, PortSelection, ServerProps};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -111,6 +111,14 @@ struct ImportArgs {
 
     #[command(flatten)]
     server_args: ServerArgs,
+
+    /// Only include processes with these names
+    #[arg(long)]
+    process_names: Option<Vec<String>>,
+
+    /// Only include processes with these PIDs
+    #[arg(long)]
+    pids: Option<Vec<u32>>,
 }
 
 #[allow(unused)]
@@ -149,16 +157,20 @@ struct RecordArgs {
 
     /// Profile the execution of this command.
     #[arg(
-        required_unless_present = "pid",
-        conflicts_with = "pid",
+        required_unless_present_any = ["pid", "all"],
+        conflicts_with_all = ["pid", "all"],
         allow_hyphen_values = true,
         trailing_var_arg = true
     )]
     command: Vec<std::ffi::OsString>,
 
     /// Process ID of existing process to attach to (Linux only).
-    #[arg(short, long)]
+    #[arg(short, long, conflicts_with = "all")]
     pid: Option<u32>,
+
+    /// Profile entire system (all processes). Not supported on macOS.
+    #[arg(short, long, conflicts_with = "pid")]
+    all: bool,
 }
 
 #[derive(Debug, Args)]
@@ -190,6 +202,17 @@ pub struct ProfileCreationArgs {
     /// Fold repeated frames at the base of the stack.
     #[arg(long)]
     fold_recursive_prefix: bool,
+
+    /// If a process produces jitdump or marker files, unlink them after
+    /// opening. This ensures that the files will not be left in /tmp,
+    /// but it will also be impossible to look at JIT disassembly, and line
+    /// numbers will be missing for JIT frames.
+    #[arg(long)]
+    unlink_aux_files: bool,
+
+    /// Create a separate thread for each CPU. Not supported on macOS
+    #[arg(long)]
+    per_cpu_threads: bool,
 }
 
 fn main() {
@@ -233,6 +256,7 @@ fn main() {
                 &input_file,
                 &import_args.output,
                 profile_creation_props,
+                import_args.included_processes(),
             );
             if let Some(server_props) = import_args.server_props() {
                 let profile_filename = &import_args.output;
@@ -252,33 +276,24 @@ fn main() {
             target_os = "windows"
         ))]
         Action::Record(record_args) => {
-            let process_launch_props = record_args.process_launch_props();
             let recording_props = record_args.recording_props();
+            let recording_mode = record_args.recording_mode();
             let profile_creation_props = record_args.profile_creation_props();
             let server_props = record_args.server_props();
 
-            if let Some(pid) = record_args.pid {
-                profiler::start_profiling_pid(
-                    pid,
-                    recording_props,
-                    profile_creation_props,
-                    server_props,
-                );
-            } else {
-                let exit_status = match profiler::start_recording(
-                    process_launch_props,
-                    recording_props,
-                    profile_creation_props,
-                    server_props,
-                ) {
-                    Ok(exit_status) => exit_status,
-                    Err(err) => {
-                        eprintln!("Encountered an error during profiling: {err:?}");
-                        std::process::exit(1);
-                    }
-                };
-                std::process::exit(exit_status.code().unwrap_or(0));
-            }
+            let exit_status = match profiler::start_recording(
+                recording_mode,
+                recording_props,
+                profile_creation_props,
+                server_props,
+            ) {
+                Ok(exit_status) => exit_status,
+                Err(err) => {
+                    eprintln!("Encountered an error during profiling: {err:?}");
+                    std::process::exit(1);
+                }
+            };
+            std::process::exit(exit_status.code().unwrap_or(0));
         }
     }
 }
@@ -308,6 +323,18 @@ impl ImportArgs {
             profile_name,
             reuse_threads: self.profile_creation_args.reuse_threads,
             fold_recursive_prefix: self.profile_creation_args.fold_recursive_prefix,
+            unlink_aux_files: self.profile_creation_args.unlink_aux_files,
+            create_per_cpu_threads: self.profile_creation_args.per_cpu_threads,
+        }
+    }
+
+    fn included_processes(&self) -> Option<IncludedProcesses> {
+        match (&self.process_names, &self.pids) {
+            (None, None) => None, // No filtering, include all processes
+            (names, pids) => Some(IncludedProcesses {
+                name_substrings: names.clone().unwrap_or_default(),
+                pids: pids.clone().unwrap_or_default(),
+            }),
         }
     }
 }
@@ -333,7 +360,6 @@ impl RecordArgs {
             std::process::exit(1);
         }
         let interval = Duration::from_secs_f64(1.0 / self.rate);
-
         RecordingProps {
             output_file: self.output.clone(),
             time_limit,
@@ -342,14 +368,17 @@ impl RecordArgs {
         }
     }
 
-    pub fn process_launch_props(&self) -> ProcessLaunchProps {
-        let command = &self.command;
-        let iteration_count = self.iteration_count;
+    pub fn recording_mode(&self) -> RecordingMode {
+        let (command, iteration_count) = match (self.all, &self.pid) {
+            (true, _) => return RecordingMode::All,
+            (false, Some(pid)) => return RecordingMode::Pid(*pid),
+            (false, None) => (&self.command, self.iteration_count),
+        };
+
         assert!(
             !command.is_empty(),
             "CLI parsing should have ensured that we have at least one command name"
         );
-
         let mut env_vars = Vec::new();
         let mut i = 0;
         while let Some((var_name, var_val)) = command.get(i).and_then(|s| split_at_first_equals(s))
@@ -363,29 +392,31 @@ impl RecordArgs {
         }
         let command_name = command[i].clone();
         let args = command[(i + 1)..].to_owned();
-        ProcessLaunchProps {
+        let launch_props = ProcessLaunchProps {
             env_vars,
             command_name,
             args,
             iteration_count,
-        }
+        };
+
+        RecordingMode::Launch(launch_props)
     }
 
-    #[allow(unused)]
     pub fn profile_creation_props(&self) -> ProfileCreationProps {
-        let profile_name = match (self.profile_creation_args.profile_name.clone(), self.pid) {
-            (Some(profile_name), _) => profile_name,
-            (None, Some(pid)) => format!("PID {pid}"),
-            _ => self
-                .process_launch_props()
-                .command_name
-                .to_string_lossy()
-                .to_string(),
-        };
+        let profile_name = self.profile_creation_args.profile_name.clone();
+        let profile_name = profile_name.unwrap_or_else(|| match self.recording_mode() {
+            RecordingMode::All => "All processes".to_string(),
+            RecordingMode::Pid(pid) => format!("PID {pid}"),
+            RecordingMode::Launch(launch_props) => {
+                launch_props.command_name.to_string_lossy().to_string()
+            }
+        });
         ProfileCreationProps {
             profile_name,
             reuse_threads: self.profile_creation_args.reuse_threads,
             fold_recursive_prefix: self.profile_creation_args.fold_recursive_prefix,
+            unlink_aux_files: self.profile_creation_args.unlink_aux_files,
+            create_per_cpu_threads: self.profile_creation_args.per_cpu_threads,
         }
     }
 }
@@ -433,18 +464,79 @@ fn convert_file_to_profile(
     input_file: &File,
     output_filename: &Path,
     profile_creation_props: ProfileCreationProps,
+    included_processes: Option<IncludedProcesses>,
+) {
+    if filename.extension() == Some(OsStr::new("etl")) {
+        convert_etl_file_to_profile(
+            filename,
+            input_file,
+            output_filename,
+            profile_creation_props,
+            included_processes,
+        );
+        return;
+    }
+
+    convert_perf_data_file_to_profile(
+        filename,
+        input_file,
+        output_filename,
+        profile_creation_props,
+    );
+}
+
+#[cfg(target_os = "windows")]
+fn convert_etl_file_to_profile(
+    filename: &Path,
+    _input_file: &File,
+    output_filename: &Path,
+    profile_creation_props: ProfileCreationProps,
+    included_processes: Option<IncludedProcesses>,
+) {
+    windows::import::convert_etl_file_to_profile(
+        filename,
+        output_filename,
+        profile_creation_props,
+        included_processes,
+    );
+}
+
+#[cfg(not(target_os = "windows"))]
+fn convert_etl_file_to_profile(
+    filename: &Path,
+    _input_file: &File,
+    _output_filename: &Path,
+    _profile_creation_props: ProfileCreationProps,
+    _included_processes: Option<IncludedProcesses>,
+) {
+    eprintln!(
+        "Error: Could not import ETW trace from file {}",
+        filename.to_string_lossy()
+    );
+    eprintln!("Importing ETW traces is only supported on Windows.");
+    std::process::exit(1);
+}
+
+fn convert_perf_data_file_to_profile(
+    filename: &Path,
+    input_file: &File,
+    output_filename: &Path,
+    profile_creation_props: ProfileCreationProps,
 ) {
     let path = Path::new(filename)
         .canonicalize()
         .expect("Couldn't form absolute path");
+    let file_meta = input_file.metadata().ok();
+    let file_mod_time = file_meta.and_then(|metadata| metadata.modified().ok());
     let reader = BufReader::new(input_file);
-    let profile = match import::perf::convert(reader, path.parent(), profile_creation_props) {
-        Ok(profile) => profile,
-        Err(error) => {
-            eprintln!("Error importing perf.data file: {:?}", error);
-            std::process::exit(1);
-        }
-    };
+    let profile =
+        match import::perf::convert(reader, file_mod_time, path.parent(), profile_creation_props) {
+            Ok(profile) => profile,
+            Err(error) => {
+                eprintln!("Error importing perf.data file: {:?}", error);
+                std::process::exit(1);
+            }
+        };
     let output_file = match File::create(output_filename) {
         Ok(file) => file,
         Err(err) => {

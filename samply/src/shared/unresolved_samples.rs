@@ -139,6 +139,25 @@ impl UnresolvedSamples {
         });
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_sample_or_marker(
+        &mut self,
+        thread_handle: ThreadHandle,
+        timestamp: Timestamp,
+        timestamp_mono: u64,
+        stack: UnresolvedStackHandle,
+        sample_or_marker: SampleOrMarker,
+    ) {
+        self.samples_and_markers.push(UnresolvedSampleOrMarker {
+            thread_handle,
+            timestamp,
+            timestamp_mono,
+            stack,
+            extra_label_frame: None,
+            sample_or_marker,
+        });
+    }
+
     pub fn add_other_event_marker(
         &mut self,
         thread_handle: ThreadHandle,
@@ -173,6 +192,8 @@ pub enum SampleOrMarker {
     Sample(SampleData),
     RssStatMarker(RssStatMarkerData),
     OtherEventMarker(OtherEventMarkerData),
+    SchedSwitchMarkerOnCpuTrack,
+    SchedSwitchMarkerOnThreadTrack(u32),
 }
 
 #[derive(Debug, Clone)]
@@ -191,14 +212,6 @@ pub struct RssStatMarkerData {
 #[derive(Debug, Clone)]
 pub struct OtherEventMarkerData {
     pub attr_index: usize,
-}
-
-#[derive(Debug, Clone)]
-pub struct UnresolvedRssStatMarker {
-    pub thread_handle: ThreadHandle,
-    pub timestamp: Timestamp,
-    pub timestamp_mono: u64,
-    pub stack: UnresolvedStackHandle,
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]

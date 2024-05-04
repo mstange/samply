@@ -1,17 +1,16 @@
-pub use samply_symbols::debugid;
-use samply_symbols::debugid::DebugId;
-use samply_symbols::{
-    self, CandidatePathInfo, CompactSymbolTable, Error, FileAndPathHelper, FileAndPathHelperResult,
-    FileLocation, LibraryInfo, MultiArchDisambiguator, OptionallySendFuture, SymbolManager,
-};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
+pub use samply_symbols::debugid;
+use samply_symbols::debugid::DebugId;
+use samply_symbols::{
+    self, BinaryImage, CandidatePathInfo, CompactSymbolTable, Error, FileAndPathHelper,
+    FileAndPathHelperResult, FileLocation, LibraryInfo, MultiArchDisambiguator,
+    OptionallySendFuture, SymbolManager,
+};
 #[cfg(feature = "chunked_caching")]
 use samply_symbols::{FileByteSource, FileContents};
-
-use samply_symbols::BinaryImage;
 
 async fn get_library_info_with_dyld_cache_fallback(
     symbol_manager: &SymbolManager<Helper>,

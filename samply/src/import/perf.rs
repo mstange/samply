@@ -1,12 +1,13 @@
-use framehop::{Module, Unwinder};
-use fxprof_processed_profile::Profile;
-use linux_perf_data::linux_perf_event_reader;
-use linux_perf_data::{DsoInfo, DsoKey, PerfFileReader, PerfFileRecord};
-use linux_perf_event_reader::EventRecord;
-
 use std::collections::HashMap;
+use std::fmt::Write;
 use std::io::{Read, Seek};
 use std::path::Path;
+use std::time::SystemTime;
+
+use framehop::{Module, Unwinder};
+use fxprof_processed_profile::{Profile, ReferenceTimestamp};
+use linux_perf_data::{linux_perf_event_reader, DsoInfo, DsoKey, PerfFileReader, PerfFileRecord};
+use linux_perf_event_reader::EventRecord;
 
 use crate::linux_shared::{
     ConvertRegs, ConvertRegsAarch64, ConvertRegsX86_64, Converter, EventInterpretation, KnownEvent,
@@ -25,6 +26,7 @@ pub enum Error {
 
 pub fn convert<C: Read + Seek>(
     cursor: C,
+    file_mod_time: Option<SystemTime>,
     extra_dir: Option<&Path>,
     profile_creation_props: ProfileCreationProps,
 ) -> Result<Profile, Error> {
@@ -37,6 +39,7 @@ pub fn convert<C: Read + Seek>(
             let cache = framehop::aarch64::CacheAarch64::new();
             convert_impl::<framehop::aarch64::UnwinderAarch64<MmapRangeOrVec>, ConvertRegsAarch64, _>(
                 perf_file,
+                file_mod_time,
                 extra_dir,
                 cache,
                 profile_creation_props,
@@ -52,6 +55,7 @@ pub fn convert<C: Read + Seek>(
             let cache = framehop::x86_64::CacheX86_64::new();
             convert_impl::<framehop::x86_64::UnwinderX86_64<MmapRangeOrVec>, ConvertRegsX86_64, _>(
                 perf_file,
+                file_mod_time,
                 extra_dir,
                 cache,
                 profile_creation_props,
@@ -63,6 +67,7 @@ pub fn convert<C: Read + Seek>(
 
 fn convert_impl<U, C, R>(
     file: PerfFileReader<R>,
+    file_mod_time: Option<SystemTime>,
     extra_dir: Option<&Path>,
     cache: U::Cache,
     profile_creation_props: ProfileCreationProps,
@@ -83,16 +88,30 @@ where
         .unwrap()
         .map_or(0, |r| r.first_sample_time);
     let endian = perf_file.endian();
-    let host = perf_file
-        .hostname()
-        .unwrap()
-        .unwrap_or("<unknown host>")
-        .to_owned();
-    let perf_version = perf_file
-        .perf_version()
-        .unwrap()
-        .unwrap_or("<unknown version>")
-        .to_owned();
+    let simpleperf_meta_info = perf_file.simpleperf_meta_info().ok().flatten();
+    let mut product_postfix = String::new();
+    if let Some(host) = perf_file.hostname().ok().flatten() {
+        write!(product_postfix, " on {host}").unwrap();
+    } else if let Some(product_props) = simpleperf_meta_info
+        .as_ref()
+        .and_then(|mi| mi.get("product_props"))
+    {
+        // Example: "Google:Pixel 6:oriole"
+        write!(product_postfix, " on").unwrap();
+        for fragment in product_props.split(':').take(2) {
+            write!(product_postfix, " {fragment}").unwrap();
+        }
+    }
+
+    if let Some(perf_version) = perf_file.perf_version().ok().flatten() {
+        write!(product_postfix, " (perf version {perf_version})").unwrap();
+    } else if let Some(android_version) = simpleperf_meta_info
+        .as_ref()
+        .and_then(|mi| mi.get("android_version"))
+    {
+        write!(product_postfix, " (Android {android_version})").unwrap();
+    }
+
     let linux_version = perf_file.os_release().unwrap();
     let attributes = perf_file.event_attributes();
     if let Ok(Some(cmd_line)) = perf_file.cmdline() {
@@ -102,12 +121,21 @@ where
         eprintln!("event {event_name}");
     }
     let interpretation = EventInterpretation::divine_from_attrs(attributes);
+    let simpleperf_symbol_tables = perf_file.simpleperf_symbol_tables().ok().flatten();
+    let reference_timestamp = if let Some(seconds_since_unix_epoch) =
+        get_simpleperf_timestamp(simpleperf_meta_info.as_ref())
+    {
+        ReferenceTimestamp::from_millis_since_unix_epoch(seconds_since_unix_epoch * 1000.0)
+    } else if let Some(mod_time) = file_mod_time {
+        ReferenceTimestamp::from_system_time(mod_time)
+    } else {
+        ReferenceTimestamp::from_system_time(SystemTime::now())
+    };
 
     let mut converter = Converter::<U>::new(
-        &profile_creation_props.profile_name,
-        Some(Box::new(move |name| {
-            format!("{name} on {host} (perf version {perf_version})")
-        })),
+        &profile_creation_props,
+        reference_timestamp,
+        Some(Box::new(move |name| format!("{name}{product_postfix}"))),
         build_ids,
         linux_version,
         first_sample_time,
@@ -115,8 +143,7 @@ where
         cache,
         extra_dir,
         interpretation.clone(),
-        profile_creation_props.reuse_threads,
-        profile_creation_props.fold_recursive_prefix,
+        simpleperf_symbol_tables,
     );
 
     let mut last_timestamp = 0;
@@ -187,6 +214,12 @@ where
     }
 
     converter.finish()
+}
+
+fn get_simpleperf_timestamp(meta_info: Option<&HashMap<&str, &str>>) -> Option<f64> {
+    let meta_info = meta_info?;
+    let timestamp_str = meta_info.get("timestamp")?;
+    timestamp_str.parse().ok()
 }
 
 /// This is a terrible hack to work around ambiguous build IDs in old versions

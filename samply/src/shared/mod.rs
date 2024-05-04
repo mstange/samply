@@ -1,3 +1,6 @@
+pub mod context_switch;
+pub mod ctrl_c;
+pub mod included_processes;
 pub mod jit_category_manager;
 pub mod jit_function_add_marker;
 pub mod jit_function_recycler;

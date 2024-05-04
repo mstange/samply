@@ -3,10 +3,11 @@
 
 #![warn(clippy::all)]
 
-use object::Object;
-use samply_symbols::object;
 use std::fs;
 use std::path::{Path, PathBuf};
+
+use object::Object;
+use samply_symbols::object;
 use uuid::Uuid;
 
 #[cfg(target_os = "macos")]

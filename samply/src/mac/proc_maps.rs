@@ -1,4 +1,16 @@
+use std::cmp::Ordering;
+use std::collections::HashMap;
+use std::ops::{Deref, Range};
+use std::{mem, ptr};
+
 use dyld_bindings::{dyld_all_image_infos, dyld_image_info};
+#[cfg(target_arch = "aarch64")]
+use framehop::aarch64::PtrAuthMask;
+#[cfg(target_arch = "aarch64")]
+use framehop::aarch64::UnwindRegsAarch64;
+#[cfg(target_arch = "x86_64")]
+use framehop::x86_64::UnwindRegsX86_64;
+use framehop::{FrameAddress, UnwindRegsNative};
 use fxprof_processed_profile::debugid::DebugId;
 use mach::message::mach_msg_type_number_t;
 use mach::port::mach_port_t;
@@ -14,6 +26,8 @@ use mach::vm_inherit::VM_INHERIT_SHARE;
 use mach::vm_page_size::{mach_vm_trunc_page, vm_page_size};
 use mach::vm_prot::{vm_prot_t, VM_PROT_NONE, VM_PROT_READ};
 use mach::vm_types::{mach_vm_address_t, mach_vm_size_t};
+#[cfg(target_arch = "x86_64")]
+use mach::{structs::x86_thread_state64_t, thread_status::x86_THREAD_STATE64};
 use object::macho::{
     MachHeader64, SegmentCommand64, CPU_SUBTYPE_ARM64E, CPU_SUBTYPE_ARM64_ALL, CPU_SUBTYPE_MASK,
     CPU_SUBTYPE_X86_64_ALL, CPU_SUBTYPE_X86_64_H, CPU_TYPE_ARM64, CPU_TYPE_X86_64, MH_EXECUTE,
@@ -22,26 +36,9 @@ use object::read::macho::{MachHeader, Section, Segment};
 use object::LittleEndian;
 #[cfg(target_arch = "aarch64")]
 use once_cell::sync::Lazy;
+use uuid::Uuid;
 use wholesym::samply_symbols::object;
 use wholesym::CodeId;
-
-use std::cmp::Ordering;
-use std::collections::HashMap;
-use std::mem;
-use std::ops::{Deref, Range};
-use std::ptr;
-use uuid::Uuid;
-
-#[cfg(target_arch = "aarch64")]
-use framehop::aarch64::PtrAuthMask;
-#[cfg(target_arch = "aarch64")]
-use framehop::aarch64::UnwindRegsAarch64;
-#[cfg(target_arch = "x86_64")]
-use framehop::x86_64::UnwindRegsX86_64;
-use framehop::{FrameAddress, UnwindRegsNative};
-
-#[cfg(target_arch = "x86_64")]
-use mach::{structs::x86_thread_state64_t, thread_status::x86_THREAD_STATE64};
 
 use super::dyld_bindings::{self};
 use super::error::SamplingError;
@@ -49,13 +46,6 @@ use super::kernel_error::{self, IntoResult, KernelError};
 use super::task_profiler::UnwindSectionBytes;
 
 pub const TASK_DYLD_INFO_COUNT: mach_msg_type_number_t = 5;
-
-#[derive(Debug, Clone)]
-pub struct ThreadInfo {
-    pub tid: u64,
-    pub name: String,
-    pub backtrace: Option<Vec<u64>>,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DyldInfo {

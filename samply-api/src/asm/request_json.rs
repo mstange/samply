@@ -32,9 +32,9 @@ pub struct Request {
 
 #[cfg(test)]
 mod test {
+    use serde_json::Result;
 
     use super::Request;
-    use serde_json::Result;
 
     #[test]
     fn parse_job() -> Result<()> {

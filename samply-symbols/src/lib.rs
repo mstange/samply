@@ -207,14 +207,12 @@
 use std::sync::Arc;
 
 use binary_image::BinaryImageInner;
-pub use debugid;
 use jitdump::JitDumpIndex;
 use linux_perf_data::jitdump::JitDumpReader;
-pub use object;
-pub use pdb_addr2line::pdb;
-
 use object::read::FileKind;
+pub use pdb_addr2line::pdb;
 use shared::FileContentsCursor;
+pub use {debugid, object};
 
 mod binary_image;
 mod breakpad;
@@ -244,6 +242,7 @@ pub use crate::breakpad::{
 pub use crate::cache::{FileByteSource, FileContentsWithChunkedCaching};
 pub use crate::compact_symbol_table::CompactSymbolTable;
 pub use crate::debugid_util::{debug_id_for_object, DebugIdExt};
+pub use crate::demangle::demangle_any;
 pub use crate::error::Error;
 pub use crate::external_file::{load_external_file, ExternalFileSymbolMap};
 pub use crate::jitdump::debug_id_and_code_id_for_jitdump;

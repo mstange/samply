@@ -1,40 +1,40 @@
-use crossbeam_channel::unbounded;
-use serde_json::to_writer;
-
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufWriter;
 use std::process::ExitStatus;
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
+
+use crossbeam_channel::unbounded;
+use serde_json::to_writer;
 
 use super::error::SamplingError;
 use super::process_launcher::{MachError, ReceivedStuff, TaskAccepter};
 use super::sampler::{JitdumpOrMarkerPath, Sampler, TaskInit};
 use super::time::get_monotonic_timestamp;
 use crate::server::{start_server_main, ServerProps};
-use crate::shared::recording_props::{ProcessLaunchProps, ProfileCreationProps, RecordingProps};
-
-pub fn start_profiling_pid(
-    _pid: u32,
-    _recording_props: RecordingProps,
-    _profile_creation_props: ProfileCreationProps,
-    _server_props: Option<ServerProps>,
-) {
-    eprintln!("Profiling existing processes is currently not supported on macOS.");
-    eprintln!("You can only profile processes which you launch via samply.");
-    std::process::exit(1)
-}
+use crate::shared::ctrl_c::CtrlC;
+use crate::shared::recording_props::{
+    ProcessLaunchProps, ProfileCreationProps, RecordingMode, RecordingProps,
+};
 
 pub fn start_recording(
-    process_launch_props: ProcessLaunchProps,
+    recording_mode: RecordingMode,
     recording_props: RecordingProps,
     profile_creation_props: ProfileCreationProps,
     server_props: Option<ServerProps>,
 ) -> Result<ExitStatus, MachError> {
+    let process_launch_props = match recording_mode {
+        RecordingMode::All | RecordingMode::Pid(_) => {
+            // TODO: Implement, by sudo launching a helper process which uses task_for_pid
+            eprintln!("Error: Profiling existing processes is currently not supported on macOS.");
+            eprintln!("You can only profile processes which you launch via samply.");
+            std::process::exit(1)
+        }
+        RecordingMode::Launch(process_launch_props) => process_launch_props,
+    };
+
     let ProcessLaunchProps {
         env_vars,
         command_name,
@@ -56,16 +56,10 @@ pub fn start_recording(
         sampler.run()
     });
 
-    // Ignore SIGINT while the subcommand is running. The signal still reaches the process
+    // Ignore Ctrl+C while the subcommand is running. The signal still reaches the process
     // under observation while we continue to record it. (ctrl+c will send the SIGINT signal
     // to all processes in the foreground process group).
-    let should_terminate_on_ctrl_c = Arc::new(AtomicBool::new(false));
-    #[cfg(unix)]
-    signal_hook::flag::register_conditional_default(
-        signal_hook::consts::SIGINT,
-        should_terminate_on_ctrl_c.clone(),
-    )
-    .expect("cannot register signal handler");
+    let mut ctrl_c_receiver = CtrlC::observe_oneshot();
 
     let (mut task_accepter, task_launcher) = TaskAccepter::new(&command_name, &args, &env_vars)?;
 
@@ -161,7 +155,7 @@ pub fn start_recording(
     }
 
     // The launched subprocess is done. From now on, we want to terminate if the user presses Ctrl+C.
-    should_terminate_on_ctrl_c.store(true, std::sync::atomic::Ordering::SeqCst);
+    ctrl_c_receiver.close();
 
     accepter_sender
         .send(())

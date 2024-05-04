@@ -15,7 +15,7 @@ fxprof-processed-profile = { version = "0.7", path = "../fxprof-processed-profil
 # framehop = { path = "../../framehop" }
 framehop = "0.11.1"
 # linux-perf-data = { path = "../../linux-perf-data" }
-linux-perf-data = "0.9.0"
+linux-perf-data = "0.10.1"
 
 tokio = { version = "1.37.0", features = ["rt", "rt-multi-thread", "macros"] }
 tokio-util = "0.7.10"
@@ -28,8 +28,8 @@ byteorder = "1.4.3"
 debugid = "0.8.0"
 memchr = "2.7.2"
 memmap2 = "0.9.4"
-serde_json = "1.0.115"
-thiserror = "1.0.58"
+serde_json = "1.0.116"
+thiserror = "1.0.59"
 tempfile = "3.10.1"
 uuid = {  version = "1.8.0", features = ["v4"] }
 percent-encoding = "2.1.0"
@@ -39,42 +39,63 @@ opener = { version = "0.7.0", default-features = false }
 rand = "0.8.4"
 nix-base32 = "0.1.1"
 serde_derive = "1.0.137"
-serde = "1.0.197"
+serde = "1.0.199"
 wholesym = { version = "0.5.0", path = "../wholesym", features = ["api"]}
 dirs = "5.0.0"
 once_cell = "1.17"
 fxhash = "0.2.1"
 mio = { version = "0.8.11", features = ["os-ext", "os-poll"] }
+ctrlc = "3.4.4"
 
 [target.'cfg(any(target_os = "android", target_os = "macos", target_os = "linux"))'.dependencies]
 
 libc = "0.2.71"
 crossbeam-channel = "0.5.12"
-signal-hook = "0.3.9"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 
 mach = "0.3.2"
 lazy_static = "1.4.0"
-flate2 = "1.0.23"
+flate2 = "1.0.30"
 sysctl = "0.5.4"
 tempfile = "3.10.1"
 
 [target.'cfg(any(target_os = "android", target_os = "linux"))'.dependencies]
 
-parking_lot = "0.12.1"
+parking_lot = "0.12.2"
 num_cpus = "1.13.1"
 uname = "0.1.1"
 nix = { version = "0.28", features = ["fs", "process"] }
 
 [target.'cfg(windows)'.dependencies]
-windows = {  version = "0.56.0", features = ["Win32", "Win32_System_Diagnostics_Etw", "Win32_System", "Win32_System_WindowsProgramming",
-    "Win32_Storage", "Win32_Storage_FileSystem", "Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_Security", "Win32_System_SystemInformation"] }
-ferrisetw = "1.1.0"
+
+rangemap = "1.3.0"
+bitflags = "2.4.2"
+memoffset = "0.6"
 num-traits = "0.2"
 num-derive = "0.4"
+runas = "1.2.0"
+which = "6.0.1"
+
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.56"
+features =  ["Win32",
+             "Win32_Foundation",
+             "Win32_Security",
+             "Win32_Security_Authorization",
+             "Win32_Storage",
+             "Win32_Storage_FileSystem",
+             "Win32_System",
+             "Win32_System_Diagnostics_Debug",
+             "Win32_System_Diagnostics_Etw",
+             "Win32_System_Memory",
+             "Win32_System_ProcessStatus",
+             "Win32_System_SystemInformation",
+             "Win32_System_Threading",
+             "Win32_System_Time",
+             "Win32_System_WindowsProgramming"]
 
 [dependencies.object]
 default-features = false
-features = ["std", "read_core", "elf", "unaligned", "write"]
+features = ["std", "read_core", "elf", "pe", "unaligned", "write"]
 version = "0.35"

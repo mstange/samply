@@ -15,10 +15,10 @@ send_futures = ["samply-symbols/send_futures"]
 
 [dependencies]
 samply-symbols = { version = "0.22.0", path = "../samply-symbols" }
-thiserror = "1.0.58"
-serde = "1.0.197"
+thiserror = "1.0.59"
+serde = "1.0.199"
 serde_derive = "1.0.188"
-serde_json = "1.0.115"
+serde_json = "1.0.116"
 yaxpeax-arch = { version = "0.2.7", default-features = false }
 yaxpeax-x86 = { version = "1.1.4", default-features = false, features = ["std", "fmt"] }
 yaxpeax-arm = { version = "0.2.5", default-features = false, features = ["std"] }
@@ -28,4 +28,4 @@ memmap2 = "0.9.4"
 anyhow = "1.0.81"
 futures = "0.3.5"
 assert-json-diff = "2.0.1"
-serde_json = "1.0.115"
+serde_json = "1.0.116"

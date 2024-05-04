@@ -1,9 +1,8 @@
 use debugid::DebugId;
-use linux_perf_data::{jitdump::JitDumpHeader, linux_perf_event_reader::RawData};
-use object::{
-    read::pe::{ImageNtHeaders, ImageOptionalHeader, PeFile, PeFile32, PeFile64},
-    FileKind, Object, ReadRef,
-};
+use linux_perf_data::jitdump::JitDumpHeader;
+use linux_perf_data::linux_perf_event_reader::RawData;
+use object::read::pe::{ImageNtHeaders, ImageOptionalHeader, PeFile, PeFile32, PeFile64};
+use object::{FileKind, Object, ReadRef};
 
 use crate::debugid_util::{code_id_for_object, debug_id_for_object};
 use crate::error::Error;

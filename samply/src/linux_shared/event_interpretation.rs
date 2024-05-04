@@ -1,10 +1,8 @@
-use linux_perf_data::linux_perf_event_reader;
-use linux_perf_data::AttributeDescription;
-
-use linux_perf_event_reader::{AttrFlags, PerfEventType, SamplingPolicy, SoftwareCounterType};
-
 use std::collections::HashMap;
 use std::fmt::Debug;
+
+use linux_perf_data::{linux_perf_event_reader, AttributeDescription};
+use linux_perf_event_reader::{AttrFlags, PerfEventType, SamplingPolicy, SoftwareCounterType};
 
 #[derive(Debug, Clone)]
 pub enum KnownEvent {

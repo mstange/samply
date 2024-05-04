@@ -13,8 +13,7 @@ use uuid::Uuid;
 use yoke::Yoke;
 use yoke_derive::Yokeable;
 
-use crate::binary_image::BinaryImage;
-use crate::binary_image::BinaryImageInner;
+use crate::binary_image::{BinaryImage, BinaryImageInner};
 use crate::debugid_util::debug_id_for_object;
 use crate::dwarf::Addr2lineContextData;
 use crate::error::Error;

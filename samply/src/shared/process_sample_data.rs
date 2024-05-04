@@ -5,15 +5,13 @@ use fxprof_processed_profile::{
 };
 use serde_json::json;
 
-use super::{
-    lib_mappings::{LibMappingInfo, LibMappingOpQueue, LibMappingsHierarchy},
-    stack_converter::StackConverter,
-    stack_depth_limiting_frame_iter::StackDepthLimitingFrameIter,
-    types::StackFrame,
-    unresolved_samples::{
-        OtherEventMarkerData, RssStatMarkerData, SampleData, SampleOrMarker,
-        UnresolvedSampleOrMarker, UnresolvedSamples, UnresolvedStacks,
-    },
+use super::lib_mappings::{LibMappingInfo, LibMappingOpQueue, LibMappingsHierarchy};
+use super::stack_converter::StackConverter;
+use super::stack_depth_limiting_frame_iter::StackDepthLimitingFrameIter;
+use super::types::StackFrame;
+use super::unresolved_samples::{
+    OtherEventMarkerData, RssStatMarkerData, SampleData, SampleOrMarker, UnresolvedSampleOrMarker,
+    UnresolvedSamples, UnresolvedStacks,
 };
 
 #[derive(Debug, Clone)]
@@ -145,6 +143,28 @@ impl ProcessSampleData {
                         );
                     }
                 }
+                SampleOrMarker::SchedSwitchMarkerOnCpuTrack => {
+                    let timing = MarkerTiming::Instant(timestamp);
+                    profile.add_marker_with_stack(
+                        thread_handle,
+                        CategoryHandle::OTHER,
+                        "sched_switch",
+                        SchedSwitchMarkerOnCpuTrack,
+                        timing,
+                        frames,
+                    );
+                }
+                SampleOrMarker::SchedSwitchMarkerOnThreadTrack(cpu) => {
+                    let timing = MarkerTiming::Instant(timestamp);
+                    profile.add_marker_with_stack(
+                        thread_handle,
+                        CategoryHandle::OTHER,
+                        "sched_switch",
+                        SchedSwitchMarkerOnThreadTrack { cpu },
+                        timing,
+                        frames,
+                    );
+                }
             }
         }
 
@@ -232,10 +252,110 @@ impl ProfilerMarker for OtherEventMarker {
 }
 
 #[derive(Debug, Clone)]
+pub struct UserTimingMarker(pub String);
+
+impl ProfilerMarker for UserTimingMarker {
+    const MARKER_TYPE_NAME: &'static str = "UserTiming";
+
+    fn json_marker_data(&self) -> serde_json::Value {
+        json!({
+            "type": Self::MARKER_TYPE_NAME,
+            "name": self.0,
+        })
+    }
+
+    fn schema() -> MarkerSchema {
+        MarkerSchema {
+            type_name: Self::MARKER_TYPE_NAME,
+            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
+            chart_label: Some("{marker.data.name}"),
+            tooltip_label: Some("{marker.data.name}"),
+            table_label: Some("{marker.data.name}"),
+            fields: vec![
+                MarkerSchemaField::Dynamic(MarkerDynamicField {
+                    key: "name",
+                    label: "Name",
+                    format: MarkerFieldFormat::String,
+                    searchable: true,
+                }),
+                MarkerSchemaField::Static(MarkerStaticField {
+                    label: "Description",
+                    value: "Emitted for performance.mark and performance.measure.",
+                }),
+            ],
+        }
+    }
+}
+
+pub struct SchedSwitchMarkerOnCpuTrack;
+
+impl ProfilerMarker for SchedSwitchMarkerOnCpuTrack {
+    const MARKER_TYPE_NAME: &'static str = "sched_switch";
+
+    fn json_marker_data(&self) -> serde_json::Value {
+        json!({
+            "type": Self::MARKER_TYPE_NAME,
+        })
+    }
+
+    fn schema() -> MarkerSchema {
+        MarkerSchema {
+            type_name: Self::MARKER_TYPE_NAME,
+            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
+            chart_label: None,
+            tooltip_label: None,
+            table_label: None,
+            fields: vec![MarkerSchemaField::Static(MarkerStaticField {
+                label: "Description",
+                value: "Emitted just before a running thread gets moved off-cpu.",
+            })],
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SchedSwitchMarkerOnThreadTrack {
+    cpu: u32,
+}
+
+impl ProfilerMarker for SchedSwitchMarkerOnThreadTrack {
+    const MARKER_TYPE_NAME: &'static str = "sched_switch";
+
+    fn json_marker_data(&self) -> serde_json::Value {
+        json!({
+            "type": Self::MARKER_TYPE_NAME,
+            "cpu": self.cpu,
+        })
+    }
+
+    fn schema() -> MarkerSchema {
+        MarkerSchema {
+            type_name: Self::MARKER_TYPE_NAME,
+            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
+            chart_label: None,
+            tooltip_label: None,
+            table_label: None,
+            fields: vec![
+                MarkerSchemaField::Dynamic(MarkerDynamicField {
+                    key: "cpu",
+                    label: "cpu",
+                    format: MarkerFieldFormat::Integer,
+                    searchable: true,
+                }),
+                MarkerSchemaField::Static(MarkerStaticField {
+                    label: "Description",
+                    value: "Emitted just before a running thread gets moved off-cpu.",
+                }),
+            ],
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct SimpleMarker(pub String);
 
 impl ProfilerMarker for SimpleMarker {
-    const MARKER_TYPE_NAME: &'static str = "UserTiming";
+    const MARKER_TYPE_NAME: &'static str = "SimpleMarker";
 
     fn json_marker_data(&self) -> serde_json::Value {
         json!({

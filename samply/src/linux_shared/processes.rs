@@ -1,11 +1,11 @@
-use framehop::Unwinder;
-use fxprof_processed_profile::{CategoryColor, Profile, Timestamp};
-
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
-use super::process::Process;
+use framehop::Unwinder;
+use fxprof_processed_profile::{CategoryColor, Profile, Timestamp};
 
+use super::process::Process;
+use super::process_threads::make_thread_label_frame;
 use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::jit_function_recycler::JitFunctionRecycler;
 use crate::shared::process_sample_data::ProcessSampleData;
@@ -25,13 +25,16 @@ where
 
     /// The sample data for all removed processes.
     process_sample_datas: Vec<ProcessSampleData>,
+
+    /// Whether aux files (like jitdump) should be unlinked on open
+    unlink_aux_data: bool,
 }
 
 impl<U> Processes<U>
 where
     U: Unwinder + Default,
 {
-    pub fn new(allow_reuse: bool) -> Self {
+    pub fn new(allow_reuse: bool, unlink_aux_data: bool) -> Self {
         let process_recycler = if allow_reuse {
             Some(ProcessRecycler::new())
         } else {
@@ -41,6 +44,7 @@ where
             processes_by_pid: HashMap::new(),
             process_recycler,
             process_sample_datas: Vec::new(),
+            unlink_aux_data,
         }
     }
 
@@ -58,18 +62,22 @@ where
                 {
                     if let Some(ProcessRecyclingData {
                         process_handle,
-                        main_thread_handle,
+                        main_thread_recycling_data,
                         thread_recycler,
                         jit_function_recycler,
                     }) = process_recycler.recycle_by_name(name_ref)
                     {
+                        let (main_thread_handle, main_thread_label_frame) =
+                            main_thread_recycling_data;
                         let process = Process::new(
                             pid,
                             process_handle,
                             main_thread_handle,
+                            main_thread_label_frame,
                             name,
                             Some(thread_recycler),
                             Some(jit_function_recycler),
+                            self.unlink_aux_data,
                         );
                         return entry.insert(process);
                     }
@@ -86,6 +94,8 @@ where
                 if let Some(name) = name.as_deref() {
                     profile.set_thread_name(main_thread_handle, name);
                 }
+                let main_thread_label_frame =
+                    make_thread_label_frame(profile, name.as_deref(), pid, pid);
                 let (thread_recycler, jit_function_recycler) = if self.process_recycler.is_some() {
                     (
                         Some(ThreadRecycler::new()),
@@ -98,9 +108,11 @@ where
                     pid,
                     process_handle,
                     main_thread_handle,
+                    main_thread_label_frame,
                     name,
                     thread_recycler,
                     jit_function_recycler,
+                    self.unlink_aux_data,
                 );
                 entry.insert(process)
             }
@@ -115,6 +127,7 @@ where
                 profile.add_process(&format!("<{pid}>"), pid as u32, fake_start_time);
             let main_thread_handle =
                 profile.add_thread(process_handle, pid as u32, fake_start_time, true);
+            let main_thread_label_frame = make_thread_label_frame(profile, None, pid, pid);
             let (thread_recycler, jit_function_recycler) = if self.process_recycler.is_some() {
                 (
                     Some(ThreadRecycler::new()),
@@ -127,9 +140,11 @@ where
                 pid,
                 process_handle,
                 main_thread_handle,
+                main_thread_label_frame,
                 None, // no name
                 thread_recycler,
                 jit_function_recycler,
+                self.unlink_aux_data,
             )
         })
     }
@@ -173,22 +188,26 @@ where
                 self.recycle_or_get_new(pid, Some(name), timestamp, profile);
             }
             Entry::Occupied(mut entry) => {
-                if entry.get().name.as_deref() == Some(&name) {
+                let process = entry.get_mut();
+                if process.name.as_deref() == Some(&name) {
                     return;
                 }
 
                 if let Some(process_recycler) = self.process_recycler.as_mut() {
-                    if let Some(process_recycling_data) = process_recycler.recycle_by_name(&name) {
-                        let old_recycling_data =
-                            entry.get_mut().swap_recycling_data(process_recycling_data);
-                        if let (Some(old_recycling_data), Some(old_name)) =
-                            (old_recycling_data, entry.get().name.as_deref())
-                        {
-                            process_recycler.add_to_pool(old_name, old_recycling_data);
-                        }
+                    let Some(process_recycling_data) = process_recycler.recycle_by_name(&name)
+                    else {
+                        return;
+                    };
+                    let (old_recycling_data, old_name) =
+                        process.rename_with_recycling(name, process_recycling_data);
+                    if let Some(old_name) = old_name {
+                        process_recycler.add_to_pool(&old_name, old_recycling_data);
                     }
+                } else {
+                    let main_thread_label_frame =
+                        make_thread_label_frame(profile, Some(&name), pid, pid);
+                    process.rename_without_recycling(name, main_thread_label_frame, profile);
                 }
-                entry.get_mut().set_name(name, profile);
             }
         }
     }

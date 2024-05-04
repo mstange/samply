@@ -1,6 +1,7 @@
+use std::borrow::Cow;
 use std::marker::PhantomData;
-use std::sync::Arc;
-use std::{borrow::Cow, slice, sync::Mutex};
+use std::slice;
+use std::sync::{Arc, Mutex};
 
 use addr2line::{LookupResult, SplitDwarfLoad};
 use debugid::DebugId;

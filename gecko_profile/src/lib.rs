@@ -1,12 +1,11 @@
-pub use debugid;
-
-use debugid::{CodeId, DebugId};
-use serde_json::{json, Value};
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-
-use std::cmp::Ordering;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+pub use debugid;
+use debugid::{CodeId, DebugId};
+use serde_json::{json, Value};
 
 mod markers;
 
@@ -832,9 +831,10 @@ impl StringTable {
 
 #[cfg(test)]
 mod test {
+    use std::time::{Duration, Instant, SystemTime};
+
     use assert_json_diff::assert_json_eq;
     use serde_json::json;
-    use std::time::{Duration, Instant, SystemTime};
 
     use crate::{
         MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField,

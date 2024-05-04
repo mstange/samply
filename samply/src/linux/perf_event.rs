@@ -1,16 +1,11 @@
 use std::cell::RefCell;
 use std::cmp::max;
 use std::collections::BinaryHeap;
-use std::io;
-use std::mem;
 use std::ops::Range;
 use std::os::unix::io::RawFd;
-use std::ptr;
 use std::rc::Rc;
-use std::slice;
-use std::sync::atomic::fence;
-use std::sync::atomic::Ordering;
-use std::{cmp, fmt};
+use std::sync::atomic::{fence, Ordering};
+use std::{cmp, fmt, io, mem, ptr, slice};
 
 use libc::{self, c_void, pid_t};
 use linux_perf_data::linux_perf_event_reader;

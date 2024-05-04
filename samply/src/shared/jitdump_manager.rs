@@ -1,10 +1,10 @@
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
 use fxprof_processed_profile::{
     CategoryHandle, LibraryHandle, MarkerTiming, Profile, Symbol, SymbolTable, ThreadHandle,
 };
 use linux_perf_data::jitdump::{JitDumpReader, JitDumpRecord, JitDumpRecordType};
-
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use super::jit_category_manager::JitCategoryManager;
 use super::jit_function_add_marker::JitFunctionAddMarker;
@@ -19,13 +19,15 @@ use super::utils::open_file_with_fallback;
 pub struct JitDumpManager {
     pending_jitdump_paths: Vec<(ThreadHandle, PathBuf, Option<PathBuf>)>,
     processors: Vec<SingleJitDumpProcessor>,
+    unlink_after_open: bool,
 }
 
 impl JitDumpManager {
-    pub fn new() -> Self {
+    pub fn new(unlink_after_open: bool) -> Self {
         JitDumpManager {
             pending_jitdump_paths: Vec::new(),
             processors: Vec::new(),
+            unlink_after_open,
         }
     }
 
@@ -51,13 +53,17 @@ impl JitDumpManager {
                 fn jitdump_reader_for_path(
                     path: &Path,
                     fallback_dir: Option<&Path>,
+                    unlink_after_open: bool,
                 ) -> Option<(JitDumpReader<std::fs::File>, PathBuf)> {
                     let (file, path) = open_file_with_fallback(path, fallback_dir).ok()?;
                     let reader = JitDumpReader::new(file).ok()?;
+                    if unlink_after_open {
+                        std::fs::remove_file(&path).ok()?;
+                    }
                     Some((reader, path))
                 }
                 let Some((reader, actual_path)) =
-                    jitdump_reader_for_path(path, fallback_dir.as_deref())
+                    jitdump_reader_for_path(path, fallback_dir.as_deref(), self.unlink_after_open)
                 else {
                     return true;
                 };

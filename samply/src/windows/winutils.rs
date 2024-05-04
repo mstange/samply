@@ -3,6 +3,7 @@ use std::ffi::{OsStr, OsString};
 use std::mem::size_of;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::ptr::null_mut;
+
 use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::Foundation::{CloseHandle, GetLastError, FALSE, HANDLE, LUID, MAX_PATH};
 use windows::Win32::Security::{
@@ -34,6 +35,7 @@ pub fn is_elevated() -> bool {
     }
 }
 
+#[allow(unused)]
 pub fn enable_debug_privilege() {
     if !is_elevated() {
         // TODO elevate with "runas" verb to pop up UAC dialog.
@@ -74,7 +76,7 @@ pub fn enable_debug_privilege() {
         if AdjustTokenPrivileges(
             h_token,
             FALSE,
-            Some(&mut tp),
+            Some(&tp),
             std::mem::size_of::<TOKEN_PRIVILEGES>() as u32,
             None,
             None,
@@ -153,6 +155,7 @@ pub fn get_dos_device_mappings() -> HashMap<String, String> {
 
 // Iterator returning pathname + start/end range for every kernel driver. These are global in every process
 // in the same location.
+#[allow(unused)]
 pub fn iter_kernel_drivers() -> impl Iterator<Item = (String, u64, u64)> {
     unsafe {
         // Starting in Windows 11 Version 24H2, EnumDeviceDrivers will require SeDebugPrivilege to return valid ImageBase values.
@@ -174,7 +177,7 @@ pub fn iter_kernel_drivers() -> impl Iterator<Item = (String, u64, u64)> {
 
         let mut name_buffer = vec![0u16; MAX_PATH as usize];
         let mut i = 0;
-        return std::iter::from_fn(move || {
+        std::iter::from_fn(move || {
             while i < count {
                 let driver_addr = drivers[i];
                 i += 1;
@@ -201,6 +204,6 @@ pub fn iter_kernel_drivers() -> impl Iterator<Item = (String, u64, u64)> {
             }
 
             None
-        });
+        })
     }
 }

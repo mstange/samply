@@ -1,32 +1,31 @@
+use std::mem;
+
 use framehop::FrameAddress;
-use fxprof_processed_profile::{CpuDelta, Profile, ThreadHandle, Timestamp};
+use fxprof_processed_profile::{CpuDelta, FrameInfo, Profile, ThreadHandle, Timestamp};
 use mach::mach_types::thread_act_t;
 use mach::port::mach_port_t;
 use time::get_monotonic_timestamp;
-
-use std::mem;
-
-use crate::mac::time;
-use crate::shared::recycling::ThreadRecycler;
-use crate::shared::types::{StackFrame, StackMode};
-use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
 
 use super::error::SamplingError;
 use super::kernel_error::{self, IntoResult, KernelError};
 use super::proc_maps::{get_backtrace, ForeignMemory, StackwalkerRef};
 use super::thread_act::thread_info;
-use super::thread_info::time_value;
 use super::thread_info::{
     thread_basic_info_data_t, thread_extended_info_data_t, thread_identifier_info_data_t,
-    thread_info_t, THREAD_BASIC_INFO, THREAD_BASIC_INFO_COUNT, THREAD_EXTENDED_INFO,
+    thread_info_t, time_value, THREAD_BASIC_INFO, THREAD_BASIC_INFO_COUNT, THREAD_EXTENDED_INFO,
     THREAD_EXTENDED_INFO_COUNT, THREAD_IDENTIFIER_INFO, THREAD_IDENTIFIER_INFO_COUNT,
 };
+use crate::mac::time;
+use crate::shared::recycling::ThreadRecycler;
+use crate::shared::types::{StackFrame, StackMode};
+use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
 
 pub struct ThreadProfiler {
     thread_act: thread_act_t,
     name: Option<String>,
-    tid: u32,
-    profile_thread: ThreadHandle,
+    pub(crate) tid: u32,
+    pub(crate) profile_thread: ThreadHandle,
+    thread_label_frame: FrameInfo,
     tick_count: usize,
     stack_memory: ForeignMemory,
     previous_sample_cpu_time_us: u64,
@@ -38,6 +37,7 @@ impl ThreadProfiler {
         task: mach_port_t,
         tid: u32,
         profile_thread: ThreadHandle,
+        thread_label_frame: FrameInfo,
         thread_act: thread_act_t,
         name: Option<String>,
     ) -> Self {
@@ -46,6 +46,7 @@ impl ThreadProfiler {
             tid,
             name,
             profile_thread,
+            thread_label_frame,
             tick_count: 0,
             stack_memory: ForeignMemory::new(task),
             previous_sample_cpu_time_us: 0,
@@ -61,10 +62,11 @@ impl ThreadProfiler {
     ) {
         if self.name.is_none() && self.tick_count % 10 == 0 {
             if let Ok(Some(name)) = get_thread_name(self.thread_act) {
-                if let Some(thread_handle) =
+                if let Some((thread_handle, thread_label_frame)) =
                     thread_recycler.and_then(|tr| tr.recycle_by_name(&name))
                 {
                     self.profile_thread = thread_handle;
+                    self.thread_label_frame = thread_label_frame;
                 } else {
                     profile.set_thread_name(self.profile_thread, &name);
                 }
@@ -199,8 +201,8 @@ impl ThreadProfiler {
         profile.set_thread_end_time(self.profile_thread, end_time);
     }
 
-    pub fn finish(self) -> (Option<String>, ThreadHandle) {
-        (self.name, self.profile_thread)
+    pub fn finish(self) -> (Option<String>, ThreadHandle, FrameInfo) {
+        (self.name, self.profile_thread, self.thread_label_frame)
     }
 }
 

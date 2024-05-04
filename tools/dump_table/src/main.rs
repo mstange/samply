@@ -1,8 +1,9 @@
-use clap::Parser;
-use samply_symbols::{debugid::DebugId, Error};
 use std::path::{Path, PathBuf};
 
+use clap::Parser;
 use dump_table::{dump_table, get_table_for_binary};
+use samply_symbols::debugid::DebugId;
+use samply_symbols::Error;
 
 #[derive(Parser)]
 #[command(
