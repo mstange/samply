@@ -10,10 +10,8 @@ use windows::core::GUID;
 use super::etw_types::EVENT_HEADER_FLAG_32_BIT_HEADER;
 use super::property::{PropertyInfo, PropertyIter};
 use super::schema::TypedEvent;
-use super::tdh_types::{
-    PrimitiveDesc, Property, PropertyDesc, PropertyFlags, PropertyLength, TdhInType, TdhOutType,
-};
-use super::{sddl, tdh, utils};
+use super::tdh_types::{Property, PropertyDesc, PropertyLength, TdhInType, TdhOutType};
+use super::{tdh, utils};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Address {
@@ -215,10 +213,10 @@ impl<'a> Parser<'a> {
                             }
                             TdhInType::InTypeGuid => return Ok(std::mem::size_of::<GUID>()),
                             TdhInType::InTypeUnicodeString => {
-                                return Ok(utils::parse_unk_size_null_unicode_size(&self.buffer))
+                                return Ok(utils::parse_unk_size_null_unicode_size(self.buffer))
                             }
                             TdhInType::InTypeAnsiString => {
-                                return Ok(utils::parse_unk_size_null_ansi_size(&self.buffer));
+                                return Ok(utils::parse_unk_size_null_ansi_size(self.buffer));
                             }
                             _ => {}
                         }
@@ -246,7 +244,7 @@ impl<'a> Parser<'a> {
         for i in self.cache.len()..=indx {
             let curr_prop = self.properties.property(i).unwrap();
 
-            let prop_size = self.find_property_size(&curr_prop)?;
+            let prop_size = self.find_property_size(curr_prop)?;
 
             if self.buffer.len() < prop_size {
                 return Err(ParserError::PropertyError(format!(
@@ -348,7 +346,7 @@ impl TryParse<u64> for Parser<'_> {
                 return Ok(u64::from_ne_bytes(prop_info.buffer.try_into()?));
             }
         }
-        return Err(ParserError::InvalidType);
+        Err(ParserError::InvalidType)
     }
 }
 
@@ -365,7 +363,7 @@ impl TryParse<i64> for Parser<'_> {
                 return Ok(i64::from_ne_bytes(prop_info.buffer.try_into()?));
             }
         }
-        return Err(ParserError::InvalidType);
+        Err(ParserError::InvalidType)
     }
 }
 
@@ -382,7 +380,7 @@ impl TryParse<i32> for Parser<'_> {
                 return Ok(i32::from_ne_bytes(prop_info.buffer.try_into()?));
             }
         }
-        return Err(ParserError::InvalidType);
+        Err(ParserError::InvalidType)
     }
 }
 
@@ -405,21 +403,19 @@ impl TryParse<Address> for Parser<'_> {
                         prop_info.buffer.try_into()?,
                     )));
                 }
-            } else {
-                if desc.in_type == InTypeUInt32
-                    || desc.in_type == InTypePointer
-                    || desc.in_type == InTypeHexInt32
-                {
-                    if std::mem::size_of::<u32>() != prop_info.buffer.len() {
-                        return Err(ParserError::LengthMismatch);
-                    }
-                    return Ok(Address::Address32(u32::from_ne_bytes(
-                        prop_info.buffer.try_into()?,
-                    )));
+            } else if desc.in_type == InTypeUInt32
+                || desc.in_type == InTypePointer
+                || desc.in_type == InTypeHexInt32
+            {
+                if std::mem::size_of::<u32>() != prop_info.buffer.len() {
+                    return Err(ParserError::LengthMismatch);
                 }
+                return Ok(Address::Address32(u32::from_ne_bytes(
+                    prop_info.buffer.try_into()?,
+                )));
             }
         }
-        return Err(ParserError::InvalidType);
+        Err(ParserError::InvalidType)
     }
 }
 
@@ -458,7 +454,7 @@ impl TryParse<f32> for Parser<'_> {
                 return Ok(f32::from_ne_bytes(prop_info.buffer.try_into()?));
             }
         }
-        return Err(ParserError::InvalidType);
+        Err(ParserError::InvalidType)
     }
 }
 

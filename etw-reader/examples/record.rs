@@ -30,13 +30,11 @@ fn main() {
                 //dbg!(&property);
                 print_property(&mut parser, &property, false);
             }
-        } else {
-            if pattern.is_none() {
-                println!(
-                    "unknown event {:x?}:{}",
-                    e.EventHeader.ProviderId, e.EventHeader.EventDescriptor.Opcode
-                );
-            }
+        } else if pattern.is_none() {
+            println!(
+                "unknown event {:x?}:{}",
+                e.EventHeader.ProviderId, e.EventHeader.EventDescriptor.Opcode
+            );
         }
     });
 }

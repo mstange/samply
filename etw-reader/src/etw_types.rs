@@ -219,7 +219,7 @@ impl TraceEventInfoRaw {
                     }
                 }
             }
-            return None;
+            None
         });
         map.clone()
     }

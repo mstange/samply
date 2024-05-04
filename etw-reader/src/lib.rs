@@ -13,11 +13,9 @@ use crate::{
     traits::EncodeUtf16,
 };
 use windows::{
-    core::{h, Error, HRESULT, HSTRING, PWSTR},
+    core::{h, HSTRING, PWSTR},
     Win32::{
-        Foundation::{
-            GetLastError, ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA, ERROR_SUCCESS, MAX_PATH,
-        },
+        Foundation::{GetLastError, ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA, MAX_PATH},
         System::Diagnostics::Etw::{
             EnumerateTraceGuids, EnumerateTraceGuidsEx, TraceGuidQueryInfo, TraceGuidQueryList,
             CONTROLTRACE_HANDLE, EVENT_TRACE_FLAG, TRACE_GUID_INFO, TRACE_GUID_PROPERTIES,
@@ -80,15 +78,13 @@ impl std::ops::DerefMut for EventTraceLogfile {
 }
 
 unsafe extern "system" fn trace_callback_thunk(event_record: *mut Etw::EVENT_RECORD) {
-    let f: &mut &mut dyn FnMut(&EventRecord) = std::mem::transmute((*event_record).UserContext);
-    f(std::mem::transmute(event_record))
+    let f: &mut &mut dyn FnMut(&EventRecord) = &mut *((*event_record).UserContext
+        as *mut &mut dyn for<'a> std::ops::FnMut(&'a etw_types::EventRecord));
+    f(&*(event_record as *const etw_types::EventRecord))
 }
 
-pub fn open_trace<F: FnMut(&EventRecord)>(
-    path: &Path,
-    mut callback: F,
-) -> Result<(), std::io::Error> {
-    let mut log_file = EventTraceLogfile::default();
+pub fn open_trace<F: FnMut(&EventRecord)>(path: &Path, callback: F) -> Result<(), std::io::Error> {
+    let log_file = EventTraceLogfile::default();
 
     #[cfg(windows)]
     let path = HSTRING::from(path.as_os_str());
@@ -191,6 +187,12 @@ impl std::ops::Deref for EnableTraceParameters {
 impl std::ops::DerefMut for EnableTraceParameters {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+impl Default for Provider {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -405,7 +407,7 @@ pub fn write_property(
                 map_info
                     .map
                     .get(&value)
-                    .map(|x| Cow::from(x))
+                    .map(Cow::from)
                     .unwrap_or_else(|| Cow::from(format!("Unknown: {}", value)))
             )
             .unwrap();
@@ -515,7 +517,7 @@ pub fn enumerate_trace_guids() {
             ptrs.push(guid)
         }
 
-        let result = unsafe { EnumerateTraceGuids(&mut ptrs.as_mut_slice(), &mut count) };
+        let result = unsafe { EnumerateTraceGuids(ptrs.as_mut_slice(), &mut count) };
         match result {
             Ok(()) => {
                 for guid in guids[..count as usize].iter() {
@@ -560,8 +562,8 @@ pub fn enumerate_trace_guids_ex(print_instances: bool) {
                     let instance_count =
                         unsafe { *(info.as_ptr() as *const TRACE_GUID_INFO) }.InstanceCount;
                     let mut instance_ptr: *const TRACE_PROVIDER_INSTANCE_INFO = unsafe {
-                        (info.as_ptr().add(mem::size_of::<TRACE_GUID_INFO>())
-                            as *const TRACE_PROVIDER_INSTANCE_INFO)
+                        info.as_ptr().add(mem::size_of::<TRACE_GUID_INFO>())
+                            as *const TRACE_PROVIDER_INSTANCE_INFO
                     };
 
                     for _ in 0..instance_count {
@@ -573,9 +575,9 @@ pub fn enumerate_trace_guids_ex(print_instances: bool) {
                             )
                         }
                         instance_ptr = unsafe {
-                            ((instance_ptr as *const TRACE_PROVIDER_INSTANCE_INFO as *const u8)
+                            (instance_ptr as *const TRACE_PROVIDER_INSTANCE_INFO as *const u8)
                                 .add(instance.NextOffset as usize)
-                                as *const TRACE_PROVIDER_INSTANCE_INFO)
+                                as *const TRACE_PROVIDER_INSTANCE_INFO
                         };
                     }
                 }

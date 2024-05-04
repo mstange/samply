@@ -1,17 +1,14 @@
 use etw_reader::{
     open_trace,
     parser::{Address, Parser, TryParse},
-    print_property,
     schema::SchemaLocator,
 };
 use std::collections::Bound::{Included, Unbounded};
 use std::{
-    cell::Cell,
     collections::{hash_map::Entry, BTreeMap, HashMap},
     convert::TryInto,
     path::Path,
 };
-use windows::Win32::System::Diagnostics::Etw;
 
 /// A single symbol from a [`SymbolTable`].
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -51,7 +48,7 @@ fn main() {
     let mut events: Vec<Event> = Vec::new();
     let mut threads = HashMap::new();
     let mut jscript_symbols: HashMap<u32, BTreeMap<u64, (u64, String)>> = HashMap::new();
-    let mut jscript_sources: HashMap<u64, String> = HashMap::new();
+    let jscript_sources: HashMap<u64, String> = HashMap::new();
     open_trace(Path::new(&std::env::args().nth(1).unwrap()), |e| {
         //dbg!(e.EventHeader.TimeStamp);
 
@@ -72,7 +69,7 @@ fn main() {
                     };
                     let timestamp: u64 = parser.parse("EventTimeStamp");
 
-                    let mut stack: Vec<u64> = parser
+                    let stack: Vec<u64> = parser
                         .buffer
                         .chunks_exact(8)
                         .map(|a| u64::from_ne_bytes(a.try_into().unwrap()))
@@ -88,9 +85,8 @@ fn main() {
                                 if *addr < *sym.0 + sym.1 .0 {
                                     js_stack.push((sym.1 .1.clone(), *addr));
                                     //println!("found match for {} calls {:x}:{}", sym.1.1, child_addr, child);
-                                    child = sym.1 .1.clone();
+                                    child.clone_from(&sym.1 .1);
                                     child_addr = *sym.0;
-                                    return;
                                 }
                             }
                         }
@@ -147,9 +143,7 @@ fn main() {
                             method_start_address.as_u64()
                         );
                     }
-                    let syms = jscript_symbols
-                        .entry(s.process_id())
-                        .or_insert(BTreeMap::new());
+                    let syms = jscript_symbols.entry(s.process_id()).or_default();
                     //let name_and_file = format!("{} {}", method_name, jscript_sources.get(&source_id).map(|x| x.as_ref()).unwrap_or("?"));
                     let start_address = method_start_address.as_u64();
                     let mut overlaps = Vec::new();
@@ -192,13 +186,11 @@ fn main() {
                 let process_id: u32 = parser.parse("ProcessId");
                 processes.insert(process_id, image_file_name);
             }
-        } else {
-            if pattern.is_none() {
-                /*println!(
-                    "unknown event {:x?}:{}",
-                    e.EventHeader.ProviderId, e.EventHeader.EventDescriptor.Opcode
-                );*/
-            }
+        } else if pattern.is_none() {
+            /*println!(
+                "unknown event {:x?}:{}",
+                e.EventHeader.ProviderId, e.EventHeader.EventDescriptor.Opcode
+            );*/
         }
     })
     .unwrap();
@@ -211,7 +203,7 @@ fn main() {
         }
     }
     for (tid, state) in threads {
-        if state.unfinished_kernel_stacks.len() > 0 {
+        if !state.unfinished_kernel_stacks.is_empty() {
             println!(
                 "thread `{tid}` of {} has {} unfinished kernel stacks",
                 state.process_id,

@@ -1,9 +1,6 @@
-use std::ffi::OsString;
 use std::ops::Deref;
-use std::ptr;
 
-use windows::core::HRESULT;
-use windows::Win32::Foundation::{ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS, S_OK};
+use windows::Win32::Foundation::{ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS};
 use windows::Win32::System::Diagnostics::Etw;
 use windows::Win32::System::Diagnostics::Etw::{TdhEnumerateProviders, PROVIDER_ENUMERATION_INFO};
 

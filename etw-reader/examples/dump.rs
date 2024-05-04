@@ -6,11 +6,8 @@ use etw_reader::{
     GUID,
 };
 use std::{collections::HashMap, path::Path};
-use windows::Win32::System::{
-    Diagnostics::Etw::{
-        self, EtwProviderTraitDecodeGuid, EtwProviderTraitTypeGroup, ETW_PROVIDER_TRAIT_TYPE,
-    },
-    SystemInformation::PRODUCT_CORE_COUNTRYSPECIFIC,
+use windows::Win32::System::Diagnostics::Etw::{
+    self, EtwProviderTraitDecodeGuid, EtwProviderTraitTypeGroup,
 };
 
 fn main() {
@@ -86,8 +83,8 @@ fn main() {
                             while data[name_end] != 0 {
                                 name_end += 1;
                             }
-                            let name = String::from_utf8((&data[name_start..name_end]).to_owned())
-                                .unwrap();
+                            let name =
+                                String::from_utf8(data[name_start..name_end].to_owned()).unwrap();
                             println!("  name: {}", name);
 
                             let mut field_start = name_end + 1;
@@ -99,7 +96,7 @@ fn main() {
                                     field_name_end += 1;
                                 }
                                 let field_name = String::from_utf8(
-                                    (&data[field_name_start..field_name_end]).to_owned(),
+                                    data[field_name_start..field_name_end].to_owned(),
                                 )
                                 .unwrap();
                                 println!("  field_name: {}", field_name);
@@ -156,13 +153,13 @@ fn main() {
                             while data[name_end] != 0 {
                                 name_end += 1;
                             }
-                            let name = String::from_utf8((&data[name_start..name_end]).to_owned())
-                                .unwrap();
+                            let name =
+                                String::from_utf8(data[name_start..name_end].to_owned()).unwrap();
                             println!("  name: {}", name);
                             let mut metadata_start = name_end + 1;
                             // ProviderMetadataChunk
                             while metadata_start < data.len() {
-                                let mut metadata_end = metadata_start;
+                                let metadata_end = metadata_start;
                                 let metadata_size = u16::from_ne_bytes(
                                     <[u8; 2]>::try_from(&data[metadata_start..metadata_start + 2])
                                         .unwrap(),
@@ -207,15 +204,11 @@ fn main() {
                 //dbg!(&property);
                 print_property(&mut parser, &property, true);
             }
-        } else {
-            if pattern.is_none() {
-                println!(
-                    "unknown event {:x?}:{} size: {}",
-                    e.EventHeader.ProviderId,
-                    e.EventHeader.EventDescriptor.Opcode,
-                    e.UserDataLength
-                );
-            }
+        } else if pattern.is_none() {
+            println!(
+                "unknown event {:x?}:{} size: {}",
+                e.EventHeader.ProviderId, e.EventHeader.EventDescriptor.Opcode, e.UserDataLength
+            );
         }
     });
 }

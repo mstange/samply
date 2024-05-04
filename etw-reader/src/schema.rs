@@ -1,7 +1,6 @@
 //! ETW Event Schema locator and handler
 //!
 //! This module contains the means needed to locate and interact with the Schema of an ETW event
-use std::any::{Any, TypeId};
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
 
@@ -9,7 +8,6 @@ use once_cell::unsync::OnceCell;
 use windows::core::GUID;
 use windows::Win32::System::Diagnostics::Etw::{self, EVENT_HEADER_FLAG_64_BIT_HEADER};
 
-use super::custom_schemas::EventInfo;
 use super::etw_types::{DecodingSource, EventRecord, TraceEventInfoRaw};
 use super::property::PropertyIter;
 use super::tdh_types::Property;
@@ -74,7 +72,7 @@ impl SchemaKey {
             };
             for e in extended {
                 if e.ExtType as u32 == Etw::EVENT_HEADER_EXT_TYPE_EVENT_SCHEMA_TL {
-                    let mut provider = locator
+                    let provider = locator
                         .tracelogging_providers
                         .entry(event.EventHeader.ProviderId)
                         .or_insert(TraceLoggingProviderIds::new());
@@ -136,10 +134,10 @@ pub trait EventSchema {
     fn property(&self, index: u32) -> Property;
 
     fn event_message(&self) -> Option<String> {
-        return None;
+        None
     }
     fn is_event_metadata(&self) -> bool {
-        return false;
+        false
     }
 }
 
@@ -187,7 +185,7 @@ impl SchemaLocator {
     /// };
     /// ```
     pub fn event_schema<'a>(&mut self, event: &'a EventRecord) -> SchemaResult<TypedEvent<'a>> {
-        let key = SchemaKey::new(&event, self);
+        let key = SchemaKey::new(event, self);
         let info = match self.schemas.entry(key) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {

@@ -33,11 +33,11 @@ pub(crate) type SddlResult<T> = Result<T, SddlNativeError>;
 pub fn convert_sid_to_string(sid: *const u8) -> SddlResult<String> {
     let mut tmp = PSTR::null();
     unsafe {
-        if !Security::Authorization::ConvertSidToStringSidA(
+        if Security::Authorization::ConvertSidToStringSidA(
             PSID(sid as *const _ as *mut _),
             &mut tmp,
         )
-        .is_ok()
+        .is_err()
         {
             return Err(SddlNativeError::IoError(std::io::Error::last_os_error()));
         }

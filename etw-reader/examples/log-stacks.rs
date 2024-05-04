@@ -1,22 +1,19 @@
 use etw_reader::{
     open_trace,
     parser::{Parser, TryParse},
-    print_property,
     schema::SchemaLocator,
 };
 use std::{
-    cell::Cell,
     collections::{hash_map::Entry, HashMap},
     convert::TryInto,
     path::Path,
 };
-use windows::Win32::System::Diagnostics::Etw;
 
 fn is_kernel_address(ip: u64, pointer_size: u32) -> bool {
     if pointer_size == 4 {
         return ip >= 0x80000000;
     }
-    return ip >= 0xFFFF000000000000; // TODO I don't know what the true cutoff is.
+    ip >= 0xFFFF000000000000 // TODO I don't know what the true cutoff is.
 }
 
 struct Event {
@@ -67,7 +64,7 @@ fn main() {
                     };
                     let timestamp: u64 = parser.parse("EventTimeStamp");
 
-                    let mut stack: Vec<u64> = parser
+                    let stack: Vec<u64> = parser
                         .buffer
                         .chunks_exact(8)
                         .map(|a| u64::from_ne_bytes(a.try_into().unwrap()))
@@ -206,20 +203,18 @@ fn main() {
                 stack: None,
                 bad_stack: false,
             });
-        } else {
-            if pattern.is_none() {
-                /*println!(
-                    "unknown event {:x?}:{}",
-                    e.EventHeader.ProviderId, e.EventHeader.EventDescriptor.Opcode
-                );*/
-            }
+        } else if pattern.is_none() {
+            /*println!(
+                "unknown event {:x?}:{}",
+                e.EventHeader.ProviderId, e.EventHeader.EventDescriptor.Opcode
+            );*/
         }
     })
     .unwrap();
     for e in &mut events {
         if let Some(stack) = &e.stack {
             println!("{} {}", e.timestamp, e.name);
-            if (e.bad_stack) {
+            if e.bad_stack {
                 println!("bad stack");
             }
             for addr in stack {
@@ -228,7 +223,7 @@ fn main() {
         }
     }
     for (tid, state) in threads {
-        if state.events_with_unfinished_kernel_stacks.len() > 0 {
+        if !state.events_with_unfinished_kernel_stacks.is_empty() {
             println!(
                 "thread `{tid}` of {} has {} unfinished kernel stacks",
                 state.process_id,
