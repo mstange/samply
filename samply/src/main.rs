@@ -167,7 +167,7 @@ struct RecordArgs {
     pid: Option<u32>,
 
     /// Profile entire system (all processes). Not supported on macOS.
-    #[arg(short, long, conflicts_with = "all")]
+    #[arg(short, long, conflicts_with = "pid")]
     all: Option<u32>,
 }
 
