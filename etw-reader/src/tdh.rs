@@ -1,6 +1,5 @@
 use std::ffi::OsString;
 use std::ops::Deref;
-use std::os::windows::ffi::OsStringExt;
 use std::ptr;
 
 use windows::core::HRESULT;
@@ -105,11 +104,10 @@ pub fn list_etw_providers() {
                     len += 1;
                 }
                 let provider_name = unsafe {
-                    OsString::from_wide(std::slice::from_raw_parts(
+                    String::from_utf16(std::slice::from_raw_parts(
                         provider_name_ptr as *const u16,
                         len,
                     ))
-                    .into_string()
                     .unwrap_or_else(|_| "Error converting to string".to_string())
                 };
 
