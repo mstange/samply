@@ -25,7 +25,7 @@ struct Event {
     thread_id: u32,
     stack: Option<Vec<u64>>,
     cpu: u16,
-    bad_stack: bool
+    bad_stack: bool,
 }
 
 struct ThreadState {
@@ -60,7 +60,6 @@ fn main() {
 
                     let thread_id: u32 = parser.parse("StackThread");
                     let process_id: u32 = parser.parse("StackProcess");
-
 
                     let thread = match threads.entry(thread_id) {
                         Entry::Occupied(e) => e.into_mut(),
@@ -113,9 +112,11 @@ fn main() {
                                         // Microsoft's TraceLog library seems to discard the initial kernel stack replacing
                                         // it with a subsequent one which seems wrong because the initial stack contains
                                         // the address which matches the 'InstructionPointer' field in the SampleProf event.
-                                        // 
+                                        //
                                         // Instead of discarding, we concatenate the stacks
-                                        assert!(thread.events_with_unfinished_kernel_stacks.contains(&i));
+                                        assert!(thread
+                                            .events_with_unfinished_kernel_stacks
+                                            .contains(&i));
                                         existing_stack.extend_from_slice(&stack[..])
                                     }
                                     None => {
@@ -134,24 +135,35 @@ fn main() {
                                 match &mut events[i].stack {
                                     Some(_) => {
                                         // any existing stacks should only have come from kernel stacks
-                                        assert!(thread.events_with_unfinished_kernel_stacks.contains(&i));
+                                        assert!(thread
+                                            .events_with_unfinished_kernel_stacks
+                                            .contains(&i));
                                     }
                                     None => {
                                         events[i].stack = Some(stack.clone());
                                     }
                                 };
-                                if let Some(event_index_with_last_unfinished_stack) = thread.events_with_unfinished_kernel_stacks.last() {
-                                    if events[*event_index_with_last_unfinished_stack].timestamp < events[i].timestamp {
+                                if let Some(event_index_with_last_unfinished_stack) =
+                                    thread.events_with_unfinished_kernel_stacks.last()
+                                {
+                                    if events[*event_index_with_last_unfinished_stack].timestamp
+                                        < events[i].timestamp
+                                    {
                                         // We had an event A with a kernel stack, then an event B without a kernel stack, and this user stack is for B.
                                         // So we must have exited the kernel at some point in between. We would have expected the user stack for A
-                                        // to be captured during that exit. But we didn't get one! The user stack for B might be different from the 
+                                        // to be captured during that exit. But we didn't get one! The user stack for B might be different from the
                                         // (missing) user stack for A.
-                                        println!("missing userspace stack? {} < {}", events[*event_index_with_last_unfinished_stack].timestamp, events[i].timestamp);
-                                        events[*event_index_with_last_unfinished_stack].bad_stack = true;
+                                        println!(
+                                            "missing userspace stack? {} < {}",
+                                            events[*event_index_with_last_unfinished_stack]
+                                                .timestamp,
+                                            events[i].timestamp
+                                        );
+                                        events[*event_index_with_last_unfinished_stack].bad_stack =
+                                            true;
                                     }
                                 }
                                 thread.events_with_unfinished_kernel_stacks.clear();
-
                             }
 
                             found_event = Some(i);
@@ -207,7 +219,9 @@ fn main() {
     for e in &mut events {
         if let Some(stack) = &e.stack {
             println!("{} {}", e.timestamp, e.name);
-            if (e.bad_stack) { println!("bad stack");}
+            if (e.bad_stack) {
+                println!("bad stack");
+            }
             for addr in stack {
                 println!("    {:x}", addr);
             }
@@ -215,7 +229,11 @@ fn main() {
     }
     for (tid, state) in threads {
         if state.events_with_unfinished_kernel_stacks.len() > 0 {
-            println!("thread `{tid}` of {} has {} unfinished kernel stacks", state.process_id, state.events_with_unfinished_kernel_stacks.len());
+            println!(
+                "thread `{tid}` of {} has {} unfinished kernel stacks",
+                state.process_id,
+                state.events_with_unfinished_kernel_stacks.len()
+            );
             for stack in state.events_with_unfinished_kernel_stacks {
                 println!("   {}", events[stack].timestamp);
             }

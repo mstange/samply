@@ -6,33 +6,50 @@ extern crate bitflags;
 #[macro_use]
 extern crate num_derive;
 
-use windows::{core::{h, Error, HRESULT, HSTRING, PWSTR}, Win32::{Foundation::{GetLastError, ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA, ERROR_SUCCESS, MAX_PATH}, System::Diagnostics::Etw::{EnumerateTraceGuids, EnumerateTraceGuidsEx, TraceGuidQueryInfo, TraceGuidQueryList, CONTROLTRACE_HANDLE, EVENT_TRACE_FLAG, TRACE_GUID_INFO, TRACE_GUID_PROPERTIES, TRACE_PROVIDER_INSTANCE_INFO}}};
-use crate::{parser::{Parser, ParserError, TryParse}, schema::SchemaLocator, tdh_types::{PropertyDesc, PrimitiveDesc, TdhInType}, traits::EncodeUtf16};
+use crate::{
+    parser::{Parser, ParserError, TryParse},
+    schema::SchemaLocator,
+    tdh_types::{PrimitiveDesc, PropertyDesc, TdhInType},
+    traits::EncodeUtf16,
+};
+use windows::{
+    core::{h, Error, HRESULT, HSTRING, PWSTR},
+    Win32::{
+        Foundation::{
+            GetLastError, ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA, ERROR_SUCCESS, MAX_PATH,
+        },
+        System::Diagnostics::Etw::{
+            EnumerateTraceGuids, EnumerateTraceGuidsEx, TraceGuidQueryInfo, TraceGuidQueryList,
+            CONTROLTRACE_HANDLE, EVENT_TRACE_FLAG, TRACE_GUID_INFO, TRACE_GUID_PROPERTIES,
+            TRACE_PROVIDER_INSTANCE_INFO,
+        },
+    },
+};
 
 #[macro_use]
 extern crate memoffset;
 
 use etw_types::EventRecord;
-use tdh_types::{Property, TdhOutType};
-use std::{borrow::Cow, collections::HashMap, hash::BuildHasherDefault, mem, path::Path};
-use windows::Win32::System::Diagnostics::Etw;
 use fxhash::FxHasher;
+use std::{borrow::Cow, collections::HashMap, hash::BuildHasherDefault, mem, path::Path};
+use tdh_types::{Property, TdhOutType};
+use windows::Win32::System::Diagnostics::Etw;
 
 // typedef ULONG64 TRACEHANDLE, *PTRACEHANDLE;
 pub(crate) type TraceHandle = u64;
 pub const INVALID_TRACE_HANDLE: TraceHandle = u64::MAX;
 //, WindowsProgramming};
 
+pub mod custom_schemas;
 pub mod etw_types;
-pub mod tdh;
-pub mod tdh_types;
-pub mod utils;
 pub mod parser;
 pub mod property;
 pub mod schema;
 pub mod sddl;
+pub mod tdh;
+pub mod tdh_types;
 pub mod traits;
-pub mod custom_schemas;
+pub mod utils;
 //pub mod trace;
 //pub mod provider;
 
@@ -67,7 +84,10 @@ unsafe extern "system" fn trace_callback_thunk(event_record: *mut Etw::EVENT_REC
     f(std::mem::transmute(event_record))
 }
 
-pub fn open_trace<F: FnMut(&EventRecord)>(path: &Path, mut callback: F) -> Result<(), std::io::Error> {
+pub fn open_trace<F: FnMut(&EventRecord)>(
+    path: &Path,
+    mut callback: F,
+) -> Result<(), std::io::Error> {
     let mut log_file = EventTraceLogfile::default();
 
     #[cfg(windows)]
@@ -75,7 +95,8 @@ pub fn open_trace<F: FnMut(&EventRecord)>(path: &Path, mut callback: F) -> Resul
     #[cfg(not(windows))]
     let path: HSTRING = panic!();
     log_file.0.LogFileName = PWSTR(path.as_wide().as_ptr() as *mut _);
-    log_file.0.Anonymous1.ProcessTraceMode = Etw::PROCESS_TRACE_MODE_EVENT_RECORD | Etw::PROCESS_TRACE_MODE_RAW_TIMESTAMP;
+    log_file.0.Anonymous1.ProcessTraceMode =
+        Etw::PROCESS_TRACE_MODE_EVENT_RECORD | Etw::PROCESS_TRACE_MODE_RAW_TIMESTAMP;
     let mut cb: &mut dyn FnMut(&EventRecord) = &mut callback;
     log_file.0.Context = unsafe { std::mem::transmute(&mut cb) };
     log_file.0.Anonymous2.EventRecordCallback = Some(trace_callback_thunk);
@@ -117,17 +138,15 @@ impl TraceInfo {
         &mut self,
         trace_name: &str,
         //trace_properties: &TraceProperties,
-    ) 
-    {
+    ) {
         self.properties.Wnode.BufferSize = std::mem::size_of::<TraceInfo>() as u32;
         self.properties.Wnode.Guid = GUID::new().unwrap();
         self.properties.Wnode.Flags = Etw::WNODE_FLAG_TRACED_GUID;
         self.properties.Wnode.ClientContext = 1; // QPC clock resolution
         self.properties.FlushTimer = 1;
 
-
         self.properties.LogFileMode =
-        Etw::EVENT_TRACE_REAL_TIME_MODE | Etw::EVENT_TRACE_NO_PER_PROCESSOR_BUFFERING;
+            Etw::EVENT_TRACE_REAL_TIME_MODE | Etw::EVENT_TRACE_NO_PER_PROCESSOR_BUFFERING;
 
         self.properties.EnableFlags = EVENT_TRACE_FLAG(0);
 
@@ -140,7 +159,6 @@ impl TraceInfo {
         self.trace_name[..trace_name.len() + 1].copy_from_slice(&trace_name.as_utf16())
     }
 }
-
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
@@ -202,7 +220,6 @@ impl Provider {
     }
 }
 
-
 pub struct Provider {
     /// Option that represents a Provider GUID
     pub guid: Option<GUID>,
@@ -216,15 +233,15 @@ pub struct Provider {
     pub trace_flags: u32,
     /// Provider kernel flags, only apply to KernelProvider
     pub flags: u32, // Only applies to KernelProviders
-    // perfinfo
+                    // perfinfo
 
-    // filters: RwLock<Vec<F>>,
+                    // filters: RwLock<Vec<F>>,
 }
 
-pub fn start_trace<F: FnMut(&EventRecord)>(mut callback: F)  {
+pub fn start_trace<F: FnMut(&EventRecord)>(mut callback: F) {
     let guid_str = "22fb2cd6-0e7b-422b-a0c7-2fad1fd0e716";
     let guid_str = "DB6F6DDB-AC77-4E88-8253-819DF9BBF140";
-    let mut video_blt_guid = GUID::from(guid_str);//GUID::from("DB6F6DDB-AC77-4E88-8253-819DF9BBF140");
+    let mut video_blt_guid = GUID::from(guid_str); //GUID::from("DB6F6DDB-AC77-4E88-8253-819DF9BBF140");
 
     let session_name = h!("aaaaaa");
 
@@ -234,14 +251,31 @@ pub fn start_trace<F: FnMut(&EventRecord)>(mut callback: F)  {
     let mut handle = CONTROLTRACE_HANDLE { Value: 0 };
 
     unsafe {
-        let status = Etw::ControlTraceW(handle, session_name, &info.properties as *const _ as *mut _, Etw::EVENT_TRACE_CONTROL_STOP);
+        let status = Etw::ControlTraceW(
+            handle,
+            session_name,
+            &info.properties as *const _ as *mut _,
+            Etw::EVENT_TRACE_CONTROL_STOP,
+        );
         println!("ControlTrace = {:?}", status);
-        let status = Etw::StartTraceW(&mut handle, session_name, &info.properties as *const _ as *mut _);
+        let status = Etw::StartTraceW(
+            &mut handle,
+            session_name,
+            &info.properties as *const _ as *mut _,
+        );
         println!("StartTrace = {:?} handle {:?}", status, handle);
         info.trace_name = [0; 260];
 
-        let status = Etw::ControlTraceW(handle, session_name, &mut info.properties, Etw::EVENT_TRACE_CONTROL_QUERY);
-        println!("ControlTrace = {:?} {} {:?} {:?}", status, info.properties.BufferSize, info.properties.LoggerThreadId, info.trace_name);
+        let status = Etw::ControlTraceW(
+            handle,
+            session_name,
+            &mut info.properties,
+            Etw::EVENT_TRACE_CONTROL_QUERY,
+        );
+        println!(
+            "ControlTrace = {:?} {} {:?} {:?}",
+            status, info.properties.BufferSize, info.properties.LoggerThreadId, info.trace_name
+        );
     }
 
     let prov = Provider::new().by_guid(guid_str);
@@ -250,27 +284,34 @@ pub fn start_trace<F: FnMut(&EventRecord)>(mut callback: F)  {
     let status = unsafe { Etw::EnableTrace(1, 0xffffffff, Etw::TRACE_LEVEL_VERBOSE, &video_blt_guid, handle)};
     println!("EnableTrace = {}", status);
     */
-    unsafe { Etw::EnableTraceEx2(
-        handle,
-        &mut video_blt_guid,
-        1, // Fixme: EVENT_CONTROL_CODE_ENABLE_PROVIDER
-        prov.level,
-        prov.any,
-        prov.all,
-        0,
-        Some(&*parameters),
-    ); }
-    
+    unsafe {
+        Etw::EnableTraceEx2(
+            handle,
+            &mut video_blt_guid,
+            1, // Fixme: EVENT_CONTROL_CODE_ENABLE_PROVIDER
+            prov.level,
+            prov.any,
+            prov.all,
+            0,
+            Some(&*parameters),
+        );
+    }
+
     let mut trace = EventTraceLogfile::default();
-    trace.0.LoggerName = PWSTR(session_name.as_ptr() as *mut _ );
-    trace.0.Anonymous1.ProcessTraceMode = Etw::PROCESS_TRACE_MODE_REAL_TIME | Etw::PROCESS_TRACE_MODE_EVENT_RECORD;
+    trace.0.LoggerName = PWSTR(session_name.as_ptr() as *mut _);
+    trace.0.Anonymous1.ProcessTraceMode =
+        Etw::PROCESS_TRACE_MODE_REAL_TIME | Etw::PROCESS_TRACE_MODE_EVENT_RECORD;
     let mut cb: &mut dyn FnMut(&EventRecord) = &mut callback;
     trace.0.Context = unsafe { std::mem::transmute(&mut cb) };
     trace.0.Anonymous2.EventRecordCallback = Some(trace_callback_thunk);
 
     let session_handle = unsafe { Etw::OpenTraceW(&mut *trace) };
     if session_handle.Value == INVALID_TRACE_HANDLE {
-        println!("{:?} {:?}", unsafe { GetLastError() }, windows::core::Error::from_win32());
+        println!(
+            "{:?} {:?}",
+            unsafe { GetLastError() },
+            windows::core::Error::from_win32()
+        );
 
         panic!("Invalid handle");
     }
@@ -279,7 +320,12 @@ pub fn start_trace<F: FnMut(&EventRecord)>(mut callback: F)  {
     println!("status: {:?}", status);
 }
 
-pub fn write_property(output: &mut dyn std::fmt::Write, parser: &mut Parser, property: &Property, write_types: bool) {
+pub fn write_property(
+    output: &mut dyn std::fmt::Write,
+    parser: &mut Parser,
+    property: &Property,
+    write_types: bool,
+) {
     if write_types {
         let type_name = if let PropertyDesc::Primitive(prim) = &property.desc {
             format!("{:?}", prim.in_type)
@@ -289,17 +335,31 @@ pub fn write_property(output: &mut dyn std::fmt::Write, parser: &mut Parser, pro
         if property.flags.is_empty() {
             write!(output, "  {}: {} = ", property.name, type_name).unwrap();
         } else {
-            write!(output, "  {}({:?}): {} = ", property.name, property.flags, type_name).unwrap();
+            write!(
+                output,
+                "  {}({:?}): {} = ",
+                property.name, property.flags, type_name
+            )
+            .unwrap();
         }
     } else {
         write!(output, "  {}= ", property.name).unwrap();
     }
     if let Some(map_info) = &property.map_info {
         let value = match property.desc {
-            PropertyDesc::Primitive(PrimitiveDesc{ in_type: TdhInType::InTypeUInt32, ..}) => TryParse::<u32>::parse(parser, &property.name),
-            PropertyDesc::Primitive(PrimitiveDesc{ in_type: TdhInType::InTypeUInt16, ..}) => TryParse::<u16>::parse(parser, &property.name) as u32,
-            PropertyDesc::Primitive(PrimitiveDesc{ in_type: TdhInType::InTypeUInt8, ..}) => TryParse::<u8>::parse(parser, &property.name) as u32,
-            _ => panic!("{:?}", property.desc)
+            PropertyDesc::Primitive(PrimitiveDesc {
+                in_type: TdhInType::InTypeUInt32,
+                ..
+            }) => TryParse::<u32>::parse(parser, &property.name),
+            PropertyDesc::Primitive(PrimitiveDesc {
+                in_type: TdhInType::InTypeUInt16,
+                ..
+            }) => TryParse::<u16>::parse(parser, &property.name) as u32,
+            PropertyDesc::Primitive(PrimitiveDesc {
+                in_type: TdhInType::InTypeUInt8,
+                ..
+            }) => TryParse::<u8>::parse(parser, &property.name) as u32,
+            _ => panic!("{:?}", property.desc),
         };
         if map_info.is_bitmap {
             let mut remaining_bits_str = String::new();
@@ -318,22 +378,49 @@ pub fn write_property(output: &mut dyn std::fmt::Write, parser: &mut Parser, pro
             }
             write!(output, "{}", matches.join(" | ")).unwrap();
         } else {
-            write!(output, "{}", map_info.map.get(&value).map(|x| Cow::from(x)).unwrap_or_else(|| Cow::from(format!("Unknown: {}", value)))).unwrap();
+            write!(
+                output,
+                "{}",
+                map_info
+                    .map
+                    .get(&value)
+                    .map(|x| Cow::from(x))
+                    .unwrap_or_else(|| Cow::from(format!("Unknown: {}", value)))
+            )
+            .unwrap();
         }
     } else {
         let value = match &property.desc {
             PropertyDesc::Primitive(desc) => {
                 // XXX: we should be using the out_type here instead of in_type
                 match desc.in_type {
-                    TdhInType::InTypeUnicodeString => TryParse::<String>::try_parse(parser, &property.name),
-                    TdhInType::InTypeAnsiString => TryParse::<String>::try_parse(parser, &property.name),
-                    TdhInType::InTypeBoolean => TryParse::<bool>::try_parse(parser, &property.name).map(|x| x.to_string()),
-                    TdhInType::InTypeHexInt32 => TryParse::<i32>::try_parse(parser, &property.name).map(|x| x.to_string()),
-                    TdhInType::InTypeUInt32 => TryParse::<u32>::try_parse(parser, &property.name).map(|x| x.to_string()),
-                    TdhInType::InTypeUInt16 => TryParse::<u16>::try_parse(parser, &property.name).map(|x| x.to_string()),
-                    TdhInType::InTypeUInt8 => TryParse::<u8>::try_parse(parser, &property.name).map(|x| x.to_string()),
-                    TdhInType::InTypeInt8 => TryParse::<i8>::try_parse(parser, &property.name).map(|x| x.to_string()),
-                    TdhInType::InTypeInt64 => TryParse::<i64>::try_parse(parser, &property.name).map(|x| x.to_string()),
+                    TdhInType::InTypeUnicodeString => {
+                        TryParse::<String>::try_parse(parser, &property.name)
+                    }
+                    TdhInType::InTypeAnsiString => {
+                        TryParse::<String>::try_parse(parser, &property.name)
+                    }
+                    TdhInType::InTypeBoolean => {
+                        TryParse::<bool>::try_parse(parser, &property.name).map(|x| x.to_string())
+                    }
+                    TdhInType::InTypeHexInt32 => {
+                        TryParse::<i32>::try_parse(parser, &property.name).map(|x| x.to_string())
+                    }
+                    TdhInType::InTypeUInt32 => {
+                        TryParse::<u32>::try_parse(parser, &property.name).map(|x| x.to_string())
+                    }
+                    TdhInType::InTypeUInt16 => {
+                        TryParse::<u16>::try_parse(parser, &property.name).map(|x| x.to_string())
+                    }
+                    TdhInType::InTypeUInt8 => {
+                        TryParse::<u8>::try_parse(parser, &property.name).map(|x| x.to_string())
+                    }
+                    TdhInType::InTypeInt8 => {
+                        TryParse::<i8>::try_parse(parser, &property.name).map(|x| x.to_string())
+                    }
+                    TdhInType::InTypeInt64 => {
+                        TryParse::<i64>::try_parse(parser, &property.name).map(|x| x.to_string())
+                    }
                     TdhInType::InTypeUInt64 => {
                         let i = TryParse::<u64>::try_parse(parser, &property.name);
                         if desc.out_type == TdhOutType::OutTypeHexInt64 {
@@ -341,29 +428,41 @@ pub fn write_property(output: &mut dyn std::fmt::Write, parser: &mut Parser, pro
                         } else {
                             i.map(|x| x.to_string())
                         }
-                    },
+                    }
                     TdhInType::InTypeHexInt64 => {
                         let i = TryParse::<i64>::try_parse(parser, &property.name);
                         i.map(|x| format!("0x{:x}", x))
-                    },
-                    TdhInType::InTypePointer | TdhInType::InTypeSizeT => TryParse::<u64>::try_parse(parser, &property.name).map(|x| format!("0x{:x}", x)),
-                    TdhInType::InTypeGuid => TryParse::<GUID>::try_parse(parser, &property.name).map(|x| format!("{:?}", x)),
+                    }
+                    TdhInType::InTypePointer | TdhInType::InTypeSizeT => {
+                        TryParse::<u64>::try_parse(parser, &property.name)
+                            .map(|x| format!("0x{:x}", x))
+                    }
+                    TdhInType::InTypeGuid => TryParse::<GUID>::try_parse(parser, &property.name)
+                        .map(|x| format!("{:?}", x)),
                     TdhInType::InTypeInt32 => {
                         TryParse::<i32>::try_parse(parser, &property.name).map(|x| x.to_string())
                     }
                     TdhInType::InTypeFloat => {
                         TryParse::<f32>::try_parse(parser, &property.name).map(|x| x.to_string())
                     }
-                    _ => Ok(format!("Unknown {:?} -> {:?}", desc.in_type, desc.out_type))
+                    _ => Ok(format!("Unknown {:?} -> {:?}", desc.in_type, desc.out_type)),
                 }
             }
-            PropertyDesc::Struct(desc) => Ok(format!("unhandled struct {} {}", desc.start_index, desc.num_members)),
+            PropertyDesc::Struct(desc) => Ok(format!(
+                "unhandled struct {} {}",
+                desc.start_index, desc.num_members
+            )),
         };
         let value = match value {
             Ok(value) => value,
             Err(ParserError::InvalidType) => format!("invalid type {:?}", property.desc),
-            Err(ParserError::LengthMismatch) => format!("Err(LengthMismatch) type: {:?}, flags: {:?}, buf: {}", property.desc, property.flags, parser.buffer.len()),
-            Err(e) => format!("Err({:?}) type: {:?}", e, property.desc)
+            Err(ParserError::LengthMismatch) => format!(
+                "Err(LengthMismatch) type: {:?}, flags: {:?}, buf: {}",
+                property.desc,
+                property.flags,
+                parser.buffer.len()
+            ),
+            Err(e) => format!("Err({:?}) type: {:?}", e, property.desc),
         };
         write!(output, "{}", value).unwrap();
     }
@@ -375,21 +474,21 @@ pub fn print_property(parser: &mut Parser, property: &Property, write_types: boo
     println!("{}", result);
 }
 
-
 pub fn add_custom_schemas(locator: &mut SchemaLocator) {
-    locator.add_custom_schema(Box::new(custom_schemas::ImageID{}));
-    locator.add_custom_schema(Box::new(custom_schemas::DbgID{}));
-    locator.add_custom_schema(Box::new(custom_schemas::EventInfo{}));
-    locator.add_custom_schema(Box::new(custom_schemas::ThreadStart{}));
-    locator.add_custom_schema(Box::new(custom_schemas::D3DUmdLogging_MapAllocation{}));
-    locator.add_custom_schema(Box::new(custom_schemas::D3DUmdLogging_RundownAllocation{}));
-    locator.add_custom_schema(Box::new(custom_schemas::D3DUmdLogging_UnmapAllocation{}));
+    locator.add_custom_schema(Box::new(custom_schemas::ImageID {}));
+    locator.add_custom_schema(Box::new(custom_schemas::DbgID {}));
+    locator.add_custom_schema(Box::new(custom_schemas::EventInfo {}));
+    locator.add_custom_schema(Box::new(custom_schemas::ThreadStart {}));
+    locator.add_custom_schema(Box::new(custom_schemas::D3DUmdLogging_MapAllocation {}));
+    locator.add_custom_schema(Box::new(custom_schemas::D3DUmdLogging_RundownAllocation {}));
+    locator.add_custom_schema(Box::new(custom_schemas::D3DUmdLogging_UnmapAllocation {}));
 }
 
 pub fn enumerate_trace_guids() {
     let mut count = 1;
     loop {
-        let mut guids: Vec<TRACE_GUID_PROPERTIES> = vec![unsafe { std::mem::zeroed() }; count as usize];
+        let mut guids: Vec<TRACE_GUID_PROPERTIES> =
+            vec![unsafe { std::mem::zeroed() }; count as usize];
         let mut ptrs: Vec<*mut TRACE_GUID_PROPERTIES> = Vec::new();
         for guid in &mut guids {
             ptrs.push(guid)
@@ -416,28 +515,48 @@ pub fn enumerate_trace_guids_ex(print_instances: bool) {
     let mut required_size: u32 = 0;
 
     loop {
-        let mut guids: Vec<GUID> = vec![GUID::zeroed(); required_size as usize/mem::size_of::<GUID>()];
+        let mut guids: Vec<GUID> =
+            vec![GUID::zeroed(); required_size as usize / mem::size_of::<GUID>()];
 
         let size = (guids.len() * mem::size_of::<GUID>()) as u32;
         println!("get {}", required_size);
 
-        let result = unsafe { EnumerateTraceGuidsEx(TraceGuidQueryList, None, 0, Some(guids.as_mut_ptr() as *mut _), size, &mut required_size as *mut _) };
+        let result = unsafe {
+            EnumerateTraceGuidsEx(
+                TraceGuidQueryList,
+                None,
+                0,
+                Some(guids.as_mut_ptr() as *mut _),
+                size,
+                &mut required_size as *mut _,
+            )
+        };
         match result {
             Ok(()) => {
                 for guid in guids.iter() {
-
                     println!("{:?}", guid);
                     let info = get_provider_info(guid);
-                    let instance_count= unsafe { *(info.as_ptr() as *const TRACE_GUID_INFO) }.InstanceCount;
-                    let mut instance_ptr: *const TRACE_PROVIDER_INSTANCE_INFO = unsafe { (info.as_ptr().add(mem::size_of::<TRACE_GUID_INFO>()) as *const TRACE_PROVIDER_INSTANCE_INFO) };
+                    let instance_count =
+                        unsafe { *(info.as_ptr() as *const TRACE_GUID_INFO) }.InstanceCount;
+                    let mut instance_ptr: *const TRACE_PROVIDER_INSTANCE_INFO = unsafe {
+                        (info.as_ptr().add(mem::size_of::<TRACE_GUID_INFO>())
+                            as *const TRACE_PROVIDER_INSTANCE_INFO)
+                    };
 
                     for _ in 0..instance_count {
                         let instance = unsafe { &*instance_ptr };
-                        if print_instances { 
-                            println!("enable_count {}, pid {}, flags {}", instance.EnableCount, instance.Pid, instance.Flags, )
+                        if print_instances {
+                            println!(
+                                "enable_count {}, pid {}, flags {}",
+                                instance.EnableCount, instance.Pid, instance.Flags,
+                            )
                         }
-                        instance_ptr = unsafe {((instance_ptr as *const TRACE_PROVIDER_INSTANCE_INFO as *const u8).add(instance.NextOffset as usize) as *const TRACE_PROVIDER_INSTANCE_INFO)};
-                    } 
+                        instance_ptr = unsafe {
+                            ((instance_ptr as *const TRACE_PROVIDER_INSTANCE_INFO as *const u8)
+                                .add(instance.NextOffset as usize)
+                                as *const TRACE_PROVIDER_INSTANCE_INFO)
+                        };
+                    }
                 }
                 break;
             }
@@ -451,7 +570,6 @@ pub fn enumerate_trace_guids_ex(print_instances: bool) {
     }
 }
 
-
 pub fn get_provider_info(guid: &GUID) -> Vec<u8> {
     let mut required_size: u32 = 0;
 
@@ -460,10 +578,18 @@ pub fn get_provider_info(guid: &GUID) -> Vec<u8> {
 
         let size = info.len() as u32;
 
-        let result = unsafe { EnumerateTraceGuidsEx(TraceGuidQueryInfo, Some(guid as *const GUID as *const _), mem::size_of::<GUID>() as u32, Some(info.as_mut_ptr() as *mut _), size, &mut required_size as *mut _) };
+        let result = unsafe {
+            EnumerateTraceGuidsEx(
+                TraceGuidQueryInfo,
+                Some(guid as *const GUID as *const _),
+                mem::size_of::<GUID>() as u32,
+                Some(info.as_mut_ptr() as *mut _),
+                size,
+                &mut required_size as *mut _,
+            )
+        };
         match result {
             Ok(()) => {
-
                 return info;
             }
             Err(e) => {

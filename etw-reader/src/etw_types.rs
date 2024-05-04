@@ -270,7 +270,7 @@ impl EventSchema for TraceEventInfoRaw {
                 2 => "Stop",
                 3 => "DCStart",
                 4 => "DCStop",
-                _ => ""
+                _ => "",
             });
         }
         utils::parse_unk_size_null_utf16_string(&self.info[opcode_name_offset..])

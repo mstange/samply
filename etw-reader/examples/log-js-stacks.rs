@@ -1,18 +1,17 @@
 use etw_reader::{
     open_trace,
-    parser::{Parser, TryParse, Address},
+    parser::{Address, Parser, TryParse},
     print_property,
     schema::SchemaLocator,
 };
+use std::collections::Bound::{Included, Unbounded};
 use std::{
     cell::Cell,
-    collections::{hash_map::Entry, HashMap, BTreeMap},
+    collections::{hash_map::Entry, BTreeMap, HashMap},
     convert::TryInto,
     path::Path,
 };
 use windows::Win32::System::Diagnostics::Etw;
-use std::collections::Bound::{Included, Unbounded};
-
 
 /// A single symbol from a [`SymbolTable`].
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -24,7 +23,6 @@ pub struct Symbol {
     /// The symbol name.
     pub name: String,
 }
-
 
 struct Event {
     name: String,
@@ -84,64 +82,95 @@ fn main() {
                     let mut child = String::new();
                     let mut child_addr = 0;
 
-                        stack.iter().for_each(|addr| {
-                                if let Some(syms) = jscript_symbols.get(&process_id) {
-                                    if let Some(sym) = syms.range((Unbounded, Included(addr))).last() {
-                                        if *addr < *sym.0 + sym.1.0 {
-                                            js_stack.push((sym.1.1.clone(), *addr));
-                                            //println!("found match for {} calls {:x}:{}", sym.1.1, child_addr, child);
-                                            child = sym.1.1.clone();
-                                            child_addr = *sym.0;
-                                            return
-                                        }
-                                    }
+                    stack.iter().for_each(|addr| {
+                        if let Some(syms) = jscript_symbols.get(&process_id) {
+                            if let Some(sym) = syms.range((Unbounded, Included(addr))).last() {
+                                if *addr < *sym.0 + sym.1 .0 {
+                                    js_stack.push((sym.1 .1.clone(), *addr));
+                                    //println!("found match for {} calls {:x}:{}", sym.1.1, child_addr, child);
+                                    child = sym.1 .1.clone();
+                                    child_addr = *sym.0;
+                                    return;
                                 }
-                                //println!("{:x}", addr);
-                        });
-
-                        for i in 0..js_stack.len() {
-                            if js_stack[i].0.contains("runSync") && i > 2  && js_stack[i-2].0.contains("click") {
-                                println!("found match {} {:x}/{} {}", js_stack[i].0, js_stack[i-1].1, js_stack[i-1].0, js_stack[i-2].0);
                             }
                         }
+                        //println!("{:x}", addr);
+                    });
 
-
-                                                        
-
-
-     
+                    for i in 0..js_stack.len() {
+                        if js_stack[i].0.contains("runSync")
+                            && i > 2
+                            && js_stack[i - 2].0.contains("click")
+                        {
+                            println!(
+                                "found match {} {:x}/{} {}",
+                                js_stack[i].0,
+                                js_stack[i - 1].1,
+                                js_stack[i - 1].0,
+                                js_stack[i - 2].0
+                            );
+                        }
+                    }
                 }
                 "MSNT_SystemTrace/PerfInfo/SampleProf" => {
                     let mut parser = Parser::create(&s);
 
                     thread_id = parser.parse("ThreadId");
                 }
-                "V8.js/MethodLoad/" |
-                "Microsoft-JScript/MethodRuntime/MethodDCStart" |
-                "Microsoft-JScript/MethodRuntime/MethodLoad" => {
+                "V8.js/MethodLoad/"
+                | "Microsoft-JScript/MethodRuntime/MethodDCStart"
+                | "Microsoft-JScript/MethodRuntime/MethodLoad" => {
                     let mut parser = Parser::create(&s);
                     let method_name: String = parser.parse("MethodName");
                     let method_start_address: Address = parser.parse("MethodStartAddress");
                     let method_size: u64 = parser.parse("MethodSize");
-                    if method_start_address.as_u64() <= 0x7ffde0297cc0 && method_start_address.as_u64() + method_size >= 0x7ffde0297cc0 {
-                        println!("before: {} {:x} {}", method_name, method_start_address.as_u64(), method_size);
+                    if method_start_address.as_u64() <= 0x7ffde0297cc0
+                        && method_start_address.as_u64() + method_size >= 0x7ffde0297cc0
+                    {
+                        println!(
+                            "before: {} {:x} {}",
+                            method_name,
+                            method_start_address.as_u64(),
+                            method_size
+                        );
                     }
 
                     let source_id: u64 = parser.parse("SourceID");
                     let process_id = s.process_id();
-                    if method_name.contains("getNearestLContainer") || method_name.contains("277:53") {
-                        println!("load {} {} {:x}", method_name,  method_size, method_start_address.as_u64());
+                    if method_name.contains("getNearestLContainer")
+                        || method_name.contains("277:53")
+                    {
+                        println!(
+                            "load {} {} {:x}",
+                            method_name,
+                            method_size,
+                            method_start_address.as_u64()
+                        );
                     }
-                    let syms =  jscript_symbols.entry(s.process_id()).or_insert(BTreeMap::new());
+                    let syms = jscript_symbols
+                        .entry(s.process_id())
+                        .or_insert(BTreeMap::new());
                     //let name_and_file = format!("{} {}", method_name, jscript_sources.get(&source_id).map(|x| x.as_ref()).unwrap_or("?"));
                     let start_address = method_start_address.as_u64();
                     let mut overlaps = Vec::new();
-                    for sym in syms.range_mut((Included(start_address), Included(start_address + method_size))) {
-                        if method_name != sym.1.1 || start_address != *sym.0 || method_size != sym.1.0 {
-                            println!("overlap {} {} {} -  {:?}", method_name, start_address, method_size, sym);
+                    for sym in syms.range_mut((
+                        Included(start_address),
+                        Included(start_address + method_size),
+                    )) {
+                        if method_name != sym.1 .1
+                            || start_address != *sym.0
+                            || method_size != sym.1 .0
+                        {
+                            println!(
+                                "overlap {} {} {} -  {:?}",
+                                method_name, start_address, method_size, sym
+                            );
                             overlaps.push(*sym.0);
                         } else {
-                            println!("overlap same {} {} {} -  {:?}", method_name, start_address, method_size, sym);
+                            println!(
+                                "overlap same {} {} {} -  {:?}",
+                                method_name, start_address, method_size, sym
+                            );
                         }
                     }
                     for sym in overlaps {
@@ -150,7 +179,6 @@ fn main() {
 
                     syms.insert(start_address, (method_size, method_name));
                     //dbg!(s.process_id(), jscript_symbols.keys());
-
                 }
                 _ => {}
             }
@@ -164,8 +192,6 @@ fn main() {
                 let process_id: u32 = parser.parse("ProcessId");
                 processes.insert(process_id, image_file_name);
             }
-
-
         } else {
             if pattern.is_none() {
                 /*println!(
@@ -186,7 +212,11 @@ fn main() {
     }
     for (tid, state) in threads {
         if state.unfinished_kernel_stacks.len() > 0 {
-            println!("thread `{tid}` of {} has {} unfinished kernel stacks", state.process_id, state.unfinished_kernel_stacks.len());
+            println!(
+                "thread `{tid}` of {} has {} unfinished kernel stacks",
+                state.process_id,
+                state.unfinished_kernel_stacks.len()
+            );
             for stack in state.unfinished_kernel_stacks {
                 println!("   {}", events[stack].timestamp);
             }

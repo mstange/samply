@@ -1,18 +1,13 @@
-
-
-
 use etw_reader::{
     open_trace,
     parser::{Parser, TryParse},
     schema::SchemaLocator,
 };
-use std::{path::Path, collections::HashMap};
+use std::{collections::HashMap, path::Path};
 
 struct Process {
-    image_file_name: String
+    image_file_name: String,
 }
-
-
 
 fn main() {
     let mut schema_locator = SchemaLocator::new();
@@ -23,7 +18,9 @@ fn main() {
         if let Ok(s) = s {
             // DCEnd is used '-Buffering' traces
             match s.name() {
-                "MSNT_SystemTrace/Process/Start" | "MSNT_SystemTrace/Process/DCStart" | "MSNT_SystemTrace/Process/DCEnd"  =>  {
+                "MSNT_SystemTrace/Process/Start"
+                | "MSNT_SystemTrace/Process/DCStart"
+                | "MSNT_SystemTrace/Process/DCEnd" => {
                     let mut parser = Parser::create(&s);
 
                     let image_file_name: String = parser.parse("ImageFileName");
@@ -31,27 +28,29 @@ fn main() {
                     let command_line: String = parser.parse("CommandLine");
                     println!("{} {} {}", image_file_name, process_id, command_line);
 
-                    processes.insert(process_id, Process{ image_file_name });
-
+                    processes.insert(process_id, Process { image_file_name });
                 }
-                "MSNT_SystemTrace/Thread/Start" |
-                "MSNT_SystemTrace/Thread/DCStart" => {
+                "MSNT_SystemTrace/Thread/Start" | "MSNT_SystemTrace/Thread/DCStart" => {
                     let mut parser = Parser::create(&s);
 
                     let thread_id: u32 = parser.parse("TThreadId");
                     let process_id: u32 = parser.parse("ProcessId");
-                    println!("thread process {}({}) tid {}", processes[&process_id].image_file_name, process_id, thread_id);
+                    println!(
+                        "thread process {}({}) tid {}",
+                        processes[&process_id].image_file_name, process_id, thread_id
+                    );
                     //assert_eq!(process_id,s.process_id());
 
                     let thread_name: Result<String, _> = parser.try_parse("ThreadName");
                     match thread_name {
                         Ok(thread_name) if !thread_name.is_empty() => {
-                            println!("thread_name pid: {} tid: {} name: {:?}", process_id, thread_id, thread_name);
-
-                        },
+                            println!(
+                                "thread_name pid: {} tid: {} name: {:?}",
+                                process_id, thread_id, thread_name
+                            );
+                        }
                         _ => {}
                     }
-
                 }
                 "MSNT_SystemTrace/Thread/SetName" => {
                     let mut parser = Parser::create(&s);
@@ -59,7 +58,7 @@ fn main() {
                     let process_id: u32 = parser.parse("ProcessId");
                     let thread_id: u32 = parser.parse("ThreadId");
                     let thread_name: String = parser.parse("ThreadName");
-                    /* 
+                    /*
                     let thread = match threads.entry(thread_id) {
                         Entry::Occupied(e) => e.into_mut(),
                         Entry::Vacant(e) => {
@@ -82,5 +81,6 @@ fn main() {
                 _ => {}
             }
         }
-    }).expect("failed");
+    })
+    .expect("failed");
 }
