@@ -97,7 +97,9 @@ pub fn open_trace<F: FnMut(&EventRecord)>(
 
     let session_handle = unsafe { Etw::OpenTraceW(&mut *log_file) };
     let result = unsafe { Etw::ProcessTrace(&[session_handle], None, None) };
-    result.map_err(|e| std::io::Error::from_raw_os_error(e.code().0))
+    result
+        .ok()
+        .map_err(|e| std::io::Error::from_raw_os_error(e.code().0))
 }
 
 /// Complete Trace Properties struct
@@ -516,7 +518,7 @@ pub fn enumerate_trace_guids() {
         }
 
         let result = unsafe { EnumerateTraceGuids(ptrs.as_mut_slice(), &mut count) };
-        match result {
+        match result.ok() {
             Ok(()) => {
                 for guid in guids[..count as usize].iter() {
                     println!("{:?}", guid.Guid);
@@ -552,7 +554,7 @@ pub fn enumerate_trace_guids_ex(print_instances: bool) {
                 &mut required_size as *mut _,
             )
         };
-        match result {
+        match result.ok() {
             Ok(()) => {
                 for guid in guids.iter() {
                     println!("{:?}", guid);
@@ -608,7 +610,7 @@ pub fn get_provider_info(guid: &GUID) -> Vec<u8> {
                 &mut required_size as *mut _,
             )
         };
-        match result {
+        match result.ok() {
             Ok(()) => {
                 return info;
             }
