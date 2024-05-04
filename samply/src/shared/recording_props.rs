@@ -11,6 +11,16 @@ pub struct RecordingProps {
     pub main_thread_only: bool,
 }
 
+/// Which process(es) to record.
+pub enum RecordingMode {
+    /// Record all processes, system-wide.
+    All,
+    /// Record just a single process.
+    Pid(u32),
+    /// Launch a process, and record just that process.
+    Launch(ProcessLaunchProps),
+}
+
 /// Properties which are meaningful both for recording a profile and
 /// for converting a perf.data file to a profile.
 pub struct ProfileCreationProps {

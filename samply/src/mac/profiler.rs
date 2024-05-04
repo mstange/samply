@@ -15,25 +15,26 @@ use super::sampler::{JitdumpOrMarkerPath, Sampler, TaskInit};
 use super::time::get_monotonic_timestamp;
 use crate::server::{start_server_main, ServerProps};
 use crate::shared::ctrl_c::CtrlC;
-use crate::shared::recording_props::{ProcessLaunchProps, ProfileCreationProps, RecordingProps};
-
-pub fn start_profiling_pid(
-    _pid: u32,
-    _recording_props: RecordingProps,
-    _profile_creation_props: ProfileCreationProps,
-    _server_props: Option<ServerProps>,
-) {
-    eprintln!("Profiling existing processes is currently not supported on macOS.");
-    eprintln!("You can only profile processes which you launch via samply.");
-    std::process::exit(1)
-}
+use crate::shared::recording_props::{
+    ProcessLaunchProps, ProfileCreationProps, RecordingMode, RecordingProps,
+};
 
 pub fn start_recording(
-    process_launch_props: ProcessLaunchProps,
+    recording_mode: RecordingMode,
     recording_props: RecordingProps,
     profile_creation_props: ProfileCreationProps,
     server_props: Option<ServerProps>,
 ) -> Result<ExitStatus, MachError> {
+    let process_launch_props = match recording_mode {
+        RecordingMode::All | RecordingMode::Pid(_) => {
+            // TODO: Implement, by sudo launching a helper process which uses task_for_pid
+            eprintln!("Error: Profiling existing processes is currently not supported on macOS.");
+            eprintln!("You can only profile processes which you launch via samply.");
+            std::process::exit(1)
+        }
+        RecordingMode::Launch(process_launch_props) => process_launch_props,
+    };
+
     let ProcessLaunchProps {
         env_vars,
         command_name,
