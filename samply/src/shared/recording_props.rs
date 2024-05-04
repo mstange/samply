@@ -23,10 +23,6 @@ pub struct ProfileCreationProps {
     pub unlink_aux_files: bool,
     /// Create a separate thread for each CPU.
     pub create_per_cpu_threads: bool,
-    /// Names of processes to include from either a pre-recorded profile or live
-    pub include_process_names: Option<Vec<String>>,
-    /// Process IDs to include from a pre-recorded profile
-    pub include_process_ids: Option<Vec<u32>>,
 }
 
 /// Properties which are meaningful for launching and recording a fresh process.

@@ -29,6 +29,7 @@ use mac::profiler;
 pub use mac::{kernel_error, thread_act, thread_info};
 use profile_json_preparse::parse_libinfo_map_from_profile_file;
 use server::{start_server_main, PortSelection, ServerProps};
+use shared::included_processes::IncludedProcesses;
 use shared::recording_props::{ProcessLaunchProps, ProfileCreationProps, RecordingProps};
 #[cfg(target_os = "windows")]
 use windows::profiler;
@@ -108,6 +109,14 @@ struct ImportArgs {
 
     #[command(flatten)]
     server_args: ServerArgs,
+
+    /// Only include processes with these names
+    #[arg(long)]
+    process_names: Option<Vec<String>>,
+
+    /// Only include processes with these PIDs
+    #[arg(long)]
+    pids: Option<Vec<u32>>,
 }
 
 #[allow(unused)]
@@ -202,14 +211,6 @@ pub struct ProfileCreationArgs {
     /// Create a separate thread for each CPU. Not supported on macOS
     #[arg(long)]
     per_cpu_threads: bool,
-
-    /// Only include processes with these names
-    #[arg(long)]
-    process_names: Option<Vec<String>>,
-
-    /// Only include processes with these PIDs
-    #[arg(long)]
-    pids: Option<Vec<u32>>,
 }
 
 fn main() {
@@ -253,6 +254,7 @@ fn main() {
                 &input_file,
                 &import_args.output,
                 profile_creation_props,
+                import_args.included_processes(),
             );
             if let Some(server_props) = import_args.server_props() {
                 let profile_filename = &import_args.output;
@@ -330,8 +332,16 @@ impl ImportArgs {
             fold_recursive_prefix: self.profile_creation_args.fold_recursive_prefix,
             unlink_aux_files: self.profile_creation_args.unlink_aux_files,
             create_per_cpu_threads: self.profile_creation_args.per_cpu_threads,
-            include_process_names: None,
-            include_process_ids: None,
+        }
+    }
+
+    fn included_processes(&self) -> Option<IncludedProcesses> {
+        match (&self.process_names, &self.pids) {
+            (None, None) => None, // No filtering, include all processes
+            (names, pids) => Some(IncludedProcesses {
+                name_substrings: names.clone().unwrap_or_default(),
+                pids: pids.clone().unwrap_or_default(),
+            }),
         }
     }
 }
@@ -395,7 +405,6 @@ impl RecordArgs {
         }
     }
 
-    #[allow(unused)]
     pub fn profile_creation_props(&self) -> ProfileCreationProps {
         let profile_name = match (self.profile_creation_args.profile_name.clone(), self.pid) {
             (Some(profile_name), _) => profile_name,
@@ -412,8 +421,6 @@ impl RecordArgs {
             fold_recursive_prefix: self.profile_creation_args.fold_recursive_prefix,
             unlink_aux_files: self.profile_creation_args.unlink_aux_files,
             create_per_cpu_threads: self.profile_creation_args.per_cpu_threads,
-            include_process_names: self.profile_creation_args.process_names.clone(),
-            include_process_ids: self.profile_creation_args.pids.clone(),
         }
     }
 }
@@ -461,6 +468,7 @@ fn convert_file_to_profile(
     input_file: &File,
     output_filename: &Path,
     profile_creation_props: ProfileCreationProps,
+    included_processes: Option<IncludedProcesses>,
 ) {
     if filename.extension() == Some(OsStr::new("etl")) {
         convert_etl_file_to_profile(
@@ -468,6 +476,7 @@ fn convert_file_to_profile(
             input_file,
             output_filename,
             profile_creation_props,
+            included_processes,
         );
         return;
     }
@@ -486,8 +495,14 @@ fn convert_etl_file_to_profile(
     _input_file: &File,
     output_filename: &Path,
     profile_creation_props: ProfileCreationProps,
+    included_processes: Option<IncludedProcesses>,
 ) {
-    windows::import::convert_etl_file_to_profile(filename, output_filename, profile_creation_props);
+    windows::import::convert_etl_file_to_profile(
+        filename,
+        output_filename,
+        profile_creation_props,
+        included_processes,
+    );
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -496,6 +511,7 @@ fn convert_etl_file_to_profile(
     _input_file: &File,
     _output_filename: &Path,
     _profile_creation_props: ProfileCreationProps,
+    _included_processes: Option<IncludedProcesses>,
 ) {
     eprintln!(
         "Error: Could not import ETW trace from file {}",
