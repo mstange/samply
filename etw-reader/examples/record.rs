@@ -1,4 +1,6 @@
-use etw_reader::{parser::Parser, print_property, schema::SchemaLocator, start_trace};
+use etw_reader::parser::Parser;
+use etw_reader::schema::SchemaLocator;
+use etw_reader::{print_property, start_trace};
 
 fn main() {
     let mut schema_locator = SchemaLocator::new();

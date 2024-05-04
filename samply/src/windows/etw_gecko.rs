@@ -7,6 +7,11 @@ use std::time::Instant;
 
 use bitflags::bitflags;
 use debugid::DebugId;
+use etw_reader::parser::{Address, Parser, TryParse};
+use etw_reader::schema::SchemaLocator;
+use etw_reader::{
+    add_custom_schemas, event_properties_to_string, open_trace, print_property, GUID,
+};
 use fxprof_processed_profile::{
     debugid, CategoryColor, CategoryHandle, CategoryPairHandle, CpuDelta, LibraryInfo,
     MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField,
@@ -15,11 +20,6 @@ use fxprof_processed_profile::{
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use etw_reader::parser::{Address, Parser, TryParse};
-use etw_reader::schema::SchemaLocator;
-use etw_reader::{
-    add_custom_schemas, event_properties_to_string, open_trace, print_property, GUID,
-};
 use super::profile_context::ProfileContext;
 use crate::shared::context_switch::{ContextSwitchHandler, OffCpuSampleGroup};
 use crate::shared::jit_category_manager::JitCategoryManager;
@@ -31,7 +31,7 @@ use crate::shared::process_sample_data::{
 };
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::types::{StackFrame, StackMode};
-use crate::windows::profile_context::{PendingStack, PendingMarker, ProcessJitInfo};
+use crate::windows::profile_context::{PendingMarker, PendingStack, ProcessJitInfo};
 
 pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) {
     let profile_start_instant = Timestamp::from_nanos_since_reference(0);

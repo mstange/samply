@@ -1,14 +1,12 @@
-use etw_reader::{
-    open_trace,
-    parser::{Address, Parser, TryParse},
-    schema::SchemaLocator,
-};
+use std::collections::hash_map::Entry;
 use std::collections::Bound::{Included, Unbounded};
-use std::{
-    collections::{hash_map::Entry, BTreeMap, HashMap},
-    convert::TryInto,
-    path::Path,
-};
+use std::collections::{BTreeMap, HashMap};
+use std::convert::TryInto;
+use std::path::Path;
+
+use etw_reader::open_trace;
+use etw_reader::parser::{Address, Parser, TryParse};
+use etw_reader::schema::SchemaLocator;
 
 /// A single symbol from a [`SymbolTable`].
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

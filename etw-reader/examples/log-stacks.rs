@@ -1,13 +1,11 @@
-use etw_reader::{
-    open_trace,
-    parser::{Parser, TryParse},
-    schema::SchemaLocator,
-};
-use std::{
-    collections::{hash_map::Entry, HashMap},
-    convert::TryInto,
-    path::Path,
-};
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
+use std::convert::TryInto;
+use std::path::Path;
+
+use etw_reader::open_trace;
+use etw_reader::parser::{Parser, TryParse};
+use etw_reader::schema::SchemaLocator;
 
 fn is_kernel_address(ip: u64, pointer_size: u32) -> bool {
     if pointer_size == 4 {

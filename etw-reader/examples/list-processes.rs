@@ -1,9 +1,8 @@
-use etw_reader::{
-    open_trace,
-    parser::{Parser, TryParse},
-    schema::SchemaLocator,
-};
 use std::path::Path;
+
+use etw_reader::open_trace;
+use etw_reader::parser::{Parser, TryParse};
+use etw_reader::schema::SchemaLocator;
 
 fn main() {
     let mut schema_locator = SchemaLocator::new();

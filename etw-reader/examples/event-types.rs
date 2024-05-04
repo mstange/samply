@@ -1,5 +1,9 @@
-use etw_reader::{open_trace, schema::SchemaLocator, GUID};
-use std::{cmp::Reverse, collections::HashMap, path::Path};
+use std::cmp::Reverse;
+use std::collections::HashMap;
+use std::path::Path;
+
+use etw_reader::schema::SchemaLocator;
+use etw_reader::{open_trace, GUID};
 
 fn main() {
     let mut schema_locator = SchemaLocator::new();

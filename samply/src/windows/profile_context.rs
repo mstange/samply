@@ -49,7 +49,7 @@ pub struct PendingMarker {
     pub text: String,
     pub start: Timestamp,
 }
-    
+
 #[derive(Debug)]
 pub struct ThreadState {
     // When merging threads `handle` is the global thread handle and we use `merge_name` to store the name

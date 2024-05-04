@@ -6,30 +6,32 @@ extern crate bitflags;
 #[macro_use]
 extern crate num_derive;
 
-use crate::{
-    parser::{Parser, ParserError, TryParse},
-    schema::SchemaLocator,
-    tdh_types::{PrimitiveDesc, PropertyDesc, TdhInType},
-    traits::EncodeUtf16,
+use windows::core::{h, HSTRING, PWSTR};
+use windows::Win32::Foundation::{
+    GetLastError, ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA, MAX_PATH,
 };
-use windows::{
-    core::{h, HSTRING, PWSTR},
-    Win32::{
-        Foundation::{GetLastError, ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA, MAX_PATH},
-        System::Diagnostics::Etw::{
-            EnumerateTraceGuids, EnumerateTraceGuidsEx, TraceGuidQueryInfo, TraceGuidQueryList,
-            CONTROLTRACE_HANDLE, EVENT_TRACE_FLAG, TRACE_GUID_INFO, TRACE_GUID_PROPERTIES,
-            TRACE_PROVIDER_INSTANCE_INFO,
-        },
-    },
+use windows::Win32::System::Diagnostics::Etw::{
+    EnumerateTraceGuids, EnumerateTraceGuidsEx, TraceGuidQueryInfo, TraceGuidQueryList,
+    CONTROLTRACE_HANDLE, EVENT_TRACE_FLAG, TRACE_GUID_INFO, TRACE_GUID_PROPERTIES,
+    TRACE_PROVIDER_INSTANCE_INFO,
 };
+
+use crate::parser::{Parser, ParserError, TryParse};
+use crate::schema::SchemaLocator;
+use crate::tdh_types::{PrimitiveDesc, PropertyDesc, TdhInType};
+use crate::traits::EncodeUtf16;
 
 #[macro_use]
 extern crate memoffset;
 
+use std::borrow::Cow;
+use std::collections::HashMap;
+use std::hash::BuildHasherDefault;
+use std::mem;
+use std::path::Path;
+
 use etw_types::EventRecord;
 use fxhash::FxHasher;
-use std::{borrow::Cow, collections::HashMap, hash::BuildHasherDefault, mem, path::Path};
 use tdh_types::{Property, TdhOutType};
 use windows::Win32::System::Diagnostics::Etw;
 

@@ -1,11 +1,9 @@
-use etw_reader::{
-    open_trace,
-    parser::{Parser, TryParse},
-    print_property,
-    schema::SchemaLocator,
-    GUID,
-};
-use std::{collections::HashMap, path::Path};
+use std::collections::HashMap;
+use std::path::Path;
+
+use etw_reader::parser::{Parser, TryParse};
+use etw_reader::schema::SchemaLocator;
+use etw_reader::{open_trace, print_property, GUID};
 use windows::Win32::System::Diagnostics::Etw::{
     self, EtwProviderTraitDecodeGuid, EtwProviderTraitTypeGroup,
 };

@@ -1,9 +1,9 @@
-use etw_reader::{
-    open_trace,
-    parser::{Parser, TryParse},
-    schema::SchemaLocator,
-};
-use std::{collections::HashMap, path::Path};
+use std::collections::HashMap;
+use std::path::Path;
+
+use etw_reader::open_trace;
+use etw_reader::parser::{Parser, TryParse};
+use etw_reader::schema::SchemaLocator;
 
 struct Process {
     image_file_name: String,
