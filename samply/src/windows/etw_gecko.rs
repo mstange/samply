@@ -50,7 +50,6 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
 
     let demand_zero_faults = false; //pargs.contains("--demand-zero-faults");
     let marker_file: Option<String> = None; //pargs.opt_value_from_str("--marker-file").unwrap();
-    let _marker_prefix: Option<String> = None; //pargs.opt_value_from_str("--filter-by-marker-prefix").unwrap();
 
     let user_category: CategoryPairHandle = context
         .profile
