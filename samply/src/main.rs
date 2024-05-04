@@ -30,7 +30,9 @@ pub use mac::{kernel_error, thread_act, thread_info};
 use profile_json_preparse::parse_libinfo_map_from_profile_file;
 use server::{start_server_main, PortSelection, ServerProps};
 use shared::included_processes::IncludedProcesses;
-use shared::recording_props::{ProcessLaunchProps, ProfileCreationProps, RecordingProps};
+use shared::recording_props::{
+    ProcessLaunchProps, ProfileCreationProps, RecordingMode, RecordingProps,
+};
 #[cfg(target_os = "windows")]
 use windows::profiler;
 
@@ -274,33 +276,24 @@ fn main() {
             target_os = "windows"
         ))]
         Action::Record(record_args) => {
-            let process_launch_props = record_args.process_launch_props();
             let recording_props = record_args.recording_props();
+            let recording_mode = record_args.recording_mode();
             let profile_creation_props = record_args.profile_creation_props();
             let server_props = record_args.server_props();
 
-            if let Some(pid) = record_args.pid {
-                profiler::start_profiling_pid(
-                    pid,
-                    recording_props,
-                    profile_creation_props,
-                    server_props,
-                );
-            } else {
-                let exit_status = match profiler::start_recording(
-                    process_launch_props,
-                    recording_props,
-                    profile_creation_props,
-                    server_props,
-                ) {
-                    Ok(exit_status) => exit_status,
-                    Err(err) => {
-                        eprintln!("Encountered an error during profiling: {err:?}");
-                        std::process::exit(1);
-                    }
-                };
-                std::process::exit(exit_status.code().unwrap_or(0));
-            }
+            let exit_status = match profiler::start_recording(
+                recording_mode,
+                recording_props,
+                profile_creation_props,
+                server_props,
+            ) {
+                Ok(exit_status) => exit_status,
+                Err(err) => {
+                    eprintln!("Encountered an error during profiling: {err:?}");
+                    std::process::exit(1);
+                }
+            };
+            std::process::exit(exit_status.code().unwrap_or(0));
         }
     }
 }
@@ -367,7 +360,6 @@ impl RecordArgs {
             std::process::exit(1);
         }
         let interval = Duration::from_secs_f64(1.0 / self.rate);
-
         RecordingProps {
             output_file: self.output.clone(),
             time_limit,
@@ -376,14 +368,17 @@ impl RecordArgs {
         }
     }
 
-    pub fn process_launch_props(&self) -> ProcessLaunchProps {
-        let command = &self.command;
-        let iteration_count = self.iteration_count;
+    pub fn recording_mode(&self) -> RecordingMode {
+        let (command, iteration_count) = match (self.all, &self.pid) {
+            (true, _) => return RecordingMode::All,
+            (false, Some(pid)) => return RecordingMode::Pid(*pid),
+            (false, None) => (&self.command, self.iteration_count),
+        };
+
         assert!(
             !command.is_empty(),
             "CLI parsing should have ensured that we have at least one command name"
         );
-
         let mut env_vars = Vec::new();
         let mut i = 0;
         while let Some((var_name, var_val)) = command.get(i).and_then(|s| split_at_first_equals(s))
@@ -397,24 +392,25 @@ impl RecordArgs {
         }
         let command_name = command[i].clone();
         let args = command[(i + 1)..].to_owned();
-        ProcessLaunchProps {
+        let launch_props = ProcessLaunchProps {
             env_vars,
             command_name,
             args,
             iteration_count,
-        }
+        };
+
+        RecordingMode::Launch(launch_props)
     }
 
     pub fn profile_creation_props(&self) -> ProfileCreationProps {
-        let profile_name = match (self.profile_creation_args.profile_name.clone(), self.pid) {
-            (Some(profile_name), _) => profile_name,
-            (None, Some(pid)) => format!("PID {pid}"),
-            _ => self
-                .process_launch_props()
-                .command_name
-                .to_string_lossy()
-                .to_string(),
-        };
+        let profile_name = self.profile_creation_args.profile_name.clone();
+        let profile_name = profile_name.unwrap_or_else(|| match self.recording_mode() {
+            RecordingMode::All => "All processes".to_string(),
+            RecordingMode::Pid(pid) => format!("PID {pid}"),
+            RecordingMode::Launch(launch_props) => {
+                launch_props.command_name.to_string_lossy().to_string()
+            }
+        });
         ProfileCreationProps {
             profile_name,
             reuse_threads: self.profile_creation_args.reuse_threads,

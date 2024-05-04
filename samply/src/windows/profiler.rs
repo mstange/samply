@@ -16,8 +16,9 @@ use serde_json::to_writer;
 use super::profile_context::ProfileContext;
 use super::{etw_gecko, winutils};
 use crate::server::{start_server_main, ServerProps};
+use crate::shared::ctrl_c::CtrlC;
 use crate::shared::included_processes::IncludedProcesses;
-use crate::shared::recording_props::{ProcessLaunchProps, ProfileCreationProps, RecordingProps};
+use crate::shared::recording_props::{ProfileCreationProps, RecordingMode, RecordingProps};
 use crate::windows::xperf::Xperf;
 
 // Hello intrepid explorer! You may be in this code because you'd like to extend something,
@@ -46,17 +47,8 @@ use crate::windows::xperf::Xperf;
 //     a fully up to date .mof.
 //   - There are some more complex StackWalk events (see etw.rs for info) but I haven't seen them.
 
-pub fn start_profiling_pid(
-    _pid: u32,
-    _recording_props: RecordingProps,
-    _profile_creation_props: ProfileCreationProps,
-    _server_props: Option<ServerProps>,
-) {
-    // TODO
-}
-
 pub fn start_recording(
-    process_launch_props: ProcessLaunchProps,
+    recording_mode: RecordingMode,
     recording_props: RecordingProps,
     profile_creation_props: ProfileCreationProps,
     server_props: Option<ServerProps>,
@@ -73,39 +65,82 @@ pub fn start_recording(
 
     let arch = get_native_arch(); // TODO: Detect from file if reading from file
 
-    let mut pids = Vec::new();
-
     // Start xperf.
     let mut xperf =
         Xperf::new(arch.to_string()).unwrap_or_else(|e| panic!("Couldn't find xperf: {e:?}"));
     xperf.start_xperf(&recording_props.output_file);
 
-    for _ in 0..process_launch_props.iteration_count {
-        let mut child = std::process::Command::new(&process_launch_props.command_name);
-        child.args(&process_launch_props.args);
-        child.envs(process_launch_props.env_vars.iter().map(|(k, v)| (k, v)));
-        let mut child = child.spawn().unwrap();
-
-        pids.push(child.id());
-
-        let exit_status = child.wait().unwrap();
-        if !exit_status.success() {
-            eprintln!("Child process exited with {:?}", exit_status);
+    let included_processes = match recording_mode {
+        RecordingMode::All => {
+            let ctrl_c_receiver = CtrlC::observe_oneshot();
+            eprintln!("Profiling all processes...");
+            eprintln!("Press Ctrl+C to stop.");
+            // TODO: Respect recording_props.time_limit, if specified
+            // Wait for Ctrl+C.
+            let _ = ctrl_c_receiver.blocking_recv();
+            None
         }
-    }
+        RecordingMode::Pid(pid) => {
+            let ctrl_c_receiver = CtrlC::observe_oneshot();
+            // TODO: check that process with this pid exists
+            eprintln!("Profiling process with pid {pid}...");
+            eprintln!("Press Ctrl+C to stop.");
+            // TODO: Respect recording_props.time_limit, if specified
+            // Wait for Ctrl+C.
+            let _ = ctrl_c_receiver.blocking_recv();
+            Some(IncludedProcesses {
+                name_substrings: Vec::new(),
+                pids: vec![pid],
+            })
+        }
+        RecordingMode::Launch(process_launch_props) => {
+            // Ignore Ctrl+C while the subcommand is running. The signal still reaches the process
+            // under observation while we continue to record it.
+            let mut ctrl_c_receiver = CtrlC::observe_oneshot();
+
+            let mut pids = Vec::new();
+            for _ in 0..process_launch_props.iteration_count {
+                let mut child = std::process::Command::new(&process_launch_props.command_name);
+                child.args(&process_launch_props.args);
+                child.envs(process_launch_props.env_vars.iter().map(|(k, v)| (k, v)));
+                let mut child = child.spawn().unwrap();
+
+                pids.push(child.id());
+
+                // Wait for the child to exit.
+                //
+                // TODO: Do the child waiting and the xperf control on different threads,
+                // so that we can stop xperf immediately if we receive Ctrl+C. If they're on
+                // the same thread, we might be blocking in wait() for a long time, and the
+                // longer we take to handle Ctrl+C, the higher the chance that the user might
+                // press Ctrl+C again, which would immediately terminate this process and not
+                // give us a chance to stop xperf.
+                let exit_status = child.wait().unwrap();
+                if !exit_status.success() {
+                    eprintln!("Child process exited with {:?}", exit_status);
+                }
+            }
+
+            // The launched subprocess is done. From now on, we want to terminate if the user presses Ctrl+C.
+            ctrl_c_receiver.close();
+
+            Some(IncludedProcesses {
+                name_substrings: Vec::new(),
+                pids,
+            })
+        }
+    };
+
+    eprintln!("Stopping xperf...");
+
     let merged_etl = xperf
         .stop_xperf()
         .expect("Should have produced a merged ETL file");
 
     eprintln!("Processing ETL trace...");
 
-    let output_file = recording_props.output_file.clone();
-
-    let included_processes = IncludedProcesses {
-        name_substrings: Vec::new(),
-        pids,
-    };
-    let mut context = ProfileContext::new(profile, arch, Some(included_processes));
+    let output_file = recording_props.output_file;
+    let mut context = ProfileContext::new(profile, arch, included_processes);
     etw_gecko::profile_pid_from_etl_file(&mut context, &merged_etl);
 
     // delete etl_file

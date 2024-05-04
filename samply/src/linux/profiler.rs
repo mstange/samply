@@ -26,7 +26,9 @@ use crate::linux_shared::{
 };
 use crate::server::{start_server_main, ServerProps};
 use crate::shared::ctrl_c::CtrlC;
-use crate::shared::recording_props::{ProcessLaunchProps, ProfileCreationProps, RecordingProps};
+use crate::shared::recording_props::{
+    ProcessLaunchProps, ProfileCreationProps, RecordingMode, RecordingProps,
+};
 
 #[cfg(target_arch = "x86_64")]
 pub type ConvertRegsNative = crate::linux_shared::ConvertRegsX86_64;
@@ -34,13 +36,26 @@ pub type ConvertRegsNative = crate::linux_shared::ConvertRegsX86_64;
 #[cfg(target_arch = "aarch64")]
 pub type ConvertRegsNative = crate::linux_shared::ConvertRegsAarch64;
 
-#[allow(clippy::too_many_arguments)]
 pub fn start_recording(
-    process_launch_props: ProcessLaunchProps,
+    recording_mode: RecordingMode,
     recording_props: RecordingProps,
     profile_creation_props: ProfileCreationProps,
     server_props: Option<ServerProps>,
 ) -> Result<ExitStatus, ()> {
+    let process_launch_props = match recording_mode {
+        RecordingMode::All => {
+            // TODO: Implement, by sudo launching a helper process which opens cpu-wide perf events
+            eprintln!("Error: Profiling all processes is currently not supported on Linux.");
+            eprintln!("You can profile processes which you launch via samply, or attach to a single process.");
+            std::process::exit(1)
+        }
+        RecordingMode::Pid(pid) => {
+            start_profiling_pid(pid, recording_props, profile_creation_props, server_props);
+            return Ok(ExitStatus::from_raw(0));
+        }
+        RecordingMode::Launch(process_launch_props) => process_launch_props,
+    };
+
     // We want to profile a child process which we are about to launch.
 
     let ProcessLaunchProps {
@@ -221,7 +236,7 @@ pub fn start_recording(
     Ok(exit_status)
 }
 
-pub fn start_profiling_pid(
+fn start_profiling_pid(
     pid: u32,
     recording_props: RecordingProps,
     profile_creation_props: ProfileCreationProps,
