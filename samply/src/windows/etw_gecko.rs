@@ -31,7 +31,7 @@ use crate::shared::process_sample_data::{
 };
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::types::{StackFrame, StackMode};
-use crate::windows::profile_context::{PendingStack, ProcessJitInfo};
+use crate::windows::profile_context::{PendingStack, PendingMarker, ProcessJitInfo};
 
 pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) {
     let profile_start_instant = Timestamp::from_nanos_since_reference(0);
@@ -569,6 +569,36 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                     jscript_sources.insert(source_id, url);
                     //dbg!(s.process_id(), jscript_symbols.keys());
 
+                }
+                "Microsoft-Windows-Direct3D11/ID3D11VideoContext_SubmitDecoderBuffers/win:Start" => {
+                    let mut parser = Parser::create(&s);
+                    let thread_id = s.thread_id();
+                    let Some(mut thread) = context.get_thread_mut(thread_id) else { return };
+                    let text = event_properties_to_string(&s, &mut parser, None);
+                    thread.pending_markers.insert(s.name().to_owned(), PendingMarker { text, start: timestamp });
+                }
+                "Microsoft-Windows-Direct3D11/ID3D11VideoContext_SubmitDecoderBuffers/win:Stop" => {
+                    let mut parser = Parser::create(&s);
+                    let thread_id = s.thread_id();
+                    let Some(mut thread) = context.get_thread_mut(thread_id) else { return };
+
+                    let mut text = event_properties_to_string(&s, &mut parser, None);
+                    let timing = if let Some(pending) = thread.pending_markers.remove("Microsoft-Windows-Direct3D11/ID3D11VideoContext_SubmitDecoderBuffers/win:Start") {
+                        text = pending.text;
+                        MarkerTiming::Interval(pending.start, timestamp)
+                    } else {
+                        MarkerTiming::IntervalEnd(timestamp)
+                    };
+
+                    let category = match categories.entry(s.provider_name()) {
+                        Entry::Occupied(e) => *e.get(),
+                        Entry::Vacant(e) => {
+                            let category = context.profile.borrow_mut().add_category(e.key(), CategoryColor::Transparent);
+                            *e.insert(category)
+                        }
+                    };
+
+                    context.profile.borrow_mut().add_marker(thread.handle, category, s.name().split_once("/").unwrap().1, SimpleMarker(text), timing);
                 }
                 marker_name if marker_name.starts_with("Mozilla.FirefoxTraceLogger/") =>  {
                     let Some(marker_name) = marker_name.strip_prefix("Mozilla.FirefoxTraceLogger/").and_then(|s| s.strip_suffix('/')) else { return };

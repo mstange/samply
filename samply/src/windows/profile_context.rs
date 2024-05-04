@@ -45,6 +45,12 @@ pub struct ProcessJitInfo {
 }
 
 #[derive(Debug)]
+pub struct PendingMarker {
+    pub text: String,
+    pub start: Timestamp,
+}
+    
+#[derive(Debug)]
 pub struct ThreadState {
     // When merging threads `handle` is the global thread handle and we use `merge_name` to store the name
     pub handle: ThreadHandle,
@@ -54,6 +60,7 @@ pub struct ThreadState {
     pub memory_usage: Option<MemoryUsage>,
     pub thread_id: u32,
     pub process_id: u32,
+    pub pending_markers: HashMap<String, PendingMarker>,
 }
 
 impl ThreadState {
@@ -63,6 +70,7 @@ impl ThreadState {
             merge_name: None,
             pending_stacks: VecDeque::new(),
             context_switch_data: Default::default(),
+            pending_markers: HashMap::new(),
             memory_usage: None,
             thread_id: tid,
             process_id: pid,
