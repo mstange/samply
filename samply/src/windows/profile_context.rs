@@ -258,10 +258,10 @@ impl ProfileContext {
     }
 
     pub fn add_thread(&mut self, pid: u32, tid: u32, start_time: Timestamp) {
-        assert!(
-            self.processes.contains_key(&pid),
-            "Adding thread for non-existent process"
-        );
+        if !self.processes.contains_key(&pid) {
+            eprintln!("Adding thread {tid} for unknown pid {pid}");
+            return;
+        }
 
         let mut process = self.processes.get_mut(&pid).unwrap().borrow_mut();
         let is_main = process.main_thread_handle.is_none();
