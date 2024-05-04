@@ -425,10 +425,13 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
 
                     let info = if process_id == 0 {
                         kernel_pending_libraries.remove(&image_base)
-                    } else {
-                        let mut process = context.get_process_mut(process_id).unwrap();
+                    } else if let Some(mut process) = context.get_process_mut(process_id) {
                         process.pending_libraries.remove(&image_base)
+                    } else {
+                        eprintln!("Received {} for unknown pid {process_id}", s.name());
+                        return;
                     };
+
                     // If the file doesn't exist on disk we won't have KernelTraceControl/ImageID events
                     // This happens for the ghost drivers mentioned here: https://devblogs.microsoft.com/oldnewthing/20160913-00/?p=94305
                     if let Some(mut info) = info {
