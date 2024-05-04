@@ -1,4 +1,6 @@
 [workspace]
+resolver = "2"
+default-members = ["samply"]
 members = [
     "fxprof-processed-profile",
     "gecko_profile",
@@ -11,8 +13,7 @@ members = [
     "tools/dump_table",
     "tools/query_api"
 ]
-resolver = "2"
-default-members = ["samply"]
+exclude = ["etw-reader"] # Should not be compiled on non-Windows
 
 # Config for 'cargo dist'
 [workspace.metadata.dist]
