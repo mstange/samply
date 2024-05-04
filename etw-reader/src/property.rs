@@ -2,9 +2,9 @@
 //!
 //! The `property` module expose the basic structures that represent the Properties an Event contains
 //! based on it's Schema. This Properties can then be used to parse accordingly their values.
-use crate::FastHashMap;
-use crate::tdh_types::Property;
-use crate::schema::Schema;
+use super::schema::Schema;
+use super::tdh_types::Property;
+use super::FastHashMap;
 
 /// Event Property information
 #[derive(Clone, Debug)]
@@ -18,13 +18,17 @@ pub struct PropertyInfo<'a> {
 
 impl<'a> PropertyInfo<'a> {
     pub fn create(property: &'a Property, offset: usize, buffer: &'a [u8]) -> Self {
-        PropertyInfo { property, offset, buffer }
+        PropertyInfo {
+            property,
+            offset,
+            buffer,
+        }
     }
 }
 
 pub(crate) struct PropertyIter {
     properties: Vec<Property>,
-    pub (crate) name_to_indx: FastHashMap<String, usize>,
+    pub(crate) name_to_indx: FastHashMap<String, usize>,
 }
 
 impl PropertyIter {
@@ -38,7 +42,10 @@ impl PropertyIter {
             properties.push(prop);
         }
 
-        PropertyIter { properties, name_to_indx }
+        PropertyIter {
+            properties,
+            name_to_indx,
+        }
     }
 
     pub fn property(&self, index: usize) -> Option<&Property> {

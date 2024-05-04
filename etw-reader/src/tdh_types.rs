@@ -8,20 +8,21 @@
 //! rust naming convention, it can also come in handy when implementing the [TryParse] trait for a type
 //! to determine how to handle a [Property] based on this values
 //!
-//! [TryParse]: crate::parser::TryParse
-//! [Property]: crate::native::tdh_types::Property
+//! [TryParse]: super::parser::TryParse
+//! [Property]: super::native::tdh_types::Property
 use std::rc::Rc;
 
+use bitflags::bitflags;
+use num_derive::{FromPrimitive, ToPrimitive};
+use num_traits::FromPrimitive;
 use windows::Win32::System::Diagnostics::Etw;
 
-
-use crate::etw_types::EventPropertyInfo;
-use num_traits::FromPrimitive;
+use super::etw_types::EventPropertyInfo;
 
 #[derive(Debug, Clone, Default)]
 pub struct PropertyMapInfo {
     pub is_bitmap: bool,
-    pub map: crate::FastHashMap<u32, String>
+    pub map: super::FastHashMap<u32, String>,
 }
 #[derive(Debug, Clone)]
 pub struct PrimitiveDesc {
@@ -64,7 +65,11 @@ pub struct Property {
 
 #[doc(hidden)]
 impl Property {
-    pub fn new(name: String, property: &EventPropertyInfo, map_info: Option<Rc<PropertyMapInfo>>) -> Self {
+    pub fn new(
+        name: String,
+        property: &EventPropertyInfo,
+        map_info: Option<Rc<PropertyMapInfo>>,
+    ) -> Self {
         let flags = PropertyFlags::from(property.Flags);
         let length = if flags.contains(PropertyFlags::PROPERTY_PARAM_LENGTH) {
             // The property length is stored in another property, this is the index of that property
@@ -81,7 +86,10 @@ impl Property {
                     name,
                     flags: PropertyFlags::from(property.Flags),
                     length,
-                    desc: PropertyDesc::Struct(StructDesc{start_index, num_members}),
+                    desc: PropertyDesc::Struct(StructDesc {
+                        start_index,
+                        num_members,
+                    }),
                     map_info,
                     count: property.Anonymous2.count,
                 }
@@ -92,12 +100,12 @@ impl Property {
                     .unwrap_or(TdhOutType::OutTypeNull);
                 let in_type = FromPrimitive::from_u16(property.Anonymous1.nonStructType.InType)
                     .unwrap_or_else(|| panic!("{:?}", property.Anonymous1.nonStructType.InType));
-                
+
                 Property {
                     name,
                     flags: PropertyFlags::from(property.Flags),
                     length,
-                    desc: PropertyDesc::Primitive(PrimitiveDesc{in_type, out_type}),
+                    desc: PropertyDesc::Primitive(PrimitiveDesc { in_type, out_type }),
                     map_info,
                     count: property.Anonymous2.count,
                 }
@@ -145,8 +153,6 @@ pub enum TdhInType {
     InTypeHexdump,
     InTypeWBEMSID,
 }
-
-
 
 /// Represent a TDH_OUT_TYPE
 #[repr(u16)]
@@ -197,7 +203,7 @@ bitflags! {
     /// Represents the Property flags
     ///
     /// See: [Property Flags enum](https://docs.microsoft.com/en-us/windows/win32/api/tdh/ne-tdh-property_flags)
-    #[derive(Default)]
+    #[derive(Default, Debug, Clone)]
     pub struct PropertyFlags: u32 {
         const PROPERTY_STRUCT = 0x1;
         const PROPERTY_PARAM_LENGTH = 0x2;

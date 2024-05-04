@@ -1,18 +1,19 @@
 //! ETW Event Schema locator and handler
 //!
 //! This module contains the means needed to locate and interact with the Schema of an ETW event
-use crate::custom_schemas::EventInfo;
-use crate::etw_types::{DecodingSource, EventRecord, TraceEventInfoRaw};
-use crate::property::PropertyIter;
-use crate::tdh;
-use crate::tdh_types::Property;
-use crate::FastHashMap;
 use std::any::{Any, TypeId};
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
+
 use once_cell::unsync::OnceCell;
-use windows::Win32::System::Diagnostics::Etw::{self, EVENT_HEADER_FLAG_64_BIT_HEADER};
 use windows::core::GUID;
+use windows::Win32::System::Diagnostics::Etw::{self, EVENT_HEADER_FLAG_64_BIT_HEADER};
+
+use super::custom_schemas::EventInfo;
+use super::etw_types::{DecodingSource, EventRecord, TraceEventInfoRaw};
+use super::property::PropertyIter;
+use super::tdh_types::Property;
+use super::{tdh, FastHashMap};
 
 /// Schema module errors
 #[derive(Debug)]
@@ -33,7 +34,7 @@ impl From<tdh::TdhNativeError> for SchemaError {
 
 type SchemaResult<T> = Result<T, SchemaError>;
 
-// TraceEvent::RegisteredTraceEventParser::ExternalTraceEventParserState::TraceEventComparer 
+// TraceEvent::RegisteredTraceEventParser::ExternalTraceEventParserState::TraceEventComparer
 // doesn't compare the version or level and does different things depending on the kind of event
 // https://github.com/microsoft/perfview/blob/5c9f6059f54db41b4ac5c4fc8f57261779634489/src/TraceEvent/RegisteredTraceEventParser.cs#L1338
 #[derive(Debug, Eq, PartialEq, Hash)]
@@ -54,7 +55,10 @@ struct TraceLoggingProviderIds {
 impl TraceLoggingProviderIds {
     fn new() -> Self {
         // start the ids at 1 because of 0 is typically the value stored
-        TraceLoggingProviderIds { ids: FastHashMap::default(), next_id: 1}
+        TraceLoggingProviderIds {
+            ids: FastHashMap::default(),
+            next_id: 1,
+        }
     }
 }
 
@@ -65,11 +69,18 @@ impl SchemaKey {
         // It might be better to store the metadata in the SchemaKey but then we may want to be careful not to allocate a fresh metadata for every event.
         let mut id = event.EventHeader.EventDescriptor.Id;
         if event.ExtendedDataCount > 0 {
-            let extended = unsafe { std::slice::from_raw_parts(event.ExtendedData, event.ExtendedDataCount as usize) };
+            let extended = unsafe {
+                std::slice::from_raw_parts(event.ExtendedData, event.ExtendedDataCount as usize)
+            };
             for e in extended {
                 if e.ExtType as u32 == Etw::EVENT_HEADER_EXT_TYPE_EVENT_SCHEMA_TL {
-                    let mut provider = locator.tracelogging_providers.entry(event.EventHeader.ProviderId).or_insert(TraceLoggingProviderIds::new());
-                    let data = unsafe { std::slice::from_raw_parts(e.DataPtr as *const u8, e.DataSize as usize) } ;
+                    let mut provider = locator
+                        .tracelogging_providers
+                        .entry(event.EventHeader.ProviderId)
+                        .or_insert(TraceLoggingProviderIds::new());
+                    let data = unsafe {
+                        std::slice::from_raw_parts(e.DataPtr as *const u8, e.DataSize as usize)
+                    };
                     if let Some(metadata_id) = provider.ids.get(data) {
                         // we want to ensure that our synthetic ids don't overlap with any ids used in the events
                         assert_ne!(id, *metadata_id);
@@ -106,14 +117,12 @@ impl SchemaKey {
 #[derive(Default)]
 pub struct SchemaLocator {
     schemas: FastHashMap<SchemaKey, Arc<Schema>>,
-    tracelogging_providers: FastHashMap<GUID, TraceLoggingProviderIds>, 
+    tracelogging_providers: FastHashMap<GUID, TraceLoggingProviderIds>,
 }
-
-
 
 pub trait EventSchema {
     fn decoding_source(&self) -> DecodingSource;
-    
+
     fn provider_guid(&self) -> GUID;
     fn event_id(&self) -> u16;
     fn opcode(&self) -> u8;
@@ -122,15 +131,17 @@ pub trait EventSchema {
     fn task_name(&self) -> String;
     fn opcode_name(&self) -> String;
     fn level(&self) -> u8;
-    
+
     fn property_count(&self) -> u32;
     fn property(&self, index: u32) -> Property;
 
-    fn event_message(&self) -> Option<String> { return None }
-    fn is_event_metadata(&self) -> bool { return false }
+    fn event_message(&self) -> Option<String> {
+        return None;
+    }
+    fn is_event_metadata(&self) -> bool {
+        return false;
+    }
 }
-
-
 
 impl std::fmt::Debug for SchemaLocator {
     fn fmt(&self, _f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -152,7 +163,8 @@ impl SchemaLocator {
             id: schema.event_id(),
             opcode: schema.opcode(),
             version: schema.event_version(),
-            level: schema.level() };
+            level: schema.level(),
+        };
         self.schemas.insert(key, Arc::new(Schema::new(schema)));
     }
 
@@ -184,15 +196,22 @@ impl SchemaLocator {
                 // TODO: Cloning for now, should be a reference at some point...
                 entry.insert(Arc::new(Schema::new(info)))
             }
-        }.clone();
+        }
+        .clone();
 
         // Some events contain schemas so add them when we find them.
         if info.event_schema.is_event_metadata() {
             let event_info = TraceEventInfoRaw::new(event.user_buffer().to_owned());
-            println!("Adding custom schema for {}/{}/{}/{}", event_info.provider_name(), event_info.event_id(), event_info.task_name(), event_info.opcode_name());
+            println!(
+                "Adding custom schema for {}/{}/{}/{}",
+                event_info.provider_name(),
+                event_info.event_id(),
+                event_info.task_name(),
+                event_info.opcode_name()
+            );
             self.add_custom_schema(Box::new(event_info));
         }
-            
+
         Ok(TypedEvent::new(event, info))
     }
 }
@@ -205,22 +224,30 @@ pub struct Schema {
 
 impl Schema {
     fn new(event_schema: Box<dyn EventSchema>) -> Self {
-        Schema { event_schema, properties: OnceCell::new(), name: OnceCell::new() }
+        Schema {
+            event_schema,
+            properties: OnceCell::new(),
+            name: OnceCell::new(),
+        }
     }
     pub(crate) fn properties(&self) -> &PropertyIter {
         self.properties.get_or_init(|| PropertyIter::new(self))
     }
-    pub (crate) fn name(&self) -> &str {
-        self.name.get_or_init(|| format!("{}/{}/{}", 
-            self.event_schema.provider_name(),
-            self.event_schema.task_name(),
-            self.event_schema.opcode_name()))
+    pub(crate) fn name(&self) -> &str {
+        self.name.get_or_init(|| {
+            format!(
+                "{}/{}/{}",
+                self.event_schema.provider_name(),
+                self.event_schema.task_name(),
+                self.event_schema.opcode_name()
+            )
+        })
     }
 }
 
 pub struct TypedEvent<'a> {
     record: &'a EventRecord,
-    pub (crate) schema: Arc<Schema>,
+    pub(crate) schema: Arc<Schema>,
 }
 
 impl<'a> TypedEvent<'a> {
@@ -358,7 +385,7 @@ impl<'a> TypedEvent<'a> {
     ///     let activity_id = schema.activity_id();
     /// };
     /// ```
-    /// [TraceEventInfo]: crate::native::etw_types::TraceEventInfo
+    /// [TraceEventInfo]: super::native::etw_types::TraceEventInfo
     pub fn activity_id(&self) -> GUID {
         self.record.EventHeader.ActivityId
     }
@@ -375,7 +402,7 @@ impl<'a> TypedEvent<'a> {
     ///     let decoding_source = schema.decoding_source();
     /// };
     /// ```
-    /// [TraceEventInfo]: crate::native::etw_types::TraceEventInfo
+    /// [TraceEventInfo]: super::native::etw_types::TraceEventInfo
     pub fn decoding_source(&self) -> DecodingSource {
         self.schema.event_schema.decoding_source()
     }
@@ -389,7 +416,7 @@ impl<'a> TypedEvent<'a> {
     ///     let provider_name = schema.provider_name();
     /// };
     /// ```
-    /// [TraceEventInfo]: crate::native::etw_types::TraceEventInfo
+    /// [TraceEventInfo]: super::native::etw_types::TraceEventInfo
     pub fn provider_name(&self) -> String {
         self.schema.event_schema.provider_name()
     }
@@ -404,7 +431,7 @@ impl<'a> TypedEvent<'a> {
     ///     let task_name = schema.task_name();
     /// };
     /// ```
-    /// [TraceEventInfo]: crate::native::etw_types::TraceEventInfo
+    /// [TraceEventInfo]: super::native::etw_types::TraceEventInfo
     pub fn task_name(&self) -> String {
         self.schema.event_schema.task_name()
     }
@@ -419,7 +446,7 @@ impl<'a> TypedEvent<'a> {
     ///     let opcode_name = schema.opcode_name();
     /// };
     /// ```
-    /// [TraceEventInfo]: crate::native::etw_types::TraceEventInfo
+    /// [TraceEventInfo]: super::native::etw_types::TraceEventInfo
     pub fn opcode_name(&self) -> String {
         self.schema.event_schema.opcode_name()
     }
