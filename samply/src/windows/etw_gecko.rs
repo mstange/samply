@@ -598,7 +598,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                         }
                     };
 
-                    context.profile.borrow_mut().add_marker(thread.handle, category, s.name().split_once("/").unwrap().1, SimpleMarker(text), timing);
+                    context.profile.borrow_mut().add_marker(thread.handle, category, s.name().split_once('/').unwrap().1, SimpleMarker(text), timing);
                 }
                 marker_name if marker_name.starts_with("Mozilla.FirefoxTraceLogger/") =>  {
                     let Some(marker_name) = marker_name.strip_prefix("Mozilla.FirefoxTraceLogger/").and_then(|s| s.strip_suffix("/Info")) else { return };
