@@ -13,6 +13,7 @@ use uuid::Uuid;
 
 use super::winutils;
 use crate::shared::context_switch::{OffCpuSampleGroup, ThreadContextSwitchData};
+use crate::shared::included_processes::IncludedProcesses;
 use crate::shared::lib_mappings::LibMappingOpQueue;
 use crate::shared::types::{StackFrame, StackMode};
 use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
@@ -148,10 +149,9 @@ pub struct ProfileContext {
 
     libs: HashMap<String, LibraryHandle>,
 
-    // These are the processes + their children that we want to write into
-    // the profile.json. If it's empty, trace everything.
-    interesting_process_ids: HashSet<u32>,
-    interesting_process_names: HashSet<String>,
+    // These are the processes + their descendants that we want to write into
+    // the profile.json. If it's None, include everything.
+    included_processes: Option<IncludedProcesses>,
 
     // default categories
     default_category: CategoryPairHandle,
@@ -172,7 +172,11 @@ pub struct ProfileContext {
 }
 
 impl ProfileContext {
-    pub fn new(mut profile: Profile, arch: &str) -> Self {
+    pub fn new(
+        mut profile: Profile,
+        arch: &str,
+        included_processes: Option<IncludedProcesses>,
+    ) -> Self {
         let default_category =
             CategoryPairHandle::from(profile.add_category("User", CategoryColor::Yellow));
         let kernel_category =
@@ -199,8 +203,7 @@ impl ProfileContext {
             gpu_thread_handle: None,
             per_thread_memory: false,
             libs: HashMap::new(),
-            interesting_process_ids: HashSet::new(),
-            interesting_process_names: HashSet::new(),
+            included_processes,
             default_category,
             kernel_category,
             device_mappings: winutils::get_dos_device_mappings(),
@@ -465,48 +468,22 @@ impl ProfileContext {
         }
     }
 
-    pub fn add_interesting_process_name(&mut self, name: &str) {
-        self.interesting_process_names.insert(name.to_lowercase());
-    }
-
-    pub fn add_interesting_process_id(&mut self, pid: u32) {
-        self.interesting_process_ids.insert(pid);
-    }
-
     pub fn is_interesting_process(&self, pid: u32, ppid: Option<u32>, name: Option<&str>) -> bool {
         if pid == 0 {
             return false;
         }
 
-        // already tracking?
-        if self.processes.contains_key(&pid) {
-            return true;
-        }
-
-        // all processes if nothing specified
-        if self.interesting_process_ids.is_empty() && self.interesting_process_names.is_empty() {
-            return true;
-        }
-
-        // if pid or ppid are explicitly interesting
-        if self.interesting_process_ids.contains(&pid)
+        // already tracking this process or its parent?
+        if self.processes.contains_key(&pid)
             || ppid.is_some_and(|k| self.processes.contains_key(&k))
         {
             return true;
         }
 
-        // if the name contains any of the interesting names
-        if let Some(name) = name {
-            let name = name.to_lowercase();
-            for target in &self.interesting_process_names {
-                if name.contains(target) {
-                    return true;
-                }
-            }
+        match &self.included_processes {
+            Some(incl) => incl.should_include(name, pid),
+            None => true,
         }
-
-        // nope, boring process
-        false
     }
 
     fn add_kernel_drivers(&mut self) {

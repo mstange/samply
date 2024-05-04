@@ -16,6 +16,7 @@ use serde_json::to_writer;
 use super::profile_context::ProfileContext;
 use super::{etw_gecko, winutils};
 use crate::server::{start_server_main, ServerProps};
+use crate::shared::included_processes::IncludedProcesses;
 use crate::shared::recording_props::{ProcessLaunchProps, ProfileCreationProps, RecordingProps};
 use crate::windows::xperf::Xperf;
 
@@ -63,8 +64,6 @@ pub fn start_recording(
     let timebase = std::time::SystemTime::now();
     let timebase = ReferenceTimestamp::from_system_time(timebase);
 
-    //let mut jit_category_manager = crate::shared::jit_category_manager::JitCategoryManager::new();
-
     let interval_8khz = SamplingInterval::from_nanos(122100); // 8192Hz // only with the higher recording rate?
     let profile = Profile::new(
         &profile_creation_props.profile_name,
@@ -74,61 +73,47 @@ pub fn start_recording(
 
     let arch = get_native_arch(); // TODO: Detect from file if reading from file
 
-    let mut context = ProfileContext::new(profile, arch);
+    let mut pids = Vec::new();
 
-    let (etl_file, existing_etl) = if !process_launch_props
-        .command_name
-        .to_str()
-        .unwrap()
-        .ends_with(".etl")
-    {
-        // Start xperf.
-        let mut xperf = Xperf::new(arch.to_string());
-        xperf.start_xperf(&recording_props.output_file);
+    // Start xperf.
+    let mut xperf = Xperf::new(arch.to_string());
+    xperf.start_xperf(&recording_props.output_file);
 
-        for _ in 0..process_launch_props.iteration_count {
-            let mut child = std::process::Command::new(&process_launch_props.command_name);
-            child.args(&process_launch_props.args);
-            child.envs(process_launch_props.env_vars.iter().map(|(k, v)| (k, v)));
-            let mut child = child.spawn().unwrap();
+    for _ in 0..process_launch_props.iteration_count {
+        let mut child = std::process::Command::new(&process_launch_props.command_name);
+        child.args(&process_launch_props.args);
+        child.envs(process_launch_props.env_vars.iter().map(|(k, v)| (k, v)));
+        let mut child = child.spawn().unwrap();
 
-            context.add_interesting_process_id(child.id());
+        pids.push(child.id());
 
-            let exit_status = child.wait().unwrap();
-            if !exit_status.success() {
-                eprintln!("Child process exited with {:?}", exit_status);
-            }
+        let exit_status = child.wait().unwrap();
+        if !exit_status.success() {
+            eprintln!("Child process exited with {:?}", exit_status);
         }
-        let merged_etl = xperf
-            .stop_xperf()
-            .expect("Should have produced a merged ETL file");
-
-        (merged_etl, false)
-    } else {
-        eprintln!("Existing ETL");
-        if let Some(names) = &profile_creation_props.include_process_names {
-            for name in names {
-                context.add_interesting_process_name(name);
-            }
-        }
-        if let Some(ids) = &profile_creation_props.include_process_ids {
-            for id in ids {
-                context.add_interesting_process_id(*id);
-            }
-        }
-        (PathBuf::from(&process_launch_props.command_name), true)
-    };
+    }
+    let merged_etl = xperf
+        .stop_xperf()
+        .expect("Should have produced a merged ETL file");
 
     eprintln!("Processing ETL trace...");
 
     let output_file = recording_props.output_file.clone();
 
-    etw_gecko::profile_pid_from_etl_file(&mut context, Path::new(&etl_file));
+    let included_processes = IncludedProcesses {
+        name_substrings: Vec::new(),
+        pids,
+    };
+    let mut context = ProfileContext::new(profile, arch, Some(included_processes));
+    etw_gecko::profile_pid_from_etl_file(&mut context, &merged_etl);
 
     // delete etl_file
-    if !existing_etl {
-        //std::fs::remove_file(&etl_file).expect(format!("Failed to delete ETL file {:?}", etl_file.to_str().unwrap()).as_str());
-    }
+    std::fs::remove_file(&merged_etl).unwrap_or_else(|_| {
+        panic!(
+            "Failed to delete ETL file {:?}",
+            merged_etl.to_str().unwrap()
+        )
+    });
 
     // write the profile to a json file
     let file = File::create(&output_file).unwrap();
