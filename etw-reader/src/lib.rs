@@ -1,29 +1,39 @@
-#![allow(warnings)]
+extern crate num_traits;
 
-use std::borrow::Cow;
-use std::collections::HashMap;
-use std::hash::BuildHasherDefault;
-use std::mem;
-use std::path::Path;
+#[macro_use]
+extern crate bitflags;
 
-use bitflags::bitflags;
+#[macro_use]
+extern crate num_derive;
+
+use crate::{
+    parser::{Parser, ParserError, TryParse},
+    schema::SchemaLocator,
+    tdh_types::{PrimitiveDesc, PropertyDesc, TdhInType},
+    traits::EncodeUtf16,
+};
+use windows::{
+    core::{h, Error, HRESULT, HSTRING, PWSTR},
+    Win32::{
+        Foundation::{
+            GetLastError, ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA, ERROR_SUCCESS, MAX_PATH,
+        },
+        System::Diagnostics::Etw::{
+            EnumerateTraceGuids, EnumerateTraceGuidsEx, TraceGuidQueryInfo, TraceGuidQueryList,
+            CONTROLTRACE_HANDLE, EVENT_TRACE_FLAG, TRACE_GUID_INFO, TRACE_GUID_PROPERTIES,
+            TRACE_PROVIDER_INSTANCE_INFO,
+        },
+    },
+};
+
+#[macro_use]
+extern crate memoffset;
+
 use etw_types::EventRecord;
 use fxhash::FxHasher;
-use memoffset::offset_of;
-use parser::{Parser, ParserError, TryParse};
-use schema::SchemaLocator;
-use tdh_types::{PrimitiveDesc, Property, PropertyDesc, TdhInType, TdhOutType};
-use traits::EncodeUtf16;
-use windows::core::{h, Error, HRESULT, HSTRING, PWSTR};
-use windows::Win32::Foundation::{
-    GetLastError, ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA, ERROR_SUCCESS, MAX_PATH,
-};
+use std::{borrow::Cow, collections::HashMap, hash::BuildHasherDefault, mem, path::Path};
+use tdh_types::{Property, TdhOutType};
 use windows::Win32::System::Diagnostics::Etw;
-use windows::Win32::System::Diagnostics::Etw::{
-    EnumerateTraceGuids, EnumerateTraceGuidsEx, TraceGuidQueryInfo, TraceGuidQueryList,
-    CONTROLTRACE_HANDLE, EVENT_TRACE_FLAG, TRACE_GUID_INFO, TRACE_GUID_PROPERTIES,
-    TRACE_PROVIDER_INSTANCE_INFO,
-};
 
 // typedef ULONG64 TRACEHANDLE, *PTRACEHANDLE;
 pub(crate) type TraceHandle = u64;
@@ -93,9 +103,7 @@ pub fn open_trace<F: FnMut(&EventRecord)>(
 
     let session_handle = unsafe { Etw::OpenTraceW(&mut *log_file) };
     let result = unsafe { Etw::ProcessTrace(&[session_handle], None, None) };
-    result
-        .ok()
-        .map_err(|e| std::io::Error::from_raw_os_error(e.code().0))
+    result.map_err(|e| std::io::Error::from_raw_os_error(e.code().0))
 }
 
 /// Complete Trace Properties struct
@@ -508,7 +516,7 @@ pub fn enumerate_trace_guids() {
         }
 
         let result = unsafe { EnumerateTraceGuids(&mut ptrs.as_mut_slice(), &mut count) };
-        match result.ok() {
+        match result {
             Ok(()) => {
                 for guid in guids[..count as usize].iter() {
                     println!("{:?}", guid.Guid);
@@ -544,7 +552,7 @@ pub fn enumerate_trace_guids_ex(print_instances: bool) {
                 &mut required_size as *mut _,
             )
         };
-        match result.ok() {
+        match result {
             Ok(()) => {
                 for guid in guids.iter() {
                     println!("{:?}", guid);
@@ -601,7 +609,7 @@ pub fn get_provider_info(guid: &GUID) -> Vec<u8> {
                 &mut required_size as *mut _,
             )
         };
-        match result.ok() {
+        match result {
             Ok(()) => {
                 return info;
             }

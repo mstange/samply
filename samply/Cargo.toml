@@ -76,6 +76,8 @@ num-traits = "0.2"
 num-derive = "0.4"
 runas = "1.2.0"
 which = "6.0.1"
+etw-reader = { path = "../etw-reader" }
+# linux-perf-data = "0.10.1"
 
 [target.'cfg(windows)'.dependencies.windows]
 version = "0.56"
