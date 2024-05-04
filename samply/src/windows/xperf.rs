@@ -32,7 +32,7 @@ impl Xperf {
 
         // start xperf.exe, logging to the same location as the output file, just with a .etl
         // extension.
-        let mut etl_file = output_file.to_path_buf();
+        let mut etl_file = expand_full_filename_with_cwd(output_file);
         etl_file.set_extension("unmerged-etl");
 
         let mut xperf = runas::Command::new(&self.xperf_path);
@@ -51,13 +51,13 @@ impl Xperf {
             xperf.arg("VirtualAlloc+VirtualFree+HandleCreate+HandleClose");
         }
         xperf.arg("-f");
-        xperf.arg(expand_full_filename_with_cwd(&etl_file));
+        xperf.arg(&etl_file);
 
         let _ = xperf.status().expect("failed to execute xperf");
 
         eprintln!("xperf session running...");
 
-        self.state = XperfState::RecordingToFile(PathBuf::from(&etl_file));
+        self.state = XperfState::RecordingToFile(etl_file);
     }
 
     pub fn stop_xperf(&mut self) -> Option<PathBuf> {
@@ -71,7 +71,7 @@ impl Xperf {
         let mut xperf = runas::Command::new(&self.xperf_path);
         xperf.arg("-stop");
         xperf.arg("-d");
-        xperf.arg(expand_full_filename_with_cwd(&merged_etl));
+        xperf.arg(&merged_etl);
 
         let _ = xperf
             .status()
