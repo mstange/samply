@@ -4,12 +4,14 @@ use std::time::Duration;
 
 /// Properties which are meaningful both for recording a fresh process
 /// as well as for recording an existing process.
+#[derive(Debug, Clone)]
 pub struct RecordingProps {
     pub output_file: PathBuf,
     pub time_limit: Option<Duration>,
     pub interval: Duration,
     pub main_thread_only: bool,
     pub coreclr: bool,
+    pub coreclr_allocs: bool,
     pub vm_hack: bool,
 }
 
