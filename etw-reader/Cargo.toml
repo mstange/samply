@@ -6,7 +6,7 @@ license = "MIT"
 repository = "https://github.com/jrmuizel/etw-profiler"
 documentation = "https://docs.rs/etw-reader"
 description = "library for reading ETW etl files"
-category = "os::windows-apis"
+categories = ["os::windows-apis"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
