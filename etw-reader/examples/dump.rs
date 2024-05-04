@@ -157,7 +157,6 @@ fn main() {
                             let mut metadata_start = name_end + 1;
                             // ProviderMetadataChunk
                             while metadata_start < data.len() {
-                                let metadata_end = metadata_start;
                                 let metadata_size = u16::from_ne_bytes(
                                     <[u8; 2]>::try_from(&data[metadata_start..metadata_start + 2])
                                         .unwrap(),
@@ -208,5 +207,6 @@ fn main() {
                 e.EventHeader.ProviderId, e.EventHeader.EventDescriptor.Opcode, e.UserDataLength
             );
         }
-    });
+    })
+    .unwrap();
 }

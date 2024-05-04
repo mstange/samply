@@ -24,5 +24,6 @@ fn main() {
                 println!("{} {} {}", image_file_name, process_id, command_line);
             }
         }
-    });
+    })
+    .unwrap();
 }

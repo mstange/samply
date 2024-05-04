@@ -1,4 +1,3 @@
-use std::collections::hash_map::Entry;
 use std::collections::Bound::{Included, Unbounded};
 use std::collections::{BTreeMap, HashMap};
 use std::convert::TryInto;
@@ -25,18 +24,18 @@ struct Event {
     stack: Option<Vec<u64>>,
 }
 
-struct ThreadState {
-    process_id: u32,
-    unfinished_kernel_stacks: Vec<usize>,
-}
-impl ThreadState {
-    fn new(process_id: u32) -> Self {
-        ThreadState {
-            process_id,
-            unfinished_kernel_stacks: Vec::new(),
-        }
-    }
-}
+// struct ThreadState {
+//     process_id: u32,
+//     unfinished_kernel_stacks: Vec<usize>,
+// }
+// impl ThreadState {
+//     fn new(process_id: u32) -> Self {
+//         ThreadState {
+//             process_id,
+//             unfinished_kernel_stacks: Vec::new(),
+//         }
+//     }
+// }
 
 fn main() {
     let mut schema_locator = SchemaLocator::new();
@@ -44,28 +43,29 @@ fn main() {
     let pattern = std::env::args().nth(2);
     let mut processes = HashMap::new();
     let mut events: Vec<Event> = Vec::new();
-    let mut threads = HashMap::new();
+    // let mut threads = HashMap::new();
     let mut jscript_symbols: HashMap<u32, BTreeMap<u64, (u64, String)>> = HashMap::new();
-    let jscript_sources: HashMap<u64, String> = HashMap::new();
+    // let jscript_sources: HashMap<u64, String> = HashMap::new();
     open_trace(Path::new(&std::env::args().nth(1).unwrap()), |e| {
         //dbg!(e.EventHeader.TimeStamp);
 
         let s = schema_locator.event_schema(e);
+        #[allow(unused)]
         let mut thread_id = e.EventHeader.ThreadId;
         if let Ok(s) = s {
             match s.name() {
                 "MSNT_SystemTrace/StackWalk/Stack" => {
                     let mut parser = Parser::create(&s);
 
-                    let thread_id: u32 = parser.parse("StackThread");
+                    // let thread_id: u32 = parser.parse("StackThread");
                     let process_id: u32 = parser.parse("StackProcess");
 
                     println!("Sample");
-                    let thread = match threads.entry(thread_id) {
-                        Entry::Occupied(e) => e.into_mut(),
-                        Entry::Vacant(e) => e.insert(ThreadState::new(process_id)),
-                    };
-                    let timestamp: u64 = parser.parse("EventTimeStamp");
+                    // let thread = match threads.entry(thread_id) {
+                    //     Entry::Occupied(e) => e.into_mut(),
+                    //     Entry::Vacant(e) => e.insert(ThreadState::new(process_id)),
+                    // };
+                    // let timestamp: u64 = parser.parse("EventTimeStamp");
 
                     let stack: Vec<u64> = parser
                         .buffer
@@ -107,9 +107,8 @@ fn main() {
                     }
                 }
                 "MSNT_SystemTrace/PerfInfo/SampleProf" => {
-                    let mut parser = Parser::create(&s);
-
-                    thread_id = parser.parse("ThreadId");
+                    // let mut parser = Parser::create(&s);
+                    // thread_id = parser.parse("ThreadId");
                 }
                 "V8.js/MethodLoad/"
                 | "Microsoft-JScript/MethodRuntime/MethodDCStart"
@@ -129,8 +128,8 @@ fn main() {
                         );
                     }
 
-                    let source_id: u64 = parser.parse("SourceID");
-                    let process_id = s.process_id();
+                    // let source_id: u64 = parser.parse("SourceID");
+                    // let process_id = s.process_id();
                     if method_name.contains("getNearestLContainer")
                         || method_name.contains("277:53")
                     {
@@ -200,16 +199,16 @@ fn main() {
             }
         }
     }
-    for (tid, state) in threads {
-        if !state.unfinished_kernel_stacks.is_empty() {
-            println!(
-                "thread `{tid}` of {} has {} unfinished kernel stacks",
-                state.process_id,
-                state.unfinished_kernel_stacks.len()
-            );
-            for stack in state.unfinished_kernel_stacks {
-                println!("   {}", events[stack].timestamp);
-            }
-        }
-    }
+    // for (tid, state) in threads {
+    //     if !state.unfinished_kernel_stacks.is_empty() {
+    //         println!(
+    //             "thread `{tid}` of {} has {} unfinished kernel stacks",
+    //             state.process_id,
+    //             state.unfinished_kernel_stacks.len()
+    //         );
+    //         for stack in state.unfinished_kernel_stacks {
+    //             println!("   {}", events[stack].timestamp);
+    //         }
+    //     }
+    // }
 }

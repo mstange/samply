@@ -70,7 +70,8 @@ fn main() {
             );
             *event_counts.entry(provider).or_insert(0) += 1;
         }
-    });
+    })
+    .unwrap();
     let mut event_counts: Vec<_> = event_counts.into_iter().collect();
     // event_counts.sort_by_key(|x| x.0.clone()); //alphabetical
     event_counts.sort_by_key(|x| Reverse(x.1));

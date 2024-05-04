@@ -53,12 +53,12 @@ fn main() {
                     }
                 }
                 "MSNT_SystemTrace/Thread/SetName" => {
+                    /*
                     let mut parser = Parser::create(&s);
 
                     let process_id: u32 = parser.parse("ProcessId");
                     let thread_id: u32 = parser.parse("ThreadId");
                     let thread_name: String = parser.parse("ThreadName");
-                    /*
                     let thread = match threads.entry(thread_id) {
                         Entry::Occupied(e) => e.into_mut(),
                         Entry::Vacant(e) => {

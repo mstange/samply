@@ -2,7 +2,7 @@
 //!
 //! This module contains the means needed to locate and interact with the Schema of an ETW event
 use std::collections::hash_map::Entry;
-use std::sync::Arc;
+use std::rc::Rc;
 
 use once_cell::unsync::OnceCell;
 use windows::core::GUID;
@@ -114,7 +114,7 @@ impl SchemaKey {
 /// Credits: [KrabsETW::schema_locator](https://github.com/microsoft/krabsetw/blob/master/krabs/krabs/schema_locator.hpp)
 #[derive(Default)]
 pub struct SchemaLocator {
-    schemas: FastHashMap<SchemaKey, Arc<Schema>>,
+    schemas: FastHashMap<SchemaKey, Rc<Schema>>,
     tracelogging_providers: FastHashMap<GUID, TraceLoggingProviderIds>,
 }
 
@@ -163,7 +163,7 @@ impl SchemaLocator {
             version: schema.event_version(),
             level: schema.level(),
         };
-        self.schemas.insert(key, Arc::new(Schema::new(schema)));
+        self.schemas.insert(key, Rc::new(Schema::new(schema)));
     }
 
     /// Use the `event_schema` function to retrieve the Schema of an ETW Event
@@ -189,10 +189,10 @@ impl SchemaLocator {
         let info = match self.schemas.entry(key) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
-                let info = Box::new(tdh::schema_from_tdh(event.clone())?);
+                let info = Box::new(tdh::schema_from_tdh(event)?);
                 // dbg!(info.provider_guid(), info.provider_name(), info.decoding_source());
                 // TODO: Cloning for now, should be a reference at some point...
-                entry.insert(Arc::new(Schema::new(info)))
+                entry.insert(Rc::new(Schema::new(info)))
             }
         }
         .clone();
@@ -245,11 +245,11 @@ impl Schema {
 
 pub struct TypedEvent<'a> {
     record: &'a EventRecord,
-    pub(crate) schema: Arc<Schema>,
+    pub(crate) schema: Rc<Schema>,
 }
 
 impl<'a> TypedEvent<'a> {
-    pub fn new(record: &'a EventRecord, schema: Arc<Schema>) -> Self {
+    pub fn new(record: &'a EventRecord, schema: Rc<Schema>) -> Self {
         TypedEvent { record, schema }
     }
 

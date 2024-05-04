@@ -1,11 +1,3 @@
-extern crate num_traits;
-
-#[macro_use]
-extern crate bitflags;
-
-#[macro_use]
-extern crate num_derive;
-
 use windows::core::{h, HSTRING, PWSTR};
 use windows::Win32::Foundation::{
     GetLastError, ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA, MAX_PATH,
@@ -40,6 +32,7 @@ pub(crate) type TraceHandle = u64;
 pub const INVALID_TRACE_HANDLE: TraceHandle = u64::MAX;
 //, WindowsProgramming};
 
+#[allow(non_upper_case_globals, non_camel_case_types)]
 pub mod custom_schemas;
 pub mod etw_types;
 pub mod parser;
@@ -85,13 +78,16 @@ unsafe extern "system" fn trace_callback_thunk(event_record: *mut Etw::EVENT_REC
     f(&*(event_record as *const etw_types::EventRecord))
 }
 
-pub fn open_trace<F: FnMut(&EventRecord)>(path: &Path, callback: F) -> Result<(), std::io::Error> {
-    let log_file = EventTraceLogfile::default();
+pub fn open_trace<F: FnMut(&EventRecord)>(
+    path: &Path,
+    mut callback: F,
+) -> Result<(), std::io::Error> {
+    let mut log_file = EventTraceLogfile::default();
 
     #[cfg(windows)]
     let path = HSTRING::from(path.as_os_str());
     #[cfg(not(windows))]
-    let path: HSTRING = panic!();
+    let path = HSTRING::from(path.to_string_lossy().to_string());
     log_file.0.LogFileName = PWSTR(path.as_wide().as_ptr() as *mut _);
     log_file.0.Anonymous1.ProcessTraceMode =
         Etw::PROCESS_TRACE_MODE_EVENT_RECORD | Etw::PROCESS_TRACE_MODE_RAW_TIMESTAMP;
@@ -154,7 +150,7 @@ impl TraceInfo {
         // it doesn't seem like it matters if we fill in trace_name
         self.properties.LoggerNameOffset = offset_of!(TraceInfo, trace_name) as u32;
         self.properties.LogFileNameOffset = offset_of!(TraceInfo, log_file_name) as u32;
-        self.trace_name[..trace_name.len() + 1].copy_from_slice(&trace_name.as_utf16())
+        self.trace_name[..trace_name.len() + 1].copy_from_slice(&trace_name.to_utf16())
     }
 }
 
@@ -243,9 +239,9 @@ pub struct Provider {
 }
 
 pub fn start_trace<F: FnMut(&EventRecord)>(mut callback: F) {
-    let guid_str = "22fb2cd6-0e7b-422b-a0c7-2fad1fd0e716";
+    // let guid_str = "22fb2cd6-0e7b-422b-a0c7-2fad1fd0e716";
     let guid_str = "DB6F6DDB-AC77-4E88-8253-819DF9BBF140";
-    let mut video_blt_guid = GUID::from(guid_str); //GUID::from("DB6F6DDB-AC77-4E88-8253-819DF9BBF140");
+    let video_blt_guid = GUID::from(guid_str); //GUID::from("DB6F6DDB-AC77-4E88-8253-819DF9BBF140");
 
     let session_name = h!("aaaaaa");
 
@@ -289,9 +285,9 @@ pub fn start_trace<F: FnMut(&EventRecord)>(mut callback: F) {
     println!("EnableTrace = {}", status);
     */
     unsafe {
-        Etw::EnableTraceEx2(
+        let _ = Etw::EnableTraceEx2(
             handle,
-            &mut video_blt_guid,
+            &video_blt_guid,
             1, // Fixme: EVENT_CONTROL_CODE_ENABLE_PROVIDER
             prov.level,
             prov.any,
@@ -387,7 +383,7 @@ pub fn write_property(
             _ => panic!("{:?}", property.desc),
         };
         if map_info.is_bitmap {
-            let mut remaining_bits_str = String::new();
+            let remaining_bits_str;
             let mut matches: Vec<&str> = Vec::new();
             let mut cleared_value = value;
             for (k, v) in &map_info.map {
@@ -577,8 +573,7 @@ pub fn enumerate_trace_guids_ex(print_instances: bool) {
                             )
                         }
                         instance_ptr = unsafe {
-                            (instance_ptr as *const TRACE_PROVIDER_INSTANCE_INFO as *const u8)
-                                .add(instance.NextOffset as usize)
+                            (instance_ptr as *const u8).add(instance.NextOffset as usize)
                                 as *const TRACE_PROVIDER_INSTANCE_INFO
                         };
                     }
