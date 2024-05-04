@@ -9,6 +9,7 @@ pub struct IncludedProcesses {
 }
 
 impl IncludedProcesses {
+    #[allow(unused)] // TODO: Remove once the perf.data importer respects IncludedProcesses
     pub fn should_include(&self, name: Option<&str>, pid: u32) -> bool {
         if self.pids.contains(&pid) {
             return true;
