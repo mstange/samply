@@ -601,7 +601,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                     context.profile.borrow_mut().add_marker(thread.handle, category, s.name().split_once("/").unwrap().1, SimpleMarker(text), timing);
                 }
                 marker_name if marker_name.starts_with("Mozilla.FirefoxTraceLogger/") =>  {
-                    let Some(marker_name) = marker_name.strip_prefix("Mozilla.FirefoxTraceLogger/").and_then(|s| s.strip_suffix('/')) else { return };
+                    let Some(marker_name) = marker_name.strip_prefix("Mozilla.FirefoxTraceLogger/").and_then(|s| s.strip_suffix("/Info")) else { return };
 
                     let thread_id = e.EventHeader.ThreadId;
                     let Some(thread) = context.get_thread(thread_id) else { return };
@@ -652,7 +652,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                     }
                 }
                 marker_name if marker_name.starts_with("Google.Chrome/") => {
-                    let Some(marker_name) = marker_name.strip_prefix("Google.Chrome/").and_then(|s| s.strip_suffix('/')) else { return };
+                    let Some(marker_name) = marker_name.strip_prefix("Google.Chrome/").and_then(|s| s.strip_suffix("/Info")) else { return };
                     // a bitfield of keywords
                     bitflags! {
                         #[derive(PartialEq, Eq)]
