@@ -12,8 +12,9 @@ use fxprof_processed_profile::{
 use uuid::Uuid;
 
 use super::winutils;
-use crate::shared::context_switch::{OffCpuSampleGroup, ThreadContextSwitchData};
+use crate::shared::context_switch::{ContextSwitchHandler, OffCpuSampleGroup, ThreadContextSwitchData};
 use crate::shared::included_processes::IncludedProcesses;
+use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::lib_mappings::LibMappingOpQueue;
 use crate::shared::types::{StackFrame, StackMode};
 use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
@@ -132,7 +133,6 @@ fn expand_full_filename_with_cwd(filename: &Path) -> PathBuf {
 }
 
 pub struct ProfileContext {
-    //profile: Arc<Mutex<Profile>>,
     pub profile: RefCell<Profile>,
 
     timebase_nanos: u64,
@@ -141,7 +141,8 @@ pub struct ProfileContext {
     // and their associated handles in the json profile
     pub processes: HashMap<u32, RefCell<ProcessState>>,
     pub threads: HashMap<u32, RefCell<ThreadState>>,
-    memory_usage: HashMap<u32, RefCell<MemoryUsage>>,
+    pub memory_usage: HashMap<u32, RefCell<MemoryUsage>>,
+    pub process_jit_infos: HashMap<u32, RefCell<ProcessJitInfo>>,
 
     pub unresolved_stacks: RefCell<UnresolvedStacks>,
 
@@ -162,8 +163,14 @@ pub struct ProfileContext {
     included_processes: Option<IncludedProcesses>,
 
     // default categories
-    default_category: CategoryPairHandle,
-    kernel_category: CategoryPairHandle,
+    // TODO -- move this + js_category_manager into a new class that manages categories more
+    // broadly
+    pub default_category: CategoryPairHandle,
+    pub kernel_category: CategoryPairHandle,
+    pub coreclr_category: CategoryPairHandle,
+
+    pub js_category_manager: RefCell<JitCategoryManager>,
+    pub context_switch_handler: RefCell<ContextSwitchHandler>,
 
     // cache of device mappings
     device_mappings: HashMap<String, String>, // map of \Device\HarddiskVolume4 -> C:\
@@ -189,6 +196,8 @@ impl ProfileContext {
             CategoryPairHandle::from(profile.add_category("User", CategoryColor::Yellow));
         let kernel_category =
             CategoryPairHandle::from(profile.add_category("Kernel", CategoryColor::Orange));
+        let coreclr_category =
+            CategoryPairHandle::from(profile.add_category("CoreCLR", CategoryColor::Purple));
 
         // On 64-bit systems, the kernel address space always has 0xF in the first 16 bits.
         // The actual kernel address space is much higher, but we just need this to disambiguate kernel and user
@@ -205,6 +214,7 @@ impl ProfileContext {
             processes: HashMap::new(),
             threads: HashMap::new(),
             memory_usage: HashMap::new(),
+            process_jit_infos: HashMap::new(),
             unresolved_stacks: RefCell::new(UnresolvedStacks::default()),
             idle_thread_handle: None,
             other_thread_handle: None,
@@ -214,17 +224,29 @@ impl ProfileContext {
             included_processes,
             default_category,
             kernel_category,
+            coreclr_category,
+            js_category_manager: RefCell::new(JitCategoryManager::new()),
+            context_switch_handler: RefCell::new(ContextSwitchHandler::new(122100)), // hardcoded, but replaced once TraceStart is received
             device_mappings: winutils::get_dos_device_mappings(),
             kernel_min,
             arch: arch.to_string(),
         }
     }
 
-    fn with_profile<F, T>(&self, func: F) -> T
-    where
-        F: FnOnce(&mut Profile) -> T,
-    {
-        func(&mut self.profile.borrow_mut())
+    pub fn ensure_process_jit_info(&mut self, pid: u32) {
+        if !self.process_jit_infos.contains_key(&pid) {
+            let jitname = format!("JIT-{}", pid);
+            let jitlib = self.profile.borrow_mut().add_lib(LibraryInfo {
+                name: jitname.clone(), debug_name: jitname.clone(),
+                path: jitname.clone(), debug_path: jitname.clone(),
+                debug_id: DebugId::nil(), code_id: None, arch: None, symbol_table: None });
+            self.process_jit_infos.insert(pid,
+                RefCell::new(ProcessJitInfo { lib_handle: jitlib, jit_mapping_ops: LibMappingOpQueue::default(), next_relative_address: 0, symbols: Vec::new() }));
+        }
+    }
+
+    pub fn get_process_jit_info(&self, pid: u32) -> RefMut<ProcessJitInfo> {
+        self.process_jit_infos.get(&pid).unwrap().borrow_mut()
     }
 
     // add_process and add_thread always add a process/thread (and thread expects process to exist)

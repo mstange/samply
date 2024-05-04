@@ -62,15 +62,11 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
         .add_category("Kernel", fxprof_processed_profile::CategoryColor::Orange)
         .into();
 
-    let mut jit_category_manager = JitCategoryManager::new();
-    let mut context_switch_handler = ContextSwitchHandler::new(122100);
-
     let mut sample_count = 0;
     let mut stack_sample_count = 0;
     let mut timer_resolution: u32 = 0; // Resolution of the hardware timer, in units of 100 nanoseconds.
     let mut event_count = 0;
     let mut gpu_thread = None;
-    let mut jscript_symbols: HashMap<u32, ProcessJitInfo> = HashMap::new();
     let mut jscript_sources: HashMap<u64, String> = HashMap::new();
 
     // Make a dummy TimestampConverter. Once we've parsed the header, this will have correct values.
@@ -123,7 +119,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                     let interval = SamplingInterval::from_nanos(interval_nanos);
                     println!("Sample rate {}ms", interval.as_secs_f64() * 1000.);
                     context.profile.borrow_mut().set_interval(interval);
-                    context_switch_handler = ContextSwitchHandler::new(interval_raw as u64);
+                    context.context_switch_handler.replace(ContextSwitchHandler::new(interval_raw as u64));
                 }
                 "MSNT_SystemTrace/Thread/SetName" => {
                     let thread_id: u32 = parser.parse("ThreadId");
@@ -264,7 +260,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
 
                             let cpu_delta_raw = {
                                 let mut thread = context.get_thread_mut(thread_id).unwrap();
-                                context_switch_handler.consume_cpu_delta(&mut thread.context_switch_data)
+                                context.context_switch_handler.borrow_mut().consume_cpu_delta(&mut thread.context_switch_data)
                             };
                             let cpu_delta = CpuDelta::from_nanos(cpu_delta_raw * timestamp_converter.raw_to_ns_factor);
 
@@ -298,8 +294,8 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
 
                     let Some(mut thread) = context.get_thread_mut(thread_id) else { return };
 
-                    let off_cpu_sample_group = context_switch_handler.handle_on_cpu_sample(timestamp_raw, &mut thread.context_switch_data);
-                    let delta = context_switch_handler.consume_cpu_delta(&mut thread.context_switch_data);
+                    let off_cpu_sample_group = context.context_switch_handler.borrow_mut().handle_on_cpu_sample(timestamp_raw, &mut thread.context_switch_data);
+                    let delta = context.context_switch_handler.borrow_mut().consume_cpu_delta(&mut thread.context_switch_data);
                     let cpu_delta = CpuDelta::from_nanos(delta * timestamp_converter.raw_to_ns_factor);
                     thread.pending_stacks.push_back(PendingStack { timestamp: timestamp_raw, kernel_stack: None, off_cpu_sample_group, on_cpu_sample_cpu_delta: Some(cpu_delta) });
                 }
@@ -451,9 +447,6 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                     }
                 }
                 "Microsoft-Windows-DxgKrnl/VSyncDPC/Info " => {
-                    let timestamp = e.EventHeader.TimeStamp as u64;
-                    let timestamp = timestamp_converter.convert_time(timestamp);
-
                     #[derive(Debug, Clone)]
                     pub struct VSyncMarker;
 
@@ -498,16 +491,15 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                 "MSNT_SystemTrace/Thread/CSwitch" => {
                     let new_thread: u32 = parser.parse("NewThreadId");
                     let old_thread: u32 = parser.parse("OldThreadId");
-                    let timestamp = e.EventHeader.TimeStamp as u64;
                     // println!("CSwitch {} -> {} @ {} on {}", old_thread, new_thread, e.EventHeader.TimeStamp, unsafe { e.BufferContext.Anonymous.ProcessorIndex });
 
                     if let Some(mut old_thread) = context.get_thread_mut(old_thread) {
-                        context_switch_handler.handle_switch_out(timestamp, &mut old_thread.context_switch_data);
+                        context.context_switch_handler.borrow_mut().handle_switch_out(timestamp_raw, &mut old_thread.context_switch_data);
                     }
                     if let Some(mut new_thread) = context.get_thread_mut(new_thread) {
-                        let off_cpu_sample_group = context_switch_handler.handle_switch_in(timestamp, &mut new_thread.context_switch_data);
+                        let off_cpu_sample_group = context.context_switch_handler.borrow_mut().handle_switch_in(timestamp_raw, &mut new_thread.context_switch_data);
                         if let Some(off_cpu_sample_group) = off_cpu_sample_group {
-                            new_thread.pending_stacks.push_back(PendingStack { timestamp, kernel_stack: None, off_cpu_sample_group: Some(off_cpu_sample_group), on_cpu_sample_cpu_delta: None });
+                            new_thread.pending_stacks.push_back(PendingStack { timestamp: timestamp_raw, kernel_stack: None, off_cpu_sample_group: Some(off_cpu_sample_group), on_cpu_sample_cpu_delta: None });
                         }
                     }
                 }
@@ -518,23 +510,20 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                 "V8.js/MethodLoad/" |
                 "Microsoft-JScript/MethodRuntime/MethodDCStart" |
                 "Microsoft-JScript/MethodRuntime/MethodLoad" => {
+                    let process_id = s.process_id();
+
                     let method_name: String = parser.parse("MethodName");
                     let method_start_address: Address = parser.parse("MethodStartAddress");
                     let method_size: u64 = parser.parse("MethodSize");
                     // let source_id: u64 = parser.parse("SourceID");
-                    let process_id = s.process_id();
-                    let Some(process) = context.get_process(process_id) else { return; };
 
-                    let process_jit_info = jscript_symbols.entry(s.process_id()).or_insert_with(|| {
-                        let lib_handle = context.profile.borrow_mut().add_lib(LibraryInfo { name: format!("JIT-{process_id}"), debug_name: format!("JIT-{process_id}"), path: format!("JIT-{process_id}"), debug_path: format!("JIT-{process_id}"), debug_id: DebugId::nil(), code_id: None, arch: None, symbol_table: None });
-                        ProcessJitInfo { lib_handle, jit_mapping_ops: LibMappingOpQueue::default(), next_relative_address: 0, symbols: Vec::new() }
-                    });
+                    context.ensure_process_jit_info(process_id);
+                    let Some(mut process) = context.get_process_mut(process_id) else { return; };
+                    let mut process_jit_info = context.get_process_jit_info(process_id);
+
                     let start_address = method_start_address.as_u64();
                     let relative_address = process_jit_info.next_relative_address;
                     process_jit_info.next_relative_address += method_size as u32;
-
-                    let timestamp = e.EventHeader.TimeStamp as u64;
-                    let timestamp = timestamp_converter.convert_time(timestamp);
 
                     if let Some(main_thread) = process.main_thread_handle {
                         context.profile.borrow_mut().add_marker(
@@ -546,7 +535,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                         );
                     }
 
-                    let (category, js_frame) = jit_category_manager.classify_jit_symbol(&method_name, &mut context.profile.borrow_mut());
+                    let (category, js_frame) = context.js_category_manager.borrow_mut().classify_jit_symbol(&method_name, &mut context.profile.borrow_mut());
                     let info = LibMappingInfo::new_jit_function(process_jit_info.lib_handle, category, js_frame);
                     process_jit_info.jit_mapping_ops.push(e.EventHeader.TimeStamp as u64, LibMappingOp::Add(LibMappingAdd {
                         start_avma: start_address,
@@ -776,9 +765,9 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
     let mut stack_frame_scratch_buf = Vec::new();
     for (process_id, process) in context.processes.iter() {
         let process = process.borrow_mut();
-        // let ProcessState { unresolved_samples, regular_lib_mapping_ops, main_thread_handle, .. } = process;
-        let jitdump_lib_mapping_op_queues = match jscript_symbols.remove(process_id) {
+        let jitdump_lib_mapping_op_queues = match context.process_jit_infos.remove(&process_id) {
             Some(jit_info) => {
+                let jit_info = jit_info.into_inner();
                 context.profile.borrow_mut().set_lib_symbol_table(
                     jit_info.lib_handle,
                     Arc::new(SymbolTable::new(jit_info.symbols)),

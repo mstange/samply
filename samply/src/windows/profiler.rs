@@ -63,7 +63,7 @@ pub fn start_recording(
         interval_8khz, // recording_props.interval.into(),
     );
 
-    let arch = get_native_arch(); // TODO: Detect from file if reading from file
+    let arch = profile_creation_props.override_arch.unwrap_or(get_native_arch().to_string());
 
     // Start xperf.
     let mut xperf =
@@ -140,7 +140,7 @@ pub fn start_recording(
     eprintln!("Processing ETL trace...");
 
     let output_file = recording_props.output_file;
-    let mut context = ProfileContext::new(profile, arch, included_processes);
+    let mut context = ProfileContext::new(profile, &arch, included_processes);
     etw_gecko::profile_pid_from_etl_file(&mut context, &merged_etl);
 
     // delete etl_file
