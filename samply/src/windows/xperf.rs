@@ -21,8 +21,12 @@ impl Xperf {
         })
     }
 
+    pub fn is_running(&self) -> bool {
+        matches!(&self.state, XperfState::RecordingToFile(_))
+    }
+
     pub fn start_xperf(&mut self, output_file: &Path) {
-        if matches!(&self.state, XperfState::RecordingToFile(_)) {
+        if self.is_running() {
             self.stop_xperf();
         }
 
