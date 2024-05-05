@@ -12,7 +12,9 @@ use fxprof_processed_profile::{
 use uuid::Uuid;
 
 use super::winutils;
-use crate::shared::context_switch::{ContextSwitchHandler, OffCpuSampleGroup, ThreadContextSwitchData};
+use crate::shared::context_switch::{
+    ContextSwitchHandler, OffCpuSampleGroup, ThreadContextSwitchData,
+};
 use crate::shared::included_processes::IncludedProcesses;
 use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::lib_mappings::LibMappingOpQueue;
@@ -237,11 +239,24 @@ impl ProfileContext {
         if !self.process_jit_infos.contains_key(&pid) {
             let jitname = format!("JIT-{}", pid);
             let jitlib = self.profile.borrow_mut().add_lib(LibraryInfo {
-                name: jitname.clone(), debug_name: jitname.clone(),
-                path: jitname.clone(), debug_path: jitname.clone(),
-                debug_id: DebugId::nil(), code_id: None, arch: None, symbol_table: None });
-            self.process_jit_infos.insert(pid,
-                RefCell::new(ProcessJitInfo { lib_handle: jitlib, jit_mapping_ops: LibMappingOpQueue::default(), next_relative_address: 0, symbols: Vec::new() }));
+                name: jitname.clone(),
+                debug_name: jitname.clone(),
+                path: jitname.clone(),
+                debug_path: jitname.clone(),
+                debug_id: DebugId::nil(),
+                code_id: None,
+                arch: None,
+                symbol_table: None,
+            });
+            self.process_jit_infos.insert(
+                pid,
+                RefCell::new(ProcessJitInfo {
+                    lib_handle: jitlib,
+                    jit_mapping_ops: LibMappingOpQueue::default(),
+                    next_relative_address: 0,
+                    symbols: Vec::new(),
+                }),
+            );
         }
     }
 

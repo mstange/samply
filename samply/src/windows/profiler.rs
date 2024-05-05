@@ -63,7 +63,9 @@ pub fn start_recording(
         interval_8khz, // recording_props.interval.into(),
     );
 
-    let arch = profile_creation_props.override_arch.unwrap_or(get_native_arch().to_string());
+    let arch = profile_creation_props
+        .override_arch
+        .unwrap_or(get_native_arch().to_string());
 
     // Start xperf.
     let mut xperf =

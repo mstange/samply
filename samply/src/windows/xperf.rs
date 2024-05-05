@@ -36,7 +36,10 @@ impl Xperf {
     }
 
     pub fn is_running(&self) -> bool {
-        matches!(&self.state, XperfState::RecordingKernelToFile(_) | XperfState::RecordingKernelAndUserToFile(_, _))
+        matches!(
+            &self.state,
+            XperfState::RecordingKernelToFile(_) | XperfState::RecordingKernelAndUserToFile(_, _)
+        )
     }
 
     pub fn start_xperf(&mut self, output_file: &Path) {
@@ -94,7 +97,8 @@ impl Xperf {
         eprintln!("xperf session running...");
 
         if user_etl_file.is_some() {
-            self.state = XperfState::RecordingKernelAndUserToFile(kernel_etl_file, user_etl_file.unwrap());
+            self.state =
+                XperfState::RecordingKernelAndUserToFile(kernel_etl_file, user_etl_file.unwrap());
         } else {
             self.state = XperfState::RecordingKernelToFile(kernel_etl_file);
         }
