@@ -22,16 +22,15 @@ use uuid::Uuid;
 
 use super::profile_context::ProfileContext;
 use crate::shared::context_switch::{ContextSwitchHandler, OffCpuSampleGroup};
-use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::jit_function_add_marker::JitFunctionAddMarker;
-use crate::shared::lib_mappings::{LibMappingAdd, LibMappingInfo, LibMappingOp, LibMappingOpQueue};
+use crate::shared::lib_mappings::{LibMappingAdd, LibMappingInfo, LibMappingOp};
 use crate::shared::marker_file::get_markers;
 use crate::shared::process_sample_data::{
     MarkerSpanOnThread, ProcessSampleData, SimpleMarker, UserTimingMarker,
 };
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::types::{StackFrame, StackMode};
-use crate::windows::profile_context::{PendingMarker, PendingStack, ProcessJitInfo};
+use crate::windows::profile_context::{PendingMarker, PendingStack};
 
 pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) {
     let profile_start_instant = Timestamp::from_nanos_since_reference(0);
@@ -518,7 +517,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                     // let source_id: u64 = parser.parse("SourceID");
 
                     context.ensure_process_jit_info(process_id);
-                    let Some(mut process) = context.get_process_mut(process_id) else { return; };
+                    let Some(process) = context.get_process_mut(process_id) else { return; };
                     let mut process_jit_info = context.get_process_jit_info(process_id);
 
                     let start_address = method_start_address.as_u64();
@@ -765,7 +764,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
     let mut stack_frame_scratch_buf = Vec::new();
     for (process_id, process) in context.processes.iter() {
         let process = process.borrow_mut();
-        let jitdump_lib_mapping_op_queues = match context.process_jit_infos.remove(&process_id) {
+        let jitdump_lib_mapping_op_queues = match context.process_jit_infos.remove(process_id) {
             Some(jit_info) => {
                 let jit_info = jit_info.into_inner();
                 context.profile.borrow_mut().set_lib_symbol_table(

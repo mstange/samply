@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use std::path::{Path, PathBuf};
 
 pub struct Xperf {
@@ -52,7 +54,7 @@ impl Xperf {
         let mut kernel_etl_file = expand_full_filename_with_cwd(output_file);
         kernel_etl_file.set_extension("unmerged-etl");
 
-        let mut user_etl_file = if self.capture_coreclr {
+        let user_etl_file = if self.capture_coreclr {
             let mut user_etl_file = kernel_etl_file.clone();
             user_etl_file.set_extension("user-unmerged-etl");
             Some(user_etl_file)

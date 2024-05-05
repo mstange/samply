@@ -236,7 +236,7 @@ impl ProfileContext {
     }
 
     pub fn ensure_process_jit_info(&mut self, pid: u32) {
-        if !self.process_jit_infos.contains_key(&pid) {
+        if let std::collections::hash_map::Entry::Vacant(e) = self.process_jit_infos.entry(pid) {
             let jitname = format!("JIT-{}", pid);
             let jitlib = self.profile.borrow_mut().add_lib(LibraryInfo {
                 name: jitname.clone(),
@@ -248,15 +248,12 @@ impl ProfileContext {
                 arch: None,
                 symbol_table: None,
             });
-            self.process_jit_infos.insert(
-                pid,
-                RefCell::new(ProcessJitInfo {
-                    lib_handle: jitlib,
-                    jit_mapping_ops: LibMappingOpQueue::default(),
-                    next_relative_address: 0,
-                    symbols: Vec::new(),
-                }),
-            );
+            e.insert(RefCell::new(ProcessJitInfo {
+                lib_handle: jitlib,
+                jit_mapping_ops: LibMappingOpQueue::default(),
+                next_relative_address: 0,
+                symbols: Vec::new(),
+            }));
         }
     }
 
