@@ -338,7 +338,8 @@ impl ImportArgs {
         let profile_name = if let Some(profile_name) = &self.profile_creation_args.profile_name {
             profile_name.clone()
         } else {
-            "Imported perf profile".to_string()
+            let name = self.file.file_name().unwrap_or(self.file.as_os_str());
+            name.to_string_lossy().into()
         };
         ProfileCreationProps {
             profile_name,
