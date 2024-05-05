@@ -92,14 +92,14 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                     let perf_freq: u64 = parser.parse("PerfFreq");
                     let clock_type: u32 = parser.parse("ReservedFlags");
                     if clock_type != 1 {
-                        println!("WARNING: QPC not used as clock");
+                        log::warn!("QPC not used as clock");
                         event_timestamps_are_qpc = false;
                     } else {
                         event_timestamps_are_qpc = true;
                     }
                     let events_lost: u32 = parser.parse("EventsLost");
                     if events_lost != 0 {
-                        println!("WARNING: {} events lost", events_lost);
+                        log::warn!("{} events lost", events_lost);
                     }
 
                     timestamp_converter = TimestampConverter {
@@ -107,16 +107,18 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                         raw_to_ns_factor: 1000 * 1000 * 1000 / perf_freq,
                     };
 
-                    for i in 0..s.property_count() {
-                        let property = s.property(i);
-                        print_property(&mut parser, &property, false);
+                    if log::log_enabled!(log::Level::Info) {
+                        for i in 0..s.property_count() {
+                            let property = s.property(i);
+                            print_property(&mut parser, &property, false);
+                        }
                     }
                 }
                 "MSNT_SystemTrace/PerfInfo/CollectionStart" => {
                     let interval_raw: u32 = parser.parse("NewInterval");
                     let interval_nanos = interval_raw as u64 * 100;
                     let interval = SamplingInterval::from_nanos(interval_nanos);
-                    println!("Sample rate {}ms", interval.as_secs_f64() * 1000.);
+                    log::info!("Sample rate {}ms", interval.as_secs_f64() * 1000.);
                     context.profile.borrow_mut().set_interval(interval);
                     context.context_switch_handler.replace(ContextSwitchHandler::new(interval_raw as u64));
                 }
@@ -227,7 +229,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                         let mut thread = context.get_thread_mut(thread_id).unwrap();
                         if let Some(pending_stack ) = thread.pending_stacks.iter_mut().rev().find(|s| s.timestamp == timestamp_raw) {
                             if let Some(kernel_stack) = pending_stack.kernel_stack.as_mut() {
-                                eprintln!("Multiple kernel stacks for timestamp {timestamp_raw} on thread {thread_id}");
+                                log::warn!("Multiple kernel stacks for timestamp {timestamp_raw} on thread {thread_id}");
                                 kernel_stack.extend(&stack);
                             } else {
                                 pending_stack.kernel_stack = Some(stack);
@@ -371,7 +373,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                     let pdb_path: String = parser.try_parse("PdbFileName").unwrap();
                     //let pdb_path = Path::new(&pdb_path);
                     let Some((ref path, image_size, timestamp)) = libs.remove(&(process_id, image_base)) else {
-                        eprintln!("DbID_RSDS for image at 0x{:x} for pid {}, but has no entry in libs", image_base, process_id);
+                        log::warn!("DbID_RSDS for image at 0x{:x} for pid {}, but has no entry in libs", image_base, process_id);
                         return
                     };
                     //eprintln!("DbgID_RSDS pid: {} 0x{:x} {} {} {} {}", process_id, image_base, path, debug_id, pdb_path, age);
@@ -397,7 +399,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                     } else if let Some(mut process) = context.get_process_mut(process_id) {
                         process.pending_libraries.insert(image_base, info);
                     } else {
-                        eprintln!("No process for pid {process_id}");
+                        log::warn!("No process for pid {process_id}");
                     }
 
                 }
@@ -423,7 +425,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                     } else if let Some(mut process) = context.get_process_mut(process_id) {
                         process.pending_libraries.remove(&image_base)
                     } else {
-                        eprintln!("Received {} for unknown pid {process_id}", s.name());
+                        log::warn!("Received {} for unknown pid {process_id}", s.name());
                         return;
                     };
 
@@ -810,12 +812,14 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
         for (_, thread) in threads.drain() { profile.add_thread(thread.builder); }
     }*/
 
-    println!(
+    log::info!(
         "Took {} seconds",
         (Instant::now() - processing_start_timestamp).as_secs_f32()
     );
-    println!(
+    log::info!(
         "{} events, {} samples, {} stack-samples",
-        event_count, sample_count, stack_sample_count
+        event_count,
+        sample_count,
+        stack_sample_count
     );
 }

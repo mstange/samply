@@ -301,7 +301,7 @@ impl ProfileContext {
 
     pub fn add_thread(&mut self, pid: u32, tid: u32, start_time: Timestamp) {
         if !self.processes.contains_key(&pid) {
-            eprintln!("Adding thread {tid} for unknown pid {pid}");
+            log::warn!("Adding thread {tid} for unknown pid {pid}");
             return;
         }
 
@@ -531,7 +531,7 @@ impl ProfileContext {
     fn add_kernel_drivers(&mut self) {
         for (path, start_avma, end_avma) in winutils::iter_kernel_drivers() {
             let path = self.map_device_path(&path);
-            eprintln!("kernel driver: {} {:x} {:x}", path, start_avma, end_avma);
+            log::info!("kernel driver: {} {:x} {:x}", path, start_avma, end_avma);
             let lib_info = self.get_library_info_for_path(&path);
             let lib_handle = self.profile.borrow_mut().add_lib(lib_info);
             self.profile
