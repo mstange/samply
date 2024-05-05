@@ -119,6 +119,10 @@ struct ImportArgs {
     /// Only include processes with these PIDs
     #[arg(long)]
     pids: Option<Vec<u32>>,
+
+    /// Explicitly specify architecture of profile to import.
+    #[arg(long)]
+    override_arch: Option<String>,
 }
 
 #[allow(unused)]
@@ -164,7 +168,7 @@ struct RecordArgs {
     )]
     command: Vec<std::ffi::OsString>,
 
-    /// Process ID of existing process to attach to (Linux only).
+    /// Process ID of existing process to attach to.
     #[arg(short, long, conflicts_with = "all")]
     pid: Option<u32>,
 
@@ -325,6 +329,7 @@ impl ImportArgs {
             fold_recursive_prefix: self.profile_creation_args.fold_recursive_prefix,
             unlink_aux_files: self.profile_creation_args.unlink_aux_files,
             create_per_cpu_threads: self.profile_creation_args.per_cpu_threads,
+            override_arch: self.override_arch.clone(),
         }
     }
 
@@ -417,6 +422,7 @@ impl RecordArgs {
             fold_recursive_prefix: self.profile_creation_args.fold_recursive_prefix,
             unlink_aux_files: self.profile_creation_args.unlink_aux_files,
             create_per_cpu_threads: self.profile_creation_args.per_cpu_threads,
+            override_arch: None,
         }
     }
 }

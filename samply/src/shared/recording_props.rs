@@ -15,9 +15,9 @@ pub struct RecordingProps {
 pub enum RecordingMode {
     /// Record all processes, system-wide.
     All,
-    /// Record just a single process.
+    /// Record just a single process (and its children).
     Pid(u32),
-    /// Launch a process, and record just that process.
+    /// Launch a process, and record just that process (and its children).
     Launch(ProcessLaunchProps),
 }
 
@@ -33,6 +33,8 @@ pub struct ProfileCreationProps {
     pub unlink_aux_files: bool,
     /// Create a separate thread for each CPU.
     pub create_per_cpu_threads: bool,
+    /// Override system architecture.
+    pub override_arch: Option<String>,
 }
 
 /// Properties which are meaningful for launching and recording a fresh process.
