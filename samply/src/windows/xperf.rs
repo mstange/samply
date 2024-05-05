@@ -2,6 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
+use fxprof_processed_profile::SamplingInterval;
+
 pub struct Xperf {
     arch: String,
     xperf_path: PathBuf,
@@ -44,7 +46,7 @@ impl Xperf {
         )
     }
 
-    pub fn start_xperf(&mut self, output_file: &Path) {
+    pub fn start_xperf(&mut self, output_file: &Path, interval: SamplingInterval) {
         if self.is_running() {
             self.stop_xperf();
         }
@@ -62,12 +64,16 @@ impl Xperf {
             None
         };
 
-        let mut xperf = runas::Command::new(&self.xperf_path);
+        const NANOS_PER_TICK: u64 = 100;
+        let interval_ticks = interval.nanos() / NANOS_PER_TICK;
 
-        xperf.arg("-on");
+        let mut xperf = runas::Command::new(&self.xperf_path);
+        xperf.arg("-SetProfInt");
+        xperf.arg(interval_ticks.to_string());
 
         // Virtualised ARM64 Windows crashes out on PROFILE tracing, so this hidden
         // hack argument lets things still continue to run for development of samply.
+        xperf.arg("-on");
         if !self.virtualized_aarch64_hack {
             xperf.arg("PROC_THREAD+LOADER+PROFILE+CSWITCH");
             xperf.arg("-stackwalk");

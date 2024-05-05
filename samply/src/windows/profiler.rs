@@ -56,11 +56,15 @@ pub fn start_recording(
     let timebase = std::time::SystemTime::now();
     let timebase = ReferenceTimestamp::from_system_time(timebase);
 
-    let interval_8khz = SamplingInterval::from_nanos(122100); // 8192Hz // only with the higher recording rate?
+    const MIN_INTERVAL_NANOS: u64 = 122100; // 8192 kHz
+    let interval_nanos: u64 = recording_props.interval.as_nanos() as u64;
+    let interval_nanos = interval_nanos.clamp(MIN_INTERVAL_NANOS, u64::MAX);
+    let sampling_interval = SamplingInterval::from_nanos(interval_nanos);
+
     let profile = Profile::new(
         &profile_creation_props.profile_name,
         timebase,
-        interval_8khz, // recording_props.interval.into(),
+        sampling_interval,
     );
 
     let arch = profile_creation_props
@@ -70,7 +74,7 @@ pub fn start_recording(
     // Start xperf.
     let mut xperf =
         Xperf::new(arch.to_string()).unwrap_or_else(|e| panic!("Couldn't find xperf: {e:?}"));
-    xperf.start_xperf(&recording_props.output_file);
+    xperf.start_xperf(&recording_props.output_file, sampling_interval);
 
     let included_processes = match recording_mode {
         RecordingMode::All => {
