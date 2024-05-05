@@ -220,6 +220,8 @@ pub struct ProfileCreationArgs {
 }
 
 fn main() {
+    env_logger::init();
+
     let opt = Opt::parse();
     match opt.action {
         Action::Load(load_args) => {
