@@ -593,7 +593,7 @@ version = "0.1.0"
 dependencies = [
  "bitflags 2.5.0",
  "fxhash",
- "memoffset 0.9.1",
+ "memoffset",
  "num-derive",
  "num-traits",
  "once_cell",
@@ -1198,15 +1198,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fe751422e4a8caa417e13c3ea66452215d7d63e19e604f4980461212f3ae1322"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "memoffset"
-version = "0.6.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5aa361d4faea93603064a027415f07bd8e1d5c88c9fbf68bf56a285428fd79ce"
-dependencies = [
- "autocfg",
 ]
 
 [[package]]
@@ -1863,7 +1854,7 @@ dependencies = [
  "mach",
  "memchr",
  "memmap2",
- "memoffset 0.6.5",
+ "memoffset",
  "mio",
  "nix",
  "nix-base32",
