@@ -103,7 +103,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Install Rust
-        run: rustup update stable && rustup default stable && rustup target add ${{ matrix.target }}
+        run: rustup target add ${{ matrix.target }}
       - name: Check
         run: cargo check --workspace --verbose --target=${{ matrix.target }}
       - name: Clippy
