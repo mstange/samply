@@ -22,6 +22,9 @@ impl Deref for EventRecord {
 
 impl EventRecord {
     pub(crate) fn user_buffer(&self) -> &[u8] {
+        if self.UserData == std::ptr::null_mut() {
+            return &[];
+        }
         unsafe { std::slice::from_raw_parts(self.UserData as *mut _, self.UserDataLength.into()) }
     }
 }
