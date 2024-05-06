@@ -128,16 +128,6 @@ fn strip_thread_numbers(name: &str) -> &str {
     name
 }
 
-fn expand_full_filename_with_cwd(filename: &Path) -> PathBuf {
-    if filename.is_absolute() {
-        filename.to_path_buf()
-    } else {
-        let mut fullpath = std::env::current_dir().unwrap();
-        fullpath.push(filename);
-        fullpath
-    }
-}
-
 // Known profiler categories, lazy-created
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug)]
 pub enum KnownCategory {

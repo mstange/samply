@@ -82,6 +82,11 @@ enum Action {
 
     /// Import a perf.data file and display the profile.
     Import(ImportArgs),
+
+    #[cfg(target_os = "windows")]
+    #[clap(hide = true)]
+    /// Used in the elevated helper process.
+    RunElevatedHelper(RunElevatedHelperArgs),
 }
 
 #[derive(Debug, Args)]
@@ -234,6 +239,15 @@ pub struct ProfileCreationArgs {
     per_cpu_threads: bool,
 }
 
+#[derive(Debug, Args)]
+struct RunElevatedHelperArgs {
+    #[arg(long)]
+    ipc_directory: PathBuf,
+
+    #[arg(long)]
+    output_path: PathBuf,
+}
+
 fn main() {
     env_logger::init();
 
@@ -315,6 +329,13 @@ fn main() {
                 }
             };
             std::process::exit(exit_status.code().unwrap_or(0));
+        }
+        #[cfg(target_os = "windows")]
+        Action::RunElevatedHelper(RunElevatedHelperArgs {
+            ipc_directory,
+            output_path,
+        }) => {
+            windows::run_elevated_helper(&ipc_directory, output_path);
         }
     }
 }

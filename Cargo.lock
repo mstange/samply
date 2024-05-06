@@ -1842,6 +1842,7 @@ dependencies = [
  "etw-reader",
  "flate2",
  "framehop",
+ "fs4",
  "futures-util",
  "fxhash",
  "fxprof-processed-profile",
