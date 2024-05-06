@@ -24,7 +24,7 @@ samply-symbols = { version = "0.22.0", path = "../samply-symbols", features = ["
 symsrv = "0.5.1"
 yoke = "0.7"
 yoke-derive = "0.7"
-libc = "0.2.71"
+libc = "0.2.154"
 uuid = "1"
 reqwest = { version = "0.12.4", default-features = false, features = [
     "rustls-tls",
