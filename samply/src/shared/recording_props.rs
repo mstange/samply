@@ -26,6 +26,17 @@ pub enum RecordingMode {
     Launch(ProcessLaunchProps),
 }
 
+impl RecordingMode {
+    #[allow(dead_code)]
+    pub fn is_attach_mode(&self) -> bool {
+        match self {
+            RecordingMode::All => true,
+            RecordingMode::Pid(_) => true,
+            RecordingMode::Launch(_) => false,
+        }
+    }
+}
+
 /// Properties which are meaningful both for recording a profile and
 /// for converting a perf.data file to a profile.
 #[derive(Debug, Clone)]

@@ -49,6 +49,7 @@ ctrlc = "3.4.4"
 log = "0.4.21"
 env_logger = "0.11.3"
 cfg-if = "1.0.0"
+fs4 = "0.8.2"
 
 [target.'cfg(any(target_os = "android", target_os = "macos", target_os = "linux"))'.dependencies]
 
@@ -98,7 +99,8 @@ features =  ["Win32",
              "Win32_System_SystemInformation",
              "Win32_System_Threading",
              "Win32_System_Time",
-             "Win32_System_WindowsProgramming"]
+             "Win32_System_WindowsProgramming",
+             "Win32_UI_WindowsAndMessaging"]
 
 [dependencies.object]
 default-features = false

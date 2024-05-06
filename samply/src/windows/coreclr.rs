@@ -43,6 +43,8 @@ use etw_reader::{
 
 use crate::windows::profile_context::{KnownCategory, ProfileContext};
 
+use super::elevated_helper::ElevatedRecordingProps;
+
 struct SavedMarkerInfo {
     start: Timestamp,
     name: String,
@@ -217,18 +219,12 @@ impl ProfilerMarker for CoreClrGcEventMarker {
     }
 }
 
-pub fn coreclr_xperf_args(props: &RecordingProps, recording_mode: &RecordingMode) -> Vec<String> {
+pub fn coreclr_xperf_args(props: &ElevatedRecordingProps) -> Vec<String> {
     let mut providers = vec![];
 
     if !props.coreclr {
         return providers;
     }
-
-    let is_attach = match recording_mode {
-        RecordingMode::All => true,
-        RecordingMode::Pid(_) => true,
-        RecordingMode::Launch(_) => false,
-    };
 
     // Enabling all the DotNETRuntime keywords is very expensive. In particular,
     // enabling the NGenKeyword causes info to be generated for every NGen'd method; we should
@@ -261,7 +257,7 @@ pub fn coreclr_xperf_args(props: &RecordingProps, recording_mode: &RecordingMode
     let mut info_keywords = CORECLR_LOADER_KEYWORD | CORECLR_STACK_KEYWORD | CORECLR_GC_KEYWORD;
     let mut verbose_keywords = CORECLR_JIT_KEYWORD | CORECLR_NGEN_KEYWORD;
     // if we're attaching, ask for a rundown of method info at the start of collection
-    let mut rundown_verbose_keywords = if is_attach {
+    let mut rundown_verbose_keywords = if props.is_attach {
         CORECLR_LOADER_KEYWORD | CORECLR_JIT_KEYWORD | CORECLR_RUNDOWN_START_KEYWORD
     } else {
         0
@@ -352,6 +348,7 @@ pub fn handle_coreclr_event(
             .remove_last_event_for_thread(thread_handle);
     }
 
+    #[allow(clippy::if_same_then_else)]
     if let Some(method_event) = dotnet_event
         .strip_prefix("CLRMethod/")
         .or(dotnet_event.strip_prefix("CLRMethodRundown/"))

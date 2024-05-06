@@ -19,7 +19,7 @@ use crate::server::{start_server_main, ServerProps};
 use crate::shared::ctrl_c::CtrlC;
 use crate::shared::included_processes::IncludedProcesses;
 use crate::shared::recording_props::{ProfileCreationProps, RecordingMode, RecordingProps};
-use crate::windows::xperf::Xperf;
+use crate::windows::elevated_helper::{self, ElevatedHelperSession};
 
 // Hello intrepid explorer! You may be in this code because you'd like to extend something,
 // or are trying to figure out how various ETW things work. It's not the easiest API!
@@ -56,25 +56,18 @@ pub fn start_recording(
     let timebase = std::time::SystemTime::now();
     let timebase = ReferenceTimestamp::from_system_time(timebase);
 
-    const MIN_INTERVAL_NANOS: u64 = 122100; // 8192 kHz
-    let interval_nanos: u64 = recording_props.interval.as_nanos() as u64;
-    let interval_nanos = interval_nanos.clamp(MIN_INTERVAL_NANOS, u64::MAX);
-    let sampling_interval = SamplingInterval::from_nanos(interval_nanos);
-
     let profile = Profile::new(
         &profile_creation_props.profile_name,
         timebase,
-        sampling_interval,
+        SamplingInterval::from_nanos(1000000), // will be replaced with correct interval from file later
     );
 
-    let arch = profile_creation_props
-        .override_arch
-        .unwrap_or(get_native_arch().to_string());
-
     // Start xperf.
-    let mut xperf = Xperf::new(recording_props.clone(), recording_mode.clone())
-        .unwrap_or_else(|e| panic!("Couldn't find xperf: {e:?}"));
-    xperf.start_xperf(sampling_interval);
+    let mut elevated_helper = ElevatedHelperSession::new(recording_props.output_file.clone())
+        .unwrap_or_else(|e| panic!("Couldn't start elevated helper process: {e:?}"));
+    elevated_helper
+        .start_xperf(&recording_props, &recording_mode)
+        .unwrap();
 
     let included_processes = match recording_mode {
         RecordingMode::All => {
@@ -139,13 +132,20 @@ pub fn start_recording(
 
     eprintln!("Stopping xperf...");
 
-    let merged_etl = xperf
+    let merged_etl = elevated_helper
         .stop_xperf()
         .expect("Should have produced a merged ETL file");
+
+    elevated_helper.shutdown();
 
     eprintln!("Processing ETL trace...");
 
     let output_file = recording_props.output_file;
+
+    let arch = profile_creation_props
+        .override_arch
+        .unwrap_or(get_native_arch().to_string());
+
     let mut context = ProfileContext::new(profile, &arch, included_processes);
     etw_gecko::profile_pid_from_etl_file(&mut context, &merged_etl);
 
