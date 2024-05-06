@@ -12,9 +12,9 @@ use etw_reader::{
     add_custom_schemas, event_properties_to_string, open_trace, print_property, GUID,
 };
 use fxprof_processed_profile::{
-    debugid, CategoryHandle, CpuDelta, LibraryInfo,
-    MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField,
-    MarkerTiming, ProfilerMarker, SamplingInterval, Symbol, SymbolTable, Timestamp,
+    debugid, CategoryHandle, CpuDelta, LibraryInfo, MarkerDynamicField, MarkerFieldFormat,
+    MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerTiming, ProfilerMarker,
+    SamplingInterval, Symbol, SymbolTable, Timestamp,
 };
 use serde_json::{json, Value};
 use uuid::Uuid;

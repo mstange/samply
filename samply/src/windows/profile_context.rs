@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 
 use debugid::DebugId;
 use fxprof_processed_profile::{
-    CategoryColor, CategoryHandle, CounterHandle, CpuDelta, FrameFlags, FrameInfo, LibraryHandle, LibraryInfo, ProcessHandle, Profile, Symbol, ThreadHandle, Timestamp
+    CategoryColor, CategoryHandle, CounterHandle, CpuDelta, FrameFlags, FrameInfo, LibraryHandle,
+    LibraryInfo, ProcessHandle, Profile, Symbol, ThreadHandle, Timestamp,
 };
 use uuid::Uuid;
 
@@ -237,24 +238,52 @@ impl ProfileContext {
     const CATEGORIES: &'static [(KnownCategory, &'static str, CategoryColor)] = &[
         (KnownCategory::User, "User", CategoryColor::Yellow),
         (KnownCategory::Kernel, "Kernel", CategoryColor::LightRed),
-        (KnownCategory::System, "System Libraries", CategoryColor::Orange),
-        (KnownCategory::D3DVideoSubmitDecoderBuffers, "D3D Video Submit Decoder Buffers", CategoryColor::Transparent),
-        (KnownCategory::CoreClrR2r, "CoreCLR R2R", CategoryColor::Blue),
-        (KnownCategory::CoreClrJit, "CoreCLR JIT", CategoryColor::Purple),
-        (KnownCategory::Unknown, "Unknown/Other", CategoryColor::DarkGray),
+        (
+            KnownCategory::System,
+            "System Libraries",
+            CategoryColor::Orange,
+        ),
+        (
+            KnownCategory::D3DVideoSubmitDecoderBuffers,
+            "D3D Video Submit Decoder Buffers",
+            CategoryColor::Transparent,
+        ),
+        (
+            KnownCategory::CoreClrR2r,
+            "CoreCLR R2R",
+            CategoryColor::Blue,
+        ),
+        (
+            KnownCategory::CoreClrJit,
+            "CoreCLR JIT",
+            CategoryColor::Purple,
+        ),
+        (
+            KnownCategory::Unknown,
+            "Unknown/Other",
+            CategoryColor::DarkGray,
+        ),
     ];
 
     pub fn get_category(&self, category: KnownCategory) -> CategoryHandle {
-        let category = if category == KnownCategory::Default { KnownCategory::User } else { category };
+        let category = if category == KnownCategory::Default {
+            KnownCategory::User
+        } else {
+            category
+        };
 
-        *self.categories.borrow_mut().entry(category).or_insert_with(|| {
-            let (category_name, color) = Self::CATEGORIES
-                .iter()
-                .find(|(c, _, _)| *c == category)
-                .map(|(_, name, color)| (*name, *color))
-                .unwrap();
-            self.profile.borrow_mut().add_category(category_name, color)
-        })
+        *self
+            .categories
+            .borrow_mut()
+            .entry(category)
+            .or_insert_with(|| {
+                let (category_name, color) = Self::CATEGORIES
+                    .iter()
+                    .find(|(c, _, _)| *c == category)
+                    .map(|(_, name, color)| (*name, *color))
+                    .unwrap();
+                self.profile.borrow_mut().add_category(category_name, color)
+            })
     }
 
     pub fn ensure_process_jit_info(&mut self, pid: u32) {
