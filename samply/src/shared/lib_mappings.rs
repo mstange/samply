@@ -30,6 +30,16 @@ impl LibMappingInfo {
         }
     }
 
+    #[allow(unused)]
+    pub fn new_lib_with_category(lib_handle: LibraryHandle, category: CategoryPairHandle) -> Self {
+        Self {
+            lib_handle,
+            category: Some(category),
+            js_frame: None,
+            art_info: None,
+        }
+    }
+
     pub fn new_jit_function(
         lib_handle: LibraryHandle,
         category: CategoryPairHandle,

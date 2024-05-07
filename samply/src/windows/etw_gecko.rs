@@ -1,4 +1,3 @@
-use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::convert::TryInto;
 use std::path::Path;
@@ -13,9 +12,9 @@ use etw_reader::{
     add_custom_schemas, event_properties_to_string, open_trace, print_property, GUID,
 };
 use fxprof_processed_profile::{
-    debugid, CategoryColor, CategoryHandle, CategoryPairHandle, CpuDelta, LibraryInfo,
-    MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField,
-    MarkerTiming, ProfilerMarker, SamplingInterval, Symbol, SymbolTable, Timestamp,
+    debugid, CategoryHandle, CpuDelta, LibraryInfo, MarkerDynamicField, MarkerFieldFormat,
+    MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerTiming, ProfilerMarker,
+    SamplingInterval, Symbol, SymbolTable, Timestamp,
 };
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -30,7 +29,7 @@ use crate::shared::process_sample_data::{
 };
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::types::{StackFrame, StackMode};
-use crate::windows::profile_context::{PendingMarker, PendingStack};
+use crate::windows::profile_context::{KnownCategory, PendingMarker, PendingStack};
 
 pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) {
     let profile_start_instant = Timestamp::from_nanos_since_reference(0);
@@ -50,17 +49,6 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
     let demand_zero_faults = false; //pargs.contains("--demand-zero-faults");
     let marker_file: Option<String> = None; //pargs.opt_value_from_str("--marker-file").unwrap();
 
-    let user_category: CategoryPairHandle = context
-        .profile
-        .borrow_mut()
-        .add_category("User", fxprof_processed_profile::CategoryColor::Yellow)
-        .into();
-    let kernel_category: CategoryPairHandle = context
-        .profile
-        .borrow_mut()
-        .add_category("Kernel", fxprof_processed_profile::CategoryColor::Orange)
-        .into();
-
     let mut sample_count = 0;
     let mut stack_sample_count = 0;
     let mut timer_resolution: u32 = 0; // Resolution of the hardware timer, in units of 100 nanoseconds.
@@ -75,7 +63,6 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
     };
     let mut event_timestamps_are_qpc = false;
 
-    let mut categories = HashMap::<String, CategoryHandle>::new();
     let result = open_trace(etl_file, |e| {
         event_count += 1;
         let s = schema_locator.event_schema(e);
@@ -431,21 +418,44 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
 
                     // If the file doesn't exist on disk we won't have KernelTraceControl/ImageID events
                     // This happens for the ghost drivers mentioned here: https://devblogs.microsoft.com/oldnewthing/20160913-00/?p=94305
-                    if let Some(mut info) = info {
-                        info.path = path;
-                        let lib_handle = context.profile.borrow_mut().add_lib(info);
-                        if process_id == 0 || image_base >= context.kernel_min {
-                            context.profile.borrow_mut().add_kernel_lib_mapping(lib_handle, image_base, image_base + image_size, 0);
-                        } else {
-                            let mut process = context.get_process_mut(process_id).unwrap();
-                            process.regular_lib_mapping_ops.push(timestamp_raw, LibMappingOp::Add(LibMappingAdd {
-                                start_avma: image_base,
-                                end_avma: image_base + image_size,
-                                relative_address_at_start: 0,
-                                info: LibMappingInfo::new_lib(lib_handle),
-                            }));
-                        }
+                    let Some(mut info) = info else {
+                        return
+                    };
+
+                    info.path = path;
+
+                    // attempt to categorize the library based on the path
+                    let path_lower = info.path.to_lowercase();
+                    let debug_path_lower = info.debug_path.to_lowercase();
+
+                    let known_category = if debug_path_lower.contains(".ni.pdb") {
+                        KnownCategory::CoreClrR2r
+                    } else if path_lower.contains("windows\\system32") || path_lower.contains("windows\\winsxs") {
+                        KnownCategory::System
+                    } else {
+                        KnownCategory::Unknown
+                    };
+
+                    let lib_handle = context.profile.borrow_mut().add_lib(info);
+                    if process_id == 0 || image_base >= context.kernel_min {
+                        context.profile.borrow_mut().add_kernel_lib_mapping(lib_handle, image_base, image_base + image_size, 0);
+                        return
                     }
+
+
+                    let info = if known_category != KnownCategory::Unknown {
+                        let category = context.get_category(known_category);
+                        LibMappingInfo::new_lib_with_category(lib_handle, category.into())
+                    } else {
+                        LibMappingInfo::new_lib(lib_handle)
+                    };
+
+                    context.get_process_mut(process_id).unwrap().regular_lib_mapping_ops.push(timestamp_raw, LibMappingOp::Add(LibMappingAdd {
+                            start_avma: image_base,
+                            end_avma: image_base + image_size,
+                            relative_address_at_start: 0,
+                            info,
+                        }));
                 }
                 "Microsoft-Windows-DxgKrnl/VSyncDPC/Info " => {
                     #[derive(Debug, Clone)]
@@ -580,14 +590,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                         MarkerTiming::IntervalEnd(timestamp)
                     };
 
-                    let category = match categories.entry(s.provider_name()) {
-                        Entry::Occupied(e) => *e.get(),
-                        Entry::Vacant(e) => {
-                            let category = context.profile.borrow_mut().add_category(e.key(), CategoryColor::Transparent);
-                            *e.insert(category)
-                        }
-                    };
-
+                    let category = context.get_category(KnownCategory::D3DVideoSubmitDecoderBuffers);
                     context.profile.borrow_mut().add_marker(thread.handle, category, s.name().split_once('/').unwrap().1, SimpleMarker(text), timing);
                 }
                 marker_name if marker_name.starts_with("Mozilla.FirefoxTraceLogger/") =>  {
@@ -640,6 +643,9 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                     } else {
                         context.profile.borrow_mut().add_marker(thread.handle, CategoryHandle::OTHER, marker_name, SimpleMarker(text.clone()), timing);
                     }
+                }
+                "MetaData/EventInfo" | "Process/Terminate" => {
+                    // ignore
                 }
                 marker_name if marker_name.starts_with("Google.Chrome/") => {
                     let Some(marker_name) = marker_name.strip_prefix("Google.Chrome/").and_then(|s| s.strip_suffix("/Info")) else { return };
@@ -726,14 +732,8 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
 
                     let text = event_properties_to_string(&s, &mut parser, None);
                     let timing = MarkerTiming::Instant(timestamp);
-                    let category = match categories.entry(s.provider_name()) {
-                        Entry::Occupied(e) => *e.get(),
-                        Entry::Vacant(e) => {
-                            let category = context.profile.borrow_mut().add_category(e.key(), CategoryColor::Transparent);
-                            *e.insert(category)
-                        }
-                    };
-
+                    // this used to create a new category based on provider_name, just lump them together for now
+                    let category = context.get_category(KnownCategory::Unknown);
                     context.profile.borrow_mut().add_marker(thread.handle, category, s.name().split_once('/').unwrap().1, SimpleMarker(text), timing)
                     //println!("unhandled {}", s.name())
                 }
@@ -777,7 +777,8 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
             }
             None => Vec::new(),
         };
-        // TODO proper threads, not main thread
+
+        // TODO proper threads for markers, not automatically main thread
         let marker_spans_on_thread = marker_spans
             .iter()
             .map(|marker_span| MarkerSpanOnThread {
@@ -796,6 +797,8 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
             marker_spans_on_thread,
         );
         //main_thread_handle.unwrap_or_else(|| panic!("process no main thread {:?}", process_id)));
+        let user_category = context.get_category(KnownCategory::User).into();
+        let kernel_category = context.get_category(KnownCategory::Kernel).into();
         process_sample_data.flush_samples_to_profile(
             &mut context.profile.borrow_mut(),
             user_category,
