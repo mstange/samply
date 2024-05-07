@@ -30,6 +30,7 @@ impl LibMappingInfo {
         }
     }
 
+    #[allow(unused)]
     pub fn new_lib_with_category(lib_handle: LibraryHandle, category: CategoryPairHandle) -> Self {
         Self {
             lib_handle,
