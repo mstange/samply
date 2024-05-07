@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 
 use debugid::DebugId;
 use fxprof_processed_profile::{
-    CategoryColor, CategoryPairHandle, CounterHandle, CpuDelta, FrameFlags, FrameInfo,
-    LibraryHandle, LibraryInfo, ProcessHandle, Profile, Symbol, ThreadHandle, Timestamp,
+    CategoryColor, CategoryHandle, CounterHandle, CpuDelta, FrameFlags, FrameInfo, LibraryHandle,
+    LibraryInfo, ProcessHandle, Profile, Symbol, ThreadHandle, Timestamp,
 };
 use uuid::Uuid;
 
@@ -134,6 +134,19 @@ fn expand_full_filename_with_cwd(filename: &Path) -> PathBuf {
     }
 }
 
+// Known profiler categories, lazy-created
+#[derive(PartialEq, Eq, Hash, Copy, Clone, Debug)]
+pub enum KnownCategory {
+    Default,
+    User,
+    Kernel,
+    System,
+    D3DVideoSubmitDecoderBuffers,
+    CoreClrR2r,
+    CoreClrJit,
+    Unknown,
+}
+
 pub struct ProfileContext {
     pub profile: RefCell<Profile>,
 
@@ -165,11 +178,7 @@ pub struct ProfileContext {
     included_processes: Option<IncludedProcesses>,
 
     // default categories
-    // TODO -- move this + js_category_manager into a new class that manages categories more
-    // broadly
-    pub default_category: CategoryPairHandle,
-    pub kernel_category: CategoryPairHandle,
-    pub coreclr_category: CategoryPairHandle,
+    categories: RefCell<HashMap<KnownCategory, CategoryHandle>>,
 
     pub js_category_manager: RefCell<JitCategoryManager>,
     pub context_switch_handler: RefCell<ContextSwitchHandler>,
@@ -194,13 +203,6 @@ impl ProfileContext {
         arch: &str,
         included_processes: Option<IncludedProcesses>,
     ) -> Self {
-        let default_category =
-            CategoryPairHandle::from(profile.add_category("User", CategoryColor::Yellow));
-        let kernel_category =
-            CategoryPairHandle::from(profile.add_category("Kernel", CategoryColor::Orange));
-        let coreclr_category =
-            CategoryPairHandle::from(profile.add_category("CoreCLR", CategoryColor::Purple));
-
         // On 64-bit systems, the kernel address space always has 0xF in the first 16 bits.
         // The actual kernel address space is much higher, but we just need this to disambiguate kernel and user
         // stacks. Use add_kernel_drivers to get accurate mappings.
@@ -224,15 +226,64 @@ impl ProfileContext {
             per_thread_memory: false,
             libs: HashMap::new(),
             included_processes,
-            default_category,
-            kernel_category,
-            coreclr_category,
+            categories: RefCell::new(HashMap::new()),
             js_category_manager: RefCell::new(JitCategoryManager::new()),
             context_switch_handler: RefCell::new(ContextSwitchHandler::new(122100)), // hardcoded, but replaced once TraceStart is received
             device_mappings: winutils::get_dos_device_mappings(),
             kernel_min,
             arch: arch.to_string(),
         }
+    }
+
+    const CATEGORIES: &'static [(KnownCategory, &'static str, CategoryColor)] = &[
+        (KnownCategory::User, "User", CategoryColor::Yellow),
+        (KnownCategory::Kernel, "Kernel", CategoryColor::LightRed),
+        (
+            KnownCategory::System,
+            "System Libraries",
+            CategoryColor::Orange,
+        ),
+        (
+            KnownCategory::D3DVideoSubmitDecoderBuffers,
+            "D3D Video Submit Decoder Buffers",
+            CategoryColor::Transparent,
+        ),
+        (
+            KnownCategory::CoreClrR2r,
+            "CoreCLR R2R",
+            CategoryColor::Blue,
+        ),
+        (
+            KnownCategory::CoreClrJit,
+            "CoreCLR JIT",
+            CategoryColor::Purple,
+        ),
+        (
+            KnownCategory::Unknown,
+            "Unknown/Other",
+            CategoryColor::DarkGray,
+        ),
+    ];
+
+    pub fn get_category(&self, category: KnownCategory) -> CategoryHandle {
+        let category = if category == KnownCategory::Default {
+            KnownCategory::User
+        } else {
+            category
+        };
+
+        *self
+            .categories
+            .borrow_mut()
+            .entry(category)
+            .or_insert_with(|| {
+                let (category_name, color) = Self::CATEGORIES
+                    .iter()
+                    .find(|(c, _, _)| *c == category)
+                    .map(|(_, name, color)| (*name, *color))
+                    .unwrap();
+                self.profile.borrow_mut().add_category(category_name, color)
+            })
     }
 
     pub fn ensure_process_jit_info(&mut self, pid: u32) {
