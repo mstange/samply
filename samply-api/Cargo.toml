@@ -16,7 +16,7 @@ send_futures = ["samply-symbols/send_futures"]
 [dependencies]
 samply-symbols = { version = "0.22.0", path = "../samply-symbols" }
 thiserror = "1.0.59"
-serde = "1.0.199"
+serde = "1.0.200"
 serde_derive = "1.0.188"
 serde_json = "1.0.116"
 yaxpeax-arch = { version = "0.2.7", default-features = false }
