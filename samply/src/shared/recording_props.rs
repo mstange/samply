@@ -34,6 +34,7 @@ pub struct ProfileCreationProps {
     /// Create a separate thread for each CPU.
     pub create_per_cpu_threads: bool,
     /// Override system architecture.
+    #[allow(dead_code)]
     pub override_arch: Option<String>,
 }
 

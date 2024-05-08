@@ -194,6 +194,7 @@ pub enum SampleOrMarker {
     OtherEventMarker(OtherEventMarkerData),
     SchedSwitchMarkerOnCpuTrack,
     SchedSwitchMarkerOnThreadTrack(u32),
+    #[allow(dead_code)]
     MarkerHandle(MarkerHandle),
 }
 
