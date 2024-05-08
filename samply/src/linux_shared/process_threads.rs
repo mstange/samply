@@ -1,9 +1,11 @@
 use std::collections::hash_map::Entry;
+use std::sync::Arc;
 
 use fxprof_processed_profile::{
     CategoryHandle, Frame, FrameFlags, FrameInfo, ProcessHandle, Profile, ThreadHandle, Timestamp,
 };
 
+use super::more_markers::MoreMarkers;
 use super::thread::Thread;
 use crate::shared::recycling::ThreadRecycler;
 use crate::shared::types::FastHashMap;
@@ -14,6 +16,7 @@ pub struct ProcessThreads {
     pub main_thread: Thread,
     pub threads_by_tid: FastHashMap<i32, Thread>,
     pub thread_recycler: Option<ThreadRecycler>,
+    pub more_markers: Arc<MoreMarkers>,
 }
 
 impl ProcessThreads {
@@ -24,6 +27,7 @@ impl ProcessThreads {
         main_thread_label_frame: FrameInfo,
         name: Option<String>,
         thread_recycler: Option<ThreadRecycler>,
+        more_markers: Arc<MoreMarkers>,
     ) -> Self {
         Self {
             pid,
@@ -31,6 +35,7 @@ impl ProcessThreads {
             main_thread: Thread::new(main_thread_handle, main_thread_label_frame, name),
             threads_by_tid: Default::default(),
             thread_recycler,
+            more_markers,
         }
     }
 
@@ -72,6 +77,8 @@ impl ProcessThreads {
                     {
                         let thread =
                             Thread::new(thread_handle, thread_label_frame, Some(name.clone()));
+                        self.more_markers
+                            .add_thread_markers(profile, tid, thread_handle);
                         return entry.insert(thread);
                     }
                 }
@@ -84,6 +91,8 @@ impl ProcessThreads {
                 let thread_label_frame =
                     make_thread_label_frame(profile, name.as_deref(), self.pid, tid);
                 let thread = Thread::new(thread_handle, thread_label_frame, name);
+                self.more_markers
+                    .add_thread_markers(profile, tid, thread_handle);
                 entry.insert(thread)
             }
             Entry::Occupied(entry) => entry.into_mut(),
@@ -161,14 +170,9 @@ impl ProcessThreads {
                 false,
             );
             let thread_label_frame = make_thread_label_frame(profile, None, self.pid, tid);
-            Thread {
-                profile_thread,
-                context_switch_data: Default::default(),
-                last_sample_timestamp: None,
-                off_cpu_stack: None,
-                name: None,
-                thread_label_frame,
-            }
+            let thread = Thread::new(profile_thread, thread_label_frame, None);
+            self.more_markers.add_thread_markers(profile, tid, profile_thread);
+            thread
         })
     }
 

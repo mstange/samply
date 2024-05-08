@@ -34,6 +34,7 @@ use super::event_interpretation::{EventInterpretation, OffCpuIndicator};
 use super::injected_jit_object::{correct_bad_perf_jit_so_file, jit_function_name};
 use super::kernel_symbols::{kernel_module_build_id, KernelSymbols};
 use super::mmap_range_or_vec::MmapRangeOrVec;
+use super::more_markers::MoreMarkers;
 use super::pe_mappings::{PeMappings, SuspectedPeMapping};
 use super::per_cpu::Cpus;
 use super::processes::Processes;
@@ -195,12 +196,16 @@ where
             None
         };
 
+        let mut more_markers = MoreMarkers::new();
+        more_markers.read_from_file(Path::new("/Users/mstange/Downloads/perfetto-markers.txt"), timestamp_converter);
+
         Self {
             profile,
             cache,
             processes: Processes::new(
                 profile_creation_props.reuse_threads,
                 profile_creation_props.unlink_aux_files,
+                Arc::new(more_markers),
             ),
             timestamp_converter,
             current_sample_time: first_sample_time,

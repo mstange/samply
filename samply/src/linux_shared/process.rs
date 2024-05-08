@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use framehop::Unwinder;
 use fxprof_processed_profile::{
@@ -6,6 +7,7 @@ use fxprof_processed_profile::{
     ThreadHandle, Timestamp,
 };
 
+use super::more_markers::MoreMarkers;
 use super::process_threads::ProcessThreads;
 use super::thread::Thread;
 use crate::shared::jit_category_manager::JitCategoryManager;
@@ -13,7 +15,7 @@ use crate::shared::jit_function_add_marker::JitFunctionAddMarker;
 use crate::shared::jit_function_recycler::JitFunctionRecycler;
 use crate::shared::jitdump_manager::JitDumpManager;
 use crate::shared::lib_mappings::{LibMappingAdd, LibMappingInfo, LibMappingOp, LibMappingOpQueue};
-use crate::shared::marker_file::get_markers;
+use crate::shared::marker_file::{get_markers};
 use crate::shared::perf_map::try_load_perf_map;
 use crate::shared::process_sample_data::{MarkerSpanOnThread, ProcessSampleData};
 use crate::shared::recycling::{ProcessRecyclingData, ThreadRecycler};
@@ -57,6 +59,7 @@ where
         thread_recycler: Option<ThreadRecycler>,
         jit_function_recycler: Option<JitFunctionRecycler>,
         unlink_aux_files: bool,
+        more_markers: Arc<MoreMarkers>,
     ) -> Self {
         Self {
             profile_process: process_handle,
@@ -72,6 +75,7 @@ where
                 main_thread_label_frame,
                 name,
                 thread_recycler,
+                more_markers,
             ),
             unresolved_samples: Default::default(),
             jit_function_recycler,

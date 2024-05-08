@@ -1,9 +1,11 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use framehop::Unwinder;
 use fxprof_processed_profile::{CategoryColor, Profile, Timestamp};
 
+use super::more_markers::MoreMarkers;
 use super::process::Process;
 use super::process_threads::make_thread_label_frame;
 use crate::shared::jit_category_manager::JitCategoryManager;
@@ -28,13 +30,15 @@ where
 
     /// Whether aux files (like jitdump) should be unlinked on open
     unlink_aux_data: bool,
+
+    more_markers: Arc<MoreMarkers>
 }
 
 impl<U> Processes<U>
 where
     U: Unwinder + Default,
 {
-    pub fn new(allow_reuse: bool, unlink_aux_data: bool) -> Self {
+    pub fn new(allow_reuse: bool, unlink_aux_data: bool, more_markers: Arc<MoreMarkers>) -> Self {
         let process_recycler = if allow_reuse {
             Some(ProcessRecycler::new())
         } else {
@@ -45,6 +49,7 @@ where
             process_recycler,
             process_sample_datas: Vec::new(),
             unlink_aux_data,
+            more_markers,
         }
     }
 
@@ -78,6 +83,7 @@ where
                             Some(thread_recycler),
                             Some(jit_function_recycler),
                             self.unlink_aux_data,
+                            self.more_markers.clone(),
                         );
                         return entry.insert(process);
                     }
@@ -113,6 +119,7 @@ where
                     thread_recycler,
                     jit_function_recycler,
                     self.unlink_aux_data,
+                    self.more_markers.clone(),
                 );
                 entry.insert(process)
             }
@@ -145,6 +152,7 @@ where
                 thread_recycler,
                 jit_function_recycler,
                 self.unlink_aux_data,
+                self.more_markers.clone(),
             )
         })
     }

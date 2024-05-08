@@ -5,6 +5,7 @@ mod event_interpretation;
 mod injected_jit_object;
 mod kernel_symbols;
 mod mmap_range_or_vec;
+mod more_markers;
 mod object_rewriter;
 mod pe_mappings;
 mod per_cpu;
