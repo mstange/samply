@@ -9,6 +9,8 @@ pub struct RecordingProps {
     pub time_limit: Option<Duration>,
     pub interval: Duration,
     pub main_thread_only: bool,
+    pub coreclr: bool,
+    pub vm_hack: bool,
 }
 
 /// Which process(es) to record.

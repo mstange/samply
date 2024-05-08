@@ -1832,6 +1832,7 @@ version = "0.12.0"
 dependencies = [
  "bitflags 2.5.0",
  "byteorder",
+ "cfg-if",
  "clap",
  "crossbeam-channel",
  "ctrlc",

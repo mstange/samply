@@ -175,16 +175,14 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
 
                     // eprint!("{} {} {}", thread_id, e.EventHeader.TimeStamp, timestamp);
 
-                    // TODO vlad -- the stacks are just in parser.buffer? From my reading the StackWalk event has
-                    // EventTimeStamp: u64, StackProcess: u32, StackThread: u32, so 16 bytes shifted.
-
                     if is_arm64 {
-                        // On ARM64, this is simpler -- stacks come in with full kernel and user frames.
-                        // On x86_64 they seem to be split
+                        // On ARM64, this seems to be simpler -- stacks come in with full kernel and user frames.
+                        // At least, I've never seen a kernel stack come in separately.
+                        // TODO -- is this because I can't use PROFILE events in the VM?
 
                         // Iterate over the stack addresses, starting with the instruction pointer
                         let stack: Vec<StackFrame> = parser.buffer.chunks_exact(8) // iterate over 8 byte items
-                            .map(|a| u64::from_ne_bytes(a.try_into().unwrap())) // parse into u64 (really we should just walk over u64 here, the world is LE)
+                            .map(|a| u64::from_ne_bytes(a.try_into().unwrap())) // parse into u64
                             .enumerate()
                             .map(|(i, addr)| {
                                 if i == 0 {
@@ -195,8 +193,9 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                             })
                             .collect();
 
-                        // TODO figure out how the on-cpu/off-cpu stuff works
-                        context.add_sample(process_id, thread_id, timestamp, timestamp_raw, CpuDelta::ZERO, 1, stack);
+                        let cpu_delta_raw = context.context_switch_handler.borrow_mut().consume_cpu_delta(&mut context.get_thread_mut(thread_id).unwrap().context_switch_data);
+                        let cpu_delta = CpuDelta::from_nanos(cpu_delta_raw * timestamp_converter.raw_to_ns_factor);
+                        context.add_sample(process_id, thread_id, timestamp, timestamp_raw, cpu_delta, 1, stack);
                         return;
                     }
 
