@@ -82,7 +82,7 @@ impl Xperf {
             // virtualized arm64 hack, to give us enough interesting events
             xperf.arg("PROC_THREAD+LOADER+CSWITCH+SYSCALL+VIRT_ALLOC+OB_HANDLE");
             xperf.arg("-stackwalk");
-            xperf.arg("VirtualAlloc+VirtualFree+HandleCreate+HandleClose");
+            xperf.arg("CSWITCH+VirtualAlloc+VirtualFree+HandleCreate+HandleClose");
         }
         xperf.arg("-f");
         xperf.arg(&kernel_etl_file);
