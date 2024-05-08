@@ -181,7 +181,8 @@ struct RecordArgs {
     #[arg(long)]
     coreclr: bool,
 
-    /// VM hack for arm64 Windows VMs to not try to record PROFILE events.
+    /// VM hack for arm64 Windows VMs to not try to record PROFILE events (Windows only).
+    #[cfg(target_os = "windows")]
     #[arg(long)]
     vm_hack: bool,
 }
@@ -376,13 +377,20 @@ impl RecordArgs {
             std::process::exit(1);
         }
         let interval = Duration::from_secs_f64(1.0 / self.rate);
+        cfg_if::cfg_if! {
+            if #[cfg(target_os = "windows")] {
+                let (coreclr, vm_hack) = (self.coreclr, self.vm_hack);
+            } else {
+                let (coreclr, vm_hack) = (false, false);
+            }
+        }
         RecordingProps {
             output_file: self.output.clone(),
             time_limit,
             interval,
             main_thread_only: self.main_thread_only,
-            coreclr: self.coreclr,
-            vm_hack: self.vm_hack,
+            coreclr,
+            vm_hack,
         }
     }
 
