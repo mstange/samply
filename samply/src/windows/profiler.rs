@@ -74,6 +74,7 @@ pub fn start_recording(
     // Start xperf.
     let mut xperf =
         Xperf::new(arch.to_string()).unwrap_or_else(|e| panic!("Couldn't find xperf: {e:?}"));
+    xperf.set_virtualized_aarch64_hack(recording_props.vm_hack);
     xperf.start_xperf(&recording_props.output_file, sampling_interval);
 
     let included_processes = match recording_mode {
