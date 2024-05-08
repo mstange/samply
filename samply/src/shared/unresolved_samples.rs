@@ -1,6 +1,6 @@
 use std::collections::hash_map::Entry;
 
-use fxprof_processed_profile::{CpuDelta, FrameInfo, ThreadHandle, Timestamp};
+use fxprof_processed_profile::{CpuDelta, FrameInfo, MarkerHandle, ThreadHandle, Timestamp};
 
 use super::process_sample_data::RssStatMember;
 use super::types::{FastHashMap, StackFrame, StackMode};
@@ -194,6 +194,8 @@ pub enum SampleOrMarker {
     OtherEventMarker(OtherEventMarkerData),
     SchedSwitchMarkerOnCpuTrack,
     SchedSwitchMarkerOnThreadTrack(u32),
+    #[allow(dead_code)]
+    MarkerHandle(MarkerHandle),
 }
 
 #[derive(Debug, Clone)]

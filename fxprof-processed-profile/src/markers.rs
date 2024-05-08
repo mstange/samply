@@ -7,6 +7,9 @@ use serde_json::Value;
 
 use super::timestamp::Timestamp;
 
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
+pub struct MarkerHandle(pub(crate) usize);
+
 /// Specifies timestamps for a marker.
 #[derive(Debug, Clone)]
 pub enum MarkerTiming {

@@ -16,7 +16,7 @@ use crate::sample_table::{NativeAllocationsTable, SampleTable};
 use crate::stack_table::StackTable;
 use crate::string_table::{GlobalStringIndex, GlobalStringTable};
 use crate::thread_string_table::{ThreadInternalStringIndex, ThreadStringTable};
-use crate::{CategoryHandle, MarkerTiming, ProfilerMarker, Timestamp};
+use crate::{CategoryHandle, MarkerHandle, MarkerTiming, ProfilerMarker, Timestamp};
 
 /// A process. Can be created with [`Profile::add_process`](crate::Profile::add_process).
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
@@ -164,7 +164,7 @@ impl Thread {
         marker: T,
         timing: MarkerTiming,
         stack_index: Option<usize>,
-    ) {
+    ) -> MarkerHandle {
         let name_string_index = self.string_table.index_for_string(name);
         let mut data = marker.json_marker_data();
         if let Some(stack_index) = stack_index {
@@ -173,7 +173,24 @@ impl Thread {
             }
         }
         self.markers
-            .add_marker(category, name_string_index, timing, data);
+            .add_marker(category, name_string_index, timing, data)
+    }
+
+    pub fn set_marker_stack(&mut self, marker: MarkerHandle, stack_index: Option<usize>) {
+        let data = self.markers.get_marker_data_mut(marker);
+        if data.is_null() {
+            *data = serde_json::Value::Object(Default::default());
+        }
+
+        if let Some(obj) = data.as_object_mut() {
+            if let Some(stack_index) = stack_index {
+                obj.insert("cause".to_string(), json!({ "stack": stack_index }));
+            } else {
+                obj.get_mut("cause")
+                    .map(|p| p.as_object_mut())
+                    .and_then(|p| p.map(|p| p.remove("stack")));
+            }
+        }
     }
 
     pub fn contains_js_function(&self) -> bool {

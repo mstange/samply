@@ -3,7 +3,7 @@ use serde_json::Value;
 
 use crate::serialization_helpers::SerializableOptionalTimestampColumn;
 use crate::thread_string_table::ThreadInternalStringIndex;
-use crate::{CategoryHandle, MarkerTiming, Timestamp};
+use crate::{CategoryHandle, MarkerHandle, MarkerTiming, Timestamp};
 
 #[derive(Debug, Clone, Default)]
 pub struct MarkerTable {
@@ -26,7 +26,7 @@ impl MarkerTable {
         name: ThreadInternalStringIndex,
         timing: MarkerTiming,
         data: Value,
-    ) {
+    ) -> MarkerHandle {
         let (s, e, phase) = match timing {
             MarkerTiming::Instant(s) => (Some(s), None, Phase::Instant),
             MarkerTiming::Interval(s, e) => (Some(s), Some(e), Phase::Interval),
@@ -39,6 +39,12 @@ impl MarkerTable {
         self.marker_ends.push(e);
         self.marker_phases.push(phase);
         self.marker_datas.push(data);
+
+        MarkerHandle(self.marker_categories.len() - 1)
+    }
+
+    pub fn get_marker_data_mut(&mut self, marker: MarkerHandle) -> &mut Value {
+        &mut self.marker_datas[marker.0]
     }
 }
 

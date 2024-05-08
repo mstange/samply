@@ -58,7 +58,9 @@ impl Iterator for MarkerFile {
 }
 
 pub struct MarkerFileInfo {
+    #[allow(dead_code)]
     pub prefix: String,
+    #[allow(dead_code)]
     pub pid: u32,
     pub tid: Option<u32>,
 }

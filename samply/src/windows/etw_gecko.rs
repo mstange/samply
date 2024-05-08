@@ -733,7 +733,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                     let timing = MarkerTiming::Instant(timestamp);
                     // this used to create a new category based on provider_name, just lump them together for now
                     let category = context.get_category(KnownCategory::Unknown);
-                    context.profile.borrow_mut().add_marker(thread.handle, category, s.name().split_once('/').unwrap().1, SimpleMarker(text), timing)
+                    context.profile.borrow_mut().add_marker(thread.handle, category, s.name().split_once('/').unwrap().1, SimpleMarker(text), timing);
                     //println!("unhandled {}", s.name())
                 }
             }

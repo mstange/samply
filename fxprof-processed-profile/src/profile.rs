@@ -18,7 +18,7 @@ use crate::process::{Process, ThreadHandle};
 use crate::reference_timestamp::ReferenceTimestamp;
 use crate::string_table::{GlobalStringIndex, GlobalStringTable};
 use crate::thread::{ProcessHandle, Thread};
-use crate::{MarkerSchema, MarkerTiming, ProfilerMarker, SymbolTable, Timestamp};
+use crate::{MarkerHandle, MarkerSchema, MarkerTiming, ProfilerMarker, SymbolTable, Timestamp};
 
 /// The sampling interval used during profile recording.
 ///
@@ -504,11 +504,11 @@ impl Profile {
         name: &str,
         marker: T,
         timing: MarkerTiming,
-    ) {
+    ) -> MarkerHandle {
         self.marker_schemas
             .entry(T::MARKER_TYPE_NAME)
             .or_insert_with(T::schema);
-        self.threads[thread.0].add_marker(category, name, marker, timing, None);
+        self.threads[thread.0].add_marker(category, name, marker, timing, None)
     }
 
     /// Add a marker to the given thread, with a stack.
@@ -520,12 +520,23 @@ impl Profile {
         marker: T,
         timing: MarkerTiming,
         stack_frames: impl Iterator<Item = FrameInfo>,
-    ) {
+    ) -> MarkerHandle {
         self.marker_schemas
             .entry(T::MARKER_TYPE_NAME)
             .or_insert_with(T::schema);
         let stack_index = self.stack_index_for_frames(thread, stack_frames);
-        self.threads[thread.0].add_marker(category, name, marker, timing, stack_index);
+        self.threads[thread.0].add_marker(category, name, marker, timing, stack_index)
+    }
+
+    /// Sets the stack of an already existing marker.
+    pub fn set_marker_stack(
+        &mut self,
+        thread: ThreadHandle,
+        marker: MarkerHandle,
+        stack_frames: impl Iterator<Item = FrameInfo>,
+    ) {
+        let stack_index = self.stack_index_for_frames(thread, stack_frames);
+        self.threads[thread.0].set_marker_stack(marker, stack_index);
     }
 
     /// Add a data point to a counter. For a memory counter, `value_delta` is the number
