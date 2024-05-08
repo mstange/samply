@@ -194,7 +194,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                             .collect();
 
                         let cpu_delta_raw = context.context_switch_handler.borrow_mut().consume_cpu_delta(&mut context.get_thread_mut(thread_id).unwrap().context_switch_data);
-                        let cpu_delta = CpuDelta::from_nanos(cpu_delta_raw * timestamp_converter.raw_to_ns_factor)
+                        let cpu_delta = CpuDelta::from_nanos(cpu_delta_raw * timestamp_converter.raw_to_ns_factor);
                         context.add_sample(process_id, thread_id, timestamp, timestamp_raw, cpu_delta, 1, stack);
                         return;
                     }
