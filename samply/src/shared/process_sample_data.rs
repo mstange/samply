@@ -165,6 +165,9 @@ impl ProcessSampleData {
                         frames,
                     );
                 }
+                SampleOrMarker::MarkerHandle(mh) => {
+                    profile.set_marker_stack(thread_handle, mh, frames);
+                }
             }
         }
 
