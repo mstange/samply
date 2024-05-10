@@ -781,7 +781,6 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
             None => Vec::new(),
         };
 
-        // TODO proper threads for markers, not automatically main thread
         let marker_spans_on_thread = marker_spans
             .iter()
             .map(|marker_span| MarkerSpanOnThread {
