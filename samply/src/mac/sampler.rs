@@ -21,6 +21,12 @@ pub enum JitdumpOrMarkerPath {
 }
 
 #[derive(Debug, Clone)]
+pub enum TaskInitOrShutdown {
+    TaskInit(TaskInit),
+    Shutdown,
+}
+
+#[derive(Debug, Clone)]
 pub struct TaskInit {
     pub start_time_mono: u64,
     pub task: mach_port_t,
@@ -30,7 +36,7 @@ pub struct TaskInit {
 
 pub struct Sampler {
     command_name: String,
-    task_receiver: Receiver<TaskInit>,
+    task_receiver: Receiver<TaskInitOrShutdown>,
     recording_props: Arc<RecordingProps>,
     profile_creation_props: Arc<ProfileCreationProps>,
 }
@@ -38,7 +44,7 @@ pub struct Sampler {
 impl Sampler {
     pub fn new(
         command: String,
-        task_receiver: Receiver<TaskInit>,
+        task_receiver: Receiver<TaskInitOrShutdown>,
         recording_props: RecordingProps,
         profile_creation_props: ProfileCreationProps,
     ) -> Self {
@@ -80,7 +86,11 @@ impl Sampler {
             CategoryPairHandle::from(profile.add_category("User", CategoryColor::Yellow));
 
         let root_task_init = match self.task_receiver.recv() {
-            Ok(task_init) => task_init,
+            Ok(TaskInitOrShutdown::TaskInit(task_init)) => task_init,
+            Ok(TaskInitOrShutdown::Shutdown) =>  {
+                eprintln!("Unexpected Shutdown message for root task?");
+                return Err(SamplingError::CouldNotObtainRootTask);
+            }
             Err(_) => {
                 // The sender went away. No profiling today.
                 return Err(SamplingError::CouldNotObtainRootTask);
@@ -109,10 +119,11 @@ impl Sampler {
         let mut unwinder_cache = Default::default();
         let mut unresolved_stacks = UnresolvedStacks::default();
         let mut last_sleep_overshoot = 0;
+        let mut stop_profiling = false;
 
         loop {
             loop {
-                let task_init = if !live_tasks.is_empty() {
+                let task_init_or_shutdown = if !live_tasks.is_empty() {
                     // Poll to see if there are any new tasks we should add. If no new tasks are available,
                     // this completes immediately.
                     self.task_receiver.try_recv().ok()
@@ -122,7 +133,15 @@ impl Sampler {
                     let all_dead_timeout = Duration::from_secs_f32(0.5);
                     self.task_receiver.recv_timeout(all_dead_timeout).ok()
                 };
-                let Some(task_init) = task_init else { break };
+                let Some(task_or_shutdown) = task_init_or_shutdown else { break };
+                let task_init = match task_or_shutdown {
+                    TaskInitOrShutdown::TaskInit(task_init) => task_init,
+                    TaskInitOrShutdown::Shutdown => {
+                        // We got a shutdown message, so we should just stop profiling.
+                        stop_profiling = true;
+                        break;
+                    }
+                };
                 if let Ok(new_task) = TaskProfiler::new(
                     task_init,
                     timestamp_converter,
@@ -137,6 +156,11 @@ impl Sampler {
                     // The task is probably already dead again. We get here for tasks which are
                     // very short-lived.
                 }
+            }
+
+            if stop_profiling {
+                eprintln!("Stopping profile.");
+                break;
             }
 
             if live_tasks.is_empty() {

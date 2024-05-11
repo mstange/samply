@@ -10,11 +10,10 @@ use crossbeam_channel::unbounded;
 use serde_json::to_writer;
 
 use super::error::SamplingError;
-use super::process_launcher::{MachError, ReceivedStuff, TaskAccepter};
-use super::sampler::{JitdumpOrMarkerPath, Sampler, TaskInit};
+use super::process_launcher::{ExistingProcessRunner, MachError, ReceivedStuff, RootTaskRunner, TaskAccepter, TaskLauncher};
+use super::sampler::{JitdumpOrMarkerPath, Sampler, TaskInit, TaskInitOrShutdown};
 use super::time::get_monotonic_timestamp;
 use crate::server::{start_server_main, ServerProps};
-use crate::shared::ctrl_c::CtrlC;
 use crate::shared::recording_props::{
     ProcessLaunchProps, ProfileCreationProps, RecordingMode, RecordingProps,
 };
@@ -25,43 +24,68 @@ pub fn start_recording(
     profile_creation_props: ProfileCreationProps,
     server_props: Option<ServerProps>,
 ) -> Result<ExitStatus, MachError> {
-    let process_launch_props = match recording_mode {
-        RecordingMode::All | RecordingMode::Pid(_) => {
+    let mut unlink_aux_files = profile_creation_props.unlink_aux_files;
+    let output_file = recording_props.output_file.clone();
+    let mut profile_name: String = "".to_owned();
+
+    let mut task_accepter = TaskAccepter::new()?;
+
+    let root_task_runner: Box<dyn RootTaskRunner> = match recording_mode {
+        RecordingMode::All => {
             // TODO: Implement, by sudo launching a helper process which uses task_for_pid
             eprintln!("Error: Profiling existing processes is currently not supported on macOS.");
             eprintln!("You can only profile processes which you launch via samply.");
             std::process::exit(1)
         }
-        RecordingMode::Launch(process_launch_props) => process_launch_props,
+        RecordingMode::Pid(pid) => {
+            profile_name = format!("pid {pid}");
+
+            Box::new(ExistingProcessRunner::new(pid, &mut task_accepter))
+        }
+        RecordingMode::Launch(process_launch_props) => {
+            profile_name = process_launch_props.command_name.to_string_lossy().to_string();
+
+            let ProcessLaunchProps {
+                mut env_vars,
+                command_name,
+                args,
+                iteration_count,
+            } = process_launch_props;
+
+            if recording_props.coreclr {
+                // We need to set DOTNET_PerfMapEnabled=2 in the environment if it's not already set.
+                // If we set it, we'll also set unlink_aux_files=true to avoid leaving files
+                // behind in the temp directory. But if it's set manually, assume the user
+                // knows what they're doing and will specify the arg as needed.
+                if !env_vars.iter().any(|p| p.0 == "DOTNET_PerfMapEnabled") {
+                    env_vars.push(("DOTNET_PerfMapEnabled".into(), "2".into()));
+                    unlink_aux_files = true;
+                }
+            }
+
+            let task_launcher = TaskLauncher::new(&command_name, &args, iteration_count,
+                &env_vars, task_accepter.extra_env_vars())?;
+
+            Box::new(task_launcher)
+        }
     };
 
-    let ProcessLaunchProps {
-        env_vars,
-        command_name,
-        args,
-        iteration_count,
-    } = process_launch_props;
-    let command_name_copy = command_name.to_string_lossy().to_string();
-    let output_file = recording_props.output_file.clone();
+    let profile_creation_props = ProfileCreationProps {
+        unlink_aux_files,
+        ..profile_creation_props
+    };
 
     let (task_sender, task_receiver) = unbounded();
 
     let sampler_thread = thread::spawn(move || {
         let sampler = Sampler::new(
-            command_name_copy,
+            profile_name,
             task_receiver,
             recording_props,
             profile_creation_props,
         );
         sampler.run()
     });
-
-    // Ignore Ctrl+C while the subcommand is running. The signal still reaches the process
-    // under observation while we continue to record it. (ctrl+c will send the SIGINT signal
-    // to all processes in the foreground process group).
-    let mut ctrl_c_receiver = CtrlC::observe_oneshot();
-
-    let (mut task_accepter, task_launcher) = TaskAccepter::new(&command_name, &args, &env_vars)?;
 
     let (accepter_sender, accepter_receiver) = unbounded();
     let accepter_thread = thread::spawn(move || {
@@ -74,6 +98,7 @@ pub fn start_recording(
 
         loop {
             if let Ok(()) = accepter_receiver.try_recv() {
+                task_sender.send(TaskInitOrShutdown::Shutdown).ok();
                 break;
             }
             let timeout = Duration::from_secs_f64(1.0);
@@ -81,12 +106,12 @@ pub fn start_recording(
                 Ok(ReceivedStuff::AcceptedTask(mut accepted_task)) => {
                     let pid = accepted_task.get_id();
                     let (path_sender, path_receiver) = unbounded();
-                    let send_result = task_sender.send(TaskInit {
+                    let send_result = task_sender.send(TaskInitOrShutdown::TaskInit(TaskInit {
                         start_time_mono: get_monotonic_timestamp(),
                         task: accepted_task.take_task(),
                         pid,
                         path_receiver,
-                    });
+                    }));
                     path_senders_per_pid.insert(pid, path_sender);
                     if send_result.is_err() {
                         // The sampler has already shut down. This task arrived too late.
@@ -138,24 +163,8 @@ pub fn start_recording(
         }
     });
 
-    let mut root_child = task_launcher.launch_child();
-    let mut exit_status = root_child.wait().expect("couldn't wait for child");
-
-    for i in 2..=iteration_count {
-        if !exit_status.success() {
-            eprintln!(
-                "Skipping remaining iterations due to non-success exit status: \"{}\"",
-                exit_status
-            );
-            break;
-        }
-        eprintln!("Running iteration {i} of {iteration_count}...");
-        let mut root_child = task_launcher.launch_child();
-        exit_status = root_child.wait().expect("couldn't wait for child");
-    }
-
-    // The launched subprocess is done. From now on, we want to terminate if the user presses Ctrl+C.
-    ctrl_c_receiver.close();
+    // Run the root task: either launch or attach to existing pid
+    let exit_status = root_task_runner.run_root_task()?;
 
     accepter_sender
         .send(())
