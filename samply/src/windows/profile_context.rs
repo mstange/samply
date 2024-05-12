@@ -7,10 +7,12 @@ use std::path::{Path, PathBuf};
 use debugid::DebugId;
 use fxprof_processed_profile::{
     CategoryColor, CategoryHandle, CounterHandle, CpuDelta, FrameFlags, FrameInfo, LibraryHandle,
-    LibraryInfo, ProcessHandle, Profile, Symbol, ThreadHandle, Timestamp,
+    LibraryInfo, MarkerHandle, MarkerTiming, ProcessHandle, Profile, ProfilerMarker, Symbol,
+    ThreadHandle, Timestamp,
 };
 use uuid::Uuid;
 
+use super::coreclr::CoreClrContext;
 use super::winutils;
 use crate::shared::context_switch::{
     ContextSwitchHandler, OffCpuSampleGroup, ThreadContextSwitchData,
@@ -19,7 +21,9 @@ use crate::shared::included_processes::IncludedProcesses;
 use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::lib_mappings::LibMappingOpQueue;
 use crate::shared::types::{StackFrame, StackMode};
-use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
+use crate::shared::unresolved_samples::{
+    SampleOrMarker, UnresolvedSamples, UnresolvedStackHandle, UnresolvedStacks,
+};
 
 /// An on- or off-cpu-sample for which the user stack is not known yet.
 /// Consumed once the user stack arrives.
@@ -144,6 +148,7 @@ pub enum KnownCategory {
     D3DVideoSubmitDecoderBuffers,
     CoreClrR2r,
     CoreClrJit,
+    CoreClrGc,
     Unknown,
 }
 
@@ -195,6 +200,8 @@ pub struct ProfileContext {
     // TODO no idea how to handle "I'm on aarch64 windows but I'm recording a win64 process".
     // I have no idea how stack traces work in that case anyway, so this is probably moot.
     pub arch: String,
+
+    pub coreclr_context: RefCell<CoreClrContext>,
 }
 
 impl ProfileContext {
@@ -232,37 +239,20 @@ impl ProfileContext {
             device_mappings: winutils::get_dos_device_mappings(),
             kernel_min,
             arch: arch.to_string(),
+            coreclr_context: RefCell::new(CoreClrContext::new()),
         }
     }
 
+    #[rustfmt::skip]
     const CATEGORIES: &'static [(KnownCategory, &'static str, CategoryColor)] = &[
         (KnownCategory::User, "User", CategoryColor::Yellow),
         (KnownCategory::Kernel, "Kernel", CategoryColor::LightRed),
-        (
-            KnownCategory::System,
-            "System Libraries",
-            CategoryColor::Orange,
-        ),
-        (
-            KnownCategory::D3DVideoSubmitDecoderBuffers,
-            "D3D Video Submit Decoder Buffers",
-            CategoryColor::Transparent,
-        ),
-        (
-            KnownCategory::CoreClrR2r,
-            "CoreCLR R2R",
-            CategoryColor::Blue,
-        ),
-        (
-            KnownCategory::CoreClrJit,
-            "CoreCLR JIT",
-            CategoryColor::Purple,
-        ),
-        (
-            KnownCategory::Unknown,
-            "Unknown/Other",
-            CategoryColor::DarkGray,
-        ),
+        (KnownCategory::System, "System Libraries", CategoryColor::Orange),
+        (KnownCategory::D3DVideoSubmitDecoderBuffers, "D3D Video Submit Decoder Buffers", CategoryColor::Transparent),
+        (KnownCategory::CoreClrR2r, "CoreCLR R2R", CategoryColor::Blue),
+        (KnownCategory::CoreClrJit, "CoreCLR JIT", CategoryColor::Purple),
+        (KnownCategory::CoreClrGc, "CoreCLR GC", CategoryColor::Red),
+        (KnownCategory::Unknown, "Other", CategoryColor::DarkGray),
     ];
 
     pub fn get_category(&self, category: KnownCategory) -> CategoryHandle {
@@ -476,20 +466,23 @@ impl ProfileContext {
             .unresolved_stacks
             .borrow_mut()
             .convert(stack.into_iter().rev());
-        let thread = self.get_thread(tid).unwrap();
-        let thread = thread.handle;
-        self.get_process_mut(pid)
-            .unwrap()
-            .unresolved_samples
-            .add_sample(
-                thread,
-                timestamp,
-                timestamp_raw,
-                stack_index,
-                cpu_delta,
-                weight,
-                None,
-            );
+        let thread = self.get_thread(tid).unwrap().handle;
+        let mut process = self.get_process_mut(pid).unwrap();
+        process.unresolved_samples.add_sample(
+            thread,
+            timestamp,
+            timestamp_raw,
+            stack_index,
+            cpu_delta,
+            weight,
+            None,
+        );
+    }
+
+    pub fn unresolved_stack_handle_for_stack(&self, stack: &[StackFrame]) -> UnresolvedStackHandle {
+        self.unresolved_stacks
+            .borrow_mut()
+            .convert(stack.iter().rev().cloned())
     }
 
     fn get_or_add_lib_simple(&mut self, filename: &str) -> LibraryHandle {
@@ -618,6 +611,25 @@ impl ProfileContext {
         } else {
             path.into()
         }
+    }
+
+    pub fn add_thread_marker(
+        &self,
+        thread_id: u32,
+        timestamp: Timestamp,
+        category: CategoryHandle,
+        name: &str,
+        marker: impl ProfilerMarker,
+    ) -> MarkerHandle {
+        let timing = MarkerTiming::Instant(timestamp);
+        let thread_handle = self.get_thread_handle(thread_id).unwrap();
+        self.profile
+            .borrow_mut()
+            .add_marker(thread_handle, category, name, marker, timing)
+    }
+
+    pub fn get_coreclr_context(&self) -> RefMut<CoreClrContext> {
+        self.coreclr_context.borrow_mut()
     }
 }
 

@@ -181,6 +181,11 @@ struct RecordArgs {
     #[arg(long)]
     coreclr: bool,
 
+    /// Enable CoreCLR fine-grained allocation event capture (Windows only).
+    #[cfg(target_os = "windows")]
+    #[arg(long)]
+    coreclr_allocs: bool,
+
     /// VM hack for arm64 Windows VMs to not try to record PROFILE events (Windows only).
     #[cfg(target_os = "windows")]
     #[arg(long)]
@@ -379,9 +384,9 @@ impl RecordArgs {
         let interval = Duration::from_secs_f64(1.0 / self.rate);
         cfg_if::cfg_if! {
             if #[cfg(target_os = "windows")] {
-                let (coreclr, vm_hack) = (self.coreclr, self.vm_hack);
+                let (coreclr, coreclr_allocs, vm_hack) = (self.coreclr, self.coreclr_allocs, self.vm_hack);
             } else {
-                let (coreclr, vm_hack) = (false, false);
+                let (coreclr, coreclr_allocs, vm_hack) = (false, false, false);
             }
         }
         RecordingProps {
@@ -390,6 +395,7 @@ impl RecordArgs {
             interval,
             main_thread_only: self.main_thread_only,
             coreclr,
+            coreclr_allocs,
             vm_hack,
         }
     }

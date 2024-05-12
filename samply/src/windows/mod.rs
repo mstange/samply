@@ -1,3 +1,4 @@
+mod coreclr;
 mod etw_gecko;
 pub mod import;
 mod profile_context;

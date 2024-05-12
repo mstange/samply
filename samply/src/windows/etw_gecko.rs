@@ -29,6 +29,7 @@ use crate::shared::process_sample_data::{
 };
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::types::{StackFrame, StackMode};
+use crate::windows::coreclr;
 use crate::windows::profile_context::{KnownCategory, PendingMarker, PendingStack};
 
 pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) {
@@ -725,6 +726,9 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                         context.profile.borrow_mut().add_marker(thread.handle, CategoryHandle::OTHER, marker_name, SimpleMarker(text.clone()), timing);
                     }
                 }
+                dotnet_event if dotnet_event.starts_with("Microsoft-Windows-DotNETRuntime/") => {
+                    coreclr::handle_coreclr_event(context, &s, &mut parser, &timestamp_converter);
+                }
                 _ => {
                     let thread_id = e.EventHeader.ThreadId;
                     let Some(thread) = context.get_thread(thread_id) else { return };
@@ -777,7 +781,6 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
             None => Vec::new(),
         };
 
-        // TODO proper threads for markers, not automatically main thread
         let marker_spans_on_thread = marker_spans
             .iter()
             .map(|marker_span| MarkerSpanOnThread {
