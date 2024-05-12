@@ -118,7 +118,7 @@ pub fn start_recording(
                     let (path_sender, path_receiver) = unbounded();
                     let send_result = task_sender.send(TaskInitOrShutdown::TaskInit(TaskInit {
                         start_time_mono: get_monotonic_timestamp(),
-                        task: accepted_task.take_task(),
+                        task: accepted_task.task(),
                         pid,
                         path_receiver,
                     }));

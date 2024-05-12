@@ -238,10 +238,7 @@ pub struct AcceptedTask {
 }
 
 impl AcceptedTask {
-    pub fn take_task(&mut self) -> mach_port_t {
-        // TODO: I think it's safe to not do this mem::replace; we may need to resume the task
-        // in start_execution()
-        //mem::replace(&mut self.task, MACH_PORT_NULL)
+    pub fn task(&self) -> mach_port_t {
         self.task
     }
 
