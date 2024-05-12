@@ -113,7 +113,7 @@ pub fn start_recording(
             }
             let timeout = Duration::from_secs_f64(1.0);
             match task_accepter.next_message(timeout) {
-                Ok(ReceivedStuff::AcceptedTask(mut accepted_task)) => {
+                Ok(ReceivedStuff::AcceptedTask(accepted_task)) => {
                     let pid = accepted_task.get_id();
                     let (path_sender, path_receiver) = unbounded();
                     let send_result = task_sender.send(TaskInitOrShutdown::TaskInit(TaskInit {
