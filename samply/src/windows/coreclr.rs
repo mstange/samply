@@ -77,17 +77,14 @@ impl CoreClrContext {
         name: String,
         description: String,
     ) {
-        self.gc_markers_on_thread
-            .entry(thread)
-            .or_default()
-            .insert(
-                event,
-                SavedMarkerInfo {
-                    start,
-                    name,
-                    description,
-                },
-            );
+        self.gc_markers_on_thread.entry(thread).or_default().insert(
+            event,
+            SavedMarkerInfo {
+                start,
+                name,
+                description,
+            },
+        );
     }
 
     fn remove_gc_marker(&mut self, thread: ThreadHandle, event: &str) -> Option<SavedMarkerInfo> {
