@@ -1,4 +1,5 @@
 #![allow(unused)]
+#![allow(clippy::wildcard_in_or_patterns)]
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
     convert::TryInto,
@@ -78,7 +79,7 @@ impl CoreClrContext {
     ) {
         self.gc_markers_on_thread
             .entry(thread)
-            .or_insert_with(HashMap::new)
+            .or_default()
             .insert(
                 event,
                 SavedMarkerInfo {
@@ -380,7 +381,7 @@ pub fn handle_coreclr_event(
                 }));
                 process_jit_info.symbols.push(Symbol {
                     address: relative_address,
-                    size: Some(method_size as u32),
+                    size: Some(method_size),
                     name: method_name,
                 });
 
