@@ -10,7 +10,9 @@ use crossbeam_channel::unbounded;
 use serde_json::to_writer;
 
 use super::error::SamplingError;
-use super::process_launcher::{ExistingProcessRunner, MachError, ReceivedStuff, RootTaskRunner, TaskAccepter, TaskLauncher};
+use super::process_launcher::{
+    ExistingProcessRunner, MachError, ReceivedStuff, RootTaskRunner, TaskAccepter, TaskLauncher,
+};
 use super::sampler::{JitdumpOrMarkerPath, Sampler, TaskInit, TaskInitOrShutdown};
 use super::time::get_monotonic_timestamp;
 use crate::server::{start_server_main, ServerProps};
@@ -26,7 +28,7 @@ pub fn start_recording(
 ) -> Result<ExitStatus, MachError> {
     let mut unlink_aux_files = profile_creation_props.unlink_aux_files;
     let output_file = recording_props.output_file.clone();
-    let mut profile_name: String = "".to_owned();
+    let profile_name;
 
     let mut task_accepter = TaskAccepter::new()?;
 
@@ -43,7 +45,10 @@ pub fn start_recording(
             Box::new(ExistingProcessRunner::new(pid, &mut task_accepter))
         }
         RecordingMode::Launch(process_launch_props) => {
-            profile_name = process_launch_props.command_name.to_string_lossy().to_string();
+            profile_name = process_launch_props
+                .command_name
+                .to_string_lossy()
+                .to_string();
 
             let ProcessLaunchProps {
                 mut env_vars,
@@ -63,8 +68,13 @@ pub fn start_recording(
                 }
             }
 
-            let task_launcher = TaskLauncher::new(&command_name, &args, iteration_count,
-                &env_vars, task_accepter.extra_env_vars())?;
+            let task_launcher = TaskLauncher::new(
+                &command_name,
+                &args,
+                iteration_count,
+                &env_vars,
+                task_accepter.extra_env_vars(),
+            )?;
 
             Box::new(task_launcher)
         }

@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::Write;
-use std::mem;
 use std::os::unix::prelude::OsStrExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus};
@@ -86,14 +85,12 @@ impl TaskLauncher {
         let args: Vec<OsString> = args.into_iter().map(|a| a.into()).collect();
         let program: OsString = program.into();
 
-        Ok(
-            TaskLauncher {
-                program,
-                args,
-                child_env,
-                iteration_count,
-            },
-        )
+        Ok(TaskLauncher {
+            program,
+            args,
+            child_env,
+            iteration_count,
+        })
     }
 
     pub fn launch_child(&self) -> Child {
@@ -271,7 +268,9 @@ impl RootTaskRunner for ExistingProcessRunner {
 
         eprintln!("Profiling {}, press Ctrl-C to stop...", self.pid);
 
-        ctrl_c_receiver.blocking_recv().expect("Ctrl+C receiver failed");
+        ctrl_c_receiver
+            .blocking_recv()
+            .expect("Ctrl+C receiver failed");
 
         eprintln!("Done.");
 
@@ -291,8 +290,11 @@ impl ExistingProcessRunner {
             task_suspend(task);
             task
         };
-        task_accepter.queue_received_stuff(ReceivedStuff::AcceptedTask(AcceptedTask { task, pid, sender_channel: None }));
+        task_accepter.queue_received_stuff(ReceivedStuff::AcceptedTask(AcceptedTask {
+            task,
+            pid,
+            sender_channel: None,
+        }));
         ExistingProcessRunner { pid }
     }
 }
-

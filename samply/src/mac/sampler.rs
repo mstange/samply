@@ -87,7 +87,7 @@ impl Sampler {
 
         let root_task_init = match self.task_receiver.recv() {
             Ok(TaskInitOrShutdown::TaskInit(task_init)) => task_init,
-            Ok(TaskInitOrShutdown::Shutdown) =>  {
+            Ok(TaskInitOrShutdown::Shutdown) => {
                 eprintln!("Unexpected Shutdown message for root task?");
                 return Err(SamplingError::CouldNotObtainRootTask);
             }
@@ -133,7 +133,9 @@ impl Sampler {
                     let all_dead_timeout = Duration::from_secs_f32(0.5);
                     self.task_receiver.recv_timeout(all_dead_timeout).ok()
                 };
-                let Some(task_or_shutdown) = task_init_or_shutdown else { break };
+                let Some(task_or_shutdown) = task_init_or_shutdown else {
+                    break;
+                };
                 let task_init = match task_or_shutdown {
                     TaskInitOrShutdown::TaskInit(task_init) => task_init,
                     TaskInitOrShutdown::Shutdown => {
