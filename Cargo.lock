@@ -1244,9 +1244,9 @@ dependencies = [
 
 [[package]]
 name = "msvc-demangler"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2588c982e3a7fbfbd73b21f824cacc43fc6392a1103c709ffd6001c0bf33fdb3"
+checksum = "c4c25a3bb7d880e8eceab4822f3141ad0700d20f025991c1f03bd3d00219a5fc"
 dependencies = [
  "bitflags 2.5.0",
 ]
