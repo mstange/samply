@@ -391,21 +391,19 @@ impl TryParse<Address> for Parser<'_> {
         let prop_info = &self.cache[indx];
 
         if let PropertyDesc::Primitive(desc) = &prop_info.property.desc {
-            if self.event.is_64bit() {
-                if desc.in_type == InTypeUInt64
-                    || desc.in_type == InTypePointer
-                    || desc.in_type == InTypeHexInt64
-                {
-                    if std::mem::size_of::<u64>() != prop_info.buffer.len() {
-                        return Err(ParserError::LengthMismatch);
-                    }
-                    return Ok(Address::Address64(u64::from_ne_bytes(
-                        prop_info.buffer.try_into()?,
-                    )));
+            if desc.in_type == InTypeUInt64
+                || desc.in_type == InTypeHexInt64
+                || (desc.in_type == InTypePointer && self.event.is_64bit())
+            {
+                if std::mem::size_of::<u64>() != prop_info.buffer.len() {
+                    return Err(ParserError::LengthMismatch);
                 }
+                return Ok(Address::Address64(u64::from_ne_bytes(
+                    prop_info.buffer.try_into()?,
+                )));
             } else if desc.in_type == InTypeUInt32
-                || desc.in_type == InTypePointer
                 || desc.in_type == InTypeHexInt32
+                || (desc.in_type == InTypePointer && !self.event.is_64bit())
             {
                 if std::mem::size_of::<u32>() != prop_info.buffer.len() {
                     return Err(ParserError::LengthMismatch);
