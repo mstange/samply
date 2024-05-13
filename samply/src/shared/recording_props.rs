@@ -16,6 +16,7 @@ pub struct RecordingProps {
 }
 
 /// Which process(es) to record.
+#[derive(Debug, Clone)]
 pub enum RecordingMode {
     /// Record all processes, system-wide.
     All,
@@ -27,6 +28,7 @@ pub enum RecordingMode {
 
 /// Properties which are meaningful both for recording a profile and
 /// for converting a perf.data file to a profile.
+#[derive(Debug, Clone)]
 pub struct ProfileCreationProps {
     pub profile_name: String,
     /// Merge non-overlapping threads of the same name.
@@ -43,6 +45,7 @@ pub struct ProfileCreationProps {
 }
 
 /// Properties which are meaningful for launching and recording a fresh process.
+#[derive(Debug, Clone)]
 pub struct ProcessLaunchProps {
     pub env_vars: Vec<(OsString, OsString)>,
     pub command_name: OsString,

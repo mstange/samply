@@ -16,9 +16,6 @@ use fxprof_processed_profile::*;
 use serde_json::{json, to_writer, Value};
 use uuid::Uuid;
 
-use crate::shared::context_switch::{
-    ContextSwitchHandler, OffCpuSampleGroup, ThreadContextSwitchData,
-};
 use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::lib_mappings::LibMappingInfo;
 use crate::shared::lib_mappings::{LibMappingAdd, LibMappingOp, LibMappingOpQueue};
@@ -26,6 +23,10 @@ use crate::shared::process_sample_data::{MarkerSpanOnThread, ProcessSampleData, 
 use crate::shared::recording_props::RecordingProps;
 use crate::shared::types::{StackFrame, StackMode};
 use crate::shared::unresolved_samples::SampleOrMarker;
+use crate::shared::{
+    context_switch::{ContextSwitchHandler, OffCpuSampleGroup, ThreadContextSwitchData},
+    recording_props::{ProcessLaunchProps, RecordingMode},
+};
 use crate::shared::{
     jit_function_add_marker::JitFunctionAddMarker, marker_file::get_markers,
     process_sample_data::UserTimingMarker, timestamp_converter::TimestampConverter,
@@ -216,12 +217,18 @@ impl ProfilerMarker for CoreClrGcEventMarker {
     }
 }
 
-pub fn coreclr_xperf_args(props: &RecordingProps) -> Vec<String> {
+pub fn coreclr_xperf_args(props: &RecordingProps, recording_mode: &RecordingMode) -> Vec<String> {
     let mut providers = vec![];
 
     if !props.coreclr {
         return providers;
     }
+
+    let is_attach = match recording_mode {
+        RecordingMode::All => true,
+        RecordingMode::Pid(_) => true,
+        RecordingMode::Launch(_) => false,
+    };
 
     // Enabling all the DotNETRuntime keywords is very expensive. In particular,
     // enabling the NGenKeyword causes info to be generated for every NGen'd method; we should
@@ -248,9 +255,17 @@ pub fn coreclr_xperf_args(props: &RecordingProps) -> Vec<String> {
     const CORECLR_COMPILATION_DIAGNOSTIC_KEYWORD: u64 = 0x2000000000;
     const CORECLR_TYPE_DIAGNOSTIC_KEYWORD: u64 = 0x8000000000;
 
+    const CORECLR_RUNDOWN_START_KEYWORD: u64 = 0x00000040;
+
     // if STACK is enabled, then every CoreCLR event will also generate a stack event right afterwards
     let mut info_keywords = CORECLR_LOADER_KEYWORD | CORECLR_STACK_KEYWORD | CORECLR_GC_KEYWORD;
     let mut verbose_keywords = CORECLR_JIT_KEYWORD | CORECLR_NGEN_KEYWORD;
+    // if we're attaching, ask for a rundown of method info at the start of collection
+    let mut rundown_verbose_keywords = if is_attach {
+        CORECLR_LOADER_KEYWORD | CORECLR_JIT_KEYWORD | CORECLR_RUNDOWN_START_KEYWORD
+    } else {
+        0
+    };
 
     if props.coreclr_allocs {
         info_keywords |= CORECLR_GC_SAMPLED_OBJECT_ALLOCATION_HIGH_KEYWORD
@@ -275,6 +290,14 @@ pub fn coreclr_xperf_args(props: &RecordingProps) -> Vec<String> {
             verbose_keywords
         ));
     }
+
+    if rundown_verbose_keywords != 0 {
+        providers.push(format!(
+            "Microsoft-Windows-DotNETRuntimeRundown:0x{:x}:5",
+            rundown_verbose_keywords
+        ));
+    }
+
     //providers.push(format!("Microsoft-Windows-DotNETRuntime"));
 
     providers
@@ -293,7 +316,13 @@ pub fn handle_coreclr_event(
         return;
     }
 
-    let Some(dotnet_event) = s.name().strip_prefix("Microsoft-Windows-DotNETRuntime/") else {
+    let Some(dotnet_event) = s
+        .name()
+        .strip_prefix("Microsoft-Windows-DotNETRuntime/")
+        .or(s
+            .name()
+            .strip_prefix("Microsoft-Windows-DotNETRuntimeRundown/"))
+    else {
         panic!("Unexpected event {}", s.name())
     };
 
@@ -323,12 +352,15 @@ pub fn handle_coreclr_event(
             .remove_last_event_for_thread(thread_handle);
     }
 
-    if let Some(method_event) = dotnet_event.strip_prefix("CLRMethod/") {
+    if let Some(method_event) = dotnet_event
+        .strip_prefix("CLRMethod/")
+        .or(dotnet_event.strip_prefix("CLRMethodRundown/"))
+    {
         match method_event {
             // there's MethodDCStart & MethodDCStartVerbose & MethodLoad
             // difference between *Verbose and not, is Verbose includes the names
 
-            "MethodLoadVerbose"
+            "MethodLoadVerbose" | "MethodDCStartVerbose"
             // | "R2RGetEntryPoint" // not sure we need this? R2R methods should be covered by PDB files
             => {
                 // R2RGetEntryPoint shares a lot of fields with MethodLoadVerbose

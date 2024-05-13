@@ -726,7 +726,8 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                         context.profile.borrow_mut().add_marker(thread.handle, CategoryHandle::OTHER, marker_name, SimpleMarker(text.clone()), timing);
                     }
                 }
-                dotnet_event if dotnet_event.starts_with("Microsoft-Windows-DotNETRuntime/") => {
+                dotnet_event if dotnet_event.starts_with("Microsoft-Windows-DotNETRuntime") => {
+                    // Note: No "/" at end of event name, because we want DotNETRuntimeRundown as well
                     coreclr::handle_coreclr_event(context, &s, &mut parser, &timestamp_converter);
                 }
                 _ => {

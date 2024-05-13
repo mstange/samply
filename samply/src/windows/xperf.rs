@@ -4,12 +4,13 @@ use std::path::{Path, PathBuf};
 
 use fxprof_processed_profile::SamplingInterval;
 
-use crate::shared::recording_props::RecordingProps;
+use crate::shared::recording_props::{RecordingMode, RecordingProps};
 
 pub struct Xperf {
     xperf_path: PathBuf,
     state: XperfState,
     recording_props: RecordingProps,
+    recording_mode: RecordingMode,
 }
 
 enum XperfState {
@@ -19,12 +20,16 @@ enum XperfState {
 }
 
 impl Xperf {
-    pub fn new(recording_props: RecordingProps) -> Result<Self, which::Error> {
+    pub fn new(
+        recording_props: RecordingProps,
+        recording_mode: RecordingMode,
+    ) -> Result<Self, which::Error> {
         let xperf_path = which::which("xperf")?;
         Ok(Self {
             xperf_path,
             state: XperfState::Stopped,
             recording_props,
+            recording_mode,
         })
     }
 
@@ -48,6 +53,7 @@ impl Xperf {
 
         user_providers.append(&mut super::coreclr::coreclr_xperf_args(
             &self.recording_props,
+            &self.recording_mode,
         ));
 
         // start xperf.exe, logging to the same location as the output file, just with a .etl

@@ -72,7 +72,7 @@ pub fn start_recording(
         .unwrap_or(get_native_arch().to_string());
 
     // Start xperf.
-    let mut xperf = Xperf::new(recording_props.clone())
+    let mut xperf = Xperf::new(recording_props.clone(), recording_mode.clone())
         .unwrap_or_else(|e| panic!("Couldn't find xperf: {e:?}"));
     xperf.start_xperf(sampling_interval);
 
