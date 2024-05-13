@@ -37,7 +37,7 @@ uuid = "1.8.0"
 thiserror = "1.0.60"
 cpp_demangle = "0.4.0"
 msvc-demangler = "0.10.0"
-rustc-demangle = "0.1.21"
+rustc-demangle = "0.1.24"
 scala-native-demangle = "0.0.6" 
 bitflags = "2"
 bytesize = { version = "1.0.1", optional = true }
