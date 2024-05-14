@@ -4,7 +4,6 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
-use bitflags::bitflags;
 use debugid::DebugId;
 use etw_reader::parser::{Address, Parser, TryParse};
 use etw_reader::schema::SchemaLocator;
@@ -26,7 +25,11 @@ use crate::shared::lib_mappings::{LibMappingAdd, LibMappingInfo, LibMappingOp};
 use crate::shared::process_sample_data::{ProcessSampleData, SimpleMarker, UserTimingMarker};
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::types::{StackFrame, StackMode};
+use crate::windows::chrome_etw_flags::KeywordNames;
 use crate::windows::coreclr;
+use crate::windows::firefox_etw_flags::{
+    PHASE_INSTANT, PHASE_INTERVAL, PHASE_INTERVAL_END, PHASE_INTERVAL_START,
+};
 use crate::windows::profile_context::{KnownCategory, PendingMarker, PendingStack};
 
 pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) {
@@ -598,12 +601,6 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
 
                 let text = event_properties_to_string(&s, &mut parser, Some(&["MarkerName", "StartTime", "EndTime", "Phase", "InnerWindowId", "CategoryPair"]));
 
-                /// From https://searchfox.org/mozilla-central/rev/0e7394a77cdbe1df5e04a1d4171d6da67b57fa17/mozglue/baseprofiler/public/BaseProfilerMarkersPrerequisites.h#355-360
-                const PHASE_INSTANT: u8 = 0;
-                const PHASE_INTERVAL: u8 = 1;
-                const PHASE_INTERVAL_START: u8 = 2;
-                const PHASE_INTERVAL_END: u8 = 3;
-
                 // We ignore e.EventHeader.TimeStamp and instead take the timestamp from the fields.
                 let start_time_qpc: u64 = parser.try_parse("StartTime").unwrap();
                 let end_time_qpc: u64 = parser.try_parse("EndTime").unwrap();
@@ -647,60 +644,6 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
             marker_name if marker_name.starts_with("Google.Chrome/") => {
                 let Some(marker_name) = marker_name.strip_prefix("Google.Chrome/").and_then(|s| s.strip_suffix("/Info")) else { return };
                 // a bitfield of keywords
-                bitflags! {
-                    #[derive(PartialEq, Eq)]
-                    pub struct KeywordNames: u64 {
-                        const benchmark = 0x1;
-                        const blink = 0x2;
-                        const browser = 0x4;
-                        const cc = 0x8;
-                        const evdev = 0x10;
-                        const gpu = 0x20;
-                        const input = 0x40;
-                        const netlog = 0x80;
-                        const sequence_manager = 0x100;
-                        const toplevel = 0x200;
-                        const v8 = 0x400;
-                        const disabled_by_default_cc_debug = 0x800;
-                        const disabled_by_default_cc_debug_picture = 0x1000;
-                        const disabled_by_default_toplevel_flow = 0x2000;
-                        const startup = 0x4000;
-                        const latency = 0x8000;
-                        const blink_user_timing = 0x10000;
-                        const media = 0x20000;
-                        const loading = 0x40000;
-                        const base = 0x80000;
-                        const devtools_timeline = 0x100000;
-                        const unused_bit_21 = 0x200000;
-                        const unused_bit_22 = 0x400000;
-                        const unused_bit_23 = 0x800000;
-                        const unused_bit_24 = 0x1000000;
-                        const unused_bit_25 = 0x2000000;
-                        const unused_bit_26 = 0x4000000;
-                        const unused_bit_27 = 0x8000000;
-                        const unused_bit_28 = 0x10000000;
-                        const unused_bit_29 = 0x20000000;
-                        const unused_bit_30 = 0x40000000;
-                        const unused_bit_31 = 0x80000000;
-                        const unused_bit_32 = 0x100000000;
-                        const unused_bit_33 = 0x200000000;
-                        const unused_bit_34 = 0x400000000;
-                        const unused_bit_35 = 0x800000000;
-                        const unused_bit_36 = 0x1000000000;
-                        const unused_bit_37 = 0x2000000000;
-                        const unused_bit_38 = 0x4000000000;
-                        const unused_bit_39 = 0x8000000000;
-                        const unused_bit_40 = 0x10000000000;
-                        const unused_bit_41 = 0x20000000000;
-                        const navigation = 0x40000000000;
-                        const ServiceWorker = 0x80000000000;
-                        const edge_webview = 0x100000000000;
-                        const diagnostic_event = 0x200000000000;
-                        const __OTHER_EVENTS = 0x400000000000;
-                        const __DISABLED_OTHER_EVENTS = 0x800000000000;
-                    }
-                }
-
                 let thread_id = e.EventHeader.ThreadId;
                 let phase: String = parser.try_parse("Phase").unwrap();
 
