@@ -23,10 +23,7 @@ use super::profile_context::ProfileContext;
 use crate::shared::context_switch::{ContextSwitchHandler, OffCpuSampleGroup};
 use crate::shared::jit_function_add_marker::JitFunctionAddMarker;
 use crate::shared::lib_mappings::{LibMappingAdd, LibMappingInfo, LibMappingOp};
-use crate::shared::marker_file::get_markers;
-use crate::shared::process_sample_data::{
-    MarkerSpanOnThread, ProcessSampleData, SimpleMarker, UserTimingMarker,
-};
+use crate::shared::process_sample_data::{ProcessSampleData, SimpleMarker, UserTimingMarker};
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::types::{StackFrame, StackMode};
 use crate::windows::coreclr;
@@ -48,7 +45,6 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
     let processing_start_timestamp = Instant::now();
 
     let demand_zero_faults = false; //pargs.contains("--demand-zero-faults");
-    let marker_file: Option<String> = None; //pargs.opt_value_from_str("--marker-file").unwrap();
 
     let mut sample_count = 0;
     let mut stack_sample_count = 0;
@@ -750,16 +746,6 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
         std::process::exit(1);
     }
 
-    let marker_spans = match marker_file {
-        Some(marker_file) => get_markers(
-            Path::new(&marker_file),
-            None, // extra_dir?
-            timestamp_converter,
-        )
-        .expect("Could not get markers"),
-        None => Vec::new(),
-    };
-
     // Push queued samples into the profile.
     // We queue them so that we can get symbolicated JIT function names. To get symbolicated JIT function names,
     // we have to call profile.add_sample after we call profile.set_lib_symbol_table, and we don't have the
@@ -782,22 +768,12 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
             None => Vec::new(),
         };
 
-        let marker_spans_on_thread = marker_spans
-            .iter()
-            .map(|marker_span| MarkerSpanOnThread {
-                thread_handle: process.main_thread_handle.unwrap(),
-                name: marker_span.name.clone(),
-                start_time: marker_span.start_time,
-                end_time: marker_span.end_time,
-            })
-            .collect();
-
         let process_sample_data = ProcessSampleData::new(
             process.unresolved_samples.clone(),
             process.regular_lib_mapping_ops.clone(),
             jitdump_lib_mapping_op_queues,
             None,
-            marker_spans_on_thread,
+            Vec::new(),
         );
         //main_thread_handle.unwrap_or_else(|| panic!("process no main thread {:?}", process_id)));
         let user_category = context.get_category(KnownCategory::User).into();
