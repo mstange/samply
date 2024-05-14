@@ -148,6 +148,7 @@ pub fn start_recording(
 
     let mut context = ProfileContext::new(profile, &arch, included_processes);
     etw_gecko::profile_pid_from_etl_file(&mut context, &merged_etl);
+    let profile = context.finish();
 
     // delete etl_file
     std::fs::remove_file(&merged_etl).unwrap_or_else(|_| {
@@ -161,8 +162,7 @@ pub fn start_recording(
     let file = File::create(&output_file).unwrap();
     let writer = BufWriter::new(file);
     {
-        let profile = context.profile.borrow();
-        to_writer(writer, &*profile).expect("Couldn't write JSON");
+        to_writer(writer, &profile).expect("Couldn't write JSON");
     }
 
     // then fire up the server for the profiler front end, if not save-only
