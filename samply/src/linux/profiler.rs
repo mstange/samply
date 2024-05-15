@@ -259,6 +259,7 @@ fn start_profiling_pid(
         move || {
             let interval = recording_props.interval;
             let time_limit = recording_props.time_limit;
+            let unstable_presymbolicate = profile_creation_props.unstable_presymbolicate;
             let mut converter = make_converter(interval, profile_creation_props);
             let SamplerRequest::StartProfilingAnotherProcess(pid, attach_mode) =
                 profile_another_pid_request_receiver.recv().unwrap()
@@ -279,6 +280,7 @@ fn start_profiling_pid(
                 profile_another_pid_request_receiver,
                 profile_another_pid_reply_sender,
                 ctrl_c_receiver,
+                unstable_presymbolicate,
             )
         }
     });
