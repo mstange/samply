@@ -1,12 +1,25 @@
-use std::collections::HashMap;
 use std::path::PathBuf;
+use std::{collections::HashMap, sync::Arc};
 
+use debugid::DebugId;
 use symsrv::{parse_nt_symbol_path, NtSymbolPathEntry};
+
+// Helper struct to avoid not being able to derive Debug on SymbolManagerConfig
+pub(crate) struct PrecogDataContainer {
+    pub(crate) precog_data: HashMap<DebugId, Arc<dyn samply_symbols::SymbolMapTrait + Send + Sync>>,
+}
+
+impl std::fmt::Debug for PrecogDataContainer {
+    // Explicit implementation needed due to precog_data
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("...")
+    }
+}
 
 /// The configuration of a [`SymbolManager`](crate::SymbolManager).
 ///
 /// Allows specifying various sources of symbol files.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 pub struct SymbolManagerConfig {
     pub(crate) verbose: bool,
     pub(crate) redirect_paths: HashMap<PathBuf, PathBuf>,
@@ -20,6 +33,7 @@ pub struct SymbolManagerConfig {
     pub(crate) use_spotlight: bool,
     pub(crate) debuginfod_cache_dir_if_not_installed: Option<PathBuf>,
     pub(crate) debuginfod_servers: Vec<(String, PathBuf)>,
+    pub(crate) precog_data: Option<PrecogDataContainer>,
 }
 
 impl SymbolManagerConfig {
@@ -172,6 +186,15 @@ impl SymbolManagerConfig {
     /// of dSYM files based on a mach-O UUID. Ignored on non-macOS.
     pub fn use_spotlight(mut self, use_spotlight: bool) -> Self {
         self.use_spotlight = use_spotlight;
+        self
+    }
+
+    /// Provide explicit symbol maps for a set of debug IDs.
+    pub fn set_precog_data(
+        mut self,
+        precog_data: HashMap<DebugId, Arc<dyn samply_symbols::SymbolMapTrait + Send + Sync>>,
+    ) -> Self {
+        self.precog_data = Some(PrecogDataContainer { precog_data });
         self
     }
 }

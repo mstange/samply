@@ -8,6 +8,7 @@ use debugid::DebugId;
 use samply_symbols::{
     BreakpadIndex, BreakpadIndexParser, CandidatePathInfo, CodeId, ElfBuildId, FileAndPathHelper,
     FileAndPathHelperResult, FileLocation, LibraryInfo, OptionallySendFuture, PeCodeId,
+    SymbolMapTrait,
 };
 use symsrv::{SymsrvDownloader, SymsrvObserver};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -896,6 +897,26 @@ impl FileAndPathHelper for Helper {
         }
 
         Ok(paths)
+    }
+
+    fn get_symbol_map_for_library(
+        &self,
+        info: &LibraryInfo,
+    ) -> Option<(Self::FL, Arc<dyn SymbolMapTrait + Send + Sync>)> {
+        let precog_data = self.config.precog_data.as_ref()?;
+
+        precog_data
+            .precog_data
+            .get(&info.debug_id?)
+            .map(|symbol_map| {
+                let location = WholesymFileLocation::LocalFile(
+                    info.debug_path
+                        .clone()
+                        .unwrap_or_else(|| "UNKNOWN".to_string())
+                        .into(),
+                );
+                (location, symbol_map.clone())
+            })
     }
 }
 

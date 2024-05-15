@@ -42,6 +42,7 @@ pub trait GetInnerSymbolMapWithLookupFramesExt<FC> {
 enum InnerSymbolMap<FC> {
     WithoutAddFile(Box<dyn GetInnerSymbolMap + Send + Sync>),
     WithAddFile(Box<dyn GetInnerSymbolMapWithLookupFramesExt<FC> + Send + Sync>),
+    Direct(Arc<dyn SymbolMapTrait + Send + Sync>),
 }
 
 pub struct SymbolMap<H: FileAndPathHelper> {
@@ -74,10 +75,22 @@ impl<H: FileAndPathHelper> SymbolMap<H> {
         }
     }
 
+    pub fn with_symbol_map_trait(
+        debug_file_location: H::FL,
+        inner: Arc<dyn SymbolMapTrait + Send + Sync>,
+    ) -> Self {
+        Self {
+            debug_file_location,
+            inner: InnerSymbolMap::Direct(inner),
+            helper: None,
+        }
+    }
+
     fn inner(&self) -> &dyn SymbolMapTrait {
         match &self.inner {
             InnerSymbolMap::WithoutAddFile(inner) => inner.get_inner_symbol_map(),
             InnerSymbolMap::WithAddFile(inner) => inner.get_inner_symbol_map().get_as_symbol_map(),
+            InnerSymbolMap::Direct(inner) => inner.as_ref(),
         }
     }
 
@@ -111,7 +124,7 @@ impl<H: FileAndPathHelper> SymbolMap<H> {
                     frames: Some(frames),
                 });
             }
-            (None, _) | (_, InnerSymbolMap::WithoutAddFile(_)) => {
+            (None, _) | (_, InnerSymbolMap::WithoutAddFile(_)) | (_, InnerSymbolMap::Direct(_)) => {
                 return Some(AddressInfo {
                     symbol,
                     frames: None,
@@ -168,7 +181,7 @@ impl<H: FileAndPathHelper> SymbolMap<H> {
     ) -> Option<Vec<FrameDebugInfo>> {
         let helper = self.helper.as_deref()?;
         let inner = match &self.inner {
-            InnerSymbolMap::WithoutAddFile(_) => return None,
+            InnerSymbolMap::WithoutAddFile(_) | InnerSymbolMap::Direct(_) => return None,
             InnerSymbolMap::WithAddFile(inner) => inner.get_inner_symbol_map(),
         };
 

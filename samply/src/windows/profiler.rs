@@ -158,11 +158,18 @@ pub fn start_recording(
     });
 
     // write the profile to a json file
-    let file = File::create(&output_file).unwrap();
-    let writer = BufWriter::new(file);
     {
+        let file = File::create(&output_file).unwrap();
+        let writer = BufWriter::new(file);
         let profile = context.profile.borrow();
         to_writer(writer, &*profile).expect("Couldn't write JSON");
+    }
+
+    if profile_creation_props.unstable_presymbolicate {
+        crate::shared::symbol_precog::presymbolicate(
+            &context.profile.borrow(),
+            &output_file.with_extension("syms.json"),
+        );
     }
 
     // then fire up the server for the profiler front end, if not save-only

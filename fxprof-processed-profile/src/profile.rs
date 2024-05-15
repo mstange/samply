@@ -11,7 +11,7 @@ use crate::cpu_delta::CpuDelta;
 use crate::fast_hash_map::FastHashMap;
 use crate::frame::{Frame, FrameInfo};
 use crate::frame_table::{InternalFrame, InternalFrameLocation};
-use crate::global_lib_table::{GlobalLibTable, LibraryHandle};
+use crate::global_lib_table::{GlobalLibTable, LibraryHandle, UsedLibraryAddressesIterator};
 use crate::lib_mappings::LibMappings;
 use crate::library_info::LibraryInfo;
 use crate::process::{Process, ThreadHandle};
@@ -601,7 +601,7 @@ impl Profile {
                 flags: frame_info.flags,
                 category_pair: frame_info.category_pair,
             };
-            let frame_index = thread.frame_index_for_frame(internal_frame, &self.global_libs);
+            let frame_index = thread.frame_index_for_frame(internal_frame, &mut self.global_libs);
             prefix =
                 Some(thread.stack_index_for_stack(prefix, frame_index, frame_info.category_pair));
         }
@@ -664,6 +664,10 @@ impl Profile {
 
     fn contains_js_function(&self) -> bool {
         self.threads.iter().any(|t| t.contains_js_function())
+    }
+
+    pub fn lib_used_rva_iter(&self) -> UsedLibraryAddressesIterator {
+        self.global_libs.lib_used_rva_iter()
     }
 }
 
