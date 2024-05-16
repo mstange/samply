@@ -808,7 +808,6 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
             kernel_category,
             &mut stack_frame_scratch_buf,
             &context.unresolved_stacks.borrow(),
-            &[],
         )
     }
 
