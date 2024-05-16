@@ -1,5 +1,3 @@
-#![allow(unused)]
-#![allow(clippy::wildcard_in_or_patterns)]
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
     convert::TryInto,
@@ -134,6 +132,7 @@ bitflags! {
     }
 }
 
+#[allow(unused)]
 mod constants {
     pub const CORECLR_GC_KEYWORD: u64 = 0x1; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-garbage-collection-events
     pub const CORECLR_GC_HANDLE_KEYWORD: u64 = 0x2;

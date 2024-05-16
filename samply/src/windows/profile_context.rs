@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
