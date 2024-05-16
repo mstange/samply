@@ -528,6 +528,7 @@ enum SamplerRequest {
     StopProfilingOncePerfEventsExhausted,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_profiler(
     mut perf: PerfGroup,
     mut converter: Converter<
