@@ -2,6 +2,7 @@ mod console;
 mod coreclr;
 mod elevated_helper;
 mod etw_gecko;
+mod gfx;
 pub mod import;
 mod profile_context;
 pub mod profiler;
