@@ -1,47 +1,18 @@
-use std::{
-    collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
-    convert::TryInto,
-    fmt::Display,
-    fs::File,
-    io::BufWriter,
-    path::Path,
-    sync::Arc,
-    time::{Duration, Instant, SystemTime},
-};
+use std::{collections::HashMap, convert::TryInto, fmt::Display};
 
 use bitflags::bitflags;
-use debugid::DebugId;
 use fxprof_processed_profile::*;
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
-use serde_json::{json, to_writer, Value};
-use uuid::Uuid;
+use serde_json::json;
 
-use crate::shared::jit_category_manager::JitCategoryManager;
-use crate::shared::lib_mappings::LibMappingInfo;
-use crate::shared::lib_mappings::{LibMappingAdd, LibMappingOp, LibMappingOpQueue};
-use crate::shared::process_sample_data::{MarkerSpanOnThread, ProcessSampleData, SimpleMarker};
-use crate::shared::recording_props::RecordingProps;
-use crate::shared::types::{StackFrame, StackMode};
-use crate::shared::unresolved_samples::SampleOrMarker;
-use crate::shared::{
-    context_switch::{ContextSwitchHandler, OffCpuSampleGroup, ThreadContextSwitchData},
-    recording_props::{ProcessLaunchProps, RecordingMode},
-};
-use crate::shared::{
-    jit_function_add_marker::JitFunctionAddMarker, marker_file::get_markers,
-    process_sample_data::UserTimingMarker, timestamp_converter::TimestampConverter,
-};
-
-use etw_reader::{self, etw_types::EventRecord, schema::TypedEvent};
+use etw_reader::{self, schema::TypedEvent};
 use etw_reader::{
-    event_properties_to_string, open_trace,
-    parser::{Address, Parser, TryParse},
-    print_property,
-    schema::SchemaLocator,
-    write_property, GUID,
+    event_properties_to_string,
+    parser::{Parser, TryParse},
 };
 
+use crate::shared::process_sample_data::SimpleMarker;
 use crate::windows::profile_context::{KnownCategory, ProfileContext};
 
 use super::elevated_helper::ElevatedRecordingProps;
@@ -349,9 +320,9 @@ pub fn coreclr_xperf_args(props: &ElevatedRecordingProps) -> Vec<String> {
     // if STACK is enabled, then every CoreCLR event will also generate a stack event right afterwards
     use constants::*;
     let mut info_keywords = CORECLR_LOADER_KEYWORD | CORECLR_STACK_KEYWORD | CORECLR_GC_KEYWORD;
-    let mut verbose_keywords = CORECLR_JIT_KEYWORD | CORECLR_NGEN_KEYWORD;
+    let verbose_keywords = CORECLR_JIT_KEYWORD | CORECLR_NGEN_KEYWORD;
     // if we're attaching, ask for a rundown of method info at the start of collection
-    let mut rundown_verbose_keywords = if props.is_attach {
+    let rundown_verbose_keywords = if props.is_attach {
         CORECLR_LOADER_KEYWORD | CORECLR_JIT_KEYWORD | CORECLR_RUNDOWN_START_KEYWORD
     } else {
         0
@@ -552,7 +523,7 @@ pub fn handle_coreclr_event(
                     // when a threshold is hit. (100kb) The count and size are aggregates in that case.
                     let type_id: u64 = parser.parse("TypeID"); // TODO: convert to str, with bulk type data
                                                                //let address: u64 = parser.parse("Address");
-                    let object_count: u32 = parser.parse("ObjectCountForTypeSample");
+                    let _object_count: u32 = parser.parse("ObjectCountForTypeSample");
                     let total_size: u64 = parser.parse("TotalSizeForTypeSample");
 
                     let mh = context.add_thread_instant_marker(
@@ -587,7 +558,7 @@ pub fn handle_coreclr_event(
                 }
                 "GCSuspendEEBegin" => {
                     // Reason, Count
-                    let count: u32 = parser.parse("Count");
+                    let _count: u32 = parser.parse("Count");
                     let reason: u32 = parser.parse("Reason");
 
                     let reason = GcSuspendEeReason::from_u32(reason).or_else(|| {
@@ -678,7 +649,11 @@ pub fn handle_coreclr_event(
                     // TODO: create an interval
                     handled = true;
                 }
-                "GCCreateSegment" | "GCFreeSegment" | "GCDynamicEvent" | "GCHeapStats" | _ => {
+                "GCCreateSegment" | "GCFreeSegment" | "GCDynamicEvent" | "GCHeapStats" => {
+                    // don't care
+                    handled = true;
+                }
+                _ => {
                     // don't care
                     handled = true;
                 }

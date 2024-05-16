@@ -1,16 +1,12 @@
 use std::cell::{Ref, RefCell, RefMut};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use debugid::DebugId;
-use etw_reader::etw_types::EventRecord;
-use etw_reader::parser::{Parser, TryParse};
-use etw_reader::print_property;
-use etw_reader::schema::TypedEvent;
 use fxprof_processed_profile::{
-    CategoryColor, CategoryHandle, CounterHandle, CpuDelta, FrameFlags, FrameInfo, LibraryHandle,
-    LibraryInfo, MarkerDynamicField, MarkerFieldFormat, MarkerHandle, MarkerLocation, MarkerSchema,
+    CategoryColor, CategoryHandle, CounterHandle, CpuDelta, LibraryHandle, LibraryInfo,
+    MarkerDynamicField, MarkerFieldFormat, MarkerHandle, MarkerLocation, MarkerSchema,
     MarkerSchemaField, MarkerTiming, ProcessHandle, Profile, ProfilerMarker, SamplingInterval,
     Symbol, SymbolTable, ThreadHandle, Timestamp,
 };
@@ -29,9 +25,7 @@ use crate::shared::lib_mappings::{LibMappingAdd, LibMappingInfo, LibMappingOp, L
 use crate::shared::process_sample_data::{ProcessSampleData, SimpleMarker, UserTimingMarker};
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::types::{StackFrame, StackMode};
-use crate::shared::unresolved_samples::{
-    SampleOrMarker, UnresolvedSamples, UnresolvedStackHandle, UnresolvedStacks,
-};
+use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
 use crate::windows::firefox_etw_flags::{
     PHASE_INSTANT, PHASE_INTERVAL, PHASE_INTERVAL_END, PHASE_INTERVAL_START,
 };
@@ -94,13 +88,6 @@ impl ThreadState {
             process_id: pid,
         }
     }
-
-    fn display_name(&self) -> String {
-        self.merge_name
-            .as_ref()
-            .map(|x| strip_thread_numbers(x).to_owned())
-            .unwrap_or_else(|| format!("thread {}", self.thread_id))
-    }
 }
 
 pub struct ProcessState {
@@ -129,16 +116,6 @@ impl ProcessState {
     }
 }
 
-fn strip_thread_numbers(name: &str) -> &str {
-    if let Some(hash) = name.find('#') {
-        let (prefix, suffix) = name.split_at(hash);
-        if suffix[1..].parse::<i32>().is_ok() {
-            return prefix.trim();
-        }
-    }
-    name
-}
-
 // Known profiler categories, lazy-created
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug)]
 pub enum KnownCategory {
@@ -156,8 +133,6 @@ pub enum KnownCategory {
 pub struct ProfileContext {
     pub profile: RefCell<Profile>,
 
-    timebase_nanos: u64,
-
     // state -- keep track of the processes etc we've seen as we're processing,
     // and their associated handles in the json profile
     pub processes: HashMap<u32, RefCell<ProcessState>>,
@@ -171,15 +146,11 @@ pub struct ProfileContext {
     // can be allocated on one thread and freed on another
     per_thread_memory: bool,
 
-    idle_thread_handle: Option<ThreadHandle>,
-    other_thread_handle: Option<ThreadHandle>,
-
     // some special threads
     gpu_thread_handle: Option<ThreadHandle>,
 
     libs_with_pending_debugid: HashMap<(u32, u64), (String, u32, u32)>,
     kernel_pending_libraries: HashMap<u64, LibraryInfo>,
-    libs: HashMap<String, LibraryHandle>,
 
     // These are the processes + their descendants that we want to write into
     // the profile.json. If it's None, include everything.
@@ -206,10 +177,7 @@ pub struct ProfileContext {
 
     sample_count: usize,
     stack_sample_count: usize,
-    /// Resolution of the hardware timer, in units of 100 nanoseconds.
-    timer_resolution: u32,
     event_count: usize,
-    jscript_sources: HashMap<u64, String>,
 
     timestamp_converter: TimestampConverter,
     event_timestamps_are_qpc: bool,
@@ -217,7 +185,7 @@ pub struct ProfileContext {
 
 impl ProfileContext {
     pub fn new(
-        mut profile: Profile,
+        profile: Profile,
         arch: &str,
         included_processes: Option<IncludedProcesses>,
     ) -> Self {
@@ -232,19 +200,15 @@ impl ProfileContext {
 
         Self {
             profile: RefCell::new(profile),
-            timebase_nanos: 0,
             processes: HashMap::new(),
             threads: HashMap::new(),
             memory_usage: HashMap::new(),
             process_jit_infos: HashMap::new(),
             unresolved_stacks: RefCell::new(UnresolvedStacks::default()),
-            idle_thread_handle: None,
-            other_thread_handle: None,
             gpu_thread_handle: None,
             per_thread_memory: false,
             libs_with_pending_debugid: HashMap::new(),
             kernel_pending_libraries: HashMap::new(),
-            libs: HashMap::new(),
             included_processes,
             categories: RefCell::new(HashMap::new()),
             js_category_manager: RefCell::new(JitCategoryManager::new()),
@@ -254,9 +218,7 @@ impl ProfileContext {
             arch: arch.to_string(),
             sample_count: 0,
             stack_sample_count: 0,
-            timer_resolution: 0, // Will be filled once we process the header
             event_count: 0,
-            jscript_sources: HashMap::new(),
             // Dummy, will be replaced once we see the header
             timestamp_converter: TimestampConverter {
                 reference_raw: 0,
@@ -264,10 +226,6 @@ impl ProfileContext {
             },
             event_timestamps_are_qpc: false,
         }
-    }
-
-    pub fn convert_timestamp(&self, timestamp_raw: u64) -> Timestamp {
-        self.timestamp_converter.convert_time(timestamp_raw)
     }
 
     #[rustfmt::skip]
@@ -336,35 +294,8 @@ impl ProfileContext {
         self.processes.insert(pid, RefCell::new(process));
     }
 
-    pub fn remove_process(
-        &mut self,
-        pid: u32,
-        timestamp: Option<Timestamp>,
-    ) -> Option<ProcessHandle> {
-        if let Some(process) = self.processes.remove(&pid) {
-            let process = process.into_inner();
-            if let Some(timestamp) = timestamp {
-                self.profile
-                    .borrow_mut()
-                    .set_process_end_time(process.handle, timestamp);
-            }
-
-            Some(process.handle)
-        } else {
-            None
-        }
-    }
-
-    pub fn get_process(&self, pid: u32) -> Option<Ref<'_, ProcessState>> {
-        self.processes.get(&pid).map(|p| p.borrow())
-    }
-
     pub fn get_process_mut(&self, pid: u32) -> Option<RefMut<'_, ProcessState>> {
         self.processes.get(&pid).map(|p| p.borrow_mut())
-    }
-
-    pub fn get_process_handle(&self, pid: u32) -> Option<ProcessHandle> {
-        self.get_process(pid).map(|p| p.handle)
     }
 
     pub fn add_thread(&mut self, pid: u32, tid: u32, start_time: Timestamp) {
@@ -492,7 +423,6 @@ impl ProfileContext {
         weight: i32,
         stack: Vec<StackFrame>,
     ) {
-        let mut profile = self.profile.borrow_mut();
         let stack_index = self
             .unresolved_stacks
             .borrow_mut()
@@ -510,23 +440,7 @@ impl ProfileContext {
         );
     }
 
-    pub fn unresolved_stack_handle_for_stack(&self, stack: &[StackFrame]) -> UnresolvedStackHandle {
-        self.unresolved_stacks
-            .borrow_mut()
-            .convert(stack.iter().rev().cloned())
-    }
-
-    fn get_or_add_lib_simple(&mut self, filename: &str) -> LibraryHandle {
-        if let Some(&handle) = self.libs.get(filename) {
-            handle
-        } else {
-            let lib_info = self.get_library_info_for_path(filename);
-            let handle = self.profile.borrow_mut().add_lib(lib_info);
-            self.libs.insert(filename.to_string(), handle);
-            handle
-        }
-    }
-
+    #[allow(unused)]
     fn try_get_library_info_for_path(&self, path: &str) -> Option<LibraryInfo> {
         let path = self.map_device_path(path);
         let name = PathBuf::from(&path)
@@ -603,6 +517,7 @@ impl ProfileContext {
         }
     }
 
+    #[allow(unused)]
     fn add_kernel_drivers(&mut self) {
         for (path, start_avma, end_avma) in winutils::iter_kernel_drivers() {
             let path = self.map_device_path(&path);
@@ -680,13 +595,7 @@ impl ProfileContext {
             .add_marker(thread_handle, category, name, marker, timing)
     }
 
-    pub fn handle_header(
-        &mut self,
-        timestamp_raw: u64,
-        timer_resolution: u32,
-        perf_freq: u64,
-        clock_type: u32,
-    ) {
+    pub fn handle_header(&mut self, timestamp_raw: u64, perf_freq: u64, clock_type: u32) {
         if clock_type != 1 {
             log::warn!("QPC not used as clock");
             self.event_timestamps_are_qpc = false;
@@ -873,7 +782,6 @@ impl ProfileContext {
         timestamp_raw: u64,
         pid: u32,
         tid: u32,
-        stack_len: usize,
         stack_address_iter: impl Iterator<Item = u64>,
     ) {
         if !self.threads.contains_key(&tid) {
@@ -1346,7 +1254,7 @@ impl ProfileContext {
                 .borrow_mut()
                 .handle_switch_out(timestamp_raw, &mut old_thread.context_switch_data);
         }
-        if let Some(mut new_thread) = self.get_thread_mut(old_tid) {
+        if let Some(mut new_thread) = self.get_thread_mut(new_tid) {
             let off_cpu_sample_group = self
                 .context_switch_handler
                 .borrow_mut()
@@ -1425,9 +1333,6 @@ impl ProfileContext {
         method_size: u32,
     ) {
         self.ensure_process_jit_info(pid);
-        let Some(process) = self.get_process(pid) else {
-            return;
-        };
         let mut process_jit_info = self.get_process_jit_info(pid);
         let relative_address = process_jit_info.next_relative_address;
         process_jit_info.next_relative_address += method_size;

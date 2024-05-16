@@ -43,7 +43,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
         //eprintln!("{}", s.name());
         match s.name() {
             "MSNT_SystemTrace/EventTrace/Header" => {
-                let timer_resolution: u32 = parser.parse("TimerResolution");
+                let _timer_resolution: u32 = parser.parse("TimerResolution");
                 let perf_freq: u64 = parser.parse("PerfFreq");
                 let clock_type: u32 = parser.parse("ReservedFlags");
                 let events_lost: u32 = parser.parse("EventsLost");
@@ -51,7 +51,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                     log::warn!("{} events lost", events_lost);
                 }
 
-                context.handle_header(timestamp_raw, timer_resolution, perf_freq, clock_type);
+                context.handle_header(timestamp_raw, perf_freq, clock_type);
 
                 if log::log_enabled!(log::Level::Info) {
                     for i in 0..s.property_count() {
@@ -131,7 +131,6 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                         referenced_timestamp_raw,
                         pid,
                         tid,
-                        stack_len,
                         stack_address_iter,
                     );
                 } else {
