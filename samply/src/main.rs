@@ -117,13 +117,13 @@ struct ImportArgs {
     #[command(flatten)]
     server_args: ServerArgs,
 
-    /// Only include processes with these names
+    /// Only include processes with this name substring (can be specified multiple times).
     #[arg(long)]
-    process_names: Option<Vec<String>>,
+    name: Option<Vec<String>>,
 
-    /// Only include processes with these PIDs
+    /// Only include process with this PID (can be specified multiple times).
     #[arg(long)]
-    pids: Option<Vec<u32>>,
+    pid: Option<Vec<u32>>,
 
     /// Explicitly specify architecture of profile to import.
     #[arg(long)]
@@ -373,7 +373,7 @@ impl ImportArgs {
     }
 
     fn included_processes(&self) -> Option<IncludedProcesses> {
-        match (&self.process_names, &self.pids) {
+        match (&self.name, &self.pid) {
             (None, None) => None, // No filtering, include all processes
             (names, pids) => Some(IncludedProcesses {
                 name_substrings: names.clone().unwrap_or_default(),
