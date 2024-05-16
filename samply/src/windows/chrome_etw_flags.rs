@@ -1,6 +1,7 @@
 use bitflags::bitflags;
 
 bitflags! {
+    // https://source.chromium.org/chromium/chromium/src/+/main:base/trace_event/trace_event_etw_export_win.cc;l=103;drc=8c29f4a8930c3ccccdf1b66c28fe484cee7c7362
     #[derive(PartialEq, Eq)]
     pub struct KeywordNames: u64 {
         const benchmark = 0x1;

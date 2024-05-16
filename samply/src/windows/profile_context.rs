@@ -646,15 +646,36 @@ impl ProfileContext {
         }
     }
 
-    pub fn add_thread_marker(
+    pub fn add_thread_instant_marker(
         &self,
+        timestamp_raw: u64,
         thread_id: u32,
-        timestamp: Timestamp,
-        category: CategoryHandle,
+        known_category: KnownCategory,
         name: &str,
         marker: impl ProfilerMarker,
     ) -> MarkerHandle {
+        let category = self.get_category(known_category);
+        let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
         let timing = MarkerTiming::Instant(timestamp);
+        let thread_handle = self.get_thread_handle(thread_id).unwrap();
+        self.profile
+            .borrow_mut()
+            .add_marker(thread_handle, category, name, marker, timing)
+    }
+
+    pub fn add_thread_interval_marker(
+        &self,
+        start_timestamp_raw: u64,
+        end_timestamp_raw: u64,
+        thread_id: u32,
+        known_category: KnownCategory,
+        name: &str,
+        marker: impl ProfilerMarker,
+    ) -> MarkerHandle {
+        let category = self.get_category(known_category);
+        let start_timestamp = self.timestamp_converter.convert_time(start_timestamp_raw);
+        let end_timestamp = self.timestamp_converter.convert_time(end_timestamp_raw);
+        let timing = MarkerTiming::Interval(start_timestamp, end_timestamp);
         let thread_handle = self.get_thread_handle(thread_id).unwrap();
         self.profile
             .borrow_mut()
@@ -800,6 +821,53 @@ impl ProfileContext {
 
     pub fn handle_process_dcend(&mut self, _timestamp_raw: u64, _pid: u32) {
         // TODO
+    }
+
+    /// Attach a stack to an existing marker.
+    ///
+    /// CoreCLR emits these stacks after the corresponding marker.
+    pub fn handle_coreclr_stack(
+        &mut self,
+        timestamp_raw: u64,
+        pid: u32,
+        tid: u32,
+        stack_address_iter: impl Iterator<Item = u64>,
+        marker_handle: MarkerHandle,
+    ) {
+        let stack: Vec<StackFrame> = stack_address_iter
+            .enumerate()
+            .map(|(i, addr)| {
+                if i == 0 {
+                    StackFrame::InstructionPointer(addr, self.stack_mode_for_address(addr))
+                } else {
+                    StackFrame::ReturnAddress(addr, self.stack_mode_for_address(addr))
+                }
+            })
+            .collect();
+
+        let stack_index = self
+            .unresolved_stacks
+            .borrow_mut()
+            .convert(stack.into_iter().rev());
+        let thread_handle = self.get_thread(tid).unwrap().handle;
+        //eprintln!("event: StackWalk stack: {:?}", stack);
+
+        // Note: we don't add these as actual samples, and instead just attach them to the marker.
+        // If we added them as samples, it would throw off the profile counting, because they arrive
+        // in between regular interval samples. In the future, maybe we can support fractional samples
+        // somehow (fractional weight), but for now, we just attach them to the marker.
+
+        let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
+        self.get_process_mut(pid)
+            .unwrap()
+            .unresolved_samples
+            .attach_stack_to_marker(
+                thread_handle,
+                timestamp,
+                timestamp_raw,
+                stack_index,
+                marker_handle,
+            );
     }
 
     pub fn handle_stack_arm64(
@@ -1323,7 +1391,7 @@ impl ProfileContext {
                 main_thread,
                 CategoryHandle::OTHER,
                 "JitFunctionAdd",
-                JitFunctionAddMarker(method_name.to_owned()),
+                JitFunctionAddMarker(method_name.clone()),
                 MarkerTiming::Instant(timestamp),
             );
         }
@@ -1346,6 +1414,45 @@ impl ProfileContext {
         process_jit_info.symbols.push(Symbol {
             address: relative_address,
             size: Some(method_size as u32),
+            name: method_name,
+        });
+    }
+
+    pub fn handle_coreclr_method_load(
+        &mut self,
+        timestamp_raw: u64,
+        pid: u32,
+        method_name: String,
+        method_start_address: u64,
+        method_size: u32,
+    ) {
+        self.ensure_process_jit_info(pid);
+        let Some(process) = self.get_process(pid) else {
+            return;
+        };
+        let mut process_jit_info = self.get_process_jit_info(pid);
+        let relative_address = process_jit_info.next_relative_address;
+        process_jit_info.next_relative_address += method_size;
+
+        // Not that useful for CoreCLR
+        //let mh = context.add_thread_marker(s.thread_id(), timestamp, CategoryHandle::OTHER, "JitFunctionAdd", JitFunctionAddMarker(method_name.to_owned()));
+        //core_clr_context.set_last_event_for_thread(thread_handle, mh);
+
+        let category = self.get_category(KnownCategory::CoreClrJit);
+        let info =
+            LibMappingInfo::new_jit_function(process_jit_info.lib_handle, category.into(), None);
+        process_jit_info.jit_mapping_ops.push(
+            timestamp_raw,
+            LibMappingOp::Add(LibMappingAdd {
+                start_avma: method_start_address,
+                end_avma: method_start_address + u64::from(method_size),
+                relative_address_at_start: relative_address,
+                info,
+            }),
+        );
+        process_jit_info.symbols.push(Symbol {
+            address: relative_address,
+            size: Some(method_size),
             name: method_name,
         });
     }
