@@ -26,6 +26,7 @@ pub struct ElevatedRecordingProps {
     pub coreclr_allocs: bool,
     pub vm_hack: bool,
     pub is_attach: bool,
+    pub gfx: bool,
 }
 
 impl ElevatedRecordingProps {
@@ -40,6 +41,7 @@ impl ElevatedRecordingProps {
             coreclr_allocs: recording_props.coreclr_allocs,
             vm_hack: recording_props.vm_hack,
             is_attach: recording_mode.is_attach_mode(),
+            gfx: recording_props.gfx,
         }
     }
 }

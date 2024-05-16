@@ -117,13 +117,13 @@ struct ImportArgs {
     #[command(flatten)]
     server_args: ServerArgs,
 
-    /// Only include processes with these names
+    /// Only include processes with this name substring (can be specified multiple times).
     #[arg(long)]
-    process_names: Option<Vec<String>>,
+    name: Option<Vec<String>>,
 
-    /// Only include processes with these PIDs
+    /// Only include process with this PID (can be specified multiple times).
     #[arg(long)]
-    pids: Option<Vec<u32>>,
+    pid: Option<Vec<u32>>,
 
     /// Explicitly specify architecture of profile to import.
     #[arg(long)]
@@ -181,8 +181,7 @@ struct RecordArgs {
     #[arg(short, long, conflicts_with = "pid")]
     all: bool,
 
-    /// Enable CoreCLR event capture (Windows only).
-    #[cfg(target_os = "windows")]
+    /// Enable CoreCLR event capture.
     #[arg(long)]
     coreclr: bool,
 
@@ -195,6 +194,10 @@ struct RecordArgs {
     #[cfg(target_os = "windows")]
     #[arg(long)]
     vm_hack: bool,
+
+    /// Enable Graphics-related event capture.
+    #[arg(long)]
+    gfx: bool,
 }
 
 #[derive(Debug, Args)]
@@ -373,7 +376,7 @@ impl ImportArgs {
     }
 
     fn included_processes(&self) -> Option<IncludedProcesses> {
-        match (&self.process_names, &self.pids) {
+        match (&self.name, &self.pid) {
             (None, None) => None, // No filtering, include all processes
             (names, pids) => Some(IncludedProcesses {
                 name_substrings: names.clone().unwrap_or_default(),
@@ -406,9 +409,9 @@ impl RecordArgs {
         let interval = Duration::from_secs_f64(1.0 / self.rate);
         cfg_if::cfg_if! {
             if #[cfg(target_os = "windows")] {
-                let (coreclr, coreclr_allocs, vm_hack) = (self.coreclr, self.coreclr_allocs, self.vm_hack);
+                let (vm_hack, coreclr_allocs) = (self.vm_hack, self.coreclr_allocs);
             } else {
-                let (coreclr, coreclr_allocs, vm_hack) = (false, false, false);
+                let (vm_hack, coreclr_allocs) = (false, false);
             }
         }
         RecordingProps {
@@ -416,9 +419,10 @@ impl RecordArgs {
             time_limit,
             interval,
             main_thread_only: self.main_thread_only,
-            coreclr,
+            coreclr: self.coreclr,
             coreclr_allocs,
             vm_hack,
+            gfx: self.gfx,
         }
     }
 
