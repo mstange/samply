@@ -3,6 +3,7 @@
 use std::{
     collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
     convert::TryInto,
+    fmt::Display,
     fs::File,
     io::BufWriter,
     path::Path,
@@ -13,6 +14,8 @@ use std::{
 use bitflags::bitflags;
 use debugid::DebugId;
 use fxprof_processed_profile::*;
+use num_derive::FromPrimitive;
+use num_traits::FromPrimitive;
 use serde_json::{json, to_writer, Value};
 use uuid::Uuid;
 
@@ -153,6 +156,84 @@ mod constants {
     pub const CORECLR_TYPE_DIAGNOSTIC_KEYWORD: u64 = 0x8000000000;
 }
 
+#[derive(Debug, Clone, FromPrimitive)]
+enum GcReason {
+    AllocSmall = 0,
+    Induced,
+    LowMemory,
+    Empty,
+    AllocLarge,
+    OutOfSpaceSmallObjectHeap,
+    OutOfSpaceLargeObjectHeap,
+    InducedNoForce,
+    Stress,
+    InducedLowMemory,
+}
+
+impl Display for GcReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GcReason::AllocSmall => f.write_str("Small object heap allocation"),
+            GcReason::Induced => f.write_str("Induced"),
+            GcReason::LowMemory => f.write_str("Low memory"),
+            GcReason::Empty => f.write_str("Empty"),
+            GcReason::AllocLarge => f.write_str("Large object heap allocation"),
+            GcReason::OutOfSpaceSmallObjectHeap => {
+                f.write_str("Out of space (for small object heap)")
+            }
+            GcReason::OutOfSpaceLargeObjectHeap => {
+                f.write_str("Out of space (for large object heap)")
+            }
+            GcReason::InducedNoForce => f.write_str("Induced but not forced as blocking"),
+            GcReason::Stress => f.write_str("Stress"),
+            GcReason::InducedLowMemory => f.write_str("Induced low memory"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, FromPrimitive)]
+enum GcSuspendEeReason {
+    Other = 0,
+    GC,
+    AppDomainShutdown,
+    CodePitching,
+    Shutdown,
+    Debugger,
+    GcPrep,
+    DebuggerSweep,
+}
+
+impl Display for GcSuspendEeReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GcSuspendEeReason::Other => f.write_str("Other"),
+            GcSuspendEeReason::GC => f.write_str("GC"),
+            GcSuspendEeReason::AppDomainShutdown => f.write_str("AppDomain shutdown"),
+            GcSuspendEeReason::CodePitching => f.write_str("Code pitching"),
+            GcSuspendEeReason::Shutdown => f.write_str("Shutdown"),
+            GcSuspendEeReason::Debugger => f.write_str("Debugger"),
+            GcSuspendEeReason::GcPrep => f.write_str("GC prep"),
+            GcSuspendEeReason::DebuggerSweep => f.write_str("Debugger sweep"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, FromPrimitive)]
+enum GcType {
+    Blocking,
+    Background,
+    BlockingDuringBackground,
+}
+
+impl Display for GcType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GcType::Blocking => f.write_str("Blocking GC"),
+            GcType::Background => f.write_str("Background GC"),
+            GcType::BlockingDuringBackground => f.write_str("Blocking GC during background GC"),
+        }
+    }
+}
 // String is type name
 #[derive(Debug, Clone)]
 pub struct CoreClrGcAllocMarker(pub String, usize);
@@ -237,6 +318,18 @@ impl ProfilerMarker for CoreClrGcEventMarker {
                     value: "Generic GC Event.",
                 }),
             ],
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DisplayUnknownIfNone<'a, T>(pub &'a Option<T>);
+
+impl<'a, T: Display> Display for DisplayUnknownIfNone<'a, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0 {
+            Some(value) => value.fmt(f),
+            None => f.write_str("Unknown"),
         }
     }
 }
@@ -530,29 +623,19 @@ pub fn handle_coreclr_event(
                 }
                 "Triggered" => {
                     let reason: u32 = parser.parse("Reason");
-
-                    let reason_str = match reason {
-                        0x0 => "AllocSmall",
-                        0x1 => "Induced",
-                        0x2 => "LowMemory",
-                        0x3 => "Empty",
-                        0x4 => "AllocLarge",
-                        0x5 => "OutOfSpaceSmallObjectHeap",
-                        0x6 => "OutOfSpaceLargeObjectHeap",
-                        0x7 => "nducedNoForce",
-                        0x8 => "Stress",
-                        0x9 => "InducedLowMemory",
-                        _ => {
-                            eprintln!("Unknown CLR GC Triggered reason: {}", reason);
-                            "Unknown"
-                        }
-                    };
+                    let reason = GcReason::from_u32(reason).or_else(|| {
+                        eprintln!("Unknown CLR GC Triggered reason: {}", reason);
+                        None
+                    });
 
                     let mh = context.profile.borrow_mut().add_marker(
                         thread_handle,
                         gc_category,
                         "GC Trigger",
-                        CoreClrGcEventMarker(format!("GC Trigger: {}", reason_str)),
+                        CoreClrGcEventMarker(format!(
+                            "GC Trigger: {}",
+                            DisplayUnknownIfNone(&reason)
+                        )),
                         MarkerTiming::Instant(timestamp),
                     );
                     core_clr_context.set_last_event_for_thread(thread_handle, mh);
@@ -563,27 +646,17 @@ pub fn handle_coreclr_event(
                     let count: u32 = parser.parse("Count");
                     let reason: u32 = parser.parse("Reason");
 
-                    let reason_str = match reason {
-                        0x0 => "Other",
-                        0x1 => "GC",
-                        0x2 => "AppDomain shutdown",
-                        0x3 => "Code pitching",
-                        0x4 => "Shutdown",
-                        0x5 => "Debugger",
-                        0x6 => "GC Prep",
-                        0x7 => "Debugger sweep",
-                        _ => {
-                            eprintln!("Unknown CLR GCSuspendEEBegin reason: {}", reason);
-                            "Unknown reason"
-                        }
-                    };
+                    let reason = GcSuspendEeReason::from_u32(reason).or_else(|| {
+                        eprintln!("Unknown CLR GCSuspendEEBegin reason: {}", reason);
+                        None
+                    });
 
                     core_clr_context.save_gc_marker(
                         thread_handle,
                         timestamp,
                         "GCSuspendEE",
                         "GC Suspended Thread".to_owned(),
-                        format!("Suspended: {}", reason_str),
+                        format!("Suspended: {}", DisplayUnknownIfNone(&reason)),
                     );
                     handled = true;
                 }
@@ -611,30 +684,15 @@ pub fn handle_coreclr_event(
                     let reason: u32 = parser.parse("Reason");
                     let gc_type: u32 = parser.parse("Type");
 
-                    let reason_str = match reason {
-                        0x0 => "Small object heap allocation",
-                        0x1 => "Induced",
-                        0x2 => "Low memory",
-                        0x3 => "Empty",
-                        0x4 => "Large object heap allocation",
-                        0x5 => "Out of space (for small object heap)",
-                        0x6 => "Out of space (for large object heap)",
-                        0x7 => "Induced but not forced as blocking",
-                        _ => {
-                            eprintln!("Unknown CLR GCStart reason: {}", reason);
-                            "Unknown reason"
-                        }
-                    };
+                    let reason = GcReason::from_u32(reason).or_else(|| {
+                        eprintln!("Unknown CLR GCStart reason: {}", reason);
+                        None
+                    });
 
-                    let gc_type_str = match gc_type {
-                        0x0 => "Blocking GC",
-                        0x1 => "Background GC",
-                        0x2 => "Blocking GC during background GC",
-                        _ => {
-                            eprintln!("Unknown CLR GCStart type: {}", gc_type);
-                            "Unknown type"
-                        }
-                    };
+                    let gc_type = GcType::from_u32(gc_type).or_else(|| {
+                        eprintln!("Unknown CLR GCStart type: {}", gc_type);
+                        None
+                    });
 
                     // TODO: use gc_type_str as the name
                     core_clr_context.save_gc_marker(
@@ -644,7 +702,10 @@ pub fn handle_coreclr_event(
                         "GC".to_owned(),
                         format!(
                             "{}: {} (GC #{}, gen{})",
-                            gc_type_str, reason_str, count, depth
+                            DisplayUnknownIfNone(&gc_type),
+                            DisplayUnknownIfNone(&reason),
+                            count,
+                            depth
                         ),
                     );
                     handled = true;
