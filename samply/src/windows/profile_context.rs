@@ -131,16 +131,15 @@ pub enum KnownCategory {
 }
 
 pub struct ProfileContext {
-    pub profile: RefCell<Profile>,
+    profile: RefCell<Profile>,
 
     // state -- keep track of the processes etc we've seen as we're processing,
     // and their associated handles in the json profile
-    pub processes: HashMap<u32, RefCell<ProcessState>>,
-    pub threads: HashMap<u32, RefCell<ThreadState>>,
-    pub memory_usage: HashMap<u32, RefCell<MemoryUsage>>,
-    pub process_jit_infos: HashMap<u32, RefCell<ProcessJitInfo>>,
+    processes: HashMap<u32, RefCell<ProcessState>>,
+    threads: HashMap<u32, RefCell<ThreadState>>,
+    process_jit_infos: HashMap<u32, RefCell<ProcessJitInfo>>,
 
-    pub unresolved_stacks: RefCell<UnresolvedStacks>,
+    unresolved_stacks: RefCell<UnresolvedStacks>,
 
     // track VM alloc/frees per thread? counter may be inaccurate because memory
     // can be allocated on one thread and freed on another
@@ -159,8 +158,8 @@ pub struct ProfileContext {
     // default categories
     categories: RefCell<HashMap<KnownCategory, CategoryHandle>>,
 
-    pub js_category_manager: RefCell<JitCategoryManager>,
-    pub context_switch_handler: RefCell<ContextSwitchHandler>,
+    js_category_manager: RefCell<JitCategoryManager>,
+    context_switch_handler: RefCell<ContextSwitchHandler>,
 
     // cache of device mappings
     device_mappings: HashMap<String, String>, // map of \Device\HarddiskVolume4 -> C:\
@@ -168,12 +167,12 @@ pub struct ProfileContext {
     // the minimum address for kernel drivers, so that we can assign kernel_category to the frame
     // TODO why is this needed -- kernel libs are at global addresses, why do I need to indicate
     // this per-frame; shouldn't there be some kernel override?
-    pub kernel_min: u64,
+    kernel_min: u64,
 
     // architecture to record in the trace. will be the system architecture for now.
     // TODO no idea how to handle "I'm on aarch64 windows but I'm recording a win64 process".
     // I have no idea how stack traces work in that case anyway, so this is probably moot.
-    pub arch: String,
+    arch: String,
 
     sample_count: usize,
     stack_sample_count: usize,
@@ -202,7 +201,6 @@ impl ProfileContext {
             profile: RefCell::new(profile),
             processes: HashMap::new(),
             threads: HashMap::new(),
-            memory_usage: HashMap::new(),
             process_jit_infos: HashMap::new(),
             unresolved_stacks: RefCell::new(UnresolvedStacks::default()),
             gpu_thread_handle: None,
@@ -239,6 +237,10 @@ impl ProfileContext {
         (KnownCategory::CoreClrGc, "CoreCLR GC", CategoryColor::Red),
         (KnownCategory::Unknown, "Other", CategoryColor::DarkGray),
     ];
+
+    pub fn is_arm64(&self) -> bool {
+        self.arch == "arm64"
+    }
 
     pub fn get_category(&self, category: KnownCategory) -> CategoryHandle {
         let category = if category == KnownCategory::Default {

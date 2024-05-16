@@ -16,7 +16,7 @@ use crate::windows::coreclr;
 use crate::windows::profile_context::KnownCategory;
 
 pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) {
-    let is_arm64 = context.arch == "arm64";
+    let is_arm64 = context.is_arm64();
 
     let mut schema_locator = SchemaLocator::new();
     add_custom_schemas(&mut schema_locator);
