@@ -1,4 +1,3 @@
-use std::cell::{Ref, RefCell, RefMut};
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -99,6 +98,7 @@ pub struct ProcessState {
     pub memory_usage: Option<MemoryUsage>,
     pub process_id: u32,
     pub parent_id: u32,
+    pub jit_info: Option<ProcessJitInfo>,
 }
 
 impl ProcessState {
@@ -112,7 +112,30 @@ impl ProcessState {
             memory_usage: None,
             process_id: pid,
             parent_id: ppid,
+            jit_info: None,
         }
+    }
+
+    pub fn get_jit_info(&mut self, profile: &mut Profile) -> &mut ProcessJitInfo {
+        self.jit_info.get_or_insert_with(|| {
+            let jitname = format!("JIT-{}", self.process_id);
+            let jitlib = profile.add_lib(LibraryInfo {
+                name: jitname.clone(),
+                debug_name: jitname.clone(),
+                path: jitname.clone(),
+                debug_path: jitname.clone(),
+                debug_id: DebugId::nil(),
+                code_id: None,
+                arch: None,
+                symbol_table: None,
+            });
+            ProcessJitInfo {
+                lib_handle: jitlib,
+                jit_mapping_ops: LibMappingOpQueue::default(),
+                next_relative_address: 0,
+                symbols: Vec::new(),
+            }
+        })
     }
 }
 
@@ -130,16 +153,67 @@ pub enum KnownCategory {
     Unknown,
 }
 
+struct KnownCategories(HashMap<KnownCategory, CategoryHandle>);
+
+impl KnownCategories {
+    pub fn new() -> Self {
+        Self(HashMap::new())
+    }
+
+    #[rustfmt::skip]
+    const CATEGORIES: &'static [(KnownCategory, &'static str, CategoryColor)] = &[
+        (KnownCategory::User, "User", CategoryColor::Yellow),
+        (KnownCategory::Kernel, "Kernel", CategoryColor::LightRed),
+        (KnownCategory::System, "System Libraries", CategoryColor::Orange),
+        (KnownCategory::D3DVideoSubmitDecoderBuffers, "D3D Video Submit Decoder Buffers", CategoryColor::Transparent),
+        (KnownCategory::CoreClrR2r, "CoreCLR R2R", CategoryColor::Blue),
+        (KnownCategory::CoreClrJit, "CoreCLR JIT", CategoryColor::Purple),
+        (KnownCategory::CoreClrGc, "CoreCLR GC", CategoryColor::Red),
+        (KnownCategory::Unknown, "Other", CategoryColor::DarkGray),
+    ];
+
+    pub fn get(&mut self, category: KnownCategory, profile: &mut Profile) -> CategoryHandle {
+        let category = if category == KnownCategory::Default {
+            KnownCategory::User
+        } else {
+            category
+        };
+
+        *self.0.entry(category).or_insert_with(|| {
+            let (category_name, color) = Self::CATEGORIES
+                .iter()
+                .find(|(c, _, _)| *c == category)
+                .map(|(_, name, color)| (*name, *color))
+                .unwrap();
+            profile.add_category(category_name, color)
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct AddressClassifier {
+    kernel_min: u64,
+}
+
+impl AddressClassifier {
+    pub fn get_stack_mode(&self, address: u64) -> StackMode {
+        if address >= self.kernel_min {
+            StackMode::Kernel
+        } else {
+            StackMode::User
+        }
+    }
+}
+
 pub struct ProfileContext {
-    profile: RefCell<Profile>,
+    profile: Profile,
 
     // state -- keep track of the processes etc we've seen as we're processing,
     // and their associated handles in the json profile
-    processes: HashMap<u32, RefCell<ProcessState>>,
-    threads: HashMap<u32, RefCell<ThreadState>>,
-    process_jit_infos: HashMap<u32, RefCell<ProcessJitInfo>>,
+    processes: HashMap<u32, ProcessState>,
+    threads: HashMap<u32, ThreadState>,
 
-    unresolved_stacks: RefCell<UnresolvedStacks>,
+    unresolved_stacks: UnresolvedStacks,
 
     // track VM alloc/frees per thread? counter may be inaccurate because memory
     // can be allocated on one thread and freed on another
@@ -155,19 +229,18 @@ pub struct ProfileContext {
     // the profile.json. If it's None, include everything.
     included_processes: Option<IncludedProcesses>,
 
-    // default categories
-    categories: RefCell<HashMap<KnownCategory, CategoryHandle>>,
+    categories: KnownCategories,
 
-    js_category_manager: RefCell<JitCategoryManager>,
-    context_switch_handler: RefCell<ContextSwitchHandler>,
+    js_category_manager: JitCategoryManager,
+    context_switch_handler: ContextSwitchHandler,
 
     // cache of device mappings
     device_mappings: HashMap<String, String>, // map of \Device\HarddiskVolume4 -> C:\
 
     // the minimum address for kernel drivers, so that we can assign kernel_category to the frame
-    // TODO why is this needed -- kernel libs are at global addresses, why do I need to indicate
-    // this per-frame; shouldn't there be some kernel override?
     kernel_min: u64,
+
+    address_classifier: AddressClassifier,
 
     // architecture to record in the trace. will be the system architecture for now.
     // TODO no idea how to handle "I'm on aarch64 windows but I'm recording a win64 process".
@@ -196,23 +269,24 @@ impl ProfileContext {
         } else {
             0xF000_0000_0000_0000
         };
+        let address_classifier = AddressClassifier { kernel_min };
 
         Self {
-            profile: RefCell::new(profile),
+            profile,
             processes: HashMap::new(),
             threads: HashMap::new(),
-            process_jit_infos: HashMap::new(),
-            unresolved_stacks: RefCell::new(UnresolvedStacks::default()),
+            unresolved_stacks: UnresolvedStacks::default(),
             gpu_thread_handle: None,
             per_thread_memory: false,
             libs_with_pending_debugid: HashMap::new(),
             kernel_pending_libraries: HashMap::new(),
             included_processes,
-            categories: RefCell::new(HashMap::new()),
-            js_category_manager: RefCell::new(JitCategoryManager::new()),
-            context_switch_handler: RefCell::new(ContextSwitchHandler::new(122100)), // hardcoded, but replaced once TraceStart is received
+            categories: KnownCategories::new(),
+            js_category_manager: JitCategoryManager::new(),
+            context_switch_handler: ContextSwitchHandler::new(122100), // hardcoded, but replaced once TraceStart is received
             device_mappings: winutils::get_dos_device_mappings(),
             kernel_min,
+            address_classifier,
             arch: arch.to_string(),
             sample_count: 0,
             stack_sample_count: 0,
@@ -226,78 +300,15 @@ impl ProfileContext {
         }
     }
 
-    #[rustfmt::skip]
-    const CATEGORIES: &'static [(KnownCategory, &'static str, CategoryColor)] = &[
-        (KnownCategory::User, "User", CategoryColor::Yellow),
-        (KnownCategory::Kernel, "Kernel", CategoryColor::LightRed),
-        (KnownCategory::System, "System Libraries", CategoryColor::Orange),
-        (KnownCategory::D3DVideoSubmitDecoderBuffers, "D3D Video Submit Decoder Buffers", CategoryColor::Transparent),
-        (KnownCategory::CoreClrR2r, "CoreCLR R2R", CategoryColor::Blue),
-        (KnownCategory::CoreClrJit, "CoreCLR JIT", CategoryColor::Purple),
-        (KnownCategory::CoreClrGc, "CoreCLR GC", CategoryColor::Red),
-        (KnownCategory::Unknown, "Other", CategoryColor::DarkGray),
-    ];
-
     pub fn is_arm64(&self) -> bool {
         self.arch == "arm64"
     }
 
-    pub fn get_category(&self, category: KnownCategory) -> CategoryHandle {
-        let category = if category == KnownCategory::Default {
-            KnownCategory::User
-        } else {
-            category
-        };
-
-        *self
-            .categories
-            .borrow_mut()
-            .entry(category)
-            .or_insert_with(|| {
-                let (category_name, color) = Self::CATEGORIES
-                    .iter()
-                    .find(|(c, _, _)| *c == category)
-                    .map(|(_, name, color)| (*name, *color))
-                    .unwrap();
-                self.profile.borrow_mut().add_category(category_name, color)
-            })
-    }
-
-    pub fn ensure_process_jit_info(&mut self, pid: u32) {
-        if let std::collections::hash_map::Entry::Vacant(e) = self.process_jit_infos.entry(pid) {
-            let jitname = format!("JIT-{}", pid);
-            let jitlib = self.profile.borrow_mut().add_lib(LibraryInfo {
-                name: jitname.clone(),
-                debug_name: jitname.clone(),
-                path: jitname.clone(),
-                debug_path: jitname.clone(),
-                debug_id: DebugId::nil(),
-                code_id: None,
-                arch: None,
-                symbol_table: None,
-            });
-            e.insert(RefCell::new(ProcessJitInfo {
-                lib_handle: jitlib,
-                jit_mapping_ops: LibMappingOpQueue::default(),
-                next_relative_address: 0,
-                symbols: Vec::new(),
-            }));
-        }
-    }
-
-    pub fn get_process_jit_info(&self, pid: u32) -> RefMut<ProcessJitInfo> {
-        self.process_jit_infos.get(&pid).unwrap().borrow_mut()
-    }
-
     // add_process and add_thread always add a process/thread (and thread expects process to exist)
     pub fn add_process(&mut self, pid: u32, parent_id: u32, name: &str, start_time: Timestamp) {
-        let process_handle = self.profile.borrow_mut().add_process(name, pid, start_time);
+        let process_handle = self.profile.add_process(name, pid, start_time);
         let process = ProcessState::new(process_handle, pid, parent_id);
-        self.processes.insert(pid, RefCell::new(process));
-    }
-
-    pub fn get_process_mut(&self, pid: u32) -> Option<RefMut<'_, ProcessState>> {
-        self.processes.get(&pid).map(|p| p.borrow_mut())
+        self.processes.insert(pid, process);
     }
 
     pub fn add_thread(&mut self, pid: u32, tid: u32, start_time: Timestamp) {
@@ -306,18 +317,17 @@ impl ProfileContext {
             return;
         }
 
-        let mut process = self.processes.get_mut(&pid).unwrap().borrow_mut();
+        let process = self.processes.get_mut(&pid).unwrap();
         let is_main = process.main_thread_handle.is_none();
-        let thread_handle =
-            self.profile
-                .borrow_mut()
-                .add_thread(process.handle, tid, start_time, is_main);
+        let thread_handle = self
+            .profile
+            .add_thread(process.handle, tid, start_time, is_main);
         if is_main {
             process.main_thread_handle = Some(thread_handle);
         }
 
         let thread = ThreadState::new(thread_handle, pid, tid);
-        self.threads.insert(tid, RefCell::new(thread));
+        self.threads.insert(tid, thread);
     }
 
     pub fn remove_thread(
@@ -326,11 +336,8 @@ impl ProfileContext {
         timestamp: Option<Timestamp>,
     ) -> Option<ThreadHandle> {
         if let Some(thread) = self.threads.remove(&tid) {
-            let thread = thread.into_inner();
             if let Some(timestamp) = timestamp {
-                self.profile
-                    .borrow_mut()
-                    .set_thread_end_time(thread.handle, timestamp);
+                self.profile.set_thread_end_time(thread.handle, timestamp);
             }
 
             Some(thread.handle)
@@ -339,39 +346,16 @@ impl ProfileContext {
         }
     }
 
-    pub fn get_process_for_thread(&self, tid: u32) -> Option<Ref<'_, ProcessState>> {
-        let pid = self.threads.get(&tid)?.borrow().process_id;
-        self.processes.get(&pid).map(|p| p.borrow())
-    }
-
-    pub fn get_process_for_thread_mut(&self, tid: u32) -> Option<RefMut<'_, ProcessState>> {
-        let pid = self.threads.get(&tid)?.borrow().process_id;
-        self.processes.get(&pid).map(|p| p.borrow_mut())
-    }
-
     pub fn has_thread(&self, tid: u32) -> bool {
         self.threads.contains_key(&tid)
     }
 
-    pub fn get_thread(&self, tid: u32) -> Option<Ref<'_, ThreadState>> {
-        self.threads.get(&tid).map(|p| p.borrow())
-    }
-
-    pub fn get_thread_mut(&self, tid: u32) -> Option<RefMut<'_, ThreadState>> {
-        self.threads.get(&tid).map(|p| p.borrow_mut())
-    }
-
-    pub fn get_thread_handle(&self, tid: u32) -> Option<ThreadHandle> {
-        self.get_thread(tid).map(|t| t.handle)
-    }
-
-    pub fn set_thread_name(&self, tid: u32, name: &str) {
-        if let Some(mut thread) = self.get_thread_mut(tid) {
-            self.profile
-                .borrow_mut()
-                .set_thread_name(thread.handle, name);
-            thread.merge_name = Some(name.to_string());
-        }
+    pub fn set_thread_name(&mut self, tid: u32, name: &str) {
+        let Some(thread) = self.threads.get_mut(&tid) else {
+            return;
+        };
+        self.profile.set_thread_name(thread.handle, name);
+        thread.merge_name = Some(name.to_string());
     }
 
     pub fn get_or_create_memory_usage_counter(&mut self, tid: u32) -> Option<CounterHandle> {
@@ -379,11 +363,11 @@ impl ProfileContext {
         // so that it can do things like keep global + per-thread in sync
 
         if self.per_thread_memory {
-            let process = self.get_process_for_thread(tid)?;
+            let thread = self.threads.get_mut(&tid)?;
+            let process = self.processes.get_mut(&thread.process_id)?;
             let process_handle = process.handle;
-            let mut thread = self.get_thread_mut(tid).unwrap();
             let memory_usage = thread.memory_usage.get_or_insert_with(|| {
-                let counter = self.profile.borrow_mut().add_counter(
+                let counter = self.profile.add_counter(
                     process_handle,
                     "VM",
                     &format!("Memory (Thread {})", tid),
@@ -396,10 +380,11 @@ impl ProfileContext {
             });
             Some(memory_usage.counter)
         } else {
-            let mut process = self.get_process_for_thread_mut(tid)?;
+            let thread = self.threads.get_mut(&tid)?;
+            let process = self.processes.get_mut(&thread.process_id)?;
             let process_handle = process.handle;
             let memory_usage = process.memory_usage.get_or_insert_with(|| {
-                let counter = self.profile.borrow_mut().add_counter(
+                let counter = self.profile.add_counter(
                     process_handle,
                     "VM",
                     "Memory",
@@ -412,34 +397,6 @@ impl ProfileContext {
             });
             Some(memory_usage.counter)
         }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn add_sample(
-        &self,
-        pid: u32,
-        tid: u32,
-        timestamp: Timestamp,
-        timestamp_raw: u64,
-        cpu_delta: CpuDelta,
-        weight: i32,
-        stack: Vec<StackFrame>,
-    ) {
-        let stack_index = self
-            .unresolved_stacks
-            .borrow_mut()
-            .convert(stack.into_iter().rev());
-        let thread = self.get_thread(tid).unwrap().handle;
-        let mut process = self.get_process_mut(pid).unwrap();
-        process.unresolved_samples.add_sample(
-            thread,
-            timestamp,
-            timestamp_raw,
-            stack_index,
-            cpu_delta,
-            weight,
-            None,
-        );
     }
 
     #[allow(unused)]
@@ -525,18 +482,9 @@ impl ProfileContext {
             let path = self.map_device_path(&path);
             log::info!("kernel driver: {} {:x} {:x}", path, start_avma, end_avma);
             let lib_info = self.get_library_info_for_path(&path);
-            let lib_handle = self.profile.borrow_mut().add_lib(lib_info);
+            let lib_handle = self.profile.add_lib(lib_info);
             self.profile
-                .borrow_mut()
                 .add_kernel_lib_mapping(lib_handle, start_avma, end_avma, 0);
-        }
-    }
-
-    pub fn stack_mode_for_address(&self, address: u64) -> StackMode {
-        if address >= self.kernel_min {
-            StackMode::Kernel
-        } else {
-            StackMode::User
         }
     }
 
@@ -562,39 +510,37 @@ impl ProfileContext {
     }
 
     pub fn add_thread_instant_marker(
-        &self,
+        &mut self,
         timestamp_raw: u64,
-        thread_id: u32,
+        tid: u32,
         known_category: KnownCategory,
         name: &str,
         marker: impl ProfilerMarker,
     ) -> MarkerHandle {
-        let category = self.get_category(known_category);
+        let category = self.categories.get(known_category, &mut self.profile);
         let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
         let timing = MarkerTiming::Instant(timestamp);
-        let thread_handle = self.get_thread_handle(thread_id).unwrap();
+        let thread = self.threads.get_mut(&tid).unwrap();
         self.profile
-            .borrow_mut()
-            .add_marker(thread_handle, category, name, marker, timing)
+            .add_marker(thread.handle, category, name, marker, timing)
     }
 
     pub fn add_thread_interval_marker(
-        &self,
+        &mut self,
         start_timestamp_raw: u64,
         end_timestamp_raw: u64,
-        thread_id: u32,
+        tid: u32,
         known_category: KnownCategory,
         name: &str,
         marker: impl ProfilerMarker,
     ) -> MarkerHandle {
-        let category = self.get_category(known_category);
+        let category = self.categories.get(known_category, &mut self.profile);
         let start_timestamp = self.timestamp_converter.convert_time(start_timestamp_raw);
         let end_timestamp = self.timestamp_converter.convert_time(end_timestamp_raw);
         let timing = MarkerTiming::Interval(start_timestamp, end_timestamp);
-        let thread_handle = self.get_thread_handle(thread_id).unwrap();
+        let thread = self.threads.get(&tid).unwrap();
         self.profile
-            .borrow_mut()
-            .add_marker(thread_handle, category, name, marker, timing)
+            .add_marker(thread.handle, category, name, marker, timing)
     }
 
     pub fn handle_header(&mut self, timestamp_raw: u64, perf_freq: u64, clock_type: u32) {
@@ -615,9 +561,8 @@ impl ProfileContext {
         let interval_nanos = interval_raw as u64 * 100;
         let interval = SamplingInterval::from_nanos(interval_nanos);
         log::info!("Sample rate {}ms", interval.as_secs_f64() * 1000.);
-        self.profile.borrow_mut().set_interval(interval);
-        self.context_switch_handler
-            .replace(ContextSwitchHandler::new(interval_raw as u64));
+        self.profile.set_interval(interval);
+        self.context_switch_handler = ContextSwitchHandler::new(interval_raw as u64);
     }
 
     pub fn handle_thread_dcstart(
@@ -743,22 +688,10 @@ impl ProfileContext {
         stack_address_iter: impl Iterator<Item = u64>,
         marker_handle: MarkerHandle,
     ) {
-        let stack: Vec<StackFrame> = stack_address_iter
-            .enumerate()
-            .map(|(i, addr)| {
-                if i == 0 {
-                    StackFrame::InstructionPointer(addr, self.stack_mode_for_address(addr))
-                } else {
-                    StackFrame::ReturnAddress(addr, self.stack_mode_for_address(addr))
-                }
-            })
-            .collect();
+        let stack: Vec<StackFrame> = to_stack_frames(stack_address_iter, self.address_classifier);
 
-        let stack_index = self
-            .unresolved_stacks
-            .borrow_mut()
-            .convert(stack.into_iter().rev());
-        let thread_handle = self.get_thread(tid).unwrap().handle;
+        let stack_index = self.unresolved_stacks.convert(stack.into_iter().rev());
+        let thread = self.threads.get(&tid).unwrap();
         //eprintln!("event: StackWalk stack: {:?}", stack);
 
         // Note: we don't add these as actual samples, and instead just attach them to the marker.
@@ -767,11 +700,12 @@ impl ProfileContext {
         // somehow (fractional weight), but for now, we just attach them to the marker.
 
         let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
-        self.get_process_mut(pid)
+        self.processes
+            .get_mut(&pid)
             .unwrap()
             .unresolved_samples
             .attach_stack_to_marker(
-                thread_handle,
+                thread.handle,
                 timestamp,
                 timestamp_raw,
                 stack_index,
@@ -786,34 +720,35 @@ impl ProfileContext {
         tid: u32,
         stack_address_iter: impl Iterator<Item = u64>,
     ) {
-        if !self.threads.contains_key(&tid) {
+        let Some(thread) = self.threads.get_mut(&tid) else {
             return;
-        }
+        };
 
         // On ARM64, this seems to be simpler -- stacks come in with full kernel and user frames.
         // At least, I've never seen a kernel stack come in separately.
         // TODO -- is this because I can't use PROFILE events in the VM?
 
-        // Iterate over the stack addresses, starting with the instruction pointer
-        let stack: Vec<StackFrame> = stack_address_iter
-            .enumerate()
-            .map(|(i, addr)| {
-                if i == 0 {
-                    StackFrame::InstructionPointer(addr, self.stack_mode_for_address(addr))
-                } else {
-                    StackFrame::ReturnAddress(addr, self.stack_mode_for_address(addr))
-                }
-            })
-            .collect();
+        let stack: Vec<StackFrame> = to_stack_frames(stack_address_iter, self.address_classifier);
 
         let cpu_delta_raw = self
             .context_switch_handler
-            .borrow_mut()
-            .consume_cpu_delta(&mut self.get_thread_mut(tid).unwrap().context_switch_data);
+            .consume_cpu_delta(&mut thread.context_switch_data);
         let cpu_delta =
             CpuDelta::from_nanos(cpu_delta_raw * self.timestamp_converter.raw_to_ns_factor);
         let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
-        self.add_sample(pid, tid, timestamp, timestamp_raw, cpu_delta, 1, stack);
+        let stack_index = self.unresolved_stacks.convert(stack.into_iter().rev());
+        let Some(process) = self.processes.get_mut(&pid) else {
+            return;
+        };
+        process.unresolved_samples.add_sample(
+            thread.handle,
+            timestamp,
+            timestamp_raw,
+            stack_index,
+            cpu_delta,
+            1,
+            None,
+        );
     }
 
     pub fn handle_stack_x86(
@@ -824,23 +759,26 @@ impl ProfileContext {
         stack_len: usize,
         stack_address_iter: impl Iterator<Item = u64>,
     ) {
+        let Some(thread) = self.threads.get_mut(&tid) else {
+            return;
+        };
+
         let mut stack: Vec<StackFrame> = Vec::with_capacity(stack_len);
         let mut address_iter = stack_address_iter;
         let Some(first_frame_address) = address_iter.next() else {
             return;
         };
-        let first_frame_stack_mode = self.stack_mode_for_address(first_frame_address);
+        let first_frame_stack_mode = self.address_classifier.get_stack_mode(first_frame_address);
         stack.push(StackFrame::InstructionPointer(
             first_frame_address,
             first_frame_stack_mode,
         ));
         for frame_address in address_iter {
-            let stack_mode = self.stack_mode_for_address(frame_address);
+            let stack_mode = self.address_classifier.get_stack_mode(frame_address);
             stack.push(StackFrame::ReturnAddress(frame_address, stack_mode));
         }
 
         if first_frame_stack_mode == StackMode::Kernel {
-            let mut thread = self.get_thread_mut(tid).unwrap();
             if let Some(pending_stack) = thread
                 .pending_stacks
                 .iter_mut()
@@ -859,24 +797,23 @@ impl ProfileContext {
             return;
         }
 
+        let user_stack = stack;
+        let user_stack_index = self
+            .unresolved_stacks
+            .convert(user_stack.iter().cloned().rev());
+
         // We now know that we have a user stack. User stacks always come last. Consume
         // the pending stack with matching timestamp.
 
         // the number of pending stacks at or before our timestamp
-        let num_pending_stacks = self
-            .get_thread(tid)
-            .unwrap()
+        let num_pending_stacks = thread
             .pending_stacks
             .iter()
             .take_while(|s| s.timestamp <= timestamp_raw)
             .count();
 
-        let pending_stacks: VecDeque<_> = self
-            .get_thread_mut(tid)
-            .unwrap()
-            .pending_stacks
-            .drain(..num_pending_stacks)
-            .collect();
+        let pending_stacks: VecDeque<_> =
+            thread.pending_stacks.drain(..num_pending_stacks).collect();
 
         // Use this user stack for all pending stacks from this thread.
         for pending_stack in pending_stacks {
@@ -896,9 +833,7 @@ impl ProfileContext {
                 } = off_cpu_sample_group;
 
                 let cpu_delta_raw = {
-                    let mut thread = self.get_thread_mut(tid).unwrap();
                     self.context_switch_handler
-                        .borrow_mut()
                         .consume_cpu_delta(&mut thread.context_switch_data)
                 };
                 let cpu_delta =
@@ -907,53 +842,65 @@ impl ProfileContext {
                 // Add a sample at the beginning of the paused range.
                 // This "first sample" will carry any leftover accumulated running time ("cpu delta").
                 let begin_timestamp = self.timestamp_converter.convert_time(begin_timestamp_raw);
-                self.add_sample(
-                    pid,
-                    tid,
+                let Some(process) = self.processes.get_mut(&pid) else {
+                    return;
+                };
+                process.unresolved_samples.add_sample(
+                    thread.handle,
                     begin_timestamp,
                     begin_timestamp_raw,
+                    user_stack_index,
                     cpu_delta,
                     1,
-                    stack.clone(),
+                    None,
                 );
 
                 if sample_count > 1 {
                     // Emit a "rest sample" with a CPU delta of zero covering the rest of the paused range.
                     let weight = i32::try_from(sample_count - 1).unwrap_or(0);
                     let end_timestamp = self.timestamp_converter.convert_time(end_timestamp_raw);
-                    self.add_sample(
-                        pid,
-                        tid,
+                    process.unresolved_samples.add_sample(
+                        thread.handle,
                         end_timestamp,
                         end_timestamp_raw,
+                        user_stack_index,
                         CpuDelta::ZERO,
                         weight,
-                        stack.clone(),
+                        None,
                     );
                 }
             }
 
             if let Some(cpu_delta) = on_cpu_sample_cpu_delta {
                 if let Some(mut combined_stack) = kernel_stack {
-                    combined_stack.extend_from_slice(&stack[..]);
-                    self.add_sample(
-                        pid,
-                        tid,
+                    combined_stack.extend_from_slice(&user_stack[..]);
+                    let combined_stack_index = self
+                        .unresolved_stacks
+                        .convert(combined_stack.into_iter().rev());
+                    let Some(process) = self.processes.get_mut(&pid) else {
+                        return;
+                    };
+                    process.unresolved_samples.add_sample(
+                        thread.handle,
                         timestamp,
                         timestamp_raw,
+                        combined_stack_index,
                         cpu_delta,
                         1,
-                        combined_stack,
+                        None,
                     );
                 } else {
-                    self.add_sample(
-                        pid,
-                        tid,
+                    let Some(process) = self.processes.get_mut(&pid) else {
+                        return;
+                    };
+                    process.unresolved_samples.add_sample(
+                        thread.handle,
                         timestamp,
                         timestamp_raw,
+                        user_stack_index,
                         cpu_delta,
                         1,
-                        stack.clone(),
+                        None,
                     );
                 }
                 self.stack_sample_count += 1;
@@ -962,19 +909,15 @@ impl ProfileContext {
     }
 
     pub fn handle_sample(&mut self, timestamp_raw: u64, tid: u32) {
-        self.sample_count += 1;
-
-        let Some(mut thread) = self.get_thread_mut(tid) else {
+        let Some(thread) = self.threads.get_mut(&tid) else {
             return;
         };
 
         let off_cpu_sample_group = self
             .context_switch_handler
-            .borrow_mut()
             .handle_on_cpu_sample(timestamp_raw, &mut thread.context_switch_data);
         let delta = self
             .context_switch_handler
-            .borrow_mut()
             .consume_cpu_delta(&mut thread.context_switch_data);
         let cpu_delta = CpuDelta::from_nanos(delta * self.timestamp_converter.raw_to_ns_factor);
         thread.pending_stacks.push_back(PendingStack {
@@ -983,6 +926,8 @@ impl ProfileContext {
             off_cpu_sample_group,
             on_cpu_sample_cpu_delta: Some(cpu_delta),
         });
+
+        self.sample_count += 1;
     }
 
     pub fn handle_virtual_alloc_free(
@@ -1013,17 +958,13 @@ impl ProfileContext {
         let Some(memory_usage_counter) = self.get_or_create_memory_usage_counter(tid) else {
             return;
         };
-        let Some(thread_handle) = self.get_thread(tid).map(|t| t.handle) else {
+        let Some(thread) = self.threads.get_mut(&tid) else {
             return;
         };
-        self.profile.borrow_mut().add_counter_sample(
-            memory_usage_counter,
-            timestamp,
-            delta_size,
-            1,
-        );
-        self.profile.borrow_mut().add_marker(
-            thread_handle,
+        self.profile
+            .add_counter_sample(memory_usage_counter, timestamp, delta_size, 1);
+        self.profile.add_marker(
+            thread.handle,
             CategoryHandle::OTHER,
             op_name,
             SimpleMarker(stringified_properties),
@@ -1107,7 +1048,7 @@ impl ProfileContext {
             } else {
                 self.kernel_pending_libraries.insert(image_base, info);
             }
-        } else if let Some(mut process) = self.get_process_mut(pid) {
+        } else if let Some(process) = self.processes.get_mut(&pid) {
             process.pending_libraries.insert(image_base, info);
         } else {
             log::warn!("No process for pid {pid}");
@@ -1135,7 +1076,7 @@ impl ProfileContext {
 
         let info = if pid == 0 {
             self.kernel_pending_libraries.remove(&image_base)
-        } else if let Some(mut process) = self.get_process_mut(pid) {
+        } else if let Some(process) = self.processes.get_mut(&pid) {
             process.pending_libraries.remove(&image_base)
         } else {
             log::warn!("Received image load for unknown pid {pid}");
@@ -1161,25 +1102,22 @@ impl ProfileContext {
             KnownCategory::Unknown
         };
 
-        let lib_handle = self.profile.borrow_mut().add_lib(info);
+        let lib_handle = self.profile.add_lib(info);
         if pid == 0 || image_base >= self.kernel_min {
-            self.profile.borrow_mut().add_kernel_lib_mapping(
-                lib_handle,
-                image_base,
-                image_base + image_size,
-                0,
-            );
+            self.profile
+                .add_kernel_lib_mapping(lib_handle, image_base, image_base + image_size, 0);
             return;
         }
 
         let info = if known_category != KnownCategory::Unknown {
-            let category = self.get_category(known_category);
+            let category = self.categories.get(known_category, &mut self.profile);
             LibMappingInfo::new_lib_with_category(lib_handle, category.into())
         } else {
             LibMappingInfo::new_lib(lib_handle)
         };
 
-        self.get_process_mut(pid)
+        self.processes
+            .get_mut(&pid)
             .unwrap()
             .regular_lib_mapping_ops
             .push(
@@ -1230,16 +1168,11 @@ impl ProfileContext {
 
         let gpu_thread = self.gpu_thread_handle.get_or_insert_with(|| {
             let start_timestamp = Timestamp::from_nanos_since_reference(0);
-            let gpu = self
-                .profile
-                .borrow_mut()
-                .add_process("GPU", 1, start_timestamp);
-            self.profile
-                .borrow_mut()
-                .add_thread(gpu, 1, start_timestamp, false)
+            let gpu = self.profile.add_process("GPU", 1, start_timestamp);
+            self.profile.add_thread(gpu, 1, start_timestamp, false)
         });
         let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
-        self.profile.borrow_mut().add_marker(
+        self.profile.add_marker(
             *gpu_thread,
             CategoryHandle::OTHER,
             "Vsync",
@@ -1251,15 +1184,13 @@ impl ProfileContext {
     pub fn handle_cswitch(&mut self, timestamp_raw: u64, old_tid: u32, new_tid: u32) {
         // println!("CSwitch {} -> {} @ {} on {}", old_tid, old_tid, e.EventHeader.TimeStamp, unsafe { e.BufferContext.Anonymous.ProcessorIndex });
 
-        if let Some(mut old_thread) = self.get_thread_mut(old_tid) {
+        if let Some(old_thread) = self.threads.get_mut(&old_tid) {
             self.context_switch_handler
-                .borrow_mut()
                 .handle_switch_out(timestamp_raw, &mut old_thread.context_switch_data);
         }
-        if let Some(mut new_thread) = self.get_thread_mut(new_tid) {
+        if let Some(new_thread) = self.threads.get_mut(&new_tid) {
             let off_cpu_sample_group = self
                 .context_switch_handler
-                .borrow_mut()
                 .handle_switch_in(timestamp_raw, &mut new_thread.context_switch_data);
             if let Some(off_cpu_sample_group) = off_cpu_sample_group {
                 new_thread.pending_stacks.push_back(PendingStack {
@@ -1284,18 +1215,18 @@ impl ProfileContext {
             return;
         }
 
-        self.ensure_process_jit_info(pid);
-        let Some(process) = self.get_process_mut(pid) else {
+        let Some(process) = self.processes.get_mut(&pid) else {
             return;
         };
-        let mut process_jit_info = self.get_process_jit_info(pid);
+        let main_thread_handle = process.main_thread_handle;
+        let process_jit_info = process.get_jit_info(&mut self.profile);
 
         let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
         let relative_address = process_jit_info.next_relative_address;
         process_jit_info.next_relative_address += method_size as u32;
 
-        if let Some(main_thread) = process.main_thread_handle {
-            self.profile.borrow_mut().add_marker(
+        if let Some(main_thread) = main_thread_handle {
+            self.profile.add_marker(
                 main_thread,
                 CategoryHandle::OTHER,
                 "JitFunctionAdd",
@@ -1306,8 +1237,7 @@ impl ProfileContext {
 
         let (category, js_frame) = self
             .js_category_manager
-            .borrow_mut()
-            .classify_jit_symbol(&method_name, &mut self.profile.borrow_mut());
+            .classify_jit_symbol(&method_name, &mut self.profile);
         let info =
             LibMappingInfo::new_jit_function(process_jit_info.lib_handle, category, js_frame);
         process_jit_info.jit_mapping_ops.push(
@@ -1334,8 +1264,10 @@ impl ProfileContext {
         method_start_address: u64,
         method_size: u32,
     ) {
-        self.ensure_process_jit_info(pid);
-        let mut process_jit_info = self.get_process_jit_info(pid);
+        let Some(process) = self.processes.get_mut(&pid) else {
+            return;
+        };
+        let process_jit_info = process.get_jit_info(&mut self.profile);
         let relative_address = process_jit_info.next_relative_address;
         process_jit_info.next_relative_address += method_size;
 
@@ -1343,7 +1275,9 @@ impl ProfileContext {
         //let mh = context.add_thread_marker(s.thread_id(), timestamp, CategoryHandle::OTHER, "JitFunctionAdd", JitFunctionAddMarker(method_name.to_owned()));
         //core_clr_context.set_last_event_for_thread(thread_handle, mh);
 
-        let category = self.get_category(KnownCategory::CoreClrJit);
+        let category = self
+            .categories
+            .get(KnownCategory::CoreClrJit, &mut self.profile);
         let info =
             LibMappingInfo::new_jit_function(process_jit_info.lib_handle, category.into(), None);
         process_jit_info.jit_mapping_ops.push(
@@ -1369,7 +1303,7 @@ impl ProfileContext {
         name: &str,
         stringified_properties: String,
     ) {
-        let Some(mut thread) = self.get_thread_mut(tid) else {
+        let Some(thread) = self.threads.get_mut(&tid) else {
             return;
         };
         let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
@@ -1390,7 +1324,7 @@ impl ProfileContext {
         stringified_properties: String,
         known_category: KnownCategory,
     ) {
-        let Some(mut thread) = self.get_thread_mut(tid) else {
+        let Some(thread) = self.threads.get_mut(&tid) else {
             return;
         };
 
@@ -1411,8 +1345,8 @@ impl ProfileContext {
             (MarkerTiming::IntervalEnd(timestamp), stringified_properties)
         };
 
-        let category = self.get_category(known_category);
-        self.profile.borrow_mut().add_marker(
+        let category = self.categories.get(known_category, &mut self.profile);
+        self.profile.add_marker(
             thread.handle,
             category,
             name.split_once('/').unwrap().1,
@@ -1433,7 +1367,7 @@ impl ProfileContext {
         maybe_explicit_marker_name: Option<String>,
         text: String,
     ) {
-        let Some(thread) = self.get_thread(tid) else {
+        let Some(thread) = self.threads.get_mut(&tid) else {
             return;
         };
 
@@ -1472,7 +1406,7 @@ impl ProfileContext {
 
         if marker_name == "UserTiming" {
             let name = maybe_user_timing_name.unwrap();
-            self.profile.borrow_mut().add_marker(
+            self.profile.add_marker(
                 thread.handle,
                 CategoryHandle::OTHER,
                 "UserTiming",
@@ -1482,7 +1416,7 @@ impl ProfileContext {
         } else if marker_name == "SimpleMarker" || marker_name == "Text" || marker_name == "tracing"
         {
             let marker_name = maybe_explicit_marker_name.unwrap();
-            self.profile.borrow_mut().add_marker(
+            self.profile.add_marker(
                 thread.handle,
                 CategoryHandle::OTHER,
                 &marker_name,
@@ -1490,7 +1424,7 @@ impl ProfileContext {
                 timing,
             );
         } else {
-            self.profile.borrow_mut().add_marker(
+            self.profile.add_marker(
                 thread.handle,
                 CategoryHandle::OTHER,
                 marker_name,
@@ -1509,7 +1443,7 @@ impl ProfileContext {
         keyword_bitfield: u64,
         text: String,
     ) {
-        let Some(thread) = self.get_thread(tid) else {
+        let Some(thread) = self.threads.get_mut(&tid) else {
             return;
         };
 
@@ -1522,7 +1456,7 @@ impl ProfileContext {
         };
         let keyword = KeywordNames::from_bits(keyword_bitfield).unwrap();
         if keyword == KeywordNames::blink_user_timing {
-            self.profile.borrow_mut().add_marker(
+            self.profile.add_marker(
                 thread.handle,
                 CategoryHandle::OTHER,
                 "UserTiming",
@@ -1530,7 +1464,7 @@ impl ProfileContext {
                 timing,
             );
         } else {
-            self.profile.borrow_mut().add_marker(
+            self.profile.add_marker(
                 thread.handle,
                 CategoryHandle::OTHER,
                 marker_name,
@@ -1546,15 +1480,17 @@ impl ProfileContext {
         task_and_op: &str,
         stringified_properties: String,
     ) {
-        let Some(thread) = self.get_thread(tid) else {
+        let Some(thread) = self.threads.get_mut(&tid) else {
             return;
         };
 
         let timestamp = self.timestamp_converter.convert_us(timestamp_raw);
         let timing = MarkerTiming::Instant(timestamp);
         // this used to create a new category based on provider_name, just lump them together for now
-        let category = self.get_category(KnownCategory::Unknown);
-        self.profile.borrow_mut().add_marker(
+        let category = self
+            .categories
+            .get(KnownCategory::Unknown, &mut self.profile);
+        self.profile.add_marker(
             thread.handle,
             category,
             task_and_op,
@@ -1573,12 +1509,10 @@ impl ProfileContext {
         // samply does on Linux and macOS, where the queued samples also want to respect JIT function names from
         // a /tmp/perf-1234.map file, and this file may not exist until the profiled process finishes.)
         let mut stack_frame_scratch_buf = Vec::new();
-        for (process_id, process) in self.processes.iter() {
-            let process = process.borrow_mut();
-            let jitdump_lib_mapping_op_queues = match self.process_jit_infos.remove(process_id) {
+        for (_process_id, process) in self.processes.iter_mut() {
+            let jitdump_lib_mapping_op_queues = match process.jit_info.take() {
                 Some(jit_info) => {
-                    let jit_info = jit_info.into_inner();
-                    self.profile.borrow_mut().set_lib_symbol_table(
+                    self.profile.set_lib_symbol_table(
                         jit_info.lib_handle,
                         Arc::new(SymbolTable::new(jit_info.symbols)),
                     );
@@ -1595,14 +1529,20 @@ impl ProfileContext {
                 Vec::new(),
             );
             //main_thread_handle.unwrap_or_else(|| panic!("process no main thread {:?}", process_id)));
-            let user_category = self.get_category(KnownCategory::User).into();
-            let kernel_category = self.get_category(KnownCategory::Kernel).into();
+            let user_category = self
+                .categories
+                .get(KnownCategory::User, &mut self.profile)
+                .into();
+            let kernel_category = self
+                .categories
+                .get(KnownCategory::Kernel, &mut self.profile)
+                .into();
             process_sample_data.flush_samples_to_profile(
-                &mut self.profile.borrow_mut(),
+                &mut self.profile,
                 user_category,
                 kernel_category,
                 &mut stack_frame_scratch_buf,
-                &self.unresolved_stacks.borrow(),
+                &self.unresolved_stacks,
             )
         }
 
@@ -1619,7 +1559,7 @@ impl ProfileContext {
             self.stack_sample_count
         );
 
-        self.profile.into_inner()
+        self.profile
     }
 }
 
@@ -1676,4 +1616,21 @@ fn object_arch_to_string(arch: object::Architecture) -> Option<&'static str> {
         _ => return None,
     };
     Some(s)
+}
+
+fn to_stack_frames(
+    mut address_iter: impl Iterator<Item = u64>,
+    address_classifier: AddressClassifier,
+) -> Vec<StackFrame> {
+    let Some(first_addr) = address_iter.next() else {
+        return Vec::new();
+    };
+    let first_stack_mode = address_classifier.get_stack_mode(first_addr);
+    let mut frames = vec![StackFrame::InstructionPointer(first_addr, first_stack_mode)];
+
+    frames.extend(address_iter.map(|addr| {
+        let stack_mode = address_classifier.get_stack_mode(addr);
+        StackFrame::ReturnAddress(addr, stack_mode)
+    }));
+    frames
 }
