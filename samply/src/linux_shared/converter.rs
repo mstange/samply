@@ -43,12 +43,15 @@ use super::vdso::VdsoObject;
 use crate::shared::context_switch::{ContextSwitchHandler, OffCpuSampleGroup};
 use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::lib_mappings::{AndroidArtInfo, LibMappingInfo};
-use crate::shared::process_sample_data::RssStatMember;
+use crate::shared::process_sample_data::{
+    OtherEventMarker, RssStatMarker, RssStatMember, SchedSwitchMarkerOnCpuTrack,
+    SchedSwitchMarkerOnThreadTrack,
+};
 use crate::shared::recording_props::ProfileCreationProps;
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::types::{StackFrame, StackMode};
 use crate::shared::unresolved_samples::{
-    SampleOrMarker, UnresolvedSamples, UnresolvedStackHandle, UnresolvedStacks,
+    UnresolvedSamples, UnresolvedStackHandle, UnresolvedStacks,
 };
 use crate::shared::utils::open_file_with_fallback;
 
@@ -231,7 +234,6 @@ where
         self.processes.finish(
             &mut profile,
             &self.unresolved_stacks,
-            &self.event_names,
             &mut self.jit_category_manager,
             &self.timestamp_converter,
         );
@@ -410,19 +412,33 @@ where
             let stack_index = self.unresolved_stacks.convert(stack.iter().rev().cloned());
             let cpu = cpus.get_mut(cpu_index as usize, &mut self.profile);
             let timestamp = self.timestamp_converter.convert_time(timestamp_mono);
-            process.unresolved_samples.add_sample_or_marker(
+            let marker_handle = self.profile.add_marker(
+                cpu.thread_handle,
+                CategoryHandle::OTHER,
+                "sched_switch",
+                SchedSwitchMarkerOnCpuTrack,
+                MarkerTiming::Instant(timestamp),
+            );
+            process.unresolved_samples.attach_stack_to_marker(
                 cpu.thread_handle,
                 timestamp,
                 timestamp_mono,
                 stack_index,
-                SampleOrMarker::SchedSwitchMarkerOnCpuTrack,
+                marker_handle,
             );
-            process.unresolved_samples.add_sample_or_marker(
+            let marker_handle = self.profile.add_marker(
+                thread.profile_thread,
+                CategoryHandle::OTHER,
+                "sched_switch",
+                SchedSwitchMarkerOnThreadTrack { cpu: cpu_index },
+                MarkerTiming::Instant(timestamp),
+            );
+            process.unresolved_samples.attach_stack_to_marker(
                 thread.profile_thread,
                 timestamp,
                 timestamp_mono,
                 stack_index,
-                SampleOrMarker::SchedSwitchMarkerOnThreadTrack(cpu_index),
+                marker_handle,
             );
         }
     }
@@ -491,14 +507,26 @@ where
         );
         let unresolved_stack = self.unresolved_stacks.convert(stack.into_iter().rev());
         let thread_handle = process.threads.main_thread.profile_thread;
-        process.unresolved_samples.add_rss_stat_marker(
+        let timing = MarkerTiming::Instant(timestamp);
+        let name = match member {
+            RssStatMember::ResidentFileMappingPages => "RSS Stat FILEPAGES",
+            RssStatMember::ResidentAnonymousPages => "RSS Stat ANONPAGES",
+            RssStatMember::AnonymousSwapEntries => "RSS Stat SHMEMPAGES",
+            RssStatMember::ResidentSharedMemoryPages => "RSS Stat SWAPENTS",
+        };
+        let marker_handle = self.profile.add_marker(
+            thread_handle,
+            CategoryHandle::OTHER,
+            name,
+            RssStatMarker(rss_stat.size, delta),
+            timing,
+        );
+        process.unresolved_samples.attach_stack_to_marker(
             thread_handle,
             timestamp,
             timestamp_mono,
             unresolved_stack,
-            member,
-            rss_stat.size,
-            delta,
+            marker_handle,
         );
     }
 
@@ -540,13 +568,23 @@ where
         };
 
         let unresolved_stack = self.unresolved_stacks.convert(stack.into_iter().rev());
-        process.unresolved_samples.add_other_event_marker(
-            thread_handle,
-            timestamp,
-            timestamp_mono,
-            unresolved_stack,
-            attr_index,
-        );
+        if let Some(name) = self.event_names.get(attr_index) {
+            let timing = MarkerTiming::Instant(timestamp);
+            let marker_handle = self.profile.add_marker(
+                thread_handle,
+                CategoryHandle::OTHER,
+                name,
+                OtherEventMarker,
+                timing,
+            );
+            process.unresolved_samples.attach_stack_to_marker(
+                thread_handle,
+                timestamp,
+                timestamp_mono,
+                unresolved_stack,
+                marker_handle,
+            );
+        }
     }
 
     /// Get the stack contained in this sample, and put it into `stack`.

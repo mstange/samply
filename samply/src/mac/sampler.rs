@@ -237,7 +237,6 @@ impl Sampler {
                 default_category,
                 &mut stack_frame_scratch_buf,
                 &unresolved_stacks,
-                &[],
             );
         }
 

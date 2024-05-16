@@ -501,13 +501,7 @@ pub fn handle_coreclr_event(
             .get_process_mut(process_id)
             .unwrap()
             .unresolved_samples
-            .add_sample_or_marker(
-                thread_handle,
-                timestamp,
-                timestamp_raw,
-                stack_index,
-                SampleOrMarker::MarkerHandle(marker),
-            );
+            .attach_stack_to_marker(thread_handle, timestamp, timestamp_raw, stack_index, marker);
         handled = true;
     } else if let Some(gc_event) = dotnet_event.strip_prefix("GarbageCollection/") {
         let gc_category = context.get_category(KnownCategory::CoreClrGc);
