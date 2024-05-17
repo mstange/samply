@@ -313,8 +313,6 @@ pub fn presymbolicate(profile: &fxprof_processed_profile::Profile, precog_output
     let mut symbol_manager = wholesym::SymbolManager::with_config(config);
 
     for (lib, rvas) in profile.lib_used_rva_iter() {
-        let Some(rvas) = rvas else { continue };
-
         // Add the library to the symbol manager with all the info, so that load_symbol_map can find it later
         symbol_manager.add_known_library(wholesym::LibraryInfo {
             name: Some(lib.debug_name.clone()),
