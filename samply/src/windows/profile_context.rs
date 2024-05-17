@@ -68,7 +68,6 @@ pub struct ThreadState {
     pub handle: ThreadHandle,
     pub pending_stacks: VecDeque<PendingStack>,
     pub context_switch_data: ThreadContextSwitchData,
-    pub memory_usage: Option<MemoryUsage>,
     pub thread_id: u32,
     pub process_id: u32,
     pub pending_markers: HashMap<String, PendingMarker>,
@@ -81,7 +80,6 @@ impl ThreadState {
             pending_stacks: VecDeque::new(),
             context_switch_data: Default::default(),
             pending_markers: HashMap::new(),
-            memory_usage: None,
             thread_id: tid,
             process_id: pid,
         }
@@ -214,10 +212,6 @@ pub struct ProfileContext {
 
     unresolved_stacks: UnresolvedStacks,
 
-    // track VM alloc/frees per thread? counter may be inaccurate because memory
-    // can be allocated on one thread and freed on another
-    per_thread_memory: bool,
-
     // some special threads
     gpu_thread_handle: Option<ThreadHandle>,
 
@@ -278,7 +272,6 @@ impl ProfileContext {
             threads: HashMap::new(),
             unresolved_stacks: UnresolvedStacks::default(),
             gpu_thread_handle: None,
-            per_thread_memory: false,
             libs_with_pending_debugid: HashMap::new(),
             kernel_pending_libraries: HashMap::new(),
             included_processes,
@@ -352,45 +345,22 @@ impl ProfileContext {
         self.profile.set_thread_name(thread.handle, name);
     }
 
-    pub fn get_or_create_memory_usage_counter(&mut self, tid: u32) -> Option<CounterHandle> {
-        // kinda hate this. ProfileContext should really manage adjusting the counter,
-        // so that it can do things like keep global + per-thread in sync
-
-        if self.per_thread_memory {
-            let thread = self.threads.get_mut(&tid)?;
-            let process = self.processes.get_mut(&thread.process_id)?;
-            let process_handle = process.handle;
-            let memory_usage = thread.memory_usage.get_or_insert_with(|| {
-                let counter = self.profile.add_counter(
-                    process_handle,
-                    "VM",
-                    &format!("Memory (Thread {})", tid),
-                    "Amount of VirtualAlloc allocated memory",
-                );
-                MemoryUsage {
-                    counter,
-                    value: 0.0,
-                }
-            });
-            Some(memory_usage.counter)
-        } else {
-            let thread = self.threads.get_mut(&tid)?;
-            let process = self.processes.get_mut(&thread.process_id)?;
-            let process_handle = process.handle;
-            let memory_usage = process.memory_usage.get_or_insert_with(|| {
-                let counter = self.profile.add_counter(
-                    process_handle,
-                    "VM",
-                    "Memory",
-                    "Amount of VirtualAlloc allocated memory",
-                );
-                MemoryUsage {
-                    counter,
-                    value: 0.0,
-                }
-            });
-            Some(memory_usage.counter)
-        }
+    pub fn get_or_create_memory_usage_counter(&mut self, pid: u32) -> Option<CounterHandle> {
+        let process = self.processes.get_mut(&pid)?;
+        let process_handle = process.handle;
+        let memory_usage = process.memory_usage.get_or_insert_with(|| {
+            let counter = self.profile.add_counter(
+                process_handle,
+                "VM",
+                "Memory",
+                "Amount of VirtualAlloc allocated memory",
+            );
+            MemoryUsage {
+                counter,
+                value: 0.0,
+            }
+        });
+        Some(memory_usage.counter)
     }
 
     #[allow(unused)]
@@ -953,14 +923,14 @@ impl ProfileContext {
             "VirtualAlloc"
         };
 
-        let Some(memory_usage_counter) = self.get_or_create_memory_usage_counter(tid) else {
-            return;
-        };
-        let Some(thread) = self.threads.get_mut(&tid) else {
+        let Some(memory_usage_counter) = self.get_or_create_memory_usage_counter(pid) else {
             return;
         };
         self.profile
             .add_counter_sample(memory_usage_counter, timestamp, delta_size, 1);
+        let Some(thread) = self.threads.get_mut(&tid) else {
+            return;
+        };
         self.profile.add_marker(
             thread.handle,
             CategoryHandle::OTHER,
