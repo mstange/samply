@@ -1,10 +1,11 @@
 use std::borrow::Cow;
 use std::path::Path;
+use std::sync::Arc;
 
 use debugid::DebugId;
 use samply_symbols::{
     self, AddressInfo, Error, ExternalFileAddressInFileRef, ExternalFileAddressRef, FrameDebugInfo,
-    LibraryInfo, LookupAddress, MultiArchDisambiguator, SyncAddressInfo,
+    LibraryInfo, LookupAddress, MultiArchDisambiguator, SymbolMapTrait, SyncAddressInfo,
 };
 
 use crate::config::SymbolManagerConfig;
@@ -232,6 +233,20 @@ impl SymbolManager {
     /// The list of "known libraries" is this auxiliary information.
     pub fn add_known_library(&mut self, lib_info: LibraryInfo) {
         self.symbol_manager.helper().add_known_lib(lib_info);
+    }
+
+    /// Tell the `SymbolManager` about a library's symbol table. The library
+    /// must contain a DebugId. This is useful when a library's symbols are
+    /// available in some way other than normal symbol lookup, or if a custom
+    /// format is desired that is not natively supported.
+    pub fn add_known_library_symbols(
+        &mut self,
+        lib_info: LibraryInfo,
+        symbol_map: Arc<dyn SymbolMapTrait + Send + Sync>,
+    ) {
+        self.symbol_manager
+            .helper()
+            .add_precog_symbol_map(lib_info, symbol_map);
     }
 
     /// Obtain a symbol map for the given `debug_name` and `debug_id`.

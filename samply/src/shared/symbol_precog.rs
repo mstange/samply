@@ -189,8 +189,8 @@ impl<'de> Deserialize<'de> for PrecogSymbolInfo {
             ) -> Result<Self::Value, A::Error> {
                 let mut string_table: Option<StringTable> = None;
                 let mut data: Option<Vec<PrecogLibrarySymbols>> = None;
-                while let Some(key) = map.next_key()? {
-                    match key {
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
                         "string_table" => {
                             string_table = Some(map.next_value()?);
                         }
@@ -278,7 +278,7 @@ impl PrecogSymbolInfo {
     pub fn try_load(path: &Path) -> Option<Self> {
         let file = File::open(path).ok()?;
         let reader = std::io::BufReader::new(file);
-        serde_json::from_reader(reader).ok()
+        serde_json::from_reader(reader).expect("failed to parse sidecar syms.json")
     }
 
     pub fn into_hash_map(

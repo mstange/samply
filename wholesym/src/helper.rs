@@ -244,6 +244,7 @@ pub struct Helper {
     debuginfod_symbol_cache: Option<DebuginfodSymbolCache>,
     known_libs: Mutex<KnownLibs>,
     config: SymbolManagerConfig,
+    precog_symbol_data: Mutex<HashMap<DebugId, Arc<dyn SymbolMapTrait + Send + Sync>>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -281,6 +282,7 @@ impl Helper {
             debuginfod_symbol_cache,
             known_libs: Mutex::new(Default::default()),
             config,
+            precog_symbol_data: Mutex::new(Default::default()),
         }
     }
 
@@ -308,6 +310,18 @@ impl Helper {
             }
             _ => {}
         }
+    }
+
+    pub fn add_precog_symbol_map(
+        &self,
+        lib_info: LibraryInfo,
+        symbol_map: Arc<dyn SymbolMapTrait + Send + Sync>,
+    ) {
+        let debug_id = lib_info
+            .debug_id
+            .expect("LibraryInfo must have a debug_id to add precog symbols");
+        let mut precog_symbol_data = self.precog_symbol_data.lock().unwrap();
+        precog_symbol_data.insert(debug_id, symbol_map);
     }
 
     async fn load_file_impl(
@@ -903,20 +917,16 @@ impl FileAndPathHelper for Helper {
         &self,
         info: &LibraryInfo,
     ) -> Option<(Self::FL, Arc<dyn SymbolMapTrait + Send + Sync>)> {
-        let precog_data = self.config.precog_data.as_ref()?;
-
-        precog_data
-            .precog_data
-            .get(&info.debug_id?)
-            .map(|symbol_map| {
-                let location = WholesymFileLocation::LocalFile(
-                    info.debug_path
-                        .clone()
-                        .unwrap_or_else(|| "UNKNOWN".to_string())
-                        .into(),
-                );
-                (location, symbol_map.clone())
-            })
+        eprintln!("get_symbol_map_for_library: {:?}", info);
+        let precog_symbol_data = self.precog_symbol_data.lock().unwrap();
+        let symbol_map = precog_symbol_data.get(&info.debug_id?)?;
+        let location = WholesymFileLocation::LocalFile(
+            info.debug_path
+                .clone()
+                .unwrap_or_else(|| "UNKNOWN".to_string())
+                .into(),
+        );
+        Some((location, symbol_map.clone()))
     }
 }
 
