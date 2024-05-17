@@ -13,7 +13,6 @@ use serde_json::to_writer;
 
 #[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
 struct StringTableIndex(usize);
-//struct StringTableIndex(String);
 
 impl Serialize for StringTableIndex {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -23,16 +22,14 @@ impl Serialize for StringTableIndex {
 
 impl<'de> Deserialize<'de> for StringTableIndex {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let value = String::deserialize(deserializer)?;
-        Ok(StringTableIndex(usize::from_str(&value).unwrap()))
-        //Ok(StringTableIndex(value))
+        let value = usize::deserialize(deserializer)?;
+        Ok(StringTableIndex(value))
     }
 }
 
 impl StringTableIndex {
     fn unknown() -> StringTableIndex {
         StringTableIndex(0)
-        //StringTableIndex("UNKNOWN".to_owned())
     }
 }
 
