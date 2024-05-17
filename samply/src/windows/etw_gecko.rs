@@ -25,14 +25,9 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
 
     let demand_zero_faults = false; //pargs.contains("--demand-zero-faults");
 
-    let mut event_count = 0;
-
     let mut core_clr_context = coreclr::CoreClrContext::new();
 
-    // Make a dummy TimestampConverter. Once we've parsed the header, this will have correct values.
-
     let result = open_trace(etl_file, |e| {
-        event_count += 1;
         let Ok(s) = schema_locator.event_schema(e) else {
             return;
         };
