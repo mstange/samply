@@ -66,7 +66,6 @@ pub struct PendingMarker {
 pub struct ThreadState {
     // When merging threads `handle` is the global thread handle and we use `merge_name` to store the name
     pub handle: ThreadHandle,
-    pub merge_name: Option<String>,
     pub pending_stacks: VecDeque<PendingStack>,
     pub context_switch_data: ThreadContextSwitchData,
     pub memory_usage: Option<MemoryUsage>,
@@ -79,7 +78,6 @@ impl ThreadState {
     fn new(handle: ThreadHandle, pid: u32, tid: u32) -> Self {
         ThreadState {
             handle,
-            merge_name: None,
             pending_stacks: VecDeque::new(),
             context_switch_data: Default::default(),
             pending_markers: HashMap::new(),
@@ -352,7 +350,6 @@ impl ProfileContext {
             return;
         };
         self.profile.set_thread_name(thread.handle, name);
-        thread.merge_name = Some(name.to_string());
     }
 
     pub fn get_or_create_memory_usage_counter(&mut self, tid: u32) -> Option<CounterHandle> {
