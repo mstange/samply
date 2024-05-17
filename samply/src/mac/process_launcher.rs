@@ -277,21 +277,34 @@ impl RootTaskRunner for ExistingProcessRunner {
 
 impl ExistingProcessRunner {
     pub fn new(pid: u32, task_accepter: &mut TaskAccepter) -> ExistingProcessRunner {
-        let task = unsafe {
-            let mut task = MACH_PORT_NULL;
-            let kr = task_for_pid(mach_task_self(), pid as i32, &mut task);
-            if kr != 0 {
-                eprintln!("Error: task_for_pid failed with error code {kr}. Does the profiler have entitlements?");
-                std::process::exit(1);
-            }
-            task_suspend(task);
-            task
+        let mut queue_pid = |pid, failure_is_ok| {
+            let task = unsafe {
+                let mut task = MACH_PORT_NULL;
+                let kr = task_for_pid(mach_task_self(), pid as i32, &mut task);
+                if kr != 0 {
+                    if failure_is_ok {
+                        eprintln!("Warning: task_for_pid for child task failed with error code {kr}. Ignoring child, it may have already exited.");
+                        return;
+                    }
+
+                    eprintln!("Error: task_for_pid for target task failed with error code {kr}. Does the profiler have entitlements?");
+                    std::process::exit(1);
+                }
+                task_suspend(task);
+                task
+            };
+            task_accepter.queue_received_stuff(ReceivedStuff::AcceptedTask(AcceptedTask {
+                task,
+                pid,
+                sender_channel: None,
+            }));
         };
-        task_accepter.queue_received_stuff(ReceivedStuff::AcceptedTask(AcceptedTask {
-            task,
-            pid,
-            sender_channel: None,
-        }));
+
+        // always root pid first
+        queue_pid(pid, true);
+
+        // TODO: find all its children
+
         ExistingProcessRunner { pid }
     }
 }

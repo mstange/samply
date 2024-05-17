@@ -58,6 +58,7 @@ impl Xperf {
         let mut user_providers = vec![];
 
         user_providers.append(&mut super::coreclr::coreclr_xperf_args(props));
+        user_providers.append(&mut super::gfx::gfx_xperf_args(props));
 
         let xperf_path = self.get_xperf_path()?;
         // start xperf.exe, logging to the same location as the output file, just with a .etl

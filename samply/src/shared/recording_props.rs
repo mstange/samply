@@ -13,6 +13,7 @@ pub struct RecordingProps {
     pub coreclr: bool,
     pub coreclr_allocs: bool,
     pub vm_hack: bool,
+    pub gfx: bool,
 }
 
 /// Which process(es) to record.

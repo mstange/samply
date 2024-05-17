@@ -59,11 +59,19 @@ pub fn start_recording(
     // We want to profile a child process which we are about to launch.
 
     let ProcessLaunchProps {
-        env_vars,
+        mut env_vars,
         command_name,
         args,
         iteration_count,
     } = process_launch_props;
+
+    if recording_props.coreclr {
+        // We need to set DOTNET_PerfMapEnabled=2 in the environment if it's not already set.
+        // TODO: implement unlink_aux_files for linux
+        if !env_vars.iter().any(|p| p.0 == "DOTNET_PerfMapEnabled") {
+            env_vars.push(("DOTNET_PerfMapEnabled".into(), "2".into()));
+        }
+    }
 
     // Ignore Ctrl+C while the subcommand is running. The signal still reaches the process
     // under observation while we continue to record it. (ctrl+c will send the SIGINT signal
