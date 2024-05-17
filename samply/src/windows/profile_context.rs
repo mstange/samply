@@ -621,9 +621,8 @@ impl ProfileContext {
         self.remove_thread(tid, timestamp);
     }
 
-    pub fn handle_thread_dcend(&mut self, timestamp_raw: u64, tid: u32) {
-        let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
-        self.remove_thread(tid, timestamp);
+    pub fn handle_thread_dcend(&mut self, _timestamp_raw: u64, _tid: u32) {
+        // Nothing to do. The thread is still alive at the end of profiling.
     }
 
     pub fn handle_process_dcstart(
