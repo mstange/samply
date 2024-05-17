@@ -334,16 +334,9 @@ impl ProfileContext {
         self.threads.insert(tid, thread);
     }
 
-    pub fn remove_thread(
-        &mut self,
-        tid: u32,
-        timestamp: Option<Timestamp>,
-    ) -> Option<ThreadHandle> {
+    pub fn remove_thread(&mut self, tid: u32, timestamp: Timestamp) -> Option<ThreadHandle> {
         if let Some(thread) = self.threads.remove(&tid) {
-            if let Some(timestamp) = timestamp {
-                self.profile.set_thread_end_time(thread.handle, timestamp);
-            }
-
+            self.profile.set_thread_end_time(thread.handle, timestamp);
             Some(thread.handle)
         } else {
             None
@@ -583,7 +576,7 @@ impl ProfileContext {
         let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
 
         // if there's an existing thread, remove it, assume we dropped an end thread event
-        self.remove_thread(tid, Some(timestamp));
+        self.remove_thread(tid, timestamp);
         self.add_thread(pid, tid, timestamp);
 
         if let Some(thread_name) = name {
@@ -607,7 +600,7 @@ impl ProfileContext {
         let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
 
         // if there's an existing thread, remove it, assume we dropped an end thread event
-        self.remove_thread(tid, Some(timestamp));
+        self.remove_thread(tid, timestamp);
         self.add_thread(pid, tid, timestamp);
 
         if let Some(thread_name) = name {
@@ -625,12 +618,12 @@ impl ProfileContext {
 
     pub fn handle_thread_end(&mut self, timestamp_raw: u64, tid: u32) {
         let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
-        self.remove_thread(tid, Some(timestamp));
+        self.remove_thread(tid, timestamp);
     }
 
     pub fn handle_thread_dcend(&mut self, timestamp_raw: u64, tid: u32) {
         let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
-        self.remove_thread(tid, Some(timestamp));
+        self.remove_thread(tid, timestamp);
     }
 
     pub fn handle_process_dcstart(
