@@ -221,7 +221,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                 // these events can give us the unblocking stack
                 let _thread_id: u32 = parser.parse("TThreadId");
             }
-            "V8.js/MethodLoad/"
+            "V8.js/MethodLoad/Start"
             | "Microsoft-JScript/MethodRuntime/MethodDCStart"
             | "Microsoft-JScript/MethodRuntime/MethodLoad" => {
                 let pid = s.process_id();
