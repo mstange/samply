@@ -22,6 +22,7 @@ use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::jit_function_add_marker::JitFunctionAddMarker;
 use crate::shared::lib_mappings::{LibMappingAdd, LibMappingInfo, LibMappingOp, LibMappingOpQueue};
 use crate::shared::process_sample_data::{ProcessSampleData, SimpleMarker, UserTimingMarker};
+use crate::shared::recording_props::ProfileCreationProps;
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::types::{StackFrame, StackMode};
 use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
@@ -253,6 +254,7 @@ pub struct ProfileContext {
 
     timestamp_converter: TimestampConverter,
     event_timestamps_are_qpc: bool,
+    profile_creation_props: ProfileCreationProps,
 }
 
 impl ProfileContext {
@@ -260,6 +262,7 @@ impl ProfileContext {
         profile: Profile,
         arch: &str,
         included_processes: Option<IncludedProcesses>,
+        profile_creation_props: ProfileCreationProps,
     ) -> Self {
         // On 64-bit systems, the kernel address space always has 0xF in the first 16 bits.
         // The actual kernel address space is much higher, but we just need this to disambiguate kernel and user
@@ -297,6 +300,7 @@ impl ProfileContext {
                 raw_to_ns_factor: 1,
             },
             event_timestamps_are_qpc: false,
+            profile_creation_props,
         }
     }
 

@@ -144,9 +144,12 @@ pub fn start_recording(
 
     let arch = profile_creation_props
         .override_arch
+        .clone()
         .unwrap_or(get_native_arch().to_string());
 
-    let mut context = ProfileContext::new(profile, &arch, included_processes);
+    let unstable_presymbolicate = profile_creation_props.unstable_presymbolicate;
+    let mut context =
+        ProfileContext::new(profile, &arch, included_processes, profile_creation_props);
     etw_gecko::profile_pid_from_etl_file(&mut context, &merged_etl);
     let profile = context.finish();
 
@@ -165,7 +168,7 @@ pub fn start_recording(
         to_writer(writer, &profile).expect("Couldn't write JSON");
     }
 
-    if profile_creation_props.unstable_presymbolicate {
+    if unstable_presymbolicate {
         crate::shared::symbol_precog::presymbolicate(
             &profile,
             &output_file.with_extension("syms.json"),
