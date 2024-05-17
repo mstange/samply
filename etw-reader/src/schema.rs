@@ -200,13 +200,13 @@ impl SchemaLocator {
         // Some events contain schemas so add them when we find them.
         if info.event_schema.is_event_metadata() {
             let event_info = TraceEventInfoRaw::new(event.user_buffer().to_owned());
-            println!(
-                "Adding custom schema for {}/{}/{}/{}",
-                event_info.provider_name(),
-                event_info.event_id(),
-                event_info.task_name(),
-                event_info.opcode_name()
-            );
+            // println!(
+            //     "Adding custom schema for {}/{}/{}/{}",
+            //     event_info.provider_name(),
+            //     event_info.event_id(),
+            //     event_info.task_name(),
+            //     event_info.opcode_name()
+            // );
             self.add_custom_schema(Box::new(event_info));
         }
 
