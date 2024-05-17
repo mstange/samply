@@ -23,6 +23,7 @@ use crate::shared::jit_function_add_marker::JitFunctionAddMarker;
 use crate::shared::lib_mappings::{LibMappingAdd, LibMappingInfo, LibMappingOp, LibMappingOpQueue};
 use crate::shared::process_sample_data::{ProcessSampleData, SimpleMarker, UserTimingMarker};
 use crate::shared::recording_props::ProfileCreationProps;
+use crate::shared::recycling::ProcessRecycler;
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::types::{StackFrame, StackMode};
 use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
@@ -212,6 +213,10 @@ pub struct ProfileContext {
 
     unresolved_stacks: UnresolvedStacks,
 
+    /// Some() if a thread should be merged into a previously exited
+    /// thread of the same name.
+    process_recycler: Option<ProcessRecycler>,
+
     // some special threads
     gpu_thread_handle: Option<ThreadHandle>,
 
@@ -246,7 +251,6 @@ pub struct ProfileContext {
 
     timestamp_converter: TimestampConverter,
     event_timestamps_are_qpc: bool,
-    profile_creation_props: ProfileCreationProps,
 }
 
 impl ProfileContext {
@@ -265,12 +269,18 @@ impl ProfileContext {
             0xF000_0000_0000_0000
         };
         let address_classifier = AddressClassifier { kernel_min };
+        let process_recycler = if profile_creation_props.reuse_threads {
+            Some(ProcessRecycler::new())
+        } else {
+            None
+        };
 
         Self {
             profile,
             processes: HashMap::new(),
             threads: HashMap::new(),
             unresolved_stacks: UnresolvedStacks::default(),
+            process_recycler,
             gpu_thread_handle: None,
             libs_with_pending_debugid: HashMap::new(),
             kernel_pending_libraries: HashMap::new(),
@@ -291,7 +301,6 @@ impl ProfileContext {
                 raw_to_ns_factor: 1,
             },
             event_timestamps_are_qpc: false,
-            profile_creation_props,
         }
     }
 
