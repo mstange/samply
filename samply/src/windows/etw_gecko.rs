@@ -60,9 +60,10 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                 context.handle_collection_start(interval_raw);
             }
             "MSNT_SystemTrace/Thread/SetName" => {
+                let pid: u32 = parser.parse("ProcessId");
                 let tid: u32 = parser.parse("ThreadId");
                 let thread_name: String = parser.parse("ThreadName");
-                context.handle_thread_set_name(timestamp_raw, tid, thread_name);
+                context.handle_thread_set_name(timestamp_raw, pid, tid, thread_name);
             }
             "MSNT_SystemTrace/Thread/DCStart" => {
                 let tid: u32 = parser.parse("TThreadId");
@@ -77,12 +78,13 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                 context.handle_thread_start(timestamp_raw, tid, pid, thread_name);
             }
             "MSNT_SystemTrace/Thread/End" => {
-                let thread_id: u32 = parser.parse("TThreadId");
-                context.handle_thread_end(timestamp_raw, thread_id);
+                let tid: u32 = parser.parse("TThreadId");
+                let pid: u32 = parser.parse("ProcessId");
+                context.handle_thread_end(timestamp_raw, pid, tid);
             }
             "MSNT_SystemTrace/Thread/DCEnd" => {
-                let thread_id: u32 = parser.parse("TThreadId");
-                context.handle_thread_dcend(timestamp_raw, thread_id);
+                let tid: u32 = parser.parse("TThreadId");
+                context.handle_thread_dcend(timestamp_raw, tid);
             }
             "MSNT_SystemTrace/Process/DCStart" => {
                 // note: the event's e.EventHeader.process_id here is the parent (i.e. the process that spawned
