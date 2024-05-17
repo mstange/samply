@@ -306,7 +306,7 @@ impl ProfileContext {
         self.processes.insert(pid, process);
     }
 
-    pub fn add_thread(&mut self, pid: u32, tid: u32, start_time: Timestamp) {
+    pub fn add_thread(&mut self, pid: u32, tid: u32, start_time: Timestamp, name: Option<String>) {
         if !self.processes.contains_key(&pid) {
             log::warn!("Adding thread {tid} for unknown pid {pid}");
             return;
@@ -319,6 +319,9 @@ impl ProfileContext {
             .add_thread(process.handle, tid, start_time, is_main);
         if is_main {
             process.main_thread_handle = Some(thread_handle);
+        }
+        if let Some(name) = name.as_deref() {
+            self.profile.set_thread_name(thread_handle, name);
         }
 
         let thread = ThreadState::new(thread_handle, pid, tid);
@@ -336,13 +339,6 @@ impl ProfileContext {
 
     pub fn has_thread(&self, tid: u32) -> bool {
         self.threads.contains_key(&tid)
-    }
-
-    pub fn set_thread_name(&mut self, tid: u32, name: &str) {
-        let Some(thread) = self.threads.get_mut(&tid) else {
-            return;
-        };
-        self.profile.set_thread_name(thread.handle, name);
     }
 
     pub fn get_or_create_memory_usage_counter(&mut self, pid: u32) -> Option<CounterHandle> {
@@ -544,13 +540,7 @@ impl ProfileContext {
 
         // if there's an existing thread, remove it, assume we dropped an end thread event
         self.remove_thread(tid, timestamp);
-        self.add_thread(pid, tid, timestamp);
-
-        if let Some(thread_name) = name {
-            if !thread_name.is_empty() {
-                self.set_thread_name(tid, &thread_name);
-            }
-        }
+        self.add_thread(pid, tid, timestamp, name);
     }
 
     pub fn handle_thread_start(
@@ -568,19 +558,17 @@ impl ProfileContext {
 
         // if there's an existing thread, remove it, assume we dropped an end thread event
         self.remove_thread(tid, timestamp);
-        self.add_thread(pid, tid, timestamp);
-
-        if let Some(thread_name) = name {
-            if !thread_name.is_empty() {
-                self.set_thread_name(tid, &thread_name);
-            }
-        }
+        self.add_thread(pid, tid, timestamp, name);
     }
 
     pub fn handle_thread_set_name(&mut self, _timestamp_raw: u64, tid: u32, name: String) {
-        if !name.is_empty() {
-            self.set_thread_name(tid, &name);
+        if name.is_empty() {
+            return;
         }
+        let Some(thread) = self.threads.get_mut(&tid) else {
+            return;
+        };
+        self.profile.set_thread_name(thread.handle, &name);
     }
 
     pub fn handle_thread_end(&mut self, timestamp_raw: u64, tid: u32) {
