@@ -727,10 +727,6 @@ impl ProfileContext {
         stack_len: usize,
         stack_address_iter: impl Iterator<Item = u64>,
     ) {
-        let Some(thread) = self.threads.get_mut(&tid) else {
-            return;
-        };
-
         let mut stack: Vec<StackFrame> = Vec::with_capacity(stack_len);
         let mut address_iter = stack_address_iter;
         let Some(first_frame_address) = address_iter.next() else {
@@ -741,38 +737,60 @@ impl ProfileContext {
             first_frame_address,
             first_frame_stack_mode,
         ));
-        for frame_address in address_iter {
-            let stack_mode = self.address_classifier.get_stack_mode(frame_address);
-            stack.push(StackFrame::ReturnAddress(frame_address, stack_mode));
-        }
+        stack.extend(address_iter.map(|addr| {
+            let stack_mode = self.address_classifier.get_stack_mode(addr);
+            StackFrame::ReturnAddress(addr, stack_mode)
+        }));
 
-        if first_frame_stack_mode == StackMode::Kernel {
-            if let Some(pending_stack) = thread
-                .pending_stacks
-                .iter_mut()
-                .rev()
-                .find(|s| s.timestamp == timestamp_raw)
-            {
-                if let Some(kernel_stack) = pending_stack.kernel_stack.as_mut() {
-                    log::warn!(
-                        "Multiple kernel stacks for timestamp {timestamp_raw} on thread {tid}"
-                    );
-                    kernel_stack.extend(&stack);
-                } else {
-                    pending_stack.kernel_stack = Some(stack);
-                }
-            }
-            return;
+        match first_frame_stack_mode {
+            StackMode::Kernel => self.handle_kernel_stack(timestamp_raw, pid, tid, stack),
+            StackMode::User => self.handle_user_stack(timestamp_raw, pid, tid, stack),
         }
+    }
+
+    fn handle_kernel_stack(
+        &mut self,
+        timestamp_raw: u64,
+        _pid: u32,
+        tid: u32,
+        stack: Vec<StackFrame>,
+    ) {
+        let Some(thread) = self.threads.get_mut(&tid) else {
+            return;
+        };
+        if let Some(pending_stack) = thread
+            .pending_stacks
+            .iter_mut()
+            .rev()
+            .find(|s| s.timestamp == timestamp_raw)
+        {
+            if let Some(kernel_stack) = pending_stack.kernel_stack.as_mut() {
+                log::warn!("Multiple kernel stacks for timestamp {timestamp_raw} on thread {tid}");
+                kernel_stack.extend(&stack);
+            } else {
+                pending_stack.kernel_stack = Some(stack);
+            }
+        }
+    }
+
+    fn handle_user_stack(
+        &mut self,
+        timestamp_raw: u64,
+        pid: u32,
+        tid: u32,
+        stack: Vec<StackFrame>,
+    ) {
+        // We now know that we have a user stack. User stacks always come last. Consume
+        // the pending stack with matching timestamp.
 
         let user_stack = stack;
         let user_stack_index = self
             .unresolved_stacks
             .convert(user_stack.iter().cloned().rev());
 
-        // We now know that we have a user stack. User stacks always come last. Consume
-        // the pending stack with matching timestamp.
-
+        let Some(thread) = self.threads.get_mut(&tid) else {
+            return;
+        };
         // the number of pending stacks at or before our timestamp
         let num_pending_stacks = thread
             .pending_stacks
