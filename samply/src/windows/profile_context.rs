@@ -665,12 +665,17 @@ impl ProfileContext {
         );
     }
 
-    pub fn handle_process_end(&mut self, _timestamp_raw: u64, _pid: u32) {
-        // TODO
+    pub fn handle_process_end(&mut self, timestamp_raw: u64, pid: u32) {
+        let Some(process) = self.processes.get(&pid) else {
+            return;
+        };
+
+        let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
+        self.profile.set_process_end_time(process.handle, timestamp);
     }
 
     pub fn handle_process_dcend(&mut self, _timestamp_raw: u64, _pid: u32) {
-        // TODO
+        // Nothing to do - the process is still alive at the end of profiling.
     }
 
     /// Attach a stack to an existing marker.
