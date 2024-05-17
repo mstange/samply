@@ -1467,7 +1467,7 @@ impl ProfileContext {
             return;
         };
 
-        let timestamp = self.timestamp_converter.convert_us(timestamp_raw);
+        let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
         let timing = MarkerTiming::Instant(timestamp);
         // this used to create a new category based on provider_name, just lump them together for now
         let category = self

@@ -9,9 +9,9 @@ pub struct TimestampConverter {
 }
 
 impl TimestampConverter {
-    pub fn convert_time(&self, ktime_ns: u64) -> Timestamp {
+    pub fn convert_time(&self, timestamp_raw: u64) -> Timestamp {
         Timestamp::from_nanos_since_reference(
-            ktime_ns.saturating_sub(self.reference_raw) * self.raw_to_ns_factor,
+            timestamp_raw.saturating_sub(self.reference_raw) * self.raw_to_ns_factor,
         )
     }
 
