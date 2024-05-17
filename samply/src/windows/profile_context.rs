@@ -209,7 +209,9 @@ pub struct ProfileContext {
     // state -- keep track of the processes etc we've seen as we're processing,
     // and their associated handles in the json profile
     processes: HashMap<u32, ProcessState>,
+    dead_processes_with_reused_pids: Vec<ProcessState>,
     threads: HashMap<u32, ThreadState>,
+    dead_threads_with_reused_tids: Vec<ThreadState>,
 
     unresolved_stacks: UnresolvedStacks,
 
@@ -278,7 +280,9 @@ impl ProfileContext {
         Self {
             profile,
             processes: HashMap::new(),
+            dead_processes_with_reused_pids: Vec::new(),
             threads: HashMap::new(),
+            dead_threads_with_reused_tids: Vec::new(),
             unresolved_stacks: UnresolvedStacks::default(),
             process_recycler,
             gpu_thread_handle: None,
@@ -306,44 +310,6 @@ impl ProfileContext {
 
     pub fn is_arm64(&self) -> bool {
         self.arch == "arm64"
-    }
-
-    // add_process and add_thread always add a process/thread (and thread expects process to exist)
-    pub fn add_process(&mut self, pid: u32, parent_id: u32, name: &str, start_time: Timestamp) {
-        let process_handle = self.profile.add_process(name, pid, start_time);
-        let process = ProcessState::new(process_handle, pid, parent_id);
-        self.processes.insert(pid, process);
-    }
-
-    pub fn add_thread(&mut self, pid: u32, tid: u32, start_time: Timestamp, name: Option<String>) {
-        if !self.processes.contains_key(&pid) {
-            log::warn!("Adding thread {tid} for unknown pid {pid}");
-            return;
-        }
-
-        let process = self.processes.get_mut(&pid).unwrap();
-        let is_main = process.main_thread_handle.is_none();
-        let thread_handle = self
-            .profile
-            .add_thread(process.handle, tid, start_time, is_main);
-        if is_main {
-            process.main_thread_handle = Some(thread_handle);
-        }
-        if let Some(name) = name.as_deref() {
-            self.profile.set_thread_name(thread_handle, name);
-        }
-
-        let thread = ThreadState::new(thread_handle, pid, tid);
-        self.threads.insert(tid, thread);
-    }
-
-    pub fn remove_thread(&mut self, tid: u32, timestamp: Timestamp) -> Option<ThreadHandle> {
-        if let Some(thread) = self.threads.remove(&tid) {
-            self.profile.set_thread_end_time(thread.handle, timestamp);
-            Some(thread.handle)
-        } else {
-            None
-        }
     }
 
     pub fn has_thread(&self, tid: u32) -> bool {
@@ -546,10 +512,27 @@ impl ProfileContext {
         }
 
         let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
+        if !self.processes.contains_key(&pid) {
+            log::warn!("Adding thread {tid} for unknown pid {pid}");
+            return;
+        }
 
-        // if there's an existing thread, remove it, assume we dropped an end thread event
-        self.remove_thread(tid, timestamp);
-        self.add_thread(pid, tid, timestamp, name);
+        let process = self.processes.get_mut(&pid).unwrap();
+        let is_main = process.main_thread_handle.is_none();
+        let thread_handle = self
+            .profile
+            .add_thread(process.handle, tid, timestamp, is_main);
+        if is_main {
+            process.main_thread_handle = Some(thread_handle);
+        }
+        if let Some(name) = name.as_deref() {
+            if !name.is_empty() {
+                self.profile.set_thread_name(thread_handle, name);
+            }
+        }
+
+        let thread = ThreadState::new(thread_handle, pid, tid);
+        self.threads.insert(tid, thread);
     }
 
     pub fn handle_thread_start(
@@ -565,9 +548,34 @@ impl ProfileContext {
 
         let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
 
-        // if there's an existing thread, remove it, assume we dropped an end thread event
-        self.remove_thread(tid, timestamp);
-        self.add_thread(pid, tid, timestamp, name);
+        if let Some(dead_thread_with_reused_tid) = self.threads.remove(&tid) {
+            self.profile
+                .set_thread_end_time(dead_thread_with_reused_tid.handle, timestamp);
+            self.dead_threads_with_reused_tids
+                .push(dead_thread_with_reused_tid);
+        }
+
+        if !self.processes.contains_key(&pid) {
+            log::warn!("Adding thread {tid} for unknown pid {pid}");
+            return;
+        }
+
+        let process = self.processes.get_mut(&pid).unwrap();
+        let is_main = process.main_thread_handle.is_none();
+        let thread_handle = self
+            .profile
+            .add_thread(process.handle, tid, timestamp, is_main);
+        if is_main {
+            process.main_thread_handle = Some(thread_handle);
+        }
+        if let Some(name) = name.as_deref() {
+            if !name.is_empty() {
+                self.profile.set_thread_name(thread_handle, name);
+            }
+        }
+
+        let thread = ThreadState::new(thread_handle, pid, tid);
+        self.threads.insert(tid, thread);
     }
 
     pub fn handle_thread_set_name(&mut self, _timestamp_raw: u64, tid: u32, name: String) {
@@ -582,7 +590,9 @@ impl ProfileContext {
 
     pub fn handle_thread_end(&mut self, timestamp_raw: u64, tid: u32) {
         let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
-        self.remove_thread(tid, timestamp);
+        if let Some(thread) = self.threads.get(&tid) {
+            self.profile.set_thread_end_time(thread.handle, timestamp);
+        }
     }
 
     pub fn handle_thread_dcend(&mut self, _timestamp_raw: u64, _tid: u32) {
@@ -601,12 +611,10 @@ impl ProfileContext {
         }
 
         let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
-        self.add_process(
-            pid,
-            parent_pid,
-            &self.map_device_path(&image_file_name),
-            timestamp,
-        );
+        let name = self.map_device_path(&image_file_name);
+        let process_handle = self.profile.add_process(&name, pid, timestamp);
+        let process = ProcessState::new(process_handle, pid, parent_pid);
+        self.processes.insert(pid, process);
     }
 
     pub fn handle_process_start(
@@ -621,12 +629,18 @@ impl ProfileContext {
         }
 
         let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
-        self.add_process(
-            pid,
-            parent_pid,
-            &self.map_device_path(&image_file_name),
-            timestamp,
-        );
+
+        if let Some(dead_process_with_reused_pid) = self.processes.remove(&pid) {
+            self.profile
+                .set_process_end_time(dead_process_with_reused_pid.handle, timestamp);
+            self.dead_processes_with_reused_pids
+                .push(dead_process_with_reused_pid);
+        }
+
+        let name = self.map_device_path(&image_file_name);
+        let process_handle = self.profile.add_process(&name, pid, timestamp);
+        let process = ProcessState::new(process_handle, pid, parent_pid);
+        self.processes.insert(pid, process);
     }
 
     pub fn handle_process_end(&mut self, timestamp_raw: u64, pid: u32) {
@@ -1492,7 +1506,11 @@ impl ProfileContext {
         // samply does on Linux and macOS, where the queued samples also want to respect JIT function names from
         // a /tmp/perf-1234.map file, and this file may not exist until the profiled process finishes.)
         let mut stack_frame_scratch_buf = Vec::new();
-        for (_process_id, process) in self.processes.iter_mut() {
+        for mut process in self
+            .dead_processes_with_reused_pids
+            .into_iter()
+            .chain(self.processes.into_values())
+        {
             let jitdump_lib_mapping_op_queues = match process.jit_info.take() {
                 Some(jit_info) => {
                     self.profile.set_lib_symbol_table(
@@ -1505,8 +1523,8 @@ impl ProfileContext {
             };
 
             let process_sample_data = ProcessSampleData::new(
-                process.unresolved_samples.clone(),
-                process.regular_lib_mapping_ops.clone(),
+                process.unresolved_samples,
+                process.regular_lib_mapping_ops,
                 jitdump_lib_mapping_op_queues,
                 None,
                 Vec::new(),
@@ -1528,12 +1546,6 @@ impl ProfileContext {
                 &self.unresolved_stacks,
             )
         }
-
-        /*if merge_threads {
-            profile.add_thread(global_thread);
-        } else {
-            for (_, thread) in threads.drain() { profile.add_thread(thread.builder); }
-        }*/
 
         log::info!(
             "{} events, {} samples, {} stack-samples",
