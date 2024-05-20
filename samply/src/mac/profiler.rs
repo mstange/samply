@@ -34,9 +34,8 @@ pub fn start_recording(
 
     let root_task_runner: Box<dyn RootTaskRunner> = match recording_mode {
         RecordingMode::All => {
-            // TODO: Implement, by sudo launching a helper process which uses task_for_pid
-            eprintln!("Error: Profiling existing processes is currently not supported on macOS.");
-            eprintln!("You can only profile processes which you launch via samply.");
+            eprintln!("Error: Profiling all processes is not supported on macOS.");
+            eprintln!("You can only profile processes which you launch via samply, or attach to via --pid.");
             std::process::exit(1)
         }
         RecordingMode::Pid(pid) => {

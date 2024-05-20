@@ -87,6 +87,10 @@ enum Action {
     #[clap(hide = true)]
     /// Used in the elevated helper process.
     RunElevatedHelper(RunElevatedHelperArgs),
+
+    /// Codesign the samply binary on macOS to allow attaching to processes.
+    #[cfg(target_os = "macos")]
+    Setup,
 }
 
 #[derive(Debug, Args)]
@@ -333,12 +337,18 @@ fn main() {
             };
             std::process::exit(exit_status.code().unwrap_or(0));
         }
+
         #[cfg(target_os = "windows")]
         Action::RunElevatedHelper(RunElevatedHelperArgs {
             ipc_directory,
             output_path,
         }) => {
             windows::run_elevated_helper(&ipc_directory, output_path);
+        }
+
+        #[cfg(target_os = "macos")]
+        Action::Setup => {
+            mac::codesign_setup::codesign_setup();
         }
     }
 }
