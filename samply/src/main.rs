@@ -19,7 +19,7 @@ use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 #[cfg(any(target_os = "android", target_os = "linux"))]
 use linux::profiler;
 #[cfg(target_os = "macos")]
@@ -31,7 +31,7 @@ use profile_json_preparse::parse_libinfo_map_from_profile_file;
 use server::{start_server_main, PortSelection, ServerProps};
 use shared::included_processes::IncludedProcesses;
 use shared::recording_props::{
-    ProcessLaunchProps, ProfileCreationProps, RecordingMode, RecordingProps,
+    CoreClrProfileProps, ProcessLaunchProps, ProfileCreationProps, RecordingMode, RecordingProps,
 };
 #[cfg(target_os = "windows")]
 use windows::profiler;
@@ -132,6 +132,10 @@ struct ImportArgs {
     /// Explicitly specify architecture of profile to import.
     #[arg(long)]
     override_arch: Option<String>,
+
+    /// Enable CoreCLR event conversion.
+    #[clap(long, require_equals = true, value_name = "FLAG", value_enum, value_delimiter = ',', num_args = 0.., default_values_t = vec![CoreClrArgs::Enabled])]
+    coreclr: Vec<CoreClrArgs>,
 }
 
 #[allow(unused)]
@@ -186,13 +190,8 @@ struct RecordArgs {
     all: bool,
 
     /// Enable CoreCLR event capture.
-    #[arg(long)]
-    coreclr: bool,
-
-    /// Enable CoreCLR fine-grained allocation event capture (Windows only).
-    #[cfg(target_os = "windows")]
-    #[arg(long)]
-    coreclr_allocs: bool,
+    #[clap(long, require_equals = true, value_name = "FLAG", value_enum, value_delimiter = ',', num_args = 0.., default_missing_value = "enabled")]
+    coreclr: Vec<CoreClrArgs>,
 
     /// VM hack for arm64 Windows VMs to not try to record PROFILE events (Windows only).
     #[cfg(target_os = "windows")]
@@ -202,6 +201,28 @@ struct RecordArgs {
     /// Enable Graphics-related event capture.
     #[arg(long)]
     gfx: bool,
+}
+
+#[derive(ValueEnum, Copy, Clone, Debug, PartialEq, Eq)]
+enum CoreClrArgs {
+    Enabled,
+    #[cfg(target_os = "windows")]
+    GcMarkers,
+    #[cfg(target_os = "windows")]
+    GcSuspendedThreads,
+    #[cfg(target_os = "windows")]
+    GcDetailedAllocs,
+    #[cfg(target_os = "windows")]
+    EventStacks,
+}
+
+impl std::fmt::Display for CoreClrArgs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.to_possible_value()
+            .expect("no values are skipped")
+            .get_name()
+            .fmt(f)
+    }
 }
 
 #[derive(Debug, Args)]
@@ -391,6 +412,7 @@ impl ImportArgs {
             create_per_cpu_threads: self.profile_creation_args.per_cpu_threads,
             override_arch: self.override_arch.clone(),
             unstable_presymbolicate: self.profile_creation_args.unstable_presymbolicate,
+            coreclr: to_coreclr_profile_props(&self.coreclr),
         }
     }
 
@@ -428,18 +450,17 @@ impl RecordArgs {
         let interval = Duration::from_secs_f64(1.0 / self.rate);
         cfg_if::cfg_if! {
             if #[cfg(target_os = "windows")] {
-                let (vm_hack, coreclr_allocs) = (self.vm_hack, self.coreclr_allocs);
+                let vm_hack = self.vm_hack;
             } else {
-                let (vm_hack, coreclr_allocs) = (false, false);
+                let vm_hack = false;
             }
         }
+
         RecordingProps {
             output_file: self.output.clone(),
             time_limit,
             interval,
             main_thread_only: self.main_thread_only,
-            coreclr: self.coreclr,
-            coreclr_allocs,
             vm_hack,
             gfx: self.gfx,
         }
@@ -496,6 +517,7 @@ impl RecordArgs {
             create_per_cpu_threads: self.profile_creation_args.per_cpu_threads,
             override_arch: None,
             unstable_presymbolicate: self.profile_creation_args.unstable_presymbolicate,
+            coreclr: to_coreclr_profile_props(&self.coreclr),
         }
     }
 }
@@ -518,6 +540,23 @@ impl ServerArgs {
             verbose: self.verbose,
             open_in_browser,
         }
+    }
+}
+
+fn to_coreclr_profile_props(coreclr_args: &[CoreClrArgs]) -> CoreClrProfileProps {
+    // on Windows, the ..Default::default() has no effect, and clippy doesn't like it
+    #[allow(clippy::needless_update)]
+    CoreClrProfileProps {
+        enabled: coreclr_args.contains(&CoreClrArgs::Enabled),
+        #[cfg(target_os = "windows")]
+        gc_markers: coreclr_args.contains(&CoreClrArgs::GcMarkers),
+        #[cfg(target_os = "windows")]
+        gc_suspensions: coreclr_args.contains(&CoreClrArgs::GcSuspendedThreads),
+        #[cfg(target_os = "windows")]
+        gc_detailed_allocs: coreclr_args.contains(&CoreClrArgs::GcDetailedAllocs),
+        #[cfg(target_os = "windows")]
+        event_stacks: coreclr_args.contains(&CoreClrArgs::EventStacks),
+        ..Default::default()
     }
 }
 

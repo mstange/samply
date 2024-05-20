@@ -222,6 +222,8 @@ impl AddressClassifier {
 pub struct ProfileContext {
     profile: Profile,
 
+    profile_creation_props: ProfileCreationProps,
+
     // state -- keep track of the processes etc we've seen as we're processing,
     // and their associated handles in the json profile
     processes: HashMap<u32, ProcessState>,
@@ -295,6 +297,7 @@ impl ProfileContext {
 
         Self {
             profile,
+            profile_creation_props,
             processes: HashMap::new(),
             dead_processes_with_reused_pids: Vec::new(),
             threads: HashMap::new(),
@@ -322,6 +325,10 @@ impl ProfileContext {
             },
             event_timestamps_are_qpc: false,
         }
+    }
+
+    pub fn creation_props(&self) -> ProfileCreationProps {
+        self.profile_creation_props.clone()
     }
 
     pub fn is_arm64(&self) -> bool {

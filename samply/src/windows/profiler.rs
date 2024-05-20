@@ -66,7 +66,7 @@ pub fn start_recording(
     let mut elevated_helper = ElevatedHelperSession::new(recording_props.output_file.clone())
         .unwrap_or_else(|e| panic!("Couldn't start elevated helper process: {e:?}"));
     elevated_helper
-        .start_xperf(&recording_props, &recording_mode)
+        .start_xperf(&recording_props, &profile_creation_props, &recording_mode)
         .unwrap();
 
     let included_processes = match recording_mode {
@@ -140,7 +140,7 @@ pub fn start_recording(
 
     eprintln!("Processing ETL trace...");
 
-    let output_file = recording_props.output_file;
+    let output_file = recording_props.output_file.clone();
 
     let arch = profile_creation_props
         .override_arch
