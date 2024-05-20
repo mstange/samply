@@ -26,18 +26,19 @@ pub fn convert_etl_file_to_profile(
         interval_8khz, // recording_props.interval.into(),
     );
 
-    let arch = get_native_arch(); // TODO: Detect from file if reading from file
+    let arch = get_native_arch(); // TODO: Detect arch from file
 
     let mut context = ProfileContext::new(profile, arch, included_processes);
 
     etw_gecko::profile_pid_from_etl_file(&mut context, filename);
 
+    let profile = context.finish();
+
     // write the profile to a json file
     let file = File::create(output_filename).unwrap();
     let writer = BufWriter::new(file);
     {
-        let profile = context.profile.borrow();
-        to_writer(writer, &*profile).expect("Couldn't write JSON");
+        to_writer(writer, &profile).expect("Couldn't write JSON");
     }
 }
 

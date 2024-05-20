@@ -216,7 +216,6 @@ where
         mut self,
         profile: &mut Profile,
         unresolved_stacks: &UnresolvedStacks,
-        event_names: &[String],
         jit_category_manager: &mut JitCategoryManager,
         timestamp_converter: &TimestampConverter,
     ) {
@@ -239,7 +238,6 @@ where
                 kernel_category,
                 &mut stack_frame_scratch_buf,
                 unresolved_stacks,
-                event_names,
             );
         }
     }

@@ -10,8 +10,7 @@ use super::stack_converter::StackConverter;
 use super::stack_depth_limiting_frame_iter::StackDepthLimitingFrameIter;
 use super::types::StackFrame;
 use super::unresolved_samples::{
-    OtherEventMarkerData, RssStatMarkerData, SampleData, SampleOrMarker, UnresolvedSampleOrMarker,
-    UnresolvedSamples, UnresolvedStacks,
+    SampleData, SampleOrMarker, UnresolvedSampleOrMarker, UnresolvedSamples, UnresolvedStacks,
 };
 
 #[derive(Debug, Clone)]
@@ -68,7 +67,6 @@ impl ProcessSampleData {
         kernel_category: CategoryPairHandle,
         stack_frame_scratch_buf: &mut Vec<StackFrame>,
         stacks: &UnresolvedStacks,
-        event_names: &[String],
     ) {
         let ProcessSampleData {
             unresolved_samples,
@@ -108,62 +106,6 @@ impl ProcessSampleData {
             match sample_or_marker {
                 SampleOrMarker::Sample(SampleData { cpu_delta, weight }) => {
                     profile.add_sample(thread_handle, timestamp, frames, cpu_delta, weight);
-                }
-                SampleOrMarker::RssStatMarker(RssStatMarkerData {
-                    size,
-                    delta,
-                    member,
-                }) => {
-                    let timing = MarkerTiming::Instant(timestamp);
-                    let name = match member {
-                        RssStatMember::ResidentFileMappingPages => "RSS Stat FILEPAGES",
-                        RssStatMember::ResidentAnonymousPages => "RSS Stat ANONPAGES",
-                        RssStatMember::AnonymousSwapEntries => "RSS Stat SHMEMPAGES",
-                        RssStatMember::ResidentSharedMemoryPages => "RSS Stat SWAPENTS",
-                    };
-                    profile.add_marker_with_stack(
-                        thread_handle,
-                        CategoryHandle::OTHER,
-                        name,
-                        RssStatMarker(size, delta),
-                        timing,
-                        frames,
-                    );
-                }
-                SampleOrMarker::OtherEventMarker(OtherEventMarkerData { attr_index }) => {
-                    if let Some(name) = event_names.get(attr_index) {
-                        let timing = MarkerTiming::Instant(timestamp);
-                        profile.add_marker_with_stack(
-                            thread_handle,
-                            CategoryHandle::OTHER,
-                            name,
-                            OtherEventMarker,
-                            timing,
-                            frames,
-                        );
-                    }
-                }
-                SampleOrMarker::SchedSwitchMarkerOnCpuTrack => {
-                    let timing = MarkerTiming::Instant(timestamp);
-                    profile.add_marker_with_stack(
-                        thread_handle,
-                        CategoryHandle::OTHER,
-                        "sched_switch",
-                        SchedSwitchMarkerOnCpuTrack,
-                        timing,
-                        frames,
-                    );
-                }
-                SampleOrMarker::SchedSwitchMarkerOnThreadTrack(cpu) => {
-                    let timing = MarkerTiming::Instant(timestamp);
-                    profile.add_marker_with_stack(
-                        thread_handle,
-                        CategoryHandle::OTHER,
-                        "sched_switch",
-                        SchedSwitchMarkerOnThreadTrack { cpu },
-                        timing,
-                        frames,
-                    );
                 }
                 SampleOrMarker::MarkerHandle(mh) => {
                     profile.set_marker_stack(thread_handle, mh, frames);
@@ -318,7 +260,7 @@ impl ProfilerMarker for SchedSwitchMarkerOnCpuTrack {
 
 #[derive(Debug, Clone)]
 pub struct SchedSwitchMarkerOnThreadTrack {
-    cpu: u32,
+    pub cpu: u32,
 }
 
 impl ProfilerMarker for SchedSwitchMarkerOnThreadTrack {

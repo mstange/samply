@@ -1,59 +1,31 @@
-#![allow(unused)]
-#![allow(clippy::wildcard_in_or_patterns)]
-use std::{
-    collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
-    convert::TryInto,
-    fs::File,
-    io::BufWriter,
-    path::Path,
-    sync::Arc,
-    time::{Duration, Instant, SystemTime},
-};
+use std::{collections::HashMap, convert::TryInto, fmt::Display};
 
 use bitflags::bitflags;
-use debugid::DebugId;
 use fxprof_processed_profile::*;
-use serde_json::{json, to_writer, Value};
-use uuid::Uuid;
+use num_derive::FromPrimitive;
+use num_traits::FromPrimitive;
+use serde_json::json;
 
-use crate::shared::jit_category_manager::JitCategoryManager;
-use crate::shared::lib_mappings::LibMappingInfo;
-use crate::shared::lib_mappings::{LibMappingAdd, LibMappingOp, LibMappingOpQueue};
-use crate::shared::process_sample_data::{MarkerSpanOnThread, ProcessSampleData, SimpleMarker};
-use crate::shared::recording_props::RecordingProps;
-use crate::shared::types::{StackFrame, StackMode};
-use crate::shared::unresolved_samples::SampleOrMarker;
-use crate::shared::{
-    context_switch::{ContextSwitchHandler, OffCpuSampleGroup, ThreadContextSwitchData},
-    recording_props::{ProcessLaunchProps, RecordingMode},
-};
-use crate::shared::{
-    jit_function_add_marker::JitFunctionAddMarker, marker_file::get_markers,
-    process_sample_data::UserTimingMarker, timestamp_converter::TimestampConverter,
-};
-
-use etw_reader::{self, etw_types::EventRecord, schema::TypedEvent};
+use etw_reader::{self, schema::TypedEvent};
 use etw_reader::{
-    event_properties_to_string, open_trace,
-    parser::{Address, Parser, TryParse},
-    print_property,
-    schema::SchemaLocator,
-    write_property, GUID,
+    event_properties_to_string,
+    parser::{Parser, TryParse},
 };
 
+use crate::shared::process_sample_data::SimpleMarker;
 use crate::windows::profile_context::{KnownCategory, ProfileContext};
 
 use super::elevated_helper::ElevatedRecordingProps;
 
 struct SavedMarkerInfo {
-    start: Timestamp,
+    start_timestamp_raw: u64,
     name: String,
     description: String,
 }
 
 pub struct CoreClrContext {
-    last_marker_on_thread: HashMap<ThreadHandle, MarkerHandle>,
-    gc_markers_on_thread: HashMap<ThreadHandle, HashMap<&'static str, SavedMarkerInfo>>,
+    last_marker_on_thread: HashMap<u32, MarkerHandle>,
+    gc_markers_on_thread: HashMap<u32, HashMap<&'static str, SavedMarkerInfo>>,
 }
 
 impl CoreClrContext {
@@ -64,35 +36,35 @@ impl CoreClrContext {
         }
     }
 
-    fn remove_last_event_for_thread(&mut self, thread: ThreadHandle) -> Option<MarkerHandle> {
-        self.last_marker_on_thread.remove(&thread)
+    fn remove_last_event_for_thread(&mut self, tid: u32) -> Option<MarkerHandle> {
+        self.last_marker_on_thread.remove(&tid)
     }
 
-    fn set_last_event_for_thread(&mut self, thread: ThreadHandle, marker: MarkerHandle) {
-        self.last_marker_on_thread.insert(thread, marker);
+    fn set_last_event_for_thread(&mut self, tid: u32, marker: MarkerHandle) {
+        self.last_marker_on_thread.insert(tid, marker);
     }
 
     fn save_gc_marker(
         &mut self,
-        thread: ThreadHandle,
-        start: Timestamp,
+        tid: u32,
+        start_timestamp_raw: u64,
         event: &'static str,
         name: String,
         description: String,
     ) {
-        self.gc_markers_on_thread.entry(thread).or_default().insert(
+        self.gc_markers_on_thread.entry(tid).or_default().insert(
             event,
             SavedMarkerInfo {
-                start,
+                start_timestamp_raw,
                 name,
                 description,
             },
         );
     }
 
-    fn remove_gc_marker(&mut self, thread: ThreadHandle, event: &str) -> Option<SavedMarkerInfo> {
+    fn remove_gc_marker(&mut self, tid: u32, event: &str) -> Option<SavedMarkerInfo> {
         self.gc_markers_on_thread
-            .get_mut(&thread)
+            .get_mut(&tid)
             .and_then(|m| m.remove(event))
     }
 }
@@ -131,6 +103,107 @@ bitflags! {
     }
 }
 
+#[allow(unused)]
+mod constants {
+    pub const CORECLR_GC_KEYWORD: u64 = 0x1; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-garbage-collection-events
+    pub const CORECLR_GC_HANDLE_KEYWORD: u64 = 0x2;
+    pub const CORECLR_BINDER_KEYWORD: u64 = 0x4; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-loader-binder-events
+    pub const CORECLR_LOADER_KEYWORD: u64 = 0x8; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-loader-binder-events
+    pub const CORECLR_JIT_KEYWORD: u64 = 0x10; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-method-events
+    pub const CORECLR_NGEN_KEYWORD: u64 = 0x20; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-method-events
+    pub const CORECLR_RUNDOWN_START_KEYWORD: u64 = 0x00000040;
+    pub const CORECLR_INTEROP_KEYWORD: u64 = 0x2000; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-interop-events
+    pub const CORECLR_CONTENTION_KEYWORD: u64 = 0x4000;
+    pub const CORECLR_EXCEPTION_KEYWORD: u64 = 0x8000; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-exception-events
+    pub const CORECLR_THREADING_KEYWORD: u64 = 0x10000; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-thread-events
+    pub const CORECLR_JIT_TO_NATIVE_METHOD_MAP_KEYWORD: u64 = 0x20000;
+    pub const CORECLR_GC_SAMPLED_OBJECT_ALLOCATION_HIGH_KEYWORD: u64 = 0x200000; // https://medium.com/criteo-engineering/build-your-own-net-memory-profiler-in-c-allocations-1-2-9c9f0c86cefd
+    pub const CORECLR_GC_HEAP_AND_TYPE_NAMES: u64 = 0x1000000;
+    pub const CORECLR_GC_SAMPLED_OBJECT_ALLOCATION_LOW_KEYWORD: u64 = 0x2000000;
+    pub const CORECLR_STACK_KEYWORD: u64 = 0x40000000; // https://learn.microsoft.com/en-us/dotnet/framework/performance/stack-etw-event (note: says .NET Framework, but applies to CoreCLR also)
+    pub const CORECLR_COMPILATION_KEYWORD: u64 = 0x1000000000;
+    pub const CORECLR_COMPILATION_DIAGNOSTIC_KEYWORD: u64 = 0x2000000000;
+    pub const CORECLR_TYPE_DIAGNOSTIC_KEYWORD: u64 = 0x8000000000;
+}
+
+#[derive(Debug, Clone, FromPrimitive)]
+enum GcReason {
+    AllocSmall = 0,
+    Induced,
+    LowMemory,
+    Empty,
+    AllocLarge,
+    OutOfSpaceSmallObjectHeap,
+    OutOfSpaceLargeObjectHeap,
+    InducedNoForce,
+    Stress,
+    InducedLowMemory,
+}
+
+impl Display for GcReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GcReason::AllocSmall => f.write_str("Small object heap allocation"),
+            GcReason::Induced => f.write_str("Induced"),
+            GcReason::LowMemory => f.write_str("Low memory"),
+            GcReason::Empty => f.write_str("Empty"),
+            GcReason::AllocLarge => f.write_str("Large object heap allocation"),
+            GcReason::OutOfSpaceSmallObjectHeap => {
+                f.write_str("Out of space (for small object heap)")
+            }
+            GcReason::OutOfSpaceLargeObjectHeap => {
+                f.write_str("Out of space (for large object heap)")
+            }
+            GcReason::InducedNoForce => f.write_str("Induced but not forced as blocking"),
+            GcReason::Stress => f.write_str("Stress"),
+            GcReason::InducedLowMemory => f.write_str("Induced low memory"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, FromPrimitive)]
+enum GcSuspendEeReason {
+    Other = 0,
+    GC,
+    AppDomainShutdown,
+    CodePitching,
+    Shutdown,
+    Debugger,
+    GcPrep,
+    DebuggerSweep,
+}
+
+impl Display for GcSuspendEeReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GcSuspendEeReason::Other => f.write_str("Other"),
+            GcSuspendEeReason::GC => f.write_str("GC"),
+            GcSuspendEeReason::AppDomainShutdown => f.write_str("AppDomain shutdown"),
+            GcSuspendEeReason::CodePitching => f.write_str("Code pitching"),
+            GcSuspendEeReason::Shutdown => f.write_str("Shutdown"),
+            GcSuspendEeReason::Debugger => f.write_str("Debugger"),
+            GcSuspendEeReason::GcPrep => f.write_str("GC prep"),
+            GcSuspendEeReason::DebuggerSweep => f.write_str("Debugger sweep"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, FromPrimitive)]
+enum GcType {
+    Blocking,
+    Background,
+    BlockingDuringBackground,
+}
+
+impl Display for GcType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GcType::Blocking => f.write_str("Blocking GC"),
+            GcType::Background => f.write_str("Background GC"),
+            GcType::BlockingDuringBackground => f.write_str("Blocking GC during background GC"),
+        }
+    }
+}
 // String is type name
 #[derive(Debug, Clone)]
 pub struct CoreClrGcAllocMarker(pub String, usize);
@@ -219,6 +292,18 @@ impl ProfilerMarker for CoreClrGcEventMarker {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DisplayUnknownIfNone<'a, T>(pub &'a Option<T>);
+
+impl<'a, T: Display> Display for DisplayUnknownIfNone<'a, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0 {
+            Some(value) => value.fmt(f),
+            None => f.write_str("Unknown"),
+        }
+    }
+}
+
 pub fn coreclr_xperf_args(props: &ElevatedRecordingProps) -> Vec<String> {
     let mut providers = vec![];
 
@@ -232,32 +317,12 @@ pub fn coreclr_xperf_args(props: &ElevatedRecordingProps) -> Vec<String> {
     //
     // Also enabling the rundown keyword causes a bunch of DCStart/DCEnd events to be generated,
     // which is only useful if we're tracing an already running process.
-    const CORECLR_GC_KEYWORD: u64 = 0x1; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-garbage-collection-events
-    const CORECLR_GC_HANDLE_KEYWORD: u64 = 0x2;
-    const CORECLR_BINDER_KEYWORD: u64 = 0x4; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-loader-binder-events
-    const CORECLR_LOADER_KEYWORD: u64 = 0x8; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-loader-binder-events
-    const CORECLR_JIT_KEYWORD: u64 = 0x10; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-method-events
-    const CORECLR_NGEN_KEYWORD: u64 = 0x20; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-method-events
-    const CORECLR_INTEROP_KEYWORD: u64 = 0x2000; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-interop-events
-    const CORECLR_CONTENTION_KEYWORD: u64 = 0x4000;
-    const CORECLR_EXCEPTION_KEYWORD: u64 = 0x8000; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-exception-events
-    const CORECLR_THREADING_KEYWORD: u64 = 0x10000; // https://learn.microsoft.com/en-us/dotnet/fundamentals/diagnostics/runtime-thread-events
-    const CORECLR_JIT_TO_NATIVE_METHOD_MAP_KEYWORD: u64 = 0x20000;
-    const CORECLR_GC_SAMPLED_OBJECT_ALLOCATION_HIGH_KEYWORD: u64 = 0x200000; // https://medium.com/criteo-engineering/build-your-own-net-memory-profiler-in-c-allocations-1-2-9c9f0c86cefd
-    const CORECLR_GC_HEAP_AND_TYPE_NAMES: u64 = 0x1000000;
-    const CORECLR_GC_SAMPLED_OBJECT_ALLOCATION_LOW_KEYWORD: u64 = 0x2000000;
-    const CORECLR_STACK_KEYWORD: u64 = 0x40000000; // https://learn.microsoft.com/en-us/dotnet/framework/performance/stack-etw-event (note: says .NET Framework, but applies to CoreCLR also)
-    const CORECLR_COMPILATION_KEYWORD: u64 = 0x1000000000;
-    const CORECLR_COMPILATION_DIAGNOSTIC_KEYWORD: u64 = 0x2000000000;
-    const CORECLR_TYPE_DIAGNOSTIC_KEYWORD: u64 = 0x8000000000;
-
-    const CORECLR_RUNDOWN_START_KEYWORD: u64 = 0x00000040;
-
     // if STACK is enabled, then every CoreCLR event will also generate a stack event right afterwards
+    use constants::*;
     let mut info_keywords = CORECLR_LOADER_KEYWORD | CORECLR_STACK_KEYWORD | CORECLR_GC_KEYWORD;
-    let mut verbose_keywords = CORECLR_JIT_KEYWORD | CORECLR_NGEN_KEYWORD;
+    let verbose_keywords = CORECLR_JIT_KEYWORD | CORECLR_NGEN_KEYWORD;
     // if we're attaching, ask for a rundown of method info at the start of collection
-    let mut rundown_verbose_keywords = if props.is_attach {
+    let rundown_verbose_keywords = if props.is_attach {
         CORECLR_LOADER_KEYWORD | CORECLR_JIT_KEYWORD | CORECLR_RUNDOWN_START_KEYWORD
     } else {
         0
@@ -301,31 +366,30 @@ pub fn coreclr_xperf_args(props: &ElevatedRecordingProps) -> Vec<String> {
 
 pub fn handle_coreclr_event(
     context: &mut ProfileContext,
+    core_clr_context: &mut CoreClrContext,
     s: &TypedEvent,
     parser: &mut Parser,
-    timestamp_converter: &TimestampConverter,
 ) {
-    let timestamp_raw = s.timestamp() as u64;
-    let timestamp = timestamp_converter.convert_time(timestamp_raw);
-
     if !context.is_interesting_process(s.process_id(), None, None) {
         return;
     }
 
-    let Some(dotnet_event) = s
-        .name()
-        .strip_prefix("Microsoft-Windows-DotNETRuntime/")
-        .or(s
-            .name()
-            .strip_prefix("Microsoft-Windows-DotNETRuntimeRundown/"))
-    else {
-        panic!("Unexpected event {}", s.name())
-    };
+    let timestamp_raw = s.timestamp() as u64;
 
-    let process_id = s.process_id();
-    let thread_id = s.thread_id();
-    let process_handle = context.get_process_handle(process_id).unwrap();
-    let thread_handle = context.get_thread_handle(thread_id).unwrap();
+    let mut name_parts = s.name().splitn(3, '/');
+    let provider = name_parts.next().unwrap();
+    let task = name_parts.next().unwrap();
+    let opcode = name_parts.next().unwrap();
+
+    match provider {
+        "Microsoft-Windows-DotNETRuntime" | "Microsoft-Windows-DotNETRuntimeRundown" => {}
+        _ => {
+            panic!("Unexpected event {}", s.name())
+        }
+    }
+
+    let pid = s.process_id();
+    let tid = s.thread_id();
 
     // TODO -- we may need to use the rundown provider if we trace running processes
     // https://learn.microsoft.com/en-us/dotnet/framework/performance/clr-etw-providers
@@ -336,24 +400,18 @@ pub fn handle_coreclr_event(
 
     let mut handled = false;
 
-    //eprintln!("event: {} [pid: {} tid: {}] {}", timestamp_raw, s.process_id(), s.thread_id(), dotnet_event);
+    //eprintln!("event: {} [pid: {} tid: {}] {}", timestamp_raw, s.pid(), s.tid(), dotnet_event);
 
     // If we get a non-stackwalk event followed by a non-stackwalk event for a given thread,
     // clear out any marker that may have been created to make sure the stackwalk doesn't
     // get attached to the wrong thing.
-    if dotnet_event != "CLRStack/CLRStackWalk" {
-        context
-            .coreclr_context
-            .borrow_mut()
-            .remove_last_event_for_thread(thread_handle);
+    if (task, opcode) != ("CLRStack", "CLRStackWalk") {
+        core_clr_context.remove_last_event_for_thread(tid);
     }
 
-    #[allow(clippy::if_same_then_else)]
-    if let Some(method_event) = dotnet_event
-        .strip_prefix("CLRMethod/")
-        .or(dotnet_event.strip_prefix("CLRMethodRundown/"))
-    {
-        match method_event {
+    match (task, opcode) {
+        ("CLRMethod" | "CLRMethodRundown", method_event) => {
+            match method_event {
             // there's MethodDCStart & MethodDCStartVerbose & MethodLoad
             // difference between *Verbose and not, is Verbose includes the names
 
@@ -362,9 +420,6 @@ pub fn handle_coreclr_event(
             => {
                 // R2RGetEntryPoint shares a lot of fields with MethodLoadVerbose
                 let is_r2r = method_event == "R2RGetEntryPoint";
-
-                context.ensure_process_jit_info(process_id);
-                let Some(process) = context.get_process(process_id) else { return; };
 
                 //let method_id: u64 = parser.parse("MethodID");
                 //let clr_instance_id: u32 = parser.parse("ClrInstanceID"); // v1/v2 only
@@ -388,28 +443,7 @@ pub fn handle_coreclr_event(
 
                 let method_name = format!("{method_basename} [{method_namespace}] \u{2329}{method_signature}\u{232a}");
 
-                let mut process_jit_info = context.get_process_jit_info(process_id);
-                let relative_address = process_jit_info.next_relative_address;
-                process_jit_info.next_relative_address += method_size;
-
-                // Not that useful for CoreCLR
-                //let mh = context.add_thread_marker(s.thread_id(), timestamp, CategoryHandle::OTHER, "JitFunctionAdd", JitFunctionAddMarker(method_name.to_owned()));
-                //context.coreclr_context.borrow_mut().set_last_event_for_thread(thread_handle, mh);
-
-                let category = context.get_category(KnownCategory::CoreClrJit);
-                let info = LibMappingInfo::new_jit_function(process_jit_info.lib_handle, category.into(), None);
-                process_jit_info.jit_mapping_ops.push(timestamp_raw, LibMappingOp::Add(LibMappingAdd {
-                    start_avma: method_start_address,
-                    end_avma: method_start_address + (method_size as u64),
-                    relative_address_at_start: relative_address,
-                    info
-                }));
-                process_jit_info.symbols.push(Symbol {
-                    address: relative_address,
-                    size: Some(method_size),
-                    name: method_name,
-                });
-
+                context.handle_coreclr_method_load(timestamp_raw, pid, method_name, method_start_address, method_size);
                 handled = true;
             }
             "ModuleLoad" | "ModuleDCStart" |
@@ -431,272 +465,208 @@ pub fn handle_coreclr_event(
                 handled = true;
             }
         }
-    } else if dotnet_event == "Type/BulkType" {
-        //         <template tid="BulkType">
-        // <data name="Count" inType="win:UInt32"    />
-        // <data name="ClrInstanceID" inType="win:UInt16" />
-        // <struct name="Values" count="Count" >
-        // <data name="TypeID" inType="win:UInt64" outType="win:HexInt64" />
-        // <data name="ModuleID" inType="win:UInt64" outType="win:HexInt64" />
-        // <data name="TypeNameID" inType="win:UInt32" />
-        // <data name="Flags" inType="win:UInt32" map="TypeFlagsMap"/>
-        // <data name="CorElementType"  inType="win:UInt8" />
-        // <data name="Name" inType="win:UnicodeString" />
-        // <data name="TypeParameterCount" inType="win:UInt32" />
-        // <data name="TypeParameters"  count="TypeParameterCount"  inType="win:UInt64" outType="win:HexInt64" />
-        // </struct>
-        // <UserData>
-        // <Type xmlns="myNs">
-        // <Count> %1 </Count>
-        // <ClrInstanceID> %2 </ClrInstanceID>
-        // </Type>
-        // </UserData>
-        //let count: u32 = parser.parse("Count");
+        }
+        ("Type", "BulkType") => {
+            //         <template tid="BulkType">
+            // <data name="Count" inType="win:UInt32"    />
+            // <data name="ClrInstanceID" inType="win:UInt16" />
+            // <struct name="Values" count="Count" >
+            // <data name="TypeID" inType="win:UInt64" outType="win:HexInt64" />
+            // <data name="ModuleID" inType="win:UInt64" outType="win:HexInt64" />
+            // <data name="TypeNameID" inType="win:UInt32" />
+            // <data name="Flags" inType="win:UInt32" map="TypeFlagsMap"/>
+            // <data name="CorElementType"  inType="win:UInt8" />
+            // <data name="Name" inType="win:UnicodeString" />
+            // <data name="TypeParameterCount" inType="win:UInt32" />
+            // <data name="TypeParameters"  count="TypeParameterCount"  inType="win:UInt64" outType="win:HexInt64" />
+            // </struct>
+            // <UserData>
+            // <Type xmlns="myNs">
+            // <Count> %1 </Count>
+            // <ClrInstanceID> %2 </ClrInstanceID>
+            // </Type>
+            // </UserData>
+            //let count: u32 = parser.parse("Count");
 
-        // uint32 + uint16 at the front (Count and ClrInstanceID), then struct of values. We don't need a Vec<u8> copy.
-        //let values: Vec<u8> = parser.parse("Values");
-        //let values = &s.user_buffer()[6..];
+            // uint32 + uint16 at the front (Count and ClrInstanceID), then struct of values. We don't need a Vec<u8> copy.
+            //let values: Vec<u8> = parser.parse("Values");
+            //let values = &s.user_buffer()[6..];
 
-        //eprintln!("Type/BulkType count: {} user_buffer size: {} values len: {}", count, s.user_buffer().len(), values.len());
-    } else if dotnet_event == "CLRStack/CLRStackWalk" {
-        // If the STACK keyword is enabled, we get a CLRStackWalk following each CLR event that supports stacks. Not every event
-        // does. The info about which does and doesn't is here: https://github.com/dotnet/runtime/blob/main/src/coreclr/vm/ClrEtwAllMeta.lst
-        // Current dotnet (8.0.x) seems to have a bug where `MethodJitMemoryAllocatedForCode` events will fire a stackwalk,
-        // but the event itself doesn't end up in the trace. (https://github.com/dotnet/runtime/issues/102004)
+            //eprintln!("Type/BulkType count: {} user_buffer size: {} values len: {}", count, s.user_buffer().len(), values.len());
+        }
+        ("CLRStack", "CLRStackWalk") => {
+            // If the STACK keyword is enabled, we get a CLRStackWalk following each CLR event that supports stacks. Not every event
+            // does. The info about which does and doesn't is here: https://github.com/dotnet/runtime/blob/main/src/coreclr/vm/ClrEtwAllMeta.lst
+            // Current dotnet (8.0.x) seems to have a bug where `MethodJitMemoryAllocatedForCode` events will fire a stackwalk,
+            // but the event itself doesn't end up in the trace. (https://github.com/dotnet/runtime/issues/102004)
 
-        // if we don't have anything to attach this stack to, just skip it
-        let Some(marker) = context
-            .get_coreclr_context()
-            .remove_last_event_for_thread(thread_handle)
-        else {
-            return;
-        };
+            // if we don't have anything to attach this stack to, just skip it
+            let Some(marker) = core_clr_context.remove_last_event_for_thread(tid) else {
+                return;
+            };
 
-        // "Stack" is explicitly declared as length 2 in the manifest, so the first two addresses are in here, rest
-        // are in user data buffer.
-        let first_addresses: Vec<u8> = parser.parse("Stack");
-        let stack: Vec<StackFrame> = first_addresses
-            .chunks_exact(8)
-            .chain(parser.buffer.chunks_exact(8))
-            .map(|chunk| u64::from_le_bytes(chunk.try_into().unwrap()))
-            .enumerate()
-            .map(|(i, addr)| {
-                if i == 0 {
-                    StackFrame::InstructionPointer(addr, context.stack_mode_for_address(addr))
-                } else {
-                    StackFrame::ReturnAddress(addr, context.stack_mode_for_address(addr))
+            // "Stack" is explicitly declared as length 2 in the manifest, so the first two addresses are in here, rest
+            // are in user data buffer.
+            let first_addresses: Vec<u8> = parser.parse("Stack");
+            let address_iter = first_addresses
+                .chunks_exact(8)
+                .chain(parser.buffer.chunks_exact(8))
+                .map(|chunk| u64::from_le_bytes(chunk.try_into().unwrap()));
+
+            context.handle_coreclr_stack(timestamp_raw, pid, tid, address_iter, marker);
+            handled = true;
+        }
+        ("GarbageCollection", gc_event) => {
+            match gc_event {
+                "GCSampledObjectAllocation" => {
+                    // If High/Low flags are set, then we get one of these for every alloc. Otherwise only
+                    // when a threshold is hit. (100kb) The count and size are aggregates in that case.
+                    let type_id: u64 = parser.parse("TypeID"); // TODO: convert to str, with bulk type data
+                                                               //let address: u64 = parser.parse("Address");
+                    let _object_count: u32 = parser.parse("ObjectCountForTypeSample");
+                    let total_size: u64 = parser.parse("TotalSizeForTypeSample");
+
+                    let mh = context.add_thread_instant_marker(
+                        timestamp_raw,
+                        tid,
+                        KnownCategory::CoreClrGc,
+                        "GC Alloc",
+                        CoreClrGcAllocMarker(format!("0x{:x}", type_id), total_size as usize),
+                    );
+                    core_clr_context.set_last_event_for_thread(tid, mh);
+                    handled = true;
                 }
-            })
-            .collect();
-        let stack_index = context.unresolved_stack_handle_for_stack(&stack);
-
-        //eprintln!("event: StackWalk stack: {:?}", stack);
-
-        // Note: we don't add these as actual samples, and instead just attach them to the marker.
-        // If we added them as samples, it would throw off the profile counting, because they arrive
-        // in between regular interval samples. In the future, maybe we can support fractional samples
-        // somehow (fractional weight), but for now, we just attach them to the marker.
-
-        context
-            .get_process_mut(process_id)
-            .unwrap()
-            .unresolved_samples
-            .add_sample_or_marker(
-                thread_handle,
-                timestamp,
-                timestamp_raw,
-                stack_index,
-                SampleOrMarker::MarkerHandle(marker),
-            );
-        handled = true;
-    } else if let Some(gc_event) = dotnet_event.strip_prefix("GarbageCollection/") {
-        let gc_category = context.get_category(KnownCategory::CoreClrGc);
-        match gc_event {
-            "GCSampledObjectAllocation" => {
-                // If High/Low flags are set, then we get one of these for every alloc. Otherwise only
-                // when a threshold is hit. (100kb) The count and size are aggregates in that case.
-                let type_id: u64 = parser.parse("TypeID"); // TODO: convert to str, with bulk type data
-                                                           //let address: u64 = parser.parse("Address");
-                let object_count: u32 = parser.parse("ObjectCountForTypeSample");
-                let total_size: u64 = parser.parse("TotalSizeForTypeSample");
-
-                let mh = context.profile.borrow_mut().add_marker(
-                    thread_handle,
-                    gc_category,
-                    "GC Alloc",
-                    CoreClrGcAllocMarker(format!("0x{:x}", type_id), total_size as usize),
-                    MarkerTiming::Instant(timestamp),
-                );
-                context
-                    .coreclr_context
-                    .borrow_mut()
-                    .set_last_event_for_thread(thread_handle, mh);
-                handled = true;
-            }
-            "Triggered" => {
-                let reason: u32 = parser.parse("Reason");
-
-                let reason_str = match reason {
-                    0x0 => "AllocSmall",
-                    0x1 => "Induced",
-                    0x2 => "LowMemory",
-                    0x3 => "Empty",
-                    0x4 => "AllocLarge",
-                    0x5 => "OutOfSpaceSmallObjectHeap",
-                    0x6 => "OutOfSpaceLargeObjectHeap",
-                    0x7 => "nducedNoForce",
-                    0x8 => "Stress",
-                    0x9 => "InducedLowMemory",
-                    _ => {
+                "Triggered" => {
+                    let reason: u32 = parser.parse("Reason");
+                    let reason = GcReason::from_u32(reason).or_else(|| {
                         eprintln!("Unknown CLR GC Triggered reason: {}", reason);
-                        "Unknown"
-                    }
-                };
+                        None
+                    });
 
-                let mh = context.profile.borrow_mut().add_marker(
-                    thread_handle,
-                    gc_category,
-                    "GC Trigger",
-                    CoreClrGcEventMarker(format!("GC Trigger: {}", reason_str)),
-                    MarkerTiming::Instant(timestamp),
-                );
-                context
-                    .coreclr_context
-                    .borrow_mut()
-                    .set_last_event_for_thread(thread_handle, mh);
-                handled = true;
-            }
-            "GCSuspendEEBegin" => {
-                // Reason, Count
-                let count: u32 = parser.parse("Count");
-                let reason: u32 = parser.parse("Reason");
+                    let mh = context.add_thread_instant_marker(
+                        timestamp_raw,
+                        tid,
+                        KnownCategory::CoreClrGc,
+                        "GC Trigger",
+                        CoreClrGcEventMarker(format!(
+                            "GC Trigger: {}",
+                            DisplayUnknownIfNone(&reason)
+                        )),
+                    );
+                    core_clr_context.set_last_event_for_thread(tid, mh);
+                    handled = true;
+                }
+                "GCSuspendEEBegin" => {
+                    // Reason, Count
+                    let _count: u32 = parser.parse("Count");
+                    let reason: u32 = parser.parse("Reason");
 
-                let reason_str = match reason {
-                    0x0 => "Other",
-                    0x1 => "GC",
-                    0x2 => "AppDomain shutdown",
-                    0x3 => "Code pitching",
-                    0x4 => "Shutdown",
-                    0x5 => "Debugger",
-                    0x6 => "GC Prep",
-                    0x7 => "Debugger sweep",
-                    _ => {
+                    let reason = GcSuspendEeReason::from_u32(reason).or_else(|| {
                         eprintln!("Unknown CLR GCSuspendEEBegin reason: {}", reason);
-                        "Unknown reason"
-                    }
-                };
+                        None
+                    });
 
-                context.coreclr_context.borrow_mut().save_gc_marker(
-                    thread_handle,
-                    timestamp,
-                    "GCSuspendEE",
-                    "GC Suspended Thread".to_owned(),
-                    format!("Suspended: {}", reason_str),
-                );
-                handled = true;
-            }
-            "GCSuspendEEEnd" | "GCRestartEEBegin" => {
-                // don't care -- we only care about SuspendBegin and RestartEnd
-                handled = true;
-            }
-            "GCRestartEEEnd" => {
-                if let Some(info) = context
-                    .coreclr_context
-                    .borrow_mut()
-                    .remove_gc_marker(thread_handle, "GCSuspendEE")
-                {
-                    context.profile.borrow_mut().add_marker(
-                        thread_handle,
-                        gc_category,
-                        &info.name,
-                        CoreClrGcEventMarker(info.description),
-                        MarkerTiming::Interval(info.start, timestamp),
+                    core_clr_context.save_gc_marker(
+                        tid,
+                        timestamp_raw,
+                        "GCSuspendEE",
+                        "GC Suspended Thread".to_owned(),
+                        format!("Suspended: {}", DisplayUnknownIfNone(&reason)),
                     );
+                    handled = true;
                 }
-                handled = true;
-            }
-            "win:Start" => {
-                let count: u32 = parser.parse("Count");
-                let depth: u32 = parser.parse("Depth");
-                let reason: u32 = parser.parse("Reason");
-                let gc_type: u32 = parser.parse("Type");
+                "GCSuspendEEEnd" | "GCRestartEEBegin" => {
+                    // don't care -- we only care about SuspendBegin and RestartEnd
+                    handled = true;
+                }
+                "GCRestartEEEnd" => {
+                    if let Some(info) = core_clr_context.remove_gc_marker(tid, "GCSuspendEE") {
+                        context.add_thread_interval_marker(
+                            info.start_timestamp_raw,
+                            timestamp_raw,
+                            tid,
+                            KnownCategory::CoreClrGc,
+                            &info.name,
+                            CoreClrGcEventMarker(info.description),
+                        );
+                    }
+                    handled = true;
+                }
+                "win:Start" => {
+                    let count: u32 = parser.parse("Count");
+                    let depth: u32 = parser.parse("Depth");
+                    let reason: u32 = parser.parse("Reason");
+                    let gc_type: u32 = parser.parse("Type");
 
-                let reason_str = match reason {
-                    0x0 => "Small object heap allocation",
-                    0x1 => "Induced",
-                    0x2 => "Low memory",
-                    0x3 => "Empty",
-                    0x4 => "Large object heap allocation",
-                    0x5 => "Out of space (for small object heap)",
-                    0x6 => "Out of space (for large object heap)",
-                    0x7 => "Induced but not forced as blocking",
-                    _ => {
+                    let reason = GcReason::from_u32(reason).or_else(|| {
                         eprintln!("Unknown CLR GCStart reason: {}", reason);
-                        "Unknown reason"
-                    }
-                };
+                        None
+                    });
 
-                let gc_type_str = match gc_type {
-                    0x0 => "Blocking GC",
-                    0x1 => "Background GC",
-                    0x2 => "Blocking GC during background GC",
-                    _ => {
+                    let gc_type = GcType::from_u32(gc_type).or_else(|| {
                         eprintln!("Unknown CLR GCStart type: {}", gc_type);
-                        "Unknown type"
-                    }
-                };
+                        None
+                    });
 
-                // TODO: use gc_type_str as the name
-                context.coreclr_context.borrow_mut().save_gc_marker(
-                    thread_handle,
-                    timestamp,
-                    "GC",
-                    "GC".to_owned(),
-                    format!(
-                        "{}: {} (GC #{}, gen{})",
-                        gc_type_str, reason_str, count, depth
-                    ),
-                );
-                handled = true;
-            }
-            "win:Stop" => {
-                //let count: u32 = parser.parse("Count");
-                //let depth: u32 = parser.parse("Depth");
-                if let Some(info) = context
-                    .coreclr_context
-                    .borrow_mut()
-                    .remove_gc_marker(thread_handle, "GC")
-                {
-                    context.profile.borrow_mut().add_marker(
-                        thread_handle,
-                        gc_category,
-                        &info.name,
-                        CoreClrGcEventMarker(info.description),
-                        MarkerTiming::Interval(info.start, timestamp),
+                    // TODO: use gc_type_str as the name
+                    core_clr_context.save_gc_marker(
+                        tid,
+                        timestamp_raw,
+                        "GC",
+                        "GC".to_owned(),
+                        format!(
+                            "{}: {} (GC #{}, gen{})",
+                            DisplayUnknownIfNone(&gc_type),
+                            DisplayUnknownIfNone(&reason),
+                            count,
+                            depth
+                        ),
                     );
+                    handled = true;
                 }
-                handled = true;
-            }
-            "SetGCHandle" => {
-                // TODO
-            }
-            "DestroyGCHandle" => {
-                // TODO
-            }
-            "GCFinalizersBegin" | "GCFinalizersEnd" | "FinalizeObject" => {
-                // TODO: create an interval
-                handled = true;
-            }
-            "GCCreateSegment" | "GCFreeSegment" | "GCDynamicEvent" | "GCHeapStats" | _ => {
-                // don't care
-                handled = true;
+                "win:Stop" => {
+                    //let count: u32 = parser.parse("Count");
+                    //let depth: u32 = parser.parse("Depth");
+                    if let Some(info) = core_clr_context.remove_gc_marker(tid, "GC") {
+                        context.add_thread_interval_marker(
+                            info.start_timestamp_raw,
+                            timestamp_raw,
+                            tid,
+                            KnownCategory::CoreClrGc,
+                            &info.name,
+                            CoreClrGcEventMarker(info.description),
+                        );
+                    }
+                    handled = true;
+                }
+                "SetGCHandle" => {
+                    // TODO
+                }
+                "DestroyGCHandle" => {
+                    // TODO
+                }
+                "GCFinalizersBegin" | "GCFinalizersEnd" | "FinalizeObject" => {
+                    // TODO: create an interval
+                    handled = true;
+                }
+                "GCCreateSegment" | "GCFreeSegment" | "GCDynamicEvent" | "GCHeapStats" => {
+                    // don't care
+                    handled = true;
+                }
+                _ => {
+                    // don't care
+                    handled = true;
+                }
             }
         }
-    } else if dotnet_event.starts_with("CLRRuntimeInformation/") {
-        handled = true;
-    } else if dotnet_event.starts_with("CLRLoader/") {
-        // AppDomain, Assembly, Module Load/Unload
-        handled = true;
+        ("CLRRuntimeInformation", _) => {
+            handled = true;
+        }
+        ("CLRLoader", _) => {
+            // AppDomain, Assembly, Module Load/Unload
+            handled = true;
+        }
+        _ => {}
     }
 
     if !handled {
@@ -704,18 +674,15 @@ pub fn handle_coreclr_event(
         //if dotnet_event.contains("/Thread") { return }
         //if dotnet_event.contains("Type/BulkType") { return }
         let text = event_properties_to_string(s, parser, None);
-        let mh = context.add_thread_marker(
-            s.thread_id(),
-            timestamp,
-            context.get_category(KnownCategory::Unknown),
+        let marker_handle = context.add_thread_instant_marker(
+            timestamp_raw,
+            tid,
+            KnownCategory::Unknown,
             s.name().split_once('/').unwrap().1,
             SimpleMarker(text),
         );
 
-        context
-            .coreclr_context
-            .borrow_mut()
-            .set_last_event_for_thread(thread_handle, mh);
-        //eprintln!("Unhandled .NET event: tid {} {} {:?}", s.thread_id(), dotnet_event, mh.unwrap());
+        core_clr_context.set_last_event_for_thread(tid, marker_handle);
+        //eprintln!("Unhandled .NET event: tid {} {} {:?}", s.tid(), dotnet_event, mh.unwrap());
     }
 }
