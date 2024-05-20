@@ -167,7 +167,7 @@ pub fn start_recording(
 
     if profile_creation_props.unstable_presymbolicate {
         crate::shared::symbol_precog::presymbolicate(
-            &context.profile.borrow(),
+            &profile,
             &output_file.with_extension("syms.json"),
         );
     }
