@@ -917,7 +917,6 @@ impl FileAndPathHelper for Helper {
         &self,
         info: &LibraryInfo,
     ) -> Option<(Self::FL, Arc<dyn SymbolMapTrait + Send + Sync>)> {
-        eprintln!("get_symbol_map_for_library: {:?}", info);
         let precog_symbol_data = self.precog_symbol_data.lock().unwrap();
         let symbol_map = precog_symbol_data.get(&info.debug_id?)?;
         let location = WholesymFileLocation::LocalFile(
