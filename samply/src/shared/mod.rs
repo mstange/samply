@@ -13,6 +13,7 @@ pub mod recording_props;
 pub mod recycling;
 pub mod stack_converter;
 pub mod stack_depth_limiting_frame_iter;
+pub mod symbol_precog;
 pub mod timestamp_converter;
 pub mod types;
 pub mod unresolved_samples;

@@ -256,7 +256,7 @@ pub use crate::shared::{
     MultiArchDisambiguator, OptionallySendFuture, PeCodeId, SourceFilePath, SymbolInfo,
     SyncAddressInfo,
 };
-pub use crate::symbol_map::SymbolMap;
+pub use crate::symbol_map::{SymbolMap, SymbolMapTrait};
 
 pub struct SymbolManager<H: FileAndPathHelper> {
     helper: Arc<H>,
@@ -304,6 +304,14 @@ where
     /// Obtain a symbol map for the library, given the (partial) `LibraryInfo`.
     /// At least the debug_id has to be given.
     pub async fn load_symbol_map(&self, library_info: &LibraryInfo) -> Result<SymbolMap<H>, Error> {
+        if let Some((fl, symbol_map)) = self
+            .helper()
+            .as_ref()
+            .get_symbol_map_for_library(library_info)
+        {
+            return Ok(SymbolMap::with_symbol_map_trait(fl, symbol_map));
+        }
+
         let debug_id = match library_info.debug_id {
             Some(debug_id) => debug_id,
             None => return Err(Error::NotEnoughInformationToIdentifySymbolMap),
