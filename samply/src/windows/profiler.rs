@@ -165,6 +165,13 @@ pub fn start_recording(
         to_writer(writer, &profile).expect("Couldn't write JSON");
     }
 
+    if profile_creation_props.unstable_presymbolicate {
+        crate::shared::symbol_precog::presymbolicate(
+            &profile,
+            &output_file.with_extension("syms.json"),
+        );
+    }
+
     // then fire up the server for the profiler front end, if not save-only
     if let Some(server_props) = server_props {
         let libinfo_map = crate::profile_json_preparse::parse_libinfo_map_from_profile_file(

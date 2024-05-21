@@ -33,7 +33,7 @@ impl FrameTable {
         resource_table: &mut ResourceTable,
         func_table: &mut FuncTable,
         native_symbol_table: &mut NativeSymbols,
-        global_libs: &GlobalLibTable,
+        global_libs: &mut GlobalLibTable,
         frame: InternalFrame,
     ) -> usize {
         let addresses = &mut self.addresses;
@@ -73,6 +73,9 @@ impl FrameTable {
                                 (Some(native_symbol), name_string_index)
                             }
                             None => {
+                                // This isn't in the pre-provided symbol table, and we know it's in a library.
+                                global_libs.add_lib_used_rva(lib_index, address);
+
                                 let location_string = format!("0x{address:x}");
                                 (None, string_table.index_for_string(&location_string))
                             }

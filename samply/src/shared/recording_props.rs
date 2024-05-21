@@ -54,6 +54,8 @@ pub struct ProfileCreationProps {
     /// Override system architecture.
     #[allow(dead_code)]
     pub override_arch: Option<String>,
+    /// Dump presymbolication info.
+    pub unstable_presymbolicate: bool,
 }
 
 /// Properties which are meaningful for launching and recording a fresh process.

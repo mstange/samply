@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use serde::ser::{Serialize, Serializer};
@@ -14,6 +15,12 @@ pub struct GlobalLibTable {
     used_libs: Vec<LibraryHandle>, // append-only for stable GlobalLibIndexes
     lib_map: FastHashMap<LibraryInfo, LibraryHandle>,
     used_lib_map: FastHashMap<LibraryHandle, GlobalLibIndex>,
+    /// We keep track of RVA addresses that exist in frames that are assigned to this
+    /// library, so that we can potentially provide symbolication info ahead of time.
+    /// This is here instead of in `LibraryInfo` because we don't want to serialize it,
+    /// and because it's currently a hack.
+    /// Indexed by GlobalLibIndex.0, i.e. a parallel array to `used_libs`.
+    used_libs_seen_rvas: Vec<BTreeSet<u32>>,
 }
 
 impl GlobalLibTable {
@@ -23,6 +30,7 @@ impl GlobalLibTable {
             used_libs: Vec::new(),
             lib_map: FastHashMap::default(),
             used_lib_map: FastHashMap::default(),
+            used_libs_seen_rvas: Vec::new(),
         }
     }
 
@@ -44,6 +52,7 @@ impl GlobalLibTable {
         *self.used_lib_map.entry(lib_handle).or_insert_with(|| {
             let index = GlobalLibIndex(used_libs.len());
             used_libs.push(lib_handle);
+            self.used_libs_seen_rvas.push(BTreeSet::new());
             index
         })
     }
@@ -51,6 +60,17 @@ impl GlobalLibTable {
     pub fn get_lib(&self, index: GlobalLibIndex) -> Option<&LibraryInfo> {
         let handle = self.used_libs.get(index.0)?;
         self.all_libs.get(handle.0)
+    }
+
+    pub fn add_lib_used_rva(&mut self, index: GlobalLibIndex, address: u32) {
+        self.used_libs_seen_rvas[index.0].insert(address);
+    }
+
+    pub fn lib_used_rva_iter(&self) -> UsedLibraryAddressesIterator {
+        UsedLibraryAddressesIterator {
+            next_used_lib_index: 0,
+            global_lib_table: self,
+        }
     }
 }
 
@@ -74,3 +94,26 @@ impl Serialize for GlobalLibIndex {
 /// The handle for a library, obtained from [`Profile::add_lib`](crate::Profile::add_lib).
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct LibraryHandle(usize);
+
+pub struct UsedLibraryAddressesIterator<'a> {
+    next_used_lib_index: usize,
+    global_lib_table: &'a GlobalLibTable,
+}
+
+impl<'a> Iterator for UsedLibraryAddressesIterator<'a> {
+    type Item = (&'a LibraryInfo, &'a BTreeSet<u32>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let rvas = self
+            .global_lib_table
+            .used_libs_seen_rvas
+            .get(self.next_used_lib_index)?;
+
+        let lib_handle = self.global_lib_table.used_libs[self.next_used_lib_index];
+        let info = &self.global_lib_table.all_libs[lib_handle.0];
+
+        self.next_used_lib_index += 1;
+
+        Some((info, rvas))
+    }
+}

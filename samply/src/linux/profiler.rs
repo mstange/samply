@@ -97,6 +97,7 @@ pub fn start_recording(
     let interval = recording_props.interval;
     let time_limit = recording_props.time_limit;
     let observer_thread = thread::spawn(move || {
+        let unstable_presymbolicate = profile_creation_props.unstable_presymbolicate;
         let mut converter = make_converter(interval, profile_creation_props);
 
         // Wait for the initial pid to profile.
@@ -128,6 +129,7 @@ pub fn start_recording(
             profile_another_pid_request_receiver,
             profile_another_pid_reply_sender,
             stop_receiver,
+            unstable_presymbolicate,
         );
     });
 
@@ -265,6 +267,7 @@ fn start_profiling_pid(
         move || {
             let interval = recording_props.interval;
             let time_limit = recording_props.time_limit;
+            let unstable_presymbolicate = profile_creation_props.unstable_presymbolicate;
             let mut converter = make_converter(interval, profile_creation_props);
             let SamplerRequest::StartProfilingAnotherProcess(pid, attach_mode) =
                 profile_another_pid_request_receiver.recv().unwrap()
@@ -285,6 +288,7 @@ fn start_profiling_pid(
                 profile_another_pid_request_receiver,
                 profile_another_pid_reply_sender,
                 ctrl_c_receiver,
+                unstable_presymbolicate,
             )
         }
     });
@@ -532,6 +536,7 @@ enum SamplerRequest {
     StopProfilingOncePerfEventsExhausted,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_profiler(
     mut perf: PerfGroup,
     mut converter: Converter<
@@ -542,6 +547,7 @@ fn run_profiler(
     more_processes_request_receiver: Receiver<SamplerRequest>,
     more_processes_reply_sender: Sender<bool>,
     mut stop_receiver: oneshot::Receiver<()>,
+    unstable_presymbolicate: bool,
 ) {
     // eprintln!("Running...");
 
@@ -667,9 +673,18 @@ fn run_profiler(
 
     let profile = converter.finish();
 
-    let output_file = File::create(output_filename).unwrap();
-    let writer = BufWriter::new(output_file);
-    serde_json::to_writer(writer, &profile).expect("Couldn't write JSON");
+    {
+        let output_file = File::create(output_filename).unwrap();
+        let writer = BufWriter::new(output_file);
+        serde_json::to_writer(writer, &profile).expect("Couldn't write JSON");
+    }
+
+    if unstable_presymbolicate {
+        crate::shared::symbol_precog::presymbolicate(
+            &profile,
+            &output_filename.with_extension("syms.json"),
+        );
+    }
 }
 
 pub fn read_string_lossy<P: AsRef<Path>>(path: P) -> std::io::Result<String> {

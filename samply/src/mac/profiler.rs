@@ -85,6 +85,8 @@ pub fn start_recording(
         ..profile_creation_props
     };
 
+    let unstable_presymbolicate = profile_creation_props.unstable_presymbolicate;
+
     let (task_sender, task_receiver) = unbounded();
 
     let sampler_thread = thread::spawn(move || {
@@ -208,6 +210,13 @@ pub fn start_recording(
         let file = File::create(&output_file).unwrap();
         let writer = BufWriter::new(file);
         to_writer(writer, &profile).expect("Couldn't write JSON");
+    }
+
+    if unstable_presymbolicate {
+        crate::shared::symbol_precog::presymbolicate(
+            &profile,
+            &output_file.with_extension("syms.json"),
+        );
     }
 
     if let Some(server_props) = server_props {

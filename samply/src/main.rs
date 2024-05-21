@@ -240,6 +240,14 @@ pub struct ProfileCreationArgs {
     /// Create a separate thread for each CPU. Not supported on macOS
     #[arg(long)]
     per_cpu_threads: bool,
+
+    /// Emit .syms.json sidecar file containing gathered symbol info for all frames referenced by
+    /// this profile. With this file along with the profile, samply can load the profile
+    /// and provide symbols to the front end without needing debug files to be
+    /// available. (Unstable: will probably change to include the full information
+    /// in the profile.json, instead of a sidecar file.)
+    #[arg(long)]
+    unstable_presymbolicate: bool,
 }
 
 #[derive(Debug, Args)]
@@ -372,6 +380,7 @@ impl ImportArgs {
             unlink_aux_files: self.profile_creation_args.unlink_aux_files,
             create_per_cpu_threads: self.profile_creation_args.per_cpu_threads,
             override_arch: self.override_arch.clone(),
+            unstable_presymbolicate: self.profile_creation_args.unstable_presymbolicate,
         }
     }
 
@@ -476,6 +485,7 @@ impl RecordArgs {
             unlink_aux_files: self.profile_creation_args.unlink_aux_files,
             create_per_cpu_threads: self.profile_creation_args.per_cpu_threads,
             override_arch: None,
+            unstable_presymbolicate: self.profile_creation_args.unstable_presymbolicate,
         }
     }
 }

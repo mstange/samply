@@ -97,7 +97,7 @@ impl Thread {
     pub fn frame_index_for_frame(
         &mut self,
         frame: InternalFrame,
-        global_libs: &GlobalLibTable,
+        global_libs: &mut GlobalLibTable,
     ) -> usize {
         self.frame_table.index_for_frame(
             &mut self.string_table,
