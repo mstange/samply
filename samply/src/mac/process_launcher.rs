@@ -287,7 +287,11 @@ impl ExistingProcessRunner {
                         return;
                     }
 
-                    eprintln!("Error: task_for_pid for target task failed with error code {kr}. Does the profiler have entitlements?");
+                    eprintln!("Error: task_for_pid for target task failed with error code {kr}.");
+                    eprintln!(
+                        "Please run 'samply setup' in order to grant appropriate entitlements"
+                    );
+                    eprintln!("to the binary.");
                     std::process::exit(1);
                 }
                 task_suspend(task);
@@ -301,7 +305,7 @@ impl ExistingProcessRunner {
         };
 
         // always root pid first
-        queue_pid(pid, true);
+        queue_pid(pid, false);
 
         // TODO: find all its children
 

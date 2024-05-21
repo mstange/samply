@@ -1,6 +1,7 @@
 #[allow(deref_nullptr)]
 mod dyld_bindings;
 
+pub mod codesign_setup;
 mod error;
 pub mod kernel_error;
 mod mach_ipc;
