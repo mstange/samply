@@ -54,7 +54,7 @@ fs4 = "0.8.3"
 [target.'cfg(any(target_os = "android", target_os = "macos", target_os = "linux"))'.dependencies]
 
 libc = "0.2.155"
-crossbeam-channel = "0.5.12"
+crossbeam-channel = "0.5.13"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 
