@@ -271,6 +271,9 @@ pub struct ProfileContext {
 
     timestamp_converter: TimestampConverter,
     event_timestamps_are_qpc: bool,
+
+    /// Only include main threads.
+    main_thread_only: bool,
 }
 
 impl ProfileContext {
@@ -294,6 +297,7 @@ impl ProfileContext {
         } else {
             None
         };
+        let main_thread_only = profile_creation_props.main_thread_only;
 
         Self {
             profile,
@@ -324,6 +328,7 @@ impl ProfileContext {
                 raw_to_ns_factor: 1,
             },
             event_timestamps_are_qpc: false,
+            main_thread_only,
         }
     }
 
@@ -709,6 +714,11 @@ impl ProfileContext {
             return;
         }
 
+        if self.main_thread_only {
+            // Ignore this thread.
+            return;
+        }
+
         let thread_handle = self
             .profile
             .add_thread(process.handle, tid, timestamp, false);
@@ -759,6 +769,11 @@ impl ProfileContext {
             // self.profile.set_thread_tid(thread_handle, tid);
             let thread = ThreadState::new(name, true, thread_handle, thread_label_frame, pid, tid);
             self.threads.insert(tid, thread);
+            return;
+        }
+
+        if self.main_thread_only {
+            // Ignore this thread.
             return;
         }
 
@@ -856,10 +871,12 @@ impl ProfileContext {
         stack_address_iter: impl Iterator<Item = u64>,
         marker_handle: MarkerHandle,
     ) {
+        let Some(thread) = self.threads.get(&tid) else {
+            return;
+        };
         let stack: Vec<StackFrame> = to_stack_frames(stack_address_iter, self.address_classifier);
 
         let stack_index = self.unresolved_stacks.convert(stack.into_iter().rev());
-        let thread = self.threads.get(&tid).unwrap();
         //eprintln!("event: StackWalk stack: {:?}", stack);
 
         // Note: we don't add these as actual samples, and instead just attach them to the marker.

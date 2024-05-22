@@ -108,7 +108,6 @@ impl Sampler {
             &self.command_name,
             &mut profile,
             process_recycler.as_mut(),
-            self.recording_props.clone(),
             self.profile_creation_props.clone(),
         )
         .expect("couldn't create root TaskProfiler");
@@ -150,7 +149,6 @@ impl Sampler {
                     &self.command_name,
                     &mut profile,
                     process_recycler.as_mut(),
-                    self.recording_props.clone(),
                     self.profile_creation_props.clone(),
                 ) {
                     live_tasks.push(new_task);

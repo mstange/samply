@@ -153,11 +153,6 @@ struct RecordArgs {
     #[arg(long, default_value = "1")]
     iteration_count: u32,
 
-    /// Reduce profiling overhead by only recording the main thread.
-    /// This option is only respected on macOS.
-    #[arg(long)]
-    main_thread_only: bool,
-
     #[command(flatten)]
     profile_creation_args: ProfileCreationArgs,
 
@@ -246,6 +241,11 @@ pub struct ProfileCreationArgs {
     /// By default it is either the command that was run or the process pid.
     #[arg(long)]
     profile_name: Option<String>,
+
+    /// Only include the main thread of each process in order to reduce profile size,
+    /// only respected on Windows and macOS
+    #[arg(long)]
+    main_thread_only: bool,
 
     /// Merge non-overlapping threads of the same name.
     #[arg(long)]
@@ -411,6 +411,7 @@ impl ImportArgs {
         };
         ProfileCreationProps {
             profile_name,
+            main_thread_only: self.profile_creation_args.main_thread_only,
             reuse_threads: self.profile_creation_args.reuse_threads,
             fold_recursive_prefix: self.profile_creation_args.fold_recursive_prefix,
             unlink_aux_files: self.profile_creation_args.unlink_aux_files,
@@ -469,7 +470,6 @@ impl RecordArgs {
             output_file: self.output.clone(),
             time_limit,
             interval,
-            main_thread_only: self.main_thread_only,
             vm_hack,
             gfx: self.gfx,
         }
@@ -520,6 +520,7 @@ impl RecordArgs {
         });
         ProfileCreationProps {
             profile_name,
+            main_thread_only: self.profile_creation_args.main_thread_only,
             reuse_threads: self.profile_creation_args.reuse_threads,
             fold_recursive_prefix: self.profile_creation_args.fold_recursive_prefix,
             unlink_aux_files: self.profile_creation_args.unlink_aux_files,
