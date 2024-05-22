@@ -30,7 +30,6 @@ pub struct RecordingProps {
     pub output_file: PathBuf,
     pub time_limit: Option<Duration>,
     pub interval: Duration,
-    pub main_thread_only: bool,
     pub vm_hack: bool,
     pub gfx: bool,
 }
@@ -62,6 +61,8 @@ impl RecordingMode {
 #[derive(Debug, Clone)]
 pub struct ProfileCreationProps {
     pub profile_name: String,
+    /// Only include the main thread of each process.
+    pub main_thread_only: bool,
     /// Merge non-overlapping threads of the same name.
     pub reuse_threads: bool,
     /// Fold repeated frames at the base of the stack.

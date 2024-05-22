@@ -43,7 +43,7 @@ use crate::shared::marker_file;
 use crate::shared::marker_file::get_markers;
 use crate::shared::perf_map::try_load_perf_map;
 use crate::shared::process_sample_data::{MarkerSpanOnThread, ProcessSampleData};
-use crate::shared::recording_props::{ProfileCreationProps, RecordingProps};
+use crate::shared::recording_props::ProfileCreationProps;
 use crate::shared::recycling::{ProcessRecycler, ProcessRecyclingData, ThreadRecycler};
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
@@ -114,7 +114,6 @@ pub struct TaskProfiler {
     thread_recycler: Option<ThreadRecycler>,
     jit_function_recycler: Option<JitFunctionRecycler>,
     timestamp_converter: TimestampConverter,
-    recording_props: Arc<RecordingProps>,
     profile_creation_props: Arc<ProfileCreationProps>,
 }
 
@@ -125,7 +124,6 @@ impl TaskProfiler {
         command_name: &str,
         profile: &mut Profile,
         mut process_recycler: Option<&mut ProcessRecycler>,
-        recording_props: Arc<RecordingProps>,
         profile_creation_props: Arc<ProfileCreationProps>,
     ) -> Result<Self, SamplingError> {
         let TaskInit {
@@ -150,7 +148,7 @@ impl TaskProfiler {
             })
             .unwrap_or_else(|| command_name.to_string());
 
-        let thread_acts = get_thread_list(task, recording_props.main_thread_only)?;
+        let thread_acts = get_thread_list(task, profile_creation_props.main_thread_only)?;
         if thread_acts.is_empty() {
             return Err(SamplingError::Ignorable(
                 "No threads",
@@ -297,7 +295,6 @@ impl TaskProfiler {
             thread_recycler,
             jit_function_recycler,
             timestamp_converter,
-            recording_props,
             profile_creation_props,
         };
 
@@ -359,7 +356,7 @@ impl TaskProfiler {
         }
 
         // Enumerate threads.
-        let thread_acts = get_thread_list(self.task, self.recording_props.main_thread_only)?;
+        let thread_acts = get_thread_list(self.task, self.profile_creation_props.main_thread_only)?;
         let previously_live_threads: HashSet<_> = self.live_threads.keys().cloned().collect();
         let mut now_live_threads = HashSet::new();
         for thread_act in thread_acts {
