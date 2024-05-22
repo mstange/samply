@@ -12,7 +12,7 @@ readme = "README.md"
 [dependencies]
 bitflags = "2.5"
 serde_json = "1.0"
-serde = "1.0.201"
+serde = "1.0.202"
 serde_derive = "1.0.188"
 debugid = "0.8.0"
 fxhash = "0.2.1"
