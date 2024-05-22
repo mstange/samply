@@ -14,7 +14,7 @@ reqwest = { version = "0.12.4", default-features = false, features = [
   "gzip",
   "blocking"
 ] }
-anyhow = "1.0.83"
+anyhow = "1.0.86"
 tempfile = "3.10.1"
 futures = "0.3.5"
 cab = "0.6.0"

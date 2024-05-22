@@ -10,6 +10,6 @@ publish = false
 samply-api = { path = "../../samply-api" }
 clap = { version = "4", features = ["derive"] }
 memmap2 = "0.9.4"
-anyhow = "1.0.83"
+anyhow = "1.0.86"
 futures = "0.3.5"
 serde_json = "1.0.117"
