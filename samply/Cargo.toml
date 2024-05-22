@@ -33,7 +33,7 @@ thiserror = "1.0.60"
 tempfile = "3.10.1"
 uuid = {  version = "1.8.0", features = ["v4"] }
 percent-encoding = "2.1.0"
-libc = "0.2.154"
+libc = "0.2.155"
 flate2 = "1.0"
 opener = { version = "0.7.0", default-features = false }
 rand = "0.8.4"
@@ -53,7 +53,7 @@ fs4 = "0.8.2"
 
 [target.'cfg(any(target_os = "android", target_os = "macos", target_os = "linux"))'.dependencies]
 
-libc = "0.2.154"
+libc = "0.2.155"
 crossbeam-channel = "0.5.12"
 
 [target.'cfg(target_os = "macos")'.dependencies]
