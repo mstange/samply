@@ -273,6 +273,11 @@ pub struct ProfileCreationArgs {
     /// in the profile.json, instead of a sidecar file.)
     #[arg(long)]
     unstable_presymbolicate: bool,
+
+    /// Emit markers for any unknown ETW events that are encountered.
+    #[cfg(target_os = "windows")]
+    #[arg(long)]
+    unknown_event_markers: bool,
 }
 
 #[derive(Debug, Args)]
@@ -413,6 +418,7 @@ impl ImportArgs {
             override_arch: self.override_arch.clone(),
             unstable_presymbolicate: self.profile_creation_args.unstable_presymbolicate,
             coreclr: to_coreclr_profile_props(&self.coreclr),
+            unknown_event_markers: self.profile_creation_args.unknown_event_markers,
         }
     }
 
@@ -518,6 +524,7 @@ impl RecordArgs {
             override_arch: None,
             unstable_presymbolicate: self.profile_creation_args.unstable_presymbolicate,
             coreclr: to_coreclr_profile_props(&self.coreclr),
+            unknown_event_markers: self.profile_creation_args.unknown_event_markers,
         }
     }
 }
