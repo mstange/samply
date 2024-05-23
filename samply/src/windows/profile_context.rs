@@ -12,7 +12,7 @@ use fxprof_processed_profile::{
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use super::chrome_etw_flags::KeywordNames;
+use super::chrome::KeywordNames;
 use super::winutils;
 use crate::shared::context_switch::{
     ContextSwitchHandler, OffCpuSampleGroup, ThreadContextSwitchData,
@@ -28,7 +28,7 @@ use crate::shared::recycling::{ProcessRecycler, ProcessRecyclingData, ThreadRecy
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::types::{StackFrame, StackMode};
 use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
-use crate::windows::firefox_etw_flags::{
+use crate::windows::firefox::{
     PHASE_INSTANT, PHASE_INTERVAL, PHASE_INTERVAL_END, PHASE_INTERVAL_START,
 };
 

@@ -1,9 +1,9 @@
-mod chrome_etw_flags;
+mod chrome;
 mod console;
 mod coreclr;
 mod elevated_helper;
 mod etw_gecko;
-mod firefox_etw_flags;
+mod firefox;
 mod gfx;
 pub mod import;
 mod profile_context;

@@ -59,6 +59,10 @@ impl Xperf {
 
         user_providers.append(&mut super::coreclr::coreclr_xperf_args(props));
         user_providers.append(&mut super::gfx::gfx_xperf_args(props));
+        user_providers.append(&mut super::firefox::firefox_xperf_args(props));
+        user_providers.append(&mut super::chrome::chrome_xperf_args(props));
+        user_providers.sort_unstable();
+        user_providers.dedup();
 
         let xperf_path = self.get_xperf_path()?;
         // start xperf.exe, logging to the same location as the output file, just with a .etl
