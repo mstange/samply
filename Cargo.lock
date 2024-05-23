@@ -2879,9 +2879,9 @@ dependencies = [
 
 [[package]]
 name = "yaxpeax-arch"
-version = "0.2.7"
+version = "0.2.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1ba5c2f163fa2f866c36750c6c931566c6d93231ae9410083b0738953b609d5"
+checksum = "9f005c964432a1f9ee04598e094a3eb5f7568f6b33e89a2762d7bef6fbe8b255"
 dependencies = [
  "num-traits",
 ]
