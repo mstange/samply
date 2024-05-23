@@ -49,12 +49,12 @@ ctrlc = "3.4.4"
 log = "0.4.21"
 env_logger = "0.11.3"
 cfg-if = "1.0.0"
-fs4 = "0.8.2"
+fs4 = "0.8.3"
 
 [target.'cfg(any(target_os = "android", target_os = "macos", target_os = "linux"))'.dependencies]
 
 libc = "0.2.155"
-crossbeam-channel = "0.5.12"
+crossbeam-channel = "0.5.13"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 
