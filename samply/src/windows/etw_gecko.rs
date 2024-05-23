@@ -112,6 +112,9 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                 let pid: u32 = parser.parse("ProcessId");
                 context.handle_process_dcend(timestamp_raw, pid);
             }
+            "MSNT_SystemTrace/Process/Terminate" => {
+                // nothing, but we don't want a marker for it
+            }
             "MSNT_SystemTrace/StackWalk/Stack" => {
                 let tid: u32 = parser.parse("StackThread");
                 let pid: u32 = parser.parse("StackProcess");
@@ -205,6 +208,9 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                 let image_size: u64 = parser.try_parse("ImageSize").unwrap();
                 let path: String = parser.try_parse("FileName").unwrap();
                 context.handle_image_load(timestamp_raw, pid, image_base, image_size, path);
+            }
+            "MSNT_SystemTrace/Image/UnLoad" => {
+                // nothing, but we don't want a marker for it
             }
             "Microsoft-Windows-DxgKrnl/VSyncDPC/Info " => {
                 context.handle_vsync(timestamp_raw);

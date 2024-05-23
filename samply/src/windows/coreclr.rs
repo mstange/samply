@@ -28,6 +28,7 @@ pub struct CoreClrContext {
     props: CoreClrProfileProps,
     last_marker_on_thread: HashMap<u32, MarkerHandle>,
     gc_markers_on_thread: HashMap<u32, HashMap<&'static str, SavedMarkerInfo>>,
+    unknown_event_markers: bool,
 }
 
 impl CoreClrContext {
@@ -36,6 +37,7 @@ impl CoreClrContext {
             props: profile_creation_props.coreclr,
             last_marker_on_thread: HashMap::new(),
             gc_markers_on_thread: HashMap::new(),
+            unknown_event_markers: profile_creation_props.unknown_event_markers,
         }
     }
 
@@ -382,8 +384,6 @@ pub fn handle_coreclr_event(
     s: &TypedEvent,
     parser: &mut Parser,
 ) {
-    let show_unknown_events = false;
-
     let (gc_markers, gc_suspensions, gc_allocs, event_stacks) = (
         coreclr_context.props.gc_markers,
         coreclr_context.props.gc_suspensions,
@@ -717,7 +717,7 @@ pub fn handle_coreclr_event(
         _ => {}
     }
 
-    if !handled && show_unknown_events {
+    if !handled && coreclr_context.unknown_event_markers {
         let text = event_properties_to_string(s, parser, None);
         let marker_handle = context.add_thread_instant_marker(
             timestamp_raw,

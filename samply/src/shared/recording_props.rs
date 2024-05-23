@@ -77,6 +77,8 @@ pub struct ProfileCreationProps {
     pub unstable_presymbolicate: bool,
     /// CoreCLR specific properties.
     pub coreclr: CoreClrProfileProps,
+    /// Create markers for unknown events.
+    pub unknown_event_markers: bool,
 }
 
 /// Properties which are meaningful for launching and recording a fresh process.

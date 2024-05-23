@@ -1664,6 +1664,10 @@ impl ProfileContext {
         task_and_op: &str,
         stringified_properties: String,
     ) {
+        if !self.profile_creation_props.unknown_event_markers {
+            return;
+        }
+
         let Some(thread) = self.threads.get_mut(&tid) else {
             return;
         };
