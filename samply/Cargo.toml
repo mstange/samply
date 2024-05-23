@@ -35,7 +35,7 @@ uuid = {  version = "1.8.0", features = ["v4"] }
 percent-encoding = "2.1.0"
 libc = "0.2.155"
 flate2 = "1.0"
-opener = { version = "0.7.0", default-features = false }
+opener = { version = "0.7.1", default-features = false }
 rand = "0.8.4"
 nix-base32 = "0.1.1"
 serde_derive = "1.0.137"
