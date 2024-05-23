@@ -65,7 +65,7 @@ pub fn start_recording(
         iteration_count,
     } = process_launch_props;
 
-    if recording_props.coreclr {
+    if profile_creation_props.coreclr.any_enabled() {
         // We need to set DOTNET_PerfMapEnabled=2 in the environment if it's not already set.
         // TODO: implement unlink_aux_files for linux
         if !env_vars.iter().any(|p| p.0 == "DOTNET_PerfMapEnabled") {

@@ -3,7 +3,9 @@ use std::path::{Path, PathBuf};
 
 use serde_derive::{Deserialize, Serialize};
 
-use crate::shared::recording_props::{RecordingMode, RecordingProps};
+use crate::shared::recording_props::{
+    CoreClrProfileProps, ProfileCreationProps, RecordingMode, RecordingProps,
+};
 
 use super::utility_process::{
     run_child, UtilityProcess, UtilityProcessChild, UtilityProcessParent, UtilityProcessSession,
@@ -22,8 +24,7 @@ enum ElevatedHelperRequestMsg {
 pub struct ElevatedRecordingProps {
     pub time_limit_seconds: Option<f64>,
     pub interval_nanos: u64,
-    pub coreclr: bool,
-    pub coreclr_allocs: bool,
+    pub coreclr: CoreClrProfileProps,
     pub vm_hack: bool,
     pub is_attach: bool,
     pub gfx: bool,
@@ -32,13 +33,13 @@ pub struct ElevatedRecordingProps {
 impl ElevatedRecordingProps {
     pub fn from_recording_props(
         recording_props: &RecordingProps,
+        profile_creation_props: &ProfileCreationProps,
         recording_mode: &RecordingMode,
     ) -> Self {
         Self {
             time_limit_seconds: recording_props.time_limit.map(|l| l.as_secs_f64()),
             interval_nanos: recording_props.interval.as_nanos().try_into().unwrap(),
-            coreclr: recording_props.coreclr,
-            coreclr_allocs: recording_props.coreclr_allocs,
+            coreclr: profile_creation_props.coreclr,
             vm_hack: recording_props.vm_hack,
             is_attach: recording_mode.is_attach_mode(),
             gfx: recording_props.gfx,
@@ -75,10 +76,14 @@ impl ElevatedHelperSession {
     pub fn start_xperf(
         &mut self,
         recording_props: &RecordingProps,
+        profile_creation_props: &ProfileCreationProps,
         recording_mode: &RecordingMode,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let xperf_args =
-            ElevatedRecordingProps::from_recording_props(recording_props, recording_mode);
+        let xperf_args = ElevatedRecordingProps::from_recording_props(
+            recording_props,
+            profile_creation_props,
+            recording_mode,
+        );
         match self
             .elevated_session
             .send_msg_and_wait_for_response(ElevatedHelperRequestMsg::StartXperf(xperf_args))

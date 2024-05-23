@@ -25,7 +25,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
 
     let demand_zero_faults = false; //pargs.contains("--demand-zero-faults");
 
-    let mut core_clr_context = coreclr::CoreClrContext::new();
+    let mut core_clr_context = coreclr::CoreClrContext::new(context.creation_props());
 
     let result = open_trace(etl_file, |e| {
         let Ok(s) = schema_locator.event_schema(e) else {
