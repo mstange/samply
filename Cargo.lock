@@ -2078,9 +2078,9 @@ checksum = "81cdd64d312baedb58e21336b31bc043b77e01cc99033ce76ef539f78e965ebc"
 
 [[package]]
 name = "symsrv"
-version = "0.5.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "098492916b4954d05c9f195d073714401a48ad9d0c1d4690a4074146c9924804"
+checksum = "bc9eb3fb03ab32475d1107c2b3d2efcd48cb5e9278e7b39186598df7a049a1da"
 dependencies = [
  "async-compression",
  "cab",
