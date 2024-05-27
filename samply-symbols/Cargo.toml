@@ -23,7 +23,7 @@ version = "0.22"
 [dependencies.gimli]
 default-features = false
 features = ["read"]
-version = "0.29"
+version = "0.30"
 
 [dependencies.object]
 default-features = false
