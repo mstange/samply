@@ -69,7 +69,7 @@ tempfile = "3.10.1"
 parking_lot = "0.12.2"
 num_cpus = "1.13.1"
 uname = "0.1.1"
-nix = { version = "0.28", features = ["fs", "process"] }
+nix = { version = "0.29", features = ["fs", "process"] }
 
 [target.'cfg(windows)'.dependencies]
 
