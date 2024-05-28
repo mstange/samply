@@ -705,7 +705,7 @@ impl<'a> Serialize for SerializableProfileMeta<'a> {
             }),
         )?;
         map.serialize_entry("interval", &(self.0.interval.as_secs_f64() * 1000.0))?;
-        map.serialize_entry("preprocessedProfileVersion", &47)?;
+        map.serialize_entry("preprocessedProfileVersion", &48)?;
         map.serialize_entry("processType", &0)?;
         map.serialize_entry("product", &self.0.product)?;
         map.serialize_entry(
