@@ -196,6 +196,10 @@ struct RecordArgs {
     /// Enable Graphics-related event capture.
     #[arg(long)]
     gfx: bool,
+
+    /// Enable browser-related event capture (JavaScript stacks and trace events)
+    #[arg(long)]
+    browsers: bool,
 }
 
 #[derive(ValueEnum, Copy, Clone, Debug, PartialEq, Eq)]
@@ -472,6 +476,7 @@ impl RecordArgs {
             interval,
             vm_hack,
             gfx: self.gfx,
+            browsers: self.browsers,
         }
     }
 

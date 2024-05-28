@@ -28,6 +28,7 @@ pub struct ElevatedRecordingProps {
     pub vm_hack: bool,
     pub is_attach: bool,
     pub gfx: bool,
+    pub browsers: bool,
 }
 
 impl ElevatedRecordingProps {
@@ -43,6 +44,7 @@ impl ElevatedRecordingProps {
             vm_hack: recording_props.vm_hack,
             is_attach: recording_mode.is_attach_mode(),
             gfx: recording_props.gfx,
+            browsers: recording_props.browsers,
         }
     }
 }

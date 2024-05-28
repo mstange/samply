@@ -32,6 +32,7 @@ pub struct RecordingProps {
     pub interval: Duration,
     pub vm_hack: bool,
     pub gfx: bool,
+    pub browsers: bool,
 }
 
 /// Which process(es) to record.

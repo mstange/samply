@@ -1,5 +1,10 @@
 use bitflags::bitflags;
 
+use super::elevated_helper::ElevatedRecordingProps;
+
+// https://source.chromium.org/chromium/chromium/src/+/main:third_party/win_build_output/mc/base/trace_event/etw_manifest/chrome_events_win.h;l=622-623;drc=a9274264bd203626a6530bebae3e7d4eae12c733
+pub const CHROME_PROVIDER_GUID: &str = "d2d578d9-2936-45b6-a09f-30e32715f42d";
+
 bitflags! {
     // https://source.chromium.org/chromium/chromium/src/+/main:base/trace_event/trace_event_etw_export_win.cc;l=103;drc=8c29f4a8930c3ccccdf1b66c28fe484cee7c7362
     #[derive(PartialEq, Eq)]
@@ -53,4 +58,25 @@ bitflags! {
         const __OTHER_EVENTS = 0x400000000000;
         const __DISABLED_OTHER_EVENTS = 0x800000000000;
     }
+}
+
+pub fn chrome_xperf_args(props: &ElevatedRecordingProps) -> Vec<String> {
+    let mut providers = vec![];
+
+    if !props.browsers {
+        return providers;
+    }
+
+    // JIT symbols
+    providers.push("Microsoft-JScript:0x3".to_string());
+
+    // UserTiming trace events
+    let enabled_keywords = KeywordNames::blink_user_timing;
+    providers.push(format!(
+        "{}:{:#x}",
+        CHROME_PROVIDER_GUID,
+        enabled_keywords.bits()
+    ));
+
+    providers
 }
