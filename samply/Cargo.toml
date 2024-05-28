@@ -13,7 +13,7 @@ readme = "README.md"
 
 fxprof-processed-profile = { version = "0.7", path = "../fxprof-processed-profile" }
 # framehop = { path = "../../framehop" }
-framehop = "0.11.2"
+framehop = "0.12"
 # linux-perf-data = { path = "../../linux-perf-data" }
 linux-perf-data = "0.10.1"
 
@@ -69,7 +69,7 @@ tempfile = "3.10.1"
 parking_lot = "0.12.2"
 num_cpus = "1.13.1"
 uname = "0.1.1"
-nix = { version = "0.28", features = ["fs", "process"] }
+nix = { version = "0.29", features = ["fs", "process"] }
 
 [target.'cfg(windows)'.dependencies]
 
@@ -105,4 +105,4 @@ features =  ["Win32",
 [dependencies.object]
 default-features = false
 features = ["std", "read_core", "elf", "pe", "unaligned", "write"]
-version = "0.35"
+version = "0.36"
