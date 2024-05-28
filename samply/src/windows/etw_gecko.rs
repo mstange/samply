@@ -318,8 +318,21 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                     return;
                 };
                 let tid = e.EventHeader.ThreadId;
+
                 // We ignore e.EventHeader.TimeStamp and instead take the timestamp from the fields.
-                let timestamp_raw: u64 = parser.try_parse("Timestamp").unwrap();
+                // The timestamp can be u64 or i64, depending on which code emits the events.
+                // u64: https://source.chromium.org/chromium/chromium/src/+/main:base/trace_event/etw_interceptor_win.cc;l=65-85;drc=47d1537de78d69eb441b4cad8c441f0291faca9a
+                // i64: https://source.chromium.org/chromium/chromium/src/+/main:base/trace_event/trace_event_etw_export_win.cc;l=316-334;drc=8c29f4a8930c3ccccdf1b66c28fe484cee7c7362
+                let timestamp_raw_i64: Option<i64> = parser.try_parse("Timestamp").ok();
+                let timestamp_raw_u64: Option<u64> = parser.try_parse("Timestamp").ok();
+                let timestamp_raw: Option<u64> =
+                    timestamp_raw_u64.or_else(|| timestamp_raw_i64.and_then(|t| t.try_into().ok()));
+                let Some(timestamp_raw) = timestamp_raw else {
+                    // Saw "SequenceManagerImpl::MoveReadyDelayedTasksToWorkQueues" with no timestamp at all
+                    // on 2024-05-23, possibly from VS Code electron
+                    log::warn!("No Timestamp field on Chrome {marker_name} event");
+                    return;
+                };
                 let phase: String = parser.try_parse("Phase").unwrap();
                 let keyword_bitfield = e.EventHeader.EventDescriptor.Keyword; // a bitfield of keywords
                 let text = event_properties_to_string(
