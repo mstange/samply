@@ -17,18 +17,18 @@ partial_read_stats = ["bytesize", "bitvec"]
 [dependencies.addr2line]
 default-features = false
 features = ["std", "fallible-iterator"]
-version = "0.22"
+version = "0.23"
 # path = "../../addr2line"
 
 [dependencies.gimli]
 default-features = false
 features = ["read"]
-version = "0.29"
+version = "0.30"
 
 [dependencies.object]
 default-features = false
 features = ["std", "read_core", "archive", "elf", "macho", "pe", "unaligned", "compression"]
-version = "0.35"
+version = "0.36"
 
 [dependencies]
 #pdb-addr2line = { path = "../../pdb-addr2line" }

@@ -373,34 +373,27 @@ where
 {
     fn frames_lookup_for_object_map_references(&self, svma: u64) -> Option<FramesLookupResult> {
         let entry = self.object_map.get(svma)?;
-        let external_file_path = entry.object(&self.object_map);
-        let external_file_path = std::str::from_utf8(external_file_path).unwrap();
+        let object_map_file = entry.object(&self.object_map);
+        let file_path = std::str::from_utf8(object_map_file.path()).ok()?;
         let offset_from_symbol = (svma - entry.address()) as u32;
         let symbol_name = entry.name().to_owned();
-        let (file_path, address_in_file) = match external_file_path.find('(') {
-            Some(index) => {
+        let address_in_file = match object_map_file.member() {
+            Some(member) => {
                 // This is an "archive" reference of the form
                 // "/Users/mstange/code/obj-m-opt/toolkit/library/build/../../../js/src/build/libjs_static.a(Unified_cpp_js_src13.o)"
-                let (path, paren_rest) = external_file_path.split_at(index);
-                let name_in_archive = paren_rest
-                    .trim_start_matches('(')
-                    .trim_end_matches(')')
-                    .to_owned();
-                let address_in_file = ExternalFileAddressInFileRef::MachoOsoArchive {
-                    name_in_archive,
+                ExternalFileAddressInFileRef::MachoOsoArchive {
+                    name_in_archive: std::str::from_utf8(member).ok()?.to_owned(),
                     symbol_name,
                     offset_from_symbol,
-                };
-                (path, address_in_file)
+                }
             }
             None => {
                 // This is a reference to a regular object file. Example:
                 // "/Users/mstange/code/obj-m-opt/toolkit/library/build/../../components/sessionstore/Unified_cpp_sessionstore0.o"
-                let address_in_file = ExternalFileAddressInFileRef::MachoOsoObject {
+                ExternalFileAddressInFileRef::MachoOsoObject {
                     symbol_name,
                     offset_from_symbol,
-                };
-                (external_file_path, address_in_file)
+                }
             }
         };
         Some(FramesLookupResult::External(ExternalFileAddressRef {

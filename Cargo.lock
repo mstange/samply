@@ -13,12 +13,12 @@ dependencies = [
 
 [[package]]
 name = "addr2line"
-version = "0.22.0"
+version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e4503c46a5c0c7844e948c9a4d6acd9f50cccb4de1c48eb9e291ea17470c678"
+checksum = "7b9d03130b08257bc8110b0df827d8b137fdf67a95e2459eaace2e13fecf1d72"
 dependencies = [
  "fallible-iterator 0.3.0",
- "gimli 0.29.0",
+ "gimli 0.30.0",
 ]
 
 [[package]]
@@ -657,14 +657,14 @@ dependencies = [
 
 [[package]]
 name = "framehop"
-version = "0.11.2"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1940574e932d1ed75aab25420312c0019d8dd91c6125bd51420272cd072008e"
+checksum = "9aec05ee9b4beb13cca615aa3132bb915bf3004960ae5a78f42f0b5daf3e8112"
 dependencies = [
  "arrayvec",
  "cfg-if",
  "fallible-iterator 0.3.0",
- "gimli 0.29.0",
+ "gimli 0.30.0",
  "macho-unwind-info",
  "pe-unwind-info",
  "thiserror",
@@ -834,9 +834,9 @@ checksum = "4271d37baee1b8c7e4b708028c57d816cf9d2434acb33a549475f78c181f6253"
 
 [[package]]
 name = "gimli"
-version = "0.29.0"
+version = "0.30.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "40ecd4077b5ae9fd2e9e169b102c6c330d0605168eb0e8bf79952b256dbefffd"
+checksum = "e2e1d97fbe9722ba9bbd0c97051c2956e726562b61f86a25a4360398a40edfc9"
 dependencies = [
  "fallible-iterator 0.3.0",
  "stable_deref_trait",
@@ -1335,9 +1335,9 @@ dependencies = [
 
 [[package]]
 name = "object"
-version = "0.35.0"
+version = "0.36.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8ec7ab813848ba4522158d5517a6093db1ded27575b070f4177b8d12b41db5e"
+checksum = "576dfe1fc8f9df304abb159d767a29d0476f7750fbf8aa7ad07816004a207434"
 dependencies = [
  "crc32fast",
  "flate2",
@@ -1863,7 +1863,7 @@ dependencies = [
  "num-derive",
  "num-traits",
  "num_cpus",
- "object 0.35.0",
+ "object 0.36.0",
  "once_cell",
  "opener",
  "parking_lot",
@@ -1908,7 +1908,7 @@ dependencies = [
 name = "samply-symbols"
 version = "0.22.0"
 dependencies = [
- "addr2line 0.22.0",
+ "addr2line 0.23.0",
  "anyhow",
  "bitflags 2.5.0",
  "bitvec 1.0.1",
@@ -1918,7 +1918,7 @@ dependencies = [
  "elsa",
  "flate2",
  "futures",
- "gimli 0.29.0",
+ "gimli 0.30.0",
  "linux-perf-data",
  "lzma-rs",
  "macho-unwind-info",
@@ -1926,7 +1926,7 @@ dependencies = [
  "memmap2",
  "msvc-demangler",
  "nom",
- "object 0.35.0",
+ "object 0.36.0",
  "pdb-addr2line",
  "rangemap",
  "rustc-demangle",
