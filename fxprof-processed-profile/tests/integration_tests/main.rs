@@ -618,24 +618,6 @@ fn profile_without_js() {
                     null,
                     null,
                     null
-                  ],
-                  "optimizations": [
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null
                   ]
                 },
                 "funcTable": {
@@ -1150,10 +1132,6 @@ fn profile_with_js() {
                   "column": [
                     null,
                     null
-                  ],
-                  "optimizations": [
-                    null,
-                    null
                   ]
                 },
                 "funcTable": {
@@ -1380,8 +1358,7 @@ fn profile_counters_with_sorted_processes() {
                   "innerWindowID": [],
                   "implementation": [],
                   "line": [],
-                  "column": [],
-                  "optimizations": []
+                  "column": []
                 },
                 "funcTable": {
                   "length": 0,
@@ -1464,8 +1441,7 @@ fn profile_counters_with_sorted_processes() {
                   "innerWindowID": [],
                   "implementation": [],
                   "line": [],
-                  "column": [],
-                  "optimizations": []
+                  "column": []
                 },
                 "funcTable": {
                   "length": 0,

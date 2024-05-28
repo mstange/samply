@@ -134,7 +134,6 @@ impl<'a> Serialize for SerializableFrameTable<'a> {
         map.serialize_entry("implementation", &SerializableSingleValueColumn((), len))?;
         map.serialize_entry("line", &SerializableSingleValueColumn((), len))?;
         map.serialize_entry("column", &SerializableSingleValueColumn((), len))?;
-        map.serialize_entry("optimizations", &SerializableSingleValueColumn((), len))?;
         map.end()
     }
 }
