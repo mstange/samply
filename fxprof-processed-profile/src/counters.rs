@@ -70,21 +70,7 @@ impl<'a> Serialize for SerializableCounter<'a> {
         map.serialize_entry("description", &self.counter.description)?;
         map.serialize_entry("mainThreadIndex", &self.main_thread_index)?;
         map.serialize_entry("pid", &self.counter.pid)?;
-        map.serialize_entry(
-            "sampleGroups",
-            &[SerializableCounterSampleGroup(self.counter)],
-        )?;
-        map.end()
-    }
-}
-
-struct SerializableCounterSampleGroup<'a>(&'a Counter);
-
-impl<'a> Serialize for SerializableCounterSampleGroup<'a> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("id", &0)?; // It's not clear what the meaning of this ID is.
-        map.serialize_entry("samples", &self.0.samples)?;
+        map.serialize_entry("samples", &self.counter.samples)?;
         map.end()
     }
 }

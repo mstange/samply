@@ -342,7 +342,7 @@ fn profile_without_js() {
                 "name": []
               },
               "interval": 1.0,
-              "preprocessedProfileVersion": 46,
+              "preprocessedProfileVersion": 48,
               "processType": 0,
               "product": "test",
               "sampleUnits": {
@@ -974,29 +974,24 @@ fn profile_without_js() {
                 "description": "Amount of allocated memory",
                 "mainThreadIndex": 0,
                 "pid": "123",
-                "sampleGroups": [
-                  {
-                    "id": 0,
-                    "samples": {
-                      "length": 3,
-                      "count": [
-                        0.0,
-                        1000.0,
-                        800.0
-                      ],
-                      "number": [
-                        0,
-                        2,
-                        1
-                      ],
-                      "time": [
-                        0.0,
-                        1.0,
-                        2.0
-                      ]
-                    }
-                  }
-                ]
+                "samples": {
+                  "length": 3,
+                  "count": [
+                    0.0,
+                    1000.0,
+                    800.0
+                  ],
+                  "number": [
+                    0,
+                    2,
+                    1
+                  ],
+                  "time": [
+                    0.0,
+                    1.0,
+                    2.0
+                  ]
+                }
               }
             ]
           }
@@ -1071,7 +1066,7 @@ fn profile_with_js() {
                 "name": []
               },
               "interval": 1.0,
-              "preprocessedProfileVersion": 46,
+              "preprocessedProfileVersion": 48,
               "processType": 0,
               "product": "test with js",
               "sampleUnits": {
@@ -1327,7 +1322,7 @@ fn profile_counters_with_sorted_processes() {
                 "name": []
               },
               "interval": 1.0,
-              "preprocessedProfileVersion": 46,
+              "preprocessedProfileVersion": 48,
               "processType": 0,
               "product": "test",
               "sampleUnits": {
@@ -1522,23 +1517,18 @@ fn profile_counters_with_sorted_processes() {
                 "description": "Amount of allocated memory",
                 "mainThreadIndex": 1,
                 "pid": "123",
-                "sampleGroups": [
-                  {
-                    "id": 0,
-                    "samples": {
-                      "length": 1,
-                      "count": [
-                        0.0
-                      ],
-                      "number": [
-                        0
-                      ],
-                      "time": [
-                        1.0
-                      ]
-                    }
-                  }
-                ]
+                "samples": {
+                  "length": 1,
+                  "count": [
+                    0.0
+                  ],
+                  "number": [
+                    0
+                  ],
+                  "time": [
+                    1.0
+                  ]
+                }
               },
               {
                 "category": "Memory 2",
@@ -1546,23 +1536,18 @@ fn profile_counters_with_sorted_processes() {
                 "description": "Amount of allocated memory",
                 "mainThreadIndex": 1,
                 "pid": "123",
-                "sampleGroups": [
-                  {
-                    "id": 0,
-                    "samples": {
-                      "length": 1,
-                      "count": [
-                        0.0
-                      ],
-                      "number": [
-                        0
-                      ],
-                      "time": [
-                        0.0
-                      ]
-                    }
-                  }
-                ]
+                "samples": {
+                  "length": 1,
+                  "count": [
+                    0.0
+                  ],
+                  "number": [
+                    0
+                  ],
+                  "time": [
+                    0.0
+                  ]
+                }
               }
             ]
           }
