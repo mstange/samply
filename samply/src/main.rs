@@ -16,7 +16,9 @@ mod shared;
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
+use std::net::IpAddr;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::time::Duration;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -229,6 +231,10 @@ struct ServerArgs {
     /// Do not open the profiler UI.
     #[arg(short, long)]
     no_open: bool,
+
+    /// The address to use for the local web server
+    #[arg(long, default_value = "127.0.0.1")]
+    address: String,
 
     /// The port to use for the local web server
     #[arg(short = 'P', long, default_value = "3000+")]
@@ -554,7 +560,21 @@ impl ServerArgs {
                 std::process::exit(1)
             }
         };
+
+        // parse address from string
+        let address = match IpAddr::from_str(&self.address) {
+            Ok(addr) => addr,
+            Err(e) => {
+                eprintln!(
+                    "Could not parse address as IpAddr, got address {:?}, error: {}",
+                    self.address, e
+                );
+                std::process::exit(1)
+            }
+        };
+
         ServerProps {
+            address,
             port_selection,
             verbose: self.verbose,
             open_in_browser,

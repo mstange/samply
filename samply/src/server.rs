@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -26,6 +26,7 @@ use crate::shared::ctrl_c::CtrlC;
 
 #[derive(Clone, Debug)]
 pub struct ServerProps {
+    pub address: IpAddr,
     pub port_selection: PortSelection,
     pub verbose: bool,
     pub open_in_browser: bool,
@@ -40,6 +41,7 @@ pub async fn start_server_main(
     start_server(
         Some(file),
         libinfo_map,
+        props.address,
         props.port_selection,
         props.verbose,
         props.open_in_browser,
@@ -70,11 +72,12 @@ impl PortSelection {
 async fn start_server(
     profile_filename: Option<&Path>,
     libinfo_map: HashMap<(String, DebugId), LibraryInfo>,
+    address: IpAddr,
     port_selection: PortSelection,
     verbose: bool,
     open_in_browser: bool,
 ) {
-    let (listener, addr) = make_listener(port_selection).await;
+    let (listener, addr) = make_listener(address, port_selection).await;
 
     let token = generate_token();
     let path_prefix = format!("/{token}");
@@ -179,10 +182,10 @@ fn generate_token() -> String {
     nix_base32::to_nix_base32(&bytes)
 }
 
-async fn make_listener(port_selection: PortSelection) -> (TcpListener, SocketAddr) {
+async fn make_listener(addr: IpAddr, port_selection: PortSelection) -> (TcpListener, SocketAddr) {
     match port_selection {
         PortSelection::OnePort(port) => {
-            let addr = SocketAddr::from(([127, 0, 0, 1], port));
+            let addr = SocketAddr::from((addr, port));
             match TcpListener::bind(&addr).await {
                 Ok(listener) => (listener, addr),
                 Err(e) => {
@@ -194,7 +197,7 @@ async fn make_listener(port_selection: PortSelection) -> (TcpListener, SocketAdd
         PortSelection::TryMultiple(range) => {
             let mut error = None;
             for port in range.clone() {
-                let addr = SocketAddr::from(([127, 0, 0, 1], port));
+                let addr = SocketAddr::from((addr, port));
                 match TcpListener::bind(&addr).await {
                     Ok(listener) => return (listener, addr),
                     Err(e) => {
