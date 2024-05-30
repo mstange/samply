@@ -188,16 +188,19 @@ impl FromStr for CodeId {
         if s.len() <= 17 {
             // 8 bytes timestamp + 1 to 8 bytes of image size
             Ok(CodeId::PeCodeId(PeCodeId::from_str(s)?))
-        } else if s.len() == 32 {
+        } else if s.len() == 32 && is_uppercase_hex(s) {
             // mach-O UUID
             Ok(CodeId::MachoUuid(Uuid::from_str(s).map_err(|_| ())?))
-        } else if s.len() >= 34 {
+        } else {
             // ELF build ID. These are usually 40 hex characters (= 20 bytes).
             Ok(CodeId::ElfBuildId(ElfBuildId::from_str(s)?))
-        } else {
-            Err(())
         }
     }
+}
+
+fn is_uppercase_hex(s: &str) -> bool {
+    s.chars()
+        .all(|c| c.is_ascii_hexdigit() && (c.is_ascii_digit() || c.is_ascii_uppercase()))
 }
 
 impl std::fmt::Display for CodeId {

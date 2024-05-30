@@ -46,13 +46,14 @@ impl std::ops::Deref for WholesymFileContents {
 #[derive(Debug, Clone)]
 pub enum WholesymFileLocation {
     LocalFile(PathBuf),
-    SymsrvFile(String, String),
+    LocalSymsrvFile(String, String),
     LocalBreakpadFile(PathBuf, String),
-    UrlForSourceFile(String),
+    SymsrvFile(String, String),
     BreakpadSymbolServerFile(String),
     BreakpadSymindexFile(String),
     DebuginfodDebugFile(ElfBuildId),
     DebuginfodExecutable(ElfBuildId),
+    UrlForSourceFile(String),
     VdsoLoadedIntoThisProcess,
 }
 
@@ -339,6 +340,22 @@ impl Helper {
                     memmap2::MmapOptions::new().map(&file)?
                 }))
             }
+            WholesymFileLocation::LocalSymsrvFile(filename, hash) => {
+                if self.config.verbose {
+                    eprintln!(
+                        "Trying to get file {filename} {hash} from symbol cache (no download)"
+                    );
+                }
+                let file_path = self
+                    .symsrv_downloader
+                    .as_ref()
+                    .unwrap()
+                    .get_file_no_download(&filename, &hash)
+                    .await?;
+                Ok(WholesymFileContents::Mmap(unsafe {
+                    memmap2::MmapOptions::new().map(&File::open(file_path)?)?
+                }))
+            }
             WholesymFileLocation::LocalBreakpadFile(path, rel_path) => {
                 if self.config.verbose {
                     eprintln!("Opening file {:?}", path.to_string_lossy());
@@ -358,7 +375,9 @@ impl Helper {
             }
             WholesymFileLocation::SymsrvFile(filename, hash) => {
                 if self.config.verbose {
-                    eprintln!("Trying to get file {filename} {hash} from symbol cache");
+                    eprintln!(
+                        "Trying to get file {filename} {hash} from symbol cache (download allowed)"
+                    );
                 }
                 let file_path = self
                     .symsrv_downloader
@@ -513,6 +532,8 @@ impl Helper {
         if self.config.verbose {
             eprintln!("Writing symindex to {symindex_path:?}.");
         }
+        let parent_dir = symindex_path.parent().ok_or("invalid symindex path")?;
+        tokio::fs::create_dir_all(parent_dir).await?;
         let mut index_file = tokio::fs::File::create(&symindex_path).await?;
         index_file.write_all(&index.serialize_to_bytes()).await?;
         index_file.flush().await?;
@@ -713,34 +734,72 @@ impl FileAndPathHelper for Helper {
                 ));
             }
 
-            // TODO: Check symsrv local cache before checking breakpad servers
-            // but still check breakpad server before checking symsrv server
-
-            if !self.config.breakpad_servers.is_empty() {
-                // We might find a .sym file on a symbol server.
-                paths.push(CandidatePathInfo::SingleFile(
-                    WholesymFileLocation::BreakpadSymbolServerFile(rel_path),
-                ));
-            }
-
             if debug_name.ends_with(".pdb") && self.symsrv_downloader.is_some() {
                 // We might find this pdb file with the help of a symbol server.
                 paths.push(CandidatePathInfo::SingleFile(
-                    WholesymFileLocation::SymsrvFile(
+                    WholesymFileLocation::LocalSymsrvFile(
                         debug_name.clone(),
                         debug_id.breakpad().to_string(),
                     ),
                 ));
             }
+
+            if !might_be_fake_jit_file(&info) {
+                if !self.config.breakpad_servers.is_empty() {
+                    // We might find a .sym file on a symbol server.
+                    paths.push(CandidatePathInfo::SingleFile(
+                        WholesymFileLocation::BreakpadSymbolServerFile(rel_path),
+                    ));
+                }
+
+                if debug_name.ends_with(".pdb") && self.symsrv_downloader.is_some() {
+                    // We might find this pdb file with the help of a symbol server.
+                    paths.push(CandidatePathInfo::SingleFile(
+                        WholesymFileLocation::SymsrvFile(
+                            debug_name.clone(),
+                            debug_id.breakpad().to_string(),
+                        ),
+                    ));
+                }
+            }
         }
 
-        if let (Some(_debuginfod_symbol_cache), Some(CodeId::ElfBuildId(build_id))) =
-            (self.debuginfod_symbol_cache.as_ref(), &info.code_id)
-        {
-            if !might_be_perf_jit_so_file(&info) {
+        if let Some(debug_name) = &info.debug_name {
+            for symbol_dir in &self.config.extra_symbol_directories {
+                let p = symbol_dir.join(debug_name);
+                paths.push(CandidatePathInfo::SingleFile(
+                    WholesymFileLocation::LocalFile(p),
+                ));
+            }
+        }
+
+        if !might_be_fake_jit_file(&info) {
+            if let (Some(_debuginfod_symbol_cache), Some(CodeId::ElfBuildId(build_id))) =
+                (self.debuginfod_symbol_cache.as_ref(), &info.code_id)
+            {
                 paths.push(CandidatePathInfo::SingleFile(
                     WholesymFileLocation::DebuginfodDebugFile(build_id.to_owned()),
                 ));
+            }
+        }
+
+        // Check any simpleperf binary_cache directories.
+        if let (Some(binary_name), Some(CodeId::ElfBuildId(build_id))) = (&info.name, &info.code_id)
+        {
+            // Only do this for .so files for now. We don't properly support .oat / .vdex / .jar / .apk
+            // and don't want to overwrite any existing better symbols.
+            if binary_name.ends_with(".so") {
+                // Example: binary_cache/5e5c7b9cbc3e65b7c98a139fc1d3e0d000000000-libadreno_utils.so
+                let mut build_id_20 = build_id.0.clone();
+                build_id_20.resize(20, 0);
+                let name_in_cache =
+                    format!("{}-{}", ElfBuildId::from_bytes(&build_id_20), binary_name);
+                for dir in &self.config.simpleperf_binary_cache_directories {
+                    let p = dir.join(&name_in_cache);
+                    paths.push(CandidatePathInfo::SingleFile(
+                        WholesymFileLocation::LocalFile(p),
+                    ));
+                }
             }
         }
 
@@ -758,6 +817,16 @@ impl FileAndPathHelper for Helper {
                         dylib_path: path.clone(),
                     });
                 }
+            }
+        }
+
+        // Also look for the binary in the extra symbol directories.
+        if let Some(name) = &info.name {
+            for symbol_dir in &self.config.extra_symbol_directories {
+                let p = symbol_dir.join(name);
+                paths.push(CandidatePathInfo::SingleFile(
+                    WholesymFileLocation::LocalFile(p),
+                ));
             }
         }
 
@@ -820,27 +889,29 @@ impl FileAndPathHelper for Helper {
             ));
         }
 
-        if info.name.as_deref() == Some("[vdso]") {
-            paths.push(CandidatePathInfo::SingleFile(
-                WholesymFileLocation::VdsoLoadedIntoThisProcess,
-            ));
+        // Also look for the binary in the extra symbol directories.
+        if let Some(name) = &info.name {
+            for symbol_dir in &self.config.extra_symbol_directories {
+                let p = symbol_dir.join(name);
+                paths.push(CandidatePathInfo::SingleFile(
+                    WholesymFileLocation::LocalFile(p),
+                ));
+            }
         }
 
-        if let (Some(_symbol_cache), Some(name), Some(CodeId::PeCodeId(code_id))) =
-            (&self.symsrv_downloader, &info.name, &info.code_id)
+        // Check any simpleperf binary_cache directories.
+        if let (Some(binary_name), Some(CodeId::ElfBuildId(build_id))) = (&info.name, &info.code_id)
         {
-            // We might find this exe / dll file with the help of a symbol server.
-            paths.push(CandidatePathInfo::SingleFile(
-                WholesymFileLocation::SymsrvFile(name.clone(), code_id.to_string()),
-            ));
-        }
-
-        if let (Some(_debuginfod_symbol_cache), Some(CodeId::ElfBuildId(build_id))) =
-            (self.debuginfod_symbol_cache.as_ref(), &info.code_id)
-        {
-            paths.push(CandidatePathInfo::SingleFile(
-                WholesymFileLocation::DebuginfodExecutable(build_id.to_owned()),
-            ));
+            // Example: binary_cache/5e5c7b9cbc3e65b7c98a139fc1d3e0d000000000-libadreno_utils.so
+            let mut build_id_20 = build_id.0.clone();
+            build_id_20.resize(20, 0);
+            let name_in_cache = format!("{}-{}", ElfBuildId::from_bytes(&build_id_20), binary_name);
+            for dir in &self.config.simpleperf_binary_cache_directories {
+                let p = dir.join(&name_in_cache);
+                paths.push(CandidatePathInfo::SingleFile(
+                    WholesymFileLocation::LocalFile(p),
+                ));
+            }
         }
 
         if let Some(path) = &info.path {
@@ -852,6 +923,31 @@ impl FileAndPathHelper for Helper {
                         dylib_path: path.clone(),
                     });
                 }
+            }
+        }
+
+        if info.name.as_deref() == Some("[vdso]") {
+            paths.push(CandidatePathInfo::SingleFile(
+                WholesymFileLocation::VdsoLoadedIntoThisProcess,
+            ));
+        }
+
+        if !might_be_fake_jit_file(&info) {
+            if let (Some(_symbol_cache), Some(name), Some(CodeId::PeCodeId(code_id))) =
+                (&self.symsrv_downloader, &info.name, &info.code_id)
+            {
+                // We might find this exe / dll file with the help of a symbol server.
+                paths.push(CandidatePathInfo::SingleFile(
+                    WholesymFileLocation::SymsrvFile(name.clone(), code_id.to_string()),
+                ));
+            }
+
+            if let (Some(_debuginfod_symbol_cache), Some(CodeId::ElfBuildId(build_id))) =
+                (self.debuginfod_symbol_cache.as_ref(), &info.code_id)
+            {
+                paths.push(CandidatePathInfo::SingleFile(
+                    WholesymFileLocation::DebuginfodExecutable(build_id.to_owned()),
+                ));
             }
         }
 
@@ -971,8 +1067,8 @@ fn get_dyld_shared_cache_paths(arch: Option<&str>) -> Vec<WholesymFileLocation> 
 }
 
 /// Used to filter out files like `jitted-12345-12.so`, to avoid hammering debuginfod servers.
-fn might_be_perf_jit_so_file(info: &LibraryInfo) -> bool {
-    matches!(&info.name, Some(name) if name.starts_with("jitted-") && name.ends_with(".so"))
+fn might_be_fake_jit_file(info: &LibraryInfo) -> bool {
+    matches!(&info.name, Some(name) if (name.starts_with("jitted-") && name.ends_with(".so")) || name.contains("jit_app_cache:"))
 }
 
 struct VerboseSymsrvObserver {

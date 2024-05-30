@@ -29,6 +29,7 @@ use crate::shared::ctrl_c::CtrlC;
 use crate::shared::recording_props::{
     ProcessLaunchProps, ProfileCreationProps, RecordingMode, RecordingProps,
 };
+use crate::shared::symbol_props::SymbolProps;
 
 #[cfg(target_arch = "x86_64")]
 pub type ConvertRegsNative = crate::linux_shared::ConvertRegsX86_64;
@@ -40,6 +41,7 @@ pub fn start_recording(
     recording_mode: RecordingMode,
     recording_props: RecordingProps,
     profile_creation_props: ProfileCreationProps,
+    symbol_props: SymbolProps,
     server_props: Option<ServerProps>,
 ) -> Result<ExitStatus, ()> {
     let process_launch_props = match recording_mode {
@@ -50,7 +52,13 @@ pub fn start_recording(
             std::process::exit(1)
         }
         RecordingMode::Pid(pid) => {
-            start_profiling_pid(pid, recording_props, profile_creation_props, server_props);
+            start_profiling_pid(
+                pid,
+                recording_props,
+                profile_creation_props,
+                symbol_props,
+                server_props,
+            );
             return Ok(ExitStatus::from_raw(0));
         }
         RecordingMode::Launch(process_launch_props) => process_launch_props,
@@ -236,7 +244,7 @@ pub fn start_recording(
         )
         .expect("Couldn't parse libinfo map from profile file");
 
-        start_server_main(profile_filename, server_props, libinfo_map);
+        start_server_main(profile_filename, server_props, symbol_props, libinfo_map);
     }
 
     let exit_status = match wait_status {
@@ -250,6 +258,7 @@ fn start_profiling_pid(
     pid: u32,
     recording_props: RecordingProps,
     profile_creation_props: ProfileCreationProps,
+    symbol_props: SymbolProps,
     server_props: Option<ServerProps>,
 ) {
     // When the first Ctrl+C is received, stop recording.
@@ -328,7 +337,7 @@ fn start_profiling_pid(
         )
         .expect("Couldn't parse libinfo map from profile file");
 
-        start_server_main(&output_file, server_props, libinfo_map);
+        start_server_main(&output_file, server_props, symbol_props, libinfo_map);
     }
 }
 

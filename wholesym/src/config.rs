@@ -20,6 +20,8 @@ pub struct SymbolManagerConfig {
     pub(crate) use_spotlight: bool,
     pub(crate) debuginfod_cache_dir_if_not_installed: Option<PathBuf>,
     pub(crate) debuginfod_servers: Vec<(String, PathBuf)>,
+    pub(crate) extra_symbol_directories: Vec<PathBuf>,
+    pub(crate) simpleperf_binary_cache_directories: Vec<PathBuf>,
 }
 
 impl SymbolManagerConfig {
@@ -172,6 +174,21 @@ impl SymbolManagerConfig {
     /// of dSYM files based on a mach-O UUID. Ignored on non-macOS.
     pub fn use_spotlight(mut self, use_spotlight: bool) -> Self {
         self.use_spotlight = use_spotlight;
+        self
+    }
+
+    /// Add an additional directory that may contain symbol files.
+    /// We will check "<dir>/<binaryname>" and "<dir>/<debug_name>".
+    pub fn extra_symbols_directory(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.extra_symbol_directories.push(dir.into());
+        self
+    }
+
+    /// Add a simpleperf "binary_cache" directory which will be checked for symbols.
+    ///
+    /// The simpleperf scripts pull files from the Android device into this directory.
+    pub fn simpleperf_binary_cache_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.simpleperf_binary_cache_directories.push(dir.into());
         self
     }
 }
