@@ -1,5 +1,4 @@
 mod chrome;
-mod console;
 mod coreclr;
 mod elevated_helper;
 mod etw_gecko;

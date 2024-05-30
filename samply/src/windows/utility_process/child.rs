@@ -1,8 +1,6 @@
 use std::error::Error;
 use std::path::Path;
 
-use crate::windows::console::hide_console;
-
 use super::file_channel::BidiChannelCreator;
 use super::shared::{
     ChildToParentMsgWrapper, InitMessage, ParentToChildMsgWrapper, PKG_NAME, PKG_VERSION,
@@ -20,8 +18,6 @@ pub fn run_child_internal<T: UtilityProcess>(
     ipc_directory: &Path,
     mut child: T::Child,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    hide_console();
-
     let (mut receiver, mut sender) = BidiChannelCreator::open_in_child(ipc_directory)?;
 
     let init_msg: ParentToChildMsgWrapper<T::ParentToChildMsg> = receiver.recv_blocking()?;
