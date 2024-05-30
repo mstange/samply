@@ -151,6 +151,9 @@ impl UtilityProcessParent for ElevatedHelperParent {
         cmd.arg("--output-path");
         cmd.arg(expand_full_filename_with_cwd(&self.output_path));
 
+        // Don't show a new Console window for this process.
+        cmd.show(false);
+
         let _ = cmd.status().expect("Failed to execute elevated helper");
     }
 }
