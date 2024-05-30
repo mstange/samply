@@ -19,11 +19,13 @@ use crate::server::{start_server_main, ServerProps};
 use crate::shared::recording_props::{
     ProcessLaunchProps, ProfileCreationProps, RecordingMode, RecordingProps,
 };
+use crate::shared::symbol_props::SymbolProps;
 
 pub fn start_recording(
     recording_mode: RecordingMode,
     recording_props: RecordingProps,
     profile_creation_props: ProfileCreationProps,
+    symbol_props: SymbolProps,
     server_props: Option<ServerProps>,
 ) -> Result<ExitStatus, MachError> {
     let mut unlink_aux_files = profile_creation_props.unlink_aux_files;
@@ -225,7 +227,7 @@ pub fn start_recording(
         )
         .expect("Couldn't parse libinfo map from profile file");
 
-        start_server_main(&output_file, server_props, libinfo_map);
+        start_server_main(&output_file, server_props, symbol_props, libinfo_map);
     }
 
     Ok(exit_status)

@@ -41,7 +41,7 @@ nix-base32 = "0.1.1"
 serde_derive = "1.0.137"
 serde = "1.0.202"
 wholesym = { version = "0.5.0", path = "../wholesym", features = ["api"]}
-dirs = "5.0.0"
+platform-dirs = "0.3"
 once_cell = "1.17"
 fxhash = "0.2.1"
 mio = { version = "0.8.11", features = ["os-ext", "os-poll"] }

@@ -9,6 +9,7 @@ mod windows;
 
 mod import;
 mod linux_shared;
+mod name;
 mod profile_json_preparse;
 mod server;
 mod shared;
@@ -35,6 +36,7 @@ use shared::included_processes::IncludedProcesses;
 use shared::recording_props::{
     CoreClrProfileProps, ProcessLaunchProps, ProfileCreationProps, RecordingMode, RecordingProps,
 };
+use shared::symbol_props::SymbolProps;
 #[cfg(target_os = "windows")]
 use windows::profiler;
 
@@ -102,6 +104,9 @@ struct LoadArgs {
 
     #[command(flatten)]
     server_args: ServerArgs,
+
+    #[command(flatten)]
+    symbol_args: SymbolArgs,
 }
 
 #[derive(Debug, Args)]
@@ -122,6 +127,9 @@ struct ImportArgs {
 
     #[command(flatten)]
     server_args: ServerArgs,
+
+    #[command(flatten)]
+    symbol_args: SymbolArgs,
 
     /// Only include processes with this name substring (can be specified multiple times).
     #[arg(long)]
@@ -168,6 +176,9 @@ struct RecordArgs {
 
     #[command(flatten)]
     server_args: ServerArgs,
+
+    #[command(flatten)]
+    symbol_args: SymbolArgs,
 
     /// Profile the execution of this command.
     #[arg(
@@ -243,6 +254,34 @@ struct ServerArgs {
     /// Print debugging output.
     #[arg(short, long)]
     verbose: bool,
+}
+
+/// Arguments describing where to obtain symbol files.
+#[derive(Debug, Args)]
+struct SymbolArgs {
+    /// Extra directories containing symbol files
+    #[arg(long)]
+    symbol_dir: Vec<PathBuf>,
+
+    /// Additional URLs of symbol servers serving PDB / DLL / EXE files
+    #[arg(long)]
+    windows_symbol_server: Vec<String>,
+
+    /// Overrides the default cache directory for Windows symbol files which were downloaded from a symbol server
+    #[arg(long)]
+    windows_symbol_cache: Option<PathBuf>,
+
+    /// Additional URLs of symbol servers serving Breakpad .sym files
+    #[arg(long)]
+    breakpad_symbol_server: Vec<String>,
+
+    /// Overrides the default cache directory for Breakpad symbol files
+    #[arg(long)]
+    breakpad_symbol_cache: Option<PathBuf>,
+
+    /// Extra directory containing symbol files, with the directory structure used by simpleperf's scripts
+    #[arg(long)]
+    simpleperf_binary_cache: Option<PathBuf>,
 }
 
 #[derive(Debug, Args, Clone)]
@@ -325,7 +364,12 @@ fn main() {
                         std::process::exit(1)
                     }
                 };
-            start_server_main(profile_filename, load_args.server_props(), libinfo_map);
+            start_server_main(
+                profile_filename,
+                load_args.server_props(),
+                load_args.symbol_props(),
+                libinfo_map,
+            );
         }
 
         Action::Import(import_args) => {
@@ -351,7 +395,12 @@ fn main() {
                     profile_filename,
                 )
                 .expect("Couldn't parse libinfo map from profile file");
-                start_server_main(profile_filename, server_props, libinfo_map);
+                start_server_main(
+                    profile_filename,
+                    server_props,
+                    import_args.symbol_props(),
+                    libinfo_map,
+                );
             }
         }
 
@@ -365,12 +414,14 @@ fn main() {
             let recording_props = record_args.recording_props();
             let recording_mode = record_args.recording_mode();
             let profile_creation_props = record_args.profile_creation_props();
+            let symbol_props = record_args.symbol_props();
             let server_props = record_args.server_props();
 
             let exit_status = match profiler::start_recording(
                 recording_mode,
                 recording_props,
                 profile_creation_props,
+                symbol_props,
                 server_props,
             ) {
                 Ok(exit_status) => exit_status,
@@ -401,6 +452,10 @@ impl LoadArgs {
     fn server_props(&self) -> ServerProps {
         self.server_args.server_props()
     }
+
+    fn symbol_props(&self) -> SymbolProps {
+        self.symbol_args.symbol_props()
+    }
 }
 
 impl ImportArgs {
@@ -410,6 +465,10 @@ impl ImportArgs {
         } else {
             Some(self.server_args.server_props())
         }
+    }
+
+    fn symbol_props(&self) -> SymbolProps {
+        self.symbol_args.symbol_props()
     }
 
     fn profile_creation_props(&self) -> ProfileCreationProps {
@@ -455,6 +514,10 @@ impl RecordArgs {
         } else {
             Some(self.server_args.server_props())
         }
+    }
+
+    fn symbol_props(&self) -> SymbolProps {
+        self.symbol_args.symbol_props()
     }
 
     #[allow(unused)]
@@ -578,6 +641,19 @@ impl ServerArgs {
             port_selection,
             verbose: self.verbose,
             open_in_browser,
+        }
+    }
+}
+
+impl SymbolArgs {
+    pub fn symbol_props(&self) -> SymbolProps {
+        SymbolProps {
+            symbol_dir: self.symbol_dir.clone(),
+            windows_symbol_server: self.windows_symbol_server.clone(),
+            windows_symbol_cache: self.windows_symbol_cache.clone(),
+            breakpad_symbol_server: self.breakpad_symbol_server.clone(),
+            breakpad_symbol_cache: self.breakpad_symbol_cache.clone(),
+            simpleperf_binary_cache: self.simpleperf_binary_cache.clone(),
         }
     }
 }

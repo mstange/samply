@@ -15,14 +15,17 @@ use hyper::service::service_fn;
 use hyper::{header, Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
+use platform_dirs::AppDirs;
 use rand::RngCore;
 use tokio::net::TcpListener;
 use tokio_util::io::ReaderStream;
 use wholesym::debugid::DebugId;
 use wholesym::{LibraryInfo, SymbolManager, SymbolManagerConfig};
 
+use crate::name::SAMPLY_NAME;
 use crate::shared;
 use crate::shared::ctrl_c::CtrlC;
+use crate::shared::symbol_props::SymbolProps;
 
 #[derive(Clone, Debug)]
 pub struct ServerProps {
@@ -36,17 +39,10 @@ pub struct ServerProps {
 pub async fn start_server_main(
     file: &Path,
     props: ServerProps,
+    symbol_props: SymbolProps,
     libinfo_map: HashMap<(String, DebugId), LibraryInfo>,
 ) {
-    start_server(
-        Some(file),
-        libinfo_map,
-        props.address,
-        props.port_selection,
-        props.verbose,
-        props.open_in_browser,
-    )
-    .await;
+    start_server(Some(file), props, symbol_props, libinfo_map).await;
 }
 
 const BAD_CHARS: &AsciiSet = &CONTROLS.add(b':').add(b'/');
@@ -69,15 +65,65 @@ impl PortSelection {
     }
 }
 
+fn create_symbol_manager_config(symbol_props: SymbolProps, verbose: bool) -> SymbolManagerConfig {
+    let _config_dir = AppDirs::new(Some(SAMPLY_NAME), true).map(|dirs| dirs.config_dir);
+    let cache_base_dir = AppDirs::new(Some(SAMPLY_NAME), false).map(|dirs| dirs.cache_dir);
+    let cache_base_dir = cache_base_dir.as_deref();
+
+    let mut config = SymbolManagerConfig::new()
+        .verbose(verbose)
+        .respect_nt_symbol_path(true)
+        .use_debuginfod(std::env::var("SAMPLY_USE_DEBUGINFOD").is_ok())
+        .use_spotlight(true);
+
+    if let Some(cache_base_dir) = cache_base_dir {
+        config = config.debuginfod_cache_dir_if_not_installed(
+            cache_base_dir.join("symbols").join("debuginfod"),
+        );
+    }
+
+    // TODO: Read symbol server config from some kind of config file
+    // TODO: On Windows, put https://msdl.microsoft.com/download/symbols into the config file.
+
+    // Configure symbol servers and cache directories based on the information in the SymbolProps.
+
+    let breakpad_symbol_cache_dir = symbol_props
+        .breakpad_symbol_cache
+        .or_else(|| Some(cache_base_dir?.join("symbols").join("breakpad")));
+    if let Some(cache_dir) = breakpad_symbol_cache_dir {
+        for base_url in symbol_props.breakpad_symbol_server {
+            config = config.breakpad_symbols_server(base_url, &cache_dir)
+        }
+        if let Some(cache_base_dir) = cache_base_dir {
+            let breakpad_symindex_cache_dir =
+                cache_base_dir.join("symbols").join("breakpad-symindex");
+            config = config.breakpad_symindex_cache_dir(breakpad_symindex_cache_dir);
+        }
+    }
+
+    let windows_symbol_cache_dir = symbol_props
+        .windows_symbol_cache
+        .or_else(|| Some(cache_base_dir?.join("symbols").join("windows")));
+    if let Some(cache_dir) = windows_symbol_cache_dir {
+        for base_url in symbol_props.windows_symbol_server {
+            config = config.breakpad_symbols_server(base_url, &cache_dir)
+        }
+    }
+
+    if let Some(binary_cache) = symbol_props.simpleperf_binary_cache {
+        config = config.simpleperf_binary_cache_dir(binary_cache);
+    }
+
+    config
+}
+
 async fn start_server(
     profile_filename: Option<&Path>,
+    server_props: ServerProps,
+    symbol_props: SymbolProps,
     libinfo_map: HashMap<(String, DebugId), LibraryInfo>,
-    address: IpAddr,
-    port_selection: PortSelection,
-    verbose: bool,
-    open_in_browser: bool,
 ) {
-    let (listener, addr) = make_listener(address, port_selection).await;
+    let (listener, addr) = make_listener(server_props.address, server_props.port_selection).await;
 
     let token = generate_token();
     let path_prefix = format!("/{token}");
@@ -111,20 +157,7 @@ async fn start_server(
 
     let template_values = Arc::new(template_values);
 
-    let mut config = SymbolManagerConfig::new()
-        .verbose(verbose)
-        .respect_nt_symbol_path(true)
-        .use_debuginfod(std::env::var("SAMPLY_USE_DEBUGINFOD").is_ok())
-        .use_spotlight(true);
-
-    if let Some(home_dir) = dirs::home_dir() {
-        config = config.debuginfod_cache_dir_if_not_installed(home_dir.join("sym"));
-    }
-    // TODO: Read breakpad symbol server config from some kind of config file, and call breakpad_symbols_server
-    // TODO: On Windows, put https://msdl.microsoft.com/download/symbols into the config file.
-    // There's a privacy tradeoff here; some people may not want library names and debug IDs to be sent to Microsoft servers.
-    //     .default_nt_symbol_path("srv**https://msdl.microsoft.com/download/symbols")
-
+    let config = create_symbol_manager_config(symbol_props, server_props.verbose);
     let mut symbol_manager = SymbolManager::with_config(config);
     for lib_info in libinfo_map.into_values() {
         symbol_manager.add_known_library(lib_info);
@@ -156,14 +189,14 @@ async fn start_server(
     ));
 
     eprintln!("Local server listening at {server_origin}");
-    if !open_in_browser {
+    if !server_props.open_in_browser {
         if let Some(profiler_url) = &profiler_url {
             eprintln!("  Open the profiler at {profiler_url}");
         }
     }
     eprintln!("Press Ctrl+C to stop.");
 
-    if open_in_browser {
+    if server_props.open_in_browser {
         if let Some(profiler_url) = &profiler_url {
             let _ = opener::open_browser(profiler_url);
         }

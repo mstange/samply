@@ -19,6 +19,7 @@ use crate::server::{start_server_main, ServerProps};
 use crate::shared::ctrl_c::CtrlC;
 use crate::shared::included_processes::IncludedProcesses;
 use crate::shared::recording_props::{ProfileCreationProps, RecordingMode, RecordingProps};
+use crate::shared::symbol_props::SymbolProps;
 use crate::windows::elevated_helper::{self, ElevatedHelperSession};
 
 // Hello intrepid explorer! You may be in this code because you'd like to extend something,
@@ -51,6 +52,7 @@ pub fn start_recording(
     recording_mode: RecordingMode,
     recording_props: RecordingProps,
     profile_creation_props: ProfileCreationProps,
+    symbol_props: SymbolProps,
     server_props: Option<ServerProps>,
 ) -> Result<ExitStatus, i32> {
     let timebase = std::time::SystemTime::now();
@@ -183,7 +185,7 @@ pub fn start_recording(
         )
         .expect("Couldn't parse libinfo map from profile file");
 
-        start_server_main(&output_file, server_props, libinfo_map);
+        start_server_main(&output_file, server_props, symbol_props, libinfo_map);
     }
 
     Ok(ExitStatus::from_raw(0))
