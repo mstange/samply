@@ -581,14 +581,24 @@ impl Profile {
                     &mut self.kernel_libs,
                     ra.saturating_sub(1),
                 ),
+                Frame::AdjustedReturnAddress(ara) => {
+                    process.convert_address(&mut self.global_libs, &mut self.kernel_libs, ara)
+                }
                 Frame::RelativeAddressFromInstructionPointer(lib_handle, relative_address) => {
                     let global_lib_index = self.global_libs.index_for_used_lib(lib_handle);
                     InternalFrameLocation::AddressInLib(relative_address, global_lib_index)
                 }
                 Frame::RelativeAddressFromReturnAddress(lib_handle, relative_address) => {
                     let global_lib_index = self.global_libs.index_for_used_lib(lib_handle);
-                    let nudged_relative_address = relative_address.saturating_sub(1);
-                    InternalFrameLocation::AddressInLib(nudged_relative_address, global_lib_index)
+                    let adjusted_relative_address = relative_address.saturating_sub(1);
+                    InternalFrameLocation::AddressInLib(adjusted_relative_address, global_lib_index)
+                }
+                Frame::RelativeAddressFromAdjustedReturnAddress(
+                    lib_handle,
+                    adjusted_relative_address,
+                ) => {
+                    let global_lib_index = self.global_libs.index_for_used_lib(lib_handle);
+                    InternalFrameLocation::AddressInLib(adjusted_relative_address, global_lib_index)
                 }
                 Frame::Label(string_index) => {
                     let thread_string_index =

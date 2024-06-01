@@ -630,10 +630,12 @@ where
                     continue;
                 }
 
-                let stack_frame = match is_first_frame {
-                    true => StackFrame::InstructionPointer(address, mode),
-                    false => StackFrame::ReturnAddress(address, mode),
-                };
+                let stack_frame =
+                    match (is_first_frame, call_chain_return_addresses_are_preadjusted) {
+                        (true, _) => StackFrame::InstructionPointer(address, mode),
+                        (false, false) => StackFrame::ReturnAddress(address, mode),
+                        (false, true) => StackFrame::AdjustedReturnAddress(address, mode),
+                    };
                 stack.push(stack_frame);
 
                 is_first_frame = false;
