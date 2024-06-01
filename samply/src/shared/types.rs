@@ -45,5 +45,6 @@ impl From<CpuMode> for StackMode {
 pub enum StackFrame {
     InstructionPointer(u64, StackMode),
     ReturnAddress(u64, StackMode),
+    AdjustedReturnAddress(u64, StackMode),
     TruncatedStackMarker,
 }

@@ -39,11 +39,10 @@ impl<'a> Iterator for ConvertedStackIter<'a> {
                 return Some(pending_frame_info);
             }
             let frame = self.pending_frame.take().or_else(|| self.inner.next())?;
-            let (mode, addr, lookup_address, from_ip) = match *frame {
-                StackFrame::InstructionPointer(addr, mode) => (mode, addr, addr, true),
-                StackFrame::ReturnAddress(addr, mode) => {
-                    (mode, addr, addr.saturating_sub(1), false)
-                }
+            let (mode, lookup_address, from_ip) = match *frame {
+                StackFrame::InstructionPointer(addr, mode) => (mode, addr, true),
+                StackFrame::ReturnAddress(addr, mode) => (mode, addr.saturating_sub(1), false),
+                StackFrame::AdjustedReturnAddress(addr, mode) => (mode, addr, false),
                 StackFrame::TruncatedStackMarker => continue,
             };
             let (location, category, js_frame, art_info) = match mode {
@@ -56,10 +55,9 @@ impl<'a> Iterator for ConvertedStackIter<'a> {
                                 relative_address,
                             )
                         } else {
-                            let relative_address = relative_lookup_address + 1;
-                            Frame::RelativeAddressFromReturnAddress(
+                            Frame::RelativeAddressFromAdjustedReturnAddress(
                                 info.lib_handle,
-                                relative_address,
+                                relative_lookup_address,
                             )
                         };
                         (
@@ -71,16 +69,16 @@ impl<'a> Iterator for ConvertedStackIter<'a> {
                     }
                     None => {
                         let location = match from_ip {
-                            true => Frame::InstructionPointer(addr),
-                            false => Frame::ReturnAddress(addr),
+                            true => Frame::InstructionPointer(lookup_address),
+                            false => Frame::AdjustedReturnAddress(lookup_address),
                         };
                         (location, self.user_category, None, None)
                     }
                 },
                 StackMode::Kernel => {
                     let location = match from_ip {
-                        true => Frame::InstructionPointer(addr),
-                        false => Frame::ReturnAddress(addr),
+                        true => Frame::InstructionPointer(lookup_address),
+                        false => Frame::AdjustedReturnAddress(lookup_address),
                     };
                     (location, self.kernel_category, None, None)
                 }
@@ -185,6 +183,7 @@ impl StackConverter {
         let lookup_address = match *frame {
             StackFrame::InstructionPointer(addr, StackMode::User) => addr,
             StackFrame::ReturnAddress(addr, StackMode::User) => addr.saturating_sub(1),
+            StackFrame::AdjustedReturnAddress(addr, StackMode::User) => addr,
             _ => return false,
         };
         let Some((_, info)) = lib_mappings.convert_address(lookup_address) else {

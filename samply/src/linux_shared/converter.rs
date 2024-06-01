@@ -88,6 +88,18 @@ where
     /// Whether repeated frames at the base of the stack should be folded
     /// into one frame.
     fold_recursive_prefix: bool,
+
+    /// Determines how the addresses in sample call chains should be interpreted.
+    /// Any addresses after the first frame address are either "return addresses"
+    /// (i.e. they are the address of the instruction *after* the call instruction),
+    /// or they are "adjusted return address" (i.e. an offset was subtracted from
+    /// the return address so that the address now points *into the call instruction*).
+    /// For call chains coming directly from the Linux kernel, no adjustment has been
+    /// performed, so this will be false.
+    /// For call chains coming from simpleperf perf.data files, simpleperf has
+    /// already done the adjusting, either by adjusting the call chains coming from
+    /// the kernel or by doing its own unwinding with an adjusting unwinder,
+    call_chain_return_addresses_are_preadjusted: bool,
 }
 
 const DEFAULT_OFF_CPU_SAMPLING_INTERVAL_NS: u64 = 1_000_000; // 1ms
@@ -109,6 +121,7 @@ where
         extra_binary_artifact_dir: Option<&Path>,
         interpretation: EventInterpretation,
         simpleperf_symbol_tables: Option<Vec<SimpleperfFileRecord>>,
+        call_chain_return_addresses_are_preadjusted: bool,
     ) -> Self {
         let interval = match interpretation.sampling_is_time_based {
             Some(nanos) => SamplingInterval::from_nanos(nanos),
@@ -226,6 +239,7 @@ where
             jit_category_manager: JitCategoryManager::new(),
             fold_recursive_prefix: profile_creation_props.fold_recursive_prefix,
             cpus,
+            call_chain_return_addresses_are_preadjusted,
         }
     }
 
@@ -271,6 +285,7 @@ where
             &mut self.cache,
             &mut stack,
             self.fold_recursive_prefix,
+            self.call_chain_return_addresses_are_preadjusted,
         );
 
         let thread = process.threads.get_thread_by_tid(tid, &mut self.profile);
@@ -389,6 +404,7 @@ where
             &mut self.cache,
             &mut stack,
             self.fold_recursive_prefix,
+            self.call_chain_return_addresses_are_preadjusted,
         );
 
         let stack_index = self
@@ -504,6 +520,7 @@ where
             &mut self.cache,
             &mut stack,
             self.fold_recursive_prefix,
+            self.call_chain_return_addresses_are_preadjusted,
         );
         let unresolved_stack = self.unresolved_stacks.convert(stack.into_iter().rev());
         let thread_handle = process.threads.main_thread.profile_thread;
@@ -555,6 +572,7 @@ where
             &mut self.cache,
             &mut stack,
             self.fold_recursive_prefix,
+            self.call_chain_return_addresses_are_preadjusted,
         );
 
         let thread_handle = match e.tid {
@@ -612,6 +630,7 @@ where
         cache: &mut U::Cache,
         stack: &mut Vec<StackFrame>,
         fold_recursive_prefix: bool,
+        call_chain_return_addresses_are_preadjusted: bool,
     ) {
         stack.truncate(0);
 
@@ -630,10 +649,12 @@ where
                     continue;
                 }
 
-                let stack_frame = match is_first_frame {
-                    true => StackFrame::InstructionPointer(address, mode),
-                    false => StackFrame::ReturnAddress(address, mode),
-                };
+                let stack_frame =
+                    match (is_first_frame, call_chain_return_addresses_are_preadjusted) {
+                        (true, _) => StackFrame::InstructionPointer(address, mode),
+                        (false, false) => StackFrame::ReturnAddress(address, mode),
+                        (false, true) => StackFrame::AdjustedReturnAddress(address, mode),
+                    };
                 stack.push(stack_frame);
 
                 is_first_frame = false;
