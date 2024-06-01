@@ -89,6 +89,8 @@ where
         .map_or(0, |r| r.first_sample_time);
     let endian = perf_file.endian();
     let simpleperf_meta_info = perf_file.simpleperf_meta_info().ok().flatten();
+    let is_simpleperf = simpleperf_meta_info.is_some();
+    let call_chain_return_addresses_are_preadjusted = is_simpleperf;
     let mut product_postfix = String::new();
     if let Some(host) = perf_file.hostname().ok().flatten() {
         write!(product_postfix, " on {host}").unwrap();
@@ -144,6 +146,7 @@ where
         extra_dir,
         interpretation.clone(),
         simpleperf_symbol_tables,
+        call_chain_return_addresses_are_preadjusted,
     );
 
     let mut last_timestamp = 0;
