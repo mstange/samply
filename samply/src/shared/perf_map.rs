@@ -72,30 +72,25 @@ pub fn try_load_perf_map(
     for (addr, len, symbol_name) in content.lines().filter_map(process_perf_map_line) {
         let start_address = addr;
         let end_address = addr + len;
+        let code_size = len as u32;
 
         // Pretend that all JIT code is laid out consecutively in our fake library.
         // This relative address is used for symbolication whenever we add a frame
         // to the profile.
         let relative_address = cumulative_address;
-        cumulative_address += len as u32;
+        cumulative_address += code_size;
 
         // Add a symbol for this function to the fake library's symbol table.
         // This symbol will be looked up when the address is added to the profile,
         // based on the relative address.
         symbols.push(Symbol {
             address: relative_address,
-            size: Some(len as u32),
+            size: Some(code_size),
             name: symbol_name.to_owned(),
         });
 
         let (lib_handle, relative_address) = if let Some(recycler) = recycler.as_deref_mut() {
-            recycler.recycle(
-                start_address,
-                end_address,
-                relative_address,
-                symbol_name,
-                lib_handle,
-            )
+            recycler.recycle(symbol_name, code_size, lib_handle, relative_address)
         } else {
             (lib_handle, relative_address)
         };

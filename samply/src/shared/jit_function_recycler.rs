@@ -16,13 +16,11 @@ pub struct JitFunctionRecycler {
 impl JitFunctionRecycler {
     pub fn recycle(
         &mut self,
-        start_address: u64,
-        end_address: u64,
-        relative_address: u32,
         name: &str,
+        code_size: u32,
         lib_handle: LibraryHandle,
+        relative_address: u32,
     ) -> (LibraryHandle, u32) {
-        let code_size = (end_address - start_address) as u32;
         let name_and_code_size = (name.to_owned(), code_size);
         match self
             .jit_functions_for_reuse_by_name_and_size

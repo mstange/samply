@@ -172,16 +172,17 @@ impl SingleJitDumpProcessor {
             match raw_jitdump_record.parse() {
                 Ok(JitDumpRecord::CodeLoad(record)) => {
                     let start_avma = record.code_addr;
-                    let end_avma = start_avma + record.code_bytes.len() as u64;
+                    let code_size = record.code_bytes.len() as u32;
+                    let end_avma = start_avma + u64::from(code_size);
 
                     let relative_address_at_start = self.cumulative_address;
-                    self.cumulative_address += record.code_bytes.len() as u32;
+                    self.cumulative_address += code_size;
 
                     let symbol_name = record.function_name.as_slice();
                     let symbol_name = std::str::from_utf8(&symbol_name).unwrap_or("");
                     self.symbols.push(Symbol {
                         address: relative_address_at_start,
-                        size: Some(record.code_bytes.len() as u32),
+                        size: Some(code_size),
                         name: symbol_name.to_owned(),
                     });
 
@@ -198,11 +199,10 @@ impl SingleJitDumpProcessor {
                     let (lib_handle, relative_address_at_start) =
                         if let Some(recycler) = recycler.as_deref_mut() {
                             recycler.recycle(
-                                start_avma,
-                                end_avma,
-                                relative_address_at_start,
                                 symbol_name,
+                                code_size,
                                 self.lib_handle,
+                                relative_address_at_start,
                             )
                         } else {
                             (self.lib_handle, relative_address_at_start)
