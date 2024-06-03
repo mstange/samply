@@ -237,7 +237,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                     pid,
                     method_name,
                     method_start_address.as_u64(),
-                    method_size,
+                    method_size as u32,
                 );
             }
             /*"V8.js/SourceLoad/" |

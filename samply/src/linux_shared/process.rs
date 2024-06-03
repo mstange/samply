@@ -306,13 +306,9 @@ where
         );
 
         if let (Some(name), Some(recycler)) = (symbol_name, self.jit_function_recycler.as_mut()) {
-            (lib_handle, relative_address_at_start) = recycler.recycle(
-                start_address,
-                end_address,
-                relative_address_at_start,
-                name,
-                lib_handle,
-            );
+            let code_size = (end_address - start_address) as u32;
+            (lib_handle, relative_address_at_start) =
+                recycler.recycle(name, code_size, lib_handle, relative_address_at_start);
         }
 
         let (category, js_frame) =
