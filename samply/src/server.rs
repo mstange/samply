@@ -109,7 +109,7 @@ fn create_symbol_manager_config(symbol_props: SymbolProps, verbose: bool) -> Sym
         .or_else(|| Some(cache_base_dir?.join("symbols").join("windows")));
     if let Some(cache_dir) = windows_symbol_cache_dir {
         for base_url in symbol_props.windows_symbol_server {
-            config = config.breakpad_symbols_server(base_url, &cache_dir)
+            config = config.windows_symbols_server(base_url, &cache_dir)
         }
     }
 
