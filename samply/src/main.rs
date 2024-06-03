@@ -275,6 +275,10 @@ struct SymbolArgs {
     #[arg(long)]
     breakpad_symbol_server: Vec<String>,
 
+    /// Additional local directories containing Breakpad .sym files
+    #[arg(long)]
+    breakpad_symbol_dir: Vec<String>,
+
     /// Overrides the default cache directory for Breakpad symbol files
     #[arg(long)]
     breakpad_symbol_cache: Option<PathBuf>,
@@ -652,6 +656,7 @@ impl SymbolArgs {
             windows_symbol_server: self.windows_symbol_server.clone(),
             windows_symbol_cache: self.windows_symbol_cache.clone(),
             breakpad_symbol_server: self.breakpad_symbol_server.clone(),
+            breakpad_symbol_dir: self.breakpad_symbol_dir.clone(),
             breakpad_symbol_cache: self.breakpad_symbol_cache.clone(),
             simpleperf_binary_cache: self.simpleperf_binary_cache.clone(),
         }

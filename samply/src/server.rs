@@ -94,6 +94,9 @@ fn create_symbol_manager_config(symbol_props: SymbolProps, verbose: bool) -> Sym
         for base_url in symbol_props.breakpad_symbol_server {
             config = config.breakpad_symbols_server(base_url, &cache_dir)
         }
+        for dir in symbol_props.breakpad_symbol_dir {
+            config = config.breakpad_symbols_dir(dir);
+        }
         if let Some(cache_base_dir) = cache_base_dir {
             let breakpad_symindex_cache_dir =
                 cache_base_dir.join("symbols").join("breakpad-symindex");
