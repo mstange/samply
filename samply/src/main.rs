@@ -146,6 +146,14 @@ struct ImportArgs {
     /// Enable CoreCLR event conversion.
     #[clap(long, require_equals = true, value_name = "FLAG", value_enum, value_delimiter = ',', num_args = 0.., default_values_t = vec![CoreClrArgs::Enabled])]
     coreclr: Vec<CoreClrArgs>,
+
+    /// Start time to capture samples at, in seconds
+    #[arg(long)]
+    tstart: Option<u32>,
+
+    /// End time to capture samples at, in seconds
+    #[arg(long)]
+    tstop: Option<u32>,
 }
 
 #[allow(unused)]
@@ -213,6 +221,11 @@ struct RecordArgs {
     /// Enable browser-related event capture (JavaScript stacks and trace events)
     #[arg(long)]
     browsers: bool,
+
+    /// Keep the ETL file after recording (Windows only).
+    #[cfg(target_os = "windows")]
+    #[arg(long)]
+    keep_etl: bool,
 }
 
 #[derive(ValueEnum, Copy, Clone, Debug, PartialEq, Eq)]
@@ -496,6 +509,8 @@ impl ImportArgs {
             unknown_event_markers: self.profile_creation_args.unknown_event_markers,
             #[cfg(not(target_os = "windows"))]
             unknown_event_markers: false,
+            tstart: self.tstart,
+            tstop: self.tstop,
         }
     }
 
@@ -537,9 +552,9 @@ impl RecordArgs {
         let interval = Duration::from_secs_f64(1.0 / self.rate);
         cfg_if::cfg_if! {
             if #[cfg(target_os = "windows")] {
-                let vm_hack = self.vm_hack;
+                let (vm_hack, keep_etl) = (self.vm_hack, self.keep_etl);
             } else {
-                let vm_hack = false;
+                let (vm_hack, keep_etl) = (false, false);
             }
         }
 
@@ -550,6 +565,7 @@ impl RecordArgs {
             vm_hack,
             gfx: self.gfx,
             browsers: self.browsers,
+            keep_etl,
         }
     }
 
@@ -610,6 +626,8 @@ impl RecordArgs {
             unknown_event_markers: self.profile_creation_args.unknown_event_markers,
             #[cfg(not(target_os = "windows"))]
             unknown_event_markers: false,
+            tstart: None,
+            tstop: None,
         }
     }
 }

@@ -398,6 +398,7 @@ pub fn handle_coreclr_event(
     coreclr_context: &mut CoreClrContext,
     s: &TypedEvent,
     parser: &mut Parser,
+    is_in_time_range: bool,
 ) {
     let (gc_markers, gc_suspensions, gc_allocs, event_stacks) = (
         coreclr_context.props.gc_markers,
@@ -531,6 +532,9 @@ pub fn handle_coreclr_event(
             //eprintln!("Type/BulkType count: {} user_buffer size: {} values len: {}", count, s.user_buffer().len(), values.len());
         }
         ("CLRStack", "CLRStackWalk") => {
+            if !is_in_time_range {
+                return;
+            }
             // If the STACK keyword is enabled, we get a CLRStackWalk following each CLR event that supports stacks. Not every event
             // does. The info about which does and doesn't is here: https://github.com/dotnet/runtime/blob/main/src/coreclr/vm/ClrEtwAllMeta.lst
             // Current dotnet (8.0.x) seems to have a bug where `MethodJitMemoryAllocatedForCode` events will fire a stackwalk,
@@ -556,6 +560,9 @@ pub fn handle_coreclr_event(
             handled = true;
         }
         ("GarbageCollection", gc_event) => {
+            if !is_in_time_range {
+                return;
+            }
             match gc_event {
                 "GCSampledObjectAllocation" => {
                     if !gc_allocs {

@@ -116,6 +116,10 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                 // nothing, but we don't want a marker for it
             }
             "MSNT_SystemTrace/StackWalk/Stack" => {
+                if !context.is_in_time_range(timestamp_raw) {
+                    return;
+                }
+
                 let tid: u32 = parser.parse("StackThread");
                 let pid: u32 = parser.parse("StackProcess");
                 // The EventTimeStamp here indicates thea ccurate time the stack was collected, and
@@ -144,10 +148,16 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                 }
             }
             "MSNT_SystemTrace/PerfInfo/SampleProf" => {
+                if !context.is_in_time_range(timestamp_raw) {
+                    return;
+                }
                 let tid: u32 = parser.parse("ThreadId");
                 context.handle_sample(timestamp_raw, tid);
             }
             "MSNT_SystemTrace/PageFault/DemandZeroFault" => {
+                if !context.is_in_time_range(timestamp_raw) {
+                    return;
+                }
                 if !demand_zero_faults {
                     return;
                 }
@@ -157,6 +167,9 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
             }
             "MSNT_SystemTrace/PageFault/VirtualAlloc"
             | "MSNT_SystemTrace/PageFault/VirtualFree" => {
+                if !context.is_in_time_range(timestamp_raw) {
+                    return;
+                }
                 let is_free = s.name() == "MSNT_SystemTrace/PageFault/VirtualFree";
                 let pid = e.EventHeader.ProcessId;
                 let tid = e.EventHeader.ThreadId;
@@ -213,14 +226,23 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                 // nothing, but we don't want a marker for it
             }
             "Microsoft-Windows-DxgKrnl/VSyncDPC/Info " => {
+                if !context.is_in_time_range(timestamp_raw) {
+                    return;
+                }
                 context.handle_vsync(timestamp_raw);
             }
             "MSNT_SystemTrace/Thread/CSwitch" => {
+                if !context.is_in_time_range(timestamp_raw) {
+                    return;
+                }
                 let old_tid: u32 = parser.parse("OldThreadId");
                 let new_tid: u32 = parser.parse("NewThreadId");
                 context.handle_cswitch(timestamp_raw, old_tid, new_tid);
             }
             "MSNT_SystemTrace/Thread/ReadyThread" => {
+                if !context.is_in_time_range(timestamp_raw) {
+                    return;
+                }
                 // these events can give us the unblocking stack
                 let _thread_id: u32 = parser.parse("TThreadId");
             }
@@ -249,6 +271,9 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                 //dbg!(s.process_id(), jscript_symbols.keys());
             }*/
             "Microsoft-Windows-Direct3D11/ID3D11VideoContext_SubmitDecoderBuffers/win:Start" => {
+                if !context.is_in_time_range(timestamp_raw) {
+                    return;
+                }
                 let tid = s.thread_id();
                 let text = event_properties_to_string(&s, &mut parser, None);
                 context.handle_freeform_marker_start(
@@ -259,6 +284,9 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                 );
             }
             "Microsoft-Windows-Direct3D11/ID3D11VideoContext_SubmitDecoderBuffers/win:Stop" => {
+                if !context.is_in_time_range(timestamp_raw) {
+                    return;
+                }
                 let tid = s.thread_id();
                 let text = event_properties_to_string(&s, &mut parser, None);
                 context.handle_freeform_marker_end(
@@ -270,6 +298,9 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                 );
             }
             marker_name if marker_name.starts_with("Mozilla.FirefoxTraceLogger/") => {
+                if !context.is_in_time_range(timestamp_raw) {
+                    return;
+                }
                 let Some(marker_name) = marker_name
                     .strip_prefix("Mozilla.FirefoxTraceLogger/")
                     .and_then(|s| s.strip_suffix("/Info"))
@@ -311,6 +342,9 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                 // ignore
             }
             marker_name if marker_name.starts_with("Google.Chrome/") => {
+                if !context.is_in_time_range(timestamp_raw) {
+                    return;
+                }
                 let Some(marker_name) = marker_name
                     .strip_prefix("Google.Chrome/")
                     .and_then(|s| s.strip_suffix("/Info"))
@@ -350,10 +384,14 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                 );
             }
             dotnet_event if dotnet_event.starts_with("Microsoft-Windows-DotNETRuntime") => {
+                let is_in_range = context.is_in_time_range(timestamp_raw);
                 // Note: No "/" at end of event name, because we want DotNETRuntimeRundown as well
-                coreclr::handle_coreclr_event(context, &mut core_clr_context, &s, &mut parser);
+                coreclr::handle_coreclr_event(context, &mut core_clr_context, &s, &mut parser, is_in_range);
             }
             _ => {
+                if !context.is_in_time_range(timestamp_raw) {
+                    return;
+                }
                 let tid = e.EventHeader.ThreadId;
                 if context.has_thread(tid) {
                     let task_and_op = s.name().split_once('/').unwrap().1;
