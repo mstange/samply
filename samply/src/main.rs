@@ -13,6 +13,7 @@ mod name;
 mod profile_json_preparse;
 mod server;
 mod shared;
+mod pico;
 
 use std::ffi::OsStr;
 use std::fs::File;
@@ -213,6 +214,18 @@ struct RecordArgs {
     /// Enable browser-related event capture (JavaScript stacks and trace events)
     #[arg(long)]
     browsers: bool,
+
+    #[arg(long, requires("serial"), requires("elf"))]
+    pico: bool,
+
+    #[clap(long, requires("pico"))]
+    serial: Option<String>,
+
+    #[clap(long, requires("pico"))]
+    elf: Option<String>,
+
+    #[clap(long, requires("pico"))]
+    bootrom_elf: Option<String>,
 }
 
 #[derive(ValueEnum, Copy, Clone, Debug, PartialEq, Eq)]
@@ -421,6 +434,17 @@ fn main() {
             let symbol_props = record_args.symbol_props();
             let server_props = record_args.server_props();
 
+            if record_args.pico {
+                let pico_props = record_args.pico_props();
+                pico::record_pico(
+                    pico_props,
+                    recording_props,
+                    profile_creation_props,
+                    symbol_props,
+                    server_props);
+                std::process::exit(0);
+            }
+
             let exit_status = match profiler::start_recording(
                 recording_mode,
                 recording_props,
@@ -610,6 +634,15 @@ impl RecordArgs {
             unknown_event_markers: self.profile_creation_args.unknown_event_markers,
             #[cfg(not(target_os = "windows"))]
             unknown_event_markers: false,
+        }
+    }
+
+    #[allow(unused)]
+    pub fn pico_props(&self) -> pico::PicoProps {
+        pico::PicoProps {
+            serial: self.serial.clone().unwrap(),
+            elf: self.elf.clone().unwrap(),
+            bootrom_elf: self.bootrom_elf.clone(),
         }
     }
 }
