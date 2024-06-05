@@ -13,7 +13,7 @@ use crate::shared::{
 };
 use debugid::DebugId;
 use fxprof_processed_profile::{
-    CategoryColor, CpuDelta, LibraryInfo, Profile, ReferenceTimestamp, SamplingInterval,
+    CategoryColor, CpuDelta, LibraryInfo, Profile, ReferenceTimestamp, SamplingInterval, Symbol, SymbolTable
 };
 use serde_json::to_writer;
 use serialport5::SerialPort;
@@ -21,8 +21,11 @@ use wholesym::samply_symbols::debug_id_for_object;
 use std::fs::File;
 use std::io::{BufWriter, Read};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::{fs, io::Write, path::Path, time::Duration};
 
+const BOOTROM_LO: u64 = 0x0u64;
+const BOOTROM_HI: u64 = 0x4000u64;
 const FLASH_LO: u64 = 0x10000000u64;
 const FLASH_HI: u64 = 0x10200000u64;
 const MEM_LO  : u64 = 0x20000000u64;
@@ -30,12 +33,13 @@ const MEM_HI  : u64 = 0x20042000u64;
 
 const START_SAMPLING_CMD: u8 = 0xa0;
 const STOP_SAMPLING_CMD : u8 = 0xa1;
-const SAMPLE_CMD        : u8 = 0x0a;
+const SAMPLE_CMD        : u8 = 0xb0;
 
 pub struct PicoProps {
     pub elf: String,
     pub serial: String,
     pub bootrom_elf: Option<String>,
+    pub reset: bool,
 }
 
 fn to_stack_frames(addresses: &[u32]) -> Vec<StackFrame> {
@@ -84,6 +88,15 @@ pub(crate) fn record_pico(
         debug_id_for_object(&elf).unwrap()
     };
 
+    let bootrom_debug_id = if let Some(bootrom_elf) = &pico_props.bootrom_elf {
+        let data = fs::read(bootrom_elf).unwrap();
+        let elf = object::File::parse(&*data).unwrap();
+
+        debug_id_for_object(&elf).unwrap()
+    } else {
+        DebugId::nil()
+    };
+
     let sampling_interval_ns = recording_props.interval.as_nanos() as u64;
 
     let timestamp_converter = TimestampConverter {
@@ -117,6 +130,28 @@ pub(crate) fn record_pico(
     };
     let main_exe = profile.add_lib(main_exe_info);
 
+    let bootrom_symbol_table = if pico_props.bootrom_elf.is_some() {
+        None // load it from the elf file dynamically
+    } else {
+        let symbol_table = SymbolTable::new(
+            vec![Symbol { address: BOOTROM_LO as u32, size: Some((BOOTROM_HI - BOOTROM_LO) as u32), name: "bootrom".to_owned() }]
+        );
+        Some(Arc::new(symbol_table))
+    };
+    let bootrom_elf = PathBuf::from(pico_props.bootrom_elf.clone().unwrap_or_else(|| "bootrom.elf".to_string()));
+    let bootrom_info = LibraryInfo {
+        name: "bootrom".to_string(),
+        path: bootrom_elf.to_string_lossy().to_string(),
+        debug_name: bootrom_elf.file_name().unwrap().to_string_lossy().to_string(),
+        debug_path: bootrom_elf.to_string_lossy().to_string(),
+        debug_id: bootrom_debug_id,
+        code_id: None,
+        arch: Some("arm32".to_string()),
+        symbol_table: bootrom_symbol_table,
+    };
+    let bootrom = profile.add_lib(bootrom_info);
+
+    profile.add_lib_mapping(process, bootrom, BOOTROM_LO, BOOTROM_HI, 0);
     profile.add_lib_mapping(process, main_exe, FLASH_LO, MEM_HI, 0);
 
     let mut unresolved_stacks = UnresolvedStacks::default();
@@ -147,10 +182,19 @@ pub(crate) fn record_pico(
         .open(PathBuf::from(pico_props.serial))
         .expect("Failed to open port");
 
+    if pico_props.reset {
+        eprintln!("Resetting target...");
+        port.write(&[b'r']).expect("Failed to write reset cmd");
+    }
+
     eprintln!("Starting profile...");
+
     {
         let sampling_interval_ms = (sampling_interval_ns / 1_000_000) as u16;
-        let start_cmd = vec![START_SAMPLING_CMD, (sampling_interval_ms & 0xff) as u8, ((sampling_interval_ms >> 8) & 0xff) as u8, 0];
+        let start_cmd = vec![START_SAMPLING_CMD,
+            (sampling_interval_ms & 0xff) as u8,
+            ((sampling_interval_ms >> 8) & 0xff) as u8,
+            0];
         port.write(&start_cmd).expect("Failed to write start cmd");
     }
 
@@ -177,9 +221,9 @@ pub(crate) fn record_pico(
         //eprintln!("len {} extra {}", len, extra);
 
         // format:
-        //   4 bytes: 0x0a, 0x0000 (number of samples), 0x00 (core #)
+        //   4 bytes: 0xbq /* where q == core_num */ | (num_frames & 0xfff), other bits reserved
         //   4 bytes: u32 timestamp (ns; may loop around)
-        //   ... number of samples * 4 bytes ... u32 addresses
+        //   ... number of frames * 4 bytes ... (u32 addresses)
         for value in serial_buf[..len - extra]
             .chunks_exact(4)
             .map(|a| u32::from_le_bytes(a.try_into().unwrap()))
@@ -235,19 +279,18 @@ pub(crate) fn record_pico(
             } else {
                 // start of the next sample (sample_stack_index == sample_stack_total == 0, at init)
                 let cmd = ((value >> 24) & 0xff) as u8;
-                assert_eq!(cmd, SAMPLE_CMD);
+                assert_eq!(cmd & 0xf0, SAMPLE_CMD);
+                sample_core = cmd & 1;
 
                 // start of the next sample, parse the header
-                sample_core = value & 0xff;
                 sample_stack_index = u32::MAX;
-                sample_stack_total = (value >> 8) & 0xffff;
+                sample_stack_total = value & 0xfff;
                 sample_stack.clear();
                 //eprintln!("sample start {} samples", sample_stack_total);
             }
         }
 
         if extra > 0 {
-            //serial_buf[..extra].copy_from_slice(&serial_buf[len - extra..]);
             if extra == 3 { serial_buf[0] = serial_buf[len - 3]; }
             if extra >= 2 { serial_buf[1] = serial_buf[len - 2]; }
             if extra >= 1 { serial_buf[2] = serial_buf[len - 1]; }

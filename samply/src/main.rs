@@ -215,17 +215,17 @@ struct RecordArgs {
     #[arg(long)]
     browsers: bool,
 
-    #[arg(long, requires("serial"), requires("elf"))]
-    pico: bool,
+    /// Serial port to use for communicating with pico_debug
+    #[arg(long)]
+    pico: Option<String>,
 
-    #[clap(long, requires("pico"))]
-    serial: Option<String>,
+    /// Reset the target before starting sampling
+    #[arg(long, requires("pico"))]
+    pico_reset: bool,
 
+    /// .elf file for the bootrom, if available
     #[clap(long, requires("pico"))]
-    elf: Option<String>,
-
-    #[clap(long, requires("pico"))]
-    bootrom_elf: Option<String>,
+    pico_bootrom: Option<String>,
 }
 
 #[derive(ValueEnum, Copy, Clone, Debug, PartialEq, Eq)]
@@ -434,7 +434,7 @@ fn main() {
             let symbol_props = record_args.symbol_props();
             let server_props = record_args.server_props();
 
-            if record_args.pico {
+            if record_args.pico.is_some() {
                 let pico_props = record_args.pico_props();
                 pico::record_pico(
                     pico_props,
@@ -640,9 +640,10 @@ impl RecordArgs {
     #[allow(unused)]
     pub fn pico_props(&self) -> pico::PicoProps {
         pico::PicoProps {
-            serial: self.serial.clone().unwrap(),
-            elf: self.elf.clone().unwrap(),
-            bootrom_elf: self.bootrom_elf.clone(),
+            serial: self.pico.clone().unwrap(),
+            elf: self.command[0].to_string_lossy().to_string(),
+            bootrom_elf: self.pico_bootrom.clone(),
+            reset: self.pico_reset,
         }
     }
 }
