@@ -43,6 +43,7 @@ pub trait OptionallySendFuture: Future + Send {}
 #[cfg(feature = "send_futures")]
 impl<T> OptionallySendFuture for T where T: Future + Send {}
 
+#[derive(Debug)]
 pub enum CandidatePathInfo<FL: FileLocation> {
     SingleFile(FL),
     InDyldCache {
