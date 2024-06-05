@@ -116,7 +116,26 @@ where
                 );
                 entry.insert(process)
             }
-            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Occupied(entry) => {
+                // Why do we have a thread for this TID already? It should be a new thread.
+                // Two options come to mind:
+                //  - The TID got reused, and we missed an EXIT event for the old thread.
+                //  - Or the FORK for this thread wasn't actually the first event that we
+                //    see for this thread.
+                //
+                // If we're in the latter case, we may have given this process / thread a
+                // start time that's too early. Let's adjust the start time if this process
+                // doesn't have any samples yet.
+                let process = entry.into_mut();
+                if process.threads.main_thread.last_sample_timestamp.is_none() {
+                    profile.set_process_start_time(process.profile_process, start_time);
+                    profile.set_thread_start_time(
+                        process.threads.main_thread.profile_thread,
+                        start_time,
+                    );
+                }
+                process
+            }
         }
     }
 

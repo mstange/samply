@@ -86,7 +86,24 @@ impl ProcessThreads {
                 let thread = Thread::new(thread_handle, thread_label_frame, name);
                 entry.insert(thread)
             }
-            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Occupied(entry) => {
+                // Why do we have a thread for this TID already? It should be a new thread.
+                // Two options come to mind:
+                //  - The TID got reused, and we missed an EXIT event for the old thread.
+                //  - Or the FORK for this thread wasn't actually the first event that we
+                //    see for this thread.
+                //
+                // If we're in the latter case, we may have given this thread a start time
+                // that's too early. Let's adjust the start time if the thread doesn't have
+                // any samples yet.
+                // In particular, simpleperf is known to emit extra COMM (and MMAP2) events with
+                // backdated timestamps that can be before a thread's creation.
+                let thread = entry.into_mut();
+                if thread.last_sample_timestamp.is_none() {
+                    profile.set_thread_start_time(thread.profile_thread, start_time);
+                }
+                thread
+            }
         }
     }
 
