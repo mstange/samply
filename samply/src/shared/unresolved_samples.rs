@@ -192,12 +192,7 @@ impl UnresolvedStacks {
         frames: impl Iterator<Item = StackFrame>,
     ) -> UnresolvedStackHandle {
         let mut prefix = UnresolvedStackHandle::EMPTY;
-        for frame in frames {
-            match frame {
-                StackFrame::InstructionPointer(_, StackMode::Kernel) => continue,
-                StackFrame::ReturnAddress(_, StackMode::Kernel) => continue,
-                _ => {}
-            }
+        for frame in frames.filter(|f| f.stack_mode() != Some(StackMode::Kernel)) {
             let x = (prefix, frame);
             let node = *self.stack_lookup.entry(x).or_insert_with(|| {
                 let new_index = self.stacks.len() as u32;
