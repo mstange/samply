@@ -117,6 +117,10 @@ fn create_symbol_manager_config(symbol_props: SymbolProps, verbose: bool) -> Sym
         config = config.simpleperf_binary_cache_dir(binary_cache);
     }
 
+    for dir in symbol_props.symbol_dir {
+        config = config.extra_symbols_directory(dir);
+    }
+
     config
 }
 
