@@ -48,3 +48,14 @@ pub enum StackFrame {
     AdjustedReturnAddress(u64, StackMode),
     TruncatedStackMarker,
 }
+
+impl StackFrame {
+    pub fn stack_mode(&self) -> Option<StackMode> {
+        match self {
+            StackFrame::InstructionPointer(_, stack_mode) => Some(*stack_mode),
+            StackFrame::ReturnAddress(_, stack_mode) => Some(*stack_mode),
+            StackFrame::AdjustedReturnAddress(_, stack_mode) => Some(*stack_mode),
+            StackFrame::TruncatedStackMarker => None,
+        }
+    }
+}
