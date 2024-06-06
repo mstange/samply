@@ -154,47 +154,55 @@ where
             let oat_category: CategoryPairHandle =
                 profile.add_category("OAT", CategoryColor::Green).into();
             for f in simpleperf_symbol_tables {
+                if f.r#type == DSO_KERNEL {
+                    simpleperf_symbol_tables_kernel_image = Some(f.symbol);
+                    continue;
+                }
+
                 let path = f.path.clone().into_bytes();
+                let jit_info = parse_simpleperf_jit_path(&f.path);
+                let is_jit = jit_info.is_some();
                 let (category, art_info) = if f.path.ends_with(".oat") {
                     (Some(oat_category), Some(AndroidArtInfo::DexOrOat))
-                } else if f.r#type == DSO_DEX_FILE {
+                } else if f.r#type == DSO_DEX_FILE || f.path.ends_with(".odex") || is_jit {
                     (Some(dex_category), Some(AndroidArtInfo::DexOrOat))
                 } else if f.path.ends_with("libart.so") {
                     (None, Some(AndroidArtInfo::LibArt))
                 } else {
                     (None, None)
                 };
-                if f.r#type == DSO_KERNEL {
-                    simpleperf_symbol_tables_kernel_image = Some(f.symbol);
-                } else {
-                    let file_offset_of_min_vaddr_in_elf_file = match f.type_specific_msg {
-                        Some(SimpleperfTypeSpecificInfo::ElfFile(elf)) => {
-                            Some(elf.file_offset_of_min_vaddr)
+
+                let (min_vaddr, file_offset_of_min_vaddr_in_elf_file) =
+                    match (jit_info, f.type_specific_msg) {
+                        (Some((_, file_offset_at_min_vaddr, _)), _) => {
+                            (f.symbol[0].vaddr, Some(file_offset_at_min_vaddr))
                         }
-                        _ => None,
+                        (None, Some(SimpleperfTypeSpecificInfo::ElfFile(elf))) => {
+                            (f.min_vaddr, Some(elf.file_offset_of_min_vaddr))
+                        }
+                        _ => (f.min_vaddr, None),
                     };
-                    let symbols: Vec<_> = f
-                        .symbol
-                        .iter()
-                        .map(|s| fxprof_processed_profile::Symbol {
-                            address: s.vaddr as u32,
-                            size: Some(s.len),
-                            name: demangle_any(&s.name),
-                        })
-                        .collect();
-                    let symbol_table = SymbolTable::new(symbols);
-                    let symbol_table = SymbolTableFromSimpleperf {
-                        file_offset_of_min_vaddr_in_elf_file,
-                        min_vaddr: f.min_vaddr,
-                        symbol_table: Arc::new(symbol_table),
-                        category,
-                        art_info,
-                    };
-                    if f.r#type == DSO_KERNEL_MODULE {
-                        simpleperf_symbol_tables_kernel_modules.insert(path, symbol_table);
-                    } else {
-                        simpleperf_symbol_tables_user.insert(path, symbol_table);
-                    }
+                let symbols: Vec<_> = f
+                    .symbol
+                    .iter()
+                    .map(|s| fxprof_processed_profile::Symbol {
+                        address: s.vaddr as u32,
+                        size: Some(s.len),
+                        name: demangle_any(&s.name),
+                    })
+                    .collect();
+                let symbol_table = SymbolTable::new(symbols);
+                let symbol_table = SymbolTableFromSimpleperf {
+                    file_offset_of_min_vaddr_in_elf_file,
+                    min_vaddr,
+                    symbol_table: Arc::new(symbol_table),
+                    category,
+                    art_info,
+                };
+                if f.r#type == DSO_KERNEL_MODULE {
+                    simpleperf_symbol_tables_kernel_modules.insert(path, symbol_table);
+                } else {
+                    simpleperf_symbol_tables_user.insert(path, symbol_table);
                 }
             }
         }
@@ -1689,6 +1697,16 @@ fn process_off_cpu_sample_group(
             None,
         );
     }
+}
+
+/// Extract Some(("/data/local/tmp/perf.data_jit_app_cache", 1039560, 1040440))
+/// from paths like "/data/local/tmp/perf.data_jit_app_cache:1039560-1040440"
+fn parse_simpleperf_jit_path(path: &str) -> Option<(&str, u64, u64)> {
+    let (base_path, range) = path.rsplit_once(':')?;
+    let (from, to) = range.split_once('-')?;
+    let from: u64 = from.parse().ok()?;
+    let to: u64 = to.parse().ok()?;
+    Some((base_path, from, to))
 }
 
 struct MappingInfo {
