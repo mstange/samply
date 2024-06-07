@@ -186,6 +186,7 @@ pub enum MarkerFieldFormat {
     FilePath,
 
     /// A plain String, never sanitized for PII.
+    ///
     /// Important: Do not put URL or file path information here, as it will not
     /// be sanitized during profile upload. Please be careful with including
     /// other types of PII here as well.
@@ -194,34 +195,55 @@ pub enum MarkerFieldFormat {
     // ----------------------------------------------------
     // Numeric types
     /// For time data that represents a duration of time.
+    /// The value is given in float milliseconds and will be displayed
+    /// in a unit that is picked based on the magnitude of the number.
     /// e.g. "Label: 5s, 5ms, 5μs"
     Duration,
 
-    /// Data that happened at a specific time, relative to the start of the
-    /// profile. e.g. "Label: 15.5s, 20.5ms, 30.5μs"
+    /// A timestamp, relative to the start of the profile. The value is given in
+    /// float milliseconds.
+    ///
+    ///  e.g. "Label: 15.5s, 20.5ms, 30.5μs"
     Time,
 
-    /// The following are alternatives to display a time only in a specific unit
-    /// of time.
-    Seconds, // "Label: 5s"
-    Milliseconds, // "Label: 5ms"
-    Microseconds, // "Label: 5μs"
-    Nanoseconds,  // "Label: 5ns"
+    /// Display a millisecond value as seconds, regardless of the magnitude of the number.
+    ///
+    /// e.g. "Label: 5s" for a value of 5000.0
+    Seconds,
 
+    /// Display a millisecond value as milliseconds, regardless of the magnitude of the number.
+    ///
+    /// e.g. "Label: 5ms" for a value of 5.0
+    Milliseconds,
+
+    /// Display a millisecond value as microseconds, regardless of the magnitude of the number.
+    ///
+    /// e.g. "Label: 5μs" for a value of 0.0005
+    Microseconds,
+
+    /// Display a millisecond value as seconds, regardless of the magnitude of the number.
+    ///
+    /// e.g. "Label: 5ns" for a value of 0.0000005
+    Nanoseconds,
+
+    /// Display a bytes value in a unit that's appropriate for the number's magnitude.
+    ///
     /// e.g. "Label: 5.55mb, 5 bytes, 312.5kb"
     Bytes,
 
     /// This should be a value between 0 and 1.
-    /// "Label: 50%"
+    /// e.g. "Label: 50%" for a value of 0.5
     Percentage,
 
-    // The integer should be used for generic representations of numbers.
-    // Do not use it for time information.
-    // "Label: 52, 5,323, 1,234,567"
+    /// A generic integer number.
+    /// Do not use it for time information.
+    ///
+    /// "Label: 52, 5,323, 1,234,567"
     Integer,
 
-    // The decimal should be used for generic representations of numbers.
-    // Do not use it for time information.
-    // "Label: 52.23, 0.0054, 123,456.78"
+    /// A generic floating point number.
+    /// Do not use it for time information.
+    ///
+    /// "Label: 52.23, 0.0054, 123,456.78"
     Decimal,
 }
