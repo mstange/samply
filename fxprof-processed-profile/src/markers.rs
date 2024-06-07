@@ -185,12 +185,22 @@ pub enum MarkerFieldFormat {
     /// A file path, supports PII sanitization.
     FilePath,
 
+    /// A regular string, supports PII sanitization.
+    /// Concretely this means that these strings are stripped when uploading
+    /// profiles if you uncheck "Include resource URLs and paths".
+    SanitizedString,
+
     /// A plain String, never sanitized for PII.
     ///
     /// Important: Do not put URL or file path information here, as it will not
     /// be sanitized during profile upload. Please be careful with including
     /// other types of PII here as well.
     String,
+
+    /// An index into a (currently) thread-local string table, aka UniqueStringArray
+    /// This is effectively an integer, so wherever we need to display this value, we
+    /// must first perform a lookup into the appropriate string table.
+    UniqueString,
 
     // ----------------------------------------------------
     // Numeric types

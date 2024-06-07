@@ -342,7 +342,7 @@ fn profile_without_js() {
                 "name": []
               },
               "interval": 1.0,
-              "preprocessedProfileVersion": 48,
+              "preprocessedProfileVersion": 49,
               "processType": 0,
               "product": "test",
               "sampleUnits": {
@@ -1066,7 +1066,7 @@ fn profile_with_js() {
                 "name": []
               },
               "interval": 1.0,
-              "preprocessedProfileVersion": 48,
+              "preprocessedProfileVersion": 49,
               "processType": 0,
               "product": "test with js",
               "sampleUnits": {
@@ -1322,7 +1322,7 @@ fn profile_counters_with_sorted_processes() {
                 "name": []
               },
               "interval": 1.0,
-              "preprocessedProfileVersion": 48,
+              "preprocessedProfileVersion": 49,
               "processType": 0,
               "product": "test",
               "sampleUnits": {
