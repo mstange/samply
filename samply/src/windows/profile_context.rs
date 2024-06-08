@@ -5,11 +5,10 @@ use std::sync::Arc;
 use debugid::DebugId;
 use fxprof_processed_profile::{
     CategoryColor, CategoryHandle, CounterHandle, CpuDelta, Frame, FrameFlags, FrameInfo,
-    LibraryHandle, LibraryInfo, MarkerDynamicField, MarkerFieldFormat, MarkerHandle,
-    MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerTiming, ProcessHandle, Profile,
-    ProfilerMarker, SamplingInterval, Symbol, SymbolTable, ThreadHandle, Timestamp,
+    LibraryHandle, LibraryInfo, Marker, MarkerFieldFormat, MarkerFieldSchema, MarkerHandle,
+    MarkerLocation, MarkerSchema, MarkerTiming, ProcessHandle, Profile, SamplingInterval,
+    StaticSchemaMarker, StringHandle, Symbol, SymbolTable, ThreadHandle, Timestamp,
 };
-use serde_json::{json, Value};
 use uuid::Uuid;
 
 use super::chrome::KeywordNames;
@@ -22,7 +21,7 @@ use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::jit_function_add_marker::JitFunctionAddMarker;
 use crate::shared::jit_function_recycler::JitFunctionRecycler;
 use crate::shared::lib_mappings::{LibMappingAdd, LibMappingInfo, LibMappingOp, LibMappingOpQueue};
-use crate::shared::process_sample_data::{ProcessSampleData, SimpleMarker, UserTimingMarker};
+use crate::shared::process_sample_data::{ProcessSampleData, UserTimingMarker};
 use crate::shared::recording_props::ProfileCreationProps;
 use crate::shared::recycling::{ProcessRecycler, ProcessRecyclingData, ThreadRecycler};
 use crate::shared::timestamp_converter::TimestampConverter;
@@ -490,20 +489,24 @@ impl ProfileContext {
         }
     }
 
+    pub fn known_category(&mut self, known_category: KnownCategory) -> CategoryHandle {
+        self.categories.get(known_category, &mut self.profile)
+    }
+
+    pub fn intern_profile_string(&mut self, s: &str) -> StringHandle {
+        self.profile.intern_string(s)
+    }
+
     pub fn add_thread_instant_marker(
         &mut self,
         timestamp_raw: u64,
         tid: u32,
-        known_category: KnownCategory,
-        name: &str,
-        marker: impl ProfilerMarker,
+        marker: impl Marker,
     ) -> MarkerHandle {
-        let category = self.categories.get(known_category, &mut self.profile);
         let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
         let timing = MarkerTiming::Instant(timestamp);
         let thread = self.threads.get_mut(&tid).unwrap();
-        self.profile
-            .add_marker(thread.handle, category, name, marker, timing)
+        self.profile.add_marker(thread.handle, timing, marker)
     }
 
     pub fn add_thread_interval_marker(
@@ -511,17 +514,13 @@ impl ProfileContext {
         start_timestamp_raw: u64,
         end_timestamp_raw: u64,
         tid: u32,
-        known_category: KnownCategory,
-        name: &str,
-        marker: impl ProfilerMarker,
+        marker: impl Marker,
     ) -> MarkerHandle {
-        let category = self.categories.get(known_category, &mut self.profile);
         let start_timestamp = self.timestamp_converter.convert_time(start_timestamp_raw);
         let end_timestamp = self.timestamp_converter.convert_time(end_timestamp_raw);
         let timing = MarkerTiming::Interval(start_timestamp, end_timestamp);
         let thread = self.threads.get(&tid).unwrap();
-        self.profile
-            .add_marker(thread.handle, category, name, marker, timing)
+        self.profile.add_marker(thread.handle, timing, marker)
     }
 
     pub fn handle_header(&mut self, timestamp_raw: u64, perf_freq: u64, clock_type: u32) {
@@ -1156,9 +1155,9 @@ impl ProfileContext {
         timestamp_raw: u64,
         is_free: bool,
         pid: u32,
-        tid: u32,
+        _tid: u32,
         region_size: u64,
-        stringified_properties: String,
+        _stringified_properties: String,
     ) {
         if !self.is_interesting_process(pid, None, None) {
             return;
@@ -1170,27 +1169,18 @@ impl ProfileContext {
         } else {
             region_size as f64
         };
-        let op_name = if is_free {
-            "VirtualFree"
-        } else {
-            "VirtualAlloc"
-        };
+        // let op_name = if is_free {
+        //     "VirtualFree"
+        // } else {
+        //     "VirtualAlloc"
+        // };
 
         let Some(memory_usage_counter) = self.get_or_create_memory_usage_counter(pid) else {
             return;
         };
         self.profile
             .add_counter_sample(memory_usage_counter, timestamp, delta_size, 1);
-        let Some(thread) = self.threads.get_mut(&tid) else {
-            return;
-        };
-        self.profile.add_marker(
-            thread.handle,
-            CategoryHandle::OTHER,
-            op_name,
-            SimpleMarker(stringified_properties),
-            MarkerTiming::Instant(timestamp),
-        );
+        // TODO: Consider adding a marker here
     }
 
     pub fn handle_image_id(
@@ -1356,34 +1346,39 @@ impl ProfileContext {
         #[derive(Debug, Clone)]
         pub struct VSyncMarker;
 
-        impl ProfilerMarker for VSyncMarker {
-            const MARKER_TYPE_NAME: &'static str = "Vsync";
-
-            fn json_marker_data(&self) -> Value {
-                json!({
-                    "type": Self::MARKER_TYPE_NAME,
-                    "name": ""
-                })
-            }
+        impl StaticSchemaMarker for VSyncMarker {
+            const UNIQUE_MARKER_TYPE_NAME: &'static str = "Vsync";
 
             fn schema() -> MarkerSchema {
                 MarkerSchema {
-                    type_name: Self::MARKER_TYPE_NAME,
+                    type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
                     locations: vec![
                         MarkerLocation::MarkerChart,
                         MarkerLocation::MarkerTable,
                         MarkerLocation::TimelineOverview,
                     ],
-                    chart_label: Some("{marker.data.name}"),
+                    chart_label: Some("{marker.data.name}".into()),
                     tooltip_label: None,
-                    table_label: Some("{marker.name} - {marker.data.name}"),
-                    fields: vec![MarkerSchemaField::Dynamic(MarkerDynamicField {
-                        key: "name",
-                        label: "Details",
-                        format: MarkerFieldFormat::String,
-                        searchable: false,
-                    })],
+                    table_label: Some("{marker.name}".into()),
+                    fields: vec![],
+                    static_fields: vec![],
                 }
+            }
+
+            fn name(&self, profile: &mut Profile) -> StringHandle {
+                profile.intern_string("Vsync")
+            }
+
+            fn category(&self, _profile: &mut Profile) -> CategoryHandle {
+                CategoryHandle::OTHER
+            }
+
+            fn string_field_value(&self, _field_index: u32) -> StringHandle {
+                unreachable!()
+            }
+
+            fn number_field_value(&self, _field_index: u32) -> f64 {
+                unreachable!()
             }
         }
 
@@ -1393,13 +1388,8 @@ impl ProfileContext {
             self.profile.add_thread(gpu, 1, start_timestamp, false)
         });
         let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
-        self.profile.add_marker(
-            *gpu_thread,
-            CategoryHandle::OTHER,
-            "Vsync",
-            VSyncMarker {},
-            MarkerTiming::Instant(timestamp),
-        );
+        self.profile
+            .add_marker(*gpu_thread, MarkerTiming::Instant(timestamp), VSyncMarker);
     }
 
     pub fn handle_cswitch(&mut self, timestamp_raw: u64, old_tid: u32, new_tid: u32) {
@@ -1464,12 +1454,11 @@ impl ProfileContext {
                 (process_jit_info.lib_handle, relative_address)
             };
 
+        let name_handle = self.profile.intern_string(&method_name);
         self.profile.add_marker(
             main_thread_handle,
-            CategoryHandle::OTHER,
-            "JitFunctionAdd",
-            JitFunctionAddMarker(method_name.clone()),
             MarkerTiming::Instant(timestamp),
+            JitFunctionAddMarker(name_handle),
         );
 
         let (category, js_frame) = self
@@ -1589,12 +1578,12 @@ impl ProfileContext {
         };
 
         let category = self.categories.get(known_category, &mut self.profile);
+        let name = self.profile.intern_string(name.split_once('/').unwrap().1);
+        let description = self.profile.intern_string(&text);
         self.profile.add_marker(
             thread.handle,
-            category,
-            name.split_once('/').unwrap().1,
-            SimpleMarker(text),
             timing,
+            FreeformMarker(name, description, category),
         );
     }
 
@@ -1648,31 +1637,27 @@ impl ProfileContext {
         };
 
         if marker_name == "UserTiming" {
-            let name = maybe_user_timing_name.unwrap();
-            self.profile.add_marker(
-                thread.handle,
-                CategoryHandle::OTHER,
-                "UserTiming",
-                UserTimingMarker(name),
-                timing,
-            );
+            let name = self.profile.intern_string(&maybe_user_timing_name.unwrap());
+            self.profile
+                .add_marker(thread.handle, timing, UserTimingMarker(name));
         } else if marker_name == "SimpleMarker" || marker_name == "Text" || marker_name == "tracing"
         {
-            let marker_name = maybe_explicit_marker_name.unwrap();
+            let marker_name = self
+                .profile
+                .intern_string(&maybe_explicit_marker_name.unwrap());
+            let description = self.profile.intern_string(&text);
             self.profile.add_marker(
                 thread.handle,
-                CategoryHandle::OTHER,
-                &marker_name,
-                SimpleMarker(text.clone()),
                 timing,
+                FreeformMarker(marker_name, description, CategoryHandle::OTHER),
             );
         } else {
+            let marker_name = self.profile.intern_string(marker_name);
+            let description = self.profile.intern_string(&text);
             self.profile.add_marker(
                 thread.handle,
-                CategoryHandle::OTHER,
-                marker_name,
-                SimpleMarker(text.clone()),
                 timing,
+                FreeformMarker(marker_name, description, CategoryHandle::OTHER),
             );
         }
     }
@@ -1699,20 +1684,16 @@ impl ProfileContext {
         };
         let keyword = KeywordNames::from_bits(keyword_bitfield).unwrap();
         if keyword == KeywordNames::blink_user_timing {
-            self.profile.add_marker(
-                thread.handle,
-                CategoryHandle::OTHER,
-                "UserTiming",
-                UserTimingMarker(marker_name.to_owned()),
-                timing,
-            );
+            let name = self.profile.intern_string(marker_name);
+            self.profile
+                .add_marker(thread.handle, timing, UserTimingMarker(name));
         } else {
+            let marker_name = self.profile.intern_string(marker_name);
+            let description = self.profile.intern_string(&text);
             self.profile.add_marker(
                 thread.handle,
-                CategoryHandle::OTHER,
-                marker_name,
-                SimpleMarker(text.clone()),
                 timing,
+                FreeformMarker(marker_name, description, CategoryHandle::OTHER),
             );
         }
     }
@@ -1737,12 +1718,12 @@ impl ProfileContext {
         let category = self
             .categories
             .get(KnownCategory::Unknown, &mut self.profile);
+        let marker_name = self.profile.intern_string(task_and_op);
+        let description = self.profile.intern_string(&stringified_properties);
         self.profile.add_marker(
             thread.handle,
-            category,
-            task_and_op,
-            SimpleMarker(stringified_properties),
             timing,
+            FreeformMarker(marker_name, description, category),
         );
         //println!("unhandled {}", s.name())
     }
@@ -1896,5 +1877,45 @@ pub fn make_thread_label_frame(
         frame: Frame::Label(thread_label),
         category_pair: CategoryHandle::OTHER.into(),
         flags: FrameFlags::empty(),
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FreeformMarker(StringHandle, StringHandle, CategoryHandle);
+
+impl StaticSchemaMarker for FreeformMarker {
+    const UNIQUE_MARKER_TYPE_NAME: &'static str = "FreeformMarker";
+
+    fn schema() -> MarkerSchema {
+        MarkerSchema {
+            type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
+            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
+            chart_label: Some("{marker.data.values}".into()),
+            tooltip_label: Some("{marker.name} - {marker.data.values}".into()),
+            table_label: Some("{marker.data.values}".into()),
+            fields: vec![MarkerFieldSchema {
+                key: "values".into(),
+                label: "Values".into(),
+                format: MarkerFieldFormat::String,
+                searchable: true,
+            }],
+            static_fields: vec![],
+        }
+    }
+
+    fn name(&self, _profile: &mut Profile) -> StringHandle {
+        self.0
+    }
+
+    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
+        self.2
+    }
+
+    fn string_field_value(&self, _field_index: u32) -> StringHandle {
+        self.1
+    }
+
+    fn number_field_value(&self, _field_index: u32) -> f64 {
+        unreachable!()
     }
 }

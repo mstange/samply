@@ -1,3 +1,4 @@
+use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -13,12 +14,16 @@ use crate::frame::{Frame, FrameInfo};
 use crate::frame_table::{InternalFrame, InternalFrameLocation};
 use crate::global_lib_table::{GlobalLibTable, LibraryHandle, UsedLibraryAddressesIterator};
 use crate::lib_mappings::LibMappings;
-use crate::library_info::LibraryInfo;
+use crate::library_info::{LibraryInfo, SymbolTable};
+use crate::markers::{
+    InternalMarkerSchema, Marker, MarkerHandle, MarkerSchema, MarkerTiming, MarkerTypeHandle,
+    StaticSchemaMarker,
+};
 use crate::process::{Process, ThreadHandle};
 use crate::reference_timestamp::ReferenceTimestamp;
 use crate::string_table::{GlobalStringIndex, GlobalStringTable};
 use crate::thread::{ProcessHandle, Thread};
-use crate::{MarkerHandle, MarkerSchema, MarkerTiming, ProfilerMarker, SymbolTable, Timestamp};
+use crate::timestamp::Timestamp;
 
 /// The sampling interval used during profile recording.
 ///
@@ -71,7 +76,7 @@ impl From<Duration> for SamplingInterval {
 
 /// A handle for an interned string, returned from [`Profile::intern_string`].
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub struct StringHandle(GlobalStringIndex);
+pub struct StringHandle(pub(crate) GlobalStringIndex);
 
 /// Stores the profile data and can be serialized as JSON, via [`serde::Serialize`].
 ///
@@ -110,7 +115,8 @@ pub struct Profile {
     pub(crate) threads: Vec<Thread>, // append-only for stable ThreadHandles
     pub(crate) reference_timestamp: ReferenceTimestamp,
     pub(crate) string_table: GlobalStringTable,
-    pub(crate) marker_schemas: FastHashMap<&'static str, MarkerSchema>,
+    pub(crate) marker_schemas: Vec<InternalMarkerSchema>,
+    static_schema_marker_types: FastHashMap<&'static str, MarkerTypeHandle>,
     used_pids: FastHashMap<u32, u32>,
     used_tids: FastHashMap<u32, u32>,
 }
@@ -136,12 +142,13 @@ impl Profile {
             reference_timestamp,
             processes: Vec::new(),
             string_table: GlobalStringTable::new(),
-            marker_schemas: FastHashMap::default(),
+            marker_schemas: Vec::new(),
             categories: vec![Category {
                 name: "Other".to_string(),
                 color: CategoryColor::Gray,
                 subcategories: Vec::new(),
             }],
+            static_schema_marker_types: FastHashMap::default(),
             used_pids: FastHashMap::default(),
             used_tids: FastHashMap::default(),
             counters: Vec::new(),
@@ -397,7 +404,8 @@ impl Profile {
     /// The sample has a timestamp, a stack, a CPU delta, and a weight.
     ///
     /// The stack frames are supplied as an iterator. Every frame has an associated
-    /// category pair.
+    /// category pair. The stack frames are ordered from root to leaf, or caller-most
+    /// to callee-most.
     ///
     /// The CPU delta is the amount of CPU time that the CPU was busy with work for this
     /// thread since the previous sample. It should always be less than or equal the
@@ -496,39 +504,136 @@ impl Profile {
         );
     }
 
+    /// Registers a marker type, given the type's [`MarkerSchema`]. Usually you only need to call this for
+    /// marker types whose schema is dynamically created at runtime.
+    ///
+    /// After you register the marker type, you'll save its [`MarkerTypeHandle`] somewhere, and then
+    /// store it in every marker you create of this type. The marker then needs to return the
+    /// handle from its implementation of [`Marker::marker_type`].
+    ///
+    /// For marker types whose schema is known at compile time, you'll want to implement
+    /// [`StaticSchemaMarker`] instead.
+    pub fn register_marker_type(&mut self, schema: MarkerSchema) -> MarkerTypeHandle {
+        let handle = MarkerTypeHandle(self.marker_schemas.len());
+        self.marker_schemas.push(schema.into());
+        handle
+    }
+
+    /// Returns the marker type handle for a type that implements [`StaticSchemaMarker`].
+    ///
+    /// You usually don't need to call this, ever. It is called by the blanket impl
+    /// of [`Marker::marker_type`] for all types which implement [`StaticSchemaMarker`].
+    pub fn static_schema_marker_type<T: StaticSchemaMarker>(&mut self) -> MarkerTypeHandle {
+        match self
+            .static_schema_marker_types
+            .entry(T::UNIQUE_MARKER_TYPE_NAME)
+        {
+            Entry::Occupied(entry) => *entry.get(),
+            Entry::Vacant(entry) => {
+                let handle = MarkerTypeHandle(self.marker_schemas.len());
+                self.marker_schemas.push(T::schema().into());
+                entry.insert(handle);
+                handle
+            }
+        }
+    }
+
     /// Add a marker to the given thread.
-    pub fn add_marker<T: ProfilerMarker>(
+    ///
+    /// The marker handle that's returned by this method can be used in [`Profile::set_marker_stack`].
+    ///
+    /// ```
+    /// use fxprof_processed_profile::{
+    ///     Profile, Marker, MarkerTiming, MarkerLocation, MarkerFieldFormat, MarkerSchema,
+    ///     MarkerFieldSchema, StaticSchemaMarker, CategoryHandle, StringHandle, ThreadHandle,
+    ///     Timestamp,
+    /// };
+    ///
+    /// # fn fun() {
+    /// # let profile: Profile = panic!();
+    /// # let thread: ThreadHandle = panic!();
+    /// # let start_time: Timestamp = panic!();
+    /// # let end_time: Timestamp = panic!();
+    /// let name = profile.intern_string("Marker name");
+    /// let text = profile.intern_string("Marker text");
+    /// let my_marker = TextMarker { name, text };
+    /// profile.add_marker(thread, MarkerTiming::Interval(start_time, end_time), my_marker);
+    /// # }
+    ///
+    /// #[derive(Debug, Clone)]
+    /// pub struct TextMarker {
+    ///   pub name: StringHandle,
+    ///   pub text: StringHandle,
+    /// }
+    ///
+    /// impl StaticSchemaMarker for TextMarker {
+    ///     const UNIQUE_MARKER_TYPE_NAME: &'static str = "Text";
+    ///
+    ///     fn schema() -> MarkerSchema {
+    ///         MarkerSchema {
+    ///             type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
+    ///             locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
+    ///             chart_label: Some("{marker.data.text}".into()),
+    ///             tooltip_label: None,
+    ///             table_label: Some("{marker.name} - {marker.data.text}".into()),
+    ///             fields: vec![MarkerFieldSchema {
+    ///                 key: "text".into(),
+    ///                 label: "Contents".into(),
+    ///                 format: MarkerFieldFormat::String,
+    ///                 searchable: true,
+    ///             }],
+    ///             static_fields: vec![],
+    ///         }
+    ///     }
+    ///
+    ///     fn name(&self, _profile: &mut Profile) -> StringHandle {
+    ///         self.name
+    ///     }
+    ///
+    ///     fn category(&self, _profile: &mut Profile) -> CategoryHandle {
+    ///         CategoryHandle::OTHER
+    ///     }
+    ///
+    ///     fn string_field_value(&self, _field_index: u32) -> StringHandle {
+    ///         self.text
+    ///     }
+    ///
+    ///     fn number_field_value(&self, _field_index: u32) -> f64 {
+    ///         unreachable!()
+    ///     }
+    /// }
+    /// ```
+    pub fn add_marker<T: Marker>(
         &mut self,
         thread: ThreadHandle,
-        category: CategoryHandle,
-        name: &str,
-        marker: T,
         timing: MarkerTiming,
+        marker: T,
     ) -> MarkerHandle {
-        self.marker_schemas
-            .entry(T::MARKER_TYPE_NAME)
-            .or_insert_with(T::schema);
-        self.threads[thread.0].add_marker(category, name, marker, timing, None)
+        let marker_type = marker.marker_type(self);
+        let name = marker.name(self);
+        let category = marker.category(self);
+        let thread = &mut self.threads[thread.0];
+        let name_thread_string_index = thread.convert_string_index(&self.string_table, name.0);
+        let schema = &self.marker_schemas[marker_type.0];
+        thread.add_marker(
+            name_thread_string_index,
+            marker_type,
+            schema,
+            marker,
+            timing,
+            category,
+            &mut self.string_table,
+        )
     }
 
-    /// Add a marker to the given thread, with a stack.
-    pub fn add_marker_with_stack<T: ProfilerMarker>(
-        &mut self,
-        thread: ThreadHandle,
-        category: CategoryHandle,
-        name: &str,
-        marker: T,
-        timing: MarkerTiming,
-        stack_frames: impl Iterator<Item = FrameInfo>,
-    ) -> MarkerHandle {
-        self.marker_schemas
-            .entry(T::MARKER_TYPE_NAME)
-            .or_insert_with(T::schema);
-        let stack_index = self.stack_index_for_frames(thread, stack_frames);
-        self.threads[thread.0].add_marker(category, name, marker, timing, stack_index)
-    }
-
-    /// Sets the stack of an already existing marker.
+    /// Sets a marker's stack. Every marker can have an optional stack, regardless
+    /// of its marker type.
+    ///
+    /// The stack frames are supplied as an iterator. Just like in [`Profile::add_sample`],
+    /// the stack frames are ordered from root to leaf, or caller-most to callee-most.
+    ///
+    /// A marker's stack is shown in its tooltip, and in the sidebar in the marker table
+    /// panel if a marker with a stack is selected.
     pub fn set_marker_stack(
         &mut self,
         thread: ThreadHandle,
@@ -659,6 +764,8 @@ impl Profile {
             processes: &self.processes,
             categories: &self.categories,
             sorted_threads,
+            marker_schemas: &self.marker_schemas,
+            global_string_table: &self.string_table,
         }
     }
 
@@ -734,9 +841,8 @@ impl<'a> Serialize for SerializableProfileMeta<'a> {
         map.serialize_entry("doesNotUseFrameImplementation", &true)?;
         map.serialize_entry("sourceCodeIsNotOnSearchfox", &true)?;
 
-        let mut marker_schemas: Vec<MarkerSchema> =
-            self.0.marker_schemas.values().cloned().collect();
-        marker_schemas.sort_by_key(|schema| schema.type_name);
+        let mut marker_schemas: Vec<InternalMarkerSchema> = self.0.marker_schemas.clone();
+        marker_schemas.sort_by(|a, b| a.type_name().cmp(b.type_name()));
         map.serialize_entry("markerSchema", &marker_schemas)?;
 
         map.end()
@@ -748,6 +854,8 @@ struct SerializableProfileThreadsProperty<'a> {
     processes: &'a [Process],
     categories: &'a [Category],
     sorted_threads: &'a [ThreadHandle],
+    marker_schemas: &'a [InternalMarkerSchema],
+    global_string_table: &'a GlobalStringTable,
 }
 
 impl<'a> Serialize for SerializableProfileThreadsProperty<'a> {
@@ -755,10 +863,18 @@ impl<'a> Serialize for SerializableProfileThreadsProperty<'a> {
         let mut seq = serializer.serialize_seq(Some(self.threads.len()))?;
 
         for thread in self.sorted_threads {
-            let categories = &self.categories;
+            let categories = self.categories;
             let thread = &self.threads[thread.0];
             let process = &self.processes[thread.process().0];
-            seq.serialize_element(&SerializableProfileThread(process, thread, categories))?;
+            let marker_schemas = self.marker_schemas;
+            let global_string_table = self.global_string_table;
+            seq.serialize_element(&SerializableProfileThread(
+                process,
+                thread,
+                categories,
+                marker_schemas,
+                global_string_table,
+            ))?;
         }
 
         seq.end()
@@ -783,11 +899,23 @@ impl<'a> Serialize for SerializableProfileCountersProperty<'a> {
     }
 }
 
-struct SerializableProfileThread<'a>(&'a Process, &'a Thread, &'a [Category]);
+struct SerializableProfileThread<'a>(
+    &'a Process,
+    &'a Thread,
+    &'a [Category],
+    &'a [InternalMarkerSchema],
+    &'a GlobalStringTable,
+);
 
 impl<'a> Serialize for SerializableProfileThread<'a> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let SerializableProfileThread(process, thread, categories) = self;
+        let SerializableProfileThread(
+            process,
+            thread,
+            categories,
+            marker_schemas,
+            global_string_table,
+        ) = self;
         let process_start_time = process.start_time();
         let process_end_time = process.end_time();
         let process_name = process.name();
@@ -799,6 +927,8 @@ impl<'a> Serialize for SerializableProfileThread<'a> {
             process_end_time,
             process_name,
             pid,
+            marker_schemas,
+            global_string_table,
         )
     }
 }

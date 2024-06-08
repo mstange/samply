@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use fxprof_processed_profile::{
-    CategoryHandle, LibraryHandle, MarkerTiming, Profile, Symbol, SymbolTable, ThreadHandle,
+    LibraryHandle, MarkerTiming, Profile, Symbol, SymbolTable, ThreadHandle,
 };
 use linux_perf_data::jitdump::{JitDumpReader, JitDumpRecord, JitDumpRecordType};
 
@@ -187,13 +187,11 @@ impl SingleJitDumpProcessor {
                     });
 
                     let timestamp = timestamp_converter.convert_time(raw_jitdump_record.timestamp);
-                    let timing = MarkerTiming::Instant(timestamp);
+                    let symbol_name_handle = profile.intern_string(symbol_name);
                     profile.add_marker(
                         self.thread_handle,
-                        CategoryHandle::OTHER,
-                        "JitFunctionAdd",
-                        JitFunctionAddMarker(symbol_name.to_owned()),
-                        timing,
+                        MarkerTiming::Instant(timestamp),
+                        JitFunctionAddMarker(symbol_name_handle),
                     );
 
                     let (lib_handle, relative_address_at_start) =

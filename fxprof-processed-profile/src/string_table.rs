@@ -38,7 +38,7 @@ impl Serialize for StringTable {
 }
 
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub struct GlobalStringIndex(StringIndex);
+pub struct GlobalStringIndex(pub(crate) StringIndex);
 
 #[derive(Debug, Clone, Default)]
 pub struct GlobalStringTable {

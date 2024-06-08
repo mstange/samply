@@ -1,9 +1,8 @@
 use fxprof_processed_profile::{
-    CategoryHandle, CategoryPairHandle, LibMappings, MarkerDynamicField, MarkerFieldFormat,
-    MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerStaticField, MarkerTiming, Profile,
-    ProfilerMarker, ThreadHandle, Timestamp,
+    CategoryHandle, CategoryPairHandle, LibMappings, MarkerFieldFormat, MarkerFieldSchema,
+    MarkerLocation, MarkerSchema, MarkerStaticField, MarkerTiming, Profile, StaticSchemaMarker,
+    StringHandle, ThreadHandle, Timestamp,
 };
-use serde_json::json;
 
 use super::lib_mappings::{LibMappingInfo, LibMappingOpQueue, LibMappingsHierarchy};
 use super::stack_converter::StackConverter;
@@ -114,147 +113,204 @@ impl ProcessSampleData {
         }
 
         for marker in marker_spans {
+            let marker_name_string_index = profile.intern_string(&marker.name);
             profile.add_marker(
                 marker.thread_handle,
-                CategoryHandle::OTHER,
-                "SimpleMarker",
-                SimpleMarker(marker.name.clone()),
                 MarkerTiming::Interval(marker.start_time, marker.end_time),
+                SimpleMarker(marker_name_string_index),
             );
         }
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct RssStatMarker(pub i64, pub i64);
+pub struct RssStatMarker {
+    pub name: StringHandle,
+    pub total_bytes: i64,
+    pub delta_bytes: i64,
+}
 
-impl ProfilerMarker for RssStatMarker {
-    const MARKER_TYPE_NAME: &'static str = "RSS Anon";
-
-    fn json_marker_data(&self) -> serde_json::Value {
-        json!({
-            "type": Self::MARKER_TYPE_NAME,
-            "totalBytes": self.0,
-            "deltaBytes": self.1
-        })
+impl RssStatMarker {
+    pub fn new(name: StringHandle, total_bytes: i64, delta_bytes: i64) -> Self {
+        Self {
+            name,
+            total_bytes,
+            delta_bytes,
+        }
     }
+}
+
+impl StaticSchemaMarker for RssStatMarker {
+    const UNIQUE_MARKER_TYPE_NAME: &'static str = "RSS Anon";
 
     fn schema() -> MarkerSchema {
         MarkerSchema {
-            type_name: Self::MARKER_TYPE_NAME,
+            type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
             locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
-            chart_label: Some("{marker.data.totalBytes}"),
-            tooltip_label: Some("{marker.data.totalBytes}"),
-            table_label: Some("Total: {marker.data.totalBytes}, delta: {marker.data.deltaBytes}"),
+            chart_label: Some("{marker.data.totalBytes}".into()),
+            tooltip_label: Some("{marker.data.totalBytes}".into()),
+            table_label: Some(
+                "Total: {marker.data.totalBytes}, delta: {marker.data.deltaBytes}".into(),
+            ),
             fields: vec![
-                MarkerSchemaField::Dynamic(MarkerDynamicField {
-                    key: "totalBytes",
-                    label: "Total bytes",
+                MarkerFieldSchema {
+                    key: "totalBytes".into(),
+                    label: "Total bytes".into(),
                     format: MarkerFieldFormat::Bytes,
                     searchable: true,
-                }),
-                MarkerSchemaField::Dynamic(MarkerDynamicField {
-                    key: "deltaBytes",
-                    label: "Delta",
+                },
+                MarkerFieldSchema {
+                    key: "deltaBytes".into(),
+                    label: "Delta".into(),
                     format: MarkerFieldFormat::Bytes,
                     searchable: true,
-                }),
-                MarkerSchemaField::Static(MarkerStaticField {
-                    label: "Description",
-                    value: "Emitted when the kmem:rss_stat tracepoint is hit.",
-                }),
+                },
             ],
+            static_fields: vec![MarkerStaticField {
+                label: "Description".into(),
+                value: "Emitted when the kmem:rss_stat tracepoint is hit.".into(),
+            }],
+        }
+    }
+
+    fn name(&self, _profile: &mut Profile) -> StringHandle {
+        self.name
+    }
+
+    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
+        CategoryHandle::OTHER
+    }
+
+    fn string_field_value(&self, _field_index: u32) -> StringHandle {
+        unreachable!()
+    }
+
+    fn number_field_value(&self, field_index: u32) -> f64 {
+        match field_index {
+            0 => self.total_bytes as f64,
+            1 => self.delta_bytes as f64,
+            _ => unreachable!(),
         }
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct OtherEventMarker;
+pub struct OtherEventMarker(pub StringHandle);
 
-impl ProfilerMarker for OtherEventMarker {
-    const MARKER_TYPE_NAME: &'static str = "Other event";
-
-    fn json_marker_data(&self) -> serde_json::Value {
-        json!({
-            "type": Self::MARKER_TYPE_NAME,
-        })
-    }
+impl StaticSchemaMarker for OtherEventMarker {
+    const UNIQUE_MARKER_TYPE_NAME: &'static str = "Other event";
 
     fn schema() -> MarkerSchema {
         MarkerSchema {
-            type_name: Self::MARKER_TYPE_NAME,
+            type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
             locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
             chart_label: None,
             tooltip_label: None,
             table_label: None,
-            fields: vec![MarkerSchemaField::Static(MarkerStaticField {
-                label: "Description",
+            fields: vec![],
+            static_fields: vec![MarkerStaticField {
+                label: "Description".into(),
                 value:
-                    "Emitted for any records in a perf.data file which don't map to a known event.",
-            })],
+                    "Emitted for any records in a perf.data file which don't map to a known event."
+                        .into(),
+            }],
         }
+    }
+
+    fn name(&self, _profile: &mut Profile) -> StringHandle {
+        self.0
+    }
+
+    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
+        CategoryHandle::OTHER
+    }
+
+    fn string_field_value(&self, _field_index: u32) -> StringHandle {
+        unreachable!()
+    }
+
+    fn number_field_value(&self, _field_index: u32) -> f64 {
+        unreachable!()
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct UserTimingMarker(pub String);
+pub struct UserTimingMarker(pub StringHandle);
 
-impl ProfilerMarker for UserTimingMarker {
-    const MARKER_TYPE_NAME: &'static str = "UserTiming";
-
-    fn json_marker_data(&self) -> serde_json::Value {
-        json!({
-            "type": Self::MARKER_TYPE_NAME,
-            "name": self.0,
-        })
-    }
+impl StaticSchemaMarker for UserTimingMarker {
+    const UNIQUE_MARKER_TYPE_NAME: &'static str = "UserTiming";
 
     fn schema() -> MarkerSchema {
         MarkerSchema {
-            type_name: Self::MARKER_TYPE_NAME,
+            type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
             locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
-            chart_label: Some("{marker.data.name}"),
-            tooltip_label: Some("{marker.data.name}"),
-            table_label: Some("{marker.data.name}"),
-            fields: vec![
-                MarkerSchemaField::Dynamic(MarkerDynamicField {
-                    key: "name",
-                    label: "Name",
-                    format: MarkerFieldFormat::String,
-                    searchable: true,
-                }),
-                MarkerSchemaField::Static(MarkerStaticField {
-                    label: "Description",
-                    value: "Emitted for performance.mark and performance.measure.",
-                }),
-            ],
+            chart_label: Some("{marker.data.name}".into()),
+            tooltip_label: Some("{marker.data.name}".into()),
+            table_label: Some("{marker.data.name}".into()),
+            fields: vec![MarkerFieldSchema {
+                key: "name".into(),
+                label: "Name".into(),
+                format: MarkerFieldFormat::String,
+                searchable: true,
+            }],
+            static_fields: vec![MarkerStaticField {
+                label: "Description".into(),
+                value: "Emitted for performance.mark and performance.measure.".into(),
+            }],
         }
+    }
+
+    fn name(&self, profile: &mut Profile) -> StringHandle {
+        profile.intern_string("UserTiming")
+    }
+
+    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
+        CategoryHandle::OTHER
+    }
+
+    fn string_field_value(&self, _field_index: u32) -> StringHandle {
+        self.0
+    }
+
+    fn number_field_value(&self, _field_index: u32) -> f64 {
+        unreachable!()
     }
 }
 
 pub struct SchedSwitchMarkerOnCpuTrack;
 
-impl ProfilerMarker for SchedSwitchMarkerOnCpuTrack {
-    const MARKER_TYPE_NAME: &'static str = "sched_switch";
-
-    fn json_marker_data(&self) -> serde_json::Value {
-        json!({
-            "type": Self::MARKER_TYPE_NAME,
-        })
-    }
+impl StaticSchemaMarker for SchedSwitchMarkerOnCpuTrack {
+    const UNIQUE_MARKER_TYPE_NAME: &'static str = "sched_switch";
 
     fn schema() -> MarkerSchema {
         MarkerSchema {
-            type_name: Self::MARKER_TYPE_NAME,
+            type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
             locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
             chart_label: None,
             tooltip_label: None,
             table_label: None,
-            fields: vec![MarkerSchemaField::Static(MarkerStaticField {
-                label: "Description",
-                value: "Emitted just before a running thread gets moved off-cpu.",
-            })],
+            fields: vec![],
+            static_fields: vec![MarkerStaticField {
+                label: "Description".into(),
+                value: "Emitted just before a running thread gets moved off-cpu.".into(),
+            }],
         }
+    }
+
+    fn name(&self, profile: &mut Profile) -> StringHandle {
+        profile.intern_string("sched_switch")
+    }
+
+    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
+        CategoryHandle::OTHER
+    }
+
+    fn string_field_value(&self, _field_index: u32) -> StringHandle {
+        unreachable!()
+    }
+
+    fn number_field_value(&self, _field_index: u32) -> f64 {
+        unreachable!()
     }
 }
 
@@ -263,71 +319,85 @@ pub struct SchedSwitchMarkerOnThreadTrack {
     pub cpu: u32,
 }
 
-impl ProfilerMarker for SchedSwitchMarkerOnThreadTrack {
-    const MARKER_TYPE_NAME: &'static str = "sched_switch";
-
-    fn json_marker_data(&self) -> serde_json::Value {
-        json!({
-            "type": Self::MARKER_TYPE_NAME,
-            "cpu": self.cpu,
-        })
-    }
+impl StaticSchemaMarker for SchedSwitchMarkerOnThreadTrack {
+    const UNIQUE_MARKER_TYPE_NAME: &'static str = "sched_switch";
 
     fn schema() -> MarkerSchema {
         MarkerSchema {
-            type_name: Self::MARKER_TYPE_NAME,
+            type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
             locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
             chart_label: None,
             tooltip_label: None,
             table_label: None,
-            fields: vec![
-                MarkerSchemaField::Dynamic(MarkerDynamicField {
-                    key: "cpu",
-                    label: "cpu",
-                    format: MarkerFieldFormat::Integer,
-                    searchable: true,
-                }),
-                MarkerSchemaField::Static(MarkerStaticField {
-                    label: "Description",
-                    value: "Emitted just before a running thread gets moved off-cpu.",
-                }),
-            ],
+            fields: vec![MarkerFieldSchema {
+                key: "cpu".into(),
+                label: "cpu".into(),
+                format: MarkerFieldFormat::Integer,
+                searchable: true,
+            }],
+            static_fields: vec![MarkerStaticField {
+                label: "Description".into(),
+                value: "Emitted just before a running thread gets moved off-cpu.".into(),
+            }],
         }
+    }
+
+    fn name(&self, profile: &mut Profile) -> StringHandle {
+        profile.intern_string("sched_switch")
+    }
+
+    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
+        CategoryHandle::OTHER
+    }
+
+    fn string_field_value(&self, _field_index: u32) -> StringHandle {
+        unreachable!()
+    }
+
+    fn number_field_value(&self, _field_index: u32) -> f64 {
+        self.cpu.into()
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct SimpleMarker(pub String);
+pub struct SimpleMarker(pub StringHandle);
 
-impl ProfilerMarker for SimpleMarker {
-    const MARKER_TYPE_NAME: &'static str = "SimpleMarker";
-
-    fn json_marker_data(&self) -> serde_json::Value {
-        json!({
-            "type": Self::MARKER_TYPE_NAME,
-            "name": self.0,
-        })
-    }
+impl StaticSchemaMarker for SimpleMarker {
+    const UNIQUE_MARKER_TYPE_NAME: &'static str = "SimpleMarker";
 
     fn schema() -> MarkerSchema {
         MarkerSchema {
-            type_name: Self::MARKER_TYPE_NAME,
+            type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
             locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
-            chart_label: Some("{marker.data.name}"),
-            tooltip_label: Some("{marker.data.name}"),
-            table_label: Some("{marker.data.name}"),
-            fields: vec![
-                MarkerSchemaField::Dynamic(MarkerDynamicField {
-                    key: "name",
-                    label: "Name",
-                    format: MarkerFieldFormat::String,
-                    searchable: true,
-                }),
-                MarkerSchemaField::Static(MarkerStaticField {
-                    label: "Description",
-                    value: "Emitted for marker spans in a markers text file.",
-                }),
-            ],
+            chart_label: Some("{marker.data.name}".into()),
+            tooltip_label: Some("{marker.data.name}".into()),
+            table_label: Some("{marker.data.name}".into()),
+            fields: vec![MarkerFieldSchema {
+                key: "name".into(),
+                label: "Name".into(),
+                format: MarkerFieldFormat::String,
+                searchable: true,
+            }],
+            static_fields: vec![MarkerStaticField {
+                label: "Description".into(),
+                value: "Emitted for marker spans in a markers text file.".into(),
+            }],
         }
+    }
+
+    fn name(&self, profile: &mut Profile) -> StringHandle {
+        profile.intern_string("SimpleMarker")
+    }
+
+    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
+        CategoryHandle::OTHER
+    }
+
+    fn string_field_value(&self, _field_index: u32) -> StringHandle {
+        self.0
+    }
+
+    fn number_field_value(&self, _field_index: u32) -> f64 {
+        unreachable!()
     }
 }

@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 
 use framehop::Unwinder;
 use fxprof_processed_profile::{
-    CategoryHandle, CounterHandle, FrameInfo, LibraryHandle, MarkerTiming, ProcessHandle, Profile,
-    ThreadHandle, Timestamp,
+    CounterHandle, FrameInfo, LibraryHandle, MarkerTiming, ProcessHandle, Profile, ThreadHandle,
+    Timestamp,
 };
 
 use super::process_threads::ProcessThreads;
@@ -297,13 +297,11 @@ where
     ) {
         let main_thread = self.threads.main_thread.profile_thread;
         let timing = MarkerTiming::Instant(profile_timestamp);
-        profile.add_marker(
-            main_thread,
-            CategoryHandle::OTHER,
-            "JitFunctionAdd",
-            JitFunctionAddMarker(symbol_name.unwrap_or("<unknown>").to_owned()),
-            timing,
-        );
+        let name = match symbol_name {
+            Some(name) => profile.intern_string(name),
+            None => profile.intern_string("<unknown>"),
+        };
+        profile.add_marker(main_thread, timing, JitFunctionAddMarker(name));
 
         if let (Some(name), Some(recycler)) = (symbol_name, self.jit_function_recycler.as_mut()) {
             let code_size = (end_address - start_address) as u32;

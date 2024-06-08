@@ -1,10 +1,9 @@
 use fxprof_processed_profile::{
-    CategoryHandle, Frame, FrameFlags, FrameInfo, MarkerDynamicField, MarkerFieldFormat,
-    MarkerLocation, MarkerSchema, MarkerSchemaField, MarkerTiming, ProcessHandle, Profile,
-    ProfilerMarker, StringHandle, ThreadHandle, Timestamp,
+    CategoryHandle, Frame, FrameFlags, FrameInfo, MarkerFieldFormat, MarkerFieldSchema,
+    MarkerLocation, MarkerSchema, MarkerTiming, ProcessHandle, Profile, StaticSchemaMarker,
+    StringHandle, ThreadHandle, Timestamp,
 };
 use linux_perf_data::linux_perf_event_reader::TaskWasPreempted;
-use serde_json::json;
 
 use crate::shared::context_switch::ThreadContextSwitchData;
 use crate::shared::timestamp_converter::TimestampConverter;
@@ -18,16 +17,16 @@ pub struct Cpus {
 }
 
 pub struct Cpu {
-    pub name: String,
+    pub name: StringHandle,
     pub thread_handle: ThreadHandle,
     pub context_switch_data: ThreadContextSwitchData,
     pub current_tid: Option<(i32, StringHandle, u64)>,
 }
 
 impl Cpu {
-    pub fn new(cpu_index: usize, thread_handle: ThreadHandle) -> Self {
+    pub fn new(name: StringHandle, thread_handle: ThreadHandle) -> Self {
         Self {
-            name: format!("CPU {cpu_index}"),
+            name,
             thread_handle,
             context_switch_data: Default::default(),
             current_tid: None,
@@ -48,17 +47,14 @@ impl Cpu {
             std::mem::replace(&mut self.current_tid, Some((tid, thread_name, timestamp)));
         if let Some((_previous_tid, previous_thread_name, switch_in_timestamp)) = previous_tid {
             // eprintln!("Missing switch-out (noticed during switch-in) on {}: {previous_tid}, {switch_in_timestamp}", self.name);
-            let name = profile.get_string(previous_thread_name).to_string();
             let start_timestamp = converter.convert_time(switch_in_timestamp);
             let end_timestamp = converter.convert_time(timestamp);
             let timing = MarkerTiming::Interval(start_timestamp, end_timestamp);
             for thread_handle in thread_handles {
                 profile.add_marker(
                     *thread_handle,
-                    CategoryHandle::OTHER,
-                    &self.name,
-                    ThreadNameMarkerForCpuTrack(name.clone()),
                     timing.clone(),
+                    ThreadNameMarkerForCpuTrack(self.name, previous_thread_name),
                 );
             }
         }
@@ -77,28 +73,27 @@ impl Cpu {
     ) {
         let previous_tid = self.current_tid.take();
         if let Some((previous_tid, previous_thread_name, switch_in_timestamp)) = previous_tid {
-            let name = profile.get_string(previous_thread_name).to_string();
             let start_timestamp = converter.convert_time(switch_in_timestamp);
             let end_timestamp = converter.convert_time(timestamp);
             let timing = MarkerTiming::Interval(start_timestamp, end_timestamp);
             for thread_handle in thread_handles {
                 profile.add_marker(
                     *thread_handle,
-                    CategoryHandle::OTHER,
-                    &self.name,
-                    ThreadNameMarkerForCpuTrack(name.clone()),
                     timing.clone(),
+                    ThreadNameMarkerForCpuTrack(self.name, previous_thread_name),
                 );
             }
+            let switch_out_reason = match preempted {
+                TaskWasPreempted::Yes => profile.intern_string("preempted"),
+                TaskWasPreempted::No => profile.intern_string("blocked"),
+            };
             profile.add_marker(
                 thread_handle,
-                CategoryHandle::OTHER,
-                "Running on CPU",
-                OnCpuMarkerForThreadTrack {
-                    cpu_name: self.name.clone(),
-                    preempted: Some(preempted),
-                },
                 timing.clone(),
+                OnCpuMarkerForThreadTrack {
+                    cpu_name: self.name,
+                    switch_out_reason,
+                },
             );
             if previous_tid != tid {
                 // eprintln!("Missing switch-out (noticed during switch-out) on {}: {previous_tid}, {switch_in_timestamp}", self.name);
@@ -147,9 +142,10 @@ impl Cpus {
         while self.cpus.len() <= cpu {
             let i = self.cpus.len();
             let thread = profile.add_thread(self.process_handle, i as u32, self.start_time, false);
-            let cpu = Cpu::new(i, thread);
-            profile.set_thread_name(thread, &cpu.name);
-            self.cpus.push(cpu);
+            let name = format!("CPU {i}");
+            profile.set_thread_name(thread, &name);
+            self.cpus
+                .push(Cpu::new(profile.intern_string(&name), thread));
         }
         &mut self.cpus[cpu]
     }
@@ -157,81 +153,99 @@ impl Cpus {
 
 /// An example marker type with some text content.
 #[derive(Debug, Clone)]
-pub struct ThreadNameMarkerForCpuTrack(pub String);
+pub struct ThreadNameMarkerForCpuTrack(pub StringHandle, pub StringHandle);
 
-impl ProfilerMarker for ThreadNameMarkerForCpuTrack {
-    const MARKER_TYPE_NAME: &'static str = "ContextSwitch";
-
-    fn json_marker_data(&self) -> serde_json::Value {
-        json!({
-            "type": Self::MARKER_TYPE_NAME,
-            "name": self.0
-        })
-    }
+impl StaticSchemaMarker for ThreadNameMarkerForCpuTrack {
+    const UNIQUE_MARKER_TYPE_NAME: &'static str = "ContextSwitch";
 
     fn schema() -> MarkerSchema {
         MarkerSchema {
-            type_name: Self::MARKER_TYPE_NAME,
+            type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
             locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
-            chart_label: Some("{marker.data.name}"),
-            tooltip_label: Some("{marker.data.name}"),
-            table_label: Some("{marker.name} - {marker.data.name}"),
-            fields: vec![MarkerSchemaField::Dynamic(MarkerDynamicField {
-                key: "thread",
-                label: "Thread",
+            chart_label: Some("{marker.data.thread}".into()),
+            tooltip_label: Some("{marker.data.thread}".into()),
+            table_label: Some("{marker.name} - {marker.data.thread}".into()),
+            fields: vec![MarkerFieldSchema {
+                key: "thread".into(),
+                label: "Thread".into(),
                 format: MarkerFieldFormat::String,
                 searchable: true,
-            })],
+            }],
+            static_fields: vec![],
         }
+    }
+
+    fn name(&self, _profile: &mut Profile) -> StringHandle {
+        self.0
+    }
+
+    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
+        CategoryHandle::OTHER
+    }
+
+    fn string_field_value(&self, _field_index: u32) -> StringHandle {
+        self.1
+    }
+
+    fn number_field_value(&self, _field_index: u32) -> f64 {
+        unreachable!()
     }
 }
 
 /// An example marker type with some text content.
 #[derive(Debug, Clone)]
 pub struct OnCpuMarkerForThreadTrack {
-    cpu_name: String,
-    preempted: Option<TaskWasPreempted>,
+    cpu_name: StringHandle,
+    switch_out_reason: StringHandle,
 }
 
-impl ProfilerMarker for OnCpuMarkerForThreadTrack {
-    const MARKER_TYPE_NAME: &'static str = "OnCpu";
-
-    fn json_marker_data(&self) -> serde_json::Value {
-        let switch_out_reason = match self.preempted {
-            Some(TaskWasPreempted::Yes) => "preempted",
-            Some(TaskWasPreempted::No) => "blocked",
-            None => "unknown",
-        };
-        json!({
-            "type": Self::MARKER_TYPE_NAME,
-            "cpu": self.cpu_name,
-            "outwhy": switch_out_reason,
-        })
-    }
+impl StaticSchemaMarker for OnCpuMarkerForThreadTrack {
+    const UNIQUE_MARKER_TYPE_NAME: &'static str = "OnCpu";
 
     fn schema() -> MarkerSchema {
         MarkerSchema {
-            type_name: Self::MARKER_TYPE_NAME,
+            type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
             locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
-            chart_label: Some("{marker.data.cpu}"),
-            tooltip_label: Some("{marker.data.cpu}"),
+            chart_label: Some("{marker.data.cpu}".into()),
+            tooltip_label: Some("{marker.data.cpu}".into()),
             table_label: Some(
-                "{marker.name} - {marker.data.cpu}, switch-out reason: {marker.data.outwhy}",
+                "{marker.name} - {marker.data.cpu}, switch-out reason: {marker.data.outwhy}".into(),
             ),
             fields: vec![
-                MarkerSchemaField::Dynamic(MarkerDynamicField {
-                    key: "cpu",
-                    label: "CPU",
+                MarkerFieldSchema {
+                    key: "cpu".into(),
+                    label: "CPU".into(),
                     format: MarkerFieldFormat::String,
                     searchable: true,
-                }),
-                MarkerSchemaField::Dynamic(MarkerDynamicField {
-                    key: "outwhy",
-                    label: "Switch-out reason",
+                },
+                MarkerFieldSchema {
+                    key: "outwhy".into(),
+                    label: "Switch-out reason".into(),
                     format: MarkerFieldFormat::String,
                     searchable: true,
-                }),
+                },
             ],
+            static_fields: vec![],
         }
+    }
+
+    fn name(&self, profile: &mut Profile) -> StringHandle {
+        profile.intern_string("Running on CPU")
+    }
+
+    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
+        CategoryHandle::OTHER
+    }
+
+    fn string_field_value(&self, field_index: u32) -> StringHandle {
+        match field_index {
+            0 => self.cpu_name,
+            1 => self.switch_out_reason,
+            _ => unreachable!(),
+        }
+    }
+
+    fn number_field_value(&self, _field_index: u32) -> f64 {
+        unreachable!()
     }
 }

@@ -4,7 +4,6 @@ use bitflags::bitflags;
 use fxprof_processed_profile::*;
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
-use serde_json::json;
 
 use etw_reader::{self, schema::TypedEvent};
 use etw_reader::{
@@ -12,7 +11,6 @@ use etw_reader::{
     parser::{Parser, TryParse},
 };
 
-use crate::shared::process_sample_data::SimpleMarker;
 use crate::shared::recording_props::{CoreClrProfileProps, ProfileCreationProps};
 use crate::windows::profile_context::{KnownCategory, ProfileContext};
 
@@ -211,89 +209,106 @@ impl Display for GcType {
 }
 // String is type name
 #[derive(Debug, Clone)]
-pub struct CoreClrGcAllocMarker(pub String, usize);
+pub struct CoreClrGcAllocMarker(StringHandle, f64, CategoryHandle);
 
-impl ProfilerMarker for CoreClrGcAllocMarker {
-    const MARKER_TYPE_NAME: &'static str = "GC Alloc";
-
-    fn json_marker_data(&self) -> serde_json::Value {
-        json!({
-            "type": Self::MARKER_TYPE_NAME,
-            "clrtype": self.0,
-            "size": self.1,
-        })
-    }
+impl StaticSchemaMarker for CoreClrGcAllocMarker {
+    const UNIQUE_MARKER_TYPE_NAME: &'static str = "GC Alloc";
 
     fn schema() -> MarkerSchema {
         MarkerSchema {
-            type_name: Self::MARKER_TYPE_NAME,
+            type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
             locations: vec![
                 MarkerLocation::MarkerChart,
                 MarkerLocation::MarkerTable,
                 MarkerLocation::TimelineMemory,
             ],
-            chart_label: Some("GC Alloc"),
-            tooltip_label: Some("GC Alloc: {marker.data.clrtype} ({marker.data.size} bytes)"),
-            table_label: Some("GC Alloc"),
+            chart_label: Some("GC Alloc".into()),
+            tooltip_label: Some(
+                "GC Alloc: {marker.data.clrtype} ({marker.data.size} bytes)".into(),
+            ),
+            table_label: Some("GC Alloc".into()),
             fields: vec![
-                MarkerSchemaField::Dynamic(MarkerDynamicField {
-                    key: "clrtype",
-                    label: "CLR Type",
+                MarkerFieldSchema {
+                    key: "clrtype".into(),
+                    label: "CLR Type".into(),
                     format: MarkerFieldFormat::String,
                     searchable: true,
-                }),
-                MarkerSchemaField::Dynamic(MarkerDynamicField {
-                    key: "size",
-                    label: "Size",
+                },
+                MarkerFieldSchema {
+                    key: "size".into(),
+                    label: "Size".into(),
                     format: MarkerFieldFormat::Bytes,
                     searchable: false,
-                }),
-                MarkerSchemaField::Static(MarkerStaticField {
-                    label: "Description",
-                    value: "GC Allocation.",
-                }),
+                },
             ],
+            static_fields: vec![MarkerStaticField {
+                label: "Description".into(),
+                value: "GC Allocation.".into(),
+            }],
         }
+    }
+
+    fn name(&self, profile: &mut Profile) -> StringHandle {
+        profile.intern_string("GC Alloc")
+    }
+
+    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
+        self.2
+    }
+
+    fn string_field_value(&self, _field_index: u32) -> StringHandle {
+        self.0
+    }
+
+    fn number_field_value(&self, _field_index: u32) -> f64 {
+        self.1
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct CoreClrGcEventMarker(pub String);
+pub struct CoreClrGcEventMarker(StringHandle, StringHandle, CategoryHandle);
 
-impl ProfilerMarker for CoreClrGcEventMarker {
-    const MARKER_TYPE_NAME: &'static str = "GC Event";
-
-    fn json_marker_data(&self) -> serde_json::Value {
-        json!({
-            "type": Self::MARKER_TYPE_NAME,
-            "event": self.0,
-        })
-    }
+impl StaticSchemaMarker for CoreClrGcEventMarker {
+    const UNIQUE_MARKER_TYPE_NAME: &'static str = "GC Event";
 
     fn schema() -> MarkerSchema {
         MarkerSchema {
-            type_name: Self::MARKER_TYPE_NAME,
+            type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
             locations: vec![
                 MarkerLocation::MarkerChart,
                 MarkerLocation::MarkerTable,
                 MarkerLocation::TimelineMemory,
             ],
-            chart_label: Some("{marker.data.event}"),
-            tooltip_label: Some("{marker.data.event}"),
-            table_label: Some("{marker.data.event}"),
-            fields: vec![
-                MarkerSchemaField::Dynamic(MarkerDynamicField {
-                    key: "event",
-                    label: "Event",
-                    format: MarkerFieldFormat::String,
-                    searchable: true,
-                }),
-                MarkerSchemaField::Static(MarkerStaticField {
-                    label: "Description",
-                    value: "Generic GC Event.",
-                }),
-            ],
+            chart_label: Some("{marker.data.event}".into()),
+            tooltip_label: Some("{marker.data.event}".into()),
+            table_label: Some("{marker.data.event}".into()),
+            fields: vec![MarkerFieldSchema {
+                key: "event".into(),
+                label: "Event".into(),
+                format: MarkerFieldFormat::String,
+                searchable: true,
+            }],
+            static_fields: vec![MarkerStaticField {
+                label: "Description".into(),
+                value: "Generic GC Event.".into(),
+            }],
         }
+    }
+
+    fn name(&self, _profile: &mut Profile) -> StringHandle {
+        self.0
+    }
+
+    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
+        self.2
+    }
+
+    fn string_field_value(&self, _field_index: u32) -> StringHandle {
+        self.1
+    }
+
+    fn number_field_value(&self, _field_index: u32) -> f64 {
+        unreachable!()
     }
 }
 
@@ -554,12 +569,12 @@ pub fn handle_coreclr_event(
                     let _object_count: u32 = parser.parse("ObjectCountForTypeSample");
                     let total_size: u64 = parser.parse("TotalSizeForTypeSample");
 
+                    let category = context.known_category(KnownCategory::CoreClrGc);
+                    let clr_type = context.intern_profile_string(&format!("0x{:x}", type_id));
                     let mh = context.add_thread_instant_marker(
                         timestamp_raw,
                         tid,
-                        KnownCategory::CoreClrGc,
-                        "GC Alloc",
-                        CoreClrGcAllocMarker(format!("0x{:x}", type_id), total_size as usize),
+                        CoreClrGcAllocMarker(clr_type, total_size as f64, category),
                     );
                     coreclr_context.set_last_event_for_thread(tid, mh);
                     handled = true;
@@ -575,15 +590,16 @@ pub fn handle_coreclr_event(
                         None
                     });
 
+                    let category = context.known_category(KnownCategory::CoreClrGc);
+                    let name = context.intern_profile_string("GC Trigger");
+                    let description = context.intern_profile_string(&format!(
+                        "GC Trigger: {}",
+                        DisplayUnknownIfNone(&reason)
+                    ));
                     let mh = context.add_thread_instant_marker(
                         timestamp_raw,
                         tid,
-                        KnownCategory::CoreClrGc,
-                        "GC Trigger",
-                        CoreClrGcEventMarker(format!(
-                            "GC Trigger: {}",
-                            DisplayUnknownIfNone(&reason)
-                        )),
+                        CoreClrGcEventMarker(name, description, category),
                     );
                     coreclr_context.set_last_event_for_thread(tid, mh);
                     handled = true;
@@ -621,13 +637,14 @@ pub fn handle_coreclr_event(
                     }
 
                     if let Some(info) = coreclr_context.remove_gc_marker(tid, "GCSuspendEE") {
+                        let category = context.known_category(KnownCategory::CoreClrGc);
+                        let name = context.intern_profile_string(&info.name);
+                        let description = context.intern_profile_string(&info.description);
                         context.add_thread_interval_marker(
                             info.start_timestamp_raw,
                             timestamp_raw,
                             tid,
-                            KnownCategory::CoreClrGc,
-                            &info.name,
-                            CoreClrGcEventMarker(info.description),
+                            CoreClrGcEventMarker(name, description, category),
                         );
                     }
                     handled = true;
@@ -676,13 +693,14 @@ pub fn handle_coreclr_event(
                     //let count: u32 = parser.parse("Count");
                     //let depth: u32 = parser.parse("Depth");
                     if let Some(info) = coreclr_context.remove_gc_marker(tid, "GC") {
+                        let category = context.known_category(KnownCategory::CoreClrGc);
+                        let name = context.intern_profile_string(&info.name);
+                        let description = context.intern_profile_string(&info.description);
                         context.add_thread_interval_marker(
                             info.start_timestamp_raw,
                             timestamp_raw,
                             tid,
-                            KnownCategory::CoreClrGc,
-                            &info.name,
-                            CoreClrGcEventMarker(info.description),
+                            CoreClrGcEventMarker(name, description, category),
                         );
                     }
                     handled = true;
@@ -719,14 +737,57 @@ pub fn handle_coreclr_event(
 
     if !handled && coreclr_context.unknown_event_markers {
         let text = event_properties_to_string(s, parser, None);
+        let name = context.intern_profile_string(s.name().split_once('/').unwrap().1);
+        let description = context.intern_profile_string(&text);
         let marker_handle = context.add_thread_instant_marker(
             timestamp_raw,
             tid,
-            KnownCategory::Unknown,
-            s.name().split_once('/').unwrap().1,
-            SimpleMarker(text),
+            OtherClrMarker(name, description),
         );
 
         coreclr_context.set_last_event_for_thread(tid, marker_handle);
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct OtherClrMarker(StringHandle, StringHandle);
+
+impl StaticSchemaMarker for OtherClrMarker {
+    const UNIQUE_MARKER_TYPE_NAME: &'static str = "OtherClrMarker";
+
+    fn schema() -> MarkerSchema {
+        MarkerSchema {
+            type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
+            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
+            chart_label: Some("{marker.data.name}".into()),
+            tooltip_label: Some("{marker.data.name}".into()),
+            table_label: Some("{marker.data.name}".into()),
+            fields: vec![MarkerFieldSchema {
+                key: "name".into(),
+                label: "Name".into(),
+                format: MarkerFieldFormat::String,
+                searchable: true,
+            }],
+            static_fields: vec![MarkerStaticField {
+                label: "Description".into(),
+                value: "CoreCLR marker of unknown type.".into(),
+            }],
+        }
+    }
+
+    fn name(&self, _profile: &mut Profile) -> StringHandle {
+        self.0
+    }
+
+    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
+        CategoryHandle::OTHER
+    }
+
+    fn string_field_value(&self, _field_index: u32) -> StringHandle {
+        self.1
+    }
+
+    fn number_field_value(&self, _field_index: u32) -> f64 {
+        unreachable!()
     }
 }
