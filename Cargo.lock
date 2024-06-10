@@ -691,9 +691,9 @@ dependencies = [
 
 [[package]]
 name = "framehop"
-version = "0.12.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9aec05ee9b4beb13cca615aa3132bb915bf3004960ae5a78f42f0b5daf3e8112"
+checksum = "0fd28d2036d4fd99e3629487baca659e5af1c5d554e320168613be79028610fc"
 dependencies = [
  "arrayvec",
  "cfg-if",
@@ -701,8 +701,6 @@ dependencies = [
  "gimli 0.30.0",
  "macho-unwind-info",
  "pe-unwind-info",
- "thiserror",
- "thiserror-no-std",
 ]
 
 [[package]]
@@ -2264,26 +2262,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.66",
-]
-
-[[package]]
-name = "thiserror-impl-no-std"
-version = "2.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58e6318948b519ba6dc2b442a6d0b904ebfb8d411a3ad3e07843615a72249758"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
-
-[[package]]
-name = "thiserror-no-std"
-version = "2.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3ad459d94dd517257cc96add8a43190ee620011bb6e6cdc82dafd97dfafafea"
-dependencies = [
- "thiserror-impl-no-std",
 ]
 
 [[package]]
