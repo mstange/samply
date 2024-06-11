@@ -1,26 +1,19 @@
-#![allow(dead_code)]
-#![allow(unused_imports)]
-
 use std::fs::File;
 use std::io::BufWriter;
-use std::ops::DerefMut;
 use std::os::windows::process::ExitStatusExt;
-use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
-use std::sync::atomic::AtomicPtr;
-use std::sync::{Arc, Mutex};
 
 use fxprof_processed_profile::{Profile, ReferenceTimestamp, SamplingInterval};
 use serde_json::to_writer;
 
+use super::etw_gecko;
 use super::profile_context::ProfileContext;
-use super::{etw_gecko, winutils};
 use crate::server::{start_server_main, ServerProps};
 use crate::shared::ctrl_c::CtrlC;
 use crate::shared::included_processes::IncludedProcesses;
 use crate::shared::recording_props::{ProfileCreationProps, RecordingMode, RecordingProps};
 use crate::shared::symbol_props::SymbolProps;
-use crate::windows::elevated_helper::{self, ElevatedHelperSession};
+use crate::windows::elevated_helper::ElevatedHelperSession;
 
 // Hello intrepid explorer! You may be in this code because you'd like to extend something,
 // or are trying to figure out how various ETW things work. It's not the easiest API!
