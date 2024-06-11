@@ -8,8 +8,9 @@ use debugid::DebugId;
 use framehop::{ExplicitModuleSectionInfo, FrameAddress, Module, Unwinder};
 use fxprof_processed_profile::{
     CategoryColor, CategoryHandle, CategoryPairHandle, CpuDelta, LibraryHandle, LibraryInfo,
-    MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchemaField, MarkerTiming,
-    Profile, ProfilerMarker, ReferenceTimestamp, SamplingInterval, SymbolTable, ThreadHandle,
+    MarkerFieldFormat, MarkerFieldSchema, MarkerLocation, MarkerSchema, MarkerTiming, Profile,
+    ReferenceTimestamp, SamplingInterval, StaticSchemaMarker, StringHandle, SymbolTable,
+    ThreadHandle,
 };
 use linux_perf_data::simpleperf_dso_type::{DSO_DEX_FILE, DSO_KERNEL, DSO_KERNEL_MODULE};
 use linux_perf_data::{
@@ -24,7 +25,6 @@ use linux_perf_event_reader::{
 use memmap2::Mmap;
 use object::{CompressedFileRange, CompressionFormat, Object, ObjectSection};
 use samply_symbols::{debug_id_for_object, DebugIdExt};
-use serde_json::json;
 use wholesym::samply_symbols::demangle_any;
 use wholesym::{samply_symbols, CodeId, ElfBuildId};
 
@@ -438,10 +438,8 @@ where
             let timestamp = self.timestamp_converter.convert_time(timestamp_mono);
             let marker_handle = self.profile.add_marker(
                 cpu.thread_handle,
-                CategoryHandle::OTHER,
-                "sched_switch",
-                SchedSwitchMarkerOnCpuTrack,
                 MarkerTiming::Instant(timestamp),
+                SchedSwitchMarkerOnCpuTrack,
             );
             process.unresolved_samples.attach_stack_to_marker(
                 cpu.thread_handle,
@@ -452,10 +450,8 @@ where
             );
             let marker_handle = self.profile.add_marker(
                 thread.profile_thread,
-                CategoryHandle::OTHER,
-                "sched_switch",
-                SchedSwitchMarkerOnThreadTrack { cpu: cpu_index },
                 MarkerTiming::Instant(timestamp),
+                SchedSwitchMarkerOnThreadTrack { cpu: cpu_index },
             );
             process.unresolved_samples.attach_stack_to_marker(
                 thread.profile_thread,
@@ -539,12 +535,11 @@ where
             RssStatMember::AnonymousSwapEntries => "RSS Stat SHMEMPAGES",
             RssStatMember::ResidentSharedMemoryPages => "RSS Stat SWAPENTS",
         };
+        let name = self.profile.intern_string(name);
         let marker_handle = self.profile.add_marker(
             thread_handle,
-            CategoryHandle::OTHER,
-            name,
-            RssStatMarker(rss_stat.size, delta),
             timing,
+            RssStatMarker::new(name, rss_stat.size, delta),
         );
         process.unresolved_samples.attach_stack_to_marker(
             thread_handle,
@@ -596,13 +591,10 @@ where
         let unresolved_stack = self.unresolved_stacks.convert(stack.into_iter().rev());
         if let Some(name) = self.event_names.get(attr_index) {
             let timing = MarkerTiming::Instant(timestamp);
-            let marker_handle = self.profile.add_marker(
-                thread_handle,
-                CategoryHandle::OTHER,
-                name,
-                OtherEventMarker,
-                timing,
-            );
+            let name = self.profile.intern_string(name);
+            let marker_handle =
+                self.profile
+                    .add_marker(thread_handle, timing, OtherEventMarker(name));
             process.unresolved_samples.attach_stack_to_marker(
                 thread_handle,
                 timestamp,
@@ -1632,14 +1624,13 @@ where
         let thread = process.threads.get_thread_by_tid(tid, &mut self.profile);
         let timestamp = timestamp.max(self.timestamp_converter.reference_raw);
         let timestamp = self.timestamp_converter.convert_time(timestamp);
-        let path = String::from_utf8_lossy(path_slice).into_owned();
-        let marker = MmapMarker(path);
+        let path = self
+            .profile
+            .intern_string(&String::from_utf8_lossy(path_slice));
         self.profile.add_marker(
             thread.profile_thread,
-            CategoryHandle::OTHER,
-            "mmap",
-            marker,
             MarkerTiming::Instant(timestamp),
+            MmapMarker(path),
         );
     }
 }
@@ -1793,31 +1784,40 @@ fn path_from_unix_bytes(path_slice: &[u8]) -> Option<&Path> {
     Some(Path::new(std::str::from_utf8(path_slice).ok()?))
 }
 
-struct MmapMarker(String);
+struct MmapMarker(StringHandle);
 
-impl ProfilerMarker for MmapMarker {
-    const MARKER_TYPE_NAME: &'static str = "mmap";
-
-    fn json_marker_data(&self) -> serde_json::Value {
-        json!({
-            "type": Self::MARKER_TYPE_NAME,
-            "name": self.0
-        })
-    }
-
-    fn schema() -> fxprof_processed_profile::MarkerSchema {
-        fxprof_processed_profile::MarkerSchema {
-            type_name: Self::MARKER_TYPE_NAME,
+impl StaticSchemaMarker for MmapMarker {
+    const UNIQUE_MARKER_TYPE_NAME: &'static str = "mmap";
+    fn schema() -> MarkerSchema {
+        MarkerSchema {
+            type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
             locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
-            chart_label: Some("{marker.data.name}"),
-            tooltip_label: Some("{marker.name} - {marker.data.name}"),
-            table_label: Some("{marker.name} - {marker.data.name}"),
-            fields: vec![MarkerSchemaField::Dynamic(MarkerDynamicField {
-                key: "name",
-                label: "Details",
+            chart_label: Some("{marker.data.name}".into()),
+            tooltip_label: Some("{marker.name} - {marker.data.name}".into()),
+            table_label: Some("{marker.name} - {marker.data.name}".into()),
+            fields: vec![MarkerFieldSchema {
+                key: "name".into(),
+                label: "Details".into(),
                 format: MarkerFieldFormat::String,
                 searchable: true,
-            })],
+            }],
+            static_fields: vec![],
         }
+    }
+
+    fn name(&self, profile: &mut Profile) -> StringHandle {
+        profile.intern_string("mmap")
+    }
+
+    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
+        CategoryHandle::OTHER
+    }
+
+    fn string_field_value(&self, _field_index: u32) -> StringHandle {
+        self.0
+    }
+
+    fn number_field_value(&self, _field_index: u32) -> f64 {
+        unreachable!()
     }
 }

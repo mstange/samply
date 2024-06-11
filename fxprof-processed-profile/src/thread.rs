@@ -2,7 +2,6 @@ use std::borrow::Cow;
 use std::cmp::Ordering;
 
 use serde::ser::{SerializeMap, Serializer};
-use serde_json::json;
 
 use crate::category::{Category, CategoryPairHandle};
 use crate::cpu_delta::CpuDelta;
@@ -10,13 +9,14 @@ use crate::frame_table::{FrameTable, InternalFrame};
 use crate::func_table::FuncTable;
 use crate::global_lib_table::GlobalLibTable;
 use crate::marker_table::MarkerTable;
+use crate::markers::InternalMarkerSchema;
 use crate::native_symbols::NativeSymbols;
 use crate::resource_table::ResourceTable;
 use crate::sample_table::{NativeAllocationsTable, SampleTable};
 use crate::stack_table::StackTable;
 use crate::string_table::{GlobalStringIndex, GlobalStringTable};
 use crate::thread_string_table::{ThreadInternalStringIndex, ThreadStringTable};
-use crate::{CategoryHandle, MarkerHandle, MarkerTiming, ProfilerMarker, Timestamp};
+use crate::{CategoryHandle, Marker, MarkerHandle, MarkerTiming, MarkerTypeHandle, Timestamp};
 
 /// A process. Can be created with [`Profile::add_process`](crate::Profile::add_process).
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
@@ -157,40 +157,31 @@ impl Thread {
         }
     }
 
-    pub fn add_marker<T: ProfilerMarker>(
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_marker<T: Marker>(
         &mut self,
-        category: CategoryHandle,
-        name: &str,
+        name_string_index: ThreadInternalStringIndex,
+        marker_type_handle: MarkerTypeHandle,
+        schema: &InternalMarkerSchema,
         marker: T,
         timing: MarkerTiming,
-        stack_index: Option<usize>,
+        category: CategoryHandle,
+        global_string_table: &mut GlobalStringTable,
     ) -> MarkerHandle {
-        let name_string_index = self.string_table.index_for_string(name);
-        let mut data = marker.json_marker_data();
-        if let Some(stack_index) = stack_index {
-            if let Some(obj) = data.as_object_mut() {
-                obj.insert("cause".to_string(), json!({ "stack": stack_index }));
-            }
-        }
-        self.markers
-            .add_marker(category, name_string_index, timing, data)
+        self.markers.add_marker(
+            name_string_index,
+            marker_type_handle,
+            schema,
+            marker,
+            timing,
+            category,
+            &mut self.string_table,
+            global_string_table,
+        )
     }
 
     pub fn set_marker_stack(&mut self, marker: MarkerHandle, stack_index: Option<usize>) {
-        let data = self.markers.get_marker_data_mut(marker);
-        if data.is_null() {
-            *data = serde_json::Value::Object(Default::default());
-        }
-
-        if let Some(obj) = data.as_object_mut() {
-            if let Some(stack_index) = stack_index {
-                obj.insert("cause".to_string(), json!({ "stack": stack_index }));
-            } else {
-                obj.get_mut("cause")
-                    .map(|p| p.as_object_mut())
-                    .and_then(|p| p.map(|p| p.remove("stack")));
-            }
-        }
+        self.markers.set_marker_stack(marker, stack_index);
     }
 
     pub fn contains_js_function(&self) -> bool {
@@ -214,6 +205,7 @@ impl Thread {
         self.tid.cmp(&other.tid)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn serialize_with<S: Serializer>(
         &self,
         serializer: S,
@@ -222,6 +214,8 @@ impl Thread {
         process_end_time: Option<Timestamp>,
         process_name: &str,
         pid: &str,
+        marker_schemas: &[InternalMarkerSchema],
+        global_string_table: &GlobalStringTable,
     ) -> Result<S::Ok, S::Error> {
         let thread_name: Cow<str> = match (self.is_main, &self.name) {
             (true, _) => process_name.into(),
@@ -235,7 +229,12 @@ impl Thread {
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry("frameTable", &self.frame_table.as_serializable(categories))?;
         map.serialize_entry("funcTable", &self.func_table)?;
-        map.serialize_entry("markers", &self.markers)?;
+        map.serialize_entry(
+            "markers",
+            &self
+                .markers
+                .as_serializable(marker_schemas, global_string_table),
+        )?;
         map.serialize_entry("name", &thread_name)?;
         map.serialize_entry("isMainThread", &self.is_main)?;
         map.serialize_entry("nativeSymbols", &self.native_symbols)?;

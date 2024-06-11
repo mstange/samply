@@ -1,41 +1,47 @@
 use fxprof_processed_profile::{
-    MarkerDynamicField, MarkerFieldFormat, MarkerLocation, MarkerSchema, MarkerSchemaField,
-    MarkerStaticField, ProfilerMarker,
+    CategoryHandle, MarkerFieldFormat, MarkerFieldSchema, MarkerLocation, MarkerSchema,
+    MarkerStaticField, Profile, StaticSchemaMarker, StringHandle,
 };
-use serde_json::json;
 
 #[derive(Debug, Clone)]
-pub struct JitFunctionAddMarker(pub String);
+pub struct JitFunctionAddMarker(pub StringHandle);
 
-impl ProfilerMarker for JitFunctionAddMarker {
-    const MARKER_TYPE_NAME: &'static str = "JitFunctionAdd";
-
-    fn json_marker_data(&self) -> serde_json::Value {
-        json!({
-            "type": Self::MARKER_TYPE_NAME,
-            "functionName": self.0
-        })
-    }
+impl StaticSchemaMarker for JitFunctionAddMarker {
+    const UNIQUE_MARKER_TYPE_NAME: &'static str = "JitFunctionAdd";
 
     fn schema() -> MarkerSchema {
         MarkerSchema {
-            type_name: Self::MARKER_TYPE_NAME,
+            type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
             locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
-            chart_label: Some("{marker.data.functionName}"),
-            tooltip_label: Some("{marker.data.functionName}"),
-            table_label: Some("{marker.data.functionName}"),
-            fields: vec![
-                MarkerSchemaField::Dynamic(MarkerDynamicField {
-                    key: "functionName",
-                    label: "Function",
-                    format: MarkerFieldFormat::String,
-                    searchable: true,
-                }),
-                MarkerSchemaField::Static(MarkerStaticField {
-                    label: "Description",
-                    value: "Emitted when a JIT function is added to the process.",
-                }),
-            ],
+            chart_label: Some("{marker.data.n}".into()),
+            tooltip_label: Some("{marker.data.n}".into()),
+            table_label: Some("{marker.data.n}".into()),
+            fields: vec![MarkerFieldSchema {
+                key: "n".into(),
+                label: "Function".into(),
+                format: MarkerFieldFormat::String,
+                searchable: true,
+            }],
+            static_fields: vec![MarkerStaticField {
+                label: "Description".into(),
+                value: "Emitted when a JIT function is added to the process.".into(),
+            }],
         }
+    }
+
+    fn name(&self, profile: &mut Profile) -> StringHandle {
+        profile.intern_string("JitFunctionAdd")
+    }
+
+    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
+        CategoryHandle::OTHER
+    }
+
+    fn string_field_value(&self, _field_index: u32) -> StringHandle {
+        self.0
+    }
+
+    fn number_field_value(&self, _field_index: u32) -> f64 {
+        unreachable!()
     }
 }
