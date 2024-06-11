@@ -1,10 +1,8 @@
 use std::fs::File;
-use std::io::BufWriter;
 use std::os::windows::process::ExitStatusExt;
 use std::process::ExitStatus;
 
 use fxprof_processed_profile::{Profile, ReferenceTimestamp, SamplingInterval};
-use serde_json::to_writer;
 
 use super::etw_gecko;
 use super::profile_context::ProfileContext;
@@ -12,6 +10,7 @@ use crate::server::{start_server_main, ServerProps};
 use crate::shared::ctrl_c::CtrlC;
 use crate::shared::included_processes::IncludedProcesses;
 use crate::shared::recording_props::{ProfileCreationProps, RecordingMode, RecordingProps};
+use crate::shared::save_profile::save_profile_to_file;
 use crate::shared::symbol_props::SymbolProps;
 use crate::windows::elevated_helper::ElevatedHelperSession;
 
@@ -159,12 +158,7 @@ pub fn start_recording(
         eprintln!("ETL path: {:?}", merged_etl);
     }
 
-    // write the profile to a json file
-    let file = File::create(&output_file).unwrap();
-    let writer = BufWriter::new(file);
-    {
-        to_writer(writer, &profile).expect("Couldn't write JSON");
-    }
+    save_profile_to_file(&profile, &output_file).expect("Couldn't write JSON");
 
     if unstable_presymbolicate {
         crate::shared::symbol_precog::presymbolicate(

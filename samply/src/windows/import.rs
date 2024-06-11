@@ -1,18 +1,16 @@
-use std::fs::File;
-use std::io::BufWriter;
 use std::path::Path;
 
 use fxprof_processed_profile::{Profile, ReferenceTimestamp, SamplingInterval};
-use serde_json::to_writer;
 
 use super::etw_gecko;
 use crate::shared::included_processes::IncludedProcesses;
 use crate::shared::recording_props::ProfileCreationProps;
+use crate::shared::save_profile::save_profile_to_file;
 use crate::windows::profile_context::ProfileContext;
 
 pub fn convert_etl_file_to_profile(
     filename: &Path,
-    output_filename: &Path,
+    output_file: &Path,
     profile_creation_props: ProfileCreationProps,
     included_processes: Option<IncludedProcesses>,
 ) {
@@ -36,13 +34,7 @@ pub fn convert_etl_file_to_profile(
     etw_gecko::profile_pid_from_etl_file(&mut context, filename);
 
     let profile = context.finish();
-
-    // write the profile to a json file
-    let file = File::create(output_filename).unwrap();
-    let writer = BufWriter::new(file);
-    {
-        to_writer(writer, &profile).expect("Couldn't write JSON");
-    }
+    save_profile_to_file(&profile, output_file).expect("Couldn't write JSON");
 }
 
 #[cfg(target_arch = "x86")]

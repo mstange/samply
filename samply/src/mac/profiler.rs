@@ -1,13 +1,11 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::BufWriter;
 use std::process::ExitStatus;
 use std::thread;
 use std::time::Duration;
 
 use crossbeam_channel::unbounded;
-use serde_json::to_writer;
 
 use super::error::SamplingError;
 use super::process_launcher::{
@@ -19,6 +17,7 @@ use crate::server::{start_server_main, ServerProps};
 use crate::shared::recording_props::{
     ProcessLaunchProps, ProfileCreationProps, RecordingMode, RecordingProps,
 };
+use crate::shared::save_profile::save_profile_to_file;
 use crate::shared::symbol_props::SymbolProps;
 
 pub fn start_recording(
@@ -206,12 +205,7 @@ pub fn start_recording(
         }
     };
 
-    {
-        // Write the profile to a file.
-        let file = File::create(&output_file).unwrap();
-        let writer = BufWriter::new(file);
-        to_writer(writer, &profile).expect("Couldn't write JSON");
-    }
+    save_profile_to_file(&profile, &output_file).expect("Couldn't write JSON");
 
     if unstable_presymbolicate {
         crate::shared::symbol_precog::presymbolicate(
