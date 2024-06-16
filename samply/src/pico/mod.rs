@@ -15,7 +15,7 @@ use debugid::DebugId;
 use fxprof_processed_profile::{
     CategoryColor, CpuDelta, LibraryInfo, Profile, ReferenceTimestamp, SamplingInterval, Symbol, SymbolTable
 };
-use object::{Object, ObjectSection, SectionFlags, SectionKind};
+use object::{Object, ObjectSection, ObjectSegment, SectionFlags, SectionKind, SegmentFlags};
 use serde_json::to_writer;
 use serialport5::SerialPort;
 use wholesym::samply_symbols::debug_id_for_object;
@@ -86,12 +86,17 @@ pub(crate) fn record_pico(
         let data = fs::read(elf_file).unwrap();
         let elf = object::File::parse(&*data).unwrap();
 
-        let mappings: Vec<_> = elf.sections()
-            .filter(|s| { s.kind() == SectionKind::Text })
+        let mappings: Vec<_> = elf.segments()
+            .filter(|s| {
+                match s.flags() {
+                    SegmentFlags::Elf { p_flags } => { (p_flags & 0x1) == 0x1 }
+                    _ => { false }
+                }
+            })
             .map(|s| {
                 let address = s.address();
                 let size = s.size();
-                let range = s.file_range().expect("Text section without file range?");
+                let range = s.file_range();
                 (address, size, range.0, range.1)
             })
             .collect();
@@ -103,17 +108,22 @@ pub(crate) fn record_pico(
         let data = fs::read(bootrom_elf).unwrap();
         let elf = object::File::parse(&*data).unwrap();
 
-        let bootrom_mappings: Vec<_> = elf.sections()
-            .filter(|s| { s.kind() == SectionKind::Text })
+        let mappings: Vec<_> = elf.segments()
+            .filter(|s| {
+                match s.flags() {
+                    SegmentFlags::Elf { p_flags } => { (p_flags & 0x1) == 0x1 }
+                    _ => { false }
+                }
+            })
             .map(|s| {
                 let address = s.address();
                 let size = s.size();
-                let range = s.file_range().expect("Text section without file range?");
+                let range = s.file_range();
                 (address, size, range.0, range.1)
             })
             .collect();
 
-        (debug_id_for_object(&elf).unwrap(), bootrom_mappings)
+        (debug_id_for_object(&elf).unwrap(), mappings)
     } else {
         (DebugId::nil(), vec![])
     };
@@ -172,13 +182,24 @@ pub(crate) fn record_pico(
     };
     let bootrom = profile.add_lib(bootrom_info);
 
+    //profile.add_lib_mapping(process, bootrom, BOOTROM_LO, BOOTROM_HI, 0);
+    let bootrom_load = if bootrom_data.1.is_empty() { 0 } else { bootrom_data.1[0].0 };
     for (addr, size, file_start, file_end) in bootrom_data.1 {
-        eprintln!("Adding bootrom: {:x}-{:x} (from {:x})", addr, addr+size, file_start);
-        profile.add_lib_mapping(process, bootrom, addr, addr+size, 0);
+        //eprintln!("Adding bootrom: {:x}-{:x} (reladdr {:x} - {:x})", addr, addr+size, addr, bootrom_load);
+        profile.add_lib_mapping(process, bootrom, addr, addr+size,
+            (addr - bootrom_load) as u32);
     }
-    for (addr, size, file_start, file_end) in elf_data.1 {
-        eprintln!("Adding {}: {:x}-{:x} (from {:x})", elf_filename_str, addr, addr+size, file_start);
-        profile.add_lib_mapping(process, main_exe, addr, addr+size, 0);
+
+    if elf_data.1.is_empty() {
+        eprintln!("Warning: found no segment map info in ELF file, mapping entire flash and memory range");
+        profile.add_lib_mapping(process, main_exe, FLASH_LO, MEM_HI, 0);
+    } else {
+        let main_load = elf_data.1[0].0;
+        for (addr, size, file_start, file_end) in elf_data.1 {
+            //eprintln!("Adding {}: {:x}-{:x} (reladdr {:x})", elf_filename_str, addr, addr+size, addr - main_load);
+            profile.add_lib_mapping(process, main_exe, addr, addr+size,
+                (addr - main_load) as u32);
+        }
     }
 
     let mut unresolved_stacks = UnresolvedStacks::default();
