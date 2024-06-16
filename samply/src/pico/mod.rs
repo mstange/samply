@@ -15,6 +15,7 @@ use debugid::DebugId;
 use fxprof_processed_profile::{
     CategoryColor, CpuDelta, LibraryInfo, Profile, ReferenceTimestamp, SamplingInterval, Symbol, SymbolTable
 };
+use object::{Object, ObjectSection, SectionFlags, SectionKind};
 use serde_json::to_writer;
 use serialport5::SerialPort;
 use wholesym::samply_symbols::debug_id_for_object;
@@ -81,20 +82,40 @@ pub(crate) fn record_pico(
     let elf_file = PathBuf::from(pico_props.elf);
     let elf_filename_str = elf_file.file_name().unwrap().to_string_lossy().to_string();
 
-    let debug_id = {
+    let elf_data = {
         let data = fs::read(elf_file).unwrap();
         let elf = object::File::parse(&*data).unwrap();
 
-        debug_id_for_object(&elf).unwrap()
+        let mappings: Vec<_> = elf.sections()
+            .filter(|s| { s.kind() == SectionKind::Text })
+            .map(|s| {
+                let address = s.address();
+                let size = s.size();
+                let range = s.file_range().expect("Text section without file range?");
+                (address, size, range.0, range.1)
+            })
+            .collect();
+
+        (debug_id_for_object(&elf).unwrap(), mappings)
     };
 
-    let bootrom_debug_id = if let Some(bootrom_elf) = &pico_props.bootrom_elf {
+    let bootrom_data = if let Some(bootrom_elf) = &pico_props.bootrom_elf {
         let data = fs::read(bootrom_elf).unwrap();
         let elf = object::File::parse(&*data).unwrap();
 
-        debug_id_for_object(&elf).unwrap()
+        let bootrom_mappings: Vec<_> = elf.sections()
+            .filter(|s| { s.kind() == SectionKind::Text })
+            .map(|s| {
+                let address = s.address();
+                let size = s.size();
+                let range = s.file_range().expect("Text section without file range?");
+                (address, size, range.0, range.1)
+            })
+            .collect();
+
+        (debug_id_for_object(&elf).unwrap(), bootrom_mappings)
     } else {
-        DebugId::nil()
+        (DebugId::nil(), vec![])
     };
 
     let sampling_interval_ns = recording_props.interval.as_nanos() as u64;
@@ -123,7 +144,7 @@ pub(crate) fn record_pico(
         path: elf_file_str.clone(),
         debug_name: elf_filename_str.clone(),
         debug_path: elf_file_str.clone(),
-        debug_id: debug_id,
+        debug_id: elf_data.0,
         code_id: None,
         arch: Some("arm32".to_string()),
         symbol_table: None,
@@ -144,15 +165,21 @@ pub(crate) fn record_pico(
         path: bootrom_elf.to_string_lossy().to_string(),
         debug_name: bootrom_elf.file_name().unwrap().to_string_lossy().to_string(),
         debug_path: bootrom_elf.to_string_lossy().to_string(),
-        debug_id: bootrom_debug_id,
+        debug_id: bootrom_data.0,
         code_id: None,
         arch: Some("arm32".to_string()),
         symbol_table: bootrom_symbol_table,
     };
     let bootrom = profile.add_lib(bootrom_info);
 
-    profile.add_lib_mapping(process, bootrom, BOOTROM_LO, BOOTROM_HI, 0);
-    profile.add_lib_mapping(process, main_exe, FLASH_LO, MEM_HI, 0);
+    for (addr, size, file_start, file_end) in bootrom_data.1 {
+        eprintln!("Adding bootrom: {:x}-{:x} (from {:x})", addr, addr+size, file_start);
+        profile.add_lib_mapping(process, bootrom, addr, addr+size, 0);
+    }
+    for (addr, size, file_start, file_end) in elf_data.1 {
+        eprintln!("Adding {}: {:x}-{:x} (from {:x})", elf_filename_str, addr, addr+size, file_start);
+        profile.add_lib_mapping(process, main_exe, addr, addr+size, 0);
+    }
 
     let mut unresolved_stacks = UnresolvedStacks::default();
     let mut unresolved_samples = UnresolvedSamples::default();
