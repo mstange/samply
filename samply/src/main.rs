@@ -88,6 +88,9 @@ enum Action {
     /// Import a perf.data file and display the profile.
     Import(ImportArgs),
 
+    /// Record from pico_debug profiling for rp2040 (Cortex-M0+).
+    PicoRecord(PicoRecordArgs),
+
     #[cfg(target_os = "windows")]
     #[clap(hide = true)]
     /// Used in the elevated helper process.
@@ -214,18 +217,6 @@ struct RecordArgs {
     /// Enable browser-related event capture (JavaScript stacks and trace events)
     #[arg(long)]
     browsers: bool,
-
-    /// Serial port to use for communicating with pico_debug
-    #[arg(long)]
-    pico: Option<String>,
-
-    /// Reset the target before starting sampling
-    #[arg(long, requires("pico"))]
-    pico_reset: bool,
-
-    /// .elf file for the bootrom, if available
-    #[clap(long, requires("pico"))]
-    pico_bootrom: Option<String>,
 }
 
 #[derive(ValueEnum, Copy, Clone, Debug, PartialEq, Eq)]
@@ -355,6 +346,53 @@ struct RunElevatedHelperArgs {
     output_path: PathBuf,
 }
 
+#[allow(unused)]
+#[derive(Debug, Args)]
+struct PicoRecordArgs {
+    /// Sampling rate, in Hz
+    #[arg(short, long, default_value = "1000")]
+    rate: f64,
+
+    /// Limit the recorded time to the specified number of seconds
+    #[arg(short, long)]
+    duration: Option<f64>,
+
+    #[arg(short, long)]
+    save_only: bool,
+
+    /// Output filename.
+    #[arg(short, long, default_value = "profile.json")]
+    output: PathBuf,
+
+    #[command(flatten)]
+    profile_creation_args: ProfileCreationArgs,
+
+    /// Do not run a local server after recording.
+    #[command(flatten)]
+    server_args: ServerArgs,
+
+    #[command(flatten)]
+    symbol_args: SymbolArgs,
+
+    /// Device is actually a pre-recorded file saved via --save-file.
+    #[arg(long)]
+    save_file: Option<String>,
+
+    /// Reset the target before starting sampling
+    #[arg(long, requires("pico"))]
+    reset: bool,
+
+    /// .elf file for the bootrom, if available (download from https://github.com/raspberrypi/pico-bootrom/releases)
+    #[clap(long, requires("pico"))]
+    bootrom: Option<String>,
+
+    /// Serial port to use for communicating with pico_debug, or file to read pre-recorded data (via --save-file).
+    device: String,
+
+    /// The elf file that is loaded on the target.
+    firmware: String,
+}
+
 fn main() {
     env_logger::init();
 
@@ -434,23 +472,35 @@ fn main() {
             let symbol_props = record_args.symbol_props();
             let server_props = record_args.server_props();
 
-            if record_args.pico.is_some() {
-                let pico_props = record_args.pico_props();
-                pico::record_pico(
-                    pico_props,
-                    recording_props,
-                    profile_creation_props,
-                    symbol_props,
-                    server_props);
-                std::process::exit(0);
-            }
-
             let exit_status = match profiler::start_recording(
                 recording_mode,
                 recording_props,
                 profile_creation_props,
                 symbol_props,
                 server_props,
+            ) {
+                Ok(exit_status) => exit_status,
+                Err(err) => {
+                    eprintln!("Encountered an error during profiling: {err:?}");
+                    std::process::exit(1);
+                }
+            };
+            std::process::exit(exit_status.code().unwrap_or(0));
+        }
+
+        Action::PicoRecord(args) => {
+            let recording_props = args.recording_props();
+            let profile_creation_props = args.profile_creation_props();
+            let symbol_props = args.symbol_props();
+            let server_props = args.server_props();
+            let pico_props = args.pico_props();
+
+            let exit_status = match pico::record_pico(
+                pico_props,
+                recording_props,
+                profile_creation_props,
+                symbol_props,
+                server_props
             ) {
                 Ok(exit_status) => exit_status,
                 Err(err) => {
@@ -636,16 +686,6 @@ impl RecordArgs {
             unknown_event_markers: false,
         }
     }
-
-    #[allow(unused)]
-    pub fn pico_props(&self) -> pico::PicoProps {
-        pico::PicoProps {
-            serial: self.pico.clone().unwrap(),
-            elf: self.command[0].to_string_lossy().to_string(),
-            bootrom_elf: self.pico_bootrom.clone(),
-            reset: self.pico_reset,
-        }
-    }
 }
 
 impl ServerArgs {
@@ -693,6 +733,69 @@ impl SymbolArgs {
             breakpad_symbol_dir: self.breakpad_symbol_dir.clone(),
             breakpad_symbol_cache: self.breakpad_symbol_cache.clone(),
             simpleperf_binary_cache: self.simpleperf_binary_cache.clone(),
+        }
+    }
+}
+
+impl PicoRecordArgs {
+    #[allow(unused)]
+    fn server_props(&self) -> Option<ServerProps> {
+        if self.save_only {
+            None
+        } else {
+            Some(self.server_args.server_props())
+        }
+    }
+
+    fn symbol_props(&self) -> SymbolProps {
+        self.symbol_args.symbol_props()
+    }
+
+    #[allow(unused)]
+    pub fn recording_props(&self) -> RecordingProps {
+        let time_limit = self.duration.map(Duration::from_secs_f64);
+        if self.rate <= 0.0 {
+            eprintln!(
+                "Error: sampling rate must be greater than zero, got {}",
+                self.rate
+            );
+            std::process::exit(1);
+        }
+        let interval = Duration::from_secs_f64(1.0 / self.rate);
+        RecordingProps {
+            output_file: self.output.clone(),
+            time_limit,
+            interval,
+            vm_hack: false,
+            gfx: false,
+            browsers: false,
+        }
+    }
+
+    pub fn profile_creation_props(&self) -> ProfileCreationProps {
+        let profile_name = self.profile_creation_args.profile_name.clone().unwrap_or_else(|| "firmware".to_owned());
+        ProfileCreationProps {
+            profile_name,
+            main_thread_only: self.profile_creation_args.main_thread_only,
+            reuse_threads: self.profile_creation_args.reuse_threads,
+            fold_recursive_prefix: self.profile_creation_args.fold_recursive_prefix,
+            unlink_aux_files: self.profile_creation_args.unlink_aux_files,
+            create_per_cpu_threads: self.profile_creation_args.per_cpu_threads,
+            override_arch: None,
+            unstable_presymbolicate: self.profile_creation_args.unstable_presymbolicate,
+            coreclr: Default::default(),
+            unknown_event_markers: false,
+        }
+    }
+
+    #[allow(unused)]
+    pub fn pico_props(&self) -> pico::PicoProps {
+        pico::PicoProps {
+            elf: self.firmware.clone(),
+            device: self.device.clone(),
+            save_file: self.save_file.clone(),
+            bootrom_elf: self.bootrom.clone(),
+            reset: self.reset,
         }
     }
 }
