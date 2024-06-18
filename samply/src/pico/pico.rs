@@ -15,7 +15,7 @@ use debugid::DebugId;
 use fxprof_processed_profile::{
     CategoryColor, CpuDelta, LibraryInfo, Profile, ReferenceTimestamp, SamplingInterval, Symbol, SymbolTable
 };
-use object::{Object, ObjectSection, ObjectSegment, SectionFlags, SectionKind, SegmentFlags};
+use object::{Object, ObjectSection, ObjectSegment, ObjectSymbol, SectionFlags, SectionKind, SegmentFlags};
 use serde_json::to_writer;
 use serialport5::SerialPort;
 use wholesym::samply_symbols::debug_id_for_object;
@@ -38,6 +38,7 @@ const MEM_HI  : u64 = 0x20042000u64;
 const START_SAMPLING_CMD: u8 = 0xa0;
 const STOP_SAMPLING_CMD : u8 = 0xa1;
 const SAMPLE_CMD        : u8 = 0xb0;
+const FLAG_ONE_CORE     : u8 = 0x01;
 
 fn to_stack_frames(addresses: &[u32]) -> Vec<StackFrame> {
     if addresses.is_empty() {
@@ -110,6 +111,7 @@ pub enum Error {
 struct SegmentInfo {
     pub load_addr: u64,
     pub load_size: u64,
+    pub phys_addr: u64,
     pub file_range: (u64, u64),
 }
 
@@ -117,12 +119,14 @@ struct SegmentInfo {
 struct ElfInfo {
     pub debug_id: DebugId,
     pub segments: Vec<SegmentInfo>,
+    pub load_addr: u64,
+    pub symbols: Vec<Symbol>,
 }
 
 impl ElfInfo {
     pub fn from_file(elf_file: &str) -> ElfInfo {
         let data = fs::read(elf_file).unwrap();
-        let elf = object::File::parse(&*data).unwrap();
+        let elf = object::read::elf::ElfFile32::parse(&*data).unwrap();
 
         let segments: Vec<_> = elf.segments()
             .filter(|s| {
@@ -132,20 +136,40 @@ impl ElfInfo {
                 }
             })
             .map(|s| {
-                let address = s.address();
-                let size = s.size();
-                let range = s.file_range();
+                let p = s.elf_program_header();
+
+                let address = p.p_vaddr.get(object::LittleEndian) as u64;
+                let phys_address = p.p_paddr.get(object::LittleEndian) as u64;
+                let size = p.p_memsz.get(object::LittleEndian) as u64;
+                let offs = p.p_offset.get(object::LittleEndian) as u64;
+                let filesz = p.p_filesz.get(object::LittleEndian) as u64;
+                let file_range = (offs, offs + filesz);
                 SegmentInfo {
                     load_addr: address,
                     load_size: size,
-                    file_range: range,
+                    phys_addr: phys_address,
+                    file_range,
                 }
             })
             .collect();
 
+        let symbols = elf.symbols()
+        .filter(|elfsym| elfsym.name().is_ok() && elfsym.kind() == object::SymbolKind::Text)
+        .map(|elfsym| {
+            let sym = Symbol {
+                address: if elfsym.address() > 0x1000_0000 { elfsym.address() as u32 - 0x1000_0000 } else { elfsym.address() as u32 },
+                size: if elfsym.size() > 0  { Some(elfsym.size() as u32) } else { None },
+                name: elfsym.name().unwrap().to_string()
+            };
+            //eprintln!("{:x?}", sym);
+            sym
+        }).collect();
+
         ElfInfo {
             debug_id: debug_id_for_object(&elf).unwrap(),
-            segments
+            load_addr: segments[0].load_addr,
+            segments,
+            symbols
         }
     }
 }
@@ -189,19 +213,23 @@ pub(crate) fn record_pico(
     ];
 
     let main_exe_info = LibraryInfo {
-        name: elf_filename_str.clone(),
-        path: elf_file_str.clone(),
-        debug_name: elf_filename_str.clone(),
-        debug_path: elf_file_str.clone(),
+        //name: elf_filename_str.clone(),
+        //path: elf_file_str.clone(),
+        //debug_name: elf_filename_str.clone(),
+        //debug_path: elf_file_str.clone(),
+        name: "the_firmware".to_owned(),
+        path: "the_firmware".to_owned(),
+        debug_name: "the_firmware".to_owned(),
+        debug_path: "the_firmware".to_owned(),
         debug_id: elf_info.debug_id,
         code_id: None,
         arch: Some("arm32".to_string()),
-        symbol_table: None,
+        symbol_table: Some(Arc::new(SymbolTable::new(elf_info.symbols.clone()))),
     };
     let main_exe = profile.add_lib(main_exe_info);
 
     let bootrom_symbol_table = if pico_props.bootrom_elf.is_some() {
-        None // load it from the elf file dynamically
+        Some(Arc::new(SymbolTable::new(bootrom_info.symbols.clone())))
     } else {
         let symbol_table = SymbolTable::new(
             vec![Symbol { address: BOOTROM_LO as u32, size: Some((BOOTROM_HI - BOOTROM_LO) as u32), name: "bootrom".to_owned() }]
@@ -229,21 +257,25 @@ pub(crate) fn record_pico(
             log::warn!("Warning: bootrom ELF file load address is {:x}, expected {:x}", load_addr, BOOTROM_LO);
         }
         for segment in &bootrom_info.segments {
-            eprintln!("Adding bootrom: {:x?}", segment);
+            //eprintln!("Adding bootrom: {:x?}", segment);
             profile.add_lib_mapping(process, bootrom, segment.load_addr, segment.load_addr + segment.load_size,
                 (segment.load_addr - load_addr) as u32);
         }
     }
 
-    if elf_info.segments.is_empty() {
-        eprintln!("Warning: found no segment map info in ELF file, mapping entire flash and memory range");
+    // Samply & the front end can't handle multiple executable LOAD segments in one file.
+    // We just provide the symbols explicitly (hacked to get the correct RVA) for the main exe
+    if true || elf_info.segments.is_empty() {
+        //eprintln!("Warning: found no segment map info in ELF file, mapping entire flash and memory range");
         profile.add_lib_mapping(process, main_exe, FLASH_LO, MEM_HI, 0);
     } else {
-        let load_addr = bootrom_info.segments[0].load_addr;
-        for segment in &bootrom_info.segments {
-            eprintln!("Adding {}: {:x?}", elf_filename_str, segment);
+        let load_addr = elf_info.segments[0].phys_addr;
+
+        for segment in &elf_info.segments {
+            //eprintln!("Adding {}: {:x?}", elf_filename_str, segment);
             profile.add_lib_mapping(process, main_exe, segment.load_addr, segment.load_addr + segment.load_size,
-                (segment.load_addr - load_addr) as u32);
+                 0 /*(segment.phys_addr - load_addr) as u32*/);
+                break;
         }
     }
 
@@ -306,7 +338,7 @@ pub(crate) fn record_pico(
         let start_cmd = vec![START_SAMPLING_CMD,
             (sampling_interval_ms & 0xff) as u8,
             ((sampling_interval_ms >> 8) & 0xff) as u8,
-            0];
+            0x01 as u8];
         device.write_buf(&start_cmd).expect("Failed to write start cmd");
     }
 
@@ -373,7 +405,7 @@ pub(crate) fn record_pico(
 
                 if sample_stack_index == sample_stack_total {
                     // we just finished a sample; record it in the profile
-                    //eprintln!("{:x?}", sample_stack);
+                    //if !(sample_stack.len() == 2 && sample_stack[0] < 0x200) { eprintln!("{:x?}", sample_stack); }
 
                     let timestamp =
                         timestamp_converter.convert_time(sample_timestamp_us - timestamp_base);

@@ -350,7 +350,7 @@ struct RunElevatedHelperArgs {
 #[derive(Debug, Args)]
 struct PicoRecordArgs {
     /// Sampling rate, in Hz
-    #[arg(short, long, default_value = "1000")]
+    #[arg(short, long, default_value = "100")]
     rate: f64,
 
     /// Limit the recorded time to the specified number of seconds
@@ -379,11 +379,11 @@ struct PicoRecordArgs {
     save_file: Option<String>,
 
     /// Reset the target before starting sampling
-    #[arg(long, requires("pico"))]
+    #[arg(long)]
     reset: bool,
 
     /// .elf file for the bootrom, if available (download from https://github.com/raspberrypi/pico-bootrom/releases)
-    #[clap(long, requires("pico"))]
+    #[clap(long)]
     bootrom: Option<String>,
 
     /// Serial port to use for communicating with pico_debug, or file to read pre-recorded data (via --save-file).
