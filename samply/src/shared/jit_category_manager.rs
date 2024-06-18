@@ -11,7 +11,7 @@ pub enum JsFrame {
 
 #[derive(Debug, Clone, Copy)]
 pub enum JsName {
-    SelfHosted(StringHandle),
+    SelfHosted(#[allow(dead_code)] StringHandle),
     NonSelfHosted(StringHandle),
 }
 

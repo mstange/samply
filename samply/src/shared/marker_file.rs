@@ -62,6 +62,7 @@ pub struct MarkerFileInfo {
     pub prefix: String,
     #[allow(dead_code)]
     pub pid: u32,
+    #[allow(dead_code)]
     pub tid: Option<u32>,
 }
 
