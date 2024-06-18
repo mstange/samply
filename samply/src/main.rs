@@ -147,13 +147,35 @@ struct ImportArgs {
     #[clap(long, require_equals = true, value_name = "FLAG", value_enum, value_delimiter = ',', num_args = 0.., default_values_t = vec![CoreClrArgs::Enabled])]
     coreclr: Vec<CoreClrArgs>,
 
-    /// Start time to capture samples at, in seconds
-    #[arg(long)]
-    tstart: Option<u32>,
+    /// Time range of recording to include in profile. Format is "start-stop" or "start+duration" with each part optional, e.g. "5s", "5s-", "-10s", "1s-10s" or "1s+9s".
+    #[arg(long, value_parser=parse_time_range)]
+    time_range: Option<(std::time::Duration, std::time::Duration)>,
+}
 
-    /// End time to capture samples at, in seconds
-    #[arg(long)]
-    tstop: Option<u32>,
+fn parse_time_range(
+    arg: &str,
+) -> Result<(std::time::Duration, std::time::Duration), humantime::DurationError> {
+    let (is_duration, splitchar) = if arg.contains('+') {
+        (true, '+')
+    } else {
+        (false, '-')
+    };
+
+    let parts: Vec<&str> = arg.splitn(2, splitchar).collect();
+
+    let start = if parts[0].is_empty() {
+        std::time::Duration::ZERO
+    } else {
+        humantime::parse_duration(parts[0])?
+    };
+
+    let end = if parts.len() == 1 || parts[1].is_empty() {
+        std::time::Duration::MAX
+    } else {
+        humantime::parse_duration(parts[1])?
+    };
+
+    Ok((start, if is_duration { start + end } else { end }))
 }
 
 #[allow(unused)]
@@ -509,8 +531,7 @@ impl ImportArgs {
             unknown_event_markers: self.profile_creation_args.unknown_event_markers,
             #[cfg(not(target_os = "windows"))]
             unknown_event_markers: false,
-            tstart: self.tstart,
-            tstop: self.tstop,
+            time_range: self.time_range,
         }
     }
 
@@ -626,8 +647,7 @@ impl RecordArgs {
             unknown_event_markers: self.profile_creation_args.unknown_event_markers,
             #[cfg(not(target_os = "windows"))]
             unknown_event_markers: false,
-            tstart: None,
-            tstop: None,
+            time_range: None,
         }
     }
 }

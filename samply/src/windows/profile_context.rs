@@ -292,8 +292,8 @@ pub struct ProfileContext {
     /// Only include main threads.
     main_thread_only: bool,
 
-    tstart_ns: Option<u64>,
-    tstop_ns: Option<u64>,
+    // Time range in ns from the start of profile
+    time_range_ns: Option<(u64, u64)>,
 }
 
 impl ProfileContext {
@@ -318,8 +318,9 @@ impl ProfileContext {
             None
         };
         let main_thread_only = profile_creation_props.main_thread_only;
-        let tstart_ns = profile_creation_props.tstart.map(|t| t as u64 * 10_000_000);
-        let tstop_ns = profile_creation_props.tstop.map(|t| t as u64 * 10_000_000);
+        let time_range_ns = profile_creation_props
+            .time_range
+            .map(|(start, end)| (start.as_nanos() as u64, end.as_nanos() as u64));
 
         Self {
             profile,
@@ -351,8 +352,7 @@ impl ProfileContext {
             },
             event_timestamps_are_qpc: false,
             main_thread_only,
-            tstart_ns,
-            tstop_ns,
+            time_range_ns,
         }
     }
 
@@ -1736,14 +1736,12 @@ impl ProfileContext {
     }
 
     pub fn is_in_time_range(&self, ts_raw: u64) -> bool {
-        let ts = ts_raw - self.timestamp_converter.reference_raw;
-        if self.tstart_ns.is_some() && ts < self.tstart_ns.unwrap() {
-            return false;
-        }
-        if self.tstop_ns.is_some() && ts > self.tstop_ns.unwrap() {
-            return false;
-        }
-        true
+        let Some((tstart_ns, tstop_ns)) = self.time_range_ns else {
+            return true;
+        };
+
+        let ts = self.timestamp_converter.convert_time(ts_raw);
+        ts.nanos >= tstart_ns && ts.nanos < tstop_ns
     }
 
     pub fn finish(mut self) -> Profile {

@@ -386,7 +386,13 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
             dotnet_event if dotnet_event.starts_with("Microsoft-Windows-DotNETRuntime") => {
                 let is_in_range = context.is_in_time_range(timestamp_raw);
                 // Note: No "/" at end of event name, because we want DotNETRuntimeRundown as well
-                coreclr::handle_coreclr_event(context, &mut core_clr_context, &s, &mut parser, is_in_range);
+                coreclr::handle_coreclr_event(
+                    context,
+                    &mut core_clr_context,
+                    &s,
+                    &mut parser,
+                    is_in_range,
+                );
             }
             _ => {
                 if !context.is_in_time_range(timestamp_raw) {

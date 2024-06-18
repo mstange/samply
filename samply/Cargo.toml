@@ -50,6 +50,7 @@ log = "0.4.21"
 env_logger = "0.11.3"
 cfg-if = "1.0.0"
 fs4 = "0.8.3"
+humantime = "2.1.0"
 
 [target.'cfg(any(target_os = "android", target_os = "macos", target_os = "linux"))'.dependencies]
 

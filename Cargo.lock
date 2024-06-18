@@ -1914,6 +1914,7 @@ dependencies = [
  "fxhash",
  "fxprof-processed-profile",
  "http-body-util",
+ "humantime",
  "hyper",
  "hyper-util",
  "lazy_static",
