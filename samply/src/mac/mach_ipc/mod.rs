@@ -15,7 +15,7 @@ use std::marker::PhantomData;
 use std::ops::Deref;
 use std::sync::RwLock;
 use std::time::Duration;
-use std::{mem, ptr, slice, usize};
+use std::{mem, ptr, slice};
 
 use lazy_static::lazy_static;
 use libc::{self, c_char, c_uint, c_void, size_t};
@@ -479,12 +479,12 @@ impl OsOpaqueIpcChannel {
 
 pub enum OsIpcSelectionResult {
     DataReceived(
-        u64,
+        #[allow(dead_code)] u64,
         Vec<u8>,
         Vec<OsOpaqueIpcChannel>,
         Vec<OsIpcSharedMemory>,
     ),
-    ChannelClosed(u64),
+    ChannelClosed(#[allow(dead_code)] u64),
 }
 
 #[derive(Copy, Clone)]
