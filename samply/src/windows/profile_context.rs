@@ -1735,58 +1735,6 @@ impl ProfileContext {
         //println!("unhandled {}", s.name())
     }
 
-    // Given an image file and an optional command line, try to pull out an informative process name.
-    // The command line is expected to contain the actual command as the first argument. (e.g. if the
-    // image is "C:\...\dotnet.exe", the command line should contain "dotnet.exe myapp.dll").
-    fn name_for_process(&self, image_file_name: &str, command_line: Option<&str>) -> String {
-        let image_path_str = self.map_device_path(image_file_name);
-        let Some(command_line) = command_line else {
-            return image_path_str;
-        };
-        let Ok(image_path) = PathBuf::from_str(&image_path_str) else {
-            return image_path_str;
-        };
-        let Some(file_name) = image_path.file_name().map(|s| s.to_string_lossy()) else {
-            return image_path_str;
-        };
-
-        // Super hacky command line parsing; split at spaces, remove any surrounding quotes.
-        // Will break if paths have embedded spaces.
-        let parts = command_line
-            .split(' ')
-            .map(|s| s.trim_matches(|c| c == '"' || c == '\''));
-
-        if file_name == "dotnet.exe" {
-            eprintln!("dotnet.exe: {}", command_line);
-            if let Some(dotnet_dll) = parts
-                .skip(1)
-                .filter(|&s| {
-                    let lc = s.to_ascii_lowercase();
-                    lc.ends_with(".dll") || lc.ends_with(".exe")
-                })
-                .nth(0)
-            {
-                if let Ok(dotnet_dll_path) = PathBuf::from_str(&dotnet_dll) {
-                    return format!(
-                        "{} (.NET)",
-                        dotnet_dll_path.file_name().unwrap().to_string_lossy()
-                    );
-                }
-            }
-        } else if file_name == "cmd.exe" {
-            eprintln!("cmd.exe: {}", command_line);
-            if let Some(cmd_name) = parts
-                .filter(|&s| !s.starts_with('/') && !s.starts_with('-'))
-                .nth(0)
-            {
-                return format!("{} (cmd)", cmd_name);
-            }
-        }
-
-        // Fall back to the image file name
-        image_path_str
-    }
-
     pub fn is_in_time_range(&self, ts_raw: u64) -> bool {
         let ts = ts_raw - self.timestamp_converter.reference_raw;
         if self.tstart_ns.is_some() && ts < self.tstart_ns.unwrap() {
