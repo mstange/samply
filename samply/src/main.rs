@@ -148,10 +148,12 @@ struct ImportArgs {
     coreclr: Vec<CoreClrArgs>,
 
     /// Time range of recording to include in profile. Format is "start-stop" or "start+duration" with each part optional, e.g. "5s", "5s-", "-10s", "1s-10s" or "1s+9s".
+    #[cfg(target_os = "windows")]
     #[arg(long, value_parser=parse_time_range)]
     time_range: Option<(std::time::Duration, std::time::Duration)>,
 }
 
+#[allow(unused)]
 fn parse_time_range(
     arg: &str,
 ) -> Result<(std::time::Duration, std::time::Duration), humantime::DurationError> {
@@ -517,6 +519,13 @@ impl ImportArgs {
             let name = self.file.file_name().unwrap_or(self.file.as_os_str());
             name.to_string_lossy().into()
         };
+        cfg_if::cfg_if! {
+            if #[cfg(target_os = "windows")] {
+                let time_range = self.time_range;
+            } else {
+                let time_range = None;
+            }
+        }
         ProfileCreationProps {
             profile_name,
             main_thread_only: self.profile_creation_args.main_thread_only,
@@ -531,7 +540,7 @@ impl ImportArgs {
             unknown_event_markers: self.profile_creation_args.unknown_event_markers,
             #[cfg(not(target_os = "windows"))]
             unknown_event_markers: false,
-            time_range: self.time_range,
+            time_range,
         }
     }
 
