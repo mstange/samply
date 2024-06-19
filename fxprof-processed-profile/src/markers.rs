@@ -501,7 +501,6 @@ pub enum MarkerFieldFormat {
     /// Important: Do not put URL or file path information here, as it will not
     /// be sanitized during profile upload. Please be careful with including
     /// other types of PII here as well.
-    #[serde(rename = "unique-string")]
     String,
 
     // ----------------------------------------------------
