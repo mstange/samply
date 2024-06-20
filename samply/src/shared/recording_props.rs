@@ -36,6 +36,7 @@ pub struct RecordingProps {
     pub gfx: bool,
     #[allow(dead_code)]
     pub browsers: bool,
+    #[allow(dead_code)]
     pub keep_etl: bool,
 }
 
@@ -89,6 +90,7 @@ pub struct ProfileCreationProps {
     #[allow(dead_code)]
     pub unknown_event_markers: bool,
     /// Time range to include, relative to start of recording.
+    #[allow(dead_code)]
     pub time_range: Option<(std::time::Duration, std::time::Duration)>,
 }
 

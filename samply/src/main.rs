@@ -585,11 +585,11 @@ impl RecordArgs {
             #[cfg(target_os = "windows")]
             vm_hack: self.vm_hack,
             #[cfg(not(target_os = "windows"))]
-            vm_hack: None,
+            vm_hack: false,
             #[cfg(target_os = "windows")]
             keep_etl: self.keep_etl,
             #[cfg(not(target_os = "windows"))]
-            keep_etl: None,
+            keep_etl: false,
         }
     }
 
