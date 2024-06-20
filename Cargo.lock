@@ -1996,7 +1996,7 @@ dependencies = [
 
 [[package]]
 name = "samply-api"
-version = "0.23.0"
+version = "0.23.1"
 dependencies = [
  "anyhow",
  "assert-json-diff",
