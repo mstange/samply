@@ -46,6 +46,7 @@ pub struct PendingStack {
 #[derive(Debug)]
 pub struct MemoryUsage {
     pub counter: CounterHandle,
+    #[allow(dead_code)]
     pub value: f64,
 }
 
@@ -101,12 +102,15 @@ pub struct PendingMarker {
 #[derive(Debug)]
 pub struct ThreadState {
     pub name: Option<String>,
+    #[allow(dead_code)]
     pub is_main_thread: bool,
     pub handle: ThreadHandle,
     pub label_frame: FrameInfo,
     pub pending_stacks: VecDeque<PendingStack>,
     pub context_switch_data: ThreadContextSwitchData,
+    #[allow(dead_code)]
     pub thread_id: u32,
+    #[allow(dead_code)]
     pub process_id: u32,
     pub pending_markers: HashMap<String, PendingMarker>,
 }
@@ -145,6 +149,7 @@ pub struct ProcessState {
     pub pending_libraries: HashMap<u64, LibraryInfo>,
     pub memory_usage: Option<MemoryUsage>,
     pub process_id: u32,
+    #[allow(dead_code)]
     pub parent_id: u32,
     pub jit_info: ProcessJitInfo,
     pub thread_recycler: Option<ThreadRecycler>,
