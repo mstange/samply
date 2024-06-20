@@ -8,6 +8,7 @@ pub mod jitdump_manager;
 pub mod lib_mappings;
 pub mod marker_file;
 pub mod perf_map;
+pub mod process_name;
 pub mod process_sample_data;
 pub mod recording_props;
 pub mod recycling;

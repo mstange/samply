@@ -63,7 +63,7 @@ impl RecordingMode {
 }
 
 /// Properties which are meaningful both for recording a profile and
-/// for converting a perf.data file to a profile.
+/// for converting a perf.data / ETL file to a profile.
 #[derive(Debug, Clone)]
 pub struct ProfileCreationProps {
     pub profile_name: String,
@@ -78,6 +78,8 @@ pub struct ProfileCreationProps {
     pub unlink_aux_files: bool,
     /// Create a separate thread for each CPU.
     pub create_per_cpu_threads: bool,
+    /// Include up to N command line arguments in the process name
+    pub arg_count_to_include_in_process_name: usize,
     /// Override system architecture.
     #[allow(dead_code)]
     pub override_arch: Option<String>,

@@ -43,6 +43,7 @@ use super::vdso::VdsoObject;
 use crate::shared::context_switch::{ContextSwitchHandler, OffCpuSampleGroup};
 use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::lib_mappings::{AndroidArtInfo, LibMappingInfo};
+use crate::shared::process_name::make_process_name;
 use crate::shared::process_sample_data::{
     OtherEventMarker, RssStatMarker, RssStatMember, SchedSwitchMarkerOnCpuTrack,
     SchedSwitchMarkerOnThreadTrack,
@@ -83,6 +84,7 @@ where
     simpleperf_symbol_tables_kernel_modules: HashMap<Vec<u8>, SymbolTableFromSimpleperf>,
     pe_mappings: PeMappings,
     jit_category_manager: JitCategoryManager,
+    arg_count_to_include_in_process_name: usize,
     cpus: Option<Cpus>,
 
     /// Whether repeated frames at the base of the stack should be folded
@@ -246,6 +248,8 @@ where
             pe_mappings: PeMappings::new(),
             jit_category_manager: JitCategoryManager::new(),
             fold_recursive_prefix: profile_creation_props.fold_recursive_prefix,
+            arg_count_to_include_in_process_name: profile_creation_props
+                .arg_count_to_include_in_process_name,
             cpus,
             call_chain_return_addresses_are_preadjusted,
         }
@@ -1015,6 +1019,78 @@ where
     }
 
     pub fn handle_comm(&mut self, e: CommOrExecRecord, timestamp: Option<u64>) {
+        if e.is_execve {
+            self.handle_exec(e, timestamp, None);
+        } else {
+            self.handle_thread_rename(e, timestamp);
+        }
+    }
+
+    pub fn handle_exec(
+        &mut self,
+        e: CommOrExecRecord,
+        timestamp: Option<u64>,
+        exec_name_and_cmdline: Option<(String, Vec<String>)>,
+    ) {
+        let is_main = e.pid == e.tid;
+        let comm_name = String::from_utf8_lossy(&e.name.as_slice()).to_string();
+
+        // If the COMM record doesn't have a timestamp, take the last seen
+        // timestamp from the previous sample.
+        let timestamp_mono = match timestamp {
+            Some(0) | None => self.current_sample_time,
+            Some(ts) => ts,
+        };
+        let timestamp = self.timestamp_converter.convert_time(timestamp_mono);
+
+        if is_main && self.delayed_product_name_generator.is_some() && comm_name != "perf-exec" {
+            let generator = self.delayed_product_name_generator.take().unwrap();
+            let product = generator(&comm_name);
+            self.profile.set_product(&product);
+        }
+
+        let name = if let Some((exec_name, args)) = exec_name_and_cmdline {
+            make_process_name(&exec_name, args, self.arg_count_to_include_in_process_name)
+        } else {
+            comm_name.clone()
+        };
+
+        // eprintln!("Process execve: pid={}, tid={}, new name: {}", e.pid, e.tid, name);
+
+        // Mark the old thread / process as ended.
+        if is_main {
+            self.processes.remove(
+                e.pid,
+                timestamp,
+                &mut self.profile,
+                &mut self.jit_category_manager,
+                &self.timestamp_converter,
+            );
+            self.processes.recycle_or_get_new(
+                e.pid,
+                Some(name.to_string()),
+                timestamp,
+                &mut self.profile,
+            );
+        } else {
+            eprintln!(
+                "Unexpected is_execve on non-main thread! pid: {}, tid: {}",
+                e.pid, e.tid
+            );
+            let process = self.processes.get_by_pid(e.pid, &mut self.profile);
+            process
+                .threads
+                .remove_non_main_thread(e.tid, timestamp, &mut self.profile);
+            process.recycle_or_get_new_thread(
+                e.tid,
+                Some(name.to_string()),
+                timestamp,
+                &mut self.profile,
+            );
+        }
+    }
+
+    pub fn handle_thread_rename(&mut self, e: CommOrExecRecord, timestamp: Option<u64>) {
         let is_main = e.pid == e.tid;
         let name = e.name.as_slice();
         let name = String::from_utf8_lossy(&name);
@@ -1027,47 +1103,7 @@ where
         };
         let timestamp = self.timestamp_converter.convert_time(timestamp_mono);
 
-        if is_main && self.delayed_product_name_generator.is_some() && name != "perf-exec" {
-            let generator = self.delayed_product_name_generator.take().unwrap();
-            let product = generator(&name);
-            self.profile.set_product(&product);
-        }
-
-        if e.is_execve {
-            // eprintln!("Process execve: pid={}, tid={}, new name: {}", e.pid, e.tid, name);
-
-            // Mark the old thread / process as ended.
-            if is_main {
-                self.processes.remove(
-                    e.pid,
-                    timestamp,
-                    &mut self.profile,
-                    &mut self.jit_category_manager,
-                    &self.timestamp_converter,
-                );
-                self.processes.recycle_or_get_new(
-                    e.pid,
-                    Some(name.to_string()),
-                    timestamp,
-                    &mut self.profile,
-                );
-            } else {
-                eprintln!(
-                    "Unexpected is_execve on non-main thread! pid: {}, tid: {}",
-                    e.pid, e.tid
-                );
-                let process = self.processes.get_by_pid(e.pid, &mut self.profile);
-                process
-                    .threads
-                    .remove_non_main_thread(e.tid, timestamp, &mut self.profile);
-                process.recycle_or_get_new_thread(
-                    e.tid,
-                    Some(name.to_string()),
-                    timestamp,
-                    &mut self.profile,
-                );
-            }
-        } else if is_main {
+        if is_main {
             // eprintln!("Process rename: pid={}, new name: {}", e.pid, name);
             self.processes
                 .rename_process(e.pid, timestamp, name.to_string(), &mut self.profile);
@@ -1084,6 +1120,34 @@ where
     }
 
     #[allow(unused)]
+    pub fn register_existing_process(
+        &mut self,
+        pid: i32,
+        comm_name: &str,
+        exe_name: &str,
+        args: Vec<String>,
+    ) {
+        let process = self.processes.get_by_pid(pid, &mut self.profile);
+        let process_handle = process.profile_process;
+
+        let name = make_process_name(exe_name, args, self.arg_count_to_include_in_process_name);
+        self.profile.set_process_name(process_handle, &name);
+        process.name = Some(name.to_owned());
+
+        // Mark this as the start time of the new thread / process.
+        let time = self
+            .timestamp_converter
+            .convert_time(self.current_sample_time);
+        self.profile.set_process_start_time(process_handle, time);
+
+        if self.delayed_product_name_generator.is_some() && comm_name != "perf-exec" {
+            let generator = self.delayed_product_name_generator.take().unwrap();
+            let product = generator(&name);
+            self.profile.set_product(&product);
+        }
+    }
+
+    #[allow(unused)]
     pub fn register_existing_thread(&mut self, pid: i32, tid: i32, name: &str) {
         let is_main = pid == tid;
 
@@ -1095,25 +1159,12 @@ where
 
         self.profile.set_thread_name(thread_handle, name);
         thread.name = Some(name.to_owned());
-        if is_main {
-            self.profile.set_process_name(process_handle, name);
-            process.name = Some(name.to_owned());
-        }
 
         // Mark this as the start time of the new thread / process.
         let time = self
             .timestamp_converter
             .convert_time(self.current_sample_time);
         self.profile.set_thread_start_time(thread_handle, time);
-        if is_main {
-            self.profile.set_process_start_time(process_handle, time);
-        }
-
-        if self.delayed_product_name_generator.is_some() && name != "perf-exec" {
-            let generator = self.delayed_product_name_generator.take().unwrap();
-            let product = generator(name);
-            self.profile.set_product(&product);
-        }
     }
 
     fn add_kernel_module(

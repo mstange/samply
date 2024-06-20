@@ -356,6 +356,13 @@ pub struct ProfileCreationArgs {
     #[arg(long)]
     per_cpu_threads: bool,
 
+    /// Include up to <INCLUDE_ARGS> command line arguments in the process name.
+    /// This can help differentiate processes if the same executable is used
+    /// for different types of programs. And in --reuse-threads mode it
+    /// allows more control over which processes are matched up.
+    #[arg(long, default_value = "0", num_args=0..=1, require_equals = true, default_missing_value = "100")]
+    include_args: usize,
+
     /// Emit .syms.json sidecar file containing gathered symbol info for all frames referenced by
     /// this profile. With this file along with the profile, samply can load the profile
     /// and provide symbols to the front end without needing debug files to be
@@ -526,6 +533,7 @@ impl ImportArgs {
             fold_recursive_prefix: self.profile_creation_args.fold_recursive_prefix,
             unlink_aux_files: self.profile_creation_args.unlink_aux_files,
             create_per_cpu_threads: self.profile_creation_args.per_cpu_threads,
+            arg_count_to_include_in_process_name: self.profile_creation_args.include_args,
             override_arch: self.override_arch.clone(),
             unstable_presymbolicate: self.profile_creation_args.unstable_presymbolicate,
             coreclr: to_coreclr_profile_props(&self.coreclr),
@@ -643,6 +651,7 @@ impl RecordArgs {
             fold_recursive_prefix: self.profile_creation_args.fold_recursive_prefix,
             unlink_aux_files: self.profile_creation_args.unlink_aux_files,
             create_per_cpu_threads: self.profile_creation_args.per_cpu_threads,
+            arg_count_to_include_in_process_name: self.profile_creation_args.include_args,
             override_arch: None,
             unstable_presymbolicate: self.profile_creation_args.unstable_presymbolicate,
             coreclr: to_coreclr_profile_props(&self.coreclr),

@@ -104,6 +104,15 @@ pub fn start_recording(
     let output_file_copy = recording_props.output_file.clone();
     let interval = recording_props.interval;
     let time_limit = recording_props.time_limit;
+    let initial_exec_name = command_name.to_string_lossy().to_string();
+    let initial_cmdline: Vec<String> = std::iter::once(initial_exec_name.clone())
+        .chain(args.iter().map(|arg| arg.to_string_lossy().to_string()))
+        .collect();
+    let initial_exec_name = match initial_exec_name.rfind('/') {
+        Some(pos) => initial_exec_name[pos + 1..].to_string(),
+        None => initial_exec_name,
+    };
+    let initial_exec_name_and_cmdline = (initial_exec_name, initial_cmdline);
     let observer_thread = thread::spawn(move || {
         let unstable_presymbolicate = profile_creation_props.unstable_presymbolicate;
         let mut converter = make_converter(interval, profile_creation_props);
@@ -138,6 +147,7 @@ pub fn start_recording(
             profile_another_pid_reply_sender,
             stop_receiver,
             unstable_presymbolicate,
+            Some(initial_exec_name_and_cmdline),
         );
     });
 
@@ -298,6 +308,7 @@ fn start_profiling_pid(
                 profile_another_pid_reply_sender,
                 ctrl_c_receiver,
                 unstable_presymbolicate,
+                None,
             )
         }
     });
@@ -464,12 +475,20 @@ fn init_profiler(
         }
     };
 
+    let (exe_name, cmdline) = get_process_cmdline(pid).expect("Couldn't read process cmdline");
+    let comm_data = std::fs::read(format!("/proc/{pid}/comm")).expect("Couldn't read process comm");
+    let length = memchr::memchr(b'\0', &comm_data).unwrap_or(comm_data.len());
+    let comm_name = std::str::from_utf8(&comm_data[..length])
+        .unwrap()
+        .trim_end();
+    converter.register_existing_process(pid as i32, comm_name, &exe_name, cmdline);
+
     // TODO: Gather threads / processes recursively, here and in PerfGroup setup.
-    for entry in std::fs::read_dir(format!("/proc/{pid}/task"))
+    for thread_entry in std::fs::read_dir(format!("/proc/{pid}/task"))
         .unwrap()
         .flatten()
     {
-        let tid: u32 = entry.file_name().to_string_lossy().parse().unwrap();
+        let tid: u32 = thread_entry.file_name().to_string_lossy().parse().unwrap();
         let comm_path = format!("/proc/{pid}/task/{tid}/comm");
         if let Ok(buffer) = std::fs::read(comm_path) {
             let length = memchr::memchr(b'\0', &buffer).unwrap_or(buffer.len());
@@ -558,6 +577,7 @@ fn run_profiler(
     more_processes_reply_sender: Sender<bool>,
     mut stop_receiver: oneshot::Receiver<()>,
     unstable_presymbolicate: bool,
+    mut initial_exec_name_and_cmdline: Option<(String, Vec<String>)>,
 ) {
     // eprintln!("Running...");
 
@@ -642,7 +662,27 @@ fn run_profiler(
                     converter.handle_fork(e);
                 }
                 EventRecord::Comm(e) => {
-                    converter.handle_comm(e, record.timestamp());
+                    if e.is_execve {
+                        // Try to get the command line arguments for this process.
+                        let exec_name_and_cmdline =
+                            if let Some(initial) = initial_exec_name_and_cmdline.take() {
+                                // This COMM event is the first exec that we're processing. If we get
+                                // here, it means we're in the "launch process" case and we're seeing
+                                // the exec for that initial launched process.
+                                Some(initial)
+                            } else {
+                                // Attempt to get the process cmdline from /proc/{pid}/cmdline.
+                                // This isn't very reliable because we're processing the perf event records
+                                // in batches, with a delay, so the COMM record may be old enough that the
+                                // pid no longer exists, or the pid may even refer to a different process now.
+                                // Unfortunately there are no perf event records that give us the process
+                                // command line.
+                                get_process_cmdline(e.pid as u32).ok()
+                            };
+                        converter.handle_exec(e, record.timestamp(), exec_name_and_cmdline);
+                    } else {
+                        converter.handle_thread_rename(e, record.timestamp());
+                    }
                 }
                 EventRecord::Exit(e) => {
                     converter.handle_exit(e);
@@ -700,4 +740,23 @@ fn run_profiler(
 pub fn read_string_lossy<P: AsRef<Path>>(path: P) -> std::io::Result<String> {
     let data = std::fs::read(path)?;
     Ok(String::from_utf8_lossy(&data).into_owned())
+}
+
+fn get_process_cmdline(pid: u32) -> std::io::Result<(String, Vec<String>)> {
+    let cmdline_bytes = std::fs::read(format!("/proc/{pid}/cmdline"))?;
+    let mut remaining_bytes = &cmdline_bytes[..];
+    let mut cmdline = Vec::new();
+    while let Some(nul_byte_pos) = memchr::memchr(b'\0', remaining_bytes) {
+        let arg_slice = &remaining_bytes[..nul_byte_pos];
+        remaining_bytes = &remaining_bytes[nul_byte_pos + 1..];
+        cmdline.push(String::from_utf8_lossy(arg_slice).to_string());
+    }
+
+    let exe_arg = &cmdline[0];
+    let exe_name = match exe_arg.rfind('/') {
+        Some(pos) => exe_arg[pos + 1..].to_string(),
+        None => exe_arg.to_string(),
+    };
+
+    Ok((exe_name, cmdline))
 }

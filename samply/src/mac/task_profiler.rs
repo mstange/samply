@@ -29,7 +29,8 @@ use wholesym::samply_symbols;
 use super::error::SamplingError;
 use super::kernel_error::{IntoResult, KernelError};
 use super::proc_maps::{
-    DyldInfo, DyldInfoManager, Modification, ModuleSvmaInfo, StackwalkerRef, VmSubData,
+    proc_cmdline, DyldInfo, DyldInfoManager, Modification, ModuleSvmaInfo, StackwalkerRef,
+    VmSubData,
 };
 use super::sampler::{JitdumpOrMarkerPath, TaskInit};
 use super::thread_profiler::{get_thread_id, get_thread_name, ThreadProfiler};
@@ -42,6 +43,7 @@ use crate::shared::lib_mappings::{
 use crate::shared::marker_file;
 use crate::shared::marker_file::get_markers;
 use crate::shared::perf_map::try_load_perf_map;
+use crate::shared::process_name::make_process_name;
 use crate::shared::process_sample_data::{MarkerSpanOnThread, ProcessSampleData};
 use crate::shared::recording_props::ProfileCreationProps;
 use crate::shared::recycling::{ProcessRecycler, ProcessRecyclingData, ThreadRecycler};
@@ -138,15 +140,28 @@ impl TaskProfiler {
         let initial_lib_mods = lib_info_manager
             .check_for_changes()
             .map_err(|e| SamplingError::Ignorable("Could not check process libraries", e))?;
-        let executable_name = initial_lib_mods
-            .iter()
-            .find_map(|change| match change {
-                Modification::Added(lib) if lib.is_executable => Path::new(&lib.file)
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string()),
-                _ => None,
-            })
-            .unwrap_or_else(|| command_name.to_string());
+
+        let cmdline: Vec<String> = proc_cmdline(pid as i32).unwrap_or_default();
+        let executable_name =
+            if let Some(cmd) = cmdline.first().and_then(|cmd| Path::new(cmd).file_name()) {
+                cmd.to_string_lossy().to_string()
+            } else {
+                initial_lib_mods
+                    .iter()
+                    .find_map(|change| match change {
+                        Modification::Added(lib) if lib.is_executable => Path::new(&lib.file)
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string()),
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| command_name.to_string())
+            };
+
+        let name = make_process_name(
+            &executable_name,
+            cmdline,
+            profile_creation_props.arg_count_to_include_in_process_name,
+        );
 
         let thread_acts = get_thread_list(task, profile_creation_props.main_thread_only)?;
         if thread_acts.is_empty() {
@@ -158,7 +173,7 @@ impl TaskProfiler {
 
         let recycling_data = process_recycler
             .as_mut()
-            .and_then(|r| r.recycle_by_name(&executable_name));
+            .and_then(|r| r.recycle_by_name(&name));
 
         let mut live_threads = HashMap::new();
         let mut thread_act_iter = thread_acts.into_iter();
@@ -193,7 +208,7 @@ impl TaskProfiler {
                 )
             }
             None => {
-                let profile_process = profile.add_process(&executable_name, pid, start_time);
+                let profile_process = profile.add_process(&name, pid, start_time);
                 let main_thread_handle =
                     profile.add_thread(profile_process, main_thread_tid, start_time, true);
                 if let Some(main_thread_name) = &main_thread_name {
