@@ -471,6 +471,7 @@ impl Helper {
         server_base_url: &str,
         cache_dir: &Path,
     ) -> FileAndPathHelperResult<WholesymFileContents> {
+        let server_base_url = server_base_url.trim_end_matches('/');
         let url = format!("{server_base_url}/{rel_path}");
         if self.config.verbose {
             eprintln!("Downloading {url}...");

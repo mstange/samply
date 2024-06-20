@@ -115,6 +115,7 @@ impl ManualDebuginfodSymbolCache {
         server_base_url: &str,
         cache_dir: &Path,
     ) -> Result<PathBuf, Box<dyn std::error::Error>> {
+        let server_base_url = server_base_url.trim_end_matches('/');
         let url = format!("{server_base_url}/buildid/{buildid}/{file_type}");
         if self.verbose {
             eprintln!("Downloading {url}...");
