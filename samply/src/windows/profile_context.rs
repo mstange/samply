@@ -292,8 +292,11 @@ pub struct ProfileContext {
     /// Only include main threads.
     main_thread_only: bool,
 
-    // Time range in ns from the start of profile
-    time_range_ns: Option<(u64, u64)>,
+    // Time range in us from the start of profile
+    time_range_us: Option<(u64, u64)>,
+
+    // Converted time range; filled in in handle_header
+    time_range: Option<(Timestamp, Timestamp)>,
 }
 
 impl ProfileContext {
@@ -318,9 +321,9 @@ impl ProfileContext {
             None
         };
         let main_thread_only = profile_creation_props.main_thread_only;
-        let time_range_ns = profile_creation_props
+        let time_range_us = profile_creation_props
             .time_range
-            .map(|(start, end)| (start.as_nanos() as u64, end.as_nanos() as u64));
+            .map(|(start, end)| (start.as_micros() as u64, end.as_micros() as u64));
 
         Self {
             profile,
@@ -352,7 +355,8 @@ impl ProfileContext {
             },
             event_timestamps_are_qpc: false,
             main_thread_only,
-            time_range_ns,
+            time_range_us,
+            time_range: None,
         }
     }
 
@@ -542,6 +546,13 @@ impl ProfileContext {
             reference_raw: timestamp_raw,
             raw_to_ns_factor: 1000 * 1000 * 1000 / perf_freq,
         };
+
+        self.time_range = self.time_range_us.map(|(start, end)| {
+            (
+                self.timestamp_converter.convert_us(start),
+                self.timestamp_converter.convert_us(end),
+            )
+        });
     }
 
     pub fn handle_collection_start(&mut self, interval_raw: u32) {
@@ -1736,12 +1747,12 @@ impl ProfileContext {
     }
 
     pub fn is_in_time_range(&self, ts_raw: u64) -> bool {
-        let Some((tstart_ns, tstop_ns)) = self.time_range_ns else {
+        let Some((tstart, tstop)) = self.time_range else {
             return true;
         };
 
         let ts = self.timestamp_converter.convert_time(ts_raw);
-        ts.nanos >= tstart_ns && ts.nanos < tstop_ns
+        ts >= tstart && ts < tstop
     }
 
     pub fn finish(mut self) -> Profile {

@@ -5,7 +5,7 @@ use serde::ser::{Serialize, Serializer};
 /// Timestamps in the profile are stored in reference to the profile's [`ReferenceTimestamp`](crate::ReferenceTimestamp).
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct Timestamp {
-    pub nanos: u64,
+    nanos: u64,
 }
 
 impl Timestamp {

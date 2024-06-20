@@ -519,13 +519,6 @@ impl ImportArgs {
             let name = self.file.file_name().unwrap_or(self.file.as_os_str());
             name.to_string_lossy().into()
         };
-        cfg_if::cfg_if! {
-            if #[cfg(target_os = "windows")] {
-                let time_range = self.time_range;
-            } else {
-                let time_range = None;
-            }
-        }
         ProfileCreationProps {
             profile_name,
             main_thread_only: self.profile_creation_args.main_thread_only,
@@ -540,7 +533,10 @@ impl ImportArgs {
             unknown_event_markers: self.profile_creation_args.unknown_event_markers,
             #[cfg(not(target_os = "windows"))]
             unknown_event_markers: false,
-            time_range,
+            #[cfg(target_os = "windows")]
+            time_range: self.time_range,
+            #[cfg(not(target_os = "windows"))]
+            time_range: None,
         }
     }
 
@@ -580,22 +576,20 @@ impl RecordArgs {
             std::process::exit(1);
         }
         let interval = Duration::from_secs_f64(1.0 / self.rate);
-        cfg_if::cfg_if! {
-            if #[cfg(target_os = "windows")] {
-                let (vm_hack, keep_etl) = (self.vm_hack, self.keep_etl);
-            } else {
-                let (vm_hack, keep_etl) = (false, false);
-            }
-        }
-
         RecordingProps {
             output_file: self.output.clone(),
             time_limit,
             interval,
-            vm_hack,
             gfx: self.gfx,
             browsers: self.browsers,
-            keep_etl,
+            #[cfg(target_os = "windows")]
+            vm_hack: self.vm_hack,
+            #[cfg(not(target_os = "windows"))]
+            vm_hack: None,
+            #[cfg(target_os = "windows")]
+            keep_etl: self.keep_etl,
+            #[cfg(not(target_os = "windows"))]
+            keep_etl: None,
         }
     }
 
