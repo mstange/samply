@@ -30,8 +30,11 @@ pub struct RecordingProps {
     pub output_file: PathBuf,
     pub time_limit: Option<Duration>,
     pub interval: Duration,
+    #[allow(dead_code)]
     pub vm_hack: bool,
+    #[allow(dead_code)]
     pub gfx: bool,
+    #[allow(dead_code)]
     pub browsers: bool,
     pub keep_etl: bool,
 }
@@ -64,6 +67,7 @@ impl RecordingMode {
 pub struct ProfileCreationProps {
     pub profile_name: String,
     /// Only include the main thread of each process.
+    #[allow(dead_code)]
     pub main_thread_only: bool,
     /// Merge non-overlapping threads of the same name.
     pub reuse_threads: bool,
@@ -79,8 +83,10 @@ pub struct ProfileCreationProps {
     /// Dump presymbolication info.
     pub unstable_presymbolicate: bool,
     /// CoreCLR specific properties.
+    #[allow(dead_code)]
     pub coreclr: CoreClrProfileProps,
     /// Create markers for unknown events.
+    #[allow(dead_code)]
     pub unknown_event_markers: bool,
     /// Time range to include, relative to start of recording.
     pub time_range: Option<(std::time::Duration, std::time::Duration)>,
