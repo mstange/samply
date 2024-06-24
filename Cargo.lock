@@ -2007,7 +2007,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "thiserror",
- "yaxpeax-arch",
+ "yaxpeax-arch 0.3.1",
  "yaxpeax-arm",
  "yaxpeax-x86",
 ]
@@ -3018,13 +3018,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "yaxpeax-arch"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e259718ce2c06247d71a09e87e50c45412e5c5fcb8998bc2cd7bb572c4acedac"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "yaxpeax-arm"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a0430c0047803b6aabfa3cb62f84a78d05b933e62bfcee97c7491bf634df9123"
 dependencies = [
  "bitvec 0.19.6",
- "yaxpeax-arch",
+ "yaxpeax-arch 0.2.8",
 ]
 
 [[package]]
@@ -3035,7 +3044,7 @@ checksum = "9107477944697db42c41326f82d4c65b769b32512cdad1e086f36f0e0f25ff45"
 dependencies = [
  "cfg-if",
  "num-traits",
- "yaxpeax-arch",
+ "yaxpeax-arch 0.2.8",
 ]
 
 [[package]]
