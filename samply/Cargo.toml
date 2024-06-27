@@ -3,7 +3,7 @@ name = "samply"
 version = "0.12.0"
 authors = ["Markus Stange <mstange@themasta.com>"]
 edition = "2021"
-rust-version = "1.74" # needed by clap and wholesym
+rust-version = "1.75" # needed by wholesym -> fs4
 license = "MIT OR Apache-2.0"
 description = "A command line profiler for macOS and Linux."
 repository = "https://github.com/mstange/samply/"
@@ -40,7 +40,7 @@ rand = "0.8.4"
 nix-base32 = "0.1.1"
 serde_derive = "1.0.137"
 serde = "1.0.202"
-wholesym = { version = "0.5.0", path = "../wholesym", features = ["api"]}
+wholesym = { version = "0.6.0", path = "../wholesym", features = ["api"]}
 platform-dirs = "0.3"
 once_cell = "1.17"
 fxhash = "0.2.1"

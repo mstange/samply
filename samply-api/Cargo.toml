@@ -1,10 +1,10 @@
 [package]
 name = "samply-api"
-version = "0.23.0"
+version = "0.23.1"
 authors = ["Markus Stange <mstange.moz@gmail.com>"]
 license = "MIT OR Apache-2.0"
 edition = "2021"
-rust-version = "1.67"
+rust-version = "1.70" # needed by samply-symbols -> linux-perf-data -> prost-derive
 description = "JSON API for querying symbol information, uses samply-symbols."
 repository = "https://github.com/mstange/samply/"
 readme = "README.md"
@@ -14,7 +14,7 @@ default = []
 send_futures = ["samply-symbols/send_futures"]
 
 [dependencies]
-samply-symbols = { version = "0.22.0", path = "../samply-symbols" }
+samply-symbols = { version = "0.22.1", path = "../samply-symbols" }
 thiserror = "1.0.61"
 serde = "1.0.202"
 serde_derive = "1.0.188"

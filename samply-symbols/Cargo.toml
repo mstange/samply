@@ -1,10 +1,10 @@
 [package]
 name = "samply-symbols"
-version = "0.22.0"
+version = "0.22.1"
 authors = ["Markus Stange <mstange.moz@gmail.com>"]
 license = "MIT OR Apache-2.0"
 edition = "2021"
-rust-version = "1.67" # needed by yoke
+rust-version = "1.70" # needed by linux-perf-data -> prost-derive
 description = "Symbolication utilities for the Firefox profiler."
 repository = "https://github.com/mstange/samply/"
 readme = "README.md"
