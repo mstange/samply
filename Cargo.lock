@@ -1729,7 +1729,7 @@ dependencies = [
 
 [[package]]
 name = "samply-symbols"
-version = "0.22.0"
+version = "0.22.2"
 dependencies = [
  "addr2line 0.22.0",
  "anyhow",
