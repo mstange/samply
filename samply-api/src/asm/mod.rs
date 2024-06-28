@@ -248,7 +248,8 @@ impl InstructionDecoding for yaxpeax_x86::amd64::Arch {
 
         if is_relative_branch(inst.opcode()) {
             match inst.operand(0) {
-                Operand::ImmediateI8(rel) => {
+                Operand::ImmediateI8 { imm } => {
+                    let rel = imm;
                     let dest = rel_address as i64
                         + offset as i64
                         + inst.len().to_const() as i64
@@ -256,7 +257,8 @@ impl InstructionDecoding for yaxpeax_x86::amd64::Arch {
                     intel_insn = format!("{} 0x{:x}", inst.opcode(), dest);
                     c_insn.clone_from(&intel_insn);
                 }
-                Operand::ImmediateI32(rel) => {
+                Operand::ImmediateI32 { imm } => {
+                    let rel = imm;
                     let dest = rel_address as i64
                         + offset as i64
                         + inst.len().to_const() as i64
