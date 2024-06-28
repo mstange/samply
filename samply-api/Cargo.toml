@@ -1,6 +1,6 @@
 [package]
 name = "samply-api"
-version = "0.23.0"
+version = "0.23.2"
 authors = ["Markus Stange <mstange.moz@gmail.com>"]
 license = "MIT OR Apache-2.0"
 edition = "2021"
