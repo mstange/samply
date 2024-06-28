@@ -296,6 +296,9 @@ pub struct ProfileContext {
 
     /// Only include main threads.
     main_thread_only: bool,
+
+    // Time range from the timestamp origin
+    time_range: Option<(Timestamp, Timestamp)>,
 }
 
 impl ProfileContext {
@@ -320,6 +323,12 @@ impl ProfileContext {
             None
         };
         let main_thread_only = profile_creation_props.main_thread_only;
+        let time_range = profile_creation_props.time_range.map(|(start, end)| {
+            (
+                Timestamp::from_nanos_since_reference(start.as_nanos() as u64),
+                Timestamp::from_nanos_since_reference(end.as_nanos() as u64),
+            )
+        });
 
         Self {
             profile,
@@ -351,6 +360,7 @@ impl ProfileContext {
             },
             event_timestamps_are_qpc: false,
             main_thread_only,
+            time_range,
         }
     }
 
@@ -1731,6 +1741,15 @@ impl ProfileContext {
             FreeformMarker(marker_name, description, category),
         );
         //println!("unhandled {}", s.name())
+    }
+
+    pub fn is_in_time_range(&self, ts_raw: u64) -> bool {
+        let Some((tstart, tstop)) = self.time_range else {
+            return true;
+        };
+
+        let ts = self.timestamp_converter.convert_time(ts_raw);
+        ts >= tstart && ts < tstop
     }
 
     pub fn finish(mut self) -> Profile {

@@ -28,6 +28,8 @@ pub fn convert_etl_file_to_profile(
 
     let arch = get_native_arch(); // TODO: Detect arch from file
 
+    eprintln!("Processing ETL trace...");
+
     let mut context =
         ProfileContext::new(profile, arch, included_processes, profile_creation_props);
 

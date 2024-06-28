@@ -146,6 +146,38 @@ struct ImportArgs {
     /// Enable CoreCLR event conversion.
     #[clap(long, require_equals = true, value_name = "FLAG", value_enum, value_delimiter = ',', num_args = 0.., default_values_t = vec![CoreClrArgs::Enabled])]
     coreclr: Vec<CoreClrArgs>,
+
+    /// Time range of recording to include in profile. Format is "start-stop" or "start+duration" with each part optional, e.g. "5s", "5s-", "-10s", "1s-10s" or "1s+9s".
+    #[cfg(target_os = "windows")]
+    #[arg(long, value_parser=parse_time_range)]
+    time_range: Option<(std::time::Duration, std::time::Duration)>,
+}
+
+#[allow(unused)]
+fn parse_time_range(
+    arg: &str,
+) -> Result<(std::time::Duration, std::time::Duration), humantime::DurationError> {
+    let (is_duration, splitchar) = if arg.contains('+') {
+        (true, '+')
+    } else {
+        (false, '-')
+    };
+
+    let parts: Vec<&str> = arg.splitn(2, splitchar).collect();
+
+    let start = if parts[0].is_empty() {
+        std::time::Duration::ZERO
+    } else {
+        humantime::parse_duration(parts[0])?
+    };
+
+    let end = if parts.len() == 1 || parts[1].is_empty() {
+        std::time::Duration::MAX
+    } else {
+        humantime::parse_duration(parts[1])?
+    };
+
+    Ok((start, if is_duration { start + end } else { end }))
 }
 
 #[allow(unused)]
@@ -213,6 +245,11 @@ struct RecordArgs {
     /// Enable browser-related event capture (JavaScript stacks and trace events)
     #[arg(long)]
     browsers: bool,
+
+    /// Keep the ETL file after recording (Windows only).
+    #[cfg(target_os = "windows")]
+    #[arg(long)]
+    keep_etl: bool,
 }
 
 #[derive(ValueEnum, Copy, Clone, Debug, PartialEq, Eq)]
@@ -496,6 +533,10 @@ impl ImportArgs {
             unknown_event_markers: self.profile_creation_args.unknown_event_markers,
             #[cfg(not(target_os = "windows"))]
             unknown_event_markers: false,
+            #[cfg(target_os = "windows")]
+            time_range: self.time_range,
+            #[cfg(not(target_os = "windows"))]
+            time_range: None,
         }
     }
 
@@ -535,21 +576,20 @@ impl RecordArgs {
             std::process::exit(1);
         }
         let interval = Duration::from_secs_f64(1.0 / self.rate);
-        cfg_if::cfg_if! {
-            if #[cfg(target_os = "windows")] {
-                let vm_hack = self.vm_hack;
-            } else {
-                let vm_hack = false;
-            }
-        }
-
         RecordingProps {
             output_file: self.output.clone(),
             time_limit,
             interval,
-            vm_hack,
             gfx: self.gfx,
             browsers: self.browsers,
+            #[cfg(target_os = "windows")]
+            vm_hack: self.vm_hack,
+            #[cfg(not(target_os = "windows"))]
+            vm_hack: false,
+            #[cfg(target_os = "windows")]
+            keep_etl: self.keep_etl,
+            #[cfg(not(target_os = "windows"))]
+            keep_etl: false,
         }
     }
 
@@ -610,6 +650,7 @@ impl RecordArgs {
             unknown_event_markers: self.profile_creation_args.unknown_event_markers,
             #[cfg(not(target_os = "windows"))]
             unknown_event_markers: false,
+            time_range: None,
         }
     }
 }

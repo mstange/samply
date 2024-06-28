@@ -148,13 +148,16 @@ pub fn start_recording(
     etw_gecko::profile_pid_from_etl_file(&mut context, &merged_etl);
     let profile = context.finish();
 
-    // delete etl_file
-    std::fs::remove_file(&merged_etl).unwrap_or_else(|_| {
-        panic!(
-            "Failed to delete ETL file {:?}",
-            merged_etl.to_str().unwrap()
-        )
-    });
+    if !recording_props.keep_etl {
+        std::fs::remove_file(&merged_etl).unwrap_or_else(|_| {
+            panic!(
+                "Failed to delete ETL file {:?}",
+                merged_etl.to_str().unwrap()
+            )
+        });
+    } else {
+        eprintln!("ETL path: {:?}", merged_etl);
+    }
 
     // write the profile to a json file
     let file = File::create(&output_file).unwrap();

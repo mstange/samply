@@ -36,6 +36,8 @@ pub struct RecordingProps {
     pub gfx: bool,
     #[allow(dead_code)]
     pub browsers: bool,
+    #[allow(dead_code)]
+    pub keep_etl: bool,
 }
 
 /// Which process(es) to record.
@@ -87,6 +89,9 @@ pub struct ProfileCreationProps {
     /// Create markers for unknown events.
     #[allow(dead_code)]
     pub unknown_event_markers: bool,
+    /// Time range to include, relative to start of recording.
+    #[allow(dead_code)]
+    pub time_range: Option<(std::time::Duration, std::time::Duration)>,
 }
 
 /// Properties which are meaningful for launching and recording a fresh process.
