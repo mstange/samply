@@ -2015,7 +2015,7 @@ dependencies = [
 
 [[package]]
 name = "samply-symbols"
-version = "0.22.1"
+version = "0.23.0"
 dependencies = [
  "addr2line 0.23.0",
  "anyhow",
