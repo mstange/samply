@@ -9,6 +9,7 @@ use fxprof_processed_profile::{
     MarkerLocation, MarkerSchema, MarkerTiming, ProcessHandle, Profile, SamplingInterval,
     StaticSchemaMarker, StringHandle, Symbol, SymbolTable, ThreadHandle, Timestamp,
 };
+use shlex::Shlex;
 use uuid::Uuid;
 
 use super::chrome::KeywordNames;
@@ -21,6 +22,7 @@ use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::jit_function_add_marker::JitFunctionAddMarker;
 use crate::shared::jit_function_recycler::JitFunctionRecycler;
 use crate::shared::lib_mappings::{LibMappingAdd, LibMappingInfo, LibMappingOp, LibMappingOpQueue};
+use crate::shared::process_name::make_process_name;
 use crate::shared::process_sample_data::{ProcessSampleData, UserTimingMarker};
 use crate::shared::recording_props::ProfileCreationProps;
 use crate::shared::recycling::{ProcessRecycler, ProcessRecyclingData, ThreadRecycler};
@@ -560,19 +562,35 @@ impl ProfileContext {
         self.context_switch_handler = ContextSwitchHandler::new(interval_raw as u64);
     }
 
+    pub fn make_process_name(&self, image_file_name: &str, cmdline: &str) -> String {
+        let executable_path = self.map_device_path(image_file_name);
+        let executable_path = Path::new(&executable_path);
+        let executable_name = match executable_path.file_name() {
+            Some(name) => name.to_string_lossy(),
+            None => executable_path.to_string_lossy(),
+        };
+        make_process_name(
+            &executable_name,
+            Shlex::new(cmdline).collect(),
+            self.profile_creation_props
+                .arg_count_to_include_in_process_name,
+        )
+    }
+
     pub fn handle_process_dcstart(
         &mut self,
         timestamp_raw: u64,
         pid: u32,
         parent_pid: u32,
         image_file_name: String,
+        cmdline: String,
     ) {
         if !self.is_interesting_process(pid, Some(parent_pid), Some(&image_file_name)) {
             return;
         }
 
         let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
-        let name = self.map_device_path(&image_file_name);
+        let name = self.make_process_name(&image_file_name, &cmdline);
         let process_handle = self.profile.add_process(&name, pid, timestamp);
         let main_thread_handle = self
             .profile
@@ -612,6 +630,7 @@ impl ProfileContext {
         pid: u32,
         parent_pid: u32,
         image_file_name: String,
+        cmdline: String,
     ) {
         if !self.is_interesting_process(pid, Some(parent_pid), Some(&image_file_name)) {
             return;
@@ -626,7 +645,7 @@ impl ProfileContext {
                 .push(dead_process_with_reused_pid);
         }
 
-        let name = self.map_device_path(&image_file_name);
+        let name = self.make_process_name(&image_file_name, &cmdline);
         if let Some(process_recycler) = self.process_recycler.as_mut() {
             if let Some(ProcessRecyclingData {
                 process_handle,

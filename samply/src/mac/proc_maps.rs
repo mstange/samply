@@ -398,6 +398,49 @@ fn read_int_sysctl_by_name(name: &str) -> Result<i32, sysctl::SysctlError> {
     Ok(val)
 }
 
+pub fn proc_cmdline(pid: i32) -> Result<Vec<String>, sysctl::SysctlError> {
+    unsafe {
+        let mib: [i32; 3] = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid];
+        let args: [u8; 65536] = std::mem::zeroed();
+        let size: usize = std::mem::size_of_val(&args);
+        let ret = libc::sysctl(
+            &mib as *const _ as *mut _,
+            3,
+            &args as *const _ as *mut _,
+            &size as *const _ as *mut _,
+            std::ptr::null_mut(),
+            0,
+        );
+
+        if ret < 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+
+        // get the number of arguments
+        let argcount: i32 = *(&args as *const _ as *const i32);
+        let args = &args[std::mem::size_of_val(&argcount)..];
+
+        // split off of the exe from the beginning
+        let args = &args[libc::strlen(args as *const _ as *const i8)..];
+
+        let mut ret = Vec::new();
+        for arg in args.split(|b| *b == 0) {
+            // ignore leading nulls
+            if arg.is_empty() && ret.is_empty() {
+                continue;
+            }
+
+            let arg = String::from_utf8(arg.to_vec()).map_err(|e| e.utf8_error())?;
+
+            ret.push(arg);
+            if ret.len() >= argcount as usize {
+                break;
+            }
+        }
+        Ok(ret)
+    }
+}
+
 #[cfg(target_arch = "aarch64")]
 /// Read the `machdep.virtual_address_size` sysctl.
 fn get_virtual_address_size() -> Option<u32> {

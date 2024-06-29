@@ -93,7 +93,14 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                 let pid: u32 = parser.parse("ProcessId");
                 let parent_pid: u32 = parser.parse("ParentId");
                 let image_file_name: String = parser.parse("ImageFileName");
-                context.handle_process_dcstart(timestamp_raw, pid, parent_pid, image_file_name);
+                let cmdline: String = parser.parse("CommandLine");
+                context.handle_process_dcstart(
+                    timestamp_raw,
+                    pid,
+                    parent_pid,
+                    image_file_name,
+                    cmdline,
+                );
             }
             "MSNT_SystemTrace/Process/Start" => {
                 // note: the event's e.EventHeader.process_id here is the parent (i.e. the process that spawned
@@ -102,7 +109,14 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                 let pid: u32 = parser.parse("ProcessId");
                 let parent_pid: u32 = parser.parse("ParentId");
                 let image_file_name: String = parser.parse("ImageFileName");
-                context.handle_process_start(timestamp_raw, pid, parent_pid, image_file_name);
+                let cmdline: String = parser.parse("CommandLine");
+                context.handle_process_start(
+                    timestamp_raw,
+                    pid,
+                    parent_pid,
+                    image_file_name,
+                    cmdline,
+                );
             }
             "MSNT_SystemTrace/Process/End" => {
                 let pid: u32 = parser.parse("ProcessId");
