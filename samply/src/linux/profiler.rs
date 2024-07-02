@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::BufWriter;
 use std::ops::Deref;
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
@@ -29,6 +28,7 @@ use crate::shared::ctrl_c::CtrlC;
 use crate::shared::recording_props::{
     ProcessLaunchProps, ProfileCreationProps, RecordingMode, RecordingProps,
 };
+use crate::shared::save_profile::save_profile_to_file;
 use crate::shared::symbol_props::SymbolProps;
 
 #[cfg(target_arch = "x86_64")]
@@ -723,11 +723,7 @@ fn run_profiler(
 
     let profile = converter.finish();
 
-    {
-        let output_file = File::create(output_filename).unwrap();
-        let writer = BufWriter::new(output_file);
-        serde_json::to_writer(writer, &profile).expect("Couldn't write JSON");
-    }
+    save_profile_to_file(&profile, output_filename).expect("Couldn't write JSON");
 
     if unstable_presymbolicate {
         crate::shared::symbol_precog::presymbolicate(

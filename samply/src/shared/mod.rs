@@ -12,6 +12,7 @@ pub mod process_name;
 pub mod process_sample_data;
 pub mod recording_props;
 pub mod recycling;
+pub mod save_profile;
 pub mod stack_converter;
 pub mod stack_depth_limiting_frame_iter;
 pub mod symbol_precog;

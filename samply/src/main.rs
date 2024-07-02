@@ -16,7 +16,7 @@ mod shared;
 
 use std::ffi::OsStr;
 use std::fs::File;
-use std::io::{BufReader, BufWriter};
+use std::io::BufReader;
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -36,6 +36,7 @@ use shared::included_processes::IncludedProcesses;
 use shared::recording_props::{
     CoreClrProfileProps, ProcessLaunchProps, ProfileCreationProps, RecordingMode, RecordingProps,
 };
+use shared::save_profile::save_profile_to_file;
 use shared::symbol_props::SymbolProps;
 #[cfg(target_os = "windows")]
 use windows::profiler;
@@ -122,7 +123,7 @@ struct ImportArgs {
     save_only: bool,
 
     /// Output filename.
-    #[arg(short, long, default_value = "profile.json")]
+    #[arg(short, long, default_value = "profile.json.gz")]
     output: PathBuf,
 
     #[command(flatten)]
@@ -203,7 +204,7 @@ struct RecordArgs {
     save_only: bool,
 
     /// Output filename.
-    #[arg(short, long, default_value = "profile.json")]
+    #[arg(short, long, default_value = "profile.json.gz")]
     output: PathBuf,
 
     #[command(flatten)]
@@ -825,15 +826,7 @@ fn convert_perf_data_file_to_profile(
                 std::process::exit(1);
             }
         };
-    let output_file = match File::create(output_filename) {
-        Ok(file) => file,
-        Err(err) => {
-            eprintln!("Couldn't create output file {:?}: {}", output_filename, err);
-            std::process::exit(1);
-        }
-    };
-    let writer = BufWriter::new(output_file);
-    serde_json::to_writer(writer, &profile).expect("Couldn't write converted profile JSON");
+    save_profile_to_file(&profile, output_filename).expect("Couldn't write JSON");
 }
 
 #[cfg(test)]
