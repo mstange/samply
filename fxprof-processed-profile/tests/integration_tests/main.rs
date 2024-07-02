@@ -398,7 +398,7 @@ fn profile_without_js() {
                     {
                       "key": "name",
                       "label": "Details",
-                      "format": "string",
+                      "format": "unique-string",
                       "searchable": true
                     }
                   ]
@@ -414,7 +414,7 @@ fn profile_without_js() {
                     {
                       "key": "eventName",
                       "label": "Event name",
-                      "format": "string",
+                      "format": "unique-string",
                       "searchable": true
                     },
                     {
@@ -786,11 +786,11 @@ fn profile_without_js() {
                   "data": [
                     {
                       "type": "Text",
-                      "name": "Hello world!"
+                      "name": 19
                     },
                     {
                       "type": "custom",
-                      "eventName": "My event",
+                      "eventName": 21,
                       "allocationSize": 512000.0,
                       "url": "https://mozilla.org/",
                       "latency": 123.0
@@ -802,7 +802,7 @@ fn profile_without_js() {
                   ],
                   "name": [
                     18,
-                    19
+                    20
                   ],
                   "phase": [
                     0,
@@ -987,7 +987,9 @@ fn profile_without_js() {
                   "0x2778f4",
                   "libc_symbol_3",
                   "Experimental",
-                  "CustomName"
+                  "Hello world!",
+                  "CustomName",
+                  "My event"
                 ],
                 "tid": "12345",
                 "unregisterTime": null
