@@ -5,7 +5,7 @@ use elsa::sync::FrozenVec;
 use fallible_iterator::FallibleIterator;
 use gimli::{DwarfPackage, EndianSlice, Reader, RunTimeEndian, SectionId};
 use object::read::ReadRef;
-use object::{CompressedFileRange, CompressionFormat};
+use object::CompressionFormat;
 
 use crate::path_mapper::PathMapper;
 use crate::shared::FrameDebugInfo;
@@ -88,46 +88,8 @@ where
     } else {
         section_id.name()
     };
-    let (section, used_manual_zdebug_path) =
-        if let Some(section) = file.section_by_name(section_name) {
-            (section, false)
-        } else if section_name.as_bytes().starts_with(b".debug_") {
-            // Also detect old-style compressed section which start with .zdebug / __zdebug
-            // in case object did not detect them.
-            let mut name = Vec::with_capacity(section_name.len() + 1);
-            name.extend_from_slice(b".zdebug_");
-            name.extend_from_slice(&section_name.as_bytes()[7..]);
-            let section = file.section_by_name_bytes(&name)?;
-            (section, true)
-        } else {
-            return None;
-        };
-
-    // Handle sections which are not compressed.
-    let mut file_range = section.compressed_file_range().ok()?;
-    if file_range.format == CompressionFormat::None
-        && used_manual_zdebug_path
-        && file_range.uncompressed_size > 12
-    {
-        let first_twelve = data.read_bytes_at(file_range.offset, 12).ok()?;
-        if first_twelve.starts_with(b"ZLIB\0\0\0\0") {
-            // Object's built-in compressed section handling didn't detect this as a
-            // compressed section. This happens on old Go binaries which use compressed
-            // sections like __zdebug_ranges, which is generally uncommon on macOS, so
-            // object's mach-O parser doesn't handle them.
-            // But we want to handle them.
-            // Go fixed this in https://github.com/golang/go/issues/50796 .
-            let b = first_twelve.get(8..12)?;
-            let uncompressed_size = u32::from_be_bytes([b[0], b[1], b[2], b[3]]);
-            file_range = CompressedFileRange {
-                format: CompressionFormat::Zlib,
-                offset: file_range.offset + 12,
-                compressed_size: file_range.uncompressed_size - 12,
-                uncompressed_size: u64::from(uncompressed_size),
-            };
-        }
-    }
-
+    let section = file.section_by_name(section_name)?;
+    let file_range = section.compressed_file_range().ok()?;
     match file_range.format {
         CompressionFormat::None => Some(SingleSectionData::View {
             data,
