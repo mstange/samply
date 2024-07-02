@@ -22,7 +22,7 @@ use mach::task::task_threads;
 use mach::traps::mach_task_self;
 use mach::vm::mach_vm_deallocate;
 use mach::vm_types::{mach_vm_address_t, mach_vm_size_t};
-use object::{CompressedFileRange, CompressionFormat, Object, ObjectSection};
+use object::{CompressionFormat, Object, ObjectSection};
 use samply_symbols::{object, DebugIdExt};
 use wholesym::samply_symbols;
 
@@ -717,28 +717,8 @@ fn get_debug_frame(file_path: &str) -> Option<UnwindSectionBytes> {
     let mmap = unsafe { memmap2::MmapOptions::new().map(&file).ok()? };
     let data = &mmap[..];
     let obj = object::read::File::parse(data).ok()?;
-    let compressed_range = if let Some(zdebug_frame_section) = obj.section_by_name("__zdebug_frame")
-    {
-        // Go binaries use compressed sections of the __zdebug_* type even on macOS,
-        // where doing so is quite uncommon. Object's mach-O support does not handle them.
-        // But we want to handle them.
-        let (file_range_start, file_range_size) = zdebug_frame_section.file_range()?;
-        let section_data = zdebug_frame_section.data().ok()?;
-        if !section_data.starts_with(b"ZLIB\0\0\0\0") {
-            return None;
-        }
-        let b = section_data.get(8..12)?;
-        let uncompressed_size = u32::from_be_bytes([b[0], b[1], b[2], b[3]]);
-        CompressedFileRange {
-            format: CompressionFormat::Zlib,
-            offset: file_range_start + 12,
-            compressed_size: file_range_size - 12,
-            uncompressed_size: uncompressed_size.into(),
-        }
-    } else {
-        let debug_frame_section = obj.section_by_name("__debug_frame")?;
-        debug_frame_section.compressed_file_range().ok()?
-    };
+    let debug_frame_section = obj.section_by_name("__debug_frame")?;
+    let compressed_range = debug_frame_section.compressed_file_range().ok()?;
     match compressed_range.format {
         CompressionFormat::None => Some(UnwindSectionBytes::Mmap(MmapSubData::try_new(
             mmap,
