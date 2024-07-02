@@ -4,7 +4,10 @@ use crate::markers::{InternalMarkerSchema, MarkerFieldFormatKind};
 use crate::serialization_helpers::SerializableOptionalTimestampColumn;
 use crate::string_table::{GlobalStringIndex, GlobalStringTable, StringIndex};
 use crate::thread_string_table::{ThreadInternalStringIndex, ThreadStringTable};
-use crate::{CategoryHandle, Marker, MarkerHandle, MarkerTiming, MarkerTypeHandle, Timestamp};
+use crate::{
+    CategoryHandle, Marker, MarkerFieldFormat, MarkerHandle, MarkerTiming, MarkerTypeHandle,
+    Timestamp,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct MarkerTable {
@@ -27,10 +30,15 @@ pub struct MarkerTable {
     /// type's schema's `string_field_count`. For the marker with index i,
     /// its field values will be at index sum_{k in 0..i}(marker_schema[k].string_field_count).
     ///
-    /// The [`StringIndex`] is always a [`GlobalStringIndex`]. In the future, once we start treating
-    /// `MarkerFieldFormat::String` as `format: "unique-string"`, it'll be a thread-internal index
-    /// for those fields. Using "unique-string" is currently blocked by
-    /// https://github.com/firefox-devtools/profiler/issues/5034 .
+    /// The [`StringIndex`] can be either a [`ThreadInternalStringIndex`] or a [`GlobalStringIndex`],
+    /// depending on the string field's format - if the field format is [`MarkerFieldFormat::String`],
+    /// the string index will be thread-internal, for all the other string format variants the
+    /// index will be global.
+    ///
+    /// We make this distinction because, in the actual JSON, we currently only use string indexes for
+    /// the [`MarkerFieldFormat::String`] format (serialized as "unique-string"). The other
+    /// string format variants currently still use actual strings in the JSON, not string indexes.
+    /// So for these we don't want to add the strings to the thread's string table.
     ///
     /// https://github.com/firefox-devtools/profiler/issues/5022 tracks supporting string indexes
     /// for the other string format variants.
@@ -51,8 +59,8 @@ impl MarkerTable {
         marker: T,
         timing: MarkerTiming,
         category: CategoryHandle,
-        _thread_string_table: &mut ThreadStringTable,
-        _global_string_table: &mut GlobalStringTable,
+        thread_string_table: &mut ThreadStringTable,
+        global_string_table: &mut GlobalStringTable,
     ) -> MarkerHandle {
         let (s, e, phase) = match timing {
             MarkerTiming::Instant(s) => (Some(s), None, Phase::Instant),
@@ -71,7 +79,16 @@ impl MarkerTable {
             match field.format.kind() {
                 MarkerFieldFormatKind::String => {
                     let global_string_index = marker.string_field_value(field_index as u32).0;
-                    self.marker_field_string_values.push(global_string_index.0);
+                    let string_index = if field.format == MarkerFieldFormat::String {
+                        // This one ends up as `format: "unique-string"` with an index into the thread string table
+                        let thread_string_index = thread_string_table
+                            .index_for_global_string(global_string_index, global_string_table);
+                        thread_string_index.0
+                    } else {
+                        // These end up in the JSON as JSON strings, not as string indexes.
+                        global_string_index.0
+                    };
+                    self.marker_field_string_values.push(string_index);
                 }
                 MarkerFieldFormatKind::Number => {
                     let number_value = marker.number_field_value(field_index as u32);
@@ -188,10 +205,14 @@ impl<'a> Serialize for SerializableMarkerDataElement<'a> {
                 MarkerFieldFormatKind::String => {
                     let value;
                     (value, string_fields) = string_fields.split_first().unwrap();
-                    let str_val = global_string_table
-                        .get_string(GlobalStringIndex(*value))
-                        .unwrap();
-                    map.serialize_entry(&field.key, str_val)?;
+                    if field.format == MarkerFieldFormat::String {
+                        map.serialize_entry(&field.key, value)?;
+                    } else {
+                        let str_val = global_string_table
+                            .get_string(GlobalStringIndex(*value))
+                            .unwrap();
+                        map.serialize_entry(&field.key, str_val)?;
+                    }
                 }
                 MarkerFieldFormatKind::Number => {
                     let value;
