@@ -159,8 +159,13 @@ mod source;
 mod symbolicate;
 
 pub(crate) fn to_debug_id(breakpad_id: &str) -> Result<DebugId, samply_symbols::Error> {
-    DebugId::from_breakpad(breakpad_id)
-        .map_err(|_| samply_symbols::Error::InvalidBreakpadId(breakpad_id.to_string()))
+    // Only accept breakpad IDs with the right syntax, and which aren't all-zeros.
+    match DebugId::from_breakpad(breakpad_id) {
+        Ok(debug_id) if !debug_id.is_nil() => Ok(debug_id),
+        _ => Err(samply_symbols::Error::InvalidBreakpadId(
+            breakpad_id.to_string(),
+        )),
+    }
 }
 
 #[derive(Clone, Copy)]
