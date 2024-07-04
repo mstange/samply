@@ -19,7 +19,7 @@ pub fn convert_etl_file_to_profile(
 
     let interval_8khz = SamplingInterval::from_nanos(122100); // 8192Hz // only with the higher recording rate?
     let profile = Profile::new(
-        &profile_creation_props.profile_name,
+        profile_creation_props.profile_name(),
         timebase,
         interval_8khz, // recording_props.interval.into(),
     );

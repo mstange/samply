@@ -51,7 +51,7 @@ pub fn start_recording(
     let timebase = ReferenceTimestamp::from_system_time(timebase);
 
     let profile = Profile::new(
-        &profile_creation_props.profile_name,
+        profile_creation_props.profile_name(),
         timebase,
         SamplingInterval::from_nanos(1000000), // will be replaced with correct interval from file later
     );

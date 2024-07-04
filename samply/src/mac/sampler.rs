@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use std::{mem, thread};
@@ -35,7 +35,6 @@ pub struct TaskInit {
 }
 
 pub struct Sampler {
-    command_name: String,
     task_receiver: Receiver<TaskInitOrShutdown>,
     recording_props: Arc<RecordingProps>,
     profile_creation_props: Arc<ProfileCreationProps>,
@@ -43,21 +42,11 @@ pub struct Sampler {
 
 impl Sampler {
     pub fn new(
-        command: String,
         task_receiver: Receiver<TaskInitOrShutdown>,
         recording_props: RecordingProps,
         profile_creation_props: ProfileCreationProps,
     ) -> Self {
-        let command_name = Path::new(&command)
-            .components()
-            .next_back()
-            .unwrap()
-            .as_os_str()
-            .to_string_lossy()
-            .to_string();
-
         Sampler {
-            command_name,
             task_receiver,
             recording_props: Arc::new(recording_props),
             profile_creation_props: Arc::new(profile_creation_props),
@@ -74,7 +63,7 @@ impl Sampler {
         };
 
         let mut profile = Profile::new(
-            &self.profile_creation_props.profile_name,
+            self.profile_creation_props.profile_name(),
             ReferenceTimestamp::from_system_time(reference_system_time),
             self.recording_props.interval.into(),
         );
@@ -105,7 +94,7 @@ impl Sampler {
         let root_task = TaskProfiler::new(
             root_task_init,
             timestamp_converter,
-            &self.command_name,
+            &self.profile_creation_props.fallback_profile_name,
             &mut profile,
             process_recycler.as_mut(),
             self.profile_creation_props.clone(),
@@ -146,7 +135,7 @@ impl Sampler {
                 if let Ok(new_task) = TaskProfiler::new(
                     task_init,
                     timestamp_converter,
-                    &self.command_name,
+                    &self.profile_creation_props.fallback_profile_name,
                     &mut profile,
                     process_recycler.as_mut(),
                     self.profile_creation_props.clone(),
