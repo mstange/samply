@@ -67,6 +67,9 @@ impl Sampler {
             ReferenceTimestamp::from_system_time(reference_system_time),
             self.recording_props.interval.into(),
         );
+        if let Some(macos_name_and_version) = get_macos_name_and_version() {
+            profile.set_os_name(&macos_name_and_version);
+        }
 
         let mut jit_category_manager =
             crate::shared::jit_category_manager::JitCategoryManager::new();
@@ -229,4 +232,19 @@ impl Sampler {
 
         Ok(profile)
     }
+}
+
+fn get_macos_name_and_version() -> Option<String> {
+    #[derive(serde_derive::Deserialize)]
+    #[serde(rename_all = "PascalCase")]
+    struct SystemVersionDict {
+        product_name: String,
+        product_user_visible_version: String,
+    }
+
+    let SystemVersionDict {
+        product_name,
+        product_user_visible_version,
+    } = plist::from_file("/System/Library/CoreServices/SystemVersion.plist").ok()?;
+    Some(format!("{product_name} {product_user_visible_version}"))
 }

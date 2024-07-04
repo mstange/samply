@@ -138,6 +138,7 @@ fn profile_without_js() {
         ReferenceTimestamp::from_millis_since_unix_epoch(1636162232627.0),
         SamplingInterval::from_millis(1),
     );
+    profile.set_os_name("macOS 14.4");
     let process = profile.add_process("test", 123, Timestamp::from_millis_since_reference(0.0));
     let thread = profile.add_thread(
         process,
@@ -373,6 +374,7 @@ fn profile_without_js() {
               "preprocessedProfileVersion": 49,
               "processType": 0,
               "product": "test",
+              "oscpu": "macOS 14.4",
               "sampleUnits": {
                 "eventDelay": "ms",
                 "threadCPUDelta": "µs",

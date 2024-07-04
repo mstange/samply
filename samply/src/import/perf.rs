@@ -126,9 +126,6 @@ where
                     write!(product_postfix, " {fragment}").unwrap();
                 }
             }
-            if let Some(android_version) = simpleperf_meta_info.get("android_version") {
-                write!(product_postfix, " (Android {android_version})").unwrap();
-            }
             if let Some(app_package_name) = simpleperf_meta_info.get("app_package_name") {
                 (format!("{app_package_name}{product_postfix}"), None)
             } else {
@@ -164,6 +161,13 @@ where
         simpleperf_symbol_tables,
         call_chain_return_addresses_are_preadjusted,
     );
+
+    if let Some(android_version) = simpleperf_meta_info
+        .as_ref()
+        .and_then(|mi| mi.get("android_version"))
+    {
+        converter.set_os_name(&format!("Android {android_version}"));
+    }
 
     let mut last_timestamp = 0;
 

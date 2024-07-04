@@ -127,6 +127,9 @@ where
             None => SamplingInterval::from_millis(1),
         };
         let mut profile = Profile::new(profile_name, reference_timestamp, interval);
+        if let Some(linux_version) = linux_version {
+            profile.set_os_name(&format!("Linux {linux_version}"));
+        }
         let (off_cpu_sampling_interval_ns, off_cpu_weight_per_sample) =
             match &interpretation.sampling_is_time_based {
                 Some(interval_ns) => (*interval_ns, 1),
@@ -260,6 +263,10 @@ where
 
     pub fn set_profile_name(&mut self, profile_name: &str) {
         self.profile.set_product(profile_name);
+    }
+
+    pub fn set_os_name(&mut self, os_name: &str) {
+        self.profile.set_os_name(os_name);
     }
 
     pub fn handle_main_event_sample<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(

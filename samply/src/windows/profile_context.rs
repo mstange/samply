@@ -1771,6 +1771,10 @@ impl ProfileContext {
         ts >= tstart && ts < tstop
     }
 
+    pub fn set_os_name(&mut self, os_name: &str) {
+        self.profile.set_os_name(os_name);
+    }
+
     pub fn finish(mut self) -> Profile {
         // Push queued samples into the profile.
         // We queue them so that we can get symbolicated JIT function names. To get symbolicated JIT function names,

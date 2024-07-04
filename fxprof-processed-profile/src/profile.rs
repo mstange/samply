@@ -106,6 +106,7 @@ pub struct StringHandle(pub(crate) GlobalStringIndex);
 #[derive(Debug)]
 pub struct Profile {
     pub(crate) product: String,
+    pub(crate) os_name: Option<String>,
     pub(crate) interval: SamplingInterval,
     pub(crate) global_libs: GlobalLibTable,
     pub(crate) kernel_libs: LibMappings<LibraryHandle>,
@@ -136,6 +137,7 @@ impl Profile {
         Profile {
             interval,
             product: product.to_string(),
+            os_name: None,
             threads: Vec::new(),
             global_libs: GlobalLibTable::new(),
             kernel_libs: LibMappings::new(),
@@ -168,6 +170,11 @@ impl Profile {
     /// Change the product name.
     pub fn set_product(&mut self, product: &str) {
         self.product = product.to_string();
+    }
+
+    /// Set the name of the operating system.
+    pub fn set_os_name(&mut self, os_name: &str) {
+        self.os_name = Some(os_name.to_string());
     }
 
     /// Add a category and return its handle.
@@ -825,6 +832,9 @@ impl<'a> Serialize for SerializableProfileMeta<'a> {
         map.serialize_entry("preprocessedProfileVersion", &49)?;
         map.serialize_entry("processType", &0)?;
         map.serialize_entry("product", &self.0.product)?;
+        if let Some(os_name) = &self.0.os_name {
+            map.serialize_entry("oscpu", os_name)?;
+        }
         map.serialize_entry(
             "sampleUnits",
             &json!({

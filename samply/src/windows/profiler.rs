@@ -145,6 +145,11 @@ pub fn start_recording(
     let mut context =
         ProfileContext::new(profile, &arch, included_processes, profile_creation_props);
     etw_gecko::profile_pid_from_etl_file(&mut context, &merged_etl);
+
+    if let Some(win_version) = winver::WindowsVersion::detect() {
+        context.set_os_name(&format!("Windows {win_version}"))
+    }
+
     let profile = context.finish();
 
     if !recording_props.keep_etl {
