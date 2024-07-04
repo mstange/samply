@@ -66,7 +66,8 @@ impl RecordingMode {
 /// for converting a perf.data / ETL file to a profile.
 #[derive(Debug, Clone)]
 pub struct ProfileCreationProps {
-    pub profile_name: String,
+    pub profile_name: Option<String>,
+    pub fallback_profile_name: String,
     /// Only include the main thread of each process.
     #[allow(dead_code)]
     pub main_thread_only: bool,
@@ -94,6 +95,14 @@ pub struct ProfileCreationProps {
     /// Time range to include, relative to start of recording.
     #[allow(dead_code)]
     pub time_range: Option<(std::time::Duration, std::time::Duration)>,
+}
+
+impl ProfileCreationProps {
+    pub fn profile_name(&self) -> &str {
+        self.profile_name
+            .as_deref()
+            .unwrap_or(&self.fallback_profile_name)
+    }
 }
 
 /// Properties which are meaningful for launching and recording a fresh process.

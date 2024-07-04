@@ -521,14 +521,11 @@ impl ImportArgs {
     }
 
     fn profile_creation_props(&self) -> ProfileCreationProps {
-        let profile_name = if let Some(profile_name) = &self.profile_creation_args.profile_name {
-            profile_name.clone()
-        } else {
-            let name = self.file.file_name().unwrap_or(self.file.as_os_str());
-            name.to_string_lossy().into()
-        };
+        let filename = self.file.file_name().unwrap_or(self.file.as_os_str());
+        let fallback_profile_name = filename.to_string_lossy().into();
         ProfileCreationProps {
-            profile_name,
+            profile_name: self.profile_creation_args.profile_name.clone(),
+            fallback_profile_name,
             main_thread_only: self.profile_creation_args.main_thread_only,
             reuse_threads: self.profile_creation_args.reuse_threads,
             fold_recursive_prefix: self.profile_creation_args.fold_recursive_prefix,
@@ -637,16 +634,19 @@ impl RecordArgs {
     }
 
     pub fn profile_creation_props(&self) -> ProfileCreationProps {
-        let profile_name = self.profile_creation_args.profile_name.clone();
-        let profile_name = profile_name.unwrap_or_else(|| match self.recording_mode() {
+        let fallback_profile_name = match self.recording_mode() {
             RecordingMode::All => "All processes".to_string(),
             RecordingMode::Pid(pid) => format!("PID {pid}"),
             RecordingMode::Launch(launch_props) => {
-                launch_props.command_name.to_string_lossy().to_string()
+                let filename = Path::new(&launch_props.command_name)
+                    .file_name()
+                    .unwrap_or(launch_props.command_name.as_os_str());
+                filename.to_string_lossy().into()
             }
-        });
+        };
         ProfileCreationProps {
-            profile_name,
+            profile_name: self.profile_creation_args.profile_name.clone(),
+            fallback_profile_name,
             main_thread_only: self.profile_creation_args.main_thread_only,
             reuse_threads: self.profile_creation_args.reuse_threads,
             fold_recursive_prefix: self.profile_creation_args.fold_recursive_prefix,

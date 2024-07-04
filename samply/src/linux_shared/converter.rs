@@ -56,8 +56,6 @@ use crate::shared::unresolved_samples::{
 };
 use crate::shared::utils::open_file_with_fallback;
 
-pub type BoxedProductNameGenerator = Box<dyn FnOnce(&str) -> String>;
-
 pub struct Converter<U>
 where
     U: Unwinder<Module = Module<MmapRangeOrVec>> + Default,
@@ -69,7 +67,6 @@ where
     current_sample_time: u64,
     build_ids: HashMap<DsoKey, DsoInfo>,
     endian: Endianness,
-    delayed_product_name_generator: Option<BoxedProductNameGenerator>,
     linux_version: Option<String>,
     extra_binary_artifact_dir: Option<PathBuf>,
     context_switch_handler: ContextSwitchHandler,
@@ -114,7 +111,7 @@ where
     pub fn new(
         profile_creation_props: &ProfileCreationProps,
         reference_timestamp: ReferenceTimestamp,
-        delayed_product_name_generator: Option<BoxedProductNameGenerator>,
+        profile_name: &str,
         build_ids: HashMap<DsoKey, DsoInfo>,
         linux_version: Option<&str>,
         first_sample_time: u64,
@@ -129,11 +126,7 @@ where
             Some(nanos) => SamplingInterval::from_nanos(nanos),
             None => SamplingInterval::from_millis(1),
         };
-        let mut profile = Profile::new(
-            &profile_creation_props.profile_name,
-            reference_timestamp,
-            interval,
-        );
+        let mut profile = Profile::new(profile_name, reference_timestamp, interval);
         let (off_cpu_sampling_interval_ns, off_cpu_weight_per_sample) =
             match &interpretation.sampling_is_time_based {
                 Some(interval_ns) => (*interval_ns, 1),
@@ -232,7 +225,6 @@ where
             current_sample_time: first_sample_time,
             build_ids,
             endian,
-            delayed_product_name_generator,
             linux_version: linux_version.map(ToOwned::to_owned),
             extra_binary_artifact_dir: extra_binary_artifact_dir.map(ToOwned::to_owned),
             off_cpu_weight_per_sample,
@@ -264,6 +256,10 @@ where
             &self.timestamp_converter,
         );
         profile
+    }
+
+    pub fn set_profile_name(&mut self, profile_name: &str) {
+        self.profile.set_product(profile_name);
     }
 
     pub fn handle_main_event_sample<C: ConvertRegs<UnwindRegs = U::UnwindRegs>>(
@@ -1043,12 +1039,6 @@ where
         };
         let timestamp = self.timestamp_converter.convert_time(timestamp_mono);
 
-        if is_main && self.delayed_product_name_generator.is_some() && comm_name != "perf-exec" {
-            let generator = self.delayed_product_name_generator.take().unwrap();
-            let product = generator(&comm_name);
-            self.profile.set_product(&product);
-        }
-
         let name = if let Some((exec_name, args)) = exec_name_and_cmdline {
             make_process_name(&exec_name, args, self.arg_count_to_include_in_process_name)
         } else {
@@ -1139,12 +1129,6 @@ where
             .timestamp_converter
             .convert_time(self.current_sample_time);
         self.profile.set_process_start_time(process_handle, time);
-
-        if self.delayed_product_name_generator.is_some() && comm_name != "perf-exec" {
-            let generator = self.delayed_product_name_generator.take().unwrap();
-            let product = generator(&name);
-            self.profile.set_product(&product);
-        }
     }
 
     #[allow(unused)]

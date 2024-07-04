@@ -91,28 +91,6 @@ where
     let simpleperf_meta_info = perf_file.simpleperf_meta_info().ok().flatten();
     let is_simpleperf = simpleperf_meta_info.is_some();
     let call_chain_return_addresses_are_preadjusted = is_simpleperf;
-    let mut product_postfix = String::new();
-    if let Some(host) = perf_file.hostname().ok().flatten() {
-        write!(product_postfix, " on {host}").unwrap();
-    } else if let Some(product_props) = simpleperf_meta_info
-        .as_ref()
-        .and_then(|mi| mi.get("product_props"))
-    {
-        // Example: "Google:Pixel 6:oriole"
-        write!(product_postfix, " on").unwrap();
-        for fragment in product_props.split(':').take(2) {
-            write!(product_postfix, " {fragment}").unwrap();
-        }
-    }
-
-    if let Some(perf_version) = perf_file.perf_version().ok().flatten() {
-        write!(product_postfix, " (perf version {perf_version})").unwrap();
-    } else if let Some(android_version) = simpleperf_meta_info
-        .as_ref()
-        .and_then(|mi| mi.get("android_version"))
-    {
-        write!(product_postfix, " (Android {android_version})").unwrap();
-    }
 
     let linux_version = perf_file.os_release().unwrap();
     let attributes = perf_file.event_attributes();
@@ -134,10 +112,48 @@ where
         ReferenceTimestamp::from_system_time(SystemTime::now())
     };
 
+    let (profile_name, mut profile_name_postfix_for_first_process) =
+        if let Some(profile_name) = profile_creation_props.profile_name.clone() {
+            // The user gave us an explicit profile name. Use it.
+            (profile_name, None)
+        } else if let Some(simpleperf_meta_info) = simpleperf_meta_info.as_ref() {
+            // perf.data from simpleperf
+            let mut product_postfix = String::new();
+            if let Some(product_props) = simpleperf_meta_info.get("product_props") {
+                // Example: "Google:Pixel 6:oriole"
+                write!(product_postfix, " on").unwrap();
+                for fragment in product_props.split(':').take(2) {
+                    write!(product_postfix, " {fragment}").unwrap();
+                }
+            }
+            if let Some(android_version) = simpleperf_meta_info.get("android_version") {
+                write!(product_postfix, " (Android {android_version})").unwrap();
+            }
+            if let Some(app_package_name) = simpleperf_meta_info.get("app_package_name") {
+                (format!("{app_package_name}{product_postfix}"), None)
+            } else {
+                let imported_file_filename = profile_creation_props.fallback_profile_name.clone();
+                let initial_profile_name = format!("{imported_file_filename}{product_postfix}");
+                (initial_profile_name, Some(product_postfix))
+            }
+        } else {
+            // perf.data from Linux perf
+            let mut product_postfix = String::new();
+            if let Some(host) = perf_file.hostname().ok().flatten() {
+                write!(product_postfix, " on {host}").unwrap();
+            }
+            if let Some(perf_version) = perf_file.perf_version().ok().flatten() {
+                write!(product_postfix, " (perf version {perf_version})").unwrap();
+            }
+            let imported_file_filename = profile_creation_props.fallback_profile_name.clone();
+            let initial_profile_name = format!("{imported_file_filename}{product_postfix}");
+            (initial_profile_name, Some(product_postfix))
+        };
+
     let mut converter = Converter::<U>::new(
         &profile_creation_props,
         reference_timestamp,
-        Some(Box::new(move |name| format!("{name}{product_postfix}"))),
+        &profile_name,
         build_ids,
         linux_version,
         first_sample_time,
@@ -192,6 +208,15 @@ where
                 converter.handle_fork(e);
             }
             EventRecord::Comm(e) => {
+                if profile_name_postfix_for_first_process.is_some()
+                    && &e.name.as_slice()[..] != b"perf-exec"
+                {
+                    let postfix = profile_name_postfix_for_first_process.take().unwrap();
+                    let first_process_name =
+                        String::from_utf8_lossy(&e.name.as_slice()).to_string();
+                    let profile_name = format!("{first_process_name}{postfix}");
+                    converter.set_profile_name(&profile_name);
+                }
                 converter.handle_comm(e, record.timestamp());
             }
             EventRecord::Exit(e) => {

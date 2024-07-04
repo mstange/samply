@@ -23,13 +23,11 @@ use crate::shared::symbol_props::SymbolProps;
 pub fn start_recording(
     recording_mode: RecordingMode,
     recording_props: RecordingProps,
-    profile_creation_props: ProfileCreationProps,
+    mut profile_creation_props: ProfileCreationProps,
     symbol_props: SymbolProps,
     server_props: Option<ServerProps>,
 ) -> Result<ExitStatus, MachError> {
-    let mut unlink_aux_files = profile_creation_props.unlink_aux_files;
     let output_file = recording_props.output_file.clone();
-    let profile_name;
 
     let mut task_accepter = TaskAccepter::new()?;
 
@@ -39,17 +37,8 @@ pub fn start_recording(
             eprintln!("You can only profile processes which you launch via samply, or attach to via --pid.");
             std::process::exit(1)
         }
-        RecordingMode::Pid(pid) => {
-            profile_name = format!("pid {pid}");
-
-            Box::new(ExistingProcessRunner::new(pid, &mut task_accepter))
-        }
+        RecordingMode::Pid(pid) => Box::new(ExistingProcessRunner::new(pid, &mut task_accepter)),
         RecordingMode::Launch(process_launch_props) => {
-            profile_name = process_launch_props
-                .command_name
-                .to_string_lossy()
-                .to_string();
-
             let ProcessLaunchProps {
                 mut env_vars,
                 command_name,
@@ -64,7 +53,7 @@ pub fn start_recording(
                 // knows what they're doing and will specify the arg as needed.
                 if !env_vars.iter().any(|p| p.0 == "DOTNET_PerfMapEnabled") {
                     env_vars.push(("DOTNET_PerfMapEnabled".into(), "2".into()));
-                    unlink_aux_files = true;
+                    profile_creation_props.unlink_aux_files = true;
                 }
             }
 
@@ -80,22 +69,12 @@ pub fn start_recording(
         }
     };
 
-    let profile_creation_props = ProfileCreationProps {
-        unlink_aux_files,
-        ..profile_creation_props
-    };
-
     let unstable_presymbolicate = profile_creation_props.unstable_presymbolicate;
 
     let (task_sender, task_receiver) = unbounded();
 
     let sampler_thread = thread::spawn(move || {
-        let sampler = Sampler::new(
-            profile_name,
-            task_receiver,
-            recording_props,
-            profile_creation_props,
-        );
+        let sampler = Sampler::new(task_receiver, recording_props, profile_creation_props);
         sampler.run()
     });
 
