@@ -1,5 +1,6 @@
 target
 profile.json
+profile.json.gz
 profile.syms.json
 .DS_Store
 .direnv/
