@@ -386,7 +386,9 @@ fn make_converter(
         event_names: vec!["cycles".to_string()],
     };
 
-    Converter::<framehop::UnwinderNative<MmapRangeOrVec, framehop::MayAllocateDuringUnwind>>::new(
+    let mut converter = Converter::<
+        framehop::UnwinderNative<MmapRangeOrVec, framehop::MayAllocateDuringUnwind>,
+    >::new(
         &profile_creation_props,
         ReferenceTimestamp::from_system_time(SystemTime::now()),
         profile_creation_props.profile_name(),
@@ -399,7 +401,11 @@ fn make_converter(
         interpretation,
         None,
         false,
-    )
+    );
+    if let Ok(os_release) = os_release::OsRelease::new() {
+        converter.set_os_name(&os_release.pretty_name);
+    }
+    converter
 }
 
 fn init_profiler(

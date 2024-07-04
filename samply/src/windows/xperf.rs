@@ -1,4 +1,5 @@
 use std::error::Error;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 use super::elevated_helper::ElevatedRecordingProps;
@@ -68,6 +69,9 @@ impl Xperf {
         // start xperf.exe, logging to the same location as the output file, just with a .etl
         // extension.
         let mut kernel_etl_file = output_path.to_owned();
+        if kernel_etl_file.extension() == Some(OsStr::new("gz")) {
+            kernel_etl_file.set_extension("");
+        }
         kernel_etl_file.set_extension("unmerged-etl");
 
         const MIN_INTERVAL_NANOS: u64 = 122100; // 8192 kHz

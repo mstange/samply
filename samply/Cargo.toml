@@ -65,6 +65,7 @@ lazy_static = "1.5.0"
 flate2 = "1.0.30"
 sysctl = "0.5.4"
 tempfile = "3.10.1"
+plist = "1.7.0"
 
 [target.'cfg(any(target_os = "android", target_os = "linux"))'.dependencies]
 
@@ -72,6 +73,7 @@ parking_lot = "0.12.2"
 num_cpus = "1.13.1"
 uname = "0.1.1"
 nix = { version = "0.29", features = ["fs", "process"] }
+os-release = "0.1.0"
 
 [target.'cfg(windows)'.dependencies]
 
@@ -82,6 +84,7 @@ num-traits = "0.2"
 num-derive = "0.4"
 runas = "1.2.0"
 which = "6.0.1"
+winver = "1"
 etw-reader = { path = "../etw-reader" }
 # linux-perf-data = "0.10.1"
 
