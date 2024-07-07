@@ -112,40 +112,53 @@ where
         ReferenceTimestamp::from_system_time(SystemTime::now())
     };
 
-    let (profile_name, mut profile_name_postfix_for_first_process) =
-        if let Some(profile_name) = profile_creation_props.profile_name.clone() {
-            // The user gave us an explicit profile name. Use it.
-            (profile_name, None)
-        } else if let Some(simpleperf_meta_info) = simpleperf_meta_info.as_ref() {
-            // perf.data from simpleperf
-            let mut product_postfix = String::new();
-            if let Some(product_props) = simpleperf_meta_info.get("product_props") {
-                // Example: "Google:Pixel 6:oriole"
-                write!(product_postfix, " on").unwrap();
-                for fragment in product_props.split(':').take(2) {
-                    write!(product_postfix, " {fragment}").unwrap();
-                }
+    let (profile_name, mut profile_name_postfix_for_first_process) = if let Some(profile_name) =
+        profile_creation_props.profile_name.clone()
+    {
+        // The user gave us an explicit profile name. Use it.
+        (profile_name, None)
+    } else if let Some(simpleperf_meta_info) = simpleperf_meta_info.as_ref() {
+        // perf.data from simpleperf
+        let mut profile_name_postfix = String::new();
+        if let Some(profile_name_props) = simpleperf_meta_info.get("product_props") {
+            // Example: "Google:Pixel 6:oriole"
+            let fragments: Vec<&str> = profile_name_props.split(':').take(2).collect();
+            if !fragments.is_empty() {
+                let device_name = fragments.join(" ");
+                write!(profile_name_postfix, " on {device_name}").unwrap();
             }
-            if let Some(app_package_name) = simpleperf_meta_info.get("app_package_name") {
-                (format!("{app_package_name}{product_postfix}"), None)
-            } else {
-                let imported_file_filename = profile_creation_props.fallback_profile_name.clone();
-                let initial_profile_name = format!("{imported_file_filename}{product_postfix}");
-                (initial_profile_name, Some(product_postfix))
-            }
+        }
+        if let Some(app_package_name) = simpleperf_meta_info.get("app_package_name") {
+            // We were profiling a single app.
+            (format!("{app_package_name}{profile_name_postfix}"), None)
         } else {
-            // perf.data from Linux perf
-            let mut product_postfix = String::new();
-            if let Some(host) = perf_file.hostname().ok().flatten() {
-                write!(product_postfix, " on {host}").unwrap();
-            }
-            if let Some(perf_version) = perf_file.perf_version().ok().flatten() {
-                write!(product_postfix, " (perf version {perf_version})").unwrap();
-            }
+            // We would like the profile name to start with the name of the process / app
+            // that has been profiled. However, we don't know this name yet.
+            // Start with the name of the imported perf.data file, but also store the
+            // profile name "postfix" so that we can change the profile name later, once
+            // we see the first profiled process.
             let imported_file_filename = profile_creation_props.fallback_profile_name.clone();
-            let initial_profile_name = format!("{imported_file_filename}{product_postfix}");
-            (initial_profile_name, Some(product_postfix))
-        };
+            let initial_profile_name = format!("{imported_file_filename}{profile_name_postfix}");
+            (initial_profile_name, Some(profile_name_postfix))
+        }
+    } else {
+        // perf.data from Linux perf
+        let mut profile_name_postfix = String::new();
+        if let Some(host) = perf_file.hostname().ok().flatten() {
+            write!(profile_name_postfix, " on {host}").unwrap();
+        }
+        if let Some(perf_version) = perf_file.perf_version().ok().flatten() {
+            write!(profile_name_postfix, " (perf version {perf_version})").unwrap();
+        }
+        // We would like the profile name to start with the name of the process / executable
+        // that has been profiled. However, we don't know this name yet.
+        // Start with the name of the imported perf.data file, but also store the
+        // profile name "postfix" so that we can change the profile name later, once
+        // we see the first profiled process.
+        let imported_file_filename = profile_creation_props.fallback_profile_name.clone();
+        let initial_profile_name = format!("{imported_file_filename}{profile_name_postfix}");
+        (initial_profile_name, Some(profile_name_postfix))
+    };
 
     let mut converter = Converter::<U>::new(
         &profile_creation_props,
