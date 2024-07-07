@@ -17,7 +17,7 @@ use super::utils::open_file_with_fallback;
 
 #[derive(Debug)]
 pub struct JitDumpManager {
-    pending_jitdump_paths: Vec<(ThreadHandle, PathBuf, Option<PathBuf>)>,
+    pending_jitdump_paths: Vec<(ThreadHandle, PathBuf, Vec<PathBuf>)>,
     processors: Vec<SingleJitDumpProcessor>,
     unlink_after_open: bool,
 }
@@ -35,10 +35,10 @@ impl JitDumpManager {
         &mut self,
         thread: ThreadHandle,
         path: impl Into<PathBuf>,
-        fallback_dir: Option<PathBuf>,
+        lookup_dirs: Vec<PathBuf>,
     ) {
         self.pending_jitdump_paths
-            .push((thread, path.into(), fallback_dir));
+            .push((thread, path.into(), lookup_dirs));
     }
 
     pub fn process_pending_records(
@@ -49,13 +49,13 @@ impl JitDumpManager {
         timestamp_converter: &TimestampConverter,
     ) {
         self.pending_jitdump_paths
-            .retain_mut(|(thread, path, fallback_dir)| {
+            .retain_mut(|(thread, path, lookup_dirs)| {
                 fn jitdump_reader_for_path(
                     path: &Path,
-                    fallback_dir: Option<&Path>,
+                    lookup_dirs: &[PathBuf],
                     unlink_after_open: bool,
                 ) -> Option<(JitDumpReader<std::fs::File>, PathBuf)> {
-                    let (file, path) = open_file_with_fallback(path, fallback_dir).ok()?;
+                    let (file, path) = open_file_with_fallback(path, lookup_dirs).ok()?;
                     let reader = JitDumpReader::new(file).ok()?;
                     if unlink_after_open {
                         std::fs::remove_file(&path).ok()?;
@@ -63,7 +63,7 @@ impl JitDumpManager {
                     Some((reader, path))
                 }
                 let Some((reader, actual_path)) =
-                    jitdump_reader_for_path(path, fallback_dir.as_deref(), self.unlink_after_open)
+                    jitdump_reader_for_path(path, lookup_dirs, self.unlink_after_open)
                 else {
                     return true;
                 };

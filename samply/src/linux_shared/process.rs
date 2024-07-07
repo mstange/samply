@@ -30,7 +30,7 @@ pub struct Process<U> {
     pub pid: i32,
     pub unresolved_samples: UnresolvedSamples,
     pub jit_function_recycler: Option<JitFunctionRecycler>,
-    marker_file_paths: Vec<(ThreadHandle, PathBuf, Option<PathBuf>)>,
+    marker_file_paths: Vec<(ThreadHandle, PathBuf, Vec<PathBuf>)>,
     pub prev_mm_filepages_size: i64,
     pub prev_mm_anonpages_size: i64,
     pub prev_mm_swapents_size: i64,
@@ -174,10 +174,10 @@ where
         &mut self,
         thread: ThreadHandle,
         path: &Path,
-        fallback_dir: Option<PathBuf>,
+        lookup_dirs: Vec<PathBuf>,
     ) {
         self.marker_file_paths
-            .push((thread, path.to_owned(), fallback_dir));
+            .push((thread, path.to_owned(), lookup_dirs));
     }
 
     pub fn notify_dead(&mut self, end_time: Timestamp, profile: &mut Profile) {
@@ -214,12 +214,10 @@ where
         );
 
         let mut marker_spans = Vec::new();
-        for (thread_handle, marker_file_path, fallback_dir) in self.marker_file_paths {
-            if let Ok(marker_spans_from_this_file) = get_markers(
-                &marker_file_path,
-                fallback_dir.as_deref(),
-                *timestamp_converter,
-            ) {
+        for (thread_handle, marker_file_path, lookup_dirs) in self.marker_file_paths {
+            if let Ok(marker_spans_from_this_file) =
+                get_markers(&marker_file_path, &lookup_dirs, *timestamp_converter)
+            {
                 marker_spans.extend(marker_spans_from_this_file.into_iter().map(|span| {
                     MarkerSpanOnThread {
                         thread_handle,

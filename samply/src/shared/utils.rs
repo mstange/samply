@@ -5,18 +5,25 @@ use fxprof_processed_profile::{LibraryHandle, LibraryInfo, Profile};
 use linux_perf_data::jitdump::JitDumpHeader;
 use wholesym::samply_symbols::debug_id_and_code_id_for_jitdump;
 
-pub fn open_file_with_fallback(
+pub fn open_file_with_fallback<P: AsRef<Path>>(
     path: &Path,
-    extra_dir: Option<&Path>,
+    extra_dirs: &[P],
 ) -> std::io::Result<(std::fs::File, PathBuf)> {
-    match (std::fs::File::open(path), extra_dir, path.file_name()) {
-        (Ok(file), _, _) => Ok((file, path.to_owned())),
-        (Err(_), Some(extra_dir), Some(filename)) => {
-            let p: PathBuf = [extra_dir, Path::new(filename)].iter().collect();
-            std::fs::File::open(&p).map(|file| (file, p))
+    let e = match std::fs::File::open(path) {
+        Ok(file) => return Ok((file, path.to_owned())),
+        Err(e) => e,
+    };
+
+    if let Some(filename) = path.file_name() {
+        for dir in extra_dirs {
+            let p: PathBuf = [dir.as_ref(), Path::new(filename)].iter().collect();
+            if let Ok(file) = std::fs::File::open(&p) {
+                return Ok((file, p));
+            }
         }
-        (Err(e), _, _) => Err(e),
     }
+
+    Err(e)
 }
 
 pub fn lib_handle_for_jitdump(

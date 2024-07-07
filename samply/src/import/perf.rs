@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::io::{Read, Seek};
-use std::path::Path;
+use std::path::PathBuf;
 use std::time::SystemTime;
 
 use framehop::{Module, Unwinder};
@@ -27,7 +27,8 @@ pub enum Error {
 pub fn convert<C: Read + Seek>(
     cursor: C,
     file_mod_time: Option<SystemTime>,
-    extra_dir: Option<&Path>,
+    binary_lookup_dirs: Vec<PathBuf>,
+    aux_file_lookup_dirs: Vec<PathBuf>,
     profile_creation_props: ProfileCreationProps,
 ) -> Result<Profile, Error> {
     let perf_file = PerfFileReader::parse_file(cursor)?;
@@ -40,7 +41,8 @@ pub fn convert<C: Read + Seek>(
             convert_impl::<framehop::aarch64::UnwinderAarch64<MmapRangeOrVec>, ConvertRegsAarch64, _>(
                 perf_file,
                 file_mod_time,
-                extra_dir,
+                binary_lookup_dirs,
+                aux_file_lookup_dirs,
                 cache,
                 profile_creation_props,
             )
@@ -56,7 +58,8 @@ pub fn convert<C: Read + Seek>(
             convert_impl::<framehop::x86_64::UnwinderX86_64<MmapRangeOrVec>, ConvertRegsX86_64, _>(
                 perf_file,
                 file_mod_time,
-                extra_dir,
+                binary_lookup_dirs,
+                aux_file_lookup_dirs,
                 cache,
                 profile_creation_props,
             )
@@ -68,7 +71,8 @@ pub fn convert<C: Read + Seek>(
 fn convert_impl<U, C, R>(
     file: PerfFileReader<R>,
     file_mod_time: Option<SystemTime>,
-    extra_dir: Option<&Path>,
+    binary_lookup_dirs: Vec<PathBuf>,
+    aux_file_lookup_dirs: Vec<PathBuf>,
     cache: U::Cache,
     profile_creation_props: ProfileCreationProps,
 ) -> Profile
@@ -169,7 +173,8 @@ where
         first_sample_time,
         endian,
         cache,
-        extra_dir,
+        binary_lookup_dirs,
+        aux_file_lookup_dirs,
         interpretation.clone(),
         simpleperf_symbol_tables,
         call_chain_return_addresses_are_preadjusted,

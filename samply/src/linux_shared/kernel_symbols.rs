@@ -1,6 +1,6 @@
-use std::fmt::Debug;
 use std::path::Path;
 use std::sync::Arc;
+use std::{fmt::Debug, path::PathBuf};
 
 use fxprof_processed_profile::{Symbol, SymbolTable};
 use object::{elf, read, NativeEndian, Object};
@@ -158,13 +158,8 @@ fn hex_str<T: std::ops::Shl<T, Output = T> + std::ops::BitOr<T, Output = T> + Fr
     Ok((remaining, res))
 }
 
-pub fn kernel_module_build_id(
-    path: &Path,
-    extra_binary_artifact_dir: Option<&Path>,
-) -> Option<Vec<u8>> {
-    let file = open_file_with_fallback(path, extra_binary_artifact_dir)
-        .ok()?
-        .0;
+pub fn kernel_module_build_id(path: &Path, binary_lookup_dirs: &[PathBuf]) -> Option<Vec<u8>> {
+    let file = open_file_with_fallback(path, binary_lookup_dirs).ok()?.0;
     let mmap = unsafe { memmap2::MmapOptions::new().map(&file) }.ok()?;
     let obj = object::File::parse(&mmap[..]).ok()?;
     match obj.build_id() {

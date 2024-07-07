@@ -132,6 +132,10 @@ struct ImportArgs {
     #[command(flatten)]
     symbol_args: SymbolArgs,
 
+    /// Additional directories to use for looking up jitdump and marker files.
+    #[arg(long)]
+    aux_file_dir: Vec<PathBuf>,
+
     /// Only include processes with this name substring (can be specified multiple times).
     #[arg(long)]
     name: Option<Vec<String>>,
@@ -429,14 +433,7 @@ fn main() {
                     std::process::exit(1)
                 }
             };
-            let profile_creation_props = import_args.profile_creation_props();
-            convert_file_to_profile(
-                &import_args.file,
-                &input_file,
-                &import_args.output,
-                profile_creation_props,
-                import_args.included_processes(),
-            );
+            convert_file_to_profile(&input_file, &import_args);
             if let Some(server_props) = import_args.server_props() {
                 let profile_filename = &import_args.output;
                 let libinfo_map = profile_json_preparse::parse_libinfo_map_from_profile_file(
@@ -546,6 +543,8 @@ impl ImportArgs {
         }
     }
 
+    // TODO: Use for perf.data import
+    #[allow(unused)]
     fn included_processes(&self) -> Option<IncludedProcesses> {
         match (&self.name, &self.pid) {
             (None, None) => None, // No filtering, include all processes
@@ -748,85 +747,66 @@ fn split_at_first_equals(s: &OsStr) -> Option<(&OsStr, &OsStr)> {
     Some((name, val))
 }
 
-fn convert_file_to_profile(
-    filename: &Path,
-    input_file: &File,
-    output_filename: &Path,
-    profile_creation_props: ProfileCreationProps,
-    included_processes: Option<IncludedProcesses>,
-) {
-    if filename.extension() == Some(OsStr::new("etl")) {
-        convert_etl_file_to_profile(
-            filename,
-            input_file,
-            output_filename,
-            profile_creation_props,
-            included_processes,
-        );
+fn convert_file_to_profile(input_file: &File, import_args: &ImportArgs) {
+    if import_args.file.extension() == Some(OsStr::new("etl")) {
+        convert_etl_file_to_profile(input_file, import_args);
         return;
     }
 
-    convert_perf_data_file_to_profile(
-        filename,
-        input_file,
-        output_filename,
-        profile_creation_props,
-    );
+    convert_perf_data_file_to_profile(input_file, import_args);
 }
 
 #[cfg(target_os = "windows")]
-fn convert_etl_file_to_profile(
-    filename: &Path,
-    _input_file: &File,
-    output_filename: &Path,
-    profile_creation_props: ProfileCreationProps,
-    included_processes: Option<IncludedProcesses>,
-) {
+fn convert_etl_file_to_profile(_input_file: &File, import_args: &ImportArgs) {
+    let profile_creation_props = import_args.profile_creation_props();
+    let included_processes = import_args.included_processes();
     windows::import::convert_etl_file_to_profile(
-        filename,
-        output_filename,
+        &import_args.file,
+        &import_args.output,
         profile_creation_props,
         included_processes,
     );
 }
 
 #[cfg(not(target_os = "windows"))]
-fn convert_etl_file_to_profile(
-    filename: &Path,
-    _input_file: &File,
-    _output_filename: &Path,
-    _profile_creation_props: ProfileCreationProps,
-    _included_processes: Option<IncludedProcesses>,
-) {
+fn convert_etl_file_to_profile(_input_file: &File, import_args: &ImportArgs) {
     eprintln!(
         "Error: Could not import ETW trace from file {}",
-        filename.to_string_lossy()
+        import_args.file.to_string_lossy()
     );
     eprintln!("Importing ETW traces is only supported on Windows.");
     std::process::exit(1);
 }
 
-fn convert_perf_data_file_to_profile(
-    filename: &Path,
-    input_file: &File,
-    output_filename: &Path,
-    profile_creation_props: ProfileCreationProps,
-) {
-    let path = Path::new(filename)
+fn convert_perf_data_file_to_profile(input_file: &File, import_args: &ImportArgs) {
+    let path = import_args
+        .file
         .canonicalize()
         .expect("Couldn't form absolute path");
     let file_meta = input_file.metadata().ok();
     let file_mod_time = file_meta.and_then(|metadata| metadata.modified().ok());
+    let profile_creation_props = import_args.profile_creation_props();
+    let mut binary_lookup_dirs = import_args.symbol_props().symbol_dir.clone();
+    let mut aux_file_lookup_dirs = import_args.aux_file_dir.clone();
+    if let Some(parent_dir) = path.parent() {
+        binary_lookup_dirs.push(parent_dir.into());
+        aux_file_lookup_dirs.push(parent_dir.into());
+    }
     let reader = BufReader::new(input_file);
-    let profile =
-        match import::perf::convert(reader, file_mod_time, path.parent(), profile_creation_props) {
-            Ok(profile) => profile,
-            Err(error) => {
-                eprintln!("Error importing perf.data file: {:?}", error);
-                std::process::exit(1);
-            }
-        };
-    save_profile_to_file(&profile, output_filename).expect("Couldn't write JSON");
+    let profile = match import::perf::convert(
+        reader,
+        file_mod_time,
+        binary_lookup_dirs,
+        aux_file_lookup_dirs,
+        profile_creation_props,
+    ) {
+        Ok(profile) => profile,
+        Err(error) => {
+            eprintln!("Error importing perf.data file: {:?}", error);
+            std::process::exit(1);
+        }
+    };
+    save_profile_to_file(&profile, &import_args.output).expect("Couldn't write JSON");
 }
 
 #[cfg(test)]

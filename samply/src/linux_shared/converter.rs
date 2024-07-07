@@ -68,7 +68,8 @@ where
     build_ids: HashMap<DsoKey, DsoInfo>,
     endian: Endianness,
     linux_version: Option<String>,
-    extra_binary_artifact_dir: Option<PathBuf>,
+    binary_lookup_dirs: Vec<PathBuf>,
+    aux_file_lookup_dirs: Vec<PathBuf>,
     context_switch_handler: ContextSwitchHandler,
     unresolved_stacks: UnresolvedStacks,
     off_cpu_weight_per_sample: i32,
@@ -117,7 +118,8 @@ where
         first_sample_time: u64,
         endian: Endianness,
         cache: U::Cache,
-        extra_binary_artifact_dir: Option<&Path>,
+        binary_lookup_dirs: Vec<PathBuf>,
+        aux_file_lookup_dirs: Vec<PathBuf>,
         interpretation: EventInterpretation,
         simpleperf_symbol_tables: Option<Vec<SimpleperfFileRecord>>,
         call_chain_return_addresses_are_preadjusted: bool,
@@ -229,7 +231,8 @@ where
             build_ids,
             endian,
             linux_version: linux_version.map(ToOwned::to_owned),
-            extra_binary_artifact_dir: extra_binary_artifact_dir.map(ToOwned::to_owned),
+            binary_lookup_dirs,
+            aux_file_lookup_dirs,
             off_cpu_weight_per_sample,
             context_switch_handler: ContextSwitchHandler::new(off_cpu_sampling_interval_ns),
             unresolved_stacks: UnresolvedStacks::default(),
@@ -830,7 +833,7 @@ where
             process.jitdump_manager.add_jitdump_path(
                 profile_thread,
                 jitdump_path,
-                self.extra_binary_artifact_dir.clone(),
+                self.aux_file_lookup_dirs.clone(),
             );
             return true;
         }
@@ -843,7 +846,7 @@ where
             process.add_marker_file_path(
                 profile_thread,
                 marker_file_path,
-                self.extra_binary_artifact_dir.clone(),
+                self.aux_file_lookup_dirs.clone(),
             );
             return true;
         }
@@ -1171,9 +1174,7 @@ where
             (None, Some(kernel_symbols)) if kernel_symbols.base_avma == base_address => {
                 Some(kernel_symbols.build_id.clone())
             }
-            (None, _) => {
-                kernel_module_build_id(Path::new(&path), self.extra_binary_artifact_dir.as_deref())
-            }
+            (None, _) => kernel_module_build_id(Path::new(&path), &self.binary_lookup_dirs),
             (Some(build_id), _) => Some(build_id.to_owned()),
         };
         let debug_id = build_id
@@ -1314,10 +1315,7 @@ where
         let mut file = None;
         let mut path = mapping_info.path.to_string_lossy().to_string();
 
-        if let Ok((f, p)) = open_file_with_fallback(
-            &mapping_info.path,
-            self.extra_binary_artifact_dir.as_deref(),
-        ) {
+        if let Ok((f, p)) = open_file_with_fallback(&mapping_info.path, &self.binary_lookup_dirs) {
             // Fix up bad files from `perf inject --jit`.
             if let Some((fixed_file, fixed_path)) = correct_bad_perf_jit_so_file(&f, &path) {
                 file = Some(fixed_file);
