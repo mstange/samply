@@ -81,7 +81,7 @@ impl ProcessSampleData {
         if let Some(perf_map_mappings) = perf_map_mappings {
             lib_mappings_hierarchy.add_perf_map_mappings(perf_map_mappings);
         }
-        let stack_converter = StackConverter::new(user_category, kernel_category);
+        let mut stack_converter = StackConverter::new(user_category, kernel_category);
         let samples = unresolved_samples.into_inner();
         for sample in samples {
             lib_mappings_hierarchy.process_ops(sample.timestamp_mono);

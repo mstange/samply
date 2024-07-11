@@ -16,8 +16,10 @@ pub struct LibMappingInfo {
 pub enum AndroidArtInfo {
     /// Set when the lib mapping is for `libart.so`.
     LibArt,
-    /// Set on Android `OAT` and `DEX` mappings.
-    DexOrOat,
+    /// Set on a Java / Kotlin frame. This frame could come from a .dex / .vdex file,
+    /// or from an .oat file, or it could be a JITted frame, or it could be a synthetic
+    /// frame inserted by the interpreter.
+    JavaFrame,
 }
 
 impl LibMappingInfo {
@@ -62,7 +64,7 @@ impl LibMappingInfo {
         }
     }
 
-    pub fn new_dex_or_oat_mapping(
+    pub fn new_java_mapping(
         lib_handle: LibraryHandle,
         category: Option<CategoryPairHandle>,
     ) -> Self {
@@ -70,7 +72,7 @@ impl LibMappingInfo {
             lib_handle,
             category,
             js_frame: None,
-            art_info: Some(AndroidArtInfo::DexOrOat),
+            art_info: Some(AndroidArtInfo::JavaFrame),
         }
     }
 }

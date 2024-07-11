@@ -181,9 +181,9 @@ where
 
                 let is_jit = false;
                 let (category, art_info) = if f.path.ends_with(".oat") {
-                    (Some(oat_category), Some(AndroidArtInfo::DexOrOat))
+                    (Some(oat_category), Some(AndroidArtInfo::JavaFrame))
                 } else if f.r#type == DSO_DEX_FILE || f.path.ends_with(".odex") || is_jit {
-                    (Some(dex_category), Some(AndroidArtInfo::DexOrOat))
+                    (Some(dex_category), Some(AndroidArtInfo::JavaFrame))
                 } else if f.path.ends_with("libart.so") {
                     (None, Some(AndroidArtInfo::LibArt))
                 } else {
@@ -1312,7 +1312,7 @@ where
 
         let process = self.processes.get_by_pid(e.pid, &mut self.profile);
         let synthetic_lib = &mut self.simpleperf_jit_app_cache_library;
-        let info = LibMappingInfo::new_dex_or_oat_mapping(
+        let info = LibMappingInfo::new_java_mapping(
             synthetic_lib.lib_handle(),
             Some(synthetic_lib.default_category()),
         );
@@ -1431,8 +1431,8 @@ where
             });
             let info = match symbol_table.art_info {
                 Some(AndroidArtInfo::LibArt) => LibMappingInfo::new_libart_mapping(lib_handle),
-                Some(AndroidArtInfo::DexOrOat) => {
-                    LibMappingInfo::new_dex_or_oat_mapping(lib_handle, symbol_table.category)
+                Some(AndroidArtInfo::JavaFrame) => {
+                    LibMappingInfo::new_java_mapping(lib_handle, symbol_table.category)
                 }
                 None => LibMappingInfo::new_lib(lib_handle),
             };
