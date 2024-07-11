@@ -75,6 +75,7 @@ impl LibMappingInfo {
     }
 }
 
+#[derive(Debug)]
 pub struct LibMappingsHierarchy {
     regular_libs: (LibMappings<LibMappingInfo>, LibMappingOpQueueIter),
     jitdumps: Vec<(LibMappings<LibMappingInfo>, LibMappingOpQueueIter)>,
@@ -136,11 +137,16 @@ impl LibMappingOpQueue {
         self.0.push((timestamp, op));
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     pub fn into_iter(self) -> LibMappingOpQueueIter {
         LibMappingOpQueueIter(self.0.into_iter().peekable())
     }
 }
 
+#[derive(Debug)]
 pub struct LibMappingOpQueueIter(Peekable<std::vec::IntoIter<(u64, LibMappingOp)>>);
 
 impl LibMappingOpQueueIter {

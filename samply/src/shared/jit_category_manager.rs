@@ -101,6 +101,11 @@ impl JitCategoryManager {
         }
     }
 
+    #[allow(dead_code)]
+    pub fn default_category(&mut self, profile: &mut Profile) -> CategoryHandle {
+        self.generic_jit_category.get(profile)
+    }
+
     /// Get the category and JS function name for a function from JIT code.
     ///
     /// The category is only created in the profile once a function with that

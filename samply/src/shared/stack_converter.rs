@@ -68,6 +68,10 @@ impl<'a> Iterator for ConvertedStackIter<'a> {
                         )
                     }
                     None => {
+                        if lookup_address == 0x7a4dc01678 {
+                            println!("Could not find 0x7a4dc01678 in lib mappings.");
+                            println!("Lib mappings: {:#?}", self.lib_mappings);
+                        }
                         let location = match from_ip {
                             true => Frame::InstructionPointer(lookup_address),
                             false => Frame::AdjustedReturnAddress(lookup_address),

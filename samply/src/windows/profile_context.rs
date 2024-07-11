@@ -1,13 +1,12 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use debugid::DebugId;
 use fxprof_processed_profile::{
     CategoryColor, CategoryHandle, CounterHandle, CpuDelta, Frame, FrameFlags, FrameInfo,
-    LibraryHandle, LibraryInfo, Marker, MarkerFieldFormat, MarkerFieldSchema, MarkerHandle,
-    MarkerLocation, MarkerSchema, MarkerTiming, ProcessHandle, Profile, SamplingInterval,
-    StaticSchemaMarker, StringHandle, Symbol, SymbolTable, ThreadHandle, Timestamp,
+    LibraryInfo, Marker, MarkerFieldFormat, MarkerFieldSchema, MarkerHandle, MarkerLocation,
+    MarkerSchema, MarkerTiming, ProcessHandle, Profile, SamplingInterval, StaticSchemaMarker,
+    StringHandle, ThreadHandle, Timestamp,
 };
 use shlex::Shlex;
 use uuid::Uuid;
@@ -26,6 +25,7 @@ use crate::shared::process_name::make_process_name;
 use crate::shared::process_sample_data::{ProcessSampleData, UserTimingMarker};
 use crate::shared::recording_props::ProfileCreationProps;
 use crate::shared::recycling::{ProcessRecycler, ProcessRecyclingData, ThreadRecycler};
+use crate::shared::synthetic_jit_library::SyntheticJitLibrary;
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::types::{StackFrame, StackMode};
 use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
@@ -50,49 +50,6 @@ pub struct MemoryUsage {
     pub counter: CounterHandle,
     #[allow(dead_code)]
     pub value: f64,
-}
-
-#[derive(Debug)]
-pub struct ProcessJitInfo(Option<ProcessJitInfoInner>);
-
-#[derive(Debug)]
-pub struct ProcessJitInfoInner {
-    pub lib_handle: LibraryHandle,
-    pub jit_mapping_ops: LibMappingOpQueue,
-    pub next_relative_address: u32,
-    pub symbols: Vec<Symbol>,
-}
-
-impl ProcessJitInfo {
-    pub fn new() -> Self {
-        Self(None)
-    }
-
-    pub fn into_inner(self) -> Option<ProcessJitInfoInner> {
-        self.0
-    }
-
-    pub fn get(&mut self, profile: &mut Profile, pid: u32) -> &mut ProcessJitInfoInner {
-        self.0.get_or_insert_with(|| {
-            let jitname = format!("JIT-{}", pid);
-            let jitlib = profile.add_lib(LibraryInfo {
-                name: jitname.clone(),
-                debug_name: jitname.clone(),
-                path: jitname.clone(),
-                debug_path: jitname.clone(),
-                debug_id: DebugId::nil(),
-                code_id: None,
-                arch: None,
-                symbol_table: None,
-            });
-            ProcessJitInfoInner {
-                lib_handle: jitlib,
-                jit_mapping_ops: LibMappingOpQueue::default(),
-                next_relative_address: 0,
-                symbols: Vec::new(),
-            }
-        })
-    }
 }
 
 #[derive(Debug)]
@@ -146,6 +103,7 @@ pub struct ProcessState {
     pub seen_main_thread_start: bool,
     pub unresolved_samples: UnresolvedSamples,
     pub regular_lib_mapping_ops: LibMappingOpQueue,
+    pub jit_lib_mapping_ops: LibMappingOpQueue,
     pub main_thread_handle: ThreadHandle,
     pub main_thread_label_frame: FrameInfo,
     pub pending_libraries: HashMap<u64, LibraryInfo>,
@@ -153,7 +111,6 @@ pub struct ProcessState {
     pub process_id: u32,
     #[allow(dead_code)]
     pub parent_id: u32,
-    pub jit_info: ProcessJitInfo,
     pub thread_recycler: Option<ThreadRecycler>,
     pub jit_function_recycler: Option<JitFunctionRecycler>,
 }
@@ -174,6 +131,29 @@ impl ProcessState {
             thread_recycler,
             jit_function_recycler,
         })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_jit_function(
+        &mut self,
+        timestamp_raw: u64,
+        jit_lib: &mut SyntheticJitLibrary,
+        name: String,
+        start_avma: u64,
+        size: u32,
+        info: LibMappingInfo,
+    ) {
+        let relative_address = jit_lib.add_function(name, size);
+
+        self.jit_lib_mapping_ops.push(
+            timestamp_raw,
+            LibMappingOp::Add(LibMappingAdd {
+                start_avma,
+                end_avma: start_avma + u64::from(size),
+                relative_address_at_start: relative_address,
+                info,
+            }),
+        );
     }
 }
 
@@ -274,6 +254,9 @@ pub struct ProfileContext {
     categories: KnownCategories,
 
     js_category_manager: JitCategoryManager,
+    js_jit_lib: SyntheticJitLibrary,
+    coreclr_jit_lib: SyntheticJitLibrary,
+
     context_switch_handler: ContextSwitchHandler,
 
     // cache of device mappings
@@ -305,7 +288,7 @@ pub struct ProfileContext {
 
 impl ProfileContext {
     pub fn new(
-        profile: Profile,
+        mut profile: Profile,
         arch: &str,
         included_processes: Option<IncludedProcesses>,
         profile_creation_props: ProfileCreationProps,
@@ -332,6 +315,24 @@ impl ProfileContext {
             )
         });
 
+        let mut categories = KnownCategories::new();
+        let mut js_category_manager = JitCategoryManager::new();
+        let default_js_jit_category = js_category_manager.default_category(&mut profile);
+        let allow_jit_function_recycling = profile_creation_props.reuse_threads;
+        let js_jit_lib = SyntheticJitLibrary::new(
+            "JS JIT".to_string(),
+            default_js_jit_category.into(),
+            &mut profile,
+            allow_jit_function_recycling,
+        );
+        let coreclr_jit_category = categories.get(KnownCategory::CoreClrJit, &mut profile);
+        let coreclr_jit_lib = SyntheticJitLibrary::new(
+            "CoreCLR JIT".to_string(),
+            coreclr_jit_category.into(),
+            &mut profile,
+            allow_jit_function_recycling,
+        );
+
         Self {
             profile,
             profile_creation_props,
@@ -345,8 +346,10 @@ impl ProfileContext {
             libs_with_pending_debugid: HashMap::new(),
             kernel_pending_libraries: HashMap::new(),
             included_processes,
-            categories: KnownCategories::new(),
-            js_category_manager: JitCategoryManager::new(),
+            categories,
+            js_category_manager,
+            js_jit_lib,
+            coreclr_jit_lib,
             context_switch_handler: ContextSwitchHandler::new(122100), // hardcoded, but replaced once TraceStart is received
             device_mappings: winutils::get_dos_device_mappings(),
             kernel_min,
@@ -617,7 +620,7 @@ impl ProfileContext {
             memory_usage: None,
             process_id: pid,
             parent_id: parent_pid,
-            jit_info: ProcessJitInfo::new(),
+            jit_lib_mapping_ops: LibMappingOpQueue::default(),
             thread_recycler,
             jit_function_recycler,
         };
@@ -668,7 +671,7 @@ impl ProfileContext {
                     memory_usage: None,
                     process_id: pid,
                     parent_id: parent_pid,
-                    jit_info: ProcessJitInfo::new(),
+                    jit_lib_mapping_ops: LibMappingOpQueue::default(),
                     thread_recycler: Some(thread_recycler),
                     jit_function_recycler: Some(jit_function_recycler),
                 };
@@ -702,7 +705,7 @@ impl ProfileContext {
             memory_usage: None,
             process_id: pid,
             parent_id: parent_pid,
-            jit_info: ProcessJitInfo::new(),
+            jit_lib_mapping_ops: LibMappingOpQueue::default(),
             thread_recycler,
             jit_function_recycler,
         };
@@ -1463,50 +1466,28 @@ impl ProfileContext {
         let Some(process) = self.processes.get_mut(&pid) else {
             return;
         };
-        let main_thread_handle = process.main_thread_handle;
-        let process_jit_info = process.jit_info.get(&mut self.profile, pid);
 
-        let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
-        let relative_address = process_jit_info.next_relative_address;
-        process_jit_info.next_relative_address += method_size;
-
-        process_jit_info.symbols.push(Symbol {
-            address: relative_address,
-            size: Some(method_size),
-            name: method_name.clone(),
-        });
-
-        let (library_handle, relative_address) =
-            if let Some(jit_function_recycler) = process.jit_function_recycler.as_mut() {
-                jit_function_recycler.recycle(
-                    &method_name,
-                    method_size,
-                    process_jit_info.lib_handle,
-                    relative_address,
-                )
-            } else {
-                (process_jit_info.lib_handle, relative_address)
-            };
+        let lib = &mut self.js_jit_lib;
+        let (category, js_frame) = self
+            .js_category_manager
+            .classify_jit_symbol(&method_name, &mut self.profile);
+        let info = LibMappingInfo::new_jit_function(lib.lib_handle(), category, js_frame);
 
         let name_handle = self.profile.intern_string(&method_name);
+        let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
         self.profile.add_marker(
-            main_thread_handle,
+            process.main_thread_handle,
             MarkerTiming::Instant(timestamp),
             JitFunctionAddMarker(name_handle),
         );
 
-        let (category, js_frame) = self
-            .js_category_manager
-            .classify_jit_symbol(&method_name, &mut self.profile);
-        let info = LibMappingInfo::new_jit_function(library_handle, category, js_frame);
-        process_jit_info.jit_mapping_ops.push(
+        process.add_jit_function(
             timestamp_raw,
-            LibMappingOp::Add(LibMappingAdd {
-                start_avma: method_start_address,
-                end_avma: method_start_address + u64::from(method_size),
-                relative_address_at_start: relative_address,
-                info,
-            }),
+            lib,
+            method_name,
+            method_start_address,
+            method_size,
+            info,
         );
     }
 
@@ -1521,44 +1502,17 @@ impl ProfileContext {
         let Some(process) = self.processes.get_mut(&pid) else {
             return;
         };
-        let process_jit_info = process.jit_info.get(&mut self.profile, pid);
-        let relative_address = process_jit_info.next_relative_address;
-        process_jit_info.next_relative_address += method_size;
 
-        process_jit_info.symbols.push(Symbol {
-            address: relative_address,
-            size: Some(method_size),
-            name: method_name.clone(),
-        });
+        let lib = &mut self.coreclr_jit_lib;
+        let info = LibMappingInfo::new_jit_function(lib.lib_handle(), lib.default_category(), None);
 
-        let (library_handle, relative_address) =
-            if let Some(jit_function_recycler) = process.jit_function_recycler.as_mut() {
-                jit_function_recycler.recycle(
-                    &method_name,
-                    method_size,
-                    process_jit_info.lib_handle,
-                    relative_address,
-                )
-            } else {
-                (process_jit_info.lib_handle, relative_address)
-            };
-
-        // Not that useful for CoreCLR
-        //let mh = context.add_thread_marker(s.thread_id(), timestamp, CategoryHandle::OTHER, "JitFunctionAdd", JitFunctionAddMarker(method_name.to_owned()));
-        //core_clr_context.set_last_event_for_thread(thread_handle, mh);
-
-        let category = self
-            .categories
-            .get(KnownCategory::CoreClrJit, &mut self.profile);
-        let info = LibMappingInfo::new_jit_function(library_handle, category.into(), None);
-        process_jit_info.jit_mapping_ops.push(
+        process.add_jit_function(
             timestamp_raw,
-            LibMappingOp::Add(LibMappingAdd {
-                start_avma: method_start_address,
-                end_avma: method_start_address + u64::from(method_size),
-                relative_address_at_start: relative_address,
-                info,
-            }),
+            lib,
+            method_name,
+            method_start_address,
+            method_size,
+            info,
         );
     }
 
@@ -1784,21 +1738,20 @@ impl ProfileContext {
         // samply does on Linux and macOS, where the queued samples also want to respect JIT function names from
         // a /tmp/perf-1234.map file, and this file may not exist until the profiled process finishes.)
         let mut stack_frame_scratch_buf = Vec::new();
+        self.js_jit_lib
+            .finish_and_set_symbol_table(&mut self.profile);
+        self.coreclr_jit_lib
+            .finish_and_set_symbol_table(&mut self.profile);
         let process_iter = self
             .dead_processes_with_reused_pids
             .into_iter()
             .chain(self.processes.into_values());
         let process_sample_datas: Vec<_> = process_iter
             .map(|process| {
-                let jitdump_lib_mapping_op_queues = match process.jit_info.into_inner() {
-                    Some(jit_info) => {
-                        self.profile.set_lib_symbol_table(
-                            jit_info.lib_handle,
-                            Arc::new(SymbolTable::new(jit_info.symbols)),
-                        );
-                        vec![jit_info.jit_mapping_ops]
-                    }
-                    None => Vec::new(),
+                let jitdump_lib_mapping_op_queues = if !process.jit_lib_mapping_ops.is_empty() {
+                    vec![process.jit_lib_mapping_ops]
+                } else {
+                    Vec::new()
                 };
 
                 ProcessSampleData::new(
