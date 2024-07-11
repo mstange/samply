@@ -17,6 +17,7 @@ pub mod stack_converter;
 pub mod stack_depth_limiting_frame_iter;
 pub mod symbol_precog;
 pub mod symbol_props;
+pub mod synthetic_jit_library;
 pub mod timestamp_converter;
 pub mod types;
 pub mod unresolved_samples;

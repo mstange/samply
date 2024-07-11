@@ -49,6 +49,7 @@ use crate::shared::process_sample_data::{
     SchedSwitchMarkerOnThreadTrack,
 };
 use crate::shared::recording_props::ProfileCreationProps;
+use crate::shared::synthetic_jit_library::SyntheticJitLibrary;
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::types::{StackFrame, StackMode};
 use crate::shared::unresolved_samples::{
@@ -68,7 +69,8 @@ where
     build_ids: HashMap<DsoKey, DsoInfo>,
     endian: Endianness,
     linux_version: Option<String>,
-    extra_binary_artifact_dir: Option<PathBuf>,
+    binary_lookup_dirs: Vec<PathBuf>,
+    aux_file_lookup_dirs: Vec<PathBuf>,
     context_switch_handler: ContextSwitchHandler,
     unresolved_stacks: UnresolvedStacks,
     off_cpu_weight_per_sample: i32,
@@ -77,8 +79,10 @@ where
     kernel_symbols: Option<KernelSymbols>,
     kernel_image_mapping: Option<KernelImageMapping>,
     simpleperf_symbol_tables_user: HashMap<Vec<u8>, SymbolTableFromSimpleperf>,
+    simpleperf_symbol_tables_jit: HashMap<Vec<u8>, Vec<SimpleperfSymbol>>,
     simpleperf_symbol_tables_kernel_image: Option<Vec<SimpleperfSymbol>>,
     simpleperf_symbol_tables_kernel_modules: HashMap<Vec<u8>, SymbolTableFromSimpleperf>,
+    simpleperf_jit_app_cache_library: SyntheticJitLibrary,
     pe_mappings: PeMappings,
     jit_category_manager: JitCategoryManager,
     arg_count_to_include_in_process_name: usize,
@@ -117,7 +121,8 @@ where
         first_sample_time: u64,
         endian: Endianness,
         cache: U::Cache,
-        extra_binary_artifact_dir: Option<&Path>,
+        binary_lookup_dirs: Vec<PathBuf>,
+        aux_file_lookup_dirs: Vec<PathBuf>,
         interpretation: EventInterpretation,
         simpleperf_symbol_tables: Option<Vec<SimpleperfFileRecord>>,
         call_chain_return_addresses_are_preadjusted: bool,
@@ -144,8 +149,19 @@ where
         };
 
         let mut simpleperf_symbol_tables_user = HashMap::new();
+        let mut simpleperf_symbol_tables_jit = HashMap::new();
         let mut simpleperf_symbol_tables_kernel_image = None;
         let mut simpleperf_symbol_tables_kernel_modules = HashMap::new();
+        let simpleperf_jit_category: CategoryPairHandle = profile
+            .add_category("JIT app cache", CategoryColor::Green)
+            .into();
+        let allow_jit_function_recycling = profile_creation_props.reuse_threads;
+        let simpleperf_jit_app_cache_library = SyntheticJitLibrary::new(
+            "JIT app cache".to_string(),
+            simpleperf_jit_category,
+            &mut profile,
+            allow_jit_function_recycling,
+        );
         if let Some(simpleperf_symbol_tables) = simpleperf_symbol_tables {
             let dex_category: CategoryPairHandle =
                 profile.add_category("DEX", CategoryColor::Green).into();
@@ -158,28 +174,28 @@ where
                 }
 
                 let path = f.path.clone().into_bytes();
-                let jit_info = parse_simpleperf_jit_path(&f.path);
-                let is_jit = jit_info.is_some();
+                if is_simpleperf_jit_path(&f.path) {
+                    simpleperf_symbol_tables_jit.insert(path, f.symbol);
+                    continue;
+                }
+
+                let is_jit = false;
                 let (category, art_info) = if f.path.ends_with(".oat") {
-                    (Some(oat_category), Some(AndroidArtInfo::DexOrOat))
+                    (Some(oat_category), Some(AndroidArtInfo::JavaFrame))
                 } else if f.r#type == DSO_DEX_FILE || f.path.ends_with(".odex") || is_jit {
-                    (Some(dex_category), Some(AndroidArtInfo::DexOrOat))
+                    (Some(dex_category), Some(AndroidArtInfo::JavaFrame))
                 } else if f.path.ends_with("libart.so") {
                     (None, Some(AndroidArtInfo::LibArt))
                 } else {
                     (None, None)
                 };
 
-                let (min_vaddr, file_offset_of_min_vaddr_in_elf_file) =
-                    match (jit_info, f.type_specific_msg) {
-                        (Some((_, file_offset_at_min_vaddr, _)), _) => {
-                            (f.symbol[0].vaddr, Some(file_offset_at_min_vaddr))
-                        }
-                        (None, Some(SimpleperfTypeSpecificInfo::ElfFile(elf))) => {
-                            (f.min_vaddr, Some(elf.file_offset_of_min_vaddr))
-                        }
-                        _ => (f.min_vaddr, None),
-                    };
+                let (min_vaddr, file_offset_of_min_vaddr_in_elf_file) = match f.type_specific_msg {
+                    Some(SimpleperfTypeSpecificInfo::ElfFile(elf)) => {
+                        (f.min_vaddr, Some(elf.file_offset_of_min_vaddr))
+                    }
+                    _ => (f.min_vaddr, None),
+                };
                 let symbols: Vec<_> = f
                     .symbol
                     .iter()
@@ -229,7 +245,8 @@ where
             build_ids,
             endian,
             linux_version: linux_version.map(ToOwned::to_owned),
-            extra_binary_artifact_dir: extra_binary_artifact_dir.map(ToOwned::to_owned),
+            binary_lookup_dirs,
+            aux_file_lookup_dirs,
             off_cpu_weight_per_sample,
             context_switch_handler: ContextSwitchHandler::new(off_cpu_sampling_interval_ns),
             unresolved_stacks: UnresolvedStacks::default(),
@@ -238,8 +255,10 @@ where
             kernel_symbols,
             kernel_image_mapping: None,
             simpleperf_symbol_tables_user,
+            simpleperf_symbol_tables_jit,
             simpleperf_symbol_tables_kernel_image,
             simpleperf_symbol_tables_kernel_modules,
+            simpleperf_jit_app_cache_library,
             pe_mappings: PeMappings::new(),
             jit_category_manager: JitCategoryManager::new(),
             fold_recursive_prefix: profile_creation_props.fold_recursive_prefix,
@@ -252,6 +271,8 @@ where
 
     pub fn finish(mut self) -> Profile {
         let mut profile = self.profile;
+        self.simpleperf_jit_app_cache_library
+            .finish_and_set_symbol_table(&mut profile);
         self.processes.finish(
             &mut profile,
             &self.unresolved_stacks,
@@ -771,6 +792,12 @@ where
             return;
         }
 
+        const PROT_SIMPLEPERF_JIT_MAPPING: u32 = 0x4000;
+        if e.protection & PROT_SIMPLEPERF_JIT_MAPPING != 0 {
+            self.add_simpleperf_jit_mapping(e, timestamp);
+            return;
+        }
+
         if e.page_offset == 0 {
             self.pe_mappings.check_mmap(&path, e.address);
         }
@@ -830,7 +857,7 @@ where
             process.jitdump_manager.add_jitdump_path(
                 profile_thread,
                 jitdump_path,
-                self.extra_binary_artifact_dir.clone(),
+                self.aux_file_lookup_dirs.clone(),
             );
             return true;
         }
@@ -843,7 +870,7 @@ where
             process.add_marker_file_path(
                 profile_thread,
                 marker_file_path,
-                self.extra_binary_artifact_dir.clone(),
+                self.aux_file_lookup_dirs.clone(),
             );
             return true;
         }
@@ -1171,9 +1198,7 @@ where
             (None, Some(kernel_symbols)) if kernel_symbols.base_avma == base_address => {
                 Some(kernel_symbols.build_id.clone())
             }
-            (None, _) => {
-                kernel_module_build_id(Path::new(&path), self.extra_binary_artifact_dir.as_deref())
-            }
+            (None, _) => kernel_module_build_id(Path::new(&path), &self.binary_lookup_dirs),
             (Some(build_id), _) => Some(build_id.to_owned()),
         };
         let debug_id = build_id
@@ -1277,6 +1302,36 @@ where
         }
     }
 
+    fn add_simpleperf_jit_mapping(&mut self, e: Mmap2Record, timestamp_raw: u64) {
+        let path = e.path.as_slice();
+        let address = e.address;
+        let mapping_size = e.length;
+        let (name, len) = self
+            .get_simpleperf_jit_function_name(&path, address)
+            .unwrap_or_else(|| (format!("jit_fun_{address:x}"), mapping_size as u32));
+
+        let process = self.processes.get_by_pid(e.pid, &mut self.profile);
+        let synthetic_lib = &mut self.simpleperf_jit_app_cache_library;
+        let info = LibMappingInfo::new_java_mapping(
+            synthetic_lib.lib_handle(),
+            Some(synthetic_lib.default_category()),
+        );
+        process.add_jit_function(timestamp_raw, synthetic_lib, name, address, len, info);
+    }
+
+    fn get_simpleperf_jit_function_name(
+        &self,
+        path_slice: &[u8],
+        start_avma: u64,
+    ) -> Option<(String, u32)> {
+        let symbols = self.simpleperf_symbol_tables_jit.get(path_slice)?;
+        let index = symbols
+            .binary_search_by_key(&start_avma, |sym| sym.vaddr)
+            .ok()?;
+        let sym = &symbols[index];
+        Some((sym.name.clone(), sym.len))
+    }
+
     /// Tell the unwinder and the profile about this module.
     ///
     /// The unwinder needs to know about it in case we need to do DWARF stack
@@ -1314,10 +1369,7 @@ where
         let mut file = None;
         let mut path = mapping_info.path.to_string_lossy().to_string();
 
-        if let Ok((f, p)) = open_file_with_fallback(
-            &mapping_info.path,
-            self.extra_binary_artifact_dir.as_deref(),
-        ) {
+        if let Ok((f, p)) = open_file_with_fallback(&mapping_info.path, &self.binary_lookup_dirs) {
             // Fix up bad files from `perf inject --jit`.
             if let Some((fixed_file, fixed_path)) = correct_bad_perf_jit_so_file(&f, &path) {
                 file = Some(fixed_file);
@@ -1379,8 +1431,8 @@ where
             });
             let info = match symbol_table.art_info {
                 Some(AndroidArtInfo::LibArt) => LibMappingInfo::new_libart_mapping(lib_handle),
-                Some(AndroidArtInfo::DexOrOat) => {
-                    LibMappingInfo::new_dex_or_oat_mapping(lib_handle, symbol_table.category)
+                Some(AndroidArtInfo::JavaFrame) => {
+                    LibMappingInfo::new_java_mapping(lib_handle, symbol_table.category)
                 }
                 None => LibMappingInfo::new_lib(lib_handle),
             };
@@ -1732,14 +1784,19 @@ fn process_off_cpu_sample_group(
     }
 }
 
-/// Extract Some(("/data/local/tmp/perf.data_jit_app_cache", 1039560, 1040440))
-/// from paths like "/data/local/tmp/perf.data_jit_app_cache:1039560-1040440"
-fn parse_simpleperf_jit_path(path: &str) -> Option<(&str, u64, u64)> {
-    let (base_path, range) = path.rsplit_once(':')?;
-    let (from, to) = range.split_once('-')?;
-    let from: u64 = from.parse().ok()?;
-    let to: u64 = to.parse().ok()?;
-    Some((base_path, from, to))
+/// Returns true for paths such as the following:
+///  - "/data/local/tmp/perf.data_jit_app_cache:1039560-1040440"
+///  - "./TemporaryFile-osHvVs" (used by older versions of simpleperf, e.g. on Android 11)
+fn is_simpleperf_jit_path(path: &str) -> bool {
+    let path = match path.rsplit_once(':') {
+        Some((base_path, _range)) => base_path,
+        None => path,
+    };
+    let name = match path.rfind('/') {
+        Some(pos) => &path[pos + 1..],
+        None => path,
+    };
+    name.ends_with("_jit_app_cache") || name.starts_with("TemporaryFile-")
 }
 
 struct MappingInfo {

@@ -593,7 +593,7 @@ impl TaskProfiler {
                     self.jitdump_manager.add_jitdump_path(
                         self.main_thread_handle,
                         jitdump_path,
-                        None,
+                        Vec::new(),
                     );
                 }
                 JitdumpOrMarkerPath::MarkerFilePath(marker_file_path) => {
@@ -665,7 +665,7 @@ impl TaskProfiler {
         let mut marker_spans = Vec::new();
         for (thread_handle, marker_file_path) in self.marker_file_paths {
             if let Ok(marker_spans_from_this_file) =
-                get_markers(&marker_file_path, None, self.timestamp_converter)
+                get_markers(&marker_file_path, &[], self.timestamp_converter)
             {
                 marker_spans.extend(marker_spans_from_this_file.into_iter().map(|span| {
                     MarkerSpanOnThread {

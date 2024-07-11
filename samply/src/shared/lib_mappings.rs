@@ -16,8 +16,10 @@ pub struct LibMappingInfo {
 pub enum AndroidArtInfo {
     /// Set when the lib mapping is for `libart.so`.
     LibArt,
-    /// Set on Android `OAT` and `DEX` mappings.
-    DexOrOat,
+    /// Set on a Java / Kotlin frame. This frame could come from a .dex / .vdex file,
+    /// or from an .oat file, or it could be a JITted frame, or it could be a synthetic
+    /// frame inserted by the interpreter.
+    JavaFrame,
 }
 
 impl LibMappingInfo {
@@ -62,7 +64,7 @@ impl LibMappingInfo {
         }
     }
 
-    pub fn new_dex_or_oat_mapping(
+    pub fn new_java_mapping(
         lib_handle: LibraryHandle,
         category: Option<CategoryPairHandle>,
     ) -> Self {
@@ -70,11 +72,12 @@ impl LibMappingInfo {
             lib_handle,
             category,
             js_frame: None,
-            art_info: Some(AndroidArtInfo::DexOrOat),
+            art_info: Some(AndroidArtInfo::JavaFrame),
         }
     }
 }
 
+#[derive(Debug)]
 pub struct LibMappingsHierarchy {
     regular_libs: (LibMappings<LibMappingInfo>, LibMappingOpQueueIter),
     jitdumps: Vec<(LibMappings<LibMappingInfo>, LibMappingOpQueueIter)>,
@@ -136,11 +139,16 @@ impl LibMappingOpQueue {
         self.0.push((timestamp, op));
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     pub fn into_iter(self) -> LibMappingOpQueueIter {
         LibMappingOpQueueIter(self.0.into_iter().peekable())
     }
 }
 
+#[derive(Debug)]
 pub struct LibMappingOpQueueIter(Peekable<std::vec::IntoIter<(u64, LibMappingOp)>>);
 
 impl LibMappingOpQueueIter {

@@ -17,6 +17,7 @@ use crate::shared::marker_file::get_markers;
 use crate::shared::perf_map::try_load_perf_map;
 use crate::shared::process_sample_data::{MarkerSpanOnThread, ProcessSampleData};
 use crate::shared::recycling::{ProcessRecyclingData, ThreadRecycler};
+use crate::shared::synthetic_jit_library::SyntheticJitLibrary;
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::unresolved_samples::UnresolvedSamples;
 
@@ -29,8 +30,9 @@ pub struct Process<U> {
     pub threads: ProcessThreads,
     pub pid: i32,
     pub unresolved_samples: UnresolvedSamples,
+    pub jit_app_cache_mapping_ops: LibMappingOpQueue,
     pub jit_function_recycler: Option<JitFunctionRecycler>,
-    marker_file_paths: Vec<(ThreadHandle, PathBuf, Option<PathBuf>)>,
+    marker_file_paths: Vec<(ThreadHandle, PathBuf, Vec<PathBuf>)>,
     pub prev_mm_filepages_size: i64,
     pub prev_mm_anonpages_size: i64,
     pub prev_mm_swapents_size: i64,
@@ -74,6 +76,7 @@ where
                 thread_recycler,
             ),
             unresolved_samples: Default::default(),
+            jit_app_cache_mapping_ops: LibMappingOpQueue::default(),
             jit_function_recycler,
             marker_file_paths: Vec::new(),
             prev_mm_filepages_size: 0,
@@ -174,10 +177,10 @@ where
         &mut self,
         thread: ThreadHandle,
         path: &Path,
-        fallback_dir: Option<PathBuf>,
+        lookup_dirs: Vec<PathBuf>,
     ) {
         self.marker_file_paths
-            .push((thread, path.to_owned(), fallback_dir));
+            .push((thread, path.to_owned(), lookup_dirs));
     }
 
     pub fn notify_dead(&mut self, end_time: Timestamp, profile: &mut Profile) {
@@ -206,20 +209,22 @@ where
 
         let jitdump_manager =
             std::mem::replace(&mut self.jitdump_manager, JitDumpManager::new(false));
-        let jitdump_ops = jitdump_manager.finish(
+        let mut jitdump_ops = jitdump_manager.finish(
             jit_category_manager,
             profile,
             self.jit_function_recycler.as_mut(),
             timestamp_converter,
         );
 
+        if !self.jit_app_cache_mapping_ops.is_empty() {
+            jitdump_ops.insert(0, self.jit_app_cache_mapping_ops);
+        }
+
         let mut marker_spans = Vec::new();
-        for (thread_handle, marker_file_path, fallback_dir) in self.marker_file_paths {
-            if let Ok(marker_spans_from_this_file) = get_markers(
-                &marker_file_path,
-                fallback_dir.as_deref(),
-                *timestamp_converter,
-            ) {
+        for (thread_handle, marker_file_path, lookup_dirs) in self.marker_file_paths {
+            if let Ok(marker_spans_from_this_file) =
+                get_markers(&marker_file_path, &lookup_dirs, *timestamp_converter)
+            {
                 marker_spans.extend(marker_spans_from_this_file.into_iter().map(|span| {
                     MarkerSpanOnThread {
                         thread_handle,
@@ -318,6 +323,28 @@ where
                 end_avma: end_address,
                 relative_address_at_start,
                 info: LibMappingInfo::new_jit_function(lib_handle, category, js_frame),
+            }),
+        );
+    }
+
+    pub fn add_jit_function(
+        &mut self,
+        timestamp_raw: u64,
+        jit_lib: &mut SyntheticJitLibrary,
+        name: String,
+        start_avma: u64,
+        size: u32,
+        info: LibMappingInfo,
+    ) {
+        let relative_address = jit_lib.add_function(name, size);
+
+        self.jit_app_cache_mapping_ops.push(
+            timestamp_raw,
+            LibMappingOp::Add(LibMappingAdd {
+                start_avma,
+                end_avma: start_avma + u64::from(size),
+                relative_address_at_start: relative_address,
+                info,
             }),
         );
     }
