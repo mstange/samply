@@ -1,5 +1,5 @@
 use std::collections::{HashMap, VecDeque};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use debugid::DebugId;
 use fxprof_processed_profile::{
@@ -9,7 +9,7 @@ use fxprof_processed_profile::{
     StringHandle, ThreadHandle, Timestamp,
 };
 use shlex::Shlex;
-use uuid::Uuid;
+use wholesym::PeCodeId;
 
 use super::chrome::KeywordNames;
 use super::winutils;
@@ -32,6 +32,22 @@ use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
 use crate::windows::firefox::{
     PHASE_INSTANT, PHASE_INTERVAL, PHASE_INTERVAL_END, PHASE_INTERVAL_START,
 };
+
+#[derive(Debug, Default, Clone)]
+pub struct ImageInfoFromMergedEtl {
+    pub image_timestamp: Option<u32>,
+    pub debug_id: Option<DebugId>,
+    pub pdb_path: Option<String>,
+}
+
+impl ImageInfoFromMergedEtl {
+    pub fn get_complete(self) -> Option<(u32, DebugId, String)> {
+        let image_timestamp = self.image_timestamp?;
+        let debug_id = self.debug_id?;
+        let pdb_path = self.pdb_path?;
+        Some((image_timestamp, debug_id, pdb_path))
+    }
+}
 
 /// An on- or off-cpu-sample for which the user stack is not known yet.
 /// Consumed once the user stack arrives.
@@ -106,7 +122,6 @@ pub struct ProcessState {
     pub jit_lib_mapping_ops: LibMappingOpQueue,
     pub main_thread_handle: ThreadHandle,
     pub main_thread_label_frame: FrameInfo,
-    pub pending_libraries: HashMap<u64, LibraryInfo>,
     pub memory_usage: Option<MemoryUsage>,
     pub process_id: u32,
     #[allow(dead_code)]
@@ -244,9 +259,6 @@ pub struct ProfileContext {
     // some special threads
     gpu_thread_handle: Option<ThreadHandle>,
 
-    libs_with_pending_debugid: HashMap<(u32, u64), (String, u32, u32)>,
-    kernel_pending_libraries: HashMap<u64, LibraryInfo>,
-
     // These are the processes + their descendants that we want to write into
     // the profile.json. If it's None, include everything.
     included_processes: Option<IncludedProcesses>,
@@ -295,7 +307,7 @@ impl ProfileContext {
     ) -> Self {
         // On 64-bit systems, the kernel address space always has 0xF in the first 16 bits.
         // The actual kernel address space is much higher, but we just need this to disambiguate kernel and user
-        // stacks. Use add_kernel_drivers to get accurate mappings.
+        // stacks.
         let kernel_min: u64 = if arch == "x86" {
             0x8000_0000
         } else {
@@ -343,8 +355,6 @@ impl ProfileContext {
             unresolved_stacks: UnresolvedStacks::default(),
             process_recycler,
             gpu_thread_handle: None,
-            libs_with_pending_debugid: HashMap::new(),
-            kernel_pending_libraries: HashMap::new(),
             included_processes,
             categories,
             js_category_manager,
@@ -399,65 +409,6 @@ impl ProfileContext {
         Some(memory_usage.counter)
     }
 
-    #[allow(unused)]
-    fn try_get_library_info_for_path(&self, path: &str) -> Option<LibraryInfo> {
-        let path = self.map_device_path(path);
-        let name = PathBuf::from(&path)
-            .file_name()?
-            .to_string_lossy()
-            .to_string();
-        let file = std::fs::File::open(&path).ok()?;
-        let mmap = unsafe { memmap2::MmapOptions::new().map(&file) }.ok()?;
-        let object = object::File::parse(&mmap[..]).ok()?;
-        let debug_id = wholesym::samply_symbols::debug_id_for_object(&object);
-        use object::Object;
-        let arch = object_arch_to_string(object.architecture()).map(ToOwned::to_owned);
-        let pe_info = match &object {
-            object::File::Pe32(pe_file) => Some(pe_info(pe_file)),
-            object::File::Pe64(pe_file) => Some(pe_info(pe_file)),
-            _ => None,
-        };
-        let info = LibraryInfo {
-            name: name.to_string(),
-            path: path.to_string(),
-            debug_name: pe_info
-                .as_ref()
-                .and_then(|pi| pi.pdb_name.clone())
-                .unwrap_or_else(|| name.to_string()),
-            debug_path: pe_info
-                .as_ref()
-                .and_then(|pi| pi.pdb_path.clone())
-                .unwrap_or_else(|| path.to_string()),
-            debug_id: debug_id.unwrap_or_else(debugid::DebugId::nil),
-            code_id: pe_info.as_ref().map(|pi| pi.code_id.to_string()),
-            arch,
-            symbol_table: None,
-        };
-        Some(info)
-    }
-
-    fn get_library_info_for_path(&self, path: &str) -> LibraryInfo {
-        if let Some(info) = self.try_get_library_info_for_path(path) {
-            info
-        } else {
-            // Not found; dummy
-            LibraryInfo {
-                name: PathBuf::from(path)
-                    .file_name()
-                    .unwrap()
-                    .to_string_lossy()
-                    .into_owned(),
-                path: path.to_string(),
-                debug_name: "".to_owned(),
-                debug_path: "".to_owned(),
-                debug_id: DebugId::from_uuid(Uuid::new_v4()),
-                code_id: None,
-                arch: Some(self.arch.clone()),
-                symbol_table: None,
-            }
-        }
-    }
-
     pub fn is_interesting_process(&self, pid: u32, ppid: Option<u32>, name: Option<&str>) -> bool {
         if pid == 0 {
             return false;
@@ -473,18 +424,6 @@ impl ProfileContext {
         match &self.included_processes {
             Some(incl) => incl.should_include(name, pid),
             None => true,
-        }
-    }
-
-    #[allow(unused)]
-    fn add_kernel_drivers(&mut self) {
-        for (path, start_avma, end_avma) in winutils::iter_kernel_drivers() {
-            let path = self.map_device_path(&path);
-            log::info!("kernel driver: {} {:x} {:x}", path, start_avma, end_avma);
-            let lib_info = self.get_library_info_for_path(&path);
-            let lib_handle = self.profile.add_lib(lib_info);
-            self.profile
-                .add_kernel_lib_mapping(lib_handle, start_avma, end_avma, 0);
         }
     }
 
@@ -567,13 +506,9 @@ impl ProfileContext {
 
     pub fn make_process_name(&self, image_file_name: &str, cmdline: &str) -> String {
         let executable_path = self.map_device_path(image_file_name);
-        let executable_path = Path::new(&executable_path);
-        let executable_name = match executable_path.file_name() {
-            Some(name) => name.to_string_lossy(),
-            None => executable_path.to_string_lossy(),
-        };
+        let executable_name = extract_filename(&executable_path);
         make_process_name(
-            &executable_name,
+            executable_name,
             Shlex::new(cmdline).collect(),
             self.profile_creation_props
                 .arg_count_to_include_in_process_name,
@@ -616,7 +551,6 @@ impl ProfileContext {
             regular_lib_mapping_ops: LibMappingOpQueue::default(),
             main_thread_handle,
             main_thread_label_frame,
-            pending_libraries: HashMap::new(),
             memory_usage: None,
             process_id: pid,
             parent_id: parent_pid,
@@ -667,7 +601,6 @@ impl ProfileContext {
                     regular_lib_mapping_ops: LibMappingOpQueue::default(),
                     main_thread_handle,
                     main_thread_label_frame,
-                    pending_libraries: HashMap::new(),
                     memory_usage: None,
                     process_id: pid,
                     parent_id: parent_pid,
@@ -701,7 +634,6 @@ impl ProfileContext {
             regular_lib_mapping_ops: LibMappingOpQueue::default(),
             main_thread_handle,
             main_thread_label_frame,
-            pending_libraries: HashMap::new(),
             memory_usage: None,
             process_id: pid,
             parent_id: parent_pid,
@@ -1220,123 +1152,74 @@ impl ProfileContext {
         // TODO: Consider adding a marker here
     }
 
-    pub fn handle_image_id(
-        &mut self,
-        pid: u32,
-        image_base: u64,
-        image_timestamp: u32,
-        image_size: u32,
-        image_path: String,
-    ) {
-        if !self.is_interesting_process(pid, None, None) && pid != 0 {
-            return;
-        }
-        //eprintln!("ImageID pid: {} 0x{:x} {} {} {}", pid, image_base, image_path, image_size, image_timestamp);
-        // "libs" is used as a cache to store the image path and size until we get the DbgID_RSDS event
-        if self
-            .libs_with_pending_debugid
-            .contains_key(&(pid, image_base))
-        {
-            // I see odd entries like this with no corresponding DbgID_RSDS:
-            //   ImageID pid: 3156 0xf70000 com.docker.cli.exe 49819648 0
-            // they all come from something docker-related. So don't panic on the duplicate.
-            //panic!("libs_with_pending_debugid already contains key 0x{:x} for pid {}", image_base, pid);
-        }
-        self.libs_with_pending_debugid
-            .insert((pid, image_base), (image_path, image_size, image_timestamp));
-    }
-
-    pub fn handle_image_debug_id(
-        &mut self,
-        pid: u32,
-        image_base: u64,
-        debug_id: DebugId,
-        pdb_path: String,
-    ) {
-        if !self.is_interesting_process(pid, None, None) && pid != 0 {
-            return;
-        }
-
-        //let pdb_path = Path::new(&pdb_path);
-        let Some((ref path, image_size, timestamp)) =
-            self.libs_with_pending_debugid.remove(&(pid, image_base))
-        else {
-            log::warn!(
-                "DbID_RSDS for image at 0x{:x} for pid {}, but has no entry in libs",
-                image_base,
-                pid
-            );
-            return;
-        };
-        //eprintln!("DbgID_RSDS pid: {} 0x{:x} {} {} {} {}", pid, image_base, path, debug_id, pdb_path, age);
-        let code_id = Some(format!("{timestamp:08X}{image_size:x}"));
-        let name = Path::new(path)
-            .file_name()
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .to_owned();
-        let debug_name = Path::new(&pdb_path)
-            .file_name()
-            .map(|f| f.to_str().unwrap().to_owned())
-            .unwrap_or(name.clone());
-        let info = LibraryInfo {
-            name,
-            debug_name,
-            path: path.clone(),
-            code_id,
-            symbol_table: None,
-            debug_path: pdb_path,
-            debug_id,
-            arch: Some(self.arch.to_owned()),
-        };
-        if pid == 0 || image_base >= self.kernel_min {
-            if let Some(oldinfo) = self.kernel_pending_libraries.get(&image_base) {
-                assert_eq!(*oldinfo, info);
-            } else {
-                self.kernel_pending_libraries.insert(image_base, info);
-            }
-        } else if let Some(process) = self.processes.get_mut(&pid) {
-            process.pending_libraries.insert(image_base, info);
-        } else {
-            log::warn!("No process for pid {pid}");
-        }
-    }
-
+    #[allow(clippy::too_many_arguments)]
     pub fn handle_image_load(
         &mut self,
         timestamp_raw: u64,
         pid: u32,
         image_base: u64,
-        image_size: u64,
+        image_size: u32,
+        image_timestamp_maybe_zero: u32,
+        image_checksum: u32,
         path: String,
+        image_info_from_merged_etl: ImageInfoFromMergedEtl,
     ) {
-        // KernelTraceControl/ImageID/ and KernelTraceControl/ImageID/DbgID_RSDS are synthesized from MSNT_SystemTrace/Image/Load
-        // but don't contain the full path of the binary. We go through a bit of a dance to store the information from those events
-        // in pending_libraries and deal with it here. We assume that the KernelTraceControl events come before the Image/Load event.
-
-        // the ProcessId field doesn't necessarily match s.process_id();
         if !self.is_interesting_process(pid, None, None) && pid != 0 {
             return;
         }
 
         let path = self.map_device_path(&path);
 
-        let info = if pid == 0 {
-            self.kernel_pending_libraries.remove(&image_base)
-        } else if let Some(process) = self.processes.get_mut(&pid) {
-            process.pending_libraries.remove(&image_base)
+        let (debug_id, pdb_path, code_id) = if let Some((timestamp, debug_id, pdb_path)) =
+            image_info_from_merged_etl.get_complete()
+        {
+            let code_id = Some(wholesym::CodeId::PeCodeId(PeCodeId {
+                timestamp,
+                image_size,
+            }));
+            (debug_id, pdb_path, code_id)
         } else {
-            log::warn!("Received image load for unknown pid {pid}");
-            return;
+            match get_pe_info(Path::new(&path)) {
+                Some(pe_info)
+                    if pe_info.image_size == image_size
+                        && pe_info.image_checksum == image_checksum =>
+                {
+                    let debug_id = pe_info.debug_id.unwrap_or_default();
+                    let pdb_path = pe_info.pdb_path.unwrap_or_else(|| path.clone());
+                    let code_id = Some(pe_info.code_id);
+                    (debug_id, pdb_path, code_id)
+                }
+                _ => {
+                    // If file doesn't exist or image_size / image_checksum don't match, fall back to default.
+                    // This happens for the ghost drivers mentioned here: https://devblogs.microsoft.com/oldnewthing/20160913-00/?p=94305
+                    // and for files that were removed since the recording started.
+                    let debug_id = DebugId::nil();
+                    let pdb_path = path.clone();
+                    let code_id = if image_timestamp_maybe_zero != 0 {
+                        Some(wholesym::CodeId::PeCodeId(PeCodeId {
+                            timestamp: image_timestamp_maybe_zero,
+                            image_size,
+                        }))
+                    } else {
+                        None
+                    };
+                    (debug_id, pdb_path, code_id)
+                }
+            }
         };
 
-        // If the file doesn't exist on disk we won't have KernelTraceControl/ImageID events
-        // This happens for the ghost drivers mentioned here: https://devblogs.microsoft.com/oldnewthing/20160913-00/?p=94305
-        let Some(mut info) = info else { return };
-
-        info.path = path;
-
+        let name = extract_filename(&path).to_string();
+        let debug_name = extract_filename(&pdb_path).to_string();
+        let info = LibraryInfo {
+            name,
+            path,
+            debug_name,
+            debug_path: pdb_path,
+            debug_id,
+            code_id: code_id.map(|ci| ci.to_string()),
+            arch: Some(self.arch.to_owned()),
+            symbol_table: None,
+        };
         // attempt to categorize the library based on the path
         let path_lower = info.path.to_lowercase();
         let debug_path_lower = info.debug_path.to_lowercase();
@@ -1351,9 +1234,11 @@ impl ProfileContext {
         };
 
         let lib_handle = self.profile.add_lib(info);
-        if pid == 0 || image_base >= self.kernel_min {
+        let start_avma = image_base;
+        let end_avma = image_base + image_size as u64;
+        if pid == 0 || start_avma >= self.kernel_min {
             self.profile
-                .add_kernel_lib_mapping(lib_handle, image_base, image_base + image_size, 0);
+                .add_kernel_lib_mapping(lib_handle, start_avma, end_avma, 0);
             return;
         }
 
@@ -1371,8 +1256,8 @@ impl ProfileContext {
             .push(
                 timestamp_raw,
                 LibMappingOp::Add(LibMappingAdd {
-                    start_avma: image_base,
-                    end_avma: image_base + image_size,
+                    start_avma,
+                    end_avma,
                     relative_address_at_start: 0,
                     info,
                 }),
@@ -1792,8 +1677,24 @@ impl ProfileContext {
 
 struct PeInfo {
     code_id: wholesym::CodeId,
+    image_size: u32,
+    image_checksum: u32,
+    debug_id: Option<DebugId>,
     pdb_path: Option<String>,
-    pdb_name: Option<String>,
+}
+
+fn get_pe_info(image_path: &Path) -> Option<PeInfo> {
+    let file = std::fs::File::open(image_path).ok()?;
+    let mmap = unsafe { memmap2::Mmap::map(&file).ok()? };
+    let info = match object::read::FileKind::parse(&mmap[..]).ok()? {
+        object::FileKind::Pe32 => pe_info(&object::read::pe::PeFile32::parse(&mmap[..]).ok()?),
+        object::FileKind::Pe64 => pe_info(&object::read::pe::PeFile64::parse(&mmap[..]).ok()?),
+        kind => {
+            log::warn!("Unexpected file kind {kind:?} for image file at {image_path:?}");
+            return None;
+        }
+    };
+    Some(info)
 }
 
 fn pe_info<'a, Pe: object::read::pe::ImageNtHeaders, R: object::ReadRef<'a>>(
@@ -1809,40 +1710,28 @@ fn pe_info<'a, Pe: object::read::pe::ImageNtHeaders, R: object::ReadRef<'a>>(
         .get(object::LittleEndian);
     use object::read::pe::ImageOptionalHeader;
     let image_size = header.optional_header().size_of_image();
+    let image_checksum = header.optional_header().check_sum();
     let code_id = wholesym::CodeId::PeCodeId(wholesym::PeCodeId {
         timestamp,
         image_size,
     });
 
     use object::Object;
-    let pdb_path: Option<String> = pe.pdb_info().ok().and_then(|pdb_info| {
-        let pdb_path = std::str::from_utf8(pdb_info?.path()).ok()?;
+    let pdb_info = pe.pdb_info().ok().flatten();
+    let pdb_path: Option<String> = pdb_info.and_then(|pdb_info| {
+        let pdb_path = std::str::from_utf8(pdb_info.path()).ok()?;
         Some(pdb_path.to_string())
     });
-
-    let pdb_name = pdb_path
-        .as_deref()
-        .map(|pdb_path| match pdb_path.rsplit_once(['/', '\\']) {
-            Some((_base, file_name)) => file_name.to_string(),
-            None => pdb_path.to_string(),
-        });
+    let debug_id: Option<DebugId> =
+        pdb_info.and_then(|pdb_info| DebugId::from_guid_age(&pdb_info.guid(), pdb_info.age()).ok());
 
     PeInfo {
         code_id,
+        image_size,
+        image_checksum,
+        debug_id,
         pdb_path,
-        pdb_name,
     }
-}
-
-fn object_arch_to_string(arch: object::Architecture) -> Option<&'static str> {
-    let s = match arch {
-        object::Architecture::Arm => "arm",
-        object::Architecture::Aarch64 => "arm64",
-        object::Architecture::I386 => "x86",
-        object::Architecture::X86_64 => "x86_64",
-        _ => return None,
-    };
-    Some(s)
 }
 
 fn to_stack_frames(
@@ -1917,5 +1806,12 @@ impl StaticSchemaMarker for FreeformMarker {
 
     fn number_field_value(&self, _field_index: u32) -> f64 {
         unreachable!()
+    }
+}
+
+fn extract_filename(path: &str) -> &str {
+    match path.rsplit_once(['/', '\\']) {
+        Some((_base, file_name)) => file_name,
+        None => path,
     }
 }
