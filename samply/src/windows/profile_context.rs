@@ -132,10 +132,8 @@ pub struct ProcessState {
 
 impl ProcessState {
     pub fn take_recycling_data(&mut self) -> Option<ProcessRecyclingData> {
-        let mut jit_function_recycler = self.jit_function_recycler.take()?;
+        let jit_function_recycler = self.jit_function_recycler.take()?;
         let thread_recycler = self.thread_recycler.take()?;
-
-        jit_function_recycler.finish_round();
 
         Some(ProcessRecyclingData {
             process_handle: self.handle,

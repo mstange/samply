@@ -9,7 +9,6 @@ use super::types::FastHashMap;
 /// We define "similar" functions as functions which have the same name and code size (in bytes).
 #[derive(Debug, Clone, Default)]
 pub struct JitFunctionRecycler {
-    new_jit_functions: Vec<(String, u32, LibraryHandle, u32)>,
     jit_functions_for_reuse_by_name_and_size: FastHashMap<(String, u32), (LibraryHandle, u32)>,
 }
 
@@ -21,28 +20,9 @@ impl JitFunctionRecycler {
         lib_handle: LibraryHandle,
         relative_address: u32,
     ) -> (LibraryHandle, u32) {
-        let name_and_code_size = (name.to_owned(), code_size);
-        match self
+        *self
             .jit_functions_for_reuse_by_name_and_size
-            .get(&name_and_code_size)
-        {
-            Some(reused_function) => *reused_function,
-            None => {
-                self.new_jit_functions.push((
-                    name_and_code_size.0,
-                    code_size,
-                    lib_handle,
-                    relative_address,
-                ));
-                (lib_handle, relative_address)
-            }
-        }
-    }
-
-    pub fn finish_round(&mut self) {
-        for (name, code_size, lib_handle, rel_addr) in self.new_jit_functions.drain(..) {
-            self.jit_functions_for_reuse_by_name_and_size
-                .insert((name, code_size), (lib_handle, rel_addr));
-        }
+            .entry((name.to_owned(), code_size))
+            .or_insert((lib_handle, relative_address))
     }
 }
