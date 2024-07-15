@@ -144,7 +144,7 @@ pub fn start_recording(
     let unstable_presymbolicate = profile_creation_props.unstable_presymbolicate;
     let mut context =
         ProfileContext::new(profile, &arch, included_processes, profile_creation_props);
-    etw_gecko::profile_pid_from_etl_file(&mut context, &merged_etl);
+    etw_gecko::process_etl_files(&mut context, &merged_etl, &[]);
 
     if let Some(win_version) = winver::WindowsVersion::detect() {
         context.set_os_name(&format!("Windows {win_version}"))

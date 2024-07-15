@@ -24,7 +24,7 @@ struct SavedMarkerInfo {
 
 pub struct CoreClrContext {
     props: CoreClrProfileProps,
-    last_marker_on_thread: HashMap<u32, MarkerHandle>,
+    last_marker_on_thread: HashMap<u32, (ThreadHandle, MarkerHandle)>,
     gc_markers_on_thread: HashMap<u32, HashMap<&'static str, SavedMarkerInfo>>,
     unknown_event_markers: bool,
 }
@@ -39,12 +39,12 @@ impl CoreClrContext {
         }
     }
 
-    fn remove_last_event_for_thread(&mut self, tid: u32) -> Option<MarkerHandle> {
+    fn remove_last_event_for_thread(&mut self, tid: u32) -> Option<(ThreadHandle, MarkerHandle)> {
         self.last_marker_on_thread.remove(&tid)
     }
 
-    fn set_last_event_for_thread(&mut self, tid: u32, marker: MarkerHandle) {
-        self.last_marker_on_thread.insert(tid, marker);
+    fn set_last_event_for_thread(&mut self, tid: u32, thread_marker: (ThreadHandle, MarkerHandle)) {
+        self.last_marker_on_thread.insert(tid, thread_marker);
     }
 
     fn save_gc_marker(
@@ -407,10 +407,6 @@ pub fn handle_coreclr_event(
         coreclr_context.props.event_stacks,
     );
 
-    if !context.is_interesting_process(s.process_id(), None, None) {
-        return;
-    }
-
     let timestamp_raw = s.timestamp() as u64;
 
     let mut name_parts = s.name().splitn(3, '/');
@@ -556,7 +552,7 @@ pub fn handle_coreclr_event(
                 .chain(parser.buffer.chunks_exact(8))
                 .map(|chunk| u64::from_le_bytes(chunk.try_into().unwrap()));
 
-            context.handle_coreclr_stack(timestamp_raw, pid, tid, address_iter, marker);
+            context.handle_coreclr_stack(timestamp_raw, tid, address_iter, marker);
             handled = true;
         }
         ("GarbageCollection", gc_event) => {

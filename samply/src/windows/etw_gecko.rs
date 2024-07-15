@@ -1,5 +1,5 @@
 use std::convert::TryInto;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use debugid::DebugId;
@@ -11,24 +11,64 @@ use etw_reader::{
 use fxprof_processed_profile::debugid;
 use uuid::Uuid;
 
+use super::coreclr::CoreClrContext;
 use super::profile_context::ProfileContext;
 use crate::windows::coreclr;
 use crate::windows::profile_context::{ImageInfoFromMergedEtl, KnownCategory};
 
-pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) {
-    let is_arm64 = context.is_arm64();
-
+pub fn process_etl_files(
+    context: &mut ProfileContext,
+    etl_file: &Path,
+    extra_etl_filenames: &[PathBuf],
+) {
     let mut schema_locator = SchemaLocator::new();
     add_custom_schemas(&mut schema_locator);
 
     let processing_start_timestamp = Instant::now();
 
-    let demand_zero_faults = false; //pargs.contains("--demand-zero-faults");
+    let mut core_clr_context = CoreClrContext::new(context.creation_props());
 
-    let mut core_clr_context = coreclr::CoreClrContext::new(context.creation_props());
+    let result = process_trace(
+        etl_file,
+        context,
+        &mut schema_locator,
+        &mut core_clr_context,
+    );
+    if result.is_err() {
+        dbg!(&result);
+        std::process::exit(1);
+    }
+
+    for extra_etl_file in extra_etl_filenames {
+        let result = process_trace(
+            extra_etl_file,
+            context,
+            &mut schema_locator,
+            &mut core_clr_context,
+        );
+        if result.is_err() {
+            dbg!(&result);
+            std::process::exit(1);
+        }
+    }
+
+    log::info!(
+        "Took {} seconds",
+        (Instant::now() - processing_start_timestamp).as_secs_f32()
+    );
+}
+
+fn process_trace(
+    etl_file: &Path,
+    context: &mut ProfileContext,
+    schema_locator: &mut SchemaLocator,
+    core_clr_context: &mut CoreClrContext,
+) -> Result<(), std::io::Error> {
+    let is_arm64 = context.is_arm64();
+    let demand_zero_faults = false; //pargs.contains("--demand-zero-faults");
     let mut pending_image_info: Option<((u32, u64), ImageInfoFromMergedEtl)> = None;
 
-    let result = open_trace(etl_file, |e| {
+    open_trace(etl_file, |e| {
         let Ok(s) = schema_locator.event_schema(e) else {
             return;
         };
@@ -296,6 +336,9 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
             | "Microsoft-JScript/MethodRuntime/MethodDCStart"
             | "Microsoft-JScript/MethodRuntime/MethodLoad" => {
                 let pid = s.process_id();
+                if !context.has_process_at_time(pid, timestamp_raw) {
+                    return;
+                }
                 let method_name: String = parser.parse("MethodName");
                 let method_start_address: Address = parser.parse("MethodStartAddress");
                 let method_size: u64 = parser.parse("MethodSize");
@@ -321,6 +364,9 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                     return;
                 }
                 let tid = s.thread_id();
+                if !context.has_thread_at_time(tid, timestamp_raw) {
+                    return;
+                }
                 let text = event_properties_to_string(&s, &mut parser, None);
                 context.handle_freeform_marker_start(
                     timestamp_raw,
@@ -334,11 +380,14 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                     return;
                 }
                 let tid = s.thread_id();
+                if !context.has_thread_at_time(tid, timestamp_raw) {
+                    return;
+                }
                 let text = event_properties_to_string(&s, &mut parser, None);
                 context.handle_freeform_marker_end(
                     timestamp_raw,
                     tid,
-                    s.name().strip_suffix("/win:Start").unwrap(),
+                    s.name().strip_suffix("/win:Stop").unwrap(),
                     text,
                     KnownCategory::D3DVideoSubmitDecoderBuffers,
                 );
@@ -347,13 +396,16 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                 if !context.is_in_time_range(timestamp_raw) {
                     return;
                 }
+                let tid = e.EventHeader.ThreadId;
+                if !context.has_thread_at_time(tid, timestamp_raw) {
+                    return;
+                }
                 let Some(marker_name) = marker_name
                     .strip_prefix("Mozilla.FirefoxTraceLogger/")
                     .and_then(|s| s.strip_suffix("/Info"))
                 else {
                     return;
                 };
-                let tid = e.EventHeader.ThreadId;
                 // We ignore e.EventHeader.TimeStamp and instead take the timestamp from the fields.
                 let start_time_qpc: u64 = parser.try_parse("StartTime").unwrap();
                 let end_time_qpc: u64 = parser.try_parse("EndTime").unwrap();
@@ -376,6 +428,7 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                 context.handle_firefox_marker(
                     tid,
                     marker_name,
+                    timestamp_raw,
                     start_time_qpc,
                     end_time_qpc,
                     phase,
@@ -391,23 +444,28 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                 if !context.is_in_time_range(timestamp_raw) {
                     return;
                 }
+                let tid = e.EventHeader.ThreadId;
+                if !context.has_thread_at_time(tid, timestamp_raw) {
+                    return;
+                }
                 let Some(marker_name) = marker_name
                     .strip_prefix("Google.Chrome/")
                     .and_then(|s| s.strip_suffix("/Info"))
                 else {
                     return;
                 };
-                let tid = e.EventHeader.ThreadId;
 
                 // We ignore e.EventHeader.TimeStamp and instead take the timestamp from the fields.
                 // The timestamp can be u64 or i64, depending on which code emits the events.
+                // Chrome's marker timestamps are in microseconds relative to the QPC origin.
+                // They are not in QPC ticks!
                 // u64: https://source.chromium.org/chromium/chromium/src/+/main:base/trace_event/etw_interceptor_win.cc;l=65-85;drc=47d1537de78d69eb441b4cad8c441f0291faca9a
                 // i64: https://source.chromium.org/chromium/chromium/src/+/main:base/trace_event/trace_event_etw_export_win.cc;l=316-334;drc=8c29f4a8930c3ccccdf1b66c28fe484cee7c7362
-                let timestamp_raw_i64: Option<i64> = parser.try_parse("Timestamp").ok();
-                let timestamp_raw_u64: Option<u64> = parser.try_parse("Timestamp").ok();
-                let timestamp_raw: Option<u64> =
-                    timestamp_raw_u64.or_else(|| timestamp_raw_i64.and_then(|t| t.try_into().ok()));
-                let Some(timestamp_raw) = timestamp_raw else {
+                let timestamp_us_i64: Option<i64> = parser.try_parse("Timestamp").ok();
+                let timestamp_us_u64: Option<u64> = parser.try_parse("Timestamp").ok();
+                let timestamp_us: Option<u64> =
+                    timestamp_us_u64.or_else(|| timestamp_us_i64.and_then(|t| t.try_into().ok()));
+                let Some(timestamp_us) = timestamp_us else {
                     // Saw "SequenceManagerImpl::MoveReadyDelayedTasksToWorkQueues" with no timestamp at all
                     // on 2024-05-23, possibly from VS Code electron
                     log::warn!("No Timestamp field on Chrome {marker_name} event");
@@ -422,19 +480,24 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                 );
                 context.handle_chrome_marker(
                     tid,
-                    marker_name,
                     timestamp_raw,
+                    marker_name,
+                    timestamp_us,
                     &phase,
                     keyword_bitfield,
                     text,
                 );
             }
             dotnet_event if dotnet_event.starts_with("Microsoft-Windows-DotNETRuntime") => {
+                let pid = s.process_id();
+                if !context.has_process_at_time(pid, timestamp_raw) {
+                    return;
+                }
                 let is_in_range = context.is_in_time_range(timestamp_raw);
                 // Note: No "/" at end of event name, because we want DotNETRuntimeRundown as well
                 coreclr::handle_coreclr_event(
                     context,
-                    &mut core_clr_context,
+                    core_clr_context,
                     &s,
                     &mut parser,
                     is_in_range,
@@ -445,22 +508,14 @@ pub fn profile_pid_from_etl_file(context: &mut ProfileContext, etl_file: &Path) 
                     return;
                 }
                 let tid = e.EventHeader.ThreadId;
-                if context.has_thread(tid) {
-                    let task_and_op = s.name().split_once('/').unwrap().1;
-                    let text = event_properties_to_string(&s, &mut parser, None);
-                    context.handle_unknown_event(timestamp_raw, tid, task_and_op, text);
+                if !context.has_thread_at_time(tid, timestamp_raw) {
+                    return;
                 }
+
+                let task_and_op = s.name().split_once('/').unwrap().1;
+                let text = event_properties_to_string(&s, &mut parser, None);
+                context.handle_unknown_event(timestamp_raw, tid, task_and_op, text);
             }
         }
-    });
-
-    if result.is_err() {
-        dbg!(&result);
-        std::process::exit(1);
-    }
-
-    log::info!(
-        "Took {} seconds",
-        (Instant::now() - processing_start_timestamp).as_secs_f32()
-    );
+    })
 }
