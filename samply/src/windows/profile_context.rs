@@ -300,6 +300,7 @@ pub struct Process {
     pub parent_id: u32,
     pub thread_recycler: Option<ThreadRecycler>,
     pub jit_function_recycler: Option<JitFunctionRecycler>,
+    pub js_sources: HashMap<u64, String>,
 }
 
 impl Process {
@@ -329,6 +330,7 @@ impl Process {
             parent_id,
             thread_recycler,
             jit_function_recycler,
+            js_sources: HashMap::new(),
         }
     }
 
@@ -1551,17 +1553,50 @@ impl ProfileContext {
         }
     }
 
-    pub fn handle_js_method_load(
+    pub fn handle_js_source_load(
         &mut self,
         timestamp_raw: u64,
         pid: u32,
-        method_name: String,
-        method_start_address: u64,
-        method_size: u32,
+        source_id: u64,
+        url: String,
     ) {
         let Some(process) = self.processes.get_by_pid_and_timestamp(pid, timestamp_raw) else {
             return;
         };
+
+        process.js_sources.insert(source_id, url);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn handle_js_method_load(
+        &mut self,
+        timestamp_raw: u64,
+        pid: u32,
+        mut method_name: String,
+        method_start_address: u64,
+        method_size: u32,
+        source_id: u64,
+        line: u32,
+        column: u32,
+    ) {
+        let Some(process) = self.processes.get_by_pid_and_timestamp(pid, timestamp_raw) else {
+            return;
+        };
+
+        if let Some(url) = process.js_sources.get(&source_id) {
+            if !method_name.starts_with("JS:") {
+                method_name.insert_str(0, "JS:?");
+                method_name.push(' ');
+                method_name.push_str(url);
+                if line != 0 {
+                    use std::fmt::Write;
+                    write!(&mut method_name, ":{line}").unwrap();
+                    if column != 0 {
+                        write!(&mut method_name, ":{column}").unwrap();
+                    }
+                }
+            }
+        }
 
         let lib = &mut self.js_jit_lib;
         let (category, js_frame) = self
