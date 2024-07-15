@@ -503,6 +503,7 @@ pub struct ProfileContext {
     stack_sample_count: usize,
     event_count: usize,
 
+    seen_header: bool,
     timestamp_converter: TimestampConverter,
     event_timestamps_are_qpc: bool,
 
@@ -582,6 +583,7 @@ impl ProfileContext {
             sample_count: 0,
             stack_sample_count: 0,
             event_count: 0,
+            seen_header: false,
             // Dummy, will be replaced once we see the header
             timestamp_converter: TimestampConverter {
                 reference_raw: 0,
@@ -692,10 +694,27 @@ impl ProfileContext {
             self.event_timestamps_are_qpc = true;
         }
 
-        self.timestamp_converter = TimestampConverter {
-            reference_raw: timestamp_raw,
-            raw_to_ns_factor: 1000 * 1000 * 1000 / perf_freq,
-        };
+        if !self.seen_header {
+            // Initialize our reference timestamp to the timestamp from the
+            // first trace's header.
+            self.timestamp_converter = TimestampConverter {
+                reference_raw: timestamp_raw,
+                raw_to_ns_factor: 1000 * 1000 * 1000 / perf_freq,
+            };
+            self.seen_header = true;
+        } else {
+            // The header we're processing is the header of the user trace.
+            // Make sure the timestamps in the two traces are comparable.
+            assert!(
+                self.timestamp_converter.reference_raw <= timestamp_raw,
+                "The first trace should have started first"
+            );
+            assert_eq!(
+                self.timestamp_converter.raw_to_ns_factor,
+                1000 * 1000 * 1000 / perf_freq,
+                "The two traces have incompatible timestamps"
+            );
+        }
     }
 
     pub fn handle_collection_start(&mut self, interval_raw: u32) {
