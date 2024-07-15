@@ -332,9 +332,20 @@ fn process_trace(
                 // these events can give us the unblocking stack
                 let _thread_id: u32 = parser.parse("TThreadId");
             }
+            "V8.js/SourceLoad/Start"
+            | "Microsoft-JScript/ScriptContextRuntime/SourceLoad"
+            | "Microsoft-JScript/ScriptContextRundown/SourceDCStart" => {
+                let pid = s.process_id();
+                if !context.has_process_at_time(pid, timestamp_raw) {
+                    return;
+                }
+                let source_id: u64 = parser.parse("SourceID");
+                let url: String = parser.parse("Url");
+                context.handle_js_source_load(timestamp_raw, pid, source_id, url);
+            }
             "V8.js/MethodLoad/Start"
-            | "Microsoft-JScript/MethodRuntime/MethodDCStart"
-            | "Microsoft-JScript/MethodRuntime/MethodLoad" => {
+            | "Microsoft-JScript/MethodRuntime/MethodLoad"
+            | "Microsoft-JScript/MethodRundown/MethodDCStart" => {
                 let pid = s.process_id();
                 if !context.has_process_at_time(pid, timestamp_raw) {
                     return;
@@ -342,23 +353,20 @@ fn process_trace(
                 let method_name: String = parser.parse("MethodName");
                 let method_start_address: Address = parser.parse("MethodStartAddress");
                 let method_size: u64 = parser.parse("MethodSize");
-                // let source_id: u64 = parser.parse("SourceID");
+                let source_id: u64 = parser.parse("SourceID");
+                let line: u32 = parser.parse("Line");
+                let column: u32 = parser.parse("Column");
                 context.handle_js_method_load(
                     timestamp_raw,
                     pid,
                     method_name,
                     method_start_address.as_u64(),
                     method_size as u32,
+                    source_id,
+                    line,
+                    column,
                 );
             }
-            /*"V8.js/SourceLoad/" |
-            "Microsoft-JScript/MethodRuntime/MethodDCStart" |
-            "Microsoft-JScript/MethodRuntime/MethodLoad" => {
-                let source_id: u64 = parser.parse("SourceID");
-                let url: String = parser.parse("Url");
-                jscript_sources.insert(source_id, url);
-                //dbg!(s.process_id(), jscript_symbols.keys());
-            }*/
             "Microsoft-Windows-Direct3D11/ID3D11VideoContext_SubmitDecoderBuffers/win:Start" => {
                 if !context.is_in_time_range(timestamp_raw) {
                     return;
