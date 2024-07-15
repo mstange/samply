@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use fxprof_processed_profile::{Profile, ReferenceTimestamp, SamplingInterval};
 
@@ -10,6 +10,7 @@ use crate::windows::profile_context::ProfileContext;
 
 pub fn convert_etl_file_to_profile(
     filename: &Path,
+    extra_etl_filenames: &[PathBuf],
     output_file: &Path,
     profile_creation_props: ProfileCreationProps,
     included_processes: Option<IncludedProcesses>,
@@ -31,7 +32,7 @@ pub fn convert_etl_file_to_profile(
     let mut context =
         ProfileContext::new(profile, arch, included_processes, profile_creation_props);
 
-    etw_gecko::profile_pid_from_etl_file(&mut context, filename);
+    etw_gecko::process_etl_files(&mut context, filename, extra_etl_filenames);
 
     let profile = context.finish();
     save_profile_to_file(&profile, output_file).expect("Couldn't write JSON");

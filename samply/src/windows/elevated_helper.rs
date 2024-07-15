@@ -54,7 +54,10 @@ impl ElevatedRecordingProps {
 #[allow(clippy::enum_variant_names)]
 enum ElevatedHelperReplyMsg {
     AckStartXperf,
-    AckStopXperf(PathBuf),
+    AckStopXperf {
+        kernel_output_file: PathBuf,
+        user_output_file: Option<PathBuf>,
+    },
     AckGetKernelModules,
 }
 
@@ -103,12 +106,17 @@ impl ElevatedHelperSession {
         }
     }
 
-    pub fn stop_xperf(&mut self) -> Result<PathBuf, Box<dyn Error + Send + Sync>> {
+    pub fn stop_xperf(
+        &mut self,
+    ) -> Result<(PathBuf, Option<PathBuf>), Box<dyn Error + Send + Sync>> {
         let reply = self
             .elevated_session
             .send_msg_and_wait_for_response(ElevatedHelperRequestMsg::StopXperf)?;
         match reply {
-            ElevatedHelperReplyMsg::AckStopXperf(path) => Ok(path),
+            ElevatedHelperReplyMsg::AckStopXperf {
+                kernel_output_file,
+                user_output_file,
+            } => Ok((kernel_output_file, user_output_file)),
             other_msg => Err(format!("Unexpected reply to StartXperf msg: {other_msg:?}").into()),
         }
     }
@@ -195,8 +203,11 @@ impl UtilityProcessChild<ElevatedHelperRequestMsg, ElevatedHelperReplyMsg> for E
                 Ok(ElevatedHelperReplyMsg::AckStartXperf)
             }
             ElevatedHelperRequestMsg::StopXperf => {
-                let output_file = self.xperf.stop_xperf()?;
-                Ok(ElevatedHelperReplyMsg::AckStopXperf(output_file))
+                let (kernel_output_file, user_output_file) = self.xperf.stop_xperf()?;
+                Ok(ElevatedHelperReplyMsg::AckStopXperf {
+                    kernel_output_file,
+                    user_output_file,
+                })
             }
             ElevatedHelperRequestMsg::GetKernelModules => Err("todo".into()),
         }

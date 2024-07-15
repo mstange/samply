@@ -115,6 +115,9 @@ struct ImportArgs {
     /// Path to the profile file that should be imported.
     file: PathBuf,
 
+    /// Optional extra paths to ETL files for user sessions.
+    user_etl: Vec<PathBuf>,
+
     #[command(flatten)]
     profile_creation_args: ProfileCreationArgs,
 
@@ -762,6 +765,7 @@ fn convert_etl_file_to_profile(_input_file: &File, import_args: &ImportArgs) {
     let included_processes = import_args.included_processes();
     windows::import::convert_etl_file_to_profile(
         &import_args.file,
+        &import_args.user_etl,
         &import_args.output,
         profile_creation_props,
         included_processes,

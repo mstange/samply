@@ -248,11 +248,10 @@ where
 
         let process_recycling_data = if let (
             Some(name),
-            Some(mut jit_function_recycler),
+            Some(jit_function_recycler),
             (Some(thread_recycler), main_thread_recycling_data),
         ) = (self.name, self.jit_function_recycler, thread_recycler)
         {
-            jit_function_recycler.finish_round();
             let recycling_data = ProcessRecyclingData {
                 process_handle: self.profile_process,
                 main_thread_recycling_data,

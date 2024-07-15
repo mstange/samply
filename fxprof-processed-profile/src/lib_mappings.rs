@@ -120,10 +120,7 @@ impl<T> LibMappings<T> {
     /// Converts an absolute address (AVMA, actual virtual memory address) into
     /// a relative address and the mapping's associated value.
     pub fn convert_address(&self, avma: u64) -> Option<(u32, &T)> {
-        let mapping = match self.lookup_impl(avma) {
-            Some(mapping) => mapping,
-            None => return None,
-        };
+        let mapping = self.lookup_impl(avma)?;
         let offset_from_mapping_start = (avma - mapping.start_avma) as u32;
         let relative_address = mapping.relative_address_at_start + offset_from_mapping_start;
         Some((relative_address, &mapping.value))

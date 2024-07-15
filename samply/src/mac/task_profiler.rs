@@ -688,10 +688,9 @@ impl TaskProfiler {
             marker_spans,
         );
 
-        let recycling_data = if let (Some(mut jit_function_recycler), Some(thread_recycler)) =
+        let recycling_data = if let (Some(jit_function_recycler), Some(thread_recycler)) =
             (self.jit_function_recycler, self.thread_recycler)
         {
-            jit_function_recycler.finish_round();
             Some((
                 self.executable_name,
                 ProcessRecyclingData {
