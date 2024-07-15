@@ -126,7 +126,7 @@ pub fn start_recording(
 
     eprintln!("Stopping xperf...");
 
-    let merged_etl = elevated_helper
+    let (kernel_output_file, user_output_file) = elevated_helper
         .stop_xperf()
         .expect("Should have produced a merged ETL file");
 
@@ -144,7 +144,11 @@ pub fn start_recording(
     let unstable_presymbolicate = profile_creation_props.unstable_presymbolicate;
     let mut context =
         ProfileContext::new(profile, &arch, included_processes, profile_creation_props);
-    etw_gecko::process_etl_files(&mut context, &merged_etl, &[]);
+    let extra_etls = match &user_output_file {
+        Some(user_etl) => vec![user_etl.clone()],
+        None => Vec::new(),
+    };
+    etw_gecko::process_etl_files(&mut context, &kernel_output_file, &extra_etls);
 
     if let Some(win_version) = winver::WindowsVersion::detect() {
         context.set_os_name(&format!("Windows {win_version}"))
@@ -153,14 +157,25 @@ pub fn start_recording(
     let profile = context.finish();
 
     if !recording_props.keep_etl {
-        std::fs::remove_file(&merged_etl).unwrap_or_else(|_| {
+        std::fs::remove_file(&kernel_output_file).unwrap_or_else(|_| {
             panic!(
                 "Failed to delete ETL file {:?}",
-                merged_etl.to_str().unwrap()
+                kernel_output_file.to_str().unwrap()
             )
         });
+        if let Some(user_output_file) = &user_output_file {
+            std::fs::remove_file(user_output_file).unwrap_or_else(|_| {
+                panic!(
+                    "Failed to delete ETL file {:?}",
+                    user_output_file.to_str().unwrap()
+                )
+            });
+        }
     } else {
-        eprintln!("ETL path: {:?}", merged_etl);
+        eprintln!("ETL path: {}", kernel_output_file.to_str().unwrap());
+        if let Some(user_output_file) = &user_output_file {
+            eprintln!("User ETL path: {}", user_output_file.to_str().unwrap());
+        }
     }
 
     save_profile_to_file(&profile, &output_file).expect("Couldn't write JSON");
