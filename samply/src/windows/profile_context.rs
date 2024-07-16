@@ -4,9 +4,9 @@ use std::path::Path;
 use debugid::DebugId;
 use fxprof_processed_profile::{
     CategoryColor, CategoryHandle, CounterHandle, CpuDelta, Frame, FrameFlags, FrameInfo,
-    LibraryInfo, Marker, MarkerFieldFormat, MarkerFieldSchema, MarkerHandle, MarkerLocation,
-    MarkerSchema, MarkerTiming, ProcessHandle, Profile, SamplingInterval, StaticSchemaMarker,
-    StringHandle, ThreadHandle, Timestamp,
+    LibraryHandle, LibraryInfo, Marker, MarkerFieldFormat, MarkerFieldSchema, MarkerHandle,
+    MarkerLocation, MarkerSchema, MarkerTiming, ProcessHandle, Profile, SamplingInterval,
+    StaticSchemaMarker, StringHandle, ThreadHandle, Timestamp,
 };
 use shlex::Shlex;
 use wholesym::PeCodeId;
@@ -482,6 +482,8 @@ pub struct ProfileContext {
 
     categories: KnownCategories,
 
+    known_images: HashMap<(String, u32, u32), (LibraryHandle, KnownCategory)>,
+
     js_category_manager: JitCategoryManager,
     js_jit_lib: SyntheticJitLibrary,
     coreclr_jit_lib: SyntheticJitLibrary,
@@ -574,6 +576,7 @@ impl ProfileContext {
             gpu_thread_handle: None,
             included_processes,
             categories,
+            known_images: HashMap::new(),
             js_category_manager,
             js_jit_lib,
             coreclr_jit_lib,
@@ -1370,23 +1373,20 @@ impl ProfileContext {
         // TODO: Consider adding a marker here
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn handle_image_load(
+    fn lib_handle_and_category_for_image(
         &mut self,
-        timestamp_raw: u64,
-        pid: u32,
-        image_base: u64,
         image_size: u32,
         image_timestamp_maybe_zero: u32,
         image_checksum: u32,
-        path: String,
+        device_path: String,
         image_info_from_merged_etl: ImageInfoFromMergedEtl,
-    ) {
-        if pid != 0 && !self.processes.has(pid) {
-            return;
+    ) -> (LibraryHandle, KnownCategory) {
+        let key = (device_path, image_size, image_checksum);
+        if let Some(lib_handle_and_category) = self.known_images.get(&key) {
+            return *lib_handle_and_category;
         }
 
-        let path = self.map_device_path(&path);
+        let path = self.map_device_path(&key.0);
 
         let (debug_id, pdb_path, code_id) = if let Some((timestamp, debug_id, pdb_path)) =
             image_info_from_merged_etl.get_complete()
@@ -1426,9 +1426,12 @@ impl ProfileContext {
             }
         };
 
+        let path_lower = path.to_lowercase();
+        let debug_path_lower = pdb_path.to_lowercase();
         let name = extract_filename(&path).to_string();
         let debug_name = extract_filename(&pdb_path).to_string();
-        let info = LibraryInfo {
+
+        let lib_handle = self.profile.add_lib(LibraryInfo {
             name,
             path,
             debug_name,
@@ -1437,11 +1440,9 @@ impl ProfileContext {
             code_id: code_id.map(|ci| ci.to_string()),
             arch: Some(self.arch.to_owned()),
             symbol_table: None,
-        };
-        // attempt to categorize the library based on the path
-        let path_lower = info.path.to_lowercase();
-        let debug_path_lower = info.debug_path.to_lowercase();
+        });
 
+        // attempt to categorize the library based on the path
         let known_category = if debug_path_lower.contains(".ni.pdb") {
             KnownCategory::CoreClrR2r
         } else if path_lower.contains("windows\\system32") || path_lower.contains("windows\\winsxs")
@@ -1451,7 +1452,34 @@ impl ProfileContext {
             KnownCategory::Unknown
         };
 
-        let lib_handle = self.profile.add_lib(info);
+        self.known_images.insert(key, (lib_handle, known_category));
+        (lib_handle, known_category)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn handle_image_load(
+        &mut self,
+        timestamp_raw: u64,
+        pid: u32,
+        image_base: u64,
+        image_size: u32,
+        image_timestamp_maybe_zero: u32,
+        image_checksum: u32,
+        device_path: String,
+        image_info_from_merged_etl: ImageInfoFromMergedEtl,
+    ) {
+        if pid != 0 && !self.processes.has(pid) {
+            return;
+        }
+
+        let (lib_handle, known_category) = self.lib_handle_and_category_for_image(
+            image_size,
+            image_timestamp_maybe_zero,
+            image_checksum,
+            device_path,
+            image_info_from_merged_etl,
+        );
+
         let start_avma = image_base;
         let end_avma = image_base + image_size as u64;
         if pid == 0 || start_avma >= self.kernel_min {
