@@ -7,7 +7,6 @@ mod kernel_symbols;
 mod mmap_range_or_vec;
 mod object_rewriter;
 mod pe_mappings;
-mod per_cpu;
 mod process;
 mod process_threads;
 mod processes;

@@ -35,7 +35,6 @@ use super::injected_jit_object::{correct_bad_perf_jit_so_file, jit_function_name
 use super::kernel_symbols::{kernel_module_build_id, KernelSymbols};
 use super::mmap_range_or_vec::MmapRangeOrVec;
 use super::pe_mappings::{PeMappings, SuspectedPeMapping};
-use super::per_cpu::Cpus;
 use super::processes::Processes;
 use super::rss_stat::{RssStat, MM_ANONPAGES, MM_FILEPAGES, MM_SHMEMPAGES, MM_SWAPENTS};
 use super::svma_file_range::compute_vma_bias;
@@ -43,6 +42,7 @@ use super::vdso::VdsoObject;
 use crate::shared::context_switch::{ContextSwitchHandler, OffCpuSampleGroup};
 use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::lib_mappings::{AndroidArtInfo, LibMappingInfo};
+use crate::shared::per_cpu::Cpus;
 use crate::shared::process_name::make_process_name;
 use crate::shared::process_sample_data::{
     OtherEventMarker, RssStatMarker, RssStatMember, SchedSwitchMarkerOnCpuTrack,
