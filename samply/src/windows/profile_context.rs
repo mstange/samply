@@ -4,9 +4,9 @@ use std::path::Path;
 use debugid::DebugId;
 use fxprof_processed_profile::{
     CategoryColor, CategoryHandle, CounterHandle, CpuDelta, Frame, FrameFlags, FrameInfo,
-    LibraryInfo, Marker, MarkerFieldFormat, MarkerFieldSchema, MarkerHandle, MarkerLocation,
-    MarkerSchema, MarkerTiming, ProcessHandle, Profile, SamplingInterval, StaticSchemaMarker,
-    StringHandle, ThreadHandle, Timestamp,
+    LibraryHandle, LibraryInfo, Marker, MarkerFieldFormat, MarkerFieldSchema, MarkerHandle,
+    MarkerLocation, MarkerSchema, MarkerTiming, ProcessHandle, Profile, SamplingInterval,
+    StaticSchemaMarker, StringHandle, ThreadHandle, Timestamp,
 };
 use shlex::Shlex;
 use wholesym::PeCodeId;
@@ -17,7 +17,7 @@ use crate::shared::context_switch::{
     ContextSwitchHandler, OffCpuSampleGroup, ThreadContextSwitchData,
 };
 use crate::shared::included_processes::IncludedProcesses;
-use crate::shared::jit_category_manager::JitCategoryManager;
+use crate::shared::jit_category_manager::{JitCategoryManager, JsFrame};
 use crate::shared::jit_function_add_marker::JitFunctionAddMarker;
 use crate::shared::jit_function_recycler::JitFunctionRecycler;
 use crate::shared::lib_mappings::{LibMappingAdd, LibMappingInfo, LibMappingOp, LibMappingOpQueue};
@@ -32,22 +32,6 @@ use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
 use crate::windows::firefox::{
     PHASE_INSTANT, PHASE_INTERVAL, PHASE_INTERVAL_END, PHASE_INTERVAL_START,
 };
-
-#[derive(Debug, Default, Clone)]
-pub struct ImageInfoFromMergedEtl {
-    pub image_timestamp: Option<u32>,
-    pub debug_id: Option<DebugId>,
-    pub pdb_path: Option<String>,
-}
-
-impl ImageInfoFromMergedEtl {
-    pub fn get_complete(self) -> Option<(u32, DebugId, String)> {
-        let image_timestamp = self.image_timestamp?;
-        let debug_id = self.debug_id?;
-        let pdb_path = self.pdb_path?;
-        Some((image_timestamp, debug_id, pdb_path))
-    }
-}
 
 /// An on- or off-cpu-sample for which the user stack is not known yet.
 /// Consumed once the user stack arrives.
@@ -482,6 +466,8 @@ pub struct ProfileContext {
 
     categories: KnownCategories,
 
+    known_images: HashMap<(String, u32, u32), (LibraryHandle, KnownCategory)>,
+
     js_category_manager: JitCategoryManager,
     js_jit_lib: SyntheticJitLibrary,
     coreclr_jit_lib: SyntheticJitLibrary,
@@ -574,6 +560,7 @@ impl ProfileContext {
             gpu_thread_handle: None,
             included_processes,
             categories,
+            known_images: HashMap::new(),
             js_category_manager,
             js_jit_lib,
             coreclr_jit_lib,
@@ -1370,79 +1357,44 @@ impl ProfileContext {
         // TODO: Consider adding a marker here
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn handle_image_load(
+    fn lib_handle_and_category_for_image(
         &mut self,
-        timestamp_raw: u64,
-        pid: u32,
-        image_base: u64,
-        image_size: u32,
-        image_timestamp_maybe_zero: u32,
-        image_checksum: u32,
-        path: String,
-        image_info_from_merged_etl: ImageInfoFromMergedEtl,
-    ) {
-        if pid != 0 && !self.processes.has(pid) {
-            return;
+        device_path: String,
+        mut image_info: PeInfo,
+    ) -> (LibraryHandle, KnownCategory) {
+        let key = (
+            device_path,
+            image_info.image_size,
+            image_info.image_checksum,
+        );
+        if let Some(lib_handle_and_category) = self.known_images.get(&key) {
+            return *lib_handle_and_category;
         }
 
-        let path = self.map_device_path(&path);
+        let path = self.map_device_path(&key.0);
+        image_info.lookup_missing_info_from_image_at_path(Path::new(&path));
 
-        let (debug_id, pdb_path, code_id) = if let Some((timestamp, debug_id, pdb_path)) =
-            image_info_from_merged_etl.get_complete()
-        {
-            let code_id = Some(wholesym::CodeId::PeCodeId(PeCodeId {
-                timestamp,
-                image_size,
-            }));
-            (debug_id, pdb_path, code_id)
-        } else {
-            match get_pe_info(Path::new(&path)) {
-                Some(pe_info)
-                    if pe_info.image_size == image_size
-                        && pe_info.image_checksum == image_checksum =>
-                {
-                    let debug_id = pe_info.debug_id.unwrap_or_default();
-                    let pdb_path = pe_info.pdb_path.unwrap_or_else(|| path.clone());
-                    let code_id = Some(pe_info.code_id);
-                    (debug_id, pdb_path, code_id)
-                }
-                _ => {
-                    // If file doesn't exist or image_size / image_checksum don't match, fall back to default.
-                    // This happens for the ghost drivers mentioned here: https://devblogs.microsoft.com/oldnewthing/20160913-00/?p=94305
-                    // and for files that were removed since the recording started.
-                    let debug_id = DebugId::nil();
-                    let pdb_path = path.clone();
-                    let code_id = if image_timestamp_maybe_zero != 0 {
-                        Some(wholesym::CodeId::PeCodeId(PeCodeId {
-                            timestamp: image_timestamp_maybe_zero,
-                            image_size,
-                        }))
-                    } else {
-                        None
-                    };
-                    (debug_id, pdb_path, code_id)
-                }
-            }
-        };
-
+        let code_id = image_info.code_id();
+        let debug_id = image_info.debug_id.unwrap_or_default();
+        let pdb_path = image_info.pdb_path.unwrap_or_else(|| path.clone());
+        let path_lower = path.to_lowercase();
+        let pdb_path_lower = pdb_path.to_lowercase();
         let name = extract_filename(&path).to_string();
-        let debug_name = extract_filename(&pdb_path).to_string();
-        let info = LibraryInfo {
+        let pdb_name = extract_filename(&pdb_path).to_string();
+
+        let lib_handle = self.profile.add_lib(LibraryInfo {
             name,
             path,
-            debug_name,
+            debug_name: pdb_name,
             debug_path: pdb_path,
             debug_id,
             code_id: code_id.map(|ci| ci.to_string()),
             arch: Some(self.arch.to_owned()),
             symbol_table: None,
-        };
-        // attempt to categorize the library based on the path
-        let path_lower = info.path.to_lowercase();
-        let debug_path_lower = info.debug_path.to_lowercase();
+        });
 
-        let known_category = if debug_path_lower.contains(".ni.pdb") {
+        // attempt to categorize the library based on the path
+        let known_category = if pdb_path_lower.contains(".ni.pdb") {
             KnownCategory::CoreClrR2r
         } else if path_lower.contains("windows\\system32") || path_lower.contains("windows\\winsxs")
         {
@@ -1451,9 +1403,28 @@ impl ProfileContext {
             KnownCategory::Unknown
         };
 
-        let lib_handle = self.profile.add_lib(info);
+        self.known_images.insert(key, (lib_handle, known_category));
+        (lib_handle, known_category)
+    }
+
+    pub fn handle_image_load(
+        &mut self,
+        timestamp_raw: u64,
+        pid: u32,
+        image_base: u64,
+        device_path: String,
+        image_info: PeInfo,
+    ) {
+        if pid != 0 && !self.processes.has(pid) {
+            return;
+        }
+
+        let image_size = image_info.image_size as u64;
+        let (lib_handle, known_category) =
+            self.lib_handle_and_category_for_image(device_path, image_info);
+
         let start_avma = image_base;
-        let end_avma = image_base + image_size as u64;
+        let end_avma = image_base + image_size;
         if pid == 0 || start_avma >= self.kernel_min {
             self.profile
                 .add_kernel_lib_mapping(lib_handle, start_avma, end_avma, 0);
@@ -1583,25 +1554,34 @@ impl ProfileContext {
             return;
         };
 
-        if let Some(url) = process.js_sources.get(&source_id) {
-            if !method_name.starts_with("JS:") {
-                method_name.insert_str(0, "JS:?");
-                method_name.push(' ');
-                method_name.push_str(url);
+        let (category, js_frame) = if let Some(url) = process.js_sources.get(&source_id) {
+            if method_name.starts_with("JS:") {
+                // Probably a JIT frame from a locally patched version of Chrome where
+                // we made it prefix the ETW JIT frames with the same prefixes as with
+                // the Jitdump backend. The prefix gives us the Jit tier / category.
+                self.js_category_manager
+                    .classify_jit_symbol(&method_name, &mut self.profile)
+            } else {
+                // A JIT frame from a regular Chrome / Edge build.
+                // For now we just add the script URL at the end of the function name.
+                // In the future, we should store the function name and the script URL
+                // separately in the profile.
+                use std::fmt::Write;
+                write!(&mut method_name, " {url}").unwrap();
                 if line != 0 {
-                    use std::fmt::Write;
-                    write!(&mut method_name, ":{line}").unwrap();
-                    if column != 0 {
-                        write!(&mut method_name, ":{column}").unwrap();
-                    }
+                    write!(&mut method_name, ":{line}:{column}").unwrap();
                 }
+                let category = self.js_jit_lib.default_category();
+                let js_frame = Some(JsFrame::NativeFrameIsJs);
+                (category, js_frame)
             }
-        }
+        } else {
+            // Probably a JIT frame from Firefox. Firefox doesn't emit SourceLoad events yet.
+            self.js_category_manager
+                .classify_jit_symbol(&method_name, &mut self.profile)
+        };
 
         let lib = &mut self.js_jit_lib;
-        let (category, js_frame) = self
-            .js_category_manager
-            .classify_jit_symbol(&method_name, &mut self.profile);
         let info = LibMappingInfo::new_jit_function(lib.lib_handle(), category, js_frame);
 
         let name_handle = self.profile.intern_string(&method_name);
@@ -1908,62 +1888,113 @@ impl ProfileContext {
     }
 }
 
-struct PeInfo {
-    code_id: wholesym::CodeId,
-    image_size: u32,
-    image_checksum: u32,
-    debug_id: Option<DebugId>,
-    pdb_path: Option<String>,
+#[derive(Debug, Clone)]
+pub struct PeInfo {
+    pub image_size: u32,
+    pub image_checksum: u32,
+    pub image_timestamp: Option<u32>,
+    pub debug_id: Option<DebugId>,
+    pub pdb_path: Option<String>,
 }
 
-fn get_pe_info(image_path: &Path) -> Option<PeInfo> {
-    let file = std::fs::File::open(image_path).ok()?;
-    let mmap = unsafe { memmap2::Mmap::map(&file).ok()? };
-    let info = match object::read::FileKind::parse(&mmap[..]).ok()? {
-        object::FileKind::Pe32 => pe_info(&object::read::pe::PeFile32::parse(&mmap[..]).ok()?),
-        object::FileKind::Pe64 => pe_info(&object::read::pe::PeFile64::parse(&mmap[..]).ok()?),
-        kind => {
-            log::warn!("Unexpected file kind {kind:?} for image file at {image_path:?}");
-            return None;
+impl PeInfo {
+    pub fn new_with_size_and_checksum(image_size: u32, image_checksum: u32) -> Self {
+        Self {
+            image_size,
+            image_checksum,
+            image_timestamp: None,
+            debug_id: None,
+            pdb_path: None,
         }
-    };
-    Some(info)
-}
+    }
 
-fn pe_info<'a, Pe: object::read::pe::ImageNtHeaders, R: object::ReadRef<'a>>(
-    pe: &object::read::pe::PeFile<'a, Pe, R>,
-) -> PeInfo {
-    // The code identifier consists of the `time_date_stamp` field id the COFF header, followed by
-    // the `size_of_image` field in the optional header. If the optional PE header is not present,
-    // this identifier is `None`.
-    let header = pe.nt_headers();
-    let timestamp = header
-        .file_header()
-        .time_date_stamp
-        .get(object::LittleEndian);
-    use object::read::pe::ImageOptionalHeader;
-    let image_size = header.optional_header().size_of_image();
-    let image_checksum = header.optional_header().check_sum();
-    let code_id = wholesym::CodeId::PeCodeId(wholesym::PeCodeId {
-        timestamp,
-        image_size,
-    });
+    pub fn try_from_image_at_path(image_path: &Path) -> Option<Self> {
+        let file = std::fs::File::open(image_path).ok()?;
+        let mmap = unsafe { memmap2::Mmap::map(&file).ok()? };
+        use object::read::pe::{PeFile32, PeFile64};
+        let info = match object::FileKind::parse(&mmap[..]).ok()? {
+            object::FileKind::Pe32 => Self::from_object(&PeFile32::parse(&mmap[..]).ok()?),
+            object::FileKind::Pe64 => Self::from_object(&PeFile64::parse(&mmap[..]).ok()?),
+            kind => {
+                log::warn!("Unexpected file kind {kind:?} for image file at {image_path:?}");
+                return None;
+            }
+        };
+        Some(info)
+    }
 
-    use object::Object;
-    let pdb_info = pe.pdb_info().ok().flatten();
-    let pdb_path: Option<String> = pdb_info.and_then(|pdb_info| {
-        let pdb_path = std::str::from_utf8(pdb_info.path()).ok()?;
-        Some(pdb_path.to_string())
-    });
-    let debug_id: Option<DebugId> =
-        pdb_info.and_then(|pdb_info| DebugId::from_guid_age(&pdb_info.guid(), pdb_info.age()).ok());
+    pub fn from_object<'a, Pe: object::read::pe::ImageNtHeaders, R: object::ReadRef<'a>>(
+        pe: &object::read::pe::PeFile<'a, Pe, R>,
+    ) -> Self {
+        // The code identifier consists of the `time_date_stamp` field id the COFF header, followed by
+        // the `size_of_image` field in the optional header. If the optional PE header is not present,
+        // this identifier is `None`.
+        let header = pe.nt_headers();
+        let image_timestamp = header
+            .file_header()
+            .time_date_stamp
+            .get(object::LittleEndian);
+        use object::read::pe::ImageOptionalHeader;
+        let image_size = header.optional_header().size_of_image();
+        let image_checksum = header.optional_header().check_sum();
 
-    PeInfo {
-        code_id,
-        image_size,
-        image_checksum,
-        debug_id,
-        pdb_path,
+        use object::Object;
+        let pdb_info = pe.pdb_info().ok().flatten();
+        let pdb_path: Option<String> = pdb_info.and_then(|pdb_info| {
+            let pdb_path = std::str::from_utf8(pdb_info.path()).ok()?;
+            Some(pdb_path.to_string())
+        });
+        let debug_id: Option<DebugId> = pdb_info
+            .and_then(|pdb_info| DebugId::from_guid_age(&pdb_info.guid(), pdb_info.age()).ok());
+
+        Self {
+            image_size,
+            image_checksum,
+            image_timestamp: Some(image_timestamp),
+            debug_id,
+            pdb_path,
+        }
+    }
+
+    pub fn lookup_missing_info_from_image_at_path(&mut self, path: &Path) {
+        if self.image_timestamp.is_some() && self.debug_id.is_some() && self.pdb_path.is_some() {
+            // No extra information needed.
+            return;
+        }
+
+        let Some(pe_info) = Self::try_from_image_at_path(path) else {
+            // The file doesn't exist.
+            // This happens for the ghost drivers mentioned here:
+            // https://devblogs.microsoft.com/oldnewthing/20160913-00/?p=94305
+            // It also happens for files that were removed since the trace was recorded.
+            // We can also get here if the trace was recorded on a different machine.
+            return;
+        };
+
+        if pe_info.image_size != self.image_size || pe_info.image_checksum != self.image_checksum {
+            // image_size or image_checksum doesn't match, the file must be a different
+            // image than we one we were expecting. Don't use any information from it.
+            return;
+        }
+
+        if self.image_timestamp.is_none() {
+            self.image_timestamp = pe_info.image_timestamp;
+        }
+        if self.debug_id.is_none() {
+            self.debug_id = pe_info.debug_id;
+        }
+        if self.pdb_path.is_none() {
+            self.pdb_path = pe_info.pdb_path;
+        }
+    }
+
+    pub fn code_id(&self) -> Option<wholesym::CodeId> {
+        let timestamp = self.image_timestamp?;
+        let image_size = self.image_size;
+        Some(wholesym::CodeId::PeCodeId(PeCodeId {
+            timestamp,
+            image_size,
+        }))
     }
 }
 

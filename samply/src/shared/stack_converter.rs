@@ -213,13 +213,17 @@ impl<I: Iterator<Item = SecondPassFrameInfo>> Iterator for ConvertedStackIter<I>
         // Usually, a BaselineInterpreter frame is directly preceded by a BaselineInterpreterStub frame.
         // However, sometimes you get Regular(x) -> None -> None -> None -> BaselineInterpreter,
         // without a BaselineInterpreterStub frame. In that case, the name "x" from the ancestor
-        // JsFrame::Regular (which is really an InterpreterStub frame for the C++ interpreter)
+        // JsFrame::RegularInAdditionToNativeFrame (which is really an InterpreterStub frame for the C++ interpreter)
         // should be used for the BaselineInterpreter frame. This will create a stack
         // node with the right name, category and JS-only flag, and helps with correct attribution.
         // Unfortunately it means that we'll have two prepended JS label frames for the same function
         // in that case, but that's still better than accounting those samples to the wrong JS function.
-        let js_name = match js_frame {
-            Some(JsFrame::Regular(js_name)) => {
+        let extra_js_name = match js_frame {
+            Some(JsFrame::NativeFrameIsJs) => {
+                frame_info.flags |= FrameFlags::IS_JS;
+                None
+            }
+            Some(JsFrame::RegularInAdditionToNativeFrame(js_name)) => {
                 // Remember the name for a potentially upcoming unnamed BaselineInterpreter frame.
                 self.js_name_for_baseline_interpreter = Some(js_name);
                 Some(js_name)
@@ -233,7 +237,7 @@ impl<I: Iterator<Item = SecondPassFrameInfo>> Iterator for ConvertedStackIter<I>
             None => None,
         };
 
-        if let Some(JsName::NonSelfHosted(js_name)) = js_name {
+        if let Some(JsName::NonSelfHosted(js_name)) = extra_js_name {
             // Prepend a JS frame.
             // We don't treat Spidermonkey "self-hosted" functions as JS (e.g. filter/map/push).
             let prepended_js_frame = FrameInfo {
