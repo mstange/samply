@@ -17,7 +17,7 @@ use crate::shared::context_switch::{
     ContextSwitchHandler, OffCpuSampleGroup, ThreadContextSwitchData,
 };
 use crate::shared::included_processes::IncludedProcesses;
-use crate::shared::jit_category_manager::JitCategoryManager;
+use crate::shared::jit_category_manager::{JitCategoryManager, JsFrame, JsName};
 use crate::shared::jit_function_add_marker::JitFunctionAddMarker;
 use crate::shared::jit_function_recycler::JitFunctionRecycler;
 use crate::shared::lib_mappings::{LibMappingAdd, LibMappingInfo, LibMappingOp, LibMappingOpQueue};
@@ -1554,25 +1554,36 @@ impl ProfileContext {
             return;
         };
 
-        if let Some(url) = process.js_sources.get(&source_id) {
-            if !method_name.starts_with("JS:") {
-                method_name.insert_str(0, "JS:?");
+        let (category, js_frame) = if let Some(url) = process.js_sources.get(&source_id) {
+            if method_name.starts_with("JS:") {
+                // Probably a JIT frame from a locally patched version of Chrome where
+                // we made it prefix the ETW JIT frames with the same prefixes as with
+                // the Jitdump backend. The prefix gives us the Jit tier / category.
+                self.js_category_manager
+                    .classify_jit_symbol(&method_name, &mut self.profile)
+            } else {
+                // A JIT frame from a regular Chrome / Edge build.
+                // For now we just add the script URL at the end of the function name.
+                // In the future, we should store the function name and the script URL
+                // separately in the profile.
                 method_name.push(' ');
                 method_name.push_str(url);
                 if line != 0 {
                     use std::fmt::Write;
-                    write!(&mut method_name, ":{line}").unwrap();
-                    if column != 0 {
-                        write!(&mut method_name, ":{column}").unwrap();
-                    }
+                    write!(&mut method_name, ":{line}:{column}").unwrap();
                 }
+                let s = self.profile.intern_string(&method_name);
+                let category = self.js_jit_lib.default_category();
+                let js_frame = Some(JsFrame::Regular(JsName::NonSelfHosted(s)));
+                (category, js_frame)
             }
-        }
+        } else {
+            // Probably a JIT frame from Firefox. Firefox doesn't emit SourceLoad events yet.
+            self.js_category_manager
+                .classify_jit_symbol(&method_name, &mut self.profile)
+        };
 
         let lib = &mut self.js_jit_lib;
-        let (category, js_frame) = self
-            .js_category_manager
-            .classify_jit_symbol(&method_name, &mut self.profile);
         let info = LibMappingInfo::new_jit_function(lib.lib_handle(), category, js_frame);
 
         let name_handle = self.profile.intern_string(&method_name);
