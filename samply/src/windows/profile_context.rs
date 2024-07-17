@@ -17,7 +17,7 @@ use crate::shared::context_switch::{
     ContextSwitchHandler, OffCpuSampleGroup, ThreadContextSwitchData,
 };
 use crate::shared::included_processes::IncludedProcesses;
-use crate::shared::jit_category_manager::{JitCategoryManager, JsFrame, JsName};
+use crate::shared::jit_category_manager::{JitCategoryManager, JsFrame};
 use crate::shared::jit_function_add_marker::JitFunctionAddMarker;
 use crate::shared::jit_function_recycler::JitFunctionRecycler;
 use crate::shared::lib_mappings::{LibMappingAdd, LibMappingInfo, LibMappingOp, LibMappingOpQueue};
@@ -1566,15 +1566,13 @@ impl ProfileContext {
                 // For now we just add the script URL at the end of the function name.
                 // In the future, we should store the function name and the script URL
                 // separately in the profile.
-                method_name.push(' ');
-                method_name.push_str(url);
+                use std::fmt::Write;
+                write!(&mut method_name, " {url}").unwrap();
                 if line != 0 {
-                    use std::fmt::Write;
                     write!(&mut method_name, ":{line}:{column}").unwrap();
                 }
-                let s = self.profile.intern_string(&method_name);
                 let category = self.js_jit_lib.default_category();
-                let js_frame = Some(JsFrame::Regular(JsName::NonSelfHosted(s)));
+                let js_frame = Some(JsFrame::NativeFrameIsJs);
                 (category, js_frame)
             }
         } else {
