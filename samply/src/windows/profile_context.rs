@@ -1272,31 +1272,22 @@ impl ProfileContext {
             }
 
             if let Some(cpu_delta) = on_cpu_sample_cpu_delta {
-                if let Some(mut combined_stack) = kernel_stack {
+                let stack_index = if let Some(mut combined_stack) = kernel_stack {
                     combined_stack.extend_from_slice(&user_stack[..]);
-                    let combined_stack_index = self
-                        .unresolved_stacks
-                        .convert(combined_stack.into_iter().rev());
-                    process.unresolved_samples.add_sample(
-                        thread.handle,
-                        timestamp,
-                        timestamp_raw,
-                        combined_stack_index,
-                        cpu_delta,
-                        1,
-                        None,
-                    );
+                    self.unresolved_stacks
+                        .convert(combined_stack.into_iter().rev())
                 } else {
-                    process.unresolved_samples.add_sample(
-                        thread.handle,
-                        timestamp,
-                        timestamp_raw,
-                        user_stack_index,
-                        cpu_delta,
-                        1,
-                        None,
-                    );
-                }
+                    user_stack_index
+                };
+                process.unresolved_samples.add_sample(
+                    thread.handle,
+                    timestamp,
+                    timestamp_raw,
+                    stack_index,
+                    cpu_delta,
+                    1,
+                    None,
+                );
                 self.stack_sample_count += 1;
             }
         }
