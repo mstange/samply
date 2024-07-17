@@ -28,7 +28,9 @@ use crate::shared::recycling::{ProcessRecycler, ProcessRecyclingData, ThreadRecy
 use crate::shared::synthetic_jit_library::SyntheticJitLibrary;
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::types::{StackFrame, StackMode};
-use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
+use crate::shared::unresolved_samples::{
+    UnresolvedSamples, UnresolvedStackHandle, UnresolvedStacks,
+};
 use crate::windows::firefox::{
     PHASE_INSTANT, PHASE_INTERVAL, PHASE_INTERVAL_END, PHASE_INTERVAL_START,
 };
@@ -36,13 +38,14 @@ use crate::windows::firefox::{
 /// An on- or off-cpu-sample for which the user stack is not known yet.
 /// Consumed once the user stack arrives.
 #[derive(Debug, Clone)]
-pub struct PendingStack {
+pub struct SampleWithPendingStack {
     /// The timestamp of the SampleProf or CSwitch event
     pub timestamp: u64,
     /// Starts out as None. Once we encounter the kernel stack (if any), we put it here.
     pub kernel_stack: Option<Vec<StackFrame>>,
     pub off_cpu_sample_group: Option<OffCpuSampleGroup>,
-    pub on_cpu_sample_cpu_delta: Option<CpuDelta>,
+    pub cpu_delta: CpuDelta,
+    pub has_on_cpu_sample: bool,
 }
 
 #[derive(Debug)]
@@ -137,7 +140,7 @@ pub struct Thread {
     pub is_main_thread: bool,
     pub handle: ThreadHandle,
     pub label_frame: FrameInfo,
-    pub pending_stacks: VecDeque<PendingStack>,
+    pub samples_with_pending_stacks: VecDeque<SampleWithPendingStack>,
     pub context_switch_data: ThreadContextSwitchData,
     #[allow(dead_code)]
     pub thread_id: u32,
@@ -161,7 +164,7 @@ impl Thread {
             is_main_thread,
             handle,
             label_frame,
-            pending_stacks: VecDeque::new(),
+            samples_with_pending_stacks: VecDeque::new(),
             context_switch_data: Default::default(),
             pending_markers: HashMap::new(),
             thread_id: tid,
@@ -1172,17 +1175,17 @@ impl ProfileContext {
         let Some(thread) = self.threads.get_by_tid(tid) else {
             return;
         };
-        if let Some(pending_stack) = thread
-            .pending_stacks
+        if let Some(sample_info) = thread
+            .samples_with_pending_stacks
             .iter_mut()
             .rev()
             .find(|s| s.timestamp == timestamp_raw)
         {
-            if let Some(kernel_stack) = pending_stack.kernel_stack.as_mut() {
+            if let Some(kernel_stack) = sample_info.kernel_stack.as_mut() {
                 log::warn!("Multiple kernel stacks for timestamp {timestamp_raw} on thread {tid}");
                 kernel_stack.extend(&stack);
             } else {
-                pending_stack.kernel_stack = Some(stack);
+                sample_info.kernel_stack = Some(stack);
             }
         }
     }
@@ -1192,104 +1195,118 @@ impl ProfileContext {
         timestamp_raw: u64,
         pid: u32,
         tid: u32,
-        stack: Vec<StackFrame>,
+        user_stack: Vec<StackFrame>,
     ) {
-        let Some(process) = self.processes.get_by_pid(pid) else {
-            return;
-        };
         let Some(thread) = self.threads.get_by_tid(tid) else {
             return;
         };
 
-        // We now know that we have a user stack. User stacks always come last. Consume
-        // the pending stack with matching timestamp.
-        let user_stack = stack;
+        // User stacks always come last. Consume any samples with pending stacks with matching timestamp.
         let user_stack_index = self
             .unresolved_stacks
             .convert(user_stack.iter().cloned().rev());
 
         // the number of pending stacks at or before our timestamp
-        let num_pending_stacks = thread
-            .pending_stacks
+        let num_samples_with_pending_stacks = thread
+            .samples_with_pending_stacks
             .iter()
             .take_while(|s| s.timestamp <= timestamp_raw)
             .count();
 
-        let pending_stacks: VecDeque<_> =
-            thread.pending_stacks.drain(..num_pending_stacks).collect();
+        let samples_with_pending_stacks: VecDeque<_> = thread
+            .samples_with_pending_stacks
+            .drain(..num_samples_with_pending_stacks)
+            .collect();
+
+        let thread_handle = thread.handle;
 
         // Use this user stack for all pending stacks from this thread.
-        for pending_stack in pending_stacks {
-            let PendingStack {
-                timestamp: timestamp_raw,
-                kernel_stack,
-                off_cpu_sample_group,
-                on_cpu_sample_cpu_delta,
-            } = pending_stack;
-            let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
+        for sample_info in samples_with_pending_stacks {
+            self.consume_sample(
+                pid,
+                sample_info,
+                &user_stack,
+                user_stack_index,
+                thread_handle,
+            );
+        }
+    }
 
-            if let Some(off_cpu_sample_group) = off_cpu_sample_group {
-                let OffCpuSampleGroup {
-                    begin_timestamp: begin_timestamp_raw,
-                    end_timestamp: end_timestamp_raw,
-                    sample_count,
-                } = off_cpu_sample_group;
+    fn consume_sample(
+        &mut self,
+        pid: u32,
+        sample_info: SampleWithPendingStack,
+        user_stack: &[StackFrame],
+        user_stack_index: UnresolvedStackHandle,
+        thread_handle: ThreadHandle,
+    ) {
+        let Some(process) = self.processes.get_by_pid(pid) else {
+            return;
+        };
+        let SampleWithPendingStack {
+            timestamp: timestamp_raw,
+            kernel_stack,
+            off_cpu_sample_group,
+            mut cpu_delta,
+            has_on_cpu_sample,
+        } = sample_info;
+        let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
 
-                let cpu_delta_raw = {
-                    self.context_switch_handler
-                        .consume_cpu_delta(&mut thread.context_switch_data)
-                };
-                let cpu_delta =
-                    CpuDelta::from_nanos(cpu_delta_raw * self.timestamp_converter.raw_to_ns_factor);
+        if let Some(off_cpu_sample_group) = off_cpu_sample_group {
+            let OffCpuSampleGroup {
+                begin_timestamp: begin_timestamp_raw,
+                end_timestamp: end_timestamp_raw,
+                sample_count,
+            } = off_cpu_sample_group;
 
-                // Add a sample at the beginning of the paused range.
-                // This "first sample" will carry any leftover accumulated running time ("cpu delta").
-                let begin_timestamp = self.timestamp_converter.convert_time(begin_timestamp_raw);
+            // Add a sample at the beginning of the paused range.
+            // This "first sample" will carry any leftover accumulated running time ("cpu delta").
+            let begin_timestamp = self.timestamp_converter.convert_time(begin_timestamp_raw);
+            process.unresolved_samples.add_sample(
+                thread_handle,
+                begin_timestamp,
+                begin_timestamp_raw,
+                user_stack_index,
+                cpu_delta,
+                1,
+                None,
+            );
+            cpu_delta = CpuDelta::ZERO;
+
+            if sample_count > 1 {
+                // Emit a "rest sample" with a CPU delta of zero covering the rest of the paused range.
+                let weight = i32::try_from(sample_count - 1).unwrap_or(0);
+                let end_timestamp = self.timestamp_converter.convert_time(end_timestamp_raw);
                 process.unresolved_samples.add_sample(
-                    thread.handle,
-                    begin_timestamp,
-                    begin_timestamp_raw,
+                    thread_handle,
+                    end_timestamp,
+                    end_timestamp_raw,
                     user_stack_index,
-                    cpu_delta,
-                    1,
+                    CpuDelta::ZERO,
+                    weight,
                     None,
                 );
-
-                if sample_count > 1 {
-                    // Emit a "rest sample" with a CPU delta of zero covering the rest of the paused range.
-                    let weight = i32::try_from(sample_count - 1).unwrap_or(0);
-                    let end_timestamp = self.timestamp_converter.convert_time(end_timestamp_raw);
-                    process.unresolved_samples.add_sample(
-                        thread.handle,
-                        end_timestamp,
-                        end_timestamp_raw,
-                        user_stack_index,
-                        CpuDelta::ZERO,
-                        weight,
-                        None,
-                    );
-                }
             }
+        }
 
-            if let Some(cpu_delta) = on_cpu_sample_cpu_delta {
-                let stack_index = if let Some(mut combined_stack) = kernel_stack {
-                    combined_stack.extend_from_slice(&user_stack[..]);
-                    self.unresolved_stacks
-                        .convert(combined_stack.into_iter().rev())
-                } else {
-                    user_stack_index
-                };
-                process.unresolved_samples.add_sample(
-                    thread.handle,
-                    timestamp,
-                    timestamp_raw,
-                    stack_index,
-                    cpu_delta,
-                    1,
-                    None,
-                );
-                self.stack_sample_count += 1;
-            }
+        if has_on_cpu_sample {
+            let stack_index = if let Some(mut combined_stack) = kernel_stack {
+                combined_stack.extend_from_slice(user_stack);
+                self.unresolved_stacks
+                    .convert(combined_stack.into_iter().rev())
+            } else {
+                user_stack_index
+            };
+            process.unresolved_samples.add_sample(
+                thread_handle,
+                timestamp,
+                timestamp_raw,
+                stack_index,
+                cpu_delta,
+                1,
+                None,
+            );
+            self.stack_sample_count += 1;
         }
     }
 
@@ -1305,12 +1322,15 @@ impl ProfileContext {
             .context_switch_handler
             .consume_cpu_delta(&mut thread.context_switch_data);
         let cpu_delta = CpuDelta::from_nanos(delta * self.timestamp_converter.raw_to_ns_factor);
-        thread.pending_stacks.push_back(PendingStack {
-            timestamp: timestamp_raw,
-            kernel_stack: None,
-            off_cpu_sample_group,
-            on_cpu_sample_cpu_delta: Some(cpu_delta),
-        });
+        thread
+            .samples_with_pending_stacks
+            .push_back(SampleWithPendingStack {
+                timestamp: timestamp_raw,
+                kernel_stack: None,
+                off_cpu_sample_group,
+                cpu_delta,
+                has_on_cpu_sample: true,
+            });
 
         self.sample_count += 1;
     }
@@ -1504,13 +1524,21 @@ impl ProfileContext {
             let off_cpu_sample_group = self
                 .context_switch_handler
                 .handle_switch_in(timestamp_raw, &mut new_thread.context_switch_data);
+            let cpu_delta_raw = self
+                .context_switch_handler
+                .consume_cpu_delta(&mut new_thread.context_switch_data);
+            let cpu_delta =
+                CpuDelta::from_nanos(cpu_delta_raw * self.timestamp_converter.raw_to_ns_factor);
             if let Some(off_cpu_sample_group) = off_cpu_sample_group {
-                new_thread.pending_stacks.push_back(PendingStack {
-                    timestamp: timestamp_raw,
-                    kernel_stack: None,
-                    off_cpu_sample_group: Some(off_cpu_sample_group),
-                    on_cpu_sample_cpu_delta: None,
-                });
+                new_thread
+                    .samples_with_pending_stacks
+                    .push_back(SampleWithPendingStack {
+                        timestamp: timestamp_raw,
+                        kernel_stack: None,
+                        off_cpu_sample_group: Some(off_cpu_sample_group),
+                        cpu_delta,
+                        has_on_cpu_sample: false,
+                    });
             }
         }
     }
