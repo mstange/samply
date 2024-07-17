@@ -3,7 +3,6 @@ use fxprof_processed_profile::{
     MarkerLocation, MarkerSchema, MarkerTiming, ProcessHandle, Profile, StaticSchemaMarker,
     StringHandle, ThreadHandle, Timestamp,
 };
-use linux_perf_data::linux_perf_event_reader::TaskWasPreempted;
 
 use crate::shared::context_switch::ThreadContextSwitchData;
 use crate::shared::timestamp_converter::TimestampConverter;
@@ -46,7 +45,7 @@ impl Cpu {
         let previous_tid =
             std::mem::replace(&mut self.current_tid, Some((tid, thread_name, timestamp)));
         if let Some((_previous_tid, previous_thread_name, switch_in_timestamp)) = previous_tid {
-            // eprintln!("Missing switch-out (noticed during switch-in) on {}: {previous_tid}, {switch_in_timestamp}", self.name);
+            // eprintln!("Missing switch-out (noticed during switch-in) on {}: {previous_tid}, {switch_in_timestamp}", profile.get_string(self.name));
             let start_timestamp = converter.convert_time(switch_in_timestamp);
             let end_timestamp = converter.convert_time(timestamp);
             let timing = MarkerTiming::Interval(start_timestamp, end_timestamp);
@@ -63,12 +62,12 @@ impl Cpu {
     #[allow(clippy::too_many_arguments)]
     pub fn notify_switch_out(
         &mut self,
-        tid: i32,
+        tid: i32, // tid that is being switched away from
         timestamp: u64,
         converter: &TimestampConverter,
-        thread_handles: &[ThreadHandle],
-        thread_handle: ThreadHandle,
-        preempted: TaskWasPreempted,
+        thread_handles: &[ThreadHandle], // for cpu tracks
+        thread_handle: ThreadHandle,     // for thread tracks
+        preempted: bool,
         profile: &mut Profile,
     ) {
         let previous_tid = self.current_tid.take();
@@ -84,8 +83,8 @@ impl Cpu {
                 );
             }
             let switch_out_reason = match preempted {
-                TaskWasPreempted::Yes => profile.intern_string("preempted"),
-                TaskWasPreempted::No => profile.intern_string("blocked"),
+                true => profile.intern_string("preempted"),
+                false => profile.intern_string("blocked"),
             };
             profile.add_marker(
                 thread_handle,
@@ -96,16 +95,16 @@ impl Cpu {
                 },
             );
             if previous_tid != tid {
-                // eprintln!("Missing switch-out (noticed during switch-out) on {}: {previous_tid}, {switch_in_timestamp}", self.name);
+                // eprintln!("Missing switch-out (noticed during switch-out) on {}: {previous_tid}, {switch_in_timestamp}", profile.get_string(self.name));
                 // eprintln!(
                 //     "Missing switch-in (noticed during switch-out) on {}: {tid}, {timestamp}",
-                //     self.name
+                //     profile.get_string(self.name)
                 // );
             }
         } else {
             // eprintln!(
             //     "Missing switch-in (noticed during switch-out) on {}: {tid}, {timestamp}",
-            //     self.name
+            //     profile.get_string(self.name)
             // );
         }
     }

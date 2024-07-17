@@ -12,6 +12,7 @@ use fxprof_processed_profile::{
     ReferenceTimestamp, SamplingInterval, StaticSchemaMarker, StringHandle, SymbolTable,
     ThreadHandle,
 };
+use linux_perf_data::linux_perf_event_reader::TaskWasPreempted;
 use linux_perf_data::simpleperf_dso_type::{DSO_DEX_FILE, DSO_KERNEL, DSO_KERNEL_MODULE};
 use linux_perf_data::{
     linux_perf_event_reader, DsoInfo, DsoKey, Endianness, SimpleperfFileRecord, SimpleperfSymbol,
@@ -980,7 +981,7 @@ where
                         &self.timestamp_converter,
                         &[cpu.thread_handle, combined_thread],
                         thread.profile_thread,
-                        preempted,
+                        preempted == TaskWasPreempted::Yes,
                         &mut self.profile,
                     );
                 }

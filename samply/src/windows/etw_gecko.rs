@@ -207,7 +207,8 @@ fn process_trace(
                     return;
                 }
                 let tid: u32 = parser.parse("ThreadId");
-                context.handle_sample(timestamp_raw, tid);
+                let cpu = u32::from(unsafe { e.BufferContext.Anonymous.ProcessorIndex });
+                context.handle_sample(timestamp_raw, tid, cpu);
             }
             "MSNT_SystemTrace/PageFault/DemandZeroFault" => {
                 if !context.is_in_time_range(timestamp_raw) {
@@ -218,7 +219,8 @@ fn process_trace(
                 }
 
                 let tid: u32 = s.thread_id();
-                context.handle_sample(timestamp_raw, tid);
+                let cpu = u32::from(unsafe { e.BufferContext.Anonymous.ProcessorIndex });
+                context.handle_sample(timestamp_raw, tid, cpu);
             }
             "MSNT_SystemTrace/PageFault/VirtualAlloc"
             | "MSNT_SystemTrace/PageFault/VirtualFree" => {
@@ -316,7 +318,9 @@ fn process_trace(
                 }
                 let old_tid: u32 = parser.parse("OldThreadId");
                 let new_tid: u32 = parser.parse("NewThreadId");
-                context.handle_cswitch(timestamp_raw, old_tid, new_tid);
+                let cpu = u32::from(unsafe { e.BufferContext.Anonymous.ProcessorIndex });
+                let wait_reason: i8 = parser.parse("OldThreadWaitReason");
+                context.handle_cswitch(timestamp_raw, old_tid, new_tid, cpu, wait_reason);
             }
             "MSNT_SystemTrace/Thread/ReadyThread" => {
                 if !context.is_in_time_range(timestamp_raw) {
