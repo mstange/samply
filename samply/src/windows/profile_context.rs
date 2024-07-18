@@ -21,6 +21,7 @@ use crate::shared::jit_category_manager::{JitCategoryManager, JsFrame};
 use crate::shared::jit_function_add_marker::JitFunctionAddMarker;
 use crate::shared::jit_function_recycler::JitFunctionRecycler;
 use crate::shared::lib_mappings::{LibMappingAdd, LibMappingInfo, LibMappingOp, LibMappingOpQueue};
+use crate::shared::per_cpu::Cpus;
 use crate::shared::process_name::make_process_name;
 use crate::shared::process_sample_data::{ProcessSampleData, UserTimingMarker};
 use crate::shared::recording_props::ProfileCreationProps;
@@ -28,7 +29,9 @@ use crate::shared::recycling::{ProcessRecycler, ProcessRecyclingData, ThreadRecy
 use crate::shared::synthetic_jit_library::SyntheticJitLibrary;
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::types::{StackFrame, StackMode};
-use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
+use crate::shared::unresolved_samples::{
+    UnresolvedSamples, UnresolvedStackHandle, UnresolvedStacks,
+};
 use crate::windows::firefox::{
     PHASE_INSTANT, PHASE_INTERVAL, PHASE_INTERVAL_END, PHASE_INTERVAL_START,
 };
@@ -36,13 +39,15 @@ use crate::windows::firefox::{
 /// An on- or off-cpu-sample for which the user stack is not known yet.
 /// Consumed once the user stack arrives.
 #[derive(Debug, Clone)]
-pub struct PendingStack {
+pub struct SampleWithPendingStack {
     /// The timestamp of the SampleProf or CSwitch event
     pub timestamp: u64,
     /// Starts out as None. Once we encounter the kernel stack (if any), we put it here.
     pub kernel_stack: Option<Vec<StackFrame>>,
     pub off_cpu_sample_group: Option<OffCpuSampleGroup>,
-    pub on_cpu_sample_cpu_delta: Option<CpuDelta>,
+    pub cpu_delta: CpuDelta,
+    pub has_on_cpu_sample: bool,
+    pub per_cpu_stuff: Option<(ThreadHandle, CpuDelta)>,
 }
 
 #[derive(Debug)]
@@ -137,7 +142,7 @@ pub struct Thread {
     pub is_main_thread: bool,
     pub handle: ThreadHandle,
     pub label_frame: FrameInfo,
-    pub pending_stacks: VecDeque<PendingStack>,
+    pub samples_with_pending_stacks: VecDeque<SampleWithPendingStack>,
     pub context_switch_data: ThreadContextSwitchData,
     #[allow(dead_code)]
     pub thread_id: u32,
@@ -161,12 +166,19 @@ impl Thread {
             is_main_thread,
             handle,
             label_frame,
-            pending_stacks: VecDeque::new(),
+            samples_with_pending_stacks: VecDeque::new(),
             context_switch_data: Default::default(),
             pending_markers: HashMap::new(),
             thread_id: tid,
             tid_reused_timestamp_raw: None,
             process_id: pid,
+        }
+    }
+
+    pub fn thread_label(&self) -> StringHandle {
+        match self.label_frame.frame {
+            Frame::Label(s) => s,
+            _ => panic!(),
         }
     }
 }
@@ -500,6 +512,8 @@ pub struct ProfileContext {
 
     // Time range from the timestamp origin
     time_range: Option<(Timestamp, Timestamp)>,
+
+    cpus: Option<Cpus>,
 }
 
 impl ProfileContext {
@@ -549,6 +563,15 @@ impl ProfileContext {
             allow_jit_function_recycling,
         );
 
+        let cpus = if profile_creation_props.create_per_cpu_threads {
+            Some(Cpus::new(
+                Timestamp::from_nanos_since_reference(0),
+                &mut profile,
+            ))
+        } else {
+            None
+        };
+
         Self {
             profile,
             profile_creation_props,
@@ -581,6 +604,7 @@ impl ProfileContext {
             event_timestamps_are_qpc: false,
             main_thread_only,
             time_range,
+            cpus,
         }
     }
 
@@ -867,10 +891,14 @@ impl ProfileContext {
         timestamp_raw: u64,
         tid: u32,
         pid: u32,
-        name: Option<String>,
+        mut name: Option<String>,
     ) {
         if !self.is_interesting_process(pid, None, None) {
             return;
+        }
+
+        if name.as_deref().is_some_and(|name| name.is_empty()) {
+            name = None;
         }
 
         let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
@@ -882,10 +910,11 @@ impl ProfileContext {
         if !process.seen_main_thread_start {
             process.seen_main_thread_start = true;
             let thread_handle = process.main_thread_handle;
+            let thread_name = name.as_deref().unwrap_or(&process.name);
             let thread_label_frame =
-                make_thread_label_frame(&mut self.profile, name.as_deref(), pid, tid);
+                make_thread_label_frame(&mut self.profile, Some(thread_name), pid, tid);
             process.main_thread_label_frame = thread_label_frame.clone();
-            // self.profile.set_thread_tid(thread_handle, tid);
+            self.profile.set_thread_tid(thread_handle, tid);
             let thread = Thread::new(name, true, thread_handle, thread_label_frame, pid, tid);
             self.threads.add(tid, timestamp_raw, thread);
             self.thread_handles
@@ -937,10 +966,11 @@ impl ProfileContext {
         if !process.seen_main_thread_start {
             process.seen_main_thread_start = true;
             let thread_handle = process.main_thread_handle;
+            let thread_name = name.as_deref().unwrap_or(&process.name);
             let thread_label_frame =
-                make_thread_label_frame(&mut self.profile, name.as_deref(), pid, tid);
+                make_thread_label_frame(&mut self.profile, Some(thread_name), pid, tid);
             process.main_thread_label_frame = thread_label_frame.clone();
-            // self.profile.set_thread_tid(thread_handle, tid);
+            self.profile.set_thread_tid(thread_handle, tid);
             let thread = Thread::new(name, true, thread_handle, thread_label_frame, pid, tid);
             self.threads.add(tid, timestamp_raw, thread);
             self.thread_handles
@@ -1030,12 +1060,15 @@ impl ProfileContext {
             if let Some((thread_handle, thread_label_frame)) =
                 thread_recycler.recycle_by_name(&name)
             {
+                thread.name = Some(name);
                 thread.handle = thread_handle;
                 thread.label_frame = thread_label_frame;
                 self.thread_handles
                     .insert((tid, timestamp_raw), thread_handle);
+                return;
             }
         }
+        thread.label_frame = make_thread_label_frame(&mut self.profile, Some(&name), pid, tid);
         self.profile.set_thread_name(thread.handle, &name);
         thread.name = Some(name);
     }
@@ -1165,25 +1198,40 @@ impl ProfileContext {
     fn handle_kernel_stack(
         &mut self,
         timestamp_raw: u64,
-        _pid: u32,
+        pid: u32,
         tid: u32,
         stack: Vec<StackFrame>,
     ) {
         let Some(thread) = self.threads.get_by_tid(tid) else {
             return;
         };
-        if let Some(pending_stack) = thread
-            .pending_stacks
+        let Some(index) = thread
+            .samples_with_pending_stacks
             .iter_mut()
-            .rev()
-            .find(|s| s.timestamp == timestamp_raw)
-        {
-            if let Some(kernel_stack) = pending_stack.kernel_stack.as_mut() {
-                log::warn!("Multiple kernel stacks for timestamp {timestamp_raw} on thread {tid}");
-                kernel_stack.extend(&stack);
-            } else {
-                pending_stack.kernel_stack = Some(stack);
-            }
+            .rposition(|s| s.timestamp == timestamp_raw)
+        else {
+            return;
+        };
+        let sample_info = &mut thread.samples_with_pending_stacks[index];
+        if let Some(kernel_stack) = sample_info.kernel_stack.as_mut() {
+            log::warn!("Multiple kernel stacks for timestamp {timestamp_raw} on thread {tid}");
+            kernel_stack.extend(&stack);
+        } else {
+            sample_info.kernel_stack = Some(stack);
+        }
+
+        if pid == 4 {
+            // No user stack will arrive. Consume the sample now.
+            let sample_info = thread.samples_with_pending_stacks.remove(index).unwrap();
+            let thread_handle = thread.handle;
+            let thread_label_frame = thread.label_frame.clone();
+            self.consume_sample(
+                pid,
+                sample_info,
+                UnresolvedStackHandle::EMPTY,
+                thread_handle,
+                thread_label_frame,
+            );
         }
     }
 
@@ -1192,117 +1240,145 @@ impl ProfileContext {
         timestamp_raw: u64,
         pid: u32,
         tid: u32,
-        stack: Vec<StackFrame>,
+        user_stack: Vec<StackFrame>,
     ) {
-        let Some(process) = self.processes.get_by_pid(pid) else {
-            return;
-        };
         let Some(thread) = self.threads.get_by_tid(tid) else {
             return;
         };
 
-        // We now know that we have a user stack. User stacks always come last. Consume
-        // the pending stack with matching timestamp.
-        let user_stack = stack;
-        let user_stack_index = self
-            .unresolved_stacks
-            .convert(user_stack.iter().cloned().rev());
+        // User stacks always come last. Consume any samples with pending stacks with matching timestamp.
+        let user_stack_index = self.unresolved_stacks.convert(user_stack.into_iter().rev());
 
         // the number of pending stacks at or before our timestamp
-        let num_pending_stacks = thread
-            .pending_stacks
+        let num_samples_with_pending_stacks = thread
+            .samples_with_pending_stacks
             .iter()
             .take_while(|s| s.timestamp <= timestamp_raw)
             .count();
 
-        let pending_stacks: VecDeque<_> =
-            thread.pending_stacks.drain(..num_pending_stacks).collect();
+        let samples_with_pending_stacks: VecDeque<_> = thread
+            .samples_with_pending_stacks
+            .drain(..num_samples_with_pending_stacks)
+            .collect();
+
+        let thread_handle = thread.handle;
+        let thread_label_frame = thread.label_frame.clone();
 
         // Use this user stack for all pending stacks from this thread.
-        for pending_stack in pending_stacks {
-            let PendingStack {
-                timestamp: timestamp_raw,
-                kernel_stack,
-                off_cpu_sample_group,
-                on_cpu_sample_cpu_delta,
-            } = pending_stack;
-            let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
-
-            if let Some(off_cpu_sample_group) = off_cpu_sample_group {
-                let OffCpuSampleGroup {
-                    begin_timestamp: begin_timestamp_raw,
-                    end_timestamp: end_timestamp_raw,
-                    sample_count,
-                } = off_cpu_sample_group;
-
-                let cpu_delta_raw = {
-                    self.context_switch_handler
-                        .consume_cpu_delta(&mut thread.context_switch_data)
-                };
-                let cpu_delta =
-                    CpuDelta::from_nanos(cpu_delta_raw * self.timestamp_converter.raw_to_ns_factor);
-
-                // Add a sample at the beginning of the paused range.
-                // This "first sample" will carry any leftover accumulated running time ("cpu delta").
-                let begin_timestamp = self.timestamp_converter.convert_time(begin_timestamp_raw);
-                process.unresolved_samples.add_sample(
-                    thread.handle,
-                    begin_timestamp,
-                    begin_timestamp_raw,
-                    user_stack_index,
-                    cpu_delta,
-                    1,
-                    None,
-                );
-
-                if sample_count > 1 {
-                    // Emit a "rest sample" with a CPU delta of zero covering the rest of the paused range.
-                    let weight = i32::try_from(sample_count - 1).unwrap_or(0);
-                    let end_timestamp = self.timestamp_converter.convert_time(end_timestamp_raw);
-                    process.unresolved_samples.add_sample(
-                        thread.handle,
-                        end_timestamp,
-                        end_timestamp_raw,
-                        user_stack_index,
-                        CpuDelta::ZERO,
-                        weight,
-                        None,
-                    );
-                }
-            }
-
-            if let Some(cpu_delta) = on_cpu_sample_cpu_delta {
-                if let Some(mut combined_stack) = kernel_stack {
-                    combined_stack.extend_from_slice(&user_stack[..]);
-                    let combined_stack_index = self
-                        .unresolved_stacks
-                        .convert(combined_stack.into_iter().rev());
-                    process.unresolved_samples.add_sample(
-                        thread.handle,
-                        timestamp,
-                        timestamp_raw,
-                        combined_stack_index,
-                        cpu_delta,
-                        1,
-                        None,
-                    );
-                } else {
-                    process.unresolved_samples.add_sample(
-                        thread.handle,
-                        timestamp,
-                        timestamp_raw,
-                        user_stack_index,
-                        cpu_delta,
-                        1,
-                        None,
-                    );
-                }
-                self.stack_sample_count += 1;
-            }
+        for sample_info in samples_with_pending_stacks {
+            self.consume_sample(
+                pid,
+                sample_info,
+                user_stack_index,
+                thread_handle,
+                thread_label_frame.clone(),
+            );
         }
     }
 
-    pub fn handle_sample(&mut self, timestamp_raw: u64, tid: u32) {
+    fn consume_sample(
+        &mut self,
+        pid: u32,
+        sample_info: SampleWithPendingStack,
+        user_stack_index: UnresolvedStackHandle,
+        thread_handle: ThreadHandle,
+        thread_label_frame: FrameInfo,
+    ) {
+        let Some(process) = self.processes.get_by_pid(pid) else {
+            return;
+        };
+        let SampleWithPendingStack {
+            timestamp: timestamp_raw,
+            kernel_stack,
+            off_cpu_sample_group,
+            mut cpu_delta,
+            has_on_cpu_sample,
+            per_cpu_stuff,
+        } = sample_info;
+        let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
+
+        if let Some(off_cpu_sample_group) = off_cpu_sample_group {
+            let OffCpuSampleGroup {
+                begin_timestamp: begin_timestamp_raw,
+                end_timestamp: end_timestamp_raw,
+                sample_count,
+            } = off_cpu_sample_group;
+
+            // Add a sample at the beginning of the paused range.
+            // This "first sample" will carry any leftover accumulated running time ("cpu delta").
+            let begin_timestamp = self.timestamp_converter.convert_time(begin_timestamp_raw);
+            process.unresolved_samples.add_sample(
+                thread_handle,
+                begin_timestamp,
+                begin_timestamp_raw,
+                user_stack_index,
+                cpu_delta,
+                1,
+                None,
+            );
+            cpu_delta = CpuDelta::ZERO;
+
+            if sample_count > 1 {
+                // Emit a "rest sample" with a CPU delta of zero covering the rest of the paused range.
+                let weight = i32::try_from(sample_count - 1).unwrap_or(0);
+                let end_timestamp = self.timestamp_converter.convert_time(end_timestamp_raw);
+                process.unresolved_samples.add_sample(
+                    thread_handle,
+                    end_timestamp,
+                    end_timestamp_raw,
+                    user_stack_index,
+                    CpuDelta::ZERO,
+                    weight,
+                    None,
+                );
+            }
+        }
+
+        if !has_on_cpu_sample {
+            return;
+        }
+
+        let stack_index = if let Some(kernel_stack) = kernel_stack {
+            self.unresolved_stacks
+                .convert_with_prefix(user_stack_index, kernel_stack.into_iter().rev())
+        } else {
+            user_stack_index
+        };
+        process.unresolved_samples.add_sample(
+            thread_handle,
+            timestamp,
+            timestamp_raw,
+            stack_index,
+            cpu_delta,
+            1,
+            None,
+        );
+
+        if let Some((cpu_thread_handle, cpu_delta)) = per_cpu_stuff {
+            process.unresolved_samples.add_sample(
+                cpu_thread_handle,
+                timestamp,
+                timestamp_raw,
+                stack_index,
+                cpu_delta,
+                1,
+                Some(thread_label_frame.clone()),
+            );
+            process.unresolved_samples.add_sample(
+                self.cpus.as_ref().unwrap().combined_thread_handle(),
+                timestamp,
+                timestamp_raw,
+                stack_index,
+                CpuDelta::ZERO,
+                1,
+                Some(thread_label_frame.clone()),
+            );
+        }
+
+        self.stack_sample_count += 1;
+    }
+
+    pub fn handle_sample(&mut self, timestamp_raw: u64, tid: u32, cpu_index: u32) {
         let Some(thread) = self.threads.get_by_tid(tid) else {
             return;
         };
@@ -1313,13 +1389,41 @@ impl ProfileContext {
         let delta = self
             .context_switch_handler
             .consume_cpu_delta(&mut thread.context_switch_data);
-        let cpu_delta = CpuDelta::from_nanos(delta * self.timestamp_converter.raw_to_ns_factor);
-        thread.pending_stacks.push_back(PendingStack {
-            timestamp: timestamp_raw,
-            kernel_stack: None,
-            off_cpu_sample_group,
-            on_cpu_sample_cpu_delta: Some(cpu_delta),
-        });
+        let cpu_delta = self.timestamp_converter.convert_cpu_delta(delta);
+
+        let per_cpu_stuff = if let Some(cpus) = &mut self.cpus {
+            let cpu = cpus.get_mut(cpu_index as usize, &mut self.profile);
+
+            let cpu_thread_handle = cpu.thread_handle;
+
+            // Consume idle cpu time.
+            let _idle_cpu_sample = self
+                .context_switch_handler
+                .handle_on_cpu_sample(timestamp_raw, &mut cpu.context_switch_data);
+
+            let cpu_delta = if true {
+                self.timestamp_converter.convert_cpu_delta(
+                    self.context_switch_handler
+                        .consume_cpu_delta(&mut cpu.context_switch_data),
+                )
+            } else {
+                CpuDelta::from_nanos(0)
+            };
+            Some((cpu_thread_handle, cpu_delta))
+        } else {
+            None
+        };
+
+        thread
+            .samples_with_pending_stacks
+            .push_back(SampleWithPendingStack {
+                timestamp: timestamp_raw,
+                kernel_stack: None,
+                off_cpu_sample_group,
+                cpu_delta,
+                has_on_cpu_sample: true,
+                per_cpu_stuff,
+            });
 
         self.sample_count += 1;
     }
@@ -1502,24 +1606,113 @@ impl ProfileContext {
             .add_marker(*gpu_thread, MarkerTiming::Instant(timestamp), VSyncMarker);
     }
 
-    pub fn handle_cswitch(&mut self, timestamp_raw: u64, old_tid: u32, new_tid: u32) {
-        // println!("CSwitch {} -> {} @ {} on {}", old_tid, old_tid, e.EventHeader.TimeStamp, unsafe { e.BufferContext.Anonymous.ProcessorIndex });
+    pub fn handle_cswitch(
+        &mut self,
+        timestamp_raw: u64,
+        old_tid: u32,
+        new_tid: u32,
+        cpu_index: u32,
+        wait_reason: i8,
+    ) {
+        // CSwitch events may or may not have stacks.
+        // If they have stacks, the stack will be the stack of new_tid.
+        // In other words, if a thread sleeps, the sleeping stack is delivered to us at the end of the sleep,
+        // once the CPU starts executing the switched-to thread.
+        // (That's different to e.g. Linux with sched_switch samples, which deliver the stack at the start of the sleep, i.e. just before the switch-out.)
 
         if let Some(old_thread) = self.threads.get_by_tid(old_tid) {
             self.context_switch_handler
                 .handle_switch_out(timestamp_raw, &mut old_thread.context_switch_data);
+
+            if let Some(cpus) = &mut self.cpus {
+                let combined_thread = cpus.combined_thread_handle();
+                let cpu = cpus.get_mut(cpu_index as usize, &mut self.profile);
+                self.context_switch_handler
+                    .handle_switch_out(timestamp_raw, &mut cpu.context_switch_data);
+
+                // TODO: Find out if this actually is the right way to check whether a thread
+                // has been pre-empted.
+                let preempted = wait_reason == 0 || wait_reason == 32; // "Executive" | "WrPreempted"
+                cpu.notify_switch_out(
+                    old_tid as i32,
+                    timestamp_raw,
+                    &self.timestamp_converter,
+                    &[cpu.thread_handle, combined_thread],
+                    old_thread.handle,
+                    preempted,
+                    &mut self.profile,
+                );
+            }
         }
+
         if let Some(new_thread) = self.threads.get_by_tid(new_tid) {
             let off_cpu_sample_group = self
                 .context_switch_handler
                 .handle_switch_in(timestamp_raw, &mut new_thread.context_switch_data);
+            let cpu_delta_raw = self
+                .context_switch_handler
+                .consume_cpu_delta(&mut new_thread.context_switch_data);
+            let cpu_delta = self.timestamp_converter.convert_cpu_delta(cpu_delta_raw);
             if let Some(off_cpu_sample_group) = off_cpu_sample_group {
-                new_thread.pending_stacks.push_back(PendingStack {
-                    timestamp: timestamp_raw,
-                    kernel_stack: None,
-                    off_cpu_sample_group: Some(off_cpu_sample_group),
-                    on_cpu_sample_cpu_delta: None,
-                });
+                new_thread
+                    .samples_with_pending_stacks
+                    .push_back(SampleWithPendingStack {
+                        timestamp: timestamp_raw,
+                        kernel_stack: None,
+                        off_cpu_sample_group: Some(off_cpu_sample_group),
+                        cpu_delta,
+                        has_on_cpu_sample: false,
+                        per_cpu_stuff: None,
+                    });
+            }
+            if let Some(cpus) = &mut self.cpus {
+                let combined_thread = cpus.combined_thread_handle();
+                let idle_frame_label = cpus.idle_frame_label();
+                let cpu = cpus.get_mut(cpu_index as usize, &mut self.profile);
+
+                if let Some(idle_cpu_sample) = self
+                    .context_switch_handler
+                    .handle_switch_in(timestamp_raw, &mut cpu.context_switch_data)
+                {
+                    // Add two samples with a stack saying "<Idle>", with zero weight.
+                    // This will correctly break up the stack chart to show that nothing was running in the idle time.
+                    // This first sample will carry any leftover accumulated running time ("cpu delta"),
+                    // and the second sample is placed at the end of the paused time.
+                    let cpu_delta_raw = self
+                        .context_switch_handler
+                        .consume_cpu_delta(&mut cpu.context_switch_data);
+                    let cpu_delta = self.timestamp_converter.convert_cpu_delta(cpu_delta_raw);
+                    let begin_timestamp = self
+                        .timestamp_converter
+                        .convert_time(idle_cpu_sample.begin_timestamp);
+                    self.profile.add_sample(
+                        cpu.thread_handle,
+                        begin_timestamp,
+                        std::iter::once(idle_frame_label.clone()),
+                        cpu_delta,
+                        0,
+                    );
+
+                    // Emit a "rest sample" with a CPU delta of zero covering the rest of the paused range.
+                    let end_timestamp = self
+                        .timestamp_converter
+                        .convert_time(idle_cpu_sample.end_timestamp);
+                    self.profile.add_sample(
+                        cpu.thread_handle,
+                        end_timestamp,
+                        std::iter::once(idle_frame_label.clone()),
+                        CpuDelta::from_nanos(0),
+                        0,
+                    );
+                }
+                cpu.notify_switch_in(
+                    new_tid as i32,
+                    new_thread.thread_label(),
+                    timestamp_raw,
+                    &self.timestamp_converter,
+                    &[cpu.thread_handle, combined_thread],
+                    &mut self.profile,
+                );
             }
         }
     }

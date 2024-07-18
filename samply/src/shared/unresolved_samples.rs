@@ -172,7 +172,14 @@ impl UnresolvedStacks {
     /// Get the `UnresolvedStackHandle` for a stack. The stack must be ordered from
     /// caller-most to callee-most ("outside to inside").
     pub fn convert(&mut self, frames: impl Iterator<Item = StackFrame>) -> UnresolvedStackHandle {
-        let mut prefix = UnresolvedStackHandle::EMPTY;
+        self.convert_with_prefix(UnresolvedStackHandle::EMPTY, frames)
+    }
+
+    pub fn convert_with_prefix(
+        &mut self,
+        mut prefix: UnresolvedStackHandle,
+        frames: impl Iterator<Item = StackFrame>,
+    ) -> UnresolvedStackHandle {
         for frame in frames {
             let x = (prefix, frame);
             let node = *self.stack_lookup.entry(x).or_insert_with(|| {

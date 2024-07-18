@@ -81,6 +81,10 @@ impl Thread {
         self.end_time = Some(end_time);
     }
 
+    pub fn set_tid(&mut self, tid: String) {
+        self.tid = tid;
+    }
+
     pub fn process(&self) -> ProcessHandle {
         self.process
     }

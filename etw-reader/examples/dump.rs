@@ -35,14 +35,15 @@ fn main() {
                 }
             }
             println!(
-                "{:?} {} {} {}-{} {} {}",
+                "{:?} {} {} {}-{} {} {}, processor {}",
                 e.EventHeader.ProviderId,
                 s.name(),
                 s.provider_name(),
                 e.EventHeader.EventDescriptor.Opcode,
                 e.EventHeader.EventDescriptor.Id,
                 s.property_count(),
-                e.EventHeader.TimeStamp
+                e.EventHeader.TimeStamp,
+                unsafe { e.BufferContext.Anonymous.ProcessorIndex },
             );
             println!(
                 "pid: {} {:?}",

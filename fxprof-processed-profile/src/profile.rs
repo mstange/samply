@@ -393,6 +393,12 @@ impl Profile {
         self.threads[thread.0].set_end_time(end_time);
     }
 
+    /// Set the tid (thread ID) of a thread.
+    pub fn set_thread_tid(&mut self, thread: ThreadHandle, tid: u32) {
+        let tid = self.make_unique_tid(tid);
+        self.threads[thread.0].set_tid(tid);
+    }
+
     /// Turn the string into in a [`StringHandle`], for use in [`Frame::Label`].
     pub fn intern_string(&mut self, s: &str) -> StringHandle {
         StringHandle(self.string_table.index_for_string(s))

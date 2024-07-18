@@ -1,4 +1,4 @@
-use fxprof_processed_profile::Timestamp;
+use fxprof_processed_profile::{CpuDelta, Timestamp};
 
 #[derive(Debug, Clone, Copy)]
 pub struct TimestampConverter {
@@ -13,6 +13,11 @@ impl TimestampConverter {
         Timestamp::from_nanos_since_reference(
             timestamp_raw.saturating_sub(self.reference_raw) * self.raw_to_ns_factor,
         )
+    }
+
+    #[allow(dead_code)]
+    pub fn convert_cpu_delta(&self, delta_raw: u64) -> CpuDelta {
+        CpuDelta::from_nanos(delta_raw * self.raw_to_ns_factor)
     }
 
     #[allow(unused)]
