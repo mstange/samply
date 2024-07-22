@@ -72,7 +72,7 @@ pub use markers::{
     StaticSchemaMarker,
 };
 pub use process::ThreadHandle;
-pub use profile::{Profile, SamplingInterval, StringHandle};
+pub use profile::{FrameHandle, Profile, SamplingInterval, StackHandle, StringHandle};
 pub use reference_timestamp::ReferenceTimestamp;
 pub use thread::ProcessHandle;
 pub use timestamp::*;

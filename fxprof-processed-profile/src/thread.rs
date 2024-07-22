@@ -113,6 +113,10 @@ impl Thread {
         )
     }
 
+    pub fn get_frame_category(&self, frame: usize) -> CategoryPairHandle {
+        self.frame_table.get_category(frame)
+    }
+
     pub fn stack_index_for_stack(
         &mut self,
         prefix: Option<usize>,

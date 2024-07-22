@@ -78,6 +78,14 @@ impl From<Duration> for SamplingInterval {
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct StringHandle(pub(crate) GlobalStringIndex);
 
+/// A handle to a frame, specific to a thread. Can be created with [`Profile::intern_frame`](crate::Profile::intern_frame).
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
+pub struct FrameHandle(ThreadHandle, usize);
+
+/// A handle to a stack, specific to a thread. Can be created with [`Profile::intern_stack`](crate::Profile::intern_stack).
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
+pub struct StackHandle(ThreadHandle, usize);
+
 /// Stores the profile data and can be serialized as JSON, via [`serde::Serialize`].
 ///
 /// The profile data is organized into a list of processes with threads.
@@ -412,6 +420,15 @@ impl Profile {
         self.string_table.get_string(handle.0).unwrap()
     }
 
+    pub fn intern_stack_frames(
+        &mut self,
+        thread: ThreadHandle,
+        frames: impl Iterator<Item = FrameInfo>,
+    ) -> Option<StackHandle> {
+        self.stack_index_for_frames(thread, frames)
+            .map(|s| StackHandle(thread, s))
+    }
+
     /// Add a sample to the given thread.
     ///
     /// The sample has a timestamp, a stack, a CPU delta, and a weight.
@@ -440,11 +457,20 @@ impl Profile {
         &mut self,
         thread: ThreadHandle,
         timestamp: Timestamp,
-        frames: impl Iterator<Item = FrameInfo>,
+        stack: Option<StackHandle>,
         cpu_delta: CpuDelta,
         weight: i32,
     ) {
-        let stack_index = self.stack_index_for_frames(thread, frames);
+        let stack_index = match stack {
+            Some(StackHandle(stack_thread_handle, stack_index)) => {
+                assert_eq!(
+                    stack_thread_handle, thread,
+                    "StackHandle from different thread passed to Profile::add_sample"
+                );
+                Some(stack_index)
+            }
+            None => None,
+        };
         self.threads[thread.0].add_sample(timestamp, stack_index, cpu_delta, weight);
     }
 
@@ -651,9 +677,18 @@ impl Profile {
         &mut self,
         thread: ThreadHandle,
         marker: MarkerHandle,
-        stack_frames: impl Iterator<Item = FrameInfo>,
+        stack: Option<StackHandle>,
     ) {
-        let stack_index = self.stack_index_for_frames(thread, stack_frames);
+        let stack_index = match stack {
+            Some(StackHandle(stack_thread_handle, stack_index)) => {
+                assert_eq!(
+                    stack_thread_handle, thread,
+                    "StackHandle from different thread passed to Profile::add_sample"
+                );
+                Some(stack_index)
+            }
+            None => None,
+        };
         self.threads[thread.0].set_marker_stack(marker, stack_index);
     }
 
@@ -680,6 +715,94 @@ impl Profile {
         self.counters[counter.0].add_sample(timestamp, value_delta, number_of_operations_delta)
     }
 
+    pub fn intern_frame(&mut self, thread: ThreadHandle, frame_info: FrameInfo) -> FrameHandle {
+        let thread_handle = thread;
+        let thread = &mut self.threads[thread.0];
+        let process = &mut self.processes[thread.process().0];
+        let frame_index = Self::intern_frame_internal(
+            thread,
+            process,
+            frame_info,
+            &mut self.global_libs,
+            &mut self.kernel_libs,
+            &self.string_table,
+        );
+        FrameHandle(thread_handle, frame_index)
+    }
+
+    fn intern_frame_internal(
+        thread: &mut Thread,
+        process: &mut Process,
+        frame_info: FrameInfo,
+        global_libs: &mut GlobalLibTable,
+        kernel_libs: &mut LibMappings<LibraryHandle>,
+        string_table: &GlobalStringTable,
+    ) -> usize {
+        let location = match frame_info.frame {
+            Frame::InstructionPointer(ip) => process.convert_address(global_libs, kernel_libs, ip),
+            Frame::ReturnAddress(ra) => {
+                process.convert_address(global_libs, kernel_libs, ra.saturating_sub(1))
+            }
+            Frame::AdjustedReturnAddress(ara) => {
+                process.convert_address(global_libs, kernel_libs, ara)
+            }
+            Frame::RelativeAddressFromInstructionPointer(lib_handle, relative_address) => {
+                let global_lib_index = global_libs.index_for_used_lib(lib_handle);
+                InternalFrameLocation::AddressInLib(relative_address, global_lib_index)
+            }
+            Frame::RelativeAddressFromReturnAddress(lib_handle, relative_address) => {
+                let global_lib_index = global_libs.index_for_used_lib(lib_handle);
+                let adjusted_relative_address = relative_address.saturating_sub(1);
+                InternalFrameLocation::AddressInLib(adjusted_relative_address, global_lib_index)
+            }
+            Frame::RelativeAddressFromAdjustedReturnAddress(
+                lib_handle,
+                adjusted_relative_address,
+            ) => {
+                let global_lib_index = global_libs.index_for_used_lib(lib_handle);
+                InternalFrameLocation::AddressInLib(adjusted_relative_address, global_lib_index)
+            }
+            Frame::Label(string_index) => {
+                let thread_string_index = thread.convert_string_index(string_table, string_index.0);
+                InternalFrameLocation::Label(thread_string_index)
+            }
+        };
+        let internal_frame = InternalFrame {
+            location,
+            flags: frame_info.flags,
+            category_pair: frame_info.category_pair,
+        };
+        thread.frame_index_for_frame(internal_frame, global_libs)
+    }
+
+    pub fn intern_stack(
+        &mut self,
+        thread: ThreadHandle,
+        parent: Option<StackHandle>,
+        frame: FrameHandle,
+    ) -> StackHandle {
+        let thread_handle = thread;
+        let prefix = match parent {
+            Some(StackHandle(parent_thread_handle, prefix_stack_index)) => {
+                assert_eq!(
+                    parent_thread_handle, thread_handle,
+                    "StackHandle from different thread passed to Profile::intern_stack"
+                );
+                Some(prefix_stack_index)
+            }
+            None => None,
+        };
+        let FrameHandle(frame_thread_handle, frame_index) = frame;
+        assert_eq!(
+            frame_thread_handle, thread_handle,
+            "FrameHandle from different thread passed to Profile::intern_stack"
+        );
+        let thread = &mut self.threads[thread.0];
+        let category_pair = thread.get_frame_category(frame_index);
+        let stack_index = thread.stack_index_for_stack(prefix, frame_index, category_pair);
+        StackHandle(thread_handle, stack_index)
+    }
+
     // frames is ordered from caller to callee, i.e. root function first, pc last
     fn stack_index_for_frames(
         &mut self,
@@ -690,48 +813,16 @@ impl Profile {
         let process = &mut self.processes[thread.process().0];
         let mut prefix = None;
         for frame_info in frames {
-            let location = match frame_info.frame {
-                Frame::InstructionPointer(ip) => {
-                    process.convert_address(&mut self.global_libs, &mut self.kernel_libs, ip)
-                }
-                Frame::ReturnAddress(ra) => process.convert_address(
-                    &mut self.global_libs,
-                    &mut self.kernel_libs,
-                    ra.saturating_sub(1),
-                ),
-                Frame::AdjustedReturnAddress(ara) => {
-                    process.convert_address(&mut self.global_libs, &mut self.kernel_libs, ara)
-                }
-                Frame::RelativeAddressFromInstructionPointer(lib_handle, relative_address) => {
-                    let global_lib_index = self.global_libs.index_for_used_lib(lib_handle);
-                    InternalFrameLocation::AddressInLib(relative_address, global_lib_index)
-                }
-                Frame::RelativeAddressFromReturnAddress(lib_handle, relative_address) => {
-                    let global_lib_index = self.global_libs.index_for_used_lib(lib_handle);
-                    let adjusted_relative_address = relative_address.saturating_sub(1);
-                    InternalFrameLocation::AddressInLib(adjusted_relative_address, global_lib_index)
-                }
-                Frame::RelativeAddressFromAdjustedReturnAddress(
-                    lib_handle,
-                    adjusted_relative_address,
-                ) => {
-                    let global_lib_index = self.global_libs.index_for_used_lib(lib_handle);
-                    InternalFrameLocation::AddressInLib(adjusted_relative_address, global_lib_index)
-                }
-                Frame::Label(string_index) => {
-                    let thread_string_index =
-                        thread.convert_string_index(&self.string_table, string_index.0);
-                    InternalFrameLocation::Label(thread_string_index)
-                }
-            };
-            let internal_frame = InternalFrame {
-                location,
-                flags: frame_info.flags,
-                category_pair: frame_info.category_pair,
-            };
-            let frame_index = thread.frame_index_for_frame(internal_frame, &mut self.global_libs);
-            prefix =
-                Some(thread.stack_index_for_stack(prefix, frame_index, frame_info.category_pair));
+            let category_pair = frame_info.category_pair;
+            let frame_index = Self::intern_frame_internal(
+                thread,
+                process,
+                frame_info,
+                &mut self.global_libs,
+                &mut self.kernel_libs,
+                &self.string_table,
+            );
+            prefix = Some(thread.stack_index_for_stack(prefix, frame_index, category_pair));
         }
         prefix
     }

@@ -100,6 +100,15 @@ impl FrameTable {
             })
     }
 
+    pub fn get_category(&self, frame_index: usize) -> CategoryPairHandle {
+        let category = self.categories[frame_index];
+        let subcategory = match self.subcategories[frame_index] {
+            Subcategory::Normal(subcategory) => Some(subcategory),
+            Subcategory::Other(_) => None,
+        };
+        CategoryPairHandle(category, subcategory)
+    }
+
     pub fn as_serializable<'a>(&'a self, categories: &'a [Category]) -> impl Serialize + 'a {
         SerializableFrameTable {
             table: self,
