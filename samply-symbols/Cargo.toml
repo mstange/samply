@@ -34,7 +34,7 @@ version = "0.36.1"
 #pdb-addr2line = { path = "../../pdb-addr2line" }
 pdb-addr2line = "0.11.0"
 uuid = "1.10.0"
-thiserror = "1.0.62"
+thiserror = "1.0.63"
 cpp_demangle = "0.4.0"
 msvc-demangler = "0.10.1"
 rustc-demangle = "0.1.24"
