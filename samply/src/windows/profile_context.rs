@@ -1687,10 +1687,14 @@ impl ProfileContext {
                     let begin_timestamp = self
                         .timestamp_converter
                         .convert_time(idle_cpu_sample.begin_timestamp);
+                    let stack = self.profile.intern_stack_frames(
+                        cpu.thread_handle,
+                        std::iter::once(idle_frame_label.clone()),
+                    );
                     self.profile.add_sample(
                         cpu.thread_handle,
                         begin_timestamp,
-                        std::iter::once(idle_frame_label.clone()),
+                        stack,
                         cpu_delta,
                         0,
                     );
@@ -1702,7 +1706,7 @@ impl ProfileContext {
                     self.profile.add_sample(
                         cpu.thread_handle,
                         end_timestamp,
-                        std::iter::once(idle_frame_label.clone()),
+                        stack,
                         CpuDelta::from_nanos(0),
                         0,
                     );

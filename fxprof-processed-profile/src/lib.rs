@@ -18,11 +18,12 @@
 //! let process = profile.add_process("App process", 54132, Timestamp::from_millis_since_reference(0.0));
 //! let thread = profile.add_thread(process, 54132000, Timestamp::from_millis_since_reference(0.0), true);
 //! profile.set_thread_name(thread, "Main thread");
-//! let stack = vec![
+//! let stack_frames = vec![
 //!     FrameInfo { frame: Frame::Label(profile.intern_string("Root node")), category_pair: CategoryHandle::OTHER.into(), flags: FrameFlags::empty() },
 //!     FrameInfo { frame: Frame::Label(profile.intern_string("First callee")), category_pair: CategoryHandle::OTHER.into(), flags: FrameFlags::empty() }
 //! ];
-//! profile.add_sample(thread, Timestamp::from_millis_since_reference(0.0), stack.into_iter(), CpuDelta::ZERO, 1);
+//! let stack = profile.intern_stack_frames(thread, stack_frames.into_iter());
+//! profile.add_sample(thread, Timestamp::from_millis_since_reference(0.0), stack, CpuDelta::ZERO, 1);
 //!
 //! let writer = std::io::BufWriter::new(output_file);
 //! serde_json::to_writer(writer, &profile)?;
@@ -72,7 +73,7 @@ pub use markers::{
     StaticSchemaMarker,
 };
 pub use process::ThreadHandle;
-pub use profile::{Profile, SamplingInterval, StringHandle};
+pub use profile::{FrameHandle, Profile, SamplingInterval, StackHandle, StringHandle};
 pub use reference_timestamp::ReferenceTimestamp;
 pub use thread::ProcessHandle;
 pub use timestamp::*;
