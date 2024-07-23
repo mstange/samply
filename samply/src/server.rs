@@ -198,7 +198,7 @@ async fn start_server(
     eprintln!("Local server listening at {server_origin}");
     if !server_props.open_in_browser {
         if let Some(profiler_url) = &profiler_url {
-            eprintln!("  Open the profiler at {profiler_url}");
+            println!("{profiler_url}");
         }
     }
     eprintln!("Press Ctrl+C to stop.");
