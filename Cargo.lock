@@ -840,6 +840,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "gimli"
+version = "0.31.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32085ea23f3234fc7846555e85283ba4de91e21016dc0455a16286d87a292d64"
+
+[[package]]
 name = "h2"
 version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2026,7 +2032,7 @@ dependencies = [
  "elsa",
  "flate2",
  "futures",
- "gimli 0.30.0",
+ "gimli 0.31.0",
  "linux-perf-data",
  "lzma-rs",
  "macho-unwind-info",
