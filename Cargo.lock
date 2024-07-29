@@ -13,12 +13,12 @@ dependencies = [
 
 [[package]]
 name = "addr2line"
-version = "0.23.0"
+version = "0.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b9d03130b08257bc8110b0df827d8b137fdf67a95e2459eaace2e13fecf1d72"
+checksum = "f5fb1d8e4442bd405fdfd1dacb42792696b0cf9cb15882e5d097b742a676d375"
 dependencies = [
  "fallible-iterator",
- "gimli 0.30.0",
+ "gimli 0.31.0",
 ]
 
 [[package]]
@@ -834,6 +834,16 @@ name = "gimli"
 version = "0.30.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2e1d97fbe9722ba9bbd0c97051c2956e726562b61f86a25a4360398a40edfc9"
+dependencies = [
+ "fallible-iterator",
+ "stable_deref_trait",
+]
+
+[[package]]
+name = "gimli"
+version = "0.31.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32085ea23f3234fc7846555e85283ba4de91e21016dc0455a16286d87a292d64"
 dependencies = [
  "fallible-iterator",
  "stable_deref_trait",
@@ -2016,7 +2026,7 @@ dependencies = [
 name = "samply-symbols"
 version = "0.23.0"
 dependencies = [
- "addr2line 0.23.0",
+ "addr2line 0.24.1",
  "anyhow",
  "bitflags 2.6.0",
  "bitvec",
