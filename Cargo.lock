@@ -685,6 +685,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "fs4"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eff1b43de0569d91f75d415e790ddef2c4d6b4e7b81933a180cf15c9d58880a1"
+dependencies = [
+ "rustix",
+ "windows-sys 0.52.0",
+]
+
+[[package]]
 name = "funty"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1944,7 +1954,7 @@ dependencies = [
  "etw-reader",
  "flate2",
  "framehop",
- "fs4",
+ "fs4 0.9.0",
  "futures-util",
  "fxhash",
  "fxprof-processed-profile",
@@ -2199,7 +2209,7 @@ dependencies = [
  "async-compression",
  "cab",
  "dirs",
- "fs4",
+ "fs4 0.8.4",
  "futures-util",
  "http",
  "reqwest",
