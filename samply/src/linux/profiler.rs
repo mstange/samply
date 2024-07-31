@@ -746,7 +746,8 @@ pub fn read_string_lossy<P: AsRef<Path>>(path: P) -> std::io::Result<String> {
 }
 
 fn get_process_cmdline(pid: u32) -> std::io::Result<(String, Vec<String>)> {
-    let cmdline_bytes = std::fs::read(format!("/proc/{pid}/cmdline"))?;
+    let path = format!("/proc/{pid}/cmdline");
+    let cmdline_bytes = std::fs::read(&path)?;
     let mut remaining_bytes = &cmdline_bytes[..];
     let mut cmdline = Vec::new();
     while let Some(nul_byte_pos) = memchr::memchr(b'\0', remaining_bytes) {
@@ -755,7 +756,13 @@ fn get_process_cmdline(pid: u32) -> std::io::Result<(String, Vec<String>)> {
         cmdline.push(String::from_utf8_lossy(arg_slice).to_string());
     }
 
-    let exe_arg = &cmdline[0];
+    let exe_arg = cmdline.first().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Empty cmdline at {path}"),
+        )
+    })?;
+
     let exe_name = match exe_arg.rfind('/') {
         Some(pos) => exe_arg[pos + 1..].to_string(),
         None => exe_arg.to_string(),
