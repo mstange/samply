@@ -33,7 +33,7 @@ reqwest = { version = "0.12", default-features = false, features = [
     "brotli",
     "deflate"
 ] }
-bytes = "1.6.1"
+bytes = "1.7.1"
 memmap2 = "0.9.4"
 tokio = { version = "1.38", features = ["fs"] }
 futures-util = "0.3.30"
