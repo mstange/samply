@@ -40,7 +40,7 @@ futures-util = "0.3.30"
 
 # Needed for moria_mac_spotlight, to find dSYM files
 [target.'cfg(target_os = "macos")'.dependencies]
-core-foundation-sys = "0.8.2"
+core-foundation-sys = "0.8.7"
 core-foundation = "0.9.1"
 
 [dev-dependencies]
