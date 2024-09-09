@@ -95,7 +95,7 @@ enum Action {
 
     /// Codesign the samply binary on macOS to allow attaching to processes.
     #[cfg(target_os = "macos")]
-    Setup,
+    Setup(SetupArgs),
 }
 
 #[derive(Debug, Args)]
@@ -334,6 +334,13 @@ struct SymbolArgs {
 }
 
 #[derive(Debug, Args, Clone)]
+pub struct SetupArgs {
+    /// Don't wait for confirmation to codesign.
+    #[arg(short = 'y', long)]
+    yes: bool,
+}
+
+#[derive(Debug, Args, Clone)]
 pub struct ProfileCreationArgs {
     /// Set a custom name for the recorded profile.
     /// By default it is either the command that was run or the process pid.
@@ -491,8 +498,8 @@ fn main() {
         }
 
         #[cfg(target_os = "macos")]
-        Action::Setup => {
-            mac::codesign_setup::codesign_setup();
+        Action::Setup(SetupArgs { yes }) => {
+            mac::codesign_setup::codesign_setup(yes);
         }
     }
 }

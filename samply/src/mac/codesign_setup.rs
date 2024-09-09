@@ -10,9 +10,10 @@ const ENTITLEMENTS_XML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 </plist>
 "#;
 
-pub fn codesign_setup() {
-    print!(
-        r#"
+pub fn codesign_setup(skip_prompt: bool) {
+    if !skip_prompt {
+        print!(
+            r#"
 On macOS, attaching to an existing process is only allowed to binaries with
 the com.apple.security.cs.debugger entitlement. The samply binary will be
 signed with this entitlement for your local machine only. The following command
@@ -27,14 +28,15 @@ entitlements.xml contains:
 
 Press any key to continue, or Ctrl-C to cancel.
 "#,
-        env::current_exe().unwrap().display(),
-        ENTITLEMENTS_XML
-    );
+            env::current_exe().unwrap().display(),
+            ENTITLEMENTS_XML
+        );
 
-    let mut input = String::new();
-    std::io::stdin()
-        .read_line(&mut input)
-        .expect("Failed to read input?");
+        let mut input = String::new();
+        std::io::stdin()
+            .read_line(&mut input)
+            .expect("Failed to read input?");
+    }
 
     let mut entitlements_file = tempfile::Builder::new()
         .prefix("samply_entitlements")
