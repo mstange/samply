@@ -15,7 +15,7 @@ use crate::shared::recycling::ProcessRecycler;
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::unresolved_samples::UnresolvedStacks;
 
-pub enum JitdumpOrMarkerPath {
+pub enum ProcessSpecificPath {
     JitdumpPath(PathBuf),
     MarkerFilePath(PathBuf),
 }
@@ -31,7 +31,7 @@ pub struct TaskInit {
     pub start_time_mono: u64,
     pub task: mach_port_t,
     pub pid: u32,
-    pub path_receiver: Receiver<JitdumpOrMarkerPath>,
+    pub path_receiver: Receiver<ProcessSpecificPath>,
 }
 
 pub struct Sampler {

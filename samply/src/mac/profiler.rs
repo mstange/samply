@@ -11,7 +11,7 @@ use super::error::SamplingError;
 use super::process_launcher::{
     ExistingProcessRunner, MachError, ReceivedStuff, RootTaskRunner, TaskAccepter, TaskLauncher,
 };
-use super::sampler::{JitdumpOrMarkerPath, Sampler, TaskInit, TaskInitOrShutdown};
+use super::sampler::{ProcessSpecificPath, Sampler, TaskInit, TaskInitOrShutdown};
 use super::time::get_monotonic_timestamp;
 use crate::server::{start_server_main, ServerProps};
 use crate::shared::recording_props::{
@@ -113,7 +113,7 @@ pub fn start_recording(
                     match path_senders_per_pid.entry(pid) {
                         Entry::Occupied(mut entry) => {
                             let send_result =
-                                entry.get_mut().send(JitdumpOrMarkerPath::JitdumpPath(path));
+                                entry.get_mut().send(ProcessSpecificPath::JitdumpPath(path));
                             if send_result.is_err() {
                                 // The task is probably already dead. The path arrived too late.
                                 entry.remove();
@@ -131,7 +131,7 @@ pub fn start_recording(
                         Entry::Occupied(mut entry) => {
                             let send_result = entry
                                 .get_mut()
-                                .send(JitdumpOrMarkerPath::MarkerFilePath(path));
+                                .send(ProcessSpecificPath::MarkerFilePath(path));
                             if send_result.is_err() {
                                 // The task is probably already dead. The path arrived too late.
                                 entry.remove();
