@@ -31,7 +31,7 @@ pub fn start_recording(
 
     let mut task_accepter = TaskAccepter::new()?;
 
-    let root_task_runner: Box<dyn RootTaskRunner> = match recording_mode {
+    let mut root_task_runner: Box<dyn RootTaskRunner> = match recording_mode {
         RecordingMode::All => {
             eprintln!("Error: Profiling all processes is not supported on macOS.");
             eprintln!("You can only profile processes which you launch via samply, or attach to via --pid.");
@@ -46,24 +46,34 @@ pub fn start_recording(
                 iteration_count,
             } = process_launch_props;
 
-            if profile_creation_props.coreclr.any_enabled() {
-                // We need to set DOTNET_PerfMapEnabled=2 in the environment if it's not already set.
+            let task_launcher = if profile_creation_props.coreclr.any_enabled() {
+                // We need to set DOTNET_PerfMapEnabled=3 in the environment if it's not already set.
                 // If we set it, we'll also set unlink_aux_files=true to avoid leaving files
                 // behind in the temp directory. But if it's set manually, assume the user
                 // knows what they're doing and will specify the arg as needed.
                 if !env_vars.iter().any(|p| p.0 == "DOTNET_PerfMapEnabled") {
-                    env_vars.push(("DOTNET_PerfMapEnabled".into(), "2".into()));
+                    env_vars.push(("DOTNET_PerfMapEnabled".into(), "3".into()));
                     profile_creation_props.unlink_aux_files = true;
                 }
-            }
 
-            let task_launcher = TaskLauncher::new(
-                &command_name,
-                &args,
-                iteration_count,
-                &env_vars,
-                task_accepter.extra_env_vars(),
-            )?;
+                // To be filled in with new launching code in future PR
+
+                TaskLauncher::new(
+                    &command_name,
+                    &args,
+                    iteration_count,
+                    &env_vars,
+                    task_accepter.extra_env_vars(),
+                )?
+            } else {
+                TaskLauncher::new(
+                    &command_name,
+                    &args,
+                    iteration_count,
+                    &env_vars,
+                    task_accepter.extra_env_vars(),
+                )?
+            };
 
             Box::new(task_launcher)
         }
@@ -132,6 +142,24 @@ pub fn start_recording(
                             let send_result = entry
                                 .get_mut()
                                 .send(ProcessSpecificPath::MarkerFilePath(path));
+                            if send_result.is_err() {
+                                // The task is probably already dead. The path arrived too late.
+                                entry.remove();
+                            }
+                        }
+                        Entry::Vacant(_entry) => {
+                            eprintln!(
+                                "Received a marker file path for pid {pid} which I don't have a task for."
+                            );
+                        }
+                    }
+                }
+                Ok(ReceivedStuff::DotnetTracePath(pid, path)) => {
+                    match path_senders_per_pid.entry(pid) {
+                        Entry::Occupied(mut entry) => {
+                            let send_result = entry
+                                .get_mut()
+                                .send(ProcessSpecificPath::DotnetTracePath(path));
                             if send_result.is_err() {
                                 // The task is probably already dead. The path arrived too late.
                                 entry.remove();

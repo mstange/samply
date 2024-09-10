@@ -611,6 +611,9 @@ impl TaskProfiler {
                     self.marker_file_paths
                         .push((thread_handle, marker_file_path));
                 }
+                ProcessSpecificPath::DotnetTracePath(_) => {
+                    // nothing, for now
+                }
             }
         }
     }

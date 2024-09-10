@@ -18,6 +18,8 @@ use crate::shared::unresolved_samples::UnresolvedStacks;
 pub enum ProcessSpecificPath {
     JitdumpPath(PathBuf),
     MarkerFilePath(PathBuf),
+    #[allow(unused)]
+    DotnetTracePath(PathBuf),
 }
 
 #[derive(Debug, Clone)]
