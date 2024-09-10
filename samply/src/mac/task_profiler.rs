@@ -587,7 +587,7 @@ impl TaskProfiler {
     pub fn check_received_paths(&mut self) {
         while let Ok(process_specific_path) = self.path_receiver.try_recv() {
             match process_specific_path {
-                ProcessSpecificPath::JitdumpPath(jitdump_path) => {
+                ProcessSpecificPath::Jitdump(jitdump_path) => {
                     // TODO: Detect which thread the jitdump file is opened on, and use that thread's
                     // thread handle so that the JitFunctionAdd markers are put on that thread in the profile.
                     self.jitdump_manager.add_jitdump_path(
@@ -596,7 +596,7 @@ impl TaskProfiler {
                         Vec::new(),
                     );
                 }
-                ProcessSpecificPath::MarkerFilePath(marker_file_path) => {
+                ProcessSpecificPath::MarkerFile(marker_file_path) => {
                     // count the number of - characters in marker_file_path
                     let marker_info = marker_file::parse_marker_file_path(&marker_file_path);
                     let thread_handle = if marker_info.tid.is_some() {
@@ -611,7 +611,7 @@ impl TaskProfiler {
                     self.marker_file_paths
                         .push((thread_handle, marker_file_path));
                 }
-                ProcessSpecificPath::DotnetTracePath(_) => {
+                ProcessSpecificPath::DotnetTrace(_) => {
                     // nothing, for now
                 }
             }

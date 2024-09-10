@@ -16,10 +16,10 @@ use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::unresolved_samples::UnresolvedStacks;
 
 pub enum ProcessSpecificPath {
-    JitdumpPath(PathBuf),
-    MarkerFilePath(PathBuf),
+    Jitdump(PathBuf),
+    MarkerFile(PathBuf),
     #[allow(unused)]
-    DotnetTracePath(PathBuf),
+    DotnetTrace(PathBuf),
 }
 
 #[derive(Debug, Clone)]

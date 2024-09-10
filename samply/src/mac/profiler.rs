@@ -123,7 +123,7 @@ pub fn start_recording(
                     match path_senders_per_pid.entry(pid) {
                         Entry::Occupied(mut entry) => {
                             let send_result =
-                                entry.get_mut().send(ProcessSpecificPath::JitdumpPath(path));
+                                entry.get_mut().send(ProcessSpecificPath::Jitdump(path));
                             if send_result.is_err() {
                                 // The task is probably already dead. The path arrived too late.
                                 entry.remove();
@@ -139,9 +139,8 @@ pub fn start_recording(
                 Ok(ReceivedStuff::MarkerFilePath(pid, path)) => {
                     match path_senders_per_pid.entry(pid) {
                         Entry::Occupied(mut entry) => {
-                            let send_result = entry
-                                .get_mut()
-                                .send(ProcessSpecificPath::MarkerFilePath(path));
+                            let send_result =
+                                entry.get_mut().send(ProcessSpecificPath::MarkerFile(path));
                             if send_result.is_err() {
                                 // The task is probably already dead. The path arrived too late.
                                 entry.remove();
@@ -157,9 +156,8 @@ pub fn start_recording(
                 Ok(ReceivedStuff::DotnetTracePath(pid, path)) => {
                     match path_senders_per_pid.entry(pid) {
                         Entry::Occupied(mut entry) => {
-                            let send_result = entry
-                                .get_mut()
-                                .send(ProcessSpecificPath::DotnetTracePath(path));
+                            let send_result =
+                                entry.get_mut().send(ProcessSpecificPath::DotnetTrace(path));
                             if send_result.is_err() {
                                 // The task is probably already dead. The path arrived too late.
                                 entry.remove();

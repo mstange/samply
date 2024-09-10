@@ -284,7 +284,9 @@ impl RootTaskRunner for ExistingProcessRunner {
             unsafe {
                 libc::kill(aux_pid as i32, libc::SIGINT);
             }
-            aux_child.wait().expect("Failed to wait on aux child process");
+            aux_child
+                .wait()
+                .expect("Failed to wait on aux child process");
         }
 
         eprintln!("Done.");
@@ -327,11 +329,18 @@ impl ExistingProcessRunner {
 
         // TODO: find all its children
 
-        ExistingProcessRunner { pid, aux_child: None }
+        ExistingProcessRunner {
+            pid,
+            aux_child: None,
+        }
     }
 
     #[allow(unused)]
-    pub fn new_with_aux_child(pid: u32, task_accepter: &mut TaskAccepter, aux_child: Child) -> ExistingProcessRunner {
+    pub fn new_with_aux_child(
+        pid: u32,
+        task_accepter: &mut TaskAccepter,
+        aux_child: Child,
+    ) -> ExistingProcessRunner {
         let runner = Self::new(pid, task_accepter);
 
         ExistingProcessRunner {
