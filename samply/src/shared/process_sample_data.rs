@@ -1,10 +1,13 @@
+use std::collections::HashMap;
+
 use fxprof_processed_profile::{
-    CategoryHandle, CategoryPairHandle, LibMappings, MarkerFieldFormat, MarkerFieldSchema,
-    MarkerLocation, MarkerSchema, MarkerStaticField, MarkerTiming, Profile, StaticSchemaMarker,
-    StringHandle, ThreadHandle, Timestamp,
+    CategoryColor, CategoryHandle, CategoryPairHandle, LibMappings, MarkerFieldFormat,
+    MarkerFieldSchema, MarkerLocation, MarkerSchema, MarkerStaticField, MarkerTiming, Profile,
+    StaticSchemaMarker, StringHandle, ThreadHandle,
 };
 
 use super::lib_mappings::{LibMappingInfo, LibMappingOpQueue, LibMappingsHierarchy};
+use super::marker_file::{EventOrSpanMarker, MarkerData, MarkerSpan, TracingTimings};
 use super::stack_converter::StackConverter;
 use super::stack_depth_limiting_frame_iter::StackDepthLimitingFrameIter;
 use super::types::StackFrame;
@@ -13,11 +16,9 @@ use super::unresolved_samples::{
 };
 
 #[derive(Debug, Clone)]
-pub struct MarkerSpanOnThread {
+pub struct MarkerOnThread {
     pub thread_handle: ThreadHandle,
-    pub start_time: Timestamp,
-    pub end_time: Timestamp,
-    pub name: String,
+    pub event_or_span: EventOrSpanMarker,
 }
 
 #[derive(Debug, Clone)]
@@ -34,7 +35,7 @@ pub struct ProcessSampleData {
     regular_lib_mapping_op_queue: LibMappingOpQueue,
     jitdump_lib_mapping_op_queues: Vec<LibMappingOpQueue>,
     perf_map_mappings: Option<LibMappings<LibMappingInfo>>,
-    marker_spans: Vec<MarkerSpanOnThread>,
+    markers: Vec<MarkerOnThread>,
 }
 
 impl ProcessSampleData {
@@ -43,14 +44,14 @@ impl ProcessSampleData {
         regular_lib_mapping_op_queue: LibMappingOpQueue,
         jitdump_lib_mapping_op_queues: Vec<LibMappingOpQueue>,
         perf_map_mappings: Option<LibMappings<LibMappingInfo>>,
-        marker_spans: Vec<MarkerSpanOnThread>,
+        markers: Vec<MarkerOnThread>,
     ) -> Self {
         Self {
             unresolved_samples,
             regular_lib_mapping_op_queue,
             jitdump_lib_mapping_op_queues,
             perf_map_mappings,
-            marker_spans,
+            markers,
         }
     }
 
@@ -72,7 +73,7 @@ impl ProcessSampleData {
             regular_lib_mapping_op_queue,
             jitdump_lib_mapping_op_queues,
             perf_map_mappings,
-            marker_spans,
+            markers,
         } = self;
         let mut lib_mappings_hierarchy = LibMappingsHierarchy::new(regular_lib_mapping_op_queue);
         for jitdump_lib_mapping_ops in jitdump_lib_mapping_op_queues {
@@ -112,13 +113,33 @@ impl ProcessSampleData {
             }
         }
 
-        for marker in marker_spans {
-            let marker_name_string_index = profile.intern_string(&marker.name);
-            profile.add_marker(
-                marker.thread_handle,
-                MarkerTiming::Interval(marker.start_time, marker.end_time),
-                SimpleMarker(marker_name_string_index),
-            );
+        let mut category_handles = HashMap::<String, CategoryHandle>::new();
+        let logging_category = profile.add_category("(Logging)", CategoryColor::Green);
+
+        for marker in markers {
+            match &marker.event_or_span.marker_data {
+                MarkerData::Event => {
+                    let span_marker = EventMarkerSchema::new(profile, &marker, &logging_category);
+                    profile.add_marker(
+                        marker.thread_handle,
+                        MarkerTiming::Instant(marker.event_or_span.start_time),
+                        span_marker,
+                    );
+                }
+                MarkerData::Span(span) => {
+                    let span_marker = SpanMarkerWithTimingsSchema::new(
+                        profile,
+                        &marker,
+                        &span,
+                        &mut category_handles,
+                    );
+                    profile.add_marker(
+                        marker.thread_handle,
+                        MarkerTiming::Interval(marker.event_or_span.start_time, span.end_time),
+                        span_marker,
+                    );
+                }
+            }
         }
     }
 }
@@ -360,10 +381,51 @@ impl StaticSchemaMarker for SchedSwitchMarkerOnThreadTrack {
 }
 
 #[derive(Debug, Clone)]
-pub struct SimpleMarker(pub StringHandle);
+pub struct SpanMarkerWithTimingsSchema {
+    name: StringHandle,
+    category: CategoryHandle,
+    timings: TracingTimings,
+    label: StringHandle,
+    action: StringHandle,
+}
 
-impl StaticSchemaMarker for SimpleMarker {
-    const UNIQUE_MARKER_TYPE_NAME: &'static str = "SimpleMarker";
+impl SpanMarkerWithTimingsSchema {
+    pub fn new(
+        profile: &mut Profile,
+        marker: &MarkerOnThread,
+        span: &MarkerSpan,
+        category_handles: &mut HashMap<String, CategoryHandle>,
+    ) -> Self {
+        let marker = &marker.event_or_span;
+
+        let mut category_str: &str = &span.action;
+        let label: StringHandle;
+
+        if let Some((first_part, second_part)) = category_str.split_once("/") {
+            category_str = first_part;
+            let (collection, id) = second_part.split_once("-").unwrap();
+            label = profile.intern_string(&format!("{}-{} {}", collection, &id[..8], span.label));
+        } else {
+            label = profile.intern_string(&span.label);
+        }
+
+        let category = category_handles
+            .entry(category_str.to_string())
+            .or_insert_with(|| profile.add_category(&category_str, CategoryColor::Green))
+            .clone();
+
+        Self {
+            category,
+            label,
+            timings: span.timings.clone(),
+            name: profile.intern_string(&marker.message),
+            action: profile.intern_string(&span.action),
+        }
+    }
+}
+
+impl StaticSchemaMarker for SpanMarkerWithTimingsSchema {
+    const UNIQUE_MARKER_TYPE_NAME: &'static str = "SpanMarkerWithTimings";
 
     fn schema() -> MarkerSchema {
         MarkerSchema {
@@ -372,32 +434,118 @@ impl StaticSchemaMarker for SimpleMarker {
             chart_label: Some("{marker.data.name}".into()),
             tooltip_label: Some("{marker.data.name}".into()),
             table_label: Some("{marker.data.name}".into()),
-            fields: vec![MarkerFieldSchema {
-                key: "name".into(),
-                label: "Name".into(),
-                format: MarkerFieldFormat::String,
-                searchable: true,
-            }],
-            static_fields: vec![MarkerStaticField {
-                label: "Description".into(),
-                value: "Emitted for marker spans in a markers text file.".into(),
-            }],
+            fields: vec![
+                MarkerFieldSchema {
+                    key: "time_idle".into(),
+                    label: "Idle".into(),
+                    format: MarkerFieldFormat::Duration,
+                    searchable: true,
+                },
+                MarkerFieldSchema {
+                    key: "time_busy".into(),
+                    label: "Busy".into(),
+                    format: MarkerFieldFormat::Duration,
+                    searchable: true,
+                },
+                MarkerFieldSchema {
+                    key: "name".into(),
+                    label: "Name".into(),
+                    format: MarkerFieldFormat::String,
+                    searchable: true,
+                },
+                MarkerFieldSchema {
+                    key: "action".into(),
+                    label: "Action".into(),
+                    format: MarkerFieldFormat::String,
+                    searchable: true,
+                },
+            ],
+            static_fields: vec![],
         }
     }
 
-    fn name(&self, profile: &mut Profile) -> StringHandle {
-        profile.intern_string("SimpleMarker")
+    fn name(&self, _profile: &mut Profile) -> StringHandle {
+        self.label
     }
 
     fn category(&self, _profile: &mut Profile) -> CategoryHandle {
-        CategoryHandle::OTHER
+        self.category
     }
 
-    fn string_field_value(&self, _field_index: u32) -> StringHandle {
-        self.0
+    fn string_field_value(&self, field_index: u32) -> StringHandle {
+        match field_index {
+            2 => self.name,
+            3 => self.action,
+            _ => unreachable!(),
+        }
     }
 
-    fn number_field_value(&self, _field_index: u32) -> f64 {
-        unreachable!()
+    fn number_field_value(&self, field_index: u32) -> f64 {
+        match field_index {
+            0 => self.timings.time_idle.as_micros() as f64 / 1000.0,
+            1 => self.timings.time_busy.as_micros() as f64 / 1000.0,
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct EventMarkerSchema {
+    message: StringHandle,
+    category: CategoryHandle,
+    target: StringHandle,
+}
+
+impl EventMarkerSchema {
+    pub fn new(profile: &mut Profile, marker: &MarkerOnThread, category: &CategoryHandle) -> Self {
+        let marker = &marker.event_or_span;
+
+        Self {
+            category: category.clone(),
+            message: profile.intern_string(&marker.message),
+            target: profile.intern_string(&marker.target),
+        }
+    }
+}
+
+impl StaticSchemaMarker for EventMarkerSchema {
+    const UNIQUE_MARKER_TYPE_NAME: &'static str = "EventMarker";
+
+    fn schema() -> MarkerSchema {
+        MarkerSchema {
+            type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
+            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
+            chart_label: Some("{marker.data.message}".into()),
+            tooltip_label: Some("{marker.data.message}".into()),
+            table_label: Some("{marker.data.message}".into()),
+            fields: vec![MarkerFieldSchema {
+                key: "message".into(),
+                label: "Message".into(),
+                format: MarkerFieldFormat::String,
+                searchable: true,
+            }],
+            static_fields: vec![],
+        }
+    }
+
+    fn name(&self, _profile: &mut Profile) -> StringHandle {
+        self.target
+    }
+
+    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
+        self.category
+    }
+
+    fn string_field_value(&self, field_index: u32) -> StringHandle {
+        match field_index {
+            0 => self.message,
+            _ => unreachable!(),
+        }
+    }
+
+    fn number_field_value(&self, field_index: u32) -> f64 {
+        match field_index {
+            _ => unreachable!(),
+        }
     }
 }

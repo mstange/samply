@@ -15,7 +15,7 @@ use crate::shared::jitdump_manager::JitDumpManager;
 use crate::shared::lib_mappings::{LibMappingAdd, LibMappingInfo, LibMappingOp, LibMappingOpQueue};
 use crate::shared::marker_file::get_markers;
 use crate::shared::perf_map::try_load_perf_map;
-use crate::shared::process_sample_data::{MarkerSpanOnThread, ProcessSampleData};
+use crate::shared::process_sample_data::{MarkerOnThread, ProcessSampleData};
 use crate::shared::recycling::{ProcessRecyclingData, ThreadRecycler};
 use crate::shared::synthetic_jit_library::SyntheticJitLibrary;
 use crate::shared::timestamp_converter::TimestampConverter;
@@ -220,19 +220,19 @@ where
             jitdump_ops.insert(0, self.jit_app_cache_mapping_ops);
         }
 
-        let mut marker_spans = Vec::new();
+        let mut markers = Vec::new();
         for (thread_handle, marker_file_path, lookup_dirs) in self.marker_file_paths {
-            if let Ok(marker_spans_from_this_file) =
+            if let Ok(markers_from_this_file) =
                 get_markers(&marker_file_path, &lookup_dirs, *timestamp_converter)
             {
-                marker_spans.extend(marker_spans_from_this_file.into_iter().map(|span| {
-                    MarkerSpanOnThread {
-                        thread_handle,
-                        start_time: span.start_time,
-                        end_time: span.end_time,
-                        name: span.name,
-                    }
-                }));
+                markers.extend(
+                    markers_from_this_file
+                        .into_iter()
+                        .map(|marker| MarkerOnThread {
+                            thread_handle,
+                            event_or_span: marker,
+                        }),
+                );
             }
         }
 
@@ -241,7 +241,7 @@ where
             std::mem::take(&mut self.lib_mapping_ops),
             jitdump_ops,
             perf_map_mappings,
-            marker_spans,
+            markers,
         );
 
         let thread_recycler = self.threads.finish();
