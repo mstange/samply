@@ -49,13 +49,13 @@ impl Cpu {
             let start_timestamp = converter.convert_time(switch_in_timestamp);
             let end_timestamp = converter.convert_time(timestamp);
             let timing = MarkerTiming::Interval(start_timestamp, end_timestamp);
-            for thread_handle in thread_handles {
-                profile.add_marker(
-                    *thread_handle,
-                    timing.clone(),
-                    ThreadNameMarkerForCpuTrack(self.name, previous_thread_name),
-                );
-            }
+            // for thread_handle in thread_handles {
+            //     profile.add_marker(
+            //         *thread_handle,
+            //         timing.clone(),
+            //         ThreadNameMarkerForCpuTrack(self.name, previous_thread_name),
+            //     );
+            // }
         }
     }
 
@@ -75,25 +75,25 @@ impl Cpu {
             let start_timestamp = converter.convert_time(switch_in_timestamp);
             let end_timestamp = converter.convert_time(timestamp);
             let timing = MarkerTiming::Interval(start_timestamp, end_timestamp);
-            for thread_handle in thread_handles {
-                profile.add_marker(
-                    *thread_handle,
-                    timing.clone(),
-                    ThreadNameMarkerForCpuTrack(self.name, previous_thread_name),
-                );
-            }
-            let switch_out_reason = match preempted {
-                true => profile.intern_string("preempted"),
-                false => profile.intern_string("blocked"),
-            };
-            profile.add_marker(
-                thread_handle,
-                timing.clone(),
-                OnCpuMarkerForThreadTrack {
-                    cpu_name: self.name,
-                    switch_out_reason,
-                },
-            );
+            // for thread_handle in thread_handles {
+            //     profile.add_marker(
+            //         *thread_handle,
+            //         timing.clone(),
+            //         ThreadNameMarkerForCpuTrack(self.name, previous_thread_name),
+            //     );
+            // }
+            // let switch_out_reason = match preempted {
+            //     true => profile.intern_string("preempted"),
+            //     false => profile.intern_string("blocked"),
+            // };
+            // profile.add_marker(
+            //     thread_handle,
+            //     timing.clone(),
+            //     OnCpuMarkerForThreadTrack {
+            //         cpu_name: self.name,
+            //         switch_out_reason,
+            //     },
+            // );
             if previous_tid != tid {
                 // eprintln!("Missing switch-out (noticed during switch-out) on {}: {previous_tid}, {switch_in_timestamp}", profile.get_string(self.name));
                 // eprintln!(

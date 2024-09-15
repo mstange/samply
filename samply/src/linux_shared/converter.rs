@@ -462,33 +462,33 @@ where
         }
 
         if let (Some(cpu_index), Some(cpus)) = (e.cpu, &mut self.cpus) {
-            let stack_index = self.unresolved_stacks.convert(stack.iter().rev().cloned());
-            let cpu = cpus.get_mut(cpu_index as usize, &mut self.profile);
-            let timestamp = self.timestamp_converter.convert_time(timestamp_mono);
-            let marker_handle = self.profile.add_marker(
-                cpu.thread_handle,
-                MarkerTiming::Instant(timestamp),
-                SchedSwitchMarkerOnCpuTrack,
-            );
-            process.unresolved_samples.attach_stack_to_marker(
-                cpu.thread_handle,
-                timestamp,
-                timestamp_mono,
-                stack_index,
-                marker_handle,
-            );
-            let marker_handle = self.profile.add_marker(
-                thread.profile_thread,
-                MarkerTiming::Instant(timestamp),
-                SchedSwitchMarkerOnThreadTrack { cpu: cpu_index },
-            );
-            process.unresolved_samples.attach_stack_to_marker(
-                thread.profile_thread,
-                timestamp,
-                timestamp_mono,
-                stack_index,
-                marker_handle,
-            );
+            // let stack_index = self.unresolved_stacks.convert(stack.iter().rev().cloned());
+            // let cpu = cpus.get_mut(cpu_index as usize, &mut self.profile);
+            // let timestamp = self.timestamp_converter.convert_time(timestamp_mono);
+            // let marker_handle = self.profile.add_marker(
+            //     cpu.thread_handle,
+            //     MarkerTiming::Instant(timestamp),
+            //     SchedSwitchMarkerOnCpuTrack,
+            // );
+            // process.unresolved_samples.attach_stack_to_marker(
+            //     cpu.thread_handle,
+            //     timestamp,
+            //     timestamp_mono,
+            //     stack_index,
+            //     marker_handle,
+            // );
+            // let marker_handle = self.profile.add_marker(
+            //     thread.profile_thread,
+            //     MarkerTiming::Instant(timestamp),
+            //     SchedSwitchMarkerOnThreadTrack { cpu: cpu_index },
+            // );
+            // process.unresolved_samples.attach_stack_to_marker(
+            //     thread.profile_thread,
+            //     timestamp,
+            //     timestamp_mono,
+            //     stack_index,
+            //     marker_handle,
+            // );
         }
     }
 
@@ -738,7 +738,7 @@ where
 
     pub fn handle_mmap(&mut self, e: MmapRecord, timestamp: u64) {
         let mut path = e.path.as_slice();
-        self.add_mmap_marker(e.pid, e.tid, &path, timestamp);
+        // self.add_mmap_marker(e.pid, e.tid, &path, timestamp);
 
         if self.check_jitdump_or_marker_file(&path, e.pid, e.tid) {
             // Not a DSO.
@@ -786,7 +786,7 @@ where
 
     pub fn handle_mmap2(&mut self, e: Mmap2Record, timestamp: u64) {
         let path = e.path.as_slice();
-        self.add_mmap_marker(e.pid, e.tid, &path, timestamp);
+        // self.add_mmap_marker(e.pid, e.tid, &path, timestamp);
 
         if self.check_jitdump_or_marker_file(&path, e.pid, e.tid) {
             // Not a DSO.
