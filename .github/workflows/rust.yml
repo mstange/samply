@@ -77,7 +77,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Install Rust
-        run: rustup update stable && rustup default stable && rustup target add ${{ matrix.target }}
+        # 1.81 causes issues when running the tests
+        #run: rustup update stable && rustup default stable && rustup target add ${{ matrix.target }}
+        run: rustup install 1.80 && rustup default 1.80 && rustup target add ${{ matrix.target }}
       - name: Install cross
         # Latest cross release 0.2.5 fails to link binaries for the `aarch64-linux-android` target. A release is pending.
         # Use a specific commit until the release is out. See https://github.com/cross-rs/cross/issues/1222
