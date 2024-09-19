@@ -7,7 +7,7 @@ use fxprof_processed_profile::{
 };
 
 use super::lib_mappings::{LibMappingInfo, LibMappingOpQueue, LibMappingsHierarchy};
-use super::marker_file::{EventOrSpanMarker, MarkerData, MarkerSpan, TracingTimings};
+use super::marker_file::{EventOrSpanMarker, MarkerData, MarkerSpan, MarkerStats, TracingTimings};
 use super::stack_converter::StackConverter;
 use super::stack_depth_limiting_frame_iter::StackDepthLimitingFrameIter;
 use super::types::StackFrame;
@@ -116,7 +116,9 @@ impl ProcessSampleData {
         let mut category_handles = HashMap::<String, CategoryHandle>::new();
         let logging_category = profile.add_category("(Logging)", CategoryColor::Green);
 
+        let mut stats = MarkerStats::new();
         for marker in markers {
+            stats.process_span(&marker.event_or_span);
             match &marker.event_or_span.marker_data {
                 MarkerData::Event => {
                     let span_marker = EventMarkerSchema::new(profile, &marker, &logging_category);
@@ -140,6 +142,9 @@ impl ProcessSampleData {
                     );
                 }
             }
+        }
+        if !stats.is_empty() {
+            stats.dump();
         }
     }
 }
@@ -401,12 +406,13 @@ impl SpanMarkerWithTimingsSchema {
         let mut category_str: &str = &span.action;
         let label: StringHandle;
 
-        if let Some((first_part, second_part)) = category_str.split_once("/") {
-            category_str = first_part;
-            let (collection, id) = second_part.split_once("-").unwrap();
-            label = profile.intern_string(&format!("{}-{} {}", collection, &id[..8], span.label));
+        if let Some((atom, collection)) = category_str.split_once("/") {
+            category_str = atom;
+            let (collection, id) = collection.split_once("-").unwrap();
+            label =
+                profile.intern_string(&format!("{}-{} {}", collection, &id[..8], span.span_type));
         } else {
-            label = profile.intern_string(&span.label);
+            label = profile.intern_string(&span.span_type.to_string());
         }
 
         let category = category_handles

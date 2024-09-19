@@ -1,6 +1,8 @@
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Lines};
+use std::ops::AddAssign;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -9,10 +11,23 @@ use fxprof_processed_profile::Timestamp;
 use super::timestamp_converter::TimestampConverter;
 use super::utils::open_file_with_fallback;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct TracingTimings {
     pub time_busy: Duration,
     pub time_idle: Duration,
+}
+
+impl AddAssign for TracingTimings {
+    fn add_assign(&mut self, other: Self) {
+        *self += &other;
+    }
+}
+
+impl AddAssign<&Self> for TracingTimings {
+    fn add_assign(&mut self, other: &Self) {
+        self.time_busy += other.time_busy;
+        self.time_idle += other.time_idle;
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -29,18 +44,105 @@ pub enum MarkerData {
     Event,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum SpanType {
+    Total,
+    Running,
+}
+
+impl Display for SpanType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SpanType::Running => write!(f, "Running"),
+            SpanType::Total => write!(f, "Total"),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MarkerSpan {
+    pub span_type: SpanType,
     pub end_time: Timestamp,
-    pub label: String,
     pub action: String,
     pub timings: TracingTimings,
 }
 
+pub struct MarkerStats {
+    per_collection_map: HashMap<String, TracingTimings>,
+}
+
+impl MarkerStats {
+    pub fn new() -> Self {
+        Self {
+            per_collection_map: HashMap::new(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.per_collection_map.is_empty()
+    }
+
+    pub fn process_span(&mut self, marker: &EventOrSpanMarker) {
+        match &marker.marker_data {
+            MarkerData::Span(span) => {
+                if span.span_type != SpanType::Total {
+                    return;
+                }
+                if let Some((_, collection)) = span.action.split_once("/") {
+                    let (collection_type, id) = collection.split_once("-").unwrap();
+                    let key = format!("{}::{}-{}", collection_type, marker.message, &id[0..8]);
+                    *self.per_collection_map.entry(key.to_string()).or_default() += &span.timings;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn calc_per_type(&self) -> HashMap<String, TracingTimings> {
+        let mut per_type = HashMap::new();
+        for (collection, timings) in self.per_collection_map.iter() {
+            let (collection_type, _) = collection.split_once("-").unwrap();
+            *per_type.entry(collection_type.to_string()).or_default() += timings;
+        }
+        per_type
+    }
+
+    fn dump_stat(
+        &self,
+        title: &str,
+        timings_map: &HashMap<String, TracingTimings>,
+        callback: fn(&TracingTimings) -> Duration,
+    ) {
+        let mut timings: Vec<(_, _)> = timings_map.iter().map(|(k, v)| (k, callback(v))).collect();
+        timings.sort_by_key(|(_, v)| v.as_nanos());
+        timings.reverse();
+
+        // TODO: better formatting? json? dump to file?
+        println!("\t{}:", title);
+        for (k, v) in timings {
+            println!("\t\t{:<40}\t{:?}", k, v);
+        }
+    }
+
+    fn dump_stats_map(&self, title: &str, timings_map: &HashMap<String, TracingTimings>) {
+        println!("{}:", title);
+
+        self.dump_stat("Total", timings_map, |t| t.time_busy + t.time_idle);
+        self.dump_stat("Busy", timings_map, |t| t.time_busy);
+        self.dump_stat("Idle", timings_map, |t| t.time_idle);
+    }
+
+    pub fn dump(&self) {
+        let per_type_map = self.calc_per_type();
+        self.dump_stats_map("Per Type", &per_type_map);
+        self.dump_stats_map("Per Collection", &self.per_collection_map);
+    }
+}
+
 struct SpanTracker {
-    started_span_cache: HashMap<u64, serde_json::Value>,
     start_keyword: String,
     end_keyword: String,
+    started_span_cache: HashMap<u64, serde_json::Value>,
 }
 
 impl SpanTracker {
@@ -122,9 +224,9 @@ impl MarkerFile {
 
     fn process_complete_span(
         &mut self,
+        span_type: SpanType,
         start: serde_json::Value,
         end: serde_json::Value,
-        label: &str,
     ) -> Option<EventOrSpanMarker> {
         let fields = end.get("fields").unwrap();
 
@@ -154,7 +256,7 @@ impl MarkerFile {
             marker_data: MarkerData::Span(MarkerSpan {
                 end_time: self.timestamp_converter.convert_time(end_time),
                 action,
-                label: label.to_string(),
+                span_type,
                 timings: TracingTimings {
                     time_busy: time_busy,
                     time_idle: time_idle,
@@ -191,9 +293,9 @@ impl MarkerFile {
 
         if id != 0 {
             if let Some((start, end)) = self.new_close_tracker.process_line(id, json.clone()) {
-                self.process_complete_span(start, end, "Total")
+                self.process_complete_span(SpanType::Total, start, end)
             } else if let Some((start, end)) = self.enter_exit_tracker.process_line(id, json) {
-                self.process_complete_span(start, end, "Running")
+                self.process_complete_span(SpanType::Running, start, end)
             } else {
                 None
             }
