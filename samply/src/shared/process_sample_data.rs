@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use fxprof_processed_profile::{
-    CategoryColor, CategoryHandle, CategoryPairHandle, LibMappings, MarkerFieldFormat,
-    MarkerFieldSchema, MarkerLocation, MarkerSchema, MarkerStaticField, MarkerTiming, Profile,
-    StaticSchemaMarker, StringHandle, ThreadHandle,
+    CategoryColor, CategoryHandle, CategoryPairHandle, LibMappings, Marker, MarkerFieldFormat,
+    MarkerFieldSchema, MarkerLocation, MarkerSchema, MarkerStaticField, MarkerTiming,
+    MarkerTypeHandle, Profile, StaticSchemaMarker, StringHandle, ThreadHandle,
 };
 
 use super::lib_mappings::{LibMappingInfo, LibMappingOpQueue, LibMappingsHierarchy};
@@ -116,6 +116,8 @@ impl ProcessSampleData {
         let mut category_handles = HashMap::<String, CategoryHandle>::new();
         let logging_category = profile.add_category("(Logging)", CategoryColor::Green);
 
+        let mut marker_types: HashMap<String, MarkerTypeHandle> = HashMap::new();
+
         let mut stats = MarkerStats::new();
         for marker in markers {
             stats.process_span(&marker.event_or_span);
@@ -129,11 +131,31 @@ impl ProcessSampleData {
                     );
                 }
                 MarkerData::Span(span) => {
+                    let mut extra_fields: Vec<_> = span.extra_fields.clone().into_iter().collect();
+                    extra_fields.sort_by_key(|(k, _)| k.clone());
+
+                    let (field_names, field_values): (Vec<_>, Vec<_>) =
+                        extra_fields.into_iter().unzip();
+
+                    let marker_typename = field_names.join("_");
+
+                    let marker_type =
+                        marker_types
+                            .entry(marker_typename.clone())
+                            .or_insert_with(|| {
+                                SpanMarkerWithTimingsSchema::create_marker_type(
+                                    profile,
+                                    &field_names,
+                                )
+                            });
+
                     let span_marker = SpanMarkerWithTimingsSchema::new(
                         profile,
                         &marker,
                         &span,
                         &mut category_handles,
+                        &marker_type,
+                        &field_values,
                     );
                     profile.add_marker(
                         marker.thread_handle,
@@ -392,14 +414,74 @@ pub struct SpanMarkerWithTimingsSchema {
     timings: TracingTimings,
     label: StringHandle,
     action: StringHandle,
+    view_id: StringHandle,
+    extra_fields: Vec<StringHandle>,
+    marker_type: MarkerTypeHandle,
 }
 
 impl SpanMarkerWithTimingsSchema {
+    pub fn create_marker_type(
+        profile: &mut Profile,
+        extra_field_names: &Vec<String>,
+    ) -> MarkerTypeHandle {
+        let mut all_fields = vec![
+            MarkerFieldSchema {
+                key: "time_idle".into(),
+                label: "Idle".into(),
+                format: MarkerFieldFormat::Duration,
+                searchable: true,
+            },
+            MarkerFieldSchema {
+                key: "time_busy".into(),
+                label: "Busy".into(),
+                format: MarkerFieldFormat::Duration,
+                searchable: true,
+            },
+            MarkerFieldSchema {
+                key: "name".into(),
+                label: "Name".into(),
+                format: MarkerFieldFormat::String,
+                searchable: true,
+            },
+            MarkerFieldSchema {
+                key: "action".into(),
+                label: "Action".into(),
+                format: MarkerFieldFormat::String,
+                searchable: true,
+            },
+            MarkerFieldSchema {
+                key: "view_id".into(),
+                label: "View Id".into(),
+                format: MarkerFieldFormat::String,
+                searchable: true,
+            },
+        ];
+
+        all_fields.extend(extra_field_names.iter().map(|name| MarkerFieldSchema {
+            key: name.into(),
+            label: name.into(),
+            format: MarkerFieldFormat::String,
+            searchable: true,
+        }));
+
+        profile.register_marker_type(MarkerSchema {
+            type_name: format!("Span-{}", extra_field_names.join("_")).into(),
+            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
+            chart_label: Some("{marker.data.name}".into()),
+            tooltip_label: Some("{marker.data.name}".into()),
+            table_label: Some("{marker.data.name}".into()),
+            fields: all_fields,
+            static_fields: vec![],
+        })
+    }
+
     pub fn new(
         profile: &mut Profile,
         marker: &MarkerOnThread,
         span: &MarkerSpan,
         category_handles: &mut HashMap<String, CategoryHandle>,
+        marker_type: &MarkerTypeHandle,
+        field_values: &Vec<String>,
     ) -> Self {
         let marker = &marker.event_or_span;
 
@@ -420,54 +502,27 @@ impl SpanMarkerWithTimingsSchema {
             .or_insert_with(|| profile.add_category(&category_str, CategoryColor::Green))
             .clone();
 
+        let extra_fields = field_values
+            .iter()
+            .map(|value| profile.intern_string(value))
+            .collect();
+
         Self {
             category,
             label,
             timings: span.timings.clone(),
             name: profile.intern_string(&marker.message),
             action: profile.intern_string(&span.action),
+            view_id: profile.intern_string(&span.view_id),
+            marker_type: marker_type.clone(),
+            extra_fields,
         }
     }
 }
 
-impl StaticSchemaMarker for SpanMarkerWithTimingsSchema {
-    const UNIQUE_MARKER_TYPE_NAME: &'static str = "SpanMarkerWithTimings";
-
-    fn schema() -> MarkerSchema {
-        MarkerSchema {
-            type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
-            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
-            chart_label: Some("{marker.data.name}".into()),
-            tooltip_label: Some("{marker.data.name}".into()),
-            table_label: Some("{marker.data.name}".into()),
-            fields: vec![
-                MarkerFieldSchema {
-                    key: "time_idle".into(),
-                    label: "Idle".into(),
-                    format: MarkerFieldFormat::Duration,
-                    searchable: true,
-                },
-                MarkerFieldSchema {
-                    key: "time_busy".into(),
-                    label: "Busy".into(),
-                    format: MarkerFieldFormat::Duration,
-                    searchable: true,
-                },
-                MarkerFieldSchema {
-                    key: "name".into(),
-                    label: "Name".into(),
-                    format: MarkerFieldFormat::String,
-                    searchable: true,
-                },
-                MarkerFieldSchema {
-                    key: "action".into(),
-                    label: "Action".into(),
-                    format: MarkerFieldFormat::String,
-                    searchable: true,
-                },
-            ],
-            static_fields: vec![],
-        }
+impl Marker for SpanMarkerWithTimingsSchema {
+    fn marker_type(&self, _profile: &mut Profile) -> MarkerTypeHandle {
+        self.marker_type
     }
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
@@ -482,7 +537,8 @@ impl StaticSchemaMarker for SpanMarkerWithTimingsSchema {
         match field_index {
             2 => self.name,
             3 => self.action,
-            _ => unreachable!(),
+            4 => self.view_id,
+            i => self.extra_fields.get(i as usize - 5).unwrap().clone(),
         }
     }
 

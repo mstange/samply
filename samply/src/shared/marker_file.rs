@@ -64,7 +64,9 @@ pub struct MarkerSpan {
     pub span_type: SpanType,
     pub end_time: Timestamp,
     pub action: String,
+    pub view_id: String,
     pub timings: TracingTimings,
+    pub extra_fields: HashMap<String, String>,
 }
 
 pub struct MarkerStats {
@@ -233,16 +235,27 @@ impl MarkerFile {
         let start_time = self.read_timestamp_from_event(&start);
         let end_time = self.read_timestamp_from_event(&end);
 
-        let span = end.get("span").unwrap();
+        let mut span = end
+            .get("span")
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.clone(),
+                    match v.as_str() {
+                        Some(s) => s.to_string(),
+                        None => v.to_string(),
+                    },
+                )
+            })
+            .collect::<HashMap<String, String>>();
 
-        let message = span
-            .get("name")
-            .map(|a| a.as_str().unwrap().to_string())
-            .unwrap();
-        let action = span
-            .get("action")
-            .map(|a| a.as_str().unwrap().to_string())
-            .unwrap_or("No Action".to_string());
+        let message = span.remove("name").unwrap();
+        let action = span.remove("action").unwrap_or("—".to_string());
+        let view_id = span.remove("view_id").unwrap_or("—".to_string());
+
         let target = end.get("target").unwrap().as_str().unwrap().to_string();
 
         let time_busy = parse_timing_field(&fields, "time.busy")
@@ -256,11 +269,13 @@ impl MarkerFile {
             marker_data: MarkerData::Span(MarkerSpan {
                 end_time: self.timestamp_converter.convert_time(end_time),
                 action,
+                view_id,
                 span_type,
                 timings: TracingTimings {
                     time_busy: time_busy,
                     time_idle: time_idle,
                 },
+                extra_fields: span,
             }),
         })
     }
