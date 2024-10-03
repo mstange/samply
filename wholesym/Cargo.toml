@@ -33,15 +33,15 @@ reqwest = { version = "0.12", default-features = false, features = [
     "brotli",
     "deflate"
 ] }
-bytes = "1.6.1"
+bytes = "1.7"
 memmap2 = "0.9.4"
 tokio = { version = "1.38", features = ["fs"] }
 futures-util = "0.3.30"
 
 # Needed for moria_mac_spotlight, to find dSYM files
 [target.'cfg(target_os = "macos")'.dependencies]
-core-foundation-sys = "0.8.2"
-core-foundation = "0.9.1"
+core-foundation-sys = "0.8"
+core-foundation = "0.10"
 
 [dev-dependencies]
 futures = "0.3.5"
