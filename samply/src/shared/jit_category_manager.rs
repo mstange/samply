@@ -36,6 +36,7 @@ impl JitCategoryManager {
         ("JS:+", "Maglev", CategoryColor::Green, true),
         ("JS:*", "Turbofan", CategoryColor::Green, true),
         ("JS:?", "JavaScript", CategoryColor::Blue, true),
+        ("py::", "Python", CategoryColor::Blue, true),
         ("Builtin:", "Builtin", CategoryColor::Brown, false),
         ("BytecodeHandler:", "Interpreter", CategoryColor::Red, false),
         ("Interpreter: ", "Interpreter", CategoryColor::Red, true),
