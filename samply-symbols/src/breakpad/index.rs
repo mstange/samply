@@ -12,7 +12,7 @@ use nom::multi::separated_list1;
 use nom::sequence::{terminated, tuple};
 use nom::{Err, IResult};
 use zerocopy::{AsBytes, LittleEndian, Ref, U32, U64};
-use zerocopy_derive::{AsBytes, FromBytes, FromZeroes, Unaligned};
+use zerocopy_derive::{FromBytes, FromZeroes, Unaligned};
 
 use crate::CodeId;
 
@@ -372,7 +372,7 @@ pub enum BreakpadSymindexParseError {
     CouldntReadSymbolEntryListBytes,
 }
 
-#[derive(FromZeroes, FromBytes, AsBytes, Unaligned)]
+#[derive(FromZeroes, FromBytes, zerocopy_derive::AsBytes, Unaligned)]
 #[repr(C)]
 struct BreakpadSymindexFileHeader {
     /// Always b"SYMINDEX", at 0
@@ -399,7 +399,7 @@ struct BreakpadSymindexFileHeader {
     symbol_entries_offset: U32<LittleEndian>,
 }
 
-#[derive(FromZeroes, FromBytes, AsBytes, Unaligned)]
+#[derive(FromZeroes, FromBytes, zerocopy_derive::AsBytes, Unaligned)]
 #[repr(C)]
 struct FileOrInlineOriginEntry {
     pub index: U32<LittleEndian>,
@@ -410,7 +410,7 @@ struct FileOrInlineOriginEntry {
 const SYMBOL_ENTRY_KIND_PUBLIC: u32 = 0;
 const SYMBOL_ENTRY_KIND_FUNC: u32 = 1;
 
-#[derive(FromZeroes, FromBytes, AsBytes, Unaligned)]
+#[derive(FromZeroes, FromBytes, zerocopy_derive::AsBytes, Unaligned)]
 #[repr(C)]
 struct SymbolEntry {
     /// Uses `SYMBOL_ENTRY_KIND_*` constants (0 for PUBLIC, 1 for FUNC)

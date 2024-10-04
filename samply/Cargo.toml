@@ -20,7 +20,7 @@ linux-perf-data = "0.10.1"
 tokio = { version = "1.39", features = ["rt", "rt-multi-thread", "macros"] }
 tokio-util = "0.7.11"
 hyper = { version = "1", features = ["full"] }
-hyper-util = { version = "0.1.6", features = ["server", "http1", "tokio"] }
+hyper-util = { version = "0.1.9", features = ["server", "http1", "tokio"] }
 http-body-util = "0.1"
 futures-util = "0.3"
 clap = { version = "4", features = ["derive"] }
@@ -30,12 +30,12 @@ memchr = "2.7.2"
 memmap2 = "0.9.4"
 serde_json = "1"
 thiserror = "1"
-tempfile = "3.10.1"
+tempfile = "3.13"
 uuid = {  version = "1.10.0", features = ["v4"] }
 percent-encoding = "2.1.0"
 libc = "0.2.155"
 flate2 = "1.0"
-opener = { version = "0.7.1", default-features = false }
+opener = { version = "0.7", default-features = false }
 rand = "0.8.4"
 nix-base32 = "0.1.1"
 serde_derive = "1.0.137"
@@ -62,9 +62,8 @@ crossbeam-channel = "0.5.13"
 
 mach = "0.3.2"
 lazy_static = "1.5.0"
-flate2 = "1.0.30"
+flate2 = "1.0"
 sysctl = "0.5.4"
-tempfile = "3.10.1"
 plist = "1.7.0"
 
 [target.'cfg(any(target_os = "android", target_os = "linux"))'.dependencies]
