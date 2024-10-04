@@ -47,8 +47,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Install Rust
-        #run: rustup target add ${{ matrix.target }}
-        run: rustup install 1.80 && rustup default 1.80 && rustup target add ${{ matrix.target }} && rustup component add clippy rustfmt
+        run: rustup target add ${{ matrix.target }}
       - if: ${{ matrix.is_musl }}
         name: Install musl-tools
         run: sudo apt-get install -y musl-tools
@@ -78,9 +77,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Install Rust
-        # 1.81 causes issues when running the tests
-        #run: rustup update stable && rustup default stable && rustup target add ${{ matrix.target }}
-        run: rustup install 1.80 && rustup default 1.80 && rustup target add ${{ matrix.target }} && rustup component add clippy rustfmt
+        run: rustup update stable && rustup default stable && rustup target add ${{ matrix.target }}
       - name: Install cross
         # Latest cross release 0.2.5 fails to link binaries for the `aarch64-linux-android` target. A release is pending.
         # Use a specific commit until the release is out. See https://github.com/cross-rs/cross/issues/1222
@@ -106,8 +103,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Install Rust
-        #run: rustup target add ${{ matrix.target }}
-        run: rustup install 1.80 && rustup default 1.80 && rustup target add ${{ matrix.target }} && rustup component add clippy rustfmt
+        run: rustup target add ${{ matrix.target }}
       - name: Check
         run: cargo check --workspace --verbose --target=${{ matrix.target }}
       - name: Clippy
