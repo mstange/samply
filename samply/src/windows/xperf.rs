@@ -40,7 +40,16 @@ impl Xperf {
         if let Some(p) = self.xperf_path.clone() {
             return Ok(p);
         }
-        let xperf_path = which::which("xperf").map_err(|_| XPERF_NOT_FOUND_ERROR_MSG)?;
+        let xperf_path = which::which("xperf").or_else(|_| {
+            let pf = std::env::var("ProgramFiles(x86)").map_err(|_| XPERF_NOT_FOUND_ERROR_MSG)?;
+            let xperf_install_path =
+                PathBuf::from(pf).join("Windows Kits/10/Windows Performance Toolkit/xperf.exe");
+            if xperf_install_path.exists() {
+                Ok(xperf_install_path)
+            } else {
+                Err(XPERF_NOT_FOUND_ERROR_MSG)
+            }
+        })?;
         self.xperf_path = Some(xperf_path.clone());
         Ok(xperf_path)
     }
@@ -99,6 +108,11 @@ impl Xperf {
         xperf.arg("-f");
         xperf.arg(&kernel_etl_file);
 
+        // 1MB buffers. Default is 64Kb; 1MB is max. Default minimum buffer count
+        // is 64, max is 320, which seems totally reasonable for modern systems.
+        xperf.arg("-BufferSize");
+        xperf.arg("1024");
+
         let user_etl_file = if !user_providers.is_empty() {
             let mut user_etl_file = output_path.to_owned();
             if user_etl_file.extension() == Some(OsStr::new("gz")) {
@@ -114,6 +128,11 @@ impl Xperf {
 
             xperf.arg("-f");
             xperf.arg(&user_etl_file);
+
+            // 1MB buffers. Default is 64Kb; 1MB is max. Default minimum buffer count
+            // is 64, max is 320, which seems totally reasonable for modern systems.
+            xperf.arg("-BufferSize");
+            xperf.arg("1024");
 
             Some(user_etl_file)
         } else {
