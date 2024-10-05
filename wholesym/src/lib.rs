@@ -129,8 +129,10 @@
 
 pub use debugid;
 
+mod breakpad;
 mod config;
 mod debuginfod;
+mod download;
 mod file_creation;
 mod helper;
 mod moria_mac;

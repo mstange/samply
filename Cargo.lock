@@ -2591,6 +2591,7 @@ dependencies = [
 name = "wholesym"
 version = "0.7.0"
 dependencies = [
+ "async-compression",
  "bytes",
  "core-foundation",
  "core-foundation-sys",
@@ -2598,11 +2599,13 @@ dependencies = [
  "fs4",
  "futures",
  "futures-util",
+ "http",
  "libc",
  "memmap2",
  "reqwest",
  "samply-api",
  "samply-symbols",
+ "scopeguard",
  "symsrv",
  "thiserror",
  "tokio",
