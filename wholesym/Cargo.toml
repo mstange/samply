@@ -37,6 +37,8 @@ bytes = "1.7"
 memmap2 = "0.9.4"
 tokio = { version = "1.38", features = ["fs"] }
 futures-util = "0.3.30"
+fs4 = "0.9"
+thiserror = "1"
 
 # Needed for moria_mac_spotlight, to find dSYM files
 [target.'cfg(target_os = "macos")'.dependencies]

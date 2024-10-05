@@ -131,6 +131,7 @@ pub use debugid;
 
 mod config;
 mod debuginfod;
+mod file_creation;
 mod helper;
 mod moria_mac;
 #[cfg(target_os = "macos")]

@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 use crate::config::SymbolManagerConfig;
 use crate::debuginfod::DebuginfodSymbolCache;
+use crate::file_creation::{create_file_cleanly, CleanFileCreationError};
 use crate::vdso::get_vdso_data;
 
 /// This is how the symbol file contents are returned. If there's an uncompressed file
@@ -485,23 +486,38 @@ impl Helper {
         if self.config.verbose {
             eprintln!("Saving bytes to {dest_path:?}.");
         }
-        let file = tokio::fs::File::create(&dest_path).await?;
-        let mut writer = tokio::io::BufWriter::new(file);
-        use futures_util::StreamExt;
-        let mut parser = BreakpadIndexParser::new();
-        while let Some(item) = stream.next().await {
-            let item = item?;
-            let mut item_slice = item.as_ref();
-            parser.consume(item_slice);
-            tokio::io::copy(&mut item_slice, &mut writer).await?;
-        }
-        drop(writer);
+        let creation_result: Result<
+            Option<BreakpadIndexParser>,
+            CleanFileCreationError<std::io::Error>,
+        > = create_file_cleanly(
+            &dest_path,
+            |file| async move {
+                let file = tokio::fs::File::from_std(file);
+                let mut writer = tokio::io::BufWriter::new(file);
+                use futures_util::StreamExt;
+                let mut parser = BreakpadIndexParser::new();
+                while let Some(item) = stream.next().await {
+                    let item =
+                        item.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+                    let mut item_slice = item.as_ref();
+                    parser.consume(item_slice);
+                    tokio::io::copy(&mut item_slice, &mut writer).await?;
+                }
+                writer.flush().await?;
+                Ok(Some(parser))
+            },
+            || async { Ok(None) },
+        )
+        .await;
+        let parser = creation_result?;
 
-        match parser.finish() {
-            Ok(index) => self.write_symindex(rel_path, index).await?,
-            Err(err) => {
-                if self.config.verbose {
-                    eprintln!("Breakpad parsing for symindex failed: {err}");
+        if let Some(parser) = parser {
+            match parser.finish() {
+                Ok(index) => self.write_symindex(rel_path, index).await?,
+                Err(err) => {
+                    if self.config.verbose {
+                        eprintln!("Breakpad parsing for symindex failed: {err}");
+                    }
                 }
             }
         }
@@ -535,9 +551,20 @@ impl Helper {
         }
         let parent_dir = symindex_path.parent().ok_or("invalid symindex path")?;
         tokio::fs::create_dir_all(parent_dir).await?;
-        let mut index_file = tokio::fs::File::create(&symindex_path).await?;
-        index_file.write_all(&index.serialize_to_bytes()).await?;
-        index_file.flush().await?;
+        let creation_result: Result<(), CleanFileCreationError<std::io::Error>> =
+            create_file_cleanly(
+                &symindex_path,
+                |index_file| async move {
+                    let mut index_file = tokio::fs::File::from_std(index_file);
+                    index_file.write_all(&index.serialize_to_bytes()).await?;
+                    index_file.flush().await?;
+                    Ok(())
+                },
+                || async { Ok(()) },
+            )
+            .await;
+        let () = creation_result?;
+
         Ok(())
     }
 
