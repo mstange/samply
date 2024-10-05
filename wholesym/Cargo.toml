@@ -37,6 +37,15 @@ bytes = "1.7"
 memmap2 = "0.9.4"
 tokio = { version = "1.38", features = ["fs"] }
 futures-util = "0.3.30"
+fs4 = "0.9"
+thiserror = "1"
+async-compression = { version = "0.4.6", default-features = false, features = [
+    "tokio",
+    "futures-io",
+    "gzip"
+] }
+http = "1"
+scopeguard = { version = "1.2.0", default-features = false }
 
 # Needed for moria_mac_spotlight, to find dSYM files
 [target.'cfg(target_os = "macos")'.dependencies]

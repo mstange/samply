@@ -199,7 +199,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if do_functions {
                             if let Some(func) = &frame.function {
                                 print!("{func}");
-                            } else if i == 0 {
+                            } else if i == frames.len() - 1 {
                                 print!("{}", address_info.symbol.name);
                             } else {
                                 print!("??");
