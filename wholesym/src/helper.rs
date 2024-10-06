@@ -6,14 +6,13 @@ use std::sync::{Arc, Mutex};
 use bytes::Bytes;
 use debugid::DebugId;
 use samply_symbols::{
-    BreakpadIndex, BreakpadIndexParser, CandidatePathInfo, CodeId, ElfBuildId, FileAndPathHelper,
-    FileAndPathHelperResult, FileLocation, LibraryInfo, OptionallySendFuture, PeCodeId,
-    SymbolMapTrait,
+    CandidatePathInfo, CodeId, ElfBuildId, FileAndPathHelper, FileAndPathHelperResult,
+    FileLocation, LibraryInfo, OptionallySendFuture, PeCodeId, SymbolMapTrait,
 };
 use symsrv::{SymsrvDownloader, SymsrvObserver};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use uuid::Uuid;
 
+use crate::breakpad::{BreakpadSymbolDownloader, BreakpadSymbolObserver};
 use crate::config::SymbolManagerConfig;
 use crate::debuginfod::DebuginfodSymbolCache;
 use crate::vdso::get_vdso_data;
@@ -47,7 +46,7 @@ impl std::ops::Deref for WholesymFileContents {
 pub enum WholesymFileLocation {
     LocalFile(PathBuf),
     LocalSymsrvFile(String, String),
-    LocalBreakpadFile(PathBuf, String),
+    LocalBreakpadFile(String),
     SymsrvFile(String, String),
     BreakpadSymbolServerFile(String),
     BreakpadSymindexFile(String),
@@ -127,7 +126,7 @@ impl FileLocation for WholesymFileLocation {
 
     fn location_for_breakpad_symindex(&self) -> Option<Self> {
         match self {
-            Self::BreakpadSymbolServerFile(rel_path) | Self::LocalBreakpadFile(_, rel_path) => {
+            Self::BreakpadSymbolServerFile(rel_path) | Self::LocalBreakpadFile(rel_path) => {
                 Some(Self::BreakpadSymindexFile(rel_path.clone()))
             }
             _ => None,
@@ -242,6 +241,7 @@ impl FileAndPathHelper for FileReadOnlyHelper {
 
 pub struct Helper {
     symsrv_downloader: Option<SymsrvDownloader>,
+    breakpad_downloader: BreakpadSymbolDownloader,
     debuginfod_symbol_cache: Option<DebuginfodSymbolCache>,
     known_libs: Mutex<KnownLibs>,
     config: SymbolManagerConfig,
@@ -263,7 +263,7 @@ impl Helper {
                 let mut downloader = SymsrvDownloader::new(nt_symbol_path);
                 downloader.set_default_downstream_store(symsrv::get_home_sym_dir());
                 if config.verbose {
-                    downloader.set_observer(Some(Arc::new(VerboseSymsrvObserver::new())));
+                    downloader.set_observer(Some(Arc::new(VerboseDownloaderObserver::new())));
                 }
                 Some(downloader)
             }
@@ -278,8 +278,17 @@ impl Helper {
         } else {
             None
         };
+        let mut breakpad_downloader = BreakpadSymbolDownloader::new(
+            config.breakpad_directories_readonly.clone(),
+            config.breakpad_servers.clone(),
+            config.breakpad_symindex_cache_dir.clone(),
+        );
+        if config.verbose {
+            breakpad_downloader.set_observer(Some(Arc::new(VerboseDownloaderObserver::new())));
+        }
         Self {
             symsrv_downloader,
+            breakpad_downloader,
             debuginfod_symbol_cache,
             known_libs: Mutex::new(Default::default()),
             config,
@@ -356,11 +365,15 @@ impl Helper {
                     memmap2::MmapOptions::new().map(&File::open(file_path)?)?
                 }))
             }
-            WholesymFileLocation::LocalBreakpadFile(path, rel_path) => {
+            WholesymFileLocation::LocalBreakpadFile(rel_path) => {
+                let path = self
+                    .breakpad_downloader
+                    .get_file_no_download(&rel_path)
+                    .await
+                    .ok_or("Not found on breakpad symbol server")?;
                 if self.config.verbose {
                     eprintln!("Opening file {:?}", path.to_string_lossy());
                 }
-                self.ensure_symindex(&path, &rel_path).await?;
                 let file = File::open(path)?;
                 Ok(WholesymFileContents::Mmap(unsafe {
                     memmap2::MmapOptions::new().map(&file)?
@@ -385,6 +398,9 @@ impl Helper {
                     .unwrap()
                     .get_file(&filename, &hash)
                     .await?;
+                if self.config.verbose {
+                    eprintln!("Opening file {:?}", file_path.to_string_lossy());
+                }
                 Ok(WholesymFileContents::Mmap(unsafe {
                     memmap2::MmapOptions::new().map(&File::open(file_path)?)?
                 }))
@@ -393,20 +409,34 @@ impl Helper {
                 if self.config.verbose {
                     eprintln!("Trying to get file {path:?} from breakpad symbol server");
                 }
-                self.get_bp_sym_file(&path).await
+                let file_path = self
+                    .breakpad_downloader
+                    .get_file(&path)
+                    .await
+                    .ok_or("Not found on breakpad symbol server")?;
+                if self.config.verbose {
+                    eprintln!("Opening file {:?}", file_path.to_string_lossy());
+                }
+                Ok(WholesymFileContents::Mmap(unsafe {
+                    memmap2::MmapOptions::new().map(&File::open(file_path)?)?
+                }))
             }
             WholesymFileLocation::BreakpadSymindexFile(rel_path) => {
-                if let Some(symindex_path) = self.symindex_path(&rel_path) {
-                    if self.config.verbose {
-                        eprintln!("Opening file {:?}", symindex_path.to_string_lossy());
-                    }
-                    let file = File::open(symindex_path)?;
-                    Ok(WholesymFileContents::Mmap(unsafe {
-                        memmap2::MmapOptions::new().map(&file)?
-                    }))
-                } else {
-                    Err("No breakpad symindex cache dir configured".into())
+                let sym_path = self
+                    .breakpad_downloader
+                    .get_file_no_download(&rel_path)
+                    .await
+                    .ok_or("Not found in breakpad symbol directories")?;
+                let file_path = self
+                    .breakpad_downloader
+                    .ensure_symindex(&sym_path, &rel_path)
+                    .await?;
+                if self.config.verbose {
+                    eprintln!("Opening file {:?}", file_path.to_string_lossy());
                 }
+                Ok(WholesymFileContents::Mmap(unsafe {
+                    memmap2::MmapOptions::new().map(&File::open(file_path)?)?
+                }))
             }
             WholesymFileLocation::DebuginfodDebugFile(build_id) => {
                 let file_path = self
@@ -416,6 +446,9 @@ impl Helper {
                     .get_file(&build_id.to_string(), "debuginfo")
                     .await
                     .ok_or("Debuginfod could not find debuginfo")?;
+                if self.config.verbose {
+                    eprintln!("Opening file {:?}", file_path.to_string_lossy());
+                }
 
                 Ok(WholesymFileContents::Mmap(unsafe {
                     memmap2::MmapOptions::new().map(&File::open(file_path)?)?
@@ -429,6 +462,9 @@ impl Helper {
                     .get_file(&build_id.to_string(), "debuginfo")
                     .await
                     .ok_or("Debuginfod could not find debuginfo")?;
+                if self.config.verbose {
+                    eprintln!("Opening file {:?}", file_path.to_string_lossy());
+                }
 
                 Ok(WholesymFileContents::Mmap(unsafe {
                     memmap2::MmapOptions::new().map(&File::open(file_path)?)?
@@ -448,136 +484,6 @@ impl Helper {
                 }
             }
         }
-    }
-
-    async fn get_bp_sym_file(
-        &self,
-        rel_path: &str,
-    ) -> FileAndPathHelperResult<WholesymFileContents> {
-        for (server_base_url, cache_dir) in &self.config.breakpad_servers {
-            if let Ok(file) = self
-                .get_bp_sym_file_from_server(rel_path, server_base_url, cache_dir)
-                .await
-            {
-                return Ok(file);
-            }
-        }
-        Err("No breakpad sym file on server".into())
-    }
-
-    async fn get_bp_sym_file_from_server(
-        &self,
-        rel_path: &str,
-        server_base_url: &str,
-        cache_dir: &Path,
-    ) -> FileAndPathHelperResult<WholesymFileContents> {
-        let server_base_url = server_base_url.trim_end_matches('/');
-        let url = format!("{server_base_url}/{rel_path}");
-        if self.config.verbose {
-            eprintln!("Downloading {url}...");
-        }
-        let sym_file_response = reqwest::get(&url).await?.error_for_status()?;
-        let mut stream = sym_file_response.bytes_stream();
-        let dest_path = cache_dir.join(rel_path);
-        if let Some(dir) = dest_path.parent() {
-            tokio::fs::create_dir_all(dir).await?;
-        }
-        if self.config.verbose {
-            eprintln!("Saving bytes to {dest_path:?}.");
-        }
-        let file = tokio::fs::File::create(&dest_path).await?;
-        let mut writer = tokio::io::BufWriter::new(file);
-        use futures_util::StreamExt;
-        let mut parser = BreakpadIndexParser::new();
-        while let Some(item) = stream.next().await {
-            let item = item?;
-            let mut item_slice = item.as_ref();
-            parser.consume(item_slice);
-            tokio::io::copy(&mut item_slice, &mut writer).await?;
-        }
-        drop(writer);
-
-        match parser.finish() {
-            Ok(index) => self.write_symindex(rel_path, index).await?,
-            Err(err) => {
-                if self.config.verbose {
-                    eprintln!("Breakpad parsing for symindex failed: {err}");
-                }
-            }
-        }
-
-        if self.config.verbose {
-            eprintln!("Opening file {:?}", dest_path.to_string_lossy());
-        }
-        let file = File::open(&dest_path)?;
-        Ok(WholesymFileContents::Mmap(unsafe {
-            memmap2::MmapOptions::new().map(&file)?
-        }))
-    }
-
-    fn symindex_path(&self, rel_path: &str) -> Option<PathBuf> {
-        self.config
-            .breakpad_symindex_cache_dir
-            .as_deref()
-            .map(|symindex_dir| symindex_dir.join(rel_path).with_extension("symindex"))
-    }
-
-    async fn write_symindex(
-        &self,
-        rel_path: &str,
-        index: BreakpadIndex,
-    ) -> FileAndPathHelperResult<()> {
-        let symindex_path = self
-            .symindex_path(rel_path)
-            .ok_or("No breakpad symindex cache dir configured")?;
-        if self.config.verbose {
-            eprintln!("Writing symindex to {symindex_path:?}.");
-        }
-        let parent_dir = symindex_path.parent().ok_or("invalid symindex path")?;
-        tokio::fs::create_dir_all(parent_dir).await?;
-        let mut index_file = tokio::fs::File::create(&symindex_path).await?;
-        index_file.write_all(&index.serialize_to_bytes()).await?;
-        index_file.flush().await?;
-        Ok(())
-    }
-
-    /// If we have a configured symindex cache directory, and there is a .sym file at
-    /// `local_path` for which we don't have a .symindex file, create the .symindex file.
-    async fn ensure_symindex(
-        &self,
-        local_dir: &Path,
-        rel_path: &str,
-    ) -> FileAndPathHelperResult<()> {
-        if let Some(symindex_path) = self.symindex_path(rel_path) {
-            if let (Ok(mut sym_file), Err(_symindex_file_error)) = (
-                tokio::fs::File::open(local_dir).await,
-                tokio::fs::File::open(symindex_path).await,
-            ) {
-                if self.config.verbose {
-                    eprintln!("Found a Breakpad sym file at {local_dir:?} for which no symindex exists. Attempting to create symindex.");
-                }
-                let mut parser = BreakpadIndexParser::new();
-                const CHUNK_SIZE: usize = 4 * 1024 * 1024; // 4MiB
-                let mut buffer = vec![0; CHUNK_SIZE];
-                loop {
-                    let read_len = sym_file.read(&mut buffer).await?;
-                    if read_len == 0 {
-                        break;
-                    }
-                    parser.consume(&buffer[..read_len]);
-                }
-                match parser.finish() {
-                    Ok(index) => self.write_symindex(rel_path, index).await?,
-                    Err(err) => {
-                        if self.config.verbose {
-                            eprintln!("Breakpad parsing for symindex failed: {err}");
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(())
     }
 
     fn fill_in_library_info_details(&self, info: &mut LibraryInfo) {
@@ -721,19 +627,9 @@ impl FileAndPathHelper for Helper {
             );
 
             // Search breakpad symbol directories.
-            for dir in &self.config.breakpad_directories_readonly {
-                let local_path = dir.join(&rel_path);
-                paths.push(CandidatePathInfo::SingleFile(
-                    WholesymFileLocation::LocalBreakpadFile(local_path, rel_path.clone()),
-                ));
-            }
-
-            for (_url, dir) in &self.config.breakpad_servers {
-                let local_path = dir.join(&rel_path);
-                paths.push(CandidatePathInfo::SingleFile(
-                    WholesymFileLocation::LocalBreakpadFile(local_path, rel_path.clone()),
-                ));
-            }
+            paths.push(CandidatePathInfo::SingleFile(
+                WholesymFileLocation::LocalBreakpadFile(rel_path.clone()),
+            ));
 
             if debug_name.ends_with(".pdb") && self.symsrv_downloader.is_some() {
                 // We might find this pdb file with the help of a symbol server.
@@ -1072,11 +968,11 @@ fn might_be_fake_jit_file(info: &LibraryInfo) -> bool {
     matches!(&info.name, Some(name) if (name.starts_with("jitted-") && name.ends_with(".so")) || name.contains("jit_app_cache:"))
 }
 
-struct VerboseSymsrvObserver {
+struct VerboseDownloaderObserver {
     urls: Mutex<HashMap<u64, String>>,
 }
 
-impl VerboseSymsrvObserver {
+impl VerboseDownloaderObserver {
     fn new() -> Self {
         Self {
             urls: Mutex::new(HashMap::new()),
@@ -1084,7 +980,7 @@ impl VerboseSymsrvObserver {
     }
 }
 
-impl SymsrvObserver for VerboseSymsrvObserver {
+impl SymsrvObserver for VerboseDownloaderObserver {
     fn on_new_download_before_connect(&self, download_id: u64, url: &str) {
         eprintln!("Connecting to {}...", url);
         self.urls
@@ -1146,7 +1042,64 @@ impl SymsrvObserver for VerboseSymsrvObserver {
     fn on_cab_extraction_failed(&self, _extraction_id: u64, _reason: symsrv::CabExtractionError) {}
     fn on_cab_extraction_canceled(&self, _extraction_id: u64) {}
 
-    fn on_file_created(&self, _path: &Path, _size_in_bytes: u64) {}
+    fn on_file_created(&self, path: &Path, size_in_bytes: u64) {
+        eprintln!("Stored {size_in_bytes} bytes at {path:?}.");
+    }
+    fn on_file_accessed(&self, path: &Path) {
+        eprintln!("Checking if {path:?} exists... yes");
+    }
+    fn on_file_missed(&self, path: &Path) {
+        eprintln!("Checking if {path:?} exists... no");
+    }
+}
+
+impl BreakpadSymbolObserver for VerboseDownloaderObserver {
+    fn on_new_download_before_connect(&self, download_id: u64, url: &str) {
+        eprintln!("Connecting to {}...", url);
+        self.urls
+            .lock()
+            .unwrap()
+            .insert(download_id, url.to_owned());
+    }
+
+    fn on_download_started(&self, download_id: u64) {
+        let urls = self.urls.lock().unwrap();
+        let url = urls.get(&download_id).unwrap();
+        eprintln!("Downloading from {}...", url);
+    }
+
+    fn on_download_progress(
+        &self,
+        _download_id: u64,
+        _bytes_so_far: u64,
+        _total_bytes: Option<u64>,
+    ) {
+    }
+
+    fn on_download_completed(
+        &self,
+        download_id: u64,
+        _uncompressed_size_in_bytes: u64,
+        _time_until_headers: std::time::Duration,
+        _time_until_completed: std::time::Duration,
+    ) {
+        let url = self.urls.lock().unwrap().remove(&download_id).unwrap();
+        eprintln!("Finished download from {}.", url);
+    }
+
+    fn on_download_failed(&self, download_id: u64, reason: crate::breakpad::DownloadError) {
+        let url = self.urls.lock().unwrap().remove(&download_id).unwrap();
+        eprintln!("Failed to download from {url}: {reason}.");
+    }
+
+    fn on_download_canceled(&self, download_id: u64) {
+        let url = self.urls.lock().unwrap().remove(&download_id).unwrap();
+        eprintln!("Canceled download from {}.", url);
+    }
+
+    fn on_file_created(&self, path: &Path, size_in_bytes: u64) {
+        eprintln!("Stored {size_in_bytes} bytes at {path:?}.");
+    }
     fn on_file_accessed(&self, path: &Path) {
         eprintln!("Checking if {path:?} exists... yes");
     }
