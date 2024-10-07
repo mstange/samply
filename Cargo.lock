@@ -1234,9 +1234,9 @@ dependencies = [
 
 [[package]]
 name = "nix-base32"
-version = "0.1.1"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8548db8274cf1b2b4c093557783f99e9ad64ffdaaa29a6c1af0abc9895c15612"
+checksum = "d2628953ed836273ee4262e3708a8ef63ca38bd8a922070626eef7f9e5d8d536"
 
 [[package]]
 name = "nom"

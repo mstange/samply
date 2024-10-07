@@ -37,7 +37,7 @@ libc = "0.2.155"
 flate2 = "1.0"
 opener = { version = "0.7", default-features = false }
 rand = "0.8.4"
-nix-base32 = "0.1.1"
+nix-base32 = "0.2.0"
 serde_derive = "1.0.137"
 serde = "1.0.204"
 wholesym = { version = "0.7.0", path = "../wholesym", features = ["api"]}
