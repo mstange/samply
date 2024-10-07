@@ -270,8 +270,13 @@ struct BreakpadSymbolDownloaderInner {
 }
 
 impl BreakpadSymbolDownloaderInner {
-    pub async fn get_file(&self, rel_path: &str) -> Option<PathBuf> {
-        for dir in &self.breakpad_directories_readonly {
+    pub async fn get_file_no_download(&self, rel_path: &str) -> Option<PathBuf> {
+        let dirs: Vec<_> = self
+            .breakpad_directories_readonly
+            .iter()
+            .chain(self.breakpad_servers.iter().map(|(_url, dir)| dir))
+            .collect();
+        for dir in dirs {
             let path = dir.join(rel_path);
             if self.check_file_exists(&path).await {
                 if let Some(observer) = self.observer.as_deref() {
@@ -281,14 +286,15 @@ impl BreakpadSymbolDownloaderInner {
             }
         }
 
+        None
+    }
+
+    pub async fn get_file(&self, rel_path: &str) -> Option<PathBuf> {
+        if let Some(path) = self.get_file_no_download(rel_path).await {
+            return Some(path);
+        }
+
         for (server_base_url, cache_dir) in &self.breakpad_servers {
-            let path = cache_dir.join(rel_path);
-            if self.check_file_exists(&path).await {
-                if let Some(observer) = self.observer.as_deref() {
-                    observer.on_file_accessed(&path);
-                }
-                return Some(path);
-            }
             if let Some(path) = self
                 .get_bp_sym_file_from_server(rel_path, server_base_url, cache_dir)
                 .await
@@ -308,25 +314,6 @@ impl BreakpadSymbolDownloaderInner {
             }
         }
         file_exists
-    }
-
-    pub async fn get_file_no_download(&self, rel_path: &str) -> Option<PathBuf> {
-        let dirs: Vec<_> = self
-            .breakpad_directories_readonly
-            .iter()
-            .chain(self.breakpad_servers.iter().map(|(_url, dir)| dir))
-            .collect();
-        for dir in dirs {
-            let path = dir.join(rel_path);
-            if self.check_file_exists(&path).await {
-                if let Some(observer) = self.observer.as_deref() {
-                    observer.on_file_accessed(&path);
-                }
-                return Some(path);
-            }
-        }
-
-        None
     }
 
     async fn prepare_download_of_file(
