@@ -53,5 +53,5 @@ core-foundation-sys = "0.8"
 core-foundation = "0.10"
 
 [dev-dependencies]
-futures = "0.3.5"
+futures = "0.3.31"
 tokio = { version = "1.38", features = ["macros"] } # Feature "macros" for #[tokio::test]
