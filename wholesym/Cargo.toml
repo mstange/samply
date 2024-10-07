@@ -36,7 +36,7 @@ reqwest = { version = "0.12", default-features = false, features = [
 bytes = "1.7"
 memmap2 = "0.9.4"
 tokio = { version = "1.38", features = ["fs"] }
-futures-util = "0.3.30"
+futures-util = "0.3.31"
 fs4 = "0.9"
 thiserror = "1"
 async-compression = { version = "0.4.6", default-features = false, features = [
