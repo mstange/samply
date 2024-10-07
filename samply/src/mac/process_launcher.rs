@@ -19,7 +19,7 @@ pub use super::mach_ipc::{mach_port_t, MachError, OsIpcSender};
 use super::mach_ipc::{mach_task_self, BlockingMode, OsIpcMultiShotServer, MACH_PORT_NULL};
 
 pub trait RootTaskRunner {
-    fn run_root_task(&self) -> Result<ExitStatus, MachError>;
+    fn run_root_task(&mut self) -> Result<ExitStatus, MachError>;
 }
 
 pub struct TaskLauncher {
@@ -30,7 +30,7 @@ pub struct TaskLauncher {
 }
 
 impl RootTaskRunner for TaskLauncher {
-    fn run_root_task(&self) -> Result<ExitStatus, MachError> {
+    fn run_root_task(&mut self) -> Result<ExitStatus, MachError> {
         // Ignore Ctrl+C while the subcommand is running. The signal still reaches the process
         // under observation while we continue to record it. (ctrl+c will send the SIGINT signal
         // to all processes in the foreground process group).
@@ -217,6 +217,14 @@ impl TaskAccepter {
                 let path = &marker_file_info[5..][..len];
                 ReceivedStuff::MarkerFilePath(pid, OsStr::from_bytes(path).into())
             }
+            (b"NetTrac", dotnet_trace_file_info) => {
+                let pid_bytes = &dotnet_trace_file_info[0..4];
+                let pid =
+                    u32::from_le_bytes([pid_bytes[0], pid_bytes[1], pid_bytes[2], pid_bytes[3]]);
+                let len = dotnet_trace_file_info[4] as usize;
+                let path = &dotnet_trace_file_info[5..][..len];
+                ReceivedStuff::DotnetTracePath(pid, OsStr::from_bytes(path).into())
+            }
             (other, _) => {
                 panic!("Unexpected message: {:?}", other);
             }
@@ -229,6 +237,7 @@ pub enum ReceivedStuff {
     AcceptedTask(AcceptedTask),
     JitdumpPath(u32, PathBuf),
     MarkerFilePath(u32, PathBuf),
+    DotnetTracePath(u32, PathBuf),
 }
 
 pub struct AcceptedTask {
@@ -257,10 +266,11 @@ impl AcceptedTask {
 
 pub struct ExistingProcessRunner {
     pid: u32,
+    aux_child: Option<Child>,
 }
 
 impl RootTaskRunner for ExistingProcessRunner {
-    fn run_root_task(&self) -> Result<ExitStatus, MachError> {
+    fn run_root_task(&mut self) -> Result<ExitStatus, MachError> {
         let ctrl_c_receiver = CtrlC::observe_oneshot();
 
         eprintln!("Profiling {}, press Ctrl-C to stop...", self.pid);
@@ -268,6 +278,16 @@ impl RootTaskRunner for ExistingProcessRunner {
         ctrl_c_receiver
             .blocking_recv()
             .expect("Ctrl+C receiver failed");
+
+        if let Some(aux_child) = self.aux_child.as_mut() {
+            let aux_pid = aux_child.id();
+            unsafe {
+                libc::kill(aux_pid as i32, libc::SIGINT);
+            }
+            aux_child
+                .wait()
+                .expect("Failed to wait on aux child process");
+        }
 
         eprintln!("Done.");
 
@@ -309,6 +329,23 @@ impl ExistingProcessRunner {
 
         // TODO: find all its children
 
-        ExistingProcessRunner { pid }
+        ExistingProcessRunner {
+            pid,
+            aux_child: None,
+        }
+    }
+
+    #[allow(unused)]
+    pub fn new_with_aux_child(
+        pid: u32,
+        task_accepter: &mut TaskAccepter,
+        aux_child: Child,
+    ) -> ExistingProcessRunner {
+        let runner = Self::new(pid, task_accepter);
+
+        ExistingProcessRunner {
+            aux_child: Some(aux_child),
+            ..runner
+        }
     }
 }
