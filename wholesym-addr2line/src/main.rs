@@ -1,10 +1,11 @@
 use std::borrow::Cow;
 use std::io::{BufRead, Lines, StdinLock, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use clap::parser::ValuesRef;
 use clap::{value_parser, Arg, ArgAction, Command};
-use wholesym::LookupAddress;
+use wholesym::{LookupAddress, VerboseSymbolManagerObserver};
 
 fn parse_uint_from_hex_string(string: &str) -> u64 {
     if string.len() > 2 && string.starts_with("0x") {
@@ -153,9 +154,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let config = wholesym::SymbolManagerConfig::new()
         .use_spotlight(true)
-        .verbose(true)
         .respect_nt_symbol_path(true);
-    let symbol_manager = wholesym::SymbolManager::with_config(config);
+    let mut symbol_manager = wholesym::SymbolManager::with_config(config);
+    symbol_manager.set_observer(Some(Arc::new(VerboseSymbolManagerObserver::new())));
     let symbol_map = symbol_manager
         .load_symbol_map_for_binary_at_path(path, None)
         .await?;

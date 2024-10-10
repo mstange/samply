@@ -1,18 +1,21 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-pub struct DebuginfodSymbolCache(DebuginfodSymbolCacheInner);
+use crate::downloader::{Downloader, DownloaderObserver};
 
-enum DebuginfodSymbolCacheInner {
+pub struct DebuginfodDownloader(DebuginfodDownloaderInner);
+
+enum DebuginfodDownloaderInner {
     #[allow(unused)]
-    Official(OfficialDebuginfodSymbolCache),
-    Manual(ManualDebuginfodSymbolCache),
+    Official(OfficialDebuginfodDownloader),
+    Manual(ManualDebuginfodDownloader),
 }
 
-impl DebuginfodSymbolCache {
+impl DebuginfodDownloader {
     pub fn new(
         debuginfod_cache_dir_if_not_installed: Option<PathBuf>,
         mut servers_and_caches: Vec<(String, PathBuf)>,
-        verbose: bool,
+        downloader: Option<Arc<Downloader>>,
     ) -> Self {
         let is_debuginfod_installed = false;
         if is_debuginfod_installed {
@@ -29,10 +32,12 @@ impl DebuginfodSymbolCache {
                 let extra_servers = std::mem::replace(&mut servers_and_caches, servers_from_env);
                 servers_and_caches.extend(extra_servers);
             }
-            Self(DebuginfodSymbolCacheInner::Manual(
-                ManualDebuginfodSymbolCache {
+
+            Self(DebuginfodDownloaderInner::Manual(
+                ManualDebuginfodDownloader {
                     servers_and_caches,
-                    verbose,
+                    observer: None,
+                    downloader: downloader.unwrap_or_default(),
                 },
             ))
         }
@@ -41,10 +46,10 @@ impl DebuginfodSymbolCache {
     #[allow(unused)]
     pub async fn get_file_only_cached(&self, buildid: &str, file_type: &str) -> Option<PathBuf> {
         match &self.0 {
-            DebuginfodSymbolCacheInner::Official(official) => {
+            DebuginfodDownloaderInner::Official(official) => {
                 official.get_file_only_cached(buildid, file_type).await
             }
-            DebuginfodSymbolCacheInner::Manual(manual) => {
+            DebuginfodDownloaderInner::Manual(manual) => {
                 manual.get_file_only_cached(buildid, file_type).await
             }
         }
@@ -52,18 +57,33 @@ impl DebuginfodSymbolCache {
 
     pub async fn get_file(&self, buildid: &str, file_type: &str) -> Option<PathBuf> {
         match &self.0 {
-            DebuginfodSymbolCacheInner::Official(official) => {
+            DebuginfodDownloaderInner::Official(official) => {
                 official.get_file(buildid, file_type).await
             }
-            DebuginfodSymbolCacheInner::Manual(manual) => manual.get_file(buildid, file_type).await,
+            DebuginfodDownloaderInner::Manual(manual) => manual.get_file(buildid, file_type).await,
+        }
+    }
+
+    /// Set the observer for this downloader.
+    ///
+    /// The observer can be used for logging, displaying progress bars, informing
+    /// automatic expiration of cached files, and so on.
+    ///
+    /// See the [`DownloaderObserver`] trait for more information.
+    pub fn set_observer(&mut self, observer: Option<Arc<dyn DownloaderObserver>>) {
+        match &mut self.0 {
+            DebuginfodDownloaderInner::Official(official) => official.set_observer(observer),
+            DebuginfodDownloaderInner::Manual(manual) => manual.set_observer(observer),
         }
     }
 }
 
 /// Uses debuginfod-find on the shell maybe, not sure
-struct OfficialDebuginfodSymbolCache;
+struct OfficialDebuginfodDownloader;
 
-impl OfficialDebuginfodSymbolCache {
+impl OfficialDebuginfodDownloader {
+    pub fn set_observer(&mut self, _observer: Option<Arc<dyn DownloaderObserver>>) {}
+
     pub async fn get_file_only_cached(&self, _buildid: &str, _file_type: &str) -> Option<PathBuf> {
         None // TODO
     }
@@ -73,19 +93,38 @@ impl OfficialDebuginfodSymbolCache {
     }
 }
 
-/// Full reimplementation of a `debuginfod` client, used on non-Linux platforms or on Linux if debuginfod is not installed.
+/// A `debuginfod` client, used on non-Linux platforms or on Linux if debuginfod is not installed.
 ///
 /// Does not use the official debuginfod's cache directory because the cache directory structure is not a stable API.
-struct ManualDebuginfodSymbolCache {
+struct ManualDebuginfodDownloader {
     servers_and_caches: Vec<(String, PathBuf)>,
-    verbose: bool,
+    observer: Option<Arc<dyn DownloaderObserver>>,
+    downloader: Arc<Downloader>,
 }
 
-impl ManualDebuginfodSymbolCache {
+impl ManualDebuginfodDownloader {
+    pub fn set_observer(&mut self, observer: Option<Arc<dyn DownloaderObserver>>) {
+        self.observer = observer;
+    }
+
+    /// Return whether a file is found at `path`, and notify the observer if not.
+    async fn check_file_exists(&self, path: &Path) -> bool {
+        let file_exists = matches!(tokio::fs::metadata(path).await, Ok(meta) if meta.is_file());
+        if !file_exists {
+            if let Some(observer) = self.observer.as_deref() {
+                observer.on_file_missed(path);
+            }
+        }
+        file_exists
+    }
+
     pub async fn get_file_only_cached(&self, buildid: &str, file_type: &str) -> Option<PathBuf> {
         for (_server_base_url, cache_dir) in &self.servers_and_caches {
             let cached_file_path = cache_dir.join(buildid).join(file_type);
-            if cached_file_path.exists() {
+            if self.check_file_exists(&cached_file_path).await {
+                if let Some(observer) = self.observer.as_deref() {
+                    observer.on_file_accessed(&cached_file_path);
+                }
                 return Some(cached_file_path);
             }
         }
@@ -98,7 +137,7 @@ impl ManualDebuginfodSymbolCache {
         }
 
         for (server_base_url, cache_dir) in &self.servers_and_caches {
-            if let Ok(file) = self
+            if let Some(file) = self
                 .get_file_from_server(buildid, file_type, server_base_url, cache_dir)
                 .await
             {
@@ -114,28 +153,18 @@ impl ManualDebuginfodSymbolCache {
         file_type: &str,
         server_base_url: &str,
         cache_dir: &Path,
-    ) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    ) -> Option<PathBuf> {
+        let dest_path = cache_dir.join(buildid).join(file_type);
         let server_base_url = server_base_url.trim_end_matches('/');
         let url = format!("{server_base_url}/buildid/{buildid}/{file_type}");
-        if self.verbose {
-            eprintln!("Downloading {url}...");
-        }
-        let sym_file_response = reqwest::get(&url).await?.error_for_status()?;
-        let mut stream = sym_file_response.bytes_stream();
-        let dest_path = cache_dir.join(buildid).join(file_type);
-        if let Some(dir) = dest_path.parent() {
-            tokio::fs::create_dir_all(dir).await?;
-        }
-        if self.verbose {
-            eprintln!("Saving bytes to {dest_path:?}.");
-        }
-        let file = tokio::fs::File::create(&dest_path).await?;
-        let mut writer = tokio::io::BufWriter::new(file);
-        use futures_util::StreamExt;
-        while let Some(item) = stream.next().await {
-            tokio::io::copy(&mut item?.as_ref(), &mut writer).await?;
-        }
-        drop(writer);
-        Ok(dest_path)
+
+        let download = self
+            .downloader
+            .initiate_download(&url, self.observer.clone())
+            .await
+            .ok()?;
+        download.download_to_file(&dest_path, None).await.ok()?;
+
+        Some(dest_path)
     }
 }
