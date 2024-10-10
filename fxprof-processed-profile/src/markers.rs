@@ -6,10 +6,9 @@ use serde::ser::{SerializeMap, SerializeSeq};
 use serde::Serialize;
 use serde_derive::Serialize;
 
-use crate::{CategoryHandle, Profile};
-
 use super::profile::StringHandle;
 use super::timestamp::Timestamp;
+use crate::{CategoryHandle, Profile};
 
 /// The handle for a marker. Returned from [`Profile::add_marker`].
 ///

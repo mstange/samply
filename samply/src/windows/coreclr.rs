@@ -1,20 +1,18 @@
-use std::{collections::HashMap, convert::TryInto, fmt::Display};
+use std::collections::HashMap;
+use std::convert::TryInto;
+use std::fmt::Display;
 
 use bitflags::bitflags;
+use etw_reader::parser::{Parser, TryParse};
+use etw_reader::schema::TypedEvent;
+use etw_reader::{self, event_properties_to_string};
 use fxprof_processed_profile::*;
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 
-use etw_reader::{self, schema::TypedEvent};
-use etw_reader::{
-    event_properties_to_string,
-    parser::{Parser, TryParse},
-};
-
+use super::elevated_helper::ElevatedRecordingProps;
 use crate::shared::recording_props::{CoreClrProfileProps, ProfileCreationProps};
 use crate::windows::profile_context::{KnownCategory, ProfileContext};
-
-use super::elevated_helper::ElevatedRecordingProps;
 
 struct SavedMarkerInfo {
     start_timestamp_raw: u64,
