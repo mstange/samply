@@ -8,7 +8,6 @@ use symsrv::{parse_nt_symbol_path, NtSymbolPathEntry};
 /// Allows specifying various sources of symbol files.
 #[derive(Debug, Clone, Default)]
 pub struct SymbolManagerConfig {
-    pub(crate) verbose: bool,
     pub(crate) redirect_paths: HashMap<PathBuf, PathBuf>,
     pub(crate) respect_nt_symbol_path: bool,
     pub(crate) default_nt_symbol_path: Option<String>,
@@ -28,12 +27,6 @@ impl SymbolManagerConfig {
     /// Create a new `SymbolManagerConfig` in its default state.
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Turns logging on or off.
-    pub fn verbose(mut self, verbose: bool) -> Self {
-        self.verbose = verbose;
-        self
     }
 
     /// For use in tests. Add a path which, when opened, opens a file at a different path instead.

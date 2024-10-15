@@ -1,7 +1,8 @@
 use std::io;
 use std::path::Path;
 
-use fs4::{fs_std::FileExt, lock_contended_error};
+use fs4::fs_std::FileExt;
+use fs4::lock_contended_error;
 
 /// The error type for the `create_file_cleanly` function.
 #[derive(thiserror::Error, Debug)]

@@ -1,7 +1,11 @@
+use std::pin::Pin;
+use std::sync::Mutex;
+use std::task::Poll;
+
 use async_compression::futures::bufread::GzipDecoder;
-use futures_util::{io::BufReader, AsyncRead, TryStreamExt};
+use futures_util::io::BufReader;
+use futures_util::{AsyncRead, TryStreamExt};
 use reqwest::header::{AsHeaderName, HeaderMap, CONTENT_ENCODING, CONTENT_LENGTH};
-use std::{pin::Pin, sync::Mutex, task::Poll};
 
 fn get_header<K: AsHeaderName>(headers: &HeaderMap, name: K) -> Option<String> {
     Some(headers.get(name)?.to_str().ok()?.to_ascii_lowercase())

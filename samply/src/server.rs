@@ -20,7 +20,7 @@ use rand::RngCore;
 use tokio::net::TcpListener;
 use tokio_util::io::ReaderStream;
 use wholesym::debugid::DebugId;
-use wholesym::{LibraryInfo, SymbolManager, SymbolManagerConfig};
+use wholesym::{LibraryInfo, SymbolManager, SymbolManagerConfig, VerboseSymbolManagerObserver};
 
 use crate::name::SAMPLY_NAME;
 use crate::shared;
@@ -65,13 +65,12 @@ impl PortSelection {
     }
 }
 
-fn create_symbol_manager_config(symbol_props: SymbolProps, verbose: bool) -> SymbolManagerConfig {
+fn create_symbol_manager_config(symbol_props: SymbolProps) -> SymbolManagerConfig {
     let _config_dir = AppDirs::new(Some(SAMPLY_NAME), true).map(|dirs| dirs.config_dir);
     let cache_base_dir = AppDirs::new(Some(SAMPLY_NAME), false).map(|dirs| dirs.cache_dir);
     let cache_base_dir = cache_base_dir.as_deref();
 
     let mut config = SymbolManagerConfig::new()
-        .verbose(verbose)
         .respect_nt_symbol_path(true)
         .use_debuginfod(std::env::var("SAMPLY_USE_DEBUGINFOD").is_ok())
         .use_spotlight(true);
@@ -164,8 +163,11 @@ async fn start_server(
 
     let template_values = Arc::new(template_values);
 
-    let config = create_symbol_manager_config(symbol_props, server_props.verbose);
+    let config = create_symbol_manager_config(symbol_props);
     let mut symbol_manager = SymbolManager::with_config(config);
+    if server_props.verbose {
+        symbol_manager.set_observer(Some(Arc::new(VerboseSymbolManagerObserver::new())));
+    }
     for lib_info in libinfo_map.into_values() {
         symbol_manager.add_known_library(lib_info);
     }

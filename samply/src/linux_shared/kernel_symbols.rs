@@ -1,6 +1,6 @@
-use std::path::Path;
+use std::fmt::Debug;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::{fmt::Debug, path::PathBuf};
 
 use fxprof_processed_profile::{Symbol, SymbolTable};
 use object::{elf, read, NativeEndian, Object};

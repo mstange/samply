@@ -3,14 +3,13 @@ use std::path::{Path, PathBuf};
 
 use serde_derive::{Deserialize, Serialize};
 
-use crate::shared::recording_props::{
-    CoreClrProfileProps, ProfileCreationProps, RecordingMode, RecordingProps,
-};
-
 use super::utility_process::{
     run_child, UtilityProcess, UtilityProcessChild, UtilityProcessParent, UtilityProcessSession,
 };
 use super::xperf::Xperf;
+use crate::shared::recording_props::{
+    CoreClrProfileProps, ProfileCreationProps, RecordingMode, RecordingProps,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "t", content = "c")]
