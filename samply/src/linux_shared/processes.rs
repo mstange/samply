@@ -213,20 +213,19 @@ where
                 }
 
                 if let Some(process_recycler) = self.process_recycler.as_mut() {
-                    let Some(process_recycling_data) = process_recycler.recycle_by_name(&name)
-                    else {
+                    if let Some(process_recycling_data) = process_recycler.recycle_by_name(&name) {
+                        let (old_recycling_data, old_name) =
+                            process.rename_with_recycling(name, process_recycling_data);
+                        if let Some(old_name) = old_name {
+                            process_recycler.add_to_pool(&old_name, old_recycling_data);
+                        }
                         return;
-                    };
-                    let (old_recycling_data, old_name) =
-                        process.rename_with_recycling(name, process_recycling_data);
-                    if let Some(old_name) = old_name {
-                        process_recycler.add_to_pool(&old_name, old_recycling_data);
                     }
-                } else {
-                    let main_thread_label_frame =
-                        make_thread_label_frame(profile, Some(&name), pid, pid);
-                    process.rename_without_recycling(name, main_thread_label_frame, profile);
                 }
+
+                let main_thread_label_frame =
+                    make_thread_label_frame(profile, Some(&name), pid, pid);
+                process.rename_without_recycling(name, main_thread_label_frame, profile);
             }
         }
     }
