@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::mem::MaybeUninit;
 use std::ops::{Deref, Range};
 use std::{mem, ptr};
 
@@ -21,7 +22,7 @@ use mach::thread_act::{thread_get_state, thread_resume, thread_suspend};
 use mach::thread_status::thread_state_flavor_t;
 use mach::thread_status::thread_state_t;
 use mach::traps::mach_task_self;
-use mach::vm::{mach_vm_deallocate, mach_vm_read, mach_vm_remap};
+use mach::vm::{mach_vm_deallocate, mach_vm_read, mach_vm_read_overwrite, mach_vm_remap};
 use mach::vm_inherit::VM_INHERIT_SHARE;
 use mach::vm_page_size::{mach_vm_trunc_page, vm_page_size};
 use mach::vm_prot::{vm_prot_t, VM_PROT_NONE, VM_PROT_READ};
@@ -158,6 +159,7 @@ impl DyldInfoManager {
 
             let new_image_info = enumerate_dyld_images(
                 &mut self.memory,
+                self.task,
                 info_array_addr,
                 info_array_count,
                 dyld_image_load_addr,
@@ -211,6 +213,7 @@ fn with_suspended_task<T>(
 
 fn enumerate_dyld_images(
     memory: &mut ForeignMemory,
+    task: mach_port_t,
     info_array_addr: u64,
     info_array_count: u32,
     dyld_image_load_addr: u64,
@@ -227,8 +230,17 @@ fn enumerate_dyld_images(
         let (base_avma, image_file_path) = {
             let info_array_elem_addr =
                 info_array_addr + image_index as u64 * mem::size_of::<dyld_image_info>() as u64;
-            let image_info: &dyld_image_info =
-                unsafe { memory.get_type_ref_at_address(info_array_elem_addr) }?;
+            let mut image_info: MaybeUninit<dyld_image_info> = MaybeUninit::uninit();
+            let mut size = mem::size_of::<dyld_image_info>() as u64;
+            unsafe {
+                mach_vm_read_overwrite(task, info_array_elem_addr, size, &mut image_info as *mut MaybeUninit<dyld_image_info> as u64, &mut size).into_result()?;
+            }
+            
+            if size != mem::size_of::<dyld_image_info>() as u64 {
+                return Err(kernel_error::KernelError::InvalidValue);
+            }
+
+            let image_info = unsafe { image_info.assume_init() };
             (
                 image_info.imageLoadAddress as usize as u64,
                 image_info.imageFilePath as usize as u64,
