@@ -233,9 +233,16 @@ fn enumerate_dyld_images(
             let mut image_info: MaybeUninit<dyld_image_info> = MaybeUninit::uninit();
             let mut size = mem::size_of::<dyld_image_info>() as u64;
             unsafe {
-                mach_vm_read_overwrite(task, info_array_elem_addr, size, &mut image_info as *mut MaybeUninit<dyld_image_info> as u64, &mut size).into_result()?;
+                mach_vm_read_overwrite(
+                    task,
+                    info_array_elem_addr,
+                    size,
+                    &mut image_info as *mut MaybeUninit<dyld_image_info> as u64,
+                    &mut size,
+                )
+                .into_result()?;
             }
-            
+
             if size != mem::size_of::<dyld_image_info>() as u64 {
                 return Err(kernel_error::KernelError::InvalidValue);
             }
