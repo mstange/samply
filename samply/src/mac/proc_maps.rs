@@ -159,7 +159,6 @@ impl DyldInfoManager {
 
             let new_image_info = enumerate_dyld_images(
                 &mut self.memory,
-                self.task,
                 info_array_addr,
                 info_array_count,
                 dyld_image_load_addr,
@@ -213,7 +212,6 @@ fn with_suspended_task<T>(
 
 fn enumerate_dyld_images(
     memory: &mut ForeignMemory,
-    task: mach_port_t,
     info_array_addr: u64,
     info_array_count: u32,
     dyld_image_load_addr: u64,
@@ -229,21 +227,21 @@ fn enumerate_dyld_images(
     for image_index in 0..info_array_count {
         let (base_avma, image_file_path) = {
             let info_array_elem_addr =
-                info_array_addr + image_index as u64 * mem::size_of::<dyld_image_info>() as u64;
+                info_array_addr + image_index as u64 * mem::size_of::<dyld_image_info>() as mach_vm_address_t;
             let mut image_info: MaybeUninit<dyld_image_info> = MaybeUninit::uninit();
-            let mut size = mem::size_of::<dyld_image_info>() as u64;
+            let mut size = mem::size_of::<dyld_image_info>() as mach_vm_size_t;
             unsafe {
                 mach_vm_read_overwrite(
-                    task,
+                    memory.task,
                     info_array_elem_addr,
                     size,
-                    &mut image_info as *mut MaybeUninit<dyld_image_info> as u64,
+                    &mut image_info as *mut MaybeUninit<dyld_image_info> as mach_vm_address_t,
                     &mut size,
                 )
                 .into_result()?;
             }
 
-            if size != mem::size_of::<dyld_image_info>() as u64 {
+            if size != mem::size_of::<dyld_image_info>() as mach_vm_size_t {
                 return Err(kernel_error::KernelError::InvalidValue);
             }
 
@@ -276,17 +274,42 @@ fn get_dyld_image_info(
     image_file_path: u64,
 ) -> kernel_error::Result<DyldInfo> {
     let filename = {
-        let filename_bytes: &[i8; 512] =
-            unsafe { memory.get_type_ref_at_address(image_file_path) }?;
+        let mut filename_bytes: MaybeUninit<[i8; 512]> = MaybeUninit::uninit();
+        let mut size = 512;
+
+        unsafe {
+            mach_vm_read_overwrite(
+                memory.task,
+                image_file_path,
+                size as mach_vm_size_t,
+                &mut filename_bytes as *mut MaybeUninit<[i8; 512]> as mach_vm_address_t,
+                &mut size,
+            )
+            .into_result()?;
+        }
+        let filename_bytes = unsafe { filename_bytes.assume_init() };
+
         unsafe { std::ffi::CStr::from_ptr(filename_bytes.as_ptr()) }
             .to_string_lossy()
             .to_string()
     };
 
     let header = {
-        let header: &MachHeader64<LittleEndian> =
-            unsafe { memory.get_type_ref_at_address(base_avma) }?;
-        *header
+        let mut header: MaybeUninit<MachHeader64<LittleEndian>> = MaybeUninit::uninit();
+        let mut size = mem::size_of::<MachHeader64<LittleEndian>>() as mach_vm_size_t;
+
+        unsafe {
+            mach_vm_read_overwrite(
+                memory.task,
+                base_avma,
+                size,
+                &mut header as *mut MaybeUninit<MachHeader64<LittleEndian>> as mach_vm_address_t,
+                &mut size,
+            )
+            .into_result()?;
+        }
+
+        unsafe { header.assume_init() }
     };
 
     let endian = LittleEndian;
