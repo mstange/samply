@@ -226,8 +226,8 @@ fn enumerate_dyld_images(
 
     for image_index in 0..info_array_count {
         let (base_avma, image_file_path) = {
-            let info_array_elem_addr =
-                info_array_addr + image_index as u64 * mem::size_of::<dyld_image_info>() as mach_vm_address_t;
+            let info_array_elem_addr = info_array_addr
+                + image_index as u64 * mem::size_of::<dyld_image_info>() as mach_vm_address_t;
             let mut image_info: MaybeUninit<dyld_image_info> = MaybeUninit::uninit();
             let mut size = mem::size_of::<dyld_image_info>() as mach_vm_size_t;
             unsafe {
