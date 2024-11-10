@@ -110,7 +110,11 @@ pub fn start_recording(
                 // give us a chance to stop xperf.
                 let exit_status = child.wait().unwrap();
                 if !exit_status.success() {
-                    eprintln!("Child process exited with {:?}", exit_status);
+                    eprintln!(
+                        "Skipping remaining iterations due to non-success exit status: \"{}\"",
+                        exit_status
+                    );
+                    break;
                 }
             }
 
