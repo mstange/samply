@@ -234,7 +234,7 @@ impl<'a> Parser<'a> {
             .properties
             .name_to_indx
             .get(name)
-            .ok_or_else(|| ParserError::PropertyError("Unknown property".to_owned()))?;
+            .ok_or_else(|| ParserError::PropertyError(format!("Unknown property: {}", name)))?;
         if indx < self.cache.len() {
             return Ok(indx);
         }
