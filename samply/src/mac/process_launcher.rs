@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use flate2::write::GzDecoder;
+use libproc::processes;
 use mach::task::{task_resume, task_suspend};
 use mach::traps::task_for_pid;
 use tempfile::tempdir;
@@ -295,6 +296,23 @@ impl RootTaskRunner for ExistingProcessRunner {
 }
 
 impl ExistingProcessRunner {
+    fn get_all_descendant_pids(pid: u32) -> Vec<u32> {
+        let mut descendants = Vec::new();
+        let mut queue = vec![pid];
+
+        while let Some(current_pid) = queue.pop() {
+            let filter = processes::ProcFilter::ByParentProcess { ppid: current_pid };
+            if let Ok(child_pids) = processes::pids_by_type(filter) {
+                for child_pid in child_pids {
+                    descendants.push(child_pid);
+                    queue.push(child_pid);
+                }
+            }
+        }
+
+        descendants
+    }
+
     pub fn new(pid: u32, task_accepter: &mut TaskAccepter) -> ExistingProcessRunner {
         let mut queue_pid = |pid, failure_is_ok| {
             let task = unsafe {
@@ -326,7 +344,11 @@ impl ExistingProcessRunner {
         // always root pid first
         queue_pid(pid, false);
 
-        // TODO: find all its children
+        // find all its descendants recursively
+        let descendant_pids = Self::get_all_descendant_pids(pid);
+        for pid in descendant_pids {
+            queue_pid(pid, true);
+        }
 
         ExistingProcessRunner {
             pid,
