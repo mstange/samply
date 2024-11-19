@@ -39,7 +39,7 @@ tokio = { version = "1.38", features = ["fs"] }
 futures-util = "0.3.30"
 fs4 = "0.9"
 thiserror = "1"
-async-compression = { version = "0.4.6", default-features = false, features = [
+async-compression = { version = "0.4.17", default-features = false, features = [
     "tokio",
     "futures-io",
     "gzip"
