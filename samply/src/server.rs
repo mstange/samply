@@ -17,14 +17,16 @@ use hyper_util::rt::TokioIo;
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use platform_dirs::AppDirs;
 use rand::RngCore;
+use samply_quota_manager::QuotaManager;
 use tokio::net::TcpListener;
 use tokio_util::io::ReaderStream;
 use wholesym::debugid::DebugId;
-use wholesym::{LibraryInfo, SymbolManager, SymbolManagerConfig, VerboseSymbolManagerObserver};
+use wholesym::{LibraryInfo, SymbolManager, SymbolManagerConfig};
 
 use crate::name::SAMPLY_NAME;
 use crate::shared;
 use crate::shared::ctrl_c::CtrlC;
+use crate::shared::symbol_manager_observer::SamplySymbolManagerObserver;
 use crate::shared::symbol_props::SymbolProps;
 
 #[derive(Clone, Debug)]
@@ -65,7 +67,9 @@ impl PortSelection {
     }
 }
 
-fn create_symbol_manager_config(symbol_props: SymbolProps) -> SymbolManagerConfig {
+fn create_symbol_manager_config_and_quota_manager(
+    symbol_props: SymbolProps,
+) -> (SymbolManagerConfig, Option<QuotaManager>) {
     let _config_dir = AppDirs::new(Some(SAMPLY_NAME), true).map(|dirs| dirs.config_dir);
     let cache_base_dir = AppDirs::new(Some(SAMPLY_NAME), false).map(|dirs| dirs.cache_dir);
     let cache_base_dir = cache_base_dir.as_deref();
@@ -74,6 +78,21 @@ fn create_symbol_manager_config(symbol_props: SymbolProps) -> SymbolManagerConfi
         .respect_nt_symbol_path(true)
         .use_debuginfod(std::env::var("SAMPLY_USE_DEBUGINFOD").is_ok())
         .use_spotlight(true);
+
+    const TEN_GIGABYTES_AS_BYTES: u64 = 10 * 1000 * 1000 * 1000;
+    const TWO_WEEKS_AS_SECONDS: u64 = 2 * 7 * 24 * 60 * 60;
+    let quota_manager = match &cache_base_dir {
+        Some(cache_base_dir) => {
+            let quota_manager = QuotaManager::new(
+                &cache_base_dir.join("symbols"),
+                &cache_base_dir.join("symbols.db"),
+            );
+            quota_manager.set_max_total_size(Some(TEN_GIGABYTES_AS_BYTES));
+            quota_manager.set_max_age(Some(TWO_WEEKS_AS_SECONDS));
+            Some(quota_manager)
+        }
+        None => None,
+    };
 
     if let Some(cache_base_dir) = cache_base_dir {
         config = config.debuginfod_cache_dir_if_not_installed(
@@ -120,7 +139,7 @@ fn create_symbol_manager_config(symbol_props: SymbolProps) -> SymbolManagerConfi
         config = config.extra_symbols_directory(dir);
     }
 
-    config
+    (config, quota_manager)
 }
 
 async fn start_server(
@@ -163,11 +182,29 @@ async fn start_server(
 
     let template_values = Arc::new(template_values);
 
-    let config = create_symbol_manager_config(symbol_props);
+    let (config, quota_manager) = create_symbol_manager_config_and_quota_manager(symbol_props);
     let mut symbol_manager = SymbolManager::with_config(config);
-    if server_props.verbose {
-        symbol_manager.set_observer(Some(Arc::new(VerboseSymbolManagerObserver::new())));
+    let notifiers = match &quota_manager {
+        Some(mgr) => vec![mgr.notifier()],
+        None => vec![],
+    };
+    if let Some(mgr) = &quota_manager {
+        // Enforce size limit and delete old files.
+        // Not sure if it's wise to do this at startup unconditionally.
+        // I can see that it might be annoying in the following case:
+        //  1. Download lots of symbols.
+        //  2. Don't run samply for two weeks.
+        //  3. Capture a new profile.
+        //  4. The server starts, all symbols get deleted because they're over two weeks old.
+        //  5. The browser opens, the profiler requests symbols, all symbols are downloaded again.
+        // Should we delay the first eviction? But then we might delay it for too long.
+        mgr.notifier().trigger_eviction_if_needed();
     }
+    symbol_manager.set_observer(Some(Arc::new(SamplySymbolManagerObserver::new(
+        server_props.verbose,
+        notifiers,
+    ))));
+
     for lib_info in libinfo_map.into_values() {
         symbol_manager.add_known_library(lib_info);
     }
@@ -214,6 +251,10 @@ async fn start_server(
     // Run this server until it stops.
     if let Err(e) = server.await {
         eprintln!("server error: {e}");
+    }
+
+    if let Some(quota_manager) = quota_manager {
+        quota_manager.finish().await;
     }
 }
 
