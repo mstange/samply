@@ -59,13 +59,15 @@ impl QuotaManager {
     /// under this directory, and creates it if it doesn't exist yet,
     /// prepopulating it with information about the current files in the
     /// managed directory.
-    pub fn new(root_path: &Path, db_path: &Path) -> Self {
+    ///
+    /// Both root_path and the parent directory of db_path must already exist.
+    pub fn new(root_path: &Path, db_path: &Path) -> Result<Self, String> {
         let root_path = root_path.to_path_buf();
         let root_path_clone = root_path.clone();
         let inventory = FileInventory::new(&root_path, db_path, move || {
             Self::list_existing_files_sync(&root_path_clone)
         })
-        .unwrap();
+        .map_err(|e| format!("{e}"))?;
         let inventory = Arc::new(Mutex::new(inventory));
         let settings = Arc::new(Mutex::new(EvictionSettings::default()));
 
@@ -81,13 +83,13 @@ impl QuotaManager {
 
         let join_handle = tokio::spawn(eviction_thread_runner.run());
 
-        Self {
+        Ok(Self {
             settings,
             inventory,
             stop_signal_sender,
             eviction_signal_sender,
             join_handle,
-        }
+        })
     }
 
     /// Returns a new `QuotaManagerNotifier`. This is how you tell this

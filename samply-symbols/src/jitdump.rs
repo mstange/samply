@@ -267,7 +267,7 @@ impl<'a, T: FileContents> JitDumpSymbolMapCache<'a, T> {
     }
 }
 
-impl<'a, T: FileContents> JitDumpSymbolMapInner<'a, T> {
+impl<T: FileContents> JitDumpSymbolMapInner<'_, T> {
     fn lookup_by_entry_index(
         &self,
         index: usize,
@@ -300,7 +300,7 @@ impl<'a, T: FileContents> JitDumpSymbolMapInner<'a, T> {
     }
 }
 
-impl<'a, T: FileContents> SymbolMapTrait for JitDumpSymbolMapInner<'a, T> {
+impl<T: FileContents> SymbolMapTrait for JitDumpSymbolMapInner<'_, T> {
     fn debug_id(&self) -> debugid::DebugId {
         self.index.debug_id
     }

@@ -112,7 +112,7 @@ where
                 )
                 .ok()?;
 
-            return Some(SingleSectionData::Owned(decompressed));
+            Some(SingleSectionData::Owned(decompressed))
         }
         _ => None,
     }

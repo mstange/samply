@@ -387,7 +387,7 @@ impl<'data, T: FileContents + 'static> ElfObjects<'data, T> {
     }
 }
 
-impl<'data, T: FileContents + 'static> DwoDwarfMaker<T> for ElfObjects<'data, T> {
+impl<T: FileContents + 'static> DwoDwarfMaker<T> for ElfObjects<'_, T> {
     fn add_dwo_and_make_dwarf(
         &self,
         dwo_file_data: T,
@@ -398,7 +398,7 @@ impl<'data, T: FileContents + 'static> DwoDwarfMaker<T> for ElfObjects<'data, T>
     }
 }
 
-impl<'data, T: FileContents + 'static> ElfObjectsTrait<T> for ElfObjects<'data, T> {
+impl<T: FileContents + 'static> ElfObjectsTrait<T> for ElfObjects<'_, T> {
     fn make_inner(&self) -> Result<ObjectSymbolMapInnerWrapper<'_, T>, Error> {
         let debug_id = if let Some(debug_id) = self.override_debug_id {
             debug_id

@@ -79,7 +79,7 @@ pub enum Subcategory {
 
 pub struct SerializableSubcategoryColumn<'a>(pub &'a [Subcategory], pub &'a [Category]);
 
-impl<'a> Serialize for SerializableSubcategoryColumn<'a> {
+impl Serialize for SerializableSubcategoryColumn<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
         for subcategory in self.0 {

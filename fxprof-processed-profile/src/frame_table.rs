@@ -113,7 +113,7 @@ struct SerializableFrameTable<'a> {
     categories: &'a [Category],
 }
 
-impl<'a> Serialize for SerializableFrameTable<'a> {
+impl Serialize for SerializableFrameTable<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let len = self.table.addresses.len();
         let mut map = serializer.serialize_map(None)?;
@@ -140,7 +140,7 @@ impl<'a> Serialize for SerializableFrameTable<'a> {
 
 struct SerializableFrameTableAddressColumn<'a>(&'a [Option<u32>]);
 
-impl<'a> Serialize for SerializableFrameTableAddressColumn<'a> {
+impl Serialize for SerializableFrameTableAddressColumn<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
         for address in self.0 {

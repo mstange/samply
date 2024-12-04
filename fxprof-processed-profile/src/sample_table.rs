@@ -178,7 +178,7 @@ impl Serialize for SampleTable {
 
 struct SliceWithPermutation<'a, T: Serialize>(&'a [T], &'a [usize]);
 
-impl<'a, T: Serialize> Serialize for SliceWithPermutation<'a, T> {
+impl<T: Serialize> Serialize for SliceWithPermutation<'_, T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,

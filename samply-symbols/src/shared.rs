@@ -1112,7 +1112,7 @@ impl<'a, T: FileContents> FileContentsCursor<'a, T> {
     }
 }
 
-impl<'a, T: FileContents> std::io::Read for FileContentsCursor<'a, T> {
+impl<T: FileContents> std::io::Read for FileContentsCursor<'_, T> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let read_len = <[u8]>::len(buf).min(self.remaining_len as usize);
         // Make a silly copy
@@ -1127,7 +1127,7 @@ impl<'a, T: FileContents> std::io::Read for FileContentsCursor<'a, T> {
     }
 }
 
-impl<'a, T: FileContents> std::io::Seek for FileContentsCursor<'a, T> {
+impl<T: FileContents> std::io::Seek for FileContentsCursor<'_, T> {
     fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
         /// Returns (new_offset, new_remaining_len)
         fn inner(cur: u64, total_len: u64, pos: std::io::SeekFrom) -> Option<(u64, u64)> {

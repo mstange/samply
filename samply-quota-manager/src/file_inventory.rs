@@ -35,6 +35,8 @@ impl FileInventory {
     /// Creates a `FileInventory` instance, with the managed directory being passed
     /// in `root_path`. The information is stored in a sqlite file at `db_path`.
     ///
+    /// The parent directory of `db_path` must exist.
+    ///
     /// If the database at `db_path` does not exist, this function calls the
     /// `list_existing_files_fn` callback so that it can populate the new database.
     pub fn new<F>(
@@ -91,6 +93,9 @@ impl FileInventory {
             // Future migrations can be added here.
         ]);
 
+        // Open the database.
+        // SQLITE_OPEN_CREATE only creates the file, it fails if the parent directory
+        // doesn't exist.
         let mut conn = Connection::open_with_flags(
             db_path,
             OpenFlags::SQLITE_OPEN_CREATE

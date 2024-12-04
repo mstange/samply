@@ -820,7 +820,7 @@ impl Serialize for Profile {
 
 struct SerializableProfileMeta<'a>(&'a Profile);
 
-impl<'a> Serialize for SerializableProfileMeta<'a> {
+impl Serialize for SerializableProfileMeta<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry("categories", &self.0.categories)?;
@@ -874,7 +874,7 @@ struct SerializableProfileThreadsProperty<'a> {
     global_string_table: &'a GlobalStringTable,
 }
 
-impl<'a> Serialize for SerializableProfileThreadsProperty<'a> {
+impl Serialize for SerializableProfileThreadsProperty<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut seq = serializer.serialize_seq(Some(self.threads.len()))?;
 
@@ -902,7 +902,7 @@ struct SerializableProfileCountersProperty<'a> {
     first_thread_index_per_process: &'a [usize],
 }
 
-impl<'a> Serialize for SerializableProfileCountersProperty<'a> {
+impl Serialize for SerializableProfileCountersProperty<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut seq = serializer.serialize_seq(Some(self.counters.len()))?;
 
@@ -923,7 +923,7 @@ struct SerializableProfileThread<'a>(
     &'a GlobalStringTable,
 );
 
-impl<'a> Serialize for SerializableProfileThread<'a> {
+impl Serialize for SerializableProfileThread<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let SerializableProfileThread(
             process,

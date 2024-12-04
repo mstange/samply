@@ -67,37 +67,50 @@ impl PortSelection {
     }
 }
 
+fn create_quota_manager(symbols_dir: &Path) -> Option<QuotaManager> {
+    let db_path = symbols_dir.parent().unwrap().join("symbols.db");
+
+    if let Err(e) = std::fs::create_dir_all(symbols_dir) {
+        log::error!("Could not create symbol cache directory {symbols_dir:?}: {e}");
+        return None;
+    }
+
+    const TEN_GIGABYTES_AS_BYTES: u64 = 10 * 1000 * 1000 * 1000;
+    const TWO_WEEKS_AS_SECONDS: u64 = 2 * 7 * 24 * 60 * 60;
+    let quota_manager = match QuotaManager::new(symbols_dir, &db_path) {
+        Ok(quota_manager) => quota_manager,
+        Err(e) => {
+            log::error!(
+                "Could not create QuotaManager with symbol cache database {db_path:?}: {e}"
+            );
+            return None;
+        }
+    };
+    quota_manager.set_max_total_size(Some(TEN_GIGABYTES_AS_BYTES));
+    quota_manager.set_max_age(Some(TWO_WEEKS_AS_SECONDS));
+    Some(quota_manager)
+}
+
 fn create_symbol_manager_config_and_quota_manager(
     symbol_props: SymbolProps,
 ) -> (SymbolManagerConfig, Option<QuotaManager>) {
     let _config_dir = AppDirs::new(Some(SAMPLY_NAME), true).map(|dirs| dirs.config_dir);
     let cache_base_dir = AppDirs::new(Some(SAMPLY_NAME), false).map(|dirs| dirs.cache_dir);
-    let cache_base_dir = cache_base_dir.as_deref();
+    let symbols_dir = cache_base_dir.map(|cache_base_dir| cache_base_dir.join("symbols"));
+    let symbols_dir = symbols_dir.as_deref();
 
     let mut config = SymbolManagerConfig::new()
         .respect_nt_symbol_path(true)
         .use_debuginfod(std::env::var("SAMPLY_USE_DEBUGINFOD").is_ok())
         .use_spotlight(true);
 
-    const TEN_GIGABYTES_AS_BYTES: u64 = 10 * 1000 * 1000 * 1000;
-    const TWO_WEEKS_AS_SECONDS: u64 = 2 * 7 * 24 * 60 * 60;
-    let quota_manager = match &cache_base_dir {
-        Some(cache_base_dir) => {
-            let quota_manager = QuotaManager::new(
-                &cache_base_dir.join("symbols"),
-                &cache_base_dir.join("symbols.db"),
-            );
-            quota_manager.set_max_total_size(Some(TEN_GIGABYTES_AS_BYTES));
-            quota_manager.set_max_age(Some(TWO_WEEKS_AS_SECONDS));
-            Some(quota_manager)
-        }
+    let quota_manager = match &symbols_dir {
+        Some(symbols_dir) => create_quota_manager(symbols_dir),
         None => None,
     };
 
-    if let Some(cache_base_dir) = cache_base_dir {
-        config = config.debuginfod_cache_dir_if_not_installed(
-            cache_base_dir.join("symbols").join("debuginfod"),
-        );
+    if let Some(symbols_dir) = symbols_dir {
+        config = config.debuginfod_cache_dir_if_not_installed(symbols_dir.join("debuginfod"));
     }
 
     // TODO: Read symbol server config from some kind of config file
@@ -107,7 +120,7 @@ fn create_symbol_manager_config_and_quota_manager(
 
     let breakpad_symbol_cache_dir = symbol_props
         .breakpad_symbol_cache
-        .or_else(|| Some(cache_base_dir?.join("symbols").join("breakpad")));
+        .or_else(|| Some(symbols_dir?.join("breakpad")));
     if let Some(cache_dir) = breakpad_symbol_cache_dir {
         for base_url in symbol_props.breakpad_symbol_server {
             config = config.breakpad_symbols_server(base_url, &cache_dir)
@@ -115,16 +128,15 @@ fn create_symbol_manager_config_and_quota_manager(
         for dir in symbol_props.breakpad_symbol_dir {
             config = config.breakpad_symbols_dir(dir);
         }
-        if let Some(cache_base_dir) = cache_base_dir {
-            let breakpad_symindex_cache_dir =
-                cache_base_dir.join("symbols").join("breakpad-symindex");
+        if let Some(symbols_dir) = symbols_dir {
+            let breakpad_symindex_cache_dir = symbols_dir.join("breakpad-symindex");
             config = config.breakpad_symindex_cache_dir(breakpad_symindex_cache_dir);
         }
     }
 
     let windows_symbol_cache_dir = symbol_props
         .windows_symbol_cache
-        .or_else(|| Some(cache_base_dir?.join("symbols").join("windows")));
+        .or_else(|| Some(symbols_dir?.join("windows")));
     if let Some(cache_dir) = windows_symbol_cache_dir {
         for base_url in symbol_props.windows_symbol_server {
             config = config.windows_symbols_server(base_url, &cache_dir)

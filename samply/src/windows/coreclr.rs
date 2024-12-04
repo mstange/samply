@@ -313,7 +313,7 @@ impl StaticSchemaMarker for CoreClrGcEventMarker {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct DisplayUnknownIfNone<'a, T>(pub &'a Option<T>);
 
-impl<'a, T: Display> Display for DisplayUnknownIfNone<'a, T> {
+impl<T: Display> Display for DisplayUnknownIfNone<'_, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.0 {
             Some(value) => value.fmt(f),
