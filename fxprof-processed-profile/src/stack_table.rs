@@ -102,7 +102,7 @@ struct SerializableStackTable<'a> {
     categories: &'a [Category],
 }
 
-impl<'a> Serialize for SerializableStackTable<'a> {
+impl Serialize for SerializableStackTable<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let len = self.table.stack_prefixes.len();
         let mut map = serializer.serialize_map(Some(3))?;

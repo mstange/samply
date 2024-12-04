@@ -62,7 +62,7 @@ struct SerializableCounter<'a> {
     main_thread_index: usize,
 }
 
-impl<'a> Serialize for SerializableCounter<'a> {
+impl Serialize for SerializableCounter<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry("category", &self.counter.category)?;

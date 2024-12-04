@@ -923,7 +923,7 @@ pub struct BreakpadFuncSymbolInfo<'a> {
     pub inlinees: Vec<Inlinee>,
 }
 
-impl<'a> BreakpadFuncSymbolInfo<'a> {
+impl BreakpadFuncSymbolInfo<'_> {
     /// Returns `(file_id, line, address)` of the line record that covers the
     /// given address. Line records describe locations at the deepest level of
     /// inlining at that address.

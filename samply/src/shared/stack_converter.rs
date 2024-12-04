@@ -73,7 +73,7 @@ impl<I: Iterator<Item = StackFrame>> Iterator for FirstPassIter<I> {
     }
 }
 
-impl<'a, I: Iterator<Item = FirstPassFrameInfo>> Iterator for SecondPassIter<'a, I> {
+impl<I: Iterator<Item = FirstPassFrameInfo>> Iterator for SecondPassIter<'_, I> {
     type Item = SecondPassFrameInfo;
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -133,7 +133,7 @@ impl<'a, I: Iterator<Item = FirstPassFrameInfo>> Iterator for SecondPassIter<'a,
     }
 }
 
-impl<'a, I: Iterator<Item = SecondPassFrameInfo>> Iterator for LibartFilteringIter<'a, I> {
+impl<I: Iterator<Item = SecondPassFrameInfo>> Iterator for LibartFilteringIter<'_, I> {
     type Item = SecondPassFrameInfo;
 
     fn size_hint(&self) -> (usize, Option<usize>) {

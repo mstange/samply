@@ -84,7 +84,7 @@ impl Serialize for FuncTable {
 
 struct SerializableFuncTableResourceColumn<'a>(&'a [Option<ResourceIndex>]);
 
-impl<'a> Serialize for SerializableFuncTableResourceColumn<'a> {
+impl Serialize for SerializableFuncTableResourceColumn<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
         for resource in self.0 {
@@ -99,7 +99,7 @@ impl<'a> Serialize for SerializableFuncTableResourceColumn<'a> {
 
 pub struct SerializableFlagColumn<'a>(&'a [FrameFlags], FrameFlags);
 
-impl<'a> Serialize for SerializableFlagColumn<'a> {
+impl Serialize for SerializableFlagColumn<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
         for item_flags in self.0 {

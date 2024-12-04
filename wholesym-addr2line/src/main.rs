@@ -20,7 +20,7 @@ enum Addrs<'a> {
     Stdin(Lines<StdinLock<'a>>),
 }
 
-impl<'a> Iterator for Addrs<'a> {
+impl Iterator for Addrs<'_> {
     type Item = u64;
 
     fn next(&mut self) -> Option<u64> {

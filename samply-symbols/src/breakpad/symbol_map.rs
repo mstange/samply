@@ -202,7 +202,7 @@ impl<'a, I: FileOrInlineOrigin, T: FileContents> ItemCache<'a, I, T> {
     }
 }
 
-impl<'a, T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'a, T> {
+impl<T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'_, T> {
     fn debug_id(&self) -> debugid::DebugId {
         self.index.debug_id
     }

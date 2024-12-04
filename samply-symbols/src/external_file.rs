@@ -148,7 +148,7 @@ struct ExternalFileInner<'a, T: FileContents> {
     path_mapper: Mutex<PathMapper<()>>,
 }
 
-impl<'a, F: FileContents> ExternalFileInnerTrait for ExternalFileInner<'a, F> {
+impl<F: FileContents> ExternalFileInnerTrait for ExternalFileInner<'_, F> {
     fn lookup(
         &self,
         external_file_address: &ExternalFileAddressInFileRef,
@@ -210,7 +210,7 @@ struct ExternalFileMemberContext<'a> {
     symbol_addresses: HashMap<&'a [u8], u64>,
 }
 
-impl<'a> ExternalFileMemberContext<'a> {
+impl ExternalFileMemberContext<'_> {
     pub fn lookup(
         &self,
         symbol_name: &[u8],

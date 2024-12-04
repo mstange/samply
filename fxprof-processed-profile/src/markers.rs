@@ -419,7 +419,7 @@ impl Serialize for InternalMarkerSchema {
 
 struct SerializableSchemaFields<'a>(&'a InternalMarkerSchema);
 
-impl<'a> Serialize for SerializableSchemaFields<'a> {
+impl Serialize for SerializableSchemaFields<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
