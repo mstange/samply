@@ -11,7 +11,7 @@ use nom::error::{Error, ErrorKind, ParseError};
 use nom::multi::separated_list1;
 use nom::sequence::{terminated, tuple};
 use nom::{Err, IResult};
-use zerocopy::{AsBytes, LittleEndian, Ref, U32, U64};
+use zerocopy::{IntoBytes, LittleEndian, Ref, U32, U64};
 use zerocopy_derive::*;
 
 use crate::CodeId;
@@ -41,7 +41,7 @@ impl BreakpadIndex {
         let header_bytes = data
             .get(..HEADER_SIZE as usize)
             .ok_or(BreakpadSymindexParseError::FileTooSmallForHeader)?;
-        let header = Ref::<&[u8], BreakpadSymindexFileHeader>::new_unaligned(header_bytes).unwrap();
+        let header = Ref::<&[u8], BreakpadSymindexFileHeader>::from_bytes(header_bytes).unwrap();
         if &header.magic != b"SYMINDEX" {
             return Err(BreakpadSymindexParseError::WrongMagicBytes);
         }
@@ -108,7 +108,7 @@ impl BreakpadIndex {
             .get(header.file_entries_offset.get() as usize..file_list_end_offset as usize)
             .ok_or(BreakpadSymindexParseError::CouldntReadFileListBytes)?;
         let file_list =
-            Ref::<&[u8], [FileOrInlineOriginEntry]>::new_slice_unaligned(file_list_bytes).unwrap();
+            Ref::<&[u8], [FileOrInlineOriginEntry]>::from_bytes(file_list_bytes).unwrap();
         let inline_origin_list_bytes_len = header
             .inline_origin_count
             .get()
@@ -126,8 +126,7 @@ impl BreakpadIndex {
             )
             .ok_or(BreakpadSymindexParseError::CouldntReadInlineOriginListBytes)?;
         let inline_origin_list =
-            Ref::<&[u8], [FileOrInlineOriginEntry]>::new_slice_unaligned(inline_origin_list_bytes)
-                .unwrap();
+            Ref::<&[u8], [FileOrInlineOriginEntry]>::from_bytes(inline_origin_list_bytes).unwrap();
         let symbol_address_list_bytes_len = header
             .symbol_count
             .get()
@@ -145,8 +144,7 @@ impl BreakpadIndex {
             )
             .ok_or(BreakpadSymindexParseError::CouldntReadSymbolAddressListBytes)?;
         let symbol_address_list =
-            Ref::<&[u8], [U32<LittleEndian>]>::new_slice_unaligned(symbol_address_list_bytes)
-                .unwrap();
+            Ref::<&[u8], [U32<LittleEndian>]>::from_bytes(symbol_address_list_bytes).unwrap();
         let symbol_entry_list_bytes_len = header
             .symbol_count
             .get()
@@ -161,10 +159,9 @@ impl BreakpadIndex {
             .get(header.symbol_entries_offset.get() as usize..symbol_entry_list_end_offset as usize)
             .ok_or(BreakpadSymindexParseError::CouldntReadSymbolEntryListBytes)?;
         let symbol_entry_list =
-            Ref::<&[u8], [SymbolEntry]>::new_slice_unaligned(symbol_entry_list_bytes).unwrap();
+            Ref::<&[u8], [SymbolEntry]>::from_bytes(symbol_entry_list_bytes).unwrap();
 
         let files: Vec<BreakpadFileLine> = file_list
-            .into_slice()
             .iter()
             .map(|entry| BreakpadFileLine {
                 index: entry.index.get(),
@@ -173,7 +170,6 @@ impl BreakpadIndex {
             })
             .collect();
         let inline_origins: Vec<BreakpadInlineOriginLine> = inline_origin_list
-            .into_slice()
             .iter()
             .map(|entry| BreakpadInlineOriginLine {
                 index: entry.index.get(),
@@ -183,7 +179,6 @@ impl BreakpadIndex {
             .collect();
         let symbol_addresses: Vec<u32> = symbol_address_list.iter().map(|a| a.get()).collect();
         let symbol_offsets: Vec<BreakpadSymbolType> = symbol_entry_list
-            .into_slice()
             .iter()
             .map(|entry| {
                 if entry.kind.get() == SYMBOL_ENTRY_KIND_PUBLIC {
@@ -372,7 +367,7 @@ pub enum BreakpadSymindexParseError {
     CouldntReadSymbolEntryListBytes,
 }
 
-#[derive(FromZeroes, FromBytes, AsBytes, Unaligned)]
+#[derive(FromBytes, KnownLayout, Immutable, IntoBytes, Unaligned)]
 #[repr(C)]
 struct BreakpadSymindexFileHeader {
     /// Always b"SYMINDEX", at 0
@@ -399,7 +394,7 @@ struct BreakpadSymindexFileHeader {
     symbol_entries_offset: U32<LittleEndian>,
 }
 
-#[derive(FromZeroes, FromBytes, AsBytes, Unaligned)]
+#[derive(FromBytes, KnownLayout, Immutable, IntoBytes, Unaligned)]
 #[repr(C)]
 struct FileOrInlineOriginEntry {
     pub index: U32<LittleEndian>,
@@ -410,7 +405,7 @@ struct FileOrInlineOriginEntry {
 const SYMBOL_ENTRY_KIND_PUBLIC: u32 = 0;
 const SYMBOL_ENTRY_KIND_FUNC: u32 = 1;
 
-#[derive(FromZeroes, FromBytes, AsBytes, Unaligned)]
+#[derive(FromBytes, KnownLayout, Immutable, IntoBytes, Unaligned)]
 #[repr(C)]
 struct SymbolEntry {
     /// Uses `SYMBOL_ENTRY_KIND_*` constants (0 for PUBLIC, 1 for FUNC)
