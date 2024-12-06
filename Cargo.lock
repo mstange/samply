@@ -719,9 +719,9 @@ dependencies = [
 
 [[package]]
 name = "fs4"
-version = "0.9.1"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8c6b3bd49c37d2aa3f3f2220233b29a7cd23f79d1fe70e5337d25fb390793de"
+checksum = "c29c30684418547d476f0b48e84f4821639119c483b1eccd566c8cd0cd05f521"
 dependencies = [
  "rustix",
  "windows-sys 0.52.0",
@@ -2438,9 +2438,9 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "symsrv"
-version = "0.5.3"
+version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fbc84816f92e67d3613ceccab0694df7b4a10514770ce5ab9c75b32de512ab53"
+checksum = "cc2d3a0369f307303a9c7d36346da26ce084d807af2ca02e136d808b5c0733be"
 dependencies = [
  "async-compression",
  "cab",
@@ -2450,7 +2450,7 @@ dependencies = [
  "http",
  "reqwest",
  "scopeguard",
- "thiserror 1.0.69",
+ "thiserror 2.0.4",
  "tokio",
 ]
 
