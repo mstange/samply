@@ -107,6 +107,9 @@ where
 
     /// Whether to emit JitFunctionAdd markers.
     should_emit_jit_markers: bool,
+
+    /// Whether to emit context switch markers.
+    should_emit_cswitch_markers: bool,
 }
 
 const DEFAULT_OFF_CPU_SAMPLING_INTERVAL_NS: u64 = 1_000_000; // 1ms
@@ -272,6 +275,7 @@ where
             cpus,
             call_chain_return_addresses_are_preadjusted,
             should_emit_jit_markers: profile_creation_props.should_emit_jit_markers,
+            should_emit_cswitch_markers: profile_creation_props.should_emit_cswitch_markers,
         }
     }
 
@@ -962,14 +966,16 @@ where
                             Some(idle_frame_label),
                         );
                     }
-                    cpu.notify_switch_in(
-                        tid,
-                        thread.thread_label(),
-                        timestamp,
-                        &self.timestamp_converter,
-                        &[cpu.thread_handle, combined_thread],
-                        &mut self.profile,
-                    );
+                    if self.should_emit_cswitch_markers {
+                        cpu.notify_switch_in_for_marker(
+                            tid,
+                            thread.thread_label(),
+                            timestamp,
+                            &self.timestamp_converter,
+                            &[cpu.thread_handle, combined_thread],
+                            &mut self.profile,
+                        );
+                    }
                 }
             }
             ContextSwitchRecord::Out { preempted, .. } => {
@@ -980,15 +986,17 @@ where
                     let cpu = cpus.get_mut(cpu_index as usize, &mut self.profile);
                     self.context_switch_handler
                         .handle_switch_out(timestamp, &mut cpu.context_switch_data);
-                    cpu.notify_switch_out(
-                        tid,
-                        timestamp,
-                        &self.timestamp_converter,
-                        &[cpu.thread_handle, combined_thread],
-                        thread.profile_thread,
-                        preempted == TaskWasPreempted::Yes,
-                        &mut self.profile,
-                    );
+                    if self.should_emit_cswitch_markers {
+                        cpu.notify_switch_out_for_marker(
+                            tid,
+                            timestamp,
+                            &self.timestamp_converter,
+                            &[cpu.thread_handle, combined_thread],
+                            thread.profile_thread,
+                            preempted == TaskWasPreempted::Yes,
+                            &mut self.profile,
+                        );
+                    }
                 }
             }
         }

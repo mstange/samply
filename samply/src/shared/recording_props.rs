@@ -98,6 +98,9 @@ pub struct ProfileCreationProps {
     /// Whether to emit "JitFunctionAdd" markers.
     #[allow(dead_code)]
     pub should_emit_jit_markers: bool,
+    /// Whether to emit context switch markers.
+    #[allow(dead_code)]
+    pub should_emit_cswitch_markers: bool,
 }
 
 impl ProfileCreationProps {

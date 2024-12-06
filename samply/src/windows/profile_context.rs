@@ -1630,18 +1630,20 @@ impl ProfileContext {
                 self.context_switch_handler
                     .handle_switch_out(timestamp_raw, &mut cpu.context_switch_data);
 
-                // TODO: Find out if this actually is the right way to check whether a thread
-                // has been pre-empted.
-                let preempted = wait_reason == 0 || wait_reason == 32; // "Executive" | "WrPreempted"
-                cpu.notify_switch_out(
-                    old_tid as i32,
-                    timestamp_raw,
-                    &self.timestamp_converter,
-                    &[cpu.thread_handle, combined_thread],
-                    old_thread.handle,
-                    preempted,
-                    &mut self.profile,
-                );
+                if self.profile_creation_props.should_emit_cswitch_markers {
+                    // TODO: Find out if this actually is the right way to check whether a thread
+                    // has been pre-empted.
+                    let preempted = wait_reason == 0 || wait_reason == 32; // "Executive" | "WrPreempted"
+                    cpu.notify_switch_out_for_marker(
+                        old_tid as i32,
+                        timestamp_raw,
+                        &self.timestamp_converter,
+                        &[cpu.thread_handle, combined_thread],
+                        old_thread.handle,
+                        preempted,
+                        &mut self.profile,
+                    );
+                }
             }
         }
 
@@ -1705,14 +1707,16 @@ impl ProfileContext {
                         0,
                     );
                 }
-                cpu.notify_switch_in(
-                    new_tid as i32,
-                    new_thread.thread_label(),
-                    timestamp_raw,
-                    &self.timestamp_converter,
-                    &[cpu.thread_handle, combined_thread],
-                    &mut self.profile,
-                );
+                if self.profile_creation_props.should_emit_cswitch_markers {
+                    cpu.notify_switch_in_for_marker(
+                        new_tid as i32,
+                        new_thread.thread_label(),
+                        timestamp_raw,
+                        &self.timestamp_converter,
+                        &[cpu.thread_handle, combined_thread],
+                        &mut self.profile,
+                    );
+                }
             }
         }
     }

@@ -375,6 +375,10 @@ pub struct ProfileCreationArgs {
     #[arg(long)]
     jit_markers: bool,
 
+    /// Emit context switch markers.
+    #[arg(long)]
+    cswitch_markers: bool,
+
     /// Include up to <INCLUDE_ARGS> command line arguments in the process name.
     /// This can help differentiate processes if the same executable is used
     /// for different types of programs. And in --reuse-threads mode it
@@ -546,6 +550,7 @@ impl ImportArgs {
             override_arch: self.override_arch.clone(),
             unstable_presymbolicate: self.profile_creation_args.unstable_presymbolicate,
             should_emit_jit_markers: self.profile_creation_args.jit_markers,
+            should_emit_cswitch_markers: self.profile_creation_args.cswitch_markers,
             coreclr: to_coreclr_profile_props(&self.coreclr),
             #[cfg(target_os = "windows")]
             unknown_event_markers: self.profile_creation_args.unknown_event_markers,
@@ -670,6 +675,7 @@ impl RecordArgs {
             override_arch: None,
             unstable_presymbolicate: self.profile_creation_args.unstable_presymbolicate,
             should_emit_jit_markers: self.profile_creation_args.jit_markers,
+            should_emit_cswitch_markers: self.profile_creation_args.cswitch_markers,
             coreclr: to_coreclr_profile_props(&self.coreclr),
             #[cfg(target_os = "windows")]
             unknown_event_markers: self.profile_creation_args.unknown_event_markers,

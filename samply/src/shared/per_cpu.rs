@@ -19,7 +19,7 @@ pub struct Cpu {
     pub name: StringHandle,
     pub thread_handle: ThreadHandle,
     pub context_switch_data: ThreadContextSwitchData,
-    pub current_tid: Option<(i32, StringHandle, u64)>,
+    current_tid: Option<(i32, StringHandle, u64)>,
 }
 
 impl Cpu {
@@ -33,7 +33,7 @@ impl Cpu {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn notify_switch_in(
+    pub fn notify_switch_in_for_marker(
         &mut self,
         tid: i32,
         thread_name: StringHandle,
@@ -60,7 +60,7 @@ impl Cpu {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn notify_switch_out(
+    pub fn notify_switch_out_for_marker(
         &mut self,
         tid: i32, // tid that is being switched away from
         timestamp: u64,
