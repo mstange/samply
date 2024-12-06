@@ -1777,13 +1777,15 @@ impl ProfileContext {
         let lib = &mut self.js_jit_lib;
         let info = LibMappingInfo::new_jit_function(lib.lib_handle(), category, js_frame);
 
-        let name_handle = self.profile.intern_string(&method_name);
-        let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
-        self.profile.add_marker(
-            process.main_thread_handle,
-            MarkerTiming::Instant(timestamp),
-            JitFunctionAddMarker(name_handle),
-        );
+        if self.profile_creation_props.should_emit_jit_markers {
+            let name_handle = self.profile.intern_string(&method_name);
+            let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
+            self.profile.add_marker(
+                process.main_thread_handle,
+                MarkerTiming::Instant(timestamp),
+                JitFunctionAddMarker(name_handle),
+            );
+        }
 
         process.add_jit_function(
             timestamp_raw,

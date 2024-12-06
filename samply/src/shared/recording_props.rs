@@ -95,6 +95,9 @@ pub struct ProfileCreationProps {
     /// Time range to include, relative to start of recording.
     #[allow(dead_code)]
     pub time_range: Option<(std::time::Duration, std::time::Duration)>,
+    /// Whether to emit "JitFunctionAdd" markers.
+    #[allow(dead_code)]
+    pub should_emit_jit_markers: bool,
 }
 
 impl ProfileCreationProps {

@@ -303,7 +303,10 @@ impl TaskProfiler {
             ignored_errors: Vec::new(),
             unwinder: UnwinderNative::new(),
             path_receiver,
-            jitdump_manager: JitDumpManager::new(profile_creation_props.unlink_aux_files),
+            jitdump_manager: JitDumpManager::new(
+                profile_creation_props.unlink_aux_files,
+                profile_creation_props.should_emit_jit_markers,
+            ),
             marker_file_paths: Vec::new(),
             lib_mapping_ops: Default::default(),
             unresolved_samples: Default::default(),

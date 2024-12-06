@@ -59,11 +59,12 @@ where
         thread_recycler: Option<ThreadRecycler>,
         jit_function_recycler: Option<JitFunctionRecycler>,
         unlink_aux_files: bool,
+        should_emit_jit_markers: bool,
     ) -> Self {
         Self {
             profile_process: process_handle,
             unwinder: U::default(),
-            jitdump_manager: JitDumpManager::new(unlink_aux_files),
+            jitdump_manager: JitDumpManager::new(unlink_aux_files, should_emit_jit_markers),
             lib_mapping_ops: Default::default(),
             name: name.clone(),
             pid,
@@ -207,8 +208,7 @@ where
             None
         };
 
-        let jitdump_manager =
-            std::mem::replace(&mut self.jitdump_manager, JitDumpManager::new(false));
+        let jitdump_manager = self.jitdump_manager;
         let mut jitdump_ops = jitdump_manager.finish(
             jit_category_manager,
             profile,
@@ -298,14 +298,17 @@ where
         mut lib_handle: LibraryHandle,
         jit_category_manager: &mut JitCategoryManager,
         profile: &mut Profile,
+        should_add_marker: bool,
     ) {
-        let main_thread = self.threads.main_thread.profile_thread;
-        let timing = MarkerTiming::Instant(profile_timestamp);
-        let name = match symbol_name {
-            Some(name) => profile.intern_string(name),
-            None => profile.intern_string("<unknown>"),
-        };
-        profile.add_marker(main_thread, timing, JitFunctionAddMarker(name));
+        if should_add_marker {
+            let main_thread = self.threads.main_thread.profile_thread;
+            let timing = MarkerTiming::Instant(profile_timestamp);
+            let name = match symbol_name {
+                Some(name) => profile.intern_string(name),
+                None => profile.intern_string("<unknown>"),
+            };
+            profile.add_marker(main_thread, timing, JitFunctionAddMarker(name));
+        }
 
         if let (Some(name), Some(recycler)) = (symbol_name, self.jit_function_recycler.as_mut()) {
             let code_size = (end_address - start_address) as u32;

@@ -20,14 +20,16 @@ pub struct JitDumpManager {
     pending_jitdump_paths: Vec<(ThreadHandle, PathBuf, Vec<PathBuf>)>,
     processors: Vec<SingleJitDumpProcessor>,
     unlink_after_open: bool,
+    should_emit_jit_markers: bool,
 }
 
 impl JitDumpManager {
-    pub fn new(unlink_after_open: bool) -> Self {
+    pub fn new(unlink_after_open: bool, should_emit_jit_markers: bool) -> Self {
         JitDumpManager {
             pending_jitdump_paths: Vec::new(),
             processors: Vec::new(),
             unlink_after_open,
+            should_emit_jit_markers,
         }
     }
 
@@ -83,6 +85,7 @@ impl JitDumpManager {
                 profile,
                 recycler.as_deref_mut(),
                 timestamp_converter,
+                self.should_emit_jit_markers,
             );
         }
     }
@@ -143,6 +146,7 @@ impl SingleJitDumpProcessor {
         profile: &mut Profile,
         mut recycler: Option<&mut JitFunctionRecycler>,
         timestamp_converter: &TimestampConverter,
+        should_add_marker: bool,
     ) {
         let Some(reader) = self.reader.as_mut() else {
             return;
@@ -186,13 +190,16 @@ impl SingleJitDumpProcessor {
                         name: symbol_name.to_owned(),
                     });
 
-                    let timestamp = timestamp_converter.convert_time(raw_jitdump_record.timestamp);
-                    let symbol_name_handle = profile.intern_string(symbol_name);
-                    profile.add_marker(
-                        self.thread_handle,
-                        MarkerTiming::Instant(timestamp),
-                        JitFunctionAddMarker(symbol_name_handle),
-                    );
+                    if should_add_marker {
+                        let timestamp =
+                            timestamp_converter.convert_time(raw_jitdump_record.timestamp);
+                        let symbol_name_handle = profile.intern_string(symbol_name);
+                        profile.add_marker(
+                            self.thread_handle,
+                            MarkerTiming::Instant(timestamp),
+                            JitFunctionAddMarker(symbol_name_handle),
+                        );
+                    }
 
                     let (lib_handle, relative_address_at_start) =
                         if let Some(recycler) = recycler.as_deref_mut() {

@@ -104,6 +104,9 @@ where
     /// already done the adjusting, either by adjusting the call chains coming from
     /// the kernel or by doing its own unwinding with an adjusting unwinder,
     call_chain_return_addresses_are_preadjusted: bool,
+
+    /// Whether to emit JitFunctionAdd markers.
+    should_emit_jit_markers: bool,
 }
 
 const DEFAULT_OFF_CPU_SAMPLING_INTERVAL_NS: u64 = 1_000_000; // 1ms
@@ -240,6 +243,7 @@ where
             processes: Processes::new(
                 profile_creation_props.reuse_threads,
                 profile_creation_props.unlink_aux_files,
+                profile_creation_props.should_emit_jit_markers,
             ),
             timestamp_converter,
             current_sample_time: first_sample_time,
@@ -267,6 +271,7 @@ where
                 .arg_count_to_include_in_process_name,
             cpus,
             call_chain_return_addresses_are_preadjusted,
+            should_emit_jit_markers: profile_creation_props.should_emit_jit_markers,
         }
     }
 
@@ -1511,6 +1516,7 @@ where
                     lib_handle,
                     &mut self.jit_category_manager,
                     &mut self.profile,
+                    self.should_emit_jit_markers,
                 );
             } else {
                 process.add_regular_lib_mapping(
