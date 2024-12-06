@@ -1094,19 +1094,19 @@ impl<'data, T: ReadRef<'data>> ReadRef<'data> for RangeReadRef<'data, T> {
 }
 
 pub struct FileContentsCursor<'a, T: FileContents> {
-    /// Invariant: current_offset + remaining_len == total_len
+    /// The current offset of the cursor. This can be beyond the end of the file!
     current_offset: u64,
-    /// Invariant: current_offset + remaining_len == total_len
-    remaining_len: u64,
+    /// The total length of the file.
+    total_len: u64,
     inner: &'a FileContentsWrapper<T>,
 }
 
 impl<'a, T: FileContents> FileContentsCursor<'a, T> {
     pub fn new(inner: &'a FileContentsWrapper<T>) -> Self {
-        let remaining_len = inner.len();
+        let total_len = inner.len();
         Self {
             current_offset: 0,
-            remaining_len,
+            total_len,
             inner,
         }
     }
@@ -1114,7 +1114,11 @@ impl<'a, T: FileContents> FileContentsCursor<'a, T> {
 
 impl<T: FileContents> std::io::Read for FileContentsCursor<'_, T> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let read_len = <[u8]>::len(buf).min(self.remaining_len as usize);
+        if self.current_offset >= self.total_len {
+            return Ok(0);
+        }
+        let remaining_len = self.total_len - self.current_offset;
+        let read_len = <[u8]>::len(buf).min(remaining_len as usize);
         // Make a silly copy
         let mut tmp_buf = Vec::with_capacity(read_len);
         self.inner
@@ -1122,15 +1126,16 @@ impl<T: FileContents> std::io::Read for FileContentsCursor<'_, T> {
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         buf[..read_len].copy_from_slice(&tmp_buf);
         self.current_offset += read_len as u64;
-        self.remaining_len -= read_len as u64;
         Ok(read_len)
     }
 }
 
 impl<T: FileContents> std::io::Seek for FileContentsCursor<'_, T> {
     fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
-        /// Returns (new_offset, new_remaining_len)
-        fn inner(cur: u64, total_len: u64, pos: std::io::SeekFrom) -> Option<(u64, u64)> {
+        /// Returns None on overflow / underflow.
+        ///
+        /// Seeks beyond the file length are allowed.
+        fn inner(cur: u64, total_len: u64, pos: std::io::SeekFrom) -> Option<u64> {
             let new_offset: u64 = match pos {
                 std::io::SeekFrom::Start(pos) => pos,
                 std::io::SeekFrom::End(pos) => {
@@ -1140,19 +1145,37 @@ impl<T: FileContents> std::io::Seek for FileContentsCursor<'_, T> {
                     (cur as i64).checked_add(pos)?.try_into().ok()?
                 }
             };
-            let new_remaining = total_len.checked_sub(new_offset)?;
-            Some((new_offset, new_remaining))
+            Some(new_offset)
         }
 
-        let cur = self.current_offset;
-        let total_len = self.current_offset + self.remaining_len;
-        match inner(cur, total_len, pos) {
-            Some((cur, rem)) => {
+        match inner(self.current_offset, self.total_len, pos) {
+            Some(cur) => {
                 self.current_offset = cur;
-                self.remaining_len = rem;
                 Ok(cur)
             }
             None => Err(std::io::Error::new(std::io::ErrorKind::Other, "Bad Seek")),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn file_contents_cursor_allows_seeks_beyond_eof() {
+        use std::io::{Read, Seek};
+        let bytes = b"Test";
+        let bytes = &bytes[..];
+        let file_contents_wrapper = FileContentsWrapper::new(bytes);
+        let mut cursor = FileContentsCursor::new(&file_contents_wrapper);
+        let mut read_buf = [0; 10];
+        let read_len = cursor.read(&mut read_buf[..3]).unwrap();
+        assert_eq!(read_len, 3);
+        assert_eq!(&read_buf[..3], b"Tes");
+        let new_pos = cursor.seek(std::io::SeekFrom::Current(2)).unwrap();
+        assert_eq!(new_pos, 5);
+        let read_len = cursor.read(&mut read_buf[..2]).unwrap();
+        assert_eq!(read_len, 0);
     }
 }
