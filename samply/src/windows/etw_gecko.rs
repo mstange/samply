@@ -35,6 +35,7 @@ pub fn process_etl_files(
         &mut core_clr_context,
     );
     if result.is_err() {
+        dbg!(etl_file);
         dbg!(&result);
         std::process::exit(1);
     }
@@ -47,6 +48,7 @@ pub fn process_etl_files(
             &mut core_clr_context,
         );
         if result.is_err() {
+            dbg!(extra_etl_file);
             dbg!(&result);
             std::process::exit(1);
         }
@@ -58,6 +60,11 @@ pub fn process_etl_files(
     );
 }
 
+struct PendingImageInfo {
+    image_timestamp: u32,
+    pdb_path_and_debug_id: Option<(String, DebugId)>,
+}
+
 fn process_trace(
     etl_file: &Path,
     context: &mut ProfileContext,
@@ -66,7 +73,7 @@ fn process_trace(
 ) -> Result<(), std::io::Error> {
     let is_arm64 = context.is_arm64();
     let demand_zero_faults = false; //pargs.contains("--demand-zero-faults");
-    let mut pending_image_info: Option<((u32, u64), PeInfo)> = None;
+    let mut pending_image_info: Option<((u32, u64), PendingImageInfo)> = None;
 
     open_trace(etl_file, |e| {
         let Ok(s) = schema_locator.event_schema(e) else {
@@ -254,10 +261,10 @@ fn process_trace(
                 let pid = s.process_id(); // there isn't a ProcessId field here
                 let image_base: u64 = parser.try_parse("ImageBase").unwrap();
                 let image_timestamp: u32 = parser.try_parse("TimeDateStamp").unwrap();
-                let image_checksum: u32 = parser.try_parse("ImageChecksum").unwrap();
-                let image_size: u32 = parser.try_parse("ImageSize").unwrap();
-                let mut info = PeInfo::new_with_size_and_checksum(image_size, image_checksum);
-                info.image_timestamp = Some(image_timestamp);
+                let info = PendingImageInfo {
+                    image_timestamp,
+                    pdb_path_and_debug_id: None,
+                };
                 pending_image_info = Some(((pid, image_base), info));
             }
             "KernelTraceControl/ImageID/DbgID_RSDS" => {
@@ -272,8 +279,7 @@ fn process_trace(
                             Uuid::from_fields(guid.data1, guid.data2, guid.data3, &guid.data4),
                             age,
                         );
-                        info.debug_id = Some(debug_id);
-                        info.pdb_path = Some(pdb_path);
+                        info.pdb_path_and_debug_id = Some((pdb_path, debug_id));
                     }
                 };
             }
@@ -288,17 +294,26 @@ fn process_trace(
                 let image_checksum: u32 = parser.try_parse("ImageChecksum").unwrap();
                 let path: String = parser.try_parse("FileName").unwrap();
 
+                let mut info =
+                    PeInfo::new_with_size_and_checksum(image_size as u32, image_checksum);
+
                 // Supplement the information from this event with the information from
                 // KernelTraceControl/ImageID events, if available. Those events come right
                 // before this one (they were inserted by xperf during merging, if this is
                 // a merged file).
-                let mut info = match pending_image_info.take() {
-                    Some((pid_and_base, info)) if pid_and_base == (pid, image_base) => info,
-                    _ => PeInfo::new_with_size_and_checksum(image_size as u32, image_checksum),
-                };
-
-                if info.image_timestamp.is_none() && image_timestamp_maybe_zero != 0 {
-                    info.image_timestamp = Some(image_timestamp_maybe_zero);
+                match pending_image_info.take() {
+                    Some((pid_and_base, pending_info)) if pid_and_base == (pid, image_base) => {
+                        info.image_timestamp = Some(pending_info.image_timestamp);
+                        if let Some((pdb_path, debug_id)) = pending_info.pdb_path_and_debug_id {
+                            info.pdb_path = Some(pdb_path);
+                            info.debug_id = Some(debug_id);
+                        }
+                    }
+                    _ => {
+                        if image_timestamp_maybe_zero != 0 {
+                            info.image_timestamp = Some(image_timestamp_maybe_zero);
+                        }
+                    }
                 }
 
                 context.handle_image_load(timestamp_raw, pid, image_base, path, info);

@@ -434,6 +434,249 @@ impl EventSchema for ThreadStart {
     }
 }
 
+pub struct SampledProfile {}
+
+/// The schema for the SampledProfile event, version 2.
+///
+/// This schema is hardcoded because, for a brief time
+/// at the end of 2024, Windows was missing the schema
+/// definition for this event type, so our queries to
+/// look up the schema failed. One of the affected Windows
+/// versions was 10.0.26100 24H2.
+const SampledProfile_PROPS: [PropDesc; 4] = [
+    PropDesc {
+        name: "InstructionPointer",
+        in_type: TdhInType::InTypePointer,
+        out_type: TdhOutType::OutTypeCodePointer,
+    },
+    PropDesc {
+        name: "ThreadId",
+        in_type: TdhInType::InTypeUInt32,
+        out_type: TdhOutType::OutTypeUInt32,
+    },
+    PropDesc {
+        name: "Count",
+        in_type: TdhInType::InTypeUInt16,
+        out_type: TdhOutType::OutTypeUInt16,
+    },
+    PropDesc {
+        name: "Reserved",
+        in_type: TdhInType::InTypeUInt16,
+        out_type: TdhOutType::OutTypeUInt16,
+    },
+];
+
+impl EventSchema for SampledProfile {
+    fn provider_guid(&self) -> GUID {
+        GUID::from("ce1dbfb4-137e-4da6-87b0-3f59aa102cbc")
+    }
+
+    fn event_id(&self) -> u16 {
+        0
+    }
+
+    fn opcode(&self) -> u8 {
+        46
+    }
+
+    fn event_version(&self) -> u8 {
+        2
+    }
+
+    fn level(&self) -> u8 {
+        0
+    }
+
+    fn decoding_source(&self) -> DecodingSource {
+        panic!()
+    }
+
+    fn provider_name(&self) -> String {
+        "MSNT_SystemTrace".to_owned()
+    }
+
+    fn task_name(&self) -> String {
+        "PerfInfo".to_owned()
+    }
+
+    fn opcode_name(&self) -> String {
+        "SampleProf".to_string()
+    }
+
+    fn property_count(&self) -> u32 {
+        SampledProfile_PROPS.len() as u32
+    }
+
+    fn property(&self, index: u32) -> Property {
+        let prop = &SampledProfile_PROPS[index as usize];
+        Property {
+            name: prop.name.to_owned(),
+            desc: PropertyDesc::Primitive(PrimitiveDesc {
+                in_type: prop.in_type,
+                out_type: prop.out_type,
+            }),
+            count: 1,
+            length: PropertyLength::Length(0),
+            map_info: None,
+            flags: PropertyFlags::empty(),
+        }
+    }
+}
+
+pub struct CSwitch {}
+
+/// The schema for the CSwitch event, version 4.
+///
+/// This schema is hardcoded because, for a brief time
+/// at the end of 2024, Windows was missing the schema
+/// definition for this event type, so our queries to
+/// look up the schema failed. One of the affected Windows
+/// versions was 10.0.26100 24H2.
+//
+// ```mof
+// [dynamic: ToInstance, EventType(36)]
+// class CSwitch_V4 : Thread_V4
+// {
+//   [WmiDataId(1), format("x"), read] uint32 NewThreadId;
+//   [WmiDataId(2), format("x"), read] uint32 OldThreadId;
+//   [WmiDataId(3), read] sint8 NewThreadPriority;
+//   [WmiDataId(4), read] sint8 OldThreadPriority;
+//   [WmiDataId(5), read] uint8 PreviousCState;
+//   [WmiDataId(6), read] sint8 SpareByte;
+//   [WmiDataId(7), read] sint8 OldThreadWaitReason;
+//   [WmiDataId(8), read] sint8 ThreadFlags;
+//   [WmiDataId(9), read] sint8 OldThreadState;
+//   [WmiDataId(10), read] sint8 OldThreadWaitIdealProcessor;
+//   [WmiDataId(11), format("x"), read] uint32 NewThreadWaitTime;
+//   [WmiDataId(12), read] uint32 Reserved;
+// };
+// ```
+const CSwitch_V4_PROPS: [PropDesc; 12] = [
+    PropDesc {
+        name: "NewThreadId",
+        in_type: TdhInType::InTypeUInt32,
+        out_type: TdhOutType::OutTypeUInt32,
+    },
+    PropDesc {
+        name: "OldThreadId",
+        in_type: TdhInType::InTypeUInt32,
+        out_type: TdhOutType::OutTypeUInt32,
+    },
+    PropDesc {
+        name: "NewThreadPriority",
+        in_type: TdhInType::InTypeInt8,
+        out_type: TdhOutType::OutTypeInt8,
+    },
+    PropDesc {
+        name: "OldThreadPriority",
+        in_type: TdhInType::InTypeInt8,
+        out_type: TdhOutType::OutTypeInt8,
+    },
+    PropDesc {
+        name: "PreviousCState",
+        in_type: TdhInType::InTypeUInt8,
+        out_type: TdhOutType::OutTypeUInt8,
+    },
+    PropDesc {
+        name: "SpareByte",
+        in_type: TdhInType::InTypeInt8,
+        out_type: TdhOutType::OutTypeInt8,
+    },
+    PropDesc {
+        name: "OldThreadWaitReason",
+        in_type: TdhInType::InTypeInt8,
+        out_type: TdhOutType::OutTypeInt8,
+    },
+    PropDesc {
+        name: "ThreadFlags",
+        in_type: TdhInType::InTypeInt8,
+        out_type: TdhOutType::OutTypeInt8,
+    },
+    PropDesc {
+        name: "OldThreadState",
+        in_type: TdhInType::InTypeInt8,
+        out_type: TdhOutType::OutTypeInt8,
+    },
+    PropDesc {
+        name: "OldThreadWaitIdealProcessor",
+        in_type: TdhInType::InTypeInt8,
+        out_type: TdhOutType::OutTypeInt8,
+    },
+    PropDesc {
+        name: "NewThreadWaitTime",
+        in_type: TdhInType::InTypeUInt32,
+        out_type: TdhOutType::OutTypeUInt32,
+    },
+    PropDesc {
+        name: "Reserved",
+        in_type: TdhInType::InTypeUInt32,
+        out_type: TdhOutType::OutTypeUInt32,
+    },
+];
+
+impl EventSchema for CSwitch {
+    fn provider_guid(&self) -> GUID {
+        GUID::from("3d6fa8d1-fe05-11d0-9dda-00c04fd7ba7c") // class Thread_V4 : MSNT_SystemTrace
+    }
+
+    fn event_id(&self) -> u16 {
+        0
+    }
+
+    fn opcode(&self) -> u8 {
+        36
+    }
+
+    fn event_version(&self) -> u8 {
+        // Warning: We are pretending to be version 5, because that's
+        // what matches the events observed on Windows 10.0.26100 Build 26100,
+        // which is the Windows version where the schema was missing.
+        // But we don't actually know the correct V5 schema! There are likely
+        // one or two fields added at the end which our hardcoded V4 schema
+        // doesn't have.
+        5
+    }
+
+    fn level(&self) -> u8 {
+        0
+    }
+
+    fn decoding_source(&self) -> DecodingSource {
+        panic!()
+    }
+
+    fn provider_name(&self) -> String {
+        "MSNT_SystemTrace".to_owned()
+    }
+
+    fn task_name(&self) -> String {
+        "Thread".to_owned()
+    }
+
+    fn opcode_name(&self) -> String {
+        "CSwitch".to_string()
+    }
+
+    fn property_count(&self) -> u32 {
+        CSwitch_V4_PROPS.len() as u32
+    }
+
+    fn property(&self, index: u32) -> Property {
+        let prop = &CSwitch_V4_PROPS[index as usize];
+        Property {
+            name: prop.name.to_owned(),
+            desc: PropertyDesc::Primitive(PrimitiveDesc {
+                in_type: prop.in_type,
+                out_type: prop.out_type,
+            }),
+            count: 1,
+            length: PropertyLength::Length(0),
+            map_info: None,
+            flags: PropertyFlags::empty(),
+        }
+    }
+}
+
 // from umdprovider.h
 pub struct D3DUmdLogging_MapAllocation {}
 
