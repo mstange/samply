@@ -163,7 +163,10 @@ impl UtilityProcessParent for ElevatedHelperParent {
 
         let exit_status = cmd.status().expect("Failed to execute elevated helper");
         if !exit_status.success() {
-            eprintln!("Failed to run elevated helper, exit status {}", exit_status.code().unwrap());
+            eprintln!(
+                "Failed to run elevated helper, exit status {}",
+                exit_status.code().unwrap()
+            );
             use crate::name::SAMPLY_NAME_PRINT_STRING;
             eprintln!("{SAMPLY_NAME_PRINT_STRING} requires Administrator privileges for profiling on Windows.");
             std::process::exit(1);

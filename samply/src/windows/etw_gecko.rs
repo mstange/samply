@@ -35,6 +35,7 @@ pub fn process_etl_files(
         &mut core_clr_context,
     );
     if result.is_err() {
+        dbg!(etl_file);
         dbg!(&result);
         std::process::exit(1);
     }
@@ -47,6 +48,7 @@ pub fn process_etl_files(
             &mut core_clr_context,
         );
         if result.is_err() {
+            dbg!(extra_etl_file);
             dbg!(&result);
             std::process::exit(1);
         }
