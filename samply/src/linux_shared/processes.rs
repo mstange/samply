@@ -28,13 +28,16 @@ where
 
     /// Whether aux files (like jitdump) should be unlinked on open
     unlink_aux_data: bool,
+
+    /// Whether to emit JitFunctionAdd markers.
+    should_emit_jit_markers: bool,
 }
 
 impl<U> Processes<U>
 where
     U: Unwinder + Default,
 {
-    pub fn new(allow_reuse: bool, unlink_aux_data: bool) -> Self {
+    pub fn new(allow_reuse: bool, unlink_aux_data: bool, should_emit_jit_markers: bool) -> Self {
         let process_recycler = if allow_reuse {
             Some(ProcessRecycler::new())
         } else {
@@ -45,6 +48,7 @@ where
             process_recycler,
             process_sample_datas: Vec::new(),
             unlink_aux_data,
+            should_emit_jit_markers,
         }
     }
 
@@ -78,6 +82,7 @@ where
                             Some(thread_recycler),
                             Some(jit_function_recycler),
                             self.unlink_aux_data,
+                            self.should_emit_jit_markers,
                         );
                         return entry.insert(process);
                     }
@@ -113,6 +118,7 @@ where
                     thread_recycler,
                     jit_function_recycler,
                     self.unlink_aux_data,
+                    self.should_emit_jit_markers,
                 );
                 entry.insert(process)
             }
@@ -164,6 +170,7 @@ where
                 thread_recycler,
                 jit_function_recycler,
                 self.unlink_aux_data,
+                self.should_emit_jit_markers,
             )
         })
     }
