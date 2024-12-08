@@ -2,7 +2,7 @@
 
 samply is a command line CPU profiler which uses the [Firefox profiler](https://profiler.firefox.com/) as its UI.
 
-samply works on macOS and Linux. Windows support is planned.
+samply works on macOS, Linux, and Windows.
 
 In order to profile the execution of `./my-application`, prepend `samply record` to the command invocation:
 
@@ -22,8 +22,14 @@ You have the following options to install samply:
 
 ### Install prebuilt binaries via shell script
 
+macOS/Linux:
 ```sh
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/mstange/samply/releases/download/samply-v0.12.0/samply-installer.sh | sh
+```
+
+Windows:
+```
+powershell -c "irm https://github.com/mstange/samply/releases/download/samply-v0.12.0/samply-installer.ps1 | iex"
 ```
 
 ### Install from crates.io with cargo
@@ -64,7 +70,7 @@ You can see which functions were running for how long. You can see flame graphs 
 
 All data is kept locally (on disk and in RAM) until you choose to upload your profile.
 
-samply is a sampling profiler and collects stack traces, per thread, at some sampling interval (the default 1000Hz, i.e. 1ms). On macOS, both on- and off-cpu samples are collected (so you can see under which stack you were blocking on a lock, for example). On Linux, only on-cpu samples are collected at the moment.
+samply is a sampling profiler and collects stack traces, per thread, at some sampling interval (the default 1000Hz, i.e. 1ms). On macOS and Windows, both on- and off-cpu samples are collected (so you can see under which stack you were blocking on a lock, for example). On Linux, only on-cpu samples are collected at the moment.
 
 On Linux, samply needs access to performance events system for unprivileged users. For this, you can either:
 
@@ -122,7 +128,7 @@ Similar advice applies to other compiled languages. For C++, you'll want to make
 
 On macOS, samply cannot profile system commands, such as the `sleep` command or system `python`. This is because system executables are signed in such a way that they block the `DYLD_INSERT_LIBRARIES` environment variable, which breaks samply's ability to siphon out the `mach_port` of the process.
 
-But you can profile any binaries that you've compiled yourself, or which are unsigned or locally-signed (such as anything installed by `cargo install` or by [Homebrew](brew.sh)).
+But you can profile any binaries that you've compiled yourself, or which are unsigned or locally-signed (such as anything installed by `cargo install` or by [Homebrew](brew.sh)). In order to attach to running processes on macOS, run `samply setup` once (and every time `samply` is udpated) self-sign the samply binary. 
 
 ## License
 
