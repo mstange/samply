@@ -1,6 +1,6 @@
 pub fn demangle(name: &str) -> Option<String> {
     if let Some(name) = name.strip_prefix("caml") {
-        if name.chars().next().map_or(false, |c| !c.is_uppercase()) {
+        if name.chars().next().is_some_and(|c| !c.is_uppercase()) {
             return None;
         }
 
