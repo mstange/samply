@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::Write;
+use std::os::raw::{c_int, c_void};
 use std::os::unix::prelude::OsStrExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus};
@@ -9,7 +10,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use flate2::write::GzDecoder;
-use libproc::processes;
 use mach::task::{task_resume, task_suspend};
 use mach::traps::task_for_pid;
 use tempfile::tempdir;
@@ -301,8 +301,7 @@ impl ExistingProcessRunner {
         let mut queue = vec![pid];
 
         while let Some(current_pid) = queue.pop() {
-            let filter = processes::ProcFilter::ByParentProcess { ppid: current_pid };
-            if let Ok(child_pids) = processes::pids_by_type(filter) {
+            if let Some(child_pids) = find_child_processes(current_pid) {
                 for child_pid in child_pids {
                     descendants.push(child_pid);
                     queue.push(child_pid);
@@ -369,4 +368,41 @@ impl ExistingProcessRunner {
             ..runner
         }
     }
+}
+
+fn find_child_processes(parent_pid: u32) -> Option<Vec<u32>> {
+    extern "C" {
+        pub fn proc_listpids(
+            type_: u32,
+            typeinfo: u32,
+            buffer: *mut c_void,
+            buffersize: c_int,
+        ) -> c_int;
+    }
+    const PROC_PPID_ONLY: u32 = 6;
+
+    let needed_buffer_size_or_err =
+        unsafe { proc_listpids(PROC_PPID_ONLY, parent_pid, core::ptr::null_mut(), 0) };
+    if needed_buffer_size_or_err <= 0 {
+        return None;
+    }
+
+    let buffer_size = needed_buffer_size_or_err;
+    let reserved_count = buffer_size as usize / core::mem::size_of::<u32>();
+    let mut pids: Vec<u32> = Vec::with_capacity(reserved_count);
+
+    let buffer_ptr = pids.as_mut_ptr().cast::<c_void>();
+
+    let used_buffer_size_or_err =
+        unsafe { proc_listpids(PROC_PPID_ONLY, parent_pid, buffer_ptr, buffer_size) };
+    if used_buffer_size_or_err <= 0 {
+        return None;
+    }
+
+    let used_buffer_size = used_buffer_size_or_err;
+    let child_pid_count = used_buffer_size as usize / core::mem::size_of::<u32>();
+    unsafe {
+        pids.set_len(child_pid_count);
+    }
+    Some(pids)
 }
