@@ -44,7 +44,7 @@ const ImageID_PROPS: [PropDesc; 5] = [
 
 impl EventSchema for ImageID {
     fn provider_guid(&self) -> GUID {
-        GUID::from("b3e675d7-2554-4f18-830b-2762732560de")
+        GUID::try_from("b3e675d7-2554-4f18-830b-2762732560de").unwrap()
     }
 
     fn event_id(&self) -> u16 {
@@ -131,7 +131,7 @@ const DbgID_PROPS: [PropDesc; 5] = [
 
 impl EventSchema for DbgID {
     fn provider_guid(&self) -> GUID {
-        GUID::from("b3e675d7-2554-4f18-830b-2762732560de")
+        GUID::try_from("b3e675d7-2554-4f18-830b-2762732560de").unwrap()
     }
 
     fn event_id(&self) -> u16 {
@@ -238,7 +238,7 @@ const EventInfo_PROPS: [PropDesc; 9] = [
 ];
 impl EventSchema for EventInfo {
     fn provider_guid(&self) -> GUID {
-        GUID::from("bbccf6c1-6cd1-48c4-80ff-839482e37671")
+        GUID::try_from("bbccf6c1-6cd1-48c4-80ff-839482e37671").unwrap()
     }
 
     fn event_id(&self) -> u16 {
@@ -379,7 +379,7 @@ const Thread_PROPS: [PropDesc; 15] = [
 
 impl EventSchema for ThreadStart {
     fn provider_guid(&self) -> GUID {
-        GUID::from("3D6FA8D1-FE05-11D0-9DDA-00C04FD7BA7C")
+        GUID::try_from("3D6FA8D1-FE05-11D0-9DDA-00C04FD7BA7C").unwrap()
     }
 
     fn event_id(&self) -> u16 {
@@ -468,7 +468,7 @@ const SampledProfile_PROPS: [PropDesc; 4] = [
 
 impl EventSchema for SampledProfile {
     fn provider_guid(&self) -> GUID {
-        GUID::from("ce1dbfb4-137e-4da6-87b0-3f59aa102cbc")
+        GUID::try_from("ce1dbfb4-137e-4da6-87b0-3f59aa102cbc").unwrap()
     }
 
     fn event_id(&self) -> u16 {
@@ -616,7 +616,7 @@ const CSwitch_V4_PROPS: [PropDesc; 12] = [
 
 impl EventSchema for CSwitch {
     fn provider_guid(&self) -> GUID {
-        GUID::from("3d6fa8d1-fe05-11d0-9dda-00c04fd7ba7c") // class Thread_V4 : MSNT_SystemTrace
+        GUID::try_from("3d6fa8d1-fe05-11d0-9dda-00c04fd7ba7c").unwrap() // class Thread_V4 : MSNT_SystemTrace
     }
 
     fn event_id(&self) -> u16 {
@@ -716,7 +716,7 @@ const D3DUmdLogging_PROPS: [PropDesc; 6] = [
 
 impl EventSchema for D3DUmdLogging_MapAllocation {
     fn provider_guid(&self) -> GUID {
-        GUID::from("A688EE40-D8D9-4736-B6F9-6B74935BA3B1")
+        GUID::try_from("A688EE40-D8D9-4736-B6F9-6B74935BA3B1").unwrap()
     }
 
     fn event_id(&self) -> u16 {
@@ -775,7 +775,7 @@ pub struct D3DUmdLogging_RundownAllocation {}
 
 impl EventSchema for D3DUmdLogging_RundownAllocation {
     fn provider_guid(&self) -> GUID {
-        GUID::from("A688EE40-D8D9-4736-B6F9-6B74935BA3B1")
+        GUID::try_from("A688EE40-D8D9-4736-B6F9-6B74935BA3B1").unwrap()
     }
 
     fn event_id(&self) -> u16 {
@@ -834,7 +834,7 @@ pub struct D3DUmdLogging_UnmapAllocation {}
 
 impl EventSchema for D3DUmdLogging_UnmapAllocation {
     fn provider_guid(&self) -> GUID {
-        GUID::from("A688EE40-D8D9-4736-B6F9-6B74935BA3B1")
+        GUID::try_from("A688EE40-D8D9-4736-B6F9-6B74935BA3B1").unwrap()
     }
 
     fn event_id(&self) -> u16 {

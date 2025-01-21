@@ -2,8 +2,8 @@
 use std::str::Utf8Error;
 
 use windows::core::PSTR;
-use windows::Win32::Foundation::{LocalFree, HLOCAL, PSID};
-use windows::Win32::Security;
+use windows::Win32::Foundation::{LocalFree, HLOCAL};
+use windows::Win32::Security::{self, PSID};
 
 /// SDDL native error
 #[derive(Debug)]
@@ -46,7 +46,7 @@ pub fn convert_sid_to_string(sid: *const u8) -> SddlResult<String> {
             .to_str()?
             .to_owned();
 
-        let _ = LocalFree(HLOCAL(tmp.0 as *mut _));
+        let _ = LocalFree(Some(HLOCAL(tmp.0 as *mut _)));
 
         Ok(sid_string)
     }

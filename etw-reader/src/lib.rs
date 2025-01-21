@@ -88,7 +88,7 @@ pub fn open_trace<F: FnMut(&EventRecord)>(
     let path = HSTRING::from(path.as_os_str());
     #[cfg(not(windows))]
     let path = HSTRING::from(path.to_string_lossy().to_string());
-    log_file.0.LogFileName = PWSTR(path.as_wide().as_ptr() as *mut _);
+    log_file.0.LogFileName = PWSTR(path.as_ptr() as *mut _);
     log_file.0.Anonymous1.ProcessTraceMode =
         Etw::PROCESS_TRACE_MODE_EVENT_RECORD | Etw::PROCESS_TRACE_MODE_RAW_TIMESTAMP;
     let mut cb: &mut dyn FnMut(&EventRecord) = &mut callback;
@@ -217,7 +217,7 @@ impl Provider {
     }
 
     pub fn by_guid(mut self, guid: &str) -> Self {
-        self.guid = Some(GUID::from(guid));
+        self.guid = Some(GUID::try_from(guid).unwrap());
         self
     }
 }
@@ -243,7 +243,7 @@ pub struct Provider {
 pub fn start_trace<F: FnMut(&EventRecord)>(mut callback: F) {
     // let guid_str = "22fb2cd6-0e7b-422b-a0c7-2fad1fd0e716";
     let guid_str = "DB6F6DDB-AC77-4E88-8253-819DF9BBF140";
-    let video_blt_guid = GUID::from(guid_str); //GUID::from("DB6F6DDB-AC77-4E88-8253-819DF9BBF140");
+    let video_blt_guid = GUID::try_from(guid_str).unwrap(); //GUID::from("DB6F6DDB-AC77-4E88-8253-819DF9BBF140");
 
     let session_name = h!("aaaaaa");
 
