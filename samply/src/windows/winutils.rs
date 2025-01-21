@@ -5,7 +5,7 @@ use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::ptr::null_mut;
 
 use windows::core::{PCWSTR, PWSTR};
-use windows::Win32::Foundation::{CloseHandle, GetLastError, FALSE, HANDLE, LUID, MAX_PATH};
+use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, LUID, MAX_PATH};
 use windows::Win32::Security::{
     AdjustTokenPrivileges, GetTokenInformation, LookupPrivilegeValueW, TokenElevation,
     SE_PRIVILEGE_ENABLED, TOKEN_ADJUST_PRIVILEGES, TOKEN_ELEVATION, TOKEN_PRIVILEGES, TOKEN_QUERY,
@@ -75,7 +75,7 @@ pub fn enable_debug_privilege() {
 
         if AdjustTokenPrivileges(
             h_token,
-            FALSE,
+            false,
             Some(&tp),
             std::mem::size_of::<TOKEN_PRIVILEGES>() as u32,
             None,
