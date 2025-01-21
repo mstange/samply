@@ -518,7 +518,9 @@ impl TryParse<GUID> for Parser<'_> {
                         return Err(ParserError::LengthMismatch);
                     }
 
-                    return Ok(GUID::from(guid_string.as_str()));
+                    return GUID::try_from(guid_string.as_str()).map_err(|_| {
+                        ParserError::PropertyError(format!("Error parsing GUID {guid_string}"))
+                    });
                 }
                 TdhInType::InTypeGuid => {
                     return Ok(GUID::from_values(
