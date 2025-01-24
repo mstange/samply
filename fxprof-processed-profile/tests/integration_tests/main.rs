@@ -150,7 +150,7 @@ fn profile_without_js() {
     profile.add_sample(
         thread,
         Timestamp::from_millis_since_reference(0.0),
-        vec![].into_iter(),
+        None,
         CpuDelta::ZERO,
         1,
     );
@@ -205,9 +205,8 @@ fn profile_without_js() {
         (0x000055ba9ebf6000u64 - 0x000055ba9eb4d000u64) as u32,
     );
     let category = profile.add_category("Regular", CategoryColor::Blue);
-    profile.add_sample(
+    let s1 = profile.intern_stack_frames(
         thread,
-        Timestamp::from_millis_since_reference(1.0),
         vec![
             0x7f76b7ffc0e7,
             0x55ba9eda3d7f,
@@ -232,12 +231,16 @@ fn profile_without_js() {
             category_pair: category.into(),
             flags: FrameFlags::empty(),
         }),
-        CpuDelta::ZERO,
-        1,
     );
     profile.add_sample(
         thread,
-        Timestamp::from_millis_since_reference(2.0),
+        Timestamp::from_millis_since_reference(1.0),
+        s1,
+        CpuDelta::ZERO,
+        1,
+    );
+    let s2 = profile.intern_stack_frames(
+        thread,
         vec![
             0x55ba9eda018e,
             0x55ba9ec3c3cf,
@@ -262,12 +265,16 @@ fn profile_without_js() {
             category_pair: category.into(),
             flags: FrameFlags::empty(),
         }),
-        CpuDelta::ZERO,
-        1,
     );
     profile.add_sample(
         thread,
-        Timestamp::from_millis_since_reference(3.0),
+        Timestamp::from_millis_since_reference(2.0),
+        s2,
+        CpuDelta::ZERO,
+        1,
+    );
+    let s3 = profile.intern_stack_frames(
+        thread,
         vec![
             0x7f76b7f019c6,
             0x55ba9edc48f5,
@@ -292,6 +299,11 @@ fn profile_without_js() {
             category_pair: category.into(),
             flags: FrameFlags::empty(),
         }),
+    );
+    profile.add_sample(
+        thread,
+        Timestamp::from_millis_since_reference(3.0),
+        s3,
         CpuDelta::ZERO,
         1,
     );
@@ -1048,9 +1060,8 @@ fn profile_with_js() {
 
     let some_label_string = profile.intern_string("Some label string");
     let category = profile.add_category("Regular", CategoryColor::Green);
-    profile.add_sample(
+    let s1 = profile.intern_stack_frames(
         thread,
-        Timestamp::from_millis_since_reference(1.0),
         vec![
             FrameInfo {
                 frame: Frame::Label(some_label_string),
@@ -1064,6 +1075,11 @@ fn profile_with_js() {
             },
         ]
         .into_iter(),
+    );
+    profile.add_sample(
+        thread,
+        Timestamp::from_millis_since_reference(1.0),
+        s1,
         CpuDelta::ZERO,
         1,
     );
@@ -1302,14 +1318,14 @@ fn profile_counters_with_sorted_processes() {
     profile.add_sample(
         thread0,
         Timestamp::from_millis_since_reference(1.0),
-        vec![].into_iter(),
+        None,
         CpuDelta::ZERO,
         1,
     );
     profile.add_sample(
         thread1,
         Timestamp::from_millis_since_reference(0.0),
-        vec![].into_iter(),
+        None,
         CpuDelta::ZERO,
         1,
     );
