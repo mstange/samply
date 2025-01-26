@@ -135,6 +135,7 @@ pub trait Marker {
 ///                 searchable: true,
 ///             }],
 ///             static_fields: vec![],
+///             graphs: vec![],
 ///         }
 ///     }
 ///
@@ -268,6 +269,7 @@ impl<T: StaticSchemaMarker> Marker for T {
 ///         label: "Description".into(),
 ///         value: "This is a test marker with a custom schema.".into(),
 ///     }],
+///     graphs: vec![],
 /// };
 /// # }
 /// ```
@@ -308,6 +310,9 @@ pub struct MarkerSchema {
     /// The static fields of this marker type, with fixed values that apply to all markers of this type.
     /// These are usually used for things like a human readable marker type description.
     pub static_fields: Vec<MarkerStaticField>,
+
+    /// Any graph tracks created from markers of this type.
+    pub graphs: Vec<MarkerGraphSchema>,
 }
 
 #[derive(Debug, Clone)]
@@ -324,6 +329,9 @@ pub struct InternalMarkerSchema {
 
     /// The marker fields. These can be specified on each marker.
     fields: Vec<MarkerFieldSchema>,
+
+    /// Any graph tracks created from markers of this type
+    graphs: Vec<MarkerGraphSchema>,
 
     string_field_count: usize,
     number_field_count: usize,
@@ -352,6 +360,7 @@ impl From<MarkerSchema> for InternalMarkerSchema {
             tooltip_label: schema.tooltip_label,
             table_label: schema.table_label,
             fields: schema.fields,
+            graphs: schema.graphs,
             string_field_count,
             number_field_count,
             static_fields: schema.static_fields,
@@ -389,6 +398,9 @@ impl InternalMarkerSchema {
             map.serialize_entry("tableLabel", label)?;
         }
         map.serialize_entry("data", &SerializableSchemaFields(self))?;
+        if !self.graphs.is_empty() {
+            map.serialize_entry("graphs", &self.graphs)?;
+        }
         map.end()
     }
 
@@ -588,4 +600,44 @@ impl MarkerFieldFormat {
             | Self::Decimal => MarkerFieldFormatKind::Number,
         }
     }
+}
+
+/// How the marker should be rendered in the UI.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MarkerGraphType {
+    /// As a bar graph.
+    Bar,
+    /// As lines.
+    Line,
+    /// As lines that are colored underneath.
+    LineFilled,
+}
+
+/// Color to use for a marker graph.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GraphColor {
+    Blue,
+    Green,
+    Grey,
+    Ink,
+    Magenta,
+    Orange,
+    Purple,
+    Red,
+    Teal,
+    Yellow,
+}
+
+/// How to graph a marker.
+#[derive(Clone, Debug, Serialize)]
+pub struct MarkerGraphSchema {
+    /// Refers to the field in the marker to graph.
+    pub key: &'static str,
+    /// How to render the marker.
+    #[serde(rename = "type")]
+    pub graph_type: MarkerGraphType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<GraphColor>,
 }

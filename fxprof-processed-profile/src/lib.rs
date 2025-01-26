@@ -68,12 +68,13 @@ pub use global_lib_table::{LibraryHandle, UsedLibraryAddressesIterator};
 pub use lib_mappings::LibMappings;
 pub use library_info::{LibraryInfo, Symbol, SymbolTable};
 pub use markers::{
-    Marker, MarkerFieldFormat, MarkerFieldFormatKind, MarkerFieldSchema, MarkerHandle,
-    MarkerLocation, MarkerSchema, MarkerStaticField, MarkerTiming, MarkerTypeHandle,
-    StaticSchemaMarker,
+    GraphColor, Marker, MarkerFieldFormat, MarkerFieldFormatKind, MarkerFieldSchema,
+    MarkerGraphSchema, MarkerGraphType, MarkerHandle, MarkerLocation, MarkerSchema,
+    MarkerStaticField, MarkerTiming, MarkerTypeHandle, StaticSchemaMarker,
 };
 pub use process::ThreadHandle;
 pub use profile::{FrameHandle, Profile, SamplingInterval, StackHandle, StringHandle};
 pub use reference_timestamp::ReferenceTimestamp;
+pub use sample_table::WeightType;
 pub use thread::ProcessHandle;
 pub use timestamp::*;

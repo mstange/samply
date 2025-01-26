@@ -26,6 +26,7 @@ impl StaticSchemaMarker for JitFunctionAddMarker {
                 label: "Description".into(),
                 value: "Emitted when a JIT function is added to the process.".into(),
             }],
+            graphs: vec![],
         }
     }
 

@@ -171,6 +171,7 @@ impl StaticSchemaMarker for RssStatMarker {
                 label: "Description".into(),
                 value: "Emitted when the kmem:rss_stat tracepoint is hit.".into(),
             }],
+            graphs: vec![],
         }
     }
 
@@ -215,6 +216,7 @@ impl StaticSchemaMarker for OtherEventMarker {
                     "Emitted for any records in a perf.data file which don't map to a known event."
                         .into(),
             }],
+            graphs: vec![],
         }
     }
 
@@ -258,6 +260,7 @@ impl StaticSchemaMarker for UserTimingMarker {
                 label: "Description".into(),
                 value: "Emitted for performance.mark and performance.measure.".into(),
             }],
+            graphs: vec![],
         }
     }
 
@@ -295,6 +298,7 @@ impl StaticSchemaMarker for SchedSwitchMarkerOnCpuTrack {
                 label: "Description".into(),
                 value: "Emitted just before a running thread gets moved off-cpu.".into(),
             }],
+            graphs: vec![],
         }
     }
 
@@ -340,6 +344,7 @@ impl StaticSchemaMarker for SchedSwitchMarkerOnThreadTrack {
                 label: "Description".into(),
                 value: "Emitted just before a running thread gets moved off-cpu.".into(),
             }],
+            graphs: vec![],
         }
     }
 
@@ -383,6 +388,7 @@ impl StaticSchemaMarker for SimpleMarker {
                 label: "Description".into(),
                 value: "Emitted for marker spans in a markers text file.".into(),
             }],
+            graphs: vec![],
         }
     }
 

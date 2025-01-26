@@ -13,7 +13,7 @@ use crate::Timestamp;
 /// it in the profile.
 #[derive(Debug, Clone)]
 pub struct SampleTable {
-    sample_type: WeightType,
+    sample_weight_type: WeightType,
     sample_weights: Vec<i32>,
     sample_timestamps: Vec<Timestamp>,
     /// An index into the thread's stack table for each sample. `None` means the empty stack.
@@ -107,7 +107,7 @@ impl Serialize for WeightType {
 impl SampleTable {
     pub fn new() -> Self {
         Self {
-            sample_type: WeightType::Samples,
+            sample_weight_type: WeightType::Samples,
             sample_weights: Vec::new(),
             sample_timestamps: Vec::new(),
             sample_stack_indexes: Vec::new(),
@@ -134,6 +134,10 @@ impl SampleTable {
         self.last_sample_timestamp = timestamp;
     }
 
+    pub fn set_weight_type(&mut self, t: WeightType) {
+        self.sample_weight_type = t;
+    }
+
     pub fn modify_last_sample(&mut self, timestamp: Timestamp, weight: i32) {
         *self.sample_weights.last_mut().unwrap() += weight;
         *self.sample_timestamps.last_mut().unwrap() = timestamp;
@@ -145,7 +149,7 @@ impl Serialize for SampleTable {
         let len = self.sample_timestamps.len();
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry("length", &len)?;
-        map.serialize_entry("weightType", &self.sample_type.to_string())?;
+        map.serialize_entry("weightType", &self.sample_weight_type.to_string())?;
 
         if self.sorted_by_time {
             map.serialize_entry("stack", &self.sample_stack_indexes)?;
