@@ -423,7 +423,11 @@ impl Profile {
         self.threads[thread.0].set_tid(tid);
     }
 
-    /// Set whether to render markers in a thread's timeline view.
+    /// Set whether to show a timeline view displaying [`MarkerLocation::TimelineOverview`](crate::MarkerLocation::TimelineOverview)
+    /// markers for this thread.
+    ///
+    /// Main threads always have such a timeline view and always display such markers,
+    /// but non-main threads only do so when specified using this method.
     pub fn set_thread_show_markers_in_timeline(&mut self, thread: ThreadHandle, v: bool) {
         self.threads[thread.0].set_show_markers_in_timeline(v);
     }
@@ -893,6 +897,29 @@ impl Profile {
     ///
     /// Setting to true prevents the Firefox Profiler from attempting to
     /// resolve symbols.
+    ///
+    /// By default, this is set to false. This causes the Firefox Profiler
+    /// to look up symbols for any address-based [`Frame`], i.e. any frame
+    /// which is not a [`Frame::Label`].
+    ///
+    /// If you use address-based frames and supply your own symbols using
+    /// [`Profile::add_lib`] or [`Profile::set_lib_symbol_table`], you can
+    /// choose to set this to true and avoid another symbol lookup, or you
+    /// can leave it set to false if there is a way to obtain richer symbol
+    /// information than the information supplied in those symbol tables.
+    ///
+    /// For example, when samply creates a profile which includes JIT frames,
+    /// and there is a Jitdump file with symbol information about those JIT
+    /// frames, samply uses [`Profile::set_lib_symbol_table`] to provide
+    /// the function names for the JIT functions. But it does not call
+    /// [`Profile::set_symbolicated`] with true, because the Jitdump files may
+    /// include additional information that's not in the [`SymbolTable`],
+    /// specifically the Jitdump file may have file name and line number information.
+    /// This information is only added into the profile by the Firefox Profiler's
+    /// resolution of symbols: The Firefox Profiler requests symbol information
+    /// for the JIT frame addresses from samply's symbol server, at which point
+    /// samply obtains the richer information from the Jitdump file and returns
+    /// it via the symbol server response.
     pub fn set_symbolicated(&mut self, v: bool) {
         self.symbolicated = v;
     }

@@ -311,7 +311,16 @@ pub struct MarkerSchema {
     /// These are usually used for things like a human readable marker type description.
     pub static_fields: Vec<MarkerStaticField>,
 
-    /// Any graph tracks created from markers of this type.
+    /// Any graph lines / segments created from markers of this type.
+    ///
+    /// If this is non-empty, the Firefox Profiler will create one graph track per
+    /// marker *name*, per thread, based on the markers it sees on that thread.
+    /// The marker name becomes the track's label.
+    ///
+    /// The elements in the graphs array describe individual graph lines or bar
+    /// chart segments which are all drawn inside the same track, stacked on top of
+    /// each other, in the order that they're listed here, with the first entry
+    /// becoming the bottom-most graph segment within the track.
     pub graphs: Vec<MarkerGraphSchema>,
 }
 
@@ -450,7 +459,9 @@ impl Serialize for SerializableSchemaFields<'_> {
 pub enum MarkerLocation {
     MarkerChart,
     MarkerTable,
-    /// This adds markers to the main marker timeline in the header.
+    /// This adds markers to the main marker timeline in the header, but only
+    /// for main threads and for threads that were specifically asked to show
+    /// these markers using [`Profile::set_thread_show_markers_in_timeline`].
     TimelineOverview,
     /// In the timeline, this is a section that breaks out markers that are
     /// related to memory. When memory counters are enabled, this is its own
@@ -602,7 +613,7 @@ impl MarkerFieldFormat {
     }
 }
 
-/// How the marker should be rendered in the UI.
+/// The type of a graph segment within a marker graph.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum MarkerGraphType {
@@ -614,7 +625,7 @@ pub enum MarkerGraphType {
     LineFilled,
 }
 
-/// Color to use for a marker graph.
+/// The color used for a graph segment within a marker graph.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum GraphColor {
@@ -630,14 +641,18 @@ pub enum GraphColor {
     Yellow,
 }
 
-/// How to graph a marker.
+/// One segment within a marker graph track.
 #[derive(Clone, Debug, Serialize)]
 pub struct MarkerGraphSchema {
-    /// Refers to the field in the marker to graph.
+    /// The key of a number field that's declared in the marker schema.
+    ///
+    /// The values of this field are the values of this graph line /
+    /// bar graph segment.
     pub key: &'static str,
-    /// How to render the marker.
+    /// Whether this marker graph segment is a line or a bar graph segment.
     #[serde(rename = "type")]
     pub graph_type: MarkerGraphType,
+    /// The color of the graph segment. If `None`, the choice is up to the front-end.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<GraphColor>,
 }
