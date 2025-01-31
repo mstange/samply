@@ -5,9 +5,9 @@ use assert_json_diff::assert_json_eq;
 use debugid::DebugId;
 use fxprof_processed_profile::{
     CategoryColor, CategoryHandle, CpuDelta, Frame, FrameFlags, FrameInfo, GraphColor, LibraryInfo,
-    MarkerFieldFormat, MarkerFieldSchema, MarkerGraphSchema, MarkerGraphType, MarkerLocation,
-    MarkerSchema, MarkerStaticField, MarkerTiming, Profile, ReferenceTimestamp, SamplingInterval,
-    StaticSchemaMarker, StringHandle, Symbol, SymbolTable, Timestamp, WeightType,
+    MarkerFieldFlags, MarkerFieldFormat, MarkerGraphType, MarkerTiming, Profile,
+    ReferenceTimestamp, SamplingInterval, StaticSchemaMarker, StaticSchemaMarkerField,
+    StaticSchemaMarkerGraph, StringHandle, Symbol, SymbolTable, Timestamp, WeightType,
 };
 use serde_json::json;
 
@@ -22,24 +22,14 @@ pub struct TextMarker {
 
 impl StaticSchemaMarker for TextMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "Text";
-
-    fn schema() -> MarkerSchema {
-        MarkerSchema {
-            type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
-            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
-            chart_label: Some("{marker.data.name}".into()),
-            tooltip_label: None,
-            table_label: Some("{marker.name} - {marker.data.name}".into()),
-            fields: vec![MarkerFieldSchema {
-                key: "name".into(),
-                label: "Details".into(),
-                format: MarkerFieldFormat::String,
-                searchable: true,
-            }],
-            static_fields: vec![],
-            graphs: vec![],
-        }
-    }
+    const CHART_LABEL: Option<&'static str> = Some("{marker.data.name}");
+    const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.name}");
+    const FIELDS: &'static [StaticSchemaMarkerField] = &[StaticSchemaMarkerField {
+        key: "name",
+        label: "Details",
+        format: MarkerFieldFormat::String,
+        flags: MarkerFieldFlags::SEARCHABLE,
+    }];
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
         self.name
@@ -68,52 +58,43 @@ fn profile_without_js() {
     }
     impl StaticSchemaMarker for CustomMarker {
         const UNIQUE_MARKER_TYPE_NAME: &'static str = "custom";
+        const TOOLTIP_LABEL: Option<&'static str> = Some("Custom tooltip label");
 
-        fn schema() -> MarkerSchema {
-            MarkerSchema {
-                type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
-                locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
-                chart_label: None,
-                tooltip_label: Some("Custom tooltip label".into()),
-                table_label: None,
-                fields: vec![
-                    MarkerFieldSchema {
-                        key: "eventName".into(),
-                        label: "Event name".into(),
-                        format: MarkerFieldFormat::String,
-                        searchable: true,
-                    },
-                    MarkerFieldSchema {
-                        key: "allocationSize".into(),
-                        label: "Allocation size".into(),
-                        format: MarkerFieldFormat::Bytes,
-                        searchable: true,
-                    },
-                    MarkerFieldSchema {
-                        key: "url".into(),
-                        label: "URL".into(),
-                        format: MarkerFieldFormat::Url,
-                        searchable: true,
-                    },
-                    MarkerFieldSchema {
-                        key: "latency".into(),
-                        label: "Latency".into(),
-                        format: MarkerFieldFormat::Duration,
-                        searchable: true,
-                    },
-                ],
-                static_fields: vec![MarkerStaticField {
-                    label: "Description".into(),
-                    value: "This is a test marker with a custom schema.".into(),
-                }],
+        const FIELDS: &'static [StaticSchemaMarkerField] = &[
+            StaticSchemaMarkerField {
+                key: "eventName",
+                label: "Event name",
+                format: MarkerFieldFormat::String,
+                flags: MarkerFieldFlags::SEARCHABLE,
+            },
+            StaticSchemaMarkerField {
+                key: "allocationSize",
+                label: "Allocation size",
+                format: MarkerFieldFormat::Bytes,
+                flags: MarkerFieldFlags::SEARCHABLE,
+            },
+            StaticSchemaMarkerField {
+                key: "url",
+                label: "URL",
+                format: MarkerFieldFormat::Url,
+                flags: MarkerFieldFlags::SEARCHABLE,
+            },
+            StaticSchemaMarkerField {
+                key: "latency",
+                label: "Latency",
+                format: MarkerFieldFormat::Duration,
+                flags: MarkerFieldFlags::SEARCHABLE,
+            },
+        ];
 
-                graphs: vec![MarkerGraphSchema {
-                    key: "latency",
-                    graph_type: MarkerGraphType::Line,
-                    color: Some(GraphColor::Green),
-                }],
-            }
-        }
+        const DESCRIPTION: Option<&'static str> =
+            Some("This is a test marker with a custom schema.");
+
+        const GRAPHS: &'static [StaticSchemaMarkerGraph] = &[StaticSchemaMarkerGraph {
+            key: "latency",
+            graph_type: MarkerGraphType::Line,
+            color: Some(GraphColor::Green),
+        }];
 
         fn name(&self, profile: &mut Profile) -> StringHandle {
             profile.intern_string("CustomName")

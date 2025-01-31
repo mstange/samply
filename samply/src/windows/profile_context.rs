@@ -4,9 +4,9 @@ use std::path::Path;
 use debugid::DebugId;
 use fxprof_processed_profile::{
     CategoryColor, CategoryHandle, CounterHandle, CpuDelta, Frame, FrameFlags, FrameInfo,
-    LibraryHandle, LibraryInfo, Marker, MarkerFieldFormat, MarkerFieldSchema, MarkerHandle,
-    MarkerLocation, MarkerSchema, MarkerTiming, ProcessHandle, Profile, SamplingInterval,
-    StaticSchemaMarker, StringHandle, ThreadHandle, Timestamp,
+    LibraryHandle, LibraryInfo, Marker, MarkerFieldFlags, MarkerFieldFormat, MarkerHandle,
+    MarkerLocations, MarkerTiming, ProcessHandle, Profile, SamplingInterval, StaticSchemaMarker,
+    StaticSchemaMarkerField, StringHandle, ThreadHandle, Timestamp,
 };
 use shlex::Shlex;
 use wholesym::PeCodeId;
@@ -1563,22 +1563,11 @@ impl ProfileContext {
         impl StaticSchemaMarker for VSyncMarker {
             const UNIQUE_MARKER_TYPE_NAME: &'static str = "Vsync";
 
-            fn schema() -> MarkerSchema {
-                MarkerSchema {
-                    type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
-                    locations: vec![
-                        MarkerLocation::MarkerChart,
-                        MarkerLocation::MarkerTable,
-                        MarkerLocation::TimelineOverview,
-                    ],
-                    chart_label: Some("{marker.data.name}".into()),
-                    tooltip_label: None,
-                    table_label: Some("{marker.name}".into()),
-                    fields: vec![],
-                    static_fields: vec![],
-                    graphs: vec![],
-                }
-            }
+            const LOCATIONS: MarkerLocations = MarkerLocations::MARKER_CHART
+                .union(MarkerLocations::MARKER_TABLE)
+                .union(MarkerLocations::TIMELINE_OVERVIEW);
+
+            const FIELDS: &'static [StaticSchemaMarkerField] = &[];
 
             fn name(&self, profile: &mut Profile) -> StringHandle {
                 profile.intern_string("Vsync")
@@ -2243,23 +2232,16 @@ pub struct FreeformMarker(StringHandle, StringHandle, CategoryHandle);
 impl StaticSchemaMarker for FreeformMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "FreeformMarker";
 
-    fn schema() -> MarkerSchema {
-        MarkerSchema {
-            type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
-            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
-            chart_label: Some("{marker.data.values}".into()),
-            tooltip_label: Some("{marker.name} - {marker.data.values}".into()),
-            table_label: Some("{marker.data.values}".into()),
-            fields: vec![MarkerFieldSchema {
-                key: "values".into(),
-                label: "Values".into(),
-                format: MarkerFieldFormat::String,
-                searchable: true,
-            }],
-            static_fields: vec![],
-            graphs: vec![],
-        }
-    }
+    const CHART_LABEL: Option<&'static str> = Some("{marker.data.values}");
+    const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.values}");
+    const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.values");
+
+    const FIELDS: &'static [StaticSchemaMarkerField] = &[StaticSchemaMarkerField {
+        key: "values",
+        label: "Values",
+        format: MarkerFieldFormat::String,
+        flags: MarkerFieldFlags::SEARCHABLE,
+    }];
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
         self.0
