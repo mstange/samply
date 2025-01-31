@@ -135,6 +135,7 @@ pub trait Marker {
 ///                 searchable: true,
 ///             }],
 ///             static_fields: vec![],
+///             graphs: vec![],
 ///         }
 ///     }
 ///
@@ -268,6 +269,7 @@ impl<T: StaticSchemaMarker> Marker for T {
 ///         label: "Description".into(),
 ///         value: "This is a test marker with a custom schema.".into(),
 ///     }],
+///     graphs: vec![],
 /// };
 /// # }
 /// ```
@@ -308,6 +310,18 @@ pub struct MarkerSchema {
     /// The static fields of this marker type, with fixed values that apply to all markers of this type.
     /// These are usually used for things like a human readable marker type description.
     pub static_fields: Vec<MarkerStaticField>,
+
+    /// Any graph lines / segments created from markers of this type.
+    ///
+    /// If this is non-empty, the Firefox Profiler will create one graph track per
+    /// marker *name*, per thread, based on the markers it sees on that thread.
+    /// The marker name becomes the track's label.
+    ///
+    /// The elements in the graphs array describe individual graph lines or bar
+    /// chart segments which are all drawn inside the same track, stacked on top of
+    /// each other, in the order that they're listed here, with the first entry
+    /// becoming the bottom-most graph segment within the track.
+    pub graphs: Vec<MarkerGraphSchema>,
 }
 
 #[derive(Debug, Clone)]
@@ -324,6 +338,9 @@ pub struct InternalMarkerSchema {
 
     /// The marker fields. These can be specified on each marker.
     fields: Vec<MarkerFieldSchema>,
+
+    /// Any graph tracks created from markers of this type
+    graphs: Vec<MarkerGraphSchema>,
 
     string_field_count: usize,
     number_field_count: usize,
@@ -352,6 +369,7 @@ impl From<MarkerSchema> for InternalMarkerSchema {
             tooltip_label: schema.tooltip_label,
             table_label: schema.table_label,
             fields: schema.fields,
+            graphs: schema.graphs,
             string_field_count,
             number_field_count,
             static_fields: schema.static_fields,
@@ -389,6 +407,9 @@ impl InternalMarkerSchema {
             map.serialize_entry("tableLabel", label)?;
         }
         map.serialize_entry("data", &SerializableSchemaFields(self))?;
+        if !self.graphs.is_empty() {
+            map.serialize_entry("graphs", &self.graphs)?;
+        }
         map.end()
     }
 
@@ -438,7 +459,9 @@ impl Serialize for SerializableSchemaFields<'_> {
 pub enum MarkerLocation {
     MarkerChart,
     MarkerTable,
-    /// This adds markers to the main marker timeline in the header.
+    /// This adds markers to the main marker timeline in the header, but only
+    /// for main threads and for threads that were specifically asked to show
+    /// these markers using [`Profile::set_thread_show_markers_in_timeline`].
     TimelineOverview,
     /// In the timeline, this is a section that breaks out markers that are
     /// related to memory. When memory counters are enabled, this is its own
@@ -588,4 +611,48 @@ impl MarkerFieldFormat {
             | Self::Decimal => MarkerFieldFormatKind::Number,
         }
     }
+}
+
+/// The type of a graph segment within a marker graph.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MarkerGraphType {
+    /// As a bar graph.
+    Bar,
+    /// As lines.
+    Line,
+    /// As lines that are colored underneath.
+    LineFilled,
+}
+
+/// The color used for a graph segment within a marker graph.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GraphColor {
+    Blue,
+    Green,
+    Grey,
+    Ink,
+    Magenta,
+    Orange,
+    Purple,
+    Red,
+    Teal,
+    Yellow,
+}
+
+/// One segment within a marker graph track.
+#[derive(Clone, Debug, Serialize)]
+pub struct MarkerGraphSchema {
+    /// The key of a number field that's declared in the marker schema.
+    ///
+    /// The values of this field are the values of this graph line /
+    /// bar graph segment.
+    pub key: &'static str,
+    /// Whether this marker graph segment is a line or a bar graph segment.
+    #[serde(rename = "type")]
+    pub graph_type: MarkerGraphType,
+    /// The color of the graph segment. If `None`, the choice is up to the front-end.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<GraphColor>,
 }

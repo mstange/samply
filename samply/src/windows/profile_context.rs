@@ -1576,6 +1576,7 @@ impl ProfileContext {
                     table_label: Some("{marker.name}".into()),
                     fields: vec![],
                     static_fields: vec![],
+                    graphs: vec![],
                 }
             }
 
@@ -2256,6 +2257,7 @@ impl StaticSchemaMarker for FreeformMarker {
                 searchable: true,
             }],
             static_fields: vec![],
+            graphs: vec![],
         }
     }
 

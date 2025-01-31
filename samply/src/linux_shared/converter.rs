@@ -1916,6 +1916,7 @@ impl StaticSchemaMarker for MmapMarker {
                 searchable: true,
             }],
             static_fields: vec![],
+            graphs: vec![],
         }
     }
 

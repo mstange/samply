@@ -4,10 +4,10 @@ use std::time::Duration;
 use assert_json_diff::assert_json_eq;
 use debugid::DebugId;
 use fxprof_processed_profile::{
-    CategoryColor, CategoryHandle, CpuDelta, Frame, FrameFlags, FrameInfo, LibraryInfo,
-    MarkerFieldFormat, MarkerFieldSchema, MarkerLocation, MarkerSchema, MarkerStaticField,
-    MarkerTiming, Profile, ReferenceTimestamp, SamplingInterval, StaticSchemaMarker, StringHandle,
-    Symbol, SymbolTable, Timestamp,
+    CategoryColor, CategoryHandle, CpuDelta, Frame, FrameFlags, FrameInfo, GraphColor, LibraryInfo,
+    MarkerFieldFormat, MarkerFieldSchema, MarkerGraphSchema, MarkerGraphType, MarkerLocation,
+    MarkerSchema, MarkerStaticField, MarkerTiming, Profile, ReferenceTimestamp, SamplingInterval,
+    StaticSchemaMarker, StringHandle, Symbol, SymbolTable, Timestamp, WeightType,
 };
 use serde_json::json;
 
@@ -37,6 +37,7 @@ impl StaticSchemaMarker for TextMarker {
                 searchable: true,
             }],
             static_fields: vec![],
+            graphs: vec![],
         }
     }
 
@@ -104,6 +105,12 @@ fn profile_without_js() {
                 static_fields: vec![MarkerStaticField {
                     label: "Description".into(),
                     value: "This is a test marker with a custom schema.".into(),
+                }],
+
+                graphs: vec![MarkerGraphSchema {
+                    key: "latency",
+                    graph_type: MarkerGraphType::Line,
+                    color: Some(GraphColor::Green),
                 }],
             }
         }
@@ -334,6 +341,7 @@ fn profile_without_js() {
 
     let memory_counter =
         profile.add_counter(process, "malloc", "Memory", "Amount of allocated memory");
+    profile.set_counter_color(memory_counter, GraphColor::Red);
     profile.add_counter_sample(
         memory_counter,
         Timestamp::from_millis_since_reference(0.0),
@@ -422,6 +430,13 @@ fn profile_without_js() {
                   "display": [
                     "marker-chart",
                     "marker-table"
+                  ],
+                  "graphs": [
+                    {
+                      "key": "latency",
+                      "type": "line",
+                      "color": "green"
+                    }
                   ],
                   "tooltipLabel": "Custom tooltip label",
                   "data": [
@@ -981,6 +996,7 @@ fn profile_without_js() {
                     0
                   ]
                 },
+                "showMarkersInTimeline": false,
                 "stringArray": [
                   "0x7ffdb4824837",
                   "dump_syms",
@@ -1006,7 +1022,7 @@ fn profile_without_js() {
                   "My event"
                 ],
                 "tid": "12345",
-                "unregisterTime": null
+                "unregisterTime": null,
               }
             ],
             "pages": [],
@@ -1014,6 +1030,7 @@ fn profile_without_js() {
             "counters": [
               {
                 "category": "Memory",
+                "color": "red",
                 "name": "malloc",
                 "description": "Amount of allocated memory",
                 "mainThreadIndex": 0,
@@ -1256,6 +1273,7 @@ fn profile_with_js() {
                     0
                   ]
                 },
+                "showMarkersInTimeline": false,
                 "stackTable": {
                   "length": 2,
                   "prefix": [
@@ -1315,6 +1333,8 @@ fn profile_counters_with_sorted_processes() {
         true,
     );
 
+    profile.set_thread_show_markers_in_timeline(thread0, true);
+
     profile.add_sample(
         thread0,
         Timestamp::from_millis_since_reference(1.0),
@@ -1347,6 +1367,13 @@ fn profile_counters_with_sorted_processes() {
         0,
     );
 
+    profile.set_symbolicated(true);
+
+    profile.add_initial_visible_thread(thread1);
+    profile.add_initial_selected_thread(thread1);
+
+    profile.set_thread_samples_weight_type(thread0, WeightType::Bytes);
+
     // eprintln!("{}", serde_json::to_string_pretty(&profile).unwrap());
     assert_json_eq!(
         profile,
@@ -1369,6 +1396,8 @@ fn profile_counters_with_sorted_processes() {
                 "length": 0,
                 "name": []
               },
+              "initialSelectedThreads": [0],
+              "initialVisibleThreads": [0],
               "interval": 1.0,
               "preprocessedProfileVersion": 49,
               "processType": 0,
@@ -1379,7 +1408,7 @@ fn profile_counters_with_sorted_processes() {
                 "time": "ms"
               },
               "startTime": 1636162232627.0,
-              "symbolicated": false,
+              "symbolicated": true,
               "pausedRanges": [],
               "version": 24,
               "usesOnlyOneStackType": true,
@@ -1461,6 +1490,7 @@ fn profile_counters_with_sorted_processes() {
                     0
                   ]
                 },
+                "showMarkersInTimeline": false,
                 "stackTable": {
                   "length": 0,
                   "prefix": [],
@@ -1539,11 +1569,12 @@ fn profile_counters_with_sorted_processes() {
                   "weight": [
                     1
                   ],
-                  "weightType": "samples",
+                  "weightType": "bytes",
                   "threadCPUDelta": [
                     0
                   ]
                 },
+                "showMarkersInTimeline": true,
                 "stackTable": {
                   "length": 0,
                   "prefix": [],

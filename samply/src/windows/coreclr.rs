@@ -243,6 +243,7 @@ impl StaticSchemaMarker for CoreClrGcAllocMarker {
                 label: "Description".into(),
                 value: "GC Allocation.".into(),
             }],
+            graphs: vec![],
         }
     }
 
@@ -290,6 +291,7 @@ impl StaticSchemaMarker for CoreClrGcEventMarker {
                 label: "Description".into(),
                 value: "Generic GC Event.".into(),
             }],
+            graphs: vec![],
         }
     }
 
@@ -773,6 +775,7 @@ impl StaticSchemaMarker for OtherClrMarker {
                 label: "Description".into(),
                 value: "CoreCLR marker of unknown type.".into(),
             }],
+            graphs: vec![],
         }
     }
 

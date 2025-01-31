@@ -12,7 +12,7 @@ use crate::marker_table::MarkerTable;
 use crate::markers::InternalMarkerSchema;
 use crate::native_symbols::NativeSymbols;
 use crate::resource_table::ResourceTable;
-use crate::sample_table::{NativeAllocationsTable, SampleTable};
+use crate::sample_table::{NativeAllocationsTable, SampleTable, WeightType};
 use crate::stack_table::StackTable;
 use crate::string_table::{GlobalStringIndex, GlobalStringTable};
 use crate::thread_string_table::{ThreadInternalStringIndex, ThreadStringTable};
@@ -41,6 +41,7 @@ pub struct Thread {
     string_table: ThreadStringTable,
     last_sample_stack: Option<usize>,
     last_sample_was_zero_cpu: bool,
+    show_markers_in_timeline: bool,
 }
 
 impl Thread {
@@ -63,6 +64,7 @@ impl Thread {
             string_table: ThreadStringTable::new(),
             last_sample_stack: None,
             last_sample_was_zero_cpu: false,
+            show_markers_in_timeline: false,
         }
     }
 
@@ -80,6 +82,10 @@ impl Thread {
 
     pub fn set_tid(&mut self, tid: String) {
         self.tid = tid;
+    }
+
+    pub fn set_show_markers_in_timeline(&mut self, v: bool) {
+        self.show_markers_in_timeline = v;
     }
 
     pub fn process(&self) -> ProcessHandle {
@@ -160,6 +166,10 @@ impl Thread {
                 .add_sample(timestamp, stack_index, CpuDelta::ZERO, weight);
             self.last_sample_was_zero_cpu = true;
         }
+    }
+
+    pub fn set_samples_weight_type(&mut self, t: WeightType) {
+        self.samples.set_weight_type(t);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -262,6 +272,7 @@ impl Thread {
         map.serialize_entry("stringArray", &self.string_table)?;
         map.serialize_entry("tid", &self.tid)?;
         map.serialize_entry("unregisterTime", &thread_unregister_time)?;
+        map.serialize_entry("showMarkersInTimeline", &self.show_markers_in_timeline)?;
         map.end()
     }
 }
