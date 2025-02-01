@@ -128,7 +128,7 @@ Similar advice applies to other compiled languages. For C++, you'll want to make
 
 On macOS, samply cannot profile system commands, such as the `sleep` command or system `python`. This is because system executables are signed in such a way that they block the `DYLD_INSERT_LIBRARIES` environment variable, which breaks samply's ability to siphon out the `mach_port` of the process.
 
-But you can profile any binaries that you've compiled yourself, or which are unsigned or locally-signed (such as anything installed by `cargo install` or by [Homebrew](brew.sh)). In order to attach to running processes on macOS, run `samply setup` once (and every time `samply` is udpated) self-sign the samply binary. 
+But you can profile any binaries that you've compiled yourself, or which are unsigned or locally-signed (such as anything installed by `cargo install` or by [Homebrew](brew.sh)). In order to attach to running processes on macOS, run `samply setup` once (and every time `samply` is updated) self-sign the samply binary.
 
 ## License
 
