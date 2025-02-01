@@ -10,12 +10,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use flate2::write::GzDecoder;
-use mach::task::{task_resume, task_suspend};
-use mach::traps::task_for_pid;
+use mach2::port::{mach_port_t, MACH_PORT_NULL};
+use mach2::task::{task_resume, task_suspend};
+use mach2::traps::{mach_task_self, task_for_pid};
 use tempfile::tempdir;
 
-pub use super::mach_ipc::{mach_port_t, MachError, OsIpcSender};
-use super::mach_ipc::{mach_task_self, BlockingMode, OsIpcMultiShotServer, MACH_PORT_NULL};
+use super::mach_ipc::{BlockingMode, OsIpcMultiShotServer};
+pub use super::mach_ipc::{MachError, OsIpcSender};
 use crate::shared::ctrl_c::CtrlC;
 
 pub trait RootTaskRunner {

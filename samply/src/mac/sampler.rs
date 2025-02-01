@@ -5,7 +5,7 @@ use std::{mem, thread};
 
 use crossbeam_channel::Receiver;
 use fxprof_processed_profile::{CategoryColor, CategoryPairHandle, Profile, ReferenceTimestamp};
-use mach::port::mach_port_t;
+use mach2::port::mach_port_t;
 
 use super::error::SamplingError;
 use super::task_profiler::TaskProfiler;

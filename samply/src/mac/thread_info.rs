@@ -5,8 +5,8 @@
 
 use std::mem::size_of;
 
-use mach::message::mach_msg_type_number_t;
-use mach::vm_types::{integer_t, natural_t};
+use mach2::message::mach_msg_type_number_t;
+use mach2::vm_types::{integer_t, natural_t};
 
 pub const THREAD_INFO_MAX: u32 = 32;
 pub const THREAD_BASIC_INFO: u32 = 3;

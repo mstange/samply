@@ -4,8 +4,7 @@ use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use futures_util::AsyncRead;
-use futures_util::AsyncReadExt as _;
+use futures_util::{AsyncRead, AsyncReadExt as _};
 use tokio::io::AsyncWriteExt;
 
 use crate::download::response_to_uncompressed_stream_with_progress;
