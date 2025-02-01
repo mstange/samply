@@ -4,6 +4,8 @@
 
 ## Unreleased - ReleaseDate
 
+## 0.13.1 - 2025-02-01
+
 ## 0.13.0 - 2025-02-01
 
 This release adds Windows support. It uses ETW via `xperf` to record the system activity to an ETL file. Then samply converts the ETL file.

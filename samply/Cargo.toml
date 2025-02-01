@@ -1,6 +1,6 @@
 [package]
 name = "samply"
-version = "0.13.0"
+version = "0.13.1"
 authors = ["Markus Stange <mstange@themasta.com>"]
 edition = "2021"
 rust-version = "1.77" # needed by samply-quota-manager -> rusqlite_migration
