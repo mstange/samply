@@ -466,7 +466,7 @@ impl<'a> TypedEvent<'a> {
     }
 }
 
-impl<'a> PartialEq for TypedEvent<'a> {
+impl PartialEq for TypedEvent<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.schema.event_schema.event_id() == other.schema.event_schema.event_id()
             && self.schema.event_schema.provider_guid() == other.schema.event_schema.provider_guid()
@@ -474,4 +474,4 @@ impl<'a> PartialEq for TypedEvent<'a> {
     }
 }
 
-impl<'a> Eq for TypedEvent<'a> {}
+impl Eq for TypedEvent<'_> {}

@@ -179,9 +179,7 @@ impl<'a> Parser<'a> {
                 // as the size of AppName
 
                 // Fallback to Tdh
-                return Ok(
-                    tdh::property_size(self.event.record(), &property.name).unwrap() as usize,
-                );
+                Ok(tdh::property_size(self.event.record(), &property.name).unwrap() as usize)
             }
             PropertyLength::Length(length) => {
                 // TODO: Study heuristic method used in krabsetw :)
@@ -222,9 +220,7 @@ impl<'a> Parser<'a> {
                         }
                     }
                 }
-                return Ok(
-                    tdh::property_size(self.event.record(), &property.name).unwrap() as usize,
-                );
+                Ok(tdh::property_size(self.event.record(), &property.name).unwrap() as usize)
             }
         }
     }

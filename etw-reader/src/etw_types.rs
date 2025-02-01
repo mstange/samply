@@ -22,7 +22,7 @@ impl Deref for EventRecord {
 
 impl EventRecord {
     pub(crate) fn user_buffer(&self) -> &[u8] {
-        if self.UserData == std::ptr::null_mut() {
+        if self.UserData.is_null() {
             return &[];
         }
         unsafe { std::slice::from_raw_parts(self.UserData as *mut _, self.UserDataLength.into()) }
@@ -71,21 +71,21 @@ pub const EVENT_HEADER_FLAG_32_BIT_HEADER: u16 = Etw::EVENT_HEADER_FLAG_32_BIT_H
 /// [DECODING_SOURCE]: https://microsoft.github.io/windows-docs-rs/doc/bindings/Windows/Win32/Etw/struct.DECODING_SOURCE.html
 #[derive(Debug)]
 pub enum DecodingSource {
-    DecodingSourceXMLFile,
-    DecodingSourceWbem,
-    DecodingSourceWPP,
-    DecodingSourceTlg,
-    DecodingSourceMax,
+    XMLFile,
+    Wbem,
+    Wpp,
+    Tlg,
+    Max,
 }
 
 impl From<Etw::DECODING_SOURCE> for DecodingSource {
     fn from(val: Etw::DECODING_SOURCE) -> Self {
         match val {
-            Etw::DecodingSourceXMLFile => DecodingSource::DecodingSourceXMLFile,
-            Etw::DecodingSourceWbem => DecodingSource::DecodingSourceWbem,
-            Etw::DecodingSourceWPP => DecodingSource::DecodingSourceWPP,
-            Etw::DecodingSourceTlg => DecodingSource::DecodingSourceTlg,
-            _ => DecodingSource::DecodingSourceMax,
+            Etw::DecodingSourceXMLFile => DecodingSource::XMLFile,
+            Etw::DecodingSourceWbem => DecodingSource::Wbem,
+            Etw::DecodingSourceWPP => DecodingSource::Wpp,
+            Etw::DecodingSourceTlg => DecodingSource::Tlg,
+            _ => DecodingSource::Max,
         }
     }
 }
