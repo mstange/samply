@@ -102,8 +102,6 @@ sudo sysctl kernel.perf_event_mlock_kb=2048
 
 Here's a profile from `samply record rustup check`: https://share.firefox.dev/3hteKZZ
 
-I'll add some Linux examples when I get a chance.
-
 ## Turn on debug info for full stacks
 
 If you profile Rust code, make sure to profile a binary which was compiled **in release mode** and **with debug info**. This will give you inline stacks and a working source code view.
