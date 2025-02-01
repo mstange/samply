@@ -11,7 +11,7 @@ readme = "README.md"
 
 [dependencies]
 
-fxprof-processed-profile = { version = "0.7", path = "../fxprof-processed-profile" }
+fxprof-processed-profile = { version = "0.8", path = "../fxprof-processed-profile" }
 # framehop = { path = "../../framehop" }
 framehop = "0.13"
 # linux-perf-data = { path = "../../linux-perf-data" }
