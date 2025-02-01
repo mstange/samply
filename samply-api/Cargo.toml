@@ -14,7 +14,7 @@ default = []
 send_futures = ["samply-symbols/send_futures"]
 
 [dependencies]
-samply-symbols = { version = "0.23.0", path = "../samply-symbols" }
+samply-symbols = { version = "0.24.0", path = "../samply-symbols" }
 thiserror = "2"
 serde = "1.0.204"
 serde_derive = "1.0.188"

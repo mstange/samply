@@ -19,7 +19,7 @@ api = ["samply-api"]
 [dependencies]
 debugid = "0.8.0"
 samply-api = { version = "0.23.1", path = "../samply-api", features = ["send_futures"], optional = true }
-samply-symbols = { version = "0.23.0", path = "../samply-symbols", features = ["send_futures"] }
+samply-symbols = { version = "0.24.0", path = "../samply-symbols", features = ["send_futures"] }
 # symsrv = { path = "../../symsrv" }
 symsrv = "0.5.2"
 yoke = "0.7"
