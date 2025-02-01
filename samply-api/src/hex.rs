@@ -24,7 +24,7 @@ pub fn from_prefixed_hex_str<'de, D>(deserializer: D) -> Result<u32, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    use serde::Deserialize;
+    use serde::de::Deserialize;
     let s = String::deserialize(deserializer)?;
     let s = if let Some(s) = s.strip_prefix("0x") {
         s
