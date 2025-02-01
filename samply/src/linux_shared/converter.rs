@@ -8,8 +8,8 @@ use debugid::DebugId;
 use framehop::{ExplicitModuleSectionInfo, FrameAddress, Module, Unwinder};
 use fxprof_processed_profile::{
     CategoryColor, CategoryHandle, CategoryPairHandle, CpuDelta, LibraryHandle, LibraryInfo,
-    MarkerFieldFormat, MarkerFieldSchema, MarkerLocation, MarkerSchema, MarkerTiming, Profile,
-    ReferenceTimestamp, SamplingInterval, StaticSchemaMarker, StringHandle, SymbolTable,
+    MarkerFieldFlags, MarkerFieldFormat, MarkerTiming, Profile, ReferenceTimestamp,
+    SamplingInterval, StaticSchemaMarker, StaticSchemaMarkerField, StringHandle, SymbolTable,
     ThreadHandle,
 };
 use linux_perf_data::linux_perf_event_reader::TaskWasPreempted;
@@ -1902,23 +1902,13 @@ struct MmapMarker(StringHandle);
 
 impl StaticSchemaMarker for MmapMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "mmap";
-    fn schema() -> MarkerSchema {
-        MarkerSchema {
-            type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
-            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
-            chart_label: Some("{marker.data.name}".into()),
-            tooltip_label: Some("{marker.name} - {marker.data.name}".into()),
-            table_label: Some("{marker.name} - {marker.data.name}".into()),
-            fields: vec![MarkerFieldSchema {
-                key: "name".into(),
-                label: "Details".into(),
-                format: MarkerFieldFormat::String,
-                searchable: true,
-            }],
-            static_fields: vec![],
-            graphs: vec![],
-        }
-    }
+
+    const FIELDS: &'static [StaticSchemaMarkerField] = &[StaticSchemaMarkerField {
+        key: "name",
+        label: "Details",
+        format: MarkerFieldFormat::String,
+        flags: MarkerFieldFlags::SEARCHABLE,
+    }];
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
         profile.intern_string("mmap")

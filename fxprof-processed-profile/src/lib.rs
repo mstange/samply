@@ -68,9 +68,10 @@ pub use global_lib_table::{LibraryHandle, UsedLibraryAddressesIterator};
 pub use lib_mappings::LibMappings;
 pub use library_info::{LibraryInfo, Symbol, SymbolTable};
 pub use markers::{
-    GraphColor, Marker, MarkerFieldFormat, MarkerFieldFormatKind, MarkerFieldSchema,
-    MarkerGraphSchema, MarkerGraphType, MarkerHandle, MarkerLocation, MarkerSchema,
-    MarkerStaticField, MarkerTiming, MarkerTypeHandle, StaticSchemaMarker,
+    GraphColor, Marker, MarkerFieldFlags, MarkerFieldFormat, MarkerFieldFormatKind,
+    MarkerGraphType, MarkerHandle, MarkerLocations, MarkerTiming, MarkerTypeHandle,
+    RuntimeSchemaMarkerField, RuntimeSchemaMarkerGraph, RuntimeSchemaMarkerSchema,
+    StaticSchemaMarker, StaticSchemaMarkerField, StaticSchemaMarkerGraph,
 };
 pub use process::ThreadHandle;
 pub use profile::{FrameHandle, Profile, SamplingInterval, StackHandle, StringHandle};

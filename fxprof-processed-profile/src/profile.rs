@@ -16,8 +16,8 @@ use crate::global_lib_table::{GlobalLibTable, LibraryHandle, UsedLibraryAddresse
 use crate::lib_mappings::LibMappings;
 use crate::library_info::{LibraryInfo, SymbolTable};
 use crate::markers::{
-    GraphColor, InternalMarkerSchema, Marker, MarkerHandle, MarkerSchema, MarkerTiming,
-    MarkerTypeHandle, StaticSchemaMarker,
+    GraphColor, InternalMarkerSchema, Marker, MarkerHandle, MarkerTiming, MarkerTypeHandle,
+    RuntimeSchemaMarkerSchema, StaticSchemaMarker,
 };
 use crate::process::{Process, ThreadHandle};
 use crate::reference_timestamp::ReferenceTimestamp;
@@ -423,7 +423,7 @@ impl Profile {
         self.threads[thread.0].set_tid(tid);
     }
 
-    /// Set whether to show a timeline view displaying [`MarkerLocation::TimelineOverview`](crate::MarkerLocation::TimelineOverview)
+    /// Set whether to show a timeline which displays [`MarkerLocations::TIMELINE_OVERVIEW`](crate::MarkerLocations::TIMELINE_OVERVIEW)
     /// markers for this thread.
     ///
     /// Main threads always have such a timeline view and always display such markers,
@@ -670,7 +670,7 @@ impl Profile {
         );
     }
 
-    /// Registers a marker type, given the type's [`MarkerSchema`]. Usually you only need to call this for
+    /// Registers a marker type for a [`RuntimeSchemaMarkerSchema`]. You only need to call this for
     /// marker types whose schema is dynamically created at runtime.
     ///
     /// After you register the marker type, you'll save its [`MarkerTypeHandle`] somewhere, and then
@@ -678,8 +678,8 @@ impl Profile {
     /// handle from its implementation of [`Marker::marker_type`].
     ///
     /// For marker types whose schema is known at compile time, you'll want to implement
-    /// [`StaticSchemaMarker`] instead.
-    pub fn register_marker_type(&mut self, schema: MarkerSchema) -> MarkerTypeHandle {
+    /// [`StaticSchemaMarker`] instead, and you don't need to call this method.
+    pub fn register_marker_type(&mut self, schema: RuntimeSchemaMarkerSchema) -> MarkerTypeHandle {
         let handle = MarkerTypeHandle(self.marker_schemas.len());
         self.marker_schemas.push(schema.into());
         handle
@@ -697,7 +697,8 @@ impl Profile {
             Entry::Occupied(entry) => *entry.get(),
             Entry::Vacant(entry) => {
                 let handle = MarkerTypeHandle(self.marker_schemas.len());
-                self.marker_schemas.push(T::schema().into());
+                let schema = InternalMarkerSchema::from_static_schema::<T>();
+                self.marker_schemas.push(schema);
                 entry.insert(handle);
                 handle
             }
@@ -710,9 +711,8 @@ impl Profile {
     ///
     /// ```
     /// use fxprof_processed_profile::{
-    ///     Profile, Marker, MarkerTiming, MarkerLocation, MarkerFieldFormat, MarkerSchema,
-    ///     MarkerFieldSchema, StaticSchemaMarker, CategoryHandle, StringHandle, ThreadHandle,
-    ///     Timestamp,
+    ///     Profile, CategoryHandle, Marker, MarkerFieldFlags, MarkerFieldFormat, MarkerTiming,
+    ///     StaticSchemaMarker, StaticSchemaMarkerField, StringHandle, ThreadHandle, Timestamp,
     /// };
     ///
     /// # fn fun() {
@@ -735,23 +735,15 @@ impl Profile {
     /// impl StaticSchemaMarker for TextMarker {
     ///     const UNIQUE_MARKER_TYPE_NAME: &'static str = "Text";
     ///
-    ///     fn schema() -> MarkerSchema {
-    ///         MarkerSchema {
-    ///             type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
-    ///             locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
-    ///             chart_label: Some("{marker.data.text}".into()),
-    ///             tooltip_label: None,
-    ///             table_label: Some("{marker.name} - {marker.data.text}".into()),
-    ///             fields: vec![MarkerFieldSchema {
-    ///                 key: "text".into(),
-    ///                 label: "Contents".into(),
-    ///                 format: MarkerFieldFormat::String,
-    ///                 searchable: true,
-    ///             }],
-    ///             static_fields: vec![],
-    ///             graphs: vec![],
-    ///         }
-    ///     }
+    ///     const CHART_LABEL: Option<&'static str> = Some("{marker.data.text}");
+    ///     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.text}");
+    ///
+    ///     const FIELDS: &'static [StaticSchemaMarkerField] = &[StaticSchemaMarkerField {
+    ///         key: "text",
+    ///         label: "Contents",
+    ///         format: MarkerFieldFormat::String,
+    ///         flags: MarkerFieldFlags::SEARCHABLE,
+    ///     }];
     ///
     ///     fn name(&self, _profile: &mut Profile) -> StringHandle {
     ///         self.name
