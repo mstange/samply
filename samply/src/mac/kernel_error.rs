@@ -1,5 +1,5 @@
-use mach::kern_return::*;
-use mach::message::*;
+use mach2::kern_return::*;
+use mach2::message::*;
 use thiserror::Error;
 
 pub const KERN_INSUFFICIENT_BUFFER_SIZE: kern_return_t = 52;

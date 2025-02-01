@@ -3,16 +3,16 @@
 #![allow(non_camel_case_types)]
 #![allow(non_upper_case_globals)]
 
-use mach::exception_types::{
+use mach2::exception_types::{
     exception_behavior_array_t, exception_behavior_t, exception_flavor_array_t,
     exception_mask_array_t, exception_mask_t,
 };
-use mach::kern_return::kern_return_t;
-use mach::mach_types::{exception_handler_array_t, thread_act_t};
-use mach::message::mach_msg_type_number_t;
-use mach::port::mach_port_t;
-use mach::thread_status::{thread_state_flavor_t, thread_state_t};
-use mach::vm_types::{integer_t, natural_t};
+use mach2::kern_return::kern_return_t;
+use mach2::mach_types::{exception_handler_array_t, thread_act_t};
+use mach2::message::mach_msg_type_number_t;
+use mach2::port::mach_port_t;
+use mach2::thread_status::{thread_state_flavor_t, thread_state_t};
+use mach2::vm_types::{integer_t, natural_t};
 
 use super::thread_info::{policy_t, thread_info_t};
 

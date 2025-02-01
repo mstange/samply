@@ -1,4 +1,4 @@
-use mach::mach_time;
+use mach2::mach_time;
 use once_cell::sync::OnceCell;
 
 static NANOS_PER_TICK: OnceCell<mach_time::mach_timebase_info> = OnceCell::new();

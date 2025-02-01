@@ -15,13 +15,13 @@ use fxprof_processed_profile::{
     CategoryHandle, Frame, FrameFlags, FrameInfo, LibraryInfo, ProcessHandle, Profile,
     ThreadHandle, Timestamp,
 };
-use mach::mach_types::{thread_act_port_array_t, thread_act_t};
-use mach::message::mach_msg_type_number_t;
-use mach::port::mach_port_t;
-use mach::task::task_threads;
-use mach::traps::mach_task_self;
-use mach::vm::mach_vm_deallocate;
-use mach::vm_types::{mach_vm_address_t, mach_vm_size_t};
+use mach2::mach_types::{thread_act_port_array_t, thread_act_t};
+use mach2::message::mach_msg_type_number_t;
+use mach2::port::mach_port_t;
+use mach2::task::task_threads;
+use mach2::traps::mach_task_self;
+use mach2::vm::mach_vm_deallocate;
+use mach2::vm_types::{mach_vm_address_t, mach_vm_size_t};
 use object::{CompressionFormat, Object, ObjectSection};
 use samply_symbols::{object, DebugIdExt};
 use wholesym::samply_symbols;
