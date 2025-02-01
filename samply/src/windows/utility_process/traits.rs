@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use std::path::Path;
 
 use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::ser::Serialize;
 
 pub trait UtilityProcess {
     const PROCESS_TYPE: &'static str;

@@ -27,7 +27,7 @@ use std::path::Path;
 use fs4::fs_std::FileExt;
 use fs4::lock_contended_error;
 use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::ser::Serialize;
 
 #[derive(Debug)]
 struct FileMessageWriter<T> {

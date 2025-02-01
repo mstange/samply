@@ -6,8 +6,8 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use debugid::DebugId;
-use serde::ser::{SerializeMap, SerializeSeq};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::de::{Deserialize, Deserializer};
+use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::to_writer;
 use wholesym::SourceFilePath;

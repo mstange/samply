@@ -3,8 +3,7 @@
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use bitflags::bitflags;
-use serde::ser::{SerializeMap, SerializeSeq};
-use serde::Serialize;
+use serde::ser::{Serialize, SerializeMap, SerializeSeq};
 use serde_derive::Serialize;
 
 use super::profile::StringHandle;

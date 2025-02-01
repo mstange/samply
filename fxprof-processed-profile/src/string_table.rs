@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use serde::{Serialize, Serializer};
+use serde::ser::{Serialize, Serializer};
 
 use crate::fast_hash_map::FastHashMap;
 
