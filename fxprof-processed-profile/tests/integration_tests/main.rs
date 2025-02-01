@@ -4,10 +4,10 @@ use std::time::Duration;
 use assert_json_diff::assert_json_eq;
 use debugid::DebugId;
 use fxprof_processed_profile::{
-    CategoryColor, CategoryHandle, CpuDelta, Frame, FrameFlags, FrameInfo, LibraryInfo,
-    MarkerFieldFormat, MarkerFieldSchema, MarkerLocation, MarkerSchema, MarkerStaticField,
-    MarkerTiming, Profile, ReferenceTimestamp, SamplingInterval, StaticSchemaMarker, StringHandle,
-    Symbol, SymbolTable, Timestamp,
+    CategoryColor, CategoryHandle, CpuDelta, Frame, FrameFlags, FrameInfo, GraphColor, LibraryInfo,
+    MarkerFieldFlags, MarkerFieldFormat, MarkerGraphType, MarkerTiming, Profile,
+    ReferenceTimestamp, SamplingInterval, StaticSchemaMarker, StaticSchemaMarkerField,
+    StaticSchemaMarkerGraph, StringHandle, Symbol, SymbolTable, Timestamp, WeightType,
 };
 use serde_json::json;
 
@@ -22,23 +22,14 @@ pub struct TextMarker {
 
 impl StaticSchemaMarker for TextMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "Text";
-
-    fn schema() -> MarkerSchema {
-        MarkerSchema {
-            type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
-            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
-            chart_label: Some("{marker.data.name}".into()),
-            tooltip_label: None,
-            table_label: Some("{marker.name} - {marker.data.name}".into()),
-            fields: vec![MarkerFieldSchema {
-                key: "name".into(),
-                label: "Details".into(),
-                format: MarkerFieldFormat::String,
-                searchable: true,
-            }],
-            static_fields: vec![],
-        }
-    }
+    const CHART_LABEL: Option<&'static str> = Some("{marker.data.name}");
+    const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.name}");
+    const FIELDS: &'static [StaticSchemaMarkerField] = &[StaticSchemaMarkerField {
+        key: "name",
+        label: "Details",
+        format: MarkerFieldFormat::String,
+        flags: MarkerFieldFlags::SEARCHABLE,
+    }];
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
         self.name
@@ -67,46 +58,43 @@ fn profile_without_js() {
     }
     impl StaticSchemaMarker for CustomMarker {
         const UNIQUE_MARKER_TYPE_NAME: &'static str = "custom";
+        const TOOLTIP_LABEL: Option<&'static str> = Some("Custom tooltip label");
 
-        fn schema() -> MarkerSchema {
-            MarkerSchema {
-                type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
-                locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
-                chart_label: None,
-                tooltip_label: Some("Custom tooltip label".into()),
-                table_label: None,
-                fields: vec![
-                    MarkerFieldSchema {
-                        key: "eventName".into(),
-                        label: "Event name".into(),
-                        format: MarkerFieldFormat::String,
-                        searchable: true,
-                    },
-                    MarkerFieldSchema {
-                        key: "allocationSize".into(),
-                        label: "Allocation size".into(),
-                        format: MarkerFieldFormat::Bytes,
-                        searchable: true,
-                    },
-                    MarkerFieldSchema {
-                        key: "url".into(),
-                        label: "URL".into(),
-                        format: MarkerFieldFormat::Url,
-                        searchable: true,
-                    },
-                    MarkerFieldSchema {
-                        key: "latency".into(),
-                        label: "Latency".into(),
-                        format: MarkerFieldFormat::Duration,
-                        searchable: true,
-                    },
-                ],
-                static_fields: vec![MarkerStaticField {
-                    label: "Description".into(),
-                    value: "This is a test marker with a custom schema.".into(),
-                }],
-            }
-        }
+        const FIELDS: &'static [StaticSchemaMarkerField] = &[
+            StaticSchemaMarkerField {
+                key: "eventName",
+                label: "Event name",
+                format: MarkerFieldFormat::String,
+                flags: MarkerFieldFlags::SEARCHABLE,
+            },
+            StaticSchemaMarkerField {
+                key: "allocationSize",
+                label: "Allocation size",
+                format: MarkerFieldFormat::Bytes,
+                flags: MarkerFieldFlags::SEARCHABLE,
+            },
+            StaticSchemaMarkerField {
+                key: "url",
+                label: "URL",
+                format: MarkerFieldFormat::Url,
+                flags: MarkerFieldFlags::SEARCHABLE,
+            },
+            StaticSchemaMarkerField {
+                key: "latency",
+                label: "Latency",
+                format: MarkerFieldFormat::Duration,
+                flags: MarkerFieldFlags::SEARCHABLE,
+            },
+        ];
+
+        const DESCRIPTION: Option<&'static str> =
+            Some("This is a test marker with a custom schema.");
+
+        const GRAPHS: &'static [StaticSchemaMarkerGraph] = &[StaticSchemaMarkerGraph {
+            key: "latency",
+            graph_type: MarkerGraphType::Line,
+            color: Some(GraphColor::Green),
+        }];
 
         fn name(&self, profile: &mut Profile) -> StringHandle {
             profile.intern_string("CustomName")
@@ -150,7 +138,7 @@ fn profile_without_js() {
     profile.add_sample(
         thread,
         Timestamp::from_millis_since_reference(0.0),
-        vec![].into_iter(),
+        None,
         CpuDelta::ZERO,
         1,
     );
@@ -205,9 +193,8 @@ fn profile_without_js() {
         (0x000055ba9ebf6000u64 - 0x000055ba9eb4d000u64) as u32,
     );
     let category = profile.add_category("Regular", CategoryColor::Blue);
-    profile.add_sample(
+    let s1 = profile.intern_stack_frames(
         thread,
-        Timestamp::from_millis_since_reference(1.0),
         vec![
             0x7f76b7ffc0e7,
             0x55ba9eda3d7f,
@@ -232,12 +219,16 @@ fn profile_without_js() {
             category_pair: category.into(),
             flags: FrameFlags::empty(),
         }),
-        CpuDelta::ZERO,
-        1,
     );
     profile.add_sample(
         thread,
-        Timestamp::from_millis_since_reference(2.0),
+        Timestamp::from_millis_since_reference(1.0),
+        s1,
+        CpuDelta::ZERO,
+        1,
+    );
+    let s2 = profile.intern_stack_frames(
+        thread,
         vec![
             0x55ba9eda018e,
             0x55ba9ec3c3cf,
@@ -262,12 +253,16 @@ fn profile_without_js() {
             category_pair: category.into(),
             flags: FrameFlags::empty(),
         }),
-        CpuDelta::ZERO,
-        1,
     );
     profile.add_sample(
         thread,
-        Timestamp::from_millis_since_reference(3.0),
+        Timestamp::from_millis_since_reference(2.0),
+        s2,
+        CpuDelta::ZERO,
+        1,
+    );
+    let s3 = profile.intern_stack_frames(
+        thread,
         vec![
             0x7f76b7f019c6,
             0x55ba9edc48f5,
@@ -292,6 +287,11 @@ fn profile_without_js() {
             category_pair: category.into(),
             flags: FrameFlags::empty(),
         }),
+    );
+    profile.add_sample(
+        thread,
+        Timestamp::from_millis_since_reference(3.0),
+        s3,
         CpuDelta::ZERO,
         1,
     );
@@ -322,6 +322,7 @@ fn profile_without_js() {
 
     let memory_counter =
         profile.add_counter(process, "malloc", "Memory", "Amount of allocated memory");
+    profile.set_counter_color(memory_counter, GraphColor::Red);
     profile.add_counter_sample(
         memory_counter,
         Timestamp::from_millis_since_reference(0.0),
@@ -410,6 +411,13 @@ fn profile_without_js() {
                   "display": [
                     "marker-chart",
                     "marker-table"
+                  ],
+                  "graphs": [
+                    {
+                      "key": "latency",
+                      "type": "line",
+                      "color": "green"
+                    }
                   ],
                   "tooltipLabel": "Custom tooltip label",
                   "data": [
@@ -969,6 +977,7 @@ fn profile_without_js() {
                     0
                   ]
                 },
+                "showMarkersInTimeline": false,
                 "stringArray": [
                   "0x7ffdb4824837",
                   "dump_syms",
@@ -994,7 +1003,7 @@ fn profile_without_js() {
                   "My event"
                 ],
                 "tid": "12345",
-                "unregisterTime": null
+                "unregisterTime": null,
               }
             ],
             "pages": [],
@@ -1002,6 +1011,7 @@ fn profile_without_js() {
             "counters": [
               {
                 "category": "Memory",
+                "color": "red",
                 "name": "malloc",
                 "description": "Amount of allocated memory",
                 "mainThreadIndex": 0,
@@ -1048,9 +1058,8 @@ fn profile_with_js() {
 
     let some_label_string = profile.intern_string("Some label string");
     let category = profile.add_category("Regular", CategoryColor::Green);
-    profile.add_sample(
+    let s1 = profile.intern_stack_frames(
         thread,
-        Timestamp::from_millis_since_reference(1.0),
         vec![
             FrameInfo {
                 frame: Frame::Label(some_label_string),
@@ -1064,6 +1073,11 @@ fn profile_with_js() {
             },
         ]
         .into_iter(),
+    );
+    profile.add_sample(
+        thread,
+        Timestamp::from_millis_since_reference(1.0),
+        s1,
         CpuDelta::ZERO,
         1,
     );
@@ -1240,6 +1254,7 @@ fn profile_with_js() {
                     0
                   ]
                 },
+                "showMarkersInTimeline": false,
                 "stackTable": {
                   "length": 2,
                   "prefix": [
@@ -1299,17 +1314,19 @@ fn profile_counters_with_sorted_processes() {
         true,
     );
 
+    profile.set_thread_show_markers_in_timeline(thread0, true);
+
     profile.add_sample(
         thread0,
         Timestamp::from_millis_since_reference(1.0),
-        vec![].into_iter(),
+        None,
         CpuDelta::ZERO,
         1,
     );
     profile.add_sample(
         thread1,
         Timestamp::from_millis_since_reference(0.0),
-        vec![].into_iter(),
+        None,
         CpuDelta::ZERO,
         1,
     );
@@ -1330,6 +1347,13 @@ fn profile_counters_with_sorted_processes() {
         0.0,
         0,
     );
+
+    profile.set_symbolicated(true);
+
+    profile.add_initial_visible_thread(thread1);
+    profile.add_initial_selected_thread(thread1);
+
+    profile.set_thread_samples_weight_type(thread0, WeightType::Bytes);
 
     // eprintln!("{}", serde_json::to_string_pretty(&profile).unwrap());
     assert_json_eq!(
@@ -1353,6 +1377,8 @@ fn profile_counters_with_sorted_processes() {
                 "length": 0,
                 "name": []
               },
+              "initialSelectedThreads": [0],
+              "initialVisibleThreads": [0],
               "interval": 1.0,
               "preprocessedProfileVersion": 49,
               "processType": 0,
@@ -1363,7 +1389,7 @@ fn profile_counters_with_sorted_processes() {
                 "time": "ms"
               },
               "startTime": 1636162232627.0,
-              "symbolicated": false,
+              "symbolicated": true,
               "pausedRanges": [],
               "version": 24,
               "usesOnlyOneStackType": true,
@@ -1445,6 +1471,7 @@ fn profile_counters_with_sorted_processes() {
                     0
                   ]
                 },
+                "showMarkersInTimeline": false,
                 "stackTable": {
                   "length": 0,
                   "prefix": [],
@@ -1523,11 +1550,12 @@ fn profile_counters_with_sorted_processes() {
                   "weight": [
                     1
                   ],
-                  "weightType": "samples",
+                  "weightType": "bytes",
                   "threadCPUDelta": [
                     0
                   ]
                 },
+                "showMarkersInTimeline": true,
                 "stackTable": {
                   "length": 0,
                   "prefix": [],

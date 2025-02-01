@@ -15,13 +15,13 @@ use fxprof_processed_profile::{
     CategoryHandle, Frame, FrameFlags, FrameInfo, LibraryInfo, ProcessHandle, Profile,
     ThreadHandle, Timestamp,
 };
-use mach::mach_types::{thread_act_port_array_t, thread_act_t};
-use mach::message::mach_msg_type_number_t;
-use mach::port::mach_port_t;
-use mach::task::task_threads;
-use mach::traps::mach_task_self;
-use mach::vm::mach_vm_deallocate;
-use mach::vm_types::{mach_vm_address_t, mach_vm_size_t};
+use mach2::mach_types::{thread_act_port_array_t, thread_act_t};
+use mach2::message::mach_msg_type_number_t;
+use mach2::port::mach_port_t;
+use mach2::task::task_threads;
+use mach2::traps::mach_task_self;
+use mach2::vm::mach_vm_deallocate;
+use mach2::vm_types::{mach_vm_address_t, mach_vm_size_t};
 use object::{CompressionFormat, Object, ObjectSection};
 use samply_symbols::{object, DebugIdExt};
 use wholesym::samply_symbols;
@@ -32,7 +32,7 @@ use super::proc_maps::{
     proc_cmdline, DyldInfo, DyldInfoManager, Modification, ModuleSvmaInfo, StackwalkerRef,
     VmSubData,
 };
-use super::sampler::{JitdumpOrMarkerPath, TaskInit};
+use super::sampler::{ProcessSpecificPath, TaskInit};
 use super::thread_profiler::{get_thread_id, get_thread_name, ThreadProfiler};
 use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::jit_function_recycler::JitFunctionRecycler;
@@ -108,7 +108,7 @@ pub struct TaskProfiler {
     main_thread_label_frame: FrameInfo,
     ignored_errors: Vec<SamplingError>,
     unwinder: UnwinderNative<UnwindSectionBytes, MayAllocateDuringUnwind>,
-    path_receiver: Receiver<JitdumpOrMarkerPath>,
+    path_receiver: Receiver<ProcessSpecificPath>,
     jitdump_manager: JitDumpManager,
     marker_file_paths: Vec<(ThreadHandle, PathBuf)>,
     unresolved_samples: UnresolvedSamples,
@@ -303,7 +303,10 @@ impl TaskProfiler {
             ignored_errors: Vec::new(),
             unwinder: UnwinderNative::new(),
             path_receiver,
-            jitdump_manager: JitDumpManager::new(profile_creation_props.unlink_aux_files),
+            jitdump_manager: JitDumpManager::new(
+                profile_creation_props.unlink_aux_files,
+                profile_creation_props.should_emit_jit_markers,
+            ),
             marker_file_paths: Vec::new(),
             lib_mapping_ops: Default::default(),
             unresolved_samples: Default::default(),
@@ -585,9 +588,9 @@ impl TaskProfiler {
     }
 
     pub fn check_received_paths(&mut self) {
-        while let Ok(jitdump_or_marker_file_path) = self.path_receiver.try_recv() {
-            match jitdump_or_marker_file_path {
-                JitdumpOrMarkerPath::JitdumpPath(jitdump_path) => {
+        while let Ok(process_specific_path) = self.path_receiver.try_recv() {
+            match process_specific_path {
+                ProcessSpecificPath::Jitdump(jitdump_path) => {
                     // TODO: Detect which thread the jitdump file is opened on, and use that thread's
                     // thread handle so that the JitFunctionAdd markers are put on that thread in the profile.
                     self.jitdump_manager.add_jitdump_path(
@@ -596,7 +599,7 @@ impl TaskProfiler {
                         Vec::new(),
                     );
                 }
-                JitdumpOrMarkerPath::MarkerFilePath(marker_file_path) => {
+                ProcessSpecificPath::MarkerFile(marker_file_path) => {
                     // count the number of - characters in marker_file_path
                     let marker_info = marker_file::parse_marker_file_path(&marker_file_path);
                     let thread_handle = if marker_info.tid.is_some() {
@@ -610,6 +613,9 @@ impl TaskProfiler {
                     };
                     self.marker_file_paths
                         .push((thread_handle, marker_file_path));
+                }
+                ProcessSpecificPath::DotnetTrace(_) => {
+                    // nothing, for now
                 }
             }
         }

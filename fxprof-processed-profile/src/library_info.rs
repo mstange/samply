@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
 use debugid::DebugId;
-use serde::ser::SerializeMap;
-use serde::{Serialize, Serializer};
+use serde::ser::{Serialize, SerializeMap, Serializer};
 
 /// A library ("binary" / "module" / "DSO") which is loaded into a process.
 /// This can be the main executable file or a dynamic library, or any other

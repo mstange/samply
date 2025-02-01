@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::mem::MaybeUninit;
 use std::ops::{Deref, Range};
 use std::{mem, ptr};
 
@@ -12,22 +13,22 @@ use framehop::aarch64::UnwindRegsAarch64;
 use framehop::x86_64::UnwindRegsX86_64;
 use framehop::{FrameAddress, UnwindRegsNative};
 use fxprof_processed_profile::debugid::DebugId;
-use mach::message::mach_msg_type_number_t;
-use mach::port::mach_port_t;
-use mach::task::{task_info, task_resume, task_suspend};
-use mach::task_info::{task_info_t, TASK_DYLD_INFO};
-use mach::thread_act::{thread_get_state, thread_resume, thread_suspend};
+use mach2::message::mach_msg_type_number_t;
+use mach2::port::mach_port_t;
+use mach2::task::{task_info, task_resume, task_suspend};
+use mach2::task_info::{task_info_t, TASK_DYLD_INFO};
+use mach2::thread_act::{thread_get_state, thread_resume, thread_suspend};
+use mach2::thread_status::thread_state_t;
+use mach2::traps::mach_task_self;
+use mach2::vm::{mach_vm_deallocate, mach_vm_read, mach_vm_read_overwrite, mach_vm_remap};
+use mach2::vm_inherit::VM_INHERIT_SHARE;
+use mach2::vm_page_size::{mach_vm_trunc_page, vm_page_size};
+use mach2::vm_prot::{vm_prot_t, VM_PROT_NONE, VM_PROT_READ};
+use mach2::vm_types::{integer_t, mach_vm_address_t, mach_vm_size_t};
 #[cfg(target_arch = "aarch64")]
-use mach::thread_status::thread_state_flavor_t;
-use mach::thread_status::thread_state_t;
-use mach::traps::mach_task_self;
-use mach::vm::{mach_vm_deallocate, mach_vm_read, mach_vm_remap};
-use mach::vm_inherit::VM_INHERIT_SHARE;
-use mach::vm_page_size::{mach_vm_trunc_page, vm_page_size};
-use mach::vm_prot::{vm_prot_t, VM_PROT_NONE, VM_PROT_READ};
-use mach::vm_types::{mach_vm_address_t, mach_vm_size_t};
+use mach2::{structs::arm_thread_state64_t, thread_status::ARM_THREAD_STATE64};
 #[cfg(target_arch = "x86_64")]
-use mach::{structs::x86_thread_state64_t, thread_status::x86_THREAD_STATE64};
+use mach2::{structs::x86_thread_state64_t, thread_status::x86_THREAD_STATE64};
 use object::macho::{
     MachHeader64, SegmentCommand64, CPU_SUBTYPE_ARM64E, CPU_SUBTYPE_ARM64_ALL, CPU_SUBTYPE_MASK,
     CPU_SUBTYPE_X86_64_ALL, CPU_SUBTYPE_X86_64_H, CPU_TYPE_ARM64, CPU_TYPE_X86_64, MH_EXECUTE,
@@ -225,10 +226,26 @@ fn enumerate_dyld_images(
 
     for image_index in 0..info_array_count {
         let (base_avma, image_file_path) = {
-            let info_array_elem_addr =
-                info_array_addr + image_index as u64 * mem::size_of::<dyld_image_info>() as u64;
-            let image_info: &dyld_image_info =
-                unsafe { memory.get_type_ref_at_address(info_array_elem_addr) }?;
+            let info_array_elem_addr = info_array_addr
+                + image_index as u64 * mem::size_of::<dyld_image_info>() as mach_vm_address_t;
+            let mut image_info: MaybeUninit<dyld_image_info> = MaybeUninit::uninit();
+            let mut size = mem::size_of::<dyld_image_info>() as mach_vm_size_t;
+            unsafe {
+                mach_vm_read_overwrite(
+                    memory.task,
+                    info_array_elem_addr,
+                    size,
+                    &mut image_info as *mut MaybeUninit<dyld_image_info> as mach_vm_address_t,
+                    &mut size,
+                )
+                .into_result()?;
+            }
+
+            if size != mem::size_of::<dyld_image_info>() as mach_vm_size_t {
+                return Err(kernel_error::KernelError::InvalidValue);
+            }
+
+            let image_info = unsafe { image_info.assume_init() };
             (
                 image_info.imageLoadAddress as usize as u64,
                 image_info.imageFilePath as usize as u64,
@@ -257,17 +274,42 @@ fn get_dyld_image_info(
     image_file_path: u64,
 ) -> kernel_error::Result<DyldInfo> {
     let filename = {
-        let filename_bytes: &[i8; 512] =
-            unsafe { memory.get_type_ref_at_address(image_file_path) }?;
+        let mut filename_bytes: MaybeUninit<[i8; 512]> = MaybeUninit::uninit();
+        let mut size = 512;
+
+        unsafe {
+            mach_vm_read_overwrite(
+                memory.task,
+                image_file_path,
+                size as mach_vm_size_t,
+                &mut filename_bytes as *mut MaybeUninit<[i8; 512]> as mach_vm_address_t,
+                &mut size,
+            )
+            .into_result()?;
+        }
+        let filename_bytes = unsafe { filename_bytes.assume_init() };
+
         unsafe { std::ffi::CStr::from_ptr(filename_bytes.as_ptr()) }
             .to_string_lossy()
             .to_string()
     };
 
     let header = {
-        let header: &MachHeader64<LittleEndian> =
-            unsafe { memory.get_type_ref_at_address(base_avma) }?;
-        *header
+        let mut header: MaybeUninit<MachHeader64<LittleEndian>> = MaybeUninit::uninit();
+        let mut size = mem::size_of::<MachHeader64<LittleEndian>>() as mach_vm_size_t;
+
+        unsafe {
+            mach_vm_read_overwrite(
+                memory.task,
+                base_avma,
+                size,
+                &mut header as *mut MaybeUninit<MachHeader64<LittleEndian>> as mach_vm_address_t,
+                &mut size,
+            )
+            .into_result()?;
+        }
+
+        unsafe { header.assume_init() }
     };
 
     let endian = LittleEndian;
@@ -342,32 +384,8 @@ fn get_dyld_image_info(
 pub struct task_dyld_info {
     pub all_image_info_addr: mach_vm_address_t,
     pub all_image_info_size: mach_vm_size_t,
-    pub all_image_info_format: mach::vm_types::integer_t,
+    pub all_image_info_format: integer_t,
 }
-
-#[allow(non_camel_case_types)]
-#[cfg(target_arch = "aarch64")]
-#[repr(C)]
-#[derive(Copy, Clone, Debug, Default, Hash, PartialOrd, PartialEq, Eq, Ord)]
-pub struct arm_thread_state64_t {
-    pub __x: [u64; 29],
-    pub __fp: u64, // frame pointer x29
-    pub __lr: u64, // link register x30
-    pub __sp: u64, // stack pointer x31
-    pub __pc: u64,
-    pub __cpsr: u32,
-    pub __pad: u32,
-}
-
-#[cfg(target_arch = "aarch64")]
-impl arm_thread_state64_t {
-    pub fn count() -> mach_msg_type_number_t {
-        (mem::size_of::<Self>() / mem::size_of::<u32>()) as mach_msg_type_number_t
-    }
-}
-
-#[cfg(target_arch = "aarch64")]
-pub static ARM_THREAD_STATE64: thread_state_flavor_t = 6;
 
 #[cfg(target_arch = "x86_64")]
 fn get_unwinding_registers(

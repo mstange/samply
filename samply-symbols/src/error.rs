@@ -19,7 +19,7 @@ pub enum Error {
     #[error("Unmatched breakpad_id: Expected {0}, but received {1:?}")]
     UnmatchedDebugIdOptional(DebugId, Option<DebugId>),
 
-    #[error("Unmatched CodeId: Expected {0}, but received {}", .1.as_ref().map_or("<none>".into(), ToString::to_string))]
+    #[error("Unmatched CodeId: Expected {0}, but received {recvd}", recvd=.1.as_ref().map_or("<none>".into(), ToString::to_string))]
     UnmatchedCodeId(CodeId, Option<CodeId>),
 
     #[error("The Breakpad sym file was malformed, causing a parsing error: {0}")]

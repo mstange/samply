@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::Write;
+use std::os::raw::{c_int, c_void};
 use std::os::unix::prelude::OsStrExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus};
@@ -9,17 +10,17 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use flate2::write::GzDecoder;
-use mach::task::{task_resume, task_suspend};
-use mach::traps::task_for_pid;
+use mach2::port::{mach_port_t, MACH_PORT_NULL};
+use mach2::task::{task_resume, task_suspend};
+use mach2::traps::{mach_task_self, task_for_pid};
 use tempfile::tempdir;
 
+use super::mach_ipc::{BlockingMode, OsIpcMultiShotServer};
+pub use super::mach_ipc::{MachError, OsIpcSender};
 use crate::shared::ctrl_c::CtrlC;
 
-pub use super::mach_ipc::{mach_port_t, MachError, OsIpcSender};
-use super::mach_ipc::{mach_task_self, BlockingMode, OsIpcMultiShotServer, MACH_PORT_NULL};
-
 pub trait RootTaskRunner {
-    fn run_root_task(&self) -> Result<ExitStatus, MachError>;
+    fn run_root_task(&mut self) -> Result<ExitStatus, MachError>;
 }
 
 pub struct TaskLauncher {
@@ -30,7 +31,7 @@ pub struct TaskLauncher {
 }
 
 impl RootTaskRunner for TaskLauncher {
-    fn run_root_task(&self) -> Result<ExitStatus, MachError> {
+    fn run_root_task(&mut self) -> Result<ExitStatus, MachError> {
         // Ignore Ctrl+C while the subcommand is running. The signal still reaches the process
         // under observation while we continue to record it. (ctrl+c will send the SIGINT signal
         // to all processes in the foreground process group).
@@ -217,6 +218,14 @@ impl TaskAccepter {
                 let path = &marker_file_info[5..][..len];
                 ReceivedStuff::MarkerFilePath(pid, OsStr::from_bytes(path).into())
             }
+            (b"NetTrac", dotnet_trace_file_info) => {
+                let pid_bytes = &dotnet_trace_file_info[0..4];
+                let pid =
+                    u32::from_le_bytes([pid_bytes[0], pid_bytes[1], pid_bytes[2], pid_bytes[3]]);
+                let len = dotnet_trace_file_info[4] as usize;
+                let path = &dotnet_trace_file_info[5..][..len];
+                ReceivedStuff::DotnetTracePath(pid, OsStr::from_bytes(path).into())
+            }
             (other, _) => {
                 panic!("Unexpected message: {:?}", other);
             }
@@ -229,6 +238,7 @@ pub enum ReceivedStuff {
     AcceptedTask(AcceptedTask),
     JitdumpPath(u32, PathBuf),
     MarkerFilePath(u32, PathBuf),
+    DotnetTracePath(u32, PathBuf),
 }
 
 pub struct AcceptedTask {
@@ -257,10 +267,11 @@ impl AcceptedTask {
 
 pub struct ExistingProcessRunner {
     pid: u32,
+    aux_child: Option<Child>,
 }
 
 impl RootTaskRunner for ExistingProcessRunner {
-    fn run_root_task(&self) -> Result<ExitStatus, MachError> {
+    fn run_root_task(&mut self) -> Result<ExitStatus, MachError> {
         let ctrl_c_receiver = CtrlC::observe_oneshot();
 
         eprintln!("Profiling {}, press Ctrl-C to stop...", self.pid);
@@ -269,6 +280,16 @@ impl RootTaskRunner for ExistingProcessRunner {
             .blocking_recv()
             .expect("Ctrl+C receiver failed");
 
+        if let Some(aux_child) = self.aux_child.as_mut() {
+            let aux_pid = aux_child.id();
+            unsafe {
+                libc::kill(aux_pid as i32, libc::SIGINT);
+            }
+            aux_child
+                .wait()
+                .expect("Failed to wait on aux child process");
+        }
+
         eprintln!("Done.");
 
         Ok(ExitStatus::default())
@@ -276,6 +297,22 @@ impl RootTaskRunner for ExistingProcessRunner {
 }
 
 impl ExistingProcessRunner {
+    fn get_all_descendant_pids(pid: u32) -> Vec<u32> {
+        let mut descendants = Vec::new();
+        let mut queue = vec![pid];
+
+        while let Some(current_pid) = queue.pop() {
+            if let Some(child_pids) = find_child_processes(current_pid) {
+                for child_pid in child_pids {
+                    descendants.push(child_pid);
+                    queue.push(child_pid);
+                }
+            }
+        }
+
+        descendants
+    }
+
     pub fn new(pid: u32, task_accepter: &mut TaskAccepter) -> ExistingProcessRunner {
         let mut queue_pid = |pid, failure_is_ok| {
             let task = unsafe {
@@ -307,8 +344,66 @@ impl ExistingProcessRunner {
         // always root pid first
         queue_pid(pid, false);
 
-        // TODO: find all its children
+        // find all its descendants recursively
+        let descendant_pids = Self::get_all_descendant_pids(pid);
+        for pid in descendant_pids {
+            queue_pid(pid, true);
+        }
 
-        ExistingProcessRunner { pid }
+        ExistingProcessRunner {
+            pid,
+            aux_child: None,
+        }
     }
+
+    #[allow(unused)]
+    pub fn new_with_aux_child(
+        pid: u32,
+        task_accepter: &mut TaskAccepter,
+        aux_child: Child,
+    ) -> ExistingProcessRunner {
+        let runner = Self::new(pid, task_accepter);
+
+        ExistingProcessRunner {
+            aux_child: Some(aux_child),
+            ..runner
+        }
+    }
+}
+
+fn find_child_processes(parent_pid: u32) -> Option<Vec<u32>> {
+    extern "C" {
+        pub fn proc_listpids(
+            type_: u32,
+            typeinfo: u32,
+            buffer: *mut c_void,
+            buffersize: c_int,
+        ) -> c_int;
+    }
+    const PROC_PPID_ONLY: u32 = 6;
+
+    let needed_buffer_size_or_err =
+        unsafe { proc_listpids(PROC_PPID_ONLY, parent_pid, core::ptr::null_mut(), 0) };
+    if needed_buffer_size_or_err <= 0 {
+        return None;
+    }
+
+    let buffer_size = needed_buffer_size_or_err;
+    let reserved_count = buffer_size as usize / core::mem::size_of::<u32>();
+    let mut pids: Vec<u32> = Vec::with_capacity(reserved_count);
+
+    let buffer_ptr = pids.as_mut_ptr().cast::<c_void>();
+
+    let used_buffer_size_or_err =
+        unsafe { proc_listpids(PROC_PPID_ONLY, parent_pid, buffer_ptr, buffer_size) };
+    if used_buffer_size_or_err <= 0 {
+        return None;
+    }
+
+    let used_buffer_size = used_buffer_size_or_err;
+    let child_pid_count = used_buffer_size as usize / core::mem::size_of::<u32>();
+    unsafe {
+        pids.set_len(child_pid_count);
+    }
+    Some(pids)
 }

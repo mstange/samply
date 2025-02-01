@@ -8,8 +8,8 @@ use debugid::DebugId;
 use framehop::{ExplicitModuleSectionInfo, FrameAddress, Module, Unwinder};
 use fxprof_processed_profile::{
     CategoryColor, CategoryHandle, CategoryPairHandle, CpuDelta, LibraryHandle, LibraryInfo,
-    MarkerFieldFormat, MarkerFieldSchema, MarkerLocation, MarkerSchema, MarkerTiming, Profile,
-    ReferenceTimestamp, SamplingInterval, StaticSchemaMarker, StringHandle, SymbolTable,
+    MarkerFieldFlags, MarkerFieldFormat, MarkerTiming, Profile, ReferenceTimestamp,
+    SamplingInterval, StaticSchemaMarker, StaticSchemaMarkerField, StringHandle, SymbolTable,
     ThreadHandle,
 };
 use linux_perf_data::linux_perf_event_reader::TaskWasPreempted;
@@ -104,6 +104,12 @@ where
     /// already done the adjusting, either by adjusting the call chains coming from
     /// the kernel or by doing its own unwinding with an adjusting unwinder,
     call_chain_return_addresses_are_preadjusted: bool,
+
+    /// Whether to emit JitFunctionAdd markers.
+    should_emit_jit_markers: bool,
+
+    /// Whether to emit context switch markers.
+    should_emit_cswitch_markers: bool,
 }
 
 const DEFAULT_OFF_CPU_SAMPLING_INTERVAL_NS: u64 = 1_000_000; // 1ms
@@ -240,6 +246,7 @@ where
             processes: Processes::new(
                 profile_creation_props.reuse_threads,
                 profile_creation_props.unlink_aux_files,
+                profile_creation_props.should_emit_jit_markers,
             ),
             timestamp_converter,
             current_sample_time: first_sample_time,
@@ -267,6 +274,8 @@ where
                 .arg_count_to_include_in_process_name,
             cpus,
             call_chain_return_addresses_are_preadjusted,
+            should_emit_jit_markers: profile_creation_props.should_emit_jit_markers,
+            should_emit_cswitch_markers: profile_creation_props.should_emit_cswitch_markers,
         }
     }
 
@@ -957,14 +966,16 @@ where
                             Some(idle_frame_label),
                         );
                     }
-                    cpu.notify_switch_in(
-                        tid,
-                        thread.thread_label(),
-                        timestamp,
-                        &self.timestamp_converter,
-                        &[cpu.thread_handle, combined_thread],
-                        &mut self.profile,
-                    );
+                    if self.should_emit_cswitch_markers {
+                        cpu.notify_switch_in_for_marker(
+                            tid,
+                            thread.thread_label(),
+                            timestamp,
+                            &self.timestamp_converter,
+                            &[cpu.thread_handle, combined_thread],
+                            &mut self.profile,
+                        );
+                    }
                 }
             }
             ContextSwitchRecord::Out { preempted, .. } => {
@@ -975,15 +986,17 @@ where
                     let cpu = cpus.get_mut(cpu_index as usize, &mut self.profile);
                     self.context_switch_handler
                         .handle_switch_out(timestamp, &mut cpu.context_switch_data);
-                    cpu.notify_switch_out(
-                        tid,
-                        timestamp,
-                        &self.timestamp_converter,
-                        &[cpu.thread_handle, combined_thread],
-                        thread.profile_thread,
-                        preempted == TaskWasPreempted::Yes,
-                        &mut self.profile,
-                    );
+                    if self.should_emit_cswitch_markers {
+                        cpu.notify_switch_out_for_marker(
+                            tid,
+                            timestamp,
+                            &self.timestamp_converter,
+                            &[cpu.thread_handle, combined_thread],
+                            thread.profile_thread,
+                            preempted == TaskWasPreempted::Yes,
+                            &mut self.profile,
+                        );
+                    }
                 }
             }
         }
@@ -1511,6 +1524,7 @@ where
                     lib_handle,
                     &mut self.jit_category_manager,
                     &mut self.profile,
+                    self.should_emit_jit_markers,
                 );
             } else {
                 process.add_regular_lib_mapping(
@@ -1888,22 +1902,13 @@ struct MmapMarker(StringHandle);
 
 impl StaticSchemaMarker for MmapMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "mmap";
-    fn schema() -> MarkerSchema {
-        MarkerSchema {
-            type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
-            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
-            chart_label: Some("{marker.data.name}".into()),
-            tooltip_label: Some("{marker.name} - {marker.data.name}".into()),
-            table_label: Some("{marker.name} - {marker.data.name}".into()),
-            fields: vec![MarkerFieldSchema {
-                key: "name".into(),
-                label: "Details".into(),
-                format: MarkerFieldFormat::String,
-                searchable: true,
-            }],
-            static_fields: vec![],
-        }
-    }
+
+    const FIELDS: &'static [StaticSchemaMarkerField] = &[StaticSchemaMarkerField {
+        key: "name",
+        label: "Details",
+        format: MarkerFieldFormat::String,
+        flags: MarkerFieldFlags::SEARCHABLE,
+    }];
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
         profile.intern_string("mmap")

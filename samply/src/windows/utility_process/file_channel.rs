@@ -27,7 +27,7 @@ use std::path::Path;
 use fs4::fs_std::FileExt;
 use fs4::lock_contended_error;
 use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::ser::Serialize;
 
 #[derive(Debug)]
 struct FileMessageWriter<T> {
@@ -113,7 +113,7 @@ impl<T: DeserializeOwned> Receiver<T> {
             match self.current_lock.try_lock_exclusive() {
                 Ok(()) => {
                     // Not locked yet.
-                    self.current_lock.unlock().unwrap();
+                    FileExt::unlock(&self.current_lock).unwrap();
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
                 Err(e) if e.raw_os_error() == lock_contended_error().raw_os_error() => {
@@ -131,7 +131,7 @@ impl<T: DeserializeOwned> Receiver<T> {
     pub fn recv_blocking(&mut self) -> Result<T, Box<dyn Error + Send + Sync>> {
         self.current_lock.lock_exclusive()?; // block until init message is written
         let msg = self.reader.recv()?;
-        self.current_lock.unlock()?;
+        FileExt::unlock(&self.current_lock)?;
         std::mem::swap(&mut self.current_lock, &mut self.next_lock);
         Ok(msg)
     }
@@ -166,7 +166,7 @@ impl<T: Serialize> Sender<T> {
         self.writer.send(msg)?;
         self.next_lock.lock_exclusive()?; // ready next lock
         std::mem::swap(&mut self.current_lock, &mut self.next_lock);
-        self.next_lock.unlock()?; // indicate that reply has been written
+        FileExt::unlock(&self.next_lock)?; // indicate that reply has been written
         Ok(())
     }
 }

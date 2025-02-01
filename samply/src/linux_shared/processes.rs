@@ -28,13 +28,16 @@ where
 
     /// Whether aux files (like jitdump) should be unlinked on open
     unlink_aux_data: bool,
+
+    /// Whether to emit JitFunctionAdd markers.
+    should_emit_jit_markers: bool,
 }
 
 impl<U> Processes<U>
 where
     U: Unwinder + Default,
 {
-    pub fn new(allow_reuse: bool, unlink_aux_data: bool) -> Self {
+    pub fn new(allow_reuse: bool, unlink_aux_data: bool, should_emit_jit_markers: bool) -> Self {
         let process_recycler = if allow_reuse {
             Some(ProcessRecycler::new())
         } else {
@@ -45,6 +48,7 @@ where
             process_recycler,
             process_sample_datas: Vec::new(),
             unlink_aux_data,
+            should_emit_jit_markers,
         }
     }
 
@@ -78,6 +82,7 @@ where
                             Some(thread_recycler),
                             Some(jit_function_recycler),
                             self.unlink_aux_data,
+                            self.should_emit_jit_markers,
                         );
                         return entry.insert(process);
                     }
@@ -113,6 +118,7 @@ where
                     thread_recycler,
                     jit_function_recycler,
                     self.unlink_aux_data,
+                    self.should_emit_jit_markers,
                 );
                 entry.insert(process)
             }
@@ -164,6 +170,7 @@ where
                 thread_recycler,
                 jit_function_recycler,
                 self.unlink_aux_data,
+                self.should_emit_jit_markers,
             )
         })
     }
@@ -213,20 +220,19 @@ where
                 }
 
                 if let Some(process_recycler) = self.process_recycler.as_mut() {
-                    let Some(process_recycling_data) = process_recycler.recycle_by_name(&name)
-                    else {
+                    if let Some(process_recycling_data) = process_recycler.recycle_by_name(&name) {
+                        let (old_recycling_data, old_name) =
+                            process.rename_with_recycling(name, process_recycling_data);
+                        if let Some(old_name) = old_name {
+                            process_recycler.add_to_pool(&old_name, old_recycling_data);
+                        }
                         return;
-                    };
-                    let (old_recycling_data, old_name) =
-                        process.rename_with_recycling(name, process_recycling_data);
-                    if let Some(old_name) = old_name {
-                        process_recycler.add_to_pool(&old_name, old_recycling_data);
                     }
-                } else {
-                    let main_thread_label_frame =
-                        make_thread_label_frame(profile, Some(&name), pid, pid);
-                    process.rename_without_recycling(name, main_thread_label_frame, profile);
                 }
+
+                let main_thread_label_frame =
+                    make_thread_label_frame(profile, Some(&name), pid, pid);
+                process.rename_without_recycling(name, main_thread_label_frame, profile);
             }
         }
     }

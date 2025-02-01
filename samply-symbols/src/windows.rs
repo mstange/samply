@@ -174,7 +174,7 @@ trait PdbObjectTrait {
 #[derive(Yokeable)]
 pub struct PdbObjectWrapper<'data>(Box<dyn PdbObjectTrait + Send + 'data>);
 
-impl<'data, FC: FileContents + 'static> PdbObjectTrait for PdbObject<'data, FC> {
+impl<FC: FileContents + 'static> PdbObjectTrait for PdbObject<'_, FC> {
     fn make_pdb_symbol_map(&self) -> Result<PdbSymbolMapInner<'_>, Error> {
         let context = self.make_context()?;
 
@@ -195,7 +195,7 @@ impl<'data, FC: FileContents + 'static> PdbObjectTrait for PdbObject<'data, FC> 
     }
 }
 
-impl<'data, FC: FileContents + 'static> PdbObject<'data, FC> {
+impl<FC: FileContents + 'static> PdbObject<'_, FC> {
     fn make_context<'object>(
         &'object self,
     ) -> Result<Box<dyn PdbAddr2lineContextTrait + Send + 'object>, Error> {
@@ -213,7 +213,7 @@ trait PdbAddr2lineContextTrait {
     fn functions(&self) -> Box<dyn Iterator<Item = pdb_addr2line::Function> + '_>;
 }
 
-impl<'a, 's> PdbAddr2lineContextTrait for pdb_addr2line::Context<'a, 's> {
+impl PdbAddr2lineContextTrait for pdb_addr2line::Context<'_, '_> {
     fn find_frames(
         &self,
         probe: u32,
@@ -239,7 +239,7 @@ struct PdbSymbolMapInner<'object> {
     path_mapper: Mutex<PathMapper<SrcSrvPathMapper<'object>>>,
 }
 
-impl<'object> SymbolMapTrait for PdbSymbolMapInner<'object> {
+impl SymbolMapTrait for PdbSymbolMapInner<'_> {
     fn debug_id(&self) -> DebugId {
         self.debug_id
     }
@@ -436,7 +436,7 @@ struct SrcSrvPathMapper<'a> {
     command_is_file_download_with_url_in_var4_and_uncompress_function_in_var5: bool,
 }
 
-impl<'a> ExtraPathMapper for SrcSrvPathMapper<'a> {
+impl ExtraPathMapper for SrcSrvPathMapper<'_> {
     fn map_path(&mut self, path: &str) -> Option<MappedPath> {
         if let Some(value) = self.cache.get(path) {
             return value.clone();

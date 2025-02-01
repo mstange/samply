@@ -95,7 +95,7 @@ enum Action {
 
     /// Codesign the samply binary on macOS to allow attaching to processes.
     #[cfg(target_os = "macos")]
-    Setup,
+    Setup(SetupArgs),
 }
 
 #[derive(Debug, Args)]
@@ -334,6 +334,13 @@ struct SymbolArgs {
 }
 
 #[derive(Debug, Args, Clone)]
+pub struct SetupArgs {
+    /// Don't wait for confirmation to codesign.
+    #[arg(short = 'y', long)]
+    yes: bool,
+}
+
+#[derive(Debug, Args, Clone)]
 pub struct ProfileCreationArgs {
     /// Set a custom name for the recorded profile.
     /// By default it is either the command that was run or the process pid.
@@ -363,6 +370,14 @@ pub struct ProfileCreationArgs {
     /// Create a separate thread for each CPU. Not supported on macOS
     #[arg(long)]
     per_cpu_threads: bool,
+
+    /// Emit a JitFunctionAdd markers when a JIT function is added.
+    #[arg(long)]
+    jit_markers: bool,
+
+    /// Emit context switch markers.
+    #[arg(long)]
+    cswitch_markers: bool,
 
     /// Include up to <INCLUDE_ARGS> command line arguments in the process name.
     /// This can help differentiate processes if the same executable is used
@@ -491,8 +506,8 @@ fn main() {
         }
 
         #[cfg(target_os = "macos")]
-        Action::Setup => {
-            mac::codesign_setup::codesign_setup();
+        Action::Setup(SetupArgs { yes }) => {
+            mac::codesign_setup::codesign_setup(yes);
         }
     }
 }
@@ -534,6 +549,8 @@ impl ImportArgs {
             arg_count_to_include_in_process_name: self.profile_creation_args.include_args,
             override_arch: self.override_arch.clone(),
             unstable_presymbolicate: self.profile_creation_args.unstable_presymbolicate,
+            should_emit_jit_markers: self.profile_creation_args.jit_markers,
+            should_emit_cswitch_markers: self.profile_creation_args.cswitch_markers,
             coreclr: to_coreclr_profile_props(&self.coreclr),
             #[cfg(target_os = "windows")]
             unknown_event_markers: self.profile_creation_args.unknown_event_markers,
@@ -657,6 +674,8 @@ impl RecordArgs {
             arg_count_to_include_in_process_name: self.profile_creation_args.include_args,
             override_arch: None,
             unstable_presymbolicate: self.profile_creation_args.unstable_presymbolicate,
+            should_emit_jit_markers: self.profile_creation_args.jit_markers,
+            should_emit_cswitch_markers: self.profile_creation_args.cswitch_markers,
             coreclr: to_coreclr_profile_props(&self.coreclr),
             #[cfg(target_os = "windows")]
             unknown_event_markers: self.profile_creation_args.unknown_event_markers,

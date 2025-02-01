@@ -1,0 +1,23 @@
+[package]
+name = "samply-quota-manager"
+version = "0.1.0"
+authors = ["Markus Stange <mstange.moz@gmail.com>"]
+license = "MIT OR Apache-2.0"
+edition = "2021"
+rust-version = "1.77" # needed by rusqlite_migration
+description = "Limit the total size of a directory by deleting least-recently-used files"
+repository = "https://github.com/mstange/samply/"
+readme = "README.md"
+
+[dependencies]
+bytesize = "1.3.0"
+log = "0.4.21"
+tokio = { version = "1.39", features = [
+  "fs",
+  "rt",
+  "rt-multi-thread",
+  "sync",
+  "macros"
+] }
+rusqlite = { version = "0.32.0", features = ["bundled"] }
+rusqlite_migration = "1.2.0"

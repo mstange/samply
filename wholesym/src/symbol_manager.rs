@@ -10,6 +10,7 @@ use samply_symbols::{
 
 use crate::config::SymbolManagerConfig;
 use crate::helper::{FileReadOnlyHelper, Helper, WholesymFileContents, WholesymFileLocation};
+use crate::SymbolManagerObserver;
 
 /// Used in [`SymbolManager::load_external_file`] and returned by [`SymbolMap::symbol_file_origin`].
 #[derive(Debug, Clone)]
@@ -221,6 +222,10 @@ impl SymbolManager {
             Err(e) => return Err(e),
         };
         Ok(binary.library_info())
+    }
+
+    pub fn set_observer(&mut self, observer: Option<Arc<dyn SymbolManagerObserver>>) {
+        self.symbol_manager.helper().set_observer(observer);
     }
 
     /// Tell the `SymbolManager` about a known library. This allows it to find

@@ -3,14 +3,13 @@ use std::path::{Path, PathBuf};
 
 use serde_derive::{Deserialize, Serialize};
 
-use crate::shared::recording_props::{
-    CoreClrProfileProps, ProfileCreationProps, RecordingMode, RecordingProps,
-};
-
 use super::utility_process::{
     run_child, UtilityProcess, UtilityProcessChild, UtilityProcessParent, UtilityProcessSession,
 };
 use super::xperf::Xperf;
+use crate::shared::recording_props::{
+    CoreClrProfileProps, ProfileCreationProps, RecordingMode, RecordingProps,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "t", content = "c")]
@@ -162,7 +161,16 @@ impl UtilityProcessParent for ElevatedHelperParent {
         // Don't show a new Console window for this process.
         cmd.show(false);
 
-        let _ = cmd.status().expect("Failed to execute elevated helper");
+        let exit_status = cmd.status().expect("Failed to execute elevated helper");
+        if !exit_status.success() {
+            eprintln!(
+                "Failed to run elevated helper, exit status {}",
+                exit_status.code().unwrap()
+            );
+            use crate::name::SAMPLY_NAME_PRINT_STRING;
+            eprintln!("{SAMPLY_NAME_PRINT_STRING} requires Administrator privileges for profiling on Windows.");
+            std::process::exit(1);
+        }
     }
 }
 

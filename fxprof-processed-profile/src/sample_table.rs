@@ -13,7 +13,7 @@ use crate::Timestamp;
 /// it in the profile.
 #[derive(Debug, Clone)]
 pub struct SampleTable {
-    sample_type: WeightType,
+    sample_weight_type: WeightType,
     sample_weights: Vec<i32>,
     sample_timestamps: Vec<Timestamp>,
     /// An index into the thread's stack table for each sample. `None` means the empty stack.
@@ -24,63 +24,27 @@ pub struct SampleTable {
     last_sample_timestamp: Timestamp,
 }
 
-/// Profile samples can come in a variety of forms and represent different information.
-/// The Gecko Profiler by default uses sample counts, as it samples on a fixed interval.
-/// These samples are all weighted equally by default, with a weight of one. However in
-/// comparison profiles, some weights are negative, creating a "diff" profile.
-///
-/// In addition, tracing formats can fit into the sample-based format by reporting
-/// the "self time" of the profile. Each of these "self time" samples would then
-/// provide the weight, in duration. Currently, the tracing format assumes that
-/// the timing comes in milliseconds (see 'tracing-ms') but if needed, microseconds
-/// or nanoseconds support could be added.
-///
-/// e.g. The following tracing data could be represented as samples:
-///
-/// ```ignore
-///     0 1 2 3 4 5 6 7 8 9 10
-///     | | | | | | | | | | |
-///     - - - - - - - - - - -
-///     A A A A A A A A A A A
-///         B B D D D D
-///         C C E E E E
-/// ```
-/// This chart represents the self time.
-/// ```ignore
-///     0 1 2 3 4 5 6 7 8 9 10
-///     | | | | | | | | | | |
-///     A A C C E E E E A A A
-/// ```
-/// And finally this is what the samples table would look like.
-/// ```ignore
-///     SamplesTable = {
-///       time:   [0,   2,   4, 8],
-///       stack:  [A, ABC, ADE, A],
-///       weight: [2,   2,   4, 3],
-///     }
-/// ```
-///
-/// JS type definition:
-/// ```ts
-/// export type WeightType = 'samples' | 'tracing-ms' | 'bytes';
-/// ```
-///
-/// Documentation and code from:
-/// <https://github.com/firefox-devtools/profiler/blob/7bf02b3f747a33a8c166c533dc29304fde725517/src/types/profile.js#L127>
+/// Specifies the meaning of the "weight" value of a thread's samples.
 #[derive(Debug, Clone)]
 pub enum WeightType {
-    /// The weight is an integer multiplier.
+    /// The weight is an integer multiplier. For example, "this stack was
+    /// observed n times when sampling at the specified interval."
     ///
     /// This affects the total + self score of each call node in the call tree,
     /// and the order in the tree because the tree is ordered from large "totals"
     /// to small "totals".
     /// It also affects the width of the sample's stack's box in the flame graph.
     Samples,
-    /// Each sample will have a weight in terms of (fractional) milliseconds.
-    /// Not supported by fxprof-processed-profile at the moment.
-    #[allow(dead_code)]
+    /// The weight is a duration in (fractional) milliseconds.
+    ///
+    /// Note that, since [`Profile::add_sample`](crate::Profile::add_sample) currently
+    /// only accepts integer weight values, the usefulness of `TracingMs` is
+    /// currently limited.
     TracingMs,
-    /// Each sample will have a weight in terms of bytes allocated.
+    /// The weight of each sample is a value in bytes.
+    ///
+    /// This can be used for profiles with allocation stacks. It can also be used
+    /// for "size" profiles which give a bytes breakdown of the contents of a file.
     Bytes,
 }
 
@@ -107,7 +71,7 @@ impl Serialize for WeightType {
 impl SampleTable {
     pub fn new() -> Self {
         Self {
-            sample_type: WeightType::Samples,
+            sample_weight_type: WeightType::Samples,
             sample_weights: Vec::new(),
             sample_timestamps: Vec::new(),
             sample_stack_indexes: Vec::new(),
@@ -134,6 +98,10 @@ impl SampleTable {
         self.last_sample_timestamp = timestamp;
     }
 
+    pub fn set_weight_type(&mut self, t: WeightType) {
+        self.sample_weight_type = t;
+    }
+
     pub fn modify_last_sample(&mut self, timestamp: Timestamp, weight: i32) {
         *self.sample_weights.last_mut().unwrap() += weight;
         *self.sample_timestamps.last_mut().unwrap() = timestamp;
@@ -145,7 +113,7 @@ impl Serialize for SampleTable {
         let len = self.sample_timestamps.len();
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry("length", &len)?;
-        map.serialize_entry("weightType", &self.sample_type.to_string())?;
+        map.serialize_entry("weightType", &self.sample_weight_type.to_string())?;
 
         if self.sorted_by_time {
             map.serialize_entry("stack", &self.sample_stack_indexes)?;
@@ -178,7 +146,7 @@ impl Serialize for SampleTable {
 
 struct SliceWithPermutation<'a, T: Serialize>(&'a [T], &'a [usize]);
 
-impl<'a, T: Serialize> Serialize for SliceWithPermutation<'a, T> {
+impl<T: Serialize> Serialize for SliceWithPermutation<'_, T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,

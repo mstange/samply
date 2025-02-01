@@ -119,7 +119,7 @@ pub struct SerializableProfile<'a>(&'a ProfileBuilder);
 
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 
-impl<'a> Serialize for SerializableProfile<'a> {
+impl Serialize for SerializableProfile<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let start_time_ms_since_unix_epoch = self
             .0
@@ -360,7 +360,7 @@ pub struct SerializableProfileThread<'a, 'n> {
     process_start: Instant,
 }
 
-impl<'a, 'n> Serialize for SerializableProfileThread<'a, 'n> {
+impl Serialize for SerializableProfileThread<'_, '_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let name = if self.thread.is_main {
             // https://github.com/firefox-devtools/profiler/issues/2508
@@ -486,7 +486,7 @@ impl Serialize for StackTable {
 
 struct SerializableStackTableData<'a>(&'a StackTable);
 
-impl<'a> Serialize for SerializableStackTableData<'a> {
+impl Serialize for SerializableStackTableData<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut seq = serializer.serialize_seq(Some(self.0.stacks.len()))?;
         for stack in &self.0.stacks {
@@ -498,7 +498,7 @@ impl<'a> Serialize for SerializableStackTableData<'a> {
 
 struct SerializableStackTableDataValue<'a>(&'a (Option<usize>, usize));
 
-impl<'a> Serialize for SerializableStackTableDataValue<'a> {
+impl Serialize for SerializableStackTableDataValue<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let (prefix, frame_index) = self.0;
         let mut seq = serializer.serialize_seq(Some(2))?;
@@ -564,7 +564,7 @@ impl Serialize for FrameTable {
 
 struct SerializableFrameTableData<'a>(&'a FrameTable);
 
-impl<'a> Serialize for SerializableFrameTableData<'a> {
+impl Serialize for SerializableFrameTableData<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut seq = serializer.serialize_seq(Some(self.0.frames.len()))?;
         for location in &self.0.frames {
@@ -609,7 +609,7 @@ struct SerializableSampleTable<'a> {
     process_start: Instant,
 }
 
-impl<'a> Serialize for SerializableSampleTable<'a> {
+impl Serialize for SerializableSampleTable<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let schema = json!({
             "stack": 0,
@@ -634,7 +634,7 @@ struct SerializableSampleTableData<'a> {
     process_start: Instant,
 }
 
-impl<'a> Serialize for SerializableSampleTableData<'a> {
+impl Serialize for SerializableSampleTableData<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut seq = serializer.serialize_seq(Some(self.table.0.len()))?;
         for sample in &self.table.0 {
@@ -693,7 +693,7 @@ struct SerializableMarkerTable<'a> {
     process_start: Instant,
 }
 
-impl<'a> Serialize for SerializableMarkerTable<'a> {
+impl Serialize for SerializableMarkerTable<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let schema = json!({
             "name": 0,
@@ -720,7 +720,7 @@ struct SerializableMarkerTableData<'a> {
     process_start: Instant,
 }
 
-impl<'a> Serialize for SerializableMarkerTableData<'a> {
+impl Serialize for SerializableMarkerTableData<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut seq = serializer.serialize_seq(Some(self.table.0.len()))?;
         for marker in &self.table.0 {
@@ -738,7 +738,7 @@ struct SerializableMarkerTableDataValue<'a> {
     data: &'a Value,
 }
 
-impl<'a> Serialize for SerializableMarkerTableDataValue<'a> {
+impl Serialize for SerializableMarkerTableDataValue<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut seq = serializer.serialize_seq(Some(6))?;
         seq.serialize_element(&self.name_string_index.0)?; // name

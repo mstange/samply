@@ -16,7 +16,7 @@ impl<T: Serialize> Serialize for SerializableSingleValueColumn<T> {
 
 pub struct SerializableOptionalTimestampColumn<'a>(pub &'a [Option<Timestamp>]);
 
-impl<'a> Serialize for SerializableOptionalTimestampColumn<'a> {
+impl Serialize for SerializableOptionalTimestampColumn<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
         for timestamp in self.0 {

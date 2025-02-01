@@ -123,7 +123,7 @@ struct SerializableMarkerTable<'a> {
     schemas: &'a [InternalMarkerSchema],
 }
 
-impl<'a> Serialize for SerializableMarkerTable<'a> {
+impl Serialize for SerializableMarkerTable<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let Self { marker_table, .. } = self;
         let len = marker_table.marker_name_string_indexes.len();
@@ -147,7 +147,7 @@ impl<'a> Serialize for SerializableMarkerTable<'a> {
 
 struct SerializableMarkerTableDataColumn<'a>(&'a SerializableMarkerTable<'a>);
 
-impl<'a> Serialize for SerializableMarkerTableDataColumn<'a> {
+impl Serialize for SerializableMarkerTableDataColumn<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let marker_table = self.0.marker_table;
         let schemas = self.0.schemas;
@@ -186,7 +186,7 @@ struct SerializableMarkerDataElement<'a> {
     number_fields: &'a [f64],
 }
 
-impl<'a> Serialize for SerializableMarkerDataElement<'a> {
+impl Serialize for SerializableMarkerDataElement<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let Self {
             global_string_table,

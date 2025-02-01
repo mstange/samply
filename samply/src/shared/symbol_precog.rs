@@ -1,13 +1,13 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufWriter;
+use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::{collections::HashMap, path::Path};
 
 use debugid::DebugId;
-use serde::{
-    ser::SerializeMap, ser::SerializeSeq, Deserialize, Deserializer, Serialize, Serializer,
-};
+use serde::de::{Deserialize, Deserializer};
+use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::to_writer;
 use wholesym::SourceFilePath;

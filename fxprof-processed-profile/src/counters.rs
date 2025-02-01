@@ -1,6 +1,6 @@
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
-use crate::{ProcessHandle, Timestamp};
+use crate::{GraphColor, ProcessHandle, Timestamp};
 
 /// A counter. Can be created with [`Profile::add_counter`](crate::Profile::add_counter).
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
@@ -14,6 +14,7 @@ pub struct Counter {
     process: ProcessHandle,
     pid: String,
     samples: CounterSamples,
+    color: Option<GraphColor>,
 }
 
 impl Counter {
@@ -31,6 +32,7 @@ impl Counter {
             process,
             pid: pid.to_owned(),
             samples: CounterSamples::new(),
+            color: None,
         }
     }
 
@@ -48,6 +50,10 @@ impl Counter {
             .add_sample(timestamp, value_delta, number_of_operations_delta)
     }
 
+    pub fn set_color(&mut self, color: GraphColor) {
+        self.color = Some(color);
+    }
+
     pub fn as_serializable(&self, main_thread_index: usize) -> impl Serialize + '_ {
         SerializableCounter {
             counter: self,
@@ -62,7 +68,7 @@ struct SerializableCounter<'a> {
     main_thread_index: usize,
 }
 
-impl<'a> Serialize for SerializableCounter<'a> {
+impl Serialize for SerializableCounter<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry("category", &self.counter.category)?;
@@ -71,6 +77,9 @@ impl<'a> Serialize for SerializableCounter<'a> {
         map.serialize_entry("mainThreadIndex", &self.main_thread_index)?;
         map.serialize_entry("pid", &self.counter.pid)?;
         map.serialize_entry("samples", &self.counter.samples)?;
+        if let Some(color) = self.counter.color {
+            map.serialize_entry("color", &color)?;
+        }
         map.end()
     }
 }

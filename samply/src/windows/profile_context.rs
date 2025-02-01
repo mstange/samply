@@ -4,9 +4,9 @@ use std::path::Path;
 use debugid::DebugId;
 use fxprof_processed_profile::{
     CategoryColor, CategoryHandle, CounterHandle, CpuDelta, Frame, FrameFlags, FrameInfo,
-    LibraryHandle, LibraryInfo, Marker, MarkerFieldFormat, MarkerFieldSchema, MarkerHandle,
-    MarkerLocation, MarkerSchema, MarkerTiming, ProcessHandle, Profile, SamplingInterval,
-    StaticSchemaMarker, StringHandle, ThreadHandle, Timestamp,
+    LibraryHandle, LibraryInfo, Marker, MarkerFieldFlags, MarkerFieldFormat, MarkerHandle,
+    MarkerLocations, MarkerTiming, ProcessHandle, Profile, SamplingInterval, StaticSchemaMarker,
+    StaticSchemaMarkerField, StringHandle, ThreadHandle, Timestamp,
 };
 use shlex::Shlex;
 use wholesym::PeCodeId;
@@ -1563,21 +1563,11 @@ impl ProfileContext {
         impl StaticSchemaMarker for VSyncMarker {
             const UNIQUE_MARKER_TYPE_NAME: &'static str = "Vsync";
 
-            fn schema() -> MarkerSchema {
-                MarkerSchema {
-                    type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
-                    locations: vec![
-                        MarkerLocation::MarkerChart,
-                        MarkerLocation::MarkerTable,
-                        MarkerLocation::TimelineOverview,
-                    ],
-                    chart_label: Some("{marker.data.name}".into()),
-                    tooltip_label: None,
-                    table_label: Some("{marker.name}".into()),
-                    fields: vec![],
-                    static_fields: vec![],
-                }
-            }
+            const LOCATIONS: MarkerLocations = MarkerLocations::MARKER_CHART
+                .union(MarkerLocations::MARKER_TABLE)
+                .union(MarkerLocations::TIMELINE_OVERVIEW);
+
+            const FIELDS: &'static [StaticSchemaMarkerField] = &[];
 
             fn name(&self, profile: &mut Profile) -> StringHandle {
                 profile.intern_string("Vsync")
@@ -1630,18 +1620,20 @@ impl ProfileContext {
                 self.context_switch_handler
                     .handle_switch_out(timestamp_raw, &mut cpu.context_switch_data);
 
-                // TODO: Find out if this actually is the right way to check whether a thread
-                // has been pre-empted.
-                let preempted = wait_reason == 0 || wait_reason == 32; // "Executive" | "WrPreempted"
-                cpu.notify_switch_out(
-                    old_tid as i32,
-                    timestamp_raw,
-                    &self.timestamp_converter,
-                    &[cpu.thread_handle, combined_thread],
-                    old_thread.handle,
-                    preempted,
-                    &mut self.profile,
-                );
+                if self.profile_creation_props.should_emit_cswitch_markers {
+                    // TODO: Find out if this actually is the right way to check whether a thread
+                    // has been pre-empted.
+                    let preempted = wait_reason == 0 || wait_reason == 32; // "Executive" | "WrPreempted"
+                    cpu.notify_switch_out_for_marker(
+                        old_tid as i32,
+                        timestamp_raw,
+                        &self.timestamp_converter,
+                        &[cpu.thread_handle, combined_thread],
+                        old_thread.handle,
+                        preempted,
+                        &mut self.profile,
+                    );
+                }
             }
         }
 
@@ -1685,10 +1677,14 @@ impl ProfileContext {
                     let begin_timestamp = self
                         .timestamp_converter
                         .convert_time(idle_cpu_sample.begin_timestamp);
+                    let stack = self.profile.intern_stack_frames(
+                        cpu.thread_handle,
+                        std::iter::once(idle_frame_label.clone()),
+                    );
                     self.profile.add_sample(
                         cpu.thread_handle,
                         begin_timestamp,
-                        std::iter::once(idle_frame_label.clone()),
+                        stack,
                         cpu_delta,
                         0,
                     );
@@ -1700,19 +1696,21 @@ impl ProfileContext {
                     self.profile.add_sample(
                         cpu.thread_handle,
                         end_timestamp,
-                        std::iter::once(idle_frame_label.clone()),
+                        stack,
                         CpuDelta::from_nanos(0),
                         0,
                     );
                 }
-                cpu.notify_switch_in(
-                    new_tid as i32,
-                    new_thread.thread_label(),
-                    timestamp_raw,
-                    &self.timestamp_converter,
-                    &[cpu.thread_handle, combined_thread],
-                    &mut self.profile,
-                );
+                if self.profile_creation_props.should_emit_cswitch_markers {
+                    cpu.notify_switch_in_for_marker(
+                        new_tid as i32,
+                        new_thread.thread_label(),
+                        timestamp_raw,
+                        &self.timestamp_converter,
+                        &[cpu.thread_handle, combined_thread],
+                        &mut self.profile,
+                    );
+                }
             }
         }
     }
@@ -1777,13 +1775,15 @@ impl ProfileContext {
         let lib = &mut self.js_jit_lib;
         let info = LibMappingInfo::new_jit_function(lib.lib_handle(), category, js_frame);
 
-        let name_handle = self.profile.intern_string(&method_name);
-        let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
-        self.profile.add_marker(
-            process.main_thread_handle,
-            MarkerTiming::Instant(timestamp),
-            JitFunctionAddMarker(name_handle),
-        );
+        if self.profile_creation_props.should_emit_jit_markers {
+            let name_handle = self.profile.intern_string(&method_name);
+            let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
+            self.profile.add_marker(
+                process.main_thread_handle,
+                MarkerTiming::Instant(timestamp),
+                JitFunctionAddMarker(name_handle),
+            );
+        }
 
         process.add_jit_function(
             timestamp_raw,
@@ -2232,22 +2232,16 @@ pub struct FreeformMarker(StringHandle, StringHandle, CategoryHandle);
 impl StaticSchemaMarker for FreeformMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "FreeformMarker";
 
-    fn schema() -> MarkerSchema {
-        MarkerSchema {
-            type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
-            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
-            chart_label: Some("{marker.data.values}".into()),
-            tooltip_label: Some("{marker.name} - {marker.data.values}".into()),
-            table_label: Some("{marker.data.values}".into()),
-            fields: vec![MarkerFieldSchema {
-                key: "values".into(),
-                label: "Values".into(),
-                format: MarkerFieldFormat::String,
-                searchable: true,
-            }],
-            static_fields: vec![],
-        }
-    }
+    const CHART_LABEL: Option<&'static str> = Some("{marker.data.values}");
+    const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.values}");
+    const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.values");
+
+    const FIELDS: &'static [StaticSchemaMarkerField] = &[StaticSchemaMarkerField {
+        key: "values",
+        label: "Values",
+        format: MarkerFieldFormat::String,
+        flags: MarkerFieldFlags::SEARCHABLE,
+    }];
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
         self.0

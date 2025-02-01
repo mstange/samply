@@ -179,9 +179,7 @@ impl<'a> Parser<'a> {
                 // as the size of AppName
 
                 // Fallback to Tdh
-                return Ok(
-                    tdh::property_size(self.event.record(), &property.name).unwrap() as usize,
-                );
+                Ok(tdh::property_size(self.event.record(), &property.name).unwrap() as usize)
             }
             PropertyLength::Length(length) => {
                 // TODO: Study heuristic method used in krabsetw :)
@@ -222,9 +220,7 @@ impl<'a> Parser<'a> {
                         }
                     }
                 }
-                return Ok(
-                    tdh::property_size(self.event.record(), &property.name).unwrap() as usize,
-                );
+                Ok(tdh::property_size(self.event.record(), &property.name).unwrap() as usize)
             }
         }
     }
@@ -234,7 +230,7 @@ impl<'a> Parser<'a> {
             .properties
             .name_to_indx
             .get(name)
-            .ok_or_else(|| ParserError::PropertyError("Unknown property".to_owned()))?;
+            .ok_or_else(|| ParserError::PropertyError(format!("Unknown property: {}", name)))?;
         if indx < self.cache.len() {
             return Ok(indx);
         }
@@ -518,7 +514,9 @@ impl TryParse<GUID> for Parser<'_> {
                         return Err(ParserError::LengthMismatch);
                     }
 
-                    return Ok(GUID::from(guid_string.as_str()));
+                    return GUID::try_from(guid_string.as_str()).map_err(|_| {
+                        ParserError::PropertyError(format!("Error parsing GUID {guid_string}"))
+                    });
                 }
                 TdhInType::InTypeGuid => {
                     return Ok(GUID::from_values(

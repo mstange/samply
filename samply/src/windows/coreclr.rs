@@ -1,20 +1,19 @@
-use std::{collections::HashMap, convert::TryInto, fmt::Display};
+use std::collections::HashMap;
+use std::convert::TryInto;
+use std::fmt::Display;
 
 use bitflags::bitflags;
 use fxprof_processed_profile::*;
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 
-use etw_reader::{self, schema::TypedEvent};
-use etw_reader::{
-    event_properties_to_string,
-    parser::{Parser, TryParse},
-};
-
+use super::elevated_helper::ElevatedRecordingProps;
 use crate::shared::recording_props::{CoreClrProfileProps, ProfileCreationProps};
 use crate::windows::profile_context::{KnownCategory, ProfileContext};
 
-use super::elevated_helper::ElevatedRecordingProps;
+use super::etw_reader::event_properties_to_string;
+use super::etw_reader::parser::{Parser, TryParse};
+use super::etw_reader::schema::TypedEvent;
 
 struct SavedMarkerInfo {
     start_timestamp_raw: u64,
@@ -214,39 +213,32 @@ pub struct CoreClrGcAllocMarker(StringHandle, f64, CategoryHandle);
 impl StaticSchemaMarker for CoreClrGcAllocMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "GC Alloc";
 
-    fn schema() -> MarkerSchema {
-        MarkerSchema {
-            type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
-            locations: vec![
-                MarkerLocation::MarkerChart,
-                MarkerLocation::MarkerTable,
-                MarkerLocation::TimelineMemory,
-            ],
-            chart_label: Some("GC Alloc".into()),
-            tooltip_label: Some(
-                "GC Alloc: {marker.data.clrtype} ({marker.data.size} bytes)".into(),
-            ),
-            table_label: Some("GC Alloc".into()),
-            fields: vec![
-                MarkerFieldSchema {
-                    key: "clrtype".into(),
-                    label: "CLR Type".into(),
-                    format: MarkerFieldFormat::String,
-                    searchable: true,
-                },
-                MarkerFieldSchema {
-                    key: "size".into(),
-                    label: "Size".into(),
-                    format: MarkerFieldFormat::Bytes,
-                    searchable: false,
-                },
-            ],
-            static_fields: vec![MarkerStaticField {
-                label: "Description".into(),
-                value: "GC Allocation.".into(),
-            }],
-        }
-    }
+    const DESCRIPTION: Option<&'static str> = Some("GC Allocation.");
+
+    const LOCATIONS: MarkerLocations = MarkerLocations::MARKER_CHART
+        .union(MarkerLocations::MARKER_TABLE)
+        .union(MarkerLocations::TIMELINE_MEMORY);
+
+    const CHART_LABEL: Option<&'static str> = Some("GC Alloc");
+    const TOOLTIP_LABEL: Option<&'static str> =
+        Some("GC Alloc: {marker.data.clrtype} ({marker.data.size} bytes)");
+    const TABLE_LABEL: Option<&'static str> =
+        Some("GC Alloc: {marker.data.clrtype} ({marker.data.size} bytes)");
+
+    const FIELDS: &'static [StaticSchemaMarkerField] = &[
+        StaticSchemaMarkerField {
+            key: "clrtype",
+            label: "CLR Type",
+            format: MarkerFieldFormat::String,
+            flags: MarkerFieldFlags::SEARCHABLE,
+        },
+        StaticSchemaMarkerField {
+            key: "size",
+            label: "Size",
+            format: MarkerFieldFormat::Bytes,
+            flags: MarkerFieldFlags::empty(),
+        },
+    ];
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
         profile.intern_string("GC Alloc")
@@ -271,29 +263,22 @@ pub struct CoreClrGcEventMarker(StringHandle, StringHandle, CategoryHandle);
 impl StaticSchemaMarker for CoreClrGcEventMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "GC Event";
 
-    fn schema() -> MarkerSchema {
-        MarkerSchema {
-            type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
-            locations: vec![
-                MarkerLocation::MarkerChart,
-                MarkerLocation::MarkerTable,
-                MarkerLocation::TimelineMemory,
-            ],
-            chart_label: Some("{marker.data.event}".into()),
-            tooltip_label: Some("{marker.data.event}".into()),
-            table_label: Some("{marker.data.event}".into()),
-            fields: vec![MarkerFieldSchema {
-                key: "event".into(),
-                label: "Event".into(),
-                format: MarkerFieldFormat::String,
-                searchable: true,
-            }],
-            static_fields: vec![MarkerStaticField {
-                label: "Description".into(),
-                value: "Generic GC Event.".into(),
-            }],
-        }
-    }
+    const DESCRIPTION: Option<&'static str> = Some("Generic GC Event.");
+
+    const LOCATIONS: MarkerLocations = MarkerLocations::MARKER_CHART
+        .union(MarkerLocations::MARKER_TABLE)
+        .union(MarkerLocations::TIMELINE_MEMORY);
+
+    const CHART_LABEL: Option<&'static str> = Some("{marker.data.event}");
+    const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.data.event}");
+    const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.event}");
+
+    const FIELDS: &'static [StaticSchemaMarkerField] = &[StaticSchemaMarkerField {
+        key: "event",
+        label: "Event",
+        format: MarkerFieldFormat::String,
+        flags: MarkerFieldFlags::SEARCHABLE,
+    }];
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
         self.0
@@ -315,7 +300,7 @@ impl StaticSchemaMarker for CoreClrGcEventMarker {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct DisplayUnknownIfNone<'a, T>(pub &'a Option<T>);
 
-impl<'a, T: Display> Display for DisplayUnknownIfNone<'a, T> {
+impl<T: Display> Display for DisplayUnknownIfNone<'_, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.0 {
             Some(value) => value.fmt(f),
@@ -758,25 +743,18 @@ pub struct OtherClrMarker(StringHandle, StringHandle);
 impl StaticSchemaMarker for OtherClrMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "OtherClrMarker";
 
-    fn schema() -> MarkerSchema {
-        MarkerSchema {
-            type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
-            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
-            chart_label: Some("{marker.data.name}".into()),
-            tooltip_label: Some("{marker.data.name}".into()),
-            table_label: Some("{marker.data.name}".into()),
-            fields: vec![MarkerFieldSchema {
-                key: "name".into(),
-                label: "Name".into(),
-                format: MarkerFieldFormat::String,
-                searchable: true,
-            }],
-            static_fields: vec![MarkerStaticField {
-                label: "Description".into(),
-                value: "CoreCLR marker of unknown type.".into(),
-            }],
-        }
-    }
+    const DESCRIPTION: Option<&'static str> = Some("CoreCLR marker of unknown type.");
+
+    const CHART_LABEL: Option<&'static str> = Some("{marker.data.name}");
+    const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.data.name}");
+    const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.name}");
+
+    const FIELDS: &'static [StaticSchemaMarkerField] = &[StaticSchemaMarkerField {
+        key: "name",
+        label: "Name",
+        format: MarkerFieldFormat::String,
+        flags: MarkerFieldFlags::SEARCHABLE,
+    }];
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
         self.0

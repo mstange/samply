@@ -1,6 +1,6 @@
 use fxprof_processed_profile::{
-    CategoryHandle, Frame, FrameFlags, FrameInfo, MarkerFieldFormat, MarkerFieldSchema,
-    MarkerLocation, MarkerSchema, MarkerTiming, ProcessHandle, Profile, StaticSchemaMarker,
+    CategoryHandle, Frame, FrameFlags, FrameInfo, MarkerFieldFlags, MarkerFieldFormat,
+    MarkerTiming, ProcessHandle, Profile, StaticSchemaMarker, StaticSchemaMarkerField,
     StringHandle, ThreadHandle, Timestamp,
 };
 
@@ -19,7 +19,7 @@ pub struct Cpu {
     pub name: StringHandle,
     pub thread_handle: ThreadHandle,
     pub context_switch_data: ThreadContextSwitchData,
-    pub current_tid: Option<(i32, StringHandle, u64)>,
+    current_tid: Option<(i32, StringHandle, u64)>,
 }
 
 impl Cpu {
@@ -33,7 +33,7 @@ impl Cpu {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn notify_switch_in(
+    pub fn notify_switch_in_for_marker(
         &mut self,
         tid: i32,
         thread_name: StringHandle,
@@ -60,7 +60,7 @@ impl Cpu {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn notify_switch_out(
+    pub fn notify_switch_out_for_marker(
         &mut self,
         tid: i32, // tid that is being switched away from
         timestamp: u64,
@@ -157,22 +157,16 @@ pub struct ThreadNameMarkerForCpuTrack(pub StringHandle, pub StringHandle);
 impl StaticSchemaMarker for ThreadNameMarkerForCpuTrack {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "ContextSwitch";
 
-    fn schema() -> MarkerSchema {
-        MarkerSchema {
-            type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
-            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
-            chart_label: Some("{marker.data.thread}".into()),
-            tooltip_label: Some("{marker.data.thread}".into()),
-            table_label: Some("{marker.name} - {marker.data.thread}".into()),
-            fields: vec![MarkerFieldSchema {
-                key: "thread".into(),
-                label: "Thread".into(),
-                format: MarkerFieldFormat::String,
-                searchable: true,
-            }],
-            static_fields: vec![],
-        }
-    }
+    const CHART_LABEL: Option<&'static str> = Some("{marker.data.thread}");
+    const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.data.thread}");
+    const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.thread}");
+
+    const FIELDS: &'static [StaticSchemaMarkerField] = &[StaticSchemaMarkerField {
+        key: "thread",
+        label: "Thread",
+        format: MarkerFieldFormat::String,
+        flags: MarkerFieldFlags::SEARCHABLE,
+    }];
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
         self.0
@@ -201,32 +195,25 @@ pub struct OnCpuMarkerForThreadTrack {
 impl StaticSchemaMarker for OnCpuMarkerForThreadTrack {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "OnCpu";
 
-    fn schema() -> MarkerSchema {
-        MarkerSchema {
-            type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
-            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
-            chart_label: Some("{marker.data.cpu}".into()),
-            tooltip_label: Some("{marker.data.cpu}".into()),
-            table_label: Some(
-                "{marker.name} - {marker.data.cpu}, switch-out reason: {marker.data.outwhy}".into(),
-            ),
-            fields: vec![
-                MarkerFieldSchema {
-                    key: "cpu".into(),
-                    label: "CPU".into(),
-                    format: MarkerFieldFormat::String,
-                    searchable: true,
-                },
-                MarkerFieldSchema {
-                    key: "outwhy".into(),
-                    label: "Switch-out reason".into(),
-                    format: MarkerFieldFormat::String,
-                    searchable: true,
-                },
-            ],
-            static_fields: vec![],
-        }
-    }
+    const CHART_LABEL: Option<&'static str> = Some("{marker.data.cpu}");
+    const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.data.cpu}");
+    const TABLE_LABEL: Option<&'static str> =
+        Some("{marker.name} - {marker.data.cpu}, switch-out reason: {marker.data.outwhy}");
+
+    const FIELDS: &'static [StaticSchemaMarkerField] = &[
+        StaticSchemaMarkerField {
+            key: "cpu",
+            label: "CPU",
+            format: MarkerFieldFormat::String,
+            flags: MarkerFieldFlags::SEARCHABLE,
+        },
+        StaticSchemaMarkerField {
+            key: "outwhy",
+            label: "Switch-out reason",
+            format: MarkerFieldFormat::String,
+            flags: MarkerFieldFlags::SEARCHABLE,
+        },
+    ];
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
         profile.intern_string("Running on CPU")

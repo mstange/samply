@@ -129,16 +129,24 @@
 
 pub use debugid;
 
+mod breakpad;
 mod config;
 mod debuginfod;
+mod download;
+mod download_error;
+mod downloader;
+mod file_creation;
 mod helper;
 mod moria_mac;
 #[cfg(target_os = "macos")]
 mod moria_mac_spotlight;
 mod symbol_manager;
+mod symbol_manager_observer;
 mod vdso;
+mod verbose_symbol_manager_observer;
 
 pub use config::SymbolManagerConfig;
+pub use download_error::DownloadError;
 pub use samply_symbols;
 pub use samply_symbols::{
     AddressInfo, CodeId, ElfBuildId, Error, ExternalFileAddressInFileRef, ExternalFileAddressRef,
@@ -147,3 +155,5 @@ pub use samply_symbols::{
     SyncAddressInfo,
 };
 pub use symbol_manager::{SymbolFileOrigin, SymbolManager, SymbolMap};
+pub use symbol_manager_observer::SymbolManagerObserver;
+pub use verbose_symbol_manager_observer::VerboseSymbolManagerObserver;

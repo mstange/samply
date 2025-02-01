@@ -2,6 +2,8 @@ mod chrome;
 mod coreclr;
 mod elevated_helper;
 mod etw_gecko;
+#[allow(dead_code)]
+mod etw_reader;
 mod firefox;
 mod gfx;
 pub mod import;

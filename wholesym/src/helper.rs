@@ -1,22 +1,24 @@
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
 use debugid::DebugId;
 use samply_symbols::{
-    BreakpadIndex, BreakpadIndexParser, CandidatePathInfo, CodeId, ElfBuildId, FileAndPathHelper,
-    FileAndPathHelperResult, FileLocation, LibraryInfo, OptionallySendFuture, PeCodeId,
-    SymbolMapTrait,
+    CandidatePathInfo, CodeId, ElfBuildId, FileAndPathHelper, FileAndPathHelperResult,
+    FileLocation, LibraryInfo, OptionallySendFuture, PeCodeId, SymbolMapTrait,
 };
 use symsrv::{SymsrvDownloader, SymsrvObserver};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use uuid::Uuid;
 
+use crate::breakpad::BreakpadSymbolDownloader;
 use crate::config::SymbolManagerConfig;
-use crate::debuginfod::DebuginfodSymbolCache;
+use crate::debuginfod::DebuginfodDownloader;
+use crate::downloader::{Downloader, DownloaderObserver};
 use crate::vdso::get_vdso_data;
+use crate::{DownloadError, SymbolManagerObserver};
 
 /// This is how the symbol file contents are returned. If there's an uncompressed file
 /// in the store, then we return an Mmap of that uncompressed file. If there is no
@@ -47,7 +49,7 @@ impl std::ops::Deref for WholesymFileContents {
 pub enum WholesymFileLocation {
     LocalFile(PathBuf),
     LocalSymsrvFile(String, String),
-    LocalBreakpadFile(PathBuf, String),
+    LocalBreakpadFile(String),
     SymsrvFile(String, String),
     BreakpadSymbolServerFile(String),
     BreakpadSymindexFile(String),
@@ -127,7 +129,7 @@ impl FileLocation for WholesymFileLocation {
 
     fn location_for_breakpad_symindex(&self) -> Option<Self> {
         match self {
-            Self::BreakpadSymbolServerFile(rel_path) | Self::LocalBreakpadFile(_, rel_path) => {
+            Self::BreakpadSymbolServerFile(rel_path) | Self::LocalBreakpadFile(rel_path) => {
                 Some(Self::BreakpadSymindexFile(rel_path.clone()))
             }
             _ => None,
@@ -241,11 +243,14 @@ impl FileAndPathHelper for FileReadOnlyHelper {
 }
 
 pub struct Helper {
+    downloader: Arc<Downloader>,
     symsrv_downloader: Option<SymsrvDownloader>,
-    debuginfod_symbol_cache: Option<DebuginfodSymbolCache>,
+    breakpad_downloader: BreakpadSymbolDownloader,
+    debuginfod_downloader: Option<DebuginfodDownloader>,
     known_libs: Mutex<KnownLibs>,
     config: SymbolManagerConfig,
     precog_symbol_data: Mutex<HashMap<DebugId, Arc<dyn SymbolMapTrait + Send + Sync>>>,
+    observer: Arc<HelperDownloaderObserver>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -258,33 +263,49 @@ struct KnownLibs {
 
 impl Helper {
     pub fn with_config(config: SymbolManagerConfig) -> Self {
+        let observer = Arc::new(HelperDownloaderObserver::new());
+        let downloader = Arc::new(Downloader::new());
         let symsrv_downloader = match config.effective_nt_symbol_path() {
             Some(nt_symbol_path) => {
                 let mut downloader = SymsrvDownloader::new(nt_symbol_path);
                 downloader.set_default_downstream_store(symsrv::get_home_sym_dir());
-                if config.verbose {
-                    downloader.set_observer(Some(Arc::new(VerboseSymsrvObserver::new())));
-                }
+                downloader.set_observer(Some(observer.clone()));
                 Some(downloader)
             }
             None => None,
         };
-        let debuginfod_symbol_cache = if config.use_debuginfod {
-            Some(DebuginfodSymbolCache::new(
+        let debuginfod_downloader = if config.use_debuginfod {
+            let mut downloader = DebuginfodDownloader::new(
                 config.debuginfod_cache_dir_if_not_installed.clone(),
                 config.debuginfod_servers.clone(),
-                config.verbose,
-            ))
+                Some(downloader.clone()),
+            );
+            downloader.set_observer(Some(observer.clone()));
+            Some(downloader)
         } else {
             None
         };
+        let mut breakpad_downloader = BreakpadSymbolDownloader::new(
+            config.breakpad_directories_readonly.clone(),
+            config.breakpad_servers.clone(),
+            config.breakpad_symindex_cache_dir.clone(),
+            Some(downloader.clone()),
+        );
+        breakpad_downloader.set_observer(Some(observer.clone()));
         Self {
+            downloader,
             symsrv_downloader,
-            debuginfod_symbol_cache,
+            breakpad_downloader,
+            debuginfod_downloader,
             known_libs: Mutex::new(Default::default()),
             config,
             precog_symbol_data: Mutex::new(Default::default()),
+            observer,
         }
+    }
+
+    pub fn set_observer(&self, observer: Option<Arc<dyn SymbolManagerObserver>>) {
+        self.observer.set_observer(observer);
     }
 
     pub fn add_known_lib(&self, lib_info: LibraryInfo) {
@@ -325,259 +346,99 @@ impl Helper {
         precog_symbol_data.insert(debug_id, symbol_map);
     }
 
+    /// Return whether a file is found at `path`, and notify the observer if not.
+    async fn check_file_exists(&self, path: &Path) -> bool {
+        let file_exists = matches!(tokio::fs::metadata(path).await, Ok(meta) if meta.is_file());
+        if !file_exists {
+            self.observer.on_file_missed(path);
+        }
+        file_exists
+    }
+
     async fn load_file_impl(
         &self,
         location: WholesymFileLocation,
     ) -> FileAndPathHelperResult<WholesymFileContents> {
-        match location {
+        let file_path = match location {
             WholesymFileLocation::LocalFile(path) => {
-                if self.config.verbose {
-                    eprintln!("Opening file {:?}", path.to_string_lossy());
-                }
                 let path = self.config.redirect_paths.get(&path).unwrap_or(&path);
-                let file = File::open(path)?;
-                Ok(WholesymFileContents::Mmap(unsafe {
-                    memmap2::MmapOptions::new().map(&file)?
-                }))
+                if !self.check_file_exists(path).await {
+                    return Err(format!("File not found: {path:?}").into());
+                }
+                path.to_owned()
             }
             WholesymFileLocation::LocalSymsrvFile(filename, hash) => {
-                if self.config.verbose {
-                    eprintln!(
-                        "Trying to get file {filename} {hash} from symbol cache (no download)"
-                    );
-                }
-                let file_path = self
-                    .symsrv_downloader
+                self.symsrv_downloader
                     .as_ref()
                     .unwrap()
                     .get_file_no_download(&filename, &hash)
-                    .await?;
-                Ok(WholesymFileContents::Mmap(unsafe {
-                    memmap2::MmapOptions::new().map(&File::open(file_path)?)?
-                }))
+                    .await?
             }
-            WholesymFileLocation::LocalBreakpadFile(path, rel_path) => {
-                if self.config.verbose {
-                    eprintln!("Opening file {:?}", path.to_string_lossy());
-                }
-                self.ensure_symindex(&path, &rel_path).await?;
-                let file = File::open(path)?;
-                Ok(WholesymFileContents::Mmap(unsafe {
-                    memmap2::MmapOptions::new().map(&file)?
-                }))
-            }
+            WholesymFileLocation::LocalBreakpadFile(rel_path) => self
+                .breakpad_downloader
+                .get_file_no_download(&rel_path)
+                .await
+                .ok_or("Not found on breakpad symbol server")?,
             WholesymFileLocation::UrlForSourceFile(url) => {
-                if self.config.verbose {
-                    eprintln!("Trying to get file {url} from a URL");
-                }
-                let bytes = reqwest::get(&url).await?.bytes().await?;
-                Ok(WholesymFileContents::Bytes(bytes))
+                let download = self
+                    .downloader
+                    .initiate_download(&url, Some(self.observer.clone()))
+                    .await?;
+                let bytes = download.download_to_memory(None).await?;
+                return Ok(WholesymFileContents::Bytes(bytes.into()));
             }
             WholesymFileLocation::SymsrvFile(filename, hash) => {
-                if self.config.verbose {
-                    eprintln!(
-                        "Trying to get file {filename} {hash} from symbol cache (download allowed)"
-                    );
-                }
-                let file_path = self
-                    .symsrv_downloader
+                self.symsrv_downloader
                     .as_ref()
                     .unwrap()
                     .get_file(&filename, &hash)
-                    .await?;
-                Ok(WholesymFileContents::Mmap(unsafe {
-                    memmap2::MmapOptions::new().map(&File::open(file_path)?)?
-                }))
+                    .await?
             }
-            WholesymFileLocation::BreakpadSymbolServerFile(path) => {
-                if self.config.verbose {
-                    eprintln!("Trying to get file {path:?} from breakpad symbol server");
-                }
-                self.get_bp_sym_file(&path).await
-            }
-            WholesymFileLocation::BreakpadSymindexFile(rel_path) => {
-                if let Some(symindex_path) = self.symindex_path(&rel_path) {
-                    if self.config.verbose {
-                        eprintln!("Opening file {:?}", symindex_path.to_string_lossy());
-                    }
-                    let file = File::open(symindex_path)?;
-                    Ok(WholesymFileContents::Mmap(unsafe {
-                        memmap2::MmapOptions::new().map(&file)?
-                    }))
-                } else {
-                    Err("No breakpad symindex cache dir configured".into())
-                }
-            }
-            WholesymFileLocation::DebuginfodDebugFile(build_id) => {
-                let file_path = self
-                    .debuginfod_symbol_cache
-                    .as_ref()
-                    .unwrap()
-                    .get_file(&build_id.to_string(), "debuginfo")
-                    .await
-                    .ok_or("Debuginfod could not find debuginfo")?;
-
-                Ok(WholesymFileContents::Mmap(unsafe {
-                    memmap2::MmapOptions::new().map(&File::open(file_path)?)?
-                }))
-            }
-            WholesymFileLocation::DebuginfodExecutable(build_id) => {
-                let file_path = self
-                    .debuginfod_symbol_cache
-                    .as_ref()
-                    .unwrap()
-                    .get_file(&build_id.to_string(), "debuginfo")
-                    .await
-                    .ok_or("Debuginfod could not find debuginfo")?;
-
-                Ok(WholesymFileContents::Mmap(unsafe {
-                    memmap2::MmapOptions::new().map(&File::open(file_path)?)?
-                }))
-            }
-            WholesymFileLocation::VdsoLoadedIntoThisProcess => {
-                if let Some(vdso) = get_vdso_data() {
-                    // Pretend that the VDSO data came from a file.
-                    // This works more or less by accident; object's parsing is made for
-                    // objects stored on disk, not for objects loaded into memory.
-                    // However, the VDSO in-memory image happens to be similar enough to its
-                    // equivalent on-disk image that this works fine. Most importantly, the
-                    // VDSO's section SVMAs match the section file offsets.
-                    Ok(WholesymFileContents::Bytes(Bytes::copy_from_slice(vdso)))
-                } else {
-                    Err("No vdso in this process".into())
-                }
-            }
-        }
-    }
-
-    async fn get_bp_sym_file(
-        &self,
-        rel_path: &str,
-    ) -> FileAndPathHelperResult<WholesymFileContents> {
-        for (server_base_url, cache_dir) in &self.config.breakpad_servers {
-            if let Ok(file) = self
-                .get_bp_sym_file_from_server(rel_path, server_base_url, cache_dir)
+            WholesymFileLocation::BreakpadSymbolServerFile(path) => self
+                .breakpad_downloader
+                .get_file(&path)
                 .await
-            {
-                return Ok(file);
+                .ok_or("Not found on breakpad symbol server")?,
+            WholesymFileLocation::BreakpadSymindexFile(rel_path) => {
+                let sym_path = self
+                    .breakpad_downloader
+                    .get_file_no_download(&rel_path)
+                    .await
+                    .ok_or("Not found in breakpad symbol directories")?;
+                self.breakpad_downloader
+                    .ensure_symindex(&sym_path, &rel_path)
+                    .await?
             }
-        }
-        Err("No breakpad sym file on server".into())
-    }
-
-    async fn get_bp_sym_file_from_server(
-        &self,
-        rel_path: &str,
-        server_base_url: &str,
-        cache_dir: &Path,
-    ) -> FileAndPathHelperResult<WholesymFileContents> {
-        let server_base_url = server_base_url.trim_end_matches('/');
-        let url = format!("{server_base_url}/{rel_path}");
-        if self.config.verbose {
-            eprintln!("Downloading {url}...");
-        }
-        let sym_file_response = reqwest::get(&url).await?.error_for_status()?;
-        let mut stream = sym_file_response.bytes_stream();
-        let dest_path = cache_dir.join(rel_path);
-        if let Some(dir) = dest_path.parent() {
-            tokio::fs::create_dir_all(dir).await?;
-        }
-        if self.config.verbose {
-            eprintln!("Saving bytes to {dest_path:?}.");
-        }
-        let file = tokio::fs::File::create(&dest_path).await?;
-        let mut writer = tokio::io::BufWriter::new(file);
-        use futures_util::StreamExt;
-        let mut parser = BreakpadIndexParser::new();
-        while let Some(item) = stream.next().await {
-            let item = item?;
-            let mut item_slice = item.as_ref();
-            parser.consume(item_slice);
-            tokio::io::copy(&mut item_slice, &mut writer).await?;
-        }
-        drop(writer);
-
-        match parser.finish() {
-            Ok(index) => self.write_symindex(rel_path, index).await?,
-            Err(err) => {
-                if self.config.verbose {
-                    eprintln!("Breakpad parsing for symindex failed: {err}");
-                }
+            WholesymFileLocation::DebuginfodDebugFile(build_id) => self
+                .debuginfod_downloader
+                .as_ref()
+                .unwrap()
+                .get_file(&build_id.to_string(), "debuginfo")
+                .await
+                .ok_or("Debuginfod could not find debuginfo")?,
+            WholesymFileLocation::DebuginfodExecutable(build_id) => self
+                .debuginfod_downloader
+                .as_ref()
+                .unwrap()
+                .get_file(&build_id.to_string(), "executable")
+                .await
+                .ok_or("Debuginfod could not find executable")?,
+            WholesymFileLocation::VdsoLoadedIntoThisProcess => {
+                let vdso = get_vdso_data().ok_or("No vdso in this process")?;
+                // Pretend that the VDSO data came from a file.
+                // This works more or less by accident; object's parsing is made for
+                // objects stored on disk, not for objects loaded into memory.
+                // However, the VDSO in-memory image happens to be similar enough to its
+                // equivalent on-disk image that this works fine. Most importantly, the
+                // VDSO's section SVMAs match the section file offsets.
+                return Ok(WholesymFileContents::Bytes(Bytes::copy_from_slice(vdso)));
             }
-        }
+        };
 
-        if self.config.verbose {
-            eprintln!("Opening file {:?}", dest_path.to_string_lossy());
-        }
-        let file = File::open(&dest_path)?;
+        self.observer.on_file_accessed(&file_path);
         Ok(WholesymFileContents::Mmap(unsafe {
-            memmap2::MmapOptions::new().map(&file)?
+            memmap2::MmapOptions::new().map(&File::open(file_path)?)?
         }))
-    }
-
-    fn symindex_path(&self, rel_path: &str) -> Option<PathBuf> {
-        self.config
-            .breakpad_symindex_cache_dir
-            .as_deref()
-            .map(|symindex_dir| symindex_dir.join(rel_path).with_extension("symindex"))
-    }
-
-    async fn write_symindex(
-        &self,
-        rel_path: &str,
-        index: BreakpadIndex,
-    ) -> FileAndPathHelperResult<()> {
-        let symindex_path = self
-            .symindex_path(rel_path)
-            .ok_or("No breakpad symindex cache dir configured")?;
-        if self.config.verbose {
-            eprintln!("Writing symindex to {symindex_path:?}.");
-        }
-        let parent_dir = symindex_path.parent().ok_or("invalid symindex path")?;
-        tokio::fs::create_dir_all(parent_dir).await?;
-        let mut index_file = tokio::fs::File::create(&symindex_path).await?;
-        index_file.write_all(&index.serialize_to_bytes()).await?;
-        index_file.flush().await?;
-        Ok(())
-    }
-
-    /// If we have a configured symindex cache directory, and there is a .sym file at
-    /// `local_path` for which we don't have a .symindex file, create the .symindex file.
-    async fn ensure_symindex(
-        &self,
-        local_dir: &Path,
-        rel_path: &str,
-    ) -> FileAndPathHelperResult<()> {
-        if let Some(symindex_path) = self.symindex_path(rel_path) {
-            if let (Ok(mut sym_file), Err(_symindex_file_error)) = (
-                tokio::fs::File::open(local_dir).await,
-                tokio::fs::File::open(symindex_path).await,
-            ) {
-                if self.config.verbose {
-                    eprintln!("Found a Breakpad sym file at {local_dir:?} for which no symindex exists. Attempting to create symindex.");
-                }
-                let mut parser = BreakpadIndexParser::new();
-                const CHUNK_SIZE: usize = 4 * 1024 * 1024; // 4MiB
-                let mut buffer = vec![0; CHUNK_SIZE];
-                loop {
-                    let read_len = sym_file.read(&mut buffer).await?;
-                    if read_len == 0 {
-                        break;
-                    }
-                    parser.consume(&buffer[..read_len]);
-                }
-                match parser.finish() {
-                    Ok(index) => self.write_symindex(rel_path, index).await?,
-                    Err(err) => {
-                        if self.config.verbose {
-                            eprintln!("Breakpad parsing for symindex failed: {err}");
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(())
     }
 
     fn fill_in_library_info_details(&self, info: &mut LibraryInfo) {
@@ -721,19 +582,9 @@ impl FileAndPathHelper for Helper {
             );
 
             // Search breakpad symbol directories.
-            for dir in &self.config.breakpad_directories_readonly {
-                let local_path = dir.join(&rel_path);
-                paths.push(CandidatePathInfo::SingleFile(
-                    WholesymFileLocation::LocalBreakpadFile(local_path, rel_path.clone()),
-                ));
-            }
-
-            for (_url, dir) in &self.config.breakpad_servers {
-                let local_path = dir.join(&rel_path);
-                paths.push(CandidatePathInfo::SingleFile(
-                    WholesymFileLocation::LocalBreakpadFile(local_path, rel_path.clone()),
-                ));
-            }
+            paths.push(CandidatePathInfo::SingleFile(
+                WholesymFileLocation::LocalBreakpadFile(rel_path.clone()),
+            ));
 
             if debug_name.ends_with(".pdb") && self.symsrv_downloader.is_some() {
                 // We might find this pdb file with the help of a symbol server.
@@ -776,7 +627,7 @@ impl FileAndPathHelper for Helper {
 
         if !might_be_fake_jit_file(&info) {
             if let (Some(_debuginfod_symbol_cache), Some(CodeId::ElfBuildId(build_id))) =
-                (self.debuginfod_symbol_cache.as_ref(), &info.code_id)
+                (self.debuginfod_downloader.as_ref(), &info.code_id)
             {
                 paths.push(CandidatePathInfo::SingleFile(
                     WholesymFileLocation::DebuginfodDebugFile(build_id.to_owned()),
@@ -944,10 +795,13 @@ impl FileAndPathHelper for Helper {
             }
 
             if let (Some(_debuginfod_symbol_cache), Some(CodeId::ElfBuildId(build_id))) =
-                (self.debuginfod_symbol_cache.as_ref(), &info.code_id)
+                (self.debuginfod_downloader.as_ref(), &info.code_id)
             {
                 paths.push(CandidatePathInfo::SingleFile(
                     WholesymFileLocation::DebuginfodExecutable(build_id.to_owned()),
+                ));
+                paths.push(CandidatePathInfo::SingleFile(
+                    WholesymFileLocation::DebuginfodDebugFile(build_id.to_owned()),
                 ));
             }
         }
@@ -1000,7 +854,7 @@ impl FileAndPathHelper for Helper {
             let path = format!("/usr/lib/debug/.build-id/{two_chars}/{rest}.debug");
             paths.push(WholesymFileLocation::LocalFile(PathBuf::from(path)));
 
-            if self.debuginfod_symbol_cache.is_some() {
+            if self.debuginfod_downloader.is_some() {
                 paths.push(WholesymFileLocation::DebuginfodDebugFile(
                     sup_file_build_id.to_owned(),
                 ));
@@ -1072,60 +926,147 @@ fn might_be_fake_jit_file(info: &LibraryInfo) -> bool {
     matches!(&info.name, Some(name) if (name.starts_with("jitted-") && name.ends_with(".so")) || name.contains("jit_app_cache:"))
 }
 
-struct VerboseSymsrvObserver {
-    urls: Mutex<HashMap<u64, String>>,
+struct HelperDownloaderObserver {
+    inner: Mutex<HelperDownloaderObserverInner>,
 }
 
-impl VerboseSymsrvObserver {
-    fn new() -> Self {
+struct HelperDownloaderObserverInner {
+    observer: Option<Arc<dyn SymbolManagerObserver>>,
+    symsrv_download_id_mapping: HashMap<u64, u64>,
+    downloader_download_id_mapping: HashMap<u64, u64>,
+}
+
+impl HelperDownloaderObserver {
+    pub fn new() -> Self {
+        let inner = HelperDownloaderObserverInner {
+            observer: None,
+            symsrv_download_id_mapping: HashMap::new(),
+            downloader_download_id_mapping: HashMap::new(),
+        };
         Self {
-            urls: Mutex::new(HashMap::new()),
+            inner: Mutex::new(inner),
+        }
+    }
+
+    pub fn set_observer(&self, observer: Option<Arc<dyn SymbolManagerObserver>>) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.observer = observer;
+    }
+
+    pub fn on_file_accessed(&self, path: &Path) {
+        let inner = self.inner.lock().unwrap();
+        if let Some(observer) = &inner.observer {
+            observer.on_file_accessed(path);
+        }
+    }
+
+    pub fn on_file_missed(&self, path: &Path) {
+        let inner = self.inner.lock().unwrap();
+        if let Some(observer) = &inner.observer {
+            observer.on_file_missed(path);
         }
     }
 }
 
-impl SymsrvObserver for VerboseSymsrvObserver {
-    fn on_new_download_before_connect(&self, download_id: u64, url: &str) {
-        eprintln!("Connecting to {}...", url);
-        self.urls
-            .lock()
-            .unwrap()
-            .insert(download_id, url.to_owned());
+static NEXT_DOWNLOAD_ID: AtomicU64 = AtomicU64::new(0);
+
+impl SymsrvObserver for HelperDownloaderObserver {
+    fn on_new_download_before_connect(&self, symsrv_download_id: u64, url: &str) {
+        let download_id = NEXT_DOWNLOAD_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let mut inner = self.inner.lock().unwrap();
+        inner
+            .symsrv_download_id_mapping
+            .insert(symsrv_download_id, download_id);
+        if let Some(observer) = &inner.observer {
+            observer.on_new_download_before_connect(download_id, url);
+        }
     }
 
-    fn on_download_started(&self, download_id: u64) {
-        let urls = self.urls.lock().unwrap();
-        let url = urls.get(&download_id).unwrap();
-        eprintln!("Downloading from {}...", url);
+    fn on_download_started(&self, symsrv_download_id: u64) {
+        let inner = self.inner.lock().unwrap();
+        if let Some(observer) = &inner.observer {
+            let download_id = inner.symsrv_download_id_mapping[&symsrv_download_id];
+            observer.on_download_started(download_id);
+        }
     }
 
     fn on_download_progress(
         &self,
-        _download_id: u64,
-        _bytes_so_far: u64,
-        _total_bytes: Option<u64>,
+        symsrv_download_id: u64,
+        bytes_so_far: u64,
+        total_bytes: Option<u64>,
     ) {
+        let inner = self.inner.lock().unwrap();
+        if let Some(observer) = &inner.observer {
+            let download_id = inner.symsrv_download_id_mapping[&symsrv_download_id];
+            observer.on_download_progress(download_id, bytes_so_far, total_bytes);
+        }
     }
 
     fn on_download_completed(
         &self,
-        download_id: u64,
-        _uncompressed_size_in_bytes: u64,
-        _time_until_headers: std::time::Duration,
-        _time_until_completed: std::time::Duration,
+        symsrv_download_id: u64,
+        uncompressed_size_in_bytes: u64,
+        time_until_headers: std::time::Duration,
+        time_until_completed: std::time::Duration,
     ) {
-        let url = self.urls.lock().unwrap().remove(&download_id).unwrap();
-        eprintln!("Finished download from {}.", url);
+        let mut inner = self.inner.lock().unwrap();
+        let download_id = inner
+            .symsrv_download_id_mapping
+            .remove(&symsrv_download_id)
+            .unwrap();
+        if let Some(observer) = &inner.observer {
+            observer.on_download_completed(
+                download_id,
+                uncompressed_size_in_bytes,
+                time_until_headers,
+                time_until_completed,
+            );
+        }
     }
 
-    fn on_download_failed(&self, download_id: u64, reason: symsrv::DownloadError) {
-        let url = self.urls.lock().unwrap().remove(&download_id).unwrap();
-        eprintln!("Failed to download from {url}: {reason}.");
+    fn on_download_failed(&self, symsrv_download_id: u64, reason: symsrv::DownloadError) {
+        let mut inner = self.inner.lock().unwrap();
+        let download_id = inner
+            .symsrv_download_id_mapping
+            .remove(&symsrv_download_id)
+            .unwrap();
+        if let Some(observer) = &inner.observer {
+            let err = match reason {
+                symsrv::DownloadError::ClientCreationFailed(e) => {
+                    DownloadError::ClientCreationFailed(e)
+                }
+                symsrv::DownloadError::OpenFailed(e) => DownloadError::OpenFailed(e),
+                symsrv::DownloadError::Timeout => DownloadError::Timeout,
+                symsrv::DownloadError::StatusError(status_code) => {
+                    DownloadError::StatusError(status_code.as_u16())
+                }
+                symsrv::DownloadError::CouldNotCreateDestinationDirectory => {
+                    DownloadError::CouldNotCreateDestinationDirectory
+                }
+                symsrv::DownloadError::UnexpectedContentEncoding(e) => {
+                    DownloadError::UnexpectedContentEncoding(e)
+                }
+                symsrv::DownloadError::ErrorDuringDownloading(e) => DownloadError::StreamRead(e),
+                symsrv::DownloadError::ErrorWhileWritingDownloadedFile(e) => {
+                    DownloadError::DiskWrite(e)
+                }
+                symsrv::DownloadError::Redirect(e) => DownloadError::Redirect(e),
+                symsrv::DownloadError::Other(e) => DownloadError::Other(e),
+            };
+            observer.on_download_failed(download_id, err);
+        }
     }
 
-    fn on_download_canceled(&self, download_id: u64) {
-        let url = self.urls.lock().unwrap().remove(&download_id).unwrap();
-        eprintln!("Canceled download from {}.", url);
+    fn on_download_canceled(&self, symsrv_download_id: u64) {
+        let mut inner = self.inner.lock().unwrap();
+        let download_id = inner
+            .symsrv_download_id_mapping
+            .remove(&symsrv_download_id)
+            .unwrap();
+        if let Some(observer) = &inner.observer {
+            observer.on_download_canceled(download_id);
+        }
     }
 
     fn on_new_cab_extraction(&self, _extraction_id: u64, _dest_path: &Path) {}
@@ -1146,11 +1087,149 @@ impl SymsrvObserver for VerboseSymsrvObserver {
     fn on_cab_extraction_failed(&self, _extraction_id: u64, _reason: symsrv::CabExtractionError) {}
     fn on_cab_extraction_canceled(&self, _extraction_id: u64) {}
 
-    fn on_file_created(&self, _path: &Path, _size_in_bytes: u64) {}
-    fn on_file_accessed(&self, path: &Path) {
-        eprintln!("Checking if {path:?} exists... yes");
+    fn on_file_created(&self, path: &Path, size_in_bytes: u64) {
+        let inner = self.inner.lock().unwrap();
+        if let Some(observer) = &inner.observer {
+            observer.on_file_created(path, size_in_bytes);
+        }
     }
+
+    fn on_file_accessed(&self, path: &Path) {
+        self.on_file_accessed(path);
+    }
+
     fn on_file_missed(&self, path: &Path) {
-        eprintln!("Checking if {path:?} exists... no");
+        self.on_file_missed(path);
     }
 }
+
+impl DownloaderObserver for HelperDownloaderObserver {
+    fn on_new_download_before_connect(&self, downloader_download_id: u64, url: &str) {
+        let download_id = NEXT_DOWNLOAD_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let mut inner = self.inner.lock().unwrap();
+        inner
+            .downloader_download_id_mapping
+            .insert(downloader_download_id, download_id);
+        if let Some(observer) = &inner.observer {
+            observer.on_new_download_before_connect(download_id, url);
+        }
+    }
+
+    fn on_download_started(&self, downloader_download_id: u64) {
+        let inner = self.inner.lock().unwrap();
+        if let Some(observer) = &inner.observer {
+            let download_id = inner.downloader_download_id_mapping[&downloader_download_id];
+            observer.on_download_started(download_id);
+        }
+    }
+
+    fn on_download_progress(
+        &self,
+        downloader_download_id: u64,
+        bytes_so_far: u64,
+        total_bytes: Option<u64>,
+    ) {
+        let inner = self.inner.lock().unwrap();
+        if let Some(observer) = &inner.observer {
+            let download_id = inner.downloader_download_id_mapping[&downloader_download_id];
+            observer.on_download_progress(download_id, bytes_so_far, total_bytes);
+        }
+    }
+
+    fn on_download_completed(
+        &self,
+        downloader_download_id: u64,
+        uncompressed_size_in_bytes: u64,
+        time_until_headers: std::time::Duration,
+        time_until_completed: std::time::Duration,
+    ) {
+        let mut inner = self.inner.lock().unwrap();
+        let download_id = inner
+            .downloader_download_id_mapping
+            .remove(&downloader_download_id)
+            .unwrap();
+        if let Some(observer) = &inner.observer {
+            observer.on_download_completed(
+                download_id,
+                uncompressed_size_in_bytes,
+                time_until_headers,
+                time_until_completed,
+            );
+        }
+    }
+
+    fn on_download_failed(&self, downloader_download_id: u64, reason: DownloadError) {
+        let mut inner = self.inner.lock().unwrap();
+        let download_id = inner
+            .downloader_download_id_mapping
+            .remove(&downloader_download_id)
+            .unwrap();
+        if let Some(observer) = &inner.observer {
+            observer.on_download_failed(download_id, reason);
+        }
+    }
+
+    fn on_download_canceled(&self, downloader_download_id: u64) {
+        let mut inner = self.inner.lock().unwrap();
+        let download_id = inner
+            .downloader_download_id_mapping
+            .remove(&downloader_download_id)
+            .unwrap();
+        if let Some(observer) = &inner.observer {
+            observer.on_download_canceled(download_id);
+        }
+    }
+
+    fn on_file_created(&self, path: &Path, size_in_bytes: u64) {
+        let inner = self.inner.lock().unwrap();
+        if let Some(observer) = &inner.observer {
+            observer.on_file_created(path, size_in_bytes);
+        }
+    }
+
+    fn on_file_accessed(&self, path: &Path) {
+        self.on_file_accessed(path);
+    }
+
+    fn on_file_missed(&self, path: &Path) {
+        self.on_file_missed(path);
+    }
+}
+
+// Thoughts on logging
+//
+// The purpose of any logging in this file is to make it easier to diagnose missing symbols.
+// However, it's super hard to know which pieces of information to log. Symbol lookup is
+// basically a long sequence of "try lots of things until we find something". Many individual
+// steps in this sequence are expected to fail in the normal case.
+//
+// When deciding whether something is worth logging, it's best to have a list of scenarios.
+// So here's a list of scenarios. "I expected to see symbols, but I didn't see symbols."
+//
+// 1. No debug information for local rust binary: I have a release build but I forgot to
+// specify debug = "true" in my Cargo.toml.
+// 2. No macOS system library symbols on new macOS version due to broken dyld cache parsing:
+// I am using a new macOS version and wholesym's parsing of the dyld shared cache hasn't
+// been updated for the new format.
+// 3. Running out of disk space for symbol files from server: I am getting symbols from a
+// server (symsrv, breakpad, debuginfod), I have found the correct symbol file, but the
+// download failed because my disk filled up.
+// 4. Messed up environment variable syntax in Windows terminal: I wanted to get pdb symbols
+// from a symbol server, but didn't set my _NT_SYMBOL_PATH environment variable correctly
+// (or forgot to set it altogether) and I'm not getting Windows system library symbols or
+// Firefox / Chrome symbols.
+// 5. Symbols missing on server: I am profiling a build for which I expected symbols to be
+// available on a symbol server but they weren't there. For example a Firefox try build, or
+// a Windows driver.
+// 6. Local files have changed after profiling, e.g. build ID no longer matches.
+// 7. Invalid characters in library names, causing downloads to fail because the file paths
+// where the downloaded files should be stored aren't valid.
+//
+// More generally, I want to know:
+//  - Did it attempt to use the local files that I think it needs to use?
+//  - Did it contact the symbol server I wanted it to contact?
+//  - Did the download succeed? If not, was it the server's fault or my machine's fault (full disk)?
+//
+// I think it's ok if the logging here doesn't answer all those questions. Instead, the
+// questions can be answered by information in the response JSON... or I guess by something
+// that's stored on the SymbolMap.

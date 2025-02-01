@@ -16,11 +16,12 @@ use crate::global_lib_table::{GlobalLibTable, LibraryHandle, UsedLibraryAddresse
 use crate::lib_mappings::LibMappings;
 use crate::library_info::{LibraryInfo, SymbolTable};
 use crate::markers::{
-    InternalMarkerSchema, Marker, MarkerHandle, MarkerSchema, MarkerTiming, MarkerTypeHandle,
-    StaticSchemaMarker,
+    GraphColor, InternalMarkerSchema, Marker, MarkerHandle, MarkerTiming, MarkerTypeHandle,
+    RuntimeSchemaMarkerSchema, StaticSchemaMarker,
 };
 use crate::process::{Process, ThreadHandle};
 use crate::reference_timestamp::ReferenceTimestamp;
+use crate::sample_table::WeightType;
 use crate::string_table::{GlobalStringIndex, GlobalStringTable};
 use crate::thread::{ProcessHandle, Thread};
 use crate::timestamp::Timestamp;
@@ -78,6 +79,14 @@ impl From<Duration> for SamplingInterval {
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct StringHandle(pub(crate) GlobalStringIndex);
 
+/// A handle to a frame, specific to a thread. Can be created with [`Profile::intern_frame`](crate::Profile::intern_frame).
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
+pub struct FrameHandle(ThreadHandle, usize);
+
+/// A handle to a stack, specific to a thread. Can be created with [`Profile::intern_stack`](crate::Profile::intern_stack).
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
+pub struct StackHandle(ThreadHandle, usize);
+
 /// Stores the profile data and can be serialized as JSON, via [`serde::Serialize`].
 ///
 /// The profile data is organized into a list of processes with threads.
@@ -92,11 +101,12 @@ pub struct StringHandle(pub(crate) GlobalStringIndex);
 /// let process = profile.add_process("App process", 54132, Timestamp::from_millis_since_reference(0.0));
 /// let thread = profile.add_thread(process, 54132000, Timestamp::from_millis_since_reference(0.0), true);
 /// profile.set_thread_name(thread, "Main thread");
-/// let stack = vec![
+/// let stack_frames = vec![
 ///     FrameInfo { frame: Frame::Label(profile.intern_string("Root node")), category_pair: CategoryHandle::OTHER.into(), flags: FrameFlags::empty() },
 ///     FrameInfo { frame: Frame::Label(profile.intern_string("First callee")), category_pair: CategoryHandle::OTHER.into(), flags: FrameFlags::empty() }
 /// ];
-/// profile.add_sample(thread, Timestamp::from_millis_since_reference(0.0), stack.into_iter(), CpuDelta::ZERO, 1);
+/// let stack = profile.intern_stack_frames(thread, stack_frames.into_iter());
+/// profile.add_sample(thread, Timestamp::from_millis_since_reference(0.0), stack, CpuDelta::ZERO, 1);
 ///
 /// let writer = std::io::BufWriter::new(output_file);
 /// serde_json::to_writer(writer, &profile)?;
@@ -114,10 +124,13 @@ pub struct Profile {
     pub(crate) processes: Vec<Process>,   // append-only for stable ProcessHandles
     pub(crate) counters: Vec<Counter>,
     pub(crate) threads: Vec<Thread>, // append-only for stable ThreadHandles
+    pub(crate) initial_visible_threads: Vec<ThreadHandle>,
+    pub(crate) initial_selected_threads: Vec<ThreadHandle>,
     pub(crate) reference_timestamp: ReferenceTimestamp,
     pub(crate) string_table: GlobalStringTable,
     pub(crate) marker_schemas: Vec<InternalMarkerSchema>,
     static_schema_marker_types: FastHashMap<&'static str, MarkerTypeHandle>,
+    pub(crate) symbolicated: bool,
     used_pids: FastHashMap<u32, u32>,
     used_tids: FastHashMap<u32, u32>,
 }
@@ -139,6 +152,8 @@ impl Profile {
             product: product.to_string(),
             os_name: None,
             threads: Vec::new(),
+            initial_visible_threads: Vec::new(),
+            initial_selected_threads: Vec::new(),
             global_libs: GlobalLibTable::new(),
             kernel_libs: LibMappings::new(),
             reference_timestamp,
@@ -151,6 +166,7 @@ impl Profile {
                 subcategories: Vec::new(),
             }],
             static_schema_marker_types: FastHashMap::default(),
+            symbolicated: false,
             used_pids: FastHashMap::default(),
             used_tids: FastHashMap::default(),
             counters: Vec::new(),
@@ -191,6 +207,9 @@ impl Profile {
     }
 
     /// Add a subcategory for a category, and return the "category pair" handle.
+    ///
+    /// Every category has a default subcategory; you can convert a `Category` into
+    /// its corresponding `CategoryPairHandle` for the default category using `category.into()`.
     pub fn add_subcategory(&mut self, category: CategoryHandle, name: &str) -> CategoryPairHandle {
         let subcategory = self.categories[category.0 as usize].add_subcategory(name.into());
         CategoryPairHandle(category, Some(subcategory))
@@ -263,6 +282,11 @@ impl Profile {
             self.processes[process.0].pid(),
         ));
         handle
+    }
+
+    /// Set the color to use when rendering the counter.
+    pub fn set_counter_color(&mut self, counter: CounterHandle, color: GraphColor) {
+        self.counters[counter.0].set_color(color);
     }
 
     /// Change the start time of a process.
@@ -399,6 +423,48 @@ impl Profile {
         self.threads[thread.0].set_tid(tid);
     }
 
+    /// Set whether to show a timeline which displays [`MarkerLocations::TIMELINE_OVERVIEW`](crate::MarkerLocations::TIMELINE_OVERVIEW)
+    /// markers for this thread.
+    ///
+    /// Main threads always have such a timeline view and always display such markers,
+    /// but non-main threads only do so when specified using this method.
+    pub fn set_thread_show_markers_in_timeline(&mut self, thread: ThreadHandle, v: bool) {
+        self.threads[thread.0].set_show_markers_in_timeline(v);
+    }
+
+    /// Set the weighting type of samples of a thread.
+    ///
+    /// Default is [WeightType::Samples].
+    pub fn set_thread_samples_weight_type(&mut self, thread: ThreadHandle, t: WeightType) {
+        self.threads[thread.0].set_samples_weight_type(t);
+    }
+
+    /// Add a thread as initially visible in the UI.
+    ///
+    /// If not called, the UI uses its own ranking heuristic to choose which
+    /// threads are visible.
+    pub fn add_initial_visible_thread(&mut self, thread: ThreadHandle) {
+        self.initial_visible_threads.push(thread);
+    }
+
+    /// Clear the list of threads marked as initially visible in the UI.
+    pub fn clear_initial_visible_threads(&mut self) {
+        self.initial_visible_threads.clear();
+    }
+
+    /// Add a thread as initially selected in the UI.
+    ///
+    /// If not called, the UI uses its own heuristic to choose which threads
+    /// are initially selected.
+    pub fn add_initial_selected_thread(&mut self, thread: ThreadHandle) {
+        self.initial_selected_threads.push(thread);
+    }
+
+    /// Clear the list of threads marked as initially selected in the UI.
+    pub fn clear_initial_selected_threads(&mut self) {
+        self.initial_selected_threads.clear();
+    }
+
     /// Turn the string into in a [`StringHandle`], for use in [`Frame::Label`].
     pub fn intern_string(&mut self, s: &str) -> StringHandle {
         StringHandle(self.string_table.index_for_string(s))
@@ -412,13 +478,82 @@ impl Profile {
         self.string_table.get_string(handle.0).unwrap()
     }
 
+    /// Get the frame handle for a stack frame.
+    ///
+    /// The returned handle can only be used with this thread.
+    pub fn intern_frame(&mut self, thread: ThreadHandle, frame_info: FrameInfo) -> FrameHandle {
+        let thread_handle = thread;
+        let thread = &mut self.threads[thread.0];
+        let process = &mut self.processes[thread.process().0];
+        let frame_index = Self::intern_frame_internal(
+            thread,
+            process,
+            frame_info,
+            &mut self.global_libs,
+            &mut self.kernel_libs,
+            &self.string_table,
+        );
+        FrameHandle(thread_handle, frame_index)
+    }
+
+    /// Get the stack handle for a stack with the given `frame` and `parent`,
+    /// for the given thread.
+    ///
+    /// The returned stack handle can be used with [`Profile::add_sample`] and
+    /// [`Profile::set_marker_stack`], but only for samples / markers of the same
+    /// thread.
+    ///
+    /// If `parent` is `None`, this creates a root stack node. Otherwise, `parent`
+    /// is the caller of the returned stack node.
+    pub fn intern_stack(
+        &mut self,
+        thread: ThreadHandle,
+        parent: Option<StackHandle>,
+        frame: FrameHandle,
+    ) -> StackHandle {
+        let thread_handle = thread;
+        let prefix = match parent {
+            Some(StackHandle(parent_thread_handle, prefix_stack_index)) => {
+                assert_eq!(
+                    parent_thread_handle, thread_handle,
+                    "StackHandle from different thread passed to Profile::intern_stack"
+                );
+                Some(prefix_stack_index)
+            }
+            None => None,
+        };
+        let FrameHandle(frame_thread_handle, frame_index) = frame;
+        assert_eq!(
+            frame_thread_handle, thread_handle,
+            "FrameHandle from different thread passed to Profile::intern_stack"
+        );
+        let thread = &mut self.threads[thread.0];
+        let category_pair = thread.get_frame_category(frame_index);
+        let stack_index = thread.stack_index_for_stack(prefix, frame_index, category_pair);
+        StackHandle(thread_handle, stack_index)
+    }
+
+    /// Get the stack handle for a stack whose frames are given by an iterator.
+    ///
+    /// The stack frames yielded by the iterator need to be ordered from caller-most
+    /// to callee-most.
+    ///
+    /// Returns `None` if the stack has zero frames.
+    pub fn intern_stack_frames(
+        &mut self,
+        thread: ThreadHandle,
+        frames: impl Iterator<Item = FrameInfo>,
+    ) -> Option<StackHandle> {
+        let stack_index = self.stack_index_for_frames(thread, frames)?;
+        Some(StackHandle(thread, stack_index))
+    }
+
     /// Add a sample to the given thread.
     ///
     /// The sample has a timestamp, a stack, a CPU delta, and a weight.
     ///
-    /// The stack frames are supplied as an iterator. Every frame has an associated
-    /// category pair. The stack frames are ordered from root to leaf, or caller-most
-    /// to callee-most.
+    /// To get the stack handle, you can use [`Profile::intern_stack`] or
+    /// [`Profile::intern_stack_frames`].
     ///
     /// The CPU delta is the amount of CPU time that the CPU was busy with work for this
     /// thread since the previous sample. It should always be less than or equal the
@@ -440,11 +575,20 @@ impl Profile {
         &mut self,
         thread: ThreadHandle,
         timestamp: Timestamp,
-        frames: impl Iterator<Item = FrameInfo>,
+        stack: Option<StackHandle>,
         cpu_delta: CpuDelta,
         weight: i32,
     ) {
-        let stack_index = self.stack_index_for_frames(thread, frames);
+        let stack_index = match stack {
+            Some(StackHandle(stack_thread_handle, stack_index)) => {
+                assert_eq!(
+                    stack_thread_handle, thread,
+                    "StackHandle from different thread passed to Profile::add_sample"
+                );
+                Some(stack_index)
+            }
+            None => None,
+        };
         self.threads[thread.0].add_sample(timestamp, stack_index, cpu_delta, weight);
     }
 
@@ -483,13 +627,13 @@ impl Profile {
     /// each allocated object you either sample both its allocation and deallocation, or
     /// neither.
     ///
-    /// The stack frames are supplied as an iterator. Every frame has an associated
-    /// category pair.
+    /// To get the stack handle, you can use [`Profile::intern_stack`] or
+    /// [`Profile::intern_stack_frames`].
     pub fn add_allocation_sample(
         &mut self,
         thread: ThreadHandle,
         timestamp: Timestamp,
-        frames: impl Iterator<Item = FrameInfo>,
+        stack: Option<StackHandle>,
         allocation_address: u64,
         allocation_size: i64,
     ) {
@@ -508,7 +652,16 @@ impl Profile {
         let process_handle = self.threads[thread.0].process();
         let process = &self.processes[process_handle.0];
         let allocation_thread_handle = process.thread_handle_for_allocations().unwrap();
-        let stack_index = self.stack_index_for_frames(allocation_thread_handle, frames);
+        let stack_index = match stack {
+            Some(StackHandle(stack_thread_handle, stack_index)) => {
+                assert_eq!(
+                    stack_thread_handle, thread,
+                    "StackHandle from different thread passed to Profile::add_sample"
+                );
+                Some(stack_index)
+            }
+            None => None,
+        };
         self.threads[allocation_thread_handle.0].add_allocation_sample(
             timestamp,
             stack_index,
@@ -517,7 +670,7 @@ impl Profile {
         );
     }
 
-    /// Registers a marker type, given the type's [`MarkerSchema`]. Usually you only need to call this for
+    /// Registers a marker type for a [`RuntimeSchemaMarkerSchema`]. You only need to call this for
     /// marker types whose schema is dynamically created at runtime.
     ///
     /// After you register the marker type, you'll save its [`MarkerTypeHandle`] somewhere, and then
@@ -525,8 +678,8 @@ impl Profile {
     /// handle from its implementation of [`Marker::marker_type`].
     ///
     /// For marker types whose schema is known at compile time, you'll want to implement
-    /// [`StaticSchemaMarker`] instead.
-    pub fn register_marker_type(&mut self, schema: MarkerSchema) -> MarkerTypeHandle {
+    /// [`StaticSchemaMarker`] instead, and you don't need to call this method.
+    pub fn register_marker_type(&mut self, schema: RuntimeSchemaMarkerSchema) -> MarkerTypeHandle {
         let handle = MarkerTypeHandle(self.marker_schemas.len());
         self.marker_schemas.push(schema.into());
         handle
@@ -544,7 +697,8 @@ impl Profile {
             Entry::Occupied(entry) => *entry.get(),
             Entry::Vacant(entry) => {
                 let handle = MarkerTypeHandle(self.marker_schemas.len());
-                self.marker_schemas.push(T::schema().into());
+                let schema = InternalMarkerSchema::from_static_schema::<T>();
+                self.marker_schemas.push(schema);
                 entry.insert(handle);
                 handle
             }
@@ -557,9 +711,8 @@ impl Profile {
     ///
     /// ```
     /// use fxprof_processed_profile::{
-    ///     Profile, Marker, MarkerTiming, MarkerLocation, MarkerFieldFormat, MarkerSchema,
-    ///     MarkerFieldSchema, StaticSchemaMarker, CategoryHandle, StringHandle, ThreadHandle,
-    ///     Timestamp,
+    ///     Profile, CategoryHandle, Marker, MarkerFieldFlags, MarkerFieldFormat, MarkerTiming,
+    ///     StaticSchemaMarker, StaticSchemaMarkerField, StringHandle, ThreadHandle, Timestamp,
     /// };
     ///
     /// # fn fun() {
@@ -582,22 +735,15 @@ impl Profile {
     /// impl StaticSchemaMarker for TextMarker {
     ///     const UNIQUE_MARKER_TYPE_NAME: &'static str = "Text";
     ///
-    ///     fn schema() -> MarkerSchema {
-    ///         MarkerSchema {
-    ///             type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
-    ///             locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
-    ///             chart_label: Some("{marker.data.text}".into()),
-    ///             tooltip_label: None,
-    ///             table_label: Some("{marker.name} - {marker.data.text}".into()),
-    ///             fields: vec![MarkerFieldSchema {
-    ///                 key: "text".into(),
-    ///                 label: "Contents".into(),
-    ///                 format: MarkerFieldFormat::String,
-    ///                 searchable: true,
-    ///             }],
-    ///             static_fields: vec![],
-    ///         }
-    ///     }
+    ///     const CHART_LABEL: Option<&'static str> = Some("{marker.data.text}");
+    ///     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.text}");
+    ///
+    ///     const FIELDS: &'static [StaticSchemaMarkerField] = &[StaticSchemaMarkerField {
+    ///         key: "text",
+    ///         label: "Contents",
+    ///         format: MarkerFieldFormat::String,
+    ///         flags: MarkerFieldFlags::SEARCHABLE,
+    ///     }];
     ///
     ///     fn name(&self, _profile: &mut Profile) -> StringHandle {
     ///         self.name
@@ -642,18 +788,27 @@ impl Profile {
     /// Sets a marker's stack. Every marker can have an optional stack, regardless
     /// of its marker type.
     ///
-    /// The stack frames are supplied as an iterator. Just like in [`Profile::add_sample`],
-    /// the stack frames are ordered from root to leaf, or caller-most to callee-most.
-    ///
     /// A marker's stack is shown in its tooltip, and in the sidebar in the marker table
     /// panel if a marker with a stack is selected.
+    ///
+    /// To get the stack handle, you can use [`Profile::intern_stack`] or
+    /// [`Profile::intern_stack_frames`].
     pub fn set_marker_stack(
         &mut self,
         thread: ThreadHandle,
         marker: MarkerHandle,
-        stack_frames: impl Iterator<Item = FrameInfo>,
+        stack: Option<StackHandle>,
     ) {
-        let stack_index = self.stack_index_for_frames(thread, stack_frames);
+        let stack_index = match stack {
+            Some(StackHandle(stack_thread_handle, stack_index)) => {
+                assert_eq!(
+                    stack_thread_handle, thread,
+                    "StackHandle from different thread passed to Profile::add_sample"
+                );
+                Some(stack_index)
+            }
+            None => None,
+        };
         self.threads[thread.0].set_marker_stack(marker, stack_index);
     }
 
@@ -680,6 +835,87 @@ impl Profile {
         self.counters[counter.0].add_sample(timestamp, value_delta, number_of_operations_delta)
     }
 
+    fn intern_frame_internal(
+        thread: &mut Thread,
+        process: &mut Process,
+        frame_info: FrameInfo,
+        global_libs: &mut GlobalLibTable,
+        kernel_libs: &mut LibMappings<LibraryHandle>,
+        string_table: &GlobalStringTable,
+    ) -> usize {
+        let location = match frame_info.frame {
+            Frame::InstructionPointer(ip) => process.convert_address(global_libs, kernel_libs, ip),
+            Frame::ReturnAddress(ra) => {
+                process.convert_address(global_libs, kernel_libs, ra.saturating_sub(1))
+            }
+            Frame::AdjustedReturnAddress(ara) => {
+                process.convert_address(global_libs, kernel_libs, ara)
+            }
+            Frame::RelativeAddressFromInstructionPointer(lib_handle, relative_address) => {
+                let global_lib_index = global_libs.index_for_used_lib(lib_handle);
+                InternalFrameLocation::AddressInLib(relative_address, global_lib_index)
+            }
+            Frame::RelativeAddressFromReturnAddress(lib_handle, relative_address) => {
+                let global_lib_index = global_libs.index_for_used_lib(lib_handle);
+                let adjusted_relative_address = relative_address.saturating_sub(1);
+                InternalFrameLocation::AddressInLib(adjusted_relative_address, global_lib_index)
+            }
+            Frame::RelativeAddressFromAdjustedReturnAddress(
+                lib_handle,
+                adjusted_relative_address,
+            ) => {
+                let global_lib_index = global_libs.index_for_used_lib(lib_handle);
+                InternalFrameLocation::AddressInLib(adjusted_relative_address, global_lib_index)
+            }
+            Frame::Label(string_index) => {
+                let thread_string_index = thread.convert_string_index(string_table, string_index.0);
+                InternalFrameLocation::Label(thread_string_index)
+            }
+        };
+        let internal_frame = InternalFrame {
+            location,
+            flags: frame_info.flags,
+            category_pair: frame_info.category_pair,
+        };
+        thread.frame_index_for_frame(internal_frame, global_libs)
+    }
+
+    /// Set whether the profile is already symbolicated.
+    ///
+    /// Read: whether symbols are resolved.
+    ///
+    /// If your samples refer to labels instead of addresses, it is safe
+    /// to set to true.
+    ///
+    /// Setting to true prevents the Firefox Profiler from attempting to
+    /// resolve symbols.
+    ///
+    /// By default, this is set to false. This causes the Firefox Profiler
+    /// to look up symbols for any address-based [`Frame`], i.e. any frame
+    /// which is not a [`Frame::Label`].
+    ///
+    /// If you use address-based frames and supply your own symbols using
+    /// [`Profile::add_lib`] or [`Profile::set_lib_symbol_table`], you can
+    /// choose to set this to true and avoid another symbol lookup, or you
+    /// can leave it set to false if there is a way to obtain richer symbol
+    /// information than the information supplied in those symbol tables.
+    ///
+    /// For example, when samply creates a profile which includes JIT frames,
+    /// and there is a Jitdump file with symbol information about those JIT
+    /// frames, samply uses [`Profile::set_lib_symbol_table`] to provide
+    /// the function names for the JIT functions. But it does not call
+    /// [`Profile::set_symbolicated`] with true, because the Jitdump files may
+    /// include additional information that's not in the [`SymbolTable`],
+    /// specifically the Jitdump file may have file name and line number information.
+    /// This information is only added into the profile by the Firefox Profiler's
+    /// resolution of symbols: The Firefox Profiler requests symbol information
+    /// for the JIT frame addresses from samply's symbol server, at which point
+    /// samply obtains the richer information from the Jitdump file and returns
+    /// it via the symbol server response.
+    pub fn set_symbolicated(&mut self, v: bool) {
+        self.symbolicated = v;
+    }
+
     // frames is ordered from caller to callee, i.e. root function first, pc last
     fn stack_index_for_frames(
         &mut self,
@@ -690,48 +926,16 @@ impl Profile {
         let process = &mut self.processes[thread.process().0];
         let mut prefix = None;
         for frame_info in frames {
-            let location = match frame_info.frame {
-                Frame::InstructionPointer(ip) => {
-                    process.convert_address(&mut self.global_libs, &mut self.kernel_libs, ip)
-                }
-                Frame::ReturnAddress(ra) => process.convert_address(
-                    &mut self.global_libs,
-                    &mut self.kernel_libs,
-                    ra.saturating_sub(1),
-                ),
-                Frame::AdjustedReturnAddress(ara) => {
-                    process.convert_address(&mut self.global_libs, &mut self.kernel_libs, ara)
-                }
-                Frame::RelativeAddressFromInstructionPointer(lib_handle, relative_address) => {
-                    let global_lib_index = self.global_libs.index_for_used_lib(lib_handle);
-                    InternalFrameLocation::AddressInLib(relative_address, global_lib_index)
-                }
-                Frame::RelativeAddressFromReturnAddress(lib_handle, relative_address) => {
-                    let global_lib_index = self.global_libs.index_for_used_lib(lib_handle);
-                    let adjusted_relative_address = relative_address.saturating_sub(1);
-                    InternalFrameLocation::AddressInLib(adjusted_relative_address, global_lib_index)
-                }
-                Frame::RelativeAddressFromAdjustedReturnAddress(
-                    lib_handle,
-                    adjusted_relative_address,
-                ) => {
-                    let global_lib_index = self.global_libs.index_for_used_lib(lib_handle);
-                    InternalFrameLocation::AddressInLib(adjusted_relative_address, global_lib_index)
-                }
-                Frame::Label(string_index) => {
-                    let thread_string_index =
-                        thread.convert_string_index(&self.string_table, string_index.0);
-                    InternalFrameLocation::Label(thread_string_index)
-                }
-            };
-            let internal_frame = InternalFrame {
-                location,
-                flags: frame_info.flags,
-                category_pair: frame_info.category_pair,
-            };
-            let frame_index = thread.frame_index_for_frame(internal_frame, &mut self.global_libs);
-            prefix =
-                Some(thread.stack_index_for_stack(prefix, frame_index, frame_info.category_pair));
+            let category_pair = frame_info.category_pair;
+            let frame_index = Self::intern_frame_internal(
+                thread,
+                process,
+                frame_info,
+                &mut self.global_libs,
+                &mut self.kernel_libs,
+                &self.string_table,
+            );
+            prefix = Some(thread.stack_index_for_stack(prefix, frame_index, category_pair));
         }
         prefix
     }
@@ -741,9 +945,10 @@ impl Profile {
     // The processed profile format has all threads from all processes in a flattened threads list.
     // Each thread duplicates some information about its process, which allows the Firefox Profiler
     // UI to group threads from the same process.
-    fn sorted_threads(&self) -> (Vec<ThreadHandle>, Vec<usize>) {
+    fn sorted_threads(&self) -> (Vec<ThreadHandle>, Vec<usize>, Vec<usize>) {
         let mut sorted_threads = Vec::with_capacity(self.threads.len());
         let mut first_thread_index_per_process = vec![0; self.processes.len()];
+        let mut new_thread_indices = vec![0; self.threads.len()];
 
         let mut sorted_processes: Vec<_> = (0..self.processes.len()).map(ProcessHandle).collect();
         sorted_processes.sort_by(|a_handle, b_handle| {
@@ -763,9 +968,17 @@ impl Profile {
                 let b = &self.threads[b_handle.0];
                 a.cmp_for_json_order(b)
             });
+
+            for (i, v) in sorted_threads_for_this_process.iter().enumerate() {
+                new_thread_indices[v.0] = prev_len + i;
+            }
         }
 
-        (sorted_threads, first_thread_index_per_process)
+        (
+            sorted_threads,
+            first_thread_index_per_process,
+            new_thread_indices,
+        )
     }
 
     fn serializable_threads<'a>(
@@ -803,9 +1016,10 @@ impl Profile {
 
 impl Serialize for Profile {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let (sorted_threads, first_thread_index_per_process) = self.sorted_threads();
+        let (sorted_threads, first_thread_index_per_process, new_thread_indices) =
+            self.sorted_threads();
         let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("meta", &SerializableProfileMeta(self))?;
+        map.serialize_entry("meta", &SerializableProfileMeta(self, &new_thread_indices))?;
         map.serialize_entry("libs", &self.global_libs)?;
         map.serialize_entry("threads", &self.serializable_threads(&sorted_threads))?;
         map.serialize_entry("pages", &[] as &[()])?;
@@ -818,9 +1032,9 @@ impl Serialize for Profile {
     }
 }
 
-struct SerializableProfileMeta<'a>(&'a Profile);
+struct SerializableProfileMeta<'a>(&'a Profile, &'a [usize]);
 
-impl<'a> Serialize for SerializableProfileMeta<'a> {
+impl Serialize for SerializableProfileMeta<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry("categories", &self.0.categories)?;
@@ -850,7 +1064,7 @@ impl<'a> Serialize for SerializableProfileMeta<'a> {
             }),
         )?;
         map.serialize_entry("startTime", &self.0.reference_timestamp)?;
-        map.serialize_entry("symbolicated", &false)?;
+        map.serialize_entry("symbolicated", &self.0.symbolicated)?;
         map.serialize_entry("pausedRanges", &[] as &[()])?;
         map.serialize_entry("version", &24)?;
         map.serialize_entry("usesOnlyOneStackType", &(!self.0.contains_js_function()))?;
@@ -860,6 +1074,30 @@ impl<'a> Serialize for SerializableProfileMeta<'a> {
         let mut marker_schemas: Vec<InternalMarkerSchema> = self.0.marker_schemas.clone();
         marker_schemas.sort_by(|a, b| a.type_name().cmp(b.type_name()));
         map.serialize_entry("markerSchema", &marker_schemas)?;
+
+        if !self.0.initial_visible_threads.is_empty() {
+            map.serialize_entry(
+                "initialVisibleThreads",
+                &self
+                    .0
+                    .initial_visible_threads
+                    .iter()
+                    .map(|x| self.1[x.0])
+                    .collect::<Vec<_>>(),
+            )?;
+        }
+
+        if !self.0.initial_selected_threads.is_empty() {
+            map.serialize_entry(
+                "initialSelectedThreads",
+                &self
+                    .0
+                    .initial_selected_threads
+                    .iter()
+                    .map(|x| self.1[x.0])
+                    .collect::<Vec<_>>(),
+            )?;
+        };
 
         map.end()
     }
@@ -874,7 +1112,7 @@ struct SerializableProfileThreadsProperty<'a> {
     global_string_table: &'a GlobalStringTable,
 }
 
-impl<'a> Serialize for SerializableProfileThreadsProperty<'a> {
+impl Serialize for SerializableProfileThreadsProperty<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut seq = serializer.serialize_seq(Some(self.threads.len()))?;
 
@@ -902,7 +1140,7 @@ struct SerializableProfileCountersProperty<'a> {
     first_thread_index_per_process: &'a [usize],
 }
 
-impl<'a> Serialize for SerializableProfileCountersProperty<'a> {
+impl Serialize for SerializableProfileCountersProperty<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut seq = serializer.serialize_seq(Some(self.counters.len()))?;
 
@@ -923,7 +1161,7 @@ struct SerializableProfileThread<'a>(
     &'a GlobalStringTable,
 );
 
-impl<'a> Serialize for SerializableProfileThread<'a> {
+impl Serialize for SerializableProfileThread<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let SerializableProfileThread(
             process,

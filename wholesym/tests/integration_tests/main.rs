@@ -108,12 +108,11 @@ fn exe() {
     assert_eq!(info.arch.as_deref(), Some("x86_64"));
 }
 
-#[test]
-fn dwz_symbolication() {
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn dwz_symbolication() {
     let ls_dir = fixtures_dir().join("other").join("ls-linux");
     let ls_bin_path = ls_dir.join("ls");
     let config = wholesym::SymbolManagerConfig::default()
-        .verbose(true)
         .redirect_path_for_testing(
             "/usr/lib/debug/.build-id/63/260a3e6e46db57abf718f6a3562c6eedccf269.debug",
             ls_dir.join("260a3e6e46db57abf718f6a3562c6eedccf269.debug"),
@@ -123,10 +122,10 @@ fn dwz_symbolication() {
             ls_dir.join("coreutils.debug"),
         );
     let symbol_manager = wholesym::SymbolManager::with_config(config);
-    let symbol_map = futures::executor::block_on(
-        symbol_manager.load_symbol_map_for_binary_at_path(&ls_bin_path, None),
-    )
-    .unwrap();
+    let symbol_map = symbol_manager
+        .load_symbol_map_for_binary_at_path(&ls_bin_path, None)
+        .await
+        .unwrap();
 
     assert_eq!(
         symbol_map.debug_id(),
@@ -214,7 +213,7 @@ mod simple_example {
         expected_debug_id: DebugId,
         test_fn: F,
     ) {
-        let mut config = wholesym::SymbolManagerConfig::default().verbose(true);
+        let mut config = wholesym::SymbolManagerConfig::default();
         for (s, path) in redirect_paths {
             config = config.redirect_path_for_testing(s, path);
         }

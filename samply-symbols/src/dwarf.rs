@@ -97,24 +97,11 @@ where
             size: file_range.uncompressed_size,
             _phantom: PhantomData,
         }),
-        CompressionFormat::Zlib => {
-            let compressed_bytes = data
-                .read_bytes_at(file_range.offset, file_range.compressed_size)
-                .ok()?;
-
-            let mut decompressed = Vec::with_capacity(file_range.uncompressed_size as usize);
-            let mut decompress = flate2::Decompress::new(true);
-            decompress
-                .decompress_vec(
-                    compressed_bytes,
-                    &mut decompressed,
-                    flate2::FlushDecompress::Finish,
-                )
-                .ok()?;
-
-            return Some(SingleSectionData::Owned(decompressed));
+        _ => {
+            let compressed = file_range.data(data).ok()?;
+            let decompressed = compressed.decompress().ok()?;
+            Some(SingleSectionData::Owned(decompressed.into_owned()))
         }
-        _ => None,
     }
 }
 

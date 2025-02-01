@@ -14,10 +14,10 @@ reqwest = { version = "0.12", default-features = false, features = [
   "gzip",
   "blocking"
 ] }
-anyhow = "1.0.86"
+anyhow = "1"
 tempfile = "3.10.1"
 futures = "0.3.5"
 cab = "0.6.0"
-flate2 = "1.0.30"
+flate2 = "1.0"
 tar = "0.4.41"
-bzip2 = "0.4.3"
+bzip2 = "0.5.0"

@@ -564,7 +564,7 @@ impl<'a> EventIter<'a> {
     }
 }
 
-impl<'a> Iterator for EventIter<'a> {
+impl Iterator for EventIter<'_> {
     type Item = EventRef;
 
     #[inline]

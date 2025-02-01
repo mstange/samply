@@ -1,6 +1,6 @@
 use fxprof_processed_profile::{
-    CategoryHandle, MarkerFieldFormat, MarkerFieldSchema, MarkerLocation, MarkerSchema,
-    MarkerStaticField, Profile, StaticSchemaMarker, StringHandle,
+    CategoryHandle, MarkerFieldFlags, MarkerFieldFormat, Profile, StaticSchemaMarker,
+    StaticSchemaMarkerField, StringHandle,
 };
 
 #[derive(Debug, Clone)]
@@ -9,25 +9,19 @@ pub struct JitFunctionAddMarker(pub StringHandle);
 impl StaticSchemaMarker for JitFunctionAddMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "JitFunctionAdd";
 
-    fn schema() -> MarkerSchema {
-        MarkerSchema {
-            type_name: Self::UNIQUE_MARKER_TYPE_NAME.into(),
-            locations: vec![MarkerLocation::MarkerChart, MarkerLocation::MarkerTable],
-            chart_label: Some("{marker.data.n}".into()),
-            tooltip_label: Some("{marker.data.n}".into()),
-            table_label: Some("{marker.data.n}".into()),
-            fields: vec![MarkerFieldSchema {
-                key: "n".into(),
-                label: "Function".into(),
-                format: MarkerFieldFormat::String,
-                searchable: true,
-            }],
-            static_fields: vec![MarkerStaticField {
-                label: "Description".into(),
-                value: "Emitted when a JIT function is added to the process.".into(),
-            }],
-        }
-    }
+    const DESCRIPTION: Option<&'static str> =
+        Some("Emitted when a JIT function is added to the process.");
+
+    const CHART_LABEL: Option<&'static str> = Some("{marker.data.n}");
+    const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.data.n}");
+    const TABLE_LABEL: Option<&'static str> = Some("{marker.data.n}");
+
+    const FIELDS: &'static [StaticSchemaMarkerField] = &[StaticSchemaMarkerField {
+        key: "n",
+        label: "Function",
+        format: MarkerFieldFormat::String,
+        flags: MarkerFieldFlags::SEARCHABLE,
+    }];
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
         profile.intern_string("JitFunctionAdd")
