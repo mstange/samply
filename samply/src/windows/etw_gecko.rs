@@ -3,11 +3,6 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use debugid::DebugId;
-use etw_reader::parser::{Address, Parser, TryParse};
-use etw_reader::schema::SchemaLocator;
-use etw_reader::{
-    add_custom_schemas, event_properties_to_string, open_trace, print_property, GUID,
-};
 use fxprof_processed_profile::debugid;
 use uuid::Uuid;
 
@@ -15,6 +10,12 @@ use super::coreclr::CoreClrContext;
 use super::profile_context::ProfileContext;
 use crate::windows::coreclr;
 use crate::windows::profile_context::{KnownCategory, PeInfo};
+
+use super::etw_reader::parser::{Address, Parser, TryParse};
+use super::etw_reader::schema::SchemaLocator;
+use super::etw_reader::{
+    add_custom_schemas, event_properties_to_string, open_trace, print_property, GUID,
+};
 
 pub fn process_etl_files(
     context: &mut ProfileContext,

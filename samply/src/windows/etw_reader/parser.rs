@@ -465,7 +465,7 @@ impl TryParse<f32> for Parser<'_> {
 ///
 /// # Arguments
 /// * `name` - Name of the property to be found in the Schema
-
+///
 /// # Example
 /// ```rust
 /// let my_callback = |record: EventRecord, schema_locator: &mut SchemaLocator| {
