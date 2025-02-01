@@ -1,26 +1,19 @@
 # samply
 
-`samply` is intended to become a command line CPU profiler for macOS, Linux and Windows.
+samply is a command line CPU profiler which uses the [Firefox profiler](https://profiler.firefox.com/) as its UI.
 
-At the moment, the macOS implementation works best.
-The Linux implementation is extremely new and experimental.
-There is no Windows implementation yet.
+samply works on macOS, Linux, and Windows.
 
-samply is a work in progress and not ready for public consumption, but you can give it a try if you'd like:
+In order to profile the execution of `./my-application`, prepend `samply record` to the command invocation:
 
-```
-cargo install samply
-
-samply record ./yourcommand args   # This profiles yourcommand and then opens the profile in a viewer.
-
-# Alternatively:
-samply record --save-only -o prof.json -- ./yourcommand args
-samply load prof.json
-
-# You can also import Linux perf profiles:
-samply import perf.data
+```sh
+samply record ./my-application my-arguments
 ```
 
-See [the repo](https://github.com/mstange/samply/) for more information.
+On Linux, samply uses perf events. You can grant temporary access by running:
 
-This project was formerly known as perfrecord.
+```sh
+echo '1' | sudo tee /proc/sys/kernel/perf_event_paranoid
+```
+
+Visit [the git repository](https://github.com/mstange/samply/) for more information.
