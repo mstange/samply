@@ -71,6 +71,7 @@ pub fn start_recording(
         command_name,
         args,
         iteration_count,
+        ignore_exit_code,
     } = process_launch_props;
 
     if profile_creation_props.coreclr.any_enabled() {
@@ -191,7 +192,7 @@ pub fn start_recording(
             WaitStatus::Exited(_pid, exit_code) => ExitStatus::from_raw(*exit_code).success(),
             _ => false,
         };
-        if !previous_run_exited_with_success {
+        if !ignore_exit_code && !previous_run_exited_with_success {
             eprintln!(
                 "Skipping remaining iterations due to non-success exit status: {wait_status:?}"
             );

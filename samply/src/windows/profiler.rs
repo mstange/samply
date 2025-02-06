@@ -100,6 +100,10 @@ pub fn start_recording(
 
                 pids.push(child.id());
 
+                if process_launch_props.ignore_exit_code {
+                    continue;
+                }
+
                 // Wait for the child to exit.
                 //
                 // TODO: Do the child waiting and the xperf control on different threads,

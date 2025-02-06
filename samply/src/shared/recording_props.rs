@@ -118,4 +118,5 @@ pub struct ProcessLaunchProps {
     pub command_name: OsString,
     pub args: Vec<OsString>,
     pub iteration_count: u32,
+    pub ignore_exit_code: bool,
 }
