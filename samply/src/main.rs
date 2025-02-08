@@ -203,6 +203,10 @@ struct RecordArgs {
     #[arg(long, default_value = "1")]
     iteration_count: u32,
 
+    /// Ignore exit code and continue running when iteration_count > 0
+    #[arg(short, long)]
+    ignore_exit_code: bool,
+
     #[command(flatten)]
     profile_creation_args: ProfileCreationArgs,
 
@@ -647,6 +651,7 @@ impl RecordArgs {
             command_name,
             args,
             iteration_count,
+            ignore_exit_code: self.ignore_exit_code,
         };
 
         RecordingMode::Launch(launch_props)

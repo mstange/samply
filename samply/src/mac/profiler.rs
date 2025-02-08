@@ -44,6 +44,7 @@ pub fn start_recording(
                 command_name,
                 args,
                 iteration_count,
+                ignore_exit_code,
             } = process_launch_props;
 
             let task_launcher = if profile_creation_props.coreclr.any_enabled() {
@@ -62,6 +63,7 @@ pub fn start_recording(
                     &command_name,
                     &args,
                     iteration_count,
+                    ignore_exit_code,
                     &env_vars,
                     task_accepter.extra_env_vars(),
                 )?
@@ -70,6 +72,7 @@ pub fn start_recording(
                     &command_name,
                     &args,
                     iteration_count,
+                    ignore_exit_code,
                     &env_vars,
                     task_accepter.extra_env_vars(),
                 )?

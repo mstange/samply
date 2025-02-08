@@ -109,7 +109,7 @@ pub fn start_recording(
                 // press Ctrl+C again, which would immediately terminate this process and not
                 // give us a chance to stop xperf.
                 let exit_status = child.wait().unwrap();
-                if !exit_status.success() {
+                if !process_launch_props.ignore_exit_code && !exit_status.success() {
                     eprintln!(
                         "Skipping remaining iterations due to non-success exit status: \"{}\"",
                         exit_status
