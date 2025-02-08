@@ -42,7 +42,7 @@ impl RootTaskRunner for TaskLauncher {
         let mut exit_status = root_child.wait().expect("couldn't wait for child");
 
         for i in 2..=self.iteration_count {
-            if self.ignore_exit_code && !exit_status.success() {
+            if !self.ignore_exit_code && !exit_status.success() {
                 eprintln!(
                     "Skipping remaining iterations due to non-success exit status: \"{}\"",
                     exit_status
