@@ -1,6 +1,6 @@
 use bitflags::bitflags;
 
-use crate::category::CategoryPairHandle;
+use crate::category::SubcategoryHandle;
 use crate::global_lib_table::LibraryHandle;
 use crate::profile::StringHandle;
 
@@ -55,8 +55,8 @@ pub enum Frame {
 pub struct FrameInfo {
     /// The absolute address or label of this frame.
     pub frame: Frame,
-    /// The category pair of this frame.
-    pub category_pair: CategoryPairHandle,
+    /// The subcategory of this frame.
+    pub subcategory: SubcategoryHandle,
     /// The flags of this frame. Use `FrameFlags::empty()` if unsure.
     pub flags: FrameFlags,
 }

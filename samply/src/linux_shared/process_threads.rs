@@ -217,7 +217,7 @@ pub fn make_thread_label_frame(
     let thread_label = profile.handle_for_string(&s);
     FrameInfo {
         frame: Frame::Label(thread_label),
-        category_pair: CategoryHandle::OTHER.into(),
+        subcategory: CategoryHandle::OTHER.into(),
         flags: FrameFlags::empty(),
     }
 }

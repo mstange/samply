@@ -2,7 +2,7 @@
 name = "fxprof-processed-profile"
 version = "0.8.1"
 edition = "2021"
-rust-version = "1.60" # needed by bytesize
+rust-version = "1.63" # needed by indexmap
 authors = ["Markus Stange <mstange.moz@gmail.com>"]
 license = "MIT OR Apache-2.0"
 description = "Create profiles in the Firefox Profiler's processed profile JSON format."
@@ -16,6 +16,7 @@ serde = "1.0.204"
 serde_derive = "1.0.188"
 debugid = "0.8.0"
 rustc-hash = "2"
+indexmap = { version = "2.7", features = ["serde"] }
 
 [dev-dependencies]
 assert-json-diff = "2.0.1"

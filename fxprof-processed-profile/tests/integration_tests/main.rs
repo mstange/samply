@@ -4,14 +4,14 @@ use std::time::Duration;
 use assert_json_diff::assert_json_eq;
 use debugid::DebugId;
 use fxprof_processed_profile::{
-    CategoryColor, CategoryHandle, CpuDelta, Frame, FrameFlags, FrameInfo, GraphColor, LibraryInfo,
-    MarkerFieldFlags, MarkerFieldFormat, MarkerGraphType, MarkerTiming, Profile,
+    Category, CategoryColor, CategoryHandle, CpuDelta, Frame, FrameFlags, FrameInfo, GraphColor,
+    LibraryInfo, MarkerFieldFlags, MarkerFieldFormat, MarkerGraphType, MarkerTiming, Profile,
     ReferenceTimestamp, SamplingInterval, StaticSchemaMarker, StaticSchemaMarkerField,
     StaticSchemaMarkerGraph, StringHandle, Symbol, SymbolTable, Timestamp, WeightType,
 };
 use serde_json::json;
 
-// TODO: Add tests for CategoryPairHandle, ProcessHandle, ThreadHandle
+// TODO: Add tests for SubcategoryHandle, ProcessHandle, ThreadHandle
 
 /// An example marker type with some text content.
 #[derive(Debug, Clone)]
@@ -192,7 +192,7 @@ fn profile_without_js() {
         0x000055ba9f07e000,
         (0x000055ba9ebf6000u64 - 0x000055ba9eb4d000u64) as u32,
     );
-    let category = profile.add_category("Regular", CategoryColor::Blue);
+    let category = profile.handle_for_category(Category("Regular", CategoryColor::Blue));
     let s1 = profile.handle_for_stack_frames(
         thread,
         vec![
@@ -216,7 +216,7 @@ fn profile_without_js() {
         })
         .map(|frame| FrameInfo {
             frame,
-            category_pair: category.into(),
+            subcategory: category.into(),
             flags: FrameFlags::empty(),
         }),
     );
@@ -250,7 +250,7 @@ fn profile_without_js() {
         })
         .map(|frame| FrameInfo {
             frame,
-            category_pair: category.into(),
+            subcategory: category.into(),
             flags: FrameFlags::empty(),
         }),
     );
@@ -284,7 +284,7 @@ fn profile_without_js() {
         })
         .map(|frame| FrameInfo {
             frame,
-            category_pair: category.into(),
+            subcategory: category.into(),
             flags: FrameFlags::empty(),
         }),
     );
@@ -999,19 +999,19 @@ fn profile_with_js() {
     );
 
     let some_label_string = profile.handle_for_string("Some label string");
-    let category = profile.add_category("Cycle Collection", CategoryColor::Orange);
-    let category_pair = profile.add_subcategory(category, "Graph Reduction");
+    let category = profile.handle_for_category(Category("Cycle Collection", CategoryColor::Orange));
+    let subcategory = profile.handle_for_subcategory(category, "Graph Reduction");
     let s1 = profile.handle_for_stack_frames(
         thread,
         vec![
             FrameInfo {
                 frame: Frame::Label(some_label_string),
-                category_pair: category.into(),
+                subcategory: category.into(),
                 flags: FrameFlags::IS_JS,
             },
             FrameInfo {
                 frame: Frame::ReturnAddress(0x7f76b7ffc0e7),
-                category_pair,
+                subcategory,
                 flags: FrameFlags::empty(),
             },
         ]

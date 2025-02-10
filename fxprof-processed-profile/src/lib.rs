@@ -19,8 +19,8 @@
 //! let thread = profile.add_thread(process, 54132000, Timestamp::from_millis_since_reference(0.0), true);
 //! profile.set_thread_name(thread, "Main thread");
 //! let stack_frames = vec![
-//!     FrameInfo { frame: Frame::Label(profile.handle_for_string("Root node")), category_pair: CategoryHandle::OTHER.into(), flags: FrameFlags::empty() },
-//!     FrameInfo { frame: Frame::Label(profile.handle_for_string("First callee")), category_pair: CategoryHandle::OTHER.into(), flags: FrameFlags::empty() }
+//!     FrameInfo { frame: Frame::Label(profile.handle_for_string("Root node")), subcategory: CategoryHandle::OTHER.into(), flags: FrameFlags::empty() },
+//!     FrameInfo { frame: Frame::Label(profile.handle_for_string("First callee")), subcategory: CategoryHandle::OTHER.into(), flags: FrameFlags::empty() }
 //! ];
 //! let stack = profile.handle_for_stack_frames(thread, stack_frames.into_iter());
 //! profile.add_sample(thread, Timestamp::from_millis_since_reference(0.0), stack, CpuDelta::ZERO, 1);
@@ -59,7 +59,7 @@ mod thread;
 mod thread_string_table;
 mod timestamp;
 
-pub use category::{CategoryHandle, CategoryPairHandle};
+pub use category::{Category, CategoryHandle, SubcategoryHandle};
 pub use category_color::CategoryColor;
 pub use counters::CounterHandle;
 pub use cpu_delta::CpuDelta;

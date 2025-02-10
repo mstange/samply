@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use debugid::DebugId;
 use fxprof_processed_profile::{
-    CategoryPairHandle, LibraryHandle, LibraryInfo, Profile, Symbol, SymbolTable,
+    LibraryHandle, LibraryInfo, Profile, SubcategoryHandle, Symbol, SymbolTable,
 };
 
 use super::types::FastHashMap;
@@ -10,7 +10,7 @@ use super::types::FastHashMap;
 #[derive(Debug)]
 pub struct SyntheticJitLibrary {
     lib_handle: LibraryHandle,
-    default_category: CategoryPairHandle,
+    default_category: SubcategoryHandle,
     next_relative_address: u32,
     symbols: Vec<Symbol>,
     recycler: Option<FastHashMap<(String, u32), u32>>,
@@ -19,7 +19,7 @@ pub struct SyntheticJitLibrary {
 impl SyntheticJitLibrary {
     pub fn new(
         name: String,
-        default_category: CategoryPairHandle,
+        default_category: SubcategoryHandle,
         profile: &mut Profile,
         allow_recycling: bool,
     ) -> Self {
@@ -79,7 +79,7 @@ impl SyntheticJitLibrary {
         self.lib_handle
     }
 
-    pub fn default_category(&self) -> CategoryPairHandle {
+    pub fn default_category(&self) -> SubcategoryHandle {
         self.default_category
     }
 
