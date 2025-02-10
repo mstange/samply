@@ -372,7 +372,7 @@ fn profile_without_js() {
                 "name": []
               },
               "interval": 1.0,
-              "preprocessedProfileVersion": 49,
+              "preprocessedProfileVersion": 53,
               "processType": 0,
               "product": "test",
               "oscpu": "macOS 14.4",
@@ -939,42 +939,6 @@ fn profile_without_js() {
                     13,
                     14,
                     15
-                  ],
-                  "category": [
-                    1,
-                    1,
-                    1,
-                    1,
-                    1,
-                    1,
-                    1,
-                    1,
-                    1,
-                    1,
-                    1,
-                    1,
-                    1,
-                    1,
-                    1,
-                    1
-                  ],
-                  "subcategory": [
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0
                   ]
                 },
                 "showMarkersInTimeline": false,
@@ -1112,7 +1076,7 @@ fn profile_with_js() {
                 "name": []
               },
               "interval": 1.0,
-              "preprocessedProfileVersion": 49,
+              "preprocessedProfileVersion": 53,
               "processType": 0,
               "product": "test with js",
               "sampleUnits": {
@@ -1264,14 +1228,6 @@ fn profile_with_js() {
                   "frame": [
                     0,
                     1
-                  ],
-                  "category": [
-                    1,
-                    1
-                  ],
-                  "subcategory": [
-                    0,
-                    0
                   ]
                 },
                 "stringArray": [
@@ -1380,7 +1336,7 @@ fn profile_counters_with_sorted_processes() {
               "initialSelectedThreads": [0],
               "initialVisibleThreads": [0],
               "interval": 1.0,
-              "preprocessedProfileVersion": 49,
+              "preprocessedProfileVersion": 53,
               "processType": 0,
               "product": "test",
               "sampleUnits": {
@@ -1475,9 +1431,7 @@ fn profile_counters_with_sorted_processes() {
                 "stackTable": {
                   "length": 0,
                   "prefix": [],
-                  "frame": [],
-                  "category": [],
-                  "subcategory": []
+                  "frame": []
                 },
                 "stringArray": [],
                 "tid": "54321",
@@ -1559,9 +1513,7 @@ fn profile_counters_with_sorted_processes() {
                 "stackTable": {
                   "length": 0,
                   "prefix": [],
-                  "frame": [],
-                  "category": [],
-                  "subcategory": []
+                  "frame": []
                 },
                 "stringArray": [],
                 "tid": "12345",
