@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 
 use serde::ser::{SerializeMap, Serializer};
 
-use crate::category::Category;
+use crate::category::InternalCategory;
 use crate::cpu_delta::CpuDelta;
 use crate::frame_table::{FrameTable, InternalFrame};
 use crate::func_table::FuncTable;
@@ -214,7 +214,7 @@ impl Thread {
     pub fn serialize_with<S: Serializer>(
         &self,
         serializer: S,
-        categories: &[Category],
+        categories: &[InternalCategory],
         process_start_time: Timestamp,
         process_end_time: Option<Timestamp>,
         process_name: &str,

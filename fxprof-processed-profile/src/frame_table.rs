@@ -1,7 +1,7 @@
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 
 use crate::category::{
-    Category, CategoryHandle, CategoryPairHandle, SerializableSubcategoryColumn, Subcategory,
+    InternalCategory, CategoryHandle, CategoryPairHandle, SerializableSubcategoryColumn, Subcategory,
 };
 use crate::fast_hash_map::FastHashMap;
 use crate::frame::FrameFlags;
@@ -100,7 +100,7 @@ impl FrameTable {
             })
     }
 
-    pub fn as_serializable<'a>(&'a self, categories: &'a [Category]) -> impl Serialize + 'a {
+    pub fn as_serializable<'a>(&'a self, categories: &'a [InternalCategory]) -> impl Serialize + 'a {
         SerializableFrameTable {
             table: self,
             categories,
@@ -110,7 +110,7 @@ impl FrameTable {
 
 struct SerializableFrameTable<'a> {
     table: &'a FrameTable,
-    categories: &'a [Category],
+    categories: &'a [InternalCategory],
 }
 
 impl Serialize for SerializableFrameTable<'_> {
