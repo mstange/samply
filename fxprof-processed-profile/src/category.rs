@@ -1,6 +1,16 @@
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
 use super::category_color::CategoryColor;
+use super::profile::Profile;
+
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
+pub struct Category<'a>(pub &'a str, pub CategoryColor);
+
+trait IntoCategoryHandle {
+    fn into_category_handle(profile: &mut Profile) -> CategoryHandle;
+}
+
+// pub struct Subcategory<'a>(pub Category<'a>, pub &'a str);
 
 /// A profiling category, can be set on stack frames and markers as part of a [`CategoryPairHandle`].
 ///
@@ -41,6 +51,10 @@ impl From<CategoryHandle> for CategoryPairHandle {
     fn from(category: CategoryHandle) -> Self {
         CategoryPairHandle(category, SubcategoryIndex::OTHER)
     }
+}
+
+trait IntoCategoryPairHandle {
+    fn into_category_pair_handle(profile: &mut Profile) -> CategoryPairHandle;
 }
 
 /// The information about a category.
