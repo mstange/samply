@@ -24,7 +24,7 @@ impl StaticSchemaMarker for JitFunctionAddMarker {
     }];
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
-        profile.intern_string("JitFunctionAdd")
+        profile.handle_for_string("JitFunctionAdd")
     }
 
     fn category(&self, _profile: &mut Profile) -> CategoryHandle {

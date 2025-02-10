@@ -193,7 +193,7 @@ impl SingleJitDumpProcessor {
                     if should_add_marker {
                         let timestamp =
                             timestamp_converter.convert_time(raw_jitdump_record.timestamp);
-                        let symbol_name_handle = profile.intern_string(symbol_name);
+                        let symbol_name_handle = profile.handle_for_string(symbol_name);
                         profile.add_marker(
                             self.thread_handle,
                             MarkerTiming::Instant(timestamp),

@@ -31,7 +31,7 @@ pub struct StringIndex(u32);
 pub enum Frame {
     /// An instruction pointer address / return address
     Address(u64),
-    /// A string, containing an index returned by ThreadBuilder::intern_string
+    /// A string, containing an index returned by ThreadBuilder::handle_for_string
     Label(StringIndex),
 }
 
@@ -280,7 +280,7 @@ impl ThreadBuilder {
         self.index
     }
 
-    pub fn intern_string(&mut self, s: &str) -> StringIndex {
+    pub fn handle_for_string(&mut self, s: &str) -> StringIndex {
         self.string_table.index_for_string(s)
     }
 
