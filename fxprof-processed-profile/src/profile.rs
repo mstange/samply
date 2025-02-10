@@ -2,14 +2,15 @@ use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use std::time::Duration;
 
+use indexmap::set::MutableValues;
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 use serde_json::json;
 
-use crate::category::{CategoryHandle, CategoryPairHandle, InternalCategory};
+use crate::category::{Category, CategoryHandle, InternalCategory, SubcategoryHandle};
 use crate::category_color::CategoryColor;
 use crate::counters::{Counter, CounterHandle};
 use crate::cpu_delta::CpuDelta;
-use crate::fast_hash_map::FastHashMap;
+use crate::fast_hash_map::{FastHashMap, FastIndexSet};
 use crate::frame::{Frame, FrameInfo};
 use crate::frame_table::{InternalFrame, InternalFrameLocation};
 use crate::global_lib_table::{GlobalLibTable, LibraryHandle, UsedLibraryAddressesIterator};
@@ -102,8 +103,8 @@ pub struct StackHandle(ThreadHandle, usize);
 /// let thread = profile.add_thread(process, 54132000, Timestamp::from_millis_since_reference(0.0), true);
 /// profile.set_thread_name(thread, "Main thread");
 /// let stack_frames = vec![
-///     FrameInfo { frame: Frame::Label(profile.handle_for_string("Root node")), category_pair: CategoryHandle::OTHER.into(), flags: FrameFlags::empty() },
-///     FrameInfo { frame: Frame::Label(profile.handle_for_string("First callee")), category_pair: CategoryHandle::OTHER.into(), flags: FrameFlags::empty() }
+///     FrameInfo { frame: Frame::Label(profile.handle_for_string("Root node")), subcategory: CategoryHandle::OTHER.into(), flags: FrameFlags::empty() },
+///     FrameInfo { frame: Frame::Label(profile.handle_for_string("First callee")), subcategory: CategoryHandle::OTHER.into(), flags: FrameFlags::empty() }
 /// ];
 /// let stack = profile.handle_for_stack_frames(thread, stack_frames.into_iter());
 /// profile.add_sample(thread, Timestamp::from_millis_since_reference(0.0), stack, CpuDelta::ZERO, 1);
@@ -120,8 +121,8 @@ pub struct Profile {
     pub(crate) interval: SamplingInterval,
     pub(crate) global_libs: GlobalLibTable,
     pub(crate) kernel_libs: LibMappings<LibraryHandle>,
-    pub(crate) categories: Vec<InternalCategory>, // append-only for stable CategoryHandles
-    pub(crate) processes: Vec<Process>,           // append-only for stable ProcessHandles
+    pub(crate) categories: FastIndexSet<InternalCategory>, // append-only for stable CategoryHandles
+    pub(crate) processes: Vec<Process>,                // append-only for stable ProcessHandles
     pub(crate) counters: Vec<Counter>,
     pub(crate) threads: Vec<Thread>, // append-only for stable ThreadHandles
     pub(crate) initial_visible_threads: Vec<ThreadHandle>,
@@ -147,6 +148,8 @@ impl Profile {
         reference_timestamp: ReferenceTimestamp,
         interval: SamplingInterval,
     ) -> Self {
+        let mut categories = FastIndexSet::default();
+        categories.insert(InternalCategory::new("Other", CategoryColor::Gray));
         Profile {
             interval,
             product: product.to_string(),
@@ -160,10 +163,7 @@ impl Profile {
             processes: Vec::new(),
             string_table: GlobalStringTable::new(),
             marker_schemas: Vec::new(),
-            categories: vec![InternalCategory::new(
-                "Other".to_string(),
-                CategoryColor::Gray,
-            )],
+            categories,
             static_schema_marker_types: FastHashMap::default(),
             symbolicated: false,
             used_pids: FastHashMap::default(),
@@ -192,23 +192,32 @@ impl Profile {
         self.os_name = Some(os_name.to_string());
     }
 
-    /// Add a category and return its handle.
+    /// Get or create a handle for a category.
     ///
-    /// Categories are used for stack frames and markers, as part of a "category pair".
-    pub fn add_category(&mut self, name: &str, color: CategoryColor) -> CategoryHandle {
-        let handle = CategoryHandle(self.categories.len() as u16);
-        self.categories
-            .push(InternalCategory::new(name.to_string(), color));
-        handle
+    /// Categories are used for stack frames and markers.
+    pub fn handle_for_category(&mut self, category: Category) -> CategoryHandle {
+        let index = self.categories.get_index_of(&category).unwrap_or_else(|| {
+            let Category(name, color) = category;
+            self.categories
+                .insert_full(InternalCategory::new(name, color))
+                .0
+        });
+        CategoryHandle(index as u16)
     }
 
-    /// Add a subcategory for a category, and return the "category pair" handle.
+    /// Get or create a handle for a subcategory.
     ///
-    /// Every category has a default subcategory; you can convert a `Category` into
-    /// its corresponding `CategoryPairHandle` for the default category using `category.into()`.
-    pub fn add_subcategory(&mut self, category: CategoryHandle, name: &str) -> CategoryPairHandle {
-        let subcategory = self.categories[category.0 as usize].add_subcategory(name.into());
-        CategoryPairHandle(category, subcategory)
+    /// Every category has a default subcategory; you can convert a `CategoryHandle` into
+    /// its corresponding `SubcategoryHandle` for the default category using `category.into()`.
+    pub fn handle_for_subcategory(
+        &mut self,
+        category_handle: CategoryHandle,
+        subcategory_name: &str,
+    ) -> SubcategoryHandle {
+        let category_index = category_handle.0 as usize;
+        let category = self.categories.get_index_mut2(category_index).unwrap();
+        let subcategory_index = category.index_for_subcategory(subcategory_name);
+        SubcategoryHandle(category_handle, subcategory_index)
     }
 
     /// Add an empty process. The name, pid and start time can be changed afterwards,
@@ -234,12 +243,12 @@ impl Profile {
     /// hasn't been used before and needs no suffix.
     fn make_unique_pid_or_tid(map: &mut FastHashMap<u32, u32>, id: u32) -> String {
         match map.entry(id) {
-            std::collections::hash_map::Entry::Occupied(mut entry) => {
+            Entry::Occupied(mut entry) => {
                 let suffix = *entry.get();
                 *entry.get_mut() += 1;
                 format!("{id}.{suffix}")
             }
-            std::collections::hash_map::Entry::Vacant(entry) => {
+            Entry::Vacant(entry) => {
                 entry.insert(1);
                 format!("{id}")
             }
@@ -870,7 +879,7 @@ impl Profile {
         let internal_frame = InternalFrame {
             location,
             flags: frame_info.flags,
-            category_pair: frame_info.category_pair,
+            subcategory: frame_info.subcategory,
         };
         thread.frame_index_for_frame(internal_frame, global_libs)
     }

@@ -1,6 +1,6 @@
 use fxprof_processed_profile::{
-    CategoryHandle, CategoryPairHandle, LibMappings, MarkerFieldFlags, MarkerFieldFormat,
-    MarkerTiming, Profile, StaticSchemaMarker, StaticSchemaMarkerField, StringHandle, ThreadHandle,
+    CategoryHandle, LibMappings, MarkerFieldFlags, MarkerFieldFormat, MarkerTiming, Profile,
+    StaticSchemaMarker, StaticSchemaMarkerField, StringHandle, SubcategoryHandle, ThreadHandle,
     Timestamp,
 };
 
@@ -62,8 +62,8 @@ impl ProcessSampleData {
     pub fn flush_samples_to_profile(
         self,
         profile: &mut Profile,
-        user_category: CategoryPairHandle,
-        kernel_category: CategoryPairHandle,
+        user_category: SubcategoryHandle,
+        kernel_category: SubcategoryHandle,
         stack_frame_scratch_buf: &mut Vec<StackFrame>,
         stacks: &UnresolvedStacks,
     ) {

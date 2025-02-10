@@ -1,8 +1,15 @@
+use std::hash::Hash;
+
+use indexmap::Equivalent;
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
 use super::category_color::CategoryColor;
+use super::fast_hash_map::FastIndexSet;
 
-/// A profiling category, can be set on stack frames and markers as part of a [`CategoryPairHandle`].
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
+pub struct Category<'a>(pub &'a str, pub CategoryColor);
+
+/// A profiling category, can be set on stack frames and markers as part of a [`SubcategoryHandle`].
 ///
 /// Categories can be created with [`Profile::add_category`](crate::Profile::add_category).
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
@@ -19,7 +26,7 @@ impl Serialize for CategoryHandle {
     }
 }
 
-/// A profiling subcategory, can be set on stack frames and markers as part of a [`CategoryPairHandle`].
+/// A profiling subcategory, can be set on stack frames and markers as part of a [`SubcategoryHandle`].
 ///
 /// Subategories can be created with [`Profile::add_subcategory`](crate::Profile::add_subcategory).
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
@@ -35,11 +42,11 @@ impl SubcategoryIndex {
 /// Category pairs can be created with [`Profile::add_subcategory`](crate::Profile::add_subcategory)
 /// and from a [`CategoryHandle`].
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub struct CategoryPairHandle(pub(crate) CategoryHandle, pub(crate) SubcategoryIndex);
+pub struct SubcategoryHandle(pub(crate) CategoryHandle, pub(crate) SubcategoryIndex);
 
-impl From<CategoryHandle> for CategoryPairHandle {
+impl From<CategoryHandle> for SubcategoryHandle {
     fn from(category: CategoryHandle) -> Self {
-        CategoryPairHandle(category, SubcategoryIndex::OTHER)
+        SubcategoryHandle(category, SubcategoryIndex::OTHER)
     }
 }
 
@@ -48,24 +55,61 @@ impl From<CategoryHandle> for CategoryPairHandle {
 pub struct InternalCategory {
     name: String,
     color: CategoryColor,
-    subcategories: Vec<String>,
+    subcategories: FastIndexSet<String>,
 }
 
+impl Hash for InternalCategory {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.as_category().hash(state)
+    }
+}
+
+impl Equivalent<Category<'_>> for InternalCategory {
+    fn equivalent(&self, key: &Category<'_>) -> bool {
+        &self.as_category() == key
+    }
+}
+
+impl Equivalent<InternalCategory> for Category<'_> {
+    fn equivalent(&self, key: &InternalCategory) -> bool {
+        self == &key.as_category()
+    }
+}
+
+impl PartialEq for InternalCategory {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_category() == other.as_category()
+    }
+}
+
+impl Eq for InternalCategory {}
+
 impl InternalCategory {
-    pub fn new(name: String, color: CategoryColor) -> Self {
-        let subcategories = vec!["Other".to_string()];
+    pub fn new(name: &str, color: CategoryColor) -> Self {
+        let mut subcategories = FastIndexSet::default();
+        subcategories.insert("Other".to_string());
         Self {
-            name,
+            name: name.to_string(),
             color,
             subcategories,
         }
     }
 
-    /// Add a subcategory to this category.
-    pub fn add_subcategory(&mut self, subcategory_name: String) -> SubcategoryIndex {
-        let subcategory_index = SubcategoryIndex(u16::try_from(self.subcategories.len()).unwrap());
-        self.subcategories.push(subcategory_name);
-        subcategory_index
+    /// Get or create a subcategory to this category.
+    pub fn index_for_subcategory(&mut self, subcategory_name: &str) -> SubcategoryIndex {
+        let index = self
+            .subcategories
+            .get_index_of(subcategory_name)
+            .unwrap_or_else(|| {
+                self.subcategories
+                    .insert_full(subcategory_name.to_owned())
+                    .0
+            });
+        SubcategoryIndex(u16::try_from(index).unwrap())
+    }
+
+    pub fn as_category(&self) -> Category<'_> {
+        Category(&self.name, self.color)
     }
 }
 
