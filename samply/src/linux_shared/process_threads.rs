@@ -214,7 +214,7 @@ pub fn make_thread_label_frame(
         Some(name) => format!("{name} (pid: {pid}, tid: {tid})"),
         None => format!("Thread {tid} (pid: {pid}, tid: {tid})"),
     };
-    let thread_label = profile.intern_string(&s);
+    let thread_label = profile.handle_for_string(&s);
     FrameInfo {
         frame: Frame::Label(thread_label),
         category_pair: CategoryHandle::OTHER.into(),

@@ -97,7 +97,7 @@ fn profile_without_js() {
         }];
 
         fn name(&self, profile: &mut Profile) -> StringHandle {
-            profile.intern_string("CustomName")
+            profile.handle_for_string("CustomName")
         }
 
         fn category(&self, _profile: &mut Profile) -> CategoryHandle {
@@ -193,7 +193,7 @@ fn profile_without_js() {
         (0x000055ba9ebf6000u64 - 0x000055ba9eb4d000u64) as u32,
     );
     let category = profile.add_category("Regular", CategoryColor::Blue);
-    let s1 = profile.intern_stack_frames(
+    let s1 = profile.handle_for_stack_frames(
         thread,
         vec![
             0x7f76b7ffc0e7,
@@ -227,7 +227,7 @@ fn profile_without_js() {
         CpuDelta::ZERO,
         1,
     );
-    let s2 = profile.intern_stack_frames(
+    let s2 = profile.handle_for_stack_frames(
         thread,
         vec![
             0x55ba9eda018e,
@@ -261,7 +261,7 @@ fn profile_without_js() {
         CpuDelta::ZERO,
         1,
     );
-    let s3 = profile.intern_stack_frames(
+    let s3 = profile.handle_for_stack_frames(
         thread,
         vec![
             0x7f76b7f019c6,
@@ -297,8 +297,8 @@ fn profile_without_js() {
     );
 
     let text_marker = TextMarker {
-        name: profile.intern_string("Experimental"),
-        text: profile.intern_string("Hello world!"),
+        name: profile.handle_for_string("Experimental"),
+        text: profile.handle_for_string("Hello world!"),
     };
     profile.add_marker(
         thread,
@@ -306,9 +306,9 @@ fn profile_without_js() {
         text_marker,
     );
     let custom_marker = CustomMarker {
-        event_name: profile.intern_string("My event"),
+        event_name: profile.handle_for_string("My event"),
         allocation_size: 512000,
-        url: profile.intern_string("https://mozilla.org/"),
+        url: profile.handle_for_string("https://mozilla.org/"),
         latency: Duration::from_millis(123),
     };
     profile.add_marker(
@@ -998,10 +998,10 @@ fn profile_with_js() {
         true,
     );
 
-    let some_label_string = profile.intern_string("Some label string");
+    let some_label_string = profile.handle_for_string("Some label string");
     let category = profile.add_category("Cycle Collection", CategoryColor::Orange);
     let category_pair = profile.add_subcategory(category, "Graph Reduction");
-    let s1 = profile.intern_stack_frames(
+    let s1 = profile.handle_for_stack_frames(
         thread,
         vec![
             FrameInfo {

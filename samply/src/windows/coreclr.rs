@@ -241,7 +241,7 @@ impl StaticSchemaMarker for CoreClrGcAllocMarker {
     ];
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
-        profile.intern_string("GC Alloc")
+        profile.handle_for_string("GC Alloc")
     }
 
     fn category(&self, _profile: &mut Profile) -> CategoryHandle {
@@ -558,7 +558,7 @@ pub fn handle_coreclr_event(
                     let total_size: u64 = parser.parse("TotalSizeForTypeSample");
 
                     let category = context.known_category(KnownCategory::CoreClrGc);
-                    let clr_type = context.intern_profile_string(&format!("0x{:x}", type_id));
+                    let clr_type = context.handle_for_profile_string(&format!("0x{:x}", type_id));
                     let mh = context.add_thread_instant_marker(
                         timestamp_raw,
                         tid,
@@ -579,8 +579,8 @@ pub fn handle_coreclr_event(
                     });
 
                     let category = context.known_category(KnownCategory::CoreClrGc);
-                    let name = context.intern_profile_string("GC Trigger");
-                    let description = context.intern_profile_string(&format!(
+                    let name = context.handle_for_profile_string("GC Trigger");
+                    let description = context.handle_for_profile_string(&format!(
                         "GC Trigger: {}",
                         DisplayUnknownIfNone(&reason)
                     ));
@@ -626,8 +626,8 @@ pub fn handle_coreclr_event(
 
                     if let Some(info) = coreclr_context.remove_gc_marker(tid, "GCSuspendEE") {
                         let category = context.known_category(KnownCategory::CoreClrGc);
-                        let name = context.intern_profile_string(&info.name);
-                        let description = context.intern_profile_string(&info.description);
+                        let name = context.handle_for_profile_string(&info.name);
+                        let description = context.handle_for_profile_string(&info.description);
                         context.add_thread_interval_marker(
                             info.start_timestamp_raw,
                             timestamp_raw,
@@ -682,8 +682,8 @@ pub fn handle_coreclr_event(
                     //let depth: u32 = parser.parse("Depth");
                     if let Some(info) = coreclr_context.remove_gc_marker(tid, "GC") {
                         let category = context.known_category(KnownCategory::CoreClrGc);
-                        let name = context.intern_profile_string(&info.name);
-                        let description = context.intern_profile_string(&info.description);
+                        let name = context.handle_for_profile_string(&info.name);
+                        let description = context.handle_for_profile_string(&info.description);
                         context.add_thread_interval_marker(
                             info.start_timestamp_raw,
                             timestamp_raw,
@@ -725,8 +725,8 @@ pub fn handle_coreclr_event(
 
     if !handled && coreclr_context.unknown_event_markers {
         let text = event_properties_to_string(s, parser, None);
-        let name = context.intern_profile_string(s.name().split_once('/').unwrap().1);
-        let description = context.intern_profile_string(&text);
+        let name = context.handle_for_profile_string(s.name().split_once('/').unwrap().1);
+        let description = context.handle_for_profile_string(&text);
         let marker_handle = context.add_thread_instant_marker(
             timestamp_raw,
             tid,

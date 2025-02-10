@@ -46,7 +46,7 @@ pub enum Frame {
     /// has already been resolved to a `LibraryHandle`.
     RelativeAddressFromAdjustedReturnAddress(LibraryHandle, u32),
     /// A string, containing an index returned by
-    /// [`Profile::intern_string`](crate::Profile::intern_string).
+    /// [`Profile::handle_for_string`](crate::Profile::handle_for_string).
     Label(StringHandle),
 }
 

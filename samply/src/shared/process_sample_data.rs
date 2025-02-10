@@ -102,7 +102,7 @@ impl ProcessSampleData {
                 extra_label_frame,
             );
             let frames = StackDepthLimitingFrameIter::new(profile, frames, user_category);
-            let stack_handle = profile.intern_stack_frames(thread_handle, frames);
+            let stack_handle = profile.handle_for_stack_frames(thread_handle, frames);
             match sample_or_marker {
                 SampleOrMarker::Sample(SampleData { cpu_delta, weight }) => {
                     profile.add_sample(thread_handle, timestamp, stack_handle, cpu_delta, weight);
@@ -114,7 +114,7 @@ impl ProcessSampleData {
         }
 
         for marker in marker_spans {
-            let marker_name_string_index = profile.intern_string(&marker.name);
+            let marker_name_string_index = profile.handle_for_string(&marker.name);
             profile.add_marker(
                 marker.thread_handle,
                 MarkerTiming::Interval(marker.start_time, marker.end_time),
@@ -237,7 +237,7 @@ impl StaticSchemaMarker for UserTimingMarker {
     }];
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
-        profile.intern_string("UserTiming")
+        profile.handle_for_string("UserTiming")
     }
 
     fn category(&self, _profile: &mut Profile) -> CategoryHandle {
@@ -264,7 +264,7 @@ impl StaticSchemaMarker for SchedSwitchMarkerOnCpuTrack {
     const FIELDS: &'static [StaticSchemaMarkerField] = &[];
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
-        profile.intern_string("sched_switch")
+        profile.handle_for_string("sched_switch")
     }
 
     fn category(&self, _profile: &mut Profile) -> CategoryHandle {
@@ -299,7 +299,7 @@ impl StaticSchemaMarker for SchedSwitchMarkerOnThreadTrack {
     }];
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
-        profile.intern_string("sched_switch")
+        profile.handle_for_string("sched_switch")
     }
 
     fn category(&self, _profile: &mut Profile) -> CategoryHandle {
@@ -336,7 +336,7 @@ impl StaticSchemaMarker for SimpleMarker {
     }];
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
-        profile.intern_string("SimpleMarker")
+        profile.handle_for_string("SimpleMarker")
     }
 
     fn category(&self, _profile: &mut Profile) -> CategoryHandle {

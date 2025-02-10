@@ -665,8 +665,8 @@ impl ProfileContext {
         self.categories.get(known_category, &mut self.profile)
     }
 
-    pub fn intern_profile_string(&mut self, s: &str) -> StringHandle {
-        self.profile.intern_string(s)
+    pub fn handle_for_profile_string(&mut self, s: &str) -> StringHandle {
+        self.profile.handle_for_string(s)
     }
 
     pub fn add_thread_instant_marker(
@@ -1570,7 +1570,7 @@ impl ProfileContext {
             const FIELDS: &'static [StaticSchemaMarkerField] = &[];
 
             fn name(&self, profile: &mut Profile) -> StringHandle {
-                profile.intern_string("Vsync")
+                profile.handle_for_string("Vsync")
             }
 
             fn category(&self, _profile: &mut Profile) -> CategoryHandle {
@@ -1677,7 +1677,7 @@ impl ProfileContext {
                     let begin_timestamp = self
                         .timestamp_converter
                         .convert_time(idle_cpu_sample.begin_timestamp);
-                    let stack = self.profile.intern_stack_frames(
+                    let stack = self.profile.handle_for_stack_frames(
                         cpu.thread_handle,
                         std::iter::once(idle_frame_label.clone()),
                     );
@@ -1776,7 +1776,7 @@ impl ProfileContext {
         let info = LibMappingInfo::new_jit_function(lib.lib_handle(), category, js_frame);
 
         if self.profile_creation_props.should_emit_jit_markers {
-            let name_handle = self.profile.intern_string(&method_name);
+            let name_handle = self.profile.handle_for_string(&method_name);
             let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
             self.profile.add_marker(
                 process.main_thread_handle,
@@ -1873,8 +1873,10 @@ impl ProfileContext {
         };
 
         let category = self.categories.get(known_category, &mut self.profile);
-        let name = self.profile.intern_string(name.split_once('/').unwrap().1);
-        let description = self.profile.intern_string(&text);
+        let name = self
+            .profile
+            .handle_for_string(name.split_once('/').unwrap().1);
+        let description = self.profile.handle_for_string(&text);
         self.profile.add_marker(
             thread_handle,
             timing,
@@ -1933,23 +1935,25 @@ impl ProfileContext {
         };
 
         if marker_name == "UserTiming" {
-            let name = self.profile.intern_string(&maybe_user_timing_name.unwrap());
+            let name = self
+                .profile
+                .handle_for_string(&maybe_user_timing_name.unwrap());
             self.profile
                 .add_marker(thread_handle, timing, UserTimingMarker(name));
         } else if marker_name == "SimpleMarker" || marker_name == "Text" || marker_name == "tracing"
         {
             let marker_name = self
                 .profile
-                .intern_string(&maybe_explicit_marker_name.unwrap());
-            let description = self.profile.intern_string(&text);
+                .handle_for_string(&maybe_explicit_marker_name.unwrap());
+            let description = self.profile.handle_for_string(&text);
             self.profile.add_marker(
                 thread_handle,
                 timing,
                 FreeformMarker(marker_name, description, CategoryHandle::OTHER),
             );
         } else {
-            let marker_name = self.profile.intern_string(marker_name);
-            let description = self.profile.intern_string(&text);
+            let marker_name = self.profile.handle_for_string(marker_name);
+            let description = self.profile.handle_for_string(&text);
             self.profile.add_marker(
                 thread_handle,
                 timing,
@@ -1982,12 +1986,12 @@ impl ProfileContext {
         };
         let keyword = KeywordNames::from_bits(keyword_bitfield).unwrap();
         if keyword == KeywordNames::blink_user_timing {
-            let name = self.profile.intern_string(marker_name);
+            let name = self.profile.handle_for_string(marker_name);
             self.profile
                 .add_marker(thread_handle, timing, UserTimingMarker(name));
         } else {
-            let marker_name = self.profile.intern_string(marker_name);
-            let description = self.profile.intern_string(&text);
+            let marker_name = self.profile.handle_for_string(marker_name);
+            let description = self.profile.handle_for_string(&text);
             self.profile.add_marker(
                 thread_handle,
                 timing,
@@ -2017,8 +2021,8 @@ impl ProfileContext {
         let category = self
             .categories
             .get(KnownCategory::Unknown, &mut self.profile);
-        let marker_name = self.profile.intern_string(task_and_op);
-        let description = self.profile.intern_string(&stringified_properties);
+        let marker_name = self.profile.handle_for_string(task_and_op);
+        let description = self.profile.handle_for_string(&stringified_properties);
         self.profile.add_marker(
             thread_handle,
             timing,
@@ -2218,7 +2222,7 @@ pub fn make_thread_label_frame(
         Some(name) => format!("{name} (pid: {pid}, tid: {tid})"),
         None => format!("Thread {tid} (pid: {pid}, tid: {tid})"),
     };
-    let thread_label = profile.intern_string(&s);
+    let thread_label = profile.handle_for_string(&s);
     FrameInfo {
         frame: Frame::Label(thread_label),
         category_pair: CategoryHandle::OTHER.into(),

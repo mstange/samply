@@ -573,7 +573,7 @@ where
             RssStatMember::AnonymousSwapEntries => "RSS Stat SHMEMPAGES",
             RssStatMember::ResidentSharedMemoryPages => "RSS Stat SWAPENTS",
         };
-        let name = self.profile.intern_string(name);
+        let name = self.profile.handle_for_string(name);
         let marker_handle = self.profile.add_marker(
             thread_handle,
             timing,
@@ -629,7 +629,7 @@ where
         let unresolved_stack = self.unresolved_stacks.convert(stack.into_iter().rev());
         if let Some(name) = self.event_names.get(attr_index) {
             let timing = MarkerTiming::Instant(timestamp);
-            let name = self.profile.intern_string(name);
+            let name = self.profile.handle_for_string(name);
             let marker_handle =
                 self.profile
                     .add_marker(thread_handle, timing, OtherEventMarker(name));
@@ -1735,7 +1735,7 @@ where
         let timestamp = self.timestamp_converter.convert_time(timestamp);
         let path = self
             .profile
-            .intern_string(&String::from_utf8_lossy(path_slice));
+            .handle_for_string(&String::from_utf8_lossy(path_slice));
         self.profile.add_marker(
             thread.profile_thread,
             MarkerTiming::Instant(timestamp),
@@ -1911,7 +1911,7 @@ impl StaticSchemaMarker for MmapMarker {
     }];
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
-        profile.intern_string("mmap")
+        profile.handle_for_string("mmap")
     }
 
     fn category(&self, _profile: &mut Profile) -> CategoryHandle {

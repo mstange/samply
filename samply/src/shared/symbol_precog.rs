@@ -40,11 +40,11 @@ impl StringTable {
             string_map: HashMap::new(),
             strings: Vec::new(),
         };
-        result.intern_string("UNKNOWN"); // always at index 0
+        result.handle_for_string("UNKNOWN"); // always at index 0
         result
     }
 
-    fn intern_string(&mut self, string: &str) -> StringTableIndex {
+    fn handle_for_string(&mut self, string: &str) -> StringTableIndex {
         let index = match self.string_map.get(string) {
             Some(&index) => index,
             None => {
@@ -100,11 +100,11 @@ impl InternedFrameDebugInfo {
         let function = frame
             .function
             .as_ref()
-            .map(|name| strtab.intern_string(name));
+            .map(|name| strtab.handle_for_string(name));
         let file = frame
             .file_path
             .as_ref()
-            .map(|name| strtab.intern_string(name.raw_path()));
+            .map(|name| strtab.handle_for_string(name.raw_path()));
         InternedFrameDebugInfo {
             function,
             file,
@@ -130,7 +130,7 @@ struct InternedSymbolInfo {
 
 impl InternedSymbolInfo {
     fn new(info: &wholesym::AddressInfo, strtab: &mut StringTable) -> InternedSymbolInfo {
-        let symbol = strtab.intern_string(&info.symbol.name);
+        let symbol = strtab.handle_for_string(&info.symbol.name);
         let frames = info.frames.as_ref().map(|frames| {
             frames
                 .iter()
