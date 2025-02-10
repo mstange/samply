@@ -43,13 +43,13 @@ impl From<CategoryHandle> for CategoryPairHandle {
 
 /// The information about a category.
 #[derive(Debug)]
-pub struct Category {
+pub struct InternalCategory {
     pub name: String,
     pub color: CategoryColor,
     pub subcategories: Vec<String>,
 }
 
-impl Category {
+impl InternalCategory {
     /// Add a subcategory to this category.
     pub fn add_subcategory(&mut self, subcategory_name: String) -> SubcategoryIndex {
         let subcategory_index = SubcategoryIndex(u8::try_from(self.subcategories.len()).unwrap());
@@ -58,7 +58,7 @@ impl Category {
     }
 }
 
-impl Serialize for Category {
+impl Serialize for InternalCategory {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut subcategories = self.subcategories.clone();
         subcategories.push("Other".to_string());
@@ -77,7 +77,7 @@ pub enum Subcategory {
     Other(CategoryHandle),
 }
 
-pub struct SerializableSubcategoryColumn<'a>(pub &'a [Subcategory], pub &'a [Category]);
+pub struct SerializableSubcategoryColumn<'a>(pub &'a [Subcategory], pub &'a [InternalCategory]);
 
 impl Serialize for SerializableSubcategoryColumn<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
