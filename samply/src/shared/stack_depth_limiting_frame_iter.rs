@@ -69,7 +69,7 @@ impl<I: Iterator<Item = FrameInfo>> StackDepthLimitingFrameIter<I> {
         {
             let first_frame_after_elision = first_elided_frame + elided_count;
             let elision_frame_string =
-                profile.intern_string(&format!("({elided_count} frames elided)"));
+                profile.handle_for_string(&format!("({elided_count} frames elided)"));
             StackDepthLimitingFrameIterState::BeforeElidedPiece {
                 index: 0,
                 first_elided_frame,

@@ -127,7 +127,8 @@ impl JitCategoryManager {
         }
 
         if let Some(js_func) = name.strip_prefix("BaselineInterpreter: ") {
-            let js_func = JsFrame::BaselineInterpreterStub(Self::intern_js_name(profile, js_func));
+            let js_func =
+                JsFrame::BaselineInterpreterStub(Self::handle_for_js_name(profile, js_func));
             return (
                 self.baseline_interpreter_category.get(profile).into(),
                 Some(js_func),
@@ -137,8 +138,9 @@ impl JitCategoryManager {
         if let Some(ion_ic_rest) = name.strip_prefix("IonIC: ") {
             let category = self.ion_ic_category.get(profile);
             if let Some((_ic_type, js_func)) = ion_ic_rest.split_once(" : ") {
-                let js_func =
-                    JsFrame::RegularInAdditionToNativeFrame(Self::intern_js_name(profile, js_func));
+                let js_func = JsFrame::RegularInAdditionToNativeFrame(Self::handle_for_js_name(
+                    profile, js_func,
+                ));
                 return (category.into(), Some(js_func));
             }
             return (category.into(), None);
@@ -147,8 +149,9 @@ impl JitCategoryManager {
         if let Some(ion_ic_rest) = name.strip_prefix("IonIC: ") {
             let category = self.ion_ic_category.get(profile);
             if let Some((_ic_type, js_func)) = ion_ic_rest.split_once(" : ") {
-                let js_func =
-                    JsFrame::RegularInAdditionToNativeFrame(Self::intern_js_name(profile, js_func));
+                let js_func = JsFrame::RegularInAdditionToNativeFrame(Self::handle_for_js_name(
+                    profile, js_func,
+                ));
                 return (category.into(), Some(js_func));
             }
             return (category.into(), None);
@@ -162,7 +165,7 @@ impl JitCategoryManager {
 
                 let js_name = if is_js {
                     Some(JsFrame::RegularInAdditionToNativeFrame(
-                        Self::intern_js_name(profile, name_without_prefix),
+                        Self::handle_for_js_name(profile, name_without_prefix),
                     ))
                 } else {
                     None
@@ -189,9 +192,9 @@ impl JitCategoryManager {
                 if let Some((v8_wasm_name, func_index)) = v8_wasm_name_with_index.rsplit_once('-') {
                     let new_name = format!("{v8_wasm_name} (WASM:{func_index})");
                     let category = category.get(profile);
-                    let js_func = JsFrame::RegularInAdditionToNativeFrame(Self::intern_js_name(
-                        profile, &new_name,
-                    ));
+                    let js_func = JsFrame::RegularInAdditionToNativeFrame(
+                        Self::handle_for_js_name(profile, &new_name),
+                    );
                     return (category.into(), Some(js_func));
                 }
             }
@@ -204,7 +207,7 @@ impl JitCategoryManager {
         (category.into(), None)
     }
 
-    fn intern_js_name(profile: &mut Profile, func_name: &str) -> JsName {
+    fn handle_for_js_name(profile: &mut Profile, func_name: &str) -> JsName {
         if let Some((before, after)) = func_name
             .split_once("[Call")
             .or_else(|| func_name.split_once("[Construct"))
@@ -216,13 +219,15 @@ impl JitCategoryManager {
                     // Nothing is following the closing square bracket, in particular no filename.
                     // Example: "forEach[Call (StrictMode)]"
                     // This is likely a self-hosted function.
-                    return JsName::SelfHosted(profile.intern_string(before));
+                    return JsName::SelfHosted(profile.handle_for_string(before));
                 }
-                return JsName::NonSelfHosted(profile.intern_string(&format!("{before}{after}")));
+                return JsName::NonSelfHosted(
+                    profile.handle_for_string(&format!("{before}{after}")),
+                );
             }
         }
 
-        let s = profile.intern_string(func_name);
+        let s = profile.handle_for_string(func_name);
         match func_name.contains("(self-hosted:")
             || func_name.ends_with("valueIsFalsey")
             || func_name.ends_with("valueIsTruthy")
