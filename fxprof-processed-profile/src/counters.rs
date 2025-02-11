@@ -1,6 +1,9 @@
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
 use crate::serialization_helpers::SliceWithPermutation;
+use crate::timestamp::{
+    SerializableTimestampSliceAsDeltas, SerializableTimestampSliceAsDeltasWithPermutation,
+};
 use crate::{GraphColor, ProcessHandle, Timestamp};
 
 /// A counter. Can be created with [`Profile::add_counter`](crate::Profile::add_counter).
@@ -133,14 +136,21 @@ impl Serialize for CounterSamples {
         if self.is_sorted_by_time {
             map.serialize_entry("count", &self.count)?;
             map.serialize_entry("number", &self.number)?;
-            map.serialize_entry("time", &self.time)?;
+            map.serialize_entry(
+                "timeDeltas",
+                &SerializableTimestampSliceAsDeltas(&self.time),
+            )?;
         } else {
             let mut indexes: Vec<usize> = (0..self.time.len()).collect();
             indexes.sort_unstable_by_key(|index| self.time[*index]);
             map.serialize_entry("count", &SliceWithPermutation(&self.count, &indexes))?;
             map.serialize_entry("number", &SliceWithPermutation(&self.number, &indexes))?;
-            map.serialize_entry("time", &SliceWithPermutation(&self.time, &indexes))?;
+            map.serialize_entry(
+                "timeDeltas",
+                &SerializableTimestampSliceAsDeltasWithPermutation(&self.time, &indexes),
+            )?;
         }
+
         map.end()
     }
 }

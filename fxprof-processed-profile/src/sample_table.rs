@@ -4,7 +4,10 @@ use serde::ser::{Serialize, SerializeMap, Serializer};
 
 use crate::cpu_delta::CpuDelta;
 use crate::serialization_helpers::{SerializableSingleValueColumn, SliceWithPermutation};
-use crate::Timestamp;
+use crate::timestamp::{
+    SerializableTimestampSliceAsDeltas, SerializableTimestampSliceAsDeltasWithPermutation,
+    Timestamp,
+};
 
 /// The sample table contains stacks with timestamps and some extra information.
 ///
@@ -117,7 +120,10 @@ impl Serialize for SampleTable {
 
         if self.is_sorted_by_time {
             map.serialize_entry("stack", &self.sample_stack_indexes)?;
-            map.serialize_entry("time", &self.sample_timestamps)?;
+            map.serialize_entry(
+                "timeDeltas",
+                &SerializableTimestampSliceAsDeltas(&self.sample_timestamps),
+            )?;
             map.serialize_entry("weight", &self.sample_weights)?;
             map.serialize_entry("threadCPUDelta", &self.sample_cpu_deltas)?;
         } else {
@@ -128,8 +134,11 @@ impl Serialize for SampleTable {
                 &SliceWithPermutation(&self.sample_stack_indexes, &indexes),
             )?;
             map.serialize_entry(
-                "time",
-                &SliceWithPermutation(&self.sample_timestamps, &indexes),
+                "timeDeltas",
+                &SerializableTimestampSliceAsDeltasWithPermutation(
+                    &self.sample_timestamps,
+                    &indexes,
+                ),
             )?;
             map.serialize_entry(
                 "weight",

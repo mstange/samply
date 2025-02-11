@@ -78,4 +78,4 @@ pub use profile::{FrameHandle, Profile, SamplingInterval, StackHandle, StringHan
 pub use reference_timestamp::ReferenceTimestamp;
 pub use sample_table::WeightType;
 pub use thread::ProcessHandle;
-pub use timestamp::*;
+pub use timestamp::Timestamp;

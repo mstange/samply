@@ -883,11 +883,11 @@ fn profile_without_js() {
                     11,
                     15
                   ],
-                  "time": [
+                  "timeDeltas": [
                     0.0,
                     1.0,
-                    2.0,
-                    3.0
+                    1.0,
+                    1.0
                   ],
                   "weight": [
                     1,
@@ -992,10 +992,10 @@ fn profile_without_js() {
                     2,
                     1
                   ],
-                  "time": [
+                  "timeDeltas": [
                     0.0,
                     1.0,
-                    2.0
+                    1.0
                   ]
                 }
               }
@@ -1207,7 +1207,7 @@ fn profile_with_js() {
                   "stack": [
                     1
                   ],
-                  "time": [
+                  "timeDeltas": [
                     1.0
                   ],
                   "weight": [
@@ -1416,7 +1416,7 @@ fn profile_counters_with_sorted_processes() {
                   "stack": [
                     null
                   ],
-                  "time": [
+                  "timeDeltas": [
                     0.0
                   ],
                   "weight": [
@@ -1498,7 +1498,7 @@ fn profile_counters_with_sorted_processes() {
                   "stack": [
                     null
                   ],
-                  "time": [
+                  "timeDeltas": [
                     1.0
                   ],
                   "weight": [
@@ -1537,7 +1537,7 @@ fn profile_counters_with_sorted_processes() {
                   "number": [
                     0
                   ],
-                  "time": [
+                  "timeDeltas": [
                     1.0
                   ]
                 }
@@ -1556,7 +1556,7 @@ fn profile_counters_with_sorted_processes() {
                   "number": [
                     0
                   ],
-                  "time": [
+                  "timeDeltas": [
                     0.0
                   ]
                 }
