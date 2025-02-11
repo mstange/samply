@@ -1021,7 +1021,8 @@ fn profile_with_js() {
     );
 
     let some_label_string = profile.intern_string("Some label string");
-    let category = profile.add_category("Regular", CategoryColor::Green);
+    let category = profile.add_category("Cycle Collection", CategoryColor::Orange);
+    let category_pair = profile.add_subcategory(category, "Graph Reduction");
     let s1 = profile.intern_stack_frames(
         thread,
         vec![
@@ -1032,7 +1033,7 @@ fn profile_with_js() {
             },
             FrameInfo {
                 frame: Frame::ReturnAddress(0x7f76b7ffc0e7),
-                category_pair: category.into(),
+                category_pair,
                 flags: FrameFlags::empty(),
             },
         ]
@@ -1061,10 +1062,11 @@ fn profile_with_js() {
                   ]
                 },
                 {
-                  "name": "Regular",
-                  "color": "green",
+                  "name": "Cycle Collection",
+                  "color": "orange",
                   "subcategories": [
-                    "Other"
+                    "Other",
+                    "Graph Reduction"
                   ]
                 }
               ],
@@ -1112,7 +1114,7 @@ fn profile_with_js() {
                   ],
                   "subcategory": [
                     0,
-                    0
+                    1
                   ],
                   "func": [
                     0,

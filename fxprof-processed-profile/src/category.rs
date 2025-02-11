@@ -1,4 +1,4 @@
-use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
+use serde::ser::{Serialize, SerializeMap, Serializer};
 
 use super::category_color::CategoryColor;
 
@@ -25,31 +25,42 @@ impl Serialize for CategoryHandle {
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct SubcategoryIndex(pub u8);
 
+impl SubcategoryIndex {
+    /// The "Other" subcategory. All categories have this subcategory as their first subcategory.
+    pub const OTHER: Self = SubcategoryIndex(0);
+}
+
 /// A profiling category pair, consisting of a category and an optional subcategory. Can be set on stack frames and markers.
 ///
 /// Category pairs can be created with [`Profile::add_subcategory`](crate::Profile::add_subcategory)
 /// and from a [`CategoryHandle`].
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub struct CategoryPairHandle(
-    pub(crate) CategoryHandle,
-    pub(crate) Option<SubcategoryIndex>,
-);
+pub struct CategoryPairHandle(pub(crate) CategoryHandle, pub(crate) SubcategoryIndex);
 
 impl From<CategoryHandle> for CategoryPairHandle {
     fn from(category: CategoryHandle) -> Self {
-        CategoryPairHandle(category, None)
+        CategoryPairHandle(category, SubcategoryIndex::OTHER)
     }
 }
 
 /// The information about a category.
 #[derive(Debug)]
 pub struct InternalCategory {
-    pub name: String,
-    pub color: CategoryColor,
-    pub subcategories: Vec<String>,
+    name: String,
+    color: CategoryColor,
+    subcategories: Vec<String>,
 }
 
 impl InternalCategory {
+    pub fn new(name: String, color: CategoryColor) -> Self {
+        let subcategories = vec!["Other".to_string()];
+        Self {
+            name,
+            color,
+            subcategories,
+        }
+    }
+
     /// Add a subcategory to this category.
     pub fn add_subcategory(&mut self, subcategory_name: String) -> SubcategoryIndex {
         let subcategory_index = SubcategoryIndex(u8::try_from(self.subcategories.len()).unwrap());
@@ -60,39 +71,16 @@ impl InternalCategory {
 
 impl Serialize for InternalCategory {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut subcategories = self.subcategories.clone();
-        subcategories.push("Other".to_string());
-
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry("name", &self.name)?;
         map.serialize_entry("color", &self.color)?;
-        map.serialize_entry("subcategories", &subcategories)?;
+        map.serialize_entry("subcategories", &self.subcategories)?;
         map.end()
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum Subcategory {
-    Normal(SubcategoryIndex),
-    Other(CategoryHandle),
-}
-
-pub struct SerializableSubcategoryColumn<'a>(pub &'a [Subcategory], pub &'a [InternalCategory]);
-
-impl Serialize for SerializableSubcategoryColumn<'_> {
+impl Serialize for SubcategoryIndex {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
-        for subcategory in self.0 {
-            match subcategory {
-                Subcategory::Normal(index) => seq.serialize_element(&index.0)?,
-                Subcategory::Other(category) => {
-                    // There is an implicit "Other" subcategory at the end of each category's
-                    // subcategory list.
-                    let subcategory_count = self.1[category.0 as usize].subcategories.len();
-                    seq.serialize_element(&subcategory_count)?
-                }
-            }
-        }
-        seq.end()
+        self.0.serialize(serializer)
     }
 }
