@@ -14,8 +14,6 @@ impl hashbrown::Equivalent<(String, CategoryColor)> for Category<'_> {
     }
 }
 
-pub struct Subcategory<'a>(pub Category<'a>, pub &'a str);
-
 /// A profiling category, can be set on stack frames and markers as part of a [`SubcategoryHandle`].
 ///
 /// Categories can be created with [`Profile::add_category`](crate::Profile::add_category).
