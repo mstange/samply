@@ -59,7 +59,9 @@ mod thread;
 mod thread_string_table;
 mod timestamp;
 
-pub use category::{Category, CategoryHandle, SubcategoryHandle};
+pub use category::{
+    Category, CategoryHandle, IntoSubcategoryHandle, Subcategory, SubcategoryHandle,
+};
 pub use category_color::CategoryColor;
 pub use counters::CounterHandle;
 pub use cpu_delta::CpuDelta;

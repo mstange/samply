@@ -3,16 +3,36 @@ use std::hash::Hash;
 use indexmap::Equivalent;
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
+use crate::Profile;
+
 use super::category_color::CategoryColor;
 use super::fast_hash_map::FastIndexSet;
 
+/// Implemented by [`Category`], [`Subcategory`], [`CategoryHandle`] and [`SubcategoryHandle`].
+pub trait IntoSubcategoryHandle {
+    /// Returns the corresponding [`SubcategoryHandle`].
+    fn into_subcategory_handle(self, profile: &mut Profile) -> SubcategoryHandle;
+}
+
+/// A profiling category. Has a name and a color.
+///
+/// Used to categorize stack frames and markers in the front-end. The category's
+/// color is used in the activity graph and in the call tree, and in a few other places.
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct Category<'a>(pub &'a str, pub CategoryColor);
 
-/// A profiling category, obtained from [`Profile::handle_for_category`](crate::Profile::handle_for_category).
+impl IntoSubcategoryHandle for Category<'_> {
+    fn into_subcategory_handle(self, profile: &mut Profile) -> SubcategoryHandle {
+        let category_handle = profile.handle_for_category(self);
+        category_handle.into()
+    }
+}
+
+/// The handle for a [`Category`], obtained from [`Profile::handle_for_category`](crate::Profile::handle_for_category).
 ///
-/// Used to categorize stack frames and markers in the front-end. Every category has a color;
-/// the color is used in the activity graph and in the call tree, and in a few other places.
+/// Storing and reusing the handle avoids repeated lookups and can improve performance.
+///
+/// The handle is specific to a [`Profile`] instance and cannot be reused across profiles.
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct CategoryHandle(pub(crate) u16);
 
@@ -21,9 +41,30 @@ impl CategoryHandle {
     pub const OTHER: Self = CategoryHandle(0);
 }
 
+impl IntoSubcategoryHandle for CategoryHandle {
+    fn into_subcategory_handle(self, _profile: &mut Profile) -> SubcategoryHandle {
+        self.into()
+    }
+}
+
 impl Serialize for CategoryHandle {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         self.0.serialize(serializer)
+    }
+}
+
+/// A named subcategory of a [`Category`], for fine-grained annotation of stack frames.
+///
+/// If you don't need named subcategories, you can just pass a [`Category`] or a
+/// [`CategoryHandle`] in any place where an [`IntoSubcategoryHandle`] is expected;
+/// this will give you the category's default subcategory.
+pub struct Subcategory<'a>(pub Category<'a>, pub &'a str);
+
+impl IntoSubcategoryHandle for Subcategory<'_> {
+    fn into_subcategory_handle(self, profile: &mut Profile) -> SubcategoryHandle {
+        let Subcategory(category, subcategory_name) = self;
+        let category_handle = profile.handle_for_category(category);
+        profile.handle_for_subcategory(category_handle, subcategory_name)
     }
 }
 
@@ -35,15 +76,26 @@ impl SubcategoryIndex {
     pub const OTHER: Self = SubcategoryIndex(0);
 }
 
-/// A subcategory of a [`CategoryHandle`], used to annotate stack frames.
+/// A handle for a [`Subcategory`], or for the default subcategory of a [`CategoryHandle`].
+///
+/// Used to annotate stack frames.
 ///
 /// Every [`CategoryHandle`] can be turned into a [`SubcategoryHandle`] by calling `.into()` -
 /// this will give you the default subcategory of that category.
 ///
 /// Subcategory handles for named subcategories can be obtained from
 /// [`Profile::handle_for_subcategory`](crate::Profile::handle_for_subcategory).
+/// Storing and reusing the handle avoids repeated lookups and can improve performance.
+///
+/// The handle is specific to a Profile instance and cannot be reused across profiles.
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct SubcategoryHandle(pub(crate) CategoryHandle, pub(crate) SubcategoryIndex);
+
+impl IntoSubcategoryHandle for SubcategoryHandle {
+    fn into_subcategory_handle(self, _profile: &mut Profile) -> SubcategoryHandle {
+        self
+    }
+}
 
 impl From<CategoryHandle> for SubcategoryHandle {
     fn from(category: CategoryHandle) -> Self {
