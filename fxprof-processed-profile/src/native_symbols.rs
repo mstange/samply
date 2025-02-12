@@ -4,6 +4,10 @@ use crate::fast_hash_map::FastHashMap;
 use crate::global_lib_table::GlobalLibIndex;
 use crate::library_info::Symbol;
 use crate::thread_string_table::{ThreadInternalStringIndex, ThreadStringTable};
+use crate::ThreadHandle;
+
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
+pub struct NativeSymbolHandle(pub(crate) ThreadHandle, pub(crate) NativeSymbolIndex);
 
 /// The native symbols that are used by frames in a thread's `FrameTable`.
 /// They can be from different libraries. Only used symbols are included.
@@ -45,6 +49,13 @@ impl NativeSymbols {
             });
         let name_string_index = names[symbol_index];
         (NativeSymbolIndex(symbol_index as u32), name_string_index)
+    }
+
+    pub fn get_native_symbol_name(
+        &self,
+        native_symbol_index: NativeSymbolIndex,
+    ) -> ThreadInternalStringIndex {
+        self.names[native_symbol_index.0 as usize]
     }
 }
 

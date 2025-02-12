@@ -8,7 +8,7 @@ use serde_derive::Serialize;
 
 use super::profile::StringHandle;
 use super::timestamp::Timestamp;
-use crate::{CategoryHandle, Profile};
+use crate::{Category, CategoryHandle, Profile};
 
 /// The handle for a marker. Returned from [`Profile::add_marker`].
 ///
@@ -64,9 +64,6 @@ pub trait Marker {
     /// The name is shown as the row label in the marker chart. It can also be
     /// used as `{marker.name}` in the various `label` template strings in the schema.
     fn name(&self, profile: &mut Profile) -> StringHandle;
-
-    /// The category of this marker. The marker chart groups marker rows by category.
-    fn category(&self, profile: &mut Profile) -> CategoryHandle;
 
     /// Called for any fields defined in the schema whose [`format`](RuntimeSchemaMarkerField::format) is
     /// of [kind](MarkerFieldFormat::kind) [`MarkerFieldFormatKind::String`].
@@ -154,6 +151,9 @@ pub trait StaticSchemaMarker {
     /// [`RuntimeSchemaMarkerSchema::type_name`] of this type's schema.
     const UNIQUE_MARKER_TYPE_NAME: &'static str;
 
+    /// The category of this marker. The marker chart groups marker rows by category.
+    const CATEGORY: Category<'static>;
+
     /// An optional description string. Applies to all markers of this type.
     const DESCRIPTION: Option<&'static str> = None;
 
@@ -204,9 +204,6 @@ pub trait StaticSchemaMarker {
     /// used as `{marker.name}` in the various `label` template strings in the schema.
     fn name(&self, profile: &mut Profile) -> StringHandle;
 
-    /// The category of this marker. The marker chart groups marker rows by category.
-    fn category(&self, profile: &mut Profile) -> CategoryHandle;
-
     /// Called for any fields defined in the schema whose [`format`](RuntimeSchemaMarkerField::format) is
     /// of [kind](MarkerFieldFormat::kind) [`MarkerFieldFormatKind::String`].
     ///
@@ -241,10 +238,6 @@ impl<T: StaticSchemaMarker> Marker for T {
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
         <T as StaticSchemaMarker>::name(self, profile)
-    }
-
-    fn category(&self, profile: &mut Profile) -> CategoryHandle {
-        <T as StaticSchemaMarker>::category(self, profile)
     }
 
     fn string_field_value(&self, field_index: u32) -> StringHandle {
@@ -311,6 +304,9 @@ pub struct RuntimeSchemaMarkerSchema {
     /// The unique name of this marker type. There must not be any other schema
     /// with the same name.
     pub type_name: String,
+
+    /// The category shared by all markers of this schema.
+    pub category: CategoryHandle,
 
     /// An optional description string. Applies to all markers of this type.
     pub description: Option<String>,
@@ -636,6 +632,8 @@ pub struct InternalMarkerSchema {
     /// The name of this marker type.
     type_name: String,
 
+    category: CategoryHandle,
+
     /// List of marker display locations.
     locations: MarkerLocations,
 
@@ -675,6 +673,7 @@ impl InternalMarkerSchema {
             .count();
         Self {
             type_name: schema.type_name,
+            category: schema.category,
             locations: schema.locations,
             chart_label: schema.chart_label,
             tooltip_label: schema.tooltip_label,
@@ -687,7 +686,7 @@ impl InternalMarkerSchema {
         }
     }
 
-    pub fn from_static_schema<T: StaticSchemaMarker>() -> Self {
+    pub fn from_static_schema<T: StaticSchemaMarker>(profile: &mut Profile) -> Self {
         let string_field_count = T::FIELDS
             .iter()
             .filter(|f| f.format.kind() == MarkerFieldFormatKind::String)
@@ -698,6 +697,7 @@ impl InternalMarkerSchema {
             .count();
         Self {
             type_name: T::UNIQUE_MARKER_TYPE_NAME.into(),
+            category: profile.handle_for_category(T::CATEGORY),
             locations: T::LOCATIONS,
             chart_label: T::CHART_LABEL.map(Into::into),
             tooltip_label: T::TOOLTIP_LABEL.map(Into::into),
@@ -712,6 +712,9 @@ impl InternalMarkerSchema {
 
     pub fn type_name(&self) -> &str {
         &self.type_name
+    }
+    pub fn category(&self) -> CategoryHandle {
+        self.category
     }
     pub fn fields(&self) -> &[RuntimeSchemaMarkerField] {
         &self.fields

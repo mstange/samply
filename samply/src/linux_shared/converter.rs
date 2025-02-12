@@ -7,7 +7,7 @@ use byteorder::LittleEndian;
 use debugid::DebugId;
 use framehop::{ExplicitModuleSectionInfo, FrameAddress, Module, Unwinder};
 use fxprof_processed_profile::{
-    Category, CategoryColor, CategoryHandle, CpuDelta, LibraryHandle, LibraryInfo,
+    Category, CategoryColor, CategoryHandle, CpuDelta, FrameFlags, LibraryHandle, LibraryInfo,
     MarkerFieldFlags, MarkerFieldFormat, MarkerTiming, Profile, ReferenceTimestamp,
     SamplingInterval, StaticSchemaMarker, StaticSchemaMarkerField, StringHandle, SubcategoryHandle,
     SymbolTable, ThreadHandle,
@@ -410,6 +410,12 @@ where
                 CpuDelta::from_nanos(0)
             };
 
+            let label_frame = self.profile.handle_for_frame_with_label(
+                thread_handle,
+                thread.thread_label,
+                CategoryHandle::OTHER.into(),
+                FrameFlags::empty(),
+            );
             process.unresolved_samples.add_sample(
                 thread_handle,
                 profile_timestamp,
@@ -417,9 +423,15 @@ where
                 stack_index,
                 cpu_delta,
                 1,
-                Some(thread.thread_label_frame.clone()),
+                Some(label_frame),
             );
 
+            let label_frame = self.profile.handle_for_frame_with_label(
+                cpus.combined_thread_handle(),
+                thread.thread_label,
+                CategoryHandle::OTHER.into(),
+                FrameFlags::empty(),
+            );
             process.unresolved_samples.add_sample(
                 cpus.combined_thread_handle(),
                 profile_timestamp,
@@ -427,7 +439,7 @@ where
                 stack_index,
                 CpuDelta::ZERO,
                 1,
-                Some(thread.thread_label_frame.clone()),
+                Some(label_frame),
             );
         }
     }
@@ -971,7 +983,7 @@ where
                     if self.should_emit_cswitch_markers {
                         cpu.notify_switch_in_for_marker(
                             tid,
-                            thread.thread_label(),
+                            thread.thread_label,
                             timestamp,
                             &self.timestamp_converter,
                             &[cpu.thread_handle, combined_thread],
@@ -1905,6 +1917,8 @@ struct MmapMarker(StringHandle);
 impl StaticSchemaMarker for MmapMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "mmap";
 
+    const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
+
     const FIELDS: &'static [StaticSchemaMarkerField] = &[StaticSchemaMarkerField {
         key: "name",
         label: "Details",
@@ -1914,10 +1928,6 @@ impl StaticSchemaMarker for MmapMarker {
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
         profile.handle_for_string("mmap")
-    }
-
-    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
-        CategoryHandle::OTHER
     }
 
     fn string_field_value(&self, _field_index: u32) -> StringHandle {

@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use fxprof_processed_profile::{Frame, FrameFlags, FrameInfo, SubcategoryHandle};
+use fxprof_processed_profile::{FrameFlags, FrameHandle, SubcategoryHandle};
 
 use super::jit_category_manager::{JsFrame, JsName};
 use super::lib_mappings::{AndroidArtInfo, LibMappingsHierarchy};

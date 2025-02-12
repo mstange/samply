@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use framehop::Unwinder;
 use fxprof_processed_profile::{
-    CounterHandle, FrameInfo, LibraryHandle, MarkerTiming, ProcessHandle, Profile, ThreadHandle,
+    CounterHandle, LibraryHandle, MarkerTiming, ProcessHandle, Profile, StringHandle, ThreadHandle,
     Timestamp,
 };
 
@@ -54,7 +54,7 @@ where
         pid: i32,
         process_handle: ProcessHandle,
         main_thread_handle: ThreadHandle,
-        main_thread_label_frame: FrameInfo,
+        main_thread_label: StringHandle,
         name: Option<String>,
         thread_recycler: Option<ThreadRecycler>,
         jit_function_recycler: Option<JitFunctionRecycler>,
@@ -72,7 +72,7 @@ where
                 pid,
                 process_handle,
                 main_thread_handle,
-                main_thread_label_frame,
+                main_thread_label,
                 name,
                 thread_recycler,
             ),
@@ -137,15 +137,13 @@ where
     pub fn rename_without_recycling(
         &mut self,
         name: String,
-        main_thread_label_frame: FrameInfo,
+        main_thread_label: StringHandle,
         profile: &mut Profile,
     ) {
         profile.set_process_name(self.profile_process, &name);
-        self.threads.main_thread.rename_without_recycling(
-            name.clone(),
-            main_thread_label_frame,
-            profile,
-        );
+        self.threads
+            .main_thread
+            .rename_without_recycling(name.clone(), main_thread_label, profile);
         self.name = Some(name);
     }
 

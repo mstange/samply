@@ -1,7 +1,7 @@
 use std::mem;
 
 use framehop::FrameAddress;
-use fxprof_processed_profile::{CpuDelta, FrameInfo, Profile, ThreadHandle, Timestamp};
+use fxprof_processed_profile::{CpuDelta, Profile, StringHandle, ThreadHandle, Timestamp};
 use mach2::mach_types::thread_act_t;
 use mach2::port::mach_port_t;
 use time::get_monotonic_timestamp;
@@ -25,7 +25,7 @@ pub struct ThreadProfiler {
     name: Option<String>,
     pub(crate) tid: u32,
     pub(crate) profile_thread: ThreadHandle,
-    thread_label_frame: FrameInfo,
+    thread_label: StringHandle,
     tick_count: usize,
     stack_memory: ForeignMemory,
     previous_sample_cpu_time_us: u64,
@@ -37,7 +37,7 @@ impl ThreadProfiler {
         task: mach_port_t,
         tid: u32,
         profile_thread: ThreadHandle,
-        thread_label_frame: FrameInfo,
+        thread_label: StringHandle,
         thread_act: thread_act_t,
         name: Option<String>,
     ) -> Self {
@@ -46,7 +46,7 @@ impl ThreadProfiler {
             tid,
             name,
             profile_thread,
-            thread_label_frame,
+            thread_label,
             tick_count: 0,
             stack_memory: ForeignMemory::new(task),
             previous_sample_cpu_time_us: 0,
@@ -62,11 +62,11 @@ impl ThreadProfiler {
     ) {
         if self.name.is_none() && self.tick_count % 10 == 0 {
             if let Ok(Some(name)) = get_thread_name(self.thread_act) {
-                if let Some((thread_handle, thread_label_frame)) =
+                if let Some((thread_handle, thread_label)) =
                     thread_recycler.and_then(|tr| tr.recycle_by_name(&name))
                 {
                     self.profile_thread = thread_handle;
-                    self.thread_label_frame = thread_label_frame;
+                    self.thread_label = thread_label;
                 } else {
                     profile.set_thread_name(self.profile_thread, &name);
                 }
@@ -201,8 +201,8 @@ impl ThreadProfiler {
         profile.set_thread_end_time(self.profile_thread, end_time);
     }
 
-    pub fn finish(self) -> (Option<String>, ThreadHandle, FrameInfo) {
-        (self.name, self.profile_thread, self.thread_label_frame)
+    pub fn finish(self) -> (Option<String>, ThreadHandle, StringHandle) {
+        (self.name, self.profile_thread, self.thread_label)
     }
 }
 
