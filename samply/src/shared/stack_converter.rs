@@ -1,6 +1,9 @@
 use std::collections::VecDeque;
+use std::iter::{Cloned, Rev};
 
-use fxprof_processed_profile::{Frame, FrameFlags, FrameInfo, SubcategoryHandle};
+use fxprof_processed_profile::{
+    FrameAddress, FrameFlags, FrameHandle, Profile, SubcategoryHandle, ThreadHandle,
+};
 
 use super::jit_category_manager::{JsFrame, JsName};
 use super::lib_mappings::{AndroidArtInfo, LibMappingsHierarchy};
@@ -21,7 +24,7 @@ struct FirstPassFrameInfo {
 
 #[derive(Debug)]
 struct SecondPassFrameInfo {
-    location: Frame,
+    location: FrameAddress,
     category: SubcategoryHandle,
     js_frame: Option<JsFrame>,
     art_info: Option<AndroidArtInfo>,
@@ -42,11 +45,22 @@ struct LibartFilteringIter<'c, I: Iterator<Item = SecondPassFrameInfo>> {
     buffer: &'c mut VecDeque<SecondPassFrameInfo>,
 }
 
-struct ConvertedStackIter<I: Iterator<Item = SecondPassFrameInfo>> {
+struct ConvertedStackIterD<I: Iterator<Item = SecondPassFrameInfo>> {
     inner: I,
-    pending_frame_info: Option<FrameInfo>,
+    thread: ThreadHandle,
+    pending_frame_handle: Option<FrameHandle>,
     js_name_for_baseline_interpreter: Option<JsName>,
 }
+
+#[allow(clippy::type_complexity)]
+pub struct ConvertedStackIter<'a>(
+    ConvertedStackIterD<
+        LibartFilteringIter<
+            'a,
+            SecondPassIter<'a, FirstPassIter<Rev<Cloned<std::slice::Iter<'a, StackFrame>>>>>,
+        >,
+    >,
+);
 
 impl<I: Iterator<Item = StackFrame>> Iterator for FirstPassIter<I> {
     type Item = FirstPassFrameInfo;
@@ -91,12 +105,12 @@ impl<I: Iterator<Item = FirstPassFrameInfo>> Iterator for SecondPassIter<'_, I> 
                 Some((relative_lookup_address, info)) => {
                     let location = if from_ip {
                         let relative_address = relative_lookup_address;
-                        Frame::RelativeAddressFromInstructionPointer(
+                        FrameAddress::RelativeAddressFromInstructionPointer(
                             info.lib_handle,
                             relative_address,
                         )
                     } else {
-                        Frame::RelativeAddressFromAdjustedReturnAddress(
+                        FrameAddress::RelativeAddressFromAdjustedReturnAddress(
                             info.lib_handle,
                             relative_lookup_address,
                         )
@@ -110,16 +124,16 @@ impl<I: Iterator<Item = FirstPassFrameInfo>> Iterator for SecondPassIter<'_, I> 
                 }
                 None => {
                     let location = match from_ip {
-                        true => Frame::InstructionPointer(lookup_address),
-                        false => Frame::AdjustedReturnAddress(lookup_address),
+                        true => FrameAddress::InstructionPointer(lookup_address),
+                        false => FrameAddress::AdjustedReturnAddress(lookup_address),
                     };
                     (location, self.user_category, None, None)
                 }
             },
             StackMode::Kernel => {
                 let location = match from_ip {
-                    true => Frame::InstructionPointer(lookup_address),
-                    false => Frame::AdjustedReturnAddress(lookup_address),
+                    true => FrameAddress::InstructionPointer(lookup_address),
+                    false => FrameAddress::AdjustedReturnAddress(lookup_address),
                 };
                 (location, self.kernel_category, None, None)
             }
@@ -179,10 +193,7 @@ impl<I: Iterator<Item = SecondPassFrameInfo>> Iterator for LibartFilteringIter<'
     }
 }
 
-impl<I: Iterator<Item = SecondPassFrameInfo>> Iterator for ConvertedStackIter<I> {
-    type Item = FrameInfo;
-
-    // Implement this because it's called by StackDepthLimitingFrameIter
+impl<I: Iterator<Item = SecondPassFrameInfo>> ConvertedStackIterD<I> {
     fn size_hint(&self) -> (usize, Option<usize>) {
         // Use the slice length as the size hint. This is a bit of a lie, unfortunately.
         // This iterator can yield more elements than self.inner if we add JS frames,
@@ -191,9 +202,9 @@ impl<I: Iterator<Item = SecondPassFrameInfo>> Iterator for ConvertedStackIter<I>
         self.inner.size_hint()
     }
 
-    fn next(&mut self) -> Option<Self::Item> {
-        if let Some(pending_frame_info) = self.pending_frame_info.take() {
-            return Some(pending_frame_info);
+    fn next(&mut self, profile: &mut Profile) -> Option<FrameHandle> {
+        if let Some(pending_frame_handle) = self.pending_frame_handle.take() {
+            return Some(pending_frame_handle);
         }
         let SecondPassFrameInfo {
             location,
@@ -202,11 +213,7 @@ impl<I: Iterator<Item = SecondPassFrameInfo>> Iterator for ConvertedStackIter<I>
             ..
         } = self.inner.next()?;
 
-        let mut frame_info = FrameInfo {
-            frame: location,
-            subcategory: category,
-            flags: FrameFlags::empty(),
-        };
+        let mut frame_flags = FrameFlags::empty();
 
         // Work around an imperfection in Spidermonkey's stack frames.
         // We sometimes have missing BaselineInterpreterStubs in the OSR-into-BaselineInterpreter case.
@@ -220,7 +227,7 @@ impl<I: Iterator<Item = SecondPassFrameInfo>> Iterator for ConvertedStackIter<I>
         // in that case, but that's still better than accounting those samples to the wrong JS function.
         let extra_js_name = match js_frame {
             Some(JsFrame::NativeFrameIsJs) => {
-                frame_info.flags |= FrameFlags::IS_JS;
+                frame_flags |= FrameFlags::IS_JS;
                 None
             }
             Some(JsFrame::RegularInAdditionToNativeFrame(js_name)) => {
@@ -237,19 +244,32 @@ impl<I: Iterator<Item = SecondPassFrameInfo>> Iterator for ConvertedStackIter<I>
             None => None,
         };
 
+        let mut frame_handle =
+            profile.handle_for_frame_with_address(self.thread, location, category, frame_flags);
         if let Some(JsName::NonSelfHosted(js_name)) = extra_js_name {
             // Prepend a JS frame.
             // We don't treat Spidermonkey "self-hosted" functions as JS (e.g. filter/map/push).
-            let prepended_js_frame = FrameInfo {
-                frame: Frame::Label(js_name),
-                subcategory: category,
-                flags: FrameFlags::IS_JS,
-            };
-            let buffered_frame = std::mem::replace(&mut frame_info, prepended_js_frame);
-            self.pending_frame_info = Some(buffered_frame);
+            let prepended_js_frame = profile.handle_for_frame_with_label(
+                self.thread,
+                js_name,
+                category,
+                FrameFlags::IS_JS,
+            );
+            let buffered_frame = std::mem::replace(&mut frame_handle, prepended_js_frame);
+            self.pending_frame_handle = Some(buffered_frame);
         };
 
-        Some(frame_info)
+        Some(frame_handle)
+    }
+}
+
+impl ConvertedStackIter<'_> {
+    pub fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+
+    pub fn next(&mut self, profile: &mut Profile) -> Option<FrameHandle> {
+        self.0.next(profile)
     }
 }
 
@@ -267,10 +287,11 @@ impl StackConverter {
     /// Returns an iterator going from root caller to callee.
     pub fn convert_stack<'a>(
         &'a mut self,
+        thread: ThreadHandle,
         stack: &'a [StackFrame],
         lib_mappings: &'a LibMappingsHierarchy,
-        extra_first_frame: Option<FrameInfo>,
-    ) -> impl Iterator<Item = FrameInfo> + 'a {
+        extra_first_frame: Option<FrameHandle>,
+    ) -> ConvertedStackIter<'a> {
         let pass1 = FirstPassIter(stack.iter().cloned().rev());
         let pass2 = SecondPassIter {
             inner: pass1,
@@ -284,10 +305,12 @@ impl StackConverter {
             last_emitted_was_java: false,
             buffer: &mut self.libart_frame_buffer,
         };
-        ConvertedStackIter {
+        let pass4 = ConvertedStackIterD {
             inner: pass3,
-            pending_frame_info: extra_first_frame,
+            thread,
+            pending_frame_handle: extra_first_frame,
             js_name_for_baseline_interpreter: None,
-        }
+        };
+        ConvertedStackIter(pass4)
     }
 }

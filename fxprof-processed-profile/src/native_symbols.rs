@@ -4,6 +4,38 @@ use crate::fast_hash_map::FastHashMap;
 use crate::global_lib_table::GlobalLibIndex;
 use crate::library_info::Symbol;
 use crate::thread_string_table::{ThreadInternalStringIndex, ThreadStringTable};
+use crate::ThreadHandle;
+
+/// Represents a symbol from the symbol table of a library. Obtained from [`Profile::handle_for_native_symbol`](crate::Profile::handle_for_native_symbol).
+///
+/// Used on native stack frames, i.e. on frames with a code address. The native
+/// symbol is used for the assembly view in the front-end. Every native symbol
+/// represents a sequence of assembly instructions.
+///
+/// ## Examples of native symbols
+///
+/// - A "standalone copy" of a compiled C++ function, i.e. something that can be called
+///   with a `call` instruction.
+/// - A JIT-compiled JavaScript function. Every new compilation would be a separate
+///   native symbol, because it's a separate chunk of native code / assembly instructions.
+///
+/// ## Interactions with inlining
+///
+/// When function A calls function B, the compiler may choose to inline this call into the
+/// generated code for A. In that case, B ends up contributed some instructions to A's
+/// generated code.
+/// These instructions have an "inline stack": A -> B. If such an instruction is sampled
+/// by the profiler, this is represented as follows:
+///
+/// - One native symbol is created, for A. There is no native symbol for B because there
+///   is no standalone copy of native code for B.
+/// - Two frames are created for this instruction address, and they both share the same
+///   frame address and the same native symbol.
+/// - The two frames have different function names, and potentially different file paths
+///   and line numbers, if this information is known.
+/// - The frame for A has inline depth 0 and the frame for B has inline depth 1.
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
+pub struct NativeSymbolHandle(pub(crate) ThreadHandle, pub(crate) NativeSymbolIndex);
 
 /// The native symbols that are used by frames in a thread's `FrameTable`.
 /// They can be from different libraries. Only used symbols are included.
@@ -45,6 +77,13 @@ impl NativeSymbols {
             });
         let name_string_index = names[symbol_index];
         (NativeSymbolIndex(symbol_index as u32), name_string_index)
+    }
+
+    pub fn get_native_symbol_name(
+        &self,
+        native_symbol_index: NativeSymbolIndex,
+    ) -> ThreadInternalStringIndex {
+        self.names[native_symbol_index.0 as usize]
     }
 }
 

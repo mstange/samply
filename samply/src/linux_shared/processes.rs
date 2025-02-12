@@ -5,7 +5,7 @@ use framehop::Unwinder;
 use fxprof_processed_profile::{Category, CategoryColor, Profile, Timestamp};
 
 use super::process::Process;
-use super::process_threads::make_thread_label_frame;
+use super::process_threads::make_thread_label;
 use crate::shared::jit_category_manager::JitCategoryManager;
 use crate::shared::jit_function_recycler::JitFunctionRecycler;
 use crate::shared::process_sample_data::ProcessSampleData;
@@ -99,8 +99,7 @@ where
                 if let Some(name) = name.as_deref() {
                     profile.set_thread_name(main_thread_handle, name);
                 }
-                let main_thread_label_frame =
-                    make_thread_label_frame(profile, name.as_deref(), pid, pid);
+                let main_thread_label_frame = make_thread_label(profile, name.as_deref(), pid, pid);
                 let (thread_recycler, jit_function_recycler) = if self.process_recycler.is_some() {
                     (
                         Some(ThreadRecycler::new()),
@@ -152,7 +151,7 @@ where
                 profile.add_process(&format!("<{pid}>"), pid as u32, fake_start_time);
             let main_thread_handle =
                 profile.add_thread(process_handle, pid as u32, fake_start_time, true);
-            let main_thread_label_frame = make_thread_label_frame(profile, None, pid, pid);
+            let main_thread_label_frame = make_thread_label(profile, None, pid, pid);
             let (thread_recycler, jit_function_recycler) = if self.process_recycler.is_some() {
                 (
                     Some(ThreadRecycler::new()),
@@ -230,8 +229,7 @@ where
                     }
                 }
 
-                let main_thread_label_frame =
-                    make_thread_label_frame(profile, Some(&name), pid, pid);
+                let main_thread_label_frame = make_thread_label(profile, Some(&name), pid, pid);
                 process.rename_without_recycling(name, main_thread_label_frame, profile);
             }
         }

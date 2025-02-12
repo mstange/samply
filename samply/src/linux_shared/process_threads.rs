@@ -1,8 +1,6 @@
 use std::collections::hash_map::Entry;
 
-use fxprof_processed_profile::{
-    CategoryHandle, Frame, FrameFlags, FrameInfo, ProcessHandle, Profile, ThreadHandle, Timestamp,
-};
+use fxprof_processed_profile::{ProcessHandle, Profile, StringHandle, ThreadHandle, Timestamp};
 
 use super::thread::Thread;
 use crate::shared::recycling::ThreadRecycler;
@@ -21,14 +19,14 @@ impl ProcessThreads {
         pid: i32,
         process_handle: ProcessHandle,
         main_thread_handle: ThreadHandle,
-        main_thread_label_frame: FrameInfo,
+        main_thread_label: StringHandle,
         name: Option<String>,
         thread_recycler: Option<ThreadRecycler>,
     ) -> Self {
         Self {
             pid,
             profile_process: process_handle,
-            main_thread: Thread::new(main_thread_handle, main_thread_label_frame, name),
+            main_thread: Thread::new(main_thread_handle, main_thread_label, name),
             threads_by_tid: Default::default(),
             thread_recycler,
         }
@@ -38,9 +36,9 @@ impl ProcessThreads {
         &mut self,
         name: String,
         process_handle: ProcessHandle,
-        main_thread_recycling_data: (ThreadHandle, FrameInfo),
+        main_thread_recycling_data: (ThreadHandle, StringHandle),
         thread_recycler: ThreadRecycler,
-    ) -> (ThreadRecycler, (ThreadHandle, FrameInfo)) {
+    ) -> (ThreadRecycler, (ThreadHandle, StringHandle)) {
         let _old_process_handle = std::mem::replace(&mut self.profile_process, process_handle);
         let (_old_name, old_main_thread_recycling_data) = self
             .main_thread
@@ -67,11 +65,10 @@ impl ProcessThreads {
             Entry::Vacant(entry) => {
                 if let (Some(name), Some(thread_recycler)) = (&name, self.thread_recycler.as_mut())
                 {
-                    if let Some((thread_handle, thread_label_frame)) =
+                    if let Some((thread_handle, thread_label)) =
                         thread_recycler.recycle_by_name(name)
                     {
-                        let thread =
-                            Thread::new(thread_handle, thread_label_frame, Some(name.clone()));
+                        let thread = Thread::new(thread_handle, thread_label, Some(name.clone()));
                         return entry.insert(thread);
                     }
                 }
@@ -81,9 +78,8 @@ impl ProcessThreads {
                 if let Some(name) = &name {
                     profile.set_thread_name(thread_handle, name);
                 }
-                let thread_label_frame =
-                    make_thread_label_frame(profile, name.as_deref(), self.pid, tid);
-                let thread = Thread::new(thread_handle, thread_label_frame, name);
+                let thread_label = make_thread_label(profile, name.as_deref(), self.pid, tid);
+                let thread = Thread::new(thread_handle, thread_label, name);
                 entry.insert(thread)
             }
             Entry::Occupied(entry) => {
@@ -136,9 +132,8 @@ impl ProcessThreads {
                         }
                     }
                 } else {
-                    let thread_label_frame =
-                        make_thread_label_frame(profile, Some(&name), self.pid, tid);
-                    thread.rename_without_recycling(name, thread_label_frame, profile);
+                    let thread_label = make_thread_label(profile, Some(&name), self.pid, tid);
+                    thread.rename_without_recycling(name, thread_label, profile);
                 }
             }
         }
@@ -161,7 +156,7 @@ impl ProcessThreads {
     }
 
     /// Called when the process has exited, or at the end of profiling. Called after notify_process_dead.
-    pub fn finish(self) -> (Option<ThreadRecycler>, (ThreadHandle, FrameInfo)) {
+    pub fn finish(self) -> (Option<ThreadRecycler>, (ThreadHandle, StringHandle)) {
         let (_main_thread_name, main_thread_recycling_data) = self.main_thread.finish();
         (self.thread_recycler, main_thread_recycling_data)
     }
@@ -177,14 +172,14 @@ impl ProcessThreads {
                 Timestamp::from_millis_since_reference(0.0),
                 false,
             );
-            let thread_label_frame = make_thread_label_frame(profile, None, self.pid, tid);
+            let thread_label = make_thread_label(profile, None, self.pid, tid);
             Thread {
                 profile_thread,
                 context_switch_data: Default::default(),
                 last_sample_timestamp: None,
                 off_cpu_stack: None,
                 name: None,
-                thread_label_frame,
+                thread_label,
             }
         })
     }
@@ -204,20 +199,15 @@ impl ProcessThreads {
     }
 }
 
-pub fn make_thread_label_frame(
+pub fn make_thread_label(
     profile: &mut Profile,
     name: Option<&str>,
     pid: i32,
     tid: i32,
-) -> FrameInfo {
+) -> StringHandle {
     let s = match name {
         Some(name) => format!("{name} (pid: {pid}, tid: {tid})"),
         None => format!("Thread {tid} (pid: {pid}, tid: {tid})"),
     };
-    let thread_label = profile.handle_for_string(&s);
-    FrameInfo {
-        frame: Frame::Label(thread_label),
-        subcategory: CategoryHandle::OTHER.into(),
-        flags: FrameFlags::empty(),
-    }
+    profile.handle_for_string(&s)
 }

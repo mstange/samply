@@ -1,14 +1,14 @@
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 
-use fxprof_processed_profile::{FrameInfo, ProcessHandle, ThreadHandle};
+use fxprof_processed_profile::{ProcessHandle, StringHandle, ThreadHandle};
 
 use crate::shared::jit_function_recycler::JitFunctionRecycler;
 use crate::shared::types::FastHashMap;
 
 pub struct ProcessRecyclingData {
     pub process_handle: ProcessHandle,
-    pub main_thread_recycling_data: (ThreadHandle, FrameInfo),
+    pub main_thread_recycling_data: (ThreadHandle, StringHandle),
     pub thread_recycler: ThreadRecycler,
     pub jit_function_recycler: JitFunctionRecycler,
 }
@@ -34,7 +34,7 @@ impl Ord for ProcessRecyclingData {
 }
 
 pub type ProcessRecycler = RecyclerByName<ProcessRecyclingData>;
-pub type ThreadRecycler = RecyclerByName<(ThreadHandle, FrameInfo)>;
+pub type ThreadRecycler = RecyclerByName<(ThreadHandle, StringHandle)>;
 
 pub struct RecyclerByName<T: Ord>(FastHashMap<String, BinaryHeap<Reverse<T>>>);
 

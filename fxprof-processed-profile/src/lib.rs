@@ -10,7 +10,7 @@
 //! ## Example
 //!
 //! ```
-//! use fxprof_processed_profile::{Profile, CategoryHandle, CpuDelta, Frame, FrameInfo, FrameFlags, SamplingInterval, Timestamp};
+//! use fxprof_processed_profile::{Profile, CategoryHandle, CpuDelta, FrameHandle, FrameFlags, SamplingInterval, Timestamp};
 //! use std::time::SystemTime;
 //!
 //! # fn write_profile(output_file: std::fs::File) -> Result<(), Box<dyn std::error::Error>> {
@@ -18,12 +18,15 @@
 //! let process = profile.add_process("App process", 54132, Timestamp::from_millis_since_reference(0.0));
 //! let thread = profile.add_thread(process, 54132000, Timestamp::from_millis_since_reference(0.0), true);
 //! profile.set_thread_name(thread, "Main thread");
-//! let stack_frames = vec![
-//!     FrameInfo { frame: Frame::Label(profile.handle_for_string("Root node")), subcategory: CategoryHandle::OTHER.into(), flags: FrameFlags::empty() },
-//!     FrameInfo { frame: Frame::Label(profile.handle_for_string("First callee")), subcategory: CategoryHandle::OTHER.into(), flags: FrameFlags::empty() }
-//! ];
-//! let stack = profile.handle_for_stack_frames(thread, stack_frames.into_iter());
-//! profile.add_sample(thread, Timestamp::from_millis_since_reference(0.0), stack, CpuDelta::ZERO, 1);
+//!
+//! let root_node_string = profile.handle_for_string("Root node");
+//! let root_frame = profile.handle_for_frame_with_label(thread, root_node_string, CategoryHandle::OTHER, FrameFlags::empty());
+//! let first_callee_string = profile.handle_for_string("First callee");
+//! let first_callee_frame = profile.handle_for_frame_with_label(thread, first_callee_string, CategoryHandle::OTHER, FrameFlags::empty());
+//!
+//! let root_stack_node = profile.handle_for_stack(thread, root_frame, None);
+//! let first_callee_node = profile.handle_for_stack(thread, first_callee_frame, Some(root_stack_node));
+//! profile.add_sample(thread, Timestamp::from_millis_since_reference(0.0), Some(first_callee_node), CpuDelta::ZERO, 1);
 //!
 //! let writer = std::io::BufWriter::new(output_file);
 //! serde_json::to_writer(writer, &profile)?;
@@ -65,7 +68,7 @@ pub use category::{
 pub use category_color::CategoryColor;
 pub use counters::CounterHandle;
 pub use cpu_delta::CpuDelta;
-pub use frame::{Frame, FrameFlags, FrameInfo};
+pub use frame::{FrameAddress, FrameFlags};
 pub use global_lib_table::{LibraryHandle, UsedLibraryAddressesIterator};
 pub use lib_mappings::LibMappings;
 pub use library_info::{LibraryInfo, Symbol, SymbolTable};
@@ -75,8 +78,12 @@ pub use markers::{
     RuntimeSchemaMarkerField, RuntimeSchemaMarkerGraph, RuntimeSchemaMarkerSchema,
     StaticSchemaMarker, StaticSchemaMarkerField, StaticSchemaMarkerGraph,
 };
+pub use native_symbols::NativeSymbolHandle;
 pub use process::ThreadHandle;
-pub use profile::{FrameHandle, Profile, SamplingInterval, StackHandle, StringHandle};
+pub use profile::{
+    FrameHandle, FrameSymbolInfo, Profile, SamplingInterval, SourceLocation, StackHandle,
+    StringHandle,
+};
 pub use reference_timestamp::ReferenceTimestamp;
 pub use sample_table::WeightType;
 pub use thread::ProcessHandle;

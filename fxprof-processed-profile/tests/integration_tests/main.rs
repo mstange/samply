@@ -4,7 +4,7 @@ use std::time::Duration;
 use assert_json_diff::assert_json_eq;
 use debugid::DebugId;
 use fxprof_processed_profile::{
-    Category, CategoryColor, CpuDelta, Frame, FrameFlags, FrameInfo, GraphColor, LibraryInfo,
+    Category, CategoryColor, CpuDelta, FrameAddress, FrameFlags, GraphColor, LibraryInfo,
     MarkerFieldFlags, MarkerFieldFormat, MarkerGraphType, MarkerTiming, Profile,
     ReferenceTimestamp, SamplingInterval, StaticSchemaMarker, StaticSchemaMarkerField,
     StaticSchemaMarkerGraph, StringHandle, Symbol, SymbolTable, Timestamp, WeightType,
@@ -187,33 +187,33 @@ fn profile_without_js() {
         (0x000055ba9ebf6000u64 - 0x000055ba9eb4d000u64) as u32,
     );
     let category = profile.handle_for_category(Category("Regular", CategoryColor::Blue));
-    let s1 = profile.handle_for_stack_frames(
-        thread,
-        vec![
-            0x7f76b7ffc0e7,
-            0x55ba9eda3d7f,
-            0x55ba9ed8bb62,
-            0x55ba9ec92419,
-            0x55ba9ec2b778,
-            0x55ba9ec0f705,
-            0x7ffdb4824838,
-        ]
-        .into_iter()
-        .enumerate()
-        .rev()
-        .map(|(i, addr)| {
-            if i == 0 {
-                Frame::InstructionPointer(addr)
-            } else {
-                Frame::ReturnAddress(addr)
-            }
-        })
-        .map(|frame| FrameInfo {
-            frame,
-            subcategory: category.into(),
-            flags: FrameFlags::empty(),
-        }),
-    );
+    let mut frames1_iter = [
+        0x7f76b7ffc0e7,
+        0x55ba9eda3d7f,
+        0x55ba9ed8bb62,
+        0x55ba9ec92419,
+        0x55ba9ec2b778,
+        0x55ba9ec0f705,
+        0x7ffdb4824838,
+    ]
+    .into_iter()
+    .enumerate()
+    .rev()
+    .map(|(i, addr)| {
+        if i == 0 {
+            FrameAddress::InstructionPointer(addr)
+        } else {
+            FrameAddress::ReturnAddress(addr)
+        }
+    });
+    let s1 = profile.handle_for_stack_frames(thread, |p| {
+        Some(p.handle_for_frame_with_address(
+            thread,
+            frames1_iter.next()?,
+            category,
+            FrameFlags::empty(),
+        ))
+    });
     profile.add_sample(
         thread,
         Timestamp::from_millis_since_reference(1.0),
@@ -221,33 +221,33 @@ fn profile_without_js() {
         CpuDelta::ZERO,
         1,
     );
-    let s2 = profile.handle_for_stack_frames(
-        thread,
-        vec![
-            0x55ba9eda018e,
-            0x55ba9ec3c3cf,
-            0x55ba9ec2a2d7,
-            0x55ba9ec53993,
-            0x7f76b7e8707d,
-            0x55ba9ec0f705,
-            0x7ffdb4824838,
-        ]
-        .into_iter()
-        .enumerate()
-        .rev()
-        .map(|(i, addr)| {
-            if i == 0 {
-                Frame::InstructionPointer(addr)
-            } else {
-                Frame::ReturnAddress(addr)
-            }
-        })
-        .map(|frame| FrameInfo {
-            frame,
-            subcategory: category.into(),
-            flags: FrameFlags::empty(),
-        }),
-    );
+    let mut frames2_iter = [
+        0x55ba9eda018e,
+        0x55ba9ec3c3cf,
+        0x55ba9ec2a2d7,
+        0x55ba9ec53993,
+        0x7f76b7e8707d,
+        0x55ba9ec0f705,
+        0x7ffdb4824838,
+    ]
+    .iter()
+    .enumerate()
+    .rev()
+    .map(|(i, addr)| {
+        if i == 0 {
+            FrameAddress::InstructionPointer(*addr)
+        } else {
+            FrameAddress::ReturnAddress(*addr)
+        }
+    });
+    let s2 = profile.handle_for_stack_frames(thread, |p| {
+        Some(p.handle_for_frame_with_address(
+            thread,
+            frames2_iter.next()?,
+            category,
+            FrameFlags::empty(),
+        ))
+    });
     profile.add_sample(
         thread,
         Timestamp::from_millis_since_reference(2.0),
@@ -255,33 +255,33 @@ fn profile_without_js() {
         CpuDelta::ZERO,
         1,
     );
-    let s3 = profile.handle_for_stack_frames(
-        thread,
-        vec![
-            0x7f76b7f019c6,
-            0x55ba9edc48f5,
-            0x55ba9ec010e3,
-            0x55ba9eca41b9,
-            0x7f76b7e8707d,
-            0x55ba9ec0f705,
-            0x7ffdb4824838,
-        ]
-        .into_iter()
-        .enumerate()
-        .rev()
-        .map(|(i, addr)| {
-            if i == 0 {
-                Frame::InstructionPointer(addr)
-            } else {
-                Frame::ReturnAddress(addr)
-            }
-        })
-        .map(|frame| FrameInfo {
-            frame,
-            subcategory: category.into(),
-            flags: FrameFlags::empty(),
-        }),
-    );
+    let mut frames3_iter = [
+        0x7f76b7f019c6,
+        0x55ba9edc48f5,
+        0x55ba9ec010e3,
+        0x55ba9eca41b9,
+        0x7f76b7e8707d,
+        0x55ba9ec0f705,
+        0x7ffdb4824838,
+    ]
+    .iter()
+    .enumerate()
+    .rev()
+    .map(|(i, addr)| {
+        if i == 0 {
+            FrameAddress::InstructionPointer(*addr)
+        } else {
+            FrameAddress::ReturnAddress(*addr)
+        }
+    });
+    let s3 = profile.handle_for_stack_frames(thread, |p| {
+        Some(p.handle_for_frame_with_address(
+            thread,
+            frames3_iter.next()?,
+            category,
+            FrameFlags::empty(),
+        ))
+    });
     profile.add_sample(
         thread,
         Timestamp::from_millis_since_reference(3.0),
@@ -405,13 +405,6 @@ fn profile_without_js() {
                     "marker-chart",
                     "marker-table"
                   ],
-                  "graphs": [
-                    {
-                      "key": "latency",
-                      "type": "line",
-                      "color": "green"
-                    }
-                  ],
                   "tooltipLabel": "Custom tooltip label",
                   "description": "This is a test marker with a custom schema.",
                   "fields": [
@@ -438,7 +431,14 @@ fn profile_without_js() {
                       "label": "Latency",
                       "format": "duration",
                       "searchable": true
-                    },
+                    }
+                  ],
+                  "graphs": [
+                    {
+                      "key": "latency",
+                      "type": "line",
+                      "color": "green"
+                    }
                   ]
                 }
               ]
@@ -634,12 +634,12 @@ fn profile_without_js() {
                   "length": 16,
                   "name": [
                     0,
-                    2,
+                    1,
                     3,
                     4,
                     5,
                     6,
-                    8,
+                    7,
                     9,
                     10,
                     11,
@@ -815,7 +815,7 @@ fn profile_without_js() {
                     1
                   ],
                   "name": [
-                    8,
+                    7,
                     9,
                     17
                   ]
@@ -834,8 +834,8 @@ fn profile_without_js() {
                     1
                   ],
                   "name": [
-                    1,
-                    7
+                    2,
+                    8
                   ],
                   "host": [
                     null,
@@ -913,17 +913,16 @@ fn profile_without_js() {
                     15
                   ]
                 },
-                "showMarkersInTimeline": false,
                 "stringArray": [
                   "0x7ffdb4824837",
-                  "dump_syms",
                   "0xc2704",
+                  "dump_syms",
                   "0xde777",
                   "0x145418",
                   "0x23eb61",
                   "0x256d7e",
-                  "libc.so.6",
                   "libc_symbol_1",
+                  "libc.so.6",
                   "libc_symbol_2",
                   "0x106992",
                   "0xdd2d6",
@@ -940,6 +939,7 @@ fn profile_without_js() {
                 ],
                 "tid": "12345",
                 "unregisterTime": null,
+                "showMarkersInTimeline": false
               }
             ],
             "pages": [],
@@ -947,7 +947,6 @@ fn profile_without_js() {
             "counters": [
               {
                 "category": "Memory",
-                "color": "red",
                 "name": "malloc",
                 "description": "Amount of allocated memory",
                 "mainThreadIndex": 0,
@@ -969,7 +968,8 @@ fn profile_without_js() {
                     1.0,
                     1.0
                   ]
-                }
+                },
+                "color": "red"
               }
             ]
           }
@@ -995,22 +995,17 @@ fn profile_with_js() {
     let some_label_string = profile.handle_for_string("Some label string");
     let category = profile.handle_for_category(Category("Cycle Collection", CategoryColor::Orange));
     let subcategory = profile.handle_for_subcategory(category, "Graph Reduction");
-    let s1 = profile.handle_for_stack_frames(
-        thread,
-        vec![
-            FrameInfo {
-                frame: Frame::Label(some_label_string),
-                subcategory: category.into(),
-                flags: FrameFlags::IS_JS,
-            },
-            FrameInfo {
-                frame: Frame::ReturnAddress(0x7f76b7ffc0e7),
-                subcategory,
-                flags: FrameFlags::empty(),
-            },
-        ]
-        .into_iter(),
-    );
+    let frames = vec![
+        profile.handle_for_frame_with_label(thread, some_label_string, category, FrameFlags::IS_JS),
+        profile.handle_for_frame_with_address(
+            thread,
+            FrameAddress::ReturnAddress(0x7f76b7ffc0e7),
+            subcategory,
+            FrameFlags::empty(),
+        ),
+    ];
+    let mut iter = frames.into_iter();
+    let s1 = profile.handle_for_stack_frames(thread, |_| iter.next());
     profile.add_sample(
         thread,
         Timestamp::from_millis_since_reference(1.0),

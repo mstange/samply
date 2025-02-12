@@ -1,5 +1,5 @@
 use fxprof_processed_profile::{
-    Category, CategoryColor, CategoryHandle, Frame, FrameFlags, FrameInfo, MarkerFieldFlags,
+    Category, CategoryColor, CategoryHandle, FrameFlags, FrameHandle, MarkerFieldFlags,
     MarkerFieldFormat, MarkerTiming, ProcessHandle, Profile, StaticSchemaMarker,
     StaticSchemaMarkerField, StringHandle, ThreadHandle, Timestamp,
 };
@@ -12,7 +12,7 @@ pub struct Cpus {
     process_handle: ProcessHandle,
     combined_thread_handle: ThreadHandle,
     cpus: Vec<Cpu>,
-    idle_frame_label: FrameInfo,
+    idle_frame_label: FrameHandle,
 }
 
 pub struct Cpu {
@@ -115,11 +115,12 @@ impl Cpus {
         let process_handle = profile.add_process("CPU", 0, start_time);
         let combined_thread_handle = profile.add_thread(process_handle, 0, start_time, true);
         let idle_string = profile.handle_for_string("<Idle>");
-        let idle_frame_label = FrameInfo {
-            frame: Frame::Label(idle_string),
-            subcategory: CategoryHandle::OTHER.into(),
-            flags: FrameFlags::empty(),
-        };
+        let idle_frame_label = profile.handle_for_frame_with_label(
+            combined_thread_handle,
+            idle_string,
+            CategoryHandle::OTHER,
+            FrameFlags::empty(),
+        );
         Self {
             start_time,
             process_handle,
@@ -133,8 +134,8 @@ impl Cpus {
         self.combined_thread_handle
     }
 
-    pub fn idle_frame_label(&self) -> FrameInfo {
-        self.idle_frame_label.clone()
+    pub fn idle_frame_label(&self) -> FrameHandle {
+        self.idle_frame_label
     }
 
     pub fn get_mut(&mut self, cpu: usize, profile: &mut Profile) -> &mut Cpu {

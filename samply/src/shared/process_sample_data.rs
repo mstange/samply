@@ -97,12 +97,15 @@ impl ProcessSampleData {
             stack_frame_scratch_buf.clear();
             stacks.convert_back(stack, stack_frame_scratch_buf);
             let frames = stack_converter.convert_stack(
+                thread_handle,
                 stack_frame_scratch_buf,
                 &lib_mappings_hierarchy,
                 extra_label_frame,
             );
-            let frames = StackDepthLimitingFrameIter::new(profile, frames, user_category);
-            let stack_handle = profile.handle_for_stack_frames(thread_handle, frames);
+            let mut frames =
+                StackDepthLimitingFrameIter::new(profile, frames, thread_handle, user_category);
+            let stack_handle =
+                profile.handle_for_stack_frames(thread_handle, move |p| frames.next(p));
             match sample_or_marker {
                 SampleOrMarker::Sample(SampleData { cpu_delta, weight }) => {
                     profile.add_sample(thread_handle, timestamp, stack_handle, cpu_delta, weight);

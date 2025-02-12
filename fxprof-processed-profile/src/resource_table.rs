@@ -1,9 +1,9 @@
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
 use crate::fast_hash_map::FastHashMap;
-use crate::global_lib_table::{GlobalLibIndex, GlobalLibTable};
+use crate::global_lib_table::GlobalLibIndex;
 use crate::serialization_helpers::SerializableSingleValueColumn;
-use crate::thread_string_table::{ThreadInternalStringIndex, ThreadStringTable};
+use crate::thread_string_table::ThreadInternalStringIndex;
 
 #[derive(Debug, Clone, Default)]
 pub struct ResourceTable {
@@ -20,16 +20,20 @@ impl ResourceTable {
     pub fn resource_for_lib(
         &mut self,
         lib_index: GlobalLibIndex,
-        global_libs: &GlobalLibTable,
-        thread_string_table: &mut ThreadStringTable,
+        global_lib_index_to_thread_string_index: &FastHashMap<
+            GlobalLibIndex,
+            ThreadInternalStringIndex,
+        >,
     ) -> ResourceIndex {
         let resource_libs = &mut self.resource_libs;
         let resource_names = &mut self.resource_names;
         *self.lib_to_resource.entry(lib_index).or_insert_with(|| {
             let resource = ResourceIndex(resource_libs.len() as u32);
-            let lib_name = &global_libs.get_lib(lib_index).unwrap().name;
+            let lib_name = *global_lib_index_to_thread_string_index
+                .get(&lib_index)
+                .unwrap();
             resource_libs.push(lib_index);
-            resource_names.push(thread_string_table.index_for_string(lib_name));
+            resource_names.push(lib_name);
             resource
         })
     }

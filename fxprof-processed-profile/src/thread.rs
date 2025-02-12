@@ -4,18 +4,17 @@ use std::cmp::Ordering;
 use serde::ser::{SerializeMap, Serializer};
 
 use crate::cpu_delta::CpuDelta;
+use crate::fast_hash_map::FastHashMap;
 use crate::frame_table::{FrameTable, InternalFrame};
-use crate::func_table::FuncTable;
-use crate::global_lib_table::GlobalLibTable;
+use crate::global_lib_table::{GlobalLibIndex, GlobalLibTable};
 use crate::marker_table::MarkerTable;
 use crate::markers::InternalMarkerSchema;
-use crate::native_symbols::NativeSymbols;
-use crate::resource_table::ResourceTable;
+use crate::native_symbols::{NativeSymbolIndex, NativeSymbols};
 use crate::sample_table::{NativeAllocationsTable, SampleTable, WeightType};
 use crate::stack_table::StackTable;
 use crate::string_table::{GlobalStringIndex, GlobalStringTable};
 use crate::thread_string_table::{ThreadInternalStringIndex, ThreadStringTable};
-use crate::{Marker, MarkerHandle, MarkerTiming, MarkerTypeHandle, Timestamp};
+use crate::{Marker, MarkerHandle, MarkerTiming, MarkerTypeHandle, Symbol, Timestamp};
 
 /// A process. Can be created with [`Profile::add_process`](crate::Profile::add_process).
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
@@ -31,13 +30,12 @@ pub struct Thread {
     is_main: bool,
     stack_table: StackTable,
     frame_table: FrameTable,
-    func_table: FuncTable,
     samples: SampleTable,
     native_allocations: Option<NativeAllocationsTable>,
     markers: MarkerTable,
-    resources: ResourceTable,
     native_symbols: NativeSymbols,
     string_table: ThreadStringTable,
+    global_lib_index_to_thread_string_index: FastHashMap<GlobalLibIndex, ThreadInternalStringIndex>,
     last_sample_stack: Option<usize>,
     last_sample_was_zero_cpu: bool,
     show_markers_in_timeline: bool,
@@ -54,13 +52,12 @@ impl Thread {
             is_main,
             stack_table: StackTable::new(),
             frame_table: FrameTable::new(),
-            func_table: FuncTable::new(),
             samples: SampleTable::new(),
             native_allocations: None,
             markers: MarkerTable::new(),
-            resources: ResourceTable::new(),
             native_symbols: NativeSymbols::new(),
             string_table: ThreadStringTable::new(),
+            global_lib_index_to_thread_string_index: Default::default(),
             last_sample_stack: None,
             last_sample_was_zero_cpu: false,
             show_markers_in_timeline: false,
@@ -100,18 +97,43 @@ impl Thread {
             .index_for_global_string(index, global_table)
     }
 
+    pub fn native_symbol_index_and_string_index_for_symbol(
+        &mut self,
+        lib_index: GlobalLibIndex,
+        symbol: &Symbol,
+    ) -> (NativeSymbolIndex, ThreadInternalStringIndex) {
+        self.native_symbols
+            .symbol_index_and_string_index_for_symbol(lib_index, symbol, &mut self.string_table)
+    }
+
+    pub fn native_symbol_index_for_native_symbol(
+        &mut self,
+        lib_index: GlobalLibIndex,
+        symbol: &Symbol,
+    ) -> NativeSymbolIndex {
+        let (symbol_index, _) =
+            self.native_symbol_index_and_string_index_for_symbol(lib_index, symbol);
+        symbol_index
+    }
+
+    pub fn get_native_symbol_name(
+        &self,
+        native_symbol_index: NativeSymbolIndex,
+    ) -> ThreadInternalStringIndex {
+        self.native_symbols
+            .get_native_symbol_name(native_symbol_index)
+    }
+
     pub fn frame_index_for_frame(
         &mut self,
         frame: InternalFrame,
         global_libs: &mut GlobalLibTable,
     ) -> usize {
         self.frame_table.index_for_frame(
-            &mut self.string_table,
-            &mut self.resources,
-            &mut self.func_table,
-            &mut self.native_symbols,
-            global_libs,
             frame,
+            &mut self.global_lib_index_to_thread_string_index,
+            global_libs,
+            &mut self.string_table,
         )
     }
 
@@ -186,8 +208,8 @@ impl Thread {
         self.markers.set_marker_stack(marker, stack_index);
     }
 
-    pub fn contains_js_function(&self) -> bool {
-        self.func_table.contains_js_function()
+    pub fn contains_js_frame(&self) -> bool {
+        self.frame_table.contains_js_frame()
     }
 
     pub fn cmp_for_json_order(&self, other: &Thread) -> Ordering {
@@ -227,9 +249,13 @@ impl Thread {
         let thread_register_time = self.start_time;
         let thread_unregister_time = self.end_time;
 
+        let (frame_table, func_table, resource_table) = self
+            .frame_table
+            .get_serializable_tables(&self.global_lib_index_to_thread_string_index);
+
         let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("frameTable", &self.frame_table)?;
-        map.serialize_entry("funcTable", &self.func_table)?;
+        map.serialize_entry("frameTable", &frame_table)?;
+        map.serialize_entry("funcTable", &func_table)?;
         map.serialize_entry(
             "markers",
             &self
@@ -246,7 +272,7 @@ impl Thread {
         map.serialize_entry("processStartupTime", &process_start_time)?;
         map.serialize_entry("processType", &"default")?;
         map.serialize_entry("registerTime", &thread_register_time)?;
-        map.serialize_entry("resourceTable", &self.resources)?;
+        map.serialize_entry("resourceTable", &resource_table)?;
         map.serialize_entry("samples", &self.samples)?;
         if let Some(allocations) = &self.native_allocations {
             map.serialize_entry("nativeAllocations", &allocations)?;
