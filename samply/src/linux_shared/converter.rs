@@ -7,10 +7,10 @@ use byteorder::LittleEndian;
 use debugid::DebugId;
 use framehop::{ExplicitModuleSectionInfo, FrameAddress, Module, Unwinder};
 use fxprof_processed_profile::{
-    Category, CategoryColor, CategoryHandle, CpuDelta, LibraryHandle, LibraryInfo,
-    MarkerFieldFlags, MarkerFieldFormat, MarkerTiming, Profile, ReferenceTimestamp,
-    SamplingInterval, StaticSchemaMarker, StaticSchemaMarkerField, StringHandle, SubcategoryHandle,
-    SymbolTable, ThreadHandle,
+    Category, CategoryColor, CpuDelta, LibraryHandle, LibraryInfo, MarkerFieldFlags,
+    MarkerFieldFormat, MarkerTiming, Profile, ReferenceTimestamp, SamplingInterval,
+    StaticSchemaMarker, StaticSchemaMarkerField, StringHandle, SubcategoryHandle, SymbolTable,
+    ThreadHandle,
 };
 use linux_perf_data::linux_perf_event_reader::TaskWasPreempted;
 use linux_perf_data::simpleperf_dso_type::{DSO_DEX_FILE, DSO_KERNEL, DSO_KERNEL_MODULE};
@@ -1905,6 +1905,8 @@ struct MmapMarker(StringHandle);
 impl StaticSchemaMarker for MmapMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "mmap";
 
+    const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
+
     const FIELDS: &'static [StaticSchemaMarkerField] = &[StaticSchemaMarkerField {
         key: "name",
         label: "Details",
@@ -1914,10 +1916,6 @@ impl StaticSchemaMarker for MmapMarker {
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
         profile.handle_for_string("mmap")
-    }
-
-    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
-        CategoryHandle::OTHER
     }
 
     fn string_field_value(&self, _field_index: u32) -> StringHandle {

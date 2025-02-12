@@ -122,7 +122,7 @@ pub struct Profile {
     pub(crate) global_libs: GlobalLibTable,
     pub(crate) kernel_libs: LibMappings<LibraryHandle>,
     pub(crate) categories: FastIndexSet<InternalCategory>, // append-only for stable CategoryHandles
-    pub(crate) processes: Vec<Process>,                // append-only for stable ProcessHandles
+    pub(crate) processes: Vec<Process>,                    // append-only for stable ProcessHandles
     pub(crate) counters: Vec<Counter>,
     pub(crate) threads: Vec<Thread>, // append-only for stable ThreadHandles
     pub(crate) initial_visible_threads: Vec<ThreadHandle>,
@@ -694,19 +694,19 @@ impl Profile {
     /// You usually don't need to call this, ever. It is called by the blanket impl
     /// of [`Marker::marker_type`] for all types which implement [`StaticSchemaMarker`].
     pub fn static_schema_marker_type<T: StaticSchemaMarker>(&mut self) -> MarkerTypeHandle {
-        match self
+        if let Some(handle) = self
             .static_schema_marker_types
-            .entry(T::UNIQUE_MARKER_TYPE_NAME)
+            .get(T::UNIQUE_MARKER_TYPE_NAME)
         {
-            Entry::Occupied(entry) => *entry.get(),
-            Entry::Vacant(entry) => {
-                let handle = MarkerTypeHandle(self.marker_schemas.len());
-                let schema = InternalMarkerSchema::from_static_schema::<T>();
-                self.marker_schemas.push(schema);
-                entry.insert(handle);
-                handle
-            }
+            return *handle;
         }
+
+        let handle = MarkerTypeHandle(self.marker_schemas.len());
+        let schema = InternalMarkerSchema::from_static_schema::<T>(self);
+        self.marker_schemas.push(schema);
+        self.static_schema_marker_types
+            .insert(T::UNIQUE_MARKER_TYPE_NAME, handle);
+        handle
     }
 
     /// Add a marker to the given thread.
@@ -715,7 +715,7 @@ impl Profile {
     ///
     /// ```
     /// use fxprof_processed_profile::{
-    ///     Profile, CategoryHandle, Marker, MarkerFieldFlags, MarkerFieldFormat, MarkerTiming,
+    ///     Profile, Category, CategoryColor, Marker, MarkerFieldFlags, MarkerFieldFormat, MarkerTiming,
     ///     StaticSchemaMarker, StaticSchemaMarkerField, StringHandle, ThreadHandle, Timestamp,
     /// };
     ///
@@ -739,6 +739,8 @@ impl Profile {
     /// impl StaticSchemaMarker for TextMarker {
     ///     const UNIQUE_MARKER_TYPE_NAME: &'static str = "Text";
     ///
+    ///     const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
+    ///
     ///     const CHART_LABEL: Option<&'static str> = Some("{marker.data.text}");
     ///     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.text}");
     ///
@@ -751,10 +753,6 @@ impl Profile {
     ///
     ///     fn name(&self, _profile: &mut Profile) -> StringHandle {
     ///         self.name
-    ///     }
-    ///
-    ///     fn category(&self, _profile: &mut Profile) -> CategoryHandle {
-    ///         CategoryHandle::OTHER
     ///     }
     ///
     ///     fn string_field_value(&self, _field_index: u32) -> StringHandle {
@@ -774,7 +772,6 @@ impl Profile {
     ) -> MarkerHandle {
         let marker_type = marker.marker_type(self);
         let name = marker.name(self);
-        let category = marker.category(self);
         let thread = &mut self.threads[thread.0];
         let name_thread_string_index = thread.convert_string_index(&self.string_table, name.0);
         let schema = &self.marker_schemas[marker_type.0];
@@ -784,7 +781,6 @@ impl Profile {
             schema,
             marker,
             timing,
-            category,
             &mut self.string_table,
         )
     }

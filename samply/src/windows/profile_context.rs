@@ -3,7 +3,7 @@ use std::path::Path;
 
 use debugid::DebugId;
 use fxprof_processed_profile::{
-    CategoryColor, CategoryHandle, CounterHandle, CpuDelta, Frame, FrameFlags, FrameInfo,
+    Category, CategoryColor, CategoryHandle, CounterHandle, CpuDelta, Frame, FrameFlags, FrameInfo,
     LibraryHandle, LibraryInfo, Marker, MarkerFieldFlags, MarkerFieldFormat, MarkerHandle,
     MarkerLocations, MarkerTiming, ProcessHandle, Profile, SamplingInterval, StaticSchemaMarker,
     StaticSchemaMarkerField, StringHandle, ThreadHandle, Timestamp,
@@ -393,10 +393,8 @@ pub enum KnownCategory {
     User,
     Kernel,
     System,
-    D3DVideoSubmitDecoderBuffers,
     CoreClrR2r,
     CoreClrJit,
-    CoreClrGc,
     Unknown,
 }
 
@@ -412,10 +410,8 @@ impl KnownCategories {
         (KnownCategory::User, "User", CategoryColor::Yellow),
         (KnownCategory::Kernel, "Kernel", CategoryColor::LightRed),
         (KnownCategory::System, "System Libraries", CategoryColor::Orange),
-        (KnownCategory::D3DVideoSubmitDecoderBuffers, "D3D Video Submit Decoder Buffers", CategoryColor::Transparent),
         (KnownCategory::CoreClrR2r, "CoreCLR R2R", CategoryColor::Blue),
         (KnownCategory::CoreClrJit, "CoreCLR JIT", CategoryColor::Purple),
-        (KnownCategory::CoreClrGc, "CoreCLR GC", CategoryColor::Red),
         (KnownCategory::Unknown, "Other", CategoryColor::DarkGray),
     ];
 
@@ -432,7 +428,7 @@ impl KnownCategories {
                 .find(|(c, _, _)| *c == category)
                 .map(|(_, name, color)| (*name, *color))
                 .unwrap();
-            profile.add_category(category_name, color)
+            profile.handle_for_category(Category(category_name, color))
         })
     }
 }
@@ -659,10 +655,6 @@ impl ProfileContext {
         } else {
             path.into()
         }
-    }
-
-    pub fn known_category(&mut self, known_category: KnownCategory) -> CategoryHandle {
-        self.categories.get(known_category, &mut self.profile)
     }
 
     pub fn handle_for_profile_string(&mut self, s: &str) -> StringHandle {
@@ -1563,6 +1555,8 @@ impl ProfileContext {
         impl StaticSchemaMarker for VSyncMarker {
             const UNIQUE_MARKER_TYPE_NAME: &'static str = "Vsync";
 
+            const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
+
             const LOCATIONS: MarkerLocations = MarkerLocations::MARKER_CHART
                 .union(MarkerLocations::MARKER_TABLE)
                 .union(MarkerLocations::TIMELINE_OVERVIEW);
@@ -1571,10 +1565,6 @@ impl ProfileContext {
 
             fn name(&self, profile: &mut Profile) -> StringHandle {
                 profile.handle_for_string("Vsync")
-            }
-
-            fn category(&self, _profile: &mut Profile) -> CategoryHandle {
-                CategoryHandle::OTHER
             }
 
             fn string_field_value(&self, _field_index: u32) -> StringHandle {
@@ -1846,7 +1836,6 @@ impl ProfileContext {
         tid: u32,
         name: &str,
         stringified_properties: String,
-        known_category: KnownCategory,
     ) {
         let Some(thread_handle) = self.thread_handle_at_time(tid, timestamp_raw) else {
             return;
@@ -1872,16 +1861,12 @@ impl ProfileContext {
             (MarkerTiming::IntervalEnd(timestamp), stringified_properties)
         };
 
-        let category = self.categories.get(known_category, &mut self.profile);
         let name = self
             .profile
             .handle_for_string(name.split_once('/').unwrap().1);
         let description = self.profile.handle_for_string(&text);
-        self.profile.add_marker(
-            thread_handle,
-            timing,
-            FreeformMarker(name, description, category),
-        );
+        self.profile
+            .add_marker(thread_handle, timing, FreeformMarker(name, description));
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1949,7 +1934,7 @@ impl ProfileContext {
             self.profile.add_marker(
                 thread_handle,
                 timing,
-                FreeformMarker(marker_name, description, CategoryHandle::OTHER),
+                FreeformMarker(marker_name, description),
             );
         } else {
             let marker_name = self.profile.handle_for_string(marker_name);
@@ -1957,7 +1942,7 @@ impl ProfileContext {
             self.profile.add_marker(
                 thread_handle,
                 timing,
-                FreeformMarker(marker_name, description, CategoryHandle::OTHER),
+                FreeformMarker(marker_name, description),
             );
         }
     }
@@ -1995,7 +1980,7 @@ impl ProfileContext {
             self.profile.add_marker(
                 thread_handle,
                 timing,
-                FreeformMarker(marker_name, description, CategoryHandle::OTHER),
+                FreeformMarker(marker_name, description),
             );
         }
     }
@@ -2017,16 +2002,12 @@ impl ProfileContext {
 
         let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
         let timing = MarkerTiming::Instant(timestamp);
-        // this used to create a new category based on provider_name, just lump them together for now
-        let category = self
-            .categories
-            .get(KnownCategory::Unknown, &mut self.profile);
         let marker_name = self.profile.handle_for_string(task_and_op);
         let description = self.profile.handle_for_string(&stringified_properties);
         self.profile.add_marker(
             thread_handle,
             timing,
-            FreeformMarker(marker_name, description, category),
+            FreeformMarker(marker_name, description),
         );
         //println!("unhandled {}", s.name())
     }
@@ -2231,10 +2212,12 @@ pub fn make_thread_label_frame(
 }
 
 #[derive(Debug, Clone)]
-pub struct FreeformMarker(StringHandle, StringHandle, CategoryHandle);
+pub struct FreeformMarker(StringHandle, StringHandle);
 
 impl StaticSchemaMarker for FreeformMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "FreeformMarker";
+
+    const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
 
     const CHART_LABEL: Option<&'static str> = Some("{marker.data.values}");
     const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.values}");
@@ -2249,10 +2232,6 @@ impl StaticSchemaMarker for FreeformMarker {
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
         self.0
-    }
-
-    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
-        self.2
     }
 
     fn string_field_value(&self, _field_index: u32) -> StringHandle {

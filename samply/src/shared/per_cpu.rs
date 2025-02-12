@@ -1,7 +1,7 @@
 use fxprof_processed_profile::{
-    CategoryHandle, Frame, FrameFlags, FrameInfo, MarkerFieldFlags, MarkerFieldFormat,
-    MarkerTiming, ProcessHandle, Profile, StaticSchemaMarker, StaticSchemaMarkerField,
-    StringHandle, ThreadHandle, Timestamp,
+    Category, CategoryColor, CategoryHandle, Frame, FrameFlags, FrameInfo, MarkerFieldFlags,
+    MarkerFieldFormat, MarkerTiming, ProcessHandle, Profile, StaticSchemaMarker,
+    StaticSchemaMarkerField, StringHandle, ThreadHandle, Timestamp,
 };
 
 use crate::shared::context_switch::ThreadContextSwitchData;
@@ -157,6 +157,8 @@ pub struct ThreadNameMarkerForCpuTrack(pub StringHandle, pub StringHandle);
 impl StaticSchemaMarker for ThreadNameMarkerForCpuTrack {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "ContextSwitch";
 
+    const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
+
     const CHART_LABEL: Option<&'static str> = Some("{marker.data.thread}");
     const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.data.thread}");
     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.thread}");
@@ -170,10 +172,6 @@ impl StaticSchemaMarker for ThreadNameMarkerForCpuTrack {
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
         self.0
-    }
-
-    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
-        CategoryHandle::OTHER
     }
 
     fn string_field_value(&self, _field_index: u32) -> StringHandle {
@@ -194,6 +192,8 @@ pub struct OnCpuMarkerForThreadTrack {
 
 impl StaticSchemaMarker for OnCpuMarkerForThreadTrack {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "OnCpu";
+
+    const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
 
     const CHART_LABEL: Option<&'static str> = Some("{marker.data.cpu}");
     const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.data.cpu}");
@@ -217,10 +217,6 @@ impl StaticSchemaMarker for OnCpuMarkerForThreadTrack {
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
         profile.handle_for_string("Running on CPU")
-    }
-
-    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
-        CategoryHandle::OTHER
     }
 
     fn string_field_value(&self, field_index: u32) -> StringHandle {

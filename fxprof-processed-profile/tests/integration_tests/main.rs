@@ -4,8 +4,8 @@ use std::time::Duration;
 use assert_json_diff::assert_json_eq;
 use debugid::DebugId;
 use fxprof_processed_profile::{
-    Category, CategoryColor, CategoryHandle, CpuDelta, Frame, FrameFlags, FrameInfo, GraphColor,
-    LibraryInfo, MarkerFieldFlags, MarkerFieldFormat, MarkerGraphType, MarkerTiming, Profile,
+    Category, CategoryColor, CpuDelta, Frame, FrameFlags, FrameInfo, GraphColor, LibraryInfo,
+    MarkerFieldFlags, MarkerFieldFormat, MarkerGraphType, MarkerTiming, Profile,
     ReferenceTimestamp, SamplingInterval, StaticSchemaMarker, StaticSchemaMarkerField,
     StaticSchemaMarkerGraph, StringHandle, Symbol, SymbolTable, Timestamp, WeightType,
 };
@@ -22,6 +22,7 @@ pub struct TextMarker {
 
 impl StaticSchemaMarker for TextMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "Text";
+    const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
     const CHART_LABEL: Option<&'static str> = Some("{marker.data.name}");
     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.name}");
     const FIELDS: &'static [StaticSchemaMarkerField] = &[StaticSchemaMarkerField {
@@ -33,10 +34,6 @@ impl StaticSchemaMarker for TextMarker {
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
         self.name
-    }
-
-    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
-        CategoryHandle::OTHER
     }
 
     fn string_field_value(&self, _field_index: u32) -> StringHandle {
@@ -58,6 +55,7 @@ fn profile_without_js() {
     }
     impl StaticSchemaMarker for CustomMarker {
         const UNIQUE_MARKER_TYPE_NAME: &'static str = "custom";
+        const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
         const TOOLTIP_LABEL: Option<&'static str> = Some("Custom tooltip label");
 
         const FIELDS: &'static [StaticSchemaMarkerField] = &[
@@ -98,10 +96,6 @@ fn profile_without_js() {
 
         fn name(&self, profile: &mut Profile) -> StringHandle {
             profile.handle_for_string("CustomName")
-        }
-
-        fn category(&self, _profile: &mut Profile) -> CategoryHandle {
-            CategoryHandle::OTHER
         }
 
         fn string_field_value(&self, field_index: u32) -> StringHandle {

@@ -9,7 +9,7 @@ use uuid::Uuid;
 use super::coreclr::CoreClrContext;
 use super::profile_context::ProfileContext;
 use crate::windows::coreclr;
-use crate::windows::profile_context::{KnownCategory, PeInfo};
+use crate::windows::profile_context::PeInfo;
 
 use super::etw_reader::parser::{Address, Parser, TryParse};
 use super::etw_reader::schema::SchemaLocator;
@@ -410,7 +410,6 @@ fn process_trace(
                     tid,
                     s.name().strip_suffix("/win:Stop").unwrap(),
                     text,
-                    KnownCategory::D3DVideoSubmitDecoderBuffers,
                 );
             }
             marker_name if marker_name.starts_with("Mozilla.FirefoxTraceLogger/") => {
