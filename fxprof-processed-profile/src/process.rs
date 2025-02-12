@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::hash::Hash;
 
-use crate::frame_table::InternalFrameLocation;
+use crate::frame_table::InternalFrameAddress;
 use crate::global_lib_table::{GlobalLibTable, LibraryHandle};
 use crate::lib_mappings::LibMappings;
 use crate::Timestamp;
@@ -86,7 +86,7 @@ impl Process {
         global_libs: &mut GlobalLibTable,
         kernel_libs: &mut LibMappings<LibraryHandle>,
         address: u64,
-    ) -> InternalFrameLocation {
+    ) -> InternalFrameAddress {
         // Try to find the address in the kernel libs first, and then in the process libs.
         match kernel_libs
             .convert_address(address)
@@ -94,9 +94,9 @@ impl Process {
         {
             Some((relative_address, lib_handle)) => {
                 let global_lib_index = global_libs.index_for_used_lib(*lib_handle);
-                InternalFrameLocation::AddressInLib(relative_address, global_lib_index)
+                InternalFrameAddress::InLib(relative_address, global_lib_index)
             }
-            None => InternalFrameLocation::UnknownAddress(address),
+            None => InternalFrameAddress::Unknown(address),
         }
     }
 

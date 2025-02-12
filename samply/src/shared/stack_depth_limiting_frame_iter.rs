@@ -1,5 +1,5 @@
 use fxprof_processed_profile::{
-    Frame, FrameFlags, FrameInfo, Profile, StringHandle, SubcategoryHandle,
+    FrameAddress, FrameFlags, Profile, StringHandle, SubcategoryHandle,
 };
 
 /// Returns `Some((start_index, count))` if part of the stack should be elided
@@ -34,7 +34,7 @@ fn test_should_elide_frames() {
     assert_eq!(should_elide_frames::<100>(450), Some((100, 300)));
 }
 
-pub struct StackDepthLimitingFrameIter<I: Iterator<Item = FrameInfo>> {
+pub struct StackDepthLimitingFrameIter<I: Iterator<Item = FrameAddress>> {
     inner: I,
     category: SubcategoryHandle,
     state: StackDepthLimitingFrameIterState,
@@ -56,7 +56,7 @@ enum StackDepthLimitingFrameIterState {
     },
 }
 
-impl<I: Iterator<Item = FrameInfo>> StackDepthLimitingFrameIter<I> {
+impl<I: Iterator<Item = FrameAddress>> StackDepthLimitingFrameIter<I> {
     pub fn new(profile: &mut Profile, iter: I, category: SubcategoryHandle) -> Self {
         // Check if part of the stack should be elided, to limit the stack depth.
         // Without such a limit, profiles with deep recursion may become too big
@@ -87,8 +87,8 @@ impl<I: Iterator<Item = FrameInfo>> StackDepthLimitingFrameIter<I> {
     }
 }
 
-impl<I: Iterator<Item = FrameInfo>> Iterator for StackDepthLimitingFrameIter<I> {
-    type Item = FrameInfo;
+impl<I: Iterator<Item = FrameAddress>> Iterator for StackDepthLimitingFrameIter<I> {
+    type Item = FrameAddress;
 
     fn next(&mut self) -> Option<Self::Item> {
         let frame = match &mut self.state {
@@ -120,7 +120,7 @@ impl<I: Iterator<Item = FrameInfo>> Iterator for StackDepthLimitingFrameIter<I> 
                 self.state = StackDepthLimitingFrameIterState::NoMoreElision {
                     index: *first_frame_after_elision,
                 };
-                return Some(FrameInfo {
+                return Some(FrameAddress {
                     frame,
                     subcategory: self.category,
                     flags: FrameFlags::empty(),

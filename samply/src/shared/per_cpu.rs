@@ -1,7 +1,5 @@
 use fxprof_processed_profile::{
-    CategoryHandle, Frame, FrameFlags, FrameInfo, MarkerFieldFlags, MarkerFieldFormat,
-    MarkerTiming, ProcessHandle, Profile, StaticSchemaMarker, StaticSchemaMarkerField,
-    StringHandle, ThreadHandle, Timestamp,
+    Category, CategoryColor, CategoryHandle, FrameFlags, FrameHandle, MarkerFieldFlags, MarkerFieldFormat, MarkerTiming, ProcessHandle, Profile, StaticSchemaMarker, StaticSchemaMarkerField, StringHandle, ThreadHandle, Timestamp
 };
 
 use crate::shared::context_switch::ThreadContextSwitchData;
@@ -12,7 +10,7 @@ pub struct Cpus {
     process_handle: ProcessHandle,
     combined_thread_handle: ThreadHandle,
     cpus: Vec<Cpu>,
-    idle_frame_label: FrameInfo,
+    idle_frame_label: FrameHandle,
 }
 
 pub struct Cpu {
@@ -115,11 +113,12 @@ impl Cpus {
         let process_handle = profile.add_process("CPU", 0, start_time);
         let combined_thread_handle = profile.add_thread(process_handle, 0, start_time, true);
         let idle_string = profile.handle_for_string("<Idle>");
-        let idle_frame_label = FrameInfo {
-            frame: Frame::Label(idle_string),
-            subcategory: CategoryHandle::OTHER.into(),
-            flags: FrameFlags::empty(),
-        };
+        let idle_frame_label = profile.handle_for_frame_with_label(
+            combined_thread_handle,
+            idle_string,
+            CategoryHandle::OTHER,
+            FrameFlags::empty(),
+        );
         Self {
             start_time,
             process_handle,
@@ -133,7 +132,7 @@ impl Cpus {
         self.combined_thread_handle
     }
 
-    pub fn idle_frame_label(&self) -> FrameInfo {
+    pub fn idle_frame_label(&self) -> FrameHandle {
         self.idle_frame_label.clone()
     }
 
@@ -157,6 +156,8 @@ pub struct ThreadNameMarkerForCpuTrack(pub StringHandle, pub StringHandle);
 impl StaticSchemaMarker for ThreadNameMarkerForCpuTrack {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "ContextSwitch";
 
+    const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
+
     const CHART_LABEL: Option<&'static str> = Some("{marker.data.thread}");
     const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.data.thread}");
     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.thread}");
@@ -170,10 +171,6 @@ impl StaticSchemaMarker for ThreadNameMarkerForCpuTrack {
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
         self.0
-    }
-
-    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
-        CategoryHandle::OTHER
     }
 
     fn string_field_value(&self, _field_index: u32) -> StringHandle {
@@ -194,6 +191,8 @@ pub struct OnCpuMarkerForThreadTrack {
 
 impl StaticSchemaMarker for OnCpuMarkerForThreadTrack {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "OnCpu";
+
+    const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
 
     const CHART_LABEL: Option<&'static str> = Some("{marker.data.cpu}");
     const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.data.cpu}");
@@ -217,10 +216,6 @@ impl StaticSchemaMarker for OnCpuMarkerForThreadTrack {
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
         profile.handle_for_string("Running on CPU")
-    }
-
-    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
-        CategoryHandle::OTHER
     }
 
     fn string_field_value(&self, field_index: u32) -> StringHandle {

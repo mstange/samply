@@ -1,5 +1,7 @@
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
+use crate::Profile;
+
 use super::category_color::CategoryColor;
 use super::fast_hash_map::FastHashMap;
 
@@ -11,6 +13,31 @@ impl hashbrown::Equivalent<(String, CategoryColor)> for Category<'_> {
         let Category(name_l, color_l) = self;
         let (name_r, color_r) = key;
         name_l == name_r && color_l == color_r
+    }
+}
+
+pub struct Subcategory<'a>(pub Category<'a>, pub &'a str);
+
+pub trait IntoSubcategoryHandle {
+    fn into_subcategory_handle(self, profile: &mut Profile) -> SubcategoryHandle;
+}
+
+impl IntoSubcategoryHandle for CategoryHandle {
+    fn into_subcategory_handle(self, _profile: &mut Profile) -> SubcategoryHandle {
+        self.into()
+    }
+}
+
+impl IntoSubcategoryHandle for SubcategoryHandle {
+    fn into_subcategory_handle(self, _profile: &mut Profile) -> SubcategoryHandle {
+        self
+    }
+}
+
+impl IntoSubcategoryHandle for Category<'_> {
+    fn into_subcategory_handle(self, profile: &mut Profile) -> SubcategoryHandle {
+        let category_handle = profile.handle_for_category(self);
+        category_handle.into()
     }
 }
 

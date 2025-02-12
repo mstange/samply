@@ -1,17 +1,20 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use hashbrown::hash_map::Entry;
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 use serde_json::json;
 
-use crate::category::{Category, CategoryHandle, InternalCategory, SubcategoryHandle};
+use crate::category::{
+    Category, CategoryHandle, InternalCategory, IntoSubcategoryHandle, SubcategoryHandle,
+};
 use crate::category_color::CategoryColor;
 use crate::counters::{Counter, CounterHandle};
 use crate::cpu_delta::CpuDelta;
 use crate::fast_hash_map::FastHashMap;
-use crate::frame::{Frame, FrameInfo};
-use crate::frame_table::{InternalFrame, InternalFrameLocation};
+use crate::frame::FrameAddress;
+use crate::frame_table::{
+    InternalFrame, InternalFrameAddress, InternalFrameKey, InternalFrameKeyVariant,
+};
 use crate::global_lib_table::{GlobalLibTable, LibraryHandle, UsedLibraryAddressesIterator};
 use crate::lib_mappings::LibMappings;
 use crate::library_info::{LibraryInfo, SymbolTable};
@@ -19,12 +22,14 @@ use crate::markers::{
     GraphColor, InternalMarkerSchema, Marker, MarkerHandle, MarkerTiming, MarkerTypeHandle,
     RuntimeSchemaMarkerSchema, StaticSchemaMarker,
 };
+use crate::native_symbols::NativeSymbolHandle;
 use crate::process::{Process, ThreadHandle};
 use crate::reference_timestamp::ReferenceTimestamp;
 use crate::sample_table::WeightType;
 use crate::string_table::{GlobalStringIndex, GlobalStringTable};
 use crate::thread::{ProcessHandle, Thread};
 use crate::timestamp::Timestamp;
+use crate::{FrameFlags, Symbol};
 
 /// The sampling interval used during profile recording.
 ///
@@ -86,6 +91,13 @@ pub struct FrameHandle(ThreadHandle, usize);
 /// A handle to a stack, specific to a thread. Can be created with [`Profile::handle_for_stack`](crate::Profile::handle_for_stack).
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct StackHandle(ThreadHandle, usize);
+
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
+pub struct SourceLocation {
+    file_path: Option<StringHandle>,
+    line: Option<u32>,
+    col: Option<u32>,
+}
 
 /// Stores the profile data and can be serialized as JSON, via [`serde::Serialize`].
 ///
@@ -488,21 +500,252 @@ impl Profile {
         self.string_table.get_string(handle.0).unwrap()
     }
 
+    pub fn handle_for_native_symbol(
+        &mut self,
+        thread: ThreadHandle,
+        lib: LibraryHandle,
+        symbol: &Symbol,
+    ) -> NativeSymbolHandle {
+        let thread_handle = thread;
+        let thread = &mut self.threads[thread_handle.0];
+        let global_lib_index = self.global_libs.index_for_used_lib(lib);
+        let native_symbol_index =
+            thread.native_symbol_index_for_native_symbol(global_lib_index, symbol);
+        NativeSymbolHandle(thread_handle, native_symbol_index)
+    }
+
     /// Get the frame handle for a stack frame.
     ///
     /// The returned handle can only be used with this thread.
-    pub fn handle_for_frame(&mut self, thread: ThreadHandle, frame_info: FrameInfo) -> FrameHandle {
-        let thread_handle = thread;
-        let thread = &mut self.threads[thread.0];
-        let process = &mut self.processes[thread.process().0];
-        let frame_index = Self::handle_for_frame_internal(
+    pub fn handle_for_frame_with_address<SC: IntoSubcategoryHandle>(
+        &mut self,
+        thread: ThreadHandle,
+        frame_address: FrameAddress,
+        subcategory: SC,
+        flags: FrameFlags,
+    ) -> FrameHandle {
+        let subcategory = subcategory.into_subcategory_handle(self);
+        self.handle_for_frame_with_address_internal(thread, frame_address, subcategory, flags)
+    }
+
+    pub fn set_frame_source_location(
+        &mut self,
+        frame: FrameHandle,
+        file_path: Option<StringHandle>,
+        line: Option<u32>,
+        col: Option<u32>,
+    ) {
+        let FrameHandle(thread_handle, frame_index) = frame;
+        let thread = &mut self.threads[thread_handle.0];
+        let file_path =
+            file_path.map(|file_path| thread.convert_string_index(&self.string_table, file_path.0));
+        thread.set_frame_source_location(frame_index, file_path, line, col);
+    }
+
+    pub fn handle_for_frame_with_address_and_symbol<SC: IntoSubcategoryHandle>(
+        &mut self,
+        thread: ThreadHandle,
+        frame_address: FrameAddress,
+        native_symbol: NativeSymbolHandle,
+        name: Option<StringHandle>,
+        inline_depth: u16,
+        subcategory: SC,
+        flags: FrameFlags,
+    ) -> FrameHandle {
+        let subcategory = subcategory.into_subcategory_handle(self);
+        self.handle_for_frame_with_address_and_symbol_internal(
             thread,
+            frame_address,
+            native_symbol,
+            name,
+            inline_depth,
+            subcategory,
+            flags,
+        )
+    }
+
+    fn handle_for_frame_with_address_and_symbol_internal(
+        &mut self,
+        thread: ThreadHandle,
+        frame_address: FrameAddress,
+        native_symbol: NativeSymbolHandle,
+        name: Option<StringHandle>,
+        inline_depth: u16,
+        subcategory: SubcategoryHandle,
+        flags: FrameFlags,
+    ) -> FrameHandle {
+        let thread_handle = thread;
+        assert_eq!(native_symbol.0, thread_handle, "NativeSymbolHandle from wrong thread passed to Profile::handle_for_frame_with_address_and_symbol");
+        let native_symbol_index = native_symbol.1;
+        let thread = &mut self.threads[thread_handle.0];
+        let process = &mut self.processes[thread.process().0];
+        let address = Self::resolve_frame_address(
             process,
-            frame_info,
+            frame_address,
             &mut self.global_libs,
             &mut self.kernel_libs,
-            &self.string_table,
         );
+        let name = name.map(|name| thread.convert_string_index(&self.string_table, name.0));
+        let (variant, name) = match address {
+            InternalFrameAddress::Unknown(addr) => {
+                let name = name.unwrap_or_else(|| {
+                    let name = self.string_table.index_for_string(&format!("{addr:#x}"));
+                    thread.convert_string_index(&self.string_table, name)
+                });
+                (InternalFrameKeyVariant::new_label(name), name)
+            }
+            InternalFrameAddress::InLib(relative_address, lib) => {
+                let name =
+                    name.unwrap_or_else(|| thread.get_native_symbol_name(native_symbol_index));
+                (
+                    InternalFrameKeyVariant::Native {
+                        lib,
+                        relative_address,
+                        inline_depth,
+                    },
+                    name,
+                )
+            }
+        };
+        let internal_frame = InternalFrame {
+            key: InternalFrameKey {
+                variant,
+                subcategory,
+                flags,
+            },
+            name,
+            native_symbol: Some(native_symbol.1),
+        };
+        let frame_index = thread.frame_index_for_frame(internal_frame, &mut self.global_libs);
+        FrameHandle(thread_handle, frame_index)
+    }
+
+    fn handle_for_frame_with_address_internal(
+        &mut self,
+        thread: ThreadHandle,
+        frame_address: FrameAddress,
+        subcategory: SubcategoryHandle,
+        flags: FrameFlags,
+    ) -> FrameHandle {
+        let thread_handle = thread;
+        let thread = &mut self.threads[thread_handle.0];
+        let process = &mut self.processes[thread.process().0];
+        let address = Self::resolve_frame_address(
+            process,
+            frame_address,
+            &mut self.global_libs,
+            &mut self.kernel_libs,
+        );
+        let (variant, native_symbol, name) = match address {
+            InternalFrameAddress::Unknown(address) => {
+                let name = self.string_table.index_for_string(&format!("{address:#x}"));
+                let name = thread.convert_string_index(&self.string_table, name);
+                (InternalFrameKeyVariant::new_label(name), None, name)
+            }
+            InternalFrameAddress::InLib(address, lib_index) => {
+                let lib = self.global_libs.get_lib(lib_index).unwrap();
+                let native_symbol_and_name = lib.symbol_table.as_deref().and_then(|symbol_table| {
+                    let symbol = symbol_table.lookup(address)?;
+                    Some(thread.native_symbol_index_and_string_index_for_symbol(lib_index, symbol))
+                });
+                let variant = InternalFrameKeyVariant::Native {
+                    lib: lib_index,
+                    relative_address: address,
+                    inline_depth: 0,
+                };
+                match native_symbol_and_name {
+                    Some((native_symbol, name)) => (variant, Some(native_symbol), name),
+                    None => {
+                        let name = self.string_table.index_for_string(&format!("{address:#x}"));
+                        let name = thread.convert_string_index(&self.string_table, name);
+                        (variant, None, name)
+                    }
+                }
+            }
+        };
+        let internal_frame = InternalFrame {
+            key: InternalFrameKey {
+                variant,
+                subcategory,
+                flags,
+            },
+            name,
+            native_symbol,
+        };
+        let frame_index = thread.frame_index_for_frame(internal_frame, &mut self.global_libs);
+        FrameHandle(thread_handle, frame_index)
+    }
+
+    /// Get the frame handle for a stack frame.
+    ///
+    /// The returned handle can only be used with this thread.
+    pub fn handle_for_frame_with_label<SC: IntoSubcategoryHandle>(
+        &mut self,
+        thread: ThreadHandle,
+        label: StringHandle,
+        subcategory: SC,
+        flags: FrameFlags,
+    ) -> FrameHandle {
+        let subcategory = subcategory.into_subcategory_handle(self);
+        self.handle_for_frame_with_label_internal(thread, label, None, subcategory, flags)
+    }
+
+    pub fn handle_for_frame_with_label_and_source_location<SC: IntoSubcategoryHandle>(
+        &mut self,
+        thread: ThreadHandle,
+        label: StringHandle,
+        source_location: SourceLocation,
+        subcategory: SC,
+        flags: FrameFlags,
+    ) -> FrameHandle {
+        let subcategory = subcategory.into_subcategory_handle(self);
+        self.handle_for_frame_with_label_internal(
+            thread,
+            label,
+            Some(source_location),
+            subcategory,
+            flags,
+        )
+    }
+
+    fn handle_for_frame_with_label_internal(
+        &mut self,
+        thread: ThreadHandle,
+        label: StringHandle,
+        source_location: Option<SourceLocation>,
+        subcategory: SubcategoryHandle,
+        flags: FrameFlags,
+    ) -> FrameHandle {
+        let thread_handle = thread;
+        let thread = &mut self.threads[thread_handle.0];
+        let name = thread.convert_string_index(&self.string_table, label.0);
+        let variant = match source_location {
+            Some(SourceLocation {
+                file_path,
+                line,
+                col,
+            }) => {
+                let file_path =
+                    file_path.map(|f| thread.convert_string_index(&self.string_table, f.0));
+                InternalFrameKeyVariant::Label {
+                    name,
+                    file_path,
+                    line,
+                    col,
+                }
+            }
+            None => InternalFrameKeyVariant::new_label(name),
+        };
+        let internal_frame = InternalFrame {
+            key: InternalFrameKey {
+                variant,
+                subcategory,
+                flags,
+            },
+            name,
+            native_symbol: None,
+        };
+        let frame_index = thread.frame_index_for_frame(internal_frame, &mut self.global_libs);
         FrameHandle(thread_handle, frame_index)
     }
 
@@ -551,10 +794,20 @@ impl Profile {
     pub fn handle_for_stack_frames(
         &mut self,
         thread: ThreadHandle,
-        frames: impl Iterator<Item = FrameInfo>,
+        frames: impl Iterator<Item = FrameHandle>,
     ) -> Option<StackHandle> {
-        let stack_index = self.stack_index_for_frames(thread, frames)?;
-        Some(StackHandle(thread, stack_index))
+        let thread_handle = thread;
+        let thread = &mut self.threads[thread_handle.0];
+        let mut prefix = None;
+        for frame_handle in frames {
+            assert_eq!(
+                frame_handle.0, thread_handle,
+                "FrameHandle from different thread passed to Profile::handle_for_stack_frames"
+            );
+            prefix = Some(thread.stack_index_for_stack(prefix, frame_handle.1));
+        }
+        let stack_index = prefix?;
+        Some(StackHandle(thread_handle, stack_index))
     }
 
     /// Add a sample to the given thread.
@@ -699,19 +952,19 @@ impl Profile {
     /// You usually don't need to call this, ever. It is called by the blanket impl
     /// of [`Marker::marker_type`] for all types which implement [`StaticSchemaMarker`].
     pub fn static_schema_marker_type<T: StaticSchemaMarker>(&mut self) -> MarkerTypeHandle {
-        match self
+        if let Some(handle) = self
             .static_schema_marker_types
-            .entry(T::UNIQUE_MARKER_TYPE_NAME)
+            .get(T::UNIQUE_MARKER_TYPE_NAME)
         {
-            Entry::Occupied(entry) => *entry.get(),
-            Entry::Vacant(entry) => {
-                let handle = MarkerTypeHandle(self.marker_schemas.len());
-                let schema = InternalMarkerSchema::from_static_schema::<T>();
-                self.marker_schemas.push(schema);
-                entry.insert(handle);
-                handle
-            }
+            return *handle;
         }
+
+        let handle = MarkerTypeHandle(self.marker_schemas.len());
+        let schema = InternalMarkerSchema::from_static_schema::<T>(self);
+        self.marker_schemas.push(schema);
+        self.static_schema_marker_types
+            .insert(T::UNIQUE_MARKER_TYPE_NAME, handle);
+        handle
     }
 
     /// Add a marker to the given thread.
@@ -779,7 +1032,6 @@ impl Profile {
     ) -> MarkerHandle {
         let marker_type = marker.marker_type(self);
         let name = marker.name(self);
-        let category = marker.category(self);
         let thread = &mut self.threads[thread.0];
         let name_thread_string_index = thread.convert_string_index(&self.string_table, name.0);
         let schema = &self.marker_schemas[marker_type.0];
@@ -789,7 +1041,6 @@ impl Profile {
             schema,
             marker,
             timing,
-            category,
             &mut self.string_table,
         )
     }
@@ -844,49 +1095,39 @@ impl Profile {
         self.counters[counter.0].add_sample(timestamp, value_delta, number_of_operations_delta)
     }
 
-    fn handle_for_frame_internal(
-        thread: &mut Thread,
+    fn resolve_frame_address(
         process: &mut Process,
-        frame_info: FrameInfo,
+        frame_address: FrameAddress,
         global_libs: &mut GlobalLibTable,
         kernel_libs: &mut LibMappings<LibraryHandle>,
-        string_table: &GlobalStringTable,
-    ) -> usize {
-        let location = match frame_info.frame {
-            Frame::InstructionPointer(ip) => process.convert_address(global_libs, kernel_libs, ip),
-            Frame::ReturnAddress(ra) => {
+    ) -> InternalFrameAddress {
+        match frame_address {
+            FrameAddress::InstructionPointer(ip) => {
+                process.convert_address(global_libs, kernel_libs, ip)
+            }
+            FrameAddress::ReturnAddress(ra) => {
                 process.convert_address(global_libs, kernel_libs, ra.saturating_sub(1))
             }
-            Frame::AdjustedReturnAddress(ara) => {
+            FrameAddress::AdjustedReturnAddress(ara) => {
                 process.convert_address(global_libs, kernel_libs, ara)
             }
-            Frame::RelativeAddressFromInstructionPointer(lib_handle, relative_address) => {
+            FrameAddress::RelativeAddressFromInstructionPointer(lib_handle, relative_address) => {
                 let global_lib_index = global_libs.index_for_used_lib(lib_handle);
-                InternalFrameLocation::AddressInLib(relative_address, global_lib_index)
+                InternalFrameAddress::InLib(relative_address, global_lib_index)
             }
-            Frame::RelativeAddressFromReturnAddress(lib_handle, relative_address) => {
+            FrameAddress::RelativeAddressFromReturnAddress(lib_handle, relative_address) => {
                 let global_lib_index = global_libs.index_for_used_lib(lib_handle);
                 let adjusted_relative_address = relative_address.saturating_sub(1);
-                InternalFrameLocation::AddressInLib(adjusted_relative_address, global_lib_index)
+                InternalFrameAddress::InLib(adjusted_relative_address, global_lib_index)
             }
-            Frame::RelativeAddressFromAdjustedReturnAddress(
+            FrameAddress::RelativeAddressFromAdjustedReturnAddress(
                 lib_handle,
                 adjusted_relative_address,
             ) => {
                 let global_lib_index = global_libs.index_for_used_lib(lib_handle);
-                InternalFrameLocation::AddressInLib(adjusted_relative_address, global_lib_index)
+                InternalFrameAddress::InLib(adjusted_relative_address, global_lib_index)
             }
-            Frame::Label(string_index) => {
-                let thread_string_index = thread.convert_string_index(string_table, string_index.0);
-                InternalFrameLocation::Label(thread_string_index)
-            }
-        };
-        let internal_frame = InternalFrame {
-            location,
-            flags: frame_info.flags,
-            subcategory: frame_info.subcategory,
-        };
-        thread.frame_index_for_frame(internal_frame, global_libs)
+        }
     }
 
     /// Set whether the profile is already symbolicated.
@@ -923,29 +1164,6 @@ impl Profile {
     /// it via the symbol server response.
     pub fn set_symbolicated(&mut self, v: bool) {
         self.symbolicated = v;
-    }
-
-    // frames is ordered from caller to callee, i.e. root function first, pc last
-    fn stack_index_for_frames(
-        &mut self,
-        thread: ThreadHandle,
-        frames: impl Iterator<Item = FrameInfo>,
-    ) -> Option<usize> {
-        let thread = &mut self.threads[thread.0];
-        let process = &mut self.processes[thread.process().0];
-        let mut prefix = None;
-        for frame_info in frames {
-            let frame_index = Self::handle_for_frame_internal(
-                thread,
-                process,
-                frame_info,
-                &mut self.global_libs,
-                &mut self.kernel_libs,
-                &self.string_table,
-            );
-            prefix = Some(thread.stack_index_for_stack(prefix, frame_index));
-        }
-        prefix
     }
 
     /// Returns a flattened list of `ThreadHandle`s in the right order.
@@ -1012,8 +1230,8 @@ impl Profile {
         }
     }
 
-    fn contains_js_function(&self) -> bool {
-        self.threads.iter().any(|t| t.contains_js_function())
+    fn contains_js_frame(&self) -> bool {
+        self.threads.iter().any(|t| t.contains_js_frame())
     }
 
     pub fn lib_used_rva_iter(&self) -> UsedLibraryAddressesIterator {
@@ -1074,7 +1292,7 @@ impl Serialize for SerializableProfileMeta<'_> {
         map.serialize_entry("symbolicated", &self.0.symbolicated)?;
         map.serialize_entry("pausedRanges", &[] as &[()])?;
         map.serialize_entry("version", &24)?; // this version is ignored, only "preprocessedProfileVersion" is used
-        map.serialize_entry("usesOnlyOneStackType", &(!self.0.contains_js_function()))?;
+        map.serialize_entry("usesOnlyOneStackType", &(!self.0.contains_js_frame()))?;
         map.serialize_entry("doesNotUseFrameImplementation", &true)?;
         map.serialize_entry("sourceCodeIsNotOnSearchfox", &true)?;
 

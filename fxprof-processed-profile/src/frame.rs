@@ -1,12 +1,10 @@
 use bitflags::bitflags;
 
-use crate::category::SubcategoryHandle;
 use crate::global_lib_table::LibraryHandle;
-use crate::profile::StringHandle;
 
-/// A part of the information about a single stack frame.
+/// The address information of a stack frame.
 #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq)]
-pub enum Frame {
+pub enum FrameAddress {
     /// A code address taken from the instruction pointer.
     ///
     /// This code address will be resolved to a library-relative address using
@@ -45,20 +43,6 @@ pub enum Frame {
     /// A relative address taken from an adjusted return address which
     /// has already been resolved to a `LibraryHandle`.
     RelativeAddressFromAdjustedReturnAddress(LibraryHandle, u32),
-    /// A string, containing an index returned by
-    /// [`Profile::handle_for_string`](crate::Profile::handle_for_string).
-    Label(StringHandle),
-}
-
-/// All the information about a single stack frame.
-#[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq)]
-pub struct FrameInfo {
-    /// The absolute address or label of this frame.
-    pub frame: Frame,
-    /// The subcategory of this frame.
-    pub subcategory: SubcategoryHandle,
-    /// The flags of this frame. Use `FrameFlags::empty()` if unsure.
-    pub flags: FrameFlags,
 }
 
 bitflags! {
