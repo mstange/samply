@@ -93,6 +93,7 @@ impl TaskLauncher {
             args,
             child_env,
             iteration_count,
+            ignore_exit_code,
         })
     }
 
