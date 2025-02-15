@@ -28,6 +28,7 @@ pub struct TaskLauncher {
     args: Vec<OsString>,
     child_env: Vec<(OsString, OsString)>,
     iteration_count: u32,
+    ignore_exit_code: bool,
 }
 
 impl RootTaskRunner for TaskLauncher {
@@ -41,7 +42,7 @@ impl RootTaskRunner for TaskLauncher {
         let mut exit_status = root_child.wait().expect("couldn't wait for child");
 
         for i in 2..=self.iteration_count {
-            if !exit_status.success() {
+            if !self.ignore_exit_code && !exit_status.success() {
                 eprintln!(
                     "Skipping remaining iterations due to non-success exit status: \"{}\"",
                     exit_status
@@ -65,6 +66,7 @@ impl TaskLauncher {
         program: S,
         args: I,
         iteration_count: u32,
+        ignore_exit_code: bool,
         env_vars: &[(OsString, OsString)],
         extra_env_vars: &[(OsString, OsString)],
     ) -> Result<TaskLauncher, MachError>
@@ -91,6 +93,7 @@ impl TaskLauncher {
             args,
             child_env,
             iteration_count,
+            ignore_exit_code,
         })
     }
 
