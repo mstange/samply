@@ -6,6 +6,7 @@ use crate::library_info::Symbol;
 use crate::thread_string_table::{ThreadInternalStringIndex, ThreadStringTable};
 use crate::ThreadHandle;
 
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct NativeSymbolHandle(pub(crate) ThreadHandle, pub(crate) NativeSymbolIndex);
 
 /// The native symbols that are used by frames in a thread's `FrameTable`.
