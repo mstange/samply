@@ -579,6 +579,12 @@ where
         if frames.is_none() {
             frames = self.frames_lookup_for_object_map_references(svma);
         }
+        if let Some(FramesLookupResult::External(external_file_address_ref)) = frames {
+            frames = self.try_lookup_external_impl(
+                &external_file_address_ref,
+                ExternalLookupRequest::ReplyIfYouHaveOrTellMeWhatYouNeed,
+            );
+        }
         Some(SyncAddressInfo { symbol, frames })
     }
 }
