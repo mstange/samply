@@ -46,23 +46,21 @@ use windows::profiler;
     name = "samply",
     version,
     about = r#"
-samply is a sampling CPU profiler.
-Run a command, record a CPU profile of its execution, and open the profiler UI.
-Recording is currently supported on Linux and macOS.
-On other platforms, samply can only load existing profiles.
+samply is a sampling CPU profiler for Windows, macOS, and Linux.
+See "samply record --help" for additional information about the "samply record" command.
 
 EXAMPLES:
-    # Default usage:
+    # Profile a freshly launched process:
     samply record ./yourcommand yourargs
 
-    # On Linux, you can also profile existing processes by pid:
-    samply record -p 12345 # Linux only
+    # Profile an existing process by pid:
+    samply record -p 12345
 
     # Alternative usage: Save profile to file for later viewing, and then load it.
     samply record --save-only -o prof.json -- ./yourcommand yourargs
     samply load prof.json # Opens in the browser and supplies symbols
 
-    # Import perf.data files from Linux perf:
+    # Import perf.data files from Linux perf or Android simpleperf:
     samply import perf.data
 "#
 )]
