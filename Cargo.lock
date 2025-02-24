@@ -1333,8 +1333,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bb4bdc8b0ce69932332cf76d24af69c3a155242af95c226b2ab6c2e371ed1149"
 dependencies = [
  "thiserror 2.0.11",
- "zerocopy 0.8.14",
- "zerocopy-derive 0.8.14",
+ "zerocopy 0.8.20",
+ "zerocopy-derive 0.8.20",
 ]
 
 [[package]]
@@ -2208,8 +2208,8 @@ dependencies = [
  "uuid",
  "yoke",
  "yoke-derive",
- "zerocopy 0.8.14",
- "zerocopy-derive 0.8.14",
+ "zerocopy 0.8.20",
+ "zerocopy-derive 0.8.20",
 ]
 
 [[package]]
@@ -3384,11 +3384,11 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-version = "0.8.14"
+version = "0.8.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a367f292d93d4eab890745e75a778da40909cab4d6ff8173693812f79c4a2468"
+checksum = "dde3bb8c68a8f3f1ed4ac9221aad6b10cece3e60a8e2ea54a6a2dec806d0084c"
 dependencies = [
- "zerocopy-derive 0.8.14",
+ "zerocopy-derive 0.8.20",
 ]
 
 [[package]]
@@ -3404,9 +3404,9 @@ dependencies = [
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.14"
+version = "0.8.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3931cb58c62c13adec22e38686b559c86a30565e16ad6e8510a337cedc611e1"
+checksum = "eea57037071898bf96a6da35fd626f4f27e9cee3ead2a6c703cf09d472b2e700"
 dependencies = [
  "proc-macro2",
  "quote",
