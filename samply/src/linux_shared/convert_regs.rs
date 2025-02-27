@@ -27,7 +27,7 @@ impl ConvertRegs for ConvertRegsX86_64 {
     }
 
     fn regs_mask() -> u64 {
-        1 << PERF_REG_X86_IP | 1 << PERF_REG_X86_SP | 1 << PERF_REG_X86_BP
+        (1 << PERF_REG_X86_IP) | (1 << PERF_REG_X86_SP) | (1 << PERF_REG_X86_BP)
     }
 }
 
@@ -44,9 +44,9 @@ impl ConvertRegs for ConvertRegsAarch64 {
     }
 
     fn regs_mask() -> u64 {
-        1 << PERF_REG_ARM64_PC
-            | 1 << PERF_REG_ARM64_LR
-            | 1 << PERF_REG_ARM64_SP
-            | 1 << PERF_REG_ARM64_X29
+        (1 << PERF_REG_ARM64_PC)
+            | (1 << PERF_REG_ARM64_LR)
+            | (1 << PERF_REG_ARM64_SP)
+            | (1 << PERF_REG_ARM64_X29)
     }
 }
