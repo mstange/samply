@@ -3,8 +3,11 @@ use std::fmt::{Display, Formatter};
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
 use crate::cpu_delta::CpuDelta;
-use crate::serialization_helpers::SerializableSingleValueColumn;
-use crate::Timestamp;
+use crate::serialization_helpers::{SerializableSingleValueColumn, SliceWithPermutation};
+use crate::timestamp::{
+    SerializableTimestampSliceAsDeltas, SerializableTimestampSliceAsDeltasWithPermutation,
+    Timestamp,
+};
 
 /// The sample table contains stacks with timestamps and some extra information.
 ///
@@ -20,7 +23,7 @@ pub struct SampleTable {
     sample_stack_indexes: Vec<Option<usize>>,
     /// CPU usage delta since the previous sample for this thread, for each sample.
     sample_cpu_deltas: Vec<CpuDelta>,
-    sorted_by_time: bool,
+    is_sorted_by_time: bool,
     last_sample_timestamp: Timestamp,
 }
 
@@ -76,7 +79,7 @@ impl SampleTable {
             sample_timestamps: Vec::new(),
             sample_stack_indexes: Vec::new(),
             sample_cpu_deltas: Vec::new(),
-            sorted_by_time: true,
+            is_sorted_by_time: true,
             last_sample_timestamp: Timestamp::from_nanos_since_reference(0),
         }
     }
@@ -93,7 +96,7 @@ impl SampleTable {
         self.sample_stack_indexes.push(stack_index);
         self.sample_cpu_deltas.push(cpu_delta);
         if timestamp < self.last_sample_timestamp {
-            self.sorted_by_time = false;
+            self.is_sorted_by_time = false;
         }
         self.last_sample_timestamp = timestamp;
     }
@@ -115,9 +118,12 @@ impl Serialize for SampleTable {
         map.serialize_entry("length", &len)?;
         map.serialize_entry("weightType", &self.sample_weight_type.to_string())?;
 
-        if self.sorted_by_time {
+        if self.is_sorted_by_time {
             map.serialize_entry("stack", &self.sample_stack_indexes)?;
-            map.serialize_entry("time", &self.sample_timestamps)?;
+            map.serialize_entry(
+                "timeDeltas",
+                &SerializableTimestampSliceAsDeltas(&self.sample_timestamps),
+            )?;
             map.serialize_entry("weight", &self.sample_weights)?;
             map.serialize_entry("threadCPUDelta", &self.sample_cpu_deltas)?;
         } else {
@@ -128,8 +134,11 @@ impl Serialize for SampleTable {
                 &SliceWithPermutation(&self.sample_stack_indexes, &indexes),
             )?;
             map.serialize_entry(
-                "time",
-                &SliceWithPermutation(&self.sample_timestamps, &indexes),
+                "timeDeltas",
+                &SerializableTimestampSliceAsDeltasWithPermutation(
+                    &self.sample_timestamps,
+                    &indexes,
+                ),
             )?;
             map.serialize_entry(
                 "weight",
@@ -141,17 +150,6 @@ impl Serialize for SampleTable {
             )?;
         }
         map.end()
-    }
-}
-
-struct SliceWithPermutation<'a, T: Serialize>(&'a [T], &'a [usize]);
-
-impl<T: Serialize> Serialize for SliceWithPermutation<'_, T> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.collect_seq(self.1.iter().map(|i| &self.0[*i]))
     }
 }
 

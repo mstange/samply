@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 
 use serde::ser::{SerializeMap, Serializer};
 
-use crate::category::{Category, CategoryPairHandle};
+use crate::category::Category;
 use crate::cpu_delta::CpuDelta;
 use crate::frame_table::{FrameTable, InternalFrame};
 use crate::func_table::FuncTable;
@@ -116,18 +116,8 @@ impl Thread {
         )
     }
 
-    pub fn get_frame_category(&self, frame: usize) -> CategoryPairHandle {
-        self.frame_table.get_category(frame)
-    }
-
-    pub fn stack_index_for_stack(
-        &mut self,
-        prefix: Option<usize>,
-        frame: usize,
-        category_pair: CategoryPairHandle,
-    ) -> usize {
-        self.stack_table
-            .index_for_stack(prefix, frame, category_pair)
+    pub fn stack_index_for_stack(&mut self, prefix: Option<usize>, frame: usize) -> usize {
+        self.stack_table.index_for_stack(prefix, frame)
     }
 
     pub fn add_sample(
@@ -265,10 +255,7 @@ impl Thread {
         if let Some(allocations) = &self.native_allocations {
             map.serialize_entry("nativeAllocations", &allocations)?;
         }
-        map.serialize_entry(
-            "stackTable",
-            &self.stack_table.serialize_with_categories(categories),
-        )?;
+        map.serialize_entry("stackTable", &self.stack_table)?;
         map.serialize_entry("stringArray", &self.string_table)?;
         map.serialize_entry("tid", &self.tid)?;
         map.serialize_entry("unregisterTime", &thread_unregister_time)?;

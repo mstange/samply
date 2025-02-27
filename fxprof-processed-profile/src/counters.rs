@@ -1,5 +1,9 @@
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
+use crate::serialization_helpers::SliceWithPermutation;
+use crate::timestamp::{
+    SerializableTimestampSliceAsDeltas, SerializableTimestampSliceAsDeltasWithPermutation,
+};
 use crate::{GraphColor, ProcessHandle, Timestamp};
 
 /// A counter. Can be created with [`Profile::add_counter`](crate::Profile::add_counter).
@@ -89,6 +93,9 @@ struct CounterSamples {
     time: Vec<Timestamp>,
     number: Vec<u32>,
     count: Vec<f64>,
+
+    is_sorted_by_time: bool,
+    last_sample_timestamp: Timestamp,
 }
 
 impl CounterSamples {
@@ -97,6 +104,9 @@ impl CounterSamples {
             time: Vec::new(),
             number: Vec::new(),
             count: Vec::new(),
+
+            is_sorted_by_time: true,
+            last_sample_timestamp: Timestamp::from_nanos_since_reference(0),
         }
     }
 
@@ -109,6 +119,11 @@ impl CounterSamples {
         self.time.push(timestamp);
         self.count.push(value_delta);
         self.number.push(number_of_operations_delta);
+
+        if timestamp < self.last_sample_timestamp {
+            self.is_sorted_by_time = false;
+        }
+        self.last_sample_timestamp = timestamp;
     }
 }
 
@@ -117,9 +132,25 @@ impl Serialize for CounterSamples {
         let len = self.time.len();
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry("length", &len)?;
-        map.serialize_entry("count", &self.count)?;
-        map.serialize_entry("number", &self.number)?;
-        map.serialize_entry("time", &self.time)?;
+
+        if self.is_sorted_by_time {
+            map.serialize_entry("count", &self.count)?;
+            map.serialize_entry("number", &self.number)?;
+            map.serialize_entry(
+                "timeDeltas",
+                &SerializableTimestampSliceAsDeltas(&self.time),
+            )?;
+        } else {
+            let mut indexes: Vec<usize> = (0..self.time.len()).collect();
+            indexes.sort_unstable_by_key(|index| self.time[*index]);
+            map.serialize_entry("count", &SliceWithPermutation(&self.count, &indexes))?;
+            map.serialize_entry("number", &SliceWithPermutation(&self.number, &indexes))?;
+            map.serialize_entry(
+                "timeDeltas",
+                &SerializableTimestampSliceAsDeltasWithPermutation(&self.time, &indexes),
+            )?;
+        }
+
         map.end()
     }
 }

@@ -528,8 +528,7 @@ impl Profile {
             "FrameHandle from different thread passed to Profile::intern_stack"
         );
         let thread = &mut self.threads[thread.0];
-        let category_pair = thread.get_frame_category(frame_index);
-        let stack_index = thread.stack_index_for_stack(prefix, frame_index, category_pair);
+        let stack_index = thread.stack_index_for_stack(prefix, frame_index);
         StackHandle(thread_handle, stack_index)
     }
 
@@ -926,7 +925,6 @@ impl Profile {
         let process = &mut self.processes[thread.process().0];
         let mut prefix = None;
         for frame_info in frames {
-            let category_pair = frame_info.category_pair;
             let frame_index = Self::intern_frame_internal(
                 thread,
                 process,
@@ -935,7 +933,7 @@ impl Profile {
                 &mut self.kernel_libs,
                 &self.string_table,
             );
-            prefix = Some(thread.stack_index_for_stack(prefix, frame_index, category_pair));
+            prefix = Some(thread.stack_index_for_stack(prefix, frame_index));
         }
         prefix
     }
@@ -1049,7 +1047,7 @@ impl Serialize for SerializableProfileMeta<'_> {
             }),
         )?;
         map.serialize_entry("interval", &(self.0.interval.as_secs_f64() * 1000.0))?;
-        map.serialize_entry("preprocessedProfileVersion", &49)?;
+        map.serialize_entry("preprocessedProfileVersion", &53)?;
         map.serialize_entry("processType", &0)?;
         map.serialize_entry("product", &self.0.product)?;
         if let Some(os_name) = &self.0.os_name {
@@ -1066,7 +1064,7 @@ impl Serialize for SerializableProfileMeta<'_> {
         map.serialize_entry("startTime", &self.0.reference_timestamp)?;
         map.serialize_entry("symbolicated", &self.0.symbolicated)?;
         map.serialize_entry("pausedRanges", &[] as &[()])?;
-        map.serialize_entry("version", &24)?;
+        map.serialize_entry("version", &24)?; // this version is ignored, only "preprocessedProfileVersion" is used
         map.serialize_entry("usesOnlyOneStackType", &(!self.0.contains_js_function()))?;
         map.serialize_entry("doesNotUseFrameImplementation", &true)?;
         map.serialize_entry("sourceCodeIsNotOnSearchfox", &true)?;
