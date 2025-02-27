@@ -23,7 +23,7 @@ impl Serialize for CategoryHandle {
 ///
 /// Subategories can be created with [`Profile::add_subcategory`](crate::Profile::add_subcategory).
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub struct SubcategoryIndex(pub u8);
+pub struct SubcategoryIndex(pub u16);
 
 impl SubcategoryIndex {
     /// The "Other" subcategory. All categories have this subcategory as their first subcategory.
@@ -63,7 +63,7 @@ impl InternalCategory {
 
     /// Add a subcategory to this category.
     pub fn add_subcategory(&mut self, subcategory_name: String) -> SubcategoryIndex {
-        let subcategory_index = SubcategoryIndex(u8::try_from(self.subcategories.len()).unwrap());
+        let subcategory_index = SubcategoryIndex(u16::try_from(self.subcategories.len()).unwrap());
         self.subcategories.push(subcategory_name);
         subcategory_index
     }
