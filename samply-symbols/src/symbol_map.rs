@@ -16,6 +16,13 @@ pub trait SymbolMapTrait {
 
     fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_>;
 
+    /// Look up information for an address synchronously.
+    ///
+    /// If the information is known to be in an external file, and this file is
+    /// already cached within this symbol map, then that cached information is
+    /// consulted as part of this lookup_sync invocation. This method only returns
+    /// `FramesLookupResult::External` if the caller actually needs to supply new
+    /// file contents with a follow-up call to `try_lookup_external_with_file_contents`.
     fn lookup_sync(&self, address: LookupAddress) -> Option<SyncAddressInfo>;
 }
 
