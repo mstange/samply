@@ -1,8 +1,6 @@
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 
-use crate::category::{
-    Category, CategoryHandle, CategoryPairHandle, SerializableSubcategoryColumn, Subcategory,
-};
+use crate::category::{CategoryHandle, CategoryPairHandle, SubcategoryIndex};
 use crate::fast_hash_map::FastHashMap;
 use crate::frame::FrameFlags;
 use crate::func_table::{FuncIndex, FuncTable};
@@ -16,7 +14,7 @@ use crate::thread_string_table::{ThreadInternalStringIndex, ThreadStringTable};
 pub struct FrameTable {
     addresses: Vec<Option<u32>>,
     categories: Vec<CategoryHandle>,
-    subcategories: Vec<Subcategory>,
+    subcategories: Vec<SubcategoryIndex>,
     funcs: Vec<FuncIndex>,
     native_symbols: Vec<Option<NativeSymbolIndex>>,
     internal_frame_to_frame_index: FastHashMap<InternalFrame, usize>,
@@ -86,11 +84,7 @@ impl FrameTable {
                 };
                 let func_index =
                     func_table.index_for_func(location_string_index, resource, frame.flags);
-                let CategoryPairHandle(category, subcategory_index) = frame.category_pair;
-                let subcategory = match subcategory_index {
-                    Some(index) => Subcategory::Normal(index),
-                    None => Subcategory::Other(category),
-                };
+                let CategoryPairHandle(category, subcategory) = frame.category_pair;
                 addresses.push(address);
                 categories.push(category);
                 subcategories.push(subcategory);
@@ -99,37 +93,22 @@ impl FrameTable {
                 frame_index
             })
     }
-
-    pub fn as_serializable<'a>(&'a self, categories: &'a [Category]) -> impl Serialize + 'a {
-        SerializableFrameTable {
-            table: self,
-            categories,
-        }
-    }
 }
 
-struct SerializableFrameTable<'a> {
-    table: &'a FrameTable,
-    categories: &'a [Category],
-}
-
-impl Serialize for SerializableFrameTable<'_> {
+impl Serialize for FrameTable {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let len = self.table.addresses.len();
+        let len = self.addresses.len();
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry("length", &len)?;
         map.serialize_entry(
             "address",
-            &SerializableFrameTableAddressColumn(&self.table.addresses),
+            &SerializableFrameTableAddressColumn(&self.addresses),
         )?;
         map.serialize_entry("inlineDepth", &SerializableSingleValueColumn(0u32, len))?;
-        map.serialize_entry("category", &self.table.categories)?;
-        map.serialize_entry(
-            "subcategory",
-            &SerializableSubcategoryColumn(&self.table.subcategories, self.categories),
-        )?;
-        map.serialize_entry("func", &self.table.funcs)?;
-        map.serialize_entry("nativeSymbol", &self.table.native_symbols)?;
+        map.serialize_entry("category", &self.categories)?;
+        map.serialize_entry("subcategory", &self.subcategories)?;
+        map.serialize_entry("func", &self.funcs)?;
+        map.serialize_entry("nativeSymbol", &self.native_symbols)?;
         map.serialize_entry("innerWindowID", &SerializableSingleValueColumn((), len))?;
         map.serialize_entry("implementation", &SerializableSingleValueColumn((), len))?;
         map.serialize_entry("line", &SerializableSingleValueColumn((), len))?;

@@ -5,7 +5,7 @@ use std::time::Duration;
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 use serde_json::json;
 
-use crate::category::{Category, CategoryHandle, CategoryPairHandle};
+use crate::category::{CategoryHandle, CategoryPairHandle, InternalCategory};
 use crate::category_color::CategoryColor;
 use crate::counters::{Counter, CounterHandle};
 use crate::cpu_delta::CpuDelta;
@@ -120,8 +120,8 @@ pub struct Profile {
     pub(crate) interval: SamplingInterval,
     pub(crate) global_libs: GlobalLibTable,
     pub(crate) kernel_libs: LibMappings<LibraryHandle>,
-    pub(crate) categories: Vec<Category>, // append-only for stable CategoryHandles
-    pub(crate) processes: Vec<Process>,   // append-only for stable ProcessHandles
+    pub(crate) categories: Vec<InternalCategory>, // append-only for stable CategoryHandles
+    pub(crate) processes: Vec<Process>,           // append-only for stable ProcessHandles
     pub(crate) counters: Vec<Counter>,
     pub(crate) threads: Vec<Thread>, // append-only for stable ThreadHandles
     pub(crate) initial_visible_threads: Vec<ThreadHandle>,
@@ -160,11 +160,10 @@ impl Profile {
             processes: Vec::new(),
             string_table: GlobalStringTable::new(),
             marker_schemas: Vec::new(),
-            categories: vec![Category {
-                name: "Other".to_string(),
-                color: CategoryColor::Gray,
-                subcategories: Vec::new(),
-            }],
+            categories: vec![InternalCategory::new(
+                "Other".to_string(),
+                CategoryColor::Gray,
+            )],
             static_schema_marker_types: FastHashMap::default(),
             symbolicated: false,
             used_pids: FastHashMap::default(),
@@ -198,11 +197,8 @@ impl Profile {
     /// Categories are used for stack frames and markers, as part of a "category pair".
     pub fn add_category(&mut self, name: &str, color: CategoryColor) -> CategoryHandle {
         let handle = CategoryHandle(self.categories.len() as u16);
-        self.categories.push(Category {
-            name: name.to_string(),
-            color,
-            subcategories: Vec::new(),
-        });
+        self.categories
+            .push(InternalCategory::new(name.to_string(), color));
         handle
     }
 
@@ -212,7 +208,7 @@ impl Profile {
     /// its corresponding `CategoryPairHandle` for the default category using `category.into()`.
     pub fn add_subcategory(&mut self, category: CategoryHandle, name: &str) -> CategoryPairHandle {
         let subcategory = self.categories[category.0 as usize].add_subcategory(name.into());
-        CategoryPairHandle(category, Some(subcategory))
+        CategoryPairHandle(category, subcategory)
     }
 
     /// Add an empty process. The name, pid and start time can be changed afterwards,
@@ -986,7 +982,6 @@ impl Profile {
         SerializableProfileThreadsProperty {
             threads: &self.threads,
             processes: &self.processes,
-            categories: &self.categories,
             sorted_threads,
             marker_schemas: &self.marker_schemas,
             global_string_table: &self.string_table,
@@ -1104,7 +1099,6 @@ impl Serialize for SerializableProfileMeta<'_> {
 struct SerializableProfileThreadsProperty<'a> {
     threads: &'a [Thread],
     processes: &'a [Process],
-    categories: &'a [Category],
     sorted_threads: &'a [ThreadHandle],
     marker_schemas: &'a [InternalMarkerSchema],
     global_string_table: &'a GlobalStringTable,
@@ -1115,7 +1109,6 @@ impl Serialize for SerializableProfileThreadsProperty<'_> {
         let mut seq = serializer.serialize_seq(Some(self.threads.len()))?;
 
         for thread in self.sorted_threads {
-            let categories = self.categories;
             let thread = &self.threads[thread.0];
             let process = &self.processes[thread.process().0];
             let marker_schemas = self.marker_schemas;
@@ -1123,7 +1116,6 @@ impl Serialize for SerializableProfileThreadsProperty<'_> {
             seq.serialize_element(&SerializableProfileThread(
                 process,
                 thread,
-                categories,
                 marker_schemas,
                 global_string_table,
             ))?;
@@ -1154,27 +1146,19 @@ impl Serialize for SerializableProfileCountersProperty<'_> {
 struct SerializableProfileThread<'a>(
     &'a Process,
     &'a Thread,
-    &'a [Category],
     &'a [InternalMarkerSchema],
     &'a GlobalStringTable,
 );
 
 impl Serialize for SerializableProfileThread<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let SerializableProfileThread(
-            process,
-            thread,
-            categories,
-            marker_schemas,
-            global_string_table,
-        ) = self;
+        let SerializableProfileThread(process, thread, marker_schemas, global_string_table) = self;
         let process_start_time = process.start_time();
         let process_end_time = process.end_time();
         let process_name = process.name();
         let pid = process.pid();
         thread.serialize_with(
             serializer,
-            categories,
             process_start_time,
             process_end_time,
             process_name,
