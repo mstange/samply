@@ -1,18 +1,22 @@
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
 use super::category_color::CategoryColor;
-use super::profile::Profile;
+use super::fast_hash_map::FastHashMap;
 
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct Category<'a>(pub &'a str, pub CategoryColor);
 
-trait IntoCategoryHandle {
-    fn into_category_handle(profile: &mut Profile) -> CategoryHandle;
+impl hashbrown::Equivalent<(String, CategoryColor)> for Category<'_> {
+    fn equivalent(&self, key: &(String, CategoryColor)) -> bool {
+        let Category(name_l, color_l) = self;
+        let (name_r, color_r) = key;
+        name_l == name_r && color_l == color_r
+    }
 }
 
-// pub struct Subcategory<'a>(pub Category<'a>, pub &'a str);
+pub struct Subcategory<'a>(pub Category<'a>, pub &'a str);
 
-/// A profiling category, can be set on stack frames and markers as part of a [`CategoryPairHandle`].
+/// A profiling category, can be set on stack frames and markers as part of a [`SubcategoryHandle`].
 ///
 /// Categories can be created with [`Profile::add_category`](crate::Profile::add_category).
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
@@ -29,7 +33,7 @@ impl Serialize for CategoryHandle {
     }
 }
 
-/// A profiling subcategory, can be set on stack frames and markers as part of a [`CategoryPairHandle`].
+/// A profiling subcategory, can be set on stack frames and markers as part of a [`SubcategoryHandle`].
 ///
 /// Subategories can be created with [`Profile::add_subcategory`](crate::Profile::add_subcategory).
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
@@ -45,16 +49,12 @@ impl SubcategoryIndex {
 /// Category pairs can be created with [`Profile::add_subcategory`](crate::Profile::add_subcategory)
 /// and from a [`CategoryHandle`].
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub struct CategoryPairHandle(pub(crate) CategoryHandle, pub(crate) SubcategoryIndex);
+pub struct SubcategoryHandle(pub(crate) CategoryHandle, pub(crate) SubcategoryIndex);
 
-impl From<CategoryHandle> for CategoryPairHandle {
+impl From<CategoryHandle> for SubcategoryHandle {
     fn from(category: CategoryHandle) -> Self {
-        CategoryPairHandle(category, SubcategoryIndex::OTHER)
+        SubcategoryHandle(category, SubcategoryIndex::OTHER)
     }
-}
-
-trait IntoCategoryPairHandle {
-    fn into_category_pair_handle(profile: &mut Profile) -> CategoryPairHandle;
 }
 
 /// The information about a category.
@@ -63,23 +63,34 @@ pub struct InternalCategory {
     name: String,
     color: CategoryColor,
     subcategories: Vec<String>,
+    subcategory_map: FastHashMap<String, SubcategoryIndex>,
 }
 
 impl InternalCategory {
-    pub fn new(name: String, color: CategoryColor) -> Self {
+    pub fn new(name: &str, color: CategoryColor) -> Self {
         let subcategories = vec!["Other".to_string()];
+        let mut subcategory_map = FastHashMap::with_capacity_and_hasher(1, Default::default());
+        subcategory_map.insert("Other".to_string(), SubcategoryIndex(0));
         Self {
-            name,
+            name: name.to_string(),
             color,
             subcategories,
+            subcategory_map,
         }
     }
 
-    /// Add a subcategory to this category.
-    pub fn add_subcategory(&mut self, subcategory_name: String) -> SubcategoryIndex {
-        let subcategory_index = SubcategoryIndex(u16::try_from(self.subcategories.len()).unwrap());
-        self.subcategories.push(subcategory_name);
-        subcategory_index
+    /// Get or create a subcategory to this category.
+    pub fn index_for_subcategory(&mut self, subcategory_name: &str) -> SubcategoryIndex {
+        match self.subcategory_map.get(subcategory_name) {
+            Some(handle) => *handle,
+            None => {
+                let handle = SubcategoryIndex(u16::try_from(self.subcategories.len()).unwrap());
+                self.subcategories.push(subcategory_name.to_string());
+                self.subcategory_map
+                    .insert(subcategory_name.to_string(), handle);
+                handle
+            }
+        }
     }
 }
 

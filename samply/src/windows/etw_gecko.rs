@@ -443,7 +443,7 @@ fn process_trace(
                         "EndTime",
                         "Phase",
                         "InnerWindowId",
-                        "CategoryPair",
+                        "Subcategory",
                     ]),
                 );
                 context.handle_firefox_marker(

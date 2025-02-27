@@ -117,7 +117,7 @@ impl Cpus {
         let idle_string = profile.handle_for_string("<Idle>");
         let idle_frame_label = FrameInfo {
             frame: Frame::Label(idle_string),
-            category_pair: CategoryHandle::OTHER.into(),
+            subcategory: CategoryHandle::OTHER.into(),
             flags: FrameFlags::empty(),
         };
         Self {

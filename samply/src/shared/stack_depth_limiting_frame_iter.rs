@@ -1,5 +1,5 @@
 use fxprof_processed_profile::{
-    CategoryPairHandle, Frame, FrameFlags, FrameInfo, Profile, StringHandle,
+    Frame, FrameFlags, FrameInfo, Profile, StringHandle, SubcategoryHandle,
 };
 
 /// Returns `Some((start_index, count))` if part of the stack should be elided
@@ -36,7 +36,7 @@ fn test_should_elide_frames() {
 
 pub struct StackDepthLimitingFrameIter<I: Iterator<Item = FrameInfo>> {
     inner: I,
-    category: CategoryPairHandle,
+    category: SubcategoryHandle,
     state: StackDepthLimitingFrameIterState,
 }
 
@@ -57,7 +57,7 @@ enum StackDepthLimitingFrameIterState {
 }
 
 impl<I: Iterator<Item = FrameInfo>> StackDepthLimitingFrameIter<I> {
-    pub fn new(profile: &mut Profile, iter: I, category: CategoryPairHandle) -> Self {
+    pub fn new(profile: &mut Profile, iter: I, category: SubcategoryHandle) -> Self {
         // Check if part of the stack should be elided, to limit the stack depth.
         // Without such a limit, profiles with deep recursion may become too big
         // to be processed.
@@ -122,7 +122,7 @@ impl<I: Iterator<Item = FrameInfo>> Iterator for StackDepthLimitingFrameIter<I> 
                 };
                 return Some(FrameInfo {
                     frame,
-                    category_pair: self.category,
+                    subcategory: self.category,
                     flags: FrameFlags::empty(),
                 });
             }

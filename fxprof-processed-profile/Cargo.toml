@@ -16,6 +16,7 @@ serde = "1.0.204"
 serde_derive = "1.0.188"
 debugid = "0.8.0"
 fxhash = "0.2.1"
+hashbrown = "0.15"
 
 [dev-dependencies]
 assert-json-diff = "2.0.1"
