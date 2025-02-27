@@ -28,3 +28,14 @@ impl Serialize for SerializableOptionalTimestampColumn<'_> {
         seq.end()
     }
 }
+
+pub struct SliceWithPermutation<'a, T: Serialize>(pub &'a [T], pub &'a [usize]);
+
+impl<T: Serialize> Serialize for SliceWithPermutation<'_, T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.collect_seq(self.1.iter().map(|i| &self.0[*i]))
+    }
+}
