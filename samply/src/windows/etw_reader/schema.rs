@@ -1,10 +1,10 @@
 //! ETW Event Schema locator and handler
 //!
 //! This module contains the means needed to locate and interact with the Schema of an ETW event
+use std::cell::OnceCell;
 use std::collections::hash_map::Entry;
 use std::rc::Rc;
 
-use once_cell::unsync::OnceCell;
 use rustc_hash::FxHashMap;
 use windows::core::GUID;
 use windows::Win32::System::Diagnostics::Etw::{self, EVENT_HEADER_FLAG_64_BIT_HEADER};
