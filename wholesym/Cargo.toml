@@ -23,7 +23,7 @@ samply-symbols = { version = "0.24.0", path = "../samply-symbols", features = ["
 # symsrv = { path = "../../symsrv" }
 symsrv = "0.5.2"
 yoke = "0.7"
-yoke-derive = "0.7"
+yoke-derive = "0.8"
 libc = "0.2"
 uuid = "1"
 reqwest = { version = "0.12", default-features = false, features = [
