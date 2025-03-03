@@ -1,7 +1,7 @@
+use std::cell::OnceCell;
 use std::ops::Deref;
 use std::rc::Rc;
 
-use once_cell::unsync::OnceCell;
 use rustc_hash::FxHashMap;
 use windows::core::{GUID, PCWSTR};
 use windows::Win32::System::Diagnostics::Etw::{self, PropertyStruct};

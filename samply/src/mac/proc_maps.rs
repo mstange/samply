@@ -2,6 +2,8 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::mem::MaybeUninit;
 use std::ops::{Deref, Range};
+#[cfg(target_arch = "aarch64")]
+use std::sync::OnceLock;
 use std::{mem, ptr};
 
 use dyld_bindings::{dyld_all_image_infos, dyld_image_info};
@@ -35,8 +37,6 @@ use object::macho::{
 };
 use object::read::macho::{MachHeader, Section, Segment};
 use object::LittleEndian;
-#[cfg(target_arch = "aarch64")]
-use once_cell::sync::Lazy;
 use uuid::Uuid;
 use wholesym::samply_symbols::object;
 use wholesym::CodeId;
@@ -477,11 +477,7 @@ fn get_virtual_address_size() -> Option<u32> {
 }
 
 #[cfg(target_arch = "aarch64")]
-static PTR_AUTH_MASK: Lazy<PtrAuthMask> = Lazy::new(|| {
-    let addr_bits = get_virtual_address_size().unwrap_or(47);
-    let mask_bits = 64 - addr_bits;
-    PtrAuthMask(u64::MAX >> mask_bits)
-});
+static PTR_AUTH_MASK: OnceLock<PtrAuthMask> = OnceLock::new();
 
 #[cfg(target_arch = "aarch64")]
 fn get_unwinding_registers(
@@ -498,7 +494,11 @@ fn get_unwinding_registers(
         )
     }
     .into_result()?;
-    let mask = *PTR_AUTH_MASK;
+    let mask = *PTR_AUTH_MASK.get_or_init(|| {
+        let addr_bits = get_virtual_address_size().unwrap_or(47);
+        let mask_bits = 64 - addr_bits;
+        PtrAuthMask(u64::MAX >> mask_bits)
+    });
     Ok((
         mask.strip_ptr_auth(state.__pc),
         UnwindRegsAarch64::new_with_ptr_auth_mask(mask, state.__lr, state.__sp, state.__fp),

@@ -1,7 +1,8 @@
-use mach2::mach_time;
-use once_cell::sync::OnceCell;
+use std::sync::OnceLock;
 
-static NANOS_PER_TICK: OnceCell<mach_time::mach_timebase_info> = OnceCell::new();
+use mach2::mach_time;
+
+static NANOS_PER_TICK: OnceLock<mach_time::mach_timebase_info> = OnceLock::new();
 
 pub fn get_monotonic_timestamp() -> u64 {
     let nanos_per_tick = NANOS_PER_TICK.get_or_init(|| unsafe {
