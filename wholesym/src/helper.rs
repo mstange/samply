@@ -955,16 +955,16 @@ impl HelperDownloaderObserver {
 
     pub fn on_file_accessed(&self, path: &Path) {
         let inner = self.inner.lock().unwrap();
-        if let Some(observer) = &inner.observer {
-            observer.on_file_accessed(path);
-        }
+        let Some(observer) = inner.observer.clone() else { return };
+        drop(inner);
+        observer.on_file_accessed(path);
     }
 
     pub fn on_file_missed(&self, path: &Path) {
         let inner = self.inner.lock().unwrap();
-        if let Some(observer) = &inner.observer {
-            observer.on_file_missed(path);
-        }
+        let Some(observer) = inner.observer.clone() else { return };
+        drop(inner);
+        observer.on_file_missed(path);
     }
 }
 
@@ -977,17 +977,17 @@ impl SymsrvObserver for HelperDownloaderObserver {
         inner
             .symsrv_download_id_mapping
             .insert(symsrv_download_id, download_id);
-        if let Some(observer) = &inner.observer {
-            observer.on_new_download_before_connect(download_id, url);
-        }
+        let Some(observer) = inner.observer.clone() else { return };
+        drop(inner);
+        observer.on_new_download_before_connect(download_id, url);
     }
 
     fn on_download_started(&self, symsrv_download_id: u64) {
         let inner = self.inner.lock().unwrap();
-        if let Some(observer) = &inner.observer {
-            let download_id = inner.symsrv_download_id_mapping[&symsrv_download_id];
-            observer.on_download_started(download_id);
-        }
+        let Some(observer) = inner.observer.clone() else { return };
+        let download_id = inner.symsrv_download_id_mapping[&symsrv_download_id];
+        drop(inner);
+        observer.on_download_started(download_id);
     }
 
     fn on_download_progress(
@@ -997,10 +997,10 @@ impl SymsrvObserver for HelperDownloaderObserver {
         total_bytes: Option<u64>,
     ) {
         let inner = self.inner.lock().unwrap();
-        if let Some(observer) = &inner.observer {
-            let download_id = inner.symsrv_download_id_mapping[&symsrv_download_id];
-            observer.on_download_progress(download_id, bytes_so_far, total_bytes);
-        }
+        let Some(observer) = inner.observer.clone() else { return };
+        let download_id = inner.symsrv_download_id_mapping[&symsrv_download_id];
+        drop(inner);
+        observer.on_download_progress(download_id, bytes_so_far, total_bytes);
     }
 
     fn on_download_completed(
@@ -1015,14 +1015,14 @@ impl SymsrvObserver for HelperDownloaderObserver {
             .symsrv_download_id_mapping
             .remove(&symsrv_download_id)
             .unwrap();
-        if let Some(observer) = &inner.observer {
+        let Some(observer) = inner.observer.clone() else { return };
+        drop(inner);
             observer.on_download_completed(
                 download_id,
                 uncompressed_size_in_bytes,
                 time_until_headers,
                 time_until_completed,
             );
-        }
     }
 
     fn on_download_failed(&self, symsrv_download_id: u64, reason: symsrv::DownloadError) {
@@ -1031,7 +1031,8 @@ impl SymsrvObserver for HelperDownloaderObserver {
             .symsrv_download_id_mapping
             .remove(&symsrv_download_id)
             .unwrap();
-        if let Some(observer) = &inner.observer {
+        let Some(observer) = inner.observer.clone() else { return };
+        drop(inner);
             let err = match reason {
                 symsrv::DownloadError::ClientCreationFailed(e) => {
                     DownloadError::ClientCreationFailed(e)
@@ -1055,7 +1056,6 @@ impl SymsrvObserver for HelperDownloaderObserver {
                 symsrv::DownloadError::Other(e) => DownloadError::Other(e),
             };
             observer.on_download_failed(download_id, err);
-        }
     }
 
     fn on_download_canceled(&self, symsrv_download_id: u64) {
@@ -1064,9 +1064,9 @@ impl SymsrvObserver for HelperDownloaderObserver {
             .symsrv_download_id_mapping
             .remove(&symsrv_download_id)
             .unwrap();
-        if let Some(observer) = &inner.observer {
-            observer.on_download_canceled(download_id);
-        }
+        let Some(observer) = inner.observer.clone() else { return };
+        drop(inner);
+        observer.on_download_canceled(download_id);
     }
 
     fn on_new_cab_extraction(&self, _extraction_id: u64, _dest_path: &Path) {}
@@ -1089,9 +1089,9 @@ impl SymsrvObserver for HelperDownloaderObserver {
 
     fn on_file_created(&self, path: &Path, size_in_bytes: u64) {
         let inner = self.inner.lock().unwrap();
-        if let Some(observer) = &inner.observer {
-            observer.on_file_created(path, size_in_bytes);
-        }
+        let Some(observer) = inner.observer.clone() else { return };
+        drop(inner);
+        observer.on_file_created(path, size_in_bytes);
     }
 
     fn on_file_accessed(&self, path: &Path) {
@@ -1110,17 +1110,17 @@ impl DownloaderObserver for HelperDownloaderObserver {
         inner
             .downloader_download_id_mapping
             .insert(downloader_download_id, download_id);
-        if let Some(observer) = &inner.observer {
-            observer.on_new_download_before_connect(download_id, url);
-        }
+        let Some(observer) = inner.observer.clone() else { return };
+        drop(inner);
+        observer.on_new_download_before_connect(download_id, url);
     }
 
     fn on_download_started(&self, downloader_download_id: u64) {
         let inner = self.inner.lock().unwrap();
-        if let Some(observer) = &inner.observer {
-            let download_id = inner.downloader_download_id_mapping[&downloader_download_id];
-            observer.on_download_started(download_id);
-        }
+        let Some(observer) = inner.observer.clone() else { return };
+        let download_id = inner.downloader_download_id_mapping[&downloader_download_id];
+        drop(inner);
+        observer.on_download_started(download_id);
     }
 
     fn on_download_progress(
@@ -1130,10 +1130,10 @@ impl DownloaderObserver for HelperDownloaderObserver {
         total_bytes: Option<u64>,
     ) {
         let inner = self.inner.lock().unwrap();
-        if let Some(observer) = &inner.observer {
-            let download_id = inner.downloader_download_id_mapping[&downloader_download_id];
-            observer.on_download_progress(download_id, bytes_so_far, total_bytes);
-        }
+        let Some(observer) = inner.observer.clone() else { return };
+        let download_id = inner.downloader_download_id_mapping[&downloader_download_id];
+        drop(inner);
+        observer.on_download_progress(download_id, bytes_so_far, total_bytes);
     }
 
     fn on_download_completed(
@@ -1148,14 +1148,14 @@ impl DownloaderObserver for HelperDownloaderObserver {
             .downloader_download_id_mapping
             .remove(&downloader_download_id)
             .unwrap();
-        if let Some(observer) = &inner.observer {
-            observer.on_download_completed(
-                download_id,
-                uncompressed_size_in_bytes,
-                time_until_headers,
-                time_until_completed,
-            );
-        }
+        let Some(observer) = inner.observer.clone() else { return };
+        drop(inner);
+        observer.on_download_completed(
+            download_id,
+            uncompressed_size_in_bytes,
+            time_until_headers,
+            time_until_completed,
+        );
     }
 
     fn on_download_failed(&self, downloader_download_id: u64, reason: DownloadError) {
@@ -1164,9 +1164,9 @@ impl DownloaderObserver for HelperDownloaderObserver {
             .downloader_download_id_mapping
             .remove(&downloader_download_id)
             .unwrap();
-        if let Some(observer) = &inner.observer {
-            observer.on_download_failed(download_id, reason);
-        }
+        let Some(observer) = inner.observer.clone() else { return };
+        drop(inner);
+        observer.on_download_failed(download_id, reason);
     }
 
     fn on_download_canceled(&self, downloader_download_id: u64) {
@@ -1175,16 +1175,16 @@ impl DownloaderObserver for HelperDownloaderObserver {
             .downloader_download_id_mapping
             .remove(&downloader_download_id)
             .unwrap();
-        if let Some(observer) = &inner.observer {
-            observer.on_download_canceled(download_id);
-        }
+        let Some(observer) = inner.observer.clone() else { return };
+        drop(inner);
+        observer.on_download_canceled(download_id);
     }
 
     fn on_file_created(&self, path: &Path, size_in_bytes: u64) {
         let inner = self.inner.lock().unwrap();
-        if let Some(observer) = &inner.observer {
-            observer.on_file_created(path, size_in_bytes);
-        }
+        let Some(observer) = inner.observer.clone() else { return };
+        drop(inner);
+        observer.on_file_created(path, size_in_bytes);
     }
 
     fn on_file_accessed(&self, path: &Path) {

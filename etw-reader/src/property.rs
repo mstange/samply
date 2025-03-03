@@ -2,9 +2,11 @@
 //!
 //! The `property` module expose the basic structures that represent the Properties an Event contains
 //! based on it's Schema. This Properties can then be used to parse accordingly their values.
+
+use rustc_hash::FxHashMap;
+
 use super::schema::Schema;
 use super::tdh_types::Property;
-use super::FastHashMap;
 
 /// Event Property information
 #[derive(Clone, Debug)]
@@ -28,14 +30,14 @@ impl<'a> PropertyInfo<'a> {
 
 pub(crate) struct PropertyIter {
     properties: Vec<Property>,
-    pub(crate) name_to_indx: FastHashMap<String, usize>,
+    pub(crate) name_to_indx: FxHashMap<String, usize>,
 }
 
 impl PropertyIter {
     pub fn new(schema: &Schema) -> Self {
         let prop_count = schema.event_schema.property_count();
         let mut properties = Vec::new();
-        let mut name_to_indx = FastHashMap::default();
+        let mut name_to_indx = FxHashMap::default();
         for i in 0..prop_count {
             let prop = schema.event_schema.property(i);
             name_to_indx.insert(prop.name.clone(), i as usize);

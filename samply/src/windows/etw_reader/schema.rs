@@ -1,17 +1,18 @@
 //! ETW Event Schema locator and handler
 //!
 //! This module contains the means needed to locate and interact with the Schema of an ETW event
+use std::cell::OnceCell;
 use std::collections::hash_map::Entry;
 use std::rc::Rc;
 
-use once_cell::unsync::OnceCell;
+use rustc_hash::FxHashMap;
 use windows::core::GUID;
 use windows::Win32::System::Diagnostics::Etw::{self, EVENT_HEADER_FLAG_64_BIT_HEADER};
 
 use super::etw_types::{DecodingSource, EventRecord, TraceEventInfoRaw};
 use super::property::PropertyIter;
+use super::tdh;
 use super::tdh_types::Property;
-use super::{tdh, FastHashMap};
 
 /// Schema module errors
 #[derive(Debug)]
@@ -46,7 +47,7 @@ struct SchemaKey {
 
 // A map from tracelogging schema metdata to ids
 struct TraceLoggingProviderIds {
-    ids: FastHashMap<Vec<u8>, u16>,
+    ids: FxHashMap<Vec<u8>, u16>,
     next_id: u16,
 }
 
@@ -54,7 +55,7 @@ impl TraceLoggingProviderIds {
     fn new() -> Self {
         // start the ids at 1 because of 0 is typically the value stored
         TraceLoggingProviderIds {
-            ids: FastHashMap::default(),
+            ids: FxHashMap::default(),
             next_id: 1,
         }
     }
@@ -114,8 +115,8 @@ impl SchemaKey {
 /// Credits: [KrabsETW::schema_locator](https://github.com/microsoft/krabsetw/blob/master/krabs/krabs/schema_locator.hpp)
 #[derive(Default)]
 pub struct SchemaLocator {
-    schemas: FastHashMap<SchemaKey, Rc<Schema>>,
-    tracelogging_providers: FastHashMap<GUID, TraceLoggingProviderIds>,
+    schemas: FxHashMap<SchemaKey, Rc<Schema>>,
+    tracelogging_providers: FxHashMap<GUID, TraceLoggingProviderIds>,
 }
 
 pub trait EventSchema {
@@ -150,8 +151,8 @@ impl std::fmt::Debug for SchemaLocator {
 impl SchemaLocator {
     pub fn new() -> Self {
         SchemaLocator {
-            schemas: FastHashMap::default(),
-            tracelogging_providers: FastHashMap::default(),
+            schemas: FxHashMap::default(),
+            tracelogging_providers: FxHashMap::default(),
         }
     }
 

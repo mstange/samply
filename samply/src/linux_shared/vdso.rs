@@ -1,5 +1,5 @@
 use object::Object;
-use once_cell::sync::OnceCell;
+use std::sync::OnceLock;
 use wholesym::{CodeId, ElfBuildId};
 
 /// Returns the memory address range in this process where the VDSO is mapped.
@@ -36,7 +36,7 @@ pub struct VdsoObject {
 
 impl VdsoObject {
     pub fn shared_instance_for_this_process() -> Option<&'static Self> {
-        static INSTANCE: OnceCell<Option<VdsoObject>> = OnceCell::new();
+        static INSTANCE: OnceLock<Option<VdsoObject>> = OnceLock::new();
         INSTANCE
             .get_or_init(|| {
                 let data = get_vdso_data()?;

@@ -1,7 +1,3 @@
-use std::collections::HashMap;
-use std::hash::BuildHasherDefault;
-
-use fxhash::FxHasher;
 use linux_perf_data::linux_perf_event_reader;
 use linux_perf_event_reader::constants::{
     PERF_CONTEXT_GUEST, PERF_CONTEXT_GUEST_KERNEL, PERF_CONTEXT_GUEST_USER, PERF_CONTEXT_KERNEL,
@@ -9,7 +5,7 @@ use linux_perf_event_reader::constants::{
 };
 use linux_perf_event_reader::CpuMode;
 
-pub type FastHashMap<K, V> = HashMap<K, V, BuildHasherDefault<FxHasher>>;
+pub type FastHashMap<K, V> = rustc_hash::FxHashMap<K, V>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StackMode {
