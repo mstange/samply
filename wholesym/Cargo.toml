@@ -37,7 +37,7 @@ bytes = "1.10"
 memmap2 = "0.9.4"
 tokio = { version = "1.38", features = ["fs"] }
 futures-util = "0.3.30"
-fs4 = "0.12"
+fs4 = "0.13"
 thiserror = "2"
 async-compression = { version = "0.4", default-features = false, features = [
     "tokio",
