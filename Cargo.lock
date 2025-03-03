@@ -2953,7 +2953,7 @@ dependencies = [
  "tokio",
  "uuid",
  "yoke 0.7.5",
- "yoke-derive 0.7.5",
+ "yoke-derive 0.8.0",
 ]
 
 [[package]]
