@@ -15,7 +15,7 @@ bitflags = "2.8"
 num-traits = "0.2"
 num-derive = "0.4"
 once_cell = "1.8.0"
-fxhash = "0.2.1"
+rustc-hash = "2"
 memoffset = "0.9"
 
 [dependencies.windows]

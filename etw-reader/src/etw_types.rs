@@ -2,6 +2,7 @@ use std::ops::Deref;
 use std::rc::Rc;
 
 use once_cell::unsync::OnceCell;
+use rustc_hash::FxHashMap;
 use windows::core::{GUID, PCWSTR};
 use windows::Win32::System::Diagnostics::Etw::{self, PropertyStruct};
 
@@ -198,7 +199,7 @@ impl TraceEventInfoRaw {
                         {
                             let is_bitmap =
                                 map_info.Flag == super::Etw::EVENTMAP_INFO_FLAG_MANIFEST_BITMAP;
-                            let mut map = super::FastHashMap::default();
+                            let mut map = FxHashMap::default();
                             assert!(
                                 map_info.Anonymous.MapEntryValueType
                                     == super::Etw::EVENTMAP_ENTRY_VALUETYPE_ULONG

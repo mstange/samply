@@ -1,4 +1,3 @@
-use fxhash::FxHasher;
 use memoffset::offset_of;
 pub use windows::core::GUID;
 use windows::core::{h, HSTRING, PWSTR};
@@ -13,8 +12,6 @@ use windows::Win32::System::Diagnostics::Etw::{
 };
 
 use std::borrow::Cow;
-use std::collections::HashMap;
-use std::hash::BuildHasherDefault;
 use std::mem;
 use std::path::Path;
 
@@ -44,7 +41,6 @@ use tdh_types::{PrimitiveDesc, PropertyDesc, TdhInType};
 use tdh_types::{Property, TdhOutType};
 use traits::EncodeUtf16;
 
-pub type FastHashMap<K, V> = HashMap<K, V, BuildHasherDefault<FxHasher>>;
 #[repr(C)]
 #[derive(Clone)]
 pub struct EventTraceLogfile(Etw::EVENT_TRACE_LOGFILEW);
