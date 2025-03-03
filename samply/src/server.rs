@@ -273,7 +273,7 @@ async fn start_server(
 // Returns a base32 string for 24 random bytes.
 fn generate_token() -> String {
     let mut bytes = [0u8; 24];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    rand::rng().fill_bytes(&mut bytes);
     nix_base32::to_nix_base32(&bytes)
 }
 
