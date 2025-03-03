@@ -239,7 +239,7 @@ impl OsIpcReceiver {
             let mut os_result;
             let mut name;
             loop {
-                name = format!("{}{}", BOOTSTRAP_PREFIX, rand::thread_rng().gen::<i64>());
+                name = format!("{}{}", BOOTSTRAP_PREFIX, rand::rng().random::<i64>());
                 let c_name = CString::new(name.clone()).unwrap();
                 os_result = bootstrap_register2(bootstrap_port, c_name.as_ptr(), right, 0);
                 if os_result == BOOTSTRAP_NAME_IN_USE as c_int {
