@@ -237,7 +237,7 @@ mod windows;
 
 pub use crate::binary_image::{BinaryImage, CodeByteReadingError};
 pub use crate::breakpad::{
-    BreakpadIndex, BreakpadIndexParser, BreakpadParseError, BreakpadSymindexParseError,
+    BreakpadIndex, BreakpadIndexCreator, BreakpadParseError, BreakpadSymindexParseError,
 };
 pub use crate::cache::{FileByteSource, FileContentsWithChunkedCaching};
 pub use crate::compact_symbol_table::CompactSymbolTable;
