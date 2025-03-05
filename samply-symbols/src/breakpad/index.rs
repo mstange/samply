@@ -8,7 +8,6 @@ use nom::bytes::complete::{tag, take_while};
 use nom::character::complete::{hex_digit1, space1};
 use nom::combinator::{cut, map_res, opt, rest};
 use nom::error::{Error, ErrorKind, ParseError};
-use nom::multi::separated_list1;
 use nom::sequence::{terminated, tuple};
 use nom::{Err, IResult};
 use object::ReadRef;
@@ -406,17 +405,18 @@ impl BreakpadFuncSymbol {
         let first_line = read_line_and_advance(&mut input);
         let (_rest, (_address, size, name)) =
             func_line(first_line).map_err(|_| BreakpadParseError::ParsingFunc)?;
+
+        let mut tokenizer = Tokenizer::new(input);
         let mut inlinees = Vec::new();
         let mut lines = Vec::new();
-        while !input.is_empty() {
-            let line = read_line_and_advance(&mut input);
-            if line.starts_with(b"INLINE ") {
-                let (_rest, new_inlinees) =
-                    inline_line(line).map_err(|_| BreakpadParseError::ParsingInline)?;
-                inlinees.extend(new_inlinees);
-            } else if let Ok((_rest, line_data)) = func_line_data(line) {
+        while !tokenizer.eof() {
+            if tokenizer.consume_token(b"INLINE").is_ok() {
+                parse_inline_line_remainder(&mut tokenizer, &mut inlinees)
+                    .map_err(|_| BreakpadParseError::ParsingInline)?;
+            } else if let Ok(line_data) = parse_func_data_line(&mut tokenizer) {
                 lines.push(line_data);
             }
+            tokenizer.consume_until_after_next_line_break_or_eof();
         }
         inlinees.sort_unstable_by_key(|inlinee| (inlinee.depth, inlinee.address));
         Ok(BreakpadFuncSymbolInfo {
@@ -988,22 +988,20 @@ pub struct Inlinee {
 // Matches line data after a FUNC record.
 ///
 /// A line record has the form <hex_addr> <hex_size> <line> <file_id>
-fn func_line_data(input: &[u8]) -> IResult<&[u8], SourceLine> {
-    let (input, (address, size, line, file)) = tuple((
-        terminated(hex_str::<u64>, space1),
-        terminated(hex_str::<u32>, space1),
-        terminated(decimal_u32, space1),
-        decimal_u32,
-    ))(input)?;
-    Ok((
-        input,
-        SourceLine {
-            address: address as u32,
-            size,
-            file,
-            line,
-        },
-    ))
+fn parse_func_data_line(tokenizer: &mut Tokenizer) -> Result<SourceLine, ()> {
+    let address = tokenizer.consume_hex_u64()?;
+    tokenizer.consume_space1()?;
+    let size = tokenizer.consume_hex_u32()?;
+    tokenizer.consume_space1()?;
+    let line = tokenizer.consume_decimal_u32()?;
+    tokenizer.consume_space1()?;
+    let file = tokenizer.consume_decimal_u32()?;
+    Ok(SourceLine {
+        address: address as u32,
+        size,
+        file,
+        line,
+    })
 }
 
 // Matches a FUNC record.
@@ -1019,36 +1017,106 @@ fn func_line(input: &[u8]) -> IResult<&[u8], (u32, u32, &[u8])> {
     Ok((input, (address, size, name)))
 }
 
-// Matches one entry of the form <address> <size> which is used at the end of an INLINE record
-fn inline_address_range(input: &[u8]) -> IResult<&[u8], (u32, u32)> {
-    tuple((terminated(hex_str::<u32>, space1), hex_str::<u32>))(input)
+struct Tokenizer<'a> {
+    input: &'a [u8],
 }
 
-// Matches an INLINE record.
+impl<'a> Tokenizer<'a> {
+    pub fn new(input: &'a [u8]) -> Self {
+        Self { input }
+    }
+
+    pub fn consume_token(&mut self, token: &[u8]) -> Result<(), ()> {
+        if self.input.starts_with(token) {
+            self.input = &self.input[token.len()..];
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+
+    pub fn consume_decimal_u32(&mut self) -> Result<u32, ()> {
+        let (rest, num) = decimal_u32(self.input).map_err(|_| ())?;
+        self.input = rest;
+        Ok(num)
+    }
+
+    pub fn consume_hex_u32(&mut self) -> Result<u32, ()> {
+        let (rest, num) = hex_str::<u32>(self.input).map_err(|_| ())?;
+        self.input = rest;
+        Ok(num)
+    }
+
+    pub fn consume_hex_u64(&mut self) -> Result<u64, ()> {
+        let (rest, num) = hex_str::<u64>(self.input).map_err(|_| ())?;
+        self.input = rest;
+        Ok(num)
+    }
+
+    pub fn consume_space1(&mut self) -> Result<(), ()> {
+        let Some((first_byte, mut input)) = self.input.split_first() else {
+            return Err(());
+        };
+        if *first_byte != b' ' {
+            return Err(());
+        }
+        while let Some((first_byte, rest)) = input.split_first() {
+            if *first_byte == b' ' {
+                input = rest;
+            } else {
+                break;
+            }
+        }
+        self.input = input;
+        Ok(())
+    }
+
+    pub fn eof(&self) -> bool {
+        self.input.is_empty()
+    }
+
+    pub fn consume_until_after_next_line_break_or_eof(&mut self) {
+        let _discarded = read_line_and_advance(&mut self.input);
+    }
+}
+
+// Matches an INLINE record, after the INLINE token.
 ///
 /// An INLINE record has the form `INLINE <inline_nest_level> <call_site_line> <call_site_file_id> <origin_id> [<address> <size>]+`.
-fn inline_line(input: &[u8]) -> IResult<&[u8], impl Iterator<Item = Inlinee>> {
-    let (input, _) = terminated(tag("INLINE"), space1)(input)?;
-    let (input, (depth, call_line, call_file, origin_id)) = cut(tuple((
-        terminated(decimal_u32, space1),
-        terminated(decimal_u32, space1),
-        terminated(decimal_u32, space1),
-        terminated(decimal_u32, space1),
-    )))(input)?;
-    let (input, address_ranges) = cut(separated_list1(space1, inline_address_range))(input)?;
-    Ok((
-        input,
-        address_ranges
-            .into_iter()
-            .map(move |(address, size)| Inlinee {
-                address,
-                size,
-                call_file,
-                call_line,
-                depth,
-                origin_id,
-            }),
-    ))
+fn parse_inline_line_remainder(
+    tokenizer: &mut Tokenizer,
+    inlinees: &mut Vec<Inlinee>,
+) -> Result<(), ()> {
+    tokenizer.consume_space1()?;
+    let depth = tokenizer.consume_decimal_u32()?;
+    tokenizer.consume_space1()?;
+    let call_line = tokenizer.consume_decimal_u32()?;
+    tokenizer.consume_space1()?;
+    let call_file = tokenizer.consume_decimal_u32()?;
+    tokenizer.consume_space1()?;
+    let origin_id = tokenizer.consume_decimal_u32()?;
+    tokenizer.consume_space1()?;
+
+    loop {
+        // <address> <size>
+        let address = tokenizer.consume_hex_u32()?;
+        tokenizer.consume_space1()?;
+        let size = tokenizer.consume_hex_u32()?;
+        inlinees.push(Inlinee {
+            depth,
+            address,
+            size,
+            call_file,
+            call_line,
+            origin_id,
+        });
+
+        match tokenizer.consume_space1() {
+            Ok(_) => continue,
+            Err(_) => break,
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
