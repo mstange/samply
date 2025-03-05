@@ -323,7 +323,7 @@ impl PendingDownload {
             dest_path,
             |dest_file: std::fs::File| async move {
                 let mut dest_file = tokio::fs::File::from_std(dest_file);
-                let mut buf = vec![0u8; 4096];
+                let mut buf = vec![0u8; 4 * 1024 * 1024 /* 4 MiB */];
                 let mut uncompressed_size_in_bytes = 0;
                 loop {
                     let count = stream
@@ -417,7 +417,7 @@ impl PendingDownload {
         let bytes_ref = &mut bytes;
 
         let download_result: Result<u64, std::io::Error> = async move {
-            let mut buf = vec![0u8; 4096];
+            let mut buf = vec![0u8; 4 * 1024 * 1024 /* 4 MiB */];
             let mut uncompressed_size_in_bytes = 0;
             loop {
                 let count = stream.read(&mut buf).await?;
