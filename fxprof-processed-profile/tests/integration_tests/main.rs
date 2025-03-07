@@ -582,22 +582,22 @@ fn profile_without_js() {
                     2
                   ],
                   "innerWindowID": [
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0
                   ],
                   "line": [
                     null,
@@ -1102,8 +1102,8 @@ fn profile_with_js() {
                     null
                   ],
                   "innerWindowID": [
-                    null,
-                    null
+                    0,
+                    0
                   ],
                   "line": [
                     null,
