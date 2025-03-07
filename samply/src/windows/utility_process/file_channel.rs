@@ -25,7 +25,6 @@ use std::marker::PhantomData;
 use std::path::Path;
 
 use fs4::fs_std::FileExt;
-use fs4::lock_contended_error;
 use serde::de::DeserializeOwned;
 use serde::ser::Serialize;
 
@@ -111,15 +110,15 @@ impl<T: DeserializeOwned> Receiver<T> {
         // Poll until self.current_lock is locked by the other side.
         loop {
             match self.current_lock.try_lock_exclusive() {
-                Ok(()) => {
+                Ok(true) => {
                     // Not locked yet.
                     FileExt::unlock(&self.current_lock).unwrap();
                 }
-                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-                Err(e) if e.raw_os_error() == lock_contended_error().raw_os_error() => {
+                Ok(false) => {
                     // Success! The helper process now owns the file lock of self.current_lock.
                     break;
                 }
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
                 Err(e) => return Err(e),
             }
             std::thread::sleep(std::time::Duration::from_millis(50));

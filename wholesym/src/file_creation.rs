@@ -2,7 +2,6 @@ use std::io;
 use std::path::Path;
 
 use fs4::fs_std::FileExt;
-use fs4::lock_contended_error;
 
 /// The error type for the `create_file_cleanly` function.
 #[derive(thiserror::Error, Debug)]
@@ -189,11 +188,9 @@ async fn lock_file_exclusive(file: std::fs::File) -> Result<std::fs::File, io::E
     // We have a retry loop here because file locking can be interrupted by signals.
     for _ in 0..5 {
         match file.try_lock_exclusive() {
-            Ok(()) => return Ok(file),
+            Ok(true) => return Ok(file),
+            Ok(false) => return lock_file_exclusive_with_blocking_thread(file).await,
             Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-            Err(e) if e.raw_os_error() == lock_contended_error().raw_os_error() => {
-                return lock_file_exclusive_with_blocking_thread(file).await
-            }
             Err(e) => return Err(e),
         }
     }
