@@ -110,7 +110,6 @@ impl Serialize for FrameTable {
         map.serialize_entry("func", &self.funcs)?;
         map.serialize_entry("nativeSymbol", &self.native_symbols)?;
         map.serialize_entry("innerWindowID", &SerializableSingleValueColumn((), len))?;
-        map.serialize_entry("implementation", &SerializableSingleValueColumn((), len))?;
         map.serialize_entry("line", &SerializableSingleValueColumn((), len))?;
         map.serialize_entry("column", &SerializableSingleValueColumn((), len))?;
         map.end()
