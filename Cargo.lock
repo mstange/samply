@@ -2256,6 +2256,7 @@ dependencies = [
  "bitvec",
  "bytesize",
  "cpp_demangle",
+ "crc32fast",
  "debugid",
  "elsa",
  "flate2",
