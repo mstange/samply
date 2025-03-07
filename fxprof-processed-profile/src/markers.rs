@@ -738,7 +738,10 @@ impl InternalMarkerSchema {
         if let Some(label) = &self.table_label {
             map.serialize_entry("tableLabel", label)?;
         }
-        map.serialize_entry("data", &SerializableSchemaFields(self))?;
+        if let Some(description) = &self.description {
+            map.serialize_entry("description", description)?;
+        }
+        map.serialize_entry("fields", &SerializableSchemaFields(self))?;
         if !self.graphs.is_empty() {
             map.serialize_entry("graphs", &self.graphs)?;
         }
@@ -752,9 +755,6 @@ impl InternalMarkerSchema {
         let mut seq = serializer.serialize_seq(None)?;
         for field in &self.fields {
             seq.serialize_element(&SerializableSchemaField(field))?;
-        }
-        if let Some(description) = &self.description {
-            seq.serialize_element(&SerializableDescriptionStaticField(description))?;
         }
         seq.end()
     }
@@ -796,20 +796,6 @@ impl Serialize for SerializableSchemaField<'_> {
         if self.0.flags.contains(MarkerFieldFlags::SEARCHABLE) {
             map.serialize_entry("searchable", &true)?;
         }
-        map.end()
-    }
-}
-
-struct SerializableDescriptionStaticField<'a>(&'a str);
-
-impl Serialize for SerializableDescriptionStaticField<'_> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("label", "Description")?;
-        map.serialize_entry("value", self.0)?;
         map.end()
     }
 }
