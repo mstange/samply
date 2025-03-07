@@ -87,7 +87,7 @@ winver = "1"
 # etw-reader = { path = "../etw-reader" }
 
 [target.'cfg(windows)'.dependencies.windows]
-version = "0.59"
+version = "0.60"
 features =  ["Win32",
              "Win32_Foundation",
              "Win32_Security",
