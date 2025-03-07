@@ -2962,8 +2962,8 @@ dependencies = [
  "thiserror 2.0.11",
  "tokio",
  "uuid",
- "yoke 0.7.5",
- "yoke-derive 0.7.5",
+ "yoke 0.8.0",
+ "yoke-derive 0.8.0",
 ]
 
 [[package]]
