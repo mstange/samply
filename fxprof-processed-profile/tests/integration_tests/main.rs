@@ -372,7 +372,7 @@ fn profile_without_js() {
                 "name": []
               },
               "interval": 1.0,
-              "preprocessedProfileVersion": 53,
+              "preprocessedProfileVersion": 55,
               "processType": 0,
               "product": "test",
               "oscpu": "macOS 14.4",
@@ -386,7 +386,6 @@ fn profile_without_js() {
               "pausedRanges": [],
               "version": 24,
               "usesOnlyOneStackType": true,
-              "doesNotUseFrameImplementation": true,
               "sourceCodeIsNotOnSearchfox": true,
               "markerSchema": [
                 {
@@ -397,7 +396,7 @@ fn profile_without_js() {
                   ],
                   "chartLabel": "{marker.data.name}",
                   "tableLabel": "{marker.name} - {marker.data.name}",
-                  "data": [
+                  "fields": [
                     {
                       "key": "name",
                       "label": "Details",
@@ -420,7 +419,8 @@ fn profile_without_js() {
                     }
                   ],
                   "tooltipLabel": "Custom tooltip label",
-                  "data": [
+                  "description": "This is a test marker with a custom schema.",
+                  "fields": [
                     {
                       "key": "eventName",
                       "label": "Event name",
@@ -445,10 +445,6 @@ fn profile_without_js() {
                       "format": "duration",
                       "searchable": true
                     },
-                    {
-                      "label": "Description",
-                      "value": "This is a test marker with a custom schema."
-                    }
                   ]
                 }
               ]
@@ -586,40 +582,22 @@ fn profile_without_js() {
                     2
                   ],
                   "innerWindowID": [
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null
-                  ],
-                  "implementation": [
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0
                   ],
                   "line": [
                     null,
@@ -1078,7 +1056,7 @@ fn profile_with_js() {
                 "name": []
               },
               "interval": 1.0,
-              "preprocessedProfileVersion": 53,
+              "preprocessedProfileVersion": 55,
               "processType": 0,
               "product": "test with js",
               "sampleUnits": {
@@ -1091,7 +1069,6 @@ fn profile_with_js() {
               "pausedRanges": [],
               "version": 24,
               "usesOnlyOneStackType": false,
-              "doesNotUseFrameImplementation": true,
               "sourceCodeIsNotOnSearchfox": true,
               "markerSchema": []
             },
@@ -1125,12 +1102,8 @@ fn profile_with_js() {
                     null
                   ],
                   "innerWindowID": [
-                    null,
-                    null
-                  ],
-                  "implementation": [
-                    null,
-                    null
+                    0,
+                    0
                   ],
                   "line": [
                     null,
@@ -1338,7 +1311,7 @@ fn profile_counters_with_sorted_processes() {
               "initialSelectedThreads": [0],
               "initialVisibleThreads": [0],
               "interval": 1.0,
-              "preprocessedProfileVersion": 53,
+              "preprocessedProfileVersion": 55,
               "processType": 0,
               "product": "test",
               "sampleUnits": {
@@ -1351,7 +1324,6 @@ fn profile_counters_with_sorted_processes() {
               "pausedRanges": [],
               "version": 24,
               "usesOnlyOneStackType": true,
-              "doesNotUseFrameImplementation": true,
               "sourceCodeIsNotOnSearchfox": true,
               "markerSchema": []
             },
@@ -1367,7 +1339,6 @@ fn profile_counters_with_sorted_processes() {
                   "func": [],
                   "nativeSymbol": [],
                   "innerWindowID": [],
-                  "implementation": [],
                   "line": [],
                   "column": []
                 },
@@ -1449,7 +1420,6 @@ fn profile_counters_with_sorted_processes() {
                   "func": [],
                   "nativeSymbol": [],
                   "innerWindowID": [],
-                  "implementation": [],
                   "line": [],
                   "column": []
                 },
