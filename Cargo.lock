@@ -2377,12 +2377,12 @@ dependencies = [
 
 [[package]]
 name = "srcsrv"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "022437a70e522e49b1952cb1d923589d629cb4aee97eb56d65ce938c04e8ac70"
+checksum = "85cd3e3828fb4dd5ba0e7091777edb6c3db3cd2d6fc10547b29b40f6949a29be"
 dependencies = [
  "memchr",
- "thiserror 1.0.69",
+ "thiserror 2.0.12",
 ]
 
 [[package]]
