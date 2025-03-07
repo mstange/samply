@@ -2966,7 +2966,7 @@ dependencies = [
 
 [[package]]
 name = "wholesym"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "async-compression",
  "bytes",
