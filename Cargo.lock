@@ -266,12 +266,6 @@ checksum = "d71b6127be86fdcfddb610f7182ac57211d4b18a3e9c82eb2d17662f2227ad6a"
 
 [[package]]
 name = "bytesize"
-version = "1.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d2c12f985c78475a6b8d629afd0c360260ef34cfef52efccdcfd31972f81c2e"
-
-[[package]]
-name = "bytesize"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a3c8f83209414aacf0eeae3cf730b18d6981697fba62f200fcfb92b9f082acba"
@@ -2235,7 +2229,7 @@ dependencies = [
 name = "samply-quota-manager"
 version = "0.1.0"
 dependencies = [
- "bytesize 1.3.2",
+ "bytesize",
  "log",
  "rusqlite",
  "rusqlite_migration",
@@ -2250,7 +2244,7 @@ dependencies = [
  "anyhow",
  "bitflags",
  "bitvec",
- "bytesize 2.0.1",
+ "bytesize",
  "cpp_demangle",
  "debugid",
  "elsa",
