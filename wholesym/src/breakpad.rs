@@ -273,7 +273,7 @@ impl BreakpadSymbolDownloaderInner {
             .await
             .map_err(SymindexGenerationError::SymReading)?;
         let mut parser = BreakpadIndexParser::new();
-        const CHUNK_SIZE: usize = 4 * 1024 * 1024; // 4MiB
+        const CHUNK_SIZE: usize = 2 * 1024 * 1024; // 2 MiB
         let mut buffer = vec![0; CHUNK_SIZE];
         loop {
             let read_len = sym_file

@@ -52,6 +52,14 @@ scopeguard = { version = "1.2.0", default-features = false }
 core-foundation-sys = "0.8"
 core-foundation = "0.10"
 
+# Turn on the zlib-rs feature in flate2.
+# flate2 isn't used directly by wholesym; it's used via async-compression
+# So this is a (somewhat brittle) way to turn on the zlib-rs feature in
+# async-compression's use of flate2.
+[dependencies.flate2]
+version = "1.0.17"
+features = ["zlib-rs"]
+
 [dev-dependencies]
 futures = "0.3.5"
 tokio = { version = "1.38", features = ["macros"] } # Feature "macros" for #[tokio::test]
