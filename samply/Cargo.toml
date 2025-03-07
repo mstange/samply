@@ -15,7 +15,7 @@ fxprof-processed-profile = { version = "0.8", path = "../fxprof-processed-profil
 # framehop = { path = "../../framehop" }
 framehop = "0.13"
 # linux-perf-data = { path = "../../linux-perf-data" }
-linux-perf-data = "0.10.1"
+linux-perf-data = "0.11"
 
 tokio = { version = "1.39", features = ["rt", "rt-multi-thread", "macros"] }
 tokio-util = "0.7.11"
@@ -85,7 +85,6 @@ which = "7.0.0"
 winver = "1"
 
 # etw-reader = { path = "../etw-reader" }
-# linux-perf-data = "0.10.1"
 
 [target.'cfg(windows)'.dependencies.windows]
 version = "0.59"
