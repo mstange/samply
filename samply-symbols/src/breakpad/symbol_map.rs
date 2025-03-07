@@ -1,15 +1,17 @@
 use std::borrow::Cow;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::sync::Mutex;
 
 use yoke::Yoke;
 use yoke_derive::Yokeable;
 
 use super::index::{
-    BreakpadFileLine, BreakpadFuncSymbol, BreakpadFuncSymbolInfo, BreakpadIndex,
-    BreakpadIndexParser, BreakpadInlineOriginLine, BreakpadPublicSymbol, BreakpadPublicSymbolInfo,
-    BreakpadSymbolType, FileOrInlineOrigin, ItemMap,
+    BreakpadFileLine, BreakpadFileOrInlineOriginListRef, BreakpadFuncSymbol,
+    BreakpadFuncSymbolInfo, BreakpadIndex, BreakpadIndexCreator, BreakpadInlineOriginLine,
+    BreakpadPublicSymbol, BreakpadPublicSymbolInfo, FileOrInlineOrigin, SYMBOL_ENTRY_KIND_FUNC,
+    SYMBOL_ENTRY_KIND_PUBLIC,
 };
 use crate::symbol_map::{GetInnerSymbolMap, SymbolMapTrait};
 use crate::{
@@ -38,9 +40,14 @@ impl<T: FileContents> GetInnerSymbolMap for BreakpadSymbolMap<T> {
     }
 }
 
+enum IndexStorage<T: FileContents> {
+    File(FileContentsWrapper<T>),
+    Owned(Vec<u8>),
+}
+
 pub struct BreakpadSymbolMapOuter<T: FileContents> {
     data: FileContentsWrapper<T>,
-    index: BreakpadIndex,
+    index: IndexStorage<T>,
 }
 
 impl<T: FileContents> BreakpadSymbolMapOuter<T> {
@@ -48,42 +55,57 @@ impl<T: FileContents> BreakpadSymbolMapOuter<T> {
         data: FileContentsWrapper<T>,
         index_data: Option<FileContentsWrapper<T>>,
     ) -> Result<Self, Error> {
-        let index = if let Some(index) = index_data.as_ref().and_then(|d| {
-            let data = d.read_entire_data().ok()?;
-            BreakpadIndex::parse_symindex_file(data).ok()
-        }) {
-            index
-        } else {
-            const CHUNK_SIZE: u64 = 1024 * 1024; // 1MB
-            let mut buffer = Vec::with_capacity(CHUNK_SIZE as usize);
-            let mut index_parser = BreakpadIndexParser::new();
-
-            // Read the entire thing in chunks to build an index.
-            let len = data.len();
-            let mut offset = 0;
-            while offset < len {
-                let chunk_len = CHUNK_SIZE.min(len - offset);
-                data.read_bytes_into(&mut buffer, offset, chunk_len as usize)
-                    .map_err(|e| {
-                        Error::HelperErrorDuringFileReading(
-                            "BreakpadBreakpadSymbolMapData".to_string(),
-                            e,
-                        )
-                    })?;
-                index_parser.consume(&buffer);
-                buffer.clear();
-                offset += CHUNK_SIZE;
-            }
-            index_parser.finish()?
-        };
+        let index = Self::make_index_storage(&data, index_data)?;
         Ok(Self { data, index })
     }
 
+    fn make_index_storage(
+        data: &FileContentsWrapper<T>,
+        index_data: Option<FileContentsWrapper<T>>,
+    ) -> Result<IndexStorage<T>, Error> {
+        if let Some(index_data) = index_data {
+            if BreakpadIndex::parse_symindex_file(&index_data).is_ok() {
+                return Ok(IndexStorage::File(index_data));
+            }
+        }
+        const CHUNK_SIZE: u64 = 1024 * 1024; // 1MB
+        let mut buffer = Vec::with_capacity(CHUNK_SIZE as usize);
+        let mut index_parser = BreakpadIndexCreator::new();
+
+        // Read the entire thing in chunks to build an index.
+        let len = data.len();
+        let mut offset = 0;
+        while offset < len {
+            let chunk_len = CHUNK_SIZE.min(len - offset);
+            data.read_bytes_into(&mut buffer, offset, chunk_len as usize)
+                .map_err(|e| {
+                    Error::HelperErrorDuringFileReading(
+                        "BreakpadBreakpadSymbolMapData".to_string(),
+                        e,
+                    )
+                })?;
+            index_parser.consume(&buffer);
+            buffer.clear();
+            offset += CHUNK_SIZE;
+        }
+        let index_bytes = index_parser.finish()?;
+        Ok(IndexStorage::Owned(index_bytes))
+    }
+
     pub fn make_symbol_map(&self) -> BreakpadSymbolMapInnerWrapper<'_> {
+        let index = match &self.index {
+            IndexStorage::File(index_data) => {
+                BreakpadIndex::parse_symindex_file(index_data).unwrap()
+            }
+            IndexStorage::Owned(index_data) => {
+                BreakpadIndex::parse_symindex_file(&index_data[..]).unwrap()
+            }
+        };
+        let cache = Mutex::new(BreakpadSymbolMapCache::new(&self.data, index.clone()));
         let inner_impl = BreakpadSymbolMapInner {
             data: &self.data,
-            index: &self.index,
-            cache: Mutex::new(BreakpadSymbolMapCache::new(&self.data, &self.index)),
+            index,
+            cache,
         };
         BreakpadSymbolMapInnerWrapper(Box::new(inner_impl))
     }
@@ -94,7 +116,7 @@ pub struct BreakpadSymbolMapInnerWrapper<'a>(Box<dyn SymbolMapTrait + Send + Syn
 
 struct BreakpadSymbolMapInner<'a, T: FileContents> {
     data: &'a FileContentsWrapper<T>,
-    index: &'a BreakpadIndex,
+    index: BreakpadIndex<'a>,
     cache: Mutex<BreakpadSymbolMapCache<'a, T>>,
 }
 
@@ -112,10 +134,10 @@ struct BreakpadSymbolMapSymbolCache<'a> {
 }
 
 impl<'a, T: FileContents> BreakpadSymbolMapCache<'a, T> {
-    pub fn new(data: &'a FileContentsWrapper<T>, index: &'a BreakpadIndex) -> Self {
+    pub fn new(data: &'a FileContentsWrapper<T>, index: BreakpadIndex<'a>) -> Self {
         Self {
-            files: ItemCache::new(&index.files, data),
-            inline_origins: ItemCache::new(&index.inline_origins, data),
+            files: ItemCache::new(index.files, data),
+            inline_origins: ItemCache::new(index.inline_origins, data),
             symbols: BreakpadSymbolMapSymbolCache::default(),
         }
     }
@@ -124,18 +146,19 @@ impl<'a, T: FileContents> BreakpadSymbolMapCache<'a, T> {
 impl<'a> BreakpadSymbolMapSymbolCache<'a> {
     pub fn get_public_info<'s, T: FileContents>(
         &'s mut self,
-        public: &BreakpadPublicSymbol,
+        file_offset: u64,
+        line_length: u32,
         data: &'a FileContentsWrapper<T>,
     ) -> Result<&'s BreakpadPublicSymbolInfo<'a>, Error> {
-        match self.public_symbols.entry(public.file_offset) {
+        match self.public_symbols.entry(file_offset) {
             Entry::Occupied(info) => Ok(info.into_mut()),
             Entry::Vacant(vacant) => {
                 let line = data
-                    .read_bytes_at(public.file_offset, public.line_length.into())
+                    .read_bytes_at(file_offset, line_length.into())
                     .map_err(|e| {
                         Error::HelperErrorDuringFileReading("Breakpad PUBLIC symbol".to_string(), e)
                     })?;
-                let info = public.parse(line)?;
+                let info = BreakpadPublicSymbol::parse(line)?;
                 Ok(vacant.insert(info))
             }
         }
@@ -143,18 +166,19 @@ impl<'a> BreakpadSymbolMapSymbolCache<'a> {
 
     pub fn get_func_info<'s, T: FileContents>(
         &'s mut self,
-        func: &BreakpadFuncSymbol,
+        file_offset: u64,
+        block_length: u32,
         data: &'a FileContentsWrapper<T>,
     ) -> Result<&'s BreakpadFuncSymbolInfo<'a>, Error> {
-        match self.func_symbols.entry(func.file_offset) {
+        match self.func_symbols.entry(file_offset) {
             Entry::Occupied(info) => Ok(info.into_mut()),
             Entry::Vacant(vacant) => {
                 let block = data
-                    .read_bytes_at(func.file_offset, func.block_length.into())
+                    .read_bytes_at(file_offset, block_length.into())
                     .map_err(|e| {
                         Error::HelperErrorDuringFileReading("Breakpad FUNC symbol".to_string(), e)
                     })?;
-                let info = func.parse(block)?;
+                let info = BreakpadFuncSymbol::parse(block)?;
                 Ok(vacant.insert(info))
             }
         }
@@ -164,28 +188,34 @@ impl<'a> BreakpadSymbolMapSymbolCache<'a> {
 #[derive(Debug)]
 struct ItemCache<'a, I: FileOrInlineOrigin, T: FileContents> {
     item_strings: HashMap<u32, &'a str>,
-    item_map: &'a ItemMap<I>,
+    item_map: BreakpadFileOrInlineOriginListRef<'a>,
     data: &'a FileContentsWrapper<T>,
+    _phantom: PhantomData<I>,
 }
 
 impl<'a, I: FileOrInlineOrigin, T: FileContents> ItemCache<'a, I, T> {
-    pub fn new(item_map: &'a ItemMap<I>, data: &'a FileContentsWrapper<T>) -> Self {
+    pub fn new(
+        item_map: BreakpadFileOrInlineOriginListRef<'a>,
+        data: &'a FileContentsWrapper<T>,
+    ) -> Self {
         Self {
             item_strings: HashMap::new(),
             item_map,
             data,
+            _phantom: PhantomData,
         }
     }
 
-    pub fn get_str(&mut self, index: u32) -> Result<&'a str, Error> {
+    pub fn get_string(&mut self, index: u32) -> Result<String, Error> {
         match self.item_strings.entry(index) {
-            Entry::Occupied(name) => Ok(name.into_mut()),
+            Entry::Occupied(name) => Ok(name.get().to_string()),
             Entry::Vacant(vacant) => {
-                let offsets = self
+                let entry = self
                     .item_map
                     .get(index)
                     .ok_or(Error::InvalidFileOrInlineOriginIndexInBreakpadFile(index))?;
-                let (file_offset, line_length) = offsets.offset_and_length();
+                let file_offset = entry.offset.get();
+                let line_length = entry.line_len.get();
                 let line = self
                     .data
                     .read_bytes_at(file_offset, line_length.into())
@@ -196,7 +226,7 @@ impl<'a, I: FileOrInlineOrigin, T: FileContents> ItemCache<'a, I, T> {
                         )
                     })?;
                 let s = I::parse(line)?;
-                Ok(vacant.insert(s))
+                Ok(vacant.insert(s).to_string())
             }
         }
     }
@@ -213,17 +243,28 @@ impl<T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'_, T> {
 
     fn iter_symbols(&self) -> Box<dyn Iterator<Item = (u32, Cow<'_, str>)> + '_> {
         let iter = (0..self.symbol_count()).filter_map(move |i| {
-            let address = self.index.symbol_addresses[i];
+            let address = self.index.symbol_addresses[i].get();
             let mut cache = self.cache.lock().unwrap();
-            let name = match &self.index.symbol_offsets[i] {
-                super::index::BreakpadSymbolType::Public(public) => {
-                    let public_info = cache.symbols.get_public_info(public, self.data).ok()?;
+            let entry = &self.index.symbol_entries[i];
+            let kind = entry.kind.get();
+            let offset = entry.offset.get();
+            let line_or_block_len = entry.line_or_block_len.get();
+            let name = match kind {
+                SYMBOL_ENTRY_KIND_PUBLIC => {
+                    let public_info = cache
+                        .symbols
+                        .get_public_info(offset, line_or_block_len, self.data)
+                        .ok()?;
                     public_info.name
                 }
-                super::index::BreakpadSymbolType::Func(func) => {
-                    let func_info = cache.symbols.get_func_info(func, self.data).ok()?;
+                SYMBOL_ENTRY_KIND_FUNC => {
+                    let func_info = cache
+                        .symbols
+                        .get_func_info(offset, line_or_block_len, self.data)
+                        .ok()?;
                     func_info.name
                 }
+                _ => return None,
             };
             Some((address, Cow::Borrowed(name)))
         });
@@ -242,22 +283,32 @@ impl<T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'_, T> {
                 return None;
             }
         };
-        let index = match self.index.symbol_addresses.binary_search(&address) {
+        let index = match self
+            .index
+            .symbol_addresses
+            .binary_search_by_key(&address, |a| a.get())
+        {
             Ok(i) => i,
             Err(0) => return None,
             Err(i) => i - 1,
         };
-        let symbol_address = self.index.symbol_addresses[index];
-        let next_symbol_address = self.index.symbol_addresses.get(index + 1);
+        let symbol_address = self.index.symbol_addresses[index].get();
+        let next_symbol_address = self.index.symbol_addresses.get(index + 1).map(|a| a.get());
         let mut cache = self.cache.lock().unwrap();
         let BreakpadSymbolMapCache {
             files,
             inline_origins,
             symbols,
         } = &mut *cache;
-        match &self.index.symbol_offsets[index] {
-            BreakpadSymbolType::Public(public) => {
-                let info = symbols.get_public_info(public, self.data).ok()?;
+        let entry = &self.index.symbol_entries[index];
+        let kind = entry.kind.get();
+        let offset = entry.offset.get();
+        let line_or_block_len = entry.line_or_block_len.get();
+        match kind {
+            SYMBOL_ENTRY_KIND_PUBLIC => {
+                let info = symbols
+                    .get_public_info(offset, line_or_block_len, self.data)
+                    .ok()?;
                 Some(SyncAddressInfo {
                     symbol: SymbolInfo {
                         address: symbol_address,
@@ -269,8 +320,10 @@ impl<T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'_, T> {
                     frames: None,
                 })
             }
-            BreakpadSymbolType::Func(func) => {
-                let info = symbols.get_func_info(func, self.data).ok()?;
+            SYMBOL_ENTRY_KIND_FUNC => {
+                let info = symbols
+                    .get_func_info(offset, line_or_block_len, self.data)
+                    .ok()?;
                 let func_end_addr = symbol_address + info.size;
                 if address >= func_end_addr {
                     return None;
@@ -280,25 +333,19 @@ impl<T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'_, T> {
                 let mut depth = 0;
                 let mut name = Some(info.name.to_string());
                 while let Some(inlinee) = info.get_inlinee_at_depth(depth, address) {
-                    let file = files
-                        .get_str(inlinee.call_file)
-                        .ok()
-                        .map(ToString::to_string);
+                    let file = files.get_string(inlinee.call_file).ok();
                     frames.push(FrameDebugInfo {
                         function: name,
                         file_path: file.map(SourceFilePath::from_breakpad_path),
                         line_number: Some(inlinee.call_line),
                     });
-                    let inline_origin = inline_origins
-                        .get_str(inlinee.origin_id)
-                        .ok()
-                        .map(ToString::to_string);
+                    let inline_origin = inline_origins.get_string(inlinee.origin_id).ok();
                     name = inline_origin;
                     depth += 1;
                 }
                 let line_info = info.get_innermost_sourceloc(address);
                 let (file, line_number) = if let Some(line_info) = line_info {
-                    let file = files.get_str(line_info.file).ok().map(ToString::to_string);
+                    let file = files.get_string(line_info.file).ok();
                     (file, Some(line_info.line))
                 } else {
                     (None, None)
@@ -319,6 +366,7 @@ impl<T: FileContents> SymbolMapTrait for BreakpadSymbolMapInner<'_, T> {
                     frames: Some(FramesLookupResult::Available(frames)),
                 })
             }
+            _ => None,
         }
     }
 }
@@ -365,12 +413,11 @@ mod test {
             b"661 0\n2b7b9 11 662 0\n2b7ca 9 340 0\n2b7d3 e 341 0\n2b7e1 c 668 0\n2b7",
             b"ed b 7729 1\n2b7f8 6 668 0",
         ];
-        let mut parser = BreakpadIndexParser::new();
+        let mut parser = BreakpadIndexCreator::new();
         for s in data_slices {
             parser.consume(s);
         }
-        let index = parser.finish().unwrap();
-        let index_bytes = index.serialize_to_bytes();
+        let index_bytes = parser.finish().unwrap();
 
         let full_sym_contents = data_slices.concat();
         let sym_fc = FileContentsWrapper::new(full_sym_contents);

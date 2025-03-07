@@ -2,7 +2,7 @@ mod index;
 mod symbol_map;
 
 pub use index::{
-    BreakpadIndex, BreakpadIndexParser, BreakpadParseError, BreakpadSymindexParseError,
+    BreakpadIndex, BreakpadIndexCreator, BreakpadParseError, BreakpadSymindexParseError,
 };
 pub use symbol_map::get_symbol_map_for_breakpad_sym;
 
