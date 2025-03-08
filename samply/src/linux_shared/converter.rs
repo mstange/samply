@@ -7,9 +7,9 @@ use byteorder::LittleEndian;
 use debugid::DebugId;
 use framehop::{ExplicitModuleSectionInfo, FrameAddress, Module, Unwinder};
 use fxprof_processed_profile::{
-    CategoryColor, CategoryHandle, CategoryPairHandle, CpuDelta, LibraryHandle, LibraryInfo,
-    MarkerFieldFlags, MarkerFieldFormat, MarkerTiming, Profile, ReferenceTimestamp,
-    SamplingInterval, StaticSchemaMarker, StaticSchemaMarkerField, StringHandle, SymbolTable,
+    Category, CategoryColor, CpuDelta, LibraryHandle, LibraryInfo, MarkerFieldFlags,
+    MarkerFieldFormat, MarkerTiming, Profile, ReferenceTimestamp, SamplingInterval,
+    StaticSchemaMarker, StaticSchemaMarkerField, StringHandle, SubcategoryHandle, SymbolTable,
     ThreadHandle,
 };
 use linux_perf_data::linux_perf_event_reader::TaskWasPreempted;
@@ -159,8 +159,8 @@ where
         let mut simpleperf_symbol_tables_jit = HashMap::new();
         let mut simpleperf_symbol_tables_kernel_image = None;
         let mut simpleperf_symbol_tables_kernel_modules = HashMap::new();
-        let simpleperf_jit_category: CategoryPairHandle = profile
-            .add_category("JIT app cache", CategoryColor::Green)
+        let simpleperf_jit_category: SubcategoryHandle = profile
+            .handle_for_category(Category("JIT app cache", CategoryColor::Green))
             .into();
         let allow_jit_function_recycling = profile_creation_props.reuse_threads;
         let simpleperf_jit_app_cache_library = SyntheticJitLibrary::new(
@@ -170,10 +170,12 @@ where
             allow_jit_function_recycling,
         );
         if let Some(simpleperf_symbol_tables) = simpleperf_symbol_tables {
-            let dex_category: CategoryPairHandle =
-                profile.add_category("DEX", CategoryColor::Green).into();
-            let oat_category: CategoryPairHandle =
-                profile.add_category("OAT", CategoryColor::Green).into();
+            let dex_category: SubcategoryHandle = profile
+                .handle_for_category(Category("DEX", CategoryColor::Green))
+                .into();
+            let oat_category: SubcategoryHandle = profile
+                .handle_for_category(Category("OAT", CategoryColor::Green))
+                .into();
             for f in simpleperf_symbol_tables {
                 if f.r#type == DSO_KERNEL {
                     simpleperf_symbol_tables_kernel_image = Some(f.symbol);
@@ -573,7 +575,7 @@ where
             RssStatMember::AnonymousSwapEntries => "RSS Stat SHMEMPAGES",
             RssStatMember::ResidentSharedMemoryPages => "RSS Stat SWAPENTS",
         };
-        let name = self.profile.intern_string(name);
+        let name = self.profile.handle_for_string(name);
         let marker_handle = self.profile.add_marker(
             thread_handle,
             timing,
@@ -629,7 +631,7 @@ where
         let unresolved_stack = self.unresolved_stacks.convert(stack.into_iter().rev());
         if let Some(name) = self.event_names.get(attr_index) {
             let timing = MarkerTiming::Instant(timestamp);
-            let name = self.profile.intern_string(name);
+            let name = self.profile.handle_for_string(name);
             let marker_handle =
                 self.profile
                     .add_marker(thread_handle, timing, OtherEventMarker(name));
@@ -1735,7 +1737,7 @@ where
         let timestamp = self.timestamp_converter.convert_time(timestamp);
         let path = self
             .profile
-            .intern_string(&String::from_utf8_lossy(path_slice));
+            .handle_for_string(&String::from_utf8_lossy(path_slice));
         self.profile.add_marker(
             thread.profile_thread,
             MarkerTiming::Instant(timestamp),
@@ -1876,7 +1878,7 @@ struct SymbolTableFromSimpleperf {
     min_vaddr: u64,
     file_offset_of_min_vaddr_in_elf_file: Option<u64>,
     symbol_table: Arc<SymbolTable>,
-    category: Option<CategoryPairHandle>,
+    category: Option<SubcategoryHandle>,
     art_info: Option<AndroidArtInfo>,
 }
 
@@ -1903,6 +1905,8 @@ struct MmapMarker(StringHandle);
 impl StaticSchemaMarker for MmapMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "mmap";
 
+    const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
+
     const FIELDS: &'static [StaticSchemaMarkerField] = &[StaticSchemaMarkerField {
         key: "name",
         label: "Details",
@@ -1911,11 +1915,7 @@ impl StaticSchemaMarker for MmapMarker {
     }];
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
-        profile.intern_string("mmap")
-    }
-
-    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
-        CategoryHandle::OTHER
+        profile.handle_for_string("mmap")
     }
 
     fn string_field_value(&self, _field_index: u32) -> StringHandle {

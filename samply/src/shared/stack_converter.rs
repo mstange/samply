@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use fxprof_processed_profile::{CategoryPairHandle, Frame, FrameFlags, FrameInfo};
+use fxprof_processed_profile::{Frame, FrameFlags, FrameInfo, SubcategoryHandle};
 
 use super::jit_category_manager::{JsFrame, JsName};
 use super::lib_mappings::{AndroidArtInfo, LibMappingsHierarchy};
@@ -8,8 +8,8 @@ use super::types::{StackFrame, StackMode};
 
 #[derive(Debug)]
 pub struct StackConverter {
-    user_category: CategoryPairHandle,
-    kernel_category: CategoryPairHandle,
+    user_category: SubcategoryHandle,
+    kernel_category: SubcategoryHandle,
     libart_frame_buffer: VecDeque<SecondPassFrameInfo>,
 }
 
@@ -22,7 +22,7 @@ struct FirstPassFrameInfo {
 #[derive(Debug)]
 struct SecondPassFrameInfo {
     location: Frame,
-    category: CategoryPairHandle,
+    category: SubcategoryHandle,
     js_frame: Option<JsFrame>,
     art_info: Option<AndroidArtInfo>,
 }
@@ -32,8 +32,8 @@ struct FirstPassIter<I: Iterator<Item = StackFrame>>(I);
 struct SecondPassIter<'a, I: Iterator<Item = FirstPassFrameInfo>> {
     inner: I,
     lib_mappings: &'a LibMappingsHierarchy,
-    user_category: CategoryPairHandle,
-    kernel_category: CategoryPairHandle,
+    user_category: SubcategoryHandle,
+    kernel_category: SubcategoryHandle,
 }
 
 struct LibartFilteringIter<'c, I: Iterator<Item = SecondPassFrameInfo>> {
@@ -204,7 +204,7 @@ impl<I: Iterator<Item = SecondPassFrameInfo>> Iterator for ConvertedStackIter<I>
 
         let mut frame_info = FrameInfo {
             frame: location,
-            category_pair: category,
+            subcategory: category,
             flags: FrameFlags::empty(),
         };
 
@@ -242,7 +242,7 @@ impl<I: Iterator<Item = SecondPassFrameInfo>> Iterator for ConvertedStackIter<I>
             // We don't treat Spidermonkey "self-hosted" functions as JS (e.g. filter/map/push).
             let prepended_js_frame = FrameInfo {
                 frame: Frame::Label(js_name),
-                category_pair: category,
+                subcategory: category,
                 flags: FrameFlags::IS_JS,
             };
             let buffered_frame = std::mem::replace(&mut frame_info, prepended_js_frame);
@@ -254,7 +254,7 @@ impl<I: Iterator<Item = SecondPassFrameInfo>> Iterator for ConvertedStackIter<I>
 }
 
 impl StackConverter {
-    pub fn new(user_category: CategoryPairHandle, kernel_category: CategoryPairHandle) -> Self {
+    pub fn new(user_category: SubcategoryHandle, kernel_category: SubcategoryHandle) -> Self {
         Self {
             user_category,
             kernel_category,

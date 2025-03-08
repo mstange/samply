@@ -2,14 +2,15 @@ use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use std::time::Duration;
 
+use indexmap::set::MutableValues;
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 use serde_json::json;
 
-use crate::category::{CategoryHandle, CategoryPairHandle, InternalCategory};
+use crate::category::{Category, CategoryHandle, InternalCategory, SubcategoryHandle};
 use crate::category_color::CategoryColor;
 use crate::counters::{Counter, CounterHandle};
 use crate::cpu_delta::CpuDelta;
-use crate::fast_hash_map::FastHashMap;
+use crate::fast_hash_map::{FastHashMap, FastIndexSet};
 use crate::frame::{Frame, FrameInfo};
 use crate::frame_table::{InternalFrame, InternalFrameLocation};
 use crate::global_lib_table::{GlobalLibTable, LibraryHandle, UsedLibraryAddressesIterator};
@@ -75,15 +76,15 @@ impl From<Duration> for SamplingInterval {
     }
 }
 
-/// A handle for an interned string, returned from [`Profile::intern_string`].
+/// A handle for an interned string, returned from [`Profile::handle_for_string`].
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct StringHandle(pub(crate) GlobalStringIndex);
 
-/// A handle to a frame, specific to a thread. Can be created with [`Profile::intern_frame`](crate::Profile::intern_frame).
+/// A handle to a frame, specific to a thread. Can be created with [`Profile::handle_for_frame`](crate::Profile::handle_for_frame).
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct FrameHandle(ThreadHandle, usize);
 
-/// A handle to a stack, specific to a thread. Can be created with [`Profile::intern_stack`](crate::Profile::intern_stack).
+/// A handle to a stack, specific to a thread. Can be created with [`Profile::handle_for_stack`](crate::Profile::handle_for_stack).
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct StackHandle(ThreadHandle, usize);
 
@@ -102,10 +103,10 @@ pub struct StackHandle(ThreadHandle, usize);
 /// let thread = profile.add_thread(process, 54132000, Timestamp::from_millis_since_reference(0.0), true);
 /// profile.set_thread_name(thread, "Main thread");
 /// let stack_frames = vec![
-///     FrameInfo { frame: Frame::Label(profile.intern_string("Root node")), category_pair: CategoryHandle::OTHER.into(), flags: FrameFlags::empty() },
-///     FrameInfo { frame: Frame::Label(profile.intern_string("First callee")), category_pair: CategoryHandle::OTHER.into(), flags: FrameFlags::empty() }
+///     FrameInfo { frame: Frame::Label(profile.handle_for_string("Root node")), subcategory: CategoryHandle::OTHER.into(), flags: FrameFlags::empty() },
+///     FrameInfo { frame: Frame::Label(profile.handle_for_string("First callee")), subcategory: CategoryHandle::OTHER.into(), flags: FrameFlags::empty() }
 /// ];
-/// let stack = profile.intern_stack_frames(thread, stack_frames.into_iter());
+/// let stack = profile.handle_for_stack_frames(thread, stack_frames.into_iter());
 /// profile.add_sample(thread, Timestamp::from_millis_since_reference(0.0), stack, CpuDelta::ZERO, 1);
 ///
 /// let writer = std::io::BufWriter::new(output_file);
@@ -120,8 +121,8 @@ pub struct Profile {
     pub(crate) interval: SamplingInterval,
     pub(crate) global_libs: GlobalLibTable,
     pub(crate) kernel_libs: LibMappings<LibraryHandle>,
-    pub(crate) categories: Vec<InternalCategory>, // append-only for stable CategoryHandles
-    pub(crate) processes: Vec<Process>,           // append-only for stable ProcessHandles
+    pub(crate) categories: FastIndexSet<InternalCategory>, // append-only for stable CategoryHandles
+    pub(crate) processes: Vec<Process>,                    // append-only for stable ProcessHandles
     pub(crate) counters: Vec<Counter>,
     pub(crate) threads: Vec<Thread>, // append-only for stable ThreadHandles
     pub(crate) initial_visible_threads: Vec<ThreadHandle>,
@@ -147,6 +148,8 @@ impl Profile {
         reference_timestamp: ReferenceTimestamp,
         interval: SamplingInterval,
     ) -> Self {
+        let mut categories = FastIndexSet::default();
+        categories.insert(InternalCategory::new("Other", CategoryColor::Gray));
         Profile {
             interval,
             product: product.to_string(),
@@ -160,10 +163,7 @@ impl Profile {
             processes: Vec::new(),
             string_table: GlobalStringTable::new(),
             marker_schemas: Vec::new(),
-            categories: vec![InternalCategory::new(
-                "Other".to_string(),
-                CategoryColor::Gray,
-            )],
+            categories,
             static_schema_marker_types: FastHashMap::default(),
             symbolicated: false,
             used_pids: FastHashMap::default(),
@@ -192,23 +192,32 @@ impl Profile {
         self.os_name = Some(os_name.to_string());
     }
 
-    /// Add a category and return its handle.
+    /// Get or create a handle for a category.
     ///
-    /// Categories are used for stack frames and markers, as part of a "category pair".
-    pub fn add_category(&mut self, name: &str, color: CategoryColor) -> CategoryHandle {
-        let handle = CategoryHandle(self.categories.len() as u16);
-        self.categories
-            .push(InternalCategory::new(name.to_string(), color));
-        handle
+    /// Categories are used for stack frames and markers.
+    pub fn handle_for_category(&mut self, category: Category) -> CategoryHandle {
+        let index = self.categories.get_index_of(&category).unwrap_or_else(|| {
+            let Category(name, color) = category;
+            self.categories
+                .insert_full(InternalCategory::new(name, color))
+                .0
+        });
+        CategoryHandle(index as u16)
     }
 
-    /// Add a subcategory for a category, and return the "category pair" handle.
+    /// Get or create a handle for a subcategory.
     ///
-    /// Every category has a default subcategory; you can convert a `Category` into
-    /// its corresponding `CategoryPairHandle` for the default category using `category.into()`.
-    pub fn add_subcategory(&mut self, category: CategoryHandle, name: &str) -> CategoryPairHandle {
-        let subcategory = self.categories[category.0 as usize].add_subcategory(name.into());
-        CategoryPairHandle(category, subcategory)
+    /// Every category has a default subcategory; you can convert a `CategoryHandle` into
+    /// its corresponding `SubcategoryHandle` for the default category using `category.into()`.
+    pub fn handle_for_subcategory(
+        &mut self,
+        category_handle: CategoryHandle,
+        subcategory_name: &str,
+    ) -> SubcategoryHandle {
+        let category_index = category_handle.0 as usize;
+        let category = self.categories.get_index_mut2(category_index).unwrap();
+        let subcategory_index = category.index_for_subcategory(subcategory_name);
+        SubcategoryHandle(category_handle, subcategory_index)
     }
 
     /// Add an empty process. The name, pid and start time can be changed afterwards,
@@ -234,12 +243,12 @@ impl Profile {
     /// hasn't been used before and needs no suffix.
     fn make_unique_pid_or_tid(map: &mut FastHashMap<u32, u32>, id: u32) -> String {
         match map.entry(id) {
-            std::collections::hash_map::Entry::Occupied(mut entry) => {
+            Entry::Occupied(mut entry) => {
                 let suffix = *entry.get();
                 *entry.get_mut() += 1;
                 format!("{id}.{suffix}")
             }
-            std::collections::hash_map::Entry::Vacant(entry) => {
+            Entry::Vacant(entry) => {
                 entry.insert(1);
                 format!("{id}")
             }
@@ -462,7 +471,7 @@ impl Profile {
     }
 
     /// Turn the string into in a [`StringHandle`], for use in [`Frame::Label`].
-    pub fn intern_string(&mut self, s: &str) -> StringHandle {
+    pub fn handle_for_string(&mut self, s: &str) -> StringHandle {
         StringHandle(self.string_table.index_for_string(s))
     }
 
@@ -477,11 +486,11 @@ impl Profile {
     /// Get the frame handle for a stack frame.
     ///
     /// The returned handle can only be used with this thread.
-    pub fn intern_frame(&mut self, thread: ThreadHandle, frame_info: FrameInfo) -> FrameHandle {
+    pub fn handle_for_frame(&mut self, thread: ThreadHandle, frame_info: FrameInfo) -> FrameHandle {
         let thread_handle = thread;
         let thread = &mut self.threads[thread.0];
         let process = &mut self.processes[thread.process().0];
-        let frame_index = Self::intern_frame_internal(
+        let frame_index = Self::handle_for_frame_internal(
             thread,
             process,
             frame_info,
@@ -501,7 +510,7 @@ impl Profile {
     ///
     /// If `parent` is `None`, this creates a root stack node. Otherwise, `parent`
     /// is the caller of the returned stack node.
-    pub fn intern_stack(
+    pub fn handle_for_stack(
         &mut self,
         thread: ThreadHandle,
         parent: Option<StackHandle>,
@@ -512,7 +521,7 @@ impl Profile {
             Some(StackHandle(parent_thread_handle, prefix_stack_index)) => {
                 assert_eq!(
                     parent_thread_handle, thread_handle,
-                    "StackHandle from different thread passed to Profile::intern_stack"
+                    "StackHandle from different thread passed to Profile::handle_for_stack"
                 );
                 Some(prefix_stack_index)
             }
@@ -521,7 +530,7 @@ impl Profile {
         let FrameHandle(frame_thread_handle, frame_index) = frame;
         assert_eq!(
             frame_thread_handle, thread_handle,
-            "FrameHandle from different thread passed to Profile::intern_stack"
+            "FrameHandle from different thread passed to Profile::handle_for_stack"
         );
         let thread = &mut self.threads[thread.0];
         let stack_index = thread.stack_index_for_stack(prefix, frame_index);
@@ -534,7 +543,7 @@ impl Profile {
     /// to callee-most.
     ///
     /// Returns `None` if the stack has zero frames.
-    pub fn intern_stack_frames(
+    pub fn handle_for_stack_frames(
         &mut self,
         thread: ThreadHandle,
         frames: impl Iterator<Item = FrameInfo>,
@@ -547,8 +556,8 @@ impl Profile {
     ///
     /// The sample has a timestamp, a stack, a CPU delta, and a weight.
     ///
-    /// To get the stack handle, you can use [`Profile::intern_stack`] or
-    /// [`Profile::intern_stack_frames`].
+    /// To get the stack handle, you can use [`Profile::handle_for_stack`] or
+    /// [`Profile::handle_for_stack_frames`].
     ///
     /// The CPU delta is the amount of CPU time that the CPU was busy with work for this
     /// thread since the previous sample. It should always be less than or equal the
@@ -622,8 +631,8 @@ impl Profile {
     /// each allocated object you either sample both its allocation and deallocation, or
     /// neither.
     ///
-    /// To get the stack handle, you can use [`Profile::intern_stack`] or
-    /// [`Profile::intern_stack_frames`].
+    /// To get the stack handle, you can use [`Profile::handle_for_stack`] or
+    /// [`Profile::handle_for_stack_frames`].
     pub fn add_allocation_sample(
         &mut self,
         thread: ThreadHandle,
@@ -685,19 +694,19 @@ impl Profile {
     /// You usually don't need to call this, ever. It is called by the blanket impl
     /// of [`Marker::marker_type`] for all types which implement [`StaticSchemaMarker`].
     pub fn static_schema_marker_type<T: StaticSchemaMarker>(&mut self) -> MarkerTypeHandle {
-        match self
+        if let Some(handle) = self
             .static_schema_marker_types
-            .entry(T::UNIQUE_MARKER_TYPE_NAME)
+            .get(T::UNIQUE_MARKER_TYPE_NAME)
         {
-            Entry::Occupied(entry) => *entry.get(),
-            Entry::Vacant(entry) => {
-                let handle = MarkerTypeHandle(self.marker_schemas.len());
-                let schema = InternalMarkerSchema::from_static_schema::<T>();
-                self.marker_schemas.push(schema);
-                entry.insert(handle);
-                handle
-            }
+            return *handle;
         }
+
+        let handle = MarkerTypeHandle(self.marker_schemas.len());
+        let schema = InternalMarkerSchema::from_static_schema::<T>(self);
+        self.marker_schemas.push(schema);
+        self.static_schema_marker_types
+            .insert(T::UNIQUE_MARKER_TYPE_NAME, handle);
+        handle
     }
 
     /// Add a marker to the given thread.
@@ -706,7 +715,7 @@ impl Profile {
     ///
     /// ```
     /// use fxprof_processed_profile::{
-    ///     Profile, CategoryHandle, Marker, MarkerFieldFlags, MarkerFieldFormat, MarkerTiming,
+    ///     Profile, Category, CategoryColor, Marker, MarkerFieldFlags, MarkerFieldFormat, MarkerTiming,
     ///     StaticSchemaMarker, StaticSchemaMarkerField, StringHandle, ThreadHandle, Timestamp,
     /// };
     ///
@@ -715,8 +724,8 @@ impl Profile {
     /// # let thread: ThreadHandle = panic!();
     /// # let start_time: Timestamp = panic!();
     /// # let end_time: Timestamp = panic!();
-    /// let name = profile.intern_string("Marker name");
-    /// let text = profile.intern_string("Marker text");
+    /// let name = profile.handle_for_string("Marker name");
+    /// let text = profile.handle_for_string("Marker text");
     /// let my_marker = TextMarker { name, text };
     /// profile.add_marker(thread, MarkerTiming::Interval(start_time, end_time), my_marker);
     /// # }
@@ -730,6 +739,8 @@ impl Profile {
     /// impl StaticSchemaMarker for TextMarker {
     ///     const UNIQUE_MARKER_TYPE_NAME: &'static str = "Text";
     ///
+    ///     const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
+    ///
     ///     const CHART_LABEL: Option<&'static str> = Some("{marker.data.text}");
     ///     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.text}");
     ///
@@ -742,10 +753,6 @@ impl Profile {
     ///
     ///     fn name(&self, _profile: &mut Profile) -> StringHandle {
     ///         self.name
-    ///     }
-    ///
-    ///     fn category(&self, _profile: &mut Profile) -> CategoryHandle {
-    ///         CategoryHandle::OTHER
     ///     }
     ///
     ///     fn string_field_value(&self, _field_index: u32) -> StringHandle {
@@ -765,7 +772,6 @@ impl Profile {
     ) -> MarkerHandle {
         let marker_type = marker.marker_type(self);
         let name = marker.name(self);
-        let category = marker.category(self);
         let thread = &mut self.threads[thread.0];
         let name_thread_string_index = thread.convert_string_index(&self.string_table, name.0);
         let schema = &self.marker_schemas[marker_type.0];
@@ -775,7 +781,6 @@ impl Profile {
             schema,
             marker,
             timing,
-            category,
             &mut self.string_table,
         )
     }
@@ -786,8 +791,8 @@ impl Profile {
     /// A marker's stack is shown in its tooltip, and in the sidebar in the marker table
     /// panel if a marker with a stack is selected.
     ///
-    /// To get the stack handle, you can use [`Profile::intern_stack`] or
-    /// [`Profile::intern_stack_frames`].
+    /// To get the stack handle, you can use [`Profile::handle_for_stack`] or
+    /// [`Profile::handle_for_stack_frames`].
     pub fn set_marker_stack(
         &mut self,
         thread: ThreadHandle,
@@ -830,7 +835,7 @@ impl Profile {
         self.counters[counter.0].add_sample(timestamp, value_delta, number_of_operations_delta)
     }
 
-    fn intern_frame_internal(
+    fn handle_for_frame_internal(
         thread: &mut Thread,
         process: &mut Process,
         frame_info: FrameInfo,
@@ -870,7 +875,7 @@ impl Profile {
         let internal_frame = InternalFrame {
             location,
             flags: frame_info.flags,
-            category_pair: frame_info.category_pair,
+            subcategory: frame_info.subcategory,
         };
         thread.frame_index_for_frame(internal_frame, global_libs)
     }
@@ -921,7 +926,7 @@ impl Profile {
         let process = &mut self.processes[thread.process().0];
         let mut prefix = None;
         for frame_info in frames {
-            let frame_index = Self::intern_frame_internal(
+            let frame_index = Self::handle_for_frame_internal(
                 thread,
                 process,
                 frame_info,

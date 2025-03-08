@@ -2,7 +2,7 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
 use framehop::Unwinder;
-use fxprof_processed_profile::{CategoryColor, Profile, Timestamp};
+use fxprof_processed_profile::{Category, CategoryColor, Profile, Timestamp};
 
 use super::process::Process;
 use super::process_threads::make_thread_label_frame;
@@ -253,8 +253,12 @@ where
             }
         }
 
-        let user_category = profile.add_category("User", CategoryColor::Yellow).into();
-        let kernel_category = profile.add_category("Kernel", CategoryColor::Orange).into();
+        let user_category = profile
+            .handle_for_category(Category("User", CategoryColor::Yellow))
+            .into();
+        let kernel_category = profile
+            .handle_for_category(Category("Kernel", CategoryColor::Orange))
+            .into();
         let mut stack_frame_scratch_buf = Vec::new();
         for process_sample_data in self.process_sample_datas {
             process_sample_data.flush_samples_to_profile(

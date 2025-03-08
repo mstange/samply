@@ -15,7 +15,7 @@ use crate::sample_table::{NativeAllocationsTable, SampleTable, WeightType};
 use crate::stack_table::StackTable;
 use crate::string_table::{GlobalStringIndex, GlobalStringTable};
 use crate::thread_string_table::{ThreadInternalStringIndex, ThreadStringTable};
-use crate::{CategoryHandle, Marker, MarkerHandle, MarkerTiming, MarkerTypeHandle, Timestamp};
+use crate::{Marker, MarkerHandle, MarkerTiming, MarkerTypeHandle, Timestamp};
 
 /// A process. Can be created with [`Profile::add_process`](crate::Profile::add_process).
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
@@ -169,7 +169,6 @@ impl Thread {
         schema: &InternalMarkerSchema,
         marker: T,
         timing: MarkerTiming,
-        category: CategoryHandle,
         global_string_table: &mut GlobalStringTable,
     ) -> MarkerHandle {
         self.markers.add_marker(
@@ -178,7 +177,6 @@ impl Thread {
             schema,
             marker,
             timing,
-            category,
             &mut self.string_table,
             global_string_table,
         )

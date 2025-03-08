@@ -20,10 +20,10 @@ let process = profile.add_process("App process", 54132, Timestamp::from_millis_s
 let thread = profile.add_thread(process, 54132000, Timestamp::from_millis_since_reference(0.0), true);
 profile.set_thread_name(thread, "Main thread");
 let stack_frames = vec![
-    FrameInfo { frame: Frame::Label(profile.intern_string("Root node")), category_pair: CategoryHandle::OTHER.into(), flags: FrameFlags::empty() },
-    FrameInfo { frame: Frame::Label(profile.intern_string("First callee")), category_pair: CategoryHandle::OTHER.into(), flags: FrameFlags::empty() }
+    FrameInfo { frame: Frame::Label(profile.handle_for_string("Root node")), subcategory: CategoryHandle::OTHER.into(), flags: FrameFlags::empty() },
+    FrameInfo { frame: Frame::Label(profile.handle_for_string("First callee")), subcategory: CategoryHandle::OTHER.into(), flags: FrameFlags::empty() }
 ];
-let stack = profile.intern_stack_frames(thread, stack_frames.into_iter());
+let stack = profile.handle_for_stack_frames(thread, stack_frames.into_iter());
 profile.add_sample(thread, Timestamp::from_millis_since_reference(0.0), stack, CpuDelta::ZERO, 1);
 
 let writer = std::io::BufWriter::new(output_file);

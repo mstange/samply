@@ -1,13 +1,13 @@
 use std::iter::Peekable;
 
-use fxprof_processed_profile::{CategoryPairHandle, LibMappings, LibraryHandle};
+use fxprof_processed_profile::{LibMappings, LibraryHandle, SubcategoryHandle};
 
 use super::jit_category_manager::JsFrame;
 
 #[derive(Debug, Clone)]
 pub struct LibMappingInfo {
     pub lib_handle: LibraryHandle,
-    pub category: Option<CategoryPairHandle>,
+    pub category: Option<SubcategoryHandle>,
     pub js_frame: Option<JsFrame>,
     pub art_info: Option<AndroidArtInfo>,
 }
@@ -33,7 +33,7 @@ impl LibMappingInfo {
     }
 
     #[allow(unused)]
-    pub fn new_lib_with_category(lib_handle: LibraryHandle, category: CategoryPairHandle) -> Self {
+    pub fn new_lib_with_category(lib_handle: LibraryHandle, category: SubcategoryHandle) -> Self {
         Self {
             lib_handle,
             category: Some(category),
@@ -44,7 +44,7 @@ impl LibMappingInfo {
 
     pub fn new_jit_function(
         lib_handle: LibraryHandle,
-        category: CategoryPairHandle,
+        category: SubcategoryHandle,
         js_frame: Option<JsFrame>,
     ) -> Self {
         Self {
@@ -66,7 +66,7 @@ impl LibMappingInfo {
 
     pub fn new_java_mapping(
         lib_handle: LibraryHandle,
-        category: Option<CategoryPairHandle>,
+        category: Option<SubcategoryHandle>,
     ) -> Self {
         Self {
             lib_handle,

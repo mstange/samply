@@ -1,5 +1,5 @@
 use fxprof_processed_profile::{
-    CategoryColor, CategoryHandle, CategoryPairHandle, Profile, StringHandle,
+    Category, CategoryColor, CategoryHandle, Profile, StringHandle, SubcategoryHandle,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -29,79 +29,106 @@ pub struct JitCategoryManager {
 
 impl JitCategoryManager {
     /// (prefix, name, color, is_js)
-    const CATEGORIES: &'static [(&'static str, &'static str, CategoryColor, bool)] = &[
-        ("JS:~", "Interpreter", CategoryColor::Magenta, true),
-        ("Script:~", "Interpreter", CategoryColor::Magenta, true),
-        ("JS:^", "Baseline", CategoryColor::Blue, true),
-        ("JS:+", "Maglev", CategoryColor::Green, true),
-        ("JS:*", "Turbofan", CategoryColor::Green, true),
-        ("JS:?", "JavaScript", CategoryColor::Blue, true),
-        ("py::", "Python", CategoryColor::Blue, true),
-        ("Builtin:", "Builtin", CategoryColor::Brown, false),
-        ("BytecodeHandler:", "Interpreter", CategoryColor::Red, false),
-        ("Interpreter: ", "Interpreter", CategoryColor::Red, true),
+    const CATEGORIES: &'static [(&'static str, Category<'static>, bool)] = &[
         (
-            "BaselineThunk: ",
-            "Trampoline",
-            CategoryColor::DarkGray,
+            "JS:~",
+            Category("Interpreter", CategoryColor::Magenta),
+            true,
+        ),
+        (
+            "Script:~",
+            Category("Interpreter", CategoryColor::Magenta),
+            true,
+        ),
+        ("JS:^", Category("Baseline", CategoryColor::Blue), true),
+        ("JS:+", Category("Maglev", CategoryColor::Green), true),
+        ("JS:*", Category("Turbofan", CategoryColor::Green), true),
+        ("JS:?", Category("JavaScript", CategoryColor::Blue), true),
+        ("py::", Category("Python", CategoryColor::Blue), true),
+        ("Builtin:", Category("Builtin", CategoryColor::Brown), false),
+        (
+            "BytecodeHandler:",
+            Category("Interpreter", CategoryColor::Red),
             false,
         ),
-        ("Baseline: ", "Baseline", CategoryColor::Blue, true),
+        (
+            "Interpreter: ",
+            Category("Interpreter", CategoryColor::Red),
+            true,
+        ),
+        (
+            "BaselineThunk: ",
+            Category("Trampoline", CategoryColor::DarkGray),
+            false,
+        ),
+        (
+            "Baseline: ",
+            Category("Baseline", CategoryColor::Blue),
+            true,
+        ),
         (
             "PolymorphicCallStubBaseline: ",
-            "Trampoline",
-            CategoryColor::DarkGray,
+            Category("Trampoline", CategoryColor::DarkGray),
             true,
         ),
         (
             "PolymorphicAccessStubBaseline: ",
-            "Trampoline",
-            CategoryColor::DarkGray,
+            Category("Trampoline", CategoryColor::DarkGray),
             true,
         ),
-        ("Ion: ", "Ion", CategoryColor::Green, true),
-        ("Wasm: ", "Wasm", CategoryColor::Blue, true),
-        ("BaselineIC: ", "BaselineIC", CategoryColor::Brown, false),
-        ("IC: ", "IC", CategoryColor::Brown, false),
-        ("Trampoline: ", "Trampoline", CategoryColor::DarkGray, false),
+        ("Ion: ", Category("Ion", CategoryColor::Green), true),
+        ("Wasm: ", Category("Wasm", CategoryColor::Blue), true),
         (
-            "WasmTrampoline: ",
-            "Trampoline",
-            CategoryColor::DarkGray,
+            "BaselineIC: ",
+            Category("BaselineIC", CategoryColor::Brown),
             false,
         ),
-        ("VMWrapper: ", "Trampoline", CategoryColor::DarkGray, false),
+        ("IC: ", Category("IC", CategoryColor::Brown), false),
+        (
+            "Trampoline: ",
+            Category("Trampoline", CategoryColor::DarkGray),
+            false,
+        ),
+        (
+            "WasmTrampoline: ",
+            Category("Trampoline", CategoryColor::DarkGray),
+            false,
+        ),
+        (
+            "VMWrapper: ",
+            Category("Trampoline", CategoryColor::DarkGray),
+            false,
+        ),
         (
             "Baseline JIT code for ",
-            "Baseline",
-            CategoryColor::Blue,
+            Category("Baseline", CategoryColor::Blue),
             true,
         ),
-        ("DFG JIT code for DFG: ", "DFG", CategoryColor::Green, true),
-        ("FTL B3 code for FTL: ", "FTL", CategoryColor::Green, true),
-        ("LLInt: ", "LLInt", CategoryColor::Red, true),
+        (
+            "DFG JIT code for DFG: ",
+            Category("DFG", CategoryColor::Green),
+            true,
+        ),
+        (
+            "FTL B3 code for FTL: ",
+            Category("FTL", CategoryColor::Green),
+            true,
+        ),
+        ("LLInt: ", Category("LLInt", CategoryColor::Red), true),
     ];
 
     pub fn new() -> Self {
         Self {
             categories: Self::CATEGORIES
                 .iter()
-                .map(|(_prefix, name, color, _is_js)| LazilyCreatedCategory::new(name, *color))
+                .map(|(_prefix, category, _is_js)| (*category).into())
                 .collect(),
-            baseline_interpreter_category: LazilyCreatedCategory::new(
-                "BaselineInterpreter",
-                CategoryColor::Magenta,
-            ),
-            ion_ic_category: LazilyCreatedCategory::new("IonIC", CategoryColor::Brown),
-            wasm_liftoff_category: LazilyCreatedCategory::new(
-                "Liftoff (wasm)",
-                CategoryColor::Blue,
-            ),
-            wasm_turbofan_category: LazilyCreatedCategory::new(
-                "Turbofan (wasm)",
-                CategoryColor::Green,
-            ),
-            generic_jit_category: LazilyCreatedCategory::new("JIT", CategoryColor::Purple),
+            baseline_interpreter_category: Category("BaselineInterpreter", CategoryColor::Magenta)
+                .into(),
+            ion_ic_category: Category("IonIC", CategoryColor::Brown).into(),
+            wasm_liftoff_category: Category("Liftoff (wasm)", CategoryColor::Blue).into(),
+            wasm_turbofan_category: Category("Turbofan (wasm)", CategoryColor::Green).into(),
+            generic_jit_category: Category("JIT", CategoryColor::Purple).into(),
         }
     }
 
@@ -118,7 +145,7 @@ impl JitCategoryManager {
         &mut self,
         name: &str,
         profile: &mut Profile,
-    ) -> (CategoryPairHandle, Option<JsFrame>) {
+    ) -> (SubcategoryHandle, Option<JsFrame>) {
         if name == "BaselineInterpreter" || name.starts_with("BlinterpOp: ") {
             return (
                 self.baseline_interpreter_category.get(profile).into(),
@@ -127,7 +154,8 @@ impl JitCategoryManager {
         }
 
         if let Some(js_func) = name.strip_prefix("BaselineInterpreter: ") {
-            let js_func = JsFrame::BaselineInterpreterStub(Self::intern_js_name(profile, js_func));
+            let js_func =
+                JsFrame::BaselineInterpreterStub(Self::handle_for_js_name(profile, js_func));
             return (
                 self.baseline_interpreter_category.get(profile).into(),
                 Some(js_func),
@@ -137,8 +165,9 @@ impl JitCategoryManager {
         if let Some(ion_ic_rest) = name.strip_prefix("IonIC: ") {
             let category = self.ion_ic_category.get(profile);
             if let Some((_ic_type, js_func)) = ion_ic_rest.split_once(" : ") {
-                let js_func =
-                    JsFrame::RegularInAdditionToNativeFrame(Self::intern_js_name(profile, js_func));
+                let js_func = JsFrame::RegularInAdditionToNativeFrame(Self::handle_for_js_name(
+                    profile, js_func,
+                ));
                 return (category.into(), Some(js_func));
             }
             return (category.into(), None);
@@ -147,14 +176,15 @@ impl JitCategoryManager {
         if let Some(ion_ic_rest) = name.strip_prefix("IonIC: ") {
             let category = self.ion_ic_category.get(profile);
             if let Some((_ic_type, js_func)) = ion_ic_rest.split_once(" : ") {
-                let js_func =
-                    JsFrame::RegularInAdditionToNativeFrame(Self::intern_js_name(profile, js_func));
+                let js_func = JsFrame::RegularInAdditionToNativeFrame(Self::handle_for_js_name(
+                    profile, js_func,
+                ));
                 return (category.into(), Some(js_func));
             }
             return (category.into(), None);
         }
 
-        for (&(prefix, _category_name, _color, is_js), lazy_category_handle) in
+        for (&(prefix, _category, is_js), lazy_category_handle) in
             Self::CATEGORIES.iter().zip(self.categories.iter_mut())
         {
             if let Some(name_without_prefix) = name.strip_prefix(prefix) {
@@ -162,7 +192,7 @@ impl JitCategoryManager {
 
                 let js_name = if is_js {
                     Some(JsFrame::RegularInAdditionToNativeFrame(
-                        Self::intern_js_name(profile, name_without_prefix),
+                        Self::handle_for_js_name(profile, name_without_prefix),
                     ))
                 } else {
                     None
@@ -189,9 +219,9 @@ impl JitCategoryManager {
                 if let Some((v8_wasm_name, func_index)) = v8_wasm_name_with_index.rsplit_once('-') {
                     let new_name = format!("{v8_wasm_name} (WASM:{func_index})");
                     let category = category.get(profile);
-                    let js_func = JsFrame::RegularInAdditionToNativeFrame(Self::intern_js_name(
-                        profile, &new_name,
-                    ));
+                    let js_func = JsFrame::RegularInAdditionToNativeFrame(
+                        Self::handle_for_js_name(profile, &new_name),
+                    );
                     return (category.into(), Some(js_func));
                 }
             }
@@ -204,7 +234,7 @@ impl JitCategoryManager {
         (category.into(), None)
     }
 
-    fn intern_js_name(profile: &mut Profile, func_name: &str) -> JsName {
+    fn handle_for_js_name(profile: &mut Profile, func_name: &str) -> JsName {
         if let Some((before, after)) = func_name
             .split_once("[Call")
             .or_else(|| func_name.split_once("[Construct"))
@@ -216,13 +246,15 @@ impl JitCategoryManager {
                     // Nothing is following the closing square bracket, in particular no filename.
                     // Example: "forEach[Call (StrictMode)]"
                     // This is likely a self-hosted function.
-                    return JsName::SelfHosted(profile.intern_string(before));
+                    return JsName::SelfHosted(profile.handle_for_string(before));
                 }
-                return JsName::NonSelfHosted(profile.intern_string(&format!("{before}{after}")));
+                return JsName::NonSelfHosted(
+                    profile.handle_for_string(&format!("{before}{after}")),
+                );
             }
         }
 
-        let s = profile.intern_string(func_name);
+        let s = profile.handle_for_string(func_name);
         match func_name.contains("(self-hosted:")
             || func_name.ends_with("valueIsFalsey")
             || func_name.ends_with("valueIsTruthy")
@@ -235,24 +267,24 @@ impl JitCategoryManager {
 
 #[derive(Debug, Clone)]
 struct LazilyCreatedCategory {
-    name: &'static str,
-    color: CategoryColor,
+    category: Category<'static>,
     handle: Option<CategoryHandle>,
 }
 
-impl LazilyCreatedCategory {
-    pub fn new(name: &'static str, color: CategoryColor) -> Self {
+impl From<Category<'static>> for LazilyCreatedCategory {
+    fn from(category: Category<'static>) -> Self {
         Self {
-            name,
-            color,
+            category,
             handle: None,
         }
     }
+}
 
+impl LazilyCreatedCategory {
     pub fn get(&mut self, profile: &mut Profile) -> CategoryHandle {
         *self
             .handle
-            .get_or_insert_with(|| profile.add_category(self.name, self.color))
+            .get_or_insert_with(|| profile.handle_for_category(self.category))
     }
 }
 

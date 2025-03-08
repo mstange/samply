@@ -1,5 +1,5 @@
 use fxprof_processed_profile::{
-    CategoryHandle, MarkerFieldFlags, MarkerFieldFormat, Profile, StaticSchemaMarker,
+    Category, CategoryColor, MarkerFieldFlags, MarkerFieldFormat, Profile, StaticSchemaMarker,
     StaticSchemaMarkerField, StringHandle,
 };
 
@@ -9,6 +9,7 @@ pub struct JitFunctionAddMarker(pub StringHandle);
 impl StaticSchemaMarker for JitFunctionAddMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "JitFunctionAdd";
 
+    const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
     const DESCRIPTION: Option<&'static str> =
         Some("Emitted when a JIT function is added to the process.");
 
@@ -24,11 +25,7 @@ impl StaticSchemaMarker for JitFunctionAddMarker {
     }];
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
-        profile.intern_string("JitFunctionAdd")
-    }
-
-    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
-        CategoryHandle::OTHER
+        profile.handle_for_string("JitFunctionAdd")
     }
 
     fn string_field_value(&self, _field_index: u32) -> StringHandle {

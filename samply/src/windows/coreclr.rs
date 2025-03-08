@@ -9,11 +9,13 @@ use num_traits::FromPrimitive;
 
 use super::elevated_helper::ElevatedRecordingProps;
 use crate::shared::recording_props::{CoreClrProfileProps, ProfileCreationProps};
-use crate::windows::profile_context::{KnownCategory, ProfileContext};
+use crate::windows::profile_context::ProfileContext;
 
 use super::etw_reader::event_properties_to_string;
 use super::etw_reader::parser::{Parser, TryParse};
 use super::etw_reader::schema::TypedEvent;
+
+const CORE_CLR_GC_CATEGORY: Category<'static> = Category("CoreCLR GC", CategoryColor::Red);
 
 struct SavedMarkerInfo {
     start_timestamp_raw: u64,
@@ -208,11 +210,12 @@ impl Display for GcType {
 }
 // String is type name
 #[derive(Debug, Clone)]
-pub struct CoreClrGcAllocMarker(StringHandle, f64, CategoryHandle);
+pub struct CoreClrGcAllocMarker(StringHandle, f64);
 
 impl StaticSchemaMarker for CoreClrGcAllocMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "GC Alloc";
 
+    const CATEGORY: Category<'static> = CORE_CLR_GC_CATEGORY;
     const DESCRIPTION: Option<&'static str> = Some("GC Allocation.");
 
     const LOCATIONS: MarkerLocations = MarkerLocations::MARKER_CHART
@@ -241,11 +244,7 @@ impl StaticSchemaMarker for CoreClrGcAllocMarker {
     ];
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
-        profile.intern_string("GC Alloc")
-    }
-
-    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
-        self.2
+        profile.handle_for_string("GC Alloc")
     }
 
     fn string_field_value(&self, _field_index: u32) -> StringHandle {
@@ -258,11 +257,12 @@ impl StaticSchemaMarker for CoreClrGcAllocMarker {
 }
 
 #[derive(Debug, Clone)]
-pub struct CoreClrGcEventMarker(StringHandle, StringHandle, CategoryHandle);
+pub struct CoreClrGcEventMarker(StringHandle, StringHandle);
 
 impl StaticSchemaMarker for CoreClrGcEventMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "GC Event";
 
+    const CATEGORY: Category<'static> = CORE_CLR_GC_CATEGORY;
     const DESCRIPTION: Option<&'static str> = Some("Generic GC Event.");
 
     const LOCATIONS: MarkerLocations = MarkerLocations::MARKER_CHART
@@ -282,10 +282,6 @@ impl StaticSchemaMarker for CoreClrGcEventMarker {
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
         self.0
-    }
-
-    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
-        self.2
     }
 
     fn string_field_value(&self, _field_index: u32) -> StringHandle {
@@ -557,12 +553,11 @@ pub fn handle_coreclr_event(
                     let _object_count: u32 = parser.parse("ObjectCountForTypeSample");
                     let total_size: u64 = parser.parse("TotalSizeForTypeSample");
 
-                    let category = context.known_category(KnownCategory::CoreClrGc);
-                    let clr_type = context.intern_profile_string(&format!("0x{:x}", type_id));
+                    let clr_type = context.handle_for_profile_string(&format!("0x{:x}", type_id));
                     let mh = context.add_thread_instant_marker(
                         timestamp_raw,
                         tid,
-                        CoreClrGcAllocMarker(clr_type, total_size as f64, category),
+                        CoreClrGcAllocMarker(clr_type, total_size as f64),
                     );
                     coreclr_context.set_last_event_for_thread(tid, mh);
                     handled = true;
@@ -578,16 +573,15 @@ pub fn handle_coreclr_event(
                         None
                     });
 
-                    let category = context.known_category(KnownCategory::CoreClrGc);
-                    let name = context.intern_profile_string("GC Trigger");
-                    let description = context.intern_profile_string(&format!(
+                    let name = context.handle_for_profile_string("GC Trigger");
+                    let description = context.handle_for_profile_string(&format!(
                         "GC Trigger: {}",
                         DisplayUnknownIfNone(&reason)
                     ));
                     let mh = context.add_thread_instant_marker(
                         timestamp_raw,
                         tid,
-                        CoreClrGcEventMarker(name, description, category),
+                        CoreClrGcEventMarker(name, description),
                     );
                     coreclr_context.set_last_event_for_thread(tid, mh);
                     handled = true;
@@ -625,14 +619,13 @@ pub fn handle_coreclr_event(
                     }
 
                     if let Some(info) = coreclr_context.remove_gc_marker(tid, "GCSuspendEE") {
-                        let category = context.known_category(KnownCategory::CoreClrGc);
-                        let name = context.intern_profile_string(&info.name);
-                        let description = context.intern_profile_string(&info.description);
+                        let name = context.handle_for_profile_string(&info.name);
+                        let description = context.handle_for_profile_string(&info.description);
                         context.add_thread_interval_marker(
                             info.start_timestamp_raw,
                             timestamp_raw,
                             tid,
-                            CoreClrGcEventMarker(name, description, category),
+                            CoreClrGcEventMarker(name, description),
                         );
                     }
                     handled = true;
@@ -681,14 +674,13 @@ pub fn handle_coreclr_event(
                     //let count: u32 = parser.parse("Count");
                     //let depth: u32 = parser.parse("Depth");
                     if let Some(info) = coreclr_context.remove_gc_marker(tid, "GC") {
-                        let category = context.known_category(KnownCategory::CoreClrGc);
-                        let name = context.intern_profile_string(&info.name);
-                        let description = context.intern_profile_string(&info.description);
+                        let name = context.handle_for_profile_string(&info.name);
+                        let description = context.handle_for_profile_string(&info.description);
                         context.add_thread_interval_marker(
                             info.start_timestamp_raw,
                             timestamp_raw,
                             tid,
-                            CoreClrGcEventMarker(name, description, category),
+                            CoreClrGcEventMarker(name, description),
                         );
                     }
                     handled = true;
@@ -725,8 +717,8 @@ pub fn handle_coreclr_event(
 
     if !handled && coreclr_context.unknown_event_markers {
         let text = event_properties_to_string(s, parser, None);
-        let name = context.intern_profile_string(s.name().split_once('/').unwrap().1);
-        let description = context.intern_profile_string(&text);
+        let name = context.handle_for_profile_string(s.name().split_once('/').unwrap().1);
+        let description = context.handle_for_profile_string(&text);
         let marker_handle = context.add_thread_instant_marker(
             timestamp_raw,
             tid,
@@ -743,6 +735,7 @@ pub struct OtherClrMarker(StringHandle, StringHandle);
 impl StaticSchemaMarker for OtherClrMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "OtherClrMarker";
 
+    const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
     const DESCRIPTION: Option<&'static str> = Some("CoreCLR marker of unknown type.");
 
     const CHART_LABEL: Option<&'static str> = Some("{marker.data.name}");
@@ -758,10 +751,6 @@ impl StaticSchemaMarker for OtherClrMarker {
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
         self.0
-    }
-
-    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
-        CategoryHandle::OTHER
     }
 
     fn string_field_value(&self, _field_index: u32) -> StringHandle {

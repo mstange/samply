@@ -1,6 +1,6 @@
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 
-use crate::category::{CategoryHandle, CategoryPairHandle, SubcategoryIndex};
+use crate::category::{CategoryHandle, SubcategoryHandle, SubcategoryIndex};
 use crate::fast_hash_map::FastHashMap;
 use crate::frame::FrameFlags;
 use crate::func_table::{FuncIndex, FuncTable};
@@ -84,7 +84,7 @@ impl FrameTable {
                 };
                 let func_index =
                     func_table.index_for_func(location_string_index, resource, frame.flags);
-                let CategoryPairHandle(category, subcategory) = frame.category_pair;
+                let SubcategoryHandle(category, subcategory) = frame.subcategory;
                 addresses.push(address);
                 categories.push(category);
                 subcategories.push(subcategory);
@@ -134,7 +134,7 @@ impl Serialize for SerializableFrameTableAddressColumn<'_> {
 #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct InternalFrame {
     pub location: InternalFrameLocation,
-    pub category_pair: CategoryPairHandle,
+    pub subcategory: SubcategoryHandle,
     pub flags: FrameFlags,
 }
 

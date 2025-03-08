@@ -1,7 +1,7 @@
 use fxprof_processed_profile::{
-    CategoryHandle, CategoryPairHandle, LibMappings, MarkerFieldFlags, MarkerFieldFormat,
-    MarkerTiming, Profile, StaticSchemaMarker, StaticSchemaMarkerField, StringHandle, ThreadHandle,
-    Timestamp,
+    Category, CategoryColor, LibMappings, MarkerFieldFlags, MarkerFieldFormat, MarkerTiming,
+    Profile, StaticSchemaMarker, StaticSchemaMarkerField, StringHandle, SubcategoryHandle,
+    ThreadHandle, Timestamp,
 };
 
 use super::lib_mappings::{LibMappingInfo, LibMappingOpQueue, LibMappingsHierarchy};
@@ -62,8 +62,8 @@ impl ProcessSampleData {
     pub fn flush_samples_to_profile(
         self,
         profile: &mut Profile,
-        user_category: CategoryPairHandle,
-        kernel_category: CategoryPairHandle,
+        user_category: SubcategoryHandle,
+        kernel_category: SubcategoryHandle,
         stack_frame_scratch_buf: &mut Vec<StackFrame>,
         stacks: &UnresolvedStacks,
     ) {
@@ -102,7 +102,7 @@ impl ProcessSampleData {
                 extra_label_frame,
             );
             let frames = StackDepthLimitingFrameIter::new(profile, frames, user_category);
-            let stack_handle = profile.intern_stack_frames(thread_handle, frames);
+            let stack_handle = profile.handle_for_stack_frames(thread_handle, frames);
             match sample_or_marker {
                 SampleOrMarker::Sample(SampleData { cpu_delta, weight }) => {
                     profile.add_sample(thread_handle, timestamp, stack_handle, cpu_delta, weight);
@@ -114,7 +114,7 @@ impl ProcessSampleData {
         }
 
         for marker in marker_spans {
-            let marker_name_string_index = profile.intern_string(&marker.name);
+            let marker_name_string_index = profile.handle_for_string(&marker.name);
             profile.add_marker(
                 marker.thread_handle,
                 MarkerTiming::Interval(marker.start_time, marker.end_time),
@@ -144,6 +144,8 @@ impl RssStatMarker {
 impl StaticSchemaMarker for RssStatMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "RSS Anon";
 
+    const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
+
     const CHART_LABEL: Option<&'static str> = Some("{marker.data.totalBytes}");
     const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.data.totalBytes}");
     const TABLE_LABEL: Option<&'static str> =
@@ -171,10 +173,6 @@ impl StaticSchemaMarker for RssStatMarker {
         self.name
     }
 
-    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
-        CategoryHandle::OTHER
-    }
-
     fn string_field_value(&self, _field_index: u32) -> StringHandle {
         unreachable!()
     }
@@ -194,6 +192,8 @@ pub struct OtherEventMarker(pub StringHandle);
 impl StaticSchemaMarker for OtherEventMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "Other event";
 
+    const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
+
     const DESCRIPTION: Option<&'static str> =
         Some("Emitted for any records in a perf.data file which don't map to a known event.");
 
@@ -201,10 +201,6 @@ impl StaticSchemaMarker for OtherEventMarker {
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
         self.0
-    }
-
-    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
-        CategoryHandle::OTHER
     }
 
     fn string_field_value(&self, _field_index: u32) -> StringHandle {
@@ -222,6 +218,8 @@ pub struct UserTimingMarker(pub StringHandle);
 impl StaticSchemaMarker for UserTimingMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "UserTiming";
 
+    const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
+
     const DESCRIPTION: Option<&'static str> =
         Some("Emitted for performance.mark and performance.measure.");
 
@@ -237,11 +235,7 @@ impl StaticSchemaMarker for UserTimingMarker {
     }];
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
-        profile.intern_string("UserTiming")
-    }
-
-    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
-        CategoryHandle::OTHER
+        profile.handle_for_string("UserTiming")
     }
 
     fn string_field_value(&self, _field_index: u32) -> StringHandle {
@@ -258,17 +252,15 @@ pub struct SchedSwitchMarkerOnCpuTrack;
 impl StaticSchemaMarker for SchedSwitchMarkerOnCpuTrack {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "sched_switch";
 
+    const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
+
     const DESCRIPTION: Option<&'static str> =
         Some("Emitted just before a running thread gets moved off-cpu.");
 
     const FIELDS: &'static [StaticSchemaMarkerField] = &[];
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
-        profile.intern_string("sched_switch")
-    }
-
-    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
-        CategoryHandle::OTHER
+        profile.handle_for_string("sched_switch")
     }
 
     fn string_field_value(&self, _field_index: u32) -> StringHandle {
@@ -288,6 +280,8 @@ pub struct SchedSwitchMarkerOnThreadTrack {
 impl StaticSchemaMarker for SchedSwitchMarkerOnThreadTrack {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "sched_switch";
 
+    const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
+
     const DESCRIPTION: Option<&'static str> =
         Some("Emitted just before a running thread gets moved off-cpu.");
 
@@ -299,11 +293,7 @@ impl StaticSchemaMarker for SchedSwitchMarkerOnThreadTrack {
     }];
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
-        profile.intern_string("sched_switch")
-    }
-
-    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
-        CategoryHandle::OTHER
+        profile.handle_for_string("sched_switch")
     }
 
     fn string_field_value(&self, _field_index: u32) -> StringHandle {
@@ -321,6 +311,8 @@ pub struct SimpleMarker(pub StringHandle);
 impl StaticSchemaMarker for SimpleMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "SimpleMarker";
 
+    const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
+
     const DESCRIPTION: Option<&'static str> =
         Some("Emitted for marker spans in a markers text file.");
 
@@ -336,11 +328,7 @@ impl StaticSchemaMarker for SimpleMarker {
     }];
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
-        profile.intern_string("SimpleMarker")
-    }
-
-    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
-        CategoryHandle::OTHER
+        profile.handle_for_string("SimpleMarker")
     }
 
     fn string_field_value(&self, _field_index: u32) -> StringHandle {

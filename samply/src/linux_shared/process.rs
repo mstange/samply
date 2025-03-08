@@ -304,8 +304,8 @@ where
             let main_thread = self.threads.main_thread.profile_thread;
             let timing = MarkerTiming::Instant(profile_timestamp);
             let name = match symbol_name {
-                Some(name) => profile.intern_string(name),
-                None => profile.intern_string("<unknown>"),
+                Some(name) => profile.handle_for_string(name),
+                None => profile.handle_for_string("<unknown>"),
             };
             profile.add_marker(main_thread, timing, JitFunctionAddMarker(name));
         }

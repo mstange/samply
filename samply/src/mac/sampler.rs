@@ -4,7 +4,9 @@ use std::time::{Duration, SystemTime};
 use std::{mem, thread};
 
 use crossbeam_channel::Receiver;
-use fxprof_processed_profile::{CategoryColor, CategoryPairHandle, Profile, ReferenceTimestamp};
+use fxprof_processed_profile::{
+    Category, CategoryColor, Profile, ReferenceTimestamp, SubcategoryHandle,
+};
 use mach2::port::mach_port_t;
 
 use super::error::SamplingError;
@@ -76,8 +78,9 @@ impl Sampler {
         let mut jit_category_manager =
             crate::shared::jit_category_manager::JitCategoryManager::new();
 
-        let default_category =
-            CategoryPairHandle::from(profile.add_category("User", CategoryColor::Yellow));
+        let default_category = SubcategoryHandle::from(
+            profile.handle_for_category(Category("User", CategoryColor::Yellow)),
+        );
 
         let root_task_init = match self.task_receiver.recv() {
             Ok(TaskInitOrShutdown::TaskInit(task_init)) => task_init,

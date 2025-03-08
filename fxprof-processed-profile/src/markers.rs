@@ -8,7 +8,7 @@ use serde_derive::Serialize;
 
 use super::profile::StringHandle;
 use super::timestamp::Timestamp;
-use crate::{CategoryHandle, Profile};
+use crate::{Category, CategoryHandle, Profile};
 
 /// The handle for a marker. Returned from [`Profile::add_marker`].
 ///
@@ -65,9 +65,6 @@ pub trait Marker {
     /// used as `{marker.name}` in the various `label` template strings in the schema.
     fn name(&self, profile: &mut Profile) -> StringHandle;
 
-    /// The category of this marker. The marker chart groups marker rows by category.
-    fn category(&self, profile: &mut Profile) -> CategoryHandle;
-
     /// Called for any fields defined in the schema whose [`format`](RuntimeSchemaMarkerField::format) is
     /// of [kind](MarkerFieldFormat::kind) [`MarkerFieldFormatKind::String`].
     ///
@@ -98,17 +95,15 @@ pub trait Marker {
 /// The trait for markers whose schema is known at compile time. Any type which implements
 /// [`StaticSchemaMarker`] automatically implements the [`Marker`] trait via a blanket impl.
 ///
-/// Markers have a type, a name, a category, and an arbitrary number of fields.
+/// Markers have a type, a name, and an arbitrary number of fields.
 /// The fields of a marker type are defined by the marker type's schema, see [`RuntimeSchemaMarkerSchema`].
 /// The timestamps are not part of the marker; they are supplied separately to
 /// [`Profile::add_marker`] when a marker is added to the profile.
 ///
-/// In [`StaticSchemaMarker`], the schema is returned from a static `schema` method.
-///
 /// ```
 /// use fxprof_processed_profile::{
 ///     Profile, Marker, MarkerLocations, MarkerFieldFlags, MarkerFieldFormat, StaticSchemaMarkerField,
-///     StaticSchemaMarker, CategoryHandle, StringHandle,
+///     StaticSchemaMarker, Category, CategoryColor, StringHandle,
 /// };
 ///
 /// /// An example marker type with a name and some text content.
@@ -120,6 +115,8 @@ pub trait Marker {
 ///
 /// impl StaticSchemaMarker for TextMarker {
 ///     const UNIQUE_MARKER_TYPE_NAME: &'static str = "Text";
+///
+///     const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
 ///
 ///     const LOCATIONS: MarkerLocations = MarkerLocations::MARKER_CHART.union(MarkerLocations::MARKER_TABLE);
 ///     const CHART_LABEL: Option<&'static str> = Some("{marker.data.text}");
@@ -136,10 +133,6 @@ pub trait Marker {
 ///         self.name
 ///     }
 ///
-///     fn category(&self, _profile: &mut Profile) -> CategoryHandle {
-///         CategoryHandle::OTHER
-///     }
-///
 ///     fn string_field_value(&self, _field_index: u32) -> StringHandle {
 ///         self.text
 ///     }
@@ -153,6 +146,9 @@ pub trait StaticSchemaMarker {
     /// A unique string name for this marker type. Has to match the
     /// [`RuntimeSchemaMarkerSchema::type_name`] of this type's schema.
     const UNIQUE_MARKER_TYPE_NAME: &'static str;
+
+    /// The category of this marker. The marker chart groups marker rows by category.
+    const CATEGORY: Category<'static>;
 
     /// An optional description string. Applies to all markers of this type.
     const DESCRIPTION: Option<&'static str> = None;
@@ -204,9 +200,6 @@ pub trait StaticSchemaMarker {
     /// used as `{marker.name}` in the various `label` template strings in the schema.
     fn name(&self, profile: &mut Profile) -> StringHandle;
 
-    /// The category of this marker. The marker chart groups marker rows by category.
-    fn category(&self, profile: &mut Profile) -> CategoryHandle;
-
     /// Called for any fields defined in the schema whose [`format`](RuntimeSchemaMarkerField::format) is
     /// of [kind](MarkerFieldFormat::kind) [`MarkerFieldFormatKind::String`].
     ///
@@ -243,10 +236,6 @@ impl<T: StaticSchemaMarker> Marker for T {
         <T as StaticSchemaMarker>::name(self, profile)
     }
 
-    fn category(&self, profile: &mut Profile) -> CategoryHandle {
-        <T as StaticSchemaMarker>::category(self, profile)
-    }
-
     fn string_field_value(&self, field_index: u32) -> StringHandle {
         <T as StaticSchemaMarker>::string_field_value(self, field_index)
     }
@@ -265,12 +254,14 @@ impl<T: StaticSchemaMarker> Marker for T {
 /// ```
 /// use fxprof_processed_profile::{
 ///     Profile, Marker, MarkerLocations, MarkerFieldFlags, MarkerFieldFormat, RuntimeSchemaMarkerSchema, RuntimeSchemaMarkerField,
-///     CategoryHandle, StringHandle,
+///     CategoryHandle, StringHandle, Category, CategoryColor,
 /// };
 ///
 /// # fn fun() {
+/// # let mut profile = Profile::new("My app", std::time::SystemTime::now().into(), fxprof_processed_profile::SamplingInterval::from_millis(1));
 /// let schema = RuntimeSchemaMarkerSchema {
 ///     type_name: "custom".into(),
+///     category: profile.handle_for_category(Category("Custom", CategoryColor::Purple)),
 ///     locations: MarkerLocations::MARKER_CHART | MarkerLocations::MARKER_TABLE,
 ///     chart_label: Some("{marker.data.eventName}".into()),
 ///     tooltip_label: Some("Custom {marker.name} marker".into()),
@@ -311,6 +302,9 @@ pub struct RuntimeSchemaMarkerSchema {
     /// The unique name of this marker type. There must not be any other schema
     /// with the same name.
     pub type_name: String,
+
+    /// The category shared by all markers of this schema.
+    pub category: CategoryHandle,
 
     /// An optional description string. Applies to all markers of this type.
     pub description: Option<String>,
@@ -636,6 +630,8 @@ pub struct InternalMarkerSchema {
     /// The name of this marker type.
     type_name: String,
 
+    category: CategoryHandle,
+
     /// List of marker display locations.
     locations: MarkerLocations,
 
@@ -675,6 +671,7 @@ impl InternalMarkerSchema {
             .count();
         Self {
             type_name: schema.type_name,
+            category: schema.category,
             locations: schema.locations,
             chart_label: schema.chart_label,
             tooltip_label: schema.tooltip_label,
@@ -687,7 +684,7 @@ impl InternalMarkerSchema {
         }
     }
 
-    pub fn from_static_schema<T: StaticSchemaMarker>() -> Self {
+    pub fn from_static_schema<T: StaticSchemaMarker>(profile: &mut Profile) -> Self {
         let string_field_count = T::FIELDS
             .iter()
             .filter(|f| f.format.kind() == MarkerFieldFormatKind::String)
@@ -698,6 +695,7 @@ impl InternalMarkerSchema {
             .count();
         Self {
             type_name: T::UNIQUE_MARKER_TYPE_NAME.into(),
+            category: profile.handle_for_category(T::CATEGORY),
             locations: T::LOCATIONS,
             chart_label: T::CHART_LABEL.map(Into::into),
             tooltip_label: T::TOOLTIP_LABEL.map(Into::into),
@@ -712,6 +710,9 @@ impl InternalMarkerSchema {
 
     pub fn type_name(&self) -> &str {
         &self.type_name
+    }
+    pub fn category(&self) -> CategoryHandle {
+        self.category
     }
     pub fn fields(&self) -> &[RuntimeSchemaMarkerField] {
         &self.fields

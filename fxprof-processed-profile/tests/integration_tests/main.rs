@@ -4,14 +4,14 @@ use std::time::Duration;
 use assert_json_diff::assert_json_eq;
 use debugid::DebugId;
 use fxprof_processed_profile::{
-    CategoryColor, CategoryHandle, CpuDelta, Frame, FrameFlags, FrameInfo, GraphColor, LibraryInfo,
+    Category, CategoryColor, CpuDelta, Frame, FrameFlags, FrameInfo, GraphColor, LibraryInfo,
     MarkerFieldFlags, MarkerFieldFormat, MarkerGraphType, MarkerTiming, Profile,
     ReferenceTimestamp, SamplingInterval, StaticSchemaMarker, StaticSchemaMarkerField,
     StaticSchemaMarkerGraph, StringHandle, Symbol, SymbolTable, Timestamp, WeightType,
 };
 use serde_json::json;
 
-// TODO: Add tests for CategoryPairHandle, ProcessHandle, ThreadHandle
+// TODO: Add tests for SubcategoryHandle, ProcessHandle, ThreadHandle
 
 /// An example marker type with some text content.
 #[derive(Debug, Clone)]
@@ -22,6 +22,7 @@ pub struct TextMarker {
 
 impl StaticSchemaMarker for TextMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "Text";
+    const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
     const CHART_LABEL: Option<&'static str> = Some("{marker.data.name}");
     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.name}");
     const FIELDS: &'static [StaticSchemaMarkerField] = &[StaticSchemaMarkerField {
@@ -33,10 +34,6 @@ impl StaticSchemaMarker for TextMarker {
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
         self.name
-    }
-
-    fn category(&self, _profile: &mut Profile) -> CategoryHandle {
-        CategoryHandle::OTHER
     }
 
     fn string_field_value(&self, _field_index: u32) -> StringHandle {
@@ -58,6 +55,7 @@ fn profile_without_js() {
     }
     impl StaticSchemaMarker for CustomMarker {
         const UNIQUE_MARKER_TYPE_NAME: &'static str = "custom";
+        const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
         const TOOLTIP_LABEL: Option<&'static str> = Some("Custom tooltip label");
 
         const FIELDS: &'static [StaticSchemaMarkerField] = &[
@@ -97,11 +95,7 @@ fn profile_without_js() {
         }];
 
         fn name(&self, profile: &mut Profile) -> StringHandle {
-            profile.intern_string("CustomName")
-        }
-
-        fn category(&self, _profile: &mut Profile) -> CategoryHandle {
-            CategoryHandle::OTHER
+            profile.handle_for_string("CustomName")
         }
 
         fn string_field_value(&self, field_index: u32) -> StringHandle {
@@ -192,8 +186,8 @@ fn profile_without_js() {
         0x000055ba9f07e000,
         (0x000055ba9ebf6000u64 - 0x000055ba9eb4d000u64) as u32,
     );
-    let category = profile.add_category("Regular", CategoryColor::Blue);
-    let s1 = profile.intern_stack_frames(
+    let category = profile.handle_for_category(Category("Regular", CategoryColor::Blue));
+    let s1 = profile.handle_for_stack_frames(
         thread,
         vec![
             0x7f76b7ffc0e7,
@@ -216,7 +210,7 @@ fn profile_without_js() {
         })
         .map(|frame| FrameInfo {
             frame,
-            category_pair: category.into(),
+            subcategory: category.into(),
             flags: FrameFlags::empty(),
         }),
     );
@@ -227,7 +221,7 @@ fn profile_without_js() {
         CpuDelta::ZERO,
         1,
     );
-    let s2 = profile.intern_stack_frames(
+    let s2 = profile.handle_for_stack_frames(
         thread,
         vec![
             0x55ba9eda018e,
@@ -250,7 +244,7 @@ fn profile_without_js() {
         })
         .map(|frame| FrameInfo {
             frame,
-            category_pair: category.into(),
+            subcategory: category.into(),
             flags: FrameFlags::empty(),
         }),
     );
@@ -261,7 +255,7 @@ fn profile_without_js() {
         CpuDelta::ZERO,
         1,
     );
-    let s3 = profile.intern_stack_frames(
+    let s3 = profile.handle_for_stack_frames(
         thread,
         vec![
             0x7f76b7f019c6,
@@ -284,7 +278,7 @@ fn profile_without_js() {
         })
         .map(|frame| FrameInfo {
             frame,
-            category_pair: category.into(),
+            subcategory: category.into(),
             flags: FrameFlags::empty(),
         }),
     );
@@ -297,8 +291,8 @@ fn profile_without_js() {
     );
 
     let text_marker = TextMarker {
-        name: profile.intern_string("Experimental"),
-        text: profile.intern_string("Hello world!"),
+        name: profile.handle_for_string("Experimental"),
+        text: profile.handle_for_string("Hello world!"),
     };
     profile.add_marker(
         thread,
@@ -306,9 +300,9 @@ fn profile_without_js() {
         text_marker,
     );
     let custom_marker = CustomMarker {
-        event_name: profile.intern_string("My event"),
+        event_name: profile.handle_for_string("My event"),
         allocation_size: 512000,
-        url: profile.intern_string("https://mozilla.org/"),
+        url: profile.handle_for_string("https://mozilla.org/"),
         latency: Duration::from_millis(123),
     };
     profile.add_marker(
@@ -998,20 +992,20 @@ fn profile_with_js() {
         true,
     );
 
-    let some_label_string = profile.intern_string("Some label string");
-    let category = profile.add_category("Cycle Collection", CategoryColor::Orange);
-    let category_pair = profile.add_subcategory(category, "Graph Reduction");
-    let s1 = profile.intern_stack_frames(
+    let some_label_string = profile.handle_for_string("Some label string");
+    let category = profile.handle_for_category(Category("Cycle Collection", CategoryColor::Orange));
+    let subcategory = profile.handle_for_subcategory(category, "Graph Reduction");
+    let s1 = profile.handle_for_stack_frames(
         thread,
         vec![
             FrameInfo {
                 frame: Frame::Label(some_label_string),
-                category_pair: category.into(),
+                subcategory: category.into(),
                 flags: FrameFlags::IS_JS,
             },
             FrameInfo {
                 frame: Frame::ReturnAddress(0x7f76b7ffc0e7),
-                category_pair,
+                subcategory,
                 flags: FrameFlags::empty(),
             },
         ]

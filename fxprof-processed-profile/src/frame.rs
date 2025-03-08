@@ -1,6 +1,6 @@
 use bitflags::bitflags;
 
-use crate::category::CategoryPairHandle;
+use crate::category::SubcategoryHandle;
 use crate::global_lib_table::LibraryHandle;
 use crate::profile::StringHandle;
 
@@ -46,7 +46,7 @@ pub enum Frame {
     /// has already been resolved to a `LibraryHandle`.
     RelativeAddressFromAdjustedReturnAddress(LibraryHandle, u32),
     /// A string, containing an index returned by
-    /// [`Profile::intern_string`](crate::Profile::intern_string).
+    /// [`Profile::handle_for_string`](crate::Profile::handle_for_string).
     Label(StringHandle),
 }
 
@@ -55,8 +55,8 @@ pub enum Frame {
 pub struct FrameInfo {
     /// The absolute address or label of this frame.
     pub frame: Frame,
-    /// The category pair of this frame.
-    pub category_pair: CategoryPairHandle,
+    /// The subcategory of this frame.
+    pub subcategory: SubcategoryHandle,
     /// The flags of this frame. Use `FrameFlags::empty()` if unsure.
     pub flags: FrameFlags,
 }

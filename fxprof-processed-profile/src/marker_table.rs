@@ -58,7 +58,6 @@ impl MarkerTable {
         schema: &InternalMarkerSchema,
         marker: T,
         timing: MarkerTiming,
-        category: CategoryHandle,
         thread_string_table: &mut ThreadStringTable,
         global_string_table: &mut GlobalStringTable,
     ) -> MarkerHandle {
@@ -68,7 +67,7 @@ impl MarkerTable {
             MarkerTiming::IntervalStart(s) => (Some(s), None, Phase::IntervalStart),
             MarkerTiming::IntervalEnd(e) => (None, Some(e), Phase::IntervalEnd),
         };
-        self.marker_categories.push(category);
+        self.marker_categories.push(schema.category());
         self.marker_name_string_indexes.push(name_string_index);
         self.marker_starts.push(s);
         self.marker_ends.push(e);
