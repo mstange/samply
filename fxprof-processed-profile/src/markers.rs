@@ -380,7 +380,7 @@ bitflags! {
 /// [`string_field_value`](Marker::string_field_value), depending on this field
 /// format's [kind](MarkerFieldFormat::kind).
 ///
-/// Used with runtime-generated marker schemas. Use [`RuntimeSchemaMarkerField`]
+/// Used with static marker schemas. Use [`RuntimeSchemaMarkerField`]
 /// when using [`RuntimeSchemaMarkerSchema`].
 pub struct StaticSchemaMarkerField {
     /// The field key. Must not be `type` or `cause`.
@@ -554,7 +554,7 @@ bitflags! {
 
 /// A graph within a marker graph track, used in [`StaticSchemaMarker::GRAPHS`].
 ///
-/// Used with runtime-generated marker schemas. Use [`RuntimeSchemaMarkerGraph`]
+/// Used with static marker schemas. Use [`RuntimeSchemaMarkerGraph`]
 /// when using [`RuntimeSchemaMarkerSchema`].
 pub struct StaticSchemaMarkerGraph {
     /// The key of a number field that's declared in the marker schema.
