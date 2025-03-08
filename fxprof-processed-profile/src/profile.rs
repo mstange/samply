@@ -127,6 +127,12 @@ pub struct SourceLocation {
     pub col: Option<u32>,
 }
 
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
+pub enum TimelineUnit {
+    Milliseconds,
+    Bytes,
+}
+
 /// Stores the profile data and can be serialized as JSON, via [`serde::Serialize`].
 ///
 /// The profile data is organized into a list of processes with threads.
@@ -161,6 +167,7 @@ pub struct Profile {
     pub(crate) product: String,
     pub(crate) os_name: Option<String>,
     pub(crate) interval: SamplingInterval,
+    pub(crate) timeline_unit: TimelineUnit,
     pub(crate) global_libs: GlobalLibTable,
     pub(crate) kernel_libs: LibMappings<LibraryHandle>,
     pub(crate) categories: FastIndexSet<InternalCategory>, // append-only for stable CategoryHandles
@@ -196,6 +203,7 @@ impl Profile {
             interval,
             product: product.to_string(),
             os_name: None,
+            timeline_unit: TimelineUnit::Milliseconds,
             threads: Vec::new(),
             initial_visible_threads: Vec::new(),
             initial_selected_threads: Vec::new(),
@@ -232,6 +240,16 @@ impl Profile {
     /// Set the name of the operating system.
     pub fn set_os_name(&mut self, os_name: &str) {
         self.os_name = Some(os_name.to_string());
+    }
+
+    /// Set the unit that the timeline should display. Default is [`TimelineUnit::Milliseconds`].
+    ///
+    /// If this is set to [`TimelineUnit::Bytes`], then the sample [`Timestamp`]s are interpreted
+    /// as byte offsets, with one milliseconds equaling one byte.
+    /// This can be used for file size profiles, where each sample describes
+    /// a certain byte within the file at an offset.
+    pub fn set_timeline_unit(&mut self, timeline_unit: TimelineUnit) {
+        self.timeline_unit = timeline_unit;
     }
 
     /// Get or create a handle for a category.
@@ -1324,10 +1342,14 @@ impl Serialize for SerializableProfileMeta<'_> {
         if let Some(os_name) = &self.0.os_name {
             map.serialize_entry("oscpu", os_name)?;
         }
+        let time_unit = match self.0.timeline_unit {
+            TimelineUnit::Milliseconds => "ms",
+            TimelineUnit::Bytes => "bytes",
+        };
         map.serialize_entry(
             "sampleUnits",
             &json!({
-                "time": "ms",
+                "time": &time_unit,
                 "eventDelay": "ms",
                 "threadCPUDelta": "µs",
             }),

@@ -82,7 +82,7 @@ pub use native_symbols::NativeSymbolHandle;
 pub use process::ThreadHandle;
 pub use profile::{
     FrameHandle, FrameSymbolInfo, Profile, SamplingInterval, SourceLocation, StackHandle,
-    StringHandle,
+    StringHandle, TimelineUnit,
 };
 pub use reference_timestamp::ReferenceTimestamp;
 pub use sample_table::WeightType;
