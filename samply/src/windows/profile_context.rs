@@ -3,9 +3,9 @@ use std::path::Path;
 
 use debugid::DebugId;
 use fxprof_processed_profile::{
-    Category, CategoryColor, CategoryHandle, CounterHandle, CpuDelta, Frame, FrameFlags, FrameInfo,
-    LibraryHandle, LibraryInfo, Marker, MarkerFieldFlags, MarkerFieldFormat, MarkerHandle,
-    MarkerLocations, MarkerTiming, ProcessHandle, Profile, SamplingInterval, StaticSchemaMarker,
+    Category, CategoryColor, CategoryHandle, CounterHandle, CpuDelta, FrameFlags, LibraryHandle,
+    LibraryInfo, Marker, MarkerFieldFlags, MarkerFieldFormat, MarkerHandle, MarkerLocations,
+    MarkerTiming, ProcessHandle, Profile, SamplingInterval, StaticSchemaMarker,
     StaticSchemaMarkerField, StringHandle, ThreadHandle, Timestamp,
 };
 use shlex::Shlex;
@@ -141,7 +141,7 @@ pub struct Thread {
     #[allow(dead_code)]
     pub is_main_thread: bool,
     pub handle: ThreadHandle,
-    pub label_frame: FrameInfo,
+    pub thread_label: StringHandle,
     pub samples_with_pending_stacks: VecDeque<SampleWithPendingStack>,
     pub context_switch_data: ThreadContextSwitchData,
     #[allow(dead_code)]
@@ -157,7 +157,7 @@ impl Thread {
         name: Option<String>,
         is_main_thread: bool,
         handle: ThreadHandle,
-        label_frame: FrameInfo,
+        thread_label: StringHandle,
         pid: u32,
         tid: u32,
     ) -> Self {
@@ -165,20 +165,13 @@ impl Thread {
             name,
             is_main_thread,
             handle,
-            label_frame,
+            thread_label,
             samples_with_pending_stacks: VecDeque::new(),
             context_switch_data: Default::default(),
             pending_markers: HashMap::new(),
             thread_id: tid,
             tid_reused_timestamp_raw: None,
             process_id: pid,
-        }
-    }
-
-    pub fn thread_label(&self) -> StringHandle {
-        match self.label_frame.frame {
-            Frame::Label(s) => s,
-            _ => panic!(),
         }
     }
 }
@@ -288,7 +281,7 @@ pub struct Process {
     pub regular_lib_mapping_ops: LibMappingOpQueue,
     pub jit_lib_mapping_ops: LibMappingOpQueue,
     pub main_thread_handle: ThreadHandle,
-    pub main_thread_label_frame: FrameInfo,
+    pub main_thread_label: StringHandle,
     pub memory_usage: Option<MemoryUsage>,
     pub process_id: u32,
     pub pid_reused_timestamp_raw: Option<u64>,
@@ -307,7 +300,7 @@ impl Process {
         parent_id: u32,
         handle: ProcessHandle,
         main_thread_handle: ThreadHandle,
-        main_thread_label_frame: FrameInfo,
+        main_thread_label: StringHandle,
         thread_recycler: Option<ThreadRecycler>,
         jit_function_recycler: Option<JitFunctionRecycler>,
     ) -> Self {
@@ -319,7 +312,7 @@ impl Process {
             regular_lib_mapping_ops: LibMappingOpQueue::default(),
             jit_lib_mapping_ops: LibMappingOpQueue::default(),
             main_thread_handle,
-            main_thread_label_frame,
+            main_thread_label,
             memory_usage: None,
             process_id,
             pid_reused_timestamp_raw: None,
@@ -336,10 +329,7 @@ impl Process {
 
         Some(ProcessRecyclingData {
             process_handle: self.handle,
-            main_thread_recycling_data: (
-                self.main_thread_handle,
-                self.main_thread_label_frame.clone(),
-            ),
+            main_thread_recycling_data: (self.main_thread_handle, self.main_thread_label),
             thread_recycler,
             jit_function_recycler,
         })
@@ -759,8 +749,7 @@ impl ProfileContext {
         let main_thread_handle = self
             .profile
             .add_thread(process_handle, pid, timestamp, true);
-        let main_thread_label_frame =
-            make_thread_label_frame(&mut self.profile, Some(&name), pid, pid);
+        let main_thread_label = make_thread_label(&mut self.profile, Some(&name), pid, pid);
         let (thread_recycler, jit_function_recycler) = if self.process_recycler.is_some() {
             (
                 Some(ThreadRecycler::new()),
@@ -775,7 +764,7 @@ impl ProfileContext {
             parent_pid,
             process_handle,
             main_thread_handle,
-            main_thread_label_frame,
+            main_thread_label,
             thread_recycler,
             jit_function_recycler,
         );
@@ -804,25 +793,24 @@ impl ProfileContext {
             .as_mut()
             .and_then(|pr| pr.recycle_by_name(&name));
 
-        let (process_handle, main_thread_handle, main_thread_label_frame) =
-            if let Some(recycling_data) = &recycling_data {
-                log::info!("Found old process for pid {} and name {}", pid, name);
-                let (main_thread_handle, main_thread_label_frame) =
-                    recycling_data.main_thread_recycling_data.clone();
-                (
-                    recycling_data.process_handle,
-                    main_thread_handle,
-                    main_thread_label_frame,
-                )
-            } else {
-                let process_handle = self.profile.add_process(&name, pid, timestamp);
-                let main_thread_handle =
-                    self.profile
-                        .add_thread(process_handle, pid, timestamp, true);
-                let main_thread_label_frame =
-                    make_thread_label_frame(&mut self.profile, Some(&name), pid, pid);
-                (process_handle, main_thread_handle, main_thread_label_frame)
-            };
+        let (process_handle, main_thread_handle, main_thread_label) = if let Some(recycling_data) =
+            &recycling_data
+        {
+            log::info!("Found old process for pid {} and name {}", pid, name);
+            let (main_thread_handle, main_thread_label) = recycling_data.main_thread_recycling_data;
+            (
+                recycling_data.process_handle,
+                main_thread_handle,
+                main_thread_label,
+            )
+        } else {
+            let process_handle = self.profile.add_process(&name, pid, timestamp);
+            let main_thread_handle = self
+                .profile
+                .add_thread(process_handle, pid, timestamp, true);
+            let main_thread_label = make_thread_label(&mut self.profile, Some(&name), pid, pid);
+            (process_handle, main_thread_handle, main_thread_label)
+        };
 
         let (thread_recycler, jit_function_recycler) = if let Some(recycling_data) = recycling_data
         {
@@ -845,7 +833,7 @@ impl ProfileContext {
             parent_pid,
             process_handle,
             main_thread_handle,
-            main_thread_label_frame,
+            main_thread_label,
             thread_recycler,
             jit_function_recycler,
         );
@@ -903,11 +891,10 @@ impl ProfileContext {
             process.seen_main_thread_start = true;
             let thread_handle = process.main_thread_handle;
             let thread_name = name.as_deref().unwrap_or(&process.name);
-            let thread_label_frame =
-                make_thread_label_frame(&mut self.profile, Some(thread_name), pid, tid);
-            process.main_thread_label_frame = thread_label_frame.clone();
+            let thread_label = make_thread_label(&mut self.profile, Some(thread_name), pid, tid);
+            process.main_thread_label = thread_label;
             self.profile.set_thread_tid(thread_handle, tid);
-            let thread = Thread::new(name, true, thread_handle, thread_label_frame, pid, tid);
+            let thread = Thread::new(name, true, thread_handle, thread_label, pid, tid);
             self.threads.add(tid, timestamp_raw, thread);
             self.thread_handles
                 .insert((tid, timestamp_raw), thread_handle);
@@ -922,15 +909,14 @@ impl ProfileContext {
         let thread_handle = self
             .profile
             .add_thread(process.handle, tid, timestamp, false);
-        let thread_label_frame =
-            make_thread_label_frame(&mut self.profile, name.as_deref(), pid, tid);
+        let thread_label = make_thread_label(&mut self.profile, name.as_deref(), pid, tid);
         if let Some(name) = name.as_deref() {
             if !name.is_empty() {
                 self.profile.set_thread_name(thread_handle, name);
             }
         }
 
-        let thread = Thread::new(name, false, thread_handle, thread_label_frame, pid, tid);
+        let thread = Thread::new(name, false, thread_handle, thread_label, pid, tid);
         self.threads.add(tid, timestamp_raw, thread);
         self.thread_handles
             .insert((tid, timestamp_raw), thread_handle);
@@ -959,11 +945,10 @@ impl ProfileContext {
             process.seen_main_thread_start = true;
             let thread_handle = process.main_thread_handle;
             let thread_name = name.as_deref().unwrap_or(&process.name);
-            let thread_label_frame =
-                make_thread_label_frame(&mut self.profile, Some(thread_name), pid, tid);
-            process.main_thread_label_frame = thread_label_frame.clone();
+            let thread_label = make_thread_label(&mut self.profile, Some(thread_name), pid, tid);
+            process.main_thread_label = thread_label;
             self.profile.set_thread_tid(thread_handle, tid);
-            let thread = Thread::new(name, true, thread_handle, thread_label_frame, pid, tid);
+            let thread = Thread::new(name, true, thread_handle, thread_label, pid, tid);
             self.threads.add(tid, timestamp_raw, thread);
             self.thread_handles
                 .insert((tid, timestamp_raw), thread_handle);
@@ -978,10 +963,10 @@ impl ProfileContext {
         if let (Some(thread_name), Some(thread_recycler)) =
             (&name, process.thread_recycler.as_mut())
         {
-            if let Some((thread_handle, thread_label_frame)) =
+            if let Some((thread_handle, thread_label)) =
                 thread_recycler.recycle_by_name(thread_name)
             {
-                let thread = Thread::new(name, false, thread_handle, thread_label_frame, pid, tid);
+                let thread = Thread::new(name, false, thread_handle, thread_label, pid, tid);
                 self.threads.add(tid, timestamp_raw, thread);
                 self.thread_handles
                     .insert((tid, timestamp_raw), thread_handle);
@@ -992,15 +977,14 @@ impl ProfileContext {
         let thread_handle = self
             .profile
             .add_thread(process.handle, tid, timestamp, false);
-        let thread_label_frame =
-            make_thread_label_frame(&mut self.profile, name.as_deref(), pid, tid);
+        let thread_label = make_thread_label(&mut self.profile, name.as_deref(), pid, tid);
         if let Some(name) = name.as_deref() {
             if !name.is_empty() {
                 self.profile.set_thread_name(thread_handle, name);
             }
         }
 
-        let thread = Thread::new(name, false, thread_handle, thread_label_frame, pid, tid);
+        let thread = Thread::new(name, false, thread_handle, thread_label, pid, tid);
         self.threads.add(tid, timestamp_raw, thread);
         self.thread_handles
             .insert((tid, timestamp_raw), thread_handle);
@@ -1046,21 +1030,19 @@ impl ProfileContext {
 
         if let Some(thread_recycler) = process.thread_recycler.as_mut() {
             if let Some(old_name) = thread.name.as_deref() {
-                let thread_recycling_data = (thread.handle, thread.label_frame.clone());
+                let thread_recycling_data = (thread.handle, thread.thread_label);
                 thread_recycler.add_to_pool(old_name, thread_recycling_data);
             }
-            if let Some((thread_handle, thread_label_frame)) =
-                thread_recycler.recycle_by_name(&name)
-            {
+            if let Some((thread_handle, thread_label)) = thread_recycler.recycle_by_name(&name) {
                 thread.name = Some(name);
                 thread.handle = thread_handle;
-                thread.label_frame = thread_label_frame;
+                thread.thread_label = thread_label;
                 self.thread_handles
                     .insert((tid, timestamp_raw), thread_handle);
                 return;
             }
         }
-        thread.label_frame = make_thread_label_frame(&mut self.profile, Some(&name), pid, tid);
+        thread.thread_label = make_thread_label(&mut self.profile, Some(&name), pid, tid);
         self.profile.set_thread_name(thread.handle, &name);
         thread.name = Some(name);
     }
@@ -1078,7 +1060,7 @@ impl ProfileContext {
         if let (Some(name), Some(thread_recycler)) =
             (thread.name.as_deref(), process.thread_recycler.as_mut())
         {
-            let thread_recycling_data = (thread.handle, thread.label_frame.clone());
+            let thread_recycling_data = (thread.handle, thread.thread_label);
             thread_recycler.add_to_pool(name, thread_recycling_data);
         }
     }
@@ -1216,13 +1198,13 @@ impl ProfileContext {
             // No user stack will arrive. Consume the sample now.
             let sample_info = thread.samples_with_pending_stacks.remove(index).unwrap();
             let thread_handle = thread.handle;
-            let thread_label_frame = thread.label_frame.clone();
+            let thread_label = thread.thread_label;
             self.consume_sample(
                 pid,
                 sample_info,
                 UnresolvedStackHandle::EMPTY,
                 thread_handle,
-                thread_label_frame,
+                thread_label,
             );
         }
     }
@@ -1254,7 +1236,7 @@ impl ProfileContext {
             .collect();
 
         let thread_handle = thread.handle;
-        let thread_label_frame = thread.label_frame.clone();
+        let thread_label = thread.thread_label;
 
         // Use this user stack for all pending stacks from this thread.
         for sample_info in samples_with_pending_stacks {
@@ -1263,7 +1245,7 @@ impl ProfileContext {
                 sample_info,
                 user_stack_index,
                 thread_handle,
-                thread_label_frame.clone(),
+                thread_label,
             );
         }
     }
@@ -1274,7 +1256,7 @@ impl ProfileContext {
         sample_info: SampleWithPendingStack,
         user_stack_index: UnresolvedStackHandle,
         thread_handle: ThreadHandle,
-        thread_label_frame: FrameInfo,
+        thread_label: StringHandle,
     ) {
         let Some(process) = self.processes.get_by_pid(pid) else {
             return;
@@ -1347,6 +1329,12 @@ impl ProfileContext {
         );
 
         if let Some((cpu_thread_handle, cpu_delta)) = per_cpu_stuff {
+            let thread_label_frame = self.profile.handle_for_frame_with_label(
+                cpu_thread_handle,
+                thread_label,
+                CategoryHandle::OTHER,
+                FrameFlags::empty(),
+            );
             process.unresolved_samples.add_sample(
                 cpu_thread_handle,
                 timestamp,
@@ -1354,7 +1342,7 @@ impl ProfileContext {
                 stack_index,
                 cpu_delta,
                 1,
-                Some(thread_label_frame.clone()),
+                Some(thread_label_frame),
             );
             process.unresolved_samples.add_sample(
                 self.cpus.as_ref().unwrap().combined_thread_handle(),
@@ -1363,7 +1351,7 @@ impl ProfileContext {
                 stack_index,
                 CpuDelta::ZERO,
                 1,
-                Some(thread_label_frame.clone()),
+                Some(thread_label_frame),
             );
         }
 
@@ -1667,14 +1655,13 @@ impl ProfileContext {
                     let begin_timestamp = self
                         .timestamp_converter
                         .convert_time(idle_cpu_sample.begin_timestamp);
-                    let stack = self.profile.handle_for_stack_frames(
-                        cpu.thread_handle,
-                        std::iter::once(idle_frame_label.clone()),
-                    );
+                    let stack =
+                        self.profile
+                            .handle_for_stack(cpu.thread_handle, idle_frame_label, None);
                     self.profile.add_sample(
                         cpu.thread_handle,
                         begin_timestamp,
-                        stack,
+                        Some(stack),
                         cpu_delta,
                         0,
                     );
@@ -1686,7 +1673,7 @@ impl ProfileContext {
                     self.profile.add_sample(
                         cpu.thread_handle,
                         end_timestamp,
-                        stack,
+                        Some(stack),
                         CpuDelta::from_nanos(0),
                         0,
                     );
@@ -1694,7 +1681,7 @@ impl ProfileContext {
                 if self.profile_creation_props.should_emit_cswitch_markers {
                     cpu.notify_switch_in_for_marker(
                         new_tid as i32,
-                        new_thread.thread_label(),
+                        new_thread.thread_label,
                         timestamp_raw,
                         &self.timestamp_converter,
                         &[cpu.thread_handle, combined_thread],
@@ -2193,22 +2180,17 @@ fn to_stack_frames(
     frames
 }
 
-pub fn make_thread_label_frame(
+pub fn make_thread_label(
     profile: &mut Profile,
     name: Option<&str>,
     pid: u32,
     tid: u32,
-) -> FrameInfo {
+) -> StringHandle {
     let s = match name {
         Some(name) => format!("{name} (pid: {pid}, tid: {tid})"),
         None => format!("Thread {tid} (pid: {pid}, tid: {tid})"),
     };
-    let thread_label = profile.handle_for_string(&s);
-    FrameInfo {
-        frame: Frame::Label(thread_label),
-        subcategory: CategoryHandle::OTHER.into(),
-        flags: FrameFlags::empty(),
-    }
+    profile.handle_for_string(&s)
 }
 
 #[derive(Debug, Clone)]

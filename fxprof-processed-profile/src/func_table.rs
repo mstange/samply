@@ -9,11 +9,18 @@ use crate::thread_string_table::ThreadInternalStringIndex;
 #[derive(Debug, Clone, Default)]
 pub struct FuncTable {
     names: Vec<ThreadInternalStringIndex>,
+    files: Vec<Option<ThreadInternalStringIndex>>,
     resources: Vec<Option<ResourceIndex>>,
     flags: Vec<FrameFlags>,
-    func_name_and_resource_and_flags_to_func_index:
-        FastHashMap<(ThreadInternalStringIndex, Option<ResourceIndex>, FrameFlags), usize>,
-    contains_js_function: bool,
+    func_key_to_func_index: FastHashMap<FuncKey, FuncIndex>,
+}
+
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
+struct FuncKey {
+    name: ThreadInternalStringIndex,
+    file: Option<ThreadInternalStringIndex>,
+    resource: Option<ResourceIndex>,
+    flags: FrameFlags,
 }
 
 impl FuncTable {
@@ -24,27 +31,27 @@ impl FuncTable {
     pub fn index_for_func(
         &mut self,
         name: ThreadInternalStringIndex,
+        file: Option<ThreadInternalStringIndex>,
         resource: Option<ResourceIndex>,
         flags: FrameFlags,
     ) -> FuncIndex {
-        let func_index = *self
-            .func_name_and_resource_and_flags_to_func_index
-            .entry((name, resource, flags))
-            .or_insert_with(|| {
-                let func_index = self.names.len();
-                self.names.push(name);
-                self.resources.push(resource);
-                self.flags.push(flags);
-                func_index
-            });
-        if flags.intersects(FrameFlags::IS_JS | FrameFlags::IS_RELEVANT_FOR_JS) {
-            self.contains_js_function = true;
+        let key = FuncKey {
+            name,
+            file,
+            resource,
+            flags,
+        };
+        if let Some(index) = self.func_key_to_func_index.get(&key) {
+            return *index;
         }
-        FuncIndex(func_index as u32)
-    }
 
-    pub fn contains_js_function(&self) -> bool {
-        self.contains_js_function
+        let func_index = FuncIndex(u32::try_from(self.names.len()).unwrap());
+        self.names.push(name);
+        self.files.push(file);
+        self.resources.push(resource);
+        self.flags.push(flags);
+        self.func_key_to_func_index.insert(key, func_index);
+        func_index
     }
 }
 
@@ -75,7 +82,7 @@ impl Serialize for FuncTable {
             "resource",
             &SerializableFuncTableResourceColumn(&self.resources),
         )?;
-        map.serialize_entry("fileName", &SerializableSingleValueColumn((), len))?;
+        map.serialize_entry("fileName", &self.files)?;
         map.serialize_entry("lineNumber", &SerializableSingleValueColumn((), len))?;
         map.serialize_entry("columnNumber", &SerializableSingleValueColumn((), len))?;
         map.end()

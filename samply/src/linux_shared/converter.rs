@@ -7,10 +7,10 @@ use byteorder::LittleEndian;
 use debugid::DebugId;
 use framehop::{ExplicitModuleSectionInfo, FrameAddress, Module, Unwinder};
 use fxprof_processed_profile::{
-    Category, CategoryColor, CpuDelta, LibraryHandle, LibraryInfo, MarkerFieldFlags,
-    MarkerFieldFormat, MarkerTiming, Profile, ReferenceTimestamp, SamplingInterval,
-    StaticSchemaMarker, StaticSchemaMarkerField, StringHandle, SubcategoryHandle, SymbolTable,
-    ThreadHandle,
+    Category, CategoryColor, CategoryHandle, CpuDelta, FrameFlags, LibraryHandle, LibraryInfo,
+    MarkerFieldFlags, MarkerFieldFormat, MarkerTiming, Profile, ReferenceTimestamp,
+    SamplingInterval, StaticSchemaMarker, StaticSchemaMarkerField, StringHandle, SubcategoryHandle,
+    SymbolTable, ThreadHandle,
 };
 use linux_perf_data::linux_perf_event_reader::TaskWasPreempted;
 use linux_perf_data::simpleperf_dso_type::{DSO_DEX_FILE, DSO_KERNEL, DSO_KERNEL_MODULE};
@@ -410,6 +410,12 @@ where
                 CpuDelta::from_nanos(0)
             };
 
+            let label_frame = self.profile.handle_for_frame_with_label(
+                thread_handle,
+                thread.thread_label,
+                CategoryHandle::OTHER,
+                FrameFlags::empty(),
+            );
             process.unresolved_samples.add_sample(
                 thread_handle,
                 profile_timestamp,
@@ -417,9 +423,15 @@ where
                 stack_index,
                 cpu_delta,
                 1,
-                Some(thread.thread_label_frame.clone()),
+                Some(label_frame),
             );
 
+            let label_frame = self.profile.handle_for_frame_with_label(
+                cpus.combined_thread_handle(),
+                thread.thread_label,
+                CategoryHandle::OTHER,
+                FrameFlags::empty(),
+            );
             process.unresolved_samples.add_sample(
                 cpus.combined_thread_handle(),
                 profile_timestamp,
@@ -427,7 +439,7 @@ where
                 stack_index,
                 CpuDelta::ZERO,
                 1,
-                Some(thread.thread_label_frame.clone()),
+                Some(label_frame),
             );
         }
     }
@@ -951,7 +963,7 @@ where
                             UnresolvedStackHandle::EMPTY,
                             cpu_delta,
                             0,
-                            Some(idle_frame_label.clone()),
+                            Some(idle_frame_label),
                         );
 
                         // Emit a "rest sample" with a CPU delta of zero covering the rest of the paused range.
@@ -971,7 +983,7 @@ where
                     if self.should_emit_cswitch_markers {
                         cpu.notify_switch_in_for_marker(
                             tid,
-                            thread.thread_label(),
+                            thread.thread_label,
                             timestamp,
                             &self.timestamp_converter,
                             &[cpu.thread_handle, combined_thread],

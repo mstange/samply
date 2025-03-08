@@ -1,6 +1,6 @@
 use std::collections::hash_map::Entry;
 
-use fxprof_processed_profile::{CpuDelta, FrameInfo, MarkerHandle, ThreadHandle, Timestamp};
+use fxprof_processed_profile::{CpuDelta, FrameHandle, MarkerHandle, ThreadHandle, Timestamp};
 
 use super::types::{FastHashMap, StackFrame, StackMode};
 
@@ -34,7 +34,7 @@ impl UnresolvedSamples {
         stack: UnresolvedStackHandle,
         cpu_delta: CpuDelta,
         weight: i32,
-        extra_label_frame: Option<FrameInfo>,
+        extra_label_frame: Option<FrameHandle>,
     ) {
         let sample_index = self.samples_and_markers.len();
         self.samples_and_markers.push(UnresolvedSampleOrMarker {
@@ -62,7 +62,7 @@ impl UnresolvedSamples {
         timestamp: Timestamp,
         timestamp_mono: u64,
         weight: i32,
-        extra_label_frame: Option<FrameInfo>,
+        extra_label_frame: Option<FrameHandle>,
     ) {
         match self.prev_sample_info_per_thread.entry(thread_handle) {
             Entry::Occupied(mut entry) => {
@@ -138,7 +138,7 @@ pub struct UnresolvedSampleOrMarker {
     pub timestamp: Timestamp,
     pub timestamp_mono: u64,
     pub stack: UnresolvedStackHandle,
-    pub extra_label_frame: Option<FrameInfo>,
+    pub extra_label_frame: Option<FrameHandle>,
     pub sample_or_marker: SampleOrMarker,
 }
 
