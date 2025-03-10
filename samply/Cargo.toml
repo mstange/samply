@@ -39,7 +39,7 @@ opener = { version = "0.7", default-features = false }
 rand = "0.9"
 nix-base32 = "0.2.0"
 serde_derive = "1.0.137"
-serde = "1.0.204"
+serde = "1.0.219"
 wholesym = { version = "0.8.1", path = "../wholesym", features = ["api"]}
 platform-dirs = "0.3"
 rustc-hash = "2"
