@@ -589,7 +589,7 @@ impl Profile {
         );
         let (variant, name) = match address {
             InternalFrameAddress::Unknown(address) => {
-                let name = self.string_table.index_for_string(&format!("{address:#x}"));
+                let name = self.string_table.index_for_hex_address_string(address);
                 let name = thread.convert_string_index(&self.string_table, name);
                 (InternalFrameVariant::Label, name)
             }
@@ -606,7 +606,9 @@ impl Profile {
                         (Some(native_symbol), name)
                     }
                     None => {
-                        let name = self.string_table.index_for_string(&format!("{address:#x}"));
+                        let name = self
+                            .string_table
+                            .index_for_hex_address_string(address.into());
                         let name = thread.convert_string_index(&self.string_table, name);
                         (None, name)
                     }
@@ -742,7 +744,7 @@ impl Profile {
         let (variant, name) = match address {
             InternalFrameAddress::Unknown(addr) => {
                 let name = name.unwrap_or_else(|| {
-                    let name = self.string_table.index_for_string(&format!("{addr:#x}"));
+                    let name = self.string_table.index_for_hex_address_string(addr);
                     thread.convert_string_index(&self.string_table, name)
                 });
                 (InternalFrameVariant::Label, name)
