@@ -4,7 +4,6 @@ use std::cmp::Ordering;
 use serde::ser::{SerializeMap, Serializer};
 
 use crate::cpu_delta::CpuDelta;
-use crate::fast_hash_map::FastHashMap;
 use crate::frame_table::{FrameTable, InternalFrame};
 use crate::global_lib_table::{GlobalLibIndex, GlobalLibTable};
 use crate::marker_table::MarkerTable;
@@ -35,7 +34,6 @@ pub struct Thread {
     markers: MarkerTable,
     native_symbols: NativeSymbols,
     string_table: ThreadStringTable,
-    global_lib_index_to_thread_string_index: FastHashMap<GlobalLibIndex, ThreadInternalStringIndex>,
     last_sample_stack: Option<usize>,
     last_sample_was_zero_cpu: bool,
     show_markers_in_timeline: bool,
@@ -57,7 +55,6 @@ impl Thread {
             markers: MarkerTable::new(),
             native_symbols: NativeSymbols::new(),
             string_table: ThreadStringTable::new(),
-            global_lib_index_to_thread_string_index: Default::default(),
             last_sample_stack: None,
             last_sample_was_zero_cpu: false,
             show_markers_in_timeline: false,
@@ -129,12 +126,8 @@ impl Thread {
         frame: InternalFrame,
         global_libs: &mut GlobalLibTable,
     ) -> usize {
-        self.frame_table.index_for_frame(
-            frame,
-            &mut self.global_lib_index_to_thread_string_index,
-            global_libs,
-            &mut self.string_table,
-        )
+        self.frame_table
+            .index_for_frame(frame, global_libs, &mut self.string_table)
     }
 
     pub fn stack_index_for_stack(&mut self, prefix: Option<usize>, frame: usize) -> usize {
@@ -249,9 +242,7 @@ impl Thread {
         let thread_register_time = self.start_time;
         let thread_unregister_time = self.end_time;
 
-        let (frame_table, func_table, resource_table) = self
-            .frame_table
-            .get_serializable_tables(&self.global_lib_index_to_thread_string_index);
+        let (frame_table, func_table, resource_table) = self.frame_table.get_serializable_tables();
 
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry("frameTable", &frame_table)?;
