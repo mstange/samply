@@ -1051,8 +1051,6 @@ impl Profile {
     /// impl StaticSchemaMarker for TextMarker {
     ///     const UNIQUE_MARKER_TYPE_NAME: &'static str = "Text";
     ///
-    ///     const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
-    ///
     ///     const CHART_LABEL: Option<&'static str> = Some("{marker.data.text}");
     ///     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.text}");
     ///

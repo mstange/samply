@@ -735,7 +735,7 @@ pub struct OtherClrMarker(StringHandle, StringHandle);
 impl StaticSchemaMarker for OtherClrMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "OtherClrMarker";
 
-    const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
+    const CATEGORY: Category<'static> = Category("CLR", CategoryColor::Blue);
     const DESCRIPTION: Option<&'static str> = Some("CoreCLR marker of unknown type.");
 
     const CHART_LABEL: Option<&'static str> = Some("{marker.data.name}");

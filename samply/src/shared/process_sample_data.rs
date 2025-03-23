@@ -1,7 +1,6 @@
 use fxprof_processed_profile::{
-    Category, CategoryColor, LibMappings, MarkerFieldFlags, MarkerFieldFormat, MarkerTiming,
-    Profile, StaticSchemaMarker, StaticSchemaMarkerField, StringHandle, SubcategoryHandle,
-    ThreadHandle, Timestamp,
+    LibMappings, MarkerFieldFlags, MarkerFieldFormat, MarkerTiming, Profile, StaticSchemaMarker,
+    StaticSchemaMarkerField, StringHandle, SubcategoryHandle, ThreadHandle, Timestamp,
 };
 
 use super::lib_mappings::{LibMappingInfo, LibMappingOpQueue, LibMappingsHierarchy};
@@ -147,8 +146,6 @@ impl RssStatMarker {
 impl StaticSchemaMarker for RssStatMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "RSS Anon";
 
-    const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
-
     const CHART_LABEL: Option<&'static str> = Some("{marker.data.totalBytes}");
     const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.data.totalBytes}");
     const TABLE_LABEL: Option<&'static str> =
@@ -195,8 +192,6 @@ pub struct OtherEventMarker(pub StringHandle);
 impl StaticSchemaMarker for OtherEventMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "Other event";
 
-    const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
-
     const DESCRIPTION: Option<&'static str> =
         Some("Emitted for any records in a perf.data file which don't map to a known event.");
 
@@ -220,8 +215,6 @@ pub struct UserTimingMarker(pub StringHandle);
 
 impl StaticSchemaMarker for UserTimingMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "UserTiming";
-
-    const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
 
     const DESCRIPTION: Option<&'static str> =
         Some("Emitted for performance.mark and performance.measure.");
@@ -255,8 +248,6 @@ pub struct SchedSwitchMarkerOnCpuTrack;
 impl StaticSchemaMarker for SchedSwitchMarkerOnCpuTrack {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "sched_switch";
 
-    const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
-
     const DESCRIPTION: Option<&'static str> =
         Some("Emitted just before a running thread gets moved off-cpu.");
 
@@ -282,8 +273,6 @@ pub struct SchedSwitchMarkerOnThreadTrack {
 
 impl StaticSchemaMarker for SchedSwitchMarkerOnThreadTrack {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "sched_switch";
-
-    const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
 
     const DESCRIPTION: Option<&'static str> =
         Some("Emitted just before a running thread gets moved off-cpu.");
@@ -313,8 +302,6 @@ pub struct SimpleMarker(pub StringHandle);
 
 impl StaticSchemaMarker for SimpleMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "SimpleMarker";
-
-    const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
 
     const DESCRIPTION: Option<&'static str> =
         Some("Emitted for marker spans in a markers text file.");

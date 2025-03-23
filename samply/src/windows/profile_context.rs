@@ -1543,8 +1543,6 @@ impl ProfileContext {
         impl StaticSchemaMarker for VSyncMarker {
             const UNIQUE_MARKER_TYPE_NAME: &'static str = "Vsync";
 
-            const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
-
             const LOCATIONS: MarkerLocations = MarkerLocations::MARKER_CHART
                 .union(MarkerLocations::MARKER_TABLE)
                 .union(MarkerLocations::TIMELINE_OVERVIEW);
@@ -2198,8 +2196,6 @@ pub struct FreeformMarker(StringHandle, StringHandle);
 
 impl StaticSchemaMarker for FreeformMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "FreeformMarker";
-
-    const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
 
     const CHART_LABEL: Option<&'static str> = Some("{marker.data.values}");
     const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.values}");

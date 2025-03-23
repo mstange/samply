@@ -22,7 +22,6 @@ pub struct TextMarker {
 
 impl StaticSchemaMarker for TextMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "Text";
-    const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
     const CHART_LABEL: Option<&'static str> = Some("{marker.data.name}");
     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.name}");
     const FIELDS: &'static [StaticSchemaMarkerField] = &[StaticSchemaMarkerField {
@@ -55,7 +54,6 @@ fn profile_without_js() {
     }
     impl StaticSchemaMarker for CustomMarker {
         const UNIQUE_MARKER_TYPE_NAME: &'static str = "custom";
-        const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
         const TOOLTIP_LABEL: Option<&'static str> = Some("Custom tooltip label");
 
         const FIELDS: &'static [StaticSchemaMarkerField] = &[

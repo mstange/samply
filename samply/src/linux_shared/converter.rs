@@ -1913,8 +1913,6 @@ struct MmapMarker(StringHandle);
 impl StaticSchemaMarker for MmapMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "mmap";
 
-    const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
-
     const FIELDS: &'static [StaticSchemaMarkerField] = &[StaticSchemaMarkerField {
         key: "name",
         label: "Details",

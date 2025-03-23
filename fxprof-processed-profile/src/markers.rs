@@ -116,7 +116,7 @@ pub trait Marker {
 /// impl StaticSchemaMarker for TextMarker {
 ///     const UNIQUE_MARKER_TYPE_NAME: &'static str = "Text";
 ///
-///     const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
+///     const CATEGORY: Category<'static> = Category("Navigation", CategoryColor::Green);
 ///
 ///     const LOCATIONS: MarkerLocations = MarkerLocations::MARKER_CHART.union(MarkerLocations::MARKER_TABLE);
 ///     const CHART_LABEL: Option<&'static str> = Some("{marker.data.text}");
@@ -148,7 +148,7 @@ pub trait StaticSchemaMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str;
 
     /// The category of this marker. The marker chart groups marker rows by category.
-    const CATEGORY: Category<'static>;
+    const CATEGORY: Category<'static> = Category::OTHER;
 
     /// An optional description string. Applies to all markers of this type.
     const DESCRIPTION: Option<&'static str> = None;
