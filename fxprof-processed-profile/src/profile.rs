@@ -105,14 +105,14 @@ pub struct StackHandle(ThreadHandle, usize);
 pub struct FrameSymbolInfo {
     /// The function name. If set to `None`, the name of the native symbol will be used.
     pub name: Option<StringHandle>,
-    /// The source location. All fields can be set to `None` if unknown.
-    pub source_location: SourceLocation,
     /// The native symbol for the function whose native code contains the frame address.
     pub native_symbol: NativeSymbolHandle,
+    /// The source location. All fields can be set to `None` if unknown.
+    pub source_location: SourceLocation,
 }
 
 /// Source code information (file path + line number + column number) for a frame.
-#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct SourceLocation {
     /// The [`StringHandle`] for the file path of the source file. Optional.
     pub file_path: Option<StringHandle>,

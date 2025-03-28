@@ -24,7 +24,7 @@ pub struct FrameTable {
     native_symbol_col: Vec<Option<NativeSymbolIndex>>,
     inline_depth_col: Vec<u16>,
 
-    frame_key_set: FastIndexSet<InternalFrameKey>,
+    frame_key_set: FastIndexSet<InternalFrame>,
 }
 
 impl FrameTable {
@@ -38,7 +38,7 @@ impl FrameTable {
         global_libs: &mut GlobalLibTable,
         string_table: &mut ThreadStringTable,
     ) -> usize {
-        let (frame_index, is_new) = self.frame_key_set.insert_full(frame.frame_key());
+        let (frame_index, is_new) = self.frame_key_set.insert_full(frame);
 
         if !is_new {
             return frame_index;
@@ -162,34 +162,6 @@ pub enum InternalFrameVariant {
 }
 
 impl InternalFrame {
-    pub fn frame_key(&self) -> InternalFrameKey {
-        let InternalFrame {
-            name,
-            variant,
-            subcategory,
-            file_path,
-            line,
-            col,
-            flags,
-        } = *self;
-        let variant = match variant {
-            InternalFrameVariant::Label => InternalFrameKeyVariant::Label(LabelFrameKey {
-                name,
-                file_path,
-                line,
-                col,
-            }),
-            InternalFrameVariant::Native(native_frame_data) => {
-                InternalFrameKeyVariant::Native(native_frame_data)
-            }
-        };
-        InternalFrameKey {
-            variant,
-            subcategory,
-            flags,
-        }
-    }
-
     pub fn func_key(&self) -> FuncKey {
         let InternalFrame {
             name,
@@ -209,27 +181,6 @@ impl InternalFrame {
             flags,
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub struct InternalFrameKey {
-    pub variant: InternalFrameKeyVariant,
-    pub subcategory: SubcategoryHandle,
-    pub flags: FrameFlags,
-}
-
-#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub struct LabelFrameKey {
-    pub name: ThreadInternalStringIndex,
-    pub file_path: Option<ThreadInternalStringIndex>,
-    pub line: Option<u32>,
-    pub col: Option<u32>,
-}
-
-#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub enum InternalFrameKeyVariant {
-    Label(LabelFrameKey),
-    Native(NativeFrameData),
 }
 
 #[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
