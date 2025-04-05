@@ -1,9 +1,9 @@
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 
 use crate::category::{CategoryHandle, SubcategoryHandle, SubcategoryIndex};
-use crate::fast_hash_map::FastHashMap;
+use crate::fast_hash_map::FastIndexSet;
 use crate::frame::FrameFlags;
-use crate::func_table::{FuncIndex, FuncTable};
+use crate::func_table::{FuncIndex, FuncKey, FuncTable};
 use crate::global_lib_table::{GlobalLibIndex, GlobalLibTable};
 use crate::native_symbols::NativeSymbolIndex;
 use crate::resource_table::ResourceTable;
@@ -12,19 +12,19 @@ use crate::thread_string_table::{ThreadInternalStringIndex, ThreadStringTable};
 
 #[derive(Debug, Clone, Default)]
 pub struct FrameTable {
-    name_col: Vec<ThreadInternalStringIndex>,
+    func_table: FuncTable,
+    resource_table: ResourceTable,
+
+    func_col: Vec<FuncIndex>,
     category_col: Vec<CategoryHandle>,
     subcategory_col: Vec<SubcategoryIndex>,
-    flags_col: Vec<FrameFlags>,
-    file_col: Vec<Option<ThreadInternalStringIndex>>,
     line_col: Vec<Option<u32>>,
     column_col: Vec<Option<u32>>,
-    lib_col: Vec<Option<GlobalLibIndex>>,
     address_col: Vec<Option<u32>>,
     native_symbol_col: Vec<Option<NativeSymbolIndex>>,
     inline_depth_col: Vec<u16>,
-    frame_key_to_frame_index: FastHashMap<InternalFrameKey, usize>,
-    contains_js_frame: bool,
+
+    frame_key_set: FastIndexSet<InternalFrame>,
 }
 
 impl FrameTable {
@@ -35,129 +35,88 @@ impl FrameTable {
     pub fn index_for_frame(
         &mut self,
         frame: InternalFrame,
-        global_lib_index_to_thread_string_index: &mut FastHashMap<
-            GlobalLibIndex,
-            ThreadInternalStringIndex,
-        >,
         global_libs: &mut GlobalLibTable,
         string_table: &mut ThreadStringTable,
     ) -> usize {
-        if let Some(index) = self.frame_key_to_frame_index.get(&frame.key) {
-            return *index;
+        let (frame_index, is_new) = self.frame_key_set.insert_full(frame);
+
+        if !is_new {
+            return frame_index;
         }
 
-        let flags = frame.key.flags;
+        let func_key = frame.func_key();
+        let func = self.func_table.index_for_func(
+            func_key,
+            &mut self.resource_table,
+            global_libs,
+            string_table,
+        );
 
-        let frame_index = self.name_col.len();
-        let SubcategoryHandle(category, subcategory) = frame.key.subcategory;
-        self.name_col.push(frame.name);
+        self.func_col.push(func);
+        let SubcategoryHandle(category, subcategory) = frame.subcategory;
         self.category_col.push(category);
         self.subcategory_col.push(subcategory);
-        self.flags_col.push(flags);
+        self.line_col.push(frame.line);
+        self.column_col.push(frame.col);
 
-        match frame.key.variant {
-            InternalFrameKeyVariant::Label {
-                file_path,
-                line,
-                col,
-                ..
-            } => {
-                self.file_col.push(file_path);
-                self.line_col.push(line);
-                self.column_col.push(col);
-                self.lib_col.push(None);
+        match frame.variant {
+            InternalFrameVariant::Label => {
                 self.address_col.push(None);
                 self.native_symbol_col.push(None);
                 self.inline_depth_col.push(0);
             }
-            InternalFrameKeyVariant::Native {
+            InternalFrameVariant::Native(NativeFrameData {
                 lib,
+                native_symbol,
                 relative_address,
                 inline_depth,
-            } => {
-                self.file_col.push(None);
-                self.line_col.push(None);
-                self.column_col.push(None);
-                self.lib_col.push(Some(lib));
-                self.address_col.push(Some(relative_address));
-                self.native_symbol_col.push(frame.native_symbol);
-                self.inline_depth_col.push(inline_depth);
-
+            }) => {
                 global_libs.add_lib_used_rva(lib, relative_address);
 
-                global_lib_index_to_thread_string_index
-                    .entry(lib)
-                    .or_insert_with(|| {
-                        let lib_name = &global_libs.get_lib(lib).unwrap().name;
-                        string_table.index_for_string(lib_name)
-                    });
+                self.address_col.push(Some(relative_address));
+                self.native_symbol_col.push(native_symbol);
+                self.inline_depth_col.push(inline_depth);
             }
-        }
-
-        self.frame_key_to_frame_index.insert(frame.key, frame_index);
-
-        if flags.intersects(FrameFlags::IS_JS | FrameFlags::IS_RELEVANT_FOR_JS) {
-            self.contains_js_frame = true;
         }
 
         frame_index
     }
 
     pub fn contains_js_frame(&self) -> bool {
-        self.contains_js_frame
+        self.func_table.contains_js_func()
     }
 
     pub fn get_serializable_tables(
         &self,
-        global_lib_index_to_thread_string_index: &FastHashMap<
-            GlobalLibIndex,
-            ThreadInternalStringIndex,
-        >,
-    ) -> (SerializableFrameTable<'_>, FuncTable, ResourceTable) {
-        let mut func_table = FuncTable::new();
-        let mut resource_table = ResourceTable::new();
-        let func_col = self
-            .name_col
-            .iter()
-            .cloned()
-            .zip(self.flags_col.iter().cloned())
-            .zip(self.lib_col.iter().cloned())
-            .zip(self.file_col.iter().cloned())
-            .map(|(((name, flags), lib), file)| {
-                let resource = lib.map(|lib| {
-                    resource_table.resource_for_lib(lib, global_lib_index_to_thread_string_index)
-                });
-                func_table.index_for_func(name, file, resource, flags)
-            })
-            .collect();
+    ) -> (SerializableFrameTable<'_>, &'_ FuncTable, &'_ ResourceTable) {
         (
-            SerializableFrameTable(self, func_col),
-            func_table,
-            resource_table,
+            SerializableFrameTable(self),
+            &self.func_table,
+            &self.resource_table,
         )
     }
 }
 
-pub struct SerializableFrameTable<'a>(&'a FrameTable, Vec<FuncIndex>);
+pub struct SerializableFrameTable<'a>(&'a FrameTable);
 
 impl Serialize for SerializableFrameTable<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let SerializableFrameTable(table, func_col) = self;
-        let len = table.name_col.len();
+        let SerializableFrameTable(table) = self;
+        let len = table.func_col.len();
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry("length", &len)?;
+        map.serialize_entry("func", &table.func_col)?;
+        map.serialize_entry("category", &table.category_col)?;
+        map.serialize_entry("subcategory", &table.subcategory_col)?;
+        map.serialize_entry("line", &table.line_col)?;
+        map.serialize_entry("column", &table.column_col)?;
         map.serialize_entry(
             "address",
             &SerializableFrameTableAddressColumn(&table.address_col),
         )?;
-        map.serialize_entry("inlineDepth", &table.inline_depth_col)?;
-        map.serialize_entry("category", &table.category_col)?;
-        map.serialize_entry("subcategory", &table.subcategory_col)?;
-        map.serialize_entry("func", func_col)?;
         map.serialize_entry("nativeSymbol", &table.native_symbol_col)?;
+        map.serialize_entry("inlineDepth", &table.inline_depth_col)?;
         map.serialize_entry("innerWindowID", &SerializableSingleValueColumn(0, len))?;
-        map.serialize_entry("line", &table.line_col)?;
-        map.serialize_entry("column", &table.column_col)?;
         map.end()
     }
 }
@@ -177,45 +136,49 @@ impl Serialize for SerializableFrameTableAddressColumn<'_> {
     }
 }
 
-#[derive(Debug, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct InternalFrame {
-    pub key: InternalFrameKey,
     pub name: ThreadInternalStringIndex,
-    pub native_symbol: Option<NativeSymbolIndex>, // only used when key.variant is InternalFrameKeyVariant::Native
+    pub variant: InternalFrameVariant,
+    pub subcategory: SubcategoryHandle,
     pub file_path: Option<ThreadInternalStringIndex>,
     pub line: Option<u32>,
     pub col: Option<u32>,
-}
-
-#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub struct InternalFrameKey {
-    pub variant: InternalFrameKeyVariant,
-    pub subcategory: SubcategoryHandle,
     pub flags: FrameFlags,
 }
 
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub enum InternalFrameKeyVariant {
-    Label {
-        name: ThreadInternalStringIndex,
-        file_path: Option<ThreadInternalStringIndex>,
-        line: Option<u32>,
-        col: Option<u32>,
-    },
-    Native {
-        lib: GlobalLibIndex,
-        relative_address: u32,
-        inline_depth: u16,
-    },
+pub struct NativeFrameData {
+    pub lib: GlobalLibIndex,
+    pub native_symbol: Option<NativeSymbolIndex>,
+    pub relative_address: u32,
+    pub inline_depth: u16,
 }
 
-impl InternalFrameKeyVariant {
-    pub fn new_label(name: ThreadInternalStringIndex) -> Self {
-        InternalFrameKeyVariant::Label {
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
+pub enum InternalFrameVariant {
+    Label,
+    Native(NativeFrameData),
+}
+
+impl InternalFrame {
+    pub fn func_key(&self) -> FuncKey {
+        let InternalFrame {
             name,
-            file_path: None,
-            line: None,
-            col: None,
+            variant,
+            file_path,
+            flags,
+            ..
+        } = *self;
+        let lib = match variant {
+            InternalFrameVariant::Label => None,
+            InternalFrameVariant::Native(NativeFrameData { lib, .. }) => Some(lib),
+        };
+        FuncKey {
+            name,
+            file_path,
+            lib,
+            flags,
         }
     }
 }

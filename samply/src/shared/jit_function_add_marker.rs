@@ -9,7 +9,7 @@ pub struct JitFunctionAddMarker(pub StringHandle);
 impl StaticSchemaMarker for JitFunctionAddMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "JitFunctionAdd";
 
-    const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
+    const CATEGORY: Category<'static> = Category("JIT", CategoryColor::Green);
     const DESCRIPTION: Option<&'static str> =
         Some("Emitted when a JIT function is added to the process.");
 

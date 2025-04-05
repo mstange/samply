@@ -48,13 +48,9 @@ impl<E: ExtraPathMapper> PathMapper<E> {
             return value.clone();
         }
 
-        let mapped_path = if let Ok(mapped_path) = map_rustc_path(raw_path) {
-            Some(mapped_path)
-        } else if let Ok(mapped_path) = map_cargo_dep_path(raw_path) {
-            Some(mapped_path)
-        } else {
-            None
-        };
+        let mapped_path = None
+            .or_else(|| map_rustc_path(raw_path).ok())
+            .or_else(|| map_cargo_dep_path(raw_path).ok());
         self.cache.insert(raw_path.into(), mapped_path.clone());
         mapped_path
     }

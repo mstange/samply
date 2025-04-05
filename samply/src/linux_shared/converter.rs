@@ -88,6 +88,7 @@ where
     jit_category_manager: JitCategoryManager,
     arg_count_to_include_in_process_name: usize,
     cpus: Option<Cpus>,
+    stack_scratch: Vec<StackFrame>,
 
     /// Whether repeated frames at the base of the stack should be folded
     /// into one frame.
@@ -147,13 +148,7 @@ where
                 Some(interval_ns) => (*interval_ns, 1),
                 None => (DEFAULT_OFF_CPU_SAMPLING_INTERVAL_NS, 0),
             };
-        let kernel_symbols = match KernelSymbols::new_for_running_kernel() {
-            Ok(kernel_symbols) => Some(kernel_symbols),
-            Err(_err) => {
-                // eprintln!("Could not obtain kernel symbols: {err}");
-                None
-            }
-        };
+        let kernel_symbols = KernelSymbols::new_for_running_kernel().ok();
 
         let mut simpleperf_symbol_tables_user = HashMap::new();
         let mut simpleperf_symbol_tables_jit = HashMap::new();
@@ -275,6 +270,7 @@ where
             arg_count_to_include_in_process_name: profile_creation_props
                 .arg_count_to_include_in_process_name,
             cpus,
+            stack_scratch: Vec::new(),
             call_chain_return_addresses_are_preadjusted,
             should_emit_jit_markers: profile_creation_props.should_emit_jit_markers,
             should_emit_cswitch_markers: profile_creation_props.should_emit_cswitch_markers,
@@ -326,12 +322,12 @@ where
             &self.timestamp_converter,
         );
 
-        let mut stack = Vec::new();
+        let stack = &mut self.stack_scratch;
         Self::get_sample_stack::<C>(
             e,
             &process.unwinder,
             &mut self.cache,
-            &mut stack,
+            stack,
             self.fold_recursive_prefix,
             self.call_chain_return_addresses_are_preadjusted,
         );
@@ -457,12 +453,12 @@ where
             &self.timestamp_converter,
         );
 
-        let mut stack = Vec::new();
+        let stack = &mut self.stack_scratch;
         Self::get_sample_stack::<C>(
             e,
             &process.unwinder,
             &mut self.cache,
-            &mut stack,
+            stack,
             self.fold_recursive_prefix,
             self.call_chain_return_addresses_are_preadjusted,
         );
@@ -569,16 +565,16 @@ where
             &self.timestamp_converter,
         );
 
-        let mut stack = Vec::new();
+        let stack = &mut self.stack_scratch;
         Self::get_sample_stack::<C>(
             e,
             &process.unwinder,
             &mut self.cache,
-            &mut stack,
+            stack,
             self.fold_recursive_prefix,
             self.call_chain_return_addresses_are_preadjusted,
         );
-        let unresolved_stack = self.unresolved_stacks.convert(stack.into_iter().rev());
+        let unresolved_stack = self.unresolved_stacks.convert(stack.iter().rev().cloned());
         let thread_handle = process.threads.main_thread.profile_thread;
         let timing = MarkerTiming::Instant(timestamp);
         let name = match member {
@@ -620,12 +616,12 @@ where
             &self.timestamp_converter,
         );
 
-        let mut stack = Vec::new();
+        let stack = &mut self.stack_scratch;
         Self::get_sample_stack::<C>(
             e,
             &process.unwinder,
             &mut self.cache,
-            &mut stack,
+            stack,
             self.fold_recursive_prefix,
             self.call_chain_return_addresses_are_preadjusted,
         );
@@ -640,7 +636,7 @@ where
             None => process.threads.main_thread.profile_thread,
         };
 
-        let unresolved_stack = self.unresolved_stacks.convert(stack.into_iter().rev());
+        let unresolved_stack = self.unresolved_stacks.convert(stack.iter().rev().cloned());
         if let Some(name) = self.event_names.get(attr_index) {
             let timing = MarkerTiming::Instant(timestamp);
             let name = self.profile.handle_for_string(name);
@@ -1916,8 +1912,6 @@ struct MmapMarker(StringHandle);
 
 impl StaticSchemaMarker for MmapMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str = "mmap";
-
-    const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
 
     const FIELDS: &'static [StaticSchemaMarkerField] = &[StaticSchemaMarkerField {
         key: "name",

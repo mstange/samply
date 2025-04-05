@@ -1,10 +1,11 @@
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 
-use crate::fast_hash_map::FastHashMap;
+use crate::fast_hash_map::FastIndexSet;
 use crate::frame::FrameFlags;
-use crate::resource_table::ResourceIndex;
+use crate::global_lib_table::{GlobalLibIndex, GlobalLibTable};
+use crate::resource_table::{ResourceIndex, ResourceTable};
 use crate::serialization_helpers::SerializableSingleValueColumn;
-use crate::thread_string_table::ThreadInternalStringIndex;
+use crate::thread_string_table::{ThreadInternalStringIndex, ThreadStringTable};
 
 #[derive(Debug, Clone, Default)]
 pub struct FuncTable {
@@ -12,46 +13,59 @@ pub struct FuncTable {
     files: Vec<Option<ThreadInternalStringIndex>>,
     resources: Vec<Option<ResourceIndex>>,
     flags: Vec<FrameFlags>,
-    func_key_to_func_index: FastHashMap<FuncKey, FuncIndex>,
+
+    func_key_set: FastIndexSet<FuncKey>,
+
+    contains_js_func: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-struct FuncKey {
-    name: ThreadInternalStringIndex,
-    file: Option<ThreadInternalStringIndex>,
-    resource: Option<ResourceIndex>,
-    flags: FrameFlags,
+pub struct FuncKey {
+    pub name: ThreadInternalStringIndex,
+    pub file_path: Option<ThreadInternalStringIndex>,
+    pub lib: Option<GlobalLibIndex>,
+    pub flags: FrameFlags,
 }
 
 impl FuncTable {
-    pub fn new() -> Self {
-        Default::default()
-    }
-
     pub fn index_for_func(
         &mut self,
-        name: ThreadInternalStringIndex,
-        file: Option<ThreadInternalStringIndex>,
-        resource: Option<ResourceIndex>,
-        flags: FrameFlags,
+        func_key: FuncKey,
+        resource_table: &mut ResourceTable,
+        global_libs: &mut GlobalLibTable,
+        string_table: &mut ThreadStringTable,
     ) -> FuncIndex {
-        let key = FuncKey {
-            name,
-            file,
-            resource,
-            flags,
-        };
-        if let Some(index) = self.func_key_to_func_index.get(&key) {
-            return *index;
+        let (index, is_new) = self.func_key_set.insert_full(func_key);
+
+        let func_index = FuncIndex(index.try_into().unwrap());
+        if !is_new {
+            return func_index;
         }
 
-        let func_index = FuncIndex(u32::try_from(self.names.len()).unwrap());
+        let FuncKey {
+            name,
+            file_path,
+            lib,
+            flags,
+        } = func_key;
+
+        let resource =
+            lib.map(|lib| resource_table.resource_for_lib(lib, global_libs, string_table));
+
         self.names.push(name);
-        self.files.push(file);
+        self.files.push(file_path);
         self.resources.push(resource);
         self.flags.push(flags);
-        self.func_key_to_func_index.insert(key, func_index);
+
+        if flags.intersects(FrameFlags::IS_JS | FrameFlags::IS_RELEVANT_FOR_JS) {
+            self.contains_js_func = true;
+        }
+
         func_index
+    }
+
+    pub fn contains_js_func(&self) -> bool {
+        self.contains_js_func
     }
 }
 

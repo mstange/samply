@@ -15,7 +15,7 @@ use crate::cpu_delta::CpuDelta;
 use crate::fast_hash_map::{FastHashMap, FastIndexSet};
 use crate::frame::FrameAddress;
 use crate::frame_table::{
-    InternalFrame, InternalFrameAddress, InternalFrameKey, InternalFrameKeyVariant,
+    InternalFrame, InternalFrameAddress, InternalFrameVariant, NativeFrameData,
 };
 use crate::global_lib_table::{GlobalLibTable, LibraryHandle, UsedLibraryAddressesIterator};
 use crate::lib_mappings::LibMappings;
@@ -105,14 +105,14 @@ pub struct StackHandle(ThreadHandle, usize);
 pub struct FrameSymbolInfo {
     /// The function name. If set to `None`, the name of the native symbol will be used.
     pub name: Option<StringHandle>,
-    /// The source location. All fields can be set to `None` if unknown.
-    pub source_location: SourceLocation,
     /// The native symbol for the function whose native code contains the frame address.
     pub native_symbol: NativeSymbolHandle,
+    /// The source location. All fields can be set to `None` if unknown.
+    pub source_location: SourceLocation,
 }
 
 /// Source code information (file path + line number + column number) for a frame.
-#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct SourceLocation {
     /// The [`StringHandle`] for the file path of the source file. Optional.
     pub file_path: Option<StringHandle>,
@@ -587,41 +587,46 @@ impl Profile {
             &mut self.global_libs,
             &mut self.kernel_libs,
         );
-        let (variant, native_symbol, name) = match address {
+        let (variant, name) = match address {
             InternalFrameAddress::Unknown(address) => {
-                let name = self.string_table.index_for_string(&format!("{address:#x}"));
+                let name = self.string_table.index_for_hex_address_string(address);
                 let name = thread.convert_string_index(&self.string_table, name);
-                (InternalFrameKeyVariant::new_label(name), None, name)
+                (InternalFrameVariant::Label, name)
             }
             InternalFrameAddress::InLib(address, lib_index) => {
                 let lib = self.global_libs.get_lib(lib_index).unwrap();
-                let native_symbol_and_name = lib.symbol_table.as_deref().and_then(|symbol_table| {
-                    let symbol = symbol_table.lookup(address)?;
-                    Some(thread.native_symbol_index_and_string_index_for_symbol(lib_index, symbol))
-                });
-                let variant = InternalFrameKeyVariant::Native {
+                let symbol = lib
+                    .symbol_table
+                    .as_deref()
+                    .and_then(|symbol_table| symbol_table.lookup(address));
+                let (native_symbol, name) = match symbol {
+                    Some(symbol) => {
+                        let (native_symbol, name) = thread
+                            .native_symbol_index_and_string_index_for_symbol(lib_index, symbol);
+                        (Some(native_symbol), name)
+                    }
+                    None => {
+                        let name = self
+                            .string_table
+                            .index_for_hex_address_string(address.into());
+                        let name = thread.convert_string_index(&self.string_table, name);
+                        (None, name)
+                    }
+                };
+                let variant = InternalFrameVariant::Native(NativeFrameData {
                     lib: lib_index,
                     relative_address: address,
                     inline_depth: 0,
-                };
-                match native_symbol_and_name {
-                    Some((native_symbol, name)) => (variant, Some(native_symbol), name),
-                    None => {
-                        let name = self.string_table.index_for_string(&format!("{address:#x}"));
-                        let name = thread.convert_string_index(&self.string_table, name);
-                        (variant, None, name)
-                    }
-                }
+                    native_symbol,
+                });
+                (variant, name)
             }
         };
         let internal_frame = InternalFrame {
-            key: InternalFrameKey {
-                variant,
-                subcategory,
-                flags,
-            },
+            variant,
+            subcategory,
+            flags,
             name,
-            native_symbol,
             file_path: None,
             line: None,
             col: None,
@@ -662,7 +667,7 @@ impl Profile {
         let thread_handle = thread;
         let thread = &mut self.threads[thread_handle.0];
         let name = thread.convert_string_index(&self.string_table, label.0);
-        let (variant, file_path, line, col) = match source_location {
+        let (file_path, line, col) = match source_location {
             Some(SourceLocation {
                 file_path,
                 line,
@@ -670,30 +675,18 @@ impl Profile {
             }) => {
                 let file_path =
                     file_path.map(|f| thread.convert_string_index(&self.string_table, f.0));
-                let variant = InternalFrameKeyVariant::Label {
-                    name,
-                    file_path,
-                    line,
-                    col,
-                };
-                (variant, file_path, line, col)
+                (file_path, line, col)
             }
-            None => {
-                let variant = InternalFrameKeyVariant::new_label(name);
-                (variant, None, None, None)
-            }
+            None => (None, None, None),
         };
         let internal_frame = InternalFrame {
-            key: InternalFrameKey {
-                variant,
-                subcategory,
-                flags,
-            },
             name,
-            native_symbol: None,
+            variant: InternalFrameVariant::Label,
+            subcategory,
             file_path,
             line,
             col,
+            flags,
         };
         let frame_index = thread.frame_index_for_frame(internal_frame, &mut self.global_libs);
         FrameHandle(thread_handle, frame_index)
@@ -751,20 +744,21 @@ impl Profile {
         let (variant, name) = match address {
             InternalFrameAddress::Unknown(addr) => {
                 let name = name.unwrap_or_else(|| {
-                    let name = self.string_table.index_for_string(&format!("{addr:#x}"));
+                    let name = self.string_table.index_for_hex_address_string(addr);
                     thread.convert_string_index(&self.string_table, name)
                 });
-                (InternalFrameKeyVariant::new_label(name), name)
+                (InternalFrameVariant::Label, name)
             }
             InternalFrameAddress::InLib(relative_address, lib) => {
                 let name =
                     name.unwrap_or_else(|| thread.get_native_symbol_name(native_symbol_index));
                 (
-                    InternalFrameKeyVariant::Native {
+                    InternalFrameVariant::Native(NativeFrameData {
                         lib,
+                        native_symbol: Some(native_symbol.1),
                         relative_address,
                         inline_depth,
-                    },
+                    }),
                     name,
                 )
             }
@@ -776,16 +770,13 @@ impl Profile {
         } = source_location;
         let file_path = file_path.map(|f| thread.convert_string_index(&self.string_table, f.0));
         let internal_frame = InternalFrame {
-            key: InternalFrameKey {
-                variant,
-                subcategory,
-                flags,
-            },
             name,
-            native_symbol: Some(native_symbol.1),
+            subcategory,
+            variant,
             file_path,
             line,
             col,
+            flags,
         };
         let frame_index = thread.frame_index_for_frame(internal_frame, &mut self.global_libs);
         FrameHandle(thread_handle, frame_index)
@@ -1059,8 +1050,6 @@ impl Profile {
     ///
     /// impl StaticSchemaMarker for TextMarker {
     ///     const UNIQUE_MARKER_TYPE_NAME: &'static str = "Text";
-    ///
-    ///     const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
     ///
     ///     const CHART_LABEL: Option<&'static str> = Some("{marker.data.text}");
     ///     const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.text}");

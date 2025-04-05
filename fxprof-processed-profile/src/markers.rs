@@ -116,7 +116,7 @@ pub trait Marker {
 /// impl StaticSchemaMarker for TextMarker {
 ///     const UNIQUE_MARKER_TYPE_NAME: &'static str = "Text";
 ///
-///     const CATEGORY: Category<'static> = Category("Other", CategoryColor::Gray);
+///     const CATEGORY: Category<'static> = Category("Navigation", CategoryColor::Green);
 ///
 ///     const LOCATIONS: MarkerLocations = MarkerLocations::MARKER_CHART.union(MarkerLocations::MARKER_TABLE);
 ///     const CHART_LABEL: Option<&'static str> = Some("{marker.data.text}");
@@ -148,7 +148,7 @@ pub trait StaticSchemaMarker {
     const UNIQUE_MARKER_TYPE_NAME: &'static str;
 
     /// The category of this marker. The marker chart groups marker rows by category.
-    const CATEGORY: Category<'static>;
+    const CATEGORY: Category<'static> = Category::OTHER;
 
     /// An optional description string. Applies to all markers of this type.
     const DESCRIPTION: Option<&'static str> = None;
@@ -380,7 +380,7 @@ bitflags! {
 /// [`string_field_value`](Marker::string_field_value), depending on this field
 /// format's [kind](MarkerFieldFormat::kind).
 ///
-/// Used with runtime-generated marker schemas. Use [`RuntimeSchemaMarkerField`]
+/// Used with static marker schemas. Use [`RuntimeSchemaMarkerField`]
 /// when using [`RuntimeSchemaMarkerSchema`].
 pub struct StaticSchemaMarkerField {
     /// The field key. Must not be `type` or `cause`.
@@ -554,7 +554,7 @@ bitflags! {
 
 /// A graph within a marker graph track, used in [`StaticSchemaMarker::GRAPHS`].
 ///
-/// Used with runtime-generated marker schemas. Use [`RuntimeSchemaMarkerGraph`]
+/// Used with static marker schemas. Use [`RuntimeSchemaMarkerGraph`]
 /// when using [`RuntimeSchemaMarkerSchema`].
 pub struct StaticSchemaMarkerGraph {
     /// The key of a number field that's declared in the marker schema.

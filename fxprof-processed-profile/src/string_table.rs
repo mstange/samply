@@ -43,6 +43,7 @@ pub struct GlobalStringIndex(pub(crate) StringIndex);
 #[derive(Debug, Clone, Default)]
 pub struct GlobalStringTable {
     table: StringTable,
+    hex_address_strings: FastHashMap<u64, GlobalStringIndex>,
 }
 
 impl GlobalStringTable {
@@ -52,6 +53,21 @@ impl GlobalStringTable {
 
     pub fn index_for_string(&mut self, s: &str) -> GlobalStringIndex {
         GlobalStringIndex(self.table.index_for_string(s))
+    }
+
+    // Fast path with separate cache for strings of the shape 0xabc123
+    pub fn index_for_hex_address_string(&mut self, a: u64) -> GlobalStringIndex {
+        *self.hex_address_strings.entry(a).or_insert_with(|| {
+            // Build the string on the stack, to save a heap allocation.
+            const BUF_LEN: usize = 18;
+            let mut buf = [0u8; BUF_LEN]; // 18 is just enough to fix u64::MAX, i.e. "0xffffffffffffffff"
+            use std::io::Write;
+            let mut b = &mut buf[..];
+            write!(b, "{a:#x}").unwrap();
+            let len = BUF_LEN - b.len();
+            let s = std::str::from_utf8(&buf[..len]).unwrap();
+            GlobalStringIndex(self.table.index_for_string(s))
+        })
     }
 
     pub fn get_string(&self, index: GlobalStringIndex) -> Option<&str> {

@@ -21,6 +21,11 @@ pub trait IntoSubcategoryHandle {
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct Category<'a>(pub &'a str, pub CategoryColor);
 
+impl Category<'_> {
+    /// The "Other" category. All profiles have this category.
+    pub const OTHER: Category<'static> = Category("Other", CategoryColor::Gray);
+}
+
 impl IntoSubcategoryHandle for Category<'_> {
     fn into_subcategory_handle(self, profile: &mut Profile) -> SubcategoryHandle {
         let category_handle = profile.handle_for_category(self);
