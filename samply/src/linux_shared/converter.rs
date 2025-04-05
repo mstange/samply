@@ -147,13 +147,7 @@ where
                 Some(interval_ns) => (*interval_ns, 1),
                 None => (DEFAULT_OFF_CPU_SAMPLING_INTERVAL_NS, 0),
             };
-        let kernel_symbols = match KernelSymbols::new_for_running_kernel() {
-            Ok(kernel_symbols) => Some(kernel_symbols),
-            Err(_err) => {
-                // eprintln!("Could not obtain kernel symbols: {err}");
-                None
-            }
-        };
+        let kernel_symbols = KernelSymbols::new_for_running_kernel().ok();
 
         let mut simpleperf_symbol_tables_user = HashMap::new();
         let mut simpleperf_symbol_tables_jit = HashMap::new();
