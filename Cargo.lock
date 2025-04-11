@@ -532,9 +532,9 @@ checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 
 [[package]]
 name = "elsa"
-version = "1.11.0"
+version = "1.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2343daaeabe09879d4ea058bb4f1e63da3fc07dadc6634e01bda1b3d6a9d9d2b"
+checksum = "9abf33c656a7256451ebb7d0082c5a471820c31269e49d807c538c252352186e"
 dependencies = [
  "stable_deref_trait",
 ]

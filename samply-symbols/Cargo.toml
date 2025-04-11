@@ -43,7 +43,7 @@ bitflags = "2"
 bytesize = { version = "2", optional = true }
 bitvec = { version = "1.0.0", optional = true }
 rangemap = "1.5.1"
-elsa = "1.11.0"
+elsa = "1.11.2"
 memchr = { version = "2.7", default-features = false }
 srcsrv = "0.2.2"
 lzma-rs = "0.3"
