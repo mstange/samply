@@ -29,6 +29,8 @@ pub fn convert_etl_file_to_profile(
 
     eprintln!("Processing ETL trace...");
 
+    let unstable_presymbolicate = profile_creation_props.unstable_presymbolicate;
+
     let mut context =
         ProfileContext::new(profile, arch, included_processes, profile_creation_props);
 
@@ -36,6 +38,13 @@ pub fn convert_etl_file_to_profile(
 
     let profile = context.finish();
     save_profile_to_file(&profile, output_file).expect("Couldn't write JSON");
+
+    if unstable_presymbolicate {
+        crate::shared::symbol_precog::presymbolicate(
+            &profile,
+            &output_file.with_extension("syms.json"),
+        );
+    }
 }
 
 #[cfg(target_arch = "x86")]

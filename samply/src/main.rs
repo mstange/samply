@@ -812,6 +812,7 @@ fn convert_perf_data_file_to_profile(input_file: &File, import_args: &ImportArgs
     let file_meta = input_file.metadata().ok();
     let file_mod_time = file_meta.and_then(|metadata| metadata.modified().ok());
     let profile_creation_props = import_args.profile_creation_props();
+    let unstable_presymbolicate = profile_creation_props.unstable_presymbolicate;
     let mut binary_lookup_dirs = import_args.symbol_props().symbol_dir.clone();
     let mut aux_file_lookup_dirs = import_args.aux_file_dir.clone();
     if let Some(parent_dir) = path.parent() {
@@ -833,6 +834,13 @@ fn convert_perf_data_file_to_profile(input_file: &File, import_args: &ImportArgs
         }
     };
     save_profile_to_file(&profile, &import_args.output).expect("Couldn't write JSON");
+
+    if unstable_presymbolicate {
+        crate::shared::symbol_precog::presymbolicate(
+            &profile,
+            &import_args.output.with_extension("syms.json"),
+        );
+    }
 }
 
 #[cfg(test)]
