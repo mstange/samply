@@ -79,11 +79,7 @@ where
     event_names: Vec<String>,
     kernel_symbols: Option<KernelSymbols>,
     kernel_image_mapping: Option<KernelImageMapping>,
-    simpleperf_symbol_tables_user: HashMap<Vec<u8>, SymbolTableFromSimpleperf>,
-    simpleperf_symbol_tables_jit: HashMap<Vec<u8>, Vec<SimpleperfSymbol>>,
-    simpleperf_symbol_tables_kernel_image: Option<Vec<SimpleperfSymbol>>,
-    simpleperf_symbol_tables_kernel_modules: HashMap<Vec<u8>, SymbolTableFromSimpleperf>,
-    simpleperf_jit_app_cache_library: SyntheticJitLibrary,
+    simpleperf: SimpleperfConverterData,
     pe_mappings: PeMappings,
     jit_category_manager: JitCategoryManager,
     arg_count_to_include_in_process_name: usize,
@@ -111,6 +107,19 @@ where
 
     /// Whether to emit context switch markers.
     should_emit_cswitch_markers: bool,
+}
+
+struct SimpleperfConverterData {
+    symbol_tables: SimpleperfSymbolTables,
+    jit_app_cache_library: SyntheticJitLibrary,
+}
+
+#[derive(Default)]
+struct SimpleperfSymbolTables {
+    user: HashMap<Vec<u8>, SymbolTableFromSimpleperf>,
+    jit: HashMap<Vec<u8>, Vec<SimpleperfSymbol>>,
+    kernel_image: Option<Vec<SimpleperfSymbol>>,
+    kernel_modules: HashMap<Vec<u8>, SymbolTableFromSimpleperf>,
 }
 
 const DEFAULT_OFF_CPU_SAMPLING_INTERVAL_NS: u64 = 1_000_000; // 1ms
@@ -150,88 +159,6 @@ where
             };
         let kernel_symbols = KernelSymbols::new_for_running_kernel().ok();
 
-        let mut simpleperf_symbol_tables_user = HashMap::new();
-        let mut simpleperf_symbol_tables_jit = HashMap::new();
-        let mut simpleperf_symbol_tables_kernel_image = None;
-        let mut simpleperf_symbol_tables_kernel_modules = HashMap::new();
-
-        // See https://source.android.com/docs/core/runtime/jit-compiler#architectural-overview for the
-        // ART JIT architecture and the tiers.
-
-        let jit_category: SubcategoryHandle = profile
-            .handle_for_category(Category("ART JIT", CategoryColor::Blue))
-            .into();
-        let allow_jit_function_recycling = profile_creation_props.reuse_threads;
-        let simpleperf_jit_app_cache_library = SyntheticJitLibrary::new(
-            "JIT app cache".to_string(),
-            jit_category,
-            &mut profile,
-            allow_jit_function_recycling,
-        );
-        if let Some(simpleperf_symbol_tables) = simpleperf_symbol_tables {
-            let interpreter_category: SubcategoryHandle = profile
-                .handle_for_category(Category("ART Interpreter", CategoryColor::Red))
-                .into();
-            let oat_category: SubcategoryHandle = profile
-                .handle_for_category(Category(
-                    "ART ahead-of-time compiled DEX (OAT)",
-                    CategoryColor::Green,
-                ))
-                .into();
-            for f in simpleperf_symbol_tables {
-                if f.r#type == DSO_KERNEL {
-                    simpleperf_symbol_tables_kernel_image = Some(f.symbol);
-                    continue;
-                }
-
-                let path = f.path.clone().into_bytes();
-                if is_simpleperf_jit_path(&f.path) {
-                    simpleperf_symbol_tables_jit.insert(path, f.symbol);
-                    continue;
-                }
-
-                let (category, art_info) = if f.path.ends_with(".oat") || f.path.ends_with(".odex")
-                {
-                    (Some(oat_category), Some(AndroidArtInfo::JavaFrame))
-                } else if f.r#type == DSO_DEX_FILE {
-                    (Some(interpreter_category), Some(AndroidArtInfo::JavaFrame))
-                } else if f.path.ends_with("libart.so") {
-                    (None, Some(AndroidArtInfo::LibArt))
-                } else {
-                    (None, None)
-                };
-
-                let (min_vaddr, file_offset_of_min_vaddr_in_elf_file) = match f.type_specific_msg {
-                    Some(SimpleperfTypeSpecificInfo::ElfFile(elf)) => {
-                        (f.min_vaddr, Some(elf.file_offset_of_min_vaddr))
-                    }
-                    _ => (f.min_vaddr, None),
-                };
-                let symbols: Vec<_> = f
-                    .symbol
-                    .iter()
-                    .map(|s| fxprof_processed_profile::Symbol {
-                        address: s.vaddr as u32,
-                        size: Some(s.len),
-                        name: demangle_any(&s.name),
-                    })
-                    .collect();
-                let symbol_table = SymbolTable::new(symbols);
-                let symbol_table = SymbolTableFromSimpleperf {
-                    file_offset_of_min_vaddr_in_elf_file,
-                    min_vaddr,
-                    symbol_table: Arc::new(symbol_table),
-                    category,
-                    art_info,
-                };
-                if f.r#type == DSO_KERNEL_MODULE {
-                    simpleperf_symbol_tables_kernel_modules.insert(path, symbol_table);
-                } else {
-                    simpleperf_symbol_tables_user.insert(path, symbol_table);
-                }
-            }
-        }
-
         let timestamp_converter = TimestampConverter {
             reference_raw: first_sample_time,
             raw_to_ns_factor: 1,
@@ -243,6 +170,12 @@ where
         } else {
             None
         };
+
+        let simpleperf = SimpleperfConverterData::new(
+            simpleperf_symbol_tables,
+            profile_creation_props,
+            &mut profile,
+        );
 
         Self {
             profile,
@@ -266,11 +199,7 @@ where
             event_names: interpretation.event_names,
             kernel_symbols,
             kernel_image_mapping: None,
-            simpleperf_symbol_tables_user,
-            simpleperf_symbol_tables_jit,
-            simpleperf_symbol_tables_kernel_image,
-            simpleperf_symbol_tables_kernel_modules,
-            simpleperf_jit_app_cache_library,
+            simpleperf,
             pe_mappings: PeMappings::new(),
             jit_category_manager: JitCategoryManager::new(),
             fold_recursive_prefix: profile_creation_props.fold_recursive_prefix,
@@ -286,7 +215,8 @@ where
 
     pub fn finish(mut self) -> Profile {
         let mut profile = self.profile;
-        self.simpleperf_jit_app_cache_library
+        self.simpleperf
+            .jit_app_cache_library
             .finish_and_set_symbol_table(&mut profile);
         self.processes.finish(
             &mut profile,
@@ -830,7 +760,7 @@ where
         }
 
         const PROT_EXEC: u32 = 0b100;
-        if e.protection & PROT_EXEC == 0 && !self.simpleperf_symbol_tables_user.contains_key(&*path)
+        if e.protection & PROT_EXEC == 0 && !self.simpleperf.symbol_tables.user.contains_key(&*path)
         {
             // Ignore non-executable mappings.
             // Don't ignore mappings that simpleperf found symbols for, even if they're
@@ -1253,7 +1183,7 @@ where
                     Some(kernel_symbols.symbol_table.clone())
                 }
                 _ => {
-                    if let Some(symbols) = self.simpleperf_symbol_tables_kernel_image.take() {
+                    if let Some(symbols) = self.simpleperf.symbol_tables.kernel_image.take() {
                         let symbols: Vec<_> = symbols
                             .into_iter()
                             .filter_map(|s| {
@@ -1274,7 +1204,9 @@ where
                 }
             }
         } else {
-            self.simpleperf_symbol_tables_kernel_modules
+            self.simpleperf
+                .symbol_tables
+                .kernel_modules
                 .get(path_slice)
                 .map(|s| s.symbol_table.clone())
         };
@@ -1342,7 +1274,7 @@ where
             .unwrap_or_else(|| (format!("jit_fun_{address:x}"), mapping_size as u32));
 
         let process = self.processes.get_by_pid(e.pid, &mut self.profile);
-        let synthetic_lib = &mut self.simpleperf_jit_app_cache_library;
+        let synthetic_lib = &mut self.simpleperf.jit_app_cache_library;
         let info = LibMappingInfo::new_java_mapping(
             synthetic_lib.lib_handle(),
             Some(synthetic_lib.default_category()),
@@ -1355,7 +1287,7 @@ where
         path_slice: &[u8],
         start_avma: u64,
     ) -> Option<(String, u32)> {
-        let symbols = self.simpleperf_symbol_tables_jit.get(path_slice)?;
+        let symbols = self.simpleperf.symbol_tables.jit.get(path_slice)?;
         let index = symbols
             .binary_search_by_key(&start_avma, |sym| sym.vaddr)
             .ok()?;
@@ -1420,7 +1352,7 @@ where
 
         // Case 1: There are symbols in the file, if we are importing a perf.data file
         // that was recorded with simpleperf.
-        if let Some(symbol_table) = self.simpleperf_symbol_tables_user.get(original_path) {
+        if let Some(symbol_table) = self.simpleperf.symbol_tables.user.get(original_path) {
             let relative_address_at_start = if let Some(file_offset_of_min_vaddr) =
                 &symbol_table.file_offset_of_min_vaddr_in_elf_file
             {
@@ -1758,6 +1690,113 @@ where
             MarkerTiming::Instant(timestamp),
             MmapMarker(path),
         );
+    }
+}
+
+impl SimpleperfConverterData {
+    pub fn new(
+        symbol_tables: Option<Vec<SimpleperfFileRecord>>,
+        profile_creation_props: &ProfileCreationProps,
+        profile: &mut Profile,
+    ) -> Self {
+        // See https://source.android.com/docs/core/runtime/jit-compiler#architectural-overview for the
+        // ART JIT architecture and the tiers.
+
+        let jit_category: SubcategoryHandle = profile
+            .handle_for_category(Category("ART JIT", CategoryColor::Blue))
+            .into();
+        let allow_jit_function_recycling = profile_creation_props.reuse_threads;
+        let jit_app_cache_library = SyntheticJitLibrary::new(
+            "JIT app cache".to_string(),
+            jit_category,
+            profile,
+            allow_jit_function_recycling,
+        );
+
+        Self {
+            symbol_tables: symbol_tables
+                .map(|st| SimpleperfSymbolTables::new(st, profile))
+                .unwrap_or_default(),
+            jit_app_cache_library,
+        }
+    }
+}
+
+impl SimpleperfSymbolTables {
+    pub fn new(symbol_tables: Vec<SimpleperfFileRecord>, profile: &mut Profile) -> Self {
+        let interpreter_category: SubcategoryHandle = profile
+            .handle_for_category(Category("ART Interpreter", CategoryColor::Red))
+            .into();
+        let oat_category: SubcategoryHandle = profile
+            .handle_for_category(Category(
+                "ART ahead-of-time compiled DEX (OAT)",
+                CategoryColor::Green,
+            ))
+            .into();
+
+        let mut symbol_tables_user = HashMap::new();
+        let mut symbol_tables_jit = HashMap::new();
+        let mut symbol_tables_kernel_image = None;
+        let mut symbol_tables_kernel_modules = HashMap::new();
+
+        for f in symbol_tables {
+            if f.r#type == DSO_KERNEL {
+                symbol_tables_kernel_image = Some(f.symbol);
+                continue;
+            }
+
+            let path = f.path.clone().into_bytes();
+            if is_simpleperf_jit_path(&f.path) {
+                symbol_tables_jit.insert(path, f.symbol);
+                continue;
+            }
+
+            let (category, art_info) = if f.path.ends_with(".oat") || f.path.ends_with(".odex") {
+                (Some(oat_category), Some(AndroidArtInfo::JavaFrame))
+            } else if f.r#type == DSO_DEX_FILE {
+                (Some(interpreter_category), Some(AndroidArtInfo::JavaFrame))
+            } else if f.path.ends_with("libart.so") {
+                (None, Some(AndroidArtInfo::LibArt))
+            } else {
+                (None, None)
+            };
+
+            let (min_vaddr, file_offset_of_min_vaddr_in_elf_file) = match f.type_specific_msg {
+                Some(SimpleperfTypeSpecificInfo::ElfFile(elf)) => {
+                    (f.min_vaddr, Some(elf.file_offset_of_min_vaddr))
+                }
+                _ => (f.min_vaddr, None),
+            };
+            let symbols: Vec<_> = f
+                .symbol
+                .iter()
+                .map(|s| fxprof_processed_profile::Symbol {
+                    address: s.vaddr as u32,
+                    size: Some(s.len),
+                    name: demangle_any(&s.name),
+                })
+                .collect();
+            let symbol_table = SymbolTable::new(symbols);
+            let symbol_table = SymbolTableFromSimpleperf {
+                file_offset_of_min_vaddr_in_elf_file,
+                min_vaddr,
+                symbol_table: Arc::new(symbol_table),
+                category,
+                art_info,
+            };
+            if f.r#type == DSO_KERNEL_MODULE {
+                symbol_tables_kernel_modules.insert(path, symbol_table);
+            } else {
+                symbol_tables_user.insert(path, symbol_table);
+            }
+        }
+
+        Self {
+            user: symbol_tables_user,
+            jit: symbol_tables_jit,
+            kernel_image: symbol_tables_kernel_image,
+            kernel_modules: symbol_tables_kernel_modules,
+        }
     }
 }
 
