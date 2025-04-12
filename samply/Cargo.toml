@@ -55,7 +55,7 @@ samply-quota-manager = { version = "0.1.0", path = "../samply-quota-manager" }
 
 [target.'cfg(any(target_os = "android", target_os = "macos", target_os = "linux"))'.dependencies]
 
-crossbeam-channel = "0.5.13"
+crossbeam-channel = "0.5.15"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 

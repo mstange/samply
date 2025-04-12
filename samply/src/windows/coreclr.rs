@@ -8,12 +8,11 @@ use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
 
 use super::elevated_helper::ElevatedRecordingProps;
-use crate::shared::recording_props::{CoreClrProfileProps, ProfileCreationProps};
-use crate::windows::profile_context::ProfileContext;
-
 use super::etw_reader::event_properties_to_string;
 use super::etw_reader::parser::{Parser, TryParse};
 use super::etw_reader::schema::TypedEvent;
+use crate::shared::recording_props::{CoreClrProfileProps, ProfileCreationProps};
+use crate::windows::profile_context::ProfileContext;
 
 const CORE_CLR_GC_CATEGORY: Category<'static> = Category("CoreCLR GC", CategoryColor::Red);
 

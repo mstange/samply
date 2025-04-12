@@ -1,5 +1,6 @@
-use object::Object;
 use std::sync::OnceLock;
+
+use object::Object;
 use wholesym::{CodeId, ElfBuildId};
 
 /// Returns the memory address range in this process where the VDSO is mapped.
