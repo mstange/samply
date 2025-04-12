@@ -7,15 +7,14 @@ use fxprof_processed_profile::debugid;
 use uuid::Uuid;
 
 use super::coreclr::CoreClrContext;
-use super::profile_context::ProfileContext;
-use crate::windows::coreclr;
-use crate::windows::profile_context::PeInfo;
-
 use super::etw_reader::parser::{Address, Parser, TryParse};
 use super::etw_reader::schema::SchemaLocator;
 use super::etw_reader::{
     add_custom_schemas, event_properties_to_string, open_trace, print_property, GUID,
 };
+use super::profile_context::ProfileContext;
+use crate::windows::coreclr;
+use crate::windows::profile_context::PeInfo;
 
 pub fn process_etl_files(
     context: &mut ProfileContext,

@@ -3,10 +3,9 @@ use std::hash::Hash;
 use indexmap::Equivalent;
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
-use crate::Profile;
-
 use super::category_color::CategoryColor;
 use super::fast_hash_map::FastIndexSet;
+use crate::Profile;
 
 /// Implemented by [`Category`], [`Subcategory`], [`CategoryHandle`] and [`SubcategoryHandle`].
 pub trait IntoSubcategoryHandle {

@@ -1,3 +1,7 @@
+use std::borrow::Cow;
+use std::mem;
+use std::path::Path;
+
 use memoffset::offset_of;
 pub use windows::core::GUID;
 use windows::core::{h, HSTRING, PWSTR};
@@ -10,10 +14,6 @@ use windows::Win32::System::Diagnostics::Etw::{
     CONTROLTRACE_HANDLE, EVENT_TRACE_FLAG, TRACE_GUID_INFO, TRACE_GUID_PROPERTIES,
     TRACE_PROVIDER_INSTANCE_INFO,
 };
-
-use std::borrow::Cow;
-use std::mem;
-use std::path::Path;
 
 // typedef ULONG64 TRACEHANDLE, *PTRACEHANDLE;
 pub(crate) type TraceHandle = u64;
@@ -37,8 +37,7 @@ pub mod utils;
 use etw_types::EventRecord;
 use parser::{Parser, ParserError, TryParse};
 use schema::SchemaLocator;
-use tdh_types::{PrimitiveDesc, PropertyDesc, TdhInType};
-use tdh_types::{Property, TdhOutType};
+use tdh_types::{PrimitiveDesc, Property, PropertyDesc, TdhInType, TdhOutType};
 use traits::EncodeUtf16;
 
 #[repr(C)]
