@@ -171,7 +171,7 @@ impl SymbolManagerConfig {
     }
 
     /// Add an additional directory that may contain symbol files.
-    /// We will check "<dir>/<binaryname>" and "<dir>/<debug_name>".
+    /// We will check "\<dir\>/\<binaryname\>" and "\<dir\>/\<debug_name\>".
     pub fn extra_symbols_directory(mut self, dir: impl Into<PathBuf>) -> Self {
         self.extra_symbol_directories.push(dir.into());
         self

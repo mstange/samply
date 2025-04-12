@@ -236,6 +236,7 @@ impl SymbolManager {
     /// `(debug_name, debug_id)` pairs, so there needs to be some stored auxiliary
     /// information which allows us to find the right debug files for the request.
     /// The list of "known libraries" is this auxiliary information.
+    #[cfg(feature = "api")]
     pub fn add_known_library(&mut self, lib_info: LibraryInfo) {
         self.symbol_manager.helper().add_known_lib(lib_info);
     }

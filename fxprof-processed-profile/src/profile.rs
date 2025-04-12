@@ -127,8 +127,12 @@ pub struct SourceLocation {
     pub col: Option<u32>,
 }
 
-#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
+/// The unit that should be used for the timeline at the top of the profiler UI.
+///
+/// Used in [`Profile::set_timeline_unit`].
+#[derive(Debug, Default, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub enum TimelineUnit {
+    #[default]
     Milliseconds,
     Bytes,
 }
@@ -1145,6 +1149,12 @@ impl Profile {
         self.counters[counter.0].add_sample(timestamp, value_delta, number_of_operations_delta)
     }
 
+    /// Returns an iterator with information about which native library addresses
+    /// are used by any stack frames stored in this profile.
+    pub fn lib_used_rva_iter(&self) -> UsedLibraryAddressesIterator {
+        self.global_libs.lib_used_rva_iter()
+    }
+
     fn resolve_frame_address(
         process: &mut Process,
         frame_address: FrameAddress,
@@ -1283,10 +1293,6 @@ impl Profile {
 
     fn contains_js_frame(&self) -> bool {
         self.threads.iter().any(|t| t.contains_js_frame())
-    }
-
-    pub fn lib_used_rva_iter(&self) -> UsedLibraryAddressesIterator {
-        self.global_libs.lib_used_rva_iter()
     }
 }
 

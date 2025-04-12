@@ -95,6 +95,10 @@ impl Serialize for GlobalLibIndex {
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct LibraryHandle(usize);
 
+/// An iterator returned by [`Profile::lib_used_rva_iter`](crate::Profile::lib_used_rva_iter).
+///
+/// Yields the set of relative addresses, per library, that are used by stack frames
+/// in the profile.
 pub struct UsedLibraryAddressesIterator<'a> {
     next_used_lib_index: usize,
     global_lib_table: &'a GlobalLibTable,
