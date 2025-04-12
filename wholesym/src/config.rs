@@ -86,7 +86,7 @@ impl SymbolManagerConfig {
     ///
     /// The first-added directory will be searched first. Directories added here
     /// are only used for reading.
-    pub fn breakpad_symbols_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+    pub fn breakpad_symbol_dir(mut self, dir: impl Into<PathBuf>) -> Self {
         self.breakpad_directories_readonly.push(dir.into());
         self
     }
@@ -94,7 +94,7 @@ impl SymbolManagerConfig {
     /// Add a server to search for breakpad symbol files, along with a local cache directory.
     ///
     /// This method can be called multiple times; the servers and caches will be tried in the order of those calls.
-    pub fn breakpad_symbols_server(
+    pub fn breakpad_symbol_server(
         mut self,
         base_url: impl Into<String>,
         cache_dir: impl Into<PathBuf>,
@@ -118,7 +118,7 @@ impl SymbolManagerConfig {
     /// Add a server to search for Windows symbol files (pdb / exe / dll), along with a local cache directory.
     ///
     /// This method can be called multiple times; the servers and caches will be tried in the order of those calls.
-    pub fn windows_symbols_server(
+    pub fn windows_symbol_server(
         mut self,
         base_url: impl Into<String>,
         cache_dir: impl Into<PathBuf>,
@@ -172,7 +172,7 @@ impl SymbolManagerConfig {
 
     /// Add an additional directory that may contain symbol files.
     /// We will check "\<dir\>/\<binaryname\>" and "\<dir\>/\<debug_name\>".
-    pub fn extra_symbols_directory(mut self, dir: impl Into<PathBuf>) -> Self {
+    pub fn extra_symbol_directory(mut self, dir: impl Into<PathBuf>) -> Self {
         self.extra_symbol_directories.push(dir.into());
         self
     }

@@ -123,10 +123,10 @@ fn create_symbol_manager_config_and_quota_manager(
         .or_else(|| Some(symbols_dir?.join("breakpad")));
     if let Some(cache_dir) = breakpad_symbol_cache_dir {
         for base_url in symbol_props.breakpad_symbol_server {
-            config = config.breakpad_symbols_server(base_url, &cache_dir)
+            config = config.breakpad_symbol_server(base_url, &cache_dir)
         }
         for dir in symbol_props.breakpad_symbol_dir {
-            config = config.breakpad_symbols_dir(dir);
+            config = config.breakpad_symbol_dir(dir);
         }
         if let Some(symbols_dir) = symbols_dir {
             let breakpad_symindex_cache_dir = symbols_dir.join("breakpad-symindex");
@@ -139,7 +139,7 @@ fn create_symbol_manager_config_and_quota_manager(
         .or_else(|| Some(symbols_dir?.join("windows")));
     if let Some(cache_dir) = windows_symbol_cache_dir {
         for base_url in symbol_props.windows_symbol_server {
-            config = config.windows_symbols_server(base_url, &cache_dir)
+            config = config.windows_symbol_server(base_url, &cache_dir)
         }
     }
 
@@ -148,7 +148,7 @@ fn create_symbol_manager_config_and_quota_manager(
     }
 
     for dir in symbol_props.symbol_dir {
-        config = config.extra_symbols_directory(dir);
+        config = config.extra_symbol_directory(dir);
     }
 
     (config, quota_manager)
