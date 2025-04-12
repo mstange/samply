@@ -13,6 +13,13 @@
 //! use fxprof_processed_profile::{Profile, CategoryHandle, CpuDelta, FrameHandle, FrameFlags, SamplingInterval, Timestamp};
 //! use std::time::SystemTime;
 //!
+//! // Creates the following call tree:
+//! //
+//! // App process (pid: 54132) > Main thread (tid: 54132000)
+//! //
+//! // 1  0  Root node
+//! // 1  1  - First callee
+//!
 //! # fn write_profile(output_file: std::fs::File) -> Result<(), Box<dyn std::error::Error>> {
 //! let mut profile = Profile::new("My app", SystemTime::now().into(), SamplingInterval::from_millis(1));
 //! let process = profile.add_process("App process", 54132, Timestamp::from_millis_since_reference(0.0));

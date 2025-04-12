@@ -56,8 +56,7 @@ pub trait SymbolManagerObserver: Send + Sync + 'static {
     /// This does not indicate an error. We commonly attempt to download a file from
     /// multiple sources simultaneously, and cancel other downloads once one has succeeded.
     ///
-    /// This function is also called if the user cancels the download by dropping the future
-    /// returned from [`BreakpadSymbolDownloader::get_file`].
+    /// This function is also called if the user cancels the download by dropping a future.
     ///
     /// Mutually exclusive with `on_download_completed` and `on_download_failed` for a
     /// given download ID.
@@ -68,7 +67,7 @@ pub trait SymbolManagerObserver: Send + Sync + 'static {
     /// file.
     fn on_file_created(&self, path: &Path, size_in_bytes: u64);
 
-    /// Called when a file from the cache has been used to service a [`BreakpadSymbolDownloader::get_file`] call.
+    /// Called when a file from the cache has been used when obtaining a symbol map.
     ///
     /// This is only called for pre-existing files and not for newly-created files - newly-created
     /// files only trigger a call to `on_file_created`.
