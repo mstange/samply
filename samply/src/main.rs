@@ -417,59 +417,8 @@ fn main() {
 
     let opt = Opt::parse();
     match opt.action {
-        Action::Load(load_args) => {
-            let profile_filename = &load_args.file;
-            let input_file = match File::open(profile_filename) {
-                Ok(file) => file,
-                Err(err) => {
-                    eprintln!("Could not open file {:?}: {}", load_args.file, err);
-                    std::process::exit(1)
-                }
-            };
-
-            let libinfo_map =
-                match parse_libinfo_map_from_profile_file(input_file, profile_filename) {
-                    Ok(libinfo_map) => libinfo_map,
-                    Err(err) => {
-                        eprintln!("Could not parse the input file as JSON: {}", err);
-                        eprintln!(
-                            "If this is a perf.data file, please use `samply import` instead."
-                        );
-                        std::process::exit(1)
-                    }
-                };
-            start_server_main(
-                profile_filename,
-                load_args.server_props(),
-                load_args.symbol_props(),
-                libinfo_map,
-            );
-        }
-
-        Action::Import(import_args) => {
-            let input_file = match File::open(&import_args.file) {
-                Ok(file) => file,
-                Err(err) => {
-                    eprintln!("Could not open file {:?}: {}", import_args.file, err);
-                    std::process::exit(1)
-                }
-            };
-            convert_file_to_profile(&input_file, &import_args);
-            if let Some(server_props) = import_args.server_props() {
-                let profile_filename = &import_args.output;
-                let libinfo_map = profile_json_preparse::parse_libinfo_map_from_profile_file(
-                    File::open(profile_filename).expect("Couldn't open file we just wrote"),
-                    profile_filename,
-                )
-                .expect("Couldn't parse libinfo map from profile file");
-                start_server_main(
-                    profile_filename,
-                    server_props,
-                    import_args.symbol_props(),
-                    libinfo_map,
-                );
-            }
-        }
+        Action::Load(load_args) => do_load_action(load_args),
+        Action::Import(import_args) => do_import_action(import_args),
 
         #[cfg(any(
             target_os = "android",
@@ -477,28 +426,7 @@ fn main() {
             target_os = "linux",
             target_os = "windows"
         ))]
-        Action::Record(record_args) => {
-            let recording_props = record_args.recording_props();
-            let recording_mode = record_args.recording_mode();
-            let profile_creation_props = record_args.profile_creation_props();
-            let symbol_props = record_args.symbol_props();
-            let server_props = record_args.server_props();
-
-            let exit_status = match profiler::start_recording(
-                recording_mode,
-                recording_props,
-                profile_creation_props,
-                symbol_props,
-                server_props,
-            ) {
-                Ok(exit_status) => exit_status,
-                Err(err) => {
-                    eprintln!("Encountered an error during profiling: {err:?}");
-                    std::process::exit(1);
-                }
-            };
-            std::process::exit(exit_status.code().unwrap_or(0));
-        }
+        Action::Record(record_args) => do_record_action(record_args),
 
         #[cfg(target_os = "windows")]
         Action::RunElevatedHelper(RunElevatedHelperArgs {
@@ -509,10 +437,88 @@ fn main() {
         }
 
         #[cfg(target_os = "macos")]
-        Action::Setup(SetupArgs { yes }) => {
-            mac::codesign_setup::codesign_setup(yes);
-        }
+        Action::Setup(SetupArgs { yes }) => mac::codesign_setup::codesign_setup(yes),
     }
+}
+
+fn do_load_action(load_args: LoadArgs) {
+    let profile_filename = &load_args.file;
+    let input_file = match File::open(profile_filename) {
+        Ok(file) => file,
+        Err(err) => {
+            eprintln!("Could not open file {:?}: {}", profile_filename, err);
+            std::process::exit(1)
+        }
+    };
+
+    let libinfo_map = match parse_libinfo_map_from_profile_file(input_file, profile_filename) {
+        Ok(libinfo_map) => libinfo_map,
+        Err(err) => {
+            eprintln!("Could not parse the input file as JSON: {}", err);
+            eprintln!("If this is a perf.data file, please use `samply import` instead.");
+            std::process::exit(1)
+        }
+    };
+    start_server_main(
+        profile_filename,
+        load_args.server_props(),
+        load_args.symbol_props(),
+        libinfo_map,
+    );
+}
+
+fn do_import_action(import_args: ImportArgs) {
+    let input_file = match File::open(&import_args.file) {
+        Ok(file) => file,
+        Err(err) => {
+            eprintln!("Could not open file {:?}: {}", import_args.file, err);
+            std::process::exit(1)
+        }
+    };
+    convert_file_to_profile(&input_file, &import_args);
+    if let Some(server_props) = import_args.server_props() {
+        let profile_filename = &import_args.output;
+        let libinfo_map = profile_json_preparse::parse_libinfo_map_from_profile_file(
+            File::open(profile_filename).expect("Couldn't open file we just wrote"),
+            profile_filename,
+        )
+        .expect("Couldn't parse libinfo map from profile file");
+        start_server_main(
+            profile_filename,
+            server_props,
+            import_args.symbol_props(),
+            libinfo_map,
+        );
+    }
+}
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "macos",
+    target_os = "linux",
+    target_os = "windows"
+))]
+fn do_record_action(record_args: RecordArgs) {
+    let recording_props = record_args.recording_props();
+    let recording_mode = record_args.recording_mode();
+    let profile_creation_props = record_args.profile_creation_props();
+    let symbol_props = record_args.symbol_props();
+    let server_props = record_args.server_props();
+
+    let exit_status = match profiler::start_recording(
+        recording_mode,
+        recording_props,
+        profile_creation_props,
+        symbol_props,
+        server_props,
+    ) {
+        Ok(exit_status) => exit_status,
+        Err(err) => {
+            eprintln!("Encountered an error during profiling: {err:?}");
+            std::process::exit(1);
+        }
+    };
+    std::process::exit(exit_status.code().unwrap_or(0));
 }
 
 impl LoadArgs {
