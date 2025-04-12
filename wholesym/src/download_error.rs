@@ -1,4 +1,4 @@
-/// The error type used in the observer notification [`SymbolManagerObserver::on_download_failed`].
+/// The error type used in the observer notification [`SymbolManagerObserver::on_download_failed`](crate::SymbolManagerObserver::on_download_failed).
 #[derive(thiserror::Error, Debug)]
 pub enum DownloadError {
     /// Creating the reqwest Client failed.
