@@ -5,7 +5,6 @@ use fxprof_processed_profile::{Profile, ReferenceTimestamp, SamplingInterval};
 use super::etw_gecko;
 use crate::shared::included_processes::IncludedProcesses;
 use crate::shared::recording_props::ProfileCreationProps;
-use crate::shared::save_profile::save_profile_to_file;
 use crate::windows::profile_context::ProfileContext;
 
 pub fn convert_etl_file_to_profile(
@@ -14,7 +13,7 @@ pub fn convert_etl_file_to_profile(
     output_file: &Path,
     profile_creation_props: ProfileCreationProps,
     included_processes: Option<IncludedProcesses>,
-) {
+) -> Profile {
     let timebase = std::time::SystemTime::now();
     let timebase = ReferenceTimestamp::from_system_time(timebase);
 
@@ -29,22 +28,12 @@ pub fn convert_etl_file_to_profile(
 
     eprintln!("Processing ETL trace...");
 
-    let unstable_presymbolicate = profile_creation_props.unstable_presymbolicate;
-
     let mut context =
         ProfileContext::new(profile, arch, included_processes, profile_creation_props);
 
     etw_gecko::process_etl_files(&mut context, filename, extra_etl_filenames);
 
-    let profile = context.finish();
-    save_profile_to_file(&profile, output_file).expect("Couldn't write JSON");
-
-    if unstable_presymbolicate {
-        crate::shared::symbol_precog::presymbolicate(
-            &profile,
-            &output_file.with_extension("syms.json"),
-        );
-    }
+    context.finish()
 }
 
 #[cfg(target_arch = "x86")]

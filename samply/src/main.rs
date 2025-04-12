@@ -24,6 +24,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use fxprof_processed_profile::Profile;
 #[cfg(any(target_os = "android", target_os = "linux"))]
 use linux::profiler;
 #[cfg(target_os = "macos")]
@@ -468,14 +469,28 @@ fn do_load_action(load_args: LoadArgs) {
 }
 
 fn do_import_action(import_args: ImportArgs) {
-    let input_file = match File::open(&import_args.file) {
+    let input_path = &import_args.file;
+    let input_file = match File::open(input_path) {
         Ok(file) => file,
         Err(err) => {
-            eprintln!("Could not open file {:?}: {}", import_args.file, err);
+            eprintln!("Could not open file {:?}: {}", input_path, err);
             std::process::exit(1)
         }
     };
-    convert_file_to_profile(&input_file, &import_args);
+
+    let import_props = import_args.import_props();
+    let unstable_presymbolicate = import_props.profile_creation_props.unstable_presymbolicate;
+    let profile = convert_file_to_profile(&input_file, input_path, import_props);
+
+    save_profile_to_file(&profile, &import_args.output).expect("Couldn't write JSON");
+
+    if unstable_presymbolicate {
+        crate::shared::symbol_precog::presymbolicate(
+            &profile,
+            &import_args.output.with_extension("syms.json"),
+        );
+    }
+
     if let Some(server_props) = import_args.server_props() {
         let profile_filename = &import_args.output;
         let libinfo_map = profile_json_preparse::parse_libinfo_map_from_profile_file(
@@ -531,6 +546,16 @@ impl LoadArgs {
     }
 }
 
+struct ImportProps {
+    profile_creation_props: ProfileCreationProps,
+    symbol_props: SymbolProps,
+    aux_file_dir: Vec<PathBuf>,
+    #[allow(unused)] // todo
+    included_processes: Option<IncludedProcesses>,
+    #[allow(unused)] // Windows-only
+    user_etl: Vec<PathBuf>,
+}
+
 impl ImportArgs {
     fn server_props(&self) -> Option<ServerProps> {
         if self.save_only {
@@ -581,6 +606,16 @@ impl ImportArgs {
                 name_substrings: names.clone().unwrap_or_default(),
                 pids: pids.clone().unwrap_or_default(),
             }),
+        }
+    }
+
+    fn import_props(&self) -> ImportProps {
+        ImportProps {
+            profile_creation_props: self.profile_creation_props(),
+            symbol_props: self.symbol_props(),
+            included_processes: self.included_processes(),
+            user_etl: self.user_etl.clone(),
+            aux_file_dir: self.aux_file_dir.clone(),
         }
     }
 }
@@ -779,74 +814,75 @@ fn split_at_first_equals(s: &OsStr) -> Option<(&OsStr, &OsStr)> {
     Some((name, val))
 }
 
-fn convert_file_to_profile(input_file: &File, import_args: &ImportArgs) {
-    if import_args.file.extension() == Some(OsStr::new("etl")) {
-        convert_etl_file_to_profile(input_file, import_args);
-        return;
+fn convert_file_to_profile(
+    input_file: &File,
+    input_path: &Path,
+    import_props: ImportProps,
+) -> Profile {
+    if input_path.extension() == Some(OsStr::new("etl")) {
+        return convert_etl_file_to_profile(input_file, input_path, import_props);
     }
 
-    convert_perf_data_file_to_profile(input_file, import_args);
+    convert_perf_data_file_to_profile(input_file, input_path, import_props)
 }
 
 #[cfg(target_os = "windows")]
-fn convert_etl_file_to_profile(_input_file: &File, import_args: &ImportArgs) {
-    let profile_creation_props = import_args.profile_creation_props();
-    let included_processes = import_args.included_processes();
+fn convert_etl_file_to_profile(
+    _input_file: &File,
+    input_path: &Path,
+    import_props: ImportProps,
+) -> Profile {
     windows::import::convert_etl_file_to_profile(
-        &import_args.file,
-        &import_args.user_etl,
-        &import_args.output,
-        profile_creation_props,
-        included_processes,
-    );
+        input_path,
+        &import_props.user_etl,
+        import_props.profile_creation_props,
+        import_props.included_processes,
+    )
 }
 
 #[cfg(not(target_os = "windows"))]
-fn convert_etl_file_to_profile(_input_file: &File, import_args: &ImportArgs) {
+fn convert_etl_file_to_profile(
+    _input_file: &File,
+    input_path: &Path,
+    _import_props: ImportProps,
+) -> Profile {
     eprintln!(
         "Error: Could not import ETW trace from file {}",
-        import_args.file.to_string_lossy()
+        input_path.to_string_lossy()
     );
     eprintln!("Importing ETW traces is only supported on Windows.");
     std::process::exit(1);
 }
 
-fn convert_perf_data_file_to_profile(input_file: &File, import_args: &ImportArgs) {
-    let path = import_args
-        .file
+fn convert_perf_data_file_to_profile(
+    input_file: &File,
+    input_path: &Path,
+    import_props: ImportProps,
+) -> Profile {
+    let path = input_path
         .canonicalize()
         .expect("Couldn't form absolute path");
     let file_meta = input_file.metadata().ok();
     let file_mod_time = file_meta.and_then(|metadata| metadata.modified().ok());
-    let profile_creation_props = import_args.profile_creation_props();
-    let unstable_presymbolicate = profile_creation_props.unstable_presymbolicate;
-    let mut binary_lookup_dirs = import_args.symbol_props().symbol_dir.clone();
-    let mut aux_file_lookup_dirs = import_args.aux_file_dir.clone();
+    let mut binary_lookup_dirs = import_props.symbol_props.symbol_dir;
+    let mut aux_file_lookup_dirs = import_props.aux_file_dir;
     if let Some(parent_dir) = path.parent() {
         binary_lookup_dirs.push(parent_dir.into());
         aux_file_lookup_dirs.push(parent_dir.into());
     }
     let reader = BufReader::new(input_file);
-    let profile = match import::perf::convert(
+    match import::perf::convert(
         reader,
         file_mod_time,
         binary_lookup_dirs,
         aux_file_lookup_dirs,
-        profile_creation_props,
+        import_props.profile_creation_props,
     ) {
         Ok(profile) => profile,
         Err(error) => {
             eprintln!("Error importing perf.data file: {:?}", error);
             std::process::exit(1);
         }
-    };
-    save_profile_to_file(&profile, &import_args.output).expect("Couldn't write JSON");
-
-    if unstable_presymbolicate {
-        crate::shared::symbol_precog::presymbolicate(
-            &profile,
-            &import_args.output.with_extension("syms.json"),
-        );
     }
 }
 
