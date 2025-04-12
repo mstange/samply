@@ -154,22 +154,29 @@ where
         let mut simpleperf_symbol_tables_jit = HashMap::new();
         let mut simpleperf_symbol_tables_kernel_image = None;
         let mut simpleperf_symbol_tables_kernel_modules = HashMap::new();
-        let simpleperf_jit_category: SubcategoryHandle = profile
-            .handle_for_category(Category("JIT app cache", CategoryColor::Green))
+
+        // See https://source.android.com/docs/core/runtime/jit-compiler#architectural-overview for the
+        // ART JIT architecture and the tiers.
+
+        let jit_category: SubcategoryHandle = profile
+            .handle_for_category(Category("ART JIT", CategoryColor::Blue))
             .into();
         let allow_jit_function_recycling = profile_creation_props.reuse_threads;
         let simpleperf_jit_app_cache_library = SyntheticJitLibrary::new(
             "JIT app cache".to_string(),
-            simpleperf_jit_category,
+            jit_category,
             &mut profile,
             allow_jit_function_recycling,
         );
         if let Some(simpleperf_symbol_tables) = simpleperf_symbol_tables {
-            let dex_category: SubcategoryHandle = profile
-                .handle_for_category(Category("DEX", CategoryColor::Green))
+            let interpreter_category: SubcategoryHandle = profile
+                .handle_for_category(Category("ART Interpreter", CategoryColor::Red))
                 .into();
             let oat_category: SubcategoryHandle = profile
-                .handle_for_category(Category("OAT", CategoryColor::Green))
+                .handle_for_category(Category(
+                    "ART ahead-of-time compiled DEX (OAT)",
+                    CategoryColor::Green,
+                ))
                 .into();
             for f in simpleperf_symbol_tables {
                 if f.r#type == DSO_KERNEL {
@@ -183,11 +190,11 @@ where
                     continue;
                 }
 
-                let is_jit = false;
-                let (category, art_info) = if f.path.ends_with(".oat") {
+                let (category, art_info) = if f.path.ends_with(".oat") || f.path.ends_with(".odex")
+                {
                     (Some(oat_category), Some(AndroidArtInfo::JavaFrame))
-                } else if f.r#type == DSO_DEX_FILE || f.path.ends_with(".odex") || is_jit {
-                    (Some(dex_category), Some(AndroidArtInfo::JavaFrame))
+                } else if f.r#type == DSO_DEX_FILE {
+                    (Some(interpreter_category), Some(AndroidArtInfo::JavaFrame))
                 } else if f.path.ends_with("libart.so") {
                     (None, Some(AndroidArtInfo::LibArt))
                 } else {
