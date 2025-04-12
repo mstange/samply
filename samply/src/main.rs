@@ -13,6 +13,7 @@ mod name;
 mod profile_json_preparse;
 mod server;
 mod shared;
+mod symbols;
 
 use std::ffi::OsStr;
 use std::fs::File;
