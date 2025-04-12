@@ -1,10 +1,12 @@
 use std::path::Path;
+use std::sync::Arc;
 
 use platform_dirs::AppDirs;
 use samply_quota_manager::QuotaManager;
-use wholesym::SymbolManagerConfig;
+use wholesym::{SymbolManager, SymbolManagerConfig};
 
 use crate::name::SAMPLY_NAME;
+use crate::shared::symbol_manager_observer::SamplySymbolManagerObserver;
 use crate::shared::symbol_props::SymbolProps;
 
 fn create_quota_manager(symbols_dir: &Path) -> Option<QuotaManager> {
@@ -31,7 +33,7 @@ fn create_quota_manager(symbols_dir: &Path) -> Option<QuotaManager> {
     Some(quota_manager)
 }
 
-pub fn create_symbol_manager_config_and_quota_manager(
+fn create_symbol_manager_config_and_quota_manager(
     symbol_props: SymbolProps,
 ) -> (SymbolManagerConfig, Option<QuotaManager>) {
     let _config_dir = AppDirs::new(Some(SAMPLY_NAME), true).map(|dirs| dirs.config_dir);
@@ -92,4 +94,32 @@ pub fn create_symbol_manager_config_and_quota_manager(
     }
 
     (config, quota_manager)
+}
+
+pub fn create_symbol_manager_and_quota_manager(
+    symbol_props: SymbolProps,
+    verbose: bool,
+) -> (SymbolManager, Option<QuotaManager>) {
+    let (config, quota_manager) = create_symbol_manager_config_and_quota_manager(symbol_props);
+    let mut symbol_manager = SymbolManager::with_config(config);
+    let notifiers = match &quota_manager {
+        Some(mgr) => vec![mgr.notifier()],
+        None => vec![],
+    };
+    if let Some(mgr) = &quota_manager {
+        // Enforce size limit and delete old files.
+        // Not sure if it's wise to do this at startup unconditionally.
+        // I can see that it might be annoying in the following case:
+        //  1. Download lots of symbols.
+        //  2. Don't run samply for two weeks.
+        //  3. Capture a new profile.
+        //  4. The server starts, all symbols get deleted because they're over two weeks old.
+        //  5. The browser opens, the profiler requests symbols, all symbols are downloaded again.
+        // Should we delay the first eviction? But then we might delay it for too long.
+        mgr.notifier().trigger_eviction_if_needed();
+    }
+    symbol_manager.set_observer(Some(Arc::new(SamplySymbolManagerObserver::new(
+        verbose, notifiers,
+    ))));
+    (symbol_manager, quota_manager)
 }

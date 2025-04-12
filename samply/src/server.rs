@@ -23,9 +23,8 @@ use wholesym::{LibraryInfo, SymbolManager};
 
 use crate::shared;
 use crate::shared::ctrl_c::CtrlC;
-use crate::shared::symbol_manager_observer::SamplySymbolManagerObserver;
 use crate::shared::symbol_props::SymbolProps;
-use crate::symbols::create_symbol_manager_config_and_quota_manager;
+use crate::symbols::create_symbol_manager_and_quota_manager;
 
 #[derive(Clone, Debug)]
 pub struct ServerProps {
@@ -105,29 +104,8 @@ async fn start_server(
 
     let template_values = Arc::new(template_values);
 
-    let (config, quota_manager) = create_symbol_manager_config_and_quota_manager(symbol_props);
-    let mut symbol_manager = SymbolManager::with_config(config);
-    let notifiers = match &quota_manager {
-        Some(mgr) => vec![mgr.notifier()],
-        None => vec![],
-    };
-    if let Some(mgr) = &quota_manager {
-        // Enforce size limit and delete old files.
-        // Not sure if it's wise to do this at startup unconditionally.
-        // I can see that it might be annoying in the following case:
-        //  1. Download lots of symbols.
-        //  2. Don't run samply for two weeks.
-        //  3. Capture a new profile.
-        //  4. The server starts, all symbols get deleted because they're over two weeks old.
-        //  5. The browser opens, the profiler requests symbols, all symbols are downloaded again.
-        // Should we delay the first eviction? But then we might delay it for too long.
-        mgr.notifier().trigger_eviction_if_needed();
-    }
-    symbol_manager.set_observer(Some(Arc::new(SamplySymbolManagerObserver::new(
-        server_props.verbose,
-        notifiers,
-    ))));
-
+    let (mut symbol_manager, quota_manager) =
+        create_symbol_manager_and_quota_manager(symbol_props, server_props.verbose);
     for lib_info in libinfo_map.into_values() {
         symbol_manager.add_known_library(lib_info);
     }
