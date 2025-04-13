@@ -14,11 +14,10 @@ use super::process_launcher::{
 use super::sampler::{ProcessSpecificPath, Sampler, TaskInit, TaskInitOrShutdown};
 use super::time::get_monotonic_timestamp;
 use crate::server::{start_server_main, ServerProps};
-use crate::shared::recording_props::{
-    ProcessLaunchProps, ProfileCreationProps, RecordingMode, RecordingProps,
+use crate::shared::prop_types::{
+    ProcessLaunchProps, ProfileCreationProps, RecordingMode, RecordingProps, SymbolProps,
 };
 use crate::shared::save_profile::save_profile_to_file;
-use crate::shared::symbol_props::SymbolProps;
 
 pub fn start_recording(
     recording_mode: RecordingMode,

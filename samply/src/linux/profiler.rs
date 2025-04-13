@@ -25,11 +25,10 @@ use crate::linux_shared::{
 };
 use crate::server::{start_server_main, ServerProps};
 use crate::shared::ctrl_c::CtrlC;
-use crate::shared::recording_props::{
-    ProcessLaunchProps, ProfileCreationProps, RecordingMode, RecordingProps,
+use crate::shared::prop_types::{
+    ProcessLaunchProps, ProfileCreationProps, RecordingMode, RecordingProps, SymbolProps,
 };
 use crate::shared::save_profile::save_profile_to_file;
-use crate::shared::symbol_props::SymbolProps;
 
 #[cfg(target_arch = "x86_64")]
 pub type ConvertRegsNative = crate::linux_shared::ConvertRegsX86_64;

@@ -35,11 +35,11 @@ pub use mac::{kernel_error, thread_act, thread_info};
 use profile_json_preparse::parse_libinfo_map_from_profile_file;
 use server::{start_server_main, PortSelection, ServerProps};
 use shared::included_processes::IncludedProcesses;
-use shared::recording_props::{
-    CoreClrProfileProps, ProcessLaunchProps, ProfileCreationProps, RecordingMode, RecordingProps,
+use shared::prop_types::{
+    CoreClrProfileProps, ImportProps, ProcessLaunchProps, ProfileCreationProps, RecordingMode,
+    RecordingProps, SymbolProps,
 };
 use shared::save_profile::save_profile_to_file;
-use shared::symbol_props::SymbolProps;
 #[cfg(target_os = "windows")]
 use windows::profiler;
 
@@ -544,16 +544,6 @@ impl LoadArgs {
     fn symbol_props(&self) -> SymbolProps {
         self.symbol_args.symbol_props()
     }
-}
-
-struct ImportProps {
-    profile_creation_props: ProfileCreationProps,
-    symbol_props: SymbolProps,
-    aux_file_dir: Vec<PathBuf>,
-    #[allow(unused)] // todo
-    included_processes: Option<IncludedProcesses>,
-    #[allow(unused)] // Windows-only
-    user_etl: Vec<PathBuf>,
 }
 
 impl ImportArgs {

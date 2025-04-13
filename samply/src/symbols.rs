@@ -6,8 +6,8 @@ use samply_quota_manager::QuotaManager;
 use wholesym::{SymbolManager, SymbolManagerConfig};
 
 use crate::name::SAMPLY_NAME;
+use crate::shared::prop_types::SymbolProps;
 use crate::shared::symbol_manager_observer::SamplySymbolManagerObserver;
-use crate::shared::symbol_props::SymbolProps;
 
 fn create_quota_manager(symbols_dir: &Path) -> Option<QuotaManager> {
     let db_path = symbols_dir.parent().unwrap().join("symbols.db");

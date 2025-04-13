@@ -4,13 +4,12 @@ use fxprof_processed_profile::{Profile, ReferenceTimestamp, SamplingInterval};
 
 use super::etw_gecko;
 use crate::shared::included_processes::IncludedProcesses;
-use crate::shared::recording_props::ProfileCreationProps;
+use crate::shared::prop_types::ProfileCreationProps;
 use crate::windows::profile_context::ProfileContext;
 
 pub fn convert_etl_file_to_profile(
     filename: &Path,
     extra_etl_filenames: &[PathBuf],
-    output_file: &Path,
     profile_creation_props: ProfileCreationProps,
     included_processes: Option<IncludedProcesses>,
 ) -> Profile {

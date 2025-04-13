@@ -23,7 +23,7 @@ use wholesym::{LibraryInfo, SymbolManager};
 
 use crate::shared;
 use crate::shared::ctrl_c::CtrlC;
-use crate::shared::symbol_props::SymbolProps;
+use crate::shared::prop_types::SymbolProps;
 use crate::symbols::create_symbol_manager_and_quota_manager;
 
 #[derive(Clone, Debug)]

@@ -9,9 +9,8 @@ use super::profile_context::ProfileContext;
 use crate::server::{start_server_main, ServerProps};
 use crate::shared::ctrl_c::CtrlC;
 use crate::shared::included_processes::IncludedProcesses;
-use crate::shared::recording_props::{ProfileCreationProps, RecordingMode, RecordingProps};
+use crate::shared::prop_types::{ProfileCreationProps, RecordingMode, RecordingProps, SymbolProps};
 use crate::shared::save_profile::save_profile_to_file;
-use crate::shared::symbol_props::SymbolProps;
 use crate::windows::elevated_helper::ElevatedHelperSession;
 
 // Hello intrepid explorer! You may be in this code because you'd like to extend something,

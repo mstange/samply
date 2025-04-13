@@ -12,7 +12,7 @@ use mach2::port::mach_port_t;
 use super::error::SamplingError;
 use super::task_profiler::TaskProfiler;
 use super::time::get_monotonic_timestamp;
-use crate::shared::recording_props::{ProfileCreationProps, RecordingProps};
+use crate::shared::prop_types::{ProfileCreationProps, RecordingProps};
 use crate::shared::recycling::ProcessRecycler;
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::unresolved_samples::UnresolvedStacks;
