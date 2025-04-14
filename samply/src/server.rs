@@ -18,13 +18,9 @@ use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use rand::RngCore;
 use tokio::net::TcpListener;
 use tokio_util::io::ReaderStream;
-use wholesym::debugid::DebugId;
-use wholesym::{LibraryInfo, SymbolManager};
+use wholesym::SymbolManager;
 
-use crate::shared;
-use crate::shared::ctrl_c::CtrlC;
-use crate::shared::prop_types::SymbolProps;
-use crate::symbols::create_symbol_manager_and_quota_manager;
+use crate::shared::ctrl_c;
 
 #[derive(Clone, Debug)]
 pub struct ServerProps {
@@ -32,64 +28,6 @@ pub struct ServerProps {
     pub port_selection: PortSelection,
     pub verbose: bool,
     pub open_in_browser: bool,
-}
-
-#[tokio::main]
-pub async fn start_server_main(
-    profile_filename: &Path,
-    props: ServerProps,
-    symbol_props: SymbolProps,
-    libinfo_map: HashMap<(String, DebugId), LibraryInfo>,
-) {
-    let (mut symbol_manager, quota_manager) =
-        create_symbol_manager_and_quota_manager(symbol_props, props.verbose);
-    for lib_info in libinfo_map.into_values() {
-        symbol_manager.add_known_library(lib_info);
-    }
-
-    let precog_filename = profile_filename.with_extension("syms.json");
-    if let Some(precog_info) = shared::symbol_precog::PrecogSymbolInfo::try_load(&precog_filename) {
-        for (debug_id, syms) in precog_info.into_hash_map().into_iter() {
-            let lib_info = LibraryInfo {
-                debug_id: Some(debug_id),
-                ..LibraryInfo::default()
-            };
-            symbol_manager.add_known_library_symbols(lib_info, syms);
-        }
-    }
-
-    let symbol_manager = Arc::new(symbol_manager);
-
-    let open_in_browser = props.open_in_browser;
-
-    let RunningServerInfo {
-        server_join_handle,
-        server_origin,
-        profiler_url,
-    } = start_server(Some(profile_filename), props, symbol_manager).await;
-
-    eprintln!("Local server listening at {server_origin}");
-    if !open_in_browser {
-        if let Some(profiler_url) = &profiler_url {
-            println!("{profiler_url}");
-        }
-    }
-    eprintln!("Press Ctrl+C to stop.");
-
-    if open_in_browser {
-        if let Some(profiler_url) = &profiler_url {
-            let _ = opener::open_browser(profiler_url);
-        }
-    }
-
-    // Run this server until it stops.
-    if let Err(e) = server_join_handle.await {
-        eprintln!("server error: {e}");
-    }
-
-    if let Some(quota_manager) = quota_manager {
-        quota_manager.finish().await;
-    }
 }
 
 const BAD_CHARS: &AsciiSet = &CONTROLS.add(b':').add(b'/');
@@ -112,10 +50,18 @@ impl PortSelection {
     }
 }
 
-async fn start_server(
+pub struct RunningServerInfo {
+    pub server_join_handle:
+        tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
+    pub server_origin: String,
+    pub profiler_url: Option<String>,
+}
+
+pub async fn start_server(
     profile_filename: Option<&Path>,
     server_props: ServerProps,
-    symbol_manager: Arc<SymbolManager>,
+    symbol_manager: SymbolManager,
+    stop_signal: ctrl_c::Receiver,
 ) -> RunningServerInfo {
     let (listener, addr) = make_listener(server_props.address, server_props.port_selection).await;
 
@@ -157,6 +103,7 @@ async fn start_server(
         profile_filename.map(PathBuf::from),
         template_values,
         path_prefix,
+        stop_signal,
     ));
 
     RunningServerInfo {
@@ -164,13 +111,6 @@ async fn start_server(
         server_origin,
         profiler_url,
     }
-}
-
-struct RunningServerInfo {
-    server_join_handle:
-        tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
-    server_origin: String,
-    profiler_url: Option<String>,
 }
 
 // Returns a base32 string for 24 random bytes.
@@ -248,18 +188,19 @@ const TEMPLATE_WITHOUT_PROFILE: &str = r#"
 
 async fn run_server(
     listener: TcpListener,
-    symbol_manager: Arc<SymbolManager>,
+    symbol_manager: SymbolManager,
     profile_filename: Option<PathBuf>,
     template_values: Arc<HashMap<&'static str, String>>,
     path_prefix: String,
+    mut stop_signal: ctrl_c::Receiver,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let mut ctrl_c_receiver = CtrlC::observe_oneshot();
+    let symbol_manager = Arc::new(symbol_manager);
 
     // We start a loop to continuously accept incoming connections
     loop {
         let (stream, _) = tokio::select! {
             stream_and_addr_res = listener.accept() => stream_and_addr_res?,
-            ctrl_c_result = &mut ctrl_c_receiver => {
+            ctrl_c_result = &mut stop_signal => {
                 return Ok(ctrl_c_result?);
             }
         };
