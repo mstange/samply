@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::fs::File;
 use std::ops::Deref;
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
@@ -8,7 +7,7 @@ use std::thread;
 use std::time::{Duration, SystemTime};
 
 use crossbeam_channel::{Receiver, Sender};
-use fxprof_processed_profile::ReferenceTimestamp;
+use fxprof_processed_profile::{Profile, ReferenceTimestamp};
 use linux_perf_data::linux_perf_event_reader::{
     CpuMode, Endianness, EventRecord, Mmap2FileId, Mmap2InodeAndVersion, Mmap2Record, RawData,
 };
@@ -23,13 +22,10 @@ use crate::linux_shared::vdso::VdsoObject;
 use crate::linux_shared::{
     ConvertRegs, Converter, EventInterpretation, MmapRangeOrVec, OffCpuIndicator,
 };
-use crate::server::{start_server_main, ServerProps};
 use crate::shared::ctrl_c::CtrlC;
-use crate::shared::recording_props::{
+use crate::shared::prop_types::{
     ProcessLaunchProps, ProfileCreationProps, RecordingMode, RecordingProps,
 };
-use crate::shared::save_profile::save_profile_to_file;
-use crate::shared::symbol_props::SymbolProps;
 
 #[cfg(target_arch = "x86_64")]
 pub type ConvertRegsNative = crate::linux_shared::ConvertRegsX86_64;
@@ -37,13 +33,11 @@ pub type ConvertRegsNative = crate::linux_shared::ConvertRegsX86_64;
 #[cfg(target_arch = "aarch64")]
 pub type ConvertRegsNative = crate::linux_shared::ConvertRegsAarch64;
 
-pub fn start_recording(
+pub fn run(
     recording_mode: RecordingMode,
     recording_props: RecordingProps,
     profile_creation_props: ProfileCreationProps,
-    symbol_props: SymbolProps,
-    server_props: Option<ServerProps>,
-) -> Result<ExitStatus, ()> {
+) -> Result<(Profile, ExitStatus), ()> {
     let process_launch_props = match recording_mode {
         RecordingMode::All => {
             // TODO: Implement, by sudo launching a helper process which opens cpu-wide perf events
@@ -52,14 +46,8 @@ pub fn start_recording(
             std::process::exit(1)
         }
         RecordingMode::Pid(pid) => {
-            start_profiling_pid(
-                pid,
-                recording_props,
-                profile_creation_props,
-                symbol_props,
-                server_props,
-            );
-            return Ok(ExitStatus::from_raw(0));
+            let profile = start_profiling_pid(pid, recording_props, profile_creation_props);
+            return Ok((profile, ExitStatus::from_raw(0)));
         }
         RecordingMode::Launch(process_launch_props) => process_launch_props,
     };
@@ -102,7 +90,6 @@ pub fn start_recording(
         crossbeam_channel::bounded(2);
 
     // Launch the observer thread. This thread will manage the perf events.
-    let output_file_copy = recording_props.output_file.clone();
     let interval = recording_props.interval;
     let time_limit = recording_props.time_limit;
     let initial_exec_name = command_name.to_string_lossy().to_string();
@@ -115,7 +102,6 @@ pub fn start_recording(
     };
     let initial_exec_name_and_cmdline = (initial_exec_name, initial_cmdline);
     let observer_thread = thread::spawn(move || {
-        let unstable_presymbolicate = profile_creation_props.unstable_presymbolicate;
         let mut converter = make_converter(interval, profile_creation_props);
 
         // Wait for the initial pid to profile.
@@ -142,14 +128,12 @@ pub fn start_recording(
         run_profiler(
             perf_group,
             converter,
-            &output_file_copy,
             time_limit,
             profile_another_pid_request_receiver,
             profile_another_pid_reply_sender,
             stop_receiver,
-            unstable_presymbolicate,
             Some(initial_exec_name_and_cmdline),
-        );
+        )
     });
 
     // We're on the main thread here and the observer thread has just been launched.
@@ -243,35 +227,23 @@ pub fn start_recording(
     // Now wait for the observer thread to quit. It will keep running until all
     // perf events are closed, which happens if all processes which the events
     // are attached to have quit.
-    observer_thread
+    let profile = observer_thread
         .join()
         .expect("couldn't join observer thread");
-
-    if let Some(server_props) = server_props {
-        let profile_filename = &recording_props.output_file;
-        let libinfo_map = crate::profile_json_preparse::parse_libinfo_map_from_profile_file(
-            File::open(profile_filename).expect("Couldn't open file we just wrote"),
-            profile_filename,
-        )
-        .expect("Couldn't parse libinfo map from profile file");
-
-        start_server_main(profile_filename, server_props, symbol_props, libinfo_map);
-    }
 
     let exit_status = match wait_status {
         WaitStatus::Exited(_pid, exit_code) => ExitStatus::from_raw(exit_code),
         _ => ExitStatus::default(),
     };
-    Ok(exit_status)
+
+    Ok((profile, exit_status))
 }
 
 fn start_profiling_pid(
     pid: u32,
     recording_props: RecordingProps,
     profile_creation_props: ProfileCreationProps,
-    symbol_props: SymbolProps,
-    server_props: Option<ServerProps>,
-) {
+) -> Profile {
     // When the first Ctrl+C is received, stop recording.
     let ctrl_c_receiver = CtrlC::observe_oneshot();
 
@@ -282,12 +254,10 @@ fn start_profiling_pid(
     let (profile_another_pid_reply_sender, profile_another_pid_reply_receiver) =
         crossbeam_channel::bounded(2);
 
-    let output_file = recording_props.output_file.clone();
     let observer_thread = thread::spawn({
         move || {
             let interval = recording_props.interval;
             let time_limit = recording_props.time_limit;
-            let unstable_presymbolicate = profile_creation_props.unstable_presymbolicate;
             let mut converter = make_converter(interval, profile_creation_props);
             let SamplerRequest::StartProfilingAnotherProcess(pid, attach_mode) =
                 profile_another_pid_request_receiver.recv().unwrap()
@@ -299,16 +269,13 @@ fn start_profiling_pid(
             // Tell the main thread that we are now executing.
             profile_another_pid_reply_sender.send(true).unwrap();
 
-            let output_file = recording_props.output_file;
             run_profiler(
                 perf_group,
                 converter,
-                &output_file,
                 time_limit,
                 profile_another_pid_request_receiver,
                 profile_another_pid_reply_sender,
                 ctrl_c_receiver,
-                unstable_presymbolicate,
                 None,
             )
         }
@@ -337,20 +304,10 @@ fn start_profiling_pid(
     // which happens if all processes which the events are attached to have quit.
     observer_thread
         .join()
-        .expect("couldn't join observer thread");
+        .expect("couldn't join observer thread")
 
     // From now on, pressing Ctrl+C will kill our process, because the observer will have
     // dropped its CtrlC receiver by now.
-
-    if let Some(server_props) = server_props {
-        let libinfo_map = crate::profile_json_preparse::parse_libinfo_map_from_profile_file(
-            File::open(&output_file).expect("Couldn't open file we just wrote"),
-            &output_file,
-        )
-        .expect("Couldn't parse libinfo map from profile file");
-
-        start_server_main(&output_file, server_props, symbol_props, libinfo_map);
-    }
 }
 
 fn paranoia_level() -> Option<u32> {
@@ -579,14 +536,12 @@ fn run_profiler(
     mut converter: Converter<
         framehop::UnwinderNative<MmapRangeOrVec, framehop::MayAllocateDuringUnwind>,
     >,
-    output_filename: &Path,
     _time_limit: Option<Duration>,
     more_processes_request_receiver: Receiver<SamplerRequest>,
     more_processes_reply_sender: Sender<bool>,
     mut stop_receiver: oneshot::Receiver<()>,
-    unstable_presymbolicate: bool,
     mut initial_exec_name_and_cmdline: Option<(String, Vec<String>)>,
-) {
+) -> Profile {
     // eprintln!("Running...");
 
     let mut should_stop_profiling_once_perf_events_exhausted = false;
@@ -729,16 +684,7 @@ fn run_profiler(
         eprintln!("Lost {total_lost_events} events.");
     }
 
-    let profile = converter.finish();
-
-    save_profile_to_file(&profile, output_filename).expect("Couldn't write JSON");
-
-    if unstable_presymbolicate {
-        crate::shared::symbol_precog::presymbolicate(
-            &profile,
-            &output_filename.with_extension("syms.json"),
-        );
-    }
+    converter.finish()
 }
 
 pub fn read_string_lossy<P: AsRef<Path>>(path: P) -> std::io::Result<String> {

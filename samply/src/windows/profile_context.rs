@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::Path;
+use std::time::Duration;
 
 use debugid::DebugId;
 use fxprof_processed_profile::{
@@ -24,7 +25,7 @@ use crate::shared::lib_mappings::{LibMappingAdd, LibMappingInfo, LibMappingOp, L
 use crate::shared::per_cpu::Cpus;
 use crate::shared::process_name::make_process_name;
 use crate::shared::process_sample_data::{ProcessSampleData, UserTimingMarker};
-use crate::shared::recording_props::ProfileCreationProps;
+use crate::shared::prop_types::ProfileCreationProps;
 use crate::shared::recycling::{ProcessRecycler, ProcessRecyclingData, ThreadRecycler};
 use crate::shared::synthetic_jit_library::SyntheticJitLibrary;
 use crate::shared::timestamp_converter::TimestampConverter;
@@ -508,6 +509,7 @@ impl ProfileContext {
         arch: &str,
         included_processes: Option<IncludedProcesses>,
         profile_creation_props: ProfileCreationProps,
+        time_range: Option<(Duration, Duration)>,
     ) -> Self {
         // On 64-bit systems, the kernel address space always has 0xF in the first 16 bits.
         // The actual kernel address space is much higher, but we just need this to disambiguate kernel and user
@@ -524,7 +526,7 @@ impl ProfileContext {
             None
         };
         let main_thread_only = profile_creation_props.main_thread_only;
-        let time_range = profile_creation_props.time_range.map(|(start, end)| {
+        let time_range = time_range.map(|(start, end)| {
             (
                 Timestamp::from_nanos_since_reference(start.as_nanos() as u64),
                 Timestamp::from_nanos_since_reference(end.as_nanos() as u64),

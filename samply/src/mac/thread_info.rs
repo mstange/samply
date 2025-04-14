@@ -8,24 +8,9 @@ use std::mem::size_of;
 use mach2::message::mach_msg_type_number_t;
 use mach2::vm_types::{integer_t, natural_t};
 
-pub const THREAD_INFO_MAX: u32 = 32;
 pub const THREAD_BASIC_INFO: u32 = 3;
 pub const THREAD_IDENTIFIER_INFO: u32 = 4;
-pub const TH_USAGE_SCALE: u32 = 1000;
-pub const TH_STATE_RUNNING: u32 = 1;
-pub const TH_STATE_STOPPED: u32 = 2;
-pub const TH_STATE_WAITING: u32 = 3;
-pub const TH_STATE_UNINTERRUPTIBLE: u32 = 4;
-pub const TH_STATE_HALTED: u32 = 5;
-pub const TH_FLAGS_SWAPPED: u32 = 1;
-pub const TH_FLAGS_IDLE: u32 = 2;
-pub const TH_FLAGS_GLOBAL_FORCED_IDLE: u32 = 4;
 pub const THREAD_EXTENDED_INFO: u32 = 5;
-pub const MAXTHREADNAMESIZE: u32 = 64;
-pub const THREAD_DEBUG_INFO_INTERNAL: u32 = 6;
-pub const THREAD_SCHED_TIMESHARE_INFO: u32 = 10;
-pub const THREAD_SCHED_RR_INFO: u32 = 11;
-pub const THREAD_SCHED_FIFO_INFO: u32 = 12;
 pub type policy_t = ::std::os::raw::c_int;
 #[repr(C)]
 #[derive(Debug, Default)]
@@ -34,9 +19,7 @@ pub struct time_value {
     pub microseconds: integer_t,
 }
 pub type time_value_t = time_value;
-pub type thread_flavor_t = natural_t;
 pub type thread_info_t = *mut integer_t;
-pub type thread_info_data_t = [integer_t; 32usize];
 #[repr(C)]
 #[derive(Debug, Default)]
 pub struct thread_basic_info {
@@ -50,7 +33,6 @@ pub struct thread_basic_info {
     pub sleep_time: integer_t,
 }
 pub type thread_basic_info_data_t = thread_basic_info;
-pub type thread_basic_info_t = *mut thread_basic_info;
 #[repr(C)]
 #[derive(Debug, Default)]
 pub struct thread_identifier_info {
@@ -59,7 +41,6 @@ pub struct thread_identifier_info {
     pub dispatch_qaddr: u64,
 }
 pub type thread_identifier_info_data_t = thread_identifier_info;
-pub type thread_identifier_info_t = *mut thread_identifier_info;
 #[repr(C)]
 pub struct thread_extended_info {
     pub pth_user_time: u64,
@@ -75,7 +56,6 @@ pub struct thread_extended_info {
     pub pth_name: [::std::os::raw::c_char; 64usize],
 }
 pub type thread_extended_info_data_t = thread_extended_info;
-pub type thread_extended_info_t = *mut thread_extended_info;
 #[repr(C)]
 #[derive(Debug, Default)]
 pub struct io_stat_entry {
@@ -91,7 +71,6 @@ pub struct io_stat_info {
     pub metadata: io_stat_entry,
     pub total_io: io_stat_entry,
 }
-pub type io_stat_info_t = *mut io_stat_info;
 
 pub const THREAD_BASIC_INFO_COUNT: mach_msg_type_number_t =
     (size_of::<thread_basic_info_data_t>() / size_of::<natural_t>()) as _;

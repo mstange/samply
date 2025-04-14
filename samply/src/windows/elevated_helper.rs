@@ -7,7 +7,7 @@ use super::utility_process::{
     run_child, UtilityProcess, UtilityProcessChild, UtilityProcessParent, UtilityProcessSession,
 };
 use super::xperf::Xperf;
-use crate::shared::recording_props::{
+use crate::shared::prop_types::{
     CoreClrProfileProps, ProfileCreationProps, RecordingMode, RecordingProps,
 };
 

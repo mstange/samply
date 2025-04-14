@@ -13,7 +13,7 @@ use crate::linux_shared::{
     ConvertRegs, ConvertRegsAarch64, ConvertRegsX86_64, Converter, EventInterpretation, KnownEvent,
     MmapRangeOrVec,
 };
-use crate::shared::recording_props::ProfileCreationProps;
+use crate::shared::prop_types::ProfileCreationProps;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {

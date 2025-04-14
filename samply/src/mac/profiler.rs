@@ -1,11 +1,11 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::fs::File;
 use std::process::ExitStatus;
 use std::thread;
 use std::time::Duration;
 
 use crossbeam_channel::unbounded;
+use fxprof_processed_profile::Profile;
 
 use super::error::SamplingError;
 use super::process_launcher::{
@@ -13,22 +13,15 @@ use super::process_launcher::{
 };
 use super::sampler::{ProcessSpecificPath, Sampler, TaskInit, TaskInitOrShutdown};
 use super::time::get_monotonic_timestamp;
-use crate::server::{start_server_main, ServerProps};
-use crate::shared::recording_props::{
+use crate::shared::prop_types::{
     ProcessLaunchProps, ProfileCreationProps, RecordingMode, RecordingProps,
 };
-use crate::shared::save_profile::save_profile_to_file;
-use crate::shared::symbol_props::SymbolProps;
 
-pub fn start_recording(
+pub fn run(
     recording_mode: RecordingMode,
     recording_props: RecordingProps,
     mut profile_creation_props: ProfileCreationProps,
-    symbol_props: SymbolProps,
-    server_props: Option<ServerProps>,
-) -> Result<ExitStatus, MachError> {
-    let output_file = recording_props.output_file.clone();
-
+) -> Result<(Profile, ExitStatus), MachError> {
     let mut task_accepter = TaskAccepter::new()?;
 
     let mut root_task_runner: Box<dyn RootTaskRunner> = match recording_mode {
@@ -81,8 +74,6 @@ pub fn start_recording(
             Box::new(task_launcher)
         }
     };
-
-    let unstable_presymbolicate = profile_creation_props.unstable_presymbolicate;
 
     let (task_sender, task_receiver) = unbounded();
 
@@ -213,24 +204,5 @@ pub fn start_recording(
         }
     };
 
-    save_profile_to_file(&profile, &output_file).expect("Couldn't write JSON");
-
-    if unstable_presymbolicate {
-        crate::shared::symbol_precog::presymbolicate(
-            &profile,
-            &output_file.with_extension("syms.json"),
-        );
-    }
-
-    if let Some(server_props) = server_props {
-        let libinfo_map = crate::profile_json_preparse::parse_libinfo_map_from_profile_file(
-            File::open(&output_file).expect("Couldn't open file we just wrote"),
-            &output_file,
-        )
-        .expect("Couldn't parse libinfo map from profile file");
-
-        start_server_main(&output_file, server_props, symbol_props, libinfo_map);
-    }
-
-    Ok(exit_status)
+    Ok((profile, exit_status))
 }

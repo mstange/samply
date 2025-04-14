@@ -4,6 +4,8 @@ use std::time::Duration;
 
 use serde_derive::{Deserialize, Serialize};
 
+use super::included_processes::IncludedProcesses;
+
 #[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
 pub struct CoreClrProfileProps {
     pub enabled: bool,
@@ -27,6 +29,7 @@ impl CoreClrProfileProps {
 /// as well as for recording an existing process.
 #[derive(Debug, Clone)]
 pub struct RecordingProps {
+    #[allow(dead_code)] // Used on Windows to determine etl file paths
     pub output_file: PathBuf,
     pub time_limit: Option<Duration>,
     pub interval: Duration,
@@ -92,9 +95,6 @@ pub struct ProfileCreationProps {
     /// Create markers for unknown events.
     #[allow(dead_code)]
     pub unknown_event_markers: bool,
-    /// Time range to include, relative to start of recording.
-    #[allow(dead_code)]
-    pub time_range: Option<(std::time::Duration, std::time::Duration)>,
     /// Whether to emit "JitFunctionAdd" markers.
     #[allow(dead_code)]
     pub should_emit_jit_markers: bool,
@@ -119,4 +119,35 @@ pub struct ProcessLaunchProps {
     pub args: Vec<OsString>,
     pub iteration_count: u32,
     pub ignore_exit_code: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ImportProps {
+    pub profile_creation_props: ProfileCreationProps,
+    pub symbol_props: SymbolProps,
+    pub aux_file_dir: Vec<PathBuf>,
+    #[allow(unused)] // todo: respect when converting perf.data
+    pub included_processes: Option<IncludedProcesses>,
+    #[allow(unused)] // Windows-only
+    pub user_etl: Vec<PathBuf>,
+    #[allow(unused)] // todo: respect when converting perf.data
+    pub time_range: Option<(std::time::Duration, std::time::Duration)>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SymbolProps {
+    /// Extra directories containing symbol files
+    pub symbol_dir: Vec<PathBuf>,
+    /// Additional URLs of symbol servers serving PDB / DLL / EXE files
+    pub windows_symbol_server: Vec<String>,
+    /// Overrides the default cache directory for Windows symbol files which were downloaded from a symbol server
+    pub windows_symbol_cache: Option<PathBuf>,
+    /// Additional URLs of symbol servers serving Breakpad .sym files
+    pub breakpad_symbol_server: Vec<String>,
+    /// Additional local directories containing Breakpad .sym files
+    pub breakpad_symbol_dir: Vec<String>,
+    /// Overrides the default cache directory for Breakpad symbol files
+    pub breakpad_symbol_cache: Option<PathBuf>,
+    /// Extra directory containing symbol files, with the directory structure used by simpleperf's scripts
+    pub simpleperf_binary_cache: Option<PathBuf>,
 }

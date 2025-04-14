@@ -1,4 +1,3 @@
-use std::fs::File;
 use std::os::windows::process::ExitStatusExt;
 use std::process::ExitStatus;
 
@@ -6,12 +5,9 @@ use fxprof_processed_profile::{Profile, ReferenceTimestamp, SamplingInterval};
 
 use super::etw_gecko;
 use super::profile_context::ProfileContext;
-use crate::server::{start_server_main, ServerProps};
 use crate::shared::ctrl_c::CtrlC;
 use crate::shared::included_processes::IncludedProcesses;
-use crate::shared::recording_props::{ProfileCreationProps, RecordingMode, RecordingProps};
-use crate::shared::save_profile::save_profile_to_file;
-use crate::shared::symbol_props::SymbolProps;
+use crate::shared::prop_types::{ProfileCreationProps, RecordingMode, RecordingProps};
 use crate::windows::elevated_helper::ElevatedHelperSession;
 
 // Hello intrepid explorer! You may be in this code because you'd like to extend something,
@@ -40,13 +36,11 @@ use crate::windows::elevated_helper::ElevatedHelperSession;
 //     a fully up to date .mof.
 //   - There are some more complex StackWalk events (see etw.rs for info) but I haven't seen them.
 
-pub fn start_recording(
+pub fn run(
     recording_mode: RecordingMode,
     recording_props: RecordingProps,
     profile_creation_props: ProfileCreationProps,
-    symbol_props: SymbolProps,
-    server_props: Option<ServerProps>,
-) -> Result<ExitStatus, i32> {
+) -> Result<(Profile, ExitStatus), i32> {
     let timebase = std::time::SystemTime::now();
     let timebase = ReferenceTimestamp::from_system_time(timebase);
 
@@ -138,16 +132,18 @@ pub fn start_recording(
 
     eprintln!("Processing ETL trace...");
 
-    let output_file = recording_props.output_file.clone();
-
     let arch = profile_creation_props
         .override_arch
         .clone()
         .unwrap_or(get_native_arch().to_string());
 
-    let unstable_presymbolicate = profile_creation_props.unstable_presymbolicate;
-    let mut context =
-        ProfileContext::new(profile, &arch, included_processes, profile_creation_props);
+    let mut context = ProfileContext::new(
+        profile,
+        &arch,
+        included_processes,
+        profile_creation_props,
+        None,
+    );
     let extra_etls = match &user_output_file {
         Some(user_etl) => vec![user_etl.clone()],
         None => Vec::new(),
@@ -182,27 +178,7 @@ pub fn start_recording(
         }
     }
 
-    save_profile_to_file(&profile, &output_file).expect("Couldn't write JSON");
-
-    if unstable_presymbolicate {
-        crate::shared::symbol_precog::presymbolicate(
-            &profile,
-            &output_file.with_extension("syms.json"),
-        );
-    }
-
-    // then fire up the server for the profiler front end, if not save-only
-    if let Some(server_props) = server_props {
-        let libinfo_map = crate::profile_json_preparse::parse_libinfo_map_from_profile_file(
-            File::open(&output_file).expect("Couldn't open file we just wrote"),
-            &output_file,
-        )
-        .expect("Couldn't parse libinfo map from profile file");
-
-        start_server_main(&output_file, server_props, symbol_props, libinfo_map);
-    }
-
-    Ok(ExitStatus::from_raw(0))
+    Ok((profile, ExitStatus::from_raw(0)))
 }
 
 #[cfg(target_arch = "x86")]

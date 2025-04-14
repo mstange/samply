@@ -49,7 +49,7 @@ use crate::shared::process_sample_data::{
     OtherEventMarker, RssStatMarker, RssStatMember, SchedSwitchMarkerOnCpuTrack,
     SchedSwitchMarkerOnThreadTrack,
 };
-use crate::shared::recording_props::ProfileCreationProps;
+use crate::shared::prop_types::ProfileCreationProps;
 use crate::shared::synthetic_jit_library::SyntheticJitLibrary;
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::types::{StackFrame, StackMode};

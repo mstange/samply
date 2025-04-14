@@ -1,4 +1,5 @@
 /// Specifies which processes should be included in the converted profile.
+#[derive(Debug, Clone)]
 pub struct IncludedProcesses {
     /// Names of processes to include. These are actually substrings - if
     /// any of the elements in this Vec is a substring of the process name,

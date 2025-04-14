@@ -44,7 +44,7 @@ use crate::shared::marker_file::get_markers;
 use crate::shared::perf_map::try_load_perf_map;
 use crate::shared::process_name::make_process_name;
 use crate::shared::process_sample_data::{MarkerSpanOnThread, ProcessSampleData};
-use crate::shared::recording_props::ProfileCreationProps;
+use crate::shared::prop_types::ProfileCreationProps;
 use crate::shared::recycling::{ProcessRecycler, ProcessRecyclingData, ThreadRecycler};
 use crate::shared::timestamp_converter::TimestampConverter;
 use crate::shared::unresolved_samples::{UnresolvedSamples, UnresolvedStacks};
