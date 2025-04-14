@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::Path;
@@ -6,11 +6,16 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use debugid::DebugId;
+use fxprof_processed_profile::LibraryInfo;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::to_writer;
-use wholesym::SourceFilePath;
+use wholesym::{SourceFilePath, SymbolManager};
+
+use crate::symbols::create_symbol_manager_and_quota_manager;
+
+use super::prop_types::SymbolProps;
 
 #[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
 struct StringTableIndex(usize);
@@ -325,82 +330,46 @@ impl PrecogSymbolInfo {
     }
 }
 
-pub fn presymbolicate(profile: &fxprof_processed_profile::Profile, precog_output: &Path) {
+pub fn presymbolicate(
+    profile: &fxprof_processed_profile::Profile,
+    precog_output: &Path,
+    symbol_props: SymbolProps,
+) {
     let rt = tokio::runtime::Runtime::new().unwrap();
 
     let mut string_table = StringTable::new();
     let mut results = Vec::new();
 
-    let config = wholesym::SymbolManagerConfig::new()
-        .use_spotlight(true)
-        // .verbose(true)
-        .respect_nt_symbol_path(true);
-    let mut symbol_manager = wholesym::SymbolManager::with_config(config);
+    rt.block_on(async {
+        let (mut symbol_manager, quota_manager) =
+            create_symbol_manager_and_quota_manager(symbol_props, false);
 
-    for (lib, rvas) in profile.lib_used_rva_iter() {
-        // Add the library to the symbol manager with all the info, so that load_symbol_map can find it later
-        symbol_manager.add_known_library(wholesym::LibraryInfo {
-            name: Some(lib.debug_name.clone()),
-            path: Some(lib.path.clone()),
-            debug_path: Some(lib.debug_path.clone()),
-            debug_id: Some(lib.debug_id),
-            arch: lib.arch.clone(),
-            debug_name: Some(lib.debug_name.clone()),
-            code_id: lib
-                .code_id
-                .as_ref()
-                .map(|id| wholesym::CodeId::from_str(id).expect("bad codeid")),
-        });
-
-        //eprintln!("Library {} ({}) has {} rvas", lib.debug_name, lib.debug_id, rvas.len());
-
-        let result = rt.block_on(async {
-            let Ok(symbol_map) = symbol_manager
-                .load_symbol_map(&lib.debug_name, lib.debug_id)
-                .await
-            else {
-                //eprintln!("Couldn't load symbol map for {} at {} {} ({})", lib.debug_name, lib.path, lib.debug_path, lib.debug_id);
-                return None;
-            };
-
-            let mut symbol_table = Vec::new();
-            let mut symbol_table_map = HashMap::new();
-
-            let mut known_addresses = Vec::new();
-            for rva in rvas {
-                if let Some(addr_info) = symbol_map
-                    .lookup(wholesym::LookupAddress::Relative(*rva))
-                    .await
-                {
-                    let index = symbol_table_map
-                        .entry(addr_info.symbol.address)
-                        .or_insert_with(|| {
-                            let info = InternedSymbolInfo::new(&addr_info, &mut string_table);
-                            symbol_table.push(info);
-                            symbol_table.len() - 1
-                        });
-                    known_addresses.push((*rva, *index));
-                }
-            }
-
-            Some(PrecogLibrarySymbols {
-                debug_name: lib.debug_name.clone(),
-                debug_id: lib.debug_id.to_string(),
+        for (lib, rvas) in profile.lib_used_rva_iter() {
+            // Add the library to the symbol manager with all the info, so that load_symbol_map can find it later
+            symbol_manager.add_known_library(wholesym::LibraryInfo {
+                name: Some(lib.debug_name.clone()),
+                path: Some(lib.path.clone()),
+                debug_path: Some(lib.debug_path.clone()),
+                debug_id: Some(lib.debug_id),
+                arch: lib.arch.clone(),
+                debug_name: Some(lib.debug_name.clone()),
                 code_id: lib
                     .code_id
                     .as_ref()
-                    .map(|id| id.to_string())
-                    .unwrap_or("".to_owned()),
-                symbol_table,
-                known_addresses,
-                string_table: None,
-            })
-        });
+                    .map(|id| wholesym::CodeId::from_str(id).expect("bad codeid")),
+            });
 
-        if let Some(result) = result {
-            results.push(result);
+            let result = get_lib_symbols(lib, rvas, &symbol_manager, &mut string_table).await;
+
+            if let Some(result) = result {
+                results.push(result);
+            }
         }
-    }
+
+        if let Some(quota_manager) = quota_manager {
+            quota_manager.finish().await;
+        }
+    });
 
     {
         let string_table = Arc::new(string_table);
@@ -416,4 +385,53 @@ pub fn presymbolicate(profile: &fxprof_processed_profile::Profile, precog_output
         let writer = BufWriter::new(file);
         to_writer(writer, &info).expect("Couldn't write JSON for presymbolication");
     }
+}
+
+async fn get_lib_symbols(
+    lib: &LibraryInfo,
+    rvas: &BTreeSet<u32>,
+    symbol_manager: &SymbolManager,
+    string_table: &mut StringTable,
+) -> Option<PrecogLibrarySymbols> {
+    //eprintln!("Library {} ({}) has {} rvas", lib.debug_name, lib.debug_id, rvas.len());
+    let Ok(symbol_map) = symbol_manager
+        .load_symbol_map(&lib.debug_name, lib.debug_id)
+        .await
+    else {
+        //eprintln!("Couldn't load symbol map for {} at {} {} ({})", lib.debug_name, lib.path, lib.debug_path, lib.debug_id);
+        return None;
+    };
+
+    let mut symbol_table = Vec::new();
+    let mut symbol_table_map = HashMap::new();
+
+    let mut known_addresses = Vec::new();
+    for rva in rvas {
+        if let Some(addr_info) = symbol_map
+            .lookup(wholesym::LookupAddress::Relative(*rva))
+            .await
+        {
+            let index = symbol_table_map
+                .entry(addr_info.symbol.address)
+                .or_insert_with(|| {
+                    let info = InternedSymbolInfo::new(&addr_info, string_table);
+                    symbol_table.push(info);
+                    symbol_table.len() - 1
+                });
+            known_addresses.push((*rva, *index));
+        }
+    }
+
+    Some(PrecogLibrarySymbols {
+        debug_name: lib.debug_name.clone(),
+        debug_id: lib.debug_id.to_string(),
+        code_id: lib
+            .code_id
+            .as_ref()
+            .map(|id| id.to_string())
+            .unwrap_or("".to_owned()),
+        symbol_table,
+        known_addresses,
+        string_table: None,
+    })
 }

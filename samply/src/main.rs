@@ -94,6 +94,7 @@ fn do_import_action(import_args: cli::ImportArgs) {
         crate::shared::symbol_precog::presymbolicate(
             &profile,
             &import_args.output.with_extension("syms.json"),
+            import_args.symbol_props(),
         );
     }
 
@@ -133,6 +134,7 @@ fn do_record_action(record_args: cli::RecordArgs) {
         crate::shared::symbol_precog::presymbolicate(
             &profile,
             &record_args.output.with_extension("syms.json"),
+            record_args.symbol_props(),
         );
     }
 
