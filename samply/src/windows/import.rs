@@ -1,10 +1,9 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use fxprof_processed_profile::{Profile, ReferenceTimestamp, SamplingInterval};
 
 use super::etw_gecko;
-use crate::shared::included_processes::IncludedProcesses;
-use crate::shared::prop_types::{ImportProps, ProfileCreationProps};
+use crate::shared::prop_types::ImportProps;
 use crate::windows::profile_context::ProfileContext;
 
 pub fn convert_etl_file_to_profile(filename: &Path, import_props: ImportProps) -> Profile {

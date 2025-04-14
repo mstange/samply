@@ -29,6 +29,7 @@ impl CoreClrProfileProps {
 /// as well as for recording an existing process.
 #[derive(Debug, Clone)]
 pub struct RecordingProps {
+    #[allow(dead_code)] // Used on Windows to determine etl file paths
     pub output_file: PathBuf,
     pub time_limit: Option<Duration>,
     pub interval: Duration,

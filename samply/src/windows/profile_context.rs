@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::Path;
+use std::time::Duration;
 
 use debugid::DebugId;
 use fxprof_processed_profile::{
@@ -508,7 +509,7 @@ impl ProfileContext {
         arch: &str,
         included_processes: Option<IncludedProcesses>,
         profile_creation_props: ProfileCreationProps,
-        time_range: Option<(Timestamp, Timestamp)>,
+        time_range: Option<(Duration, Duration)>,
     ) -> Self {
         // On 64-bit systems, the kernel address space always has 0xF in the first 16 bits.
         // The actual kernel address space is much higher, but we just need this to disambiguate kernel and user

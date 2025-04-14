@@ -54,11 +54,8 @@ fn main() {
         cli::Action::Record(record_args) => do_record_action(record_args),
 
         #[cfg(target_os = "windows")]
-        cli::Action::RunElevatedHelper(RunElevatedHelperArgs {
-            ipc_directory,
-            output_path,
-        }) => {
-            windows::run_elevated_helper(&ipc_directory, output_path);
+        cli::Action::RunElevatedHelper(args) => {
+            windows::run_elevated_helper(&args.ipc_directory, args.output_path)
         }
 
         #[cfg(target_os = "macos")]
@@ -141,22 +138,42 @@ fn do_record_action(record_args: cli::RecordArgs) {
     let recording_props = record_args.recording_props();
     let recording_mode = record_args.recording_mode();
     let profile_creation_props = record_args.profile_creation_props();
-    let symbol_props = record_args.symbol_props();
-    let server_props = record_args.server_props();
+    let unstable_presymbolicate = profile_creation_props.unstable_presymbolicate;
 
-    let exit_status = match profiler::start_recording(
-        recording_mode,
-        recording_props,
-        profile_creation_props,
-        symbol_props,
-        server_props,
-    ) {
-        Ok(exit_status) => exit_status,
-        Err(err) => {
-            eprintln!("Encountered an error during profiling: {err:?}");
-            std::process::exit(1);
-        }
-    };
+    let (profile, exit_status) =
+        match profiler::run(recording_mode, recording_props, profile_creation_props) {
+            Ok(exit_status) => exit_status,
+            Err(err) => {
+                eprintln!("Encountered an error during profiling: {err:?}");
+                std::process::exit(1);
+            }
+        };
+
+    save_profile_to_file(&profile, &record_args.output).expect("Couldn't write JSON");
+
+    if unstable_presymbolicate {
+        crate::shared::symbol_precog::presymbolicate(
+            &profile,
+            &record_args.output.with_extension("syms.json"),
+        );
+    }
+
+    // then fire up the server for the profiler front end, if not save-only
+    if let Some(server_props) = record_args.server_props() {
+        let profile_filename = &record_args.output;
+        let libinfo_map = crate::profile_json_preparse::parse_libinfo_map_from_profile_file(
+            File::open(profile_filename).expect("Couldn't open file we just wrote"),
+            profile_filename,
+        )
+        .expect("Couldn't parse libinfo map from profile file");
+        start_server_main(
+            profile_filename,
+            server_props,
+            record_args.symbol_props(),
+            libinfo_map,
+        );
+    }
+
     std::process::exit(exit_status.code().unwrap_or(0));
 }
 
