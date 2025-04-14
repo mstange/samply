@@ -36,12 +36,60 @@ pub struct ServerProps {
 
 #[tokio::main]
 pub async fn start_server_main(
-    file: &Path,
+    profile_filename: &Path,
     props: ServerProps,
     symbol_props: SymbolProps,
     libinfo_map: HashMap<(String, DebugId), LibraryInfo>,
 ) {
-    start_server(Some(file), props, symbol_props, libinfo_map).await;
+    let (mut symbol_manager, quota_manager) =
+        create_symbol_manager_and_quota_manager(symbol_props, props.verbose);
+    for lib_info in libinfo_map.into_values() {
+        symbol_manager.add_known_library(lib_info);
+    }
+
+    let precog_filename = profile_filename.with_extension("syms.json");
+    if let Some(precog_info) = shared::symbol_precog::PrecogSymbolInfo::try_load(&precog_filename) {
+        for (debug_id, syms) in precog_info.into_hash_map().into_iter() {
+            let lib_info = LibraryInfo {
+                debug_id: Some(debug_id),
+                ..LibraryInfo::default()
+            };
+            symbol_manager.add_known_library_symbols(lib_info, syms);
+        }
+    }
+
+    let symbol_manager = Arc::new(symbol_manager);
+
+    let open_in_browser = props.open_in_browser;
+
+    let RunningServerInfo {
+        server_join_handle,
+        server_origin,
+        profiler_url,
+    } = start_server(Some(profile_filename), props, symbol_manager).await;
+
+    eprintln!("Local server listening at {server_origin}");
+    if !open_in_browser {
+        if let Some(profiler_url) = &profiler_url {
+            println!("{profiler_url}");
+        }
+    }
+    eprintln!("Press Ctrl+C to stop.");
+
+    if open_in_browser {
+        if let Some(profiler_url) = &profiler_url {
+            let _ = opener::open_browser(profiler_url);
+        }
+    }
+
+    // Run this server until it stops.
+    if let Err(e) = server_join_handle.await {
+        eprintln!("server error: {e}");
+    }
+
+    if let Some(quota_manager) = quota_manager {
+        quota_manager.finish().await;
+    }
 }
 
 const BAD_CHARS: &AsciiSet = &CONTROLS.add(b':').add(b'/');
@@ -67,9 +115,8 @@ impl PortSelection {
 async fn start_server(
     profile_filename: Option<&Path>,
     server_props: ServerProps,
-    symbol_props: SymbolProps,
-    libinfo_map: HashMap<(String, DebugId), LibraryInfo>,
-) {
+    symbol_manager: Arc<SymbolManager>,
+) -> RunningServerInfo {
     let (listener, addr) = make_listener(server_props.address, server_props.port_selection).await;
 
     let token = generate_token();
@@ -104,30 +151,7 @@ async fn start_server(
 
     let template_values = Arc::new(template_values);
 
-    let (mut symbol_manager, quota_manager) =
-        create_symbol_manager_and_quota_manager(symbol_props, server_props.verbose);
-    for lib_info in libinfo_map.into_values() {
-        symbol_manager.add_known_library(lib_info);
-    }
-
-    if let Some(profile_filename) = profile_filename {
-        let precog_filename = profile_filename.with_extension("syms.json");
-        if let Some(precog_info) =
-            shared::symbol_precog::PrecogSymbolInfo::try_load(&precog_filename)
-        {
-            for (debug_id, syms) in precog_info.into_hash_map().into_iter() {
-                let lib_info = LibraryInfo {
-                    debug_id: Some(debug_id),
-                    ..LibraryInfo::default()
-                };
-                symbol_manager.add_known_library_symbols(lib_info, syms);
-            }
-        }
-    }
-
-    let symbol_manager = Arc::new(symbol_manager);
-
-    let server = tokio::task::spawn(run_server(
+    let server_join_handle = tokio::task::spawn(run_server(
         listener,
         symbol_manager,
         profile_filename.map(PathBuf::from),
@@ -135,28 +159,18 @@ async fn start_server(
         path_prefix,
     ));
 
-    eprintln!("Local server listening at {server_origin}");
-    if !server_props.open_in_browser {
-        if let Some(profiler_url) = &profiler_url {
-            println!("{profiler_url}");
-        }
+    RunningServerInfo {
+        server_join_handle,
+        server_origin,
+        profiler_url,
     }
-    eprintln!("Press Ctrl+C to stop.");
+}
 
-    if server_props.open_in_browser {
-        if let Some(profiler_url) = &profiler_url {
-            let _ = opener::open_browser(profiler_url);
-        }
-    }
-
-    // Run this server until it stops.
-    if let Err(e) = server.await {
-        eprintln!("server error: {e}");
-    }
-
-    if let Some(quota_manager) = quota_manager {
-        quota_manager.finish().await;
-    }
+struct RunningServerInfo {
+    server_join_handle:
+        tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
+    server_origin: String,
+    profiler_url: Option<String>,
 }
 
 // Returns a base32 string for 24 random bytes.
