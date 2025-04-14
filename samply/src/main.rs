@@ -228,7 +228,7 @@ fn run_server_serving_profile(
         for lib_info in libinfo_map.into_values() {
             symbol_manager.add_known_library(lib_info);
         }
-    
+
         let precog_path = profile_path.with_extension("syms.json");
         if let Some(precog_info) = shared::symbol_precog::PrecogSymbolInfo::try_load(&precog_path) {
             for (debug_id, syms) in precog_info.into_hash_map().into_iter() {
@@ -239,7 +239,7 @@ fn run_server_serving_profile(
                 symbol_manager.add_known_library_symbols(lib_info, syms);
             }
         }
-    
+
         let ctrl_c_receiver = CtrlC::observe_oneshot();
 
         let open_in_browser = server_props.open_in_browser;

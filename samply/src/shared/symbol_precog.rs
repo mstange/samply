@@ -371,20 +371,18 @@ pub fn presymbolicate(
         }
     });
 
-    {
-        let string_table = Arc::new(string_table);
-        for lib in &mut results {
-            lib.string_table = Some(string_table.clone());
-        }
-        let info = PrecogSymbolInfo {
-            string_table,
-            data: results,
-        };
-
-        let file = File::create(precog_output).unwrap();
-        let writer = BufWriter::new(file);
-        to_writer(writer, &info).expect("Couldn't write JSON for presymbolication");
+    let string_table = Arc::new(string_table);
+    for lib in &mut results {
+        lib.string_table = Some(string_table.clone());
     }
+    let info = PrecogSymbolInfo {
+        string_table,
+        data: results,
+    };
+
+    let file = File::create(precog_output).unwrap();
+    let writer = BufWriter::new(file);
+    to_writer(writer, &info).expect("Couldn't write JSON for presymbolication");
 }
 
 async fn get_lib_symbols(
