@@ -94,9 +94,6 @@ pub struct ProfileCreationProps {
     /// Create markers for unknown events.
     #[allow(dead_code)]
     pub unknown_event_markers: bool,
-    /// Time range to include, relative to start of recording.
-    #[allow(dead_code)]
-    pub time_range: Option<(std::time::Duration, std::time::Duration)>,
     /// Whether to emit "JitFunctionAdd" markers.
     #[allow(dead_code)]
     pub should_emit_jit_markers: bool,
@@ -128,10 +125,12 @@ pub struct ImportProps {
     pub profile_creation_props: ProfileCreationProps,
     pub symbol_props: SymbolProps,
     pub aux_file_dir: Vec<PathBuf>,
-    #[allow(unused)] // todo
+    #[allow(unused)] // todo: respect when converting perf.data
     pub included_processes: Option<IncludedProcesses>,
     #[allow(unused)] // Windows-only
     pub user_etl: Vec<PathBuf>,
+    #[allow(unused)] // todo: respect when converting perf.data
+    pub time_range: Option<(std::time::Duration, std::time::Duration)>,
 }
 
 #[derive(Debug, Clone)]

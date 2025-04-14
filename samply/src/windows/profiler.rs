@@ -145,8 +145,13 @@ pub fn start_recording(
         .unwrap_or(get_native_arch().to_string());
 
     let unstable_presymbolicate = profile_creation_props.unstable_presymbolicate;
-    let mut context =
-        ProfileContext::new(profile, &arch, included_processes, profile_creation_props);
+    let mut context = ProfileContext::new(
+        profile,
+        &arch,
+        included_processes,
+        profile_creation_props,
+        None,
+    );
     let extra_etls = match &user_output_file {
         Some(user_etl) => vec![user_etl.clone()],
         None => Vec::new(),

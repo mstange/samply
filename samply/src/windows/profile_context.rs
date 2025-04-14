@@ -508,6 +508,7 @@ impl ProfileContext {
         arch: &str,
         included_processes: Option<IncludedProcesses>,
         profile_creation_props: ProfileCreationProps,
+        time_range: Option<(Timestamp, Timestamp)>,
     ) -> Self {
         // On 64-bit systems, the kernel address space always has 0xF in the first 16 bits.
         // The actual kernel address space is much higher, but we just need this to disambiguate kernel and user
@@ -524,7 +525,7 @@ impl ProfileContext {
             None
         };
         let main_thread_only = profile_creation_props.main_thread_only;
-        let time_range = profile_creation_props.time_range.map(|(start, end)| {
+        let time_range = time_range.map(|(start, end)| {
             (
                 Timestamp::from_nanos_since_reference(start.as_nanos() as u64),
                 Timestamp::from_nanos_since_reference(end.as_nanos() as u64),

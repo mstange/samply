@@ -151,12 +151,7 @@ struct ImportArgs {
     #[arg(long)]
     override_arch: Option<String>,
 
-    /// Enable CoreCLR event conversion.
-    #[clap(long, require_equals = true, value_name = "FLAG", value_enum, value_delimiter = ',', num_args = 0.., default_values_t = vec![CoreClrArgs::Enabled])]
-    coreclr: Vec<CoreClrArgs>,
-
     /// Time range of recording to include in profile. Format is "start-stop" or "start+duration" with each part optional, e.g. "5s", "5s-", "-10s", "1s-10s" or "1s+9s".
-    #[cfg(target_os = "windows")]
     #[arg(long, value_parser=parse_time_range)]
     time_range: Option<(std::time::Duration, std::time::Duration)>,
 }
@@ -240,10 +235,6 @@ struct RecordArgs {
     /// Profile entire system (all processes). Not supported on macOS.
     #[arg(short, long, conflicts_with = "pid")]
     all: bool,
-
-    /// Enable CoreCLR event capture.
-    #[clap(long, require_equals = true, value_name = "FLAG", value_enum, value_delimiter = ',', num_args = 0.., default_missing_value = "enabled")]
-    coreclr: Vec<CoreClrArgs>,
 
     /// VM hack for arm64 Windows VMs to not try to record PROFILE events (Windows only).
     #[cfg(target_os = "windows")]
@@ -402,6 +393,10 @@ pub struct ProfileCreationArgs {
     #[cfg(target_os = "windows")]
     #[arg(long)]
     unknown_event_markers: bool,
+
+    /// Enable CoreCLR event conversion.
+    #[clap(long, require_equals = true, value_name = "FLAG", value_enum, value_delimiter = ',', num_args = 0.., default_values_t = vec![CoreClrArgs::Enabled])]
+    coreclr: Vec<CoreClrArgs>,
 }
 
 #[derive(Debug, Args)]
@@ -562,29 +557,8 @@ impl ImportArgs {
     fn profile_creation_props(&self) -> ProfileCreationProps {
         let filename = self.file.file_name().unwrap_or(self.file.as_os_str());
         let fallback_profile_name = filename.to_string_lossy().into();
-        ProfileCreationProps {
-            profile_name: self.profile_creation_args.profile_name.clone(),
-            fallback_profile_name,
-            main_thread_only: self.profile_creation_args.main_thread_only,
-            reuse_threads: self.profile_creation_args.reuse_threads,
-            fold_recursive_prefix: self.profile_creation_args.fold_recursive_prefix,
-            unlink_aux_files: self.profile_creation_args.unlink_aux_files,
-            create_per_cpu_threads: self.profile_creation_args.per_cpu_threads,
-            arg_count_to_include_in_process_name: self.profile_creation_args.include_args,
-            override_arch: self.override_arch.clone(),
-            unstable_presymbolicate: self.profile_creation_args.unstable_presymbolicate,
-            should_emit_jit_markers: self.profile_creation_args.jit_markers,
-            should_emit_cswitch_markers: self.profile_creation_args.cswitch_markers,
-            coreclr: to_coreclr_profile_props(&self.coreclr),
-            #[cfg(target_os = "windows")]
-            unknown_event_markers: self.profile_creation_args.unknown_event_markers,
-            #[cfg(not(target_os = "windows"))]
-            unknown_event_markers: false,
-            #[cfg(target_os = "windows")]
-            time_range: self.time_range,
-            #[cfg(not(target_os = "windows"))]
-            time_range: None,
-        }
+        self.profile_creation_args
+            .profile_creation_props_with_fallback_name(fallback_profile_name)
     }
 
     // TODO: Use for perf.data import
@@ -606,6 +580,7 @@ impl ImportArgs {
             included_processes: self.included_processes(),
             user_etl: self.user_etl.clone(),
             aux_file_dir: self.aux_file_dir.clone(),
+            time_range: self.time_range,
         }
     }
 }
@@ -698,25 +673,51 @@ impl RecordArgs {
                 filename.to_string_lossy().into()
             }
         };
-        ProfileCreationProps {
-            profile_name: self.profile_creation_args.profile_name.clone(),
-            fallback_profile_name,
-            main_thread_only: self.profile_creation_args.main_thread_only,
-            reuse_threads: self.profile_creation_args.reuse_threads,
-            fold_recursive_prefix: self.profile_creation_args.fold_recursive_prefix,
-            unlink_aux_files: self.profile_creation_args.unlink_aux_files,
-            create_per_cpu_threads: self.profile_creation_args.per_cpu_threads,
-            arg_count_to_include_in_process_name: self.profile_creation_args.include_args,
-            override_arch: None,
-            unstable_presymbolicate: self.profile_creation_args.unstable_presymbolicate,
-            should_emit_jit_markers: self.profile_creation_args.jit_markers,
-            should_emit_cswitch_markers: self.profile_creation_args.cswitch_markers,
-            coreclr: to_coreclr_profile_props(&self.coreclr),
+        self.profile_creation_args
+            .profile_creation_props_with_fallback_name(fallback_profile_name)
+    }
+}
+
+impl ProfileCreationArgs {
+    pub fn coreclr_profile_props(&self) -> CoreClrProfileProps {
+        // on Windows, the ..Default::default() has no effect, and clippy doesn't like it
+        #[allow(clippy::needless_update)]
+        CoreClrProfileProps {
+            enabled: self.coreclr.contains(&CoreClrArgs::Enabled),
             #[cfg(target_os = "windows")]
-            unknown_event_markers: self.profile_creation_args.unknown_event_markers,
+            gc_markers: self.coreclr.contains(&CoreClrArgs::GcMarkers),
+            #[cfg(target_os = "windows")]
+            gc_suspensions: self.coreclr.contains(&CoreClrArgs::GcSuspendedThreads),
+            #[cfg(target_os = "windows")]
+            gc_detailed_allocs: self.coreclr.contains(&CoreClrArgs::GcDetailedAllocs),
+            #[cfg(target_os = "windows")]
+            event_stacks: self.coreclr.contains(&CoreClrArgs::EventStacks),
+            ..Default::default()
+        }
+    }
+
+    pub fn profile_creation_props_with_fallback_name(
+        &self,
+        fallback_profile_name: String,
+    ) -> ProfileCreationProps {
+        ProfileCreationProps {
+            profile_name: self.profile_name.clone(),
+            fallback_profile_name,
+            main_thread_only: self.main_thread_only,
+            reuse_threads: self.reuse_threads,
+            fold_recursive_prefix: self.fold_recursive_prefix,
+            unlink_aux_files: self.unlink_aux_files,
+            create_per_cpu_threads: self.per_cpu_threads,
+            arg_count_to_include_in_process_name: self.include_args,
+            override_arch: None,
+            unstable_presymbolicate: self.unstable_presymbolicate,
+            should_emit_jit_markers: self.jit_markers,
+            should_emit_cswitch_markers: self.cswitch_markers,
+            coreclr: self.coreclr_profile_props(),
+            #[cfg(target_os = "windows")]
+            unknown_event_markers: self.unknown_event_markers,
             #[cfg(not(target_os = "windows"))]
             unknown_event_markers: false,
-            time_range: None,
         }
     }
 }
@@ -770,23 +771,6 @@ impl SymbolArgs {
     }
 }
 
-fn to_coreclr_profile_props(coreclr_args: &[CoreClrArgs]) -> CoreClrProfileProps {
-    // on Windows, the ..Default::default() has no effect, and clippy doesn't like it
-    #[allow(clippy::needless_update)]
-    CoreClrProfileProps {
-        enabled: coreclr_args.contains(&CoreClrArgs::Enabled),
-        #[cfg(target_os = "windows")]
-        gc_markers: coreclr_args.contains(&CoreClrArgs::GcMarkers),
-        #[cfg(target_os = "windows")]
-        gc_suspensions: coreclr_args.contains(&CoreClrArgs::GcSuspendedThreads),
-        #[cfg(target_os = "windows")]
-        gc_detailed_allocs: coreclr_args.contains(&CoreClrArgs::GcDetailedAllocs),
-        #[cfg(target_os = "windows")]
-        event_stacks: coreclr_args.contains(&CoreClrArgs::EventStacks),
-        ..Default::default()
-    }
-}
-
 fn split_at_first_equals(s: &OsStr) -> Option<(&OsStr, &OsStr)> {
     let bytes = s.as_encoded_bytes();
     let pos = bytes.iter().position(|b| *b == b'=')?;
@@ -822,12 +806,7 @@ fn convert_etl_file_to_profile(
     input_path: &Path,
     import_props: ImportProps,
 ) -> Profile {
-    windows::import::convert_etl_file_to_profile(
-        input_path,
-        &import_props.user_etl,
-        import_props.profile_creation_props,
-        import_props.included_processes,
-    )
+    windows::import::convert_etl_file_to_profile(input_path, import_props)
 }
 
 #[cfg(not(target_os = "windows"))]

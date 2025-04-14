@@ -4,33 +4,33 @@ use fxprof_processed_profile::{Profile, ReferenceTimestamp, SamplingInterval};
 
 use super::etw_gecko;
 use crate::shared::included_processes::IncludedProcesses;
-use crate::shared::prop_types::ProfileCreationProps;
+use crate::shared::prop_types::{ImportProps, ProfileCreationProps};
 use crate::windows::profile_context::ProfileContext;
 
-pub fn convert_etl_file_to_profile(
-    filename: &Path,
-    extra_etl_filenames: &[PathBuf],
-    profile_creation_props: ProfileCreationProps,
-    included_processes: Option<IncludedProcesses>,
-) -> Profile {
+pub fn convert_etl_file_to_profile(filename: &Path, import_props: ImportProps) -> Profile {
     let timebase = std::time::SystemTime::now();
     let timebase = ReferenceTimestamp::from_system_time(timebase);
 
     let interval_8khz = SamplingInterval::from_nanos(122100); // 8192Hz // only with the higher recording rate?
     let profile = Profile::new(
-        profile_creation_props.profile_name(),
+        import_props.profile_creation_props.profile_name(),
         timebase,
-        interval_8khz, // recording_props.interval.into(),
+        interval_8khz,
     );
 
     let arch = get_native_arch(); // TODO: Detect arch from file
 
     eprintln!("Processing ETL trace...");
 
-    let mut context =
-        ProfileContext::new(profile, arch, included_processes, profile_creation_props);
+    let mut context = ProfileContext::new(
+        profile,
+        arch,
+        import_props.included_processes,
+        import_props.profile_creation_props,
+        import_props.time_range,
+    );
 
-    etw_gecko::process_etl_files(&mut context, filename, extra_etl_filenames);
+    etw_gecko::process_etl_files(&mut context, filename, &import_props.user_etl);
 
     context.finish()
 }
