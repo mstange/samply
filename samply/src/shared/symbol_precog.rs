@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use debugid::DebugId;
 use futures_util::future::join_all;
+use indexmap::IndexSet;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 use serde_derive::{Deserialize, Serialize};
@@ -93,7 +94,7 @@ impl<'de> Deserialize<'de> for StringTable {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Hash, PartialEq, Eq)]
 struct InternedFrameDebugInfo {
     function: Option<StringTableIndex>,
     file: Option<StringTableIndex>,
@@ -118,7 +119,7 @@ impl InternedFrameDebugInfo {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Hash, PartialEq, Eq)]
 struct InternedSymbolInfo {
     rva: u32,
 
@@ -424,8 +425,8 @@ async fn get_lib_symbols(
         return None;
     };
 
-    let mut symbol_table = Vec::new();
-    let mut symbol_table_map = HashMap::new();
+    type FastIndexSet<V> = IndexSet<V, rustc_hash::FxBuildHasher>;
+    let mut symbol_table = FastIndexSet::default();
 
     let mut known_addresses = Vec::new();
     for rva in rvas {
@@ -433,15 +434,10 @@ async fn get_lib_symbols(
             .lookup(wholesym::LookupAddress::Relative(*rva))
             .await
         {
-            let index = symbol_table_map
-                .entry(addr_info.symbol.address)
-                .or_insert_with(|| {
-                    let info =
-                        InternedSymbolInfo::new(&addr_info, &mut string_table.lock().unwrap());
-                    symbol_table.push(info);
-                    symbol_table.len() - 1
-                });
-            known_addresses.push((*rva, *index));
+            let symbol_info =
+                InternedSymbolInfo::new(&addr_info, &mut string_table.lock().unwrap());
+            let index = symbol_table.insert_full(symbol_info).0;
+            known_addresses.push((*rva, index));
         }
     }
 
@@ -453,7 +449,7 @@ async fn get_lib_symbols(
             .as_ref()
             .map(|id| id.to_string())
             .unwrap_or("".to_owned()),
-        symbol_table,
+        symbol_table: symbol_table.into_iter().collect(),
         known_addresses,
         string_table: None,
     })

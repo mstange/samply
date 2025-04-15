@@ -2196,6 +2196,7 @@ dependencies = [
  "humantime",
  "hyper",
  "hyper-util",
+ "indexmap",
  "lazy_static",
  "libc",
  "linux-perf-data",
