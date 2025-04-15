@@ -382,15 +382,23 @@ impl Profile {
         self.global_libs.handle_for_lib(library)
     }
 
-    /// Set the symbol table for a library.
+    /// Set an optional symbol table for a library, for "pre-symbolicating" stack frames.
     ///
-    /// This symbol table can also be specified in the [`LibraryInfo`] which is given to
-    /// [`Profile::add_lib`]. However, sometimes you may want to have the [`LibraryHandle`]
-    /// for a library before you know about all its symbols. In those cases, you can call
-    /// [`Profile::add_lib`] with `symbol_table` set to `None`, and then supply the symbol
-    /// table afterwards.
+    /// Usually, symbolication is something that should happen asynchronously,
+    /// because it can be very slow, so the regular way to use the profiler is to
+    /// store only frame addresses and no symbols in the profile JSON, and perform
+    /// symbolication only once the profile is loaded in the Firefox Profiler UI.
     ///
-    /// Symbol tables are optional.
+    /// However, sometimes symbols are only available during recording and are not
+    /// easily accessible afterwards. One such example the symbol table of the
+    /// Linux kernel: Users with root privileges can access the symbol table of the
+    /// currently-running kernel via `/proc/kallsyms`, but we don't want to have
+    /// to run the local symbol server with root privileges. So it's easier to
+    /// resolve kernel symbols when generating the profile JSON.
+    ///
+    /// This form of symbolicating does not support file names, line numbers, or
+    /// inline frames. It is intended for relatively "small" symbol tables for which
+    /// an address lookup is fast.
     pub fn set_lib_symbol_table(&mut self, library: LibraryHandle, symbol_table: Arc<SymbolTable>) {
         self.global_libs.set_lib_symbol_table(library, symbol_table);
     }
@@ -598,11 +606,8 @@ impl Profile {
                 (InternalFrameVariant::Label, name)
             }
             InternalFrameAddress::InLib(address, lib_index) => {
-                let lib = self.global_libs.get_lib(lib_index).unwrap();
-                let symbol = lib
-                    .symbol_table
-                    .as_deref()
-                    .and_then(|symbol_table| symbol_table.lookup(address));
+                let lib_symbol_table = self.global_libs.get_lib_symbol_table(lib_index);
+                let symbol = lib_symbol_table.and_then(|symbol_table| symbol_table.lookup(address));
                 let (native_symbol, name) = match symbol {
                     Some(symbol) => {
                         let (native_symbol, name) = thread

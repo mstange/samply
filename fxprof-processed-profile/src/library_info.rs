@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use debugid::DebugId;
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
@@ -40,24 +38,6 @@ pub struct LibraryInfo {
     /// correct sub-binary in a mach-O fat binary. But we now use the debug_id for that
     /// purpose.
     pub arch: Option<String>,
-    /// An optional symbol table, for "pre-symbolicating" stack frames.
-    ///
-    /// Usually, symbolication is something that should happen asynchronously,
-    /// because it can be very slow, so the regular way to use the profiler is to
-    /// store only frame addresses and no symbols in the profile JSON, and perform
-    /// symbolication only once the profile is loaded in the Firefox Profiler UI.
-    ///
-    /// However, sometimes symbols are only available during recording and are not
-    /// easily accessible afterwards. One such example the symbol table of the
-    /// Linux kernel: Users with root privileges can access the symbol table of the
-    /// currently-running kernel via `/proc/kallsyms`, but we don't want to have
-    /// to run the local symbol server with root privileges. So it's easier to
-    /// resolve kernel symbols when generating the profile JSON.
-    ///
-    /// This way of symbolicating does not support file names, line numbers, or
-    /// inline frames. It is intended for relatively "small" symbol tables for which
-    /// an address lookup is fast.
-    pub symbol_table: Option<Arc<SymbolTable>>,
 }
 
 impl Serialize for LibraryInfo {

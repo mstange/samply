@@ -1220,8 +1220,10 @@ where
             name: dso_key.name().to_string(),
             debug_name: dso_key.name().to_string(),
             arch: None,
-            symbol_table,
         });
+        if let Some(symbol_table) = symbol_table {
+            self.profile.set_lib_symbol_table(lib_handle, symbol_table);
+        }
         let end_address = base_address + len;
         self.profile
             .add_kernel_lib_mapping(lib_handle, base_address, end_address, 0);
@@ -1390,8 +1392,9 @@ where
                 debug_name: name.clone(),
                 name,
                 arch: None,
-                symbol_table: Some(symbol_table.symbol_table.clone()),
             });
+            self.profile
+                .set_lib_symbol_table(lib_handle, symbol_table.symbol_table.clone());
             let info = match symbol_table.art_info {
                 Some(AndroidArtInfo::LibArt) => LibMappingInfo::new_libart_mapping(lib_handle),
                 Some(AndroidArtInfo::JavaFrame) => {
@@ -1556,7 +1559,6 @@ where
             debug_name: name.clone(),
             name,
             arch: None,
-            symbol_table: None,
         });
         process.add_regular_lib_mapping(
             timestamp,
@@ -1607,7 +1609,6 @@ where
             debug_name: name.to_owned(),
             name: name.to_owned(),
             arch: None,
-            symbol_table: None,
         })
     }
 

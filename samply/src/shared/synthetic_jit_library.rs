@@ -31,7 +31,6 @@ impl SyntheticJitLibrary {
             debug_id: DebugId::nil(),
             code_id: None,
             arch: None,
-            symbol_table: None,
         });
         let recycler = if allow_recycling {
             Some(FastHashMap::default())
