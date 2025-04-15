@@ -1,12 +1,12 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::Path;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use debugid::DebugId;
-use fxprof_processed_profile::LibraryInfo;
+use futures_util::future::join_all;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 use serde_derive::{Deserialize, Serialize};
@@ -337,38 +337,62 @@ pub fn presymbolicate(
 ) {
     let rt = tokio::runtime::Runtime::new().unwrap();
 
-    let mut string_table = StringTable::new();
-    let mut results = Vec::new();
-
-    rt.block_on(async {
+    let (mut results, string_table) = rt.block_on(async {
         let (mut symbol_manager, quota_manager) =
             create_symbol_manager_and_quota_manager(symbol_props, false);
 
-        for (lib, rvas) in profile.lib_used_rva_iter() {
+        let lib_stuff: Vec<_> = profile
+            .lib_used_rva_iter()
+            .map(|(lib, rvas)| {
+                let lib_info = wholesym::LibraryInfo {
+                    name: Some(lib.debug_name.clone()),
+                    path: Some(lib.path.clone()),
+                    debug_path: Some(lib.debug_path.clone()),
+                    debug_id: Some(lib.debug_id),
+                    arch: lib.arch.clone(),
+                    debug_name: Some(lib.debug_name.clone()),
+                    code_id: lib
+                        .code_id
+                        .as_ref()
+                        .map(|id| wholesym::CodeId::from_str(id).expect("bad codeid")),
+                };
+                let rvas: Vec<u32> = rvas.iter().copied().collect();
+                (lib_info, rvas)
+            })
+            .collect();
+
+        for (lib_info, _) in &lib_stuff {
             // Add the library to the symbol manager with all the info, so that load_symbol_map can find it later
-            symbol_manager.add_known_library(wholesym::LibraryInfo {
-                name: Some(lib.debug_name.clone()),
-                path: Some(lib.path.clone()),
-                debug_path: Some(lib.debug_path.clone()),
-                debug_id: Some(lib.debug_id),
-                arch: lib.arch.clone(),
-                debug_name: Some(lib.debug_name.clone()),
-                code_id: lib
-                    .code_id
-                    .as_ref()
-                    .map(|id| wholesym::CodeId::from_str(id).expect("bad codeid")),
-            });
-
-            let result = get_lib_symbols(lib, rvas, &symbol_manager, &mut string_table).await;
-
-            if let Some(result) = result {
-                results.push(result);
-            }
+            symbol_manager.add_known_library(lib_info.clone());
         }
+
+        let string_table = Arc::new(Mutex::new(StringTable::new()));
+        let symbol_manager = Arc::new(symbol_manager);
+
+        let symbolication_tasks = lib_stuff.into_iter().map(|(lib, rvas)| {
+            let symbol_manager = Arc::clone(&symbol_manager);
+            let string_table = Arc::clone(&string_table);
+            tokio::spawn(async move {
+                get_lib_symbols(lib, &rvas, &symbol_manager, string_table.clone()).await
+            })
+        });
+
+        let symbolication_results = join_all(symbolication_tasks).await;
 
         if let Some(quota_manager) = quota_manager {
             quota_manager.finish().await;
         }
+
+        let results: Vec<_> = symbolication_results
+            .into_iter()
+            .filter_map(|x| x.unwrap())
+            .collect();
+        let string_table = match Arc::try_unwrap(string_table) {
+            Ok(string_table) => string_table.into_inner().unwrap(),
+            Err(_string_table) => panic!("String table Arc still in use"),
+        };
+
+        (results, string_table)
     });
 
     let string_table = Arc::new(string_table);
@@ -386,14 +410,14 @@ pub fn presymbolicate(
 }
 
 async fn get_lib_symbols(
-    lib: &LibraryInfo,
-    rvas: &BTreeSet<u32>,
+    lib: wholesym::LibraryInfo,
+    rvas: &[u32],
     symbol_manager: &SymbolManager,
-    string_table: &mut StringTable,
+    string_table: Arc<Mutex<StringTable>>,
 ) -> Option<PrecogLibrarySymbols> {
     //eprintln!("Library {} ({}) has {} rvas", lib.debug_name, lib.debug_id, rvas.len());
     let Ok(symbol_map) = symbol_manager
-        .load_symbol_map(&lib.debug_name, lib.debug_id)
+        .load_symbol_map(lib.debug_name.as_deref().unwrap(), lib.debug_id.unwrap())
         .await
     else {
         //eprintln!("Couldn't load symbol map for {} at {} {} ({})", lib.debug_name, lib.path, lib.debug_path, lib.debug_id);
@@ -412,7 +436,8 @@ async fn get_lib_symbols(
             let index = symbol_table_map
                 .entry(addr_info.symbol.address)
                 .or_insert_with(|| {
-                    let info = InternedSymbolInfo::new(&addr_info, string_table);
+                    let info =
+                        InternedSymbolInfo::new(&addr_info, &mut string_table.lock().unwrap());
                     symbol_table.push(info);
                     symbol_table.len() - 1
                 });
@@ -421,8 +446,8 @@ async fn get_lib_symbols(
     }
 
     Some(PrecogLibrarySymbols {
-        debug_name: lib.debug_name.clone(),
-        debug_id: lib.debug_id.to_string(),
+        debug_name: lib.debug_name.unwrap(),
+        debug_id: lib.debug_id.unwrap().to_string(),
         code_id: lib
             .code_id
             .as_ref()
