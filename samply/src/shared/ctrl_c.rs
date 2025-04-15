@@ -4,6 +4,8 @@ use tokio::sync::oneshot;
 
 static INSTANCE: OnceLock<Arc<Mutex<CtrlCState>>> = OnceLock::new();
 
+pub type Receiver = oneshot::Receiver<()>;
+
 /// Provides Ctrl+C notifications, and allows suppressing the automatic termination
 /// of the process.
 ///
@@ -20,7 +22,7 @@ static INSTANCE: OnceLock<Arc<Mutex<CtrlCState>>> = OnceLock::new();
 pub struct CtrlC;
 
 impl CtrlC {
-    /// Returns a new [`oneshot::Receiver`] which will receive a message once
+    /// Returns a new [`Receiver`] which will receive a message once
     /// Ctrl+C is pressed.
     ///
     /// Suspends the automatic termination for *one* Ctrl+C.

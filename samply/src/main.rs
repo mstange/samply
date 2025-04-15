@@ -23,6 +23,8 @@ use std::io::BufReader;
 use std::path::Path;
 
 use fxprof_processed_profile::Profile;
+use shared::ctrl_c::CtrlC;
+use wholesym::LibraryInfo;
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
 use linux::profiler;
@@ -32,9 +34,10 @@ use mac::profiler;
 use windows::profiler;
 
 use profile_json_preparse::parse_libinfo_map_from_profile_file;
-use server::start_server_main;
-use shared::prop_types::ImportProps;
+use server::{start_server, RunningServerInfo, ServerProps};
+use shared::prop_types::{ImportProps, SymbolProps};
 use shared::save_profile::save_profile_to_file;
+use symbols::create_symbol_manager_and_quota_manager;
 
 fn main() {
     env_logger::init();
@@ -64,28 +67,10 @@ fn main() {
 }
 
 fn do_load_action(load_args: cli::LoadArgs) {
-    let profile_filename = &load_args.file;
-    let input_file = match File::open(profile_filename) {
-        Ok(file) => file,
-        Err(err) => {
-            eprintln!("Could not open file {:?}: {}", profile_filename, err);
-            std::process::exit(1)
-        }
-    };
-
-    let libinfo_map = match parse_libinfo_map_from_profile_file(input_file, profile_filename) {
-        Ok(libinfo_map) => libinfo_map,
-        Err(err) => {
-            eprintln!("Could not parse the input file as JSON: {}", err);
-            eprintln!("If this is a perf.data file, please use `samply import` instead.");
-            std::process::exit(1)
-        }
-    };
-    start_server_main(
-        profile_filename,
+    run_server_serving_profile(
+        &load_args.file,
         load_args.server_props(),
         load_args.symbol_props(),
-        libinfo_map,
     );
 }
 
@@ -109,21 +94,18 @@ fn do_import_action(import_args: cli::ImportArgs) {
         crate::shared::symbol_precog::presymbolicate(
             &profile,
             &import_args.output.with_extension("syms.json"),
+            import_args.symbol_props(),
         );
     }
 
+    // Drop the profile so that it doesn't take up memory while the server is running.
+    drop(profile);
+
     if let Some(server_props) = import_args.server_props() {
-        let profile_filename = &import_args.output;
-        let libinfo_map = profile_json_preparse::parse_libinfo_map_from_profile_file(
-            File::open(profile_filename).expect("Couldn't open file we just wrote"),
-            profile_filename,
-        )
-        .expect("Couldn't parse libinfo map from profile file");
-        start_server_main(
-            profile_filename,
+        run_server_serving_profile(
+            &import_args.output,
             server_props,
             import_args.symbol_props(),
-            libinfo_map,
         );
     }
 }
@@ -155,22 +137,19 @@ fn do_record_action(record_args: cli::RecordArgs) {
         crate::shared::symbol_precog::presymbolicate(
             &profile,
             &record_args.output.with_extension("syms.json"),
+            record_args.symbol_props(),
         );
     }
 
+    // Drop the profile so that it doesn't take up memory while the server is running.
+    drop(profile);
+
     // then fire up the server for the profiler front end, if not save-only
     if let Some(server_props) = record_args.server_props() {
-        let profile_filename = &record_args.output;
-        let libinfo_map = crate::profile_json_preparse::parse_libinfo_map_from_profile_file(
-            File::open(profile_filename).expect("Couldn't open file we just wrote"),
-            profile_filename,
-        )
-        .expect("Couldn't parse libinfo map from profile file");
-        start_server_main(
-            profile_filename,
+        run_server_serving_profile(
+            &record_args.output,
             server_props,
             record_args.symbol_props(),
-            libinfo_map,
         );
     }
 
@@ -226,4 +205,86 @@ fn convert_file_to_profile(
             std::process::exit(1);
         }
     }
+}
+
+fn run_server_serving_profile(
+    profile_path: &Path,
+    server_props: ServerProps,
+    symbol_props: SymbolProps,
+) {
+    let libinfo_map = {
+        let profile_file = match File::open(profile_path) {
+            Ok(file) => file,
+            Err(err) => {
+                eprintln!("Could not open file {:?}: {}", profile_path, err);
+                std::process::exit(1)
+            }
+        };
+
+        parse_libinfo_map_from_profile_file(profile_file, profile_path)
+            .expect("Couldn't parse libinfo map from profile file")
+    };
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+
+    runtime.block_on(async {
+        let (mut symbol_manager, quota_manager) =
+            create_symbol_manager_and_quota_manager(symbol_props, server_props.verbose);
+        for lib_info in libinfo_map.into_values() {
+            symbol_manager.add_known_library(lib_info);
+        }
+
+        let precog_path = profile_path.with_extension("syms.json");
+        if let Some(precog_info) = shared::symbol_precog::PrecogSymbolInfo::try_load(&precog_path) {
+            for (debug_id, syms) in precog_info.into_hash_map().into_iter() {
+                let lib_info = LibraryInfo {
+                    debug_id: Some(debug_id),
+                    ..LibraryInfo::default()
+                };
+                symbol_manager.add_known_library_symbols(lib_info, syms);
+            }
+        }
+
+        let ctrl_c_receiver = CtrlC::observe_oneshot();
+
+        let open_in_browser = server_props.open_in_browser;
+
+        let RunningServerInfo {
+            server_join_handle,
+            server_origin,
+            profiler_url,
+        } = start_server(
+            Some(profile_path),
+            server_props,
+            symbol_manager,
+            ctrl_c_receiver,
+        )
+        .await;
+
+        eprintln!("Local server listening at {server_origin}");
+        if !open_in_browser {
+            if let Some(profiler_url) = &profiler_url {
+                println!("{profiler_url}");
+            }
+        }
+        eprintln!("Press Ctrl+C to stop.");
+
+        if open_in_browser {
+            if let Some(profiler_url) = &profiler_url {
+                let _ = opener::open_browser(profiler_url);
+            }
+        }
+
+        // Run this server until it stops.
+        if let Err(e) = server_join_handle.await {
+            eprintln!("server error: {e}");
+        }
+
+        if let Some(quota_manager) = quota_manager {
+            quota_manager.finish().await;
+        }
+    });
 }
