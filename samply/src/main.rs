@@ -212,16 +212,18 @@ fn run_server_serving_profile(
     server_props: ServerProps,
     symbol_props: SymbolProps,
 ) {
-    let profile_file = match File::open(profile_path) {
-        Ok(file) => file,
-        Err(err) => {
-            eprintln!("Could not open file {:?}: {}", profile_path, err);
-            std::process::exit(1)
-        }
-    };
+    let libinfo_map = {
+        let profile_file = match File::open(profile_path) {
+            Ok(file) => file,
+            Err(err) => {
+                eprintln!("Could not open file {:?}: {}", profile_path, err);
+                std::process::exit(1)
+            }
+        };
 
-    let libinfo_map = parse_libinfo_map_from_profile_file(profile_file, profile_path)
-        .expect("Couldn't parse libinfo map from profile file");
+        parse_libinfo_map_from_profile_file(profile_file, profile_path)
+            .expect("Couldn't parse libinfo map from profile file")
+    };
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
