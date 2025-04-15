@@ -49,6 +49,5 @@ pub fn lib_handle_for_jitdump(
         debug_id,
         code_id: Some(code_id.to_string()),
         arch: None,
-        symbol_table: None,
     })
 }

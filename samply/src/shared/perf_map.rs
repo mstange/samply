@@ -62,7 +62,6 @@ pub fn try_load_perf_map(
         debug_id: DebugId::nil(),
         code_id: None,
         arch: None,
-        symbol_table: None,
     });
 
     let mut symbols = Vec::new();

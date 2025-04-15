@@ -142,7 +142,10 @@ fn profile_without_js() {
         debug_path: "/usr/lib/x86_64-linux-gnu/libc.so.6".to_string(),
         debug_id: DebugId::from_breakpad("1629FCF0BE5C8860C0E1ADF03B0048FB0").unwrap(),
         arch: None,
-        symbol_table: Some(Arc::new(SymbolTable::new(vec![
+    });
+    profile.set_lib_symbol_table(
+        libc_handle,
+        Arc::new(SymbolTable::new(vec![
             Symbol {
                 address: 1700001,
                 size: Some(180),
@@ -158,8 +161,8 @@ fn profile_without_js() {
                 size: Some(20),
                 name: "libc_symbol_2".to_string(),
             },
-        ]))),
-    });
+        ])),
+    );
     profile.add_lib_mapping(
         process,
         libc_handle,
@@ -175,7 +178,6 @@ fn profile_without_js() {
         debug_path: "/home/mstange/code/dump_syms/target/release/dump_syms".to_string(),
         debug_id: DebugId::from_breakpad("5C0A0D51EA1980DF43F203B4525BE9BE0").unwrap(),
         arch: None,
-        symbol_table: None,
     });
     profile.add_lib_mapping(
         process,

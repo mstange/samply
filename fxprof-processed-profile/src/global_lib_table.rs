@@ -3,17 +3,18 @@ use std::sync::Arc;
 
 use serde::ser::{Serialize, Serializer};
 
-use crate::fast_hash_map::FastHashMap;
+use crate::fast_hash_map::{FastHashMap, FastIndexSet};
 use crate::{LibraryInfo, SymbolTable};
 
 #[derive(Debug)]
 pub struct GlobalLibTable {
-    /// All libraries added via `Profile::add_lib`. May or may not be used.
+    /// All libraries added via `Profile::handle_for_lib`. May or may not be used.
     /// Indexed by `LibraryHandle.0`.
-    all_libs: Vec<LibraryInfo>, // append-only for stable LibraryHandles
+    all_libs: FastIndexSet<LibraryInfo>, // append-only for stable LibraryHandles
+    /// Any symbol tables for libraries in all_libs
+    symbol_tables: FastHashMap<LibraryHandle, Arc<SymbolTable>>,
     /// Indexed by `GlobalLibIndex.0`.
     used_libs: Vec<LibraryHandle>, // append-only for stable GlobalLibIndexes
-    lib_map: FastHashMap<LibraryInfo, LibraryHandle>,
     used_lib_map: FastHashMap<LibraryHandle, GlobalLibIndex>,
     /// We keep track of RVA addresses that exist in frames that are assigned to this
     /// library, so that we can potentially provide symbolication info ahead of time.
@@ -26,25 +27,20 @@ pub struct GlobalLibTable {
 impl GlobalLibTable {
     pub fn new() -> Self {
         Self {
-            all_libs: Vec::new(),
+            all_libs: FastIndexSet::default(),
+            symbol_tables: FastHashMap::default(),
             used_libs: Vec::new(),
-            lib_map: FastHashMap::default(),
             used_lib_map: FastHashMap::default(),
             used_libs_seen_rvas: Vec::new(),
         }
     }
 
     pub fn handle_for_lib(&mut self, lib: LibraryInfo) -> LibraryHandle {
-        let all_libs = &mut self.all_libs;
-        *self.lib_map.entry(lib.clone()).or_insert_with(|| {
-            let handle = LibraryHandle(all_libs.len());
-            all_libs.push(lib);
-            handle
-        })
+        LibraryHandle(self.all_libs.insert_full(lib).0)
     }
 
     pub fn set_lib_symbol_table(&mut self, library: LibraryHandle, symbol_table: Arc<SymbolTable>) {
-        self.all_libs[library.0].symbol_table = Some(symbol_table);
+        self.symbol_tables.insert(library, symbol_table);
     }
 
     pub fn index_for_used_lib(&mut self, lib_handle: LibraryHandle) -> GlobalLibIndex {
@@ -59,7 +55,12 @@ impl GlobalLibTable {
 
     pub fn get_lib(&self, index: GlobalLibIndex) -> Option<&LibraryInfo> {
         let handle = self.used_libs.get(index.0)?;
-        self.all_libs.get(handle.0)
+        self.all_libs.get_index(handle.0)
+    }
+
+    pub fn get_lib_symbol_table(&self, index: GlobalLibIndex) -> Option<&SymbolTable> {
+        let handle = self.used_libs.get(index.0)?;
+        self.symbol_tables.get(handle).map(|v| &**v)
     }
 
     pub fn add_lib_used_rva(&mut self, index: GlobalLibIndex, address: u32) {

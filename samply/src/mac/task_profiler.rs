@@ -462,7 +462,6 @@ impl TaskProfiler {
                             debug_id: lib.debug_id.unwrap(),
                             code_id: lib.code_id.map(|ci| ci.to_string()),
                             arch: lib.arch.map(ToOwned::to_owned),
-                            symbol_table: None,
                         });
                         self.lib_mapping_ops.push(
                             now_mono,

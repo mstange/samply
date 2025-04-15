@@ -1476,7 +1476,6 @@ impl ProfileContext {
             debug_id,
             code_id: code_id.map(|ci| ci.to_string()),
             arch: Some(self.arch.to_owned()),
-            symbol_table: None,
         });
 
         // attempt to categorize the library based on the path
