@@ -455,7 +455,7 @@ pub trait FileContents: Send + Sync {
 
 /// The debug information (function name, file path, line number) for a single frame
 /// at the looked-up address.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct FrameDebugInfo {
     /// The function name for this frame, if known.
     pub function: Option<String>,
@@ -516,7 +516,7 @@ pub trait FileLocation: Clone + Display {
 /// refer to a file on this machine or on a different machine (i.e. the original
 /// build machine). The mapped path is something like a permalink which potentially
 /// allows obtaining the source file from a source server or a public hosted repository.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct SourceFilePath {
     /// The raw path to the source file, as written down in the debug file. This is
     /// usually an absolute path.
@@ -667,7 +667,7 @@ pub fn relative_address_base<'data>(object_file: &impl object::Object<'data>) ->
 }
 
 /// The symbol for a function.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct SymbolInfo {
     /// The function's address. This is a relative address.
     pub address: u32,
@@ -678,7 +678,7 @@ pub struct SymbolInfo {
 }
 
 /// The lookup result for an address.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct AddressInfo {
     /// Information about the symbol which contains the looked up address.
     pub symbol: SymbolInfo,
@@ -695,7 +695,7 @@ pub struct AddressInfo {
 }
 
 /// The lookup result from `lookup_sync`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct SyncAddressInfo {
     /// Information about the symbol which contains the looked up address.
     pub symbol: SymbolInfo,
@@ -705,7 +705,7 @@ pub struct SyncAddressInfo {
 
 /// Contains address debug info (inlined functions, file names, line numbers) if
 /// available.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum FramesLookupResult {
     /// Debug info for this address was found in the symbol map.
     ///

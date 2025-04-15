@@ -12,7 +12,7 @@ use nom::{Err, IResult};
 /// in [Firefox Breakpad .sym files](https://searchfox.org/mozilla-central/rev/4ebfb48f7e82251145afa4a822f970931dd06c68/toolkit/crashreporter/tools/symbolstore.py#199).
 /// This format is also used in the [Tecken symbolication API](https://tecken.readthedocs.io/en/latest/symbolication.html#id9),
 /// and [internally in the Firefox Profiler](https://github.com/firefox-devtools/profiler/blob/fb9ff03ab8b98d9e7c29e36314080fae555bbe78/src/utils/special-paths.js).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum MappedPath {
     /// A path to a file in a git repository.
     Git {
