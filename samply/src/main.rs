@@ -98,6 +98,9 @@ fn do_import_action(import_args: cli::ImportArgs) {
         );
     }
 
+    // Drop the profile so that it doesn't take up memory while the server is running.
+    drop(profile);
+
     if let Some(server_props) = import_args.server_props() {
         run_server_serving_profile(
             &import_args.output,
@@ -137,6 +140,9 @@ fn do_record_action(record_args: cli::RecordArgs) {
             record_args.symbol_props(),
         );
     }
+
+    // Drop the profile so that it doesn't take up memory while the server is running.
+    drop(profile);
 
     // then fire up the server for the profiler front end, if not save-only
     if let Some(server_props) = record_args.server_props() {
