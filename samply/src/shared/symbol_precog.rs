@@ -158,8 +158,11 @@ struct PrecogLibrarySymbols {
     debug_id: String,
     code_id: String,
     symbol_table: Vec<InternedSymbolInfo>,
-    // vector of (rva, index in symbol_table) so that multiple addresses
-    // within a function map to the same symbol
+
+    /// Vector of (rva, index in symbol_table) so that multiple addresses
+    /// within a function can share symbol info.
+    ///
+    /// Sorted by rva.
     known_addresses: Vec<(u32, usize)>,
 
     #[serde(skip)]
@@ -264,37 +267,34 @@ impl wholesym::samply_symbols::SymbolMapTrait for PrecogLibrarySymbols {
     fn lookup_sync(&self, address: wholesym::LookupAddress) -> Option<wholesym::SyncAddressInfo> {
         match address {
             wholesym::LookupAddress::Relative(rva) => {
-                for (known_rva, sym_index) in &self.known_addresses {
-                    if *known_rva == rva {
-                        //eprintln!("lookup_sync: 0x{:x} -> {}", rva, info.symbol.0);
-                        let info = &self.symbol_table[*sym_index];
-                        return Some(wholesym::SyncAddressInfo {
-                            symbol: wholesym::SymbolInfo {
-                                address: info.rva,
-                                size: info.size,
-                                name: self.get_owned_string(info.symbol),
-                            },
-                            frames: info.frames.as_ref().map(|frames| {
-                                wholesym::FramesLookupResult::Available(
-                                    frames
-                                        .iter()
-                                        .map(|frame| wholesym::FrameDebugInfo {
-                                            function: self.get_owned_opt_string(frame.function),
-                                            file_path: frame.file.map(|file| {
-                                                SourceFilePath::new(
-                                                    self.get_string(file).to_owned(),
-                                                    None,
-                                                )
-                                            }),
-                                            line_number: frame.line,
-                                        })
-                                        .collect(),
-                                )
-                            }),
-                        });
-                    }
-                }
-                None
+                let Ok(entry_index) = self.known_addresses.binary_search_by_key(&rva, |ka| ka.0)
+                else {
+                    return None;
+                };
+                let sym_index = self.known_addresses[entry_index].1;
+                //eprintln!("lookup_sync: {:#x} -> {}", rva, sym_index);
+                let info = &self.symbol_table[sym_index];
+                Some(wholesym::SyncAddressInfo {
+                    symbol: wholesym::SymbolInfo {
+                        address: info.rva,
+                        size: info.size,
+                        name: self.get_owned_string(info.symbol),
+                    },
+                    frames: info.frames.as_ref().map(|frames| {
+                        wholesym::FramesLookupResult::Available(
+                            frames
+                                .iter()
+                                .map(|frame| wholesym::FrameDebugInfo {
+                                    function: self.get_owned_opt_string(frame.function),
+                                    file_path: frame.file.map(|file| {
+                                        SourceFilePath::new(self.get_string(file).to_owned(), None)
+                                    }),
+                                    line_number: frame.line,
+                                })
+                                .collect(),
+                        )
+                    }),
+                })
             }
             wholesym::LookupAddress::Svma(_) => None,
             wholesym::LookupAddress::FileOffset(_) => None,
