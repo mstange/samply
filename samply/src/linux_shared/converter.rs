@@ -8,9 +8,9 @@ use debugid::DebugId;
 use framehop::{ExplicitModuleSectionInfo, FrameAddress, Module, Unwinder};
 use fxprof_processed_profile::{
     Category, CategoryColor, CategoryHandle, CpuDelta, FrameFlags, LibraryHandle, LibraryInfo,
-    MarkerFieldFlags, MarkerFieldFormat, MarkerTiming, Profile, ReferenceTimestamp,
-    SamplingInterval, StaticSchemaMarker, StaticSchemaMarkerField, StringHandle, SubcategoryHandle,
-    SymbolTable, ThreadHandle,
+    MarkerFieldFlags, MarkerFieldFormat, MarkerTiming, PlatformSpecificReferenceTimestamp, Profile,
+    ReferenceTimestamp, SamplingInterval, StaticSchemaMarker, StaticSchemaMarkerField,
+    StringHandle, SubcategoryHandle, SymbolTable, ThreadHandle,
 };
 use linux_perf_data::linux_perf_event_reader::TaskWasPreempted;
 use linux_perf_data::simpleperf_dso_type::{DSO_DEX_FILE, DSO_KERNEL, DSO_KERNEL_MODULE};
@@ -163,6 +163,12 @@ where
             reference_raw: first_sample_time,
             raw_to_ns_factor: 1,
         };
+
+        profile.set_platform_specific_reference_timestamp(
+            PlatformSpecificReferenceTimestamp::ClockMonotonicNanosecondsSinceBoot(
+                timestamp_converter.reference_raw,
+            ),
+        );
 
         let cpus = if profile_creation_props.create_per_cpu_threads {
             let start_timestamp = timestamp_converter.convert_time(first_sample_time);

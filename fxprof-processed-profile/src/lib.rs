@@ -91,7 +91,7 @@ pub use profile::{
     FrameHandle, FrameSymbolInfo, Profile, SamplingInterval, SourceLocation, StackHandle,
     StringHandle, TimelineUnit,
 };
-pub use reference_timestamp::ReferenceTimestamp;
+pub use reference_timestamp::{PlatformSpecificReferenceTimestamp, ReferenceTimestamp};
 pub use sample_table::WeightType;
 pub use thread::ProcessHandle;
 pub use timestamp::Timestamp;

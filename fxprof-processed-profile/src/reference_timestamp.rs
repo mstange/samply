@@ -42,3 +42,12 @@ impl Serialize for ReferenceTimestamp {
         self.ms_since_unix_epoch.serialize(serializer)
     }
 }
+
+/// An additional reference timestamp in a platform-specific unit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum PlatformSpecificReferenceTimestamp {
+    ClockMonotonicNanosecondsSinceBoot(u64),
+    MachAbsoluteTimeNanoseconds(u64),
+    QueryPerformanceCounterValue(u64),
+}
