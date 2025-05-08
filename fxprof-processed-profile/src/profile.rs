@@ -31,7 +31,7 @@ use crate::sample_table::WeightType;
 use crate::string_table::{GlobalStringIndex, GlobalStringTable};
 use crate::thread::{ProcessHandle, Thread};
 use crate::timestamp::Timestamp;
-use crate::{FrameFlags, Symbol};
+use crate::{FrameFlags, PlatformSpecificReferenceTimestamp, Symbol};
 
 /// The sampling interval used during profile recording.
 ///
@@ -181,6 +181,7 @@ pub struct Profile {
     pub(crate) initial_visible_threads: Vec<ThreadHandle>,
     pub(crate) initial_selected_threads: Vec<ThreadHandle>,
     pub(crate) reference_timestamp: ReferenceTimestamp,
+    pub(crate) platform_specific_reference_timestamp: Option<PlatformSpecificReferenceTimestamp>,
     pub(crate) string_table: GlobalStringTable,
     pub(crate) marker_schemas: Vec<InternalMarkerSchema>,
     static_schema_marker_types: FastHashMap<&'static str, MarkerTypeHandle>,
@@ -214,6 +215,7 @@ impl Profile {
             global_libs: GlobalLibTable::new(),
             kernel_libs: LibMappings::new(),
             reference_timestamp,
+            platform_specific_reference_timestamp: None,
             processes: Vec::new(),
             string_table: GlobalStringTable::new(),
             marker_schemas: Vec::new(),
@@ -234,6 +236,14 @@ impl Profile {
     /// Change the reference timestamp.
     pub fn set_reference_timestamp(&mut self, reference_timestamp: ReferenceTimestamp) {
         self.reference_timestamp = reference_timestamp;
+    }
+
+    /// Set an additional reference timestamp with a platform-specific unit.
+    pub fn set_platform_specific_reference_timestamp(
+        &mut self,
+        platform_specific_reference_timestamp: PlatformSpecificReferenceTimestamp,
+    ) {
+        self.platform_specific_reference_timestamp = Some(platform_specific_reference_timestamp);
     }
 
     /// Change the product name.
@@ -1355,6 +1365,18 @@ impl Serialize for SerializableProfileMeta<'_> {
             }),
         )?;
         map.serialize_entry("startTime", &self.0.reference_timestamp)?;
+        match &self.0.platform_specific_reference_timestamp {
+            Some(PlatformSpecificReferenceTimestamp::ClockMonotonicNanosecondsSinceBoot(val)) => {
+                map.serialize_entry("startTimeAsClockMonotonicNanosecondsSinceBoot", &val)?;
+            }
+            Some(PlatformSpecificReferenceTimestamp::MachAbsoluteTimeNanoseconds(val)) => {
+                map.serialize_entry("startTimeAsMachAbsoluteTimeNanoseconds", &val)?;
+            }
+            Some(PlatformSpecificReferenceTimestamp::QueryPerformanceCounterValue(val)) => {
+                map.serialize_entry("startTimeAsQueryPerformanceCounterValue", &val)?;
+            }
+            None => {}
+        }
         map.serialize_entry("symbolicated", &self.0.symbolicated)?;
         map.serialize_entry("pausedRanges", &[] as &[()])?;
         map.serialize_entry("version", &24)?; // this version is ignored, only "preprocessedProfileVersion" is used
