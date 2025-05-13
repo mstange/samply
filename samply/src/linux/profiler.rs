@@ -405,7 +405,7 @@ fn init_profiler(
                     eprintln!("In order for samply to work with a non-root user, this level needs");
                     eprintln!("to be set to 1 or lower.");
                     eprintln!("You can execute the following command and then try again:");
-                    eprintln!("    echo '1' | sudo tee /proc/sys/kernel/perf_event_paranoid");
+                    eprintln!("    echo '-1' | sudo tee /proc/sys/kernel/perf_event_paranoid");
                     eprintln!();
                     std::process::exit(1);
                 }

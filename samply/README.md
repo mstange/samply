@@ -13,7 +13,7 @@ samply record ./my-application my-arguments
 On Linux, samply uses perf events. You can grant temporary access by running:
 
 ```sh
-echo '1' | sudo tee /proc/sys/kernel/perf_event_paranoid
+echo '-1' | sudo tee /proc/sys/kernel/perf_event_paranoid
 ```
 
 Visit [the git repository](https://github.com/mstange/samply/) for more information.
