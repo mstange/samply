@@ -1583,6 +1583,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "path-clean"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "17359afc20d7ab31fdb42bb844c8b3bb1dabd7dcf7e68428492da7f16966fcef"
+
+[[package]]
 name = "pdb-addr2line"
 version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2248,6 +2254,7 @@ version = "0.1.0"
 dependencies = [
  "bytesize",
  "log",
+ "path-clean",
  "rusqlite",
  "rusqlite_migration",
  "tokio",
