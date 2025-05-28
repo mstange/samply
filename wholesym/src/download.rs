@@ -76,9 +76,7 @@ where
     let total_size = get_total_size(headers);
 
     let stream = response.bytes_stream();
-    let async_read = stream
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
-        .into_async_read();
+    let async_read = stream.map_err(std::io::Error::other).into_async_read();
 
     match (response_encoding.as_deref(), total_size) {
         (Some("gzip"), Some(TotalSize::Uncompressed(len))) => {

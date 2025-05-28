@@ -43,8 +43,7 @@ impl ProcessThreads {
         let (_old_name, old_main_thread_recycling_data) = self
             .main_thread
             .rename_with_recycling(name, main_thread_recycling_data);
-        let old_thread_recycler =
-            std::mem::replace(&mut self.thread_recycler, Some(thread_recycler));
+        let old_thread_recycler = self.thread_recycler.replace(thread_recycler);
         (
             old_thread_recycler.expect("thread_recycler should be Some"),
             old_main_thread_recycling_data,

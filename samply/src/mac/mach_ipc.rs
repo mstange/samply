@@ -936,53 +936,42 @@ impl From<MachError> for Error {
     /// These error descriptions are from `mach/message.h` and `mach/kern_return.h`.
     fn from(mach_error: MachError) -> Error {
         match mach_error {
-            MachError::Success => Error::new(ErrorKind::Other, "Success"),
-            MachError::Kernel(KernelError::Success) => Error::new(ErrorKind::Other, "Success."),
-            MachError::Kernel(KernelError::NoSpace) => Error::new(
-                ErrorKind::Other,
-                "No room in IPC name space for another right.",
-            ),
+            MachError::Success => Error::other("Success"),
+            MachError::Kernel(KernelError::Success) => Error::other("Success."),
+            MachError::Kernel(KernelError::NoSpace) => {
+                Error::other("No room in IPC name space for another right.")
+            }
             MachError::Kernel(KernelError::InvalidName) => {
-                Error::new(ErrorKind::Other, "Name doesn't denote a right in the task.")
+                Error::other("Name doesn't denote a right in the task.")
             }
-            MachError::Kernel(KernelError::InvalidRight) => Error::new(
-                ErrorKind::Other,
-                "Name denotes a right, but not an appropriate right.",
-            ),
-            MachError::Kernel(KernelError::InvalidValue) => {
-                Error::new(ErrorKind::Other, "Blatant range error.")
+            MachError::Kernel(KernelError::InvalidRight) => {
+                Error::other("Name denotes a right, but not an appropriate right.")
             }
-            MachError::Kernel(KernelError::InvalidCapability) => Error::new(
-                ErrorKind::Other,
-                "The supplied (port) capability is improper.",
-            ),
-            MachError::Kernel(KernelError::UrefsOverflow) => Error::new(
-                ErrorKind::Other,
-                "Operation would overflow limit on user-references.",
-            ),
-            MachError::Kernel(KernelError::NotInSet) => Error::new(
-                ErrorKind::Other,
-                "Receive right is not a member of a port set.",
-            ),
+            MachError::Kernel(KernelError::InvalidValue) => Error::other("Blatant range error."),
+            MachError::Kernel(KernelError::InvalidCapability) => {
+                Error::other("The supplied (port) capability is improper.")
+            }
+            MachError::Kernel(KernelError::UrefsOverflow) => {
+                Error::other("Operation would overflow limit on user-references.")
+            }
+            MachError::Kernel(KernelError::NotInSet) => {
+                Error::other("Receive right is not a member of a port set.")
+            }
             MachError::Kernel(KernelError::Unknown(code)) => {
-                Error::new(ErrorKind::Other, format!("Unknown kernel error: {code:x}"))
+                Error::other(format!("Unknown kernel error: {code:x}"))
             }
-            MachError::IpcSpace => Error::new(
-                ErrorKind::Other,
-                "No room in IPC name space for another capability name.",
-            ),
-            MachError::VmSpace => Error::new(
-                ErrorKind::Other,
-                "No room in VM address space for out-of-line memory.",
-            ),
-            MachError::IpcKernel => Error::new(
-                ErrorKind::Other,
-                "Kernel resource shortage handling an IPC capability.",
-            ),
-            MachError::VmKernel => Error::new(
-                ErrorKind::Other,
-                "Kernel resource shortage handling out-of-line memory.",
-            ),
+            MachError::IpcSpace => {
+                Error::other("No room in IPC name space for another capability name.")
+            }
+            MachError::VmSpace => {
+                Error::other("No room in VM address space for out-of-line memory.")
+            }
+            MachError::IpcKernel => {
+                Error::other("Kernel resource shortage handling an IPC capability.")
+            }
+            MachError::VmKernel => {
+                Error::other("Kernel resource shortage handling out-of-line memory.")
+            }
             MachError::SendInProgress => Error::new(
                 ErrorKind::Interrupted,
                 "Thread is waiting to send.  (Internal use only.)",
@@ -1013,9 +1002,7 @@ impl From<MachError> for Error {
                 ErrorKind::InvalidInput,
                 "Invalid out-of-line memory pointer.",
             ),
-            MachError::SendNoBuffer => {
-                Error::new(ErrorKind::Other, "No message buffer is available.")
-            }
+            MachError::SendNoBuffer => Error::other("No message buffer is available."),
             MachError::SendTooLarge => {
                 Error::new(ErrorKind::InvalidData, "Send is too large for port")
             }
@@ -1030,10 +1017,9 @@ impl From<MachError> for Error {
                 ErrorKind::InvalidData,
                 "The trailer to be sent does not match kernel format.",
             ),
-            MachError::SendInvalidRtOolSize => Error::new(
-                ErrorKind::Other,
-                "compatibility: no longer a returned error",
-            ),
+            MachError::SendInvalidRtOolSize => {
+                Error::other("compatibility: no longer a returned error")
+            }
             MachError::RcvInProgress => Error::new(
                 ErrorKind::Interrupted,
                 "Thread is waiting for receive.  (Internal use only.)",
@@ -1051,10 +1037,7 @@ impl From<MachError> for Error {
                 "Message buffer is not large enough for inline data.",
             ),
             MachError::RcvInterrupted => Error::new(ErrorKind::Interrupted, "Software interrupt."),
-            MachError::RcvPortChanged => Error::new(
-                ErrorKind::Other,
-                "compatibility: no longer a returned error",
-            ),
+            MachError::RcvPortChanged => Error::other("compatibility: no longer a returned error"),
             MachError::RcvInvalidNotify => {
                 Error::new(ErrorKind::InvalidInput, "Bogus notify port argument.")
             }
@@ -1066,18 +1049,13 @@ impl From<MachError> for Error {
                 ErrorKind::BrokenPipe,
                 "Port/set was sent away/died during receive.",
             ),
-            MachError::RcvInSet => Error::new(
-                ErrorKind::Other,
-                "compatibility: no longer a returned error",
-            ),
-            MachError::RcvHeaderError => Error::new(
-                ErrorKind::Other,
-                "Error receiving message header.  See special bits.",
-            ),
-            MachError::RcvBodyError => Error::new(
-                ErrorKind::Other,
-                "Error receiving message body.  See special bits.",
-            ),
+            MachError::RcvInSet => Error::other("compatibility: no longer a returned error"),
+            MachError::RcvHeaderError => {
+                Error::other("Error receiving message header.  See special bits.")
+            }
+            MachError::RcvBodyError => {
+                Error::other("Error receiving message body.  See special bits.")
+            }
             MachError::RcvInvalidType => Error::new(
                 ErrorKind::InvalidInput,
                 "Invalid msg-type specification in scatter list.",
@@ -1098,10 +1076,9 @@ impl From<MachError> for Error {
                 ErrorKind::ConnectionReset,
                 "No senders exist for this port.",
             ),
-            MachError::Unknown(mach_error_number) => Error::new(
-                ErrorKind::Other,
-                format!("Unknown Mach error: {mach_error_number:x}"),
-            ),
+            MachError::Unknown(mach_error_number) => {
+                Error::other(format!("Unknown Mach error: {mach_error_number:x}"))
+            }
         }
     }
 }

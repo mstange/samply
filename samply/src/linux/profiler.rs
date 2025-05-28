@@ -703,12 +703,9 @@ fn get_process_cmdline(pid: u32) -> std::io::Result<(String, Vec<String>)> {
         cmdline.push(String::from_utf8_lossy(arg_slice).to_string());
     }
 
-    let exe_arg = cmdline.first().ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("Empty cmdline at {path}"),
-        )
-    })?;
+    let exe_arg = cmdline
+        .first()
+        .ok_or_else(|| std::io::Error::other(format!("Empty cmdline at {path}")))?;
 
     let exe_name = match exe_arg.rfind('/') {
         Some(pos) => exe_arg[pos + 1..].to_string(),
