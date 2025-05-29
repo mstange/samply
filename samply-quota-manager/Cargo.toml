@@ -19,5 +19,5 @@ tokio = { version = "1.39", features = [
   "sync",
   "macros"
 ] }
-rusqlite = { version = "0.32.0", features = ["bundled"] }
-rusqlite_migration = "1.2.0"
+rusqlite = { version = "0.35", features = ["bundled"] }
+rusqlite_migration = "2.1"
