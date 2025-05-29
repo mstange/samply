@@ -42,8 +42,7 @@ impl Cpu {
         thread_handles: &[ThreadHandle],
         profile: &mut Profile,
     ) {
-        let previous_tid =
-            std::mem::replace(&mut self.current_tid, Some((tid, thread_name, timestamp)));
+        let previous_tid = self.current_tid.replace((tid, thread_name, timestamp));
         if let Some((_previous_tid, previous_thread_name, switch_in_timestamp)) = previous_tid {
             // eprintln!("Missing switch-out (noticed during switch-in) on {}: {previous_tid}, {switch_in_timestamp}", profile.get_string(self.name));
             let start_timestamp = converter.convert_time(switch_in_timestamp);

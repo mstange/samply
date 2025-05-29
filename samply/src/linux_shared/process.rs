@@ -114,8 +114,7 @@ where
             jit_function_recycler,
         } = recycling_data;
         let old_process_handle = std::mem::replace(&mut self.profile_process, process_handle);
-        let old_jit_function_recycler =
-            std::mem::replace(&mut self.jit_function_recycler, Some(jit_function_recycler));
+        let old_jit_function_recycler = self.jit_function_recycler.replace(jit_function_recycler);
         let (old_thread_recycler, old_main_thread_recycling_data) =
             self.threads.rename_process_with_recycling(
                 name.clone(),
@@ -123,7 +122,7 @@ where
                 main_thread_recycling_data,
                 thread_recycler,
             );
-        let old_name = std::mem::replace(&mut self.name, Some(name));
+        let old_name = self.name.replace(name);
         let recycling_data = ProcessRecyclingData {
             process_handle: old_process_handle,
             main_thread_recycling_data: old_main_thread_recycling_data,

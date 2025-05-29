@@ -384,7 +384,7 @@ impl PerfBuilder {
             );
             if buffer == libc::MAP_FAILED {
                 libc::close(fd);
-                return Err(io::Error::new(io::ErrorKind::Other, "mmap failed"));
+                return Err(io::Error::other("mmap failed"));
             }
         }
 
