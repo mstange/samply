@@ -42,7 +42,7 @@ impl Thread {
     ) -> (Option<String>, (ThreadHandle, StringHandle)) {
         let old_thread_handle = std::mem::replace(&mut self.profile_thread, thread_handle);
         let old_thread_label = std::mem::replace(&mut self.thread_label, thread_label);
-        let old_name = std::mem::replace(&mut self.name, Some(name));
+        let old_name = self.name.replace(name);
         (old_name, (old_thread_handle, old_thread_label))
     }
 

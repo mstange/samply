@@ -27,7 +27,7 @@ pub enum CleanFileCreationError<E: std::error::Error + Send + Sync + 'static> {
 
 impl<E: std::error::Error + Send + Sync + 'static> From<CleanFileCreationError<E>> for io::Error {
     fn from(e: CleanFileCreationError<E>) -> io::Error {
-        io::Error::new(io::ErrorKind::Other, e)
+        io::Error::other(e)
     }
 }
 

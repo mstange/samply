@@ -375,10 +375,7 @@ impl PendingDownload {
             Err(e) => {
                 let s = e.to_string();
                 reporter.download_failed(DownloadError::DiskWrite(e.into()));
-                return Err(DownloadError::DiskWrite(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    s,
-                )));
+                return Err(DownloadError::DiskWrite(std::io::Error::other(s)));
             }
         };
 
