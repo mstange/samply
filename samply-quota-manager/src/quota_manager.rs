@@ -199,20 +199,10 @@ impl QuotaManagerEvictionThread {
         let total_size_before = self.inventory.lock().unwrap().total_size_in_bytes();
         log::info!("Current total size: {}", ByteSize(total_size_before));
 
-        let files_to_delete_for_enforcing_max_size = match settings.max_size_bytes {
-            Some(max_size_bytes) => {
-                let inventory = self.inventory.lock().unwrap();
-                inventory.get_files_to_delete_to_enforce_max_size(max_size_bytes)
-            }
-            None => vec![],
-        };
-
-        if !files_to_delete_for_enforcing_max_size.is_empty() {
-            self.delete_files(files_to_delete_for_enforcing_max_size)
-                .await;
-            let total_size = self.inventory.lock().unwrap().total_size_in_bytes();
-            log::info!("Current total size: {}", ByteSize(total_size));
-        }
+        // Enforce max age first, and size limit second.
+        // We know that files older than the max age need to be deleted anyway.
+        // This may already free up some space. Then we can delete more files in
+        // order to enforce the size limit.
 
         let files_to_delete_for_enforcing_max_age = match settings.max_age_seconds {
             Some(max_age_seconds) => {
@@ -225,6 +215,21 @@ impl QuotaManagerEvictionThread {
 
         if !files_to_delete_for_enforcing_max_age.is_empty() {
             self.delete_files(files_to_delete_for_enforcing_max_age)
+                .await;
+            let total_size = self.inventory.lock().unwrap().total_size_in_bytes();
+            log::info!("Current total size: {}", ByteSize(total_size));
+        }
+
+        let files_to_delete_for_enforcing_max_size = match settings.max_size_bytes {
+            Some(max_size_bytes) => {
+                let inventory = self.inventory.lock().unwrap();
+                inventory.get_files_to_delete_to_enforce_max_size(max_size_bytes)
+            }
+            None => vec![],
+        };
+
+        if !files_to_delete_for_enforcing_max_size.is_empty() {
+            self.delete_files(files_to_delete_for_enforcing_max_size)
                 .await;
             let total_size = self.inventory.lock().unwrap().total_size_in_bytes();
             log::info!("Current total size: {}", ByteSize(total_size));
