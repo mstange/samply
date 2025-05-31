@@ -8,6 +8,9 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  RUSTC_WRAPPER: sccache
+  SCCACHE_GHA_ENABLED: true
+  SCCACHE_CACHE_SIZE: 2G
 
 jobs:
   format:
@@ -46,17 +49,37 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      
+      - name: Install sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+      
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      
       - name: Install Rust
         run: rustup target add ${{ matrix.target }}
+      
       - if: ${{ matrix.is_musl }}
         name: Install musl-tools
         run: sudo apt-get install -y musl-tools
+      
       - name: Check samply-api with default features
         run: cargo check -p samply-api --verbose --target=${{ matrix.target }}
+      
       - name: Build
         run: cargo build --workspace --verbose --target=${{ matrix.target }}
+      
       - name: Test
         run: cargo test --workspace --verbose --target=${{ matrix.target }}
+      
       - name: Clippy
         run: cargo clippy --workspace --verbose --target=${{ matrix.target }} -- -Dwarnings
 
@@ -76,16 +99,35 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      
+      - name: Install sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+      
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cross-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cross-cargo-
+
       - name: Install Rust
         run: rustup update stable && rustup default stable && rustup target add ${{ matrix.target }}
+      
       - name: Install cross
         # Latest cross release 0.2.5 fails to link binaries for the `aarch64-linux-android` target. A release is pending.
         # Use a specific commit until the release is out. See https://github.com/cross-rs/cross/issues/1222
         run: cargo install --git https://github.com/cross-rs/cross.git --rev 44011c8 cross
+      
       - name: Build
         run: cross build --workspace --verbose --target=${{ matrix.target }}
+      
       - name: Test
         run: cross test --workspace --verbose --target=${{ matrix.target }}
+      
       - name: Clippy
         run: cross clippy --workspace --verbose --target=${{ matrix.target }} -- -Dwarnings
 
@@ -102,9 +144,26 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      
+      - name: Install sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+      
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-win-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-win-cargo-
+      
       - name: Install Rust
         run: rustup target add ${{ matrix.target }}
+      
       - name: Check
         run: cargo check --workspace --verbose --target=${{ matrix.target }}
+      
       - name: Clippy
         run: cargo clippy --workspace --verbose --target=${{ matrix.target }} -- -Dwarnings
