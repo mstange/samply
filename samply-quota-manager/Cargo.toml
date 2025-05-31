@@ -23,3 +23,6 @@ tokio = { version = "1.39", features = [
 ] }
 rusqlite = { version = "0.35", features = ["bundled"] }
 rusqlite_migration = "2.1"
+
+[dev-dependencies]
+tempfile = "3.10"
