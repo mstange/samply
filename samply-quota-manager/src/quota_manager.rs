@@ -124,6 +124,18 @@ impl QuotaManager {
         self.settings.lock().unwrap().max_age_seconds = max_age_seconds;
     }
 
+    /// Returns the current total size of the managed directory, in bytes.
+    ///
+    /// The return value is only correct if the information in the database
+    /// matches reality.
+    ///
+    /// No file accesses are performed to compute the total size; the information
+    /// comes purely from the information passed to the [`QuotaManagerNotifier`]
+    /// methods, .
+    pub fn current_total_size(&self) -> u64 {
+        self.inventory.lock().unwrap().total_size_in_bytes()
+    }
+
     fn list_existing_files_sync(dir: &Path) -> Vec<FileInfo> {
         let mut files = Vec::new();
         let mut dirs_to_visit = VecDeque::new();
