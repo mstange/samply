@@ -158,7 +158,8 @@ impl FileInventory {
     }
 
     fn to_absolute_path(&self, relative_path: &Path) -> PathBuf {
-        let abs_path = self.root_path.join(relative_path).canonicalize().unwrap();
+        let abs_path = self.root_path.join(relative_path);
+        let abs_path = path_clean::clean(abs_path);
         assert!(abs_path.starts_with(&self.root_path));
         abs_path
     }
