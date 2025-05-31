@@ -95,3 +95,65 @@ async fn test_quota_manager_age_limit() {
     quota_manager.finish().await;
 }
 
+#[tokio::test]
+async fn test_quota_manager_size_limit_complex() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("quota.db");
+    let quota_dir = temp_dir.path().join("quota");
+    fs::create_dir(&quota_dir).unwrap();
+
+    // Create quota manager with a 1600 byte size limit.
+    let quota_manager = QuotaManager::new(&quota_dir, &db_path).unwrap();
+    let notifier = quota_manager.notifier();
+
+    let ref_time = SystemTime::now() - Duration::from_secs(100);
+
+    // Create various files with different sizes.
+    let make_file = |size, name| {
+        let filename = quota_dir.join(name);
+        fs::write(&filename, vec![0u8; size]).unwrap();
+        notifier.on_file_created(&filename, size as u64, ref_time);
+        filename
+    };
+
+    let b_20 = make_file(20, "b_20.txt");
+    let c_100 = make_file(100, "c_100.txt");
+    let i_1000 = make_file(1000, "i_1000.txt");
+    let d_160 = make_file(160, "d_160.txt");
+    let j_50 = make_file(50, "j_50.txt");
+    let h_200 = make_file(200, "h_200.txt");
+    let g_150 = make_file(150, "g_150.txt");
+    let a_60 = make_file(60, "a_60.txt");
+    let e_80 = make_file(80, "e_80.txt");
+    let f_800 = make_file(800, "f_800.txt");
+
+    notifier.on_file_accessed(&a_60, ref_time + Duration::from_secs(10));
+    notifier.on_file_accessed(&b_20, ref_time + Duration::from_secs(20));
+    notifier.on_file_accessed(&c_100, ref_time + Duration::from_secs(30));
+    notifier.on_file_accessed(&d_160, ref_time + Duration::from_secs(40));
+    notifier.on_file_accessed(&e_80, ref_time + Duration::from_secs(50));
+    notifier.on_file_accessed(&f_800, ref_time + Duration::from_secs(60));
+    notifier.on_file_accessed(&g_150, ref_time + Duration::from_secs(70));
+    notifier.on_file_accessed(&h_200, ref_time + Duration::from_secs(80));
+    notifier.on_file_accessed(&i_1000, ref_time + Duration::from_secs(90));
+    notifier.on_file_accessed(&j_50, ref_time + Duration::from_secs(100));
+
+    // Enforce a limit of 1600 bytes.
+    assert_eq!(quota_manager.current_total_size(), 2620);
+    quota_manager.set_max_total_size(Some(1600));
+    notifier.trigger_eviction_if_needed();
+    quota_manager.finish().await;
+
+    // Check that only the most-recently accessed files survived,
+    // as many as fit.
+    assert!(j_50.exists()); // 50
+    assert!(i_1000.exists()); // 1050
+    assert!(h_200.exists()); // 1250
+    assert!(g_150.exists()); // 1400
+    assert!(!f_800.exists()); // 1400 + 800 = 2200 > 1600, delete
+    assert!(e_80.exists()); // 1480
+    assert!(!d_160.exists()); // 1480 + 160 = 1640 > 1600, delete
+    assert!(c_100.exists()); // 1580
+    assert!(b_20.exists()); // 1600
+    assert!(!a_60.exists()); // 1600 + 60 = 1660 > 1600, delete
+}
