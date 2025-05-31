@@ -11,6 +11,7 @@ readme = "README.md"
 
 [dependencies]
 bytesize = "2"
+futures = "0.3"
 log = "0.4.21"
 path-clean = "1"
 tokio = { version = "1.39", features = [
@@ -22,3 +23,6 @@ tokio = { version = "1.39", features = [
 ] }
 rusqlite = { version = "0.35", features = ["bundled"] }
 rusqlite_migration = "2.1"
+
+[dev-dependencies]
+tempfile = "3.10"

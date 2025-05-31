@@ -267,10 +267,13 @@ impl FileInventory {
     /// that the information stored in the DB is complete and accurate.
     pub fn get_files_to_delete_to_enforce_max_size(&self, max_size_bytes: u64) -> Vec<FileInfo> {
         let total_size = self.total_size_in_bytes();
-        let Some(mut excess_bytes) = total_size.checked_sub(max_size_bytes) else {
+        if total_size <= max_size_bytes {
             // Nothing needs to be deleted.
             return vec![];
         };
+
+        let mut excess_bytes = i64::try_from(total_size - max_size_bytes).unwrap();
+        assert!(excess_bytes > 0);
 
         let mut stmt = self
             .db_connection
@@ -282,18 +285,49 @@ impl FileInventory {
             .unwrap()
             .filter_map(Result::ok);
 
+        // Add files to a list until we've accumulated enough size.
         let mut files_to_delete = vec![];
-
         for file_info in files {
-            let size = file_info.size_in_bytes;
+            let size = i64::try_from(file_info.size_in_bytes).unwrap();
 
             files_to_delete.push(file_info);
-            excess_bytes = excess_bytes.saturating_sub(size);
-            if excess_bytes == 0 {
+            excess_bytes = excess_bytes.checked_sub(size).unwrap();
+            if excess_bytes <= 0 {
                 break;
             }
         }
 
+        // Now we know: Deleting all files in `files_to_delete` will definitely free up
+        // enough space.
+        // But it may free up more space than necessary! There might be some really big
+        // files at the end of the list, making it unnecessary to delete some of the
+        // smaller, less recently accessed files near the start of the list.
+        if excess_bytes < 0 {
+            // Find a subset of `files_to_delete` which still frees enough space.
+            let available_bytes = excess_bytes.checked_neg().unwrap();
+            let mut available_bytes = u64::try_from(available_bytes).unwrap();
+
+            // `files_to_delete` is currently ordered from least recently-used ("oldest")
+            // to most recently-used ("newest").
+            // Reverse the order so that we visit the most-recently used files first.
+            files_to_delete.reverse();
+            files_to_delete.retain(|file_info| {
+                if file_info.size_in_bytes <= available_bytes {
+                    // This file can stay.
+                    available_bytes -= file_info.size_in_bytes;
+                    false // false means "don't retain in the list of files to delete", i.e. "don't delete", i.e. "keep this file alive"
+                } else {
+                    true
+                }
+            });
+        }
+
+        // Delete the largest files first.
+        files_to_delete.sort_unstable_by_key(|file_info| {
+            let size = i32::try_from(file_info.size_in_bytes).unwrap();
+            let negative_size = size.checked_neg().unwrap();
+            (negative_size, file_info.last_access_time)
+        });
         files_to_delete
     }
 
