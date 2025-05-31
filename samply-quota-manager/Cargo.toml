@@ -11,6 +11,7 @@ readme = "README.md"
 
 [dependencies]
 bytesize = "2"
+futures = "0.3"
 log = "0.4.21"
 path-clean = "1"
 tokio = { version = "1.39", features = [

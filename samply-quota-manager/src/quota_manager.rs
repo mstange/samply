@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 use std::fs;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::task::Poll;
 use std::time::{Duration, SystemTime};
 
 use bytesize::ByteSize;
@@ -75,13 +76,13 @@ impl QuotaManager {
         let eviction_signal_sender = Arc::new(Notify::new());
 
         let eviction_thread_runner = QuotaManagerEvictionThread {
-            stop_signal_receiver,
-            eviction_signal_receiver: eviction_signal_sender.clone(),
             inventory: Arc::clone(&inventory),
             settings: Arc::clone(&settings),
         };
 
-        let join_handle = tokio::spawn(eviction_thread_runner.run());
+        let join_handle = tokio::spawn(
+            eviction_thread_runner.run(stop_signal_receiver, eviction_signal_sender.clone()),
+        );
 
         Ok(Self {
             settings,
@@ -174,22 +175,47 @@ impl QuotaManager {
 }
 
 struct QuotaManagerEvictionThread {
-    stop_signal_receiver: tokio::sync::oneshot::Receiver<()>,
-    eviction_signal_receiver: Arc<tokio::sync::Notify>,
     settings: Arc<Mutex<EvictionSettings>>,
     inventory: Arc<Mutex<FileInventory>>,
 }
 
 impl QuotaManagerEvictionThread {
-    pub async fn run(mut self) {
+    pub async fn run(
+        self,
+        stop_signal_receiver: tokio::sync::oneshot::Receiver<()>,
+        eviction_signal_receiver: Arc<tokio::sync::Notify>,
+    ) {
+        tokio::pin!(stop_signal_receiver);
         loop {
-            tokio::select! {
-                _ = &mut self.stop_signal_receiver => {
-                    return;
+            // Wait until we've received the signal to do an eviction, or until
+            // we've received the signal to stop. Check the eviction signal first,
+            // because in the case that both are received at the same time, we want
+            // to do the eviction before stopping.
+            // This ordering is really only important in tests, where the same thread
+            // sends both the eviction signal and the stop signal, in that order.
+            // In cases where the signals are sent by different threads, the order
+            // is arbitrary and it's fine to ignore an eviction signal that was sent
+            // "after" the stop signal.
+            use std::future::Future;
+            let eviction_notified = eviction_signal_receiver.notified();
+            tokio::pin!(eviction_notified);
+            let (should_evict, should_stop) = futures::future::poll_fn(|cx| {
+                let eviction_signal_status = eviction_notified.as_mut().poll(cx);
+                let stop_signal_status = stop_signal_receiver.as_mut().poll(cx);
+                match (eviction_signal_status, stop_signal_status) {
+                    (Poll::Ready(()), Poll::Ready(_)) => Poll::Ready((true, true)),
+                    (Poll::Ready(()), Poll::Pending) => Poll::Ready((true, false)),
+                    (Poll::Pending, Poll::Ready(_)) => Poll::Ready((false, true)),
+                    (Poll::Pending, Poll::Pending) => Poll::Pending,
                 }
-                _ = self.eviction_signal_receiver.notified() => {
-                    self.perform_eviction_if_needed().await;
-                }
+            })
+            .await;
+
+            if should_evict {
+                self.perform_eviction_if_needed().await;
+            }
+            if should_stop {
+                return;
             }
         }
     }
