@@ -1,9 +1,8 @@
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_until1};
-use nom::combinator::{eof, map};
-use nom::error::ErrorKind;
+use nom::combinator::map;
 use nom::sequence::terminated;
-use nom::{Err, IResult};
+use nom::IResult;
 
 /// A special source file path for source files which are hosted online.
 ///
@@ -62,10 +61,7 @@ impl MappedPath {
     /// symbols from Breakpad symbol files, so that consumers don't have parse this
     /// syntax when looking up symbols from a `SymbolMap` from such a .sym file.
     pub fn from_special_path_str(special_path: &str) -> Option<Self> {
-        match parse_special_path(special_path) {
-            Ok((_, mapped_path)) => Some(mapped_path),
-            Err(_) => None,
-        }
+        parse_special_path(special_path)
     }
 
     /// Detect some URLs of plain text files and convert them to a `MappedPath`.
@@ -111,81 +107,63 @@ impl MappedPath {
     }
 }
 
-fn git_path(input: &str) -> IResult<&str, (String, String, String)> {
-    let (input, _) = tag("git:")(input)?;
-    let (input, repo) = terminated(take_until1(":"), tag(":"))(input)?;
-    let (rev, path) = terminated(take_until1(":"), tag(":"))(input)?;
-    Ok(("", (repo.to_owned(), path.to_owned(), rev.to_owned())))
+fn git_path(input: &str) -> Option<(String, String, String)> {
+    let input = input.strip_prefix("git:")?;
+    let (repo, input) = input.split_once(':')?;
+    let (path, rev) = input.split_once(':')?;
+    Some((repo.to_owned(), path.to_owned(), rev.to_owned()))
 }
 
-fn hg_path(input: &str) -> IResult<&str, (String, String, String)> {
-    let (input, _) = tag("hg:")(input)?;
-    let (input, repo) = terminated(take_until1(":"), tag(":"))(input)?;
-    let (rev, path) = terminated(take_until1(":"), tag(":"))(input)?;
-    Ok(("", (repo.to_owned(), path.to_owned(), rev.to_owned())))
+fn hg_path(input: &str) -> Option<(String, String, String)> {
+    let input = input.strip_prefix("hg:")?;
+    let (repo, input) = input.split_once(':')?;
+    let (path, rev) = input.split_once(':')?;
+    Some((repo.to_owned(), path.to_owned(), rev.to_owned()))
 }
 
-fn s3_path(input: &str) -> IResult<&str, (String, String, String)> {
-    let (input, _) = tag("s3:")(input)?;
-    let (input, bucket) = terminated(take_until1(":"), tag(":"))(input)?;
-    let (input, digest) = terminated(take_until1("/"), tag("/"))(input)?;
-    let (_, path) = terminated(take_until1(":"), terminated(tag(":"), eof))(input)?;
-    Ok(("", (bucket.to_owned(), digest.to_owned(), path.to_owned())))
+fn s3_path(input: &str) -> Option<(String, String, String)> {
+    let input = input.strip_prefix("s3:")?;
+    let (bucket, input) = input.split_once(':')?;
+    let (digest, input) = input.split_once('/')?;
+    let path = input.strip_suffix(':')?;
+    Some((bucket.to_owned(), digest.to_owned(), path.to_owned()))
 }
 
-fn cargo_path(input: &str) -> IResult<&str, (String, String, String, String)> {
-    let (input, _) = tag("cargo:")(input)?;
-    let (input, registry) = terminated(take_until1(":"), tag(":"))(input)?;
-    let (path, crate_name_and_version) = terminated(take_until1(":"), tag(":"))(input)?;
-    let (crate_name, version) = match crate_name_and_version.rfind('-') {
-        Some(pos) => (
-            &crate_name_and_version[..pos],
-            &crate_name_and_version[(pos + 1)..],
-        ),
-        None => {
-            return Err(Err::Error(nom::error::Error::new(
-                crate_name_and_version,
-                ErrorKind::Digit,
-            )))
-        }
-    };
-    Ok((
-        "",
-        (
-            registry.to_owned(),
-            crate_name.to_owned(),
-            version.to_owned(),
-            path.to_owned(),
-        ),
+fn cargo_path(input: &str) -> Option<(String, String, String, String)> {
+    let input = input.strip_prefix("cargo:")?;
+    let (registry, input) = input.split_once(':')?;
+    let (crate_name_and_version, path) = input.split_once(':')?;
+    let (crate_name, version) = crate_name_and_version.rsplit_once('-')?;
+    Some((
+        registry.to_owned(),
+        crate_name.to_owned(),
+        version.to_owned(),
+        path.to_owned(),
     ))
 }
 
-fn parse_special_path(input: &str) -> IResult<&str, MappedPath> {
-    alt((
-        map(git_path, |(repo, path, rev)| MappedPath::Git {
-            repo,
-            path,
-            rev,
-        }),
-        map(hg_path, |(repo, path, rev)| MappedPath::Hg {
-            repo,
-            path,
-            rev,
-        }),
-        map(s3_path, |(bucket, digest, path)| MappedPath::S3 {
+fn parse_special_path(input: &str) -> Option<MappedPath> {
+    let mapped_path = if let Some((repo, path, rev)) = git_path(input) {
+        MappedPath::Git { repo, path, rev }
+    } else if let Some((repo, path, rev)) = hg_path(input) {
+        MappedPath::Hg { repo, path, rev }
+    } else if let Some((bucket, digest, path)) = s3_path(input) {
+        MappedPath::S3 {
             bucket,
             digest,
             path,
-        }),
-        map(cargo_path, |(registry, crate_name, version, path)| {
-            MappedPath::Cargo {
-                registry,
-                crate_name,
-                version,
-                path,
-            }
-        }),
-    ))(input)
+        }
+    } else if let Some((registry, crate_name, version, path)) = cargo_path(input) {
+        MappedPath::Cargo {
+            registry,
+            crate_name,
+            version,
+            path,
+        }
+    } else {
+        return None;
+    };
+    Some(mapped_path)
 }
 
 fn github_url(input: &str) -> IResult<&str, (String, String, String)> {
