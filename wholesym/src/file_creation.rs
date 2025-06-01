@@ -9,6 +9,9 @@ pub enum CleanFileCreationError<E: std::error::Error + Send + Sync + 'static> {
     #[error("The destination path is invalid (no filename)")]
     InvalidPath,
 
+    #[error("The parent directory for the file could not be created: {0}")]
+    ParentDirCreation(io::Error),
+
     #[error("The lockfile could not be created: {0}")]
     LockFileCreation(io::Error),
 
@@ -33,6 +36,7 @@ impl<E: std::error::Error + Send + Sync + 'static> From<CleanFileCreationError<E
 
 /// Creates a file at `dest_path` with the contents written by `write_fn`.
 /// If the file already exists, we call `handle_existing_fn`.
+/// Also creates any parent directories if they don't exist yet.
 /// If multiple calls to `create_file_cleanly` (in this process or even in different processes)
 /// try to create the same destination file at the same time, the first call will create the
 /// file and the other calls will block on the file lock until the destination file is present,
@@ -79,18 +83,28 @@ where
     F: FnOnce(std::fs::File) -> G,
     FE: FnOnce() -> GE,
 {
-    let Some(file_name) = dest_path.file_name() else {
+    let (Some(parent_dir), Some(file_name)) = (dest_path.parent(), dest_path.file_name()) else {
         return Err(CleanFileCreationError::InvalidPath);
     };
 
     // Create a lock file in the same directory as the final file, or open it if it already exists.
     let lock_file_path = dest_path.with_file_name(format!("{}.lock", file_name.to_string_lossy()));
-    let lock_file = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(&lock_file_path)
-        .map_err(CleanFileCreationError::LockFileCreation)?;
+    let mut open_options = std::fs::OpenOptions::new();
+    open_options.write(true).create(true).truncate(false);
+
+    // Create the lock file, and its parent directories in case they don't exist yet.
+    let lock_file = match open_options.open(&lock_file_path) {
+        Ok(f) => f,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            // The parent directory does not exist. Create it.
+            std::fs::create_dir_all(parent_dir)
+                .map_err(CleanFileCreationError::ParentDirCreation)?;
+            open_options
+                .open(&lock_file_path)
+                .map_err(CleanFileCreationError::LockFileCreation)?
+        }
+        Err(e) => return Err(CleanFileCreationError::LockFileCreation(e)),
+    };
 
     let locked_file = lock_file_exclusive(lock_file)
         .await
