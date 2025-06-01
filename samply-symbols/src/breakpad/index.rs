@@ -1027,12 +1027,9 @@ impl<'a> Tokenizer<'a> {
     }
 
     pub fn consume_token(&mut self, token: &[u8]) -> Result<(), ()> {
-        if self.input.starts_with(token) {
-            self.input = &self.input[token.len()..];
-            Ok(())
-        } else {
-            Err(())
-        }
+        let rest = self.input.strip_prefix(token).ok_or(())?;
+        self.input = rest;
+        Ok(())
     }
 
     pub fn consume_decimal_u32(&mut self) -> Result<u32, ()> {
