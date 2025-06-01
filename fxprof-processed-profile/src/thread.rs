@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
 
 use serde::ser::{SerializeMap, Serializer};
 
@@ -10,9 +11,11 @@ use crate::global_lib_table::{GlobalLibIndex, UsedLibraryAddressesCollector};
 use crate::marker_table::MarkerTable;
 use crate::markers::InternalMarkerSchema;
 use crate::native_symbols::{NativeSymbolIndex, NativeSymbols};
+use crate::profile_symbol_info::LibSymbolInfo;
 use crate::sample_table::{NativeAllocationsTable, SampleTable, WeightType};
 use crate::stack_table::StackTable;
 use crate::string_table::{ProfileStringTable, StringHandle};
+use crate::symbolication::{apply_symbol_information, StringTableAdapter};
 use crate::{Marker, MarkerHandle, MarkerTiming, MarkerTypeHandle, Symbol, Timestamp};
 
 /// A process. Can be created with [`Profile::add_process`](crate::Profile::add_process).
@@ -206,6 +209,67 @@ impl Thread {
             return ordering;
         }
         self.tid.cmp(&other.tid)
+    }
+
+    pub fn make_symbolicated_thread(
+        self,
+        libs: &FastHashSet<GlobalLibIndex>,
+        lib_symbols: &BTreeMap<GlobalLibIndex, &LibSymbolInfo>,
+        strings: &mut StringTableAdapter,
+    ) -> Thread {
+        let Thread {
+            process,
+            tid,
+            name,
+            start_time,
+            end_time,
+            is_main,
+            stack_table,
+            frame_interner,
+            samples,
+            native_allocations,
+            markers,
+            native_symbols,
+            last_sample_stack,
+            last_sample_was_zero_cpu,
+            show_markers_in_timeline,
+        } = self;
+
+        let (frame_interner, native_symbols, stack_table, old_stack_to_new_stack) =
+            apply_symbol_information(
+                frame_interner,
+                native_symbols,
+                stack_table,
+                libs,
+                lib_symbols,
+                strings,
+            );
+
+        let samples = samples.with_remapped_stacks(&old_stack_to_new_stack);
+        let native_allocations = native_allocations.map(|native_allocations| {
+            native_allocations.with_remapped_stacks(&old_stack_to_new_stack)
+        });
+        let markers = markers.with_remapped_stacks(&old_stack_to_new_stack);
+        let last_sample_stack = last_sample_stack
+            .and_then(|last_sample_stack| old_stack_to_new_stack[last_sample_stack]);
+
+        Thread {
+            process,
+            tid,
+            name,
+            start_time,
+            end_time,
+            is_main,
+            stack_table,
+            frame_interner,
+            samples,
+            native_allocations,
+            markers,
+            native_symbols,
+            last_sample_stack,
+            last_sample_was_zero_cpu,
+            show_markers_in_timeline,
+        }
     }
 
     #[allow(clippy::too_many_arguments)]

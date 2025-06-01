@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use serde::ser::{Serialize, Serializer};
 
 use crate::fast_hash_map::FastHashMap;
@@ -26,8 +24,8 @@ impl StringTable {
         }
     }
 
-    pub fn get_string(&self, index: StringIndex) -> Option<&str> {
-        self.strings.get(index.0 as usize).map(Deref::deref)
+    pub fn get_string(&self, index: StringIndex) -> &str {
+        &self.strings[index.0 as usize]
     }
 }
 
@@ -70,7 +68,7 @@ impl ProfileStringTable {
         })
     }
 
-    pub fn get_string(&self, index: StringHandle) -> Option<&str> {
+    pub fn get_string(&self, index: StringHandle) -> &str {
         self.table.get_string(index.0)
     }
 }

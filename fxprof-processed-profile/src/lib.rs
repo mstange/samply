@@ -59,12 +59,14 @@ mod markers;
 mod native_symbols;
 mod process;
 mod profile;
+mod profile_symbol_info;
 mod reference_timestamp;
 mod resource_table;
 mod sample_table;
 mod serialization_helpers;
 mod stack_table;
 mod string_table;
+mod symbolication;
 mod thread;
 mod timestamp;
 
@@ -75,7 +77,7 @@ pub use category_color::CategoryColor;
 pub use counters::CounterHandle;
 pub use cpu_delta::CpuDelta;
 pub use frame::{FrameAddress, FrameFlags};
-pub use global_lib_table::{LibraryHandle, UsedLibraryAddressesIterator};
+pub use global_lib_table::LibraryHandle;
 pub use lib_mappings::LibMappings;
 pub use library_info::{LibraryInfo, Symbol, SymbolTable};
 pub use markers::{
@@ -95,3 +97,8 @@ pub use sample_table::WeightType;
 pub use string_table::StringHandle;
 pub use thread::ProcessHandle;
 pub use timestamp::Timestamp;
+
+/// A module for types used in [`Profile::make_symbolicated_profile`].
+pub mod symbol_info {
+    pub use crate::profile_symbol_info::*;
+}

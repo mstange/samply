@@ -48,6 +48,10 @@ impl FrameInterner {
         }
     }
 
+    pub fn into_frames(self) -> impl Iterator<Item = InternalFrame> {
+        self.frame_key_set.into_iter()
+    }
+
     pub fn contains_js_frame(&self) -> bool {
         self.contains_js_frame
     }

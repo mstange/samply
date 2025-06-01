@@ -51,6 +51,14 @@ impl StackTable {
         let (stack_index, _is_new) = self.0.insert_full((prefix, frame));
         stack_index
     }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn into_stacks(self) -> impl Iterator<Item = (Option<usize>, usize)> {
+        self.0.into_iter()
+    }
 }
 
 impl Serialize for StackTable {

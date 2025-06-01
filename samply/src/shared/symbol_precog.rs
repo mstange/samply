@@ -342,9 +342,11 @@ pub fn presymbolicate(
         let (mut symbol_manager, quota_manager) =
             create_symbol_manager_and_quota_manager(symbol_props, false);
 
-        let lib_stuff: Vec<_> = profile
-            .lib_used_rva_iter()
-            .map(|(lib, rvas)| {
+        let native_frame_addresses_per_library = profile.native_frame_addresses_per_library();
+        let lib_stuff: Vec<_> = native_frame_addresses_per_library
+            .into_iter()
+            .map(|(lib_handle, rvas)| {
+                let lib = profile.get_library_info(lib_handle);
                 let lib_info = wholesym::LibraryInfo {
                     name: Some(lib.debug_name.clone()),
                     path: Some(lib.path.clone()),

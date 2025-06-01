@@ -43,6 +43,10 @@ impl GlobalLibTable {
         LibraryHandle(self.all_libs.insert_full(lib).0)
     }
 
+    pub fn get_lib(&self, handle: LibraryHandle) -> &LibraryInfo {
+        self.all_libs.get_index(handle.0).unwrap()
+    }
+
     pub fn set_lib_symbol_table(&mut self, library: LibraryHandle, symbol_table: Arc<SymbolTable>) {
         self.symbol_tables.insert(library, symbol_table);
     }
@@ -62,6 +66,14 @@ impl GlobalLibTable {
         })
     }
 
+    pub fn library_handle_for_used_lib_index(&self, used_lib_index: usize) -> LibraryHandle {
+        self.used_libs[used_lib_index]
+    }
+
+    pub fn used_lib_index(&self, lib_handle: LibraryHandle) -> Option<GlobalLibIndex> {
+        self.used_lib_map.get(&lib_handle).cloned()
+    }
+
     pub fn get_lib_symbol_table(&self, index: GlobalLibIndex) -> Option<&SymbolTable> {
         let handle = self.used_libs.get(index.0)?;
         self.symbol_tables.get(handle).map(|v| &**v)
@@ -79,15 +91,15 @@ impl UsedLibraryAddressesCollector {
         self.used_libs_seen_rvas[index.0].insert(address);
     }
 
-    pub fn into_address_iter(
-        self,
-        global_lib_table: &GlobalLibTable,
-    ) -> UsedLibraryAddressesIterator {
-        UsedLibraryAddressesIterator {
-            next_used_lib_index: 0,
-            used_libs_seen_rvas_iter: self.used_libs_seen_rvas.into_iter(),
-            global_lib_table,
-        }
+    pub fn finish(self, global_lib_table: &GlobalLibTable) -> Vec<(LibraryHandle, BTreeSet<u32>)> {
+        self.used_libs_seen_rvas
+            .into_iter()
+            .enumerate()
+            .map(|(used_lib_index, rvas)| {
+                let lib_handle = global_lib_table.library_handle_for_used_lib_index(used_lib_index);
+                (lib_handle, rvas)
+            })
+            .collect()
     }
 }
 
@@ -117,28 +129,3 @@ impl GlobalLibIndex {
 /// The handle for a library, obtained from [`Profile::add_lib`](crate::Profile::add_lib).
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct LibraryHandle(usize);
-
-/// An iterator returned by [`Profile::lib_used_rva_iter`](crate::Profile::lib_used_rva_iter).
-///
-/// Yields the set of relative addresses, per library, that are used by stack frames
-/// in the profile.
-pub struct UsedLibraryAddressesIterator<'a> {
-    next_used_lib_index: usize,
-    used_libs_seen_rvas_iter: std::vec::IntoIter<BTreeSet<u32>>,
-    global_lib_table: &'a GlobalLibTable,
-}
-
-impl<'a> Iterator for UsedLibraryAddressesIterator<'a> {
-    type Item = (&'a LibraryInfo, BTreeSet<u32>);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let rvas = self.used_libs_seen_rvas_iter.next()?;
-
-        let lib_handle = self.global_lib_table.used_libs[self.next_used_lib_index];
-        let info = &self.global_lib_table.all_libs[lib_handle.0];
-
-        self.next_used_lib_index += 1;
-
-        Some((info, rvas))
-    }
-}

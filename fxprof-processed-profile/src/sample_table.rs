@@ -109,6 +109,15 @@ impl SampleTable {
         *self.sample_weights.last_mut().unwrap() += weight;
         *self.sample_timestamps.last_mut().unwrap() = timestamp;
     }
+
+    pub fn with_remapped_stacks(mut self, old_stack_to_new_stack: &[Option<usize>]) -> Self {
+        self.sample_stack_indexes = self
+            .sample_stack_indexes
+            .into_iter()
+            .map(|stack| stack.and_then(|s| old_stack_to_new_stack[s]))
+            .collect();
+        self
+    }
 }
 
 impl Serialize for SampleTable {
@@ -207,6 +216,15 @@ impl NativeAllocationsTable {
         self.stack.push(stack_index);
         self.allocation_address.push(allocation_address);
         self.allocation_size.push(allocation_size);
+    }
+
+    pub fn with_remapped_stacks(mut self, old_stack_to_new_stack: &[Option<usize>]) -> Self {
+        self.stack = self
+            .stack
+            .into_iter()
+            .map(|stack| stack.and_then(|s| old_stack_to_new_stack[s]))
+            .collect();
+        self
     }
 }
 
