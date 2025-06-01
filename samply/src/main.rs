@@ -21,15 +21,18 @@ use std::ffi::OsStr;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
+use std::str::FromStr;
+use std::sync::Arc;
 
+use debugid::DebugId;
 use fxprof_processed_profile::Profile;
 use shared::ctrl_c::CtrlC;
-use wholesym::LibraryInfo;
 
 #[cfg(any(target_os = "android", target_os = "linux"))]
 use linux::profiler;
 #[cfg(target_os = "macos")]
 use mac::profiler;
+use wholesym::{CodeId, LibraryInfo};
 #[cfg(target_os = "windows")]
 use windows::profiler;
 
@@ -86,17 +89,19 @@ fn do_import_action(import_args: cli::ImportArgs) {
 
     let import_props = import_args.import_props();
     let unstable_presymbolicate = import_props.profile_creation_props.unstable_presymbolicate;
-    let profile = convert_file_to_profile(&input_file, input_path, import_props);
-
-    save_profile_to_file(&profile, &import_args.output).expect("Couldn't write JSON");
+    let mut profile = convert_file_to_profile(&input_file, input_path, import_props);
 
     if unstable_presymbolicate {
-        crate::shared::symbol_precog::presymbolicate(
+        eprintln!("Symbolicating...");
+        let symbol_info = crate::shared::presymbolicate::get_presymbolicate_info(
             &profile,
-            &import_args.output.with_extension("syms.json"),
             import_args.symbol_props(),
         );
+        profile = profile.make_symbolicated_profile(&symbol_info);
+        profile.set_symbolicated(true);
     }
+
+    save_profile_to_file(&profile, &import_args.output).expect("Couldn't write JSON");
 
     // Drop the profile so that it doesn't take up memory while the server is running.
     drop(profile);
@@ -122,7 +127,7 @@ fn do_record_action(record_args: cli::RecordArgs) {
     let profile_creation_props = record_args.profile_creation_props();
     let unstable_presymbolicate = profile_creation_props.unstable_presymbolicate;
 
-    let (profile, exit_status) =
+    let (mut profile, exit_status) =
         match profiler::run(recording_mode, recording_props, profile_creation_props) {
             Ok(exit_status) => exit_status,
             Err(err) => {
@@ -131,15 +136,17 @@ fn do_record_action(record_args: cli::RecordArgs) {
             }
         };
 
-    save_profile_to_file(&profile, &record_args.output).expect("Couldn't write JSON");
-
     if unstable_presymbolicate {
-        crate::shared::symbol_precog::presymbolicate(
+        eprintln!("Symbolicating...");
+        let symbol_info = crate::shared::presymbolicate::get_presymbolicate_info(
             &profile,
-            &record_args.output.with_extension("syms.json"),
             record_args.symbol_props(),
         );
+        profile = profile.make_symbolicated_profile(&symbol_info);
+        profile.set_symbolicated(true);
     }
+
+    save_profile_to_file(&profile, &record_args.output).expect("Couldn't write JSON");
 
     // Drop the profile so that it doesn't take up memory while the server is running.
     drop(profile);
@@ -239,12 +246,14 @@ fn run_server_serving_profile(
 
         let precog_path = profile_path.with_extension("syms.json");
         if let Some(precog_info) = shared::symbol_precog::PrecogSymbolInfo::try_load(&precog_path) {
-            for (debug_id, syms) in precog_info.into_hash_map().into_iter() {
+            for syms in precog_info.into_iter() {
                 let lib_info = LibraryInfo {
-                    debug_id: Some(debug_id),
+                    debug_name: Some(syms.debug_name.clone()),
+                    debug_id: Some(DebugId::from_str(&syms.debug_id).unwrap()),
+                    code_id: CodeId::from_str(&syms.code_id).ok(),
                     ..LibraryInfo::default()
                 };
-                symbol_manager.add_known_library_symbols(lib_info, syms);
+                symbol_manager.add_known_library_symbols(lib_info, Arc::new(syms));
             }
         }
 
