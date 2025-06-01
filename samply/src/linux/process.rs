@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::ffi::{CString, OsStr, OsString};
-use std::os::fd::{AsFd, AsRawFd, IntoRawFd, OwnedFd};
+use std::os::fd::OwnedFd;
 use std::os::raw::c_char;
 use std::os::unix::prelude::OsStrExt;
 
@@ -55,13 +55,13 @@ impl SuspendedLaunchedProcess {
         match unsafe { nix::unistd::fork() }.expect("Fork failed") {
             nix::unistd::ForkResult::Child => {
                 // std::panic::always_abort();
-                nix::unistd::close(resume_sp.into_raw_fd()).unwrap();
-                nix::unistd::close(execerr_rp.into_raw_fd()).unwrap();
+                drop(resume_sp);
+                drop(execerr_rp);
                 Self::run_child(resume_rp, execerr_sp, &argv, envp)
             }
             nix::unistd::ForkResult::Parent { child } => {
-                nix::unistd::close(resume_rp.into_raw_fd())?;
-                nix::unistd::close(execerr_sp.into_raw_fd())?;
+                drop(resume_rp);
+                drop(execerr_sp);
                 Ok(Self {
                     pid: child,
                     send_end_of_resume_pipe: resume_sp,
@@ -79,15 +79,14 @@ impl SuspendedLaunchedProcess {
 
     pub fn unsuspend_and_run(self) -> std::io::Result<RunningProcess> {
         // Send a byte to the child process.
-        nix::unistd::write(self.send_end_of_resume_pipe.as_fd(), &[0x42])?;
-        nix::unistd::close(self.send_end_of_resume_pipe.into_raw_fd())?;
+        nix::unistd::write(&self.send_end_of_resume_pipe, &[0x42])?;
+        drop(self.send_end_of_resume_pipe);
 
         // Wait for the child to indicate success or failure of the execve call.
         // loop for EINTR
         loop {
             let mut bytes = [0; 8];
-            let read_result =
-                nix::unistd::read(self.recv_end_of_execerr_pipe.as_raw_fd(), &mut bytes);
+            let read_result = nix::unistd::read(&self.recv_end_of_execerr_pipe, &mut bytes);
 
             // The parent has replied! Or exited.
             match read_result {
@@ -142,7 +141,7 @@ impl SuspendedLaunchedProcess {
         // loop to handle EINTR
         loop {
             let mut buf = [0];
-            let read_result = nix::unistd::read(recv_end_of_resume_pipe.as_raw_fd(), &mut buf);
+            let read_result = nix::unistd::read(&recv_end_of_resume_pipe, &mut buf);
 
             // The parent has replied! Or exited.
             match read_result {
