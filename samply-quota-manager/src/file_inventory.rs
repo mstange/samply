@@ -58,6 +58,11 @@ impl FileInventory {
         })
     }
 
+    /// Returns the canonicalized path of the managed directory.
+    pub fn root_path(&self) -> &Path {
+        &self.root_path
+    }
+
     fn init_db_at<F>(
         root_path: &Path,
         db_path: &Path,

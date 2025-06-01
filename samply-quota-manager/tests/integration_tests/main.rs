@@ -157,3 +157,80 @@ async fn test_quota_manager_size_limit_complex() {
     assert!(b_20.exists()); // 1600
     assert!(!a_60.exists()); // 1600 + 60 = 1660 > 1600, delete
 }
+
+#[tokio::test]
+async fn test_quota_manager_empty_dirs_cleaned() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("quota.db");
+    let quota_dir = temp_dir.path().join("quota");
+    fs::create_dir(&quota_dir).unwrap();
+
+    let quota_manager = QuotaManager::new(&quota_dir, &db_path).unwrap();
+    let notifier = quota_manager.notifier();
+
+    let ref_time = SystemTime::now() - Duration::from_secs(100);
+
+    let make_file = |size, name| {
+        let filename = quota_dir.join(name);
+        fs::write(&filename, vec![0u8; size]).unwrap();
+        notifier.on_file_created(&filename, size as u64, ref_time);
+        filename
+    };
+
+    fs::create_dir_all(quota_dir.join("dir1/dir2/dir3")).unwrap();
+    let a_60 = make_file(60, "dir1/dir2/dir3/a_60.txt");
+    assert!(quota_dir.join("dir1").exists());
+
+    // Delete the file by enforcig an age limit of 1 second.
+    assert_eq!(quota_manager.current_total_size(), 60);
+    quota_manager.set_max_age(Some(1));
+    notifier.trigger_eviction_if_needed();
+    quota_manager.finish().await;
+
+    // Check that the quota_dir survived, but nothing inside of it.
+    assert!(quota_dir.exists());
+    assert!(!quota_dir.join("dir1").exists());
+    assert!(!quota_dir.join("dir1/dir2").exists());
+    assert!(!quota_dir.join("dir1/dir2/dir3").exists());
+    assert!(!a_60.exists());
+}
+
+#[tokio::test]
+async fn test_quota_manager_nonempty_dirs_remain() {
+    let temp_dir = TempDir::new().unwrap();
+    let db_path = temp_dir.path().join("quota.db");
+    let quota_dir = temp_dir.path().join("quota");
+    fs::create_dir(&quota_dir).unwrap();
+
+    let quota_manager = QuotaManager::new(&quota_dir, &db_path).unwrap();
+    let notifier = quota_manager.notifier();
+
+    let ref_time = SystemTime::now() - Duration::from_secs(100);
+
+    let make_file = |size, name| {
+        let filename = quota_dir.join(name);
+        fs::write(&filename, vec![0u8; size]).unwrap();
+        notifier.on_file_created(&filename, size as u64, ref_time);
+        filename
+    };
+
+    fs::create_dir_all(quota_dir.join("dir1/dir2/dir3")).unwrap();
+    let a_60 = make_file(60, "dir1/dir2/dir3/a_60.txt");
+    let b_40 = make_file(40, "dir1/b_40.txt");
+    assert!(quota_dir.join("dir1").exists());
+    notifier.on_file_accessed(&b_40, ref_time + Duration::from_secs(20));
+
+    // Delete a_60 by enforcig a size limit of 50 bytes.
+    assert_eq!(quota_manager.current_total_size(), 100);
+    quota_manager.set_max_total_size(Some(50));
+    notifier.trigger_eviction_if_needed();
+    quota_manager.finish().await;
+
+    // Check that a_60 and dir2 + dir3 have been deleted. dir1 and b_40.txt need to have survived.
+    assert!(!quota_dir.join("dir1/dir2").exists());
+    assert!(!quota_dir.join("dir1/dir2/dir3").exists());
+    assert!(!a_60.exists());
+    assert!(quota_dir.exists());
+    assert!(quota_dir.join("dir1").exists());
+    assert!(b_40.exists());
+}

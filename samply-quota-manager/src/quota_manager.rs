@@ -145,7 +145,7 @@ impl QuotaManager {
             let entries = match fs::read_dir(&current_dir) {
                 Ok(entries) => entries,
                 Err(e) => {
-                    log::error!("Failed to read directory {:?}: {}", current_dir, e);
+                    log::error!("Failed to read directory {}: {}", current_dir.display(), e);
                     continue;
                 }
             };
@@ -234,8 +234,17 @@ impl QuotaManagerEvictionThread {
 
     async fn perform_eviction_if_needed(&self) {
         let settings = *self.settings.lock().unwrap();
-        let total_size_before = self.inventory.lock().unwrap().total_size_in_bytes();
-        log::info!("Current total size: {}", ByteSize(total_size_before));
+        let (total_size_before, root_path) = {
+            let inventory = self.inventory.lock().unwrap();
+            (
+                inventory.total_size_in_bytes(),
+                inventory.root_path().to_owned(),
+            )
+        };
+        log::info!(
+            "Current total size: {}",
+            ByteSize(total_size_before).display().si()
+        );
 
         // Enforce max age first, and size limit second.
         // We know that files older than the max age need to be deleted anyway.
@@ -252,10 +261,13 @@ impl QuotaManagerEvictionThread {
         };
 
         if !files_to_delete_for_enforcing_max_age.is_empty() {
-            self.delete_files(files_to_delete_for_enforcing_max_age)
+            self.delete_files(files_to_delete_for_enforcing_max_age, &root_path)
                 .await;
             let total_size = self.inventory.lock().unwrap().total_size_in_bytes();
-            log::info!("Current total size: {}", ByteSize(total_size));
+            log::info!(
+                "Current total size: {}",
+                ByteSize(total_size).display().si()
+            );
         }
 
         let files_to_delete_for_enforcing_max_size = match settings.max_size_bytes {
@@ -267,19 +279,22 @@ impl QuotaManagerEvictionThread {
         };
 
         if !files_to_delete_for_enforcing_max_size.is_empty() {
-            self.delete_files(files_to_delete_for_enforcing_max_size)
+            self.delete_files(files_to_delete_for_enforcing_max_size, &root_path)
                 .await;
             let total_size = self.inventory.lock().unwrap().total_size_in_bytes();
-            log::info!("Current total size: {}", ByteSize(total_size));
+            log::info!(
+                "Current total size: {}",
+                ByteSize(total_size).display().si()
+            );
         }
     }
 
-    async fn delete_files(&self, files: Vec<FileInfo>) {
+    async fn delete_files(&self, files: Vec<FileInfo>, root_path: &Path) {
         for file_info in files {
             log::info!(
-                "Deleting file {:?} ({})",
-                file_info.path,
-                ByteSize(file_info.size_in_bytes)
+                "Deleting file {} ({})",
+                file_info.path.display(),
+                ByteSize(file_info.size_in_bytes).display().si()
             );
             match tokio::fs::remove_file(&file_info.path).await {
                 Ok(()) => {
@@ -291,10 +306,24 @@ impl QuotaManagerEvictionThread {
                     inventory.on_file_found_to_be_absent(&file_info.path);
                 }
                 Err(e) => {
-                    log::error!("Error when deleting {:?}: {}", file_info.path, e);
+                    log::error!("Error when deleting {}: {}", file_info.path.display(), e);
                 }
             }
-            // TODO: delete containing directory if empty
+
+            // Clean up any empty parent directories.
+            let mut path = file_info.path.as_path();
+            while let Some(parent_dir) = path.parent() {
+                if !parent_dir.starts_with(root_path) || parent_dir == root_path {
+                    break;
+                }
+                match tokio::fs::remove_dir(parent_dir).await {
+                    Ok(()) => {
+                        log::info!("Deleted empty directory {}", parent_dir.display());
+                        path = parent_dir;
+                    }
+                    Err(_) => break, // Directory not empty, or some other error
+                }
+            }
         }
     }
 }
