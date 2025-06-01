@@ -26,6 +26,7 @@ use crate::markers::{
 };
 use crate::native_symbols::NativeSymbolHandle;
 use crate::process::{Process, ThreadHandle};
+use crate::profile_symbol_info::ProfileSymbolInfo;
 use crate::reference_timestamp::ReferenceTimestamp;
 use crate::sample_table::WeightType;
 use crate::string_table::{ProfileStringTable, StringHandle};
@@ -1158,6 +1159,57 @@ impl Profile {
             thread.gather_used_rvas(&mut collector);
         }
         collector.into_address_iter(&self.global_libs)
+    }
+
+    pub fn make_symbolicated_profile(self, symbol_info: &ProfileSymbolInfo) -> Profile {
+        let Profile {
+            product,
+            os_name,
+            interval,
+            timeline_unit,
+            global_libs,
+            kernel_libs,
+            categories,
+            processes,
+            counters,
+            threads,
+            initial_visible_threads,
+            initial_selected_threads,
+            reference_timestamp,
+            platform_specific_reference_timestamp,
+            string_table,
+            marker_schemas,
+            static_schema_marker_types,
+            symbolicated,
+            used_pids,
+            used_tids,
+        } = self;
+        let threads: Vec<Thread> = threads
+            .into_iter()
+            .map(|thread| thread.make_symbolicated_thread(symbol_info))
+            .collect();
+        Profile {
+            product,
+            os_name,
+            interval,
+            timeline_unit,
+            global_libs,
+            kernel_libs,
+            categories,
+            processes,
+            counters,
+            threads,
+            initial_visible_threads,
+            initial_selected_threads,
+            reference_timestamp,
+            platform_specific_reference_timestamp,
+            string_table,
+            marker_schemas,
+            static_schema_marker_types,
+            symbolicated,
+            used_pids,
+            used_tids,
+        }
     }
 
     fn resolve_frame_address(

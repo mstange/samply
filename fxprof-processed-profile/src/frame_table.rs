@@ -1,7 +1,7 @@
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 
 use crate::category::{CategoryHandle, SubcategoryHandle, SubcategoryIndex};
-use crate::fast_hash_map::FastIndexSet;
+use crate::fast_hash_map::{FastHashMap, FastIndexSet};
 use crate::frame::FrameFlags;
 use crate::func_table::{FuncIndex, FuncKey, FuncTable};
 use crate::global_lib_table::{GlobalLibIndex, UsedLibraryAddressesCollector};
@@ -46,6 +46,10 @@ impl FrameInterner {
                 collector.add_lib_used_rva(lib, relative_address);
             }
         }
+    }
+
+    pub fn into_frames(self) -> Vec<InternalFrame> {
+        self.frame_key_set.into_iter().collect()
     }
 
     pub fn contains_js_frame(&self) -> bool {

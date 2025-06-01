@@ -62,6 +62,13 @@ impl GlobalLibTable {
         })
     }
 
+    pub fn used_lib_index(
+        &mut self,
+        lib_handle: LibraryHandle,
+    ) -> Option<GlobalLibIndex> {
+        self.used_lib_map.get(&lib_handle).cloned()
+    }
+
     pub fn get_lib_symbol_table(&self, index: GlobalLibIndex) -> Option<&SymbolTable> {
         let handle = self.used_libs.get(index.0)?;
         self.symbol_tables.get(handle).map(|v| &**v)
