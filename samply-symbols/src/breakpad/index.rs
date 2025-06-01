@@ -403,7 +403,7 @@ pub struct BreakpadFuncSymbol {
 impl BreakpadFuncSymbol {
     pub fn parse(mut input: &[u8]) -> Result<BreakpadFuncSymbolInfo<'_>, BreakpadParseError> {
         let first_line = read_line_and_advance(&mut input);
-        let (_rest, (_address, size, name)) =
+        let (_address, size, name) =
             func_line(first_line).map_err(|_| BreakpadParseError::ParsingFunc)?;
 
         let mut tokenizer = Tokenizer::new(input);
@@ -626,7 +626,7 @@ impl BreakpadIndexCreatorInner {
                     line_or_block_len: line_len.into(),
                 },
             ));
-        } else if let Ok((_r, (address, _size, _name))) = func_line(input) {
+        } else if let Ok((address, _size, _name)) = func_line(input) {
             self.finish_pending_func_block(file_offset);
             self.pending_func_block = Some((address, file_offset));
         } else if input.starts_with(b"INFO ") {
@@ -1005,16 +1005,21 @@ fn parse_func_data_line(tokenizer: &mut Tokenizer) -> Result<SourceLine, ()> {
 }
 
 // Matches a FUNC record.
-fn func_line(input: &[u8]) -> IResult<&[u8], (u32, u32, &[u8])> {
-    let (input, _) = terminated(tag("FUNC"), space1)(input)?;
-    let (input, (_multiple, address, size, _parameter_size, name)) = cut(tuple((
-        opt(terminated(tag("m"), space1)),
-        terminated(hex_str::<u32>, space1),
-        terminated(hex_str::<u32>, space1),
-        terminated(hex_str::<u32>, space1),
-        rest,
-    )))(input)?;
-    Ok((input, (address, size, name)))
+fn func_line(input: &[u8]) -> Result<(u32, u32, &[u8]), ()> {
+    let mut tokenizer = Tokenizer::new(input);
+    tokenizer.consume_token(b"FUNC")?;
+    tokenizer.consume_space1()?;
+    if let Ok(()) = tokenizer.consume_token(b"m") {
+        tokenizer.consume_space1()?;
+    }
+    let address = tokenizer.consume_hex_u32()?;
+    tokenizer.consume_space1()?;
+    let size = tokenizer.consume_hex_u32()?;
+    tokenizer.consume_space1()?;
+    let _parameter_size = tokenizer.consume_hex_u32()?;
+    tokenizer.consume_space1()?;
+    let name = tokenizer.consume_until_after_next_line_break_or_eof();
+    Ok((address, size, name))
 }
 
 struct Tokenizer<'a> {
@@ -1027,12 +1032,9 @@ impl<'a> Tokenizer<'a> {
     }
 
     pub fn consume_token(&mut self, token: &[u8]) -> Result<(), ()> {
-        if self.input.starts_with(token) {
-            self.input = &self.input[token.len()..];
-            Ok(())
-        } else {
-            Err(())
-        }
+        let rest = self.input.strip_prefix(token).ok_or(())?;
+        self.input = rest;
+        Ok(())
     }
 
     pub fn consume_decimal_u32(&mut self) -> Result<u32, ()> {
@@ -1075,8 +1077,9 @@ impl<'a> Tokenizer<'a> {
         self.input.is_empty()
     }
 
-    pub fn consume_until_after_next_line_break_or_eof(&mut self) {
-        let _discarded = read_line_and_advance(&mut self.input);
+    /// Returns the rest of the line, excluding trailing `\r*\n`.
+    pub fn consume_until_after_next_line_break_or_eof(&mut self) -> &'a [u8] {
+        read_line_and_advance(&mut self.input)
     }
 }
 

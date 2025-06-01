@@ -1,10 +1,3 @@
-use nom::branch::alt;
-use nom::bytes::complete::{tag, take_until1};
-use nom::combinator::{eof, map};
-use nom::error::ErrorKind;
-use nom::sequence::terminated;
-use nom::{Err, IResult};
-
 /// A special source file path for source files which are hosted online.
 ///
 /// About "special path" strings: Special paths strings are a string serialization
@@ -62,18 +55,12 @@ impl MappedPath {
     /// symbols from Breakpad symbol files, so that consumers don't have parse this
     /// syntax when looking up symbols from a `SymbolMap` from such a .sym file.
     pub fn from_special_path_str(special_path: &str) -> Option<Self> {
-        match parse_special_path(special_path) {
-            Ok((_, mapped_path)) => Some(mapped_path),
-            Err(_) => None,
-        }
+        parse_special_path(special_path)
     }
 
     /// Detect some URLs of plain text files and convert them to a `MappedPath`.
     pub fn from_url(url: &str) -> Option<Self> {
-        match parse_url(url) {
-            Ok((_, mapped_path)) => Some(mapped_path),
-            Err(_) => None,
-        }
+        parse_url(url)
     }
 
     /// Serialize this mapped path to a string, using the "special path" syntax.
@@ -111,145 +98,114 @@ impl MappedPath {
     }
 }
 
-fn git_path(input: &str) -> IResult<&str, (String, String, String)> {
-    let (input, _) = tag("git:")(input)?;
-    let (input, repo) = terminated(take_until1(":"), tag(":"))(input)?;
-    let (rev, path) = terminated(take_until1(":"), tag(":"))(input)?;
-    Ok(("", (repo.to_owned(), path.to_owned(), rev.to_owned())))
+fn git_path(input: &str) -> Option<(String, String, String)> {
+    let input = input.strip_prefix("git:")?;
+    let (repo, input) = input.split_once(':')?;
+    let (path, rev) = input.split_once(':')?;
+    Some((repo.to_owned(), path.to_owned(), rev.to_owned()))
 }
 
-fn hg_path(input: &str) -> IResult<&str, (String, String, String)> {
-    let (input, _) = tag("hg:")(input)?;
-    let (input, repo) = terminated(take_until1(":"), tag(":"))(input)?;
-    let (rev, path) = terminated(take_until1(":"), tag(":"))(input)?;
-    Ok(("", (repo.to_owned(), path.to_owned(), rev.to_owned())))
+fn hg_path(input: &str) -> Option<(String, String, String)> {
+    let input = input.strip_prefix("hg:")?;
+    let (repo, input) = input.split_once(':')?;
+    let (path, rev) = input.split_once(':')?;
+    Some((repo.to_owned(), path.to_owned(), rev.to_owned()))
 }
 
-fn s3_path(input: &str) -> IResult<&str, (String, String, String)> {
-    let (input, _) = tag("s3:")(input)?;
-    let (input, bucket) = terminated(take_until1(":"), tag(":"))(input)?;
-    let (input, digest) = terminated(take_until1("/"), tag("/"))(input)?;
-    let (_, path) = terminated(take_until1(":"), terminated(tag(":"), eof))(input)?;
-    Ok(("", (bucket.to_owned(), digest.to_owned(), path.to_owned())))
+fn s3_path(input: &str) -> Option<(String, String, String)> {
+    let input = input.strip_prefix("s3:")?;
+    let (bucket, input) = input.split_once(':')?;
+    let (digest, input) = input.split_once('/')?;
+    let path = input.strip_suffix(':')?;
+    Some((bucket.to_owned(), digest.to_owned(), path.to_owned()))
 }
 
-fn cargo_path(input: &str) -> IResult<&str, (String, String, String, String)> {
-    let (input, _) = tag("cargo:")(input)?;
-    let (input, registry) = terminated(take_until1(":"), tag(":"))(input)?;
-    let (path, crate_name_and_version) = terminated(take_until1(":"), tag(":"))(input)?;
-    let (crate_name, version) = match crate_name_and_version.rfind('-') {
-        Some(pos) => (
-            &crate_name_and_version[..pos],
-            &crate_name_and_version[(pos + 1)..],
-        ),
-        None => {
-            return Err(Err::Error(nom::error::Error::new(
-                crate_name_and_version,
-                ErrorKind::Digit,
-            )))
+fn cargo_path(input: &str) -> Option<(String, String, String, String)> {
+    let input = input.strip_prefix("cargo:")?;
+    let (registry, input) = input.split_once(':')?;
+    let (crate_name_and_version, path) = input.split_once(':')?;
+    let (crate_name, version) = crate_name_and_version.rsplit_once('-')?;
+    Some((
+        registry.to_owned(),
+        crate_name.to_owned(),
+        version.to_owned(),
+        path.to_owned(),
+    ))
+}
+
+fn parse_special_path(input: &str) -> Option<MappedPath> {
+    let mapped_path = if let Some((repo, path, rev)) = git_path(input) {
+        MappedPath::Git { repo, path, rev }
+    } else if let Some((repo, path, rev)) = hg_path(input) {
+        MappedPath::Hg { repo, path, rev }
+    } else if let Some((bucket, digest, path)) = s3_path(input) {
+        MappedPath::S3 {
+            bucket,
+            digest,
+            path,
         }
+    } else if let Some((registry, crate_name, version, path)) = cargo_path(input) {
+        MappedPath::Cargo {
+            registry,
+            crate_name,
+            version,
+            path,
+        }
+    } else {
+        return None;
     };
-    Ok((
-        "",
-        (
-            registry.to_owned(),
-            crate_name.to_owned(),
-            version.to_owned(),
-            path.to_owned(),
-        ),
-    ))
+    Some(mapped_path)
 }
 
-fn parse_special_path(input: &str) -> IResult<&str, MappedPath> {
-    alt((
-        map(git_path, |(repo, path, rev)| MappedPath::Git {
-            repo,
-            path,
-            rev,
-        }),
-        map(hg_path, |(repo, path, rev)| MappedPath::Hg {
-            repo,
-            path,
-            rev,
-        }),
-        map(s3_path, |(bucket, digest, path)| MappedPath::S3 {
-            bucket,
-            digest,
-            path,
-        }),
-        map(cargo_path, |(registry, crate_name, version, path)| {
-            MappedPath::Cargo {
-                registry,
-                crate_name,
-                version,
-                path,
-            }
-        }),
-    ))(input)
-}
-
-fn github_url(input: &str) -> IResult<&str, (String, String, String)> {
+fn github_url(input: &str) -> Option<(String, String, String)> {
     // Example: "https://raw.githubusercontent.com/baldurk/renderdoc/v1.15/renderdoc/data/glsl/gl_texsample.h"
-    let (input, _) = tag("https://raw.githubusercontent.com/")(input)?;
-    let (input, org) = terminated(take_until1("/"), tag("/"))(input)?;
-    let (input, repo_name) = terminated(take_until1("/"), tag("/"))(input)?;
-    let (input, rev) = terminated(take_until1("/"), tag("/"))(input)?;
-    let path = input;
-    Ok((
-        "",
-        (
-            format!("github.com/{org}/{repo_name}"),
-            path.to_owned(),
-            rev.to_owned(),
-        ),
+    let input = input.strip_prefix("https://raw.githubusercontent.com/")?;
+    let (org, input) = input.split_once('/')?;
+    let (repo_name, input) = input.split_once('/')?;
+    let (rev, path) = input.split_once('/')?;
+    Some((
+        format!("github.com/{org}/{repo_name}"),
+        path.to_owned(),
+        rev.to_owned(),
     ))
 }
 
-fn hg_url(input: &str) -> IResult<&str, (String, String, String)> {
+fn hg_url(input: &str) -> Option<(String, String, String)> {
     // Example: "https://hg.mozilla.org/mozilla-central/raw-file/1706d4d54ec68fae1280305b70a02cb24c16ff68/mozglue/baseprofiler/core/ProfilerBacktrace.cpp"
-    let (input, _) = tag("https://hg.")(input)?;
-    let (input, host_rest) = terminated(take_until1("/"), tag("/"))(input)?;
-    let (input, repo) = terminated(take_until1("/raw-file/"), tag("/raw-file/"))(input)?;
-    let (input, rev) = terminated(take_until1("/"), tag("/"))(input)?;
-    let path = input;
-    Ok((
-        "",
-        (
-            format!("hg.{host_rest}/{repo}"),
-            path.to_owned(),
-            rev.to_owned(),
-        ),
+    let input = input.strip_prefix("https://hg.")?;
+    let (host_rest, input) = input.split_once('/')?;
+    let (repo, input) = input.split_once("/raw-file/")?;
+    let (rev, path) = input.split_once('/')?;
+    Some((
+        format!("hg.{host_rest}/{repo}"),
+        path.to_owned(),
+        rev.to_owned(),
     ))
 }
 
-fn s3_url(input: &str) -> IResult<&str, (String, String, String)> {
+fn s3_url(input: &str) -> Option<(String, String, String)> {
     // Example: "https://gecko-generated-sources.s3.amazonaws.com/7a1db5dfd0061d0e0bcca227effb419a20439aef4f6c4e9cd391a9f136c6283e89043d62e63e7edbd63ad81c339c401092bcfeff80f74f9cae8217e072f0c6f3/x86_64-pc-windows-msvc/release/build/swgl-59e3a0e09f56f4ea/out/brush_solid_DEBUG_OVERDRAW.h"
-    let (input, _) = tag("https://")(input)?;
-    let (input, bucket) =
-        terminated(take_until1(".s3.amazonaws.com/"), tag(".s3.amazonaws.com/"))(input)?;
-    let (input, digest) = terminated(take_until1("/"), tag("/"))(input)?;
-    let path = input;
-    Ok(("", (bucket.to_owned(), digest.to_owned(), path.to_owned())))
+    let input = input.strip_prefix("https://")?;
+    let (bucket, input) = input.split_once(".s3.amazonaws.com/")?;
+    let (digest, path) = input.split_once('/')?;
+    Some((bucket.to_owned(), digest.to_owned(), path.to_owned()))
 }
 
-fn parse_url(input: &str) -> IResult<&str, MappedPath> {
-    alt((
-        map(github_url, |(repo, path, rev)| MappedPath::Git {
-            repo,
-            path,
-            rev,
-        }),
-        map(hg_url, |(repo, path, rev)| MappedPath::Hg {
-            repo,
-            path,
-            rev,
-        }),
-        map(s3_url, |(bucket, digest, path)| MappedPath::S3 {
+fn parse_url(input: &str) -> Option<MappedPath> {
+    let mapped_path = if let Some((repo, path, rev)) = github_url(input) {
+        MappedPath::Git { repo, path, rev }
+    } else if let Some((repo, path, rev)) = hg_url(input) {
+        MappedPath::Hg { repo, path, rev }
+    } else if let Some((bucket, digest, path)) = s3_url(input) {
+        MappedPath::S3 {
             bucket,
             digest,
             path,
-        }),
-    ))(input)
+        }
+    } else {
+        return None;
+    };
+    Some(mapped_path)
 }
 
 #[cfg(test)]
