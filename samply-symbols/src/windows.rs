@@ -4,9 +4,6 @@ use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 
 use debugid::DebugId;
-use nom::bytes::complete::{tag, take_until1};
-use nom::combinator::eof;
-use nom::sequence::terminated;
 use object::{File, FileKind};
 use pdb::PDB;
 use pdb_addr2line::pdb;
@@ -525,7 +522,7 @@ impl<'a> SrcSrvPathMapper<'a> {
         }
 
         let url = map.get("var4")?;
-        parse_gitiles_url(url).ok()
+        parse_gitiles_url(url)
     }
 }
 
@@ -590,19 +587,17 @@ fn function_start_and_end_addresses(pdata: &[u8]) -> (Vec<u32>, Vec<u32>) {
     (start_addresses, end_addresses)
 }
 
-fn parse_gitiles_url(input: &str) -> Result<MappedPath, nom::Err<nom::error::Error<&str>>> {
+fn parse_gitiles_url(input: &str) -> Option<MappedPath> {
     // https://pdfium.googlesource.com/pdfium.git/+/dab1161c861cc239e48a17e1a5d729aa12785a53/core/fdrm/fx_crypt.cpp?format=TEXT
     // -> "git:pdfium.googlesource.com/pdfium:core/fdrm/fx_crypt.cpp:dab1161c861cc239e48a17e1a5d729aa12785a53"
     // https://chromium.googlesource.com/chromium/src.git/+/c15858db55ed54c230743eaa9678117f21d5517e/third_party/blink/renderer/core/svg/svg_point.cc?format=TEXT
     // -> "git:chromium.googlesource.com/chromium/src:third_party/blink/renderer/core/svg/svg_point.cc:c15858db55ed54c230743eaa9678117f21d5517e"
-    let (input, _) = tag("https://")(input)?;
-    let (input, repo) = terminated(take_until1(".git/+/"), tag(".git/+/"))(input)?;
-    let (input, rev) = terminated(take_until1("/"), tag("/"))(input)?;
-    let (_, path) = terminated(
-        take_until1("?format=TEXT"),
-        terminated(tag("?format=TEXT"), eof),
-    )(input)?;
-    Ok(MappedPath::Git {
+    let input = input
+        .strip_prefix("https://")?
+        .strip_suffix("?format=TEXT")?;
+    let (repo, input) = input.split_once(".git/+/")?;
+    let (rev, path) = input.split_once('/')?;
+    Some(MappedPath::Git {
         repo: repo.to_owned(),
         path: path.to_owned(),
         rev: rev.to_owned(),
@@ -617,7 +612,7 @@ mod test {
     fn test_parse_gitiles_url() {
         assert_eq!(
             parse_gitiles_url("https://pdfium.googlesource.com/pdfium.git/+/dab1161c861cc239e48a17e1a5d729aa12785a53/core/fdrm/fx_crypt.cpp?format=TEXT"),
-            Ok(MappedPath::Git{
+            Some(MappedPath::Git{
                 repo: "pdfium.googlesource.com/pdfium".into(),
                 rev: "dab1161c861cc239e48a17e1a5d729aa12785a53".into(),
                 path: "core/fdrm/fx_crypt.cpp".into(),
@@ -626,7 +621,7 @@ mod test {
 
         assert_eq!(
             parse_gitiles_url("https://chromium.googlesource.com/chromium/src.git/+/c15858db55ed54c230743eaa9678117f21d5517e/third_party/blink/renderer/core/svg/svg_point.cc?format=TEXT"),
-            Ok(MappedPath::Git{
+            Some(MappedPath::Git{
                 repo: "chromium.googlesource.com/chromium/src".into(),
                 rev: "c15858db55ed54c230743eaa9678117f21d5517e".into(),
                 path: "third_party/blink/renderer/core/svg/svg_point.cc".into(),
@@ -635,7 +630,7 @@ mod test {
 
         assert_eq!(
             parse_gitiles_url("https://pdfium.googlesource.com/pdfium.git/+/dab1161c861cc239e48a17e1a5d729aa12785a53/core/fdrm/fx_crypt.cpp?format=TEXTotherstuff"),
-            Err(nom::Err::Error(nom::error::Error::new("otherstuff", nom::error::ErrorKind::Eof)))
+            None
         );
     }
 }
