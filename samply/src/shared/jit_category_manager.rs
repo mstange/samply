@@ -30,6 +30,7 @@ pub struct JitCategoryManager {
 impl JitCategoryManager {
     /// (prefix, name, color, is_js)
     const CATEGORIES: &'static [(&'static str, Category<'static>, bool)] = &[
+        // V8 prefixes: https://source.chromium.org/chromium/chromium/src/+/main:v8/src/objects/code-kind.cc;l=21;drc=5fe0c7b2435bb2d92f434a81272b6752a5f34b9b
         (
             "JS:~",
             Category("Interpreter", CategoryColor::Magenta),
@@ -41,7 +42,17 @@ impl JitCategoryManager {
             true,
         ),
         ("JS:^", Category("Baseline", CategoryColor::Blue), true),
+        (
+            "JS:+'",
+            Category("Maglev (context specialized)", CategoryColor::Green),
+            true,
+        ),
         ("JS:+", Category("Maglev", CategoryColor::Green), true),
+        (
+            "JS:*'",
+            Category("Turbofan (context specialized)", CategoryColor::Green),
+            true,
+        ),
         ("JS:*", Category("Turbofan", CategoryColor::Green), true),
         ("JS:?", Category("JavaScript", CategoryColor::Blue), true),
         ("py::", Category("Python", CategoryColor::Blue), true),
