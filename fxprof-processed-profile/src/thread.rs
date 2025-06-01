@@ -9,6 +9,7 @@ use crate::global_lib_table::{GlobalLibIndex, GlobalLibTable};
 use crate::marker_table::MarkerTable;
 use crate::markers::InternalMarkerSchema;
 use crate::native_symbols::{NativeSymbolIndex, NativeSymbols};
+use crate::profile_symbol_info::ProfileSymbolInfo;
 use crate::sample_table::{NativeAllocationsTable, SampleTable, WeightType};
 use crate::stack_table::StackTable;
 use crate::string_table::{GlobalStringIndex, GlobalStringTable};
@@ -220,6 +221,78 @@ impl Thread {
             return ordering;
         }
         self.tid.cmp(&other.tid)
+    }
+
+    pub fn make_symbolicated_thread(self, symbol_info: &ProfileSymbolInfo) -> Thread {
+        let Thread {
+            process,
+            tid,
+            name,
+            start_time,
+            end_time,
+            is_main,
+            stack_table,
+            frame_table,
+            samples,
+            native_allocations,
+            markers,
+            native_symbols,
+            string_table,
+            last_sample_stack,
+            last_sample_was_zero_cpu,
+            show_markers_in_timeline,
+        } = self;
+
+        let (frame_addresses_by_lib, non_native_frames) = todo!();
+        let mut new_frame_table = FrameTable::new();
+        let mut new_stack_table = StackTable::new();
+        let mut new_native_symbols = NativeSymbols::new();
+        let mut old_frame_to_new_frame = Vec::new();
+        let mut old_stack_to_new_stack = Vec::new();
+
+        for frame_index in non_native_frames {
+            todo!("Put frame into new_frame_table");
+        }
+
+        for (lib, frame_addresses) in frame_addresses_by_lib {
+            todo!("get symbols for lib from symbol_info, put into lib_symbol_info");
+            for address in frame_addresses {
+                todo!("look up address in lib_symbol_info");
+                let found = todo!();
+                if !found {
+                    todo!("make InternalFrame with hex address, we have existing code for this somewhere");
+                    continue;
+                }
+                todo!("make or use existing NativeSymbol, put it into new_native_symbols");
+                let has_debug_frames = todo!();
+                if has_debug_frames {
+                    todo!("make InternalFrame for each, add it to new_frame_table");
+                } else {
+                    todo!("make InternalFrame for outer function, add it to new_frame_table");
+                }
+            }
+        }
+
+        todo!("do something about the stack table and about mapping old stacks to new stacks");
+
+        Thread {
+            process,
+            tid,
+            name,
+            start_time,
+            end_time,
+            is_main,
+            stack_table,
+            frame_table,
+            samples,
+            native_allocations,
+            markers,
+            native_symbols,
+            string_table,
+            last_sample_stack,
+            last_sample_was_zero_cpu,
+            show_markers_in_timeline,
+        }
     }
 
     #[allow(clippy::too_many_arguments)]

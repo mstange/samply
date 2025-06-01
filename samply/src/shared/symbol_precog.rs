@@ -121,12 +121,15 @@ impl InternedFrameDebugInfo {
 
 #[derive(Clone, Serialize, Deserialize, Hash, PartialEq, Eq)]
 struct InternedSymbolInfo {
+    /// Function start adddress
     rva: u32,
 
+    /// Function size, if known
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     size: Option<u32>,
 
+    /// Name of the outer function
     symbol: StringTableIndex,
 
     #[serde(default)]

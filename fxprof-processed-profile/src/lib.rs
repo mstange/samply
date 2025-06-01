@@ -59,6 +59,7 @@ mod markers;
 mod native_symbols;
 mod process;
 mod profile;
+mod profile_symbol_info;
 mod reference_timestamp;
 mod resource_table;
 mod sample_table;
