@@ -28,7 +28,7 @@ version = "0.31"
 [dependencies.object]
 default-features = false
 features = ["std", "read_core", "archive", "elf", "macho", "pe", "unaligned", "compression"]
-version = "0.36"
+version = "0.37"
 
 [dependencies]
 #pdb-addr2line = { path = "../../pdb-addr2line" }
