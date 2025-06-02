@@ -68,7 +68,7 @@ plist = "1.7.0"
 
 [target.'cfg(any(target_os = "android", target_os = "linux"))'.dependencies]
 
-parking_lot = "0.12.2"
+parking_lot = "0.12.4"
 num_cpus = "1.13.1"
 uname = "0.1.1"
 nix = { version = "0.30", features = ["fs", "process"] }
