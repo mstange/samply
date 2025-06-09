@@ -57,7 +57,7 @@ core-foundation = "0.10"
 # So this is a (somewhat brittle) way to turn on the zlib-rs feature in
 # async-compression's use of flate2.
 [dependencies.flate2]
-version = "1.0.17"
+version = "1.1.2"
 features = ["zlib-rs"]
 
 [dev-dependencies]
