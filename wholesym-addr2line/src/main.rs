@@ -51,7 +51,7 @@ fn print_loc(
         if llvm {
             print!("{}:0", line.unwrap_or(0));
         } else if let Some(line) = line {
-            print!("{}", line);
+            print!("{line}");
         } else {
             print!("?");
         }
@@ -170,9 +170,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for probe in addrs {
         if print_addrs {
             if llvm {
-                print!("0x{:x}", probe);
+                print!("0x{probe:x}");
             } else {
-                print!("0x{:016x}", probe);
+                print!("0x{probe:016x}");
             }
             if pretty {
                 print!(": ");

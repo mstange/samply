@@ -24,7 +24,7 @@ impl Default for VerboseSymbolManagerObserver {
 
 impl SymbolManagerObserver for VerboseSymbolManagerObserver {
     fn on_new_download_before_connect(&self, download_id: u64, url: &str) {
-        eprintln!("Connecting to {}...", url);
+        eprintln!("Connecting to {url}...");
         self.urls
             .lock()
             .unwrap()
@@ -34,7 +34,7 @@ impl SymbolManagerObserver for VerboseSymbolManagerObserver {
     fn on_download_started(&self, download_id: u64) {
         let urls = self.urls.lock().unwrap();
         let url = urls.get(&download_id).unwrap();
-        eprintln!("Downloading from {}...", url);
+        eprintln!("Downloading from {url}...");
     }
 
     fn on_download_progress(
@@ -53,7 +53,7 @@ impl SymbolManagerObserver for VerboseSymbolManagerObserver {
         _time_until_completed: std::time::Duration,
     ) {
         let url = self.urls.lock().unwrap().remove(&download_id).unwrap();
-        eprintln!("Finished download from {}.", url);
+        eprintln!("Finished download from {url}.");
     }
 
     fn on_download_failed(&self, download_id: u64, reason: DownloadError) {
@@ -63,7 +63,7 @@ impl SymbolManagerObserver for VerboseSymbolManagerObserver {
 
     fn on_download_canceled(&self, download_id: u64) {
         let url = self.urls.lock().unwrap().remove(&download_id).unwrap();
-        eprintln!("Canceled download from {}.", url);
+        eprintln!("Canceled download from {url}.");
     }
 
     fn on_file_created(&self, path: &Path, size_in_bytes: u64) {
