@@ -5,12 +5,12 @@ use crate::frame::FrameFlags;
 use crate::global_lib_table::{GlobalLibIndex, GlobalLibTable};
 use crate::resource_table::{ResourceIndex, ResourceTable};
 use crate::serialization_helpers::SerializableSingleValueColumn;
-use crate::thread_string_table::{ThreadInternalStringIndex, ThreadStringTable};
+use crate::string_table::{GlobalStringTable, StringHandle};
 
 #[derive(Debug, Clone, Default)]
 pub struct FuncTable {
-    names: Vec<ThreadInternalStringIndex>,
-    files: Vec<Option<ThreadInternalStringIndex>>,
+    names: Vec<StringHandle>,
+    files: Vec<Option<StringHandle>>,
     resources: Vec<Option<ResourceIndex>>,
     flags: Vec<FrameFlags>,
 
@@ -21,8 +21,8 @@ pub struct FuncTable {
 
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct FuncKey {
-    pub name: ThreadInternalStringIndex,
-    pub file_path: Option<ThreadInternalStringIndex>,
+    pub name: StringHandle,
+    pub file_path: Option<StringHandle>,
     pub lib: Option<GlobalLibIndex>,
     pub flags: FrameFlags,
 }
@@ -33,7 +33,7 @@ impl FuncTable {
         func_key: FuncKey,
         resource_table: &mut ResourceTable,
         global_libs: &mut GlobalLibTable,
-        string_table: &mut ThreadStringTable,
+        global_string_table: &mut GlobalStringTable,
     ) -> FuncIndex {
         let (index, is_new) = self.func_key_set.insert_full(func_key);
 
@@ -50,7 +50,7 @@ impl FuncTable {
         } = func_key;
 
         let resource =
-            lib.map(|lib| resource_table.resource_for_lib(lib, global_libs, string_table));
+            lib.map(|lib| resource_table.resource_for_lib(lib, global_libs, global_string_table));
 
         self.names.push(name);
         self.files.push(file_path);

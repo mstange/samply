@@ -8,7 +8,7 @@ use crate::global_lib_table::{GlobalLibIndex, GlobalLibTable};
 use crate::native_symbols::NativeSymbolIndex;
 use crate::resource_table::ResourceTable;
 use crate::serialization_helpers::SerializableSingleValueColumn;
-use crate::thread_string_table::{ThreadInternalStringIndex, ThreadStringTable};
+use crate::string_table::{GlobalStringTable, StringHandle};
 
 #[derive(Debug, Clone, Default)]
 pub struct FrameTable {
@@ -36,7 +36,7 @@ impl FrameTable {
         &mut self,
         frame: InternalFrame,
         global_libs: &mut GlobalLibTable,
-        string_table: &mut ThreadStringTable,
+        global_string_table: &mut GlobalStringTable,
     ) -> usize {
         let (frame_index, is_new) = self.frame_key_set.insert_full(frame);
 
@@ -49,7 +49,7 @@ impl FrameTable {
             func_key,
             &mut self.resource_table,
             global_libs,
-            string_table,
+            global_string_table,
         );
 
         self.func_col.push(func);
@@ -138,10 +138,10 @@ impl Serialize for SerializableFrameTableAddressColumn<'_> {
 
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct InternalFrame {
-    pub name: ThreadInternalStringIndex,
+    pub name: StringHandle,
     pub variant: InternalFrameVariant,
     pub subcategory: SubcategoryHandle,
-    pub file_path: Option<ThreadInternalStringIndex>,
+    pub file_path: Option<StringHandle>,
     pub line: Option<u32>,
     pub col: Option<u32>,
     pub flags: FrameFlags,

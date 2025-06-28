@@ -366,7 +366,7 @@ fn profile_without_js() {
                 "name": []
               },
               "interval": 1.0,
-              "preprocessedProfileVersion": 55,
+              "preprocessedProfileVersion": 56,
               "processType": 0,
               "product": "test",
               "oscpu": "macOS 14.4",
@@ -463,6 +463,33 @@ fn profile_without_js() {
                 "arch": null
               }
             ],
+            "shared": {
+              "stringArray": [
+                "0x7ffdb4824837",
+                "0xc2704",
+                "dump_syms",
+                "0xde777",
+                "0x145418",
+                "0x23eb61",
+                "0x256d7e",
+                "libc_symbol_1",
+                "libc.so.6",
+                "libc_symbol_2",
+                "0x106992",
+                "0xdd2d6",
+                "0xef3ce",
+                "0x25318e",
+                "0x1571b8",
+                "0xb40e2",
+                "0x2778f4",
+                "libc_symbol_3",
+                "Experimental",
+                "Hello world!",
+                "My event",
+                "https://mozilla.org/", // currently redundantly specified in the marker itself
+                "CustomName",
+              ],
+            },
             "threads": [
               {
                 "frameTable": {
@@ -772,7 +799,7 @@ fn profile_without_js() {
                     },
                     {
                       "type": "custom",
-                      "eventName": 21,
+                      "eventName": 20,
                       "allocationSize": 512000.0,
                       "url": "https://mozilla.org/",
                       "latency": 123.0
@@ -784,7 +811,7 @@ fn profile_without_js() {
                   ],
                   "name": [
                     18,
-                    20
+                    22
                   ],
                   "phase": [
                     0,
@@ -913,30 +940,6 @@ fn profile_without_js() {
                     15
                   ]
                 },
-                "stringArray": [
-                  "0x7ffdb4824837",
-                  "0xc2704",
-                  "dump_syms",
-                  "0xde777",
-                  "0x145418",
-                  "0x23eb61",
-                  "0x256d7e",
-                  "libc_symbol_1",
-                  "libc.so.6",
-                  "libc_symbol_2",
-                  "0x106992",
-                  "0xdd2d6",
-                  "0xef3ce",
-                  "0x25318e",
-                  "0x1571b8",
-                  "0xb40e2",
-                  "0x2778f4",
-                  "libc_symbol_3",
-                  "Experimental",
-                  "Hello world!",
-                  "CustomName",
-                  "My event"
-                ],
                 "tid": "12345",
                 "unregisterTime": null,
                 "showMarkersInTimeline": false
@@ -1045,7 +1048,7 @@ fn profile_with_js() {
                 "name": []
               },
               "interval": 1.0,
-              "preprocessedProfileVersion": 55,
+              "preprocessedProfileVersion": 56,
               "processType": 0,
               "product": "test with js",
               "sampleUnits": {
@@ -1062,6 +1065,12 @@ fn profile_with_js() {
               "markerSchema": []
             },
             "libs": [],
+            "shared": {
+              "stringArray": [
+                "Some label string",
+                "0x7f76b7ffc0e6"
+              ],
+            },
             "threads": [
               {
                 "frameTable": {
@@ -1194,10 +1203,6 @@ fn profile_with_js() {
                     1
                   ]
                 },
-                "stringArray": [
-                  "Some label string",
-                  "0x7f76b7ffc0e6"
-                ],
                 "tid": "12346",
                 "unregisterTime": null
               }
@@ -1300,7 +1305,7 @@ fn profile_counters_with_sorted_processes() {
               "initialSelectedThreads": [0],
               "initialVisibleThreads": [0],
               "interval": 1.0,
-              "preprocessedProfileVersion": 55,
+              "preprocessedProfileVersion": 56,
               "processType": 0,
               "product": "test",
               "sampleUnits": {
@@ -1317,6 +1322,9 @@ fn profile_counters_with_sorted_processes() {
               "markerSchema": []
             },
             "libs": [],
+            "shared": {
+              "stringArray": [],
+            },
             "threads": [
               {
                 "frameTable": {
@@ -1395,7 +1403,6 @@ fn profile_counters_with_sorted_processes() {
                   "prefix": [],
                   "frame": []
                 },
-                "stringArray": [],
                 "tid": "54321",
                 "unregisterTime": null
               },
@@ -1476,7 +1483,6 @@ fn profile_counters_with_sorted_processes() {
                   "prefix": [],
                   "frame": []
                 },
-                "stringArray": [],
                 "tid": "12345",
                 "unregisterTime": null
               }
