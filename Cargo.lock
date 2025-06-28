@@ -9,7 +9,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dfbe277e56a376000877090da837660b4427aad530e3028d44e0bffe4f89a1c1"
 dependencies = [
  "fallible-iterator",
- "gimli",
+ "gimli 0.31.1",
 ]
 
 [[package]]
@@ -655,7 +655,7 @@ dependencies = [
  "arrayvec",
  "cfg-if",
  "fallible-iterator",
- "gimli",
+ "gimli 0.31.1",
  "macho-unwind-info",
  "pe-unwind-info",
 ]
@@ -826,6 +826,12 @@ dependencies = [
  "fallible-iterator",
  "stable_deref_trait",
 ]
+
+[[package]]
+name = "gimli"
+version = "0.32.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93563d740bc9ef04104f9ed6f86f1e3275c2cdafb95664e26584b9ca807a8ffe"
 
 [[package]]
 name = "h2"
@@ -2265,7 +2271,7 @@ dependencies = [
  "elsa",
  "flate2",
  "futures",
- "gimli",
+ "gimli 0.32.0",
  "linux-perf-data",
  "lzma-rs",
  "macho-unwind-info",
