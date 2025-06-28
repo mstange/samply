@@ -644,9 +644,7 @@ impl Profile {
             subcategory,
             flags,
             name,
-            file_path: None,
-            line: None,
-            col: None,
+            source_location: Default::default(),
         };
         let frame_index = thread.frame_index_for_frame(
             internal_frame,
@@ -688,21 +686,12 @@ impl Profile {
         let thread_handle = thread;
         let thread = &mut self.threads[thread_handle.0];
         let name = label;
-        let (file_path, line, col) = match source_location {
-            Some(SourceLocation {
-                file_path,
-                line,
-                col,
-            }) => (file_path, line, col),
-            None => (None, None, None),
-        };
+        let source_location = source_location.unwrap_or_default();
         let internal_frame = InternalFrame {
             name,
             variant: InternalFrameVariant::Label,
             subcategory,
-            file_path,
-            line,
-            col,
+            source_location,
             flags,
         };
         let frame_index = thread.frame_index_for_frame(
@@ -781,18 +770,11 @@ impl Profile {
                 )
             }
         };
-        let SourceLocation {
-            file_path,
-            line,
-            col,
-        } = source_location;
         let internal_frame = InternalFrame {
             name,
             subcategory,
             variant,
-            file_path,
-            line,
-            col,
+            source_location,
             flags,
         };
         let frame_index = thread.frame_index_for_frame(
