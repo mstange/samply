@@ -14,7 +14,7 @@ pub fn save_profile_to_file(profile: &Profile, output_path: &Path) -> std::io::R
     let output_file = match File::create(output_path) {
         Ok(output_file) => output_file,
         Err(err) => {
-            eprintln!("Couldn't create output file {:?}: {}", output_path, err);
+            eprintln!("Couldn't create output file {output_path:?}: {err}");
             std::process::exit(1);
         }
     };

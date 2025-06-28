@@ -79,7 +79,7 @@ fn do_import_action(import_args: cli::ImportArgs) {
     let input_file = match File::open(input_path) {
         Ok(file) => file,
         Err(err) => {
-            eprintln!("Could not open file {:?}: {}", input_path, err);
+            eprintln!("Could not open file {input_path:?}: {err}");
             std::process::exit(1)
         }
     };
@@ -201,7 +201,7 @@ fn convert_file_to_profile(
     ) {
         Ok(profile) => profile,
         Err(error) => {
-            eprintln!("Error importing perf.data file: {:?}", error);
+            eprintln!("Error importing perf.data file: {error:?}");
             std::process::exit(1);
         }
     }
@@ -216,7 +216,7 @@ fn run_server_serving_profile(
         let profile_file = match File::open(profile_path) {
             Ok(file) => file,
             Err(err) => {
-                eprintln!("Could not open file {:?}: {}", profile_path, err);
+                eprintln!("Could not open file {profile_path:?}: {err}");
                 std::process::exit(1)
             }
         };

@@ -233,7 +233,7 @@ async fn run_server(
                 )
                 .await
             {
-                println!("Error serving connection: {:?}", err);
+                println!("Error serving connection: {err:?}");
             }
         });
     }

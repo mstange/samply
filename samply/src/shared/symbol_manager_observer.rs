@@ -25,7 +25,7 @@ impl SamplySymbolManagerObserver {
 impl SymbolManagerObserver for SamplySymbolManagerObserver {
     fn on_new_download_before_connect(&self, download_id: u64, url: &str) {
         if self.verbose {
-            eprintln!("Connecting to {}...", url);
+            eprintln!("Connecting to {url}...");
         }
         self.urls
             .lock()
@@ -37,7 +37,7 @@ impl SymbolManagerObserver for SamplySymbolManagerObserver {
         if self.verbose {
             let urls = self.urls.lock().unwrap();
             let url = urls.get(&download_id).unwrap();
-            eprintln!("Downloading from {}...", url);
+            eprintln!("Downloading from {url}...");
         }
     }
 
@@ -58,7 +58,7 @@ impl SymbolManagerObserver for SamplySymbolManagerObserver {
     ) {
         if self.verbose {
             let url = self.urls.lock().unwrap().remove(&download_id).unwrap();
-            eprintln!("Finished download from {}.", url);
+            eprintln!("Finished download from {url}.");
         }
     }
 
@@ -72,7 +72,7 @@ impl SymbolManagerObserver for SamplySymbolManagerObserver {
     fn on_download_canceled(&self, download_id: u64) {
         if self.verbose {
             let url = self.urls.lock().unwrap().remove(&download_id).unwrap();
-            eprintln!("Canceled download from {}.", url);
+            eprintln!("Canceled download from {url}.");
         }
     }
 
