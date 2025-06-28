@@ -343,17 +343,18 @@ impl PerfBuilder {
         }
 
         let fd = sys_perf_event_open(&attr, pid as pid_t, cpu as _, -1, PERF_FLAG_FD_CLOEXEC);
-        if fd < 0 {
-            let err = io::Error::from_raw_os_error(-fd);
+        if fd == -1 {
+            let err = io::Error::last_os_error();
+
             // eprintln!(
             //     "The perf_event_open syscall failed for PID {}: {}",
             //     pid, err
             // );
-            if let Some(errcode) = err.raw_os_error() {
-                if errcode == libc::EINVAL {
-                    // info!("Your profiling frequency might be too high; try lowering it");
-                }
-            }
+            // if let Some(errcode) = err.raw_os_error() {
+            //     if errcode == libc::EINVAL {
+            //         info!("Your profiling frequency might be too high; try lowering it");
+            //     }
+            // }
 
             return Err(err);
         }
@@ -383,8 +384,9 @@ impl PerfBuilder {
                 0,
             );
             if buffer == libc::MAP_FAILED {
+                let err = io::Error::last_os_error();
                 libc::close(fd);
-                return Err(io::Error::other("mmap failed"));
+                return Err(io::Error::new(err.kind(), format!("mmap failed: {err}")));
             }
         }
 
