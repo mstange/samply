@@ -233,7 +233,7 @@ impl PerfGroup {
             .poll
             .poll(&mut self.poll_events, Some(Duration::from_millis(100)));
         if let Err(err) = result {
-            eprintln!("poll failed: {}", err);
+            eprintln!("poll failed: {err}");
             return;
         }
 
@@ -283,7 +283,7 @@ impl PerfGroup {
             for fd in fds_to_remove.drain(..) {
                 let result = self.poll.registry().deregister(&mut SourceFd(&fd));
                 if let Err(err) = result {
-                    eprintln!("deregister failed: {}", err);
+                    eprintln!("deregister failed: {err}");
                     continue;
                 }
                 self.members.remove(&fd);

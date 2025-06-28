@@ -153,7 +153,7 @@ impl QuotaManager {
                 let path = match entry {
                     Ok(entry) => entry.path(),
                     Err(e) => {
-                        log::error!("Failed to read directory entry in {:?}: {}", current_dir, e);
+                        log::error!("Failed to read directory entry in {current_dir:?}: {e}");
                         continue;
                     }
                 };
@@ -169,7 +169,7 @@ impl QuotaManager {
                 let metadata = match fs::metadata(&path) {
                     Ok(metadata) => metadata,
                     Err(e) => {
-                        log::error!("Failed to query file size for {:?}: {}", path, e);
+                        log::error!("Failed to query file size for {path:?}: {e}");
                         continue;
                     }
                 };

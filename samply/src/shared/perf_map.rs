@@ -28,7 +28,7 @@ pub fn try_load_perf_map(
     jit_category_manager: &mut JitCategoryManager,
     mut recycler: Option<&mut JitFunctionRecycler>,
 ) -> Option<LibMappings<LibMappingInfo>> {
-    let name = format!("perf-{}.map", pid);
+    let name = format!("perf-{pid}.map");
     let path = format!("/tmp/{name}");
     let Ok(content) = std::fs::read_to_string(&path) else {
         return None;

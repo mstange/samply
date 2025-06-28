@@ -44,8 +44,7 @@ impl RootTaskRunner for TaskLauncher {
         for i in 2..=self.iteration_count {
             if !self.ignore_exit_code && !exit_status.success() {
                 eprintln!(
-                    "Skipping remaining iterations due to non-success exit status: \"{}\"",
-                    exit_status
+                    "Skipping remaining iterations due to non-success exit status: \"{exit_status}\""
                 );
                 break;
             }
@@ -230,7 +229,7 @@ impl TaskAccepter {
                 ReceivedStuff::DotnetTracePath(pid, OsStr::from_bytes(path).into())
             }
             (other, _) => {
-                panic!("Unexpected message: {:?}", other);
+                panic!("Unexpected message: {other:?}");
             }
         };
         Ok(received_stuff)
