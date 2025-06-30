@@ -66,7 +66,6 @@ mod serialization_helpers;
 mod stack_table;
 mod string_table;
 mod thread;
-mod thread_string_table;
 mod timestamp;
 
 pub use category::{
@@ -89,9 +88,10 @@ pub use native_symbols::NativeSymbolHandle;
 pub use process::ThreadHandle;
 pub use profile::{
     FrameHandle, FrameSymbolInfo, Profile, SamplingInterval, SourceLocation, StackHandle,
-    StringHandle, TimelineUnit,
+    TimelineUnit,
 };
 pub use reference_timestamp::{PlatformSpecificReferenceTimestamp, ReferenceTimestamp};
 pub use sample_table::WeightType;
+pub use string_table::StringHandle;
 pub use thread::ProcessHandle;
 pub use timestamp::Timestamp;

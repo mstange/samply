@@ -8,7 +8,8 @@ use crate::global_lib_table::{GlobalLibIndex, GlobalLibTable};
 use crate::native_symbols::NativeSymbolIndex;
 use crate::resource_table::ResourceTable;
 use crate::serialization_helpers::SerializableSingleValueColumn;
-use crate::thread_string_table::{ThreadInternalStringIndex, ThreadStringTable};
+use crate::string_table::{ProfileStringTable, StringHandle};
+use crate::SourceLocation;
 
 #[derive(Debug, Clone, Default)]
 pub struct FrameTable {
@@ -36,7 +37,7 @@ impl FrameTable {
         &mut self,
         frame: InternalFrame,
         global_libs: &mut GlobalLibTable,
-        string_table: &mut ThreadStringTable,
+        string_table: &mut ProfileStringTable,
     ) -> usize {
         let (frame_index, is_new) = self.frame_key_set.insert_full(frame);
 
@@ -56,8 +57,8 @@ impl FrameTable {
         let SubcategoryHandle(category, subcategory) = frame.subcategory;
         self.category_col.push(category);
         self.subcategory_col.push(subcategory);
-        self.line_col.push(frame.line);
-        self.column_col.push(frame.col);
+        self.line_col.push(frame.source_location.line);
+        self.column_col.push(frame.source_location.col);
 
         match frame.variant {
             InternalFrameVariant::Label => {
@@ -138,12 +139,10 @@ impl Serialize for SerializableFrameTableAddressColumn<'_> {
 
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct InternalFrame {
-    pub name: ThreadInternalStringIndex,
+    pub name: StringHandle,
     pub variant: InternalFrameVariant,
     pub subcategory: SubcategoryHandle,
-    pub file_path: Option<ThreadInternalStringIndex>,
-    pub line: Option<u32>,
-    pub col: Option<u32>,
+    pub source_location: SourceLocation,
     pub flags: FrameFlags,
 }
 
@@ -166,10 +165,10 @@ impl InternalFrame {
         let InternalFrame {
             name,
             variant,
-            file_path,
             flags,
             ..
         } = *self;
+        let file_path = self.source_location.file_path;
         let lib = match variant {
             InternalFrameVariant::Label => None,
             InternalFrameVariant::Native(NativeFrameData { lib, .. }) => Some(lib),

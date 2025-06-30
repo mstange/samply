@@ -6,7 +6,7 @@ use bitflags::bitflags;
 use serde::ser::{Serialize, SerializeMap, SerializeSeq};
 use serde_derive::Serialize;
 
-use super::profile::StringHandle;
+use super::string_table::StringHandle;
 use super::timestamp::Timestamp;
 use crate::{Category, CategoryHandle, Profile};
 

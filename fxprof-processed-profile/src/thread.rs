@@ -11,8 +11,7 @@ use crate::markers::InternalMarkerSchema;
 use crate::native_symbols::{NativeSymbolIndex, NativeSymbols};
 use crate::sample_table::{NativeAllocationsTable, SampleTable, WeightType};
 use crate::stack_table::StackTable;
-use crate::string_table::{GlobalStringIndex, GlobalStringTable};
-use crate::thread_string_table::{ThreadInternalStringIndex, ThreadStringTable};
+use crate::string_table::{ProfileStringTable, StringHandle};
 use crate::{Marker, MarkerHandle, MarkerTiming, MarkerTypeHandle, Symbol, Timestamp};
 
 /// A process. Can be created with [`Profile::add_process`](crate::Profile::add_process).
@@ -33,7 +32,6 @@ pub struct Thread {
     native_allocations: Option<NativeAllocationsTable>,
     markers: MarkerTable,
     native_symbols: NativeSymbols,
-    string_table: ThreadStringTable,
     last_sample_stack: Option<usize>,
     last_sample_was_zero_cpu: bool,
     show_markers_in_timeline: bool,
@@ -54,7 +52,6 @@ impl Thread {
             native_allocations: None,
             markers: MarkerTable::new(),
             native_symbols: NativeSymbols::new(),
-            string_table: ThreadStringTable::new(),
             last_sample_stack: None,
             last_sample_was_zero_cpu: false,
             show_markers_in_timeline: false,
@@ -85,38 +82,28 @@ impl Thread {
         self.process
     }
 
-    pub fn convert_string_index(
-        &mut self,
-        global_table: &GlobalStringTable,
-        index: GlobalStringIndex,
-    ) -> ThreadInternalStringIndex {
-        self.string_table
-            .index_for_global_string(index, global_table)
-    }
-
     pub fn native_symbol_index_and_string_index_for_symbol(
         &mut self,
         lib_index: GlobalLibIndex,
         symbol: &Symbol,
-    ) -> (NativeSymbolIndex, ThreadInternalStringIndex) {
+        string_table: &mut ProfileStringTable,
+    ) -> (NativeSymbolIndex, StringHandle) {
         self.native_symbols
-            .symbol_index_and_string_index_for_symbol(lib_index, symbol, &mut self.string_table)
+            .symbol_index_and_string_index_for_symbol(lib_index, symbol, string_table)
     }
 
     pub fn native_symbol_index_for_native_symbol(
         &mut self,
         lib_index: GlobalLibIndex,
         symbol: &Symbol,
+        string_table: &mut ProfileStringTable,
     ) -> NativeSymbolIndex {
         let (symbol_index, _) =
-            self.native_symbol_index_and_string_index_for_symbol(lib_index, symbol);
+            self.native_symbol_index_and_string_index_for_symbol(lib_index, symbol, string_table);
         symbol_index
     }
 
-    pub fn get_native_symbol_name(
-        &self,
-        native_symbol_index: NativeSymbolIndex,
-    ) -> ThreadInternalStringIndex {
+    pub fn get_native_symbol_name(&self, native_symbol_index: NativeSymbolIndex) -> StringHandle {
         self.native_symbols
             .get_native_symbol_name(native_symbol_index)
     }
@@ -125,9 +112,10 @@ impl Thread {
         &mut self,
         frame: InternalFrame,
         global_libs: &mut GlobalLibTable,
+        string_table: &mut ProfileStringTable,
     ) -> usize {
         self.frame_table
-            .index_for_frame(frame, global_libs, &mut self.string_table)
+            .index_for_frame(frame, global_libs, string_table)
     }
 
     pub fn stack_index_for_stack(&mut self, prefix: Option<usize>, frame: usize) -> usize {
@@ -179,12 +167,11 @@ impl Thread {
     #[allow(clippy::too_many_arguments)]
     pub fn add_marker<T: Marker>(
         &mut self,
-        name_string_index: ThreadInternalStringIndex,
+        name_string_index: StringHandle,
         marker_type_handle: MarkerTypeHandle,
         schema: &InternalMarkerSchema,
         marker: T,
         timing: MarkerTiming,
-        global_string_table: &mut GlobalStringTable,
     ) -> MarkerHandle {
         self.markers.add_marker(
             name_string_index,
@@ -192,8 +179,6 @@ impl Thread {
             schema,
             marker,
             timing,
-            &mut self.string_table,
-            global_string_table,
         )
     }
 
@@ -231,7 +216,7 @@ impl Thread {
         process_name: &str,
         pid: &str,
         marker_schemas: &[InternalMarkerSchema],
-        global_string_table: &GlobalStringTable,
+        string_table: &ProfileStringTable,
     ) -> Result<S::Ok, S::Error> {
         let thread_name: Cow<str> = match (self.is_main, &self.name) {
             (true, _) => process_name.into(),
@@ -249,9 +234,7 @@ impl Thread {
         map.serialize_entry("funcTable", &func_table)?;
         map.serialize_entry(
             "markers",
-            &self
-                .markers
-                .as_serializable(marker_schemas, global_string_table),
+            &self.markers.as_serializable(marker_schemas, string_table),
         )?;
         map.serialize_entry("name", &thread_name)?;
         map.serialize_entry("isMainThread", &self.is_main)?;
@@ -269,7 +252,6 @@ impl Thread {
             map.serialize_entry("nativeAllocations", &allocations)?;
         }
         map.serialize_entry("stackTable", &self.stack_table)?;
-        map.serialize_entry("stringArray", &self.string_table)?;
         map.serialize_entry("tid", &self.tid)?;
         map.serialize_entry("unregisterTime", &thread_unregister_time)?;
         map.serialize_entry("showMarkersInTimeline", &self.show_markers_in_timeline)?;

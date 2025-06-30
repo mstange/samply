@@ -38,39 +38,39 @@ impl Serialize for StringTable {
 }
 
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub struct GlobalStringIndex(pub(crate) StringIndex);
+pub struct StringHandle(pub(crate) StringIndex);
 
 #[derive(Debug, Clone, Default)]
-pub struct GlobalStringTable {
+pub struct ProfileStringTable {
     table: StringTable,
-    hex_address_strings: FastHashMap<u64, GlobalStringIndex>,
+    hex_address_strings: FastHashMap<u64, StringHandle>,
 }
 
-impl GlobalStringTable {
+impl ProfileStringTable {
     pub fn new() -> Self {
         Default::default()
     }
 
-    pub fn index_for_string(&mut self, s: &str) -> GlobalStringIndex {
-        GlobalStringIndex(self.table.index_for_string(s))
+    pub fn index_for_string(&mut self, s: &str) -> StringHandle {
+        StringHandle(self.table.index_for_string(s))
     }
 
     // Fast path with separate cache for strings of the shape 0xabc123
-    pub fn index_for_hex_address_string(&mut self, a: u64) -> GlobalStringIndex {
+    pub fn index_for_hex_address_string(&mut self, a: u64) -> StringHandle {
         *self.hex_address_strings.entry(a).or_insert_with(|| {
             // Build the string on the stack, to save a heap allocation.
             const BUF_LEN: usize = 18;
-            let mut buf = [0u8; BUF_LEN]; // 18 is just enough to fix u64::MAX, i.e. "0xffffffffffffffff"
+            let mut buf = [0u8; BUF_LEN]; // 18 is just enough to fit u64::MAX, i.e. "0xffffffffffffffff"
             use std::io::Write;
             let mut b = &mut buf[..];
             write!(b, "{a:#x}").unwrap();
             let len = BUF_LEN - b.len();
             let s = std::str::from_utf8(&buf[..len]).unwrap();
-            GlobalStringIndex(self.table.index_for_string(s))
+            StringHandle(self.table.index_for_string(s))
         })
     }
 
-    pub fn get_string(&self, index: GlobalStringIndex) -> Option<&str> {
+    pub fn get_string(&self, index: StringHandle) -> Option<&str> {
         self.table.get_string(index.0)
     }
 }
@@ -78,5 +78,17 @@ impl GlobalStringTable {
 impl Serialize for StringIndex {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_u32(self.0)
+    }
+}
+
+impl Serialize for StringHandle {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.0.serialize(serializer)
+    }
+}
+
+impl Serialize for ProfileStringTable {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.table.serialize(serializer)
     }
 }
