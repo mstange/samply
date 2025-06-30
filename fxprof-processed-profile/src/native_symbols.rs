@@ -3,7 +3,7 @@ use serde::ser::{Serialize, SerializeMap, Serializer};
 use crate::fast_hash_map::FastHashMap;
 use crate::global_lib_table::GlobalLibIndex;
 use crate::library_info::Symbol;
-use crate::string_table::{GlobalStringTable, StringHandle};
+use crate::string_table::{ProfileStringTable, StringHandle};
 use crate::ThreadHandle;
 
 /// Represents a symbol from the symbol table of a library. Obtained from [`Profile::handle_for_native_symbol`](crate::Profile::handle_for_native_symbol).
@@ -58,13 +58,13 @@ impl NativeSymbols {
         &mut self,
         lib_index: GlobalLibIndex,
         symbol: &Symbol,
-        global_string_table: &mut GlobalStringTable,
+        string_table: &mut ProfileStringTable,
     ) -> (NativeSymbolIndex, StringHandle) {
         let addresses = &mut self.addresses;
         let function_sizes = &mut self.function_sizes;
         let lib_indexes = &mut self.lib_indexes;
         let names = &mut self.names;
-        let name_string_index = global_string_table.index_for_string(&symbol.name);
+        let name_string_index = string_table.index_for_string(&symbol.name);
         let symbol_index = *self
             .lib_and_symbol_address_to_symbol_index
             .entry((lib_index, symbol.address))

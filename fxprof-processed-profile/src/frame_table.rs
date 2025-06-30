@@ -8,7 +8,7 @@ use crate::global_lib_table::{GlobalLibIndex, GlobalLibTable};
 use crate::native_symbols::NativeSymbolIndex;
 use crate::resource_table::ResourceTable;
 use crate::serialization_helpers::SerializableSingleValueColumn;
-use crate::string_table::{GlobalStringTable, StringHandle};
+use crate::string_table::{ProfileStringTable, StringHandle};
 use crate::SourceLocation;
 
 #[derive(Debug, Clone, Default)]
@@ -37,7 +37,7 @@ impl FrameTable {
         &mut self,
         frame: InternalFrame,
         global_libs: &mut GlobalLibTable,
-        global_string_table: &mut GlobalStringTable,
+        string_table: &mut ProfileStringTable,
     ) -> usize {
         let (frame_index, is_new) = self.frame_key_set.insert_full(frame);
 
@@ -50,7 +50,7 @@ impl FrameTable {
             func_key,
             &mut self.resource_table,
             global_libs,
-            global_string_table,
+            string_table,
         );
 
         self.func_col.push(func);

@@ -11,7 +11,7 @@ use crate::markers::InternalMarkerSchema;
 use crate::native_symbols::{NativeSymbolIndex, NativeSymbols};
 use crate::sample_table::{NativeAllocationsTable, SampleTable, WeightType};
 use crate::stack_table::StackTable;
-use crate::string_table::{GlobalStringTable, StringHandle};
+use crate::string_table::{ProfileStringTable, StringHandle};
 use crate::{Marker, MarkerHandle, MarkerTiming, MarkerTypeHandle, Symbol, Timestamp};
 
 /// A process. Can be created with [`Profile::add_process`](crate::Profile::add_process).
@@ -86,23 +86,20 @@ impl Thread {
         &mut self,
         lib_index: GlobalLibIndex,
         symbol: &Symbol,
-        global_string_table: &mut GlobalStringTable,
+        string_table: &mut ProfileStringTable,
     ) -> (NativeSymbolIndex, StringHandle) {
         self.native_symbols
-            .symbol_index_and_string_index_for_symbol(lib_index, symbol, global_string_table)
+            .symbol_index_and_string_index_for_symbol(lib_index, symbol, string_table)
     }
 
     pub fn native_symbol_index_for_native_symbol(
         &mut self,
         lib_index: GlobalLibIndex,
         symbol: &Symbol,
-        global_string_table: &mut GlobalStringTable,
+        string_table: &mut ProfileStringTable,
     ) -> NativeSymbolIndex {
-        let (symbol_index, _) = self.native_symbol_index_and_string_index_for_symbol(
-            lib_index,
-            symbol,
-            global_string_table,
-        );
+        let (symbol_index, _) =
+            self.native_symbol_index_and_string_index_for_symbol(lib_index, symbol, string_table);
         symbol_index
     }
 
@@ -115,10 +112,10 @@ impl Thread {
         &mut self,
         frame: InternalFrame,
         global_libs: &mut GlobalLibTable,
-        global_string_table: &mut GlobalStringTable,
+        string_table: &mut ProfileStringTable,
     ) -> usize {
         self.frame_table
-            .index_for_frame(frame, global_libs, global_string_table)
+            .index_for_frame(frame, global_libs, string_table)
     }
 
     pub fn stack_index_for_stack(&mut self, prefix: Option<usize>, frame: usize) -> usize {
@@ -219,7 +216,7 @@ impl Thread {
         process_name: &str,
         pid: &str,
         marker_schemas: &[InternalMarkerSchema],
-        global_string_table: &GlobalStringTable,
+        string_table: &ProfileStringTable,
     ) -> Result<S::Ok, S::Error> {
         let thread_name: Cow<str> = match (self.is_main, &self.name) {
             (true, _) => process_name.into(),
@@ -237,9 +234,7 @@ impl Thread {
         map.serialize_entry("funcTable", &func_table)?;
         map.serialize_entry(
             "markers",
-            &self
-                .markers
-                .as_serializable(marker_schemas, global_string_table),
+            &self.markers.as_serializable(marker_schemas, string_table),
         )?;
         map.serialize_entry("name", &thread_name)?;
         map.serialize_entry("isMainThread", &self.is_main)?;

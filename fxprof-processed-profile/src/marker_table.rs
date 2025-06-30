@@ -2,7 +2,7 @@ use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 
 use crate::markers::{InternalMarkerSchema, MarkerFieldFormatKind};
 use crate::serialization_helpers::SerializableOptionalTimestampColumn;
-use crate::string_table::{GlobalStringTable, StringHandle};
+use crate::string_table::{ProfileStringTable, StringHandle};
 use crate::{
     CategoryHandle, Marker, MarkerFieldFormat, MarkerHandle, MarkerTiming, MarkerTypeHandle,
     Timestamp,
@@ -89,11 +89,11 @@ impl MarkerTable {
     pub fn as_serializable<'a>(
         &'a self,
         schemas: &'a [InternalMarkerSchema],
-        global_string_table: &'a GlobalStringTable,
+        string_table: &'a ProfileStringTable,
     ) -> impl Serialize + 'a {
         SerializableMarkerTable {
             marker_table: self,
-            global_string_table,
+            string_table,
             schemas,
         }
     }
@@ -101,7 +101,7 @@ impl MarkerTable {
 
 struct SerializableMarkerTable<'a> {
     marker_table: &'a MarkerTable,
-    global_string_table: &'a GlobalStringTable,
+    string_table: &'a ProfileStringTable,
     schemas: &'a [InternalMarkerSchema],
 }
 
@@ -133,7 +133,7 @@ impl Serialize for SerializableMarkerTableDataColumn<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let marker_table = self.0.marker_table;
         let schemas = self.0.schemas;
-        let global_string_table = self.0.global_string_table;
+        let string_table = self.0.string_table;
         let len = marker_table.marker_name_string_indexes.len();
         let mut seq = serializer.serialize_seq(Some(len))?;
         let mut remaining_string_fields = &marker_table.marker_field_string_values[..];
@@ -149,7 +149,7 @@ impl Serialize for SerializableMarkerTableDataColumn<'_> {
             (number_fields, remaining_number_fields) =
                 remaining_number_fields.split_at(schema.number_field_count());
             seq.serialize_element(&SerializableMarkerDataElement {
-                global_string_table,
+                string_table,
                 stack_index,
                 schema,
                 string_fields,
@@ -161,7 +161,7 @@ impl Serialize for SerializableMarkerTableDataColumn<'_> {
 }
 
 struct SerializableMarkerDataElement<'a> {
-    global_string_table: &'a GlobalStringTable,
+    string_table: &'a ProfileStringTable,
     stack_index: Option<usize>,
     schema: &'a InternalMarkerSchema,
     string_fields: &'a [StringHandle],
@@ -171,7 +171,7 @@ struct SerializableMarkerDataElement<'a> {
 impl Serialize for SerializableMarkerDataElement<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let Self {
-            global_string_table,
+            string_table,
             stack_index,
             schema,
             mut string_fields,
@@ -190,7 +190,7 @@ impl Serialize for SerializableMarkerDataElement<'_> {
                     if field.format == MarkerFieldFormat::String {
                         map.serialize_entry(&field.key, value)?;
                     } else {
-                        let str_val = global_string_table.get_string(*value).unwrap();
+                        let str_val = string_table.get_string(*value).unwrap();
                         map.serialize_entry(&field.key, str_val)?;
                     }
                 }

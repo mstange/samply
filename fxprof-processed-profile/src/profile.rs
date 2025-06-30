@@ -28,7 +28,7 @@ use crate::native_symbols::NativeSymbolHandle;
 use crate::process::{Process, ThreadHandle};
 use crate::reference_timestamp::ReferenceTimestamp;
 use crate::sample_table::WeightType;
-use crate::string_table::{GlobalStringTable, StringHandle};
+use crate::string_table::{ProfileStringTable, StringHandle};
 use crate::thread::{ProcessHandle, Thread};
 use crate::timestamp::Timestamp;
 use crate::{FrameFlags, PlatformSpecificReferenceTimestamp, Symbol};
@@ -178,7 +178,7 @@ pub struct Profile {
     pub(crate) initial_selected_threads: Vec<ThreadHandle>,
     pub(crate) reference_timestamp: ReferenceTimestamp,
     pub(crate) platform_specific_reference_timestamp: Option<PlatformSpecificReferenceTimestamp>,
-    pub(crate) string_table: GlobalStringTable,
+    pub(crate) string_table: ProfileStringTable,
     pub(crate) marker_schemas: Vec<InternalMarkerSchema>,
     static_schema_marker_types: FastHashMap<&'static str, MarkerTypeHandle>,
     pub(crate) symbolicated: bool,
@@ -213,7 +213,7 @@ impl Profile {
             reference_timestamp,
             platform_specific_reference_timestamp: None,
             processes: Vec::new(),
-            string_table: GlobalStringTable::new(),
+            string_table: ProfileStringTable::new(),
             marker_schemas: Vec::new(),
             categories,
             static_schema_marker_types: FastHashMap::default(),
@@ -1271,7 +1271,7 @@ impl Profile {
             processes: &self.processes,
             sorted_threads,
             marker_schemas: &self.marker_schemas,
-            global_string_table: &self.string_table,
+            string_table: &self.string_table,
         }
     }
 
@@ -1410,7 +1410,7 @@ struct SerializableProfileThreadsProperty<'a> {
     processes: &'a [Process],
     sorted_threads: &'a [ThreadHandle],
     marker_schemas: &'a [InternalMarkerSchema],
-    global_string_table: &'a GlobalStringTable,
+    string_table: &'a ProfileStringTable,
 }
 
 impl Serialize for SerializableProfileThreadsProperty<'_> {
@@ -1421,12 +1421,12 @@ impl Serialize for SerializableProfileThreadsProperty<'_> {
             let thread = &self.threads[thread.0];
             let process = &self.processes[thread.process().0];
             let marker_schemas = self.marker_schemas;
-            let global_string_table = self.global_string_table;
+            let string_table = self.string_table;
             seq.serialize_element(&SerializableProfileThread(
                 process,
                 thread,
                 marker_schemas,
-                global_string_table,
+                string_table,
             ))?;
         }
 
@@ -1456,12 +1456,12 @@ struct SerializableProfileThread<'a>(
     &'a Process,
     &'a Thread,
     &'a [InternalMarkerSchema],
-    &'a GlobalStringTable,
+    &'a ProfileStringTable,
 );
 
 impl Serialize for SerializableProfileThread<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let SerializableProfileThread(process, thread, marker_schemas, global_string_table) = self;
+        let SerializableProfileThread(process, thread, marker_schemas, string_table) = self;
         let process_start_time = process.start_time();
         let process_end_time = process.end_time();
         let process_name = process.name();
@@ -1473,7 +1473,7 @@ impl Serialize for SerializableProfileThread<'_> {
             process_name,
             pid,
             marker_schemas,
-            global_string_table,
+            string_table,
         )
     }
 }

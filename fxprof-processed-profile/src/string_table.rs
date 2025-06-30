@@ -41,12 +41,12 @@ impl Serialize for StringTable {
 pub struct StringHandle(pub(crate) StringIndex);
 
 #[derive(Debug, Clone, Default)]
-pub struct GlobalStringTable {
+pub struct ProfileStringTable {
     table: StringTable,
     hex_address_strings: FastHashMap<u64, StringHandle>,
 }
 
-impl GlobalStringTable {
+impl ProfileStringTable {
     pub fn new() -> Self {
         Default::default()
     }
@@ -87,7 +87,7 @@ impl Serialize for StringHandle {
     }
 }
 
-impl Serialize for GlobalStringTable {
+impl Serialize for ProfileStringTable {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         self.table.serialize(serializer)
     }
