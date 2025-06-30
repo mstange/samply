@@ -60,7 +60,7 @@ impl ProfileStringTable {
         *self.hex_address_strings.entry(a).or_insert_with(|| {
             // Build the string on the stack, to save a heap allocation.
             const BUF_LEN: usize = 18;
-            let mut buf = [0u8; BUF_LEN]; // 18 is just enough to fix u64::MAX, i.e. "0xffffffffffffffff"
+            let mut buf = [0u8; BUF_LEN]; // 18 is just enough to fit u64::MAX, i.e. "0xffffffffffffffff"
             use std::io::Write;
             let mut b = &mut buf[..];
             write!(b, "{a:#x}").unwrap();
