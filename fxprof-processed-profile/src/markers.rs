@@ -90,6 +90,21 @@ pub trait Marker {
     /// If you do see unexpected calls to this method, make sure you're not registering
     /// multiple different schemas with the same [`RuntimeSchemaMarkerSchema::type_name`].
     fn number_field_value(&self, field_index: u32) -> f64;
+
+    /// Called for any fields defined in the schema whose [`format`](RuntimeSchemaMarkerField::format) is
+    /// of [kind](MarkerFieldFormat::kind) [`MarkerFieldFormatKind::Flow`].
+    ///
+    /// `field_index` is an index into the schema's [`fields`](RuntimeSchemaMarkerSchema::fields).
+    ///
+    /// Flow identifiers are u64 values that are unique across processes.
+    ///
+    /// You can panic for any unexpected field indexes, for example
+    /// using `unreachable!()`. You can even panic unconditionally if this
+    /// marker type doesn't have any flow fields.
+    ///
+    /// If you do see unexpected calls to this method, make sure you're not registering
+    /// multiple different schemas with the same [`RuntimeSchemaMarkerSchema::type_name`].
+    fn flow_field_value(&self, field_index: u32) -> u64;
 }
 
 /// The trait for markers whose schema is known at compile time. Any type which implements
@@ -138,6 +153,10 @@ pub trait Marker {
 ///     }
 ///
 ///     fn number_field_value(&self, _field_index: u32) -> f64 {
+///         unreachable!()
+///     }
+///
+///     fn flow_field_value(&self, _field_index: u32) -> u64 {
 ///         unreachable!()
 ///     }
 /// }
@@ -225,6 +244,21 @@ pub trait StaticSchemaMarker {
     /// If you do see unexpected calls to this method, make sure you're not registering
     /// multiple different schemas with the same [`RuntimeSchemaMarkerSchema::type_name`].
     fn number_field_value(&self, field_index: u32) -> f64;
+
+    /// Called for any fields defined in the schema whose [`format`](RuntimeSchemaMarkerField::format) is
+    /// of [kind](MarkerFieldFormat::kind) [`MarkerFieldFormatKind::Flow`].
+    ///
+    /// `field_index` is an index into the schema's [`fields`](RuntimeSchemaMarkerSchema::fields).
+    ///
+    /// Flow identifiers are u64 values that are unique across processes.
+    ///
+    /// You can panic for any unexpected field indexes, for example
+    /// using `unreachable!()`. You can even panic unconditionally if this
+    /// marker type doesn't have any flow fields.
+    ///
+    /// If you do see unexpected calls to this method, make sure you're not registering
+    /// multiple different schemas with the same [`RuntimeSchemaMarkerSchema::type_name`].
+    fn flow_field_value(&self, field_index: u32) -> u64;
 }
 
 impl<T: StaticSchemaMarker> Marker for T {
@@ -242,6 +276,10 @@ impl<T: StaticSchemaMarker> Marker for T {
 
     fn number_field_value(&self, field_index: u32) -> f64 {
         <T as StaticSchemaMarker>::number_field_value(self, field_index)
+    }
+
+    fn flow_field_value(&self, field_index: u32) -> u64 {
+        <T as StaticSchemaMarker>::flow_field_value(self, field_index)
     }
 }
 
@@ -510,20 +548,33 @@ pub enum MarkerFieldFormat {
     ///
     /// "Label: 52.23, 0.0054, 123,456.78"
     Decimal,
+
+    /// A flow is a u64 identifier that's unique across processes. All of
+    /// the markers with same flow id before a terminating flow id will be
+    /// considered part of the same "flow" and linked together.
+    #[serde(rename = "flow-id")]
+    Flow,
+
+    /// A terminating flow ends a flow of a particular id and allows that id
+    /// to be reused again. It often makes sense for destructors to create
+    /// a marker with a field of this type.
+    #[serde(rename = "terminating-flow-id")]
+    TerminatingFlow,
 }
 
-/// The kind of a marker field. Every marker field is either a string or a number.
+/// The kind of a marker field. Every marker field is either a string, a number, or a flow.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MarkerFieldFormatKind {
     String,
     Number,
+    Flow,
 }
 
 impl MarkerFieldFormat {
-    /// Whether this field is a number field or a string field.
+    /// Whether this field is a number field, a string field, or a flow field.
     ///
-    /// This determines whether we call `number_field_value` or
-    /// `string_field_value` to get the field values.
+    /// This determines whether we call `number_field_value`, `string_field_value`,
+    /// or `flow_field_value` to get the field values.
     pub fn kind(&self) -> MarkerFieldFormatKind {
         match self {
             Self::Url | Self::FilePath | Self::SanitizedString | Self::String => {
@@ -539,6 +590,7 @@ impl MarkerFieldFormat {
             | Self::Percentage
             | Self::Integer
             | Self::Decimal => MarkerFieldFormatKind::Number,
+            Self::Flow | Self::TerminatingFlow => MarkerFieldFormatKind::Flow,
         }
     }
 }
@@ -647,6 +699,7 @@ pub struct InternalMarkerSchema {
 
     string_field_count: usize,
     number_field_count: usize,
+    flow_field_count: usize,
 
     description: Option<String>,
 }
@@ -669,6 +722,11 @@ impl InternalMarkerSchema {
             .iter()
             .filter(|f| f.format.kind() == MarkerFieldFormatKind::Number)
             .count();
+        let flow_field_count = schema
+            .fields
+            .iter()
+            .filter(|f| f.format.kind() == MarkerFieldFormatKind::Flow)
+            .count();
         Self {
             type_name: schema.type_name,
             category: schema.category,
@@ -680,6 +738,7 @@ impl InternalMarkerSchema {
             graphs: schema.graphs,
             string_field_count,
             number_field_count,
+            flow_field_count,
             description: schema.description,
         }
     }
@@ -693,6 +752,10 @@ impl InternalMarkerSchema {
             .iter()
             .filter(|f| f.format.kind() == MarkerFieldFormatKind::Number)
             .count();
+        let flow_field_count = T::FIELDS
+            .iter()
+            .filter(|f| f.format.kind() == MarkerFieldFormatKind::Flow)
+            .count();
         Self {
             type_name: T::UNIQUE_MARKER_TYPE_NAME.into(),
             category: profile.handle_for_category(T::CATEGORY),
@@ -703,6 +766,7 @@ impl InternalMarkerSchema {
             fields: T::FIELDS.iter().map(Into::into).collect(),
             string_field_count,
             number_field_count,
+            flow_field_count,
             description: T::DESCRIPTION.map(Into::into),
             graphs: T::GRAPHS.iter().map(Into::into).collect(),
         }
@@ -722,6 +786,9 @@ impl InternalMarkerSchema {
     }
     pub fn number_field_count(&self) -> usize {
         self.number_field_count
+    }
+    pub fn flow_field_count(&self) -> usize {
+        self.flow_field_count
     }
     fn serialize_self<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where

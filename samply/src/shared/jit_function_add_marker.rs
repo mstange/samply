@@ -35,4 +35,8 @@ impl StaticSchemaMarker for JitFunctionAddMarker {
     fn number_field_value(&self, _field_index: u32) -> f64 {
         unreachable!()
     }
+
+    fn flow_field_value(&self, _field_index: u32) -> u64 {
+        unreachable!()
+    }
 }

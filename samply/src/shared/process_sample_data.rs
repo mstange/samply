@@ -184,6 +184,10 @@ impl StaticSchemaMarker for RssStatMarker {
             _ => unreachable!(),
         }
     }
+
+    fn flow_field_value(&self, _field_index: u32) -> u64 {
+        unreachable!()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -206,6 +210,10 @@ impl StaticSchemaMarker for OtherEventMarker {
     }
 
     fn number_field_value(&self, _field_index: u32) -> f64 {
+        unreachable!()
+    }
+
+    fn flow_field_value(&self, _field_index: u32) -> u64 {
         unreachable!()
     }
 }
@@ -241,6 +249,10 @@ impl StaticSchemaMarker for UserTimingMarker {
     fn number_field_value(&self, _field_index: u32) -> f64 {
         unreachable!()
     }
+
+    fn flow_field_value(&self, _field_index: u32) -> u64 {
+        unreachable!()
+    }
 }
 
 pub struct SchedSwitchMarkerOnCpuTrack;
@@ -262,6 +274,10 @@ impl StaticSchemaMarker for SchedSwitchMarkerOnCpuTrack {
     }
 
     fn number_field_value(&self, _field_index: u32) -> f64 {
+        unreachable!()
+    }
+
+    fn flow_field_value(&self, _field_index: u32) -> u64 {
         unreachable!()
     }
 }
@@ -295,6 +311,10 @@ impl StaticSchemaMarker for SchedSwitchMarkerOnThreadTrack {
     fn number_field_value(&self, _field_index: u32) -> f64 {
         self.cpu.into()
     }
+
+    fn flow_field_value(&self, _field_index: u32) -> u64 {
+        unreachable!()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -326,6 +346,10 @@ impl StaticSchemaMarker for SimpleMarker {
     }
 
     fn number_field_value(&self, _field_index: u32) -> f64 {
+        unreachable!()
+    }
+
+    fn flow_field_value(&self, _field_index: u32) -> u64 {
         unreachable!()
     }
 }
