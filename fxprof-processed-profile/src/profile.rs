@@ -1078,6 +1078,10 @@ impl Profile {
     ///     fn number_field_value(&self, _field_index: u32) -> f64 {
     ///         unreachable!()
     ///     }
+    ///
+    ///     fn flow_field_value(&self, _field_index: u32) -> u64 {
+    ///         unreachable!()
+    ///     }
     /// }
     /// ```
     pub fn add_marker<T: Marker>(
@@ -1088,9 +1092,16 @@ impl Profile {
     ) -> MarkerHandle {
         let marker_type = marker.marker_type(self);
         let name = marker.name(self);
-        let thread = &mut self.threads[thread.0];
         let schema = &self.marker_schemas[marker_type.0];
-        thread.add_marker(name, marker_type, schema, marker, timing)
+        let thread_obj = &mut self.threads[thread.0];
+        thread_obj.add_marker(
+            &mut self.string_table,
+            name,
+            marker_type,
+            schema,
+            marker,
+            timing,
+        )
     }
 
     /// Sets a marker's stack. Every marker can have an optional stack, regardless

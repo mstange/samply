@@ -253,6 +253,10 @@ impl StaticSchemaMarker for CoreClrGcAllocMarker {
     fn number_field_value(&self, _field_index: u32) -> f64 {
         self.1
     }
+
+    fn flow_field_value(&self, _field_index: u32) -> u64 {
+        unreachable!()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -288,6 +292,10 @@ impl StaticSchemaMarker for CoreClrGcEventMarker {
     }
 
     fn number_field_value(&self, _field_index: u32) -> f64 {
+        unreachable!()
+    }
+
+    fn flow_field_value(&self, _field_index: u32) -> u64 {
         unreachable!()
     }
 }
@@ -757,6 +765,10 @@ impl StaticSchemaMarker for OtherClrMarker {
     }
 
     fn number_field_value(&self, _field_index: u32) -> f64 {
+        unreachable!()
+    }
+
+    fn flow_field_value(&self, _field_index: u32) -> u64 {
         unreachable!()
     }
 }

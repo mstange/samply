@@ -1561,6 +1561,10 @@ impl ProfileContext {
             fn number_field_value(&self, _field_index: u32) -> f64 {
                 unreachable!()
             }
+
+            fn flow_field_value(&self, _field_index: u32) -> u64 {
+                unreachable!()
+            }
         }
 
         let gpu_thread = self.gpu_thread_handle.get_or_insert_with(|| {
@@ -2218,6 +2222,10 @@ impl StaticSchemaMarker for FreeformMarker {
     }
 
     fn number_field_value(&self, _field_index: u32) -> f64 {
+        unreachable!()
+    }
+
+    fn flow_field_value(&self, _field_index: u32) -> u64 {
         unreachable!()
     }
 }

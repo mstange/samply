@@ -37,6 +37,14 @@ pub struct MarkerTable {
     /// https://github.com/firefox-devtools/profiler/issues/5022 tracks supporting string indexes
     /// for the other string format variants.
     marker_field_string_values: Vec<StringHandle>,
+    /// The field values for any marker fields of [kind](`MarkerFieldFormat::kind`) [`MarkerFieldFormatKind::Flow`].
+    ///
+    /// This Vec can contain zero or more values per marker, depending on the marker's
+    /// type's schema's `flow_field_count`. For the marker with index i,
+    /// its field values will be at index sum_{k in 0..i}(marker_schema[k].flow_field_count).
+    ///
+    /// Flow identifiers are serialized as string indexes.
+    marker_field_flow_values: Vec<StringHandle>,
 }
 
 impl MarkerTable {
@@ -47,6 +55,7 @@ impl MarkerTable {
     #[allow(clippy::too_many_arguments)]
     pub fn add_marker<T: Marker>(
         &mut self,
+        string_table: &mut ProfileStringTable,
         name_string_index: StringHandle,
         marker_type_handle: MarkerTypeHandle,
         schema: &InternalMarkerSchema,
@@ -75,6 +84,13 @@ impl MarkerTable {
                 MarkerFieldFormatKind::Number => {
                     let number_value = marker.number_field_value(field_index as u32);
                     self.marker_field_number_values.push(number_value)
+                }
+                MarkerFieldFormatKind::Flow => {
+                    let flow_value = marker.flow_field_value(field_index as u32);
+                    // Convert flow ID to hex string and store as StringHandle
+                    let hex_string = format!("{flow_value:x}");
+                    let flow_string_handle = string_table.index_for_string(&hex_string);
+                    self.marker_field_flow_values.push(flow_string_handle);
                 }
             }
         }
@@ -138,22 +154,27 @@ impl Serialize for SerializableMarkerTableDataColumn<'_> {
         let mut seq = serializer.serialize_seq(Some(len))?;
         let mut remaining_string_fields = &marker_table.marker_field_string_values[..];
         let mut remaining_number_fields = &marker_table.marker_field_number_values[..];
+        let mut remaining_flow_fields = &marker_table.marker_field_flow_values[..];
         for i in 0..len {
             let marker_type_handle = marker_table.marker_type_handles[i];
             let stack_index = marker_table.marker_stacks[i];
             let schema = &schemas[marker_type_handle.0];
             let string_fields;
             let number_fields;
+            let flow_fields;
             (string_fields, remaining_string_fields) =
                 remaining_string_fields.split_at(schema.string_field_count());
             (number_fields, remaining_number_fields) =
                 remaining_number_fields.split_at(schema.number_field_count());
+            (flow_fields, remaining_flow_fields) =
+                remaining_flow_fields.split_at(schema.flow_field_count());
             seq.serialize_element(&SerializableMarkerDataElement {
                 string_table,
                 stack_index,
                 schema,
                 string_fields,
                 number_fields,
+                flow_fields,
             })?;
         }
         seq.end()
@@ -166,6 +187,7 @@ struct SerializableMarkerDataElement<'a> {
     schema: &'a InternalMarkerSchema,
     string_fields: &'a [StringHandle],
     number_fields: &'a [f64],
+    flow_fields: &'a [StringHandle],
 }
 
 impl Serialize for SerializableMarkerDataElement<'_> {
@@ -176,6 +198,7 @@ impl Serialize for SerializableMarkerDataElement<'_> {
             schema,
             mut string_fields,
             mut number_fields,
+            mut flow_fields,
         } = self;
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry("type", &schema.type_name())?;
@@ -197,6 +220,11 @@ impl Serialize for SerializableMarkerDataElement<'_> {
                 MarkerFieldFormatKind::Number => {
                     let value;
                     (value, number_fields) = number_fields.split_first().unwrap();
+                    map.serialize_entry(&field.key, value)?;
+                }
+                MarkerFieldFormatKind::Flow => {
+                    let value;
+                    (value, flow_fields) = flow_fields.split_first().unwrap();
                     map.serialize_entry(&field.key, value)?;
                 }
             }

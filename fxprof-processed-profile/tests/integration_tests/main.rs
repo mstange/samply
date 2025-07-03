@@ -5,7 +5,7 @@ use assert_json_diff::assert_json_eq;
 use debugid::DebugId;
 use fxprof_processed_profile::{
     Category, CategoryColor, CpuDelta, FrameAddress, FrameFlags, GraphColor, LibraryInfo,
-    MarkerFieldFlags, MarkerFieldFormat, MarkerGraphType, MarkerTiming, Profile,
+    MarkerFieldFlags, MarkerFieldFormat, MarkerGraphType, MarkerLocations, MarkerTiming, Profile,
     ReferenceTimestamp, SamplingInterval, StaticSchemaMarker, StaticSchemaMarkerField,
     StaticSchemaMarkerGraph, StringHandle, Symbol, SymbolTable, Timestamp, WeightType,
 };
@@ -40,6 +40,10 @@ impl StaticSchemaMarker for TextMarker {
     }
 
     fn number_field_value(&self, _field_index: u32) -> f64 {
+        unreachable!()
+    }
+
+    fn flow_field_value(&self, _field_index: u32) -> u64 {
         unreachable!()
     }
 }
@@ -110,6 +114,10 @@ fn profile_without_js() {
                 3 => self.latency.as_secs_f64() * 1000.0,
                 _ => unreachable!(),
             }
+        }
+
+        fn flow_field_value(&self, _field_index: u32) -> u64 {
+            unreachable!()
         }
     }
 
@@ -1532,4 +1540,255 @@ fn profile_counters_with_sorted_processes() {
           }
         )
     )
+}
+
+#[test]
+fn test_flow_marker_fields() {
+    /// A marker type with flow fields to test Flow and TerminatingFlow support.
+    #[derive(Debug, Clone)]
+    pub struct FlowMarker {
+        pub name: StringHandle,
+        pub flow_id: u64,
+        pub terminating_flow_id: u64,
+    }
+
+    impl StaticSchemaMarker for FlowMarker {
+        const UNIQUE_MARKER_TYPE_NAME: &'static str = "FlowTest";
+        const LOCATIONS: MarkerLocations =
+            MarkerLocations::MARKER_CHART.union(MarkerLocations::MARKER_TABLE);
+        const CHART_LABEL: Option<&'static str> = Some("{marker.name}");
+        const TABLE_LABEL: Option<&'static str> =
+            Some("{marker.name} - flow:{marker.data.flowId} term:{marker.data.termFlowId}");
+
+        const FIELDS: &'static [StaticSchemaMarkerField] = &[
+            StaticSchemaMarkerField {
+                key: "flowId",
+                label: "Flow ID",
+                format: MarkerFieldFormat::Flow,
+                flags: MarkerFieldFlags::SEARCHABLE,
+            },
+            StaticSchemaMarkerField {
+                key: "termFlowId",
+                label: "Terminating Flow ID",
+                format: MarkerFieldFormat::TerminatingFlow,
+                flags: MarkerFieldFlags::SEARCHABLE,
+            },
+        ];
+
+        fn name(&self, _profile: &mut Profile) -> StringHandle {
+            self.name
+        }
+
+        fn string_field_value(&self, _field_index: u32) -> StringHandle {
+            unreachable!()
+        }
+
+        fn number_field_value(&self, _field_index: u32) -> f64 {
+            unreachable!()
+        }
+
+        fn flow_field_value(&self, field_index: u32) -> u64 {
+            match field_index {
+                0 => self.flow_id,
+                1 => self.terminating_flow_id,
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    let mut profile = Profile::new(
+        "test",
+        ReferenceTimestamp::from_millis_since_unix_epoch(1636162232627.0),
+        SamplingInterval::from_millis(1),
+    );
+
+    let process = profile.add_process("test", 123, Timestamp::from_millis_since_reference(0.0));
+    let thread = profile.add_thread(
+        process,
+        12345,
+        Timestamp::from_millis_since_reference(0.0),
+        true,
+    );
+
+    // Add a flow marker
+    let marker_name = profile.handle_for_string("Flow Start");
+    let flow_marker = FlowMarker {
+        name: marker_name,
+        flow_id: 0xab54a98ceb1f0ad2,
+        terminating_flow_id: 0x891087b8e3b70cb1,
+    };
+
+    profile.add_marker(
+        thread,
+        MarkerTiming::Instant(Timestamp::from_millis_since_reference(10.0)),
+        flow_marker,
+    );
+
+    // eprintln!("{}", serde_json::to_string_pretty(&profile).unwrap());
+    assert_json_eq!(
+        profile,
+        json!(
+          {
+            "meta": {
+              "categories": [
+                {
+                  "name": "Other",
+                  "color": "grey",
+                  "subcategories": [
+                    "Other"
+                  ]
+                }
+              ],
+              "debug": false,
+              "extensions": {
+                "baseURL": [],
+                "id": [],
+                "length": 0,
+                "name": []
+              },
+              "interval": 1.0,
+              "preprocessedProfileVersion": 56,
+              "processType": 0,
+              "product": "test",
+              "sampleUnits": {
+                "eventDelay": "ms",
+                "threadCPUDelta": "µs",
+                "time": "ms"
+              },
+              "startTime": 1636162232627.0,
+              "symbolicated": false,
+              "pausedRanges": [],
+              "version": 24,
+              "usesOnlyOneStackType": true,
+              "sourceCodeIsNotOnSearchfox": true,
+              "markerSchema": [
+                {
+                  "name": "FlowTest",
+                  "display": [
+                    "marker-chart",
+                    "marker-table"
+                  ],
+                  "chartLabel": "{marker.name}",
+                  "tableLabel": "{marker.name} - flow:{marker.data.flowId} term:{marker.data.termFlowId}",
+                  "fields": [
+                    {
+                      "key": "flowId",
+                      "label": "Flow ID",
+                      "format": "flow-id",
+                      "searchable": true
+                    },
+                    {
+                      "key": "termFlowId",
+                      "label": "Terminating Flow ID",
+                      "format": "terminating-flow-id",
+                      "searchable": true
+                    }
+                  ]
+                }
+              ]
+            },
+            "libs": [],
+            "shared": {
+              "stringArray": [
+                "Flow Start",
+                "ab54a98ceb1f0ad2",
+                "891087b8e3b70cb1"
+              ]
+            },
+            "threads": [
+              {
+                "frameTable": {
+                  "length": 0,
+                  "func": [],
+                  "category": [],
+                  "subcategory": [],
+                  "line": [],
+                  "column": [],
+                  "address": [],
+                  "nativeSymbol": [],
+                  "inlineDepth": [],
+                  "innerWindowID": []
+                },
+                "funcTable": {
+                  "length": 0,
+                  "name": [],
+                  "isJS": [],
+                  "relevantForJS": [],
+                  "resource": [],
+                  "fileName": [],
+                  "lineNumber": [],
+                  "columnNumber": []
+                },
+                "markers": {
+                  "length": 1,
+                  "category": [
+                    0
+                  ],
+                  "data": [
+                    {
+                      "type": "FlowTest",
+                      "flowId": 1,
+                      "termFlowId": 2
+                    }
+                  ],
+                  "endTime": [
+                    0.0
+                  ],
+                  "name": [
+                    0
+                  ],
+                  "phase": [
+                    0
+                  ],
+                  "startTime": [
+                    10.0
+                  ]
+                },
+                "name": "test",
+                "isMainThread": true,
+                "nativeSymbols": {
+                  "length": 0,
+                  "address": [],
+                  "functionSize": [],
+                  "libIndex": [],
+                  "name": []
+                },
+                "pausedRanges": [],
+                "pid": "123",
+                "processName": "test",
+                "processShutdownTime": null,
+                "processStartupTime": 0.0,
+                "processType": "default",
+                "registerTime": 0.0,
+                "resourceTable": {
+                  "length": 0,
+                  "lib": [],
+                  "name": [],
+                  "host": [],
+                  "type": []
+                },
+                "samples": {
+                  "length": 0,
+                  "weightType": "samples",
+                  "stack": [],
+                  "timeDeltas": [],
+                  "weight": [],
+                  "threadCPUDelta": []
+                },
+                "stackTable": {
+                  "length": 0,
+                  "prefix": [],
+                  "frame": []
+                },
+                "tid": "12345",
+                "unregisterTime": null,
+                "showMarkersInTimeline": false
+              }
+            ],
+            "pages": [],
+            "profilerOverhead": [],
+            "counters": []
+          }
+        )
+    );
 }

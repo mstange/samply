@@ -167,6 +167,7 @@ impl Thread {
     #[allow(clippy::too_many_arguments)]
     pub fn add_marker<T: Marker>(
         &mut self,
+        string_table: &mut ProfileStringTable,
         name_string_index: StringHandle,
         marker_type_handle: MarkerTypeHandle,
         schema: &InternalMarkerSchema,
@@ -174,6 +175,7 @@ impl Thread {
         timing: MarkerTiming,
     ) -> MarkerHandle {
         self.markers.add_marker(
+            string_table,
             name_string_index,
             marker_type_handle,
             schema,

@@ -179,6 +179,10 @@ impl StaticSchemaMarker for ThreadNameMarkerForCpuTrack {
     fn number_field_value(&self, _field_index: u32) -> f64 {
         unreachable!()
     }
+
+    fn flow_field_value(&self, _field_index: u32) -> u64 {
+        unreachable!()
+    }
 }
 
 /// An example marker type with some text content.
@@ -224,6 +228,10 @@ impl StaticSchemaMarker for OnCpuMarkerForThreadTrack {
     }
 
     fn number_field_value(&self, _field_index: u32) -> f64 {
+        unreachable!()
+    }
+
+    fn flow_field_value(&self, _field_index: u32) -> u64 {
         unreachable!()
     }
 }
