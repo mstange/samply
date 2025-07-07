@@ -1663,9 +1663,9 @@ dependencies = [
 
 [[package]]
 name = "plist"
-version = "1.7.2"
+version = "1.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d77244ce2d584cd84f6a15f86195b8c9b2a0dfbfd817c09e0464244091a58ed"
+checksum = "546b279bf0638ee811d9e47de2ca5b66575a543035d79fdf83959dd2f5c3b4c3"
 dependencies = [
  "base64",
  "indexmap",
