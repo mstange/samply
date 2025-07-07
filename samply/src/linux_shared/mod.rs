@@ -16,7 +16,7 @@ mod thread;
 #[allow(unused)]
 pub mod vdso;
 
-pub use convert_regs::{ConvertRegs, ConvertRegsAarch64, ConvertRegsX86_64};
+pub use convert_regs::{ConvertRegs, ConvertRegsAarch64, ConvertRegsX86_64, ConvertRegsArmhf};
 pub use converter::Converter;
 #[allow(unused)]
 pub use event_interpretation::{EventInterpretation, KnownEvent, OffCpuIndicator};
