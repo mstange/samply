@@ -58,6 +58,71 @@ use crate::shared::unresolved_samples::{
 };
 use crate::shared::utils::open_file_with_fallback;
 
+use byteorder::NativeEndian;
+use byteorder::ByteOrder;
+use std::mem;
+use crate::linux_shared::converter::linux_perf_event_reader::RawData;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct RawDataU32<'a> {
+    swapped_endian: bool,
+    raw_data: RawData<'a>,
+}
+
+pub fn is_swapped_endian<T: ByteOrder>() -> bool {
+    let mut buf = [0; 2];
+    T::write_u16(&mut buf, 0x1234);
+    u16::from_ne_bytes(buf) != 0x1234
+}
+
+impl<'a> RawDataU32<'a> {
+    #[inline]
+    pub fn from_raw_data<T: ByteOrder>(raw_data: RawData<'a>) -> Self {
+        RawDataU32 {
+            raw_data,
+            swapped_endian: is_swapped_endian::<T>(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.raw_data.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.raw_data.len() / mem::size_of::<u32>()
+    }
+
+    pub fn get(&self, index: usize) -> Option<u32> {
+        let offset = index * mem::size_of::<u32>();
+        let mut data = self.raw_data;
+        data.skip(offset).ok()?;
+        let value = data.read_u32::<NativeEndian>().ok()?;
+        Some(if self.swapped_endian {
+            value.swap_bytes()
+        } else {
+            value
+        })
+    }
+}
+
+impl std::fmt::Debug for RawDataU32<'_> {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        let mut list = fmt.debug_list();
+        let mut data = self.raw_data;
+        while let Ok(value) = data.read_u64::<NativeEndian>() {
+            let value = if self.swapped_endian {
+                value.swap_bytes()
+            } else {
+                value
+            };
+            list.entry(&value);
+        }
+
+        list.finish()
+    }
+}
+
+
 pub struct Converter<U>
 where
     U: Unwinder<Module = Module<MmapRangeOrVec>> + Default,
@@ -642,9 +707,9 @@ where
 
                 let stack_frame =
                     match (is_first_frame, call_chain_return_addresses_are_preadjusted) {
-                        (true, _) => StackFrame::InstructionPointer(address, mode),
-                        (false, false) => StackFrame::ReturnAddress(address, mode),
-                        (false, true) => StackFrame::AdjustedReturnAddress(address, mode),
+                        (true, _) => StackFrame::InstructionPointer(address & 0x00000000_fffffffeu64, mode),
+                        (false, false) => StackFrame::ReturnAddress(address & 0x00000000_fffffffeu64, mode),
+                        (false, true) => StackFrame::AdjustedReturnAddress(address & 0x00000000_fffffffeu64, mode),
                     };
                 stack.push(stack_frame);
 
@@ -654,13 +719,16 @@ where
 
         // Append the user stack with the help of DWARF unwinding.
         if let (Some(regs), Some((user_stack, _))) = (&e.user_regs, e.user_stack) {
-            let ustack_bytes = RawDataU64::from_raw_data::<LittleEndian>(user_stack);
+            let ustack_bytes = RawDataU32::from_raw_data::<LittleEndian>(user_stack);
             let (pc, sp, regs) = C::convert_regs(regs);
+            // println!("pc: {:x}, sp: {:x}", pc, sp);
             let mut read_stack = |addr: u64| {
                 // ustack_bytes has the stack bytes starting from the current stack pointer.
                 let offset = addr.checked_sub(sp).ok_or(())?;
-                let index = usize::try_from(offset / 8).map_err(|_| ())?;
-                ustack_bytes.get(index).ok_or(())
+                let index = usize::try_from(offset / 4).map_err(|_| ())?;
+                let result = ustack_bytes.get(index).ok_or(())?;
+                // println!("Stack: {:x} = {:x}", addr, result);
+                Ok(result as u64)
             };
 
             // Unwind.
@@ -676,10 +744,12 @@ where
                 };
                 let stack_frame = match frame {
                     FrameAddress::InstructionPointer(addr) => {
-                        StackFrame::InstructionPointer(addr, StackMode::User)
+                        // println!("Stack frame: {:x}", addr & 0x00000000_fffffffeu64);
+                        StackFrame::InstructionPointer(addr & 0x00000000_fffffffeu64, StackMode::User)
                     }
                     FrameAddress::ReturnAddress(addr) => {
-                        StackFrame::ReturnAddress(addr.into(), StackMode::User)
+                        // println!("(+)Stack frame: {:x}", addr.get() & 0x00000000_fffffffeu64);
+                        StackFrame::ReturnAddress(addr.get() & 0x00000000_fffffffeu64, StackMode::User)
                     }
                 };
                 stack.push(stack_frame);
