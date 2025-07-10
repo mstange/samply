@@ -126,9 +126,9 @@ pub fn list_etw_providers() {
                 );
             }
         } else {
-            println!("TdhEnumerateProviders failed with error code {:?}", status);
+            println!("TdhEnumerateProviders failed with error code {status:?}");
         }
     } else {
-        println!("TdhEnumerateProviders failed with error code {:?}", status);
+        println!("TdhEnumerateProviders failed with error code {status:?}");
     }
 }
