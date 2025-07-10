@@ -643,7 +643,7 @@ impl ProfileContext {
         // if we didn't translate (still have a \\ path), prefix with GLOBALROOT as
         // an escape
         if path.starts_with("\\\\") {
-            format!("\\\\?\\GLOBALROOT{}", path)
+            format!("\\\\?\\GLOBALROOT{path}")
         } else {
             path.into()
         }
@@ -798,7 +798,7 @@ impl ProfileContext {
         let (process_handle, main_thread_handle, main_thread_label) = if let Some(recycling_data) =
             &recycling_data
         {
-            log::info!("Found old process for pid {} and name {}", pid, name);
+            log::info!("Found old process for pid {pid} and name {name}");
             let (main_thread_handle, main_thread_label) = recycling_data.main_thread_recycling_data;
             (
                 recycling_data.process_handle,

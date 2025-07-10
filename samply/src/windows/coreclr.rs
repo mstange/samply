@@ -352,8 +352,7 @@ pub fn coreclr_xperf_args(props: &ElevatedRecordingProps) -> Vec<String> {
 
     if info_keywords != 0 {
         providers.push(format!(
-            "Microsoft-Windows-DotNETRuntime:0x{:x}:4",
-            info_keywords
+            "Microsoft-Windows-DotNETRuntime:0x{info_keywords:x}:4"
         ));
     }
 
@@ -364,15 +363,13 @@ pub fn coreclr_xperf_args(props: &ElevatedRecordingProps) -> Vec<String> {
         // and I'm not sure which events include the mapping -- MethodJittingStarted is also
         // verbose).
         providers.push(format!(
-            "Microsoft-Windows-DotNETRuntime:0x{:x}:5",
-            verbose_keywords
+            "Microsoft-Windows-DotNETRuntime:0x{verbose_keywords:x}:5"
         ));
     }
 
     if rundown_verbose_keywords != 0 {
         providers.push(format!(
-            "Microsoft-Windows-DotNETRuntimeRundown:0x{:x}:5",
-            rundown_verbose_keywords
+            "Microsoft-Windows-DotNETRuntimeRundown:0x{rundown_verbose_keywords:x}:5"
         ));
     }
 
@@ -560,7 +557,7 @@ pub fn handle_coreclr_event(
                     let _object_count: u32 = parser.parse("ObjectCountForTypeSample");
                     let total_size: u64 = parser.parse("TotalSizeForTypeSample");
 
-                    let clr_type = context.handle_for_profile_string(&format!("0x{:x}", type_id));
+                    let clr_type = context.handle_for_profile_string(&format!("0x{type_id:x}"));
                     let mh = context.add_thread_instant_marker(
                         timestamp_raw,
                         tid,
@@ -576,7 +573,7 @@ pub fn handle_coreclr_event(
 
                     let reason: u32 = parser.parse("Reason");
                     let reason = GcReason::from_u32(reason).or_else(|| {
-                        eprintln!("Unknown CLR GC Triggered reason: {}", reason);
+                        eprintln!("Unknown CLR GC Triggered reason: {reason}");
                         None
                     });
 
@@ -603,7 +600,7 @@ pub fn handle_coreclr_event(
                     let reason: u32 = parser.parse("Reason");
 
                     let reason = GcSuspendEeReason::from_u32(reason).or_else(|| {
-                        eprintln!("Unknown CLR GCSuspendEEBegin reason: {}", reason);
+                        eprintln!("Unknown CLR GCSuspendEEBegin reason: {reason}");
                         None
                     });
 
@@ -648,12 +645,12 @@ pub fn handle_coreclr_event(
                     let gc_type: u32 = parser.parse("Type");
 
                     let reason = GcReason::from_u32(reason).or_else(|| {
-                        eprintln!("Unknown CLR GCStart reason: {}", reason);
+                        eprintln!("Unknown CLR GCStart reason: {reason}");
                         None
                     });
 
                     let gc_type = GcType::from_u32(gc_type).or_else(|| {
-                        eprintln!("Unknown CLR GCStart type: {}", gc_type);
+                        eprintln!("Unknown CLR GCStart type: {gc_type}");
                         None
                     });
 

@@ -91,7 +91,7 @@ fn process_trace(
                 let clock_type: u32 = parser.parse("ReservedFlags");
                 let events_lost: u32 = parser.parse("EventsLost");
                 if events_lost != 0 {
-                    log::warn!("{} events lost", events_lost);
+                    log::warn!("{events_lost} events lost");
                 }
 
                 context.handle_header(timestamp_raw, perf_freq, clock_type);

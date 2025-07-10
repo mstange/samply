@@ -105,8 +105,7 @@ pub fn run(
                 let exit_status = child.wait().unwrap();
                 if !process_launch_props.ignore_exit_code && !exit_status.success() {
                     eprintln!(
-                        "Skipping remaining iterations due to non-success exit status: \"{}\"",
-                        exit_status
+                        "Skipping remaining iterations due to non-success exit status: \"{exit_status}\""
                     );
                     break;
                 }

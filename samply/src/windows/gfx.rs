@@ -14,8 +14,7 @@ pub fn gfx_xperf_args(props: &ElevatedRecordingProps) -> Vec<String> {
 
     if level_1_dxgkrnl_keywords != 0 {
         providers.push(format!(
-            "Microsoft-Windows-DxgKrnl:0x{:x}:1",
-            level_1_dxgkrnl_keywords
+            "Microsoft-Windows-DxgKrnl:0x{level_1_dxgkrnl_keywords:x}:1"
         ));
     }
 
