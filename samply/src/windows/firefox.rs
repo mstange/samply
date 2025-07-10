@@ -37,7 +37,7 @@ pub fn firefox_xperf_args(props: &ElevatedRecordingProps) -> Vec<String> {
 
     // UserTiming + GC markers
     let bits = (EtwMarkerGroup::UserMarkers | EtwMarkerGroup::Memory).bits();
-    providers.push(format!("{}:{:#x}", FIREFOX_PROVIDER_GUID, bits));
+    providers.push(format!("{FIREFOX_PROVIDER_GUID}:{bits:#x}"));
 
     providers
 }

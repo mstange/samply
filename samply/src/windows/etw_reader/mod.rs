@@ -250,13 +250,13 @@ pub fn start_trace<F: FnMut(&EventRecord)>(mut callback: F) {
             &info.properties as *const _ as *mut _,
             Etw::EVENT_TRACE_CONTROL_STOP,
         );
-        println!("ControlTrace = {:?}", status);
+        println!("ControlTrace = {status:?}");
         let status = Etw::StartTraceW(
             &mut handle,
             session_name,
             &info.properties as *const _ as *mut _,
         );
-        println!("StartTrace = {:?} handle {:?}", status, handle);
+        println!("StartTrace = {status:?} handle {handle:?}");
         info.trace_name = [0; 260];
 
         let status = Etw::ControlTraceW(
@@ -308,9 +308,9 @@ pub fn start_trace<F: FnMut(&EventRecord)>(mut callback: F) {
 
         panic!("Invalid handle");
     }
-    println!("OpenTrace {:?}", session_handle);
+    println!("OpenTrace {session_handle:?}");
     let status = unsafe { Etw::ProcessTrace(&[session_handle], None, None) };
-    println!("status: {:?}", status);
+    println!("status: {status:?}");
 }
 
 pub fn event_properties_to_string(
@@ -386,7 +386,7 @@ pub fn write_property(
                 }
             }
             if cleared_value != 0 {
-                remaining_bits_str = format!("{:x}", cleared_value);
+                remaining_bits_str = format!("{cleared_value:x}");
                 matches.push(&remaining_bits_str);
                 //println!("unnamed bits {:x} {:x} {:x?}", value, cleared_value, map_info.map);
             }
@@ -399,7 +399,7 @@ pub fn write_property(
                     .map
                     .get(&value)
                     .map(Cow::from)
-                    .unwrap_or_else(|| Cow::from(format!("Unknown: {}", value)))
+                    .unwrap_or_else(|| Cow::from(format!("Unknown: {value}")))
             )
             .unwrap();
         }
@@ -438,21 +438,21 @@ pub fn write_property(
                     TdhInType::InTypeUInt64 => {
                         let i = TryParse::<u64>::try_parse(parser, &property.name);
                         if desc.out_type == TdhOutType::OutTypeHexInt64 {
-                            i.map(|x| format!("0x{:x}", x))
+                            i.map(|x| format!("0x{x:x}"))
                         } else {
                             i.map(|x| x.to_string())
                         }
                     }
                     TdhInType::InTypeHexInt64 => {
                         let i = TryParse::<i64>::try_parse(parser, &property.name);
-                        i.map(|x| format!("0x{:x}", x))
+                        i.map(|x| format!("0x{x:x}"))
                     }
                     TdhInType::InTypePointer | TdhInType::InTypeSizeT => {
                         TryParse::<u64>::try_parse(parser, &property.name)
-                            .map(|x| format!("0x{:x}", x))
+                            .map(|x| format!("0x{x:x}"))
                     }
                     TdhInType::InTypeGuid => TryParse::<GUID>::try_parse(parser, &property.name)
-                        .map(|x| format!("{:?}", x)),
+                        .map(|x| format!("{x:?}")),
                     TdhInType::InTypeInt32 => {
                         TryParse::<i32>::try_parse(parser, &property.name).map(|x| x.to_string())
                     }
@@ -478,14 +478,14 @@ pub fn write_property(
             ),
             Err(e) => format!("Err({:?}) type: {:?}", e, property.desc),
         };
-        write!(output, "{}", value).unwrap();
+        write!(output, "{value}").unwrap();
     }
 }
 
 pub fn print_property(parser: &mut Parser, property: &Property, write_types: bool) {
     let mut result = String::new();
     write_property(&mut result, parser, property, write_types);
-    println!("{}", result);
+    println!("{result}");
 }
 
 pub fn add_custom_schemas(locator: &mut SchemaLocator) {
@@ -535,7 +535,7 @@ pub fn enumerate_trace_guids_ex(print_instances: bool) {
             vec![GUID::zeroed(); required_size as usize / mem::size_of::<GUID>()];
 
         let size = (guids.len() * mem::size_of::<GUID>()) as u32;
-        println!("get {}", required_size);
+        println!("get {required_size}");
 
         let result = unsafe {
             EnumerateTraceGuidsEx(
@@ -550,7 +550,7 @@ pub fn enumerate_trace_guids_ex(print_instances: bool) {
         match result.ok() {
             Ok(()) => {
                 for guid in guids.iter() {
-                    println!("{:?}", guid);
+                    println!("{guid:?}");
                     let info = get_provider_info(guid);
                     let instance_count =
                         unsafe { *(info.as_ptr() as *const TRACE_GUID_INFO) }.InstanceCount;
@@ -609,7 +609,7 @@ pub fn get_provider_info(guid: &GUID) -> Vec<u8> {
             }
             Err(e) => {
                 if e.code() != ERROR_INSUFFICIENT_BUFFER.to_hresult() {
-                    panic!("{:?}", e);
+                    panic!("{e:?}");
                 }
             }
         }

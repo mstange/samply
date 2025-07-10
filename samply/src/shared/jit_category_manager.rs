@@ -31,25 +31,85 @@ impl JitCategoryManager {
     /// (prefix, name, color, is_js)
     const CATEGORIES: &'static [(&'static str, Category<'static>, bool)] = &[
         // JSC categories.
-        ("JSC-Baseline: ", Category("Baseline", CategoryColor::Blue), true),
+        (
+            "JSC-Baseline: ",
+            Category("Baseline", CategoryColor::Blue),
+            true,
+        ),
         ("JSC-DFG: ", Category("DFG", CategoryColor::Magenta), true),
         ("JSC-FTL: ", Category("FTL", CategoryColor::Green), true),
-        ("JSC-DFGOSREntry: ", Category("DFGOSREntry", CategoryColor::DarkGray), false),
-        ("JSC-DFGOSRExit: ", Category("DFGOSRExit", CategoryColor::DarkGray), false),
-        ("JSC-FTLOSRExit: ", Category("FTLOSRExit", CategoryColor::DarkGray), false),
-        ("JSC-InlineCache: ", Category("IC", CategoryColor::Brown), false),
-        ("JSC-JumpIsland: ", Category("JumpIsland", CategoryColor::DarkGray), false),
-        ("JSC-Thunk: ", Category("Thunk", CategoryColor::DarkGray), false),
-        ("JSC-LLIntThunk: ", Category("LLIntThunk", CategoryColor::DarkGray), false),
-        ("JSC-DFGThunk: ", Category("DFGThunk", CategoryColor::DarkGray), false),
-        ("JSC-FTLThunk: ", Category("FTLThunk", CategoryColor::DarkGray), false),
-        ("JSC-WasmThunk: ", Category("WasmThunk", CategoryColor::DarkGray), false),
-        ("JSC-ExtraCTIThunk: ", Category("ExtraCTIThunk", CategoryColor::DarkGray), false),
+        (
+            "JSC-DFGOSREntry: ",
+            Category("DFGOSREntry", CategoryColor::DarkGray),
+            false,
+        ),
+        (
+            "JSC-DFGOSRExit: ",
+            Category("DFGOSRExit", CategoryColor::DarkGray),
+            false,
+        ),
+        (
+            "JSC-FTLOSRExit: ",
+            Category("FTLOSRExit", CategoryColor::DarkGray),
+            false,
+        ),
+        (
+            "JSC-InlineCache: ",
+            Category("IC", CategoryColor::Brown),
+            false,
+        ),
+        (
+            "JSC-JumpIsland: ",
+            Category("JumpIsland", CategoryColor::DarkGray),
+            false,
+        ),
+        (
+            "JSC-Thunk: ",
+            Category("Thunk", CategoryColor::DarkGray),
+            false,
+        ),
+        (
+            "JSC-LLIntThunk: ",
+            Category("LLIntThunk", CategoryColor::DarkGray),
+            false,
+        ),
+        (
+            "JSC-DFGThunk: ",
+            Category("DFGThunk", CategoryColor::DarkGray),
+            false,
+        ),
+        (
+            "JSC-FTLThunk: ",
+            Category("FTLThunk", CategoryColor::DarkGray),
+            false,
+        ),
+        (
+            "JSC-WasmThunk: ",
+            Category("WasmThunk", CategoryColor::DarkGray),
+            false,
+        ),
+        (
+            "JSC-ExtraCTIThunk: ",
+            Category("ExtraCTIThunk", CategoryColor::DarkGray),
+            false,
+        ),
         ("JSC-WasmOMG: ", Category("OMG", CategoryColor::Green), true),
         ("JSC-WasmBBQ: ", Category("BBQ", CategoryColor::Blue), true),
-        ("JSC-YarrJIT: ", Category("YarrJIT", CategoryColor::Red), false),
-        ("JSC-CSSJIT: ", Category("CSSJIT", CategoryColor::Red), false),
-        ("JSC-Uncategorized: ", Category("Uncategorized", CategoryColor::DarkGray), false),
+        (
+            "JSC-YarrJIT: ",
+            Category("YarrJIT", CategoryColor::Red),
+            false,
+        ),
+        (
+            "JSC-CSSJIT: ",
+            Category("CSSJIT", CategoryColor::Red),
+            false,
+        ),
+        (
+            "JSC-Uncategorized: ",
+            Category("Uncategorized", CategoryColor::DarkGray),
+            false,
+        ),
         // V8 prefixes: https://source.chromium.org/chromium/chromium/src/+/main:v8/src/objects/code-kind.cc;l=21;drc=5fe0c7b2435bb2d92f434a81272b6752a5f34b9b
         (
             "JS:~",
