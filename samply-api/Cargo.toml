@@ -24,7 +24,7 @@ yaxpeax-x86 = { version = "2", default-features = false, features = ["std", "fmt
 yaxpeax-arm = { version = "0.3", default-features = false, features = ["std"] }
 
 [dev-dependencies]
-memmap2 = "0.9.4"
+memmap2 = "0.9.7"
 anyhow = "1"
 futures = "0.3.5"
 assert-json-diff = "2.0.1"

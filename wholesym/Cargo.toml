@@ -34,7 +34,7 @@ reqwest = { version = "0.12", default-features = false, features = [
     "deflate"
 ] }
 bytes = "1.10"
-memmap2 = "0.9.4"
+memmap2 = "0.9.7"
 tokio = { version = "1.38", features = ["fs"] }
 futures-util = "0.3.30"
 fs4 = "0.13"
