@@ -2204,7 +2204,7 @@ impl StaticSchemaMarker for FreeformMarker {
 
     const CHART_LABEL: Option<&'static str> = Some("{marker.data.values}");
     const TOOLTIP_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.values}");
-    const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.values");
+    const TABLE_LABEL: Option<&'static str> = Some("{marker.name} - {marker.data.values}");
 
     const FIELDS: &'static [StaticSchemaMarkerField] = &[StaticSchemaMarkerField {
         key: "values",
