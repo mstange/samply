@@ -523,6 +523,64 @@ fn process_trace(
                     is_in_range,
                 );
             }
+
+            "D3DUmdLogging/MapAllocation/Start"
+            | "D3DUmdLogging/MapAllocation/End" => {
+                //println!("MapAllocation");
+                if !context.is_in_time_range(timestamp_raw) {
+                    return;
+                }
+                let tid = e.EventHeader.ThreadId;
+                if !context.has_thread_at_time(tid, timestamp_raw) {
+                    return;
+                }
+
+                let size: u64 = parser.try_parse("Size").unwrap();
+                let address: u64 = parser.try_parse("hDxgAllocation").unwrap();
+
+
+                let task_and_op = s.name().split_once('/').unwrap().1;
+                let text = event_properties_to_string(&s, &mut parser, None);
+                let marker = context.handle_unknown_event(timestamp_raw, tid, task_and_op, text);
+
+                if e.ExtendedDataCount > 0 && marker.is_some() {
+                    let items = unsafe {
+                        std::slice::from_raw_parts(e.ExtendedData, e.ExtendedDataCount as usize)
+                    };
+                    for i in items {
+                        match i.ExtType as u32 {
+                            Etw::EVENT_HEADER_EXT_TYPE_STACK_TRACE64 => {
+                                // see ProcessExtendedData in TraceLog.cs from perfview
+                                let data: &[u8] = unsafe {
+                                    std::slice::from_raw_parts(
+                                        i.DataPtr as *const u8,
+                                        i.DataSize as usize,
+                                    )
+                                };
+                                let _match_id = u64::from_ne_bytes(
+                                    <[u8; 8]>::try_from(&data[0..8]).unwrap(),
+                                );
+                                let stack_address_iter = data[8..]
+                                    .chunks_exact(8)
+                                    .map(|a| u64::from_ne_bytes(a.try_into().unwrap()));
+                                if let Some(marker) = marker {
+                                    let tid = e.EventHeader.ThreadId;
+                                    let pid = e.EventHeader.ProcessId;
+
+                                    context.handle_marker_stack(timestamp_raw, pid, tid, stack_address_iter.clone(), marker);
+                                    let size: i64 = match e.EventHeader.EventDescriptor.Opcode {
+                                        1 => size.try_into().unwrap(), // start => allocate
+                                        2 => -TryInto::<i64>::try_into(size).unwrap(), // end => deallocate
+                                        _ => panic!()
+                                    };
+                                    context.handle_allocation_sample(timestamp_raw, pid, tid, size, address, stack_address_iter);
+                                }
+                            }
+                            _ => { }
+                        }
+                    }
+                }
+            }
             _ => {
                 if !context.is_in_time_range(timestamp_raw) {
                     return;

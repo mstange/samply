@@ -924,6 +924,9 @@ impl ProfileContext {
             .insert((tid, timestamp_raw), thread_handle);
     }
 
+
+
+
     pub fn handle_thread_start(
         &mut self,
         timestamp_raw: u64,
@@ -1103,6 +1106,33 @@ impl ProfileContext {
             marker_handle,
         );
     }
+
+    pub fn handle_allocation_sample(
+        &mut self,
+        timestamp_raw: u64,
+        pid: u32,
+        tid: u32,
+        size: i64,
+        address: u64,
+        stack_address_iter: impl Iterator<Item = u64>,
+    ) {
+        let Some(process) = self.processes.get_by_pid_and_timestamp(pid, timestamp_raw) else {
+            return;
+        };
+
+        let Some(thread) = self.threads.get_by_tid(tid) else {
+            return;
+        };
+
+        let timestamp = self.timestamp_converter.convert_time(timestamp_raw);
+        let stack: Vec<StackFrame> = to_stack_frames(stack_address_iter, self.address_classifier);
+
+        let stack_index = self.unresolved_stacks.convert(stack.into_iter().rev());
+
+
+        process.unresolved_samples.add_allocation_sample(process.main_thread_handle, timestamp, timestamp_raw, stack_index, address, size, None);
+    }
+
 
     pub fn handle_marker_stack(
         &mut self,

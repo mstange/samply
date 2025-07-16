@@ -9,6 +9,7 @@ use super::stack_depth_limiting_frame_iter::StackDepthLimitingFrameIter;
 use super::types::StackFrame;
 use super::unresolved_samples::{
     SampleData, SampleOrMarker, UnresolvedSampleOrMarker, UnresolvedSamples, UnresolvedStacks,
+    AllocationSampleData
 };
 
 #[derive(Debug, Clone)]
@@ -111,6 +112,13 @@ impl ProcessSampleData {
                 }
                 SampleOrMarker::MarkerHandle(mh) => {
                     profile.set_marker_stack(thread_handle, mh, stack_handle);
+                }
+                SampleOrMarker::AllocationSample(AllocationSampleData {
+                    address,
+                    size,
+
+                }) => {
+                    profile.add_allocation_sample(thread_handle, timestamp, stack_handle, address, size);
                 }
             }
         }
