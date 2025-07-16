@@ -5,6 +5,7 @@ use std::time::Instant;
 use debugid::DebugId;
 use fxprof_processed_profile::debugid;
 use uuid::Uuid;
+use windows::Win32::System::Diagnostics::Etw;
 
 use super::coreclr::CoreClrContext;
 use super::etw_reader::parser::{Address, Parser, TryParse};
@@ -531,9 +532,43 @@ fn process_trace(
                     return;
                 }
 
+
                 let task_and_op = s.name().split_once('/').unwrap().1;
                 let text = event_properties_to_string(&s, &mut parser, None);
-                context.handle_unknown_event(timestamp_raw, tid, task_and_op, text);
+                let marker = context.handle_unknown_event(timestamp_raw, tid, task_and_op, text);
+
+                if e.ExtendedDataCount > 0 && marker.is_some() {
+                    let items = unsafe {
+                        std::slice::from_raw_parts(e.ExtendedData, e.ExtendedDataCount as usize)
+                    };
+                    for i in items {
+                        match i.ExtType as u32 {
+                            Etw::EVENT_HEADER_EXT_TYPE_STACK_TRACE64 => {
+                                // see ProcessExtendedData in TraceLog.cs from perfview
+                                let data: &[u8] = unsafe {
+                                    std::slice::from_raw_parts(
+                                        i.DataPtr as *const u8,
+                                        i.DataSize as usize,
+                                    )
+                                };
+                                let _match_id = u64::from_ne_bytes(
+                                    <[u8; 8]>::try_from(&data[0..8]).unwrap(),
+                                );
+                                let stack_address_iter = data[8..]
+                                    .chunks_exact(8)
+                                    .map(|a| u64::from_ne_bytes(a.try_into().unwrap()));
+                                if let Some(marker) = marker {
+                                    let tid = e.EventHeader.ThreadId;
+                                    let pid = e.EventHeader.ProcessId;
+
+                                    context.handle_marker_stack(timestamp_raw, pid, tid, stack_address_iter, marker);
+
+                                }
+                            }
+                            _ => { }
+                        }
+                    }
+                }
             }
         }
     })
