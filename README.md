@@ -16,6 +16,11 @@ On Linux, samply uses perf events. You can grant temporary access by running:
 echo '-1' | sudo tee /proc/sys/kernel/perf_event_paranoid
 ```
 
+On Windows, you can get symbols and record all the processes with something like:
+```
+samply record -a --breakpad-symbol-server https://symbols.mozilla.org/try/ --windows-symbol-server https://msdl.microsoft.com/download/symbols --windows-symbol-server https://chromium-browser-symsrv.commondatastorage.googleapis.com
+```
+
 ## Installation
 
 You have the following options to install samply:
