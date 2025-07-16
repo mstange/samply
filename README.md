@@ -16,9 +16,10 @@ On Linux, samply uses perf events. You can grant temporary access by running:
 echo '-1' | sudo tee /proc/sys/kernel/perf_event_paranoid
 ```
 
-On Windows, you can get symbols and record all the processes with something like:
+On Windows, you can use `samply record -a` to record all processes. You'll usually also want to use some symbol servers, most importantly the Microsoft Symbol Server so that you can see symbols for Windows libraries. Here's a command which supports symbols for Windows, Firefox and Chrome:
+
 ```
-samply record -a --breakpad-symbol-server https://symbols.mozilla.org/try/ --windows-symbol-server https://msdl.microsoft.com/download/symbols --windows-symbol-server https://chromium-browser-symsrv.commondatastorage.googleapis.com
+samply record -a --windows-symbol-server https://msdl.microsoft.com/download/symbols --breakpad-symbol-server https://symbols.mozilla.org/try/ --windows-symbol-server https://chromium-browser-symsrv.commondatastorage.googleapis.com
 ```
 
 ## Installation
