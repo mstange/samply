@@ -15,6 +15,7 @@ pub struct Process {
     pid: String,
     name: String,
     threads: Vec<ThreadHandle>,
+    main_thread: Option<ThreadHandle>,
     start_time: Timestamp,
     end_time: Option<Timestamp>,
     libs: LibMappings<LibraryHandle>,
@@ -25,6 +26,7 @@ impl Process {
         Self {
             pid,
             threads: Vec::new(),
+            main_thread: None,
             libs: LibMappings::new(),
             start_time,
             end_time: None,
@@ -33,7 +35,7 @@ impl Process {
     }
 
     pub fn thread_handle_for_allocations(&self) -> Option<ThreadHandle> {
-        self.threads.first().cloned()
+        self.main_thread
     }
 
     pub fn set_start_time(&mut self, start_time: Timestamp) {
@@ -60,8 +62,11 @@ impl Process {
         &self.name
     }
 
-    pub fn add_thread(&mut self, thread: ThreadHandle) {
+    pub fn add_thread(&mut self, thread: ThreadHandle, is_main: bool) {
         self.threads.push(thread);
+        if is_main && self.main_thread.is_none() {
+            self.main_thread = Some(thread)
+        }
     }
 
     pub fn pid(&self) -> &str {

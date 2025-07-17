@@ -481,7 +481,7 @@ impl Profile {
         let handle = ThreadHandle(self.threads.len());
         self.threads
             .push(Thread::new(process, tid, start_time, is_main));
-        self.processes[process.0].add_thread(handle);
+        self.processes[process.0].add_thread(handle, is_main);
         handle
     }
 
@@ -926,8 +926,12 @@ impl Profile {
         self.threads[thread.0].add_sample_same_stack_zero_cpu(timestamp, weight);
     }
 
-    /// Add an allocation or deallocation sample to the given thread. This is used
-    /// to collect stacks showing where allocations and deallocations happened.
+    /// Add an allocation or deallocation sample to the *main* thread of the given
+    /// process. This is used to collect stacks showing where allocations and
+    /// deallocations happened.
+    ///
+    /// CANNOT BE CALLED BEFORE THE MAIN THREAD FOR `process` HAS BEEN CREATED.
+    /// `stack` MUST BE A STACK HANDLE WHICH IS VALID FOR THAT MAIN THREAD.
     ///
     /// When loading profiles with allocation samples in the Firefox Profiler, the
     /// UI will display a dropdown above the call tree to switch between regular
@@ -951,40 +955,40 @@ impl Profile {
     ///
     /// To get the stack handle, you can use [`Profile::handle_for_stack`] or
     /// [`Profile::handle_for_stack_frames`].
+    ///
+    /// ## Main thread requirement
+    ///
+    /// Allocations are per-process, because you can allocate something one one thread
+    /// and then free it on a different thread, and you'll still want those two operations
+    /// to be matched up in a view that shows the retained memory.
+    ///
+    /// Unfortunately, `StackHandle` is currently per-thread. This method will become more
+    /// ergonomic once the profile format has changed so that `StackHandle`s can be used
+    /// across all threads of a profile. In the meantime, unfortunately you must manually
+    /// ensure that you create the stack handle for the main thread of the given process.
     pub fn add_allocation_sample(
         &mut self,
-        thread: ThreadHandle,
+        process: ProcessHandle,
         timestamp: Timestamp,
         stack: Option<StackHandle>,
         allocation_address: u64,
         allocation_size: i64,
     ) {
-        // The profile format strictly separates sample data from different threads.
-        // For allocation samples, this separation is a bit unfortunate, especially
-        // when it comes to the "Retained Memory" panel which shows allocation stacks
-        // for just objects that haven't been deallocated yet. This panel is per-thread,
-        // and it needs to know about deallocations even if they happened on a different
-        // thread from the allocation.
-        // To resolve this conundrum, for now, we will put all allocation and deallocation
-        // samples on a single thread per process, regardless of what thread they actually
-        // happened on.
-        // The Gecko profiler puts all allocation samples on the main thread, for example.
-        // Here in fxprof-processed-profile, we just deem the first thread of each process
-        // as the processes "allocation thread".
-        let process_handle = self.threads[thread.0].process();
-        let process = &self.processes[process_handle.0];
-        let allocation_thread_handle = process.thread_handle_for_allocations().unwrap();
+        let process = &self.processes[process.0];
+        let Some(allocation_thread) = process.thread_handle_for_allocations() else {
+            panic!("Profile::add_allocation_sample called for a thread whose process does not have a main thread");
+        };
         let stack_index = match stack {
-            Some(StackHandle(stack_thread_handle, stack_index)) => {
+            Some(StackHandle(stack_thread, stack_index)) => {
                 assert_eq!(
-                    stack_thread_handle, thread,
-                    "StackHandle from different thread passed to Profile::add_sample"
+                    stack_thread, allocation_thread,
+                    "StackHandle from different thread passed to Profile::add_allocation_sample"
                 );
                 Some(stack_index)
             }
             None => None,
         };
-        self.threads[allocation_thread_handle.0].add_allocation_sample(
+        self.threads[allocation_thread.0].add_allocation_sample(
             timestamp,
             stack_index,
             allocation_address,
