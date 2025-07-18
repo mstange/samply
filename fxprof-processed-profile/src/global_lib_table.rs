@@ -4,7 +4,8 @@ use std::sync::Arc;
 use serde::ser::{Serialize, Serializer};
 
 use crate::fast_hash_map::{FastHashMap, FastIndexSet};
-use crate::{LibraryInfo, SymbolTable};
+use crate::string_table::ProfileStringTable;
+use crate::{LibraryInfo, StringHandle, SymbolTable};
 
 #[derive(Debug)]
 pub struct GlobalLibTable {
@@ -43,19 +44,20 @@ impl GlobalLibTable {
         self.symbol_tables.insert(library, symbol_table);
     }
 
-    pub fn index_for_used_lib(&mut self, lib_handle: LibraryHandle) -> GlobalLibIndex {
+    pub fn index_for_used_lib(
+        &mut self,
+        lib_handle: LibraryHandle,
+        string_table: &mut ProfileStringTable,
+    ) -> GlobalLibIndex {
         let used_libs = &mut self.used_libs;
         *self.used_lib_map.entry(lib_handle).or_insert_with(|| {
-            let index = GlobalLibIndex(used_libs.len());
+            let lib = self.all_libs.get_index(lib_handle.0).unwrap();
+            let name_index = string_table.index_for_string(&lib.name);
+            let index = GlobalLibIndex(used_libs.len(), name_index);
             used_libs.push(lib_handle);
             self.used_libs_seen_rvas.push(BTreeSet::new());
             index
         })
-    }
-
-    pub fn get_lib(&self, index: GlobalLibIndex) -> Option<&LibraryInfo> {
-        let handle = self.used_libs.get(index.0)?;
-        self.all_libs.get_index(handle.0)
     }
 
     pub fn get_lib_symbol_table(&self, index: GlobalLibIndex) -> Option<&SymbolTable> {
@@ -84,11 +86,17 @@ impl Serialize for GlobalLibTable {
 /// An index for a *used* library, i.e. a library for which there exists at
 /// least one frame in any process's frame table which refers to this lib.
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-pub struct GlobalLibIndex(usize);
+pub struct GlobalLibIndex(usize, StringHandle);
 
 impl Serialize for GlobalLibIndex {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_u32(self.0 as u32)
+    }
+}
+
+impl GlobalLibIndex {
+    pub fn name_string_index(&self) -> StringHandle {
+        self.1
     }
 }
 
