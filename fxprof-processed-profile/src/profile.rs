@@ -604,6 +604,7 @@ impl Profile {
             frame_address,
             &mut self.global_libs,
             &mut self.kernel_libs,
+            &mut self.string_table,
         );
         let (variant, name) = match address {
             InternalFrameAddress::Unknown(address) => {
@@ -646,11 +647,7 @@ impl Profile {
             name,
             source_location: Default::default(),
         };
-        let frame_index = thread.frame_index_for_frame(
-            internal_frame,
-            &mut self.global_libs,
-            &mut self.string_table,
-        );
+        let frame_index = thread.frame_index_for_frame(internal_frame, &mut self.global_libs);
         FrameHandle(thread_handle, frame_index)
     }
 
@@ -694,11 +691,7 @@ impl Profile {
             source_location,
             flags,
         };
-        let frame_index = thread.frame_index_for_frame(
-            internal_frame,
-            &mut self.global_libs,
-            &mut self.string_table,
-        );
+        let frame_index = thread.frame_index_for_frame(internal_frame, &mut self.global_libs);
         FrameHandle(thread_handle, frame_index)
     }
 
@@ -749,6 +742,7 @@ impl Profile {
             frame_address,
             &mut self.global_libs,
             &mut self.kernel_libs,
+            &mut self.string_table,
         );
         let (variant, name) = match address {
             InternalFrameAddress::Unknown(addr) => {
@@ -777,11 +771,7 @@ impl Profile {
             source_location,
             flags,
         };
-        let frame_index = thread.frame_index_for_frame(
-            internal_frame,
-            &mut self.global_libs,
-            &mut self.string_table,
-        );
+        let frame_index = thread.frame_index_for_frame(internal_frame, &mut self.global_libs);
         FrameHandle(thread_handle, frame_index)
     }
 
@@ -796,7 +786,9 @@ impl Profile {
     ) -> NativeSymbolHandle {
         let thread_handle = thread;
         let thread = &mut self.threads[thread_handle.0];
-        let global_lib_index = self.global_libs.index_for_used_lib(lib);
+        let global_lib_index = self
+            .global_libs
+            .index_for_used_lib(lib, &mut self.string_table);
         let native_symbol_index = thread.native_symbol_index_for_native_symbol(
             global_lib_index,
             symbol,
@@ -1169,23 +1161,27 @@ impl Profile {
         frame_address: FrameAddress,
         global_libs: &mut GlobalLibTable,
         kernel_libs: &mut LibMappings<LibraryHandle>,
+        string_table: &mut ProfileStringTable,
     ) -> InternalFrameAddress {
         match frame_address {
             FrameAddress::InstructionPointer(ip) => {
-                process.convert_address(global_libs, kernel_libs, ip)
+                process.convert_address(global_libs, kernel_libs, string_table, ip)
             }
-            FrameAddress::ReturnAddress(ra) => {
-                process.convert_address(global_libs, kernel_libs, ra.saturating_sub(1))
-            }
+            FrameAddress::ReturnAddress(ra) => process.convert_address(
+                global_libs,
+                kernel_libs,
+                string_table,
+                ra.saturating_sub(1),
+            ),
             FrameAddress::AdjustedReturnAddress(ara) => {
-                process.convert_address(global_libs, kernel_libs, ara)
+                process.convert_address(global_libs, kernel_libs, string_table, ara)
             }
             FrameAddress::RelativeAddressFromInstructionPointer(lib_handle, relative_address) => {
-                let global_lib_index = global_libs.index_for_used_lib(lib_handle);
+                let global_lib_index = global_libs.index_for_used_lib(lib_handle, string_table);
                 InternalFrameAddress::InLib(relative_address, global_lib_index)
             }
             FrameAddress::RelativeAddressFromReturnAddress(lib_handle, relative_address) => {
-                let global_lib_index = global_libs.index_for_used_lib(lib_handle);
+                let global_lib_index = global_libs.index_for_used_lib(lib_handle, string_table);
                 let adjusted_relative_address = relative_address.saturating_sub(1);
                 InternalFrameAddress::InLib(adjusted_relative_address, global_lib_index)
             }
@@ -1193,7 +1189,7 @@ impl Profile {
                 lib_handle,
                 adjusted_relative_address,
             ) => {
-                let global_lib_index = global_libs.index_for_used_lib(lib_handle);
+                let global_lib_index = global_libs.index_for_used_lib(lib_handle, string_table);
                 InternalFrameAddress::InLib(adjusted_relative_address, global_lib_index)
             }
         }

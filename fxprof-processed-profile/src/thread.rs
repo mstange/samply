@@ -4,7 +4,8 @@ use std::cmp::Ordering;
 use serde::ser::{SerializeMap, Serializer};
 
 use crate::cpu_delta::CpuDelta;
-use crate::frame_table::{FrameTable, InternalFrame};
+use crate::fast_hash_map::FastHashSet;
+use crate::frame_table::{FrameInterner, InternalFrame};
 use crate::global_lib_table::{GlobalLibIndex, GlobalLibTable};
 use crate::marker_table::MarkerTable;
 use crate::markers::InternalMarkerSchema;
@@ -27,7 +28,7 @@ pub struct Thread {
     end_time: Option<Timestamp>,
     is_main: bool,
     stack_table: StackTable,
-    frame_table: FrameTable,
+    frame_interner: FrameInterner,
     samples: SampleTable,
     native_allocations: Option<NativeAllocationsTable>,
     markers: MarkerTable,
@@ -47,7 +48,7 @@ impl Thread {
             end_time: None,
             is_main,
             stack_table: StackTable::new(),
-            frame_table: FrameTable::new(),
+            frame_interner: FrameInterner::new(),
             samples: SampleTable::new(),
             native_allocations: None,
             markers: MarkerTable::new(),
@@ -112,10 +113,8 @@ impl Thread {
         &mut self,
         frame: InternalFrame,
         global_libs: &mut GlobalLibTable,
-        string_table: &mut ProfileStringTable,
     ) -> usize {
-        self.frame_table
-            .index_for_frame(frame, global_libs, string_table)
+        self.frame_interner.index_for_frame(frame, global_libs)
     }
 
     pub fn stack_index_for_stack(&mut self, prefix: Option<usize>, frame: usize) -> usize {
@@ -189,7 +188,7 @@ impl Thread {
     }
 
     pub fn contains_js_frame(&self) -> bool {
-        self.frame_table.contains_js_frame()
+        self.frame_interner.contains_js_frame()
     }
 
     pub fn cmp_for_json_order(&self, other: &Thread) -> Ordering {
@@ -229,7 +228,7 @@ impl Thread {
         let thread_register_time = self.start_time;
         let thread_unregister_time = self.end_time;
 
-        let (frame_table, func_table, resource_table) = self.frame_table.get_serializable_tables();
+        let (frame_table, func_table, resource_table) = self.frame_interner.create_tables();
 
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry("frameTable", &frame_table)?;
