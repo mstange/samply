@@ -1,6 +1,6 @@
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
-use crate::fast_hash_map::FastHashMap;
+use crate::fast_hash_map::FastIndexSet;
 
 /// The stack table stores the tree of stack nodes of a thread. The shape of the tree is encoded in
 /// the prefix column: Root stack nodes have null as their prefix, and every non-root stack has the
@@ -40,13 +40,7 @@ use crate::fast_hash_map::FastHashMap;
 /// would be lost if it wasn't inherited into the nsAttrAndChildArray::InsertChildAt stack before
 /// transforms are applied.
 #[derive(Debug, Clone, Default)]
-pub struct StackTable {
-    stack_prefixes: Vec<Option<usize>>,
-    stack_frames: Vec<usize>,
-
-    // (parent stack, frame_index) -> stack index
-    index: FastHashMap<(Option<usize>, usize), usize>,
-}
+pub struct StackTable(FastIndexSet<(Option<usize>, usize)>);
 
 impl StackTable {
     pub fn new() -> Self {
@@ -54,26 +48,20 @@ impl StackTable {
     }
 
     pub fn index_for_stack(&mut self, prefix: Option<usize>, frame: usize) -> usize {
-        match self.index.get(&(prefix, frame)) {
-            Some(stack) => *stack,
-            None => {
-                let stack = self.stack_prefixes.len();
-                self.stack_prefixes.push(prefix);
-                self.stack_frames.push(frame);
-                self.index.insert((prefix, frame), stack);
-                stack
-            }
-        }
+        let (stack_index, _is_new) = self.0.insert_full((prefix, frame));
+        stack_index
     }
 }
 
 impl Serialize for StackTable {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let len = self.stack_prefixes.len();
+        let len = self.0.len();
         let mut map = serializer.serialize_map(Some(3))?;
         map.serialize_entry("length", &len)?;
-        map.serialize_entry("prefix", &self.stack_prefixes)?;
-        map.serialize_entry("frame", &self.stack_frames)?;
+        let prefix_col: Vec<_> = self.0.iter().map(|(prefix, _)| *prefix).collect();
+        let frame_col: Vec<_> = self.0.iter().map(|(_, frame)| *frame).collect();
+        map.serialize_entry("prefix", &prefix_col)?;
+        map.serialize_entry("frame", &frame_col)?;
         map.end()
     }
 }
