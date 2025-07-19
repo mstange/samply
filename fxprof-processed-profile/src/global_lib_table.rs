@@ -17,6 +17,10 @@ pub struct GlobalLibTable {
     /// Indexed by `GlobalLibIndex.0`.
     used_libs: Vec<LibraryHandle>, // append-only for stable GlobalLibIndexes
     used_lib_map: FastHashMap<LibraryHandle, GlobalLibIndex>,
+}
+
+#[derive(Debug)]
+pub struct UsedLibraryAddressesCollector {
     /// We keep track of RVA addresses that exist in frames that are assigned to this
     /// library, so that we can potentially provide symbolication info ahead of time.
     /// This is here instead of in `LibraryInfo` because we don't want to serialize it,
@@ -32,7 +36,6 @@ impl GlobalLibTable {
             symbol_tables: FastHashMap::default(),
             used_libs: Vec::new(),
             used_lib_map: FastHashMap::default(),
-            used_libs_seen_rvas: Vec::new(),
         }
     }
 
@@ -55,7 +58,6 @@ impl GlobalLibTable {
             let name_index = string_table.index_for_string(&lib.name);
             let index = GlobalLibIndex(used_libs.len(), name_index);
             used_libs.push(lib_handle);
-            self.used_libs_seen_rvas.push(BTreeSet::new());
             index
         })
     }
@@ -65,14 +67,26 @@ impl GlobalLibTable {
         self.symbol_tables.get(handle).map(|v| &**v)
     }
 
+    pub fn address_collector(&self) -> UsedLibraryAddressesCollector {
+        UsedLibraryAddressesCollector {
+            used_libs_seen_rvas: vec![BTreeSet::new(); self.used_libs.len()],
+        }
+    }
+}
+
+impl UsedLibraryAddressesCollector {
     pub fn add_lib_used_rva(&mut self, index: GlobalLibIndex, address: u32) {
         self.used_libs_seen_rvas[index.0].insert(address);
     }
 
-    pub fn lib_used_rva_iter(&self) -> UsedLibraryAddressesIterator {
+    pub fn into_address_iter(
+        self,
+        global_lib_table: &GlobalLibTable,
+    ) -> UsedLibraryAddressesIterator {
         UsedLibraryAddressesIterator {
             next_used_lib_index: 0,
-            global_lib_table: self,
+            used_libs_seen_rvas_iter: self.used_libs_seen_rvas.into_iter(),
+            global_lib_table,
         }
     }
 }
@@ -110,17 +124,15 @@ pub struct LibraryHandle(usize);
 /// in the profile.
 pub struct UsedLibraryAddressesIterator<'a> {
     next_used_lib_index: usize,
+    used_libs_seen_rvas_iter: std::vec::IntoIter<BTreeSet<u32>>,
     global_lib_table: &'a GlobalLibTable,
 }
 
 impl<'a> Iterator for UsedLibraryAddressesIterator<'a> {
-    type Item = (&'a LibraryInfo, &'a BTreeSet<u32>);
+    type Item = (&'a LibraryInfo, BTreeSet<u32>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let rvas = self
-            .global_lib_table
-            .used_libs_seen_rvas
-            .get(self.next_used_lib_index)?;
+        let rvas = self.used_libs_seen_rvas_iter.next()?;
 
         let lib_handle = self.global_lib_table.used_libs[self.next_used_lib_index];
         let info = &self.global_lib_table.all_libs[lib_handle.0];

@@ -6,7 +6,7 @@ use serde::ser::{SerializeMap, Serializer};
 use crate::cpu_delta::CpuDelta;
 use crate::fast_hash_map::FastHashSet;
 use crate::frame_table::{FrameInterner, InternalFrame};
-use crate::global_lib_table::{GlobalLibIndex, GlobalLibTable};
+use crate::global_lib_table::{GlobalLibIndex, UsedLibraryAddressesCollector};
 use crate::marker_table::MarkerTable;
 use crate::markers::InternalMarkerSchema;
 use crate::native_symbols::{NativeSymbolIndex, NativeSymbols};
@@ -109,12 +109,8 @@ impl Thread {
             .get_native_symbol_name(native_symbol_index)
     }
 
-    pub fn frame_index_for_frame(
-        &mut self,
-        frame: InternalFrame,
-        global_libs: &mut GlobalLibTable,
-    ) -> usize {
-        self.frame_interner.index_for_frame(frame, global_libs)
+    pub fn frame_index_for_frame(&mut self, frame: InternalFrame) -> usize {
+        self.frame_interner.index_for_frame(frame)
     }
 
     pub fn stack_index_for_stack(&mut self, prefix: Option<usize>, frame: usize) -> usize {
@@ -189,6 +185,10 @@ impl Thread {
 
     pub fn contains_js_frame(&self) -> bool {
         self.frame_interner.contains_js_frame()
+    }
+
+    pub fn gather_used_rvas(&self, collector: &mut UsedLibraryAddressesCollector) {
+        self.frame_interner.gather_used_rvas(collector);
     }
 
     pub fn cmp_for_json_order(&self, other: &Thread) -> Ordering {

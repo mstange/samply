@@ -357,7 +357,7 @@ pub fn presymbolicate(
                         .as_ref()
                         .map(|id| wholesym::CodeId::from_str(id).expect("bad codeid")),
                 };
-                let rvas: Vec<u32> = rvas.iter().copied().collect();
+                let rvas: Vec<u32> = rvas.into_iter().collect();
                 (lib_info, rvas)
             })
             .collect();
