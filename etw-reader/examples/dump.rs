@@ -186,6 +186,29 @@ fn main() {
                                 metadata_start += metadata_size as usize;
                             }
                         }
+                        Etw::EVENT_HEADER_EXT_TYPE_STACK_TRACE64 => {
+                            // see ProcessExtendedData in TraceLog.cs from perfview
+                            println!("extended: STACK_TRACE64");
+                            let data: &[u8] = unsafe {
+                                std::slice::from_raw_parts(
+                                    i.DataPtr as *const u8,
+                                    i.DataSize as usize,
+                                )
+                            };
+                            let match_id = u64::from_ne_bytes(
+                                <[u8; 8]>::try_from(&data[0..8]).unwrap(),
+                            );
+                            println!("   match_id: {}", match_id);
+                            let mut address_start = 8;
+                            while address_start < data.len() {
+                                let address = u64::from_ne_bytes(
+                                    <[u8; 8]>::try_from(&data[address_start..address_start + 8])
+                                        .unwrap(),
+                                );
+                                println!("   address: {:x}", address);
+                                address_start += 8;
+                            }
+                        }
                         _ => {
                             println!("extended: {:?}", i);
                         }

@@ -113,6 +113,26 @@ impl UnresolvedSamples {
         }
     }
 
+    pub fn add_allocation_sample(
+        &mut self,
+        thread_handle: ThreadHandle,
+        timestamp: Timestamp,
+        timestamp_mono: u64,
+        stack: UnresolvedStackHandle,
+        address: u64,
+        size: i64,
+        extra_label_frame: Option<FrameHandle>,
+    ) {
+        self.samples_and_markers.push(UnresolvedSampleOrMarker {
+            thread_handle,
+            timestamp,
+            timestamp_mono,
+            stack,
+            extra_label_frame,
+            sample_or_marker: SampleOrMarker::AllocationSample(AllocationSampleData { address, size }),
+        });
+    }
+
     pub fn attach_stack_to_marker(
         &mut self,
         thread_handle: ThreadHandle,
@@ -145,6 +165,7 @@ pub struct UnresolvedSampleOrMarker {
 #[derive(Debug, Clone)]
 pub enum SampleOrMarker {
     Sample(SampleData),
+    AllocationSample(AllocationSampleData),
     MarkerHandle(MarkerHandle),
 }
 
@@ -152,6 +173,12 @@ pub enum SampleOrMarker {
 pub struct SampleData {
     pub cpu_delta: CpuDelta,
     pub weight: i32,
+}
+
+#[derive(Debug, Clone)]
+pub struct AllocationSampleData {
+    pub address: u64,
+    pub size: i64,
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
