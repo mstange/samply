@@ -647,7 +647,7 @@ impl Profile {
             name,
             source_location: Default::default(),
         };
-        let frame_index = thread.frame_index_for_frame(internal_frame, &mut self.global_libs);
+        let frame_index = thread.frame_index_for_frame(internal_frame);
         FrameHandle(thread_handle, frame_index)
     }
 
@@ -691,7 +691,7 @@ impl Profile {
             source_location,
             flags,
         };
-        let frame_index = thread.frame_index_for_frame(internal_frame, &mut self.global_libs);
+        let frame_index = thread.frame_index_for_frame(internal_frame);
         FrameHandle(thread_handle, frame_index)
     }
 
@@ -771,7 +771,7 @@ impl Profile {
             source_location,
             flags,
         };
-        let frame_index = thread.frame_index_for_frame(internal_frame, &mut self.global_libs);
+        let frame_index = thread.frame_index_for_frame(internal_frame);
         FrameHandle(thread_handle, frame_index)
     }
 
@@ -1153,7 +1153,11 @@ impl Profile {
     /// Returns an iterator with information about which native library addresses
     /// are used by any stack frames stored in this profile.
     pub fn lib_used_rva_iter(&self) -> UsedLibraryAddressesIterator {
-        self.global_libs.lib_used_rva_iter()
+        let mut collector = self.global_libs.address_collector();
+        for thread in &self.threads {
+            thread.gather_used_rvas(&mut collector);
+        }
+        collector.into_address_iter(&self.global_libs)
     }
 
     fn resolve_frame_address(

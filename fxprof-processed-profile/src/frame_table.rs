@@ -4,7 +4,7 @@ use crate::category::{CategoryHandle, SubcategoryHandle, SubcategoryIndex};
 use crate::fast_hash_map::FastIndexSet;
 use crate::frame::FrameFlags;
 use crate::func_table::{FuncIndex, FuncKey, FuncTable};
-use crate::global_lib_table::{GlobalLibIndex, GlobalLibTable};
+use crate::global_lib_table::{GlobalLibIndex, UsedLibraryAddressesCollector};
 use crate::native_symbols::NativeSymbolIndex;
 use crate::resource_table::ResourceTable;
 use crate::serialization_helpers::SerializableSingleValueColumn;
@@ -22,31 +22,30 @@ impl FrameInterner {
         Default::default()
     }
 
-    pub fn index_for_frame(
-        &mut self,
-        frame: InternalFrame,
-        global_libs: &mut GlobalLibTable,
-    ) -> usize {
+    pub fn index_for_frame(&mut self, frame: InternalFrame) -> usize {
         let (frame_index, is_new) = self.frame_key_set.insert_full(frame);
 
-        if is_new {
-            if frame
+        if is_new
+            && frame
                 .flags
                 .intersects(FrameFlags::IS_JS | FrameFlags::IS_RELEVANT_FOR_JS)
-            {
-                self.contains_js_frame = true;
-            }
+        {
+            self.contains_js_frame = true;
+        }
+        frame_index
+    }
 
+    pub fn gather_used_rvas(&self, collector: &mut UsedLibraryAddressesCollector) {
+        for frame in &self.frame_key_set {
             if let InternalFrameVariant::Native(NativeFrameData {
                 lib,
                 relative_address,
                 ..
             }) = frame.variant
             {
-                global_libs.add_lib_used_rva(lib, relative_address);
+                collector.add_lib_used_rva(lib, relative_address);
             }
         }
-        frame_index
     }
 
     pub fn contains_js_frame(&self) -> bool {
