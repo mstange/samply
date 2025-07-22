@@ -88,10 +88,10 @@ fn do_import_action(import_args: cli::ImportArgs) {
     };
 
     let import_props = import_args.import_props();
-    let unstable_presymbolicate = import_props.profile_creation_props.unstable_presymbolicate;
+    let presymbolicate = import_props.profile_creation_props.presymbolicate;
     let mut profile = convert_file_to_profile(&input_file, input_path, import_props);
 
-    if unstable_presymbolicate {
+    if presymbolicate {
         eprintln!("Symbolicating...");
         let symbol_info = crate::shared::presymbolicate::get_presymbolicate_info(
             &profile,
@@ -125,7 +125,7 @@ fn do_record_action(record_args: cli::RecordArgs) {
     let recording_props = record_args.recording_props();
     let recording_mode = record_args.recording_mode();
     let profile_creation_props = record_args.profile_creation_props();
-    let unstable_presymbolicate = profile_creation_props.unstable_presymbolicate;
+    let presymbolicate = profile_creation_props.presymbolicate;
 
     let (mut profile, exit_status) =
         match profiler::run(recording_mode, recording_props, profile_creation_props) {
@@ -136,7 +136,7 @@ fn do_record_action(record_args: cli::RecordArgs) {
             }
         };
 
-    if unstable_presymbolicate {
+    if presymbolicate {
         eprintln!("Symbolicating...");
         let symbol_info = crate::shared::presymbolicate::get_presymbolicate_info(
             &profile,
