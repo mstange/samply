@@ -930,8 +930,10 @@ impl Profile {
     /// process. This is used to collect stacks showing where allocations and
     /// deallocations happened.
     ///
-    /// CANNOT BE CALLED BEFORE THE MAIN THREAD FOR `process` HAS BEEN CREATED.
-    /// `stack` MUST BE A STACK HANDLE WHICH IS VALID FOR THAT MAIN THREAD.
+    /// Can only be called once the main thread for `process` has been created.
+    /// `stack` must be a stack handle which is valid for that main thread.
+    ///
+    /// # Details
     ///
     /// When loading profiles with allocation samples in the Firefox Profiler, the
     /// UI will display a dropdown above the call tree to switch between regular
@@ -956,7 +958,11 @@ impl Profile {
     /// To get the stack handle, you can use [`Profile::handle_for_stack`] or
     /// [`Profile::handle_for_stack_frames`].
     ///
-    /// ## Main thread requirement
+    /// # Panics
+    ///
+    /// Panics if the `stack` handle is not valid for the main thread of `process`.
+    ///
+    /// # Main thread requirement
     ///
     /// Allocations are per-process, because you can allocate something one one thread
     /// and then free it on a different thread, and you'll still want those two operations
