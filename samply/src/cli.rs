@@ -324,13 +324,12 @@ pub struct ProfileCreationArgs {
     #[arg(long, default_value = "0", num_args=0..=1, require_equals = true, default_missing_value = "100")]
     pub include_args: usize,
 
-    /// Emit .syms.json sidecar file containing gathered symbol info for all frames referenced by
-    /// this profile. With this file along with the profile, samply can load the profile
-    /// and provide symbols to the front end without needing debug files to be
-    /// available. (Unstable: will probably change to include the full information
-    /// in the profile.json, instead of a sidecar file.)
+    /// Generate a symbolicated profile file by looking up symbol information before writing out the file.
+    ///
+    /// This is off by default because symbol resolution can take a long time, so
+    /// the default behavior is to have the front-end apply symbols asynchronously.
     #[arg(long)]
-    pub unstable_presymbolicate: bool,
+    pub presymbolicate: bool,
 
     /// Emit markers for any unknown ETW events that are encountered.
     #[cfg(target_os = "windows")]
@@ -530,7 +529,7 @@ impl ProfileCreationArgs {
             create_per_cpu_threads: self.per_cpu_threads,
             arg_count_to_include_in_process_name: self.include_args,
             override_arch: None,
-            unstable_presymbolicate: self.unstable_presymbolicate,
+            presymbolicate: self.presymbolicate,
             should_emit_jit_markers: self.jit_markers,
             should_emit_cswitch_markers: self.cswitch_markers,
             coreclr: self.coreclr_profile_props(),

@@ -9,6 +9,7 @@ pub mod lib_mappings;
 pub mod marker_file;
 pub mod per_cpu;
 pub mod perf_map;
+pub mod presymbolicate;
 pub mod process_name;
 pub mod process_sample_data;
 pub mod prop_types;

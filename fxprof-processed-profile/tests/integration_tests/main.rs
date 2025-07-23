@@ -474,14 +474,14 @@ fn profile_without_js() {
             "shared": {
               "stringArray": [
                 "0x7ffdb4824837",
-                "0xc2704",
                 "dump_syms",
+                "0xc2704",
                 "0xde777",
                 "0x145418",
                 "0x23eb61",
                 "0x256d7e",
-                "libc_symbol_1",
                 "libc.so.6",
+                "libc_symbol_1",
                 "libc_symbol_2",
                 "0x106992",
                 "0xdd2d6",
@@ -495,8 +495,8 @@ fn profile_without_js() {
                 "Hello world!",
                 "My event",
                 "https://mozilla.org/", // currently redundantly specified in the marker itself
-                "CustomName",
-              ],
+                "CustomName"
+              ]
             },
             "threads": [
               {
@@ -669,12 +669,12 @@ fn profile_without_js() {
                   "length": 16,
                   "name": [
                     0,
-                    1,
+                    2,
                     3,
                     4,
                     5,
                     6,
-                    7,
+                    8,
                     9,
                     10,
                     11,
@@ -850,7 +850,7 @@ fn profile_without_js() {
                     1
                   ],
                   "name": [
-                    7,
+                    8,
                     9,
                     17
                   ]
@@ -869,8 +869,8 @@ fn profile_without_js() {
                     1
                   ],
                   "name": [
-                    2,
-                    8
+                    1,
+                    7
                   ],
                   "host": [
                     null,

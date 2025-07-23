@@ -87,8 +87,8 @@ pub struct ProfileCreationProps {
     /// Override system architecture.
     #[allow(dead_code)]
     pub override_arch: Option<String>,
-    /// Dump presymbolication info.
-    pub unstable_presymbolicate: bool,
+    /// Output symbolicated profiles.
+    pub presymbolicate: bool,
     /// CoreCLR specific properties.
     #[allow(dead_code)]
     pub coreclr: CoreClrProfileProps,

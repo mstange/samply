@@ -1,4 +1,5 @@
 use std::collections::hash_map::Entry;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -12,12 +13,12 @@ use crate::category::{
 use crate::category_color::CategoryColor;
 use crate::counters::{Counter, CounterHandle};
 use crate::cpu_delta::CpuDelta;
-use crate::fast_hash_map::{FastHashMap, FastIndexSet};
+use crate::fast_hash_map::{FastHashMap, FastHashSet, FastIndexSet};
 use crate::frame::FrameAddress;
 use crate::frame_table::{
     InternalFrame, InternalFrameAddress, InternalFrameVariant, NativeFrameData,
 };
-use crate::global_lib_table::{GlobalLibTable, LibraryHandle, UsedLibraryAddressesIterator};
+use crate::global_lib_table::{GlobalLibIndex, GlobalLibTable, LibraryHandle};
 use crate::lib_mappings::LibMappings;
 use crate::library_info::{LibraryInfo, SymbolTable};
 use crate::markers::{
@@ -26,9 +27,11 @@ use crate::markers::{
 };
 use crate::native_symbols::NativeSymbolHandle;
 use crate::process::{Process, ThreadHandle};
+use crate::profile_symbol_info::{LibSymbolInfo, ProfileSymbolInfo};
 use crate::reference_timestamp::ReferenceTimestamp;
 use crate::sample_table::WeightType;
 use crate::string_table::{ProfileStringTable, StringHandle};
+use crate::symbolication::StringTableAdapter;
 use crate::thread::{ProcessHandle, Thread};
 use crate::timestamp::Timestamp;
 use crate::{FrameFlags, PlatformSpecificReferenceTimestamp, Symbol};
@@ -388,6 +391,11 @@ impl Profile {
         self.global_libs.handle_for_lib(library)
     }
 
+    /// Look up the [`LibraryInfo`] for a [`LibraryHandle`].
+    pub fn get_library_info(&self, handle: LibraryHandle) -> &LibraryInfo {
+        self.global_libs.get_lib(handle)
+    }
+
     /// Set an optional symbol table for a library, for "pre-symbolicating" stack frames.
     ///
     /// Usually, symbolication is something that should happen asynchronously,
@@ -558,7 +566,7 @@ impl Profile {
     /// Panics if the handle wasn't found, which can happen if you pass a handle
     /// from a different Profile instance.
     pub fn get_string(&self, handle: StringHandle) -> &str {
-        self.string_table.get_string(handle).unwrap()
+        self.string_table.get_string(handle)
     }
 
     /// Get the [`FrameHandle`] for a label frame.
@@ -604,6 +612,7 @@ impl Profile {
             frame_address,
             &mut self.global_libs,
             &mut self.kernel_libs,
+            &mut self.string_table,
         );
         let (variant, name) = match address {
             InternalFrameAddress::Unknown(address) => {
@@ -646,11 +655,7 @@ impl Profile {
             name,
             source_location: Default::default(),
         };
-        let frame_index = thread.frame_index_for_frame(
-            internal_frame,
-            &mut self.global_libs,
-            &mut self.string_table,
-        );
+        let frame_index = thread.frame_index_for_frame(internal_frame);
         FrameHandle(thread_handle, frame_index)
     }
 
@@ -694,11 +699,7 @@ impl Profile {
             source_location,
             flags,
         };
-        let frame_index = thread.frame_index_for_frame(
-            internal_frame,
-            &mut self.global_libs,
-            &mut self.string_table,
-        );
+        let frame_index = thread.frame_index_for_frame(internal_frame);
         FrameHandle(thread_handle, frame_index)
     }
 
@@ -749,6 +750,7 @@ impl Profile {
             frame_address,
             &mut self.global_libs,
             &mut self.kernel_libs,
+            &mut self.string_table,
         );
         let (variant, name) = match address {
             InternalFrameAddress::Unknown(addr) => {
@@ -777,11 +779,7 @@ impl Profile {
             source_location,
             flags,
         };
-        let frame_index = thread.frame_index_for_frame(
-            internal_frame,
-            &mut self.global_libs,
-            &mut self.string_table,
-        );
+        let frame_index = thread.frame_index_for_frame(internal_frame);
         FrameHandle(thread_handle, frame_index)
     }
 
@@ -796,7 +794,9 @@ impl Profile {
     ) -> NativeSymbolHandle {
         let thread_handle = thread;
         let thread = &mut self.threads[thread_handle.0];
-        let global_lib_index = self.global_libs.index_for_used_lib(lib);
+        let global_lib_index = self
+            .global_libs
+            .index_for_used_lib(lib, &mut self.string_table);
         let native_symbol_index = thread.native_symbol_index_for_native_symbol(
             global_lib_index,
             symbol,
@@ -930,8 +930,10 @@ impl Profile {
     /// process. This is used to collect stacks showing where allocations and
     /// deallocations happened.
     ///
-    /// CANNOT BE CALLED BEFORE THE MAIN THREAD FOR `process` HAS BEEN CREATED.
-    /// `stack` MUST BE A STACK HANDLE WHICH IS VALID FOR THAT MAIN THREAD.
+    /// Can only be called once the main thread for `process` has been created.
+    /// `stack` must be a stack handle which is valid for that main thread.
+    ///
+    /// # Details
     ///
     /// When loading profiles with allocation samples in the Firefox Profiler, the
     /// UI will display a dropdown above the call tree to switch between regular
@@ -956,7 +958,11 @@ impl Profile {
     /// To get the stack handle, you can use [`Profile::handle_for_stack`] or
     /// [`Profile::handle_for_stack_frames`].
     ///
-    /// ## Main thread requirement
+    /// # Panics
+    ///
+    /// Panics if the `stack` handle is not valid for the main thread of `process`.
+    ///
+    /// # Main thread requirement
     ///
     /// Allocations are per-process, because you can allocate something one one thread
     /// and then free it on a different thread, and you'll still want those two operations
@@ -1158,10 +1164,133 @@ impl Profile {
         self.counters[counter.0].add_sample(timestamp, value_delta, number_of_operations_delta)
     }
 
-    /// Returns an iterator with information about which native library addresses
-    /// are used by any stack frames stored in this profile.
-    pub fn lib_used_rva_iter(&self) -> UsedLibraryAddressesIterator {
-        self.global_libs.lib_used_rva_iter()
+    /// Returns a Vec listing the libraries and addresses used by any native frames
+    /// in this profile, i.e. by frames created with
+    /// [`handle_for_frame_with_address`](Profile::handle_for_frame_with_address) or
+    /// [`handle_for_frame_with_address_and_symbol`](Profile::handle_for_frame_with_address_and_symbol).
+    ///
+    /// You can create a symbolicated profile after-the-fact by looking up symbol information
+    /// for all listed libraries and addresses and calling [`Profile::make_symbolicated_profile`]
+    /// with it.
+    pub fn native_frame_addresses_per_library(&self) -> Vec<(LibraryHandle, BTreeSet<u32>)> {
+        let mut collector = self.global_libs.address_collector();
+        for thread in &self.threads {
+            thread.gather_used_rvas(&mut collector);
+        }
+        collector.finish(&self.global_libs)
+    }
+
+    /// Create a symbolicated profile by combining this profile with the
+    /// supplied `symbol_info`.
+    ///
+    /// The old profile is consumed when this function is called.
+    ///
+    /// The following handles remain valid in the new profile: [`ProcessHandle`],
+    /// [`LibraryHandle`], [`ThreadHandle`], [`CategoryHandle`], [`SubcategoryHandle`],
+    /// [`CounterHandle`], [`MarkerTypeHandle`], [`MarkerHandle`]
+    ///
+    /// The following handles from the original profile **are not valid** in the
+    /// new profile: [`NativeSymbolHandle`], [`FrameHandle`], [`StackHandle`], [`StringHandle`]
+    ///
+    /// # Details
+    ///
+    /// This method re-creates any native frames (i.e. frames with addresses) whose library is
+    /// present in `symbol_info`. All other frames, specifically any native frames from different
+    /// libraries, as well as non-native frames, are retained as-is - but their [`FrameHandle`]s may
+    /// change.
+    ///
+    /// If any of the recreated frames already had symbol info, the existing symbol info is
+    /// discarded.
+    ///
+    /// Unlike [`Profile::handle_for_frame_with_address`], this way of symbolicating does not
+    /// attempt to get symbol information any existing library symbol tables that have been
+    /// supplied using [`Profile::set_lib_symbol_table`].
+    ///
+    /// Note: This method does not set the new profile's `symbolicated` property to true.
+    /// You may want to do so yourself using [`Profile::set_symbolicated`]. This will ensure
+    /// that the Firefox Profiler front-end won't attempt to symbolicate the profile another
+    /// time.
+    ///
+    /// # Usage
+    ///
+    /// 1. Create an unsymbolicated profile first, using [`Profile::handle_for_frame_with_address`]
+    ///    for any native frames.
+    /// 2. Get a list of libraries and addresses to symbolicate from [`Profile::native_frame_addresses_per_library`].
+    /// 3. Look up symbols for those libraries and addresses, for example using the `wholesym` crate.
+    ///    You can consult `presymbolicate.rs` in the `samply` source code for inspiration.
+    /// 4. Assemble a [`ProfileSymbolInfo`] object with all the obtained symbol info.
+    /// 5. Call this method, and then call `profile.set_symbolicated(true)` on the result.
+    /// 6. Save the new profile.
+    pub fn make_symbolicated_profile(self, symbol_info: &ProfileSymbolInfo) -> Profile {
+        let ProfileSymbolInfo {
+            string_table: symbol_string_table,
+            lib_symbols,
+        } = symbol_info;
+        let lib_symbols: BTreeMap<GlobalLibIndex, &LibSymbolInfo> = lib_symbols
+            .iter()
+            .map(|lib_symbols| {
+                let lib_index = self
+                    .global_libs
+                    .used_lib_index(lib_symbols.lib_handle)
+                    .unwrap();
+                (lib_index, lib_symbols)
+            })
+            .collect();
+        let libs: FastHashSet<GlobalLibIndex> = lib_symbols.keys().cloned().collect();
+
+        let Profile {
+            product,
+            os_name,
+            interval,
+            timeline_unit,
+            global_libs,
+            kernel_libs,
+            categories,
+            processes,
+            counters,
+            threads,
+            initial_visible_threads,
+            initial_selected_threads,
+            reference_timestamp,
+            platform_specific_reference_timestamp,
+            mut string_table,
+            marker_schemas,
+            static_schema_marker_types,
+            symbolicated,
+            used_pids,
+            used_tids,
+        } = self;
+
+        let mut strings = StringTableAdapter::new(symbol_string_table, &mut string_table);
+        let threads: Vec<Thread> = threads
+            .into_iter()
+            .map(|thread| thread.make_symbolicated_thread(&libs, &lib_symbols, &mut strings))
+            .collect();
+
+        // TODO: Remove unused hex address strings from the string table.
+
+        Profile {
+            product,
+            os_name,
+            interval,
+            timeline_unit,
+            global_libs,
+            kernel_libs,
+            categories,
+            processes,
+            counters,
+            threads,
+            initial_visible_threads,
+            initial_selected_threads,
+            reference_timestamp,
+            platform_specific_reference_timestamp,
+            string_table,
+            marker_schemas,
+            static_schema_marker_types,
+            symbolicated,
+            used_pids,
+            used_tids,
+        }
     }
 
     fn resolve_frame_address(
@@ -1169,23 +1298,27 @@ impl Profile {
         frame_address: FrameAddress,
         global_libs: &mut GlobalLibTable,
         kernel_libs: &mut LibMappings<LibraryHandle>,
+        string_table: &mut ProfileStringTable,
     ) -> InternalFrameAddress {
         match frame_address {
             FrameAddress::InstructionPointer(ip) => {
-                process.convert_address(global_libs, kernel_libs, ip)
+                process.convert_address(global_libs, kernel_libs, string_table, ip)
             }
-            FrameAddress::ReturnAddress(ra) => {
-                process.convert_address(global_libs, kernel_libs, ra.saturating_sub(1))
-            }
+            FrameAddress::ReturnAddress(ra) => process.convert_address(
+                global_libs,
+                kernel_libs,
+                string_table,
+                ra.saturating_sub(1),
+            ),
             FrameAddress::AdjustedReturnAddress(ara) => {
-                process.convert_address(global_libs, kernel_libs, ara)
+                process.convert_address(global_libs, kernel_libs, string_table, ara)
             }
             FrameAddress::RelativeAddressFromInstructionPointer(lib_handle, relative_address) => {
-                let global_lib_index = global_libs.index_for_used_lib(lib_handle);
+                let global_lib_index = global_libs.index_for_used_lib(lib_handle, string_table);
                 InternalFrameAddress::InLib(relative_address, global_lib_index)
             }
             FrameAddress::RelativeAddressFromReturnAddress(lib_handle, relative_address) => {
-                let global_lib_index = global_libs.index_for_used_lib(lib_handle);
+                let global_lib_index = global_libs.index_for_used_lib(lib_handle, string_table);
                 let adjusted_relative_address = relative_address.saturating_sub(1);
                 InternalFrameAddress::InLib(adjusted_relative_address, global_lib_index)
             }
@@ -1193,7 +1326,7 @@ impl Profile {
                 lib_handle,
                 adjusted_relative_address,
             ) => {
-                let global_lib_index = global_libs.index_for_used_lib(lib_handle);
+                let global_lib_index = global_libs.index_for_used_lib(lib_handle, string_table);
                 InternalFrameAddress::InLib(adjusted_relative_address, global_lib_index)
             }
         }
