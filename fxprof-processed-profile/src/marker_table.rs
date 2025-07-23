@@ -102,6 +102,15 @@ impl MarkerTable {
         self.marker_stacks[marker.0] = stack_index;
     }
 
+    pub fn with_remapped_stacks(mut self, old_stack_to_new_stack: &[Option<usize>]) -> Self {
+        self.marker_stacks = self
+            .marker_stacks
+            .into_iter()
+            .map(|stack| stack.and_then(|s| old_stack_to_new_stack[s]))
+            .collect();
+        self
+    }
+
     pub fn as_serializable<'a>(
         &'a self,
         schemas: &'a [InternalMarkerSchema],
@@ -213,7 +222,7 @@ impl Serialize for SerializableMarkerDataElement<'_> {
                     if field.format == MarkerFieldFormat::String {
                         map.serialize_entry(&field.key, value)?;
                     } else {
-                        let str_val = string_table.get_string(*value).unwrap();
+                        let str_val = string_table.get_string(*value);
                         map.serialize_entry(&field.key, str_val)?;
                     }
                 }

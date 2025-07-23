@@ -2,10 +2,10 @@ use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 
 use crate::fast_hash_map::FastIndexSet;
 use crate::frame::FrameFlags;
-use crate::global_lib_table::{GlobalLibIndex, GlobalLibTable};
+use crate::global_lib_table::GlobalLibIndex;
 use crate::resource_table::{ResourceIndex, ResourceTable};
 use crate::serialization_helpers::SerializableSingleValueColumn;
-use crate::string_table::{ProfileStringTable, StringHandle};
+use crate::string_table::StringHandle;
 
 #[derive(Debug, Clone, Default)]
 pub struct FuncTable {
@@ -15,8 +15,6 @@ pub struct FuncTable {
     flags: Vec<FrameFlags>,
 
     func_key_set: FastIndexSet<FuncKey>,
-
-    contains_js_func: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
@@ -32,8 +30,6 @@ impl FuncTable {
         &mut self,
         func_key: FuncKey,
         resource_table: &mut ResourceTable,
-        global_libs: &mut GlobalLibTable,
-        string_table: &mut ProfileStringTable,
     ) -> FuncIndex {
         let (index, is_new) = self.func_key_set.insert_full(func_key);
 
@@ -49,23 +45,14 @@ impl FuncTable {
             flags,
         } = func_key;
 
-        let resource =
-            lib.map(|lib| resource_table.resource_for_lib(lib, global_libs, string_table));
+        let resource = lib.map(|lib| resource_table.resource_for_lib(lib));
 
         self.names.push(name);
         self.files.push(file_path);
         self.resources.push(resource);
         self.flags.push(flags);
 
-        if flags.intersects(FrameFlags::IS_JS | FrameFlags::IS_RELEVANT_FOR_JS) {
-            self.contains_js_func = true;
-        }
-
         func_index
-    }
-
-    pub fn contains_js_func(&self) -> bool {
-        self.contains_js_func
     }
 }
 

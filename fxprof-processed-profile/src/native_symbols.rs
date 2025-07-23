@@ -1,6 +1,6 @@
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
-use crate::fast_hash_map::FastHashMap;
+use crate::fast_hash_map::{FastHashMap, FastHashSet};
 use crate::global_lib_table::GlobalLibIndex;
 use crate::library_info::Symbol;
 use crate::string_table::{ProfileStringTable, StringHandle};
@@ -49,9 +49,38 @@ pub struct NativeSymbols {
     lib_and_symbol_address_to_symbol_index: FastHashMap<(GlobalLibIndex, u32), usize>,
 }
 
+pub struct NativeSymbolIndexTranslator(Vec<u32>);
+
+impl NativeSymbolIndexTranslator {
+    pub fn map(&self, index: NativeSymbolIndex) -> NativeSymbolIndex {
+        NativeSymbolIndex(self.0[index.0 as usize])
+    }
+}
+
 impl NativeSymbols {
     pub fn new() -> Self {
         Default::default()
+    }
+
+    pub fn symbol_index_for_symbol(
+        &mut self,
+        lib_index: GlobalLibIndex,
+        symbol_address: u32,
+        symbol_size: Option<u32>,
+        symbol_name_string_index: StringHandle,
+    ) -> NativeSymbolIndex {
+        let symbol_index = *self
+            .lib_and_symbol_address_to_symbol_index
+            .entry((lib_index, symbol_address))
+            .or_insert_with(|| {
+                let native_symbol_index = self.addresses.len();
+                self.addresses.push(symbol_address);
+                self.function_sizes.push(symbol_size);
+                self.lib_indexes.push(lib_index);
+                self.names.push(symbol_name_string_index);
+                native_symbol_index
+            });
+        NativeSymbolIndex(symbol_index as u32)
     }
 
     pub fn symbol_index_and_string_index_for_symbol(
@@ -60,24 +89,43 @@ impl NativeSymbols {
         symbol: &Symbol,
         string_table: &mut ProfileStringTable,
     ) -> (NativeSymbolIndex, StringHandle) {
-        let addresses = &mut self.addresses;
-        let function_sizes = &mut self.function_sizes;
-        let lib_indexes = &mut self.lib_indexes;
-        let names = &mut self.names;
         let name_string_index = string_table.index_for_string(&symbol.name);
-        let symbol_index = *self
-            .lib_and_symbol_address_to_symbol_index
-            .entry((lib_index, symbol.address))
-            .or_insert_with(|| {
-                let native_symbol_index = addresses.len();
-                addresses.push(symbol.address);
-                function_sizes.push(symbol.size);
-                lib_indexes.push(lib_index);
-                names.push(name_string_index);
-                native_symbol_index
-            });
-        let name_string_index = names[symbol_index];
-        (NativeSymbolIndex(symbol_index as u32), name_string_index)
+        let symbol_index =
+            self.symbol_index_for_symbol(lib_index, symbol.address, symbol.size, name_string_index);
+        (symbol_index, name_string_index)
+    }
+
+    pub fn new_table_with_symbols_from_libs_removed(
+        mut self,
+        libs: &FastHashSet<GlobalLibIndex>,
+    ) -> (NativeSymbols, NativeSymbolIndexTranslator) {
+        let old_len = self.addresses.len();
+        let mut old_index_to_new_index = Vec::with_capacity(old_len);
+        let mut old_index = 0;
+        let mut new_index = 0;
+        while old_index < old_len {
+            let lib_index = self.lib_indexes[old_index];
+            if libs.contains(&lib_index) {
+                // Remove.
+                old_index_to_new_index.push(0);
+                old_index += 1;
+            } else {
+                // Retain.
+                old_index_to_new_index.push(new_index as u32);
+
+                let address = self.addresses[old_index];
+                self.addresses[new_index] = address;
+                self.function_sizes[new_index] = self.function_sizes[old_index];
+                self.lib_indexes[new_index] = lib_index;
+                self.names[new_index] = self.names[old_index];
+                self.lib_and_symbol_address_to_symbol_index
+                    .insert((lib_index, address), new_index);
+
+                old_index += 1;
+                new_index += 1;
+            }
+        }
+        (self, NativeSymbolIndexTranslator(old_index_to_new_index))
     }
 
     pub fn get_native_symbol_name(&self, native_symbol_index: NativeSymbolIndex) -> StringHandle {

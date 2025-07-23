@@ -4,6 +4,7 @@ use std::hash::Hash;
 use crate::frame_table::InternalFrameAddress;
 use crate::global_lib_table::{GlobalLibTable, LibraryHandle};
 use crate::lib_mappings::LibMappings;
+use crate::string_table::ProfileStringTable;
 use crate::Timestamp;
 
 /// A thread. Can be created with [`Profile::add_thread`](crate::Profile::add_thread).
@@ -15,6 +16,7 @@ pub struct Process {
     pid: String,
     name: String,
     threads: Vec<ThreadHandle>,
+    main_thread: Option<ThreadHandle>,
     start_time: Timestamp,
     end_time: Option<Timestamp>,
     libs: LibMappings<LibraryHandle>,
@@ -25,6 +27,7 @@ impl Process {
         Self {
             pid,
             threads: Vec::new(),
+            main_thread: None,
             libs: LibMappings::new(),
             start_time,
             end_time: None,
@@ -33,7 +36,7 @@ impl Process {
     }
 
     pub fn thread_handle_for_allocations(&self) -> Option<ThreadHandle> {
-        self.threads.first().cloned()
+        self.main_thread
     }
 
     pub fn set_start_time(&mut self, start_time: Timestamp) {
@@ -60,8 +63,11 @@ impl Process {
         &self.name
     }
 
-    pub fn add_thread(&mut self, thread: ThreadHandle) {
+    pub fn add_thread(&mut self, thread: ThreadHandle, is_main: bool) {
         self.threads.push(thread);
+        if is_main && self.main_thread.is_none() {
+            self.main_thread = Some(thread)
+        }
     }
 
     pub fn pid(&self) -> &str {
@@ -85,6 +91,7 @@ impl Process {
         &mut self,
         global_libs: &mut GlobalLibTable,
         kernel_libs: &mut LibMappings<LibraryHandle>,
+        string_table: &mut ProfileStringTable,
         address: u64,
     ) -> InternalFrameAddress {
         // Try to find the address in the kernel libs first, and then in the process libs.
@@ -93,7 +100,7 @@ impl Process {
             .or_else(|| self.libs.convert_address(address))
         {
             Some((relative_address, lib_handle)) => {
-                let global_lib_index = global_libs.index_for_used_lib(*lib_handle);
+                let global_lib_index = global_libs.index_for_used_lib(*lib_handle, string_table);
                 InternalFrameAddress::InLib(relative_address, global_lib_index)
             }
             None => InternalFrameAddress::Unknown(address),

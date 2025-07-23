@@ -4,18 +4,118 @@ use crate::category::{CategoryHandle, SubcategoryHandle, SubcategoryIndex};
 use crate::fast_hash_map::FastIndexSet;
 use crate::frame::FrameFlags;
 use crate::func_table::{FuncIndex, FuncKey, FuncTable};
-use crate::global_lib_table::{GlobalLibIndex, GlobalLibTable};
+use crate::global_lib_table::{GlobalLibIndex, UsedLibraryAddressesCollector};
 use crate::native_symbols::NativeSymbolIndex;
 use crate::resource_table::ResourceTable;
 use crate::serialization_helpers::SerializableSingleValueColumn;
-use crate::string_table::{ProfileStringTable, StringHandle};
+use crate::string_table::StringHandle;
 use crate::SourceLocation;
 
 #[derive(Debug, Clone, Default)]
-pub struct FrameTable {
-    func_table: FuncTable,
-    resource_table: ResourceTable,
+pub struct FrameInterner {
+    frame_key_set: FastIndexSet<InternalFrame>,
+    contains_js_frame: bool,
+}
 
+impl FrameInterner {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn index_for_frame(&mut self, frame: InternalFrame) -> usize {
+        let (frame_index, is_new) = self.frame_key_set.insert_full(frame);
+
+        if is_new
+            && frame
+                .flags
+                .intersects(FrameFlags::IS_JS | FrameFlags::IS_RELEVANT_FOR_JS)
+        {
+            self.contains_js_frame = true;
+        }
+        frame_index
+    }
+
+    pub fn gather_used_rvas(&self, collector: &mut UsedLibraryAddressesCollector) {
+        for frame in &self.frame_key_set {
+            if let InternalFrameVariant::Native(NativeFrameData {
+                lib,
+                relative_address,
+                ..
+            }) = frame.variant
+            {
+                collector.add_lib_used_rva(lib, relative_address);
+            }
+        }
+    }
+
+    pub fn into_frames(self) -> impl Iterator<Item = InternalFrame> {
+        self.frame_key_set.into_iter()
+    }
+
+    pub fn contains_js_frame(&self) -> bool {
+        self.contains_js_frame
+    }
+
+    pub fn create_tables(&self) -> (FrameTable, FuncTable, ResourceTable) {
+        let len = self.frame_key_set.len();
+        let mut func_col = Vec::with_capacity(len);
+        let mut category_col = Vec::with_capacity(len);
+        let mut subcategory_col = Vec::with_capacity(len);
+        let mut line_col = Vec::with_capacity(len);
+        let mut column_col = Vec::with_capacity(len);
+        let mut address_col = Vec::with_capacity(len);
+        let mut native_symbol_col = Vec::with_capacity(len);
+        let mut inline_depth_col = Vec::with_capacity(len);
+
+        let mut func_table = FuncTable::default();
+        let mut resource_table = ResourceTable::default();
+
+        for frame in &self.frame_key_set {
+            let func_key = frame.func_key();
+            let func = func_table.index_for_func(func_key, &mut resource_table);
+
+            func_col.push(func);
+            let SubcategoryHandle(category, subcategory) = frame.subcategory;
+            category_col.push(category);
+            subcategory_col.push(subcategory);
+            line_col.push(frame.source_location.line);
+            column_col.push(frame.source_location.col);
+
+            match frame.variant {
+                InternalFrameVariant::Label => {
+                    address_col.push(None);
+                    native_symbol_col.push(None);
+                    inline_depth_col.push(0);
+                }
+                InternalFrameVariant::Native(NativeFrameData {
+                    native_symbol,
+                    relative_address,
+                    inline_depth,
+                    ..
+                }) => {
+                    address_col.push(Some(relative_address));
+                    native_symbol_col.push(native_symbol);
+                    inline_depth_col.push(inline_depth);
+                }
+            }
+        }
+
+        let frame_table = FrameTable {
+            func_col,
+            category_col,
+            subcategory_col,
+            line_col,
+            column_col,
+            address_col,
+            native_symbol_col,
+            inline_depth_col,
+        };
+
+        (frame_table, func_table, resource_table)
+    }
+}
+
+pub struct FrameTable {
     func_col: Vec<FuncIndex>,
     category_col: Vec<CategoryHandle>,
     subcategory_col: Vec<SubcategoryIndex>,
@@ -24,99 +124,24 @@ pub struct FrameTable {
     address_col: Vec<Option<u32>>,
     native_symbol_col: Vec<Option<NativeSymbolIndex>>,
     inline_depth_col: Vec<u16>,
-
-    frame_key_set: FastIndexSet<InternalFrame>,
 }
 
-impl FrameTable {
-    pub fn new() -> Self {
-        Default::default()
-    }
-
-    pub fn index_for_frame(
-        &mut self,
-        frame: InternalFrame,
-        global_libs: &mut GlobalLibTable,
-        string_table: &mut ProfileStringTable,
-    ) -> usize {
-        let (frame_index, is_new) = self.frame_key_set.insert_full(frame);
-
-        if !is_new {
-            return frame_index;
-        }
-
-        let func_key = frame.func_key();
-        let func = self.func_table.index_for_func(
-            func_key,
-            &mut self.resource_table,
-            global_libs,
-            string_table,
-        );
-
-        self.func_col.push(func);
-        let SubcategoryHandle(category, subcategory) = frame.subcategory;
-        self.category_col.push(category);
-        self.subcategory_col.push(subcategory);
-        self.line_col.push(frame.source_location.line);
-        self.column_col.push(frame.source_location.col);
-
-        match frame.variant {
-            InternalFrameVariant::Label => {
-                self.address_col.push(None);
-                self.native_symbol_col.push(None);
-                self.inline_depth_col.push(0);
-            }
-            InternalFrameVariant::Native(NativeFrameData {
-                lib,
-                native_symbol,
-                relative_address,
-                inline_depth,
-            }) => {
-                global_libs.add_lib_used_rva(lib, relative_address);
-
-                self.address_col.push(Some(relative_address));
-                self.native_symbol_col.push(native_symbol);
-                self.inline_depth_col.push(inline_depth);
-            }
-        }
-
-        frame_index
-    }
-
-    pub fn contains_js_frame(&self) -> bool {
-        self.func_table.contains_js_func()
-    }
-
-    pub fn get_serializable_tables(
-        &self,
-    ) -> (SerializableFrameTable<'_>, &'_ FuncTable, &'_ ResourceTable) {
-        (
-            SerializableFrameTable(self),
-            &self.func_table,
-            &self.resource_table,
-        )
-    }
-}
-
-pub struct SerializableFrameTable<'a>(&'a FrameTable);
-
-impl Serialize for SerializableFrameTable<'_> {
+impl Serialize for FrameTable {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let SerializableFrameTable(table) = self;
-        let len = table.func_col.len();
+        let len = self.func_col.len();
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry("length", &len)?;
-        map.serialize_entry("func", &table.func_col)?;
-        map.serialize_entry("category", &table.category_col)?;
-        map.serialize_entry("subcategory", &table.subcategory_col)?;
-        map.serialize_entry("line", &table.line_col)?;
-        map.serialize_entry("column", &table.column_col)?;
+        map.serialize_entry("func", &self.func_col)?;
+        map.serialize_entry("category", &self.category_col)?;
+        map.serialize_entry("subcategory", &self.subcategory_col)?;
+        map.serialize_entry("line", &self.line_col)?;
+        map.serialize_entry("column", &self.column_col)?;
         map.serialize_entry(
             "address",
-            &SerializableFrameTableAddressColumn(&table.address_col),
+            &SerializableFrameTableAddressColumn(&self.address_col),
         )?;
-        map.serialize_entry("nativeSymbol", &table.native_symbol_col)?;
-        map.serialize_entry("inlineDepth", &table.inline_depth_col)?;
+        map.serialize_entry("nativeSymbol", &self.native_symbol_col)?;
+        map.serialize_entry("inlineDepth", &self.inline_depth_col)?;
         map.serialize_entry("innerWindowID", &SerializableSingleValueColumn(0, len))?;
         map.end()
     }

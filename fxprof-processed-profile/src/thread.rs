@@ -1,17 +1,21 @@
 use std::borrow::Cow;
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
 
 use serde::ser::{SerializeMap, Serializer};
 
 use crate::cpu_delta::CpuDelta;
-use crate::frame_table::{FrameTable, InternalFrame};
-use crate::global_lib_table::{GlobalLibIndex, GlobalLibTable};
+use crate::fast_hash_map::FastHashSet;
+use crate::frame_table::{FrameInterner, InternalFrame};
+use crate::global_lib_table::{GlobalLibIndex, UsedLibraryAddressesCollector};
 use crate::marker_table::MarkerTable;
 use crate::markers::InternalMarkerSchema;
 use crate::native_symbols::{NativeSymbolIndex, NativeSymbols};
+use crate::profile_symbol_info::LibSymbolInfo;
 use crate::sample_table::{NativeAllocationsTable, SampleTable, WeightType};
 use crate::stack_table::StackTable;
 use crate::string_table::{ProfileStringTable, StringHandle};
+use crate::symbolication::{apply_symbol_information, StringTableAdapter};
 use crate::{Marker, MarkerHandle, MarkerTiming, MarkerTypeHandle, Symbol, Timestamp};
 
 /// A process. Can be created with [`Profile::add_process`](crate::Profile::add_process).
@@ -27,7 +31,7 @@ pub struct Thread {
     end_time: Option<Timestamp>,
     is_main: bool,
     stack_table: StackTable,
-    frame_table: FrameTable,
+    frame_interner: FrameInterner,
     samples: SampleTable,
     native_allocations: Option<NativeAllocationsTable>,
     markers: MarkerTable,
@@ -47,7 +51,7 @@ impl Thread {
             end_time: None,
             is_main,
             stack_table: StackTable::new(),
-            frame_table: FrameTable::new(),
+            frame_interner: FrameInterner::new(),
             samples: SampleTable::new(),
             native_allocations: None,
             markers: MarkerTable::new(),
@@ -108,14 +112,8 @@ impl Thread {
             .get_native_symbol_name(native_symbol_index)
     }
 
-    pub fn frame_index_for_frame(
-        &mut self,
-        frame: InternalFrame,
-        global_libs: &mut GlobalLibTable,
-        string_table: &mut ProfileStringTable,
-    ) -> usize {
-        self.frame_table
-            .index_for_frame(frame, global_libs, string_table)
+    pub fn frame_index_for_frame(&mut self, frame: InternalFrame) -> usize {
+        self.frame_interner.index_for_frame(frame)
     }
 
     pub fn stack_index_for_stack(&mut self, prefix: Option<usize>, frame: usize) -> usize {
@@ -189,7 +187,11 @@ impl Thread {
     }
 
     pub fn contains_js_frame(&self) -> bool {
-        self.frame_table.contains_js_frame()
+        self.frame_interner.contains_js_frame()
+    }
+
+    pub fn gather_used_rvas(&self, collector: &mut UsedLibraryAddressesCollector) {
+        self.frame_interner.gather_used_rvas(collector);
     }
 
     pub fn cmp_for_json_order(&self, other: &Thread) -> Ordering {
@@ -207,6 +209,67 @@ impl Thread {
             return ordering;
         }
         self.tid.cmp(&other.tid)
+    }
+
+    pub fn make_symbolicated_thread(
+        self,
+        libs: &FastHashSet<GlobalLibIndex>,
+        lib_symbols: &BTreeMap<GlobalLibIndex, &LibSymbolInfo>,
+        strings: &mut StringTableAdapter,
+    ) -> Thread {
+        let Thread {
+            process,
+            tid,
+            name,
+            start_time,
+            end_time,
+            is_main,
+            stack_table,
+            frame_interner,
+            samples,
+            native_allocations,
+            markers,
+            native_symbols,
+            last_sample_stack,
+            last_sample_was_zero_cpu,
+            show_markers_in_timeline,
+        } = self;
+
+        let (frame_interner, native_symbols, stack_table, old_stack_to_new_stack) =
+            apply_symbol_information(
+                frame_interner,
+                native_symbols,
+                stack_table,
+                libs,
+                lib_symbols,
+                strings,
+            );
+
+        let samples = samples.with_remapped_stacks(&old_stack_to_new_stack);
+        let native_allocations = native_allocations.map(|native_allocations| {
+            native_allocations.with_remapped_stacks(&old_stack_to_new_stack)
+        });
+        let markers = markers.with_remapped_stacks(&old_stack_to_new_stack);
+        let last_sample_stack = last_sample_stack
+            .and_then(|last_sample_stack| old_stack_to_new_stack[last_sample_stack]);
+
+        Thread {
+            process,
+            tid,
+            name,
+            start_time,
+            end_time,
+            is_main,
+            stack_table,
+            frame_interner,
+            samples,
+            native_allocations,
+            markers,
+            native_symbols,
+            last_sample_stack,
+            last_sample_was_zero_cpu,
+            show_markers_in_timeline,
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -229,7 +292,7 @@ impl Thread {
         let thread_register_time = self.start_time;
         let thread_unregister_time = self.end_time;
 
-        let (frame_table, func_table, resource_table) = self.frame_table.get_serializable_tables();
+        let (frame_table, func_table, resource_table) = self.frame_interner.create_tables();
 
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry("frameTable", &frame_table)?;
