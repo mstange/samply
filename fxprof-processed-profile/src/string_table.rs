@@ -35,6 +35,7 @@ impl Serialize for StringTable {
     }
 }
 
+/// The handle for a string. Created with [`Profile::handle_for_string`](crate::Profile::handle_for_string).
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct StringHandle(pub(crate) StringIndex);
 
