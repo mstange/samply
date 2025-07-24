@@ -10,7 +10,7 @@ use linux_perf_data::{linux_perf_event_reader, DsoInfo, DsoKey, PerfFileReader, 
 use linux_perf_event_reader::EventRecord;
 
 use crate::linux_shared::{
-    ConvertRegs, ConvertRegsAarch64, ConvertRegsX86_64, Converter, EventInterpretation, KnownEvent,
+    ConvertRegs, ConvertRegsAarch64, ConvertRegsX86_64, ConvertRegsArmhf, Converter, EventInterpretation, KnownEvent,
     MmapRangeOrVec,
 };
 use crate::shared::prop_types::ProfileCreationProps;
@@ -39,6 +39,17 @@ pub fn convert<C: Read + Seek>(
         Some("aarch64") => {
             let cache = framehop::aarch64::CacheAarch64::new();
             convert_impl::<framehop::aarch64::UnwinderAarch64<MmapRangeOrVec>, ConvertRegsAarch64, _>(
+                perf_file,
+                file_mod_time,
+                binary_lookup_dirs,
+                aux_file_lookup_dirs,
+                cache,
+                profile_creation_props,
+            )
+        }
+        Some("arm") => {
+            let cache = framehop::armhf::CacheArmhf::new();
+            convert_impl::<framehop::armhf::UnwinderArmhf<MmapRangeOrVec>, ConvertRegsArmhf, _>(
                 perf_file,
                 file_mod_time,
                 binary_lookup_dirs,

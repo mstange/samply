@@ -33,6 +33,9 @@ pub type ConvertRegsNative = crate::linux_shared::ConvertRegsX86_64;
 #[cfg(target_arch = "aarch64")]
 pub type ConvertRegsNative = crate::linux_shared::ConvertRegsAarch64;
 
+#[cfg(target_arch = "arm")]
+pub type ConvertRegsNative = crate::linux_shared::ConvertRegsArmhf;
+
 pub fn run(
     recording_mode: RecordingMode,
     recording_props: RecordingProps,
