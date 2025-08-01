@@ -1,5 +1,5 @@
 use fxprof_processed_profile::{
-    Category, CategoryColor, MarkerFieldFlags, MarkerFieldFormat, Profile, StaticSchemaMarker,
+    Category, CategoryColor, MarkerFieldFormat, Profile, StaticSchemaMarker,
     StaticSchemaMarkerField, StringHandle,
 };
 
@@ -21,7 +21,6 @@ impl StaticSchemaMarker for JitFunctionAddMarker {
         key: "n",
         label: "Function",
         format: MarkerFieldFormat::String,
-        flags: MarkerFieldFlags::SEARCHABLE,
     }];
 
     fn name(&self, profile: &mut Profile) -> StringHandle {

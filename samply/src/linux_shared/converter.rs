@@ -8,7 +8,7 @@ use debugid::DebugId;
 use framehop::{ExplicitModuleSectionInfo, FrameAddress, Module, Unwinder};
 use fxprof_processed_profile::{
     Category, CategoryColor, CategoryHandle, CpuDelta, FrameFlags, LibraryHandle, LibraryInfo,
-    MarkerFieldFlags, MarkerFieldFormat, MarkerTiming, PlatformSpecificReferenceTimestamp, Profile,
+    MarkerFieldFormat, MarkerTiming, PlatformSpecificReferenceTimestamp, Profile,
     ReferenceTimestamp, SamplingInterval, StaticSchemaMarker, StaticSchemaMarkerField,
     StringHandle, SubcategoryHandle, SymbolTable, ThreadHandle,
 };
@@ -1969,7 +1969,6 @@ impl StaticSchemaMarker for MmapMarker {
         key: "name",
         label: "Details",
         format: MarkerFieldFormat::String,
-        flags: MarkerFieldFlags::SEARCHABLE,
     }];
 
     fn name(&self, profile: &mut Profile) -> StringHandle {

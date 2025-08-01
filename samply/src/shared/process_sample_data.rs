@@ -1,5 +1,5 @@
 use fxprof_processed_profile::{
-    LibMappings, MarkerFieldFlags, MarkerFieldFormat, MarkerTiming, Profile, StaticSchemaMarker,
+    LibMappings, MarkerFieldFormat, MarkerTiming, Profile, StaticSchemaMarker,
     StaticSchemaMarkerField, StringHandle, SubcategoryHandle, ThreadHandle, Timestamp,
 };
 
@@ -159,13 +159,11 @@ impl StaticSchemaMarker for RssStatMarker {
             key: "totalBytes",
             label: "Total bytes",
             format: MarkerFieldFormat::Bytes,
-            flags: MarkerFieldFlags::SEARCHABLE,
         },
         StaticSchemaMarkerField {
             key: "deltaBytes",
             label: "Delta",
             format: MarkerFieldFormat::Bytes,
-            flags: MarkerFieldFlags::SEARCHABLE,
         },
     ];
 
@@ -236,7 +234,6 @@ impl StaticSchemaMarker for UserTimingMarker {
         key: "name",
         label: "Name",
         format: MarkerFieldFormat::String,
-        flags: MarkerFieldFlags::SEARCHABLE,
     }];
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
@@ -298,7 +295,6 @@ impl StaticSchemaMarker for SchedSwitchMarkerOnThreadTrack {
         key: "cpu",
         label: "cpu",
         format: MarkerFieldFormat::Integer,
-        flags: MarkerFieldFlags::SEARCHABLE,
     }];
 
     fn name(&self, profile: &mut Profile) -> StringHandle {
@@ -335,7 +331,6 @@ impl StaticSchemaMarker for SimpleMarker {
         key: "name",
         label: "Name",
         format: MarkerFieldFormat::String,
-        flags: MarkerFieldFlags::SEARCHABLE,
     }];
 
     fn name(&self, profile: &mut Profile) -> StringHandle {

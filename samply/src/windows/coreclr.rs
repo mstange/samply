@@ -232,13 +232,11 @@ impl StaticSchemaMarker for CoreClrGcAllocMarker {
             key: "clrtype",
             label: "CLR Type",
             format: MarkerFieldFormat::String,
-            flags: MarkerFieldFlags::SEARCHABLE,
         },
         StaticSchemaMarkerField {
             key: "size",
             label: "Size",
             format: MarkerFieldFormat::Bytes,
-            flags: MarkerFieldFlags::empty(),
         },
     ];
 
@@ -280,7 +278,6 @@ impl StaticSchemaMarker for CoreClrGcEventMarker {
         key: "event",
         label: "Event",
         format: MarkerFieldFormat::String,
-        flags: MarkerFieldFlags::SEARCHABLE,
     }];
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
@@ -750,7 +747,6 @@ impl StaticSchemaMarker for OtherClrMarker {
         key: "name",
         label: "Name",
         format: MarkerFieldFormat::String,
-        flags: MarkerFieldFlags::SEARCHABLE,
     }];
 
     fn name(&self, _profile: &mut Profile) -> StringHandle {
